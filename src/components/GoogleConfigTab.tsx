@@ -26,6 +26,7 @@ import {
 import { GoogleAuthStatus, FloorPlan } from '../types';
 import { ConflictMergeModal } from './ConflictMergeModal';
 import { getFirebaseAuthStatus, signInWithGoogleAccount, signOutFirebaseAccount } from '../lib/firebase';
+import { saveTextFile } from '../utils/fileExport';
 
 interface GoogleConfigTabProps {
   projectName: string;
@@ -274,15 +275,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   const handleExportJson = () => {
     if (!fullAppData) return;
     const jsonString = JSON.stringify(fullAppData, null, 2);
-    const blob = new Blob([jsonString], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute('href', url);
-    downloadAnchor.setAttribute('download', `[Backup_CongTrinh]_${projectName}_${Date.now()}.json`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-    URL.revokeObjectURL(url);
+    saveTextFile(jsonString, `[Backup_CongTrinh]_${projectName}_${Date.now()}.json`);
   };
 
   // Copy JSON backup directly to clipboard (for APKs/WebViews where file download is disabled)
@@ -327,15 +320,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
         }
       }
       const jsonString = JSON.stringify(allData, null, 2);
-      const blob = new Blob([jsonString], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `Toan_Bo_Du_An_${Date.now()}.json`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      saveTextFile(jsonString, `Toan_Bo_Du_An_${Date.now()}.json`);
     } catch (e) {
       alert('Lỗi xuất file toàn bộ: ' + e);
     }

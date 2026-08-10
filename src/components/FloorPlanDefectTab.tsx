@@ -56,6 +56,7 @@ import { ImageViewerModal } from './ImageViewerModal';
 import { ImageEditorModal } from './ImageEditorModal';
 import { RoomHighlightModal } from './RoomHighlightModal';
 import { convertPdfToImage } from '../utils/pdfToImage';
+import { saveWorkbookFile } from '../utils/fileExport';
 import * as pdfjsLib from 'pdfjs-dist';
 
 try {
@@ -675,7 +676,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
     const ws = XLSX.utils.json_to_sheet(data);
     XLSX.utils.book_append_sheet(wb, ws, activeFloor ? activeFloor.floorName : 'DanhSachPhong');
-    XLSX.writeFile(wb, `Danh_Sach_Phong_${activeFloor ? activeFloor.floorName.replace(/\s+/g, '_') : 'MatBang'}.xlsx`);
+    saveWorkbookFile(wb, `Danh_Sach_Phong_${activeFloor ? activeFloor.floorName.replace(/\s+/g, '_') : 'MatBang'}.xlsx`);
   };
 
 

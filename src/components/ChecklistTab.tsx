@@ -17,6 +17,7 @@ import {
   Upload
 } from 'lucide-react';
 import { ChecklistItem, ChecklistStatus } from '../types';
+import { saveWorkbookFile } from '../utils/fileExport';
 
 interface ChecklistTabProps {
   checklist: ChecklistItem[];
@@ -171,7 +172,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
     ws['!cols'] = Object.keys(maxLens).map((key) => ({ wch: maxLens[key] }));
 
     XLSX.utils.book_append_sheet(wb, ws, 'Checklist');
-    XLSX.writeFile(wb, `Mau_Checklist_Nghiem_Thu.xlsx`);
+    saveWorkbookFile(wb, `Mau_Checklist_Nghiem_Thu.xlsx`);
   };
 
   const handleImportExcelChecklist = (e: React.ChangeEvent<HTMLInputElement>) => {

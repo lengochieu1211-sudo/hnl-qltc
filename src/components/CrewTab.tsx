@@ -30,6 +30,7 @@ import {
 import { CrewRecord, FloorPlan, TeamInfo, RoomProgressItem, DefectItem } from '../types';
 import { formatDateDDMMYYYY } from '../utils/dateFormatter';
 import { exportTeamStatisticsToExcel } from '../utils/excelExport';
+import { saveWorkbookFile } from '../utils/fileExport';
 
 
 interface CrewTabProps {
@@ -505,7 +506,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     ws['!cols'] = Object.keys(maxLens).map((key) => ({ wch: maxLens[key] }));
 
     XLSX.utils.book_append_sheet(wb, ws, 'Danh Sach Doi Thi Cong');
-    XLSX.writeFile(wb, 'Mau_Danh_Sach_Doi_Thi_Cong.xlsx');
+    saveWorkbookFile(wb, 'Mau_Danh_Sach_Doi_Thi_Cong.xlsx');
   };
 
   const handleExportTeamStats = (teamName?: string) => {

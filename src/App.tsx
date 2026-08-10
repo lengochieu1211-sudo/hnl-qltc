@@ -45,6 +45,7 @@ import {
   exportCrewToExcel
 } from './utils/excelExport';
 import { getFileHandle, saveFileHandle, removeFileHandle } from './utils/localSyncDb';
+import { isAndroidExportBridgeAvailable, saveTextFile } from './utils/fileExport';
 
 interface AppData {
   materialNorms: MaterialNorm[];
@@ -658,6 +659,20 @@ export default function App() {
         return;
       }
       if (!('showSaveFilePicker' in window)) {
+        if (isAndroidExportBridgeAvailable()) {
+          const allData: Record<string, string> = {};
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
+              allData[key] = localStorage.getItem(key) || '';
+            }
+          }
+          const fileName = `[Toan_Bo_Du_An]_Backup_${Date.now()}.json`;
+          saveTextFile(JSON.stringify(allData, null, 2), fileName);
+          setLocalAllSyncStatus('synced');
+          alert('APK da luu ban JSON vao thu muc Download/QLCT. Android WebView khong ho tro lien ket ghi de mot file cuc bo; dong bo tu dong tren dien thoai se dung Cloud Firebase.');
+          return;
+        }
         alert('Trình duyệt không hỗ trợ. Hãy dùng Chrome mới nhất.');
         return;
       }
@@ -960,6 +975,28 @@ export default function App() {
       }
 
       if (!('showSaveFilePicker' in window)) {
+        if (isAndroidExportBridgeAvailable()) {
+          const fileName = `[Auto_Sync_Backup]_${projectName.replace(/[^a-zA-Z0-9_-]/g, '_')}_${Date.now()}.json`;
+          const jsonString = JSON.stringify({
+            projectName,
+            contractorName,
+            inspectorName,
+            materialNorms,
+            inventory,
+            workVolumes,
+            floorPlans,
+            defects,
+            roomProgressList,
+            checklist,
+            crewRecords,
+            teams,
+            updatedAt: lastUpdatedAt,
+          }, null, 2);
+          saveTextFile(jsonString, fileName);
+          setLocalSyncStatus('synced');
+          alert('APK da luu ban JSON hien tai vao thu muc Download/QLCT. Android WebView khong ho tro lien ket ghi de mot file cuc bo; dong bo tu dong tren dien thoai se dung Cloud Firebase.');
+          return;
+        }
         alert('Trình duyệt của bạn không hỗ trợ ghi tệp trực tiếp. Vui lòng sử dụng Chrome, Edge hoặc Safari mới nhất.');
         return;
       }

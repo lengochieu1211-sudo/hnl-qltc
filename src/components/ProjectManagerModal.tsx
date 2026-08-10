@@ -18,6 +18,7 @@ import {
   CloudBackupRecord 
 } from '../lib/firebase';
 import { ConflictMergeModal } from './ConflictMergeModal';
+import { saveTextFile } from '../utils/fileExport';
 
 interface ProjectManagerModalProps {
   isOpen: boolean;
@@ -196,10 +197,6 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     try {
       const data = getStorageDataForScope(saveScope);
       const jsonString = JSON.stringify(data, null, 2);
-      const blob = new Blob([jsonString], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
 
       let filename = `Toan_Bo_Du_An_${Date.now()}.json`;
       if (saveScope === 'active') {
@@ -209,11 +206,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         filename = `Bao_Cao_${selectedProjectIds.length}_Du_An_${Date.now()}.json`;
       }
 
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      saveTextFile(jsonString, filename);
     } catch (e) {
       alert('Lỗi xuất tệp JSON: ' + (e instanceof Error ? e.message : String(e)));
     }

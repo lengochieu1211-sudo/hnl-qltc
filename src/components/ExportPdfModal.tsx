@@ -4,6 +4,7 @@ import { InventoryItem, WorkVolume, DefectItem, ChecklistItem, FloorPlan, RoomPr
 import { exportAllToExcel, exportAllToExcelBase64 } from '../utils/excelExport';
 import { formatDateDDMMYYYY } from '../utils/dateFormatter';
 import { getRoomColorStyle } from '../utils/colorPalette';
+import { saveHtmlPdf, saveTextFile } from '../utils/fileExport';
 
 interface ExportPdfModalProps {
   isOpen: boolean;
@@ -661,17 +662,9 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   const handleDownloadHtmlReport = () => {
     try {
       const htmlContent = getReportHtml();
-      const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
       const safeProjectName = projectName.replace(/[^a-zA-Z0-9_-]/g, '_') || 'Project';
       const dateStr = new Date().toISOString().slice(0, 10);
-      link.href = url;
-      link.download = `Bao_Cao_${safeProjectName}_${dateStr}.html`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      saveTextFile(htmlContent, `Bao_Cao_${safeProjectName}_${dateStr}.html`, 'text/html;charset=utf-8');
     } catch (err) {
       console.error('Download HTML report error:', err);
       alert('Không thể tải file báo cáo HTML.');
@@ -681,6 +674,12 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   // High-fidelity HTML Print / Save as PDF with FULL Unicode Vietnamese support (Có dấu 100%)
   const handlePrintHTML = () => {
     const htmlContent = getReportHtml();
+    const safeProjectName = projectName.replace(/[^a-zA-Z0-9_-]/g, '_') || 'Project';
+    const dateStr = new Date().toISOString().slice(0, 10);
+    if (saveHtmlPdf(htmlContent, `Bao_Cao_${safeProjectName}_${dateStr}.pdf`)) {
+      return;
+    }
+
     const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
     const blobUrl = URL.createObjectURL(blob);
 
