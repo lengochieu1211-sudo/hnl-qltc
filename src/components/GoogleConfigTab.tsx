@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { GoogleAuthStatus, FloorPlan } from '../types';
 import { ConflictMergeModal } from './ConflictMergeModal';
+import { getFirebaseAuthStatus, signInWithGoogleAccount, signOutFirebaseAccount } from '../lib/firebase';
 
 interface GoogleConfigTabProps {
   projectName: string;
@@ -185,6 +186,12 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
 
   const checkAuth = async () => {
     try {
+      const firebaseStatus = await getFirebaseAuthStatus();
+      if (firebaseStatus.authenticated) {
+        setAuthStatus(firebaseStatus);
+        return;
+      }
+
       const res = await fetch('/api/auth/status');
       if (!res.ok) {
         setAuthStatus({ authenticated: false });
@@ -210,6 +217,19 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
 
   const handleConnect = async () => {
     try {
+      try {
+        const status = await signInWithGoogleAccount();
+        setAuthStatus(status);
+        return;
+      } catch (firebaseErr: any) {
+        const code = String(firebaseErr?.code || '');
+        if (code.includes('operation-not-allowed')) {
+          alert('Firebase Google Auth chua duoc bat. Trong Firebase Console vao Authentication > Methode de connexion > Google > Activer.');
+          return;
+        }
+        console.warn('Firebase Google login fallback:', firebaseErr);
+      }
+
       const res = await fetch('/api/auth/url');
       const text = await res.text();
       let data: any = {};
@@ -225,6 +245,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   };
 
   const handleLogout = async () => {
+    await signOutFirebaseAccount();
     await fetch('/api/auth/logout', { method: 'POST' });
     setAuthStatus({ authenticated: false });
   };

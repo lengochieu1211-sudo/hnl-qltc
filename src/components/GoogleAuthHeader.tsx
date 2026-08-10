@@ -13,6 +13,7 @@ import {
 import { UndoRedoControls } from './UndoRedoControls';
 import { GoogleAuthStatus } from '../types';
 import { GoogleAuthModal } from './GoogleAuthModal';
+import { getFirebaseAuthStatus, subscribeToFirebaseAuthStatus } from '../lib/firebase';
 
 interface GoogleAuthHeaderProps {
   projectName: string;
@@ -65,6 +66,12 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
   const checkAuthStatus = async () => {
     try {
       setLoadingAuth(true);
+      const firebaseStatus = await getFirebaseAuthStatus();
+      if (firebaseStatus.authenticated) {
+        setAuthStatus(firebaseStatus);
+        return;
+      }
+
       const res = await fetch('/api/auth/status');
       if (!res.ok) {
         setAuthStatus({ authenticated: false });
@@ -88,6 +95,11 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
 
   useEffect(() => {
     checkAuthStatus();
+    const unsubscribeFirebaseAuth = subscribeToFirebaseAuthStatus((status) => {
+      if (status.authenticated) {
+        setAuthStatus(status);
+      }
+    });
 
     // Listen to OAuth popup message
     const handleMessage = (event: MessageEvent) => {
@@ -96,7 +108,10 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
       }
     };
     window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
+    return () => {
+      unsubscribeFirebaseAuth();
+      window.removeEventListener('message', handleMessage);
+    };
   }, []);
 
   const handleConnectGoogle = async () => {
@@ -283,4 +298,3 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
     </>
   );
 };
-

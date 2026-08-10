@@ -1,6 +1,6 @@
 # QLCT - Quan Ly Thi Cong
 
-React/Vite web app with an Express server for Google OAuth, Google Drive, and Google Sheets integration. Firebase Auth + Firestore are used for cloud sync when the Firebase build-time environment variables are configured.
+React/Vite web app with Firebase Auth + Firestore cloud sync. The free deployment path uses Firebase Hosting static output from `dist`; the optional Express server is kept for future Google Drive/Sheets integration on App Hosting or another server.
 
 ## Local development
 
@@ -32,7 +32,7 @@ Future AI Studio ZIP merge notes are in `docs/merge-ai-studio-zip.md`.
 The APK wrapper loads the deployed web app when `QLCT_WEB_URL` or `android-wrapper/web-url.txt` is set. If no URL is set, it uses bundled fallback assets.
 
 ```powershell
-$env:QLCT_WEB_URL="https://YOUR_APP_HOSTING_URL"
+$env:QLCT_WEB_URL="https://YOUR_FIREBASE_HOSTING_URL"
 powershell.exe -ExecutionPolicy Bypass -File .\android-wrapper\build-apk.ps1
 ```
 

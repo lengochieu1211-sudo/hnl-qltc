@@ -1,69 +1,65 @@
 # Deploy QLCT
 
-## Hosting target
+## Free Firebase Hosting path
 
-Use Firebase App Hosting, not GitHub Pages, because this app needs the Node server in `server.ts` for `/api/auth/*`, Google Drive, and Google Sheets routes.
+Use this path when the Firebase project is on the free Spark plan and has no payment card.
 
-Firebase App Hosting connects directly to a GitHub repo and can automatically roll out every push to the live branch.
+This deploys the Vite web app as static files from `dist`. Firebase Auth and Cloud Firestore still work for login and cloud sync. Google Sheets/Drive routes in `server.ts` need a real server, so they are disabled on this static-only path.
 
 ## Required Firebase setup
 
-1. Create or select a Firebase project.
-2. Enable Blaze billing if Firebase asks for it for App Hosting.
-3. Create a Firebase Web App.
-4. Enable Authentication > Anonymous sign-in.
-5. Enable Cloud Firestore.
-6. Deploy or paste `firestore.rules`.
-7. Go to Hosting & Serverless > App Hosting.
-8. Create a backend, connect the GitHub repo, choose branch `main`, app root `/`, and keep automatic rollouts enabled.
+1. Create or select the Firebase project.
+2. Authentication > Sign-in method:
+   - Enable Anonymous.
+   - Enable Google if the app should show the user's Google account.
+3. Create Cloud Firestore in production mode.
+4. Publish `firestore.rules`.
+5. Hosting > Get started.
+6. Connect the GitHub repo `qlct-an-phu`.
+7. Choose branch `main`.
+8. Build command: `npm ci && npm run build`.
+9. Public/output directory: `dist`.
+10. Keep automatic deploys enabled.
 
-## App Hosting environment variables
+`firebase.json` already contains the Hosting rewrite that sends every route back to `index.html`.
 
-Set these in Firebase App Hosting > Backend > Settings > Environment, or store them as Cloud Secret Manager secrets referenced by `apphosting.yaml`.
+## Firebase config without GitHub secrets
 
-Build-time Firebase values:
+On Firebase Hosting, the app loads config at runtime from:
 
-- `VITE_FIREBASE_API_KEY`
-- `VITE_FIREBASE_AUTH_DOMAIN`
-- `VITE_FIREBASE_PROJECT_ID`
-- `VITE_FIREBASE_STORAGE_BUCKET`
-- `VITE_FIREBASE_MESSAGING_SENDER_ID`
-- `VITE_FIREBASE_APP_ID`
-- `VITE_FIREBASE_MEASUREMENT_ID`
-- `VITE_FIRESTORE_DATABASE_ID`
+```text
+/__/firebase/init.json
+```
 
-Runtime Google OAuth values:
+That means Firebase web config does not need to be committed to GitHub or placed in GitHub Secrets for the static Hosting path.
+
+For local development or a different host, use `.env.local` based on `.env.example`.
+
+## Optional App Hosting/server path
+
+Use this later only if the project is upgraded to Blaze or another server host is available.
+
+The Node server in `server.ts` provides:
+
+- `/api/auth/*` Google OAuth session routes.
+- Google Drive backup routes.
+- Google Sheets sync routes.
+
+Required server environment variables:
 
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
-- `APP_URL` only if OAuth redirect inference does not match the deployed domain.
+- `APP_URL`
+- `GEMINI_API_KEY` if Gemini server features are used.
 
-Do not commit real values to GitHub. Keep local values in `.env.local`.
-
-## Google OAuth
-
-Create an OAuth 2.0 Client ID of type Web application in Google Cloud Console.
-
-Authorized JavaScript origins:
-
-- `https://YOUR_APP_HOSTING_URL`
-- Any custom domain you add later.
-
-Authorized redirect URIs:
-
-- `https://YOUR_APP_HOSTING_URL/api/auth/callback`
-- `https://YOUR_CUSTOM_DOMAIN/api/auth/callback` if using a custom domain.
-
-The backend already passes state through OAuth so the Android WebView can open Google login externally and still update the web session.
-
-`apphosting.yaml` currently sets `maxInstances: 1` because OAuth tokens are held in server memory. If the backend is later scaled to multiple instances, move OAuth token storage to Firestore, Redis, or encrypted cookies first.
+Do not commit real values to GitHub. Keep local values in `.env.local` or provider secrets.
 
 ## APK web URL
 
-After Firebase App Hosting gives the production URL, rebuild the APK with one of these:
+After Firebase Hosting gives the production URL, rebuild the APK with one of these:
 
 ```powershell
-$env:QLCT_WEB_URL="https://YOUR_APP_HOSTING_URL"
+$env:QLCT_WEB_URL="https://YOUR_FIREBASE_HOSTING_URL"
 powershell.exe -ExecutionPolicy Bypass -File .\android-wrapper\build-apk.ps1
 ```
 

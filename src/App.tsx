@@ -1111,7 +1111,12 @@ export default function App() {
       try {
         data = JSON.parse(text);
       } catch {
-        data = { error: text || 'Phản hồi không hợp lệ' };
+        const htmlFallback = text.trim().startsWith('<!doctype') || text.trim().startsWith('<html');
+        data = {
+          error: htmlFallback
+            ? 'Ban web mien phi dang dong bo Firebase/Firestore. Dong bo Google Sheets/Drive can App Hosting hoac server rieng.'
+            : text || 'Phan hoi khong hop le',
+        };
       }
 
       if (!res.ok) {

@@ -12,6 +12,7 @@ import {
   Info
 } from 'lucide-react';
 import { GoogleAuthStatus } from '../types';
+import { getFirebaseAuthStatus, signInWithGoogleAccount, signOutFirebaseAccount } from '../lib/firebase';
 
 interface GoogleAuthModalProps {
   isOpen: boolean;
@@ -65,6 +66,26 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
     try {
       setLoading(true);
       setErrorMsg(null);
+
+      try {
+        const status = await signInWithGoogleAccount();
+        if (status.authenticated) {
+          onRefreshAuth();
+          onClose();
+          return;
+        }
+      } catch (firebaseErr: any) {
+        const code = String(firebaseErr?.code || '');
+        if (code.includes('operation-not-allowed')) {
+          setErrorMsg('Firebase Google Auth chua duoc bat. Trong Firebase Console vao Authentication > Methode de connexion > Google > Activer.');
+          return;
+        }
+        if (code.includes('popup-blocked') || code.includes('popup-closed-by-user')) {
+          setErrorMsg('Trinh duyet da chan cua so dang nhap Google. Hay cho phep popup roi thu lai.');
+          return;
+        }
+        console.warn('Firebase Google login fallback:', firebaseErr);
+      }
       
       let urlToOpen = authUrl;
       if (!urlToOpen) {
@@ -101,7 +122,13 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
   const handleLogout = async () => {
     try {
       setLoading(true);
+      await signOutFirebaseAccount();
       await fetch('/api/auth/logout', { method: 'POST' });
+      const status = await getFirebaseAuthStatus();
+      if (status.authenticated) {
+        onRefreshAuth();
+        return;
+      }
       onRefreshAuth();
     } catch (err) {
       console.error(err);
