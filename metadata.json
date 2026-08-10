@@ -1,0 +1,6 @@
+{
+  "name": "Quản Lý Thi Công Công Trình",
+  "description": "Ứng dụng di động quản lý nhập xuất kho, khối lượng công việc, mặt bằng thi công từng tầng, checklist thi công khung & tấm trần và định vị defect trên mặt bằng kết nối Google Drive & Google Sheets.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,14 @@
+runConfig:
+  minInstances: 0
+  maxInstances: 1
+  concurrency: 80
+  cpu: 1
+  memoryMiB: 512
+
+scripts:
+  buildCommand: npm run build
+  runCommand: npm run start
+
+# Add the real values in Firebase App Hosting > Backend > Settings > Environment,
+# or create Cloud Secret Manager secrets and reference them here.
+# Do not commit real keys or OAuth secrets.

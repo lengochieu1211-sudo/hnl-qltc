@@ -1,0 +1,68 @@
+{
+  "entities": {
+    "ProjectData": {
+      "title": "Project Data",
+      "description": "Stores project details and synchronization state for multi-user multi-device collaboration.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "syncCode": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        },
+        "updatedBy": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "data"
+      ]
+    },
+    "CloudBackup": {
+      "title": "Cloud Backup",
+      "description": "Stores complete system backups across all projects.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "backupName": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "projects": {
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "backupName",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/projects/{projectId}": {
+      "schema": "ProjectData",
+      "description": "Synced construction projects"
+    },
+    "/cloud_backups/{backupId}": {
+      "schema": "CloudBackup",
+      "description": "Cloud backup snapshots"
+    }
+  }
+}
