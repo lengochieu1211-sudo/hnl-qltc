@@ -11,6 +11,7 @@ verification-*.png
 .env*
 !.env.example
 firebase-applet-config.json
+.firebase/
 android-wrapper/build/
 android-wrapper/assets/www/
 android-wrapper/*.keystore

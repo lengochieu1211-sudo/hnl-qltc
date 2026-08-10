@@ -32,7 +32,7 @@ Future AI Studio ZIP merge notes are in `docs/merge-ai-studio-zip.md`.
 The APK wrapper loads the deployed web app when `QLCT_WEB_URL` or `android-wrapper/web-url.txt` is set. If no URL is set, it uses bundled fallback assets.
 
 ```powershell
-$env:QLCT_WEB_URL="https://YOUR_FIREBASE_HOSTING_URL"
+$env:QLCT_WEB_URL="https://com-example-qlct-61329.web.app"
 powershell.exe -ExecutionPolicy Bypass -File .\android-wrapper\build-apk.ps1
 ```
 

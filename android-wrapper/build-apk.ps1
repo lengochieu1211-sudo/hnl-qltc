@@ -62,7 +62,8 @@ if ($webUrl) {
     $escapedWebUrl = [System.Security.SecurityElement]::Escape($webUrl)
     $strings = Get-Content -Raw -LiteralPath $stringsXml
     $strings = $strings -replace '<string name="web_url">.*?</string>', "<string name=`"web_url`">$escapedWebUrl</string>"
-    Set-Content -LiteralPath $stringsXml -Value $strings -Encoding UTF8
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($stringsXml, $strings, $utf8NoBom)
     Write-Output "Android wrapper web URL: $webUrl"
 } else {
     Write-Output "Android wrapper web URL not configured; APK will use bundled fallback assets."

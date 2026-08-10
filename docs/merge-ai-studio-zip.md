@@ -41,7 +41,7 @@ npm run build
 6. Rebuild APK after the production URL is known:
 
 ```powershell
-$env:QLCT_WEB_URL="https://YOUR_FIREBASE_HOSTING_URL"
+$env:QLCT_WEB_URL="https://com-example-qlct-61329.web.app"
 powershell.exe -ExecutionPolicy Bypass -File .\android-wrapper\build-apk.ps1
 ```
 

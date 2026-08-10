@@ -56,10 +56,16 @@ Do not commit real values to GitHub. Keep local values in `.env.local` or provid
 
 ## APK web URL
 
-After Firebase Hosting gives the production URL, rebuild the APK with one of these:
+The current production URL is:
+
+```text
+https://com-example-qlct-61329.web.app
+```
+
+Rebuild the APK with one of these:
 
 ```powershell
-$env:QLCT_WEB_URL="https://YOUR_FIREBASE_HOSTING_URL"
+$env:QLCT_WEB_URL="https://com-example-qlct-61329.web.app"
 powershell.exe -ExecutionPolicy Bypass -File .\android-wrapper\build-apk.ps1
 ```
 
