@@ -3,9 +3,37 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig} from 'vite';
 
+const firebaseWebConfig = (() => {
+  try {
+    return process.env.FIREBASE_WEBAPP_CONFIG
+      ? JSON.parse(process.env.FIREBASE_WEBAPP_CONFIG)
+      : {};
+  } catch {
+    return {};
+  }
+})();
+
+const firebaseEnvFallbacks: Record<string, string | undefined> = {
+  'import.meta.env.VITE_FIREBASE_API_KEY': process.env.VITE_FIREBASE_API_KEY || firebaseWebConfig.apiKey,
+  'import.meta.env.VITE_FIREBASE_AUTH_DOMAIN': process.env.VITE_FIREBASE_AUTH_DOMAIN || firebaseWebConfig.authDomain,
+  'import.meta.env.VITE_FIREBASE_PROJECT_ID': process.env.VITE_FIREBASE_PROJECT_ID || firebaseWebConfig.projectId,
+  'import.meta.env.VITE_FIREBASE_STORAGE_BUCKET': process.env.VITE_FIREBASE_STORAGE_BUCKET || firebaseWebConfig.storageBucket,
+  'import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID': process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseWebConfig.messagingSenderId,
+  'import.meta.env.VITE_FIREBASE_APP_ID': process.env.VITE_FIREBASE_APP_ID || firebaseWebConfig.appId,
+  'import.meta.env.VITE_FIREBASE_MEASUREMENT_ID': process.env.VITE_FIREBASE_MEASUREMENT_ID || firebaseWebConfig.measurementId,
+  'import.meta.env.VITE_FIRESTORE_DATABASE_ID': process.env.VITE_FIRESTORE_DATABASE_ID || '(default)',
+};
+
+const firebaseEnvDefine = Object.fromEntries(
+  Object.entries(firebaseEnvFallbacks)
+    .filter(([, value]) => value !== undefined)
+    .map(([key, value]) => [key, JSON.stringify(value)])
+);
+
 export default defineConfig(() => {
   return {
     plugins: [react(), tailwindcss()],
+    define: firebaseEnvDefine,
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
