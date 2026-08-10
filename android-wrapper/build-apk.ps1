@@ -46,7 +46,7 @@ $compiled = Join-Path $build 'compiled-res.zip'
 $unsignedApk = Join-Path $build 'qlct-unsigned.apk'
 $alignedApk = Join-Path $build 'qlct-aligned.apk'
 $keystore = Join-Path $root 'qlct-debug.keystore'
-$finalApk = Join-Path $projectRoot 'a.apk'
+$finalApk = Join-Path $projectRoot 'QLTC An Phu.apk'
 $stringsXml = Join-Path $root 'res\values\strings.xml'
 $webUrlFile = Join-Path $root 'web-url.txt'
 

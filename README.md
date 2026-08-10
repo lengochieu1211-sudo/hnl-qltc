@@ -36,4 +36,4 @@ $env:QLCT_WEB_URL="https://com-example-qlct-61329.web.app"
 powershell.exe -ExecutionPolicy Bypass -File .\android-wrapper\build-apk.ps1
 ```
 
-The APK is written to `a.apk`.
+The APK is written to `QLTC An Phu.apk`.

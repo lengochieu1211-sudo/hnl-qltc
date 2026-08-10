@@ -75,4 +75,4 @@ or create local ignored file `android-wrapper/web-url.txt` containing only the d
 powershell.exe -ExecutionPolicy Bypass -File .\android-wrapper\build-apk.ps1
 ```
 
-The final APK is written to `a.apk`.
+The final APK is written to `QLTC An Phu.apk`.
