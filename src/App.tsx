@@ -46,9 +46,9 @@ import {
   exportCrewToExcel
 } from './utils/excelExport';
 import { getFileHandle, saveFileHandle, removeFileHandle } from './utils/localSyncDb';
-import { isAndroidExportBridgeAvailable, saveJsonRecordFile, saveTextFile, writeJsonRecordToWritable } from './utils/fileExport';
 import { getAllBackupVersions, saveBackupVersion, deleteBackupVersion, BackupVersion } from './utils/backupDb';
 import { cleanupAndCompressOldImages } from './utils/cleanupStorage';
+import { isAndroidExportBridgeAvailable, saveJsonRecordFile, saveTextFile, writeJsonRecordToWritable } from './utils/fileExport';
 import { getAllConstructionStorageData, getAsyncItem, restoreConstructionStorageData, setAsyncItem } from './utils/asyncStorage';
 import { migrateAndCleanLocalStorage } from './utils/migrateStorage';
 import { confirmAsync } from './utils/confirmAsync';
@@ -152,22 +152,16 @@ export default function App() {
       const floorPlans = deduplicateById(rawFloorPlans, 'FP');
 
       const rawRooms = (await parseSaved(getKey('construction_room_progress'), INITIAL_ROOM_PROGRESS)) || [];
-      const validFloorIds = new Set(floorPlans.map((fp: any) => fp.id));
-      const validFloorNames = new Set(floorPlans.map((fp: any) => fp.floorName));
-      const filteredRooms = rawRooms.filter((r: any) => r.floorId && validFloorIds.has(r.floorId));
-      const roomProgressList = deduplicateById(filteredRooms, 'ROOM');
+      const roomProgressList = deduplicateById(rawRooms, 'ROOM');
 
       const rawDefects = (await parseSaved(getKey('construction_defects'), INITIAL_DEFECTS)) || [];
-      const filteredDefects = rawDefects.filter((d: any) => d.floorId && validFloorIds.has(d.floorId));
-      const defects = deduplicateById(filteredDefects, 'DEF');
+      const defects = deduplicateById(rawDefects, 'DEF');
 
       const rawChecklist = (await parseSaved(getKey('construction_checklist'), INITIAL_CHECKLIST)) || [];
-      const filteredChecklist = rawChecklist.filter((c: any) => c.floorName && validFloorNames.has(c.floorName));
-      const checklist = deduplicateById(filteredChecklist, 'CHK');
+      const checklist = deduplicateById(rawChecklist, 'CHK');
 
       const rawCrew = (await parseSaved(getKey('construction_crew_records'), INITIAL_CREW_RECORDS)) || [];
-      const filteredCrew = rawCrew.filter((c: any) => c.floorName && validFloorNames.has(c.floorName));
-      const crewRecords = deduplicateById(filteredCrew, 'CREW');
+      const crewRecords = deduplicateById(rawCrew, 'CREW');
 
       const rawMaterialNorms = (await parseSaved(getKey('construction_material_norms'), INITIAL_MATERIAL_NORMS)) || [];
       const materialNorms = deduplicateById(rawMaterialNorms, 'NORM');
@@ -450,9 +444,9 @@ export default function App() {
   useEffect(() => {
     const curId = getActiveProjectId();
     const unsubscribe = subscribeToCloudProject(curId, (record) => {
-      const cloudData = getCloudPayload(record);
-      if (cloudData) {
-        void (async () => {
+      void (async () => {
+        const cloudData = getCloudPayload(record);
+        if (cloudData) {
           const localData = await getAllConstructionStorageData();
           let updatedAny = false;
           for (const k in cloudData) {
@@ -462,10 +456,10 @@ export default function App() {
             }
           }
           if (updatedAny) {
-          console.log("⚡ Nhận dữ liệu đồng bộ Realtime từ Đám Mây cho dự án:", curId);
+            console.log("Cloud realtime data received for project:", curId);
+          }
         }
-        })();
-      }
+      })();
     });
     return () => {
       if (unsubscribe) unsubscribe();
@@ -526,9 +520,8 @@ export default function App() {
   }, [present]);
 
   const handleRestoreData = async (rawData: any) => {
-    if (!rawData) return;
+    if (!rawData || typeof rawData !== 'object') return;
     const data = normalizeImportedData(rawData);
-    if (!data || typeof data !== 'object') return;
     syncLockRef.current = true;
     try {
       if (data.projectName) {
@@ -729,7 +722,7 @@ export default function App() {
         return;
       }
       const opt = {
-        suggestedName: `[Toan_Bo_Du_An]_Backup.json`,
+        suggestedName: '[Toan_Bo_Du_An]_Backup.json',
         types: [{ description: 'JSON Backup', accept: { 'application/json': ['.json'] } }],
       };
       const handle = await (window as any).showSaveFilePicker(opt);
@@ -1146,7 +1139,6 @@ export default function App() {
         const writable = await localAllFileHandle.createWritable();
 
         const allData = await getAllConstructionStorageData();
-
         await writeJsonRecordToWritable(writable, allData);
         await writable.close();
 
@@ -1214,9 +1206,10 @@ export default function App() {
             teams,
             updatedAt: lastUpdatedAt,
           }, null, 2);
+
           await saveTextFile(jsonString, fileName);
           setLocalSyncStatus('synced');
-          alert('APK da luu ban JSON hien tai vao thu muc Download/QLCT. Du lieu da nam trong IndexedDB/localforage khong bi gioi han 5MB nhu localStorage. Android WebView khong ho tro lien ket ghi de mot file cuc bo; dong bo tu dong tren dien thoai se dung Cloud Firebase.');
+          alert('APK da luu file JSON cua du an hien tai vao thu muc Download/QLCT. Android WebView khong ho tro lien ket ghi de file nhu Chrome may tinh, nen tren dien thoai ban dung nut xuat file de tao ban sao luu moi.');
           return;
         }
         alert('Trình duyệt của bạn không hỗ trợ ghi tệp trực tiếp. Vui lòng sử dụng Chrome, Edge hoặc Safari mới nhất.');
@@ -2158,6 +2151,7 @@ export default function App() {
           defectBadgeCount={unhandledDefectsCount}
         />
 
+        {/* Global custom confirm modal for async deletes */}
         <GlobalConfirmModal />
       </div>
     </div>

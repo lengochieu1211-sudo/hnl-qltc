@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sitelink-pro-cache-v1';
+const CACHE_NAME = 'qltc-an-phu-cache-v3';
 
 // Essential App Shell Resources
 const STATIC_ASSETS = [

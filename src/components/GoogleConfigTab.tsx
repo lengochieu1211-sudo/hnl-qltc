@@ -1,4 +1,3 @@
-import { downloadOrShareFile } from '../utils/downloadUtils';
 import React, { useState, useEffect } from 'react';
 import {
   Cloud,
@@ -27,6 +26,8 @@ import {
 import { GoogleAuthStatus, FloorPlan } from '../types';
 import { ConflictMergeModal } from './ConflictMergeModal';
 import { normalizeImportedData } from '../utils/dataNormalizer';
+import { restoreConstructionStorageData } from '../utils/asyncStorage';
+import { saveTextFile } from '../utils/fileExport';
 
 declare const __BUILD_TIME__: string;
 
@@ -258,8 +259,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
     if (!fullAppData) return;
     try {
       const jsonString = JSON.stringify(fullAppData, null, 2);
-      const blob = new Blob([jsonString], { type: 'application/json' });
-      await downloadOrShareFile(`Toan_Bo_Du_An_${Date.now()}.json`, blob, 'application/json');
+      await saveTextFile(jsonString, `Toan_Bo_Du_An_${Date.now()}.json`);
     } catch (e) {
       alert('Lỗi xuất file toàn bộ: ' + e);
     }
@@ -279,9 +279,9 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           }
         }
         const parsedData = JSON.parse(resultString);
-        // Normalize if it contains project structure
-        const normalized = normalizeImportedData(parsedData);
-        setPendingImportAllData(normalized);
+        const keys = Object.keys(parsedData || {});
+        const isStorageDump = keys.some(k => k.startsWith('construction_') || k === 'active_project_id');
+        setPendingImportAllData(isStorageDump ? parsedData : normalizeImportedData(parsedData));
       } catch (err) {
         console.error("JSON parse error:", err);
         alert('Tệp JSON không hợp lệ!');
@@ -509,11 +509,13 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  for (const key in pendingImportAllData) {
-                    if (key.startsWith('construction_') || key.startsWith('active_project_id')) {
-                      localStorage.setItem(key, pendingImportAllData[key]);
-                    }
+                onClick={async () => {
+                  const keys = Object.keys(pendingImportAllData || {});
+                  const isStorageDump = keys.some(key => key.startsWith('construction_') || key === 'active_project_id');
+                  if (isStorageDump) {
+                    await restoreConstructionStorageData(pendingImportAllData);
+                  } else if (onRestoreData) {
+                    await onRestoreData(pendingImportAllData);
                   }
                   alert('Khôi phục toàn bộ thành công!');
                   window.location.reload();

@@ -185,6 +185,3 @@ export interface CrewRecord {
   shift?: string;
   notes?: string;
 }
-
-
-

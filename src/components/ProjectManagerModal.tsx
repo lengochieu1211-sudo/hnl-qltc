@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { ProjectInfo, getProjectsList, getActiveProjectId, setActiveProject, saveProjectsList } from '../App';
 import { safeSetLocalStorageItem } from '../utils/storage';
-import { getAllStorageData, getStorageKeys, removeAsyncItem, restoreConstructionStorageData } from '../utils/asyncStorage';
+import { getAllStorageData, getStorageKeys, removeAsyncItem, restoreConstructionStorageData, setAsyncItem } from '../utils/asyncStorage';
 import { saveJsonRecordFile } from '../utils/fileExport';
 import {
   saveCloudBackup,
@@ -110,6 +110,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   const [showConflictModal, setShowConflictModal] = useState(false);
   const [showPasteArea, setShowPasteArea] = useState(false);
   const [pasteValue, setPasteValue] = useState('');
+  const [pendingImportChoice, setPendingImportChoice] = useState<{ parsedData: any; normalized: any } | null>(null);
 
   const fetchCloudBackups = async () => {
     try {
@@ -153,17 +154,17 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     setSelectedProjectIds(projects.map(p => p.id));
   };
 
-  // Helper: Collect storage items for selected scope
+  // Helper: Collect storage items for selected scope (Asynchronous to support IndexedDB/localforage)
   const getStorageDataForScope = async (scope: ScopeType): Promise<Record<string, string>> => {
     const data: Record<string, string> = {};
-    const storageData = await getAllStorageData();
-    const allKeys = Object.keys(storageData);
+    const allStorage = await getAllStorageData();
+    const allKeys = Object.keys(allStorage);
 
     if (scope === 'all') {
       // Collect all keys
       allKeys.forEach(key => {
         if (key.startsWith('construction_') || key.startsWith('active_project_id')) {
-          data[key] = storageData[key] || '';
+          data[key] = allStorage[key] || '';
         }
       });
     } else if (scope === 'active') {
@@ -172,16 +173,16 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         if (key.startsWith('construction_')) {
           if (activeId === 'default') {
             if (!key.includes('_proj_')) {
-              data[key] = storageData[key] || '';
+              data[key] = allStorage[key] || '';
             }
           } else {
             if (key.endsWith(activeSuffix) || key === `construction_project_name_${activeId}`) {
-              data[key] = storageData[key] || '';
+              data[key] = allStorage[key] || '';
             }
           }
         }
       });
-      data['construction_projects_list'] = storageData['construction_projects_list'] || '[]';
+      data['construction_projects_list'] = allStorage['construction_projects_list'] || '[]';
     } else if (scope === 'selected') {
       // Selected specific projects
       selectedProjectIds.forEach(pId => {
@@ -190,17 +191,17 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           if (key.startsWith('construction_')) {
             if (pId === 'default') {
               if (!key.includes('_proj_')) {
-                data[key] = storageData[key] || '';
+                data[key] = allStorage[key] || '';
               }
             } else {
               if (key.endsWith(suffix) || key === `construction_project_name_${pId}`) {
-                data[key] = storageData[key] || '';
+                data[key] = allStorage[key] || '';
               }
             }
           }
         });
       });
-      data['construction_projects_list'] = storageData['construction_projects_list'] || '[]';
+      data['construction_projects_list'] = allStorage['construction_projects_list'] || '[]';
     }
     return data;
   };
@@ -222,42 +223,43 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   // 2. Process Imported JSON Data (File or Pasted Text)
   const processImportedJsonData = async (parsedData: any) => {
     const normalized = normalizeImportedData(parsedData);
-
-    // Check if it's a structured single-project data object (containing defects, inventory, workVolumes, or roomProgressList)
-    if (
+    const hasProjectData = !!(
       normalized &&
-      typeof normalized === 'object' &&
-      (
-        normalized.defects ||
-        normalized.inventory ||
-        normalized.workVolumes ||
-        normalized.floorPlans ||
-        normalized.roomProgressList ||
-        normalized.projectName ||
-        normalized.checklist ||
-        normalized.crewRecords ||
-        normalized.teams ||
-        normalized.materialNorms
-      )
-    ) {
-      if (fullAppData) {
-        setPendingImportData(normalized);
-        setShowConflictModal(true);
-        return;
-      } else if (onRestoreData) {
-        await onRestoreData(normalized);
-        alert('🎉 Khôi phục dữ liệu dự án từ tệp JSON thành công!');
-        window.location.reload();
-        return;
+      ((normalized.defects && normalized.defects.length > 0) ||
+       (normalized.inventory && normalized.inventory.length > 0) ||
+       (normalized.workVolumes && normalized.workVolumes.length > 0) ||
+       (normalized.floorPlans && normalized.floorPlans.length > 0) ||
+       (normalized.roomProgressList && normalized.roomProgressList.length > 0) ||
+       (normalized.checklist && normalized.checklist.length > 0) ||
+       (normalized.crewRecords && normalized.crewRecords.length > 0) ||
+       (normalized.teams && normalized.teams.length > 0) ||
+       (normalized.materialNorms && normalized.materialNorms.length > 0) ||
+       normalized.projectName)
+    );
+
+    if (hasProjectData) {
+      setPendingImportChoice({ parsedData, normalized });
+    } else {
+      if (confirm('Bạn có chắc chắn muốn khôi phục dữ liệu từ tệp này? Thao tác sẽ ghi đè các mục tương ứng.')) {
+        await executeDirectOverwrite(parsedData);
       }
     }
+  };
 
-    // Otherwise, handle as key-value pairs (or multi-project storage dump)
-    if (confirm('Bạn có chắc chắn muốn khôi phục dữ liệu từ tệp này? Thao tác sẽ ghi đè các mục tương ứng.')) {
+  const executeDirectOverwrite = async (parsedData: any) => {
+    const keys = Object.keys(parsedData || {});
+    const isStorageDump = keys.some(k => k.startsWith('construction_') || k === 'active_project_id');
+
+    if (isStorageDump) {
       await restoreConstructionStorageData(parsedData);
-      alert('🎉 Khôi phục dữ liệu từ tệp JSON thành công!');
-      window.location.reload();
+    } else {
+      const normalized = normalizeImportedData(parsedData);
+      if (onRestoreData) {
+        await onRestoreData(normalized);
+      }
     }
+    alert('🎉 Khôi phục dữ liệu từ tệp JSON thành công!');
+    window.location.reload();
   };
 
   const handleImportJsonForScope = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -340,11 +342,13 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     }
     try {
       if (Array.isArray(backup.projects)) {
-        for (const item of backup.projects as Array<{ key: string; value: string }>) {
-          if (item.key && item.value) {
-            await restoreConstructionStorageData({ [item.key]: item.value });
+        const dataToRestore: Record<string, string> = {};
+        for (const item of backup.projects) {
+          if (item.key && item.value !== undefined) {
+            dataToRestore[item.key] = item.value;
           }
         }
+        await restoreConstructionStorageData(dataToRestore);
         alert('🎉 Khôi phục dữ liệu từ Đám Mây thành công!');
         window.location.reload();
       }
@@ -410,9 +414,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
       const cloudPayload = getCloudPayload(rec);
       if (cloudPayload) {
-        for (const k in cloudPayload) {
-          await restoreConstructionStorageData({ [k]: cloudPayload[k] });
-        }
+        await restoreConstructionStorageData(cloudPayload);
 
         const curList = getProjectsList();
         if (!curList.some(p => p.id === rec.id)) {
@@ -508,13 +510,18 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         createdAt: new Date().toISOString(),
       };
 
+      let hadQuotaIssue = false;
+
       if (duplicateFromCurrent) {
         const activeSuffix = activeId === 'default' ? '' : `_${activeId}`;
         const newSuffix = `_${newProjectId}`;
-        const dataToCopy = await getAllStorageData();
         const keysToCopy: string[] = [];
 
-        for (const k in dataToCopy) {
+        // Fetch keys from both localStorage and localforage
+        const allKeys = await getStorageKeys();
+        const allStorage = await getAllStorageData();
+
+        allKeys.forEach(k => {
           if (k && k.startsWith('construction_') && k !== 'construction_projects_list') {
             if (activeId === 'default') {
               if (!k.includes('_proj_')) {
@@ -526,13 +533,23 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
               }
             }
           }
-        }
+        });
 
         for (const k of keysToCopy) {
-          const val = dataToCopy[k];
-          const newKey = activeId === 'default' ? `${k}${newSuffix}` : k.replace(activeSuffix, newSuffix);
-          if (newKey && val !== undefined) {
-            await restoreConstructionStorageData({ [newKey]: val });
+          const val = allStorage[k];
+          let newKey = activeId === 'default' ? `${k}${newSuffix}` : k.replace(activeSuffix, newSuffix);
+          if (newKey && val !== null && val !== undefined) {
+            const isLargeKey = [
+              'material_norms', 'inventory', 'work_volumes', 'floor_plans',
+              'defects', 'room_progress', 'checklist', 'crew_records', 'teams'
+            ].some(b => newKey.includes(`construction_${b}`));
+
+            if (isLargeKey) {
+              await setAsyncItem(newKey, val);
+            } else {
+              const saved = safeSetLocalStorageItem(newKey, val);
+              if (!saved) hadQuotaIssue = true;
+            }
           }
         }
       }
@@ -543,6 +560,9 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       saveProjectsList(updated);
       setActiveProject(newProject.id);
 
+      if (hadQuotaIssue) {
+        alert('Tạo dự án mới thành công! Do bộ nhớ đầy, một số hình ảnh lớn từ dự án cũ đã được bỏ qua.');
+      }
       window.location.reload();
     } catch (err) {
       console.error("Error creating project:", err);
@@ -1379,6 +1399,82 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             setPendingImportData(null);
           }}
         />
+      )}
+
+      {/* CHOICE OF IMPORT STYLE MODAL */}
+      {pendingImportChoice && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[260] flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl p-5 max-w-md w-full space-y-4 border border-indigo-100 shadow-2xl">
+            <div className="text-center">
+              <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-2">
+                <Upload className="w-6 h-6" />
+              </div>
+              <h3 className="text-base font-extrabold text-slate-900">Phương Thức Nhập Dữ Liệu</h3>
+              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                Tệp sao lưu tải lên chứa dữ liệu công trình hợp lệ. Bạn muốn nhập tệp này vào hệ thống bằng cách nào?
+              </p>
+            </div>
+
+            <div className="space-y-3 pt-1">
+              {/* Option A: Smart Sync */}
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingImportData(pendingImportChoice.normalized);
+                  setShowConflictModal(true);
+                  setPendingImportChoice(null);
+                }}
+                className="w-full text-left p-3.5 rounded-xl border border-indigo-200 hover:border-indigo-400 bg-indigo-50/30 hover:bg-indigo-50 transition-all flex gap-3 cursor-pointer group active:scale-[0.99]"
+              >
+                <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+                  <Sparkles className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                    Đồng bộ thông minh &amp; Gộp dữ liệu
+                    <span className="text-[9px] bg-indigo-600 text-white font-bold px-1.5 py-0.5 rounded-full">Khuyên Dùng</span>
+                  </div>
+                  <p className="text-[10.5px] text-slate-500 mt-1 leading-relaxed">
+                    Hệ thống sẽ đối soát từng dòng (tiến độ, vật tư, quân số, lỗi, checklist, v.v.) và cho bạn tự chọn lấy dữ liệu nào. Tránh tối đa mất mát dữ liệu mới của bạn.
+                  </p>
+                </div>
+              </button>
+
+              {/* Option B: Direct Overwrite */}
+              <button
+                type="button"
+                onClick={async () => {
+                  if (confirm('⚠️ Cảnh báo: Lựa chọn này sẽ ghi đè và làm mất các số liệu mới chưa đồng bộ trên máy này. Bạn có muốn tiếp tục?')) {
+                    const data = pendingImportChoice.parsedData;
+                    setPendingImportChoice(null);
+                    await executeDirectOverwrite(data);
+                  }
+                }}
+                className="w-full text-left p-3.5 rounded-xl border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-all flex gap-3 cursor-pointer group active:scale-[0.99]"
+              >
+                <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
+                  <Database className="w-4 h-4 text-slate-500" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-slate-900">Ghi đè trực tiếp toàn bộ dữ liệu</div>
+                  <p className="text-[10.5px] text-slate-500 mt-1 leading-relaxed">
+                    Ghi đè trực tiếp toàn bộ dữ liệu trên máy bằng dữ liệu trong file này. Toàn bộ thông tin hiện tại sẽ bị thay thế hoàn toàn.
+                  </p>
+                </div>
+              </button>
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setPendingImportChoice(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs"
+              >
+                Hủy Bỏ
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* CONFIRM DELETE CLOUD BACKUP MODAL */}

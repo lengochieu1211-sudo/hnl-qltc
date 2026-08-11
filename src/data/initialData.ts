@@ -509,5 +509,3 @@ export const INITIAL_TEAMS: TeamInfo[] = [
   { id: 'team-5', name: 'Đội Cơ Điện & Nước', leader: 'Anh Điện', defaultCount: 4, notes: 'Đi ống luồn dây điện âm trần' },
   { id: 'team-6', name: 'Đội Phụ Trợ & Dọn Dẹp', leader: 'Chị Hoa', defaultCount: 5, notes: 'Thu dọn phế thải thạch cao tấm vụn' },
 ];
-
-
