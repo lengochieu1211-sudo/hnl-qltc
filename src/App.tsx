@@ -1,7 +1,7 @@
 import { GlobalConfirmModal } from './components/GlobalConfirmModal';
 import React, { useState, useEffect, useMemo } from 'react';
 import { safeSetLocalStorageItem } from './utils/storage';
-import { subscribeToCloudProject, saveProjectToCloud, getCloudPayload } from './lib/firebase';
+import { saveProjectToCloud } from './lib/firebase';
 import {
   InventoryItem,
   WorkVolume,
@@ -65,15 +65,6 @@ interface AppData {
   crewRecords: CrewRecord[];
   teams: TeamInfo[];
 }
-
-const parseSyncTimestamp = (value: unknown): number => {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
-  if (typeof value !== 'string' || !value.trim()) return 0;
-  const numericValue = Number(value);
-  if (Number.isFinite(numericValue)) return numericValue;
-  const dateValue = Date.parse(value);
-  return Number.isFinite(dateValue) ? dateValue : 0;
-};
 
 export const getActiveProjectId = () => {
   if (typeof window !== 'undefined') {
@@ -195,6 +186,7 @@ export default function App() {
         crewRecords,
         teams,
       });
+      skipNextAutoSaveRef.current = true;
       setIsInitializing(false);
     }
     loadData();
@@ -386,6 +378,7 @@ export default function App() {
 
   // Sync Lock Ref to avoid circular loops
   const syncLockRef = React.useRef(false);
+  const skipNextAutoSaveRef = React.useRef(true);
 
   // Helper to push state changes to history (max 30 steps)
   const updateAppData = (updater: (prev: AppData) => AppData) => {
@@ -458,49 +451,6 @@ export default function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [past, present, future]);
-
-  // Firebase Realtime Cloud Multi-Device Sync Listener
-  useEffect(() => {
-    const curId = getActiveProjectId();
-    const unsubscribe = subscribeToCloudProject(curId, (record) => {
-      void (async () => {
-        const cloudData = getCloudPayload(record);
-        if (cloudData) {
-          const localData = await getAllConstructionStorageData();
-          const updatedAtKey = getKey('construction_updated_at');
-          const localUpdatedAt = parseSyncTimestamp(localData[updatedAtKey] || localStorage.getItem(updatedAtKey));
-          const cloudUpdatedAt = parseSyncTimestamp(cloudData[updatedAtKey] || (record as any).updatedAt);
-
-          if (localUpdatedAt > 0 && cloudUpdatedAt > 0 && cloudUpdatedAt <= localUpdatedAt) {
-            return;
-          }
-
-          const isStorageDump = Object.keys(cloudData).some((key) => key.startsWith('construction_') || key === 'active_project_id');
-          if (!isStorageDump) {
-            if (cloudUpdatedAt > localUpdatedAt) {
-              await handleRestoreData(cloudData);
-              console.log("Newer cloud project data received:", curId);
-            }
-            return;
-          }
-
-          let updatedAny = false;
-          for (const k in cloudData) {
-            if (localData[k] !== cloudData[k]) {
-              await restoreConstructionStorageData({ [k]: cloudData[k] });
-              updatedAny = true;
-            }
-          }
-          if (updatedAny) {
-            console.log("Cloud realtime data received for project:", curId);
-          }
-        }
-      })();
-    });
-    return () => {
-      if (unsubscribe) unsubscribe();
-    };
-  }, []);
 
   // Persistence to localStorage
   useEffect(() => {
@@ -890,30 +840,32 @@ export default function App() {
     }
   };
 
-  // Check auth and auto sync on mount
+  // Check auth on mount; cloud download is manual to protect local edits.
   useEffect(() => {
-    const checkAuthAndAutoSync = async () => {
+    const checkAuthStatus = async () => {
       try {
         const res = await fetch('/api/auth/status');
         if (res.ok) {
           const authData = await res.json();
           if (authData.authenticated) {
             setIsAuthenticated(true);
-            if (autoSyncEnabled) {
-              await handleDriveSyncDown(undefined, false);
-            }
           }
         }
       } catch (err) {
         console.warn('Authentication status query warning:', err);
       }
     };
-    checkAuthAndAutoSync();
+    checkAuthStatus();
   }, []);
 
   // Debounced auto-save to Google Drive & Cloud on local changes
   useEffect(() => {
+    if (isInitializing) return;
     if (syncLockRef.current) return;
+    if (skipNextAutoSaveRef.current) {
+      skipNextAutoSaveRef.current = false;
+      return;
+    }
 
     const timer = setTimeout(() => {
       if (!syncLockRef.current) {
@@ -939,7 +891,7 @@ export default function App() {
     }, 2000); // 2 seconds debounce after input changes
 
     return () => clearTimeout(timer);
-  }, [present, projectName, contractorName, inspectorName, autoSyncEnabled]);
+  }, [present, projectName, contractorName, inspectorName, autoSyncEnabled, isInitializing]);
 
   // Local File Auto-Save Debounced Effect
   useEffect(() => {
