@@ -1,10 +1,12 @@
+import { downloadOrShareFile } from '../utils/downloadUtils';
 import React, { useState } from 'react';
 import { FileText, Download, Printer, X, CheckCircle2, Filter, Mail, Package, BarChart3, Building2, ClipboardCheck, FileSpreadsheet, Users, Copy, HelpCircle } from 'lucide-react';
 import { InventoryItem, WorkVolume, DefectItem, ChecklistItem, FloorPlan, RoomProgressItem, MaterialNorm, CrewRecord } from '../types';
 import { exportAllToExcel, exportAllToExcelBase64 } from '../utils/excelExport';
 import { formatDateDDMMYYYY } from '../utils/dateFormatter';
 import { getRoomColorStyle } from '../utils/colorPalette';
-import { saveHtmlPdf, saveTextFile } from '../utils/fileExport';
+import { getDefectOverdueInfo } from '../utils/defectUtils';
+import { saveHtmlPdf } from '../utils/fileExport';
 
 interface ExportPdfModalProps {
   isOpen: boolean;
@@ -190,7 +192,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
           </div>
           <div style="text-align: right;">
             <p><strong>Ngày xuất:</strong> ${new Date().toLocaleString('vi-VN')}</p>
-            <p style="color: #4f46e5; font-weight: bold;">SiteLink Pro - Quản Lý Công Trình</p>
+            <p style="color: #4f46e5; font-weight: bold;">Hệ Thống Quản Lý Thi Công &amp; Nghiệm Thu</p>
           </div>
         </div>
 
@@ -251,8 +253,8 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                   <td style="text-align: center;">${idx + 1}</td>
                   <td><strong>${item.name || ''}</strong> <span style="color: #64748b;">(${item.id || ''})</span></td>
                   <td style="text-align: center;">${item.unit || ''}</td>
-                  <td style="text-align: right;"><strong>${(item.quantity ?? 0).toLocaleString('vi-VN')}</strong></td>
-                  <td style="text-align: right;">${(item.minQuantity ?? 0).toLocaleString('vi-VN')}</td>
+                  <td style="text-align: right;"><strong>${(item.quantity ?? 0).toLocaleString('en-US')}</strong></td>
+                  <td style="text-align: right;">${(item.minQuantity ?? 0).toLocaleString('en-US')}</td>
                   <td>${item.location || 'Kho chính'}</td>
                   <td><span class="badge ${item.quantity <= item.minQuantity ? 'badge-defect' : 'badge-passed'}">${item.quantity <= item.minQuantity ? '⚠️ Cần Nhập' : '✅ An Toàn'}</span></td>
                 </tr>
@@ -283,10 +285,10 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                   <td><strong>${wv.name || ''}</strong></td>
                   <td>${wv.category || ''}</td>
                   <td style="text-align: center;">${wv.unit || ''}</td>
-                  <td style="text-align: right;">${(wv.plannedVolume ?? 0).toLocaleString('vi-VN')}</td>
-                  <td style="text-align: right; color: #2563eb; font-weight: bold;">${(wv.actualVolume ?? 0).toLocaleString('vi-VN')}</td>
-                  <td style="text-align: right;">${(wv.unitPrice ?? 0).toLocaleString('vi-VN')}</td>
-                  <td style="text-align: right; font-weight: bold;">${((wv.actualVolume ?? 0) * (wv.unitPrice ?? 0)).toLocaleString('vi-VN')}</td>
+                  <td style="text-align: right;">${(wv.plannedVolume ?? 0).toLocaleString('en-US')}</td>
+                  <td style="text-align: right; color: #2563eb; font-weight: bold;">${(wv.actualVolume ?? 0).toLocaleString('en-US')}</td>
+                  <td style="text-align: right;">${(wv.unitPrice ?? 0).toLocaleString('en-US')}</td>
+                  <td style="text-align: right; font-weight: bold;">${((wv.actualVolume ?? 0) * (wv.unitPrice ?? 0)).toLocaleString('en-US')}</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -303,7 +305,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                 <h4 style="margin: 0 0 12px 0; font-size: 13px; color: #1e1b4b; font-weight: bold; border-bottom: 2px solid #4f46e5; padding-bottom: 6px;">
                   📍 Sơ đồ mặt bằng: ${fp.floorName}
                 </h4>
-                
+
                 <div style="display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 12px;">
                   <!-- Highlight Căn Hộ -->
                   <div style="flex: 1; min-width: 280px;">
@@ -311,7 +313,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                     ${fp.imageUrl ? `
                       <div style="position: relative; width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; background: #f8fafc; margin-bottom: 8px;">
                         <img src="${fp.imageUrl}" style="width: 100%; display: block; max-height: 320px; object-fit: contain;" />
-                        
+
                         <!-- SVG Polygons for rooms if points exist -->
                         <svg style="position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none;" viewBox="0 0 100 100" preserveAspectRatio="none">
                           ${fpRooms.map((r, rIdx) => {
@@ -395,7 +397,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                     ${fp.imageUrl ? `
                       <div style="position: relative; width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; background: #f8fafc; margin-bottom: 8px;">
                         <img src="${fp.imageUrl}" style="width: 100%; display: block; max-height: 320px; object-fit: contain;" />
-                        
+
                         <!-- Sleek High-Visibility Defect Pin Badges (#1, #2...) -->
                         ${fpDefects.map((d, dIdx) => {
                           let pinBg = '#e11d48';
@@ -483,69 +485,97 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
         ` : ''}
 
         ${includeFloorPlan && filteredDefects.length > 0 ? `
-          <div class="section-title">🔴 DANH SÁCH DEFECT &amp; LỖI THI CÔNG MẶT BẰNG</div>
+          <div class="section-title">🔴 DANH SÁCH DEFECT &amp; KIỂM SOÁT HẠN SỬA LỖI</div>
           <table>
             <thead>
               <tr>
-                <th style="width: 60px;">Mã Lỗi</th>
-                <th style="width: 65px;">Tầng</th>
-                <th style="width: 120px;">Hạng Mục Defect</th>
-                <th>Mô Tả Chi Tiết Defect</th>
-                <th style="width: 85px; text-align: center;">Ảnh Defect</th>
-                <th style="width: 75px;">Mức Độ</th>
-                <th style="width: 100px;">Đội Trách Nhiệm</th>
+                <th style="width: 55px;">Mã Lỗi</th>
+                <th style="width: 55px;">Tầng</th>
+                <th style="width: 110px;">Hạng Mục Lỗi</th>
+                <th>Mô Tả &amp; Thông Tin Kiểm Soát</th>
+                <th style="width: 100px;">Người Tạo &amp; Hạn</th>
+                <th style="width: 90px;">Trách Nhiệm</th>
                 <th style="width: 85px;">Trạng Thái</th>
               </tr>
             </thead>
             <tbody>
-              ${filteredDefects.map(d => `
+              ${filteredDefects.map(d => {
+                const overdue = getDefectOverdueInfo(d);
+                return `
                 <tr>
                   <td><strong>${d.id}</strong></td>
                   <td>${d.floorName}</td>
                   <td><strong style="color: #9f1239;">${d.category}</strong></td>
-                  <td>${d.description}</td>
-                  <td style="text-align: center; vertical-align: middle; padding: 4px;">
-                    ${d.imageUrl ? `
-                      <a href="${d.imageUrl}" target="_blank" style="text-decoration: none;">
-                        <img src="${d.imageUrl}" style="max-width: 80px; max-height: 60px; object-fit: cover; border-radius: 6px; border: 1.5px solid #cbd5e1; display: block; margin: 0 auto; box-shadow: 0 1px 3px rgba(0,0,0,0.15);" alt="Ảnh defect ${d.id}" />
-                      </a>
-                    ` : `<span style="color: #94a3b8; font-size: 9px; font-style: italic;">Không có ảnh</span>`}
+                  <td>
+                    <div>${d.description}</div>
+                    ${overdue.statusText ? `
+                      <div style="margin-top: 4px;">
+                        <span class="badge ${overdue.badgeClass === 'red' ? 'badge-defect' : overdue.badgeClass === 'green' ? 'badge-passed' : 'badge-pending'}">
+                          ${overdue.statusText}
+                        </span>
+                      </div>
+                    ` : ''}
                   </td>
-                  <td><span class="badge ${d.severity === 'Nghiêm trọng' ? 'badge-defect' : 'badge-pending'}">${d.severity}</span></td>
-                  <td>${d.assignedTo}</td>
+                  <td style="font-size: 9.5px;">
+                    <div>Tạo: <strong>${d.createdBy || 'QC'}</strong></div>
+                    ${d.dueDate ? `<div style="color: #e11d48; font-weight: bold;">Hạn: ${formatDateDDMMYYYY(d.dueDate)}</div>` : ''}
+                    ${d.completedAt ? `<div style="color: #166534; font-size: 8.5px;">Xong: ${d.completedAt}</div>` : ''}
+                  </td>
+                  <td><strong>${d.assignedTo}</strong></td>
                   <td><span class="badge ${d.status === 'Đã nghiệm thu' ? 'badge-passed' : d.status === 'Đang sửa' ? 'badge-pending' : 'badge-defect'}">${d.status}</span></td>
                 </tr>
-              `).join('')}
+              `;
+              }).join('')}
             </tbody>
           </table>
 
-          <!-- Phụ Lục Hình Ảnh Defect Thực Tế -->
+          <!-- Phụ Lục Hình Ảnh Defect Trước & Sau Khi Sửa -->
           ${(() => {
-            const defectsWithImages = filteredDefects.filter(d => !!d.imageUrl);
+            const defectsWithImages = filteredDefects.filter(d => !!d.imageUrl || !!d.afterImageUrl);
             if (defectsWithImages.length === 0) return '';
             return `
               <div style="margin-top: 16px; page-break-inside: avoid; background: #fff5f5; border: 1.5px solid #fecdd3; border-radius: 10px; padding: 12px;">
                 <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #9f1239; font-weight: 800; border-bottom: 1.5px solid #fda4af; padding-bottom: 6px; display: flex; align-items: center; gap: 6px;">
-                  📸 PHỤ LỤC HÌNH ẢNH MINH HỌA LỖI DEFECT THỰC TẾ (${defectsWithImages.length} ảnh)
+                  📸 PHỤ LỤC HÌNH ẢNH DEFECT TRƯỚC VÀ SAU SỬA (${defectsWithImages.length} defect có ảnh)
                 </h4>
-                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px;">
-                  ${defectsWithImages.map(d => `
+                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px;">
+                  ${defectsWithImages.map(d => {
+                    const overdue = getDefectOverdueInfo(d);
+                    return `
                     <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; padding: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08);">
                       <div style="font-weight: 800; font-size: 10.5px; color: #0f172a; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center;">
-                        <span style="color: #e11d48; font-weight: 900;">${d.id}</span>
-                        <span style="font-size: 9px; background: #f1f5f9; padding: 1px 5px; border-radius: 4px; color: #475569;">📍 Tầng ${d.floorName}</span>
+                        <span style="color: #e11d48; font-weight: 900;">${d.id} - ${d.category}</span>
+                        <span style="font-size: 9px; background: #f1f5f9; padding: 1px 5px; border-radius: 4px; color: #475569;">Tầng ${d.floorName}</span>
                       </div>
-                      <div style="width: 100%; height: 140px; background: #f8fafc; border-radius: 6px; overflow: hidden; border: 1px solid #e2e8f0; margin-bottom: 6px; display: flex; align-items: center; justify-content: center;">
-                        <img src="${d.imageUrl}" style="width: 100%; height: 100%; object-fit: contain; display: block;" alt="Ảnh defect ${d.id}" />
+
+                      <div style="display: grid; grid-template-columns: ${d.imageUrl && d.afterImageUrl ? '1fr 1fr' : '1fr'}; gap: 6px; margin-bottom: 6px;">
+                        ${d.imageUrl ? `
+                          <div>
+                            <div style="font-size: 8px; font-weight: bold; color: #9f1239; margin-bottom: 2px;">Ảnh trước sửa</div>
+                            <div style="width: 100%; height: 110px; background: #f8fafc; border-radius: 4px; overflow: hidden; border: 1px solid #e2e8f0;">
+                              <img src="${d.imageUrl}" style="width: 100%; height: 100%; object-fit: contain; display: block;" alt="Trước sửa ${d.id}" />
+                            </div>
+                          </div>
+                        ` : ''}
+                        ${d.afterImageUrl ? `
+                          <div>
+                            <div style="font-size: 8px; font-weight: bold; color: #166534; margin-bottom: 2px;">Ảnh sau sửa</div>
+                            <div style="width: 100%; height: 110px; background: #f8fafc; border-radius: 4px; overflow: hidden; border: 1px solid #e2e8f0;">
+                              <img src="${d.afterImageUrl}" style="width: 100%; height: 100%; object-fit: contain; display: block;" alt="Sau sửa ${d.id}" />
+                            </div>
+                          </div>
+                        ` : ''}
                       </div>
-                      <div style="font-size: 9.5px; font-weight: bold; color: #1e1b4b; margin-bottom: 2px;">${d.category}</div>
+
                       <div style="font-size: 9px; color: #475569; margin-bottom: 4px; line-height: 1.3;">${d.description}</div>
+                      ${overdue.statusText ? `<div style="font-size: 8.5px; font-weight: bold; margin-bottom: 4px;">${overdue.statusText}</div>` : ''}
                       <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #f1f5f9; pt-1; font-size: 8.5px;">
-                        <span style="color: #64748b;">Đội: <strong>${d.assignedTo}</strong></span>
+                        <span style="color: #64748b;">Giao: <strong>${d.assignedTo}</strong> | Tạo: <strong>${d.createdBy || 'QC'}</strong></span>
                         <span class="badge ${d.status === 'Đã nghiệm thu' ? 'badge-passed' : 'badge-defect'}">${d.status}</span>
                       </div>
                     </div>
-                  `).join('')}
+                  `;
+                  }).join('')}
                 </div>
               </div>
             `;
@@ -623,8 +653,17 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                       }).join('');
                     })()}
                   </td>
-                  <td>${c.floorName}</td>
-                  <td><strong>${c.taskDescription}</strong>${c.notes ? `<br/><span style="color: #64748b; font-size: 9px;">Ghi chú: ${c.notes}</span>` : ''}</td>
+                  <td>
+                    ${c.floorWorks && c.floorWorks.length > 0
+                      ? c.floorWorks.map(fw => `<div style="margin-bottom: 2px;">• <strong>${fw.floorName}</strong></div>`).join('')
+                      : (c.floorName || '-')}
+                  </td>
+                  <td>
+                    ${c.floorWorks && c.floorWorks.length > 0
+                      ? c.floorWorks.map(fw => `<div style="margin-bottom: 4px;"><strong>[${fw.floorName}]</strong>: ` + fw.categories.map(cat => `<div>- ${cat.categoryName}: <em>${cat.subItems.join(', ')}</em></div>`).join('') + `</div>`).join('')
+                      : `<strong>${c.taskDescription}</strong>`}
+                    ${c.notes ? `<div style="color: #64748b; font-size: 9px; margin-top: 2px;">Ghi chú: ${c.notes}</div>` : ''}
+                  </td>
                 </tr>
               `).join('')}
             </tbody>
@@ -645,7 +684,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
         </div>
 
         <div class="footer">
-          <p>Báo cáo tổng hợp tự động từ phần mềm SiteLink Pro - Quản Lý Thi Công &amp; Nghiệm Thu Thạch Cao.</p>
+          <p>Báo cáo tổng hợp tự động từ Hệ Thống Quản Lý Thi Công &amp; Nghiệm Thu.</p>
         </div>
 
         <script>
@@ -659,12 +698,13 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   };
 
   // Direct HTML report file download for easy offline opening/printing
-  const handleDownloadHtmlReport = () => {
+  const handleDownloadHtmlReport = async () => {
     try {
       const htmlContent = getReportHtml();
-      const safeProjectName = projectName.replace(/[^a-zA-Z0-9_-]/g, '_') || 'Project';
-      const dateStr = new Date().toISOString().slice(0, 10);
-      saveTextFile(htmlContent, `Bao_Cao_${safeProjectName}_${dateStr}.html`, 'text/html;charset=utf-8');
+      const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+      const safeProjectName = (projectName || 'Du_An').replace(/[^a-zA-Z0-9]/g, '_');
+      const dateStr = new Date().toISOString().slice(0,10);
+      await downloadOrShareFile(`Bao_Cao_${safeProjectName}_${dateStr}.html`, blob, 'text/html');
     } catch (err) {
       console.error('Download HTML report error:', err);
       alert('Không thể tải file báo cáo HTML.');
@@ -674,8 +714,8 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   // High-fidelity HTML Print / Save as PDF with FULL Unicode Vietnamese support (Có dấu 100%)
   const handlePrintHTML = () => {
     const htmlContent = getReportHtml();
-    const safeProjectName = projectName.replace(/[^a-zA-Z0-9_-]/g, '_') || 'Project';
-    const dateStr = new Date().toISOString().slice(0, 10);
+    const safeProjectName = (projectName || 'Du_An').replace(/[^a-zA-Z0-9]/g, '_');
+    const dateStr = new Date().toISOString().slice(0,10);
     if (saveHtmlPdf(htmlContent, `Bao_Cao_${safeProjectName}_${dateStr}.pdf`)) {
       return;
     }
@@ -699,7 +739,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     if (printIframe) {
       printIframe.parentNode?.removeChild(printIframe);
     }
-    
+
     printIframe = document.createElement('iframe') as HTMLIFrameElement;
     printIframe.id = 'pdf-print-iframe';
     printIframe.style.position = 'fixed';
@@ -710,7 +750,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     printIframe.style.border = '0';
     printIframe.style.opacity = '0';
     printIframe.style.pointerEvents = 'none';
-    
+
     document.body.appendChild(printIframe);
 
     const doc = printIframe.contentWindow?.document || printIframe.contentDocument;
@@ -751,7 +791,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
 ${includeCrew ? `- Quân số thợ hôm nay: ${filteredCrew.reduce((sum, c) => sum + c.workerCount, 0)} người` : ''}
 
 ---
-Gửi từ phần mềm SiteLink Pro
+Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
     `.trim();
 
     navigator.clipboard.writeText(text);

@@ -1,12 +1,13 @@
+import { downloadOrShareFile } from '../utils/downloadUtils';
 import React, { useState, useEffect } from 'react';
-import { 
-  Cloud, 
-  FileSpreadsheet, 
-  HardDrive, 
-  CheckCircle2, 
-  ExternalLink, 
-  RefreshCw, 
-  ShieldCheck, 
+import {
+  Cloud,
+  FileSpreadsheet,
+  HardDrive,
+  CheckCircle2,
+  ExternalLink,
+  RefreshCw,
+  ShieldCheck,
   Info,
   LogOut,
   Save,
@@ -26,7 +27,6 @@ import {
 import { GoogleAuthStatus, FloorPlan } from '../types';
 import { ConflictMergeModal } from './ConflictMergeModal';
 import { getFirebaseAuthStatus, signInWithGoogleAccount, signOutFirebaseAccount } from '../lib/firebase';
-import { saveTextFile } from '../utils/fileExport';
 
 interface GoogleConfigTabProps {
   projectName: string;
@@ -40,14 +40,14 @@ interface GoogleConfigTabProps {
   onSyncAll: () => Promise<{ success: boolean; url?: string; message?: string }>;
   isSyncing: boolean;
   onRestoreData?: (data: any) => void;
-  fullAppData?: any;
+    fullAppData?: any;
   driveSyncStatus: 'synced' | 'syncing' | 'error' | 'idle';
   driveLastSyncTime: string | null;
   autoSyncEnabled: boolean;
   setAutoSyncEnabled: (enabled: boolean) => void;
   onDriveSyncUp: (customFolderId?: string) => Promise<{ success: boolean; message?: string; error?: string }>;
   onDriveSyncDown: (customFolderId?: string, forceOverwrite?: boolean) => Promise<{ success: boolean; updated?: boolean; message?: string; error?: string }>;
-  
+
   // Local File Auto Save props
   localFileHandle?: any;
   localSyncStatus?: 'synced' | 'saving' | 'error' | 'idle';
@@ -71,14 +71,14 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   onSyncAll,
   isSyncing,
   onRestoreData,
-  fullAppData,
+    fullAppData,
   driveSyncStatus,
   driveLastSyncTime,
   autoSyncEnabled,
   setAutoSyncEnabled,
   onDriveSyncUp,
   onDriveSyncDown,
-  
+
   localFileHandle,
   localSyncStatus = 'idle',
   localSyncPermissionNeeded = false,
@@ -220,12 +220,18 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
     try {
       try {
         const status = await signInWithGoogleAccount();
-        setAuthStatus(status);
-        return;
+        if (status.authenticated) {
+          setAuthStatus(status);
+          return;
+        }
       } catch (firebaseErr: any) {
         const code = String(firebaseErr?.code || '');
         if (code.includes('operation-not-allowed')) {
           alert('Firebase Google Auth chua duoc bat. Trong Firebase Console vao Authentication > Methode de connexion > Google > Activer.');
+          return;
+        }
+        if (code.includes('popup-blocked') || code.includes('popup-closed-by-user')) {
+          alert('Trinh duyet da chan cua so dang nhap Google. Hay cho phep popup roi thu lai.');
           return;
         }
         console.warn('Firebase Google login fallback:', firebaseErr);
@@ -247,7 +253,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
 
   const handleLogout = async () => {
     await signOutFirebaseAccount();
-    await fetch('/api/auth/logout', { method: 'POST' });
+    await fetch('/api/auth/logout', { method: 'POST' }).catch(() => undefined);
     setAuthStatus({ authenticated: false });
   };
 
@@ -272,55 +278,12 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   };
 
   // Export JSON Backup
-  const handleExportJson = () => {
+  const handleExportJson = async () => {
     if (!fullAppData) return;
-    const jsonString = JSON.stringify(fullAppData, null, 2);
-    saveTextFile(jsonString, `[Backup_CongTrinh]_${projectName}_${Date.now()}.json`);
-  };
-
-  // Copy JSON backup directly to clipboard (for APKs/WebViews where file download is disabled)
-  const handleCopyJsonToClipboard = () => {
-    if (!fullAppData) return;
-    const jsonString = JSON.stringify(fullAppData, null, 2);
-    navigator.clipboard.writeText(jsonString).then(() => {
-      setCopiedBackup(true);
-      setTimeout(() => setCopiedBackup(false), 3000);
-    }).catch(err => {
-      console.error('Copy failed:', err);
-      alert('Không thể tự động sao chép. Vui lòng thử lại hoặc dùng Google Drive để đồng bộ.');
-    });
-  };
-
-  // Import JSON backup from pasted text
-  const handleImportJsonText = () => {
-    if (!pasteValue.trim()) {
-      alert('Vui lòng dán nội dung JSON backup vào ô trống.');
-      return;
-    }
     try {
-      const parsedData = JSON.parse(pasteValue.trim());
-      setPendingImportData(parsedData);
-      setShowConflictModal(true);
-      setShowPasteArea(false);
-      setPasteValue('');
-    } catch (err) {
-      console.error('JSON parse error from paste:', err);
-      alert('Dữ liệu JSON không hợp lệ! Vui lòng kiểm tra lại định dạng dữ liệu đã dán.');
-    }
-  };
-
-  // Import JSON Backup with Smart Conflict Merge
-  const handleExportAllJson = () => {
-    try {
-      const allData: Record<string, string> = {};
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
-          allData[key] = localStorage.getItem(key) || '';
-        }
-      }
-      const jsonString = JSON.stringify(allData, null, 2);
-      saveTextFile(jsonString, `Toan_Bo_Du_An_${Date.now()}.json`);
+      const jsonString = JSON.stringify(fullAppData, null, 2);
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      await downloadOrShareFile(`Toan_Bo_Du_An_${Date.now()}.json`, blob, 'application/json');
     } catch (e) {
       alert('Lỗi xuất file toàn bộ: ' + e);
     }
@@ -378,13 +341,21 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
 
   return (
     <div className="p-4 space-y-4 pb-24 max-w-md mx-auto text-xs">
+
       {/* Title */}
       <div>
         <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
           <Building2 className="w-5 h-5 text-indigo-600" />
-          Cài Đặt Dự Án
+          Cấu hình
         </h2>
-        <p className="text-xs text-slate-500">Quản lý thông tin công trình &amp; cài đặt tiến độ mục tiêu từng tầng</p>
+        <p className="text-xs text-slate-500 mb-2">Quản lý thông tin công trình &amp; cài đặt chung</p>
+
+        <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-2.5 text-[11px] text-indigo-800 space-y-1.5 shadow-sm">
+          <div className="flex items-center gap-1.5 font-medium">
+            <Info className="w-3.5 h-3.5 text-indigo-500" />
+            <span>Phiên bản: 1.0.0 (Cập nhật: 11/08/2026 15:15)</span>
+          </div>
+        </div>
       </div>
 
       {/* PROJECT SETTINGS FORM CARD */}
@@ -454,7 +425,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
         <h4 className="font-bold text-slate-800 text-xs flex items-center gap-1.5 border-b border-slate-100 pb-2">
           <Clock className="w-4 h-4 text-indigo-500" /> Cài Đặt Tiến Độ Mục Tiêu Từng Tầng
         </h4>
-        
+
         {(!floorPlans || floorPlans.length === 0) ? (
           <p className="text-slate-500 text-[11px] text-center italic py-2">Chưa có tầng nào được tạo. Hãy thêm mặt bằng tầng trước.</p>
         ) : (
@@ -468,22 +439,22 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
                 const diffDays = (target - now) / (1000 * 60 * 60 * 24);
                 return diffDays >= 0 && diffDays <= 3; // within 3 days
               };
-              
+
               const isFrameWarning = checkWarning(floor.targetFrameDate);
               const isBoardWarning = checkWarning(floor.targetBoardDate);
-              
+
               return (
                 <div key={floor.id} className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
                   <div className="font-bold text-slate-800 text-[12px]">{floor.floorName}</div>
-                  
+
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="text-[10px] font-semibold text-slate-500 flex items-center justify-between mb-1">
                         <span>Xong Khung:</span>
                         {isFrameWarning && <AlertTriangle className="w-3 h-3 text-amber-500 animate-pulse" title="Sắp đến hạn!" />}
                       </label>
-                      <input 
-                        type="date" 
+                      <input
+                        type="date"
                         value={floor.targetFrameDate || ''}
                         onChange={(e) => onUpdateFloorPlan && onUpdateFloorPlan(floor.id, { targetFrameDate: e.target.value })}
                         className={`w-full border rounded-lg px-2 py-1.5 text-[11px] outline-none transition-colors ${
@@ -491,14 +462,14 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
                         }`}
                       />
                     </div>
-                    
+
                     <div>
                       <label className="text-[10px] font-semibold text-slate-500 flex items-center justify-between mb-1">
                         <span>Xong Tấm:</span>
                         {isBoardWarning && <AlertTriangle className="w-3 h-3 text-rose-500 animate-pulse" title="Sắp đến hạn!" />}
                       </label>
-                      <input 
-                        type="date" 
+                      <input
+                        type="date"
                         value={floor.targetBoardDate || ''}
                         onChange={(e) => onUpdateFloorPlan && onUpdateFloorPlan(floor.id, { targetBoardDate: e.target.value })}
                         className={`w-full border rounded-lg px-2 py-1.5 text-[11px] outline-none transition-colors ${

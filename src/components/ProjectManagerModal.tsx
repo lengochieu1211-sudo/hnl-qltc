@@ -1,28 +1,31 @@
+import { downloadOrShareFile } from '../utils/downloadUtils';
 import React, { useState, useEffect } from 'react';
-import { 
-  X, Plus, Folder, Trash2, HardDrive, Download, Upload, RefreshCw, 
-  CheckCircle2, AlertTriangle, ShieldCheck, ArrowLeftRight, ChevronDown, 
+import {
+  X, Plus, Folder, Trash2, HardDrive, Download, Upload, RefreshCw,
+  CheckCircle2, AlertTriangle, ShieldCheck, ArrowLeftRight, ChevronDown,
   ChevronUp, Search, Edit3, Check, Building2, Copy, Sparkles, FolderPlus,
   Cloud, CloudUpload, CloudDownload, Smartphone, Monitor, Share2, Layers,
-  CheckSquare, Square, FileSpreadsheet, Layers3, CheckCircle, Database
+  CheckSquare, Square, FileSpreadsheet, Layers3, CheckCircle, Database, History
 } from 'lucide-react';
 import { ProjectInfo, getProjectsList, getActiveProjectId, setActiveProject, saveProjectsList } from '../App';
 import { safeSetLocalStorageItem } from '../utils/storage';
-import { 
-  saveCloudBackup, 
-  listCloudBackups, 
-  deleteCloudBackup, 
-  saveProjectToCloud, 
+import { getAllStorageData, getStorageKeys, getStorageItem, removeAsyncItem, setAsyncItem } from '../utils/asyncStorage';
+import {
+  saveCloudBackup,
+  listCloudBackups,
+  deleteCloudBackup,
+  saveProjectToCloud,
   fetchProjectFromCloud,
   getCloudPayload,
-  CloudBackupRecord 
+  CloudBackupRecord
 } from '../lib/firebase';
 import { ConflictMergeModal } from './ConflictMergeModal';
-import { saveTextFile } from '../utils/fileExport';
+import { confirmAsync } from '../utils/confirmAsync';
 
 interface ProjectManagerModalProps {
   isOpen: boolean;
   onClose: () => void;
+  initialTab?: 'sync' | 'projects';
   onDriveSyncUpAll?: (customFolderId?: string) => Promise<{ success: boolean; message?: string; error?: string }>;
   onDriveSyncDownAll?: (customFolderId?: string) => Promise<{ success: boolean; message?: string; error?: string }>;
   localAllSyncStatus?: 'synced' | 'saving' | 'error' | 'idle';
@@ -36,13 +39,18 @@ interface ProjectManagerModalProps {
   handleImportAllJson?: (e: React.ChangeEvent<HTMLInputElement>) => void;
   fullAppData?: any;
   onRestoreData?: (data: any) => void;
+  autosaveVersions?: any[];
+  onRestoreAutoSaveVersion?: (version: any) => void;
+  onCreateManualBackup?: () => void;
+  onDeleteAutoSaveVersion?: (id: string) => void;
 }
 
 export type ScopeType = 'active' | 'selected' | 'all';
 
-export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({ 
-  isOpen, 
+export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
+  isOpen,
   onClose,
+  initialTab = 'projects',
   onDriveSyncUpAll,
   onDriveSyncDownAll,
   localAllSyncStatus,
@@ -54,11 +62,15 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   onRequestLocalAllFilePermission,
   fullAppData,
   onRestoreData,
+  autosaveVersions = [],
+  onRestoreAutoSaveVersion,
+  onCreateManualBackup,
+  onDeleteAutoSaveVersion,
 }) => {
   const [projects, setProjects] = useState<ProjectInfo[]>(getProjectsList);
   const [activeId] = useState(getActiveProjectId);
   const [searchQuery, setSearchQuery] = useState('');
-  
+
   // Scope selection: 'active' (1 dự án), 'selected' (chọn nhiều), 'all' (tất cả)
   const [saveScope, setSaveScope] = useState<ScopeType>('active');
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([getActiveProjectId()]);
@@ -113,6 +125,9 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   // Re-sync projects when opened
   useEffect(() => {
     if (isOpen) {
+      if (initialTab) {
+        setModalTab(initialTab);
+      }
       const curList = getProjectsList();
       setProjects(curList);
       const curActive = getActiveProjectId();
@@ -121,10 +136,10 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       }
       fetchCloudBackups();
     }
-  }, [isOpen]);
+  }, [isOpen, initialTab]);
 
   // Toggle project selection for 'selected' scope
-  const toggleSelectProject = (id: string) => {
+  const toggleSelectProject = async (id: string) => {
     if (selectedProjectIds.includes(id)) {
       if (selectedProjectIds.length === 1) return; // keep at least one
       setSelectedProjectIds(selectedProjectIds.filter(p => p !== id));
@@ -133,24 +148,21 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     }
   };
 
-  const selectAllProjects = () => {
+  const selectAllProjects = async () => {
     setSelectedProjectIds(projects.map(p => p.id));
   };
 
   // Helper: Collect storage items for selected scope
-  const getStorageDataForScope = (scope: ScopeType): Record<string, string> => {
+  const getStorageDataForScope = async (scope: ScopeType): Promise<Record<string, string>> => {
     const data: Record<string, string> = {};
-    const allKeys: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k) allKeys.push(k);
-    }
+    const storageData = await getAllStorageData();
+    const allKeys = Object.keys(storageData);
 
     if (scope === 'all') {
       // Collect all keys
       allKeys.forEach(key => {
         if (key.startsWith('construction_') || key.startsWith('active_project_id')) {
-          data[key] = localStorage.getItem(key) || '';
+          data[key] = storageData[key] || '';
         }
       });
     } else if (scope === 'active') {
@@ -159,16 +171,16 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         if (key.startsWith('construction_')) {
           if (activeId === 'default') {
             if (!key.includes('_proj_')) {
-              data[key] = localStorage.getItem(key) || '';
+              data[key] = storageData[key] || '';
             }
           } else {
             if (key.endsWith(activeSuffix) || key === `construction_project_name_${activeId}`) {
-              data[key] = localStorage.getItem(key) || '';
+              data[key] = storageData[key] || '';
             }
           }
         }
       });
-      data['construction_projects_list'] = localStorage.getItem('construction_projects_list') || '[]';
+      data['construction_projects_list'] = storageData['construction_projects_list'] || '[]';
     } else if (scope === 'selected') {
       // Selected specific projects
       selectedProjectIds.forEach(pId => {
@@ -177,36 +189,32 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           if (key.startsWith('construction_')) {
             if (pId === 'default') {
               if (!key.includes('_proj_')) {
-                data[key] = localStorage.getItem(key) || '';
+                data[key] = storageData[key] || '';
               }
             } else {
               if (key.endsWith(suffix) || key === `construction_project_name_${pId}`) {
-                data[key] = localStorage.getItem(key) || '';
+                data[key] = storageData[key] || '';
               }
             }
           }
         });
       });
-      data['construction_projects_list'] = localStorage.getItem('construction_projects_list') || '[]';
+      data['construction_projects_list'] = storageData['construction_projects_list'] || '[]';
     }
     return data;
   };
 
   // 1. Export JSON based on chosen scope
-  const handleExportJsonForScope = () => {
+  const handleExportJsonForScope = async () => {
     try {
-      const data = getStorageDataForScope(saveScope);
-      const jsonString = JSON.stringify(data, null, 2);
-
-      let filename = `Toan_Bo_Du_An_${Date.now()}.json`;
-      if (saveScope === 'active') {
-        const curName = projects.find(p => p.id === activeId)?.name || 'Du_An';
-        filename = `Du_An_${curName.replace(/\s+/g, '_')}_${Date.now()}.json`;
-      } else if (saveScope === 'selected') {
-        filename = `Bao_Cao_${selectedProjectIds.length}_Du_An_${Date.now()}.json`;
+      const data = await getStorageDataForScope(saveScope);
+      let filename = `Backup_TatCa_${Date.now()}.json`;
+      if (saveScope === 'active' && activeId) {
+        filename = `Backup_DA_${activeId}_${Date.now()}.json`;
       }
-
-      saveTextFile(jsonString, filename);
+      const jsonString = JSON.stringify(data, null, 2);
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      await downloadOrShareFile(filename, blob, 'application/json');
     } catch (e) {
       alert('Lỗi xuất tệp JSON: ' + (e instanceof Error ? e.message : String(e)));
     }
@@ -288,7 +296,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     try {
       setIsSavingCloudBackup(true);
       setCloudStatusMsg(null);
-      
+
       const scopeData = getStorageDataForScope(saveScope);
       const items = Object.keys(scopeData).map(k => ({ key: k, value: scopeData[k] }));
 
@@ -302,7 +310,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
       const defaultName = cloudBackupName.trim() || `Sao lưu ${scopeLabel} (${new Date().toLocaleDateString('vi-VN')} ${new Date().toLocaleTimeString('vi-VN')})`;
       await saveCloudBackup(defaultName, items);
-      
+
       setCloudBackupName('');
       setCloudStatusMsg({ type: 'success', text: '🎉 Tạo bản sao lưu Đám Mây thành công!' });
       await fetchCloudBackups();
@@ -357,7 +365,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       setCloudStatusMsg(null);
       const curId = getActiveProjectId();
       const currentProj = projects.find(p => p.id === curId) || { id: curId, name: 'Dự án hiện tại' };
-      
+
       const projData = getStorageDataForScope('active');
 
       await saveProjectToCloud({
@@ -393,13 +401,13 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         for (const k in cloudPayload) {
           safeSetLocalStorageItem(k, cloudPayload[k]);
         }
-        
+
         const curList = getProjectsList();
         if (!curList.some(p => p.id === rec.id)) {
           curList.push({ id: rec.id, name: rec.name, createdAt: new Date().toISOString() });
           saveProjectsList(curList);
         }
-        
+
         setActiveProject(rec.id);
         alert(`🎉 Tải dữ liệu dự án "${rec.name}" từ Đám Mây thành công! Ứng dụng sẽ tự động tải lại.`);
         window.location.reload();
@@ -487,14 +495,14 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         name: newProjectName.trim(),
         createdAt: new Date().toISOString(),
       };
-      
+
       let hadQuotaIssue = false;
 
       if (duplicateFromCurrent) {
         const activeSuffix = activeId === 'default' ? '' : `_${activeId}`;
         const newSuffix = `_${newProjectId}`;
         const keysToCopy: string[] = [];
-        
+
         for (let i = 0; i < localStorage.length; i++) {
           const k = localStorage.key(i);
           if (k && k.startsWith('construction_') && k !== 'construction_projects_list') {
@@ -509,7 +517,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             }
           }
         }
-        
+
         keysToCopy.forEach(k => {
           const val = localStorage.getItem(k);
           let newKey = activeId === 'default' ? `${k}${newSuffix}` : k.replace(activeSuffix, newSuffix);
@@ -519,7 +527,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           }
         });
       }
-      
+
       safeSetLocalStorageItem(`construction_project_name_${newProjectId}`, newProjectName.trim());
 
       const updated = [...projects, newProject];
@@ -544,20 +552,24 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     setConfirmDeleteId(id);
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (!confirmDeleteId) return;
+
     const updated = projects.filter(p => p.id !== confirmDeleteId);
     saveProjectsList(updated);
     setProjects(updated);
-    
+
     const keysToRemove: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
+    const allKeys = await getStorageKeys();
+    for (const k of allKeys) {
       if (k && (k.endsWith(`_${confirmDeleteId}`) || k === `construction_project_name_${confirmDeleteId}`)) {
         keysToRemove.push(k);
       }
     }
-    keysToRemove.forEach(k => localStorage.removeItem(k));
+
+    for (const k of keysToRemove) {
+      await removeAsyncItem(k);
+    }
 
     if (confirmDeleteId === activeId) {
       setActiveProject(updated[0].id);
@@ -579,28 +591,32 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
   if (!isOpen) return null;
 
-  const filteredProjects = projects.filter(p => 
+  const filteredProjects = projects.filter(p =>
     p.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
     <div className="fixed inset-0 bg-slate-900/65 backdrop-blur-md z-50 flex items-center justify-center p-3 md:p-4 animate-in fade-in duration-200">
       <div className="bg-white w-full max-w-lg rounded-2xl p-4 md:p-6 shadow-2xl relative border border-slate-100 flex flex-col max-h-[92vh] overflow-hidden">
-        
+
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-indigo-600 text-white rounded-xl shadow-md">
-              <Database className="w-5 h-5" />
+            <div className={`p-2.5 text-white rounded-xl shadow-md transition-colors ${modalTab === 'sync' ? 'bg-emerald-600' : 'bg-indigo-600'}`}>
+              {modalTab === 'sync' ? <RefreshCw className="w-5 h-5" /> : <Building2 className="w-5 h-5" />}
             </div>
             <div>
               <h2 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
-                Trung Tâm Lưu &amp; Đồng Bộ Dự Án
+                {modalTab === 'sync' ? 'Trung Tâm Lưu & Đồng Bộ Dự Án' : 'Quản Lý Danh Sách Dự Án'}
               </h2>
-              <p className="text-[11px] text-slate-500 font-medium">Lưu trữ cục bộ, Đám mây Firebase, Google Drive &amp; quản lý dự án</p>
+              <p className="text-[11px] text-slate-500 font-medium">
+                {modalTab === 'sync'
+                  ? 'Lưu trữ cục bộ, Đám mây Firebase, Google Drive & Google Sheets'
+                  : 'Tạo mới, chuyển đổi, tìm kiếm và quản lý danh sách dự án công trình'}
+              </p>
             </div>
           </div>
-          <button 
+          <button
             onClick={onClose}
             className="text-slate-400 hover:text-slate-600 bg-slate-100 hover:bg-slate-200 p-2 rounded-full transition-colors cursor-pointer"
             title="Đóng"
@@ -609,35 +625,9 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           </button>
         </div>
 
-        {/* Navigation Tabs Bar */}
-        <div className="flex items-center justify-between bg-slate-100 p-1 rounded-xl my-3 shrink-0">
-          <button
-            onClick={() => setModalTab('sync')}
-            className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-extrabold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-              modalTab === 'sync' 
-                ? 'bg-white text-indigo-700 shadow-sm' 
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Cloud className="w-4 h-4 text-indigo-600" />
-            <span>Lưu &amp; Đồng Bộ</span>
-          </button>
-          <button
-            onClick={() => setModalTab('projects')}
-            className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-extrabold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-              modalTab === 'projects' 
-                ? 'bg-white text-indigo-700 shadow-sm' 
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Building2 className="w-4 h-4 text-indigo-600" />
-            <span>Danh Sách Dự Án ({projects.length})</span>
-          </button>
-        </div>
-
         {/* Error Alert */}
         {errorMessage && (
-          <div className="mb-3 p-2.5 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-center justify-between shrink-0">
+          <div className="mt-3 mb-1 p-2.5 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0" />
               <span>{errorMessage}</span>
@@ -649,12 +639,12 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         )}
 
         {/* Content Body */}
-        <div className="flex-1 overflow-y-auto pr-1 space-y-4">
+        <div className="flex-1 overflow-y-auto pr-1 space-y-4 pt-3">
 
           {/* TAB 1: SAVING & SYNC HUB */}
           {modalTab === 'sync' && (
             <div className="space-y-4">
-              
+
               {/* 🎯 SECTION 1: SCOPE SELECTOR */}
               <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/80 space-y-2">
                 <div className="flex items-center justify-between">
@@ -677,8 +667,8 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     type="button"
                     onClick={() => setSaveScope('active')}
                     className={`py-2 px-1 rounded-lg text-[11px] font-extrabold transition-all flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
-                      saveScope === 'active' 
-                        ? 'bg-indigo-600 text-white shadow-xs' 
+                      saveScope === 'active'
+                        ? 'bg-indigo-600 text-white shadow-xs'
                         : 'text-slate-600 hover:bg-slate-50'
                     }`}
                   >
@@ -689,8 +679,8 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     type="button"
                     onClick={() => setSaveScope('selected')}
                     className={`py-2 px-1 rounded-lg text-[11px] font-extrabold transition-all flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
-                      saveScope === 'selected' 
-                        ? 'bg-indigo-600 text-white shadow-xs' 
+                      saveScope === 'selected'
+                        ? 'bg-indigo-600 text-white shadow-xs'
                         : 'text-slate-600 hover:bg-slate-50'
                     }`}
                   >
@@ -701,8 +691,8 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     type="button"
                     onClick={() => setSaveScope('all')}
                     className={`py-2 px-1 rounded-lg text-[11px] font-extrabold transition-all flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
-                      saveScope === 'all' 
-                        ? 'bg-indigo-600 text-white shadow-xs' 
+                      saveScope === 'all'
+                        ? 'bg-indigo-600 text-white shadow-xs'
                         : 'text-slate-600 hover:bg-slate-50'
                     }`}
                   >
@@ -725,7 +715,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                         const isChecked = selectedProjectIds.includes(p.id);
                         return (
                           <label key={p.id} className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-slate-50 cursor-pointer text-xs">
-                            <input 
+                            <input
                               type="checkbox"
                               checked={isChecked}
                               onChange={() => toggleSelectProject(p.id)}
@@ -753,8 +743,8 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
               {/* Status Message Alert */}
               {cloudStatusMsg && (
                 <div className={`p-3 rounded-xl border font-bold text-xs flex items-center justify-between animate-in fade-in duration-150 ${
-                  cloudStatusMsg.type === 'success' 
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-900' 
+                  cloudStatusMsg.type === 'success'
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
                     : 'bg-rose-50 border-rose-200 text-rose-900'
                 }`}>
                   <div className="flex items-center gap-2">
@@ -892,6 +882,114 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     )}
                   </div>
                 )}
+
+                {/* Multi-Version Backup & Restore system (Lịch Sử Bản Sao Lưu) */}
+                <div className="pt-2 border-t border-slate-100 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-slate-800 flex items-center gap-1.5">
+                      <History className="w-3.5 h-3.5 text-indigo-600" />
+                      Lịch Sử Sao Lưu & Khôi Phục Phiên Bản
+                    </span>
+                    <span className="text-[9px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono">
+                      Tối đa: {localStorage.getItem('construction_max_autosave_versions') || '15'} bản
+                    </span>
+                  </div>
+
+                  <div className="flex gap-2 items-center bg-slate-50 p-2 rounded-xl border border-slate-100">
+                    <span className="text-[10px] text-slate-500 font-bold flex-1">
+                      Tự động lưu với số bản tối đa:
+                    </span>
+                    <select
+                      value={localStorage.getItem('construction_max_autosave_versions') || '15'}
+                      onChange={(e) => {
+                        localStorage.setItem('construction_max_autosave_versions', e.target.value);
+                        // Force state update to refresh local view
+                        setProjects(getProjectsList());
+                      }}
+                      className="py-1 px-2 bg-white border border-slate-300 rounded-lg text-[10px] font-extrabold text-slate-700 outline-none focus:border-indigo-500 cursor-pointer"
+                    >
+                      <option value="5">Lưu 5 bản</option>
+                      <option value="10">Lưu 10 bản</option>
+                      <option value="15">Lưu 15 bản</option>
+                      <option value="20">Lưu 20 bản</option>
+                      <option value="30">Lưu 30 bản</option>
+                      <option value="50">Lưu 50 bản</option>
+                    </select>
+                  </div>
+
+                  {autosaveVersions.length === 0 ? (
+                    <div className="text-center py-4 text-slate-400 text-[10px] bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                      Chưa có phiên bản sao lưu nào. Hệ thống sẽ tự động sao lưu khi phát sinh thay đổi dữ liệu.
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 max-h-[180px] overflow-y-auto pr-1 bg-slate-50 p-1.5 rounded-xl border border-slate-100">
+                      {autosaveVersions.map((ver) => {
+                        const dateStr = new Date(ver.timestamp).toLocaleString('vi-VN', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          day: '2-digit',
+                          month: '2-digit',
+                        });
+                        return (
+                          <div
+                            key={ver.id}
+                            className="bg-white border border-slate-200 rounded-lg p-2 flex items-center justify-between gap-1.5 shadow-2xs hover:border-indigo-300 transition-all text-[10px]"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1 flex-wrap">
+                                <span
+                                  className={`px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase tracking-wider ${
+                                    ver.type === 'manual'
+                                      ? 'bg-indigo-100 text-indigo-800'
+                                      : ver.type === 'monthly'
+                                      ? 'bg-purple-100 text-purple-800'
+                                      : ver.type === 'weekly'
+                                      ? 'bg-blue-100 text-blue-800'
+                                      : ver.type === 'daily'
+                                      ? 'bg-emerald-100 text-emerald-800'
+                                      : 'bg-amber-100 text-amber-800'
+                                  }`}
+                                >
+                                  {ver.typeLabel}
+                                </span>
+                                <span className="text-slate-400 text-[9px] font-medium">{dateStr}</span>
+                              </div>
+                              <p className="font-bold text-slate-700 truncate text-[10px] mt-0.5">{ver.projectName}</p>
+                              <p className="text-slate-400 text-[9px] truncate">{ver.stats}</p>
+                            </div>
+
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => onRestoreAutoSaveVersion && onRestoreAutoSaveVersion(ver.data)}
+                                className="px-1.5 py-0.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded transition-colors cursor-pointer text-[9.5px]"
+                              >
+                                Phục Hồi
+                              </button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if (await confirmAsync('Bạn có chắc muốn xóa bản sao lưu này?')) {
+                                    const raw = localStorage.getItem('construction_autosave_versions');
+                                    let versions: any[] = raw ? JSON.parse(raw) : [];
+                                    versions = versions.filter((v: any) => v.id !== ver.id);
+                                    localStorage.setItem('construction_autosave_versions', JSON.stringify(versions));
+                                    // Refresh view
+                                    setProjects(getProjectsList());
+                                  }
+                                }}
+                                className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
+                                title="Xóa bản sao lưu"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* ☁️ SECTION 3: CLOUD SYNC & SNAPSHOTS (FIREBASE) */}
@@ -1034,12 +1132,12 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           {/* TAB 2: PROJECTS LIST & MANAGEMENT */}
           {modalTab === 'projects' && (
             <div className="space-y-3">
-              
+
               {/* Search Bar */}
               {projects.length > 2 && (
                 <div className="relative">
                   <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                  <input 
+                  <input
                     type="text"
                     placeholder="Tìm kiếm dự án..."
                     value={searchQuery}
@@ -1086,11 +1184,11 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     const isEditing = editingProjectId === proj.id;
 
                     return (
-                      <div 
-                        key={proj.id} 
+                      <div
+                        key={proj.id}
                         className={`p-3 rounded-2xl border transition-all ${
-                          isActive 
-                            ? 'bg-gradient-to-r from-indigo-50/90 to-blue-50/50 border-indigo-300 ring-2 ring-indigo-500/20 shadow-xs' 
+                          isActive
+                            ? 'bg-gradient-to-r from-indigo-50/90 to-blue-50/50 border-indigo-300 ring-2 ring-indigo-500/20 shadow-xs'
                             : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/60'
                         }`}
                       >
@@ -1126,7 +1224,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                           </div>
                         ) : (
                           <div className="flex items-center justify-between gap-3">
-                            <div 
+                            <div
                               className="flex-1 min-w-0 cursor-pointer"
                               onClick={() => handleSwitchProject(proj.id)}
                             >
@@ -1140,7 +1238,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                                 Khởi tạo: {new Date(proj.createdAt).toLocaleDateString('vi-VN')}
                               </p>
                             </div>
-                            
+
                             <div className="flex items-center gap-1.5 shrink-0">
                               {isActive ? (
                                 <span className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-indigo-600 text-white px-2.5 py-1 rounded-lg shadow-xs">
@@ -1148,7 +1246,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                                   Đang mở
                                 </span>
                               ) : (
-                                <button 
+                                <button
                                   type="button"
                                   onClick={() => handleSwitchProject(proj.id)}
                                   className="text-[11px] font-extrabold bg-slate-100 hover:bg-indigo-600 hover:text-white text-slate-700 px-3 py-1 rounded-lg transition-all cursor-pointer"
@@ -1156,7 +1254,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                                   Mở
                                 </button>
                               )}
-                              
+
                               <button
                                 type="button"
                                 onClick={(e) => handleStartRename(proj, e)}
@@ -1187,7 +1285,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
               {/* Create New Project Section */}
               {isCreating ? (
-                <form 
+                <form
                   onSubmit={(e) => {
                     e.preventDefault();
                     handleCreateProject();
@@ -1209,9 +1307,9 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   />
 
                   <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer bg-white p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors">
-                    <input 
-                      type="checkbox" 
-                      checked={duplicateFromCurrent} 
+                    <input
+                      type="checkbox"
+                      checked={duplicateFromCurrent}
                       onChange={(e) => setDuplicateFromCurrent(e.target.checked)}
                       className="w-4 h-4 mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
                     />

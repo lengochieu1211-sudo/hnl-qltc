@@ -1,9 +1,7 @@
 export function stripHeavyImages(obj: any): any {
   if (!obj) return obj;
   if (typeof obj === 'string') {
-    if (obj.startsWith('data:image') || (obj.length > 5000 && obj.includes('base64'))) {
-      return '';
-    }
+    // Keep data:image (floor plans & defect photos) intact so user uploads are never lost
     return obj;
   }
   if (Array.isArray(obj)) {
@@ -27,7 +25,7 @@ export function safeSetLocalStorageItem(key: string, value: string): boolean {
     return true;
   } catch (e: any) {
     console.warn(`localStorage setItem failed for key "${key}", attempting cleaning...`, e);
-    
+
     // Attempt 1: If stringified JSON, strip heavy base64 images to free up space
     if (value && (value.startsWith('{') || value.startsWith('['))) {
       try {

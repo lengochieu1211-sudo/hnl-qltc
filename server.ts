@@ -13,13 +13,9 @@ const safeFilename = typeof __filename !== 'undefined' ? __filename : process.cw
 const safeDirname = typeof __dirname !== 'undefined'
   ? __dirname
   : path.dirname(safeFilename);
-const isProductionServer =
-  process.env.NODE_ENV === 'production' ||
-  safeFilename.endsWith('server.cjs') ||
-  safeDirname.endsWith(`${path.sep}dist`);
 
 const app = express();
-const PORT = Number(process.env.PORT || 3000);
+const PORT = 3000;
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
@@ -29,7 +25,6 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 // OAuth Token Memory Store per Session ID (Isolated per user/browser)
 const userTokensStore = new Map<string, any>();
-const authStateStore = new Map<string, { sid: string; createdAt: number }>();
 
 function parseCookies(cookieHeader?: string): Record<string, string> {
   const list: Record<string, string> = {};
@@ -45,7 +40,7 @@ function parseCookies(cookieHeader?: string): Record<string, string> {
 
 function getSessionId(req?: express.Request, res?: express.Response): string {
   if (!req) return 'default_session';
-  
+
   // Header or query override
   const headerSid = (req.headers['x-session-id'] as string) || (req.query.sid as string);
   if (headerSid) return headerSid;
@@ -67,11 +62,8 @@ function getUserTokens(req?: express.Request): any {
   return userTokensStore.get(sid) || null;
 }
 
-function setUserTokens(tokens: any, req?: express.Request, res?: express.Response, explicitSid?: string): void {
-  const sid = explicitSid || getSessionId(req, res);
-  if (explicitSid && res) {
-    res.setHeader('Set-Cookie', `sid=${explicitSid}; Path=/; HttpOnly; SameSite=Lax`);
-  }
+function setUserTokens(tokens: any, req?: express.Request, res?: express.Response): void {
+  const sid = getSessionId(req, res);
   userTokensStore.set(sid, tokens);
 }
 
@@ -83,7 +75,7 @@ function clearUserTokens(req?: express.Request, res?: express.Response): void {
 function getOAuth2Client(req?: express.Request) {
   const clientId = process.env.CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET;
-  
+
   let appUrl = process.env.APP_URL;
   if (!appUrl && req) {
     const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
@@ -101,21 +93,6 @@ function getOAuth2Client(req?: express.Request) {
   }
 
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
-}
-
-function createAuthState(sid: string): string {
-  const state = 'state_' + Math.random().toString(36).substring(2) + Date.now().toString(36);
-  authStateStore.set(state, { sid, createdAt: Date.now() });
-  return state;
-}
-
-function consumeAuthState(state?: string): string | null {
-  if (!state) return null;
-  const record = authStateStore.get(state);
-  authStateStore.delete(state);
-  if (!record) return null;
-  if (Date.now() - record.createdAt > 10 * 60 * 1000) return null;
-  return record.sid;
 }
 
 function getAuthenticatedAuthClient(req?: express.Request) {
@@ -146,12 +123,10 @@ app.get('/api/auth/url', (req, res) => {
     'https://www.googleapis.com/auth/userinfo.email',
   ];
 
-  const sid = getSessionId(req, res);
   const authUrl = oauth2Client.generateAuthUrl({
     access_type: 'offline',
     scope: scopes,
     prompt: 'consent',
-    state: createAuthState(sid),
   });
 
   return res.json({ url: authUrl, configured: true });
@@ -159,7 +134,6 @@ app.get('/api/auth/url', (req, res) => {
 
 app.get('/api/auth/callback', async (req, res) => {
   const code = req.query.code as string;
-  const authState = typeof req.query.state === 'string' ? req.query.state : undefined;
   if (!code) {
     return res.status(400).send('Authorization code missing');
   }
@@ -171,7 +145,7 @@ app.get('/api/auth/callback', async (req, res) => {
 
   try {
     const { tokens } = await oauth2Client.getToken(code);
-    setUserTokens(tokens, req, res, consumeAuthState(authState) || undefined);
+    setUserTokens(tokens, req, res);
     oauth2Client.setCredentials(tokens);
 
     // Get user info if possible
@@ -444,7 +418,7 @@ app.post('/api/sheets/sync-all', async (req, res) => {
 
 app.post('/api/drive/upload-image', upload.single('file'), async (req, res) => {
   const authClient = getAuthenticatedAuthClient(req);
-  
+
   // Base64 or multipart support
   let fileBuffer: Buffer | null = null;
   let fileName = req.body.fileName || `construction_upload_${Date.now()}.png`;
@@ -657,7 +631,7 @@ app.post('/api/drive/sync-up', async (req, res) => {
             });
 
             const imgId = imgFile.data.id!;
-            
+
             // Try to set public read permission on individual file
             try {
               await drive.permissions.create({
@@ -715,7 +689,7 @@ app.post('/api/drive/sync-up', async (req, res) => {
             });
 
             const imgId = imgFile.data.id!;
-            
+
             // Try to set public read permission on individual file
             try {
               await drive.permissions.create({
@@ -816,8 +790,8 @@ app.post('/api/drive/sync-up', async (req, res) => {
       fileId,
       webViewLink,
       updatedAt: updatedAt || Date.now(),
-      message: hasUploadedImages 
-        ? 'Đã tự động tải cấu hình & các tệp tin hình ảnh riêng biệt lên thư mục Google Drive thành công!' 
+      message: hasUploadedImages
+        ? 'Đã tự động tải cấu hình & các tệp tin hình ảnh riêng biệt lên thư mục Google Drive thành công!'
         : 'Đã tự động tải cấu hình & dữ liệu thi công lên thư mục Google Drive thành công!',
       data: {
         projectName: projectName || 'Công Trình Mẫu',
@@ -854,7 +828,7 @@ app.post('/api/drive/upload-report', async (req, res) => {
 
   try {
     const drive = google.drive({ version: 'v3', auth: authClient });
-    
+
     // Decode base64 to buffer
     const fileBuffer = Buffer.from(base64Data, 'base64');
     const stream = new Readable();
@@ -1076,12 +1050,17 @@ app.post('/api/drive/sync-down-all', async (req, res) => {
   }
 });
 
+// Redirect legacy icon.png and apple-touch-icon.png requests to the custom rounded icon.svg
+app.get(['/icon.png', '/apple-touch-icon.png', '/apple-touch-icon-precomposed.png'], (req, res) => {
+  res.redirect('/icon.svg');
+});
+
 // ==========================================
 // VITE & APP STARTUP
 // ==========================================
 
 async function startServer() {
-  if (!isProductionServer) {
+  if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },

@@ -2,6 +2,10 @@ import * as XLSX from 'xlsx';
 
 type AndroidExportBridge = {
   saveBase64File?: (fileName: string, mimeType: string, base64Data: string) => void;
+  beginBase64File?: (sessionId: string, fileName: string, mimeType: string) => boolean;
+  appendBase64Chunk?: (sessionId: string, base64Chunk: string) => boolean;
+  finishBase64File?: (sessionId: string) => boolean;
+  abortBase64File?: (sessionId: string) => void;
   saveHtmlPdf?: (fileName: string, htmlBase64: string) => void;
 };
 
@@ -64,7 +68,34 @@ export async function saveBlob(blob: Blob, fileName: string, mimeType = blob.typ
 
   if (isAndroidExportBridgeAvailable()) {
     const base64Data = await blobToBase64(blob);
-    window.AndroidExport!.saveBase64File!(safeName, mimeType, base64Data);
+    const bridge = window.AndroidExport!;
+    if (
+      typeof bridge.beginBase64File === 'function'
+      && typeof bridge.appendBase64Chunk === 'function'
+      && typeof bridge.finishBase64File === 'function'
+    ) {
+      const sessionId = `export_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const chunkSize = 256 * 1024;
+      try {
+        if (!bridge.beginBase64File(sessionId, safeName, mimeType)) {
+          throw new Error('Android export session failed to start.');
+        }
+        for (let i = 0; i < base64Data.length; i += chunkSize) {
+          if (!bridge.appendBase64Chunk(sessionId, base64Data.slice(i, i + chunkSize))) {
+            throw new Error('Android export chunk failed.');
+          }
+        }
+        if (!bridge.finishBase64File(sessionId)) {
+          throw new Error('Android export failed to finish.');
+        }
+      } catch (err) {
+        bridge.abortBase64File?.(sessionId);
+        throw err;
+      }
+      return;
+    }
+
+    bridge.saveBase64File!(safeName, mimeType, base64Data);
     return;
   }
 
@@ -73,13 +104,13 @@ export async function saveBlob(blob: Blob, fileName: string, mimeType = blob.typ
 
 export function saveTextFile(text: string, fileName: string, mimeType = 'application/json;charset=utf-8') {
   const blob = new Blob([text], { type: mimeType });
-  void saveBlob(blob, fileName, mimeType);
+  return saveBlob(blob, fileName, mimeType);
 }
 
 export function saveWorkbookFile(workbook: XLSX.WorkBook, fileName: string) {
   const data = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
   const blob = new Blob([data], { type: EXCEL_MIME });
-  void saveBlob(blob, fileName, EXCEL_MIME);
+  return saveBlob(blob, fileName, EXCEL_MIME);
 }
 
 export function saveHtmlPdf(html: string, fileName: string) {

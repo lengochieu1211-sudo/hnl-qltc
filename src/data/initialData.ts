@@ -168,13 +168,13 @@ export const DEMO_FLOOR_PLANS: Record<string, string> = {
       <!-- Rooms -->
       <rect x="40" y="40" width="330" height="240" fill="#f8fafc" stroke="#475569" stroke-width="3"/>
       <text x="50" y="70" font-family="sans-serif" font-weight="bold" font-size="16" fill="#1e293b">PHÒNG KHÁCH (Lắp Khung C &amp; Bắn Tấm 9mm)</text>
-      
+
       <rect x="410" y="40" width="350" height="240" fill="#f8fafc" stroke="#475569" stroke-width="3"/>
       <text x="420" y="70" font-family="sans-serif" font-weight="bold" font-size="16" fill="#1e293b">KHU VỰC BẾP &amp; SẢNH (Khung Chìm Chống Ẩm)</text>
-      
+
       <rect x="40" y="320" width="400" height="240" fill="#f8fafc" stroke="#475569" stroke-width="3"/>
       <text x="50" y="350" font-family="sans-serif" font-weight="bold" font-size="16" fill="#1e293b">PHÒNG LÀM VIỆC (Trần Giật Cấp Hắt Đèn)</text>
-      
+
       <rect x="480" y="320" width="280" height="240" fill="#f8fafc" stroke="#475569" stroke-width="3"/>
       <text x="490" y="350" font-family="sans-serif" font-weight="bold" font-size="16" fill="#1e293b">KHU WC (Tấm Chống Nước 12mm)</text>
       <!-- Ceiling lights/vents markers -->
@@ -362,8 +362,10 @@ export const INITIAL_DEFECTS: DefectItem[] = [
     x: 28,
     y: 25,
     description: 'Bắn vít khoảng cách thưa >35cm ở góc tấm trần phòng khách, tấm bị võng nhẹ',
-    severity: 'Medium' as any,
+    severity: 'Trung bình',
     assignedTo: 'Đội thi công bắn tấm 1',
+    createdBy: 'Kỹ sư QC Nguyễn Văn Hải',
+    dueDate: '2026-08-07',
     status: 'Mới phát hiện',
     createdAt: '2026-08-05 09:30',
   },
@@ -377,6 +379,8 @@ export const INITIAL_DEFECTS: DefectItem[] = [
     description: 'Ty ren treo lỏng khiến dầm trần bị võng 12mm khu vực sảnh bếp',
     severity: 'Nghiêm trọng',
     assignedTo: 'Đội thợ khung trần Nam',
+    createdBy: 'Giám sát Bùi Hoàng',
+    dueDate: '2026-08-12',
     status: 'Đang sửa',
     createdAt: '2026-08-05 14:15',
   },
@@ -390,6 +394,8 @@ export const INITIAL_DEFECTS: DefectItem[] = [
     description: 'Chưa đục lỗ cấp nguồn đèn âm trần khu vực phòng ngủ 2',
     severity: 'Thấp',
     assignedTo: 'Đội điện nước',
+    createdBy: 'Giám sát Nguyễn Văn Bình',
+    dueDate: '2026-08-10',
     status: 'Mới phát hiện',
     createdAt: '2026-08-06 10:00',
   },

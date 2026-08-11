@@ -1,12 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import * as XLSX from 'xlsx';
-import { 
-  BarChart3, 
-  TrendingUp, 
-  CheckCircle2, 
-  Clock, 
-  Plus, 
-  Coins, 
+import {
+  BarChart3,
+  TrendingUp,
+  CheckCircle2,
+  Clock,
+  Plus,
+  Coins,
   Building,
   Edit2,
   Trash2,
@@ -15,16 +15,19 @@ import {
   Download,
   Upload
 } from 'lucide-react';
-import { WorkVolume, CategoryType, FloorPlan } from '../types';
+import { WorkVolume, CategoryType, FloorPlan, RoomProgressItem } from '../types';
 import { exportWorkVolumesTemplate } from '../utils/excelExport';
+import { confirmAsync } from '../utils/confirmAsync';
 
 interface WorkVolumeTabProps {
   workVolumes: WorkVolume[];
   floorPlans?: FloorPlan[];
+  roomProgressList?: RoomProgressItem[];
   onAddWorkVolume: (item: Omit<WorkVolume, 'id'>) => void;
   onSaveWorkVolume?: (item: Omit<WorkVolume, 'id'> & { id?: string }) => void;
   onUpdateActualVolume: (id: string, newActual: number) => void;
   onDeleteWorkVolume: (id: string) => void;
+  onDeleteMultipleWorkVolumes?: (ids: string[]) => void;
   onOpenExportPdf?: () => void;
   onExportExcel?: () => void;
   onUndo?: () => void;
@@ -36,10 +39,12 @@ interface WorkVolumeTabProps {
 export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   workVolumes,
   floorPlans = [],
+  roomProgressList = [],
   onAddWorkVolume,
   onSaveWorkVolume,
   onUpdateActualVolume,
   onDeleteWorkVolume,
+  onDeleteMultipleWorkVolumes,
   onOpenExportPdf,
   onExportExcel,
   onUndo,
@@ -56,8 +61,12 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
 
   // Extract unique categories from workVolumes
   const availableCategories = useMemo(() => {
-    const categories = new Set<string>(['khung_tran', 'ban_tam', 'son_ba']);
-    workVolumes.forEach((v) => categories.add(v.category));
+    const categories = new Set<string>();
+    workVolumes.forEach((v) => {
+      if (v.category && v.category.trim()) {
+        categories.add(v.category.trim());
+      }
+    });
     return Array.from(categories);
   }, [workVolumes]);
 
@@ -65,6 +74,9 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingVolume, setEditingVolume] = useState<WorkVolume | null>(null);
   const [deletingVolumeTarget, setDeletingVolumeTarget] = useState<WorkVolume | null>(null);
+  const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
+  const [isImportFromRoomsOpen, setIsImportFromRoomsOpen] = useState(false);
+  const [selectedRoomIdsForImport, setSelectedRoomIdsForImport] = useState<string[]>([]);
 
   // New Work Volume Form State
   const [title, setTitle] = useState('');
@@ -72,8 +84,17 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   const [category, setCategory] = useState<string>('khung_tran');
   const [unit, setUnit] = useState('m2');
   const [planned, setPlanned] = useState<number | ''>(350);
+  const [plannedStr, setPlannedStr] = useState<string>('350');
   const [actual, setActual] = useState<number | ''>(0);
   const [unitPrice, setUnitPrice] = useState<number | ''>(110000);
+  const [unitPriceStr, setUnitPriceStr] = useState<string>('110000');
+
+  // Keep floor state in sync with floorOptions
+  React.useEffect(() => {
+    if (!editingVolume && floorOptions.length > 0) {
+      setFloor(floorOptions[0]);
+    }
+  }, [floorOptions, editingVolume]);
 
   // Financial calculations
   const totals = useMemo(() => {
@@ -95,7 +116,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     return workVolumes.filter((item) => item.category === selectedCategory);
   }, [workVolumes, selectedCategory]);
 
-  const handleCloseModal = () => {
+  const handleCloseModal = async () => {
     setShowAddForm(false);
     setEditingVolume(null);
     setTitle('');
@@ -103,8 +124,10 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     setCategory('khung_tran');
     setUnit('m2');
     setPlanned(350);
+    setPlannedStr('350');
     setActual(0);
     setUnitPrice(110000);
+    setUnitPriceStr('110000');
   };
 
   const handleAddSubmit = (e: React.FormEvent) => {
@@ -149,7 +172,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
         const data = new Uint8Array(event.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
@@ -176,7 +199,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           }
         });
 
-        const confirmMerge = window.confirm(
+        const confirmMerge = await confirmAsync(
           `📂 Phát hiện ${jsonData.length} hạng mục trong tệp Excel (${existingMatchCount} hạng mục trùng tên & tầng đã có sẵn, ${newCount} mới).\n\n` +
           `• Bấm "OK" để CẬP NHẬT thông tin các hạng mục cũ & THÊM MỚI các hạng mục chưa có.\n` +
           `• Bấm "Cancel" để Hủy thao tác.`
@@ -245,7 +268,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   };
 
   const formatVND = (num: number) => {
-    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(num);
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'VND' }).format(num);
   };
 
   return (
@@ -277,8 +300,30 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               className="hidden"
             />
           </label>
+          {roomProgressList && roomProgressList.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setIsImportFromRoomsOpen(true)}
+              className="text-[11px] font-extrabold text-blue-700 hover:text-blue-950 bg-blue-50 hover:bg-blue-100 px-2.5 py-1.5 rounded-xl flex items-center gap-1 border border-blue-200 transition-all active:scale-95 shadow-2xs"
+              title="Lấy thông tin và hạng mục con từ danh sách căn hộ / phòng"
+            >
+              <Building className="w-3.5 h-3.5" /> Lấy từ Căn Hộ
+            </button>
+          )}
           <button
-            onClick={() => setShowAddForm(true)}
+            onClick={async () => {
+              setTitle('');
+              setFloor(floorOptions[0] || 'Tầng 1');
+              setCategory('khung_tran');
+              setUnit('m2');
+              setPlanned(350);
+              setPlannedStr('350');
+              setActual(0);
+              setUnitPrice(110000);
+              setUnitPriceStr('110000');
+              setEditingVolume(null);
+              setShowAddForm(true);
+            }}
             className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white px-2.5 py-1.5 rounded-xl text-xs font-bold shadow active:scale-95 transition-all"
           >
             <Plus className="w-4 h-4" />
@@ -302,7 +347,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         {/* Progress Bar */}
         <div>
           <div className="w-full bg-slate-700/80 h-2.5 rounded-full overflow-hidden p-0.5">
-            <div 
+            <div
               className="bg-gradient-to-r from-blue-500 to-emerald-400 h-full rounded-full transition-all duration-500"
               style={{ width: `${totals.percent}%` }}
             />
@@ -322,123 +367,208 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       </div>
 
       {/* Filter Tabs */}
-      <div className="flex gap-1 overflow-x-auto pb-1 text-xs no-scrollbar">
-        {['all', ...availableCategories].map((catId) => {
-          const label = catId === 'all' ? 'Tất Cả' : 
-                        catId === 'khung_tran' ? ' Khung Trần' : 
-                        catId === 'ban_tam' ? ' Bắn Tấm' : 
-                        catId === 'son_ba' ? ' Sơn Bả' : catId;
-          return (
-            <button
-              key={catId}
-              onClick={() => setSelectedCategory(catId)}
-              className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition-all ${
-                selectedCategory === catId
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'bg-white text-slate-600 border border-slate-200'
-              }`}
-            >
-              {label}
-            </button>
-          );
-        })}
-      </div>
+      {availableCategories.length > 0 && (
+        <div className="flex gap-1 overflow-x-auto pb-1 text-xs no-scrollbar">
+          {['all', ...availableCategories].map((catId) => {
+            const label = catId === 'all' ? 'Tất Cả' :
+                          catId === 'khung_tran' ? ' Khung Trần' :
+                          catId === 'ban_tam' ? ' Bắn Tấm' :
+                          catId === 'son_ba' ? ' Sơn Bả' : catId;
+            return (
+              <button
+                key={catId}
+                onClick={() => setSelectedCategory(catId)}
+                className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition-all ${
+                  selectedCategory === catId
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'bg-white text-slate-600 border border-slate-200'
+                }`}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Items List */}
       <div className="space-y-3">
-        {filteredVolumes.map((item) => {
-          const itemPercent = Math.min(100, Math.round((item.actual / item.planned) * 100));
-          const isDone = item.actual >= item.planned;
+        {filteredVolumes.length > 0 && (
+          <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs gap-2">
+            <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={filteredVolumes.length > 0 && filteredVolumes.every(item => selectedItemIds.includes(item.id))}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    setSelectedItemIds(prev => Array.from(new Set([...prev, ...filteredVolumes.map(item => item.id)])));
+                  } else {
+                    setSelectedItemIds(prev => prev.filter(id => !filteredVolumes.some(item => item.id === id)));
+                  }
+                }}
+                className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+              />
+              <span>Chọn Tất Cả Trên Trang ({filteredVolumes.length})</span>
+            </label>
 
-          return (
-            <div
-              key={item.id}
-              className="bg-white rounded-2xl p-3.5 border border-slate-200 shadow-sm space-y-2.5"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <span className="bg-slate-100 text-slate-700 font-extrabold text-[10px] px-1.5 py-0.5 rounded">
-                      {item.floor}
-                    </span>
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                      isDone 
-                        ? 'bg-emerald-100 text-emerald-800' 
-                        : item.actual > 0 
-                        ? 'bg-blue-100 text-blue-800' 
-                        : 'bg-slate-100 text-slate-500'
-                    }`}>
-                      {isDone ? 'Đã hoàn thành' : item.actual > 0 ? 'Đang thi công' : 'Chưa làm'}
-                    </span>
-                  </div>
-                  <h4 className="text-xs font-bold text-slate-900">{item.title}</h4>
-                </div>
-
-                <div className="text-right shrink-0">
-                  <span className="text-xs font-extrabold text-blue-600">
-                    {itemPercent}%
-                  </span>
-                </div>
-              </div>
-
-              {/* Progress Bar per item */}
-              <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                <div 
-                  className={`h-full transition-all duration-300 ${
-                    isDone ? 'bg-emerald-500' : 'bg-blue-600'
-                  }`}
-                  style={{ width: `${itemPercent}%` }}
-                />
-              </div>
-
-              {/* Numerical breakdown */}
-              <div className="flex items-center justify-between text-xs bg-slate-50 p-2 rounded-xl">
-                <div>
-                  <span className="text-slate-500 text-[11px]">Thực hiện: </span>
-                  <span className="font-extrabold text-slate-900">
-                    {item.actual} / {item.planned} {item.unit}
-                  </span>
-                </div>
-                <div className="text-right">
-                  <span className="text-slate-500 text-[11px]">Đơn giá: </span>
-                  <span className="font-semibold text-slate-700">{(item.unitPrice ?? 0).toLocaleString('vi-VN')} đ</span>
-                </div>
-              </div>
-
-              {/* Action and financial details */}
-              <div className="flex items-center justify-between border-t border-slate-100 pt-2 text-xs">
-                <span className="text-[11px] text-slate-500">
-                  Thành tiền: <strong className="text-slate-800">{((item.actual ?? 0) * (item.unitPrice ?? 0)).toLocaleString('vi-VN')} đ</strong>
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => {
-                      setEditingVolume(item);
-                      setTitle(item.title);
-                      setFloor(item.floor);
-                      setCategory(item.category);
-                      setUnit(item.unit);
-                      setPlanned(item.planned);
-                      setActual(item.actual);
-                      setUnitPrice(item.unitPrice);
-                    }}
-                    className="text-amber-600 hover:text-amber-800 flex items-center gap-1 font-semibold text-[11px]"
-                    title="Chỉnh sửa thông tin hạng mục"
-                  >
-                    <Edit2 className="w-3 h-3" /> Sửa thông tin
-                  </button>
-                  <button
-                    onClick={() => setDeletingVolumeTarget(item)}
-                    className="text-rose-500 hover:text-rose-700 p-1"
-                    title="Xóa hạng mục khối lượng"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
+            <div className="flex items-center gap-3 justify-end">
+              {selectedItemIds.some(id => filteredVolumes.some(item => item.id === id)) && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const idsToDelete = selectedItemIds.filter(id => filteredVolumes.some(item => item.id === id));
+                    if (await confirmAsync(`Bạn có chắc muốn xóa ${idsToDelete.length} hạng mục đã chọn?`)) {
+                      if (onDeleteMultipleWorkVolumes) {
+                        onDeleteMultipleWorkVolumes(idsToDelete);
+                      } else {
+                        idsToDelete.forEach(id => onDeleteWorkVolume(id));
+                      }
+                      setSelectedItemIds(prev => prev.filter(id => !idsToDelete.includes(id)));
+                    }
+                  }}
+                  className="text-rose-600 hover:text-rose-700 font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Xóa Đã Chọn ({selectedItemIds.filter(id => filteredVolumes.some(item => item.id === id)).length})
+                </button>
+              )}
             </div>
-          );
-        })}
+          </div>
+        )}
+
+        {filteredVolumes.length === 0 ? (
+          <div className="bg-white rounded-2xl p-6 text-center text-slate-400 text-xs border border-dashed border-slate-300">
+            Chưa có hạng mục khối lượng nào phù hợp
+          </div>
+        ) : (
+          filteredVolumes.map((item) => {
+            const itemPercent = Math.min(100, Math.round((item.actual / item.planned) * 100));
+            const isDone = item.actual >= item.planned;
+
+            return (
+              <div
+                key={item.id}
+                className={`bg-white rounded-2xl p-3.5 border transition-all duration-150 space-y-2.5 ${
+                  selectedItemIds.includes(item.id)
+                    ? 'border-indigo-300 bg-indigo-50/10 shadow-xs'
+                    : 'border-slate-200 shadow-sm'
+                }`}
+              >
+                <div className="flex items-start gap-2.5">
+                  <input
+                    type="checkbox"
+                    checked={selectedItemIds.includes(item.id)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedItemIds(prev => [...prev, item.id]);
+                      } else {
+                        setSelectedItemIds(prev => prev.filter(id => id !== item.id));
+                      }
+                    }}
+                    className="mt-1 w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0"
+                  />
+
+                  <div className="flex-1 min-w-0 space-y-2.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <span className="bg-slate-100 text-slate-700 font-extrabold text-[10px] px-1.5 py-0.5 rounded">
+                            {item.floor}
+                          </span>
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                            isDone
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : item.actual > 0
+                              ? 'bg-blue-100 text-blue-800'
+                              : 'bg-slate-100 text-slate-500'
+                          }`}>
+                            {isDone ? 'Đã hoàn thành' : item.actual > 0 ? 'Đang thi công' : 'Chưa làm'}
+                          </span>
+                        </div>
+                        <h4 className="text-xs font-bold text-slate-900 leading-snug">{item.title}</h4>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <span className="text-xs font-extrabold text-blue-600">
+                          {itemPercent}%
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Progress Bar per item */}
+                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-300 ${
+                          isDone ? 'bg-emerald-500' : 'bg-blue-600'
+                        }`}
+                        style={{ width: `${itemPercent}%` }}
+                      />
+                    </div>
+
+                    {/* Numerical breakdown */}
+                    <div className="flex items-center justify-between text-xs bg-slate-50 p-2 rounded-xl">
+                      <div>
+                        <span className="text-slate-500 text-[11px]">Thực hiện: </span>
+                        <span className="font-extrabold text-slate-900">
+                          {item.actual} / {item.planned} {item.unit}
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-slate-500 text-[11px]">Đơn giá: </span>
+                        <span className="font-semibold text-slate-700">{(item.unitPrice ?? 0).toLocaleString('en-US')} đ</span>
+                      </div>
+                    </div>
+
+                    {/* Sub-items pulled from apartments */}
+                    {item.subItems && item.subItems.length > 0 && (
+                      <div className="flex flex-wrap gap-1 pt-1 border-t border-slate-100">
+                        <span className="text-[10px] font-bold text-slate-500">Hạng mục con:</span>
+                        {item.subItems.map((sub, sIdx) => (
+                          <span key={sIdx} className="bg-indigo-50 text-indigo-700 text-[10px] px-2 py-0.5 rounded-full font-medium">
+                            {sub}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Action and financial details */}
+                    <div className="flex items-center justify-between border-t border-slate-100 pt-2 text-xs">
+                      <span className="text-[11px] text-slate-500">
+                        Thành tiền: <strong className="text-slate-800">{((item.actual ?? 0) * (item.unitPrice ?? 0)).toLocaleString('en-US')} đ</strong>
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={async () => {
+                            setEditingVolume(item);
+                            setTitle(item.title);
+                            setFloor(item.floor);
+                            setCategory(item.category);
+                            setUnit(item.unit);
+                            setPlanned(item.planned);
+                            setPlannedStr(item.planned.toString());
+                            setActual(item.actual);
+                            setUnitPrice(item.unitPrice);
+                            setUnitPriceStr(item.unitPrice.toString());
+                          }}
+                          className="text-amber-600 hover:text-amber-800 flex items-center gap-1 font-semibold text-[11px]"
+                          title="Chỉnh sửa thông tin hạng mục"
+                        >
+                          <Edit2 className="w-3 h-3" /> Sửa thông tin
+                        </button>
+                        <button
+                          onClick={() => setDeletingVolumeTarget(item)}
+                          className="text-rose-500 hover:text-rose-700 p-1"
+                          title="Xóa hạng mục khối lượng"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
       </div>
 
       {/* Add / Edit Work Volume Modal */}
@@ -458,6 +588,43 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
             </div>
 
             <form onSubmit={handleAddSubmit} className="space-y-3 text-xs">
+              {roomProgressList && roomProgressList.length > 0 && !editingVolume && (
+                <div className="bg-blue-50/70 p-2.5 rounded-xl border border-blue-200 space-y-1">
+                  <label className="block text-[11px] font-extrabold text-blue-900">
+                    ⚡ Lấy thông tin nhanh từ Căn hộ / Phòng:
+                  </label>
+                  <select
+                    onChange={(e) => {
+                      const roomId = e.target.value;
+                      if (!roomId) return;
+                      const rm = roomProgressList.find(r => r.id === roomId);
+                      if (rm) {
+                        setTitle(rm.roomName + (rm.workCategory ? ` - ${rm.workCategory}` : ''));
+                        const fpName = floorPlans.find(f => f.id === rm.floorId)?.floorName || rm.floorName || floorOptions[0];
+                        setFloor(fpName);
+                        if (rm.workCategory) setCategory(rm.workCategory);
+                        if (rm.workVolume) {
+                          setPlanned(rm.workVolume);
+                          setPlannedStr(rm.workVolume.toString());
+                        }
+                        if (rm.volumeUnit) setUnit(rm.volumeUnit);
+                      }
+                    }}
+                    className="w-full text-xs bg-white border border-blue-300 rounded-lg p-2 font-bold text-blue-900 focus:outline-none"
+                  >
+                    <option value="">-- Chọn căn hộ / phòng để điền nhanh --</option>
+                    {roomProgressList.map(rm => {
+                      const fpName = floorPlans.find(f => f.id === rm.floorId)?.floorName || rm.floorName || '';
+                      return (
+                        <option key={rm.id} value={rm.id}>
+                          {rm.roomName} {fpName ? `(${fpName})` : ''} {rm.workCategory ? `- ${rm.workCategory}` : ''}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+              )}
+
               <div>
                 <label className="block text-slate-700 font-bold mb-1">Tên Hạng Mục Công Việc *</label>
                 <input
@@ -472,11 +639,18 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-slate-700 font-bold mb-1">Vị Trí Tầng</label>
+                  <label className="block text-slate-700 font-bold mb-1 flex items-center justify-between">
+                    <span>Vị Trí Tầng</span>
+                    {floorPlans && floorPlans.length > 0 && (
+                      <span className="text-[10px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100 font-bold">
+                        Đồng bộ từ Mặt Bằng
+                      </span>
+                    )}
+                  </label>
                   <select
                     value={floor}
                     onChange={(e) => setFloor(e.target.value)}
-                    className="w-full border border-slate-200 rounded-xl p-2.5"
+                    className="w-full border border-slate-200 rounded-xl p-2.5 font-bold text-slate-800"
                   >
                     {floorOptions.map((fName) => (
                       <option key={fName} value={fName}>{fName}</option>
@@ -496,8 +670,8 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                   <datalist id="category-options">
                     {availableCategories.map(catId => (
                       <option key={catId} value={catId}>
-                        {catId === 'khung_tran' ? 'Khung Trần' : 
-                         catId === 'ban_tam' ? 'Bắn Tấm' : 
+                        {catId === 'khung_tran' ? 'Khung Trần' :
+                         catId === 'ban_tam' ? 'Bắn Tấm' :
                          catId === 'son_ba' ? 'Sơn Bả' : catId}
                       </option>
                     ))}
@@ -511,10 +685,15 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                     KL Định Mức *
                   </div>
                   <input
-                    type="number"
-                    value={planned}
-                    onChange={(e) => setPlanned(e.target.value ? Number(e.target.value) : '')}
-                    className="w-full border border-slate-200 rounded-xl p-2.5 font-bold text-blue-600"
+                    type="text"
+                    inputMode="decimal"
+                    value={plannedStr}
+                    onChange={(e) => {
+                      const typedVal = e.target.value.replace(/,/g, '.');
+                      setPlannedStr(typedVal);
+                      setPlanned(typedVal === '' ? '' : Number(typedVal));
+                    }}
+                    className="w-full border border-slate-200 rounded-xl p-2.5 font-bold text-blue-600 focus:ring-2 focus:ring-blue-500"
                     required
                   />
                 </div>
@@ -524,11 +703,11 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                     <span className="text-[9px] text-emerald-600 font-semibold bg-emerald-50 px-1 py-0.5 rounded border border-emerald-100 shrink-0" title="Khối lượng thực hiện tự động cập nhật từ Mặt Bằng">🔗 MB</span>
                   </div>
                   <input
-                    type="number"
-                    value={actual}
+                    type="text"
+                    value={actual !== '' ? Number(actual).toLocaleString('en-US') : '0'}
                     disabled
                     readOnly
-                    className="w-full border border-slate-200 rounded-xl p-2.5 font-bold bg-slate-50 text-slate-500 cursor-not-allowed"
+                    className="w-full border border-slate-200 rounded-xl p-2.5 font-bold bg-slate-50 text-slate-500 cursor-not-allowed text-center"
                     title="Khối lượng thực hiện tự động cập nhật từ danh sách nghiệm thu ở mục Mặt Bằng"
                   />
                 </div>
@@ -548,11 +727,15 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               <div>
                 <label className="block text-slate-700 font-bold mb-1">Đơn Giá VNĐ / {unit}</label>
                 <input
-                  type="number"
-                  step="5000"
-                  value={unitPrice}
-                  onChange={(e) => setUnitPrice(e.target.value ? Number(e.target.value) : '')}
-                  className="w-full border border-slate-200 rounded-xl p-2.5 font-bold"
+                  type="text"
+                  inputMode="decimal"
+                  value={unitPriceStr}
+                  onChange={(e) => {
+                    const typedVal = e.target.value.replace(/,/g, '.');
+                    setUnitPriceStr(typedVal);
+                    setUnitPrice(typedVal === '' ? '' : Number(typedVal));
+                  }}
+                  className="w-full border border-slate-200 rounded-xl p-2.5 font-bold focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
 
@@ -600,13 +783,124 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => {
+                onClick={async () => {
                   onDeleteWorkVolume(deletingVolumeTarget.id);
                   setDeletingVolumeTarget(null);
                 }}
                 className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-xs shadow"
               >
                 Xác Nhận Xóa
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import From Rooms Modal */}
+      {isImportFromRoomsOpen && roomProgressList && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-5 max-w-md w-full space-y-4 max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <Building className="w-5 h-5 text-indigo-600" />
+                Lấy Hạng Mục &amp; Công Đoạn Từ Căn Hộ
+              </h3>
+              <button onClick={() => setIsImportFromRoomsOpen(false)} className="w-8 h-8 bg-slate-100 rounded-full font-bold text-slate-500">✕</button>
+            </div>
+            <p className="text-xs text-slate-500">
+              Chọn các căn hộ / phòng đã thiết lập trên mặt bằng để nhập tự động vào danh sách khối lượng thi công cùng với các hạng mục con (sub-items):
+            </p>
+
+            <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+              {roomProgressList.map((rm) => {
+                const fpName = floorPlans.find(f => f.id === rm.floorId)?.floorName || rm.floorName || 'Tầng 1';
+                const isSelected = selectedRoomIdsForImport.includes(rm.id);
+                return (
+                  <div
+                    key={rm.id}
+                    onClick={async () => {
+                      setSelectedRoomIdsForImport(prev =>
+                        isSelected ? prev.filter(id => id !== rm.id) : [...prev, rm.id]
+                      );
+                    }}
+                    className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                      isSelected ? 'border-indigo-500 bg-indigo-50/40 shadow-xs' : 'border-slate-200 bg-white hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => {}}
+                          className="w-4 h-4 rounded text-indigo-600 cursor-pointer"
+                        />
+                        <div>
+                          <h4 className="text-xs font-bold text-slate-900">{rm.roomName} <span className="text-[10px] text-slate-500 font-normal">({fpName})</span></h4>
+                          <p className="text-[11px] text-indigo-600 font-medium">{rm.workCategory || 'Chưa phân nhóm'}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-xs font-extrabold text-blue-600">{rm.workVolume || 100} {rm.volumeUnit || 'm2'}</span>
+                      </div>
+                    </div>
+                    {rm.subItems && rm.subItems.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-2 pt-2 border-t border-slate-100/80">
+                        <span className="text-[10px] text-slate-400">Công đoạn:</span>
+                        {rm.subItems.map((sub, idx) => (
+                          <span key={idx} className="bg-slate-100 text-slate-700 text-[9px] px-1.5 py-0.5 rounded">
+                            {sub.name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsImportFromRoomsOpen(false)}
+                className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl font-bold text-xs"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (selectedRoomIdsForImport.length === 0) {
+                    alert('Vui lòng chọn ít nhất một căn hộ / phòng!');
+                    return;
+                  }
+                  let addedCount = 0;
+                  selectedRoomIdsForImport.forEach(id => {
+                    const rm = roomProgressList.find(r => r.id === id);
+                    if (!rm) return;
+                    const fpName = floorPlans.find(f => f.id === rm.floorId)?.floorName || rm.floorName || 'Tầng 1';
+                    const subItemNames = rm.subItems ? rm.subItems.map(s => s.name) : [];
+
+                    onAddWorkVolume({
+                      title: `${rm.roomName} - ${rm.workCategory || 'Hạng mục chung'}`,
+                      floor: fpName,
+                      category: rm.workCategory || 'khung_tran',
+                      unit: rm.volumeUnit || 'm2',
+                      planned: rm.workVolume || 100,
+                      actual: 0,
+                      unitPrice: 110000,
+                      status: 'Chưa thi công',
+                      subItems: subItemNames
+                    });
+                    addedCount++;
+                  });
+                  alert(`Đã nhập thành công ${addedCount} hạng mục từ danh sách căn hộ!`);
+                  setSelectedRoomIdsForImport([]);
+                  setIsImportFromRoomsOpen(false);
+                }}
+                className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs shadow"
+              >
+                Nhập Vào Khối Lượng ({selectedRoomIdsForImport.length})
               </button>
             </div>
           </div>

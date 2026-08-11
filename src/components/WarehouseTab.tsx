@@ -1,14 +1,14 @@
 import React, { useState, useMemo } from 'react';
-import { 
-  ArrowDownLeft, 
-  ArrowUpRight, 
-  Plus, 
-  Search, 
-  PackageCheck, 
-  Layers, 
-  Calendar, 
-  User, 
-  MapPin, 
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  Plus,
+  Search,
+  PackageCheck,
+  Layers,
+  Calendar,
+  User,
+  MapPin,
   FileSpreadsheet,
   FileText,
   Trash2,
@@ -21,14 +21,16 @@ import {
   Upload
 } from 'lucide-react';
 import { InventoryItem, TransactionType, MaterialNorm, WorkVolume } from '../types';
-import { formatDateDDMMYYYY } from '../utils/dateFormatter';
+import { formatDateDDMMYYYY, formatExcelDate } from '../utils/dateFormatter';
 import * as XLSX from 'xlsx';
 import { exportWarehouseUpdateTemplate } from '../utils/excelExport';
+import { confirmAsync } from '../utils/confirmAsync';
 
 interface WarehouseTabProps {
   inventory: InventoryItem[];
   onAddInventory: (item: Omit<InventoryItem, 'id'>) => void;
   onDeleteInventory: (id: string) => void;
+  onDeleteMultipleInventory?: (ids: string[]) => void;
   onSyncSheets: () => void;
   materialNorms: MaterialNorm[];
   onOpenNormModal: () => void;
@@ -39,6 +41,7 @@ interface WarehouseTabProps {
   canUndo?: boolean;
   canRedo?: boolean;
   workVolumes?: WorkVolume[];
+  onImportInventory?: (inventory: InventoryItem[]) => void;
   onImportNorms?: (norms: MaterialNorm[]) => void;
   onImportWorkVolumes?: (volumes: WorkVolume[]) => void;
 }
@@ -47,6 +50,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   inventory,
   onAddInventory,
   onDeleteInventory,
+  onDeleteMultipleInventory,
   onSyncSheets,
   materialNorms,
   onOpenNormModal,
@@ -57,12 +61,14 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   canUndo,
   canRedo,
   workVolumes,
+  onImportInventory,
   onImportNorms,
   onImportWorkVolumes,
 }) => {
   const [filterType, setFilterType] = useState<'all' | 'in' | 'out'>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
+  const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
 
   // Drag and Drop state for Excel file
   const [isDraggingExcel, setIsDraggingExcel] = useState(false);
@@ -72,7 +78,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     setIsDraggingExcel(true);
   };
 
-  const handleDragLeaveExcel = () => {
+  const handleDragLeaveExcel = async () => {
     setIsDraggingExcel(false);
   };
 
@@ -92,46 +98,158 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     e.target.value = ''; // Reset input
   };
 
-  const processWarehouseUpdateExcel = (file: File) => {
+  const processWarehouseUpdateExcel = async (file: File) => {
     const reader = new FileReader();
-    reader.onload = (evt) => {
+    reader.onload = async (evt) => {
       try {
         const data = new Uint8Array(evt.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
-        
+
+        let inCount = 0;
+        let outCount = 0;
         let normsUpdatedCount = 0;
         let normsAddedCount = 0;
         let volumesUpdatedCount = 0;
         let volumesAddedCount = 0;
 
+        let newInventory = [...inventory];
         let newNorms = [...materialNorms];
         let newWorkVolumes = workVolumes ? [...workVolumes] : [];
 
-        // 1. Parse Sheet "Dinh Muc" / "Vat Tu" (Norms)
+        // 1. Sheet "Nhập Kho"
+        const inSheetName = workbook.SheetNames.find(
+          name => {
+            const n = name.toLowerCase();
+            return (n.includes('nhap') || n.includes('nhập')) && !n.includes('xuat') && !n.includes('xuất');
+          }
+        );
+
+        if (inSheetName) {
+          const sheet = workbook.Sheets[inSheetName];
+          const jsonData = XLSX.utils.sheet_to_json<any>(sheet);
+
+          jsonData.forEach((row, rIdx) => {
+            const materialNameRaw = row['Tên Vật Tư'] || row['Tên Vật Tư Thạch Cao'] || row['materialName'] || row['Vật tư'] || row['Vat tu'];
+            if (!materialNameRaw) return;
+
+            const materialNameStr = String(materialNameRaw).trim();
+            const quantityNum = Number(row['Số Lượng'] || row['quantity'] || 0);
+            if (isNaN(quantityNum) || quantityNum <= 0) return;
+
+            const unitStr = String(row['Đơn Vị Tính'] || row['unit'] || 'Tấm').trim();
+            const locationStr = String(row['Vị Trí Kho'] || row['Vị Trí Lưu Kho / Hạng Mục'] || row['location'] || 'Kho chính').trim();
+            const handlerStr = String(row['Người Thực Hiện'] || row['handler'] || 'Thủ kho').trim();
+            const rawDate = row['Ngày Thực Hiện'] || row['Ngày Lập Phiếu'] || row['date'];
+            const dateStr = formatExcelDate(rawDate);
+            const notesStr = String(row['Ghi Chú'] || row['notes'] || '').trim();
+            const rawId = row['Mã Phiếu'] || row['id'] || row['ID'];
+
+            const existingIdx = rawId ? newInventory.findIndex(i => i.id === String(rawId).trim()) : -1;
+
+            const invItem: InventoryItem = {
+              id: existingIdx >= 0 ? newInventory[existingIdx].id : (rawId ? String(rawId).trim() : `INV-IN-${Date.now()}-${rIdx}-${Math.random().toString(36).substring(2, 5)}`),
+              type: 'in',
+              materialName: materialNameStr,
+              unit: unitStr,
+              quantity: quantityNum,
+              location: locationStr,
+              handler: handlerStr,
+              date: dateStr,
+              notes: notesStr || undefined
+            };
+
+            if (existingIdx >= 0) {
+              newInventory[existingIdx] = invItem;
+            } else {
+              newInventory.unshift(invItem);
+            }
+            inCount++;
+          });
+        }
+
+        // 2. Sheet "Xuất Kho"
+        const outSheetName = workbook.SheetNames.find(
+          name => {
+            const n = name.toLowerCase();
+            return n.includes('xuat') || n.includes('xuất');
+          }
+        );
+
+        if (outSheetName) {
+          const sheet = workbook.Sheets[outSheetName];
+          const jsonData = XLSX.utils.sheet_to_json<any>(sheet);
+
+          jsonData.forEach((row, rIdx) => {
+            const materialNameRaw = row['Tên Vật Tư'] || row['Tên Vật Tư Thạch Cao'] || row['materialName'] || row['Vật tư'] || row['Vat tu'];
+            if (!materialNameRaw) return;
+
+            const materialNameStr = String(materialNameRaw).trim();
+            const quantityNum = Number(row['Số Lượng'] || row['quantity'] || 0);
+            if (isNaN(quantityNum) || quantityNum <= 0) return;
+
+            const unitStr = String(row['Đơn Vị Tính'] || row['unit'] || 'Tấm').trim();
+            const locationStr = String(row['Vị Trí Kho'] || row['Vị Trí Kho / Hạng Mục'] || row['Vị Trí Lưu Kho / Hạng Mục'] || row['location'] || 'Công trình').trim();
+            const handlerStr = String(row['Người Thực Hiện'] || row['handler'] || 'Thủ kho').trim();
+            const rawDate = row['Ngày Thực Hiện'] || row['Ngày Lập Phiếu'] || row['date'];
+            const dateStr = formatExcelDate(rawDate);
+            const notesStr = String(row['Ghi Chú'] || row['notes'] || '').trim();
+            const rawId = row['Mã Phiếu'] || row['id'] || row['ID'];
+
+            const existingIdx = rawId ? newInventory.findIndex(i => i.id === String(rawId).trim()) : -1;
+
+            const invItem: InventoryItem = {
+              id: existingIdx >= 0 ? newInventory[existingIdx].id : (rawId ? String(rawId).trim() : `INV-OUT-${Date.now()}-${rIdx}-${Math.random().toString(36).substring(2, 5)}`),
+              type: 'out',
+              materialName: materialNameStr,
+              unit: unitStr,
+              quantity: quantityNum,
+              location: locationStr,
+              handler: handlerStr,
+              date: dateStr,
+              notes: notesStr || undefined
+            };
+
+            if (existingIdx >= 0) {
+              newInventory[existingIdx] = invItem;
+            } else {
+              newInventory.unshift(invItem);
+            }
+            outCount++;
+          });
+        }
+
+        // 3. Sheet "Định Mức Vật Tư"
         const normSheetName = workbook.SheetNames.find(
-          name => name.toLowerCase().includes('dinh muc') || name.toLowerCase().includes('vat tu')
-        ) || workbook.SheetNames[0];
+          name => {
+            const n = name.toLowerCase();
+            return n.includes('dinh muc') || n.includes('định mức') || (n.includes('vat tu') && !n.includes('nhap') && !n.includes('xuat'));
+          }
+        );
 
         if (normSheetName) {
           const sheet = workbook.Sheets[normSheetName];
           const jsonData = XLSX.utils.sheet_to_json<any>(sheet);
-          
+
           jsonData.forEach((row, rIdx) => {
             const materialNameRaw = row['Tên Vật Tư'] || row['materialName'] || row['Vật tư'] || row['Vat tu'];
             if (!materialNameRaw) return;
 
             const materialNameStr = String(materialNameRaw).trim();
             const categoryStr = String(row['Chủng Loại'] || row['Phân Loại'] || row['category'] || 'Vật tư thạch cao').trim();
+            const workCategoryRaw = row['Tên Hạng Mục Thi Công'] || row['Hạng Mục Thi Công'] || row['Hạng mục thi công'] || row['Tên Hạng Mục'] || row['workCategory'];
+            const workCategoryStr = workCategoryRaw ? String(workCategoryRaw).trim() : undefined;
             const unitStr = String(row['Đơn Vị Tính'] || row['unit'] || 'Tấm').trim();
             const quotaQuantityNum = Number(row['Số Lượng Định Mức'] || row['quotaQuantity'] || 0);
             const unitNormPerM2Num = row['Định Mức / m2'] || row['Định Mức Hao Phí / m2'] || row['Định mức tiêu hao'] || row['unitNormPerM2'];
             const notesStr = String(row['Ghi Chú'] || row['notes'] || '').trim();
 
             const existingIdx = newNorms.findIndex(n => n.materialName.toLowerCase() === materialNameStr.toLowerCase());
-            
+
             const normData: MaterialNorm = {
               id: existingIdx >= 0 ? newNorms[existingIdx].id : `NORM-${Date.now()}-${rIdx}-${Math.random().toString(36).substring(2, 5)}`,
               category: categoryStr,
+              workCategory: workCategoryStr,
+              workCategories: workCategoryStr ? workCategoryStr.split(',').map(s => s.trim()).filter(Boolean) : undefined,
               materialName: materialNameStr,
               unit: unitStr,
               quotaQuantity: quotaQuantityNum,
@@ -149,15 +267,18 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           });
         }
 
-        // 2. Parse Sheet "Khoi Luong" / "Hang Muc" (Work Volumes)
+        // 4. Sheet "Hạng Mục Thi Công"
         const volumeSheetName = workbook.SheetNames.find(
-          name => name.toLowerCase().includes('khoi luong') || name.toLowerCase().includes('hang muc') || name.toLowerCase().includes('thi cong')
-        ) || workbook.SheetNames[1];
+          name => {
+            const n = name.toLowerCase();
+            return n.includes('khoi luong') || n.includes('khối lượng') || n.includes('hang muc') || n.includes('hạng mục');
+          }
+        );
 
         if (volumeSheetName && workVolumes) {
           const sheet = workbook.Sheets[volumeSheetName];
           const jsonData = XLSX.utils.sheet_to_json<any>(sheet);
-          
+
           jsonData.forEach((row, rIdx) => {
             const titleRaw = row['Tên Hạng Mục Công Việc'] || row['Tên Hạng Mục'] || row['Hạng mục'] || row['title'];
             if (!titleRaw) return;
@@ -198,26 +319,34 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           });
         }
 
-        // 3. Confirm with user and trigger updates
-        const confirmMsg = 
-          `📊 Kết quả phân tích tệp Excel:\n\n` +
-          `🔹 ĐỊNH MỨC VẬT TƯ:\n` +
-          `   • Cập nhật: ${normsUpdatedCount} định mức\n` +
-          `   • Thêm mới: ${normsAddedCount} định mức\n\n` +
-          `🔹 HẠNG MỤC THI CÔNG:\n` +
-          `   • Cập nhật: ${volumesUpdatedCount} hạng mục\n` +
-          `   • Thêm mới: ${volumesAddedCount} hạng mục\n\n` +
-          `Bạn có đồng ý áp dụng các thay đổi này vào hệ thống?`;
+        const totalItemsFound = inCount + outCount + normsUpdatedCount + normsAddedCount + volumesUpdatedCount + volumesAddedCount;
 
-        const confirmUpdate = window.confirm(confirmMsg);
+        if (totalItemsFound === 0) {
+          alert('⚠️ Không tìm thấy dữ liệu hợp lệ trong các trang Excel (Nhập Kho, Xuất Kho, Định Mức, Hạng Mục). Vui lòng kiểm tra định dạng file mẫu!');
+          return;
+        }
+
+        // Summary message
+        const confirmMsg =
+          `📊 Kết quả phân tích tệp Excel Kho & Vật Tư:\n\n` +
+          `📥 NHẬP KHO: ${inCount} phiếu nhập\n` +
+          `📤 XUẤT KHO: ${outCount} phiếu xuất\n` +
+          `📋 ĐỊNH MỨC VẬT TƯ: ${normsUpdatedCount} cập nhật, ${normsAddedCount} mới\n` +
+          `🏗️ HẠNG MỤC THI CÔNG: ${volumesUpdatedCount} cập nhật, ${volumesAddedCount} mới\n\n` +
+          `Bạn có đồng ý áp dụng các thay đổi này vào hệ thống không?`;
+
+        const confirmUpdate = await confirmAsync(confirmMsg);
         if (confirmUpdate) {
-          if (onImportNorms) {
+          if (onImportInventory && (inCount > 0 || outCount > 0)) {
+            onImportInventory(newInventory);
+          }
+          if (onImportNorms && (normsUpdatedCount > 0 || normsAddedCount > 0)) {
             onImportNorms(newNorms);
           }
-          if (onImportWorkVolumes && workVolumes) {
+          if (onImportWorkVolumes && workVolumes && (volumesUpdatedCount > 0 || volumesAddedCount > 0)) {
             onImportWorkVolumes(newWorkVolumes);
           }
-          alert('🎉 Đã cập nhật định mức vật tư và khối lượng hạng mục thi công thành công!');
+          alert('🎉 Đã cập nhật thành công dữ liệu Kho, Nhập Xuất, Định Mức và Hạng Mục!');
         }
       } catch (err: any) {
         alert(`❌ Lỗi đọc hoặc xử lý tệp Excel: ${err.message}`);
@@ -232,6 +361,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [customMaterial, setCustomMaterial] = useState('');
   const [unit, setUnit] = useState(materialNorms[0]?.unit || 'Tấm');
   const [quantity, setQuantity] = useState<number | ''>(100);
+  const [quantityStr, setQuantityStr] = useState<string>('100');
   const [location, setLocation] = useState('Kho Tầng 1');
   const [handler, setHandler] = useState('Nguyễn Văn Hùng (Thủ kho)');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -301,7 +431,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     (Object.entries(stockBalance) as [string, { inQty: number; outQty: number; balance: number; unit: string }][]).forEach(([name, data]) => {
       const matchedNorm = normMap[name.toLowerCase()];
       const quota = matchedNorm?.quotaQuantity;
-      
+
       if (quota && quota > 0) {
         const percent = Math.round((data.balance / quota) * 100);
         if (data.balance <= 0) {
@@ -371,7 +501,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     (Object.entries(stockBalance) as [string, { inQty: number; outQty: number; balance: number; unit: string }][]).forEach(([name, data]) => {
       const matchedNorm = normMap[name.toLowerCase()];
       const quota = matchedNorm?.quotaQuantity;
-      
+
       if (quota && quota > 0) {
         const percent = Math.round((data.inQty / quota) * 100);
         if (data.inQty > quota) {
@@ -439,7 +569,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const filteredInventory = useMemo(() => {
     return inventory.filter((item) => {
       const matchesType = filterType === 'all' || item.type === filterType;
-      const matchesSearch = 
+      const matchesSearch =
         item.materialName.toLowerCase().includes(searchTerm.toLowerCase()) ||
         item.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
         item.handler.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -503,6 +633,59 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         </div>
       </div>
 
+      {/* Excel Multi-Sheet Import / Export & Template Card */}
+      <div
+        onDragOver={handleDragOverExcel}
+        onDragLeave={handleDragLeaveExcel}
+        onDrop={handleDropExcel}
+        className={`bg-white border rounded-2xl p-3.5 space-y-2.5 transition-all shadow-3xs ${
+          isDraggingExcel
+            ? 'border-emerald-500 bg-emerald-50/50 scale-[1.01]'
+            : 'border-slate-200 hover:border-slate-300'
+        }`}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-2.5 min-w-0">
+            <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl shrink-0">
+              <FileSpreadsheet className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-bold text-xs text-slate-800">
+                Nhập / Tải Mẫu Excel Xuất &amp; Nhập Kho
+              </h3>
+              <p className="text-[11px] text-slate-500 leading-snug mt-0.5">
+                Mẫu Excel gồm các trang: <strong>Nhập Kho</strong>, <strong>Xuất Kho</strong>, <strong>Định Mức Vật Tư</strong> (có cột Tên Hạng Mục Thi Công) &amp; <strong>Tồn Kho</strong>. Chỉnh sửa và tải lên để cập nhật hàng loạt.
+              </p>
+            </div>
+          </div>
+          <span className="text-[9px] font-extrabold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md uppercase shrink-0">
+            4 TRANG
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 pt-0.5">
+          <button
+            type="button"
+            onClick={() => exportWarehouseUpdateTemplate(materialNorms, workVolumes || [], inventory)}
+            className="flex items-center justify-center gap-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 font-bold py-2 px-3 rounded-xl transition-all text-xs active:scale-95 cursor-pointer"
+          >
+            <Download className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>Tải File Mẫu Excel</span>
+          </button>
+
+          <label className="flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-3 rounded-xl cursor-pointer transition-all shadow-3xs active:scale-95 text-xs text-center">
+            <Upload className="w-4 h-4 text-white shrink-0" />
+            <span>Chọn File Upload</span>
+            <input
+              type="file"
+              accept=".xlsx, .xls"
+              onChange={handleFileChangeExcel}
+              className="hidden"
+            />
+          </label>
+        </div>
+      </div>
+
       {/* Cảnh Báo Gần Hết Vật Tư */}
       {lowStockItems.length > 0 && (
         <div className="bg-amber-50/75 border border-amber-200 rounded-2xl p-3.5 space-y-2">
@@ -520,12 +703,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               const isOut = item.status === 'out';
               const isVeryLow = item.status === 'very-low';
               return (
-                <div 
-                  key={`${item.name}-${idx}`} 
+                <div
+                  key={`${item.name}-${idx}`}
                   className={`flex items-center justify-between p-2 rounded-xl text-xs font-medium border ${
-                    isOut 
-                      ? 'bg-rose-50 border-rose-100 text-rose-800' 
-                      : isVeryLow 
+                    isOut
+                      ? 'bg-rose-50 border-rose-100 text-rose-800'
+                      : isVeryLow
                         ? 'bg-amber-50 border-amber-200 text-amber-800'
                         : 'bg-yellow-50 border-yellow-200 text-yellow-800'
                   }`}
@@ -533,13 +716,13 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   <div className="min-w-0 flex-1 text-left">
                     <p className="font-bold truncate">{item.name}</p>
                     <p className="text-[10px] opacity-80">
-                      Tồn thực tế: <strong className="font-extrabold">{item.balance}</strong> {item.unit}
-                      {item.quota ? ` / Định mức: ${item.quota} ${item.unit}` : ''}
+                      Tồn thực tế: <strong className="font-extrabold">{(item.balance ?? 0).toLocaleString('en-US')}</strong> {item.unit}
+                      {item.quota ? ` / Định mức: ${(item.quota ?? 0).toLocaleString('en-US')} ${item.unit}` : ''}
                     </p>
                   </div>
                   <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-md shrink-0 ${
-                    isOut 
-                      ? 'bg-rose-100 text-rose-800 uppercase' 
+                    isOut
+                      ? 'bg-rose-100 text-rose-800 uppercase'
                       : 'bg-amber-100 text-amber-800'
                   }`}>
                     {isOut ? 'HẾT HÀNG' : `${item.percent}%`}
@@ -567,11 +750,11 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             {quotaWarnings.map((item, idx) => {
               const isExceeded = item.status === 'exceeded';
               return (
-                <div 
-                  key={`${item.name}-${idx}`} 
+                <div
+                  key={`${item.name}-${idx}`}
                   className={`flex items-center justify-between p-2 rounded-xl text-xs font-medium border ${
-                    isExceeded 
-                      ? 'bg-rose-50 border-rose-200 text-rose-800' 
+                    isExceeded
+                      ? 'bg-rose-50 border-rose-200 text-rose-800'
                       : 'bg-indigo-50 border-indigo-100 text-indigo-800'
                   }`}
                 >
@@ -582,8 +765,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     </p>
                   </div>
                   <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-md shrink-0 ml-1 text-center ${
-                    isExceeded 
-                      ? 'bg-rose-100 text-rose-700 uppercase' 
+                    isExceeded
+                      ? 'bg-rose-100 text-rose-700 uppercase'
                       : 'bg-indigo-100 text-indigo-700'
                   }`}>
                     {isExceeded ? `LỐ ${item.percent - 100}%` : `${item.percent}%`}
@@ -630,19 +813,19 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     )}
                     <p className="font-bold text-slate-800 truncate">{name}</p>
                     <p className="text-[10px] text-slate-500">
-                      Nhập: <span className="text-emerald-600 font-bold">{data.inQty}</span> | 
-                      Xuất: <span className="text-amber-600 font-bold">{data.outQty}</span> {data.unit}
+                      Nhập: <span className="text-emerald-600 font-bold">{(data.inQty ?? 0).toLocaleString('en-US')}</span> |
+                      Xuất: <span className="text-amber-600 font-bold">{(data.outQty ?? 0).toLocaleString('en-US')}</span> {data.unit}
                     </p>
                   </div>
                   <div className="text-right shrink-0">
                     <span className={`inline-block px-2 py-0.5 rounded-lg text-xs font-bold ${
                       data.balance <= 20 ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'
                     }`}>
-                      Tồn: {data.balance} {data.unit}
+                      Tồn: {(data.balance ?? 0).toLocaleString('en-US')} {data.unit}
                     </span>
                     {quota && (
                       <p className="text-[10px] text-slate-500 mt-0.5 font-semibold">
-                        Định mức: <strong className="text-indigo-600">{quota}</strong> {data.unit}
+                        Định mức: <strong className="text-indigo-600">{(quota ?? 0).toLocaleString('en-US')}</strong> {data.unit}
                       </p>
                     )}
                   </div>
@@ -699,9 +882,53 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
       {/* Transaction List */}
       <div className="space-y-2.5">
-        <h3 className="text-xs font-bold text-slate-600 uppercase tracking-wider">
-          Nhật Ký Nhập Xuất ({filteredInventory.length})
-        </h3>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1">
+          <h3 className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+            Nhật Ký Nhập Xuất ({filteredInventory.length})
+          </h3>
+        </div>
+
+        {filteredInventory.length > 0 && (
+          <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs gap-2">
+            <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={filteredInventory.length > 0 && filteredInventory.every(item => selectedItemIds.includes(item.id))}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    setSelectedItemIds(prev => Array.from(new Set([...prev, ...filteredInventory.map(item => item.id)])));
+                  } else {
+                    setSelectedItemIds(prev => prev.filter(id => !filteredInventory.some(item => item.id === id)));
+                  }
+                }}
+                className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+              />
+              <span>Chọn Tất Cả Trên Trang ({filteredInventory.length})</span>
+            </label>
+
+            <div className="flex items-center gap-3 justify-end">
+              {selectedItemIds.some(id => filteredInventory.some(item => item.id === id)) && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const idsToDelete = selectedItemIds.filter(id => filteredInventory.some(item => item.id === id));
+                    if (await confirmAsync(`Bạn có chắc muốn xóa ${idsToDelete.length} phiếu kho đã chọn?`)) {
+                      if (onDeleteMultipleInventory) {
+                        onDeleteMultipleInventory(idsToDelete);
+                      } else {
+                        idsToDelete.forEach(id => onDeleteInventory(id));
+                      }
+                      setSelectedItemIds(prev => prev.filter(id => !idsToDelete.includes(id)));
+                    }
+                  }}
+                  className="text-rose-600 hover:text-rose-700 font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Xóa Đã Chọn ({selectedItemIds.filter(id => filteredInventory.some(item => item.id === id)).length})
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {filteredInventory.length === 0 ? (
           <div className="bg-white rounded-2xl p-6 text-center text-slate-400 text-xs border border-dashed border-slate-300">
@@ -711,74 +938,95 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           filteredInventory.map((item) => (
             <div
               key={item.id}
-              className="bg-white rounded-2xl p-3.5 border border-slate-200 shadow-sm space-y-2 hover:border-slate-300 transition-all"
+              className={`bg-white rounded-2xl p-3.5 border transition-all duration-150 space-y-2 hover:border-slate-300 ${
+                selectedItemIds.includes(item.id)
+                  ? 'border-indigo-300 bg-indigo-50/10 shadow-xs'
+                  : 'border-slate-200 shadow-sm'
+              }`}
             >
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`p-1.5 rounded-lg shrink-0 ${
-                      item.type === 'in'
-                        ? 'bg-emerald-100 text-emerald-700'
-                        : 'bg-amber-100 text-amber-700'
-                    }`}
-                  >
-                    {item.type === 'in' ? (
-                      <ArrowDownLeft className="w-4 h-4" />
-                    ) : (
-                      <ArrowUpRight className="w-4 h-4" />
-                    )}
-                  </span>
-                  <div>
-                    <span className="text-[10px] font-bold text-slate-400 mr-1.5">
-                      [{item.id}]
-                    </span>
-                    <span
-                      className={`text-[10px] uppercase font-extrabold px-1.5 py-0.5 rounded ${
-                        item.type === 'in'
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          : 'bg-amber-50 text-amber-700 border border-amber-200'
-                      }`}
+              <div className="flex items-start gap-2.5">
+                <input
+                  type="checkbox"
+                  checked={selectedItemIds.includes(item.id)}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setSelectedItemIds(prev => [...prev, item.id]);
+                    } else {
+                      setSelectedItemIds(prev => prev.filter(id => id !== item.id));
+                    }
+                  }}
+                  className="mt-1 w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0"
+                />
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`p-1.5 rounded-lg shrink-0 ${
+                          item.type === 'in'
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : 'bg-amber-100 text-amber-700'
+                        }`}
+                      >
+                        {item.type === 'in' ? (
+                          <ArrowDownLeft className="w-4 h-4" />
+                        ) : (
+                          <ArrowUpRight className="w-4 h-4" />
+                        )}
+                      </span>
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-400 mr-1.5">
+                          [{item.id}]
+                        </span>
+                        <span
+                          className={`text-[10px] uppercase font-extrabold px-1.5 py-0.5 rounded ${
+                            item.type === 'in'
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : 'bg-amber-50 text-amber-700 border border-amber-200'
+                          }`}
+                        >
+                          {item.type === 'in' ? 'NHẬP KHO' : 'XUẤT KHO'}
+                        </span>
+                        <h4 className="text-xs font-bold text-slate-900 mt-0.5 leading-snug">
+                          {item.materialName}
+                        </h4>
+                      </div>
+                    </div>
+
+                    <div className="text-right shrink-0">
+                      <div className="text-sm font-extrabold text-slate-900">
+                        {item.type === 'in' ? '+' : '-'}{(item.quantity ?? 0).toLocaleString('en-US')}
+                      </div>
+                      <div className="text-[11px] text-slate-500 font-medium">{item.unit}</div>
+                    </div>
+                  </div>
+
+                  {/* Details footer */}
+                  <div className="grid grid-cols-2 gap-1 pt-2 border-t border-slate-100 text-[11px] text-slate-600 mt-2">
+                    <div className="flex items-center gap-1 truncate">
+                      <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                      <span className="truncate">{item.location}</span>
+                    </div>
+                    <div className="flex items-center gap-1 justify-end truncate">
+                      <Calendar className="w-3 h-3 text-slate-400 shrink-0" />
+                      <span>{formatDateDDMMYYYY(item.date)}</span>
+                    </div>
+                    <div className="flex items-center gap-1 truncate col-span-2 text-slate-500">
+                      <User className="w-3 h-3 text-slate-400 shrink-0" />
+                      <span>{item.handler}</span>
+                      {item.notes && <span className="italic ml-1">({item.notes})</span>}
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end pt-1">
+                    <button
+                      onClick={() => setDeletingInventoryTarget(item)}
+                      className="text-[11px] text-rose-500 hover:text-rose-700 flex items-center gap-1 font-semibold"
                     >
-                      {item.type === 'in' ? 'NHẬP KHO' : 'XUẤT KHO'}
-                    </span>
-                    <h4 className="text-xs font-bold text-slate-900 mt-0.5">
-                      {item.materialName}
-                    </h4>
+                      <Trash2 className="w-3 h-3" /> Xóa phiếu
+                    </button>
                   </div>
                 </div>
-
-                <div className="text-right shrink-0">
-                  <div className="text-sm font-extrabold text-slate-900">
-                    {item.type === 'in' ? '+' : '-'}{item.quantity}
-                  </div>
-                  <div className="text-[11px] text-slate-500 font-medium">{item.unit}</div>
-                </div>
-              </div>
-
-              {/* Details footer */}
-              <div className="grid grid-cols-2 gap-1 pt-2 border-t border-slate-100 text-[11px] text-slate-600">
-                <div className="flex items-center gap-1 truncate">
-                  <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
-                  <span className="truncate">{item.location}</span>
-                </div>
-                <div className="flex items-center gap-1 justify-end truncate">
-                  <Calendar className="w-3 h-3 text-slate-400 shrink-0" />
-                  <span>{formatDateDDMMYYYY(item.date)}</span>
-                </div>
-                <div className="flex items-center gap-1 truncate col-span-2 text-slate-500">
-                  <User className="w-3 h-3 text-slate-400 shrink-0" />
-                  <span>{item.handler}</span>
-                  {item.notes && <span className="italic ml-1">({item.notes})</span>}
-                </div>
-              </div>
-
-              <div className="flex justify-end pt-1">
-                <button
-                  onClick={() => setDeletingInventoryTarget(item)}
-                  className="text-[11px] text-rose-500 hover:text-rose-700 flex items-center gap-1 font-semibold"
-                >
-                  <Trash2 className="w-3 h-3" /> Xóa phiếu
-                </button>
               </div>
             </div>
           ))
@@ -906,11 +1154,15 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 <div>
                   <label className="block text-slate-700 font-bold mb-1">Số Lượng</label>
                   <input
-                    type="number"
-                    min="1"
-                    value={quantity}
-                    onChange={(e) => setQuantity(e.target.value ? Number(e.target.value) : '')}
-                    className="w-full border border-slate-200 rounded-xl p-2.5 font-bold text-slate-900"
+                    type="text"
+                    inputMode="decimal"
+                    value={quantityStr}
+                    onChange={(e) => {
+                      const typedVal = e.target.value.replace(/,/g, '.');
+                      setQuantityStr(typedVal);
+                      setQuantity(typedVal === '' ? '' : Number(typedVal));
+                    }}
+                    className="w-full border border-slate-200 rounded-xl p-2.5 font-bold text-slate-900 focus:ring-2 focus:ring-blue-500"
                     required
                   />
                 </div>

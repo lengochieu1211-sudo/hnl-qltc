@@ -1,5 +1,5 @@
 /**
- * Basic Service Worker registration helper for SiteLink Pro.
+ * Basic Service Worker registration helper for Hệ Thống Quản Lý Thi Công.
  * Enables full PWA caching and offline execution support.
  */
 

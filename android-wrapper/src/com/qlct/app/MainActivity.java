@@ -27,10 +27,13 @@ import android.webkit.WebViewClient;
 import android.widget.Toast;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.Map;
 
 public class MainActivity extends Activity {
     private static final int FILE_CHOOSER_REQUEST = 1001;
@@ -161,6 +164,8 @@ public class MainActivity extends Activity {
     }
 
     public class AndroidExportBridge {
+        private final Map<String, ChunkedExport> chunkedExports = new HashMap<>();
+
         @JavascriptInterface
         public void saveBase64File(String fileName, String mimeType, String base64Data) {
             try {
@@ -169,6 +174,79 @@ public class MainActivity extends Activity {
                 showToast("Da luu file vao Download/QLCT: " + fileName);
             } catch (Exception error) {
                 showToast("Khong the luu file: " + error.getMessage());
+            }
+        }
+
+        @JavascriptInterface
+        public boolean beginBase64File(String sessionId, String fileName, String mimeType) {
+            try {
+                String safeSessionId = sanitizeFileName(sessionId);
+                File tempFile = new File(getCacheDir(), safeSessionId + ".bin");
+                ChunkedExport export = new ChunkedExport(fileName, mimeType, tempFile, new FileOutputStream(tempFile));
+                synchronized (chunkedExports) {
+                    ChunkedExport previous = chunkedExports.put(sessionId, export);
+                    if (previous != null) {
+                        previous.closeAndDelete();
+                    }
+                }
+                return true;
+            } catch (Exception error) {
+                showToast("Khong the bat dau luu file: " + error.getMessage());
+                return false;
+            }
+        }
+
+        @JavascriptInterface
+        public boolean appendBase64Chunk(String sessionId, String base64Chunk) {
+            try {
+                ChunkedExport export;
+                synchronized (chunkedExports) {
+                    export = chunkedExports.get(sessionId);
+                }
+                if (export == null) {
+                    throw new IOException("Missing export session");
+                }
+                byte[] bytes = Base64.decode(base64Chunk, Base64.DEFAULT);
+                export.output.write(bytes);
+                return true;
+            } catch (Exception error) {
+                showToast("Khong the ghi du lieu file: " + error.getMessage());
+                return false;
+            }
+        }
+
+        @JavascriptInterface
+        public boolean finishBase64File(String sessionId) {
+            ChunkedExport export;
+            synchronized (chunkedExports) {
+                export = chunkedExports.remove(sessionId);
+            }
+            if (export == null) {
+                showToast("Khong tim thay phien luu file");
+                return false;
+            }
+
+            try {
+                export.output.close();
+                saveFileToDownloads(export.fileName, export.mimeType, export.tempFile);
+                showToast("Da luu file vao Download/QLCT: " + export.fileName);
+                return true;
+            } catch (Exception error) {
+                showToast("Khong the hoan tat luu file: " + error.getMessage());
+                return false;
+            } finally {
+                export.deleteTemp();
+            }
+        }
+
+        @JavascriptInterface
+        public void abortBase64File(String sessionId) {
+            ChunkedExport export;
+            synchronized (chunkedExports) {
+                export = chunkedExports.remove(sessionId);
+            }
+            if (export != null) {
+                export.closeAndDelete();
             }
         }
 
@@ -196,6 +274,34 @@ public class MainActivity extends Activity {
                 startActivity(intent);
             } catch (Exception error) {
                 showToast("Khong the mo trinh duyet: " + error.getMessage());
+            }
+        }
+    }
+
+    private static class ChunkedExport {
+        final String fileName;
+        final String mimeType;
+        final File tempFile;
+        final OutputStream output;
+
+        ChunkedExport(String fileName, String mimeType, File tempFile, OutputStream output) {
+            this.fileName = fileName;
+            this.mimeType = mimeType;
+            this.tempFile = tempFile;
+            this.output = output;
+        }
+
+        void closeAndDelete() {
+            try {
+                output.close();
+            } catch (IOException ignored) {
+            }
+            deleteTemp();
+        }
+
+        void deleteTemp() {
+            if (tempFile.exists()) {
+                tempFile.delete();
             }
         }
     }
@@ -292,6 +398,63 @@ public class MainActivity extends Activity {
         Uri uri = Uri.fromFile(outputFile);
         sendBroadcast(new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, uri));
         return uri;
+    }
+
+    private Uri saveFileToDownloads(String fileName, String mimeType, File sourceFile) throws IOException {
+        String safeFileName = sanitizeFileName(fileName);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.MediaColumns.DISPLAY_NAME, safeFileName);
+            values.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
+            values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/QLCT");
+
+            Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+            if (uri == null) {
+                throw new IOException("MediaStore insert failed");
+            }
+
+            OutputStream output = getContentResolver().openOutputStream(uri);
+            if (output == null) {
+                throw new IOException("Cannot open output stream");
+            }
+            try {
+                copyFileToOutput(sourceFile, output);
+            } finally {
+                output.close();
+            }
+            return uri;
+        }
+
+        File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "QLCT");
+        if (!dir.exists() && !dir.mkdirs()) {
+            throw new IOException("Cannot create Download/QLCT");
+        }
+
+        File outputFile = getUniqueFile(dir, safeFileName);
+        FileOutputStream output = new FileOutputStream(outputFile);
+        try {
+            copyFileToOutput(sourceFile, output);
+        } finally {
+            output.close();
+        }
+
+        Uri uri = Uri.fromFile(outputFile);
+        sendBroadcast(new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, uri));
+        return uri;
+    }
+
+    private void copyFileToOutput(File sourceFile, OutputStream output) throws IOException {
+        FileInputStream input = new FileInputStream(sourceFile);
+        try {
+            byte[] buffer = new byte[64 * 1024];
+            int read;
+            while ((read = input.read(buffer)) != -1) {
+                output.write(buffer, 0, read);
+            }
+        } finally {
+            input.close();
+        }
     }
 
     private String sanitizeFileName(String fileName) {

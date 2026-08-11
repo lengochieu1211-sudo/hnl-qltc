@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  CloudCheck, 
-  RefreshCw, 
-  FileSpreadsheet, 
-  CheckCircle2, 
+import {
+  CloudCheck,
+  RefreshCw,
+  FileSpreadsheet,
+  CheckCircle2,
   ExternalLink,
   FileText,
   UserCheck,
   Wifi,
-  WifiOff
+  WifiOff,
+  Folder,
+  Cloud
 } from 'lucide-react';
 import { UndoRedoControls } from './UndoRedoControls';
 import { GoogleAuthStatus } from '../types';
@@ -26,7 +28,8 @@ interface GoogleAuthHeaderProps {
   onRedo?: () => void;
   canUndo?: boolean;
   canRedo?: boolean;
-  onOpenProjectManager?: () => void;
+  onOpenProjectManager?: (tab?: 'projects' | 'sync') => void;
+  lastUpdatedAt?: number;
 }
 
 export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
@@ -41,6 +44,7 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
   canUndo = false,
   canRedo = false,
   onOpenProjectManager,
+  lastUpdatedAt,
 }) => {
   const [authStatus, setAuthStatus] = useState<GoogleAuthStatus>({ authenticated: false });
   const [loadingAuth, setLoadingAuth] = useState(true);
@@ -96,9 +100,7 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
   useEffect(() => {
     checkAuthStatus();
     const unsubscribeFirebaseAuth = subscribeToFirebaseAuthStatus((status) => {
-      if (status.authenticated) {
-        setAuthStatus(status);
-      }
+      setAuthStatus(status);
     });
 
     // Listen to OAuth popup message
@@ -129,6 +131,8 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
       setSyncResult({ url: result.url, message: result.message });
     }
   };
+
+
 
   return (
     <>
@@ -164,7 +168,7 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
                       autoFocus
                     />
                   ) : (
-                    <h1 
+                    <h1
                       onClick={() => setIsEditingProject(true)}
                       className="text-xs font-bold text-slate-100 flex items-center gap-1 cursor-pointer hover:text-blue-300 transition-colors truncate"
                       title="Nhấn để sửa tên dự án"
@@ -176,16 +180,11 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2 mt-0.5">
-                  <p className="text-[10px] text-slate-400 truncate">
-                    Quản lý thi công &amp; Kho
-                  </p>
-                  <button
-                    onClick={onOpenProjectManager}
-                    className="text-[9.5px] font-bold bg-indigo-900/80 hover:bg-indigo-800 text-indigo-200 hover:text-white px-1.5 py-0.5 rounded-md border border-indigo-700/60 transition-colors flex items-center gap-1 shrink-0"
-                    title="Quản lý dự án, lưu file & đồng bộ"
-                  >
-                    <span>Dự án</span>
-                  </button>
+                  {lastUpdatedAt && (
+                    <span className="text-[9px] text-slate-400">
+                      {new Date(lastUpdatedAt).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).replace(',', '')}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -193,10 +192,10 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
             {/* Status Badges: Network & Google (Icon badges with tooltips) */}
             <div className="flex items-center gap-1 shrink-0">
               {/* Network Status Badge */}
-              <div 
+              <div
                 className={`p-1.5 rounded-lg border flex items-center justify-center transition-all ${
-                  isOnline 
-                    ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60' 
+                  isOnline
+                    ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60'
                     : 'bg-amber-950/90 text-amber-300 border-amber-600/80 animate-pulse'
                 }`}
                 title={isOnline ? 'Mạng Trực Tuyến (Online): Dữ liệu lưu thiết bị & đám mây' : 'Chế độ Ngoại Tuyến (Offline): Dữ liệu lưu an toàn trên máy'}
@@ -208,8 +207,8 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
               <button
                 onClick={handleConnectGoogle}
                 className={`p-1.5 rounded-lg border transition-all flex items-center justify-center shrink-0 ${
-                  authStatus.authenticated 
-                    ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/80 hover:bg-emerald-900' 
+                  authStatus.authenticated
+                    ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/80 hover:bg-emerald-900'
                     : 'bg-blue-950/80 text-blue-300 border-blue-700/80 hover:bg-blue-900'
                 }`}
                 title={authStatus.authenticated ? `Tài khoản Google Drive đã kết nối (${authStatus.email || authStatus.name})` : 'Nhấn để kết nối Google Drive & Sheets'}
@@ -233,12 +232,24 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
 
             {/* Right: Quick Action Buttons */}
             <div className="flex items-center gap-1.5">
-              {/* 1-Click Google Sync Button */}
+              {/* Nút Dự án nằm bên trái nút Đồng bộ */}
+              {onOpenProjectManager && (
+                <button
+                  onClick={() => onOpenProjectManager('projects')}
+                  className="flex items-center gap-1 bg-indigo-900/90 hover:bg-indigo-800 text-indigo-100 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 shrink-0 border border-indigo-700/70 cursor-pointer"
+                  title="Quản lý danh sách dự án"
+                >
+                  <Folder className="w-3.5 h-3.5 text-indigo-300" />
+                  <span>Dự án</span>
+                </button>
+              )}
+
+              {/* Nút Đồng Bộ mở Trung Tâm Lưu & Đồng Bộ Dự Án */}
               <button
-                onClick={handleTriggerSync}
+                onClick={() => onOpenProjectManager ? onOpenProjectManager('sync') : handleTriggerSync()}
                 disabled={isSyncing}
-                className="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white px-2.5 py-1.5 rounded-lg text-xs font-extrabold transition-all shadow-sm active:scale-95 shrink-0"
-                title="Đồng Bộ Google Sheets & Tự Động Lưu Google Drive"
+                className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all shadow-sm active:scale-95 shrink-0 cursor-pointer border border-emerald-500/50"
+                title="Trung Tâm Lưu & Đồng Bộ Dự Án"
               >
                 <RefreshCw className={`w-3.5 h-3.5 text-emerald-100 ${isSyncing ? 'animate-spin' : ''}`} />
                 <span>{isSyncing ? 'Đang đồng bộ...' : 'Đồng Bộ'}</span>
@@ -277,8 +288,8 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                 <span>{syncResult.message}</span>
               </div>
-              <button 
-                onClick={() => setSyncResult(null)} 
+              <button
+                onClick={() => setSyncResult(null)}
                 className="text-slate-400 hover:text-white text-xs font-bold px-1"
               >
                 ✕

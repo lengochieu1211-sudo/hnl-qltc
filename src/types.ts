@@ -24,6 +24,7 @@ export interface WorkVolume {
   actual: number;
   unitPrice: number;
   status: 'Chưa thi công' | 'Đang thi công' | 'Đã hoàn thành';
+  subItems?: string[]; // Hạng mục con / công đoạn lấy từ căn hộ
 }
 
 export interface FloorPlan {
@@ -37,7 +38,7 @@ export interface FloorPlan {
   targetBoardDate?: string; // YYYY-MM-DD
 }
 
-export type DefectCategory = 
+export type DefectCategory =
   | 'Khung trần lệch/xô lệch'
   | 'Bắn thiếu vít / thưa vít tấm'
   | 'Hở khe / Nứt mối nối tấm'
@@ -58,10 +59,14 @@ export interface DefectItem {
   y: number; // percentage 0-100
   description: string;
   severity: DefectSeverity;
-  assignedTo: string;
-  imageUrl?: string;
+  assignedTo: string; // Người / Đội chịu trách nhiệm
+  createdBy?: string; // Người tạo (QC, Giám sát,...)
+  dueDate?: string; // Deadline sửa (YYYY-MM-DD)
+  completedAt?: string; // Ngày hoàn thành sửa (YYYY-MM-DD)
+  imageUrl?: string; // Ảnh trước khi sửa
+  afterImageUrl?: string; // Ảnh sau khi sửa
   status: DefectStatus;
-  createdAt: string;
+  createdAt: string; // Ngày tạo
 }
 
 export type ChecklistStatus = 'passed' | 'pending' | 'defect';
@@ -69,7 +74,7 @@ export type ChecklistStatus = 'passed' | 'pending' | 'defect';
 export interface ChecklistItem {
   id: string;
   floorName: string;
-  category: 'Thi công khung trần' | 'Thi công bắn tấm trần' | 'Sơn bả & Hoàn thiện';
+  category: string;
   title: string;
   status: ChecklistStatus;
   notes?: string;
@@ -93,6 +98,7 @@ export interface MaterialNorm {
   unit: string; // Tên đơn vị tính (Tấm, Thanh, Hộp, Bao, Bộ, m2...)
   quotaQuantity: number; // Số lượng định mức công trình
   unitNormPerM2?: number; // Định mức tiêu hao (VD: 0.35/m2)
+  workCategoryNorms?: Record<string, number>; // Định mức riêng cho từng hạng mục thi công
   notes?: string;
 }
 
@@ -155,14 +161,26 @@ export interface TeamInfo {
   notes?: string;
 }
 
+export interface CrewFloorCategoryWork {
+  categoryName: string;
+  subItems: string[];
+}
+
+export interface CrewFloorWork {
+  floorId: string;
+  floorName: string;
+  categories: CrewFloorCategoryWork[];
+}
+
 export interface CrewRecord {
   id: string;
   date: string;
   teamName: string;
   leaderName: string;
   workerCount: number;
-  floorId: string;
-  floorName: string;
+  floorId?: string;
+  floorName?: string;
+  floorWorks?: CrewFloorWork[];
   taskDescription: string;
   shift?: string;
   notes?: string;

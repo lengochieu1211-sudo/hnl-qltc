@@ -1,18 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  X, 
-  Cloud, 
-  CheckCircle2, 
-  LogOut, 
-  ShieldCheck, 
-  User, 
-  Mail, 
+import {
+  X,
+  Cloud,
+  CheckCircle2,
+  LogOut,
+  ShieldCheck,
+  User,
+  Mail,
   Lock,
   ExternalLink,
   Info
 } from 'lucide-react';
 import { GoogleAuthStatus } from '../types';
-import { getFirebaseAuthStatus, signInWithGoogleAccount, signOutFirebaseAccount } from '../lib/firebase';
+import { signInWithGoogleAccount, signOutFirebaseAccount } from '../lib/firebase';
 
 interface GoogleAuthModalProps {
   isOpen: boolean;
@@ -86,7 +86,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
         }
         console.warn('Firebase Google login fallback:', firebaseErr);
       }
-      
+
       let urlToOpen = authUrl;
       if (!urlToOpen) {
         const res = await fetch('/api/auth/url');
@@ -123,12 +123,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
     try {
       setLoading(true);
       await signOutFirebaseAccount();
-      await fetch('/api/auth/logout', { method: 'POST' });
-      const status = await getFirebaseAuthStatus();
-      if (status.authenticated) {
-        onRefreshAuth();
-        return;
-      }
+      await fetch('/api/auth/logout', { method: 'POST' }).catch(() => undefined);
       onRefreshAuth();
     } catch (err) {
       console.error(err);

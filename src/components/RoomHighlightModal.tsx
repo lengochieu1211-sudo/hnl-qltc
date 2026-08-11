@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  X, 
-  CheckCircle2, 
-  AlertCircle, 
-  User, 
-  Trash2, 
-  Building2, 
+import {
+  X,
+  CheckCircle2,
+  AlertCircle,
+  User,
+  Trash2,
+  Building2,
   Clock,
   Sparkles,
   Plus,
@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { RoomProgressItem, RoomSubItem, AcceptanceStatus, RoomInspectionResult, Point2D, TeamInfo, ChecklistItem, MaterialNorm, InventoryItem, WorkVolume } from '../types';
 import { ROOM_COLOR_PALETTE } from '../utils/colorPalette';
+import { confirmAsync } from '../utils/confirmAsync';
 
 interface RoomHighlightModalProps {
   isOpen: boolean;
@@ -130,7 +131,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       return;
     }
     const trimmed = newName.trim();
-    
+
     // 1. Update subItems
     setSubItems(prev => prev.map(item => {
       const itemCat = item.category || workCategory || 'Chưa phân nhóm';
@@ -179,6 +180,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   const [showColorPicker, setShowColorPicker] = useState<boolean>(false);
   const [showDimensionSettings, setShowDimensionSettings] = useState<boolean>(false);
   const [showMaterialEstimates, setShowMaterialEstimates] = useState<boolean>(false);
+  const [selectedSubItemIds, setSelectedSubItemIds] = useState<string[]>([]);
 
   useEffect(() => {
     try {
@@ -192,8 +194,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   }, []);
 
   // Combined teams list from props or local storage
-  const displayTeams = (teams && teams.length > 0) 
-    ? teams 
+  const displayTeams = (teams && teams.length > 0)
+    ? teams
     : (availableTeams && availableTeams.length > 0)
     ? availableTeams
     : [
@@ -205,6 +207,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
   useEffect(() => {
     setIsConfirmingDelete(false);
+    setSelectedSubItemIds([]);
     if (roomItem) {
       setRoomName(roomItem.roomName);
       const cat = roomItem.workCategory || 'Trần Thạch Cao Khung Chìm Tấm Tiêu Chuẩn';
@@ -215,7 +218,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       setWidth(roomItem.width || 30);
       setHeight(roomItem.height || 30);
       setPoints(roomItem.points);
-      
+
       // Load subItems or build from legacy fields
       if (roomItem.subItems && roomItem.subItems.length > 0) {
         setSubItems(roomItem.subItems);
@@ -260,11 +263,11 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       }
     } else {
       setRoomName('Căn ' + Math.floor(100 + Math.random() * 800));
-      const defaultCat = (workVolumes && workVolumes.length > 0 && workVolumes[0].title) 
-        ? workVolumes[0].title 
+      const defaultCat = (workVolumes && workVolumes.length > 0 && workVolumes[0].title)
+        ? workVolumes[0].title
         : 'Trần Thạch Cao Khung Chìm Tấm Tiêu Chuẩn';
       setWorkCategory(defaultCat);
-      
+
       const names = getSubItemsForCategory(defaultCat);
 
       setSubItems(
@@ -311,7 +314,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   // Handler to change work category preset (mode: 'append' to add more categories to the room, 'replace' to reset)
   const handleApplyPreset = (catName: string, mode: 'replace' | 'append' = 'append') => {
     setWorkCategory(catName);
-    
+
     // Find all material norms matching this category
     const matchingNorms = materialNorms ? materialNorms.filter(norm => {
       if (norm.workCategories && norm.workCategories.length > 0) {
@@ -321,7 +324,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     }) : [];
 
     const names = getSubItemsForCategory(catName);
-    
+
     // Short category prefix so sub-items are clearly distinguished when multiple categories exist in 1 room
     const shortPrefix = catName
       .replace('Trần Thạch Cao ', 'Trần ')
@@ -364,7 +367,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
         }
       });
     }
-    
+
     // If we have items from workVolumes, return them
     if (list.size > 0) {
       return Array.from(list);
@@ -379,12 +382,12 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
         }
       });
     }
-    
+
     // If we have items in our set, return them
     if (list.size > 0) {
       return Array.from(list);
     }
-    
+
     // Fallback to keys of WORK_CATEGORY_PRESETS
     return Object.keys(WORK_CATEGORY_PRESETS);
   }, [workVolumes, materialNorms]);
@@ -433,7 +436,12 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       });
 
       matchingNorms.forEach((norm) => {
-        const factor = norm.unitNormPerM2 || 0;
+        let factor = 0;
+        if (norm.workCategoryNorms && norm.workCategoryNorms[cat] !== undefined) {
+          factor = norm.workCategoryNorms[cat];
+        } else {
+          factor = norm.unitNormPerM2 || 0;
+        }
         if (factor <= 0) return;
 
         const portionQty = catVolume * factor;
@@ -462,18 +470,18 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     });
   }, [materialNorms, activeCategories, categoryVolumes, stockMap]);
 
-  const handleAutoIssueForRoom = () => {
+  const handleAutoIssueForRoom = async () => {
     if (!onAddInventory) {
       alert('Không có hàm nạp phiếu kho!');
       return;
     }
-    
+
     const validCategories = activeCategories.filter(cat => (categoryVolumes[cat] || 0) > 0);
     if (validCategories.length === 0) {
       alert('Vui lòng nhập khối lượng thi công (> 0 m²) cho ít nhất một hạng mục trước khi xuất kho!');
       return;
     }
-    
+
     if (roomMaterialEstimates.length === 0) {
       alert('Chưa tìm thấy định mức vật tư nào phù hợp với các hạng mục thi công này trong Kho Vật Tư!');
       return;
@@ -522,7 +530,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   };
 
   // Delete sub item
-  const handleDeleteSubItem = (id: string) => {
+  const handleDeleteSubItem = async (id: string) => {
     if (subItems.length <= 1) {
       // Avoid using window.alert due to iframe restrictions
       return;
@@ -537,19 +545,19 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     if (index === -1) return;
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= currentCats.length) return;
-    
+
     const neighborCat = currentCats[targetIndex];
-    
+
     const newCatOrder = [...currentCats];
     newCatOrder[index] = neighborCat;
     newCatOrder[targetIndex] = catName;
-    
+
     const sortedSubItems = [...subItems].sort((a, b) => {
       const catA = a.category || workCategory || 'Chưa phân nhóm';
       const catB = b.category || workCategory || 'Chưa phân nhóm';
       return newCatOrder.indexOf(catA) - newCatOrder.indexOf(catB);
     });
-    
+
     setSubItems(sortedSubItems);
   };
 
@@ -559,24 +567,24 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     if (index === -1) return;
     const item = subItems[index];
     const itemCat = item.category || workCategory || 'Chưa phân nhóm';
-    
+
     const sameCatIndices = subItems
       .map((it, idx) => ({ id: it.id, cat: it.category || workCategory || 'Chưa phân nhóm', idx }))
       .filter(it => it.cat === itemCat);
-      
+
     const sameCatPos = sameCatIndices.findIndex(it => it.id === itemId);
     if (sameCatPos === -1) return;
-    
+
     const targetSameCatPos = direction === 'up' ? sameCatPos - 1 : sameCatPos + 1;
     if (targetSameCatPos < 0 || targetSameCatPos >= sameCatIndices.length) return;
-    
+
     const targetIndex = sameCatIndices[targetSameCatPos].idx;
-    
+
     const newSubItems = [...subItems];
     const temp = newSubItems[index];
     newSubItems[index] = newSubItems[targetIndex];
     newSubItems[targetIndex] = temp;
-    
+
     setSubItems(newSubItems);
   };
 
@@ -591,7 +599,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     let overall: RoomInspectionResult = 'Chưa nghiệm thu';
     const allPassed = subItems.length > 0 && subItems.every(s => s.inspectionStatus === 'Đạt nghiệm thu');
     const anyDefect = subItems.some(s => s.inspectionStatus === 'Chưa đạt (Cần sửa)');
-    
+
     if (allPassed) {
       overall = 'Đạt nghiệm thu';
     } else if (anyDefect) {
@@ -647,7 +655,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
       <div className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-2xl p-4 sm:p-5 space-y-4 max-h-[92vh] flex flex-col border border-slate-100 shadow-2xl">
-        
+
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-100 pb-3 shrink-0">
           <div className="flex items-center gap-2.5">
@@ -671,7 +679,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto overflow-x-hidden space-y-3.5 pr-1 text-xs">
-          
+
           {/* Room / Apartment Name */}
           <div>
             <label className="block font-bold text-slate-800 mb-1">Tên Căn Hộ / Tên Phòng *</label>
@@ -801,7 +809,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
+                  onClick={async () => {
                     if (subItems.length > 0) {
                       setShowConfirmReplaceModal(true);
                     } else {
@@ -831,6 +839,135 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
               </div>
             </div>
 
+            {/* Select All & Bulk Actions Toolbar */}
+            {subItems.length > 0 && (
+              <div className="bg-white border border-slate-200 p-3 rounded-2xl space-y-2.5 shadow-2xs">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <label className="flex items-center gap-2 font-black text-slate-700 cursor-pointer select-none text-[11px]">
+                    <input
+                      type="checkbox"
+                      checked={subItems.length > 0 && subItems.every(s => selectedSubItemIds.includes(s.id))}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedSubItemIds(subItems.map(s => s.id));
+                        } else {
+                          setSelectedSubItemIds([]);
+                        }
+                      }}
+                      className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                    />
+                    <span>Chọn Tất Cả Hạng Mục ({subItems.length})</span>
+                  </label>
+
+                  {selectedSubItemIds.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (await confirmAsync(`⚠️ Bạn có chắc muốn xóa ${selectedSubItemIds.length} hạng mục đã chọn không?`)) {
+                          setSubItems(prev => prev.filter(s => !selectedSubItemIds.includes(s.id)));
+                          setSelectedSubItemIds([]);
+                        }
+                      }}
+                      className="text-rose-600 hover:text-rose-700 font-extrabold flex items-center gap-1 cursor-pointer transition-colors text-[10.5px]"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Xóa {selectedSubItemIds.length} Đã Chọn
+                    </button>
+                  )}
+                </div>
+
+                {/* Bulk updating controls panel */}
+                {selectedSubItemIds.length > 0 ? (
+                  <div className="bg-slate-50/80 p-2.5 rounded-xl border border-slate-100 space-y-2.5 text-[10px]">
+                    <div className="font-extrabold text-slate-800 text-[10.5px] border-b border-slate-200/50 pb-1.5 flex items-center gap-1">
+                      <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Cập Nhật Nhanh {selectedSubItemIds.length} Hạng Mục Đã Chọn:</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {/* Progress Status */}
+                      <div>
+                        <span className="font-bold text-slate-600 block mb-1">▶ Tiến độ thi công:</span>
+                        <div className="grid grid-cols-3 gap-1">
+                          {(['Chưa làm', 'Đang làm', 'Đã hoàn thành'] as AcceptanceStatus[]).map((st) => (
+                            <button
+                              key={st}
+                              type="button"
+                              onClick={async () => {
+                                setSubItems(prev => prev.map(s => selectedSubItemIds.includes(s.id) ? { ...s, status: st } : s));
+                              }}
+                              className="py-1 px-0.5 bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 hover:border-slate-300 rounded-lg font-bold text-[9.5px] cursor-pointer transition-colors text-center"
+                            >
+                              {st === 'Đã hoàn thành' ? '✅ Xong' : st === 'Đang làm' ? '🚧 Làm' : '⏳ Chưa'}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Inspection Status */}
+                      <div>
+                        <span className="font-bold text-slate-600 block mb-1">▶ Nghiệm thu:</span>
+                        <div className="grid grid-cols-3 gap-1">
+                          {(['Chưa nghiệm thu', 'Đạt nghiệm thu', 'Chưa đạt (Cần sửa)'] as RoomInspectionResult[]).map((st) => (
+                            <button
+                              key={st}
+                              type="button"
+                              onClick={async () => {
+                                setSubItems(prev => prev.map(s => selectedSubItemIds.includes(s.id) ? { ...s, inspectionStatus: st } : s));
+                              }}
+                              className="py-1 px-0.5 bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 hover:border-slate-300 rounded-lg font-bold text-[9.5px] cursor-pointer transition-colors text-center"
+                            >
+                              {st === 'Đạt nghiệm thu' ? '🏆 Đạt' : st === 'Chưa đạt (Cần sửa)' ? '⚠️ Lỗi' : '⏳ Chờ'}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1 border-t border-slate-200/40">
+                      {/* Assigned Team */}
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="font-bold text-slate-600 shrink-0 text-[10.5px]">👷 Đội thi công:</span>
+                        <select
+                          value=""
+                          onChange={(e) => {
+                            const team = e.target.value;
+                            if (team !== '') {
+                              setSubItems(prev => prev.map(s => selectedSubItemIds.includes(s.id) ? { ...s, assignedTeam: team } : s));
+                            }
+                          }}
+                          className="flex-1 font-bold border border-slate-200 rounded-lg px-2 py-1 text-[10.5px] bg-white max-w-full truncate outline-none"
+                        >
+                          <option value="">-- Chọn áp dụng --</option>
+                          {displayTeams.map((t) => (
+                            <option key={t.id || t.name} value={t.name}>
+                              {t.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Target Date */}
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="font-bold text-slate-600 shrink-0 text-[10.5px]">📅 Hạn xong:</span>
+                        <input
+                          type="date"
+                          onChange={(e) => {
+                            const date = e.target.value;
+                            setSubItems(prev => prev.map(s => selectedSubItemIds.includes(s.id) ? { ...s, targetDate: date } : s));
+                          }}
+                          className="flex-1 text-[10.5px] border border-slate-200 rounded-lg px-2 py-1 bg-white outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-slate-400 italic">
+                    💡 Hãy tick chọn các hạng mục bên dưới để cập nhật nhanh/hàng loạt (tiến độ, nghiệm thu, phân công đội, hạn xong...).
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* List of sub items grouped by category */}
             <div className="space-y-4">
               {(Object.entries(
@@ -845,8 +982,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
               ) as [string, typeof subItems][]).map(([catName, itemsInCat], catIdx) => (
                 <div key={`${catName}-${catIdx}`} className="space-y-3 bg-slate-50/70 p-3 rounded-2xl border border-slate-100">
                   {/* Category Header */}
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-slate-200 pb-2 mb-1 gap-2">
-                    <div className="flex items-center gap-2 w-full sm:w-auto sm:flex-1 min-w-0">
+                  <div className="flex flex-col border-b border-slate-200 pb-2 mb-1 gap-2.5">
+                    <div className="flex flex-col gap-2 w-full min-w-0">
                       {/* Select to swap category */}
                       <select
                         value={catName}
@@ -874,54 +1011,57 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                             }
                           }
                         }}
-                        className="flex-1 font-black text-xs text-indigo-950 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/80 rounded-lg px-2.5 py-1 outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer min-w-0 truncate"
+                        className="w-full font-black text-[13px] text-indigo-950 bg-indigo-50/80 hover:bg-indigo-100 border border-indigo-200 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-3xs"
                       >
                         {availableWorkCategories.map(c => (
                           <option key={c} value={c}>🏗️ {c}</option>
                         ))}
                       </select>
 
-                      {activeCategories.length > 1 && (
-                        <div className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => handleMoveCategory(catName, 'up')}
-                            className="p-1 hover:bg-white rounded text-slate-600 hover:text-indigo-600 transition-all cursor-pointer"
-                            title="Di chuyển nhóm này lên"
-                          >
-                            <ChevronUp className="w-3 h-3" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleMoveCategory(catName, 'down')}
-                            className="p-1 hover:bg-white rounded text-slate-600 hover:text-indigo-600 transition-all cursor-pointer"
-                            title="Di chuyển nhóm này xuống"
-                          >
-                            <ChevronDown className="w-3 h-3" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                        {/* Interactive Input Volume directly in the list */}
+                        <div className="flex items-center gap-1.5 shrink-0 bg-emerald-50/70 border border-emerald-100 rounded-xl px-2.5 py-1">
+                          <span className="text-[10px] font-extrabold text-emerald-800">Khối lượng:</span>
+                          <input
+                            type="number"
+                            step="any"
+                            placeholder="0"
+                            value={categoryVolumes[catName] !== undefined ? categoryVolumes[catName] : ''}
+                            onChange={(e) => {
+                              const valStr = e.target.value;
+                              const val = valStr !== '' ? parseFloat(valStr) : 0;
+                              setCategoryVolumes(prev => ({
+                                ...prev,
+                                [catName]: val
+                              }));
+                            }}
+                            className="w-14 text-center font-black text-xs text-emerald-950 bg-white border border-emerald-300 rounded focus:ring-1 focus:ring-emerald-500 outline-none px-1.5 py-0.5"
+                          />
+                          <span className="text-[10px] font-black text-emerald-800">{volumeUnit || 'm²'}</span>
 
-                    {/* Interactive Input Volume directly in the list */}
-                    <div className="flex items-center gap-1.5 shrink-0 bg-emerald-50/70 border border-emerald-100 rounded-lg px-2 py-0.5">
-                      <span className="text-[10px] font-extrabold text-emerald-800">Khối lượng:</span>
-                      <input
-                        type="number"
-                        step="any"
-                        placeholder="0"
-                        value={categoryVolumes[catName] !== undefined ? categoryVolumes[catName] : ''}
-                        onChange={(e) => {
-                          const valStr = e.target.value;
-                          const val = valStr !== '' ? parseFloat(valStr) : 0;
-                          setCategoryVolumes(prev => ({
-                            ...prev,
-                            [catName]: val
-                          }));
-                        }}
-                        className="w-14 text-center font-black text-xs text-emerald-950 bg-white border border-emerald-300 rounded focus:ring-1 focus:ring-emerald-500 outline-none px-1.5 py-0.5"
-                      />
-                      <span className="text-[10px] font-black text-emerald-800">{volumeUnit || 'm²'}</span>
+                          {activeCategories.length > 1 && (
+                            <div className="flex items-center bg-white rounded-lg p-0.5 border border-slate-200 shrink-0 ml-1">
+                              <button
+                                type="button"
+                                onClick={() => handleMoveCategory(catName, 'up')}
+                                className="p-0.5 hover:bg-slate-100 rounded text-slate-700 hover:text-indigo-600 transition-all cursor-pointer"
+                                title="Di chuyển nhóm này lên"
+                              >
+                                <ChevronUp className="w-3.5 h-3.5" />
+                              </button>
+                              <div className="w-[1px] h-3 bg-slate-200 mx-0.5" />
+                              <button
+                                type="button"
+                                onClick={() => handleMoveCategory(catName, 'down')}
+                                className="p-0.5 hover:bg-slate-100 rounded text-slate-700 hover:text-indigo-600 transition-all cursor-pointer"
+                                title="Di chuyển nhóm này xuống"
+                              >
+                                <ChevronDown className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
 
@@ -941,7 +1081,19 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                       return (
                         <div key={`${item.id}-${originalIndex}`} className="bg-white p-2.5 sm:p-3 rounded-xl border border-slate-200 shadow-2xs space-y-2.5 overflow-x-hidden">
                           <div className="flex items-center justify-between gap-1.5 min-w-0">
-                            <div className="flex items-center gap-1 shrink-0">
+                            <div className="flex items-center gap-2 shrink-0">
+                              <input
+                                type="checkbox"
+                                checked={selectedSubItemIds.includes(item.id)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedSubItemIds(prev => [...prev, item.id]);
+                                  } else {
+                                    setSelectedSubItemIds(prev => prev.filter(id => id !== item.id));
+                                  }
+                                }}
+                                className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0"
+                              />
                               <span className="font-black text-indigo-700 text-[11px] bg-indigo-50 px-1.5 py-0.5 rounded-md">
                                 #{originalIndex + 1}
                               </span>
@@ -980,7 +1132,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                 <span className="text-[10px] font-bold text-rose-800">Xóa?</span>
                                 <button
                                   type="button"
-                                  onClick={() => {
+                                  onClick={async () => {
                                     handleDeleteSubItem(item.id);
                                     setDeletingSubItemId(null);
                                   }}
@@ -1258,7 +1410,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                 {roomItem && onStartRedraw2Point && (
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={async () => {
                       onStartRedraw2Point(roomItem);
                       onClose();
                     }}
@@ -1414,7 +1566,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                   <span className="text-[11px] font-bold text-rose-800 flex-1">Xác nhận xóa highlight?</span>
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={async () => {
                       onDeleteRoom(roomItem.id);
                       onClose();
                     }}
@@ -1476,7 +1628,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => {
+                onClick={async () => {
                   handleApplyPreset(presetSelection, 'replace');
                   setShowConfirmReplaceModal(false);
                 }}

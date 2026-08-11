@@ -1,13 +1,13 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
-import { 
-  ClipboardCheck, 
-  CheckCircle2, 
-  AlertCircle, 
-  Clock, 
-  Plus, 
-  Layers, 
-  User, 
+import {
+  ClipboardCheck,
+  CheckCircle2,
+  AlertCircle,
+  Clock,
+  Plus,
+  Layers,
+  User,
   FileCheck,
   Edit,
   Trash2,
@@ -16,17 +16,20 @@ import {
   Download,
   Upload
 } from 'lucide-react';
-import { ChecklistItem, ChecklistStatus } from '../types';
+import { ChecklistItem, ChecklistStatus, WorkVolume } from '../types';
+import { confirmAsync } from '../utils/confirmAsync';
 import { saveWorkbookFile } from '../utils/fileExport';
 
 interface ChecklistTabProps {
   checklist: ChecklistItem[];
   floors: string[];
   inspectorName?: string;
+  workVolumes?: WorkVolume[];
   onUpdateChecklistStatus: (id: string, status: ChecklistStatus, notes?: string, inspector?: string) => void;
   onAddChecklistItem: (item: Omit<ChecklistItem, 'id'>) => void;
   onUpdateChecklistItem?: (item: ChecklistItem) => void;
   onDeleteChecklistItem: (id: string) => void;
+  onDeleteMultipleChecklistItems?: (ids: string[]) => void;
   onOpenExportPdf?: () => void;
   onExportExcel?: () => void;
   onUndo?: () => void;
@@ -39,10 +42,12 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
   checklist,
   floors,
   inspectorName = 'KS. Nguyễn Văn Bình',
+  workVolumes = [],
   onUpdateChecklistStatus,
   onAddChecklistItem,
   onUpdateChecklistItem,
   onDeleteChecklistItem,
+  onDeleteMultipleChecklistItems,
   onOpenExportPdf,
   onExportExcel,
   onUndo,
@@ -63,12 +68,53 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingChecklistItem, setEditingChecklistItem] = useState<ChecklistItem | null>(null);
   const [deletingChecklistTarget, setDeletingChecklistTarget] = useState<ChecklistItem | null>(null);
+  const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
 
   // New Item State (pulling inspectorName as default)
-  const [category, setCategory] = useState<'Thi công khung trần' | 'Thi công bắn tấm trần' | 'Sơn bả & Hoàn thiện'>('Thi công khung trần');
+  const [category, setCategory] = useState<string>('');
   const [title, setTitle] = useState('');
   const [notes, setNotes] = useState('');
   const [inspectedBy, setInspectedBy] = useState(inspectorName);
+
+  // Extract unique work volume categories/titles for the currently selected floor
+  const categoriesList = useMemo(() => {
+    const list = new Set<string>();
+    if (workVolumes && workVolumes.length > 0) {
+      workVolumes.forEach((wv) => {
+        if (wv.floor === selectedFloor && wv.title) {
+          list.add(wv.title.trim());
+        }
+      });
+    }
+    // Fallback to all unique work volume titles across all floors if none on this floor
+    if (list.size === 0 && workVolumes && workVolumes.length > 0) {
+      workVolumes.forEach((wv) => {
+        if (wv.title) {
+          list.add(wv.title.trim());
+        }
+      });
+    }
+    // Fallback defaults if no work volumes at all
+    if (list.size === 0) {
+      list.add('Thi công khung trần');
+      list.add('Thi công bắn tấm trần');
+      list.add('Sơn bả & Hoàn thiện');
+    }
+    return Array.from(list);
+  }, [workVolumes, selectedFloor]);
+
+  // Keep category state in sync with the first available option
+  useEffect(() => {
+    if (categoriesList.length > 0) {
+      setCategory(categoriesList[0]);
+    }
+  }, [categoriesList]);
+
+  const getCategoryLabel = (cat: string) => {
+    return cat.replace(/\s+Tầng\s+\d+.*$/i, '')
+              .replace(/\s+Tầng\s+[A-Za-z0-9]+.*$/i, '')
+              .trim();
+  };
 
   // Keep inspectedBy updated if inspectorName prop changes
   useEffect(() => {
@@ -76,6 +122,19 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
       setInspectedBy(inspectorName);
     }
   }, [inspectorName]);
+
+  // Categories actually in use by items on the selected floor
+  const categoriesInUseForFloor = useMemo(() => {
+    const list = new Set<string>();
+    checklist
+      .filter((item) => item.floorName === selectedFloor)
+      .forEach((item) => {
+        if (item.category && item.category.trim()) {
+          list.add(item.category.trim());
+        }
+      });
+    return Array.from(list);
+  }, [checklist, selectedFloor]);
 
   const filteredChecklist = useMemo(() => {
     return checklist.filter((item) => {
@@ -136,12 +195,12 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
     setEditingChecklistItem(null);
   };
 
-  const handleExportChecklistTemplate = () => {
+  const handleExportChecklistTemplate = async () => {
     const wb = XLSX.utils.book_new();
     const sourceData = checklist.length > 0 ? checklist : [
       {
         floorName: selectedFloor,
-        category: 'Thi công khung trần' as const,
+        category: categoriesList[0] || 'Thi công khung trần',
         title: 'Khoảng cách giữa các thanh xương chính tuân thủ thiết kế (800-1000mm)',
         status: 'pending' as const,
         notes: 'Kiểm tra kỹ khoảng cách ty treo',
@@ -161,7 +220,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
     }));
 
     const ws = XLSX.utils.json_to_sheet(data);
-    
+
     const maxLens = data.reduce((acc: any, row: any) => {
       Object.keys(row).forEach((key) => {
         const valLen = String(row[key] || '').length;
@@ -209,11 +268,23 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
             return;
           }
 
-          let categoryNorm: 'Thi công khung trần' | 'Thi công bắn tấm trần' | 'Sơn bả & Hoàn thiện' = 'Thi công khung trần';
-          if (rawCategory.includes('bắn tấm') || rawCategory.includes('Ban Tam') || rawCategory.toLowerCase().includes('tấm')) {
-            categoryNorm = 'Thi công bắn tấm trần';
-          } else if (rawCategory.includes('sơn bả') || rawCategory.includes('Son Ba') || rawCategory.toLowerCase().includes('sơn') || rawCategory.toLowerCase().includes('hoàn thiện')) {
-            categoryNorm = 'Sơn bả & Hoàn thiện';
+          let categoryNorm = rawCategory;
+          const matchedCat = categoriesList.find(
+            (c) => c.toLowerCase().includes(rawCategory.toLowerCase()) || rawCategory.toLowerCase().includes(c.toLowerCase())
+          );
+          if (matchedCat) {
+            categoryNorm = matchedCat;
+          } else {
+            if (rawCategory.includes('bắn tấm') || rawCategory.includes('Ban Tam') || rawCategory.toLowerCase().includes('tấm')) {
+              const bTam = categoriesList.find(c => c.toLowerCase().includes('tấm') || c.toLowerCase().includes('tam'));
+              if (bTam) categoryNorm = bTam;
+            } else if (rawCategory.includes('sơn bả') || rawCategory.includes('Son Ba') || rawCategory.toLowerCase().includes('sơn') || rawCategory.toLowerCase().includes('hoàn thiện')) {
+              const sBa = categoriesList.find(c => c.toLowerCase().includes('sơn') || c.toLowerCase().includes('son') || c.toLowerCase().includes('hoàn thiện'));
+              if (sBa) categoryNorm = sBa;
+            } else if (rawCategory.includes('khung') || rawCategory.includes('Khung')) {
+              const kTran = categoriesList.find(c => c.toLowerCase().includes('khung'));
+              if (kTran) categoryNorm = kTran;
+            }
           }
 
           let statusNorm: ChecklistStatus = 'pending';
@@ -333,26 +404,69 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
       </div>
 
       {/* Category filter */}
-      <div className="flex gap-1 overflow-x-auto text-xs no-scrollbar">
-        {[
-          { id: 'all', label: 'Tất Cả' },
-          { id: 'Thi công khung trần', label: '1. Khung Trần' },
-          { id: 'Thi công bắn tấm trần', label: '2. Bắn Tấm' },
-          { id: 'Sơn bả & Hoàn thiện', label: '3. Sơn Bả' },
-        ].map((cat) => (
-          <button
-            key={cat.id}
-            onClick={() => setSelectedCategory(cat.id)}
-            className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition-all cursor-pointer ${
-              selectedCategory === cat.id
-                ? 'bg-slate-900 text-white'
-                : 'bg-white text-slate-600 border border-slate-200'
-            }`}
-          >
-            {cat.label}
-          </button>
-        ))}
-      </div>
+      {categoriesInUseForFloor.length > 0 && (
+        <div className="flex gap-1 overflow-x-auto text-xs no-scrollbar">
+          {[{ id: 'all', label: 'Tất Cả' }, ...categoriesInUseForFloor.map((cat, idx) => ({
+            id: cat,
+            label: `${idx + 1}. ${getCategoryLabel(cat)}`
+          }))].map((cat) => (
+            <button
+              key={cat.id}
+              onClick={() => setSelectedCategory(cat.id)}
+              className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition-all cursor-pointer ${
+                selectedCategory === cat.id
+                  ? 'bg-slate-900 text-white'
+                  : 'bg-white text-slate-600 border border-slate-200'
+              }`}
+            >
+              {cat.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Select and Bulk Actions Bar */}
+      {filteredChecklist.length > 0 && (
+        <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs gap-2">
+          <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={filteredChecklist.length > 0 && filteredChecklist.every(item => selectedItemIds.includes(item.id))}
+              onChange={(e) => {
+                if (e.target.checked) {
+                  setSelectedItemIds(prev => Array.from(new Set([...prev, ...filteredChecklist.map(item => item.id)])));
+                } else {
+                  setSelectedItemIds(prev => prev.filter(id => !filteredChecklist.some(item => item.id === id)));
+                }
+              }}
+              className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+            />
+            <span>Chọn Tất Cả Trên Trang ({filteredChecklist.length})</span>
+          </label>
+
+          <div className="flex items-center gap-3 justify-end">
+            {selectedItemIds.some(id => filteredChecklist.some(item => item.id === id)) && (
+              <button
+                type="button"
+                onClick={async () => {
+                  const idsToDelete = selectedItemIds.filter(id => filteredChecklist.some(item => item.id === id));
+                  if (await confirmAsync(`Bạn có chắc muốn xóa ${idsToDelete.length} tiêu chí đã chọn?`)) {
+                    if (onDeleteMultipleChecklistItems) {
+                      onDeleteMultipleChecklistItems(idsToDelete);
+                    } else {
+                      idsToDelete.forEach(id => onDeleteChecklistItem(id));
+                    }
+                    setSelectedItemIds(prev => prev.filter(id => !idsToDelete.includes(id)));
+                  }
+                }}
+                className="text-rose-600 hover:text-rose-700 font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" /> Xóa Đã Chọn ({selectedItemIds.filter(id => filteredChecklist.some(item => item.id === id)).length})
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Checklist items list */}
       <div className="space-y-3">
@@ -364,31 +478,50 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
           filteredChecklist.map((item) => (
             <div
               key={item.id}
-              className="bg-white rounded-2xl p-3.5 border border-slate-200 shadow-sm space-y-2.5"
+              className={`bg-white rounded-2xl p-3.5 border transition-all duration-150 space-y-2.5 ${
+                selectedItemIds.includes(item.id) ? 'border-indigo-300 bg-indigo-50/20 shadow-xs' : 'border-slate-200 shadow-sm'
+              }`}
             >
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200 inline-block mb-1">
-                    {item.category}
-                  </span>
-                  <h4 className="text-xs font-bold text-slate-900">{item.title}</h4>
-                </div>
+              <div className="flex items-start gap-2.5">
+                <input
+                  type="checkbox"
+                  checked={selectedItemIds.includes(item.id)}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setSelectedItemIds(prev => [...prev, item.id]);
+                    } else {
+                      setSelectedItemIds(prev => prev.filter(id => id !== item.id));
+                    }
+                  }}
+                  className="mt-1 w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0"
+                />
 
-                <div className="shrink-0">
-                  <span
-                    className={`text-[10px] font-bold px-2 py-1 rounded-xl flex items-center gap-1 ${
-                      item.status === 'passed'
-                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                        : item.status === 'defect'
-                        ? 'bg-rose-100 text-rose-800 border border-rose-300'
-                        : 'bg-amber-100 text-amber-800 border border-amber-300'
-                    }`}
-                  >
-                    {item.status === 'passed' && <CheckCircle2 className="w-3 h-3 text-emerald-600" />}
-                    {item.status === 'defect' && <AlertCircle className="w-3 h-3 text-rose-600" />}
-                    {item.status === 'pending' && <Clock className="w-3 h-3 text-amber-600" />}
-                    {item.status === 'passed' ? 'ĐÃ NGHIỆM THU' : item.status === 'defect' ? 'CÓ DEFECT' : 'CHƯA NGHIỆM THU'}
-                  </span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200 inline-block mb-1">
+                        {getCategoryLabel(item.category)}
+                      </span>
+                      <h4 className="text-xs font-bold text-slate-900 leading-snug">{item.title}</h4>
+                    </div>
+
+                    <div className="shrink-0">
+                      <span
+                        className={`text-[10px] font-bold px-2 py-1 rounded-xl flex items-center gap-1 ${
+                          item.status === 'passed'
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                            : item.status === 'defect'
+                            ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                            : 'bg-amber-100 text-amber-800 border border-amber-300'
+                        }`}
+                      >
+                        {item.status === 'passed' && <CheckCircle2 className="w-3 h-3 text-emerald-600" />}
+                        {item.status === 'defect' && <AlertCircle className="w-3 h-3 text-rose-600" />}
+                        {item.status === 'pending' && <Clock className="w-3 h-3 text-amber-600" />}
+                        {item.status === 'passed' ? 'ĐÃ NGHIỆM THU' : item.status === 'defect' ? 'CÓ DEFECT' : 'CHƯA NGHIỆM THU'}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -435,14 +568,14 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
               <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-100">
                 <span className="truncate max-w-[200px]">👤 GS: <strong className="text-slate-700">{item.inspectedBy || inspectorName}</strong></span>
                 <div className="flex items-center gap-2">
-                  <button 
-                    onClick={() => setEditingChecklistItem(item)} 
+                  <button
+                    onClick={() => setEditingChecklistItem(item)}
                     className="text-indigo-600 hover:underline font-bold flex items-center gap-0.5 cursor-pointer"
                   >
                     <Edit className="w-3 h-3" /> Sửa
                   </button>
-                  <button 
-                    onClick={() => setDeletingChecklistTarget(item)} 
+                  <button
+                    onClick={() => setDeletingChecklistTarget(item)}
                     className="text-rose-500 hover:underline font-bold flex items-center gap-0.5 cursor-pointer"
                   >
                     <Trash2 className="w-3 h-3" /> Xóa
@@ -471,12 +604,14 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
                 <label className="block text-slate-700 font-bold mb-1">Loại Hạng Mục</label>
                 <select
                   value={category}
-                  onChange={(e) => setCategory(e.target.value as any)}
+                  onChange={(e) => setCategory(e.target.value)}
                   className="w-full border border-slate-200 rounded-xl p-2.5 font-bold bg-white"
                 >
-                  <option value="Thi công khung trần">Thi công khung trần</option>
-                  <option value="Thi công bắn tấm trần">Thi công bắn tấm trần</option>
-                  <option value="Sơn bả & Hoàn thiện">Sơn bả &amp; Hoàn thiện</option>
+                  {categoriesList.map((catOption) => (
+                    <option key={catOption} value={catOption}>
+                      {catOption}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -564,12 +699,14 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
                 <label className="block text-slate-700 font-bold mb-1">Loại Hạng Mục</label>
                 <select
                   value={editingChecklistItem.category}
-                  onChange={(e) => setEditingChecklistItem({ ...editingChecklistItem, category: e.target.value as any })}
+                  onChange={(e) => setEditingChecklistItem({ ...editingChecklistItem, category: e.target.value })}
                   className="w-full border border-slate-200 rounded-xl p-2.5 font-bold bg-white"
                 >
-                  <option value="Thi công khung trần">Thi công khung trần</option>
-                  <option value="Thi công bắn tấm trần">Thi công bắn tấm trần</option>
-                  <option value="Sơn bả & Hoàn thiện">Sơn bả &amp; Hoàn thiện</option>
+                  {Array.from(new Set([editingChecklistItem.category, ...categoriesList])).map((catOption) => (
+                    <option key={catOption} value={catOption}>
+                      {catOption}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -661,7 +798,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => {
+                onClick={async () => {
                   onDeleteChecklistItem(deletingChecklistTarget.id);
                   setDeletingChecklistTarget(null);
                 }}

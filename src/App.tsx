@@ -1,12 +1,13 @@
+import { GlobalConfirmModal } from './components/GlobalConfirmModal';
 import React, { useState, useEffect, useMemo } from 'react';
 import { safeSetLocalStorageItem } from './utils/storage';
 import { subscribeToCloudProject, saveProjectToCloud, getCloudPayload } from './lib/firebase';
-import { 
-  InventoryItem, 
-  WorkVolume, 
-  FloorPlan, 
-  DefectItem, 
-  ChecklistItem, 
+import {
+  InventoryItem,
+  WorkVolume,
+  FloorPlan,
+  DefectItem,
+  ChecklistItem,
   ChecklistStatus,
   DefectStatus,
   MaterialNorm,
@@ -14,11 +15,11 @@ import {
   CrewRecord,
   TeamInfo
 } from './types';
-import { 
-  INITIAL_INVENTORY, 
-  INITIAL_WORK_VOLUMES, 
-  INITIAL_FLOOR_PLANS, 
-  INITIAL_DEFECTS, 
+import {
+  INITIAL_INVENTORY,
+  INITIAL_WORK_VOLUMES,
+  INITIAL_FLOOR_PLANS,
+  INITIAL_DEFECTS,
   INITIAL_CHECKLIST,
   INITIAL_MATERIAL_NORMS,
   INITIAL_ROOM_PROGRESS,
@@ -37,15 +38,20 @@ import { ExportPdfModal } from './components/ExportPdfModal';
 import { MaterialNormModal } from './components/MaterialNormModal';
 import { ProjectManagerModal } from './components/ProjectManagerModal';
 import { BottomNav, TabType } from './components/BottomNav';
-import { 
-  exportWarehouseToExcel, 
-  exportWorkVolumesToExcel, 
-  exportFloorPlanToExcel, 
+import {
+  exportWarehouseToExcel,
+  exportWorkVolumesToExcel,
+  exportFloorPlanToExcel,
   exportChecklistToExcel,
   exportCrewToExcel
 } from './utils/excelExport';
 import { getFileHandle, saveFileHandle, removeFileHandle } from './utils/localSyncDb';
 import { isAndroidExportBridgeAvailable, saveTextFile } from './utils/fileExport';
+import { getAllBackupVersions, saveBackupVersion, deleteBackupVersion, BackupVersion } from './utils/backupDb';
+import { cleanupAndCompressOldImages } from './utils/cleanupStorage';
+import { getAsyncItem, setAsyncItem, getAllStorageData } from './utils/asyncStorage';
+import { migrateAndCleanLocalStorage } from './utils/migrateStorage';
+import { confirmAsync } from './utils/confirmAsync';
 
 interface AppData {
   materialNorms: MaterialNorm[];
@@ -100,83 +106,96 @@ export default function App() {
   const [isExportPdfOpen, setIsExportPdfOpen] = useState(false);
   const [isMaterialNormOpen, setIsMaterialNormOpen] = useState(false);
   const [isProjectManagerOpen, setIsProjectManagerOpen] = useState(false);
+  const [projectManagerInitialTab, setProjectManagerInitialTab] = useState<'projects' | 'sync'>('projects');
+
+  const handleOpenProjectManager = (tab: 'projects' | 'sync' = 'projects') => {
+    setProjectManagerInitialTab(tab);
+    setIsProjectManagerOpen(true);
+  };
   const [projectName, setProjectName] = useState<string>(() => {
     return localStorage.getItem(getKey('construction_project_name')) || 'Tòa Nhà HH2 Sunrise Tower';
   });
 
   // App Data State with Undo/Redo support
   const [past, setPast] = useState<AppData[]>([]);
-  const [present, setPresent] = useState<AppData>(() => {
-    const parseSaved = <T,>(key: string, fallback: T): T => {
-      try {
-        const saved = localStorage.getItem(key);
-        return saved ? JSON.parse(saved) : fallback;
-      } catch (e) {
-        console.warn(`Error parsing localStorage key "${key}":`, e);
-        return fallback;
-      }
-    };
 
-    const deduplicateById = (list: any[], prefix: string) => {
-      const seen = new Set<string>();
-      return list.map((item: any, idx: number) => {
-        let id = item.id;
-        if (!id || seen.has(id)) {
-          const itemPrefix = (prefix === 'INV' && item.type)
-            ? (item.type === 'in' ? 'NK' : 'XK')
-            : prefix;
-          id = `${itemPrefix}-${Date.now().toString().slice(-6)}-${Math.random().toString(36).substring(2, 8).toUpperCase()}-${idx}`;
-        }
-        seen.add(id);
-        return { ...item, id };
-      });
-    };
-
-    const rawFloorPlans = parseSaved(getKey('construction_floor_plans'), INITIAL_FLOOR_PLANS) || [];
-    const floorPlans = deduplicateById(rawFloorPlans, 'FP');
-
-    const rawRooms = parseSaved(getKey('construction_room_progress'), INITIAL_ROOM_PROGRESS) || [];
-    const validFloorIds = new Set(floorPlans.map((fp: any) => fp.id));
-    const validFloorNames = new Set(floorPlans.map((fp: any) => fp.floorName));
-    const filteredRooms = rawRooms.filter((r: any) => r.floorId && validFloorIds.has(r.floorId));
-    const roomProgressList = deduplicateById(filteredRooms, 'ROOM');
-
-    const rawDefects = parseSaved(getKey('construction_defects'), INITIAL_DEFECTS) || [];
-    const filteredDefects = rawDefects.filter((d: any) => d.floorId && validFloorIds.has(d.floorId));
-    const defects = deduplicateById(filteredDefects, 'DEF');
-
-    const rawChecklist = parseSaved(getKey('construction_checklist'), INITIAL_CHECKLIST) || [];
-    const filteredChecklist = rawChecklist.filter((c: any) => c.floorName && validFloorNames.has(c.floorName));
-    const checklist = deduplicateById(filteredChecklist, 'CHK');
-
-    const rawCrew = parseSaved(getKey('construction_crew_records'), INITIAL_CREW_RECORDS) || [];
-    const filteredCrew = rawCrew.filter((c: any) => c.floorName && validFloorNames.has(c.floorName));
-    const crewRecords = deduplicateById(filteredCrew, 'CREW');
-
-    const rawMaterialNorms = parseSaved(getKey('construction_material_norms'), INITIAL_MATERIAL_NORMS) || [];
-    const materialNorms = deduplicateById(rawMaterialNorms, 'NORM');
-
-    const rawInventory = parseSaved(getKey('construction_inventory'), INITIAL_INVENTORY) || [];
-    const inventory = deduplicateById(rawInventory, 'INV');
-
-    const rawWorkVolumes = parseSaved(getKey('construction_work_volumes'), INITIAL_WORK_VOLUMES) || [];
-    const workVolumes = deduplicateById(rawWorkVolumes, 'VOL');
-
-    const rawTeams = parseSaved(getKey('construction_teams'), INITIAL_TEAMS) || [];
-    const teams = deduplicateById(rawTeams, 'TEAM');
-
-    return {
-      materialNorms,
-      inventory,
-      workVolumes,
-      floorPlans,
-      defects,
-      roomProgressList,
-      checklist,
-      crewRecords,
-      teams,
-    };
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [present, setPresent] = useState<AppData>({
+    materialNorms: [], inventory: [], workVolumes: [], floorPlans: [], defects: [], roomProgressList: [], checklist: [], crewRecords: [], teams: []
   });
+
+  useEffect(() => {
+    async function loadData() {
+      await migrateAndCleanLocalStorage();
+
+      const parseSaved = async <T,>(key: string, fallback: T): Promise<T> => {
+        return await getAsyncItem(key, fallback);
+      };
+
+      const deduplicateById = (list: any[], prefix: string) => {
+        const seen = new Set<string>();
+        return list.map((item: any, idx: number) => {
+          let id = item.id;
+          if (!id || seen.has(id)) {
+            const itemPrefix = (prefix === 'INV' && item.type)
+              ? (item.type === 'in' ? 'NK' : 'XK')
+              : prefix;
+            id = `${itemPrefix}-${Date.now().toString().slice(-6)}-${Math.random().toString(36).substring(2, 8).toUpperCase()}-${idx}`;
+          }
+          seen.add(id);
+          return { ...item, id };
+        });
+      };
+
+      const rawFloorPlans = (await parseSaved(getKey('construction_floor_plans'), INITIAL_FLOOR_PLANS)) || [];
+      const floorPlans = deduplicateById(rawFloorPlans, 'FP');
+
+      const rawRooms = (await parseSaved(getKey('construction_room_progress'), INITIAL_ROOM_PROGRESS)) || [];
+      const validFloorIds = new Set(floorPlans.map((fp: any) => fp.id));
+      const validFloorNames = new Set(floorPlans.map((fp: any) => fp.floorName));
+      const filteredRooms = rawRooms.filter((r: any) => r.floorId && validFloorIds.has(r.floorId));
+      const roomProgressList = deduplicateById(filteredRooms, 'ROOM');
+
+      const rawDefects = (await parseSaved(getKey('construction_defects'), INITIAL_DEFECTS)) || [];
+      const filteredDefects = rawDefects.filter((d: any) => d.floorId && validFloorIds.has(d.floorId));
+      const defects = deduplicateById(filteredDefects, 'DEF');
+
+      const rawChecklist = (await parseSaved(getKey('construction_checklist'), INITIAL_CHECKLIST)) || [];
+      const filteredChecklist = rawChecklist.filter((c: any) => c.floorName && validFloorNames.has(c.floorName));
+      const checklist = deduplicateById(filteredChecklist, 'CHK');
+
+      const rawCrew = (await parseSaved(getKey('construction_crew_records'), INITIAL_CREW_RECORDS)) || [];
+      const filteredCrew = rawCrew.filter((c: any) => c.floorName && validFloorNames.has(c.floorName));
+      const crewRecords = deduplicateById(filteredCrew, 'CREW');
+
+      const rawMaterialNorms = (await parseSaved(getKey('construction_material_norms'), INITIAL_MATERIAL_NORMS)) || [];
+      const materialNorms = deduplicateById(rawMaterialNorms, 'NORM');
+
+      const rawInventory = (await parseSaved(getKey('construction_inventory'), INITIAL_INVENTORY)) || [];
+      const inventory = deduplicateById(rawInventory, 'INV');
+
+      const rawWorkVolumes = (await parseSaved(getKey('construction_work_volumes'), INITIAL_WORK_VOLUMES)) || [];
+      const workVolumes = deduplicateById(rawWorkVolumes, 'VOL');
+
+      const rawTeams = (await parseSaved(getKey('construction_teams'), INITIAL_TEAMS)) || [];
+      const teams = deduplicateById(rawTeams, 'TEAM');
+
+      setPresent({
+        materialNorms,
+        inventory,
+        workVolumes,
+        floorPlans,
+        defects,
+        roomProgressList,
+        checklist,
+        crewRecords,
+        teams,
+      });
+      setIsInitializing(false);
+    }
+    loadData();
+  }, []);
+
   const [future, setFuture] = useState<AppData[]>([]);
 
   const [isSyncing, setIsSyncing] = useState(false);
@@ -240,16 +259,33 @@ export default function App() {
   const computedMaterialNorms = useMemo(() => {
     return materialNorms.map(norm => {
       const categories = norm.workCategories || (norm.workCategory ? [norm.workCategory] : []);
-      if (categories.length > 0 && norm.unitNormPerM2 && norm.unitNormPerM2 > 0) {
-        // Sum up planned (quota) volume of all matching work categories
-        const totalVolume = computedWorkVolumes
-          .filter(v => categories.includes(v.title))
-          .reduce((sum, v) => sum + (v.planned || 0), 0);
-        
-        if (totalVolume > 0) {
+      if (categories.length > 0) {
+        // Compute total volume multiplied by corresponding norm (either specific or general)
+        let totalQuota = 0;
+        let hasNorms = false;
+
+        categories.forEach(cat => {
+          const catVolume = computedWorkVolumes
+            .filter(v => v.title === cat)
+            .reduce((sum, v) => sum + (v.planned || 0), 0);
+
+          if (catVolume > 0) {
+            let factor = 0;
+            if (norm.workCategoryNorms && norm.workCategoryNorms[cat] !== undefined) {
+              factor = norm.workCategoryNorms[cat];
+              hasNorms = true;
+            } else if (norm.unitNormPerM2 && norm.unitNormPerM2 > 0) {
+              factor = norm.unitNormPerM2;
+              hasNorms = true;
+            }
+            totalQuota += catVolume * factor;
+          }
+        });
+
+        if (hasNorms && totalQuota > 0) {
           return {
             ...norm,
-            quotaQuantity: Math.round(totalVolume * norm.unitNormPerM2 * 100) / 100
+            quotaQuantity: Math.round(totalQuota * 100) / 100
           };
         }
       }
@@ -293,6 +329,21 @@ export default function App() {
   const [localAllSyncPermissionNeeded, setLocalAllSyncPermissionNeeded] = useState<boolean>(false);
   const [localAllFileName, setLocalAllFileName] = useState<string>('');
 
+  const [autosaveVersions, setAutosaveVersions] = useState<BackupVersion[]>([]);
+
+  // Load autosave versions on mount
+  useEffect(() => {
+    const loadBackups = async () => {
+      try {
+        const versions = await getAllBackupVersions();
+        setAutosaveVersions(versions);
+      } catch (e) {
+        console.error('Error loading autosave versions on mount:', e);
+      }
+    };
+    loadBackups();
+  }, []);
+
   // Load local file handle on mount
   useEffect(() => {
     const loadStoredHandle = async () => {
@@ -302,7 +353,7 @@ export default function App() {
         if (handle) {
           setLocalFileHandle(handle);
           setLocalFileName(handle.name || 'Dữ liệu liên kết');
-          
+
           const options = { mode: 'readwrite' as const };
           const permission = await handle.queryPermission(options);
           if (permission !== 'granted') {
@@ -372,6 +423,11 @@ export default function App() {
     localStorage.setItem(getKey('construction_updated_at'), String(now));
   };
 
+  useEffect(() => {
+    // Fire-and-forget: cleanup huge images on boot
+    cleanupAndCompressOldImages();
+  }, []);
+
   // Keyboard shortcut listener for Undo / Redo
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -415,7 +471,7 @@ export default function App() {
   // Persistence to localStorage
   useEffect(() => {
     localStorage.setItem(getKey('construction_project_name'), projectName);
-    
+
     const list = getProjectsList();
     const activeId = getActiveProjectId();
     const project = list.find(p => p.id === activeId);
@@ -423,7 +479,7 @@ export default function App() {
       project.name = projectName;
       saveProjectsList(list);
     }
-    
+
     if (!syncLockRef.current) {
       const now = Date.now();
       setLastUpdatedAt(now);
@@ -454,15 +510,15 @@ export default function App() {
   }, [autoSyncEnabled]);
 
   useEffect(() => {
-    safeSetLocalStorageItem(getKey('construction_material_norms'), JSON.stringify(materialNorms));
-    safeSetLocalStorageItem(getKey('construction_inventory'), JSON.stringify(inventory));
-    safeSetLocalStorageItem(getKey('construction_work_volumes'), JSON.stringify(workVolumes));
-    safeSetLocalStorageItem(getKey('construction_floor_plans'), JSON.stringify(floorPlans));
-    safeSetLocalStorageItem(getKey('construction_defects'), JSON.stringify(defects));
-    safeSetLocalStorageItem(getKey('construction_room_progress'), JSON.stringify(roomProgressList));
-    safeSetLocalStorageItem(getKey('construction_checklist'), JSON.stringify(checklist));
-    safeSetLocalStorageItem(getKey('construction_crew_records'), JSON.stringify(crewRecords));
-    safeSetLocalStorageItem(getKey('construction_teams'), JSON.stringify(teams));
+    setAsyncItem(getKey('construction_material_norms'), materialNorms);
+    setAsyncItem(getKey('construction_inventory'), inventory);
+    setAsyncItem(getKey('construction_work_volumes'), workVolumes);
+    setAsyncItem(getKey('construction_floor_plans'), floorPlans);
+    setAsyncItem(getKey('construction_defects'), defects);
+    setAsyncItem(getKey('construction_room_progress'), roomProgressList);
+    setAsyncItem(getKey('construction_checklist'), checklist);
+    setAsyncItem(getKey('construction_crew_records'), crewRecords);
+    setAsyncItem(getKey('construction_teams'), teams);
   }, [present]);
 
   const handleRestoreData = (data: any) => {
@@ -555,7 +611,7 @@ export default function App() {
         setDriveLastSyncTime(timeStr);
         localStorage.setItem(getKey('construction_drive_last_sync'), timeStr);
         localStorage.setItem(getKey('construction_updated_at'), String(now));
-        
+
         // Restore returned processed data (replaces large Base64 strings with public direct Google Drive URLs)
         if (result.data) {
           handleRestoreData(result.data);
@@ -565,7 +621,7 @@ export default function App() {
         if (isAuthenticated) {
           handleDriveSyncUpAll(folderId).catch(err => console.warn('Auto drive sync all projects error:', err));
         }
-        
+
         return { success: true, message: result.message };
       } else {
         throw new Error(result.error || 'Lỗi lưu Drive không xác định');
@@ -581,10 +637,10 @@ export default function App() {
     try {
       const folderId = customFolderId || '1se6PAsmGQ2hwPqUCiQoueksEFPP_YMO6';
       const allData: Record<string, string> = {};
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
+      const storageData = await getAllStorageData();
+      for (const key in storageData) {
         if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
-          allData[key] = localStorage.getItem(key) || '';
+          allData[key] = storageData[key] || '';
         }
       }
 
@@ -661,16 +717,16 @@ export default function App() {
       if (!('showSaveFilePicker' in window)) {
         if (isAndroidExportBridgeAvailable()) {
           const allData: Record<string, string> = {};
-          for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
+          const storageData = await getAllStorageData();
+          for (const key in storageData) {
             if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
-              allData[key] = localStorage.getItem(key) || '';
+              allData[key] = storageData[key] || '';
             }
           }
           const fileName = `[Toan_Bo_Du_An]_Backup_${Date.now()}.json`;
-          saveTextFile(JSON.stringify(allData, null, 2), fileName);
+          await saveTextFile(JSON.stringify(allData, null, 2), fileName);
           setLocalAllSyncStatus('synced');
-          alert('APK da luu ban JSON vao thu muc Download/QLCT. Android WebView khong ho tro lien ket ghi de mot file cuc bo; dong bo tu dong tren dien thoai se dung Cloud Firebase.');
+          alert('APK da luu ban JSON day du vao thu muc Download/QLCT. Du lieu lon trong IndexedDB/localforage cung duoc gom vao file nay. Android WebView khong ho tro lien ket ghi de mot file cuc bo; dong bo tu dong tren dien thoai se dung Cloud Firebase.');
           return;
         }
         alert('Trình duyệt không hỗ trợ. Hãy dùng Chrome mới nhất.');
@@ -688,12 +744,12 @@ export default function App() {
         setLocalAllSyncStatus('saving');
 
         const allData: Record<string, string> = {};
-        for (let i = 0; i < localStorage.length; i++) {
-          const key = localStorage.key(i);
-          if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
-            allData[key] = localStorage.getItem(key) || '';
-          }
+        const storageData = await getAllStorageData();
+      for (const key in storageData) {
+        if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
+          allData[key] = storageData[key] || '';
         }
+      }
         const writable = await handle.createWritable();
         await writable.write(JSON.stringify(allData, null, 2));
         await writable.close();
@@ -721,12 +777,12 @@ export default function App() {
         setLocalAllSyncStatus('saving');
         const writable = await localAllFileHandle.createWritable();
         const allData: Record<string, string> = {};
-        for (let i = 0; i < localStorage.length; i++) {
-          const key = localStorage.key(i);
-          if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
-            allData[key] = localStorage.getItem(key) || '';
-          }
+        const storageData = await getAllStorageData();
+      for (const key in storageData) {
+        if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
+          allData[key] = storageData[key] || '';
         }
+      }
         await writable.write(JSON.stringify(allData, null, 2));
         await writable.close();
         setLocalAllSyncStatus('synced');
@@ -851,7 +907,7 @@ export default function App() {
         if (autoSyncEnabled) {
           handleDriveSyncUp().catch(err => console.warn('Auto drive sync warning:', err));
         }
-        
+
         // Realtime Cloud Auto Save
         try {
           const activeId = getActiveProjectId();
@@ -881,7 +937,7 @@ export default function App() {
       try {
         const options = { mode: 'readwrite' as const };
         const permissionStatus = await localFileHandle.queryPermission(options);
-        
+
         if (permissionStatus !== 'granted') {
           setLocalSyncPermissionNeeded(true);
           setLocalSyncStatus('idle');
@@ -919,6 +975,181 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [localFileHandle, present, projectName, contractorName, inspectorName, lastUpdatedAt]);
 
+  const saveAutoSaveVersion = async (allData: any) => {
+    try {
+      const now = Date.now();
+      const dateObj = new Date(now);
+
+      const year = dateObj.getFullYear();
+      const month = dateObj.getMonth() + 1; // 1-12
+      const date = dateObj.getDate();
+      const hour = dateObj.getHours();
+
+      // Get week number
+      const tempDate = new Date(dateObj.getTime());
+      tempDate.setHours(0, 0, 0, 0);
+      tempDate.setDate(tempDate.getDate() + 3 - (tempDate.getDay() + 6) % 7);
+      const week1 = new Date(tempDate.getFullYear(), 0, 4);
+      const weekNum = 1 + Math.round(((tempDate.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
+
+      const hourKey = `${year}-${month}-${date} H${hour}`;
+      const dayKey = `${year}-${month}-${date}`;
+      const weekKey = `${year}-W${weekNum}`;
+      const monthKey = `${year}-${month}`;
+
+      // Check if we already have backups for these keys in our history
+      const hasHour = autosaveVersions.some(v => v.hourKey === hourKey);
+      const hasDay = autosaveVersions.some(v => v.dayKey === dayKey);
+      const hasWeek = autosaveVersions.some(v => v.weekKey === weekKey);
+      const hasMonth = autosaveVersions.some(v => v.monthKey === monthKey);
+
+      let typeLabel = 'Thủ Công';
+      let tag: 'hourly' | 'daily' | 'weekly' | 'monthly' | 'manual' = 'manual';
+
+      if (!hasMonth) {
+        tag = 'monthly';
+        typeLabel = 'Theo Tháng';
+      } else if (!hasWeek) {
+        tag = 'weekly';
+        typeLabel = 'Theo Tuần';
+      } else if (!hasDay) {
+        tag = 'daily';
+        typeLabel = 'Theo Ngày';
+      } else if (!hasHour) {
+        tag = 'hourly';
+        typeLabel = 'Theo Giờ';
+      } else {
+        const lastVer = autosaveVersions[0];
+        if (lastVer && (now - lastVer.timestamp < 10 * 60 * 1000)) {
+          // Less than 10 mins ago, let's skip to save space
+          return;
+        }
+        tag = 'hourly';
+        typeLabel = 'Theo Giờ';
+      }
+
+      // Read max versions from localStorage (default 15)
+      const maxStr = localStorage.getItem('construction_max_autosave_versions') || '15';
+      const maxVersions = parseInt(maxStr, 10) || 15;
+
+      let statsText = '';
+      try {
+        const rawPresent = allData['construction_present'] || allData[getKey('construction_present')];
+        if (rawPresent) {
+          const pres = JSON.parse(rawPresent);
+          const checklistCount = Array.isArray(pres.checklist) ? pres.checklist.length : 0;
+          const defectCount = Array.isArray(pres.defects) ? pres.defects.length : 0;
+          const volCount = Array.isArray(pres.workVolumes) ? pres.workVolumes.length : 0;
+          statsText = `${checklistCount} tiêu chí, ${defectCount} lỗi, ${volCount} khối lượng`;
+        }
+      } catch (e) {
+        statsText = 'Dữ liệu dự án';
+      }
+
+      const newVersion: BackupVersion = {
+        id: `ver_${now}_${Math.random().toString(36).substr(2, 5)}`,
+        timestamp: now,
+        type: tag,
+        typeLabel,
+        hourKey,
+        dayKey,
+        weekKey,
+        monthKey,
+        stats: statsText,
+        projectName: projectName || 'Dự án hiện tại',
+        data: allData
+      };
+
+      const updated = await saveBackupVersion(newVersion, maxVersions);
+      setAutosaveVersions(updated);
+    } catch (err) {
+      console.error('Error saving autosave version history:', err);
+    }
+  };
+
+  const handleCreateManualBackup = async () => {
+    const allData: Record<string, string> = {};
+    const storageData = await getAllStorageData();
+      for (const key in storageData) {
+        if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
+          allData[key] = storageData[key] || '';
+        }
+      }
+
+    try {
+      const now = Date.now();
+
+      let statsText = '';
+      try {
+        const rawPresent = allData['construction_present'] || allData[getKey('construction_present')];
+        if (rawPresent) {
+          const pres = JSON.parse(rawPresent);
+          const checklistCount = Array.isArray(pres.checklist) ? pres.checklist.length : 0;
+          const defectCount = Array.isArray(pres.defects) ? pres.defects.length : 0;
+          const volCount = Array.isArray(pres.workVolumes) ? pres.workVolumes.length : 0;
+          statsText = `${checklistCount} tiêu chí, ${defectCount} lỗi, ${volCount} khối lượng`;
+        }
+      } catch (e) {
+        statsText = 'Dữ liệu thủ công';
+      }
+
+      const maxStr = localStorage.getItem('construction_max_autosave_versions') || '15';
+      const maxVersions = parseInt(maxStr, 10) || 15;
+
+      const newVersion: BackupVersion = {
+        id: `ver_${now}_manual`,
+        timestamp: now,
+        type: 'manual',
+        typeLabel: 'Thủ Công (Bút bấm)',
+        stats: statsText,
+        projectName: projectName || 'Dự án hiện tại',
+        data: allData
+      };
+
+      const updated = await saveBackupVersion(newVersion, maxVersions);
+      setAutosaveVersions(updated);
+      alert('Đã tạo điểm phục hồi dự án thành công!');
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleDeleteAutoSaveVersion = async (id: string) => {
+    try {
+      const updated = await deleteBackupVersion(id);
+      setAutosaveVersions(updated);
+    } catch (e) {
+      console.error('Error deleting backup version:', e);
+    }
+  };
+
+  const handleRestoreAutoSaveVersion = async (versionData: any) => {
+    if (!versionData || typeof versionData !== 'object') {
+      alert('Dữ liệu bản sao lưu không hợp lệ!');
+      return;
+    }
+
+    const isLocalStorageDump = Object.keys(versionData).some(k => k.startsWith('construction_') || k.startsWith('active_project_id'));
+
+    if (isLocalStorageDump) {
+      if (await confirmAsync('⚠️ Chú ý: Việc phục hồi phiên bản này sẽ ghi đè toàn bộ dữ liệu hiện tại của bạn và tải lại trang. Bạn có muốn tiếp tục?')) {
+        syncLockRef.current = true;
+        try {
+          for (const key in versionData) {
+            localStorage.setItem(key, versionData[key]);
+          }
+          window.location.reload();
+        } finally {
+          syncLockRef.current = false;
+        }
+      }
+    } else {
+      if (await confirmAsync('Bạn có muốn phục hồi các bảng dữ liệu từ bản sao lưu này không? (Có thể hoàn tác sau)')) {
+        handleRestoreData(versionData);
+      }
+    }
+  };
+
   // Local All File Auto-Save Debounced Effect
   useEffect(() => {
     if (!localAllFileHandle) return;
@@ -928,7 +1159,7 @@ export default function App() {
       try {
         const options = { mode: 'readwrite' as const };
         const permissionStatus = await localAllFileHandle.queryPermission(options);
-        
+
         if (permissionStatus !== 'granted') {
           setLocalAllSyncPermissionNeeded(true);
           setLocalAllSyncStatus('idle');
@@ -937,19 +1168,23 @@ export default function App() {
 
         setLocalAllSyncStatus('saving');
         const writable = await localAllFileHandle.createWritable();
-        
+
         const allData: Record<string, string> = {};
-        for (let i = 0; i < localStorage.length; i++) {
-          const key = localStorage.key(i);
-          if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
-            allData[key] = localStorage.getItem(key) || '';
-          }
+        const storageData = await getAllStorageData();
+      for (const key in storageData) {
+        if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
+          allData[key] = storageData[key] || '';
         }
-        
+      }
+
         const jsonString = JSON.stringify(allData, null, 2);
 
         await writable.write(jsonString);
         await writable.close();
+
+        // Save to version history too
+        saveAutoSaveVersion(allData);
+
         setLocalAllSyncStatus('synced');
         setLocalAllSyncPermissionNeeded(false);
       } catch (err) {
@@ -960,6 +1195,31 @@ export default function App() {
 
     return () => clearTimeout(timer);
   }, [localAllFileHandle, present, projectName, contractorName, inspectorName, lastUpdatedAt]);
+
+  // General Auto-Save Versioning debounced effect on any data change
+  useEffect(() => {
+    if (syncLockRef.current) return;
+    if (!lastUpdatedAt) return;
+
+    const timer = setTimeout(async () => {
+      try {
+        const allData: Record<string, string> = {};
+        const storageData = await getAllStorageData();
+      for (const key in storageData) {
+        if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
+          allData[key] = storageData[key] || '';
+        }
+      }
+
+        // Save to version history automatically
+        await saveAutoSaveVersion(allData);
+      } catch (err) {
+        console.error('Error in background auto-saving version:', err);
+      }
+    }, 4000); // 4 seconds debounce for automatic background saving
+
+    return () => clearTimeout(timer);
+  }, [lastUpdatedAt]);
 
   // Link local JSON file for auto sync
   const handleLinkLocalFile = async () => {
@@ -992,9 +1252,9 @@ export default function App() {
             teams,
             updatedAt: lastUpdatedAt,
           }, null, 2);
-          saveTextFile(jsonString, fileName);
+          await saveTextFile(jsonString, fileName);
           setLocalSyncStatus('synced');
-          alert('APK da luu ban JSON hien tai vao thu muc Download/QLCT. Android WebView khong ho tro lien ket ghi de mot file cuc bo; dong bo tu dong tren dien thoai se dung Cloud Firebase.');
+          alert('APK da luu ban JSON hien tai vao thu muc Download/QLCT. Du lieu da nam trong IndexedDB/localforage khong bi gioi han 5MB nhu localStorage. Android WebView khong ho tro lien ket ghi de mot file cuc bo; dong bo tu dong tren dien thoai se dung Cloud Firebase.');
           return;
         }
         alert('Trình duyệt của bạn không hỗ trợ ghi tệp trực tiếp. Vui lòng sử dụng Chrome, Edge hoặc Safari mới nhất.');
@@ -1045,7 +1305,7 @@ export default function App() {
     } catch (err: any) {
       if (err.name !== 'AbortError') {
         console.error('Error linking local file:', err);
-        
+
         // Check for cross-origin iframe security restrictions
         const isIframeErr = err.message && (
           err.message.toLowerCase().includes('cross origin') ||
@@ -1091,7 +1351,7 @@ export default function App() {
       if (permission === 'granted') {
         setLocalSyncPermissionNeeded(false);
         setLocalSyncStatus('saving');
-        
+
         // Immediately trigger a save to make sure it's updated
         const writable = await localFileHandle.createWritable();
         const jsonString = JSON.stringify({
@@ -1126,7 +1386,7 @@ export default function App() {
   const handleSyncAll = async () => {
     try {
       setIsSyncing(true);
-      
+
       // Perform Sheet Sync
       const res = await fetch('/api/sheets/sync-all', {
         method: 'POST',
@@ -1148,12 +1408,7 @@ export default function App() {
       try {
         data = JSON.parse(text);
       } catch {
-        const htmlFallback = text.trim().startsWith('<!doctype') || text.trim().startsWith('<html');
-        data = {
-          error: htmlFallback
-            ? 'Ban web mien phi dang dong bo Firebase/Firestore. Dong bo Google Sheets/Drive can App Hosting hoac server rieng.'
-            : text || 'Phan hoi khong hop le',
-        };
+        data = { error: text || 'Phản hồi không hợp lệ' };
       }
 
       if (!res.ok) {
@@ -1218,6 +1473,13 @@ export default function App() {
     }));
   };
 
+  const handleDeleteMultipleNorms = (ids: string[]) => {
+    updateAppData((prev) => ({
+      ...prev,
+      materialNorms: prev.materialNorms.filter((norm) => !ids.includes(norm.id)),
+    }));
+  };
+
   const handleImportNorms = (importedNorms: MaterialNorm[]) => {
     updateAppData((prev) => ({
       ...prev,
@@ -1228,8 +1490,8 @@ export default function App() {
   // Handlers for Inventory
   const handleAddInventory = (item: Omit<InventoryItem, 'id'>) => {
     const randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
-    const newId = item.type === 'in' 
-      ? `NK-${Date.now().toString().slice(-6)}-${randomSuffix}` 
+    const newId = item.type === 'in'
+      ? `NK-${Date.now().toString().slice(-6)}-${randomSuffix}`
       : `XK-${Date.now().toString().slice(-6)}-${randomSuffix}`;
     updateAppData((prev) => ({
       ...prev,
@@ -1241,6 +1503,20 @@ export default function App() {
     updateAppData((prev) => ({
       ...prev,
       inventory: prev.inventory.filter((i) => i.id !== id),
+    }));
+  };
+
+  const handleDeleteMultipleInventory = (ids: string[]) => {
+    updateAppData((prev) => ({
+      ...prev,
+      inventory: prev.inventory.filter((i) => !ids.includes(i.id)),
+    }));
+  };
+
+  const handleImportInventory = (importedInventory: InventoryItem[]) => {
+    updateAppData((prev) => ({
+      ...prev,
+      inventory: importedInventory,
     }));
   };
 
@@ -1296,6 +1572,13 @@ export default function App() {
     }));
   };
 
+  const handleDeleteMultipleWorkVolumes = (ids: string[]) => {
+    updateAppData((prev) => ({
+      ...prev,
+      workVolumes: prev.workVolumes.filter((item) => !ids.includes(item.id)),
+    }));
+  };
+
   // Handlers for Floor Plans & Defects
   const handleAddFloorPlan = (plan: Omit<FloorPlan, 'id'> & { id?: string }) => {
     const newId = plan.id || `fp-${Date.now()}`;
@@ -1346,6 +1629,36 @@ export default function App() {
       defects: prev.defects.filter((d) => d.floorId !== id),
       checklist: targetPlan ? prev.checklist.filter((c) => c.floorName !== targetPlan.floorName) : prev.checklist,
     }));
+  };
+
+  const handleDeleteMultipleFloorPlans = (ids: string[]) => {
+    updateAppData((prev) => {
+      const remainingPlans = prev.floorPlans.filter((fp) => !ids.includes(fp.id));
+      if (remainingPlans.length === 0) {
+        const firstId = prev.floorPlans[0]?.id;
+        const keptPlans = prev.floorPlans.filter((fp) => fp.id === firstId);
+        const idsToReallyDelete = ids.filter(id => id !== firstId);
+        const targetPlans = prev.floorPlans.filter((fp) => idsToReallyDelete.includes(fp.id));
+        const targetPlanNames = targetPlans.map(fp => fp.floorName);
+        return {
+          ...prev,
+          floorPlans: keptPlans,
+          roomProgressList: prev.roomProgressList.filter((r) => !idsToReallyDelete.includes(r.floorId)),
+          defects: prev.defects.filter((d) => !idsToReallyDelete.includes(d.floorId)),
+          checklist: prev.checklist.filter((c) => !targetPlanNames.includes(c.floorName)),
+        };
+      }
+
+      const targetPlans = prev.floorPlans.filter((fp) => ids.includes(fp.id));
+      const targetPlanNames = targetPlans.map(fp => fp.floorName);
+      return {
+        ...prev,
+        floorPlans: remainingPlans,
+        roomProgressList: prev.roomProgressList.filter((r) => !ids.includes(r.floorId)),
+        defects: prev.defects.filter((d) => !ids.includes(d.floorId)),
+        checklist: prev.checklist.filter((c) => !targetPlanNames.includes(c.floorName)),
+      };
+    });
   };
 
   const handleDuplicateFloorPlan = (id: string, customName?: string) => {
@@ -1440,9 +1753,25 @@ export default function App() {
   };
 
   const handleUpdateDefectStatus = (id: string, status: DefectStatus) => {
+    const todayStr = new Date().toISOString().split('T')[0];
     updateAppData((prev) => ({
       ...prev,
-      defects: prev.defects.map((d) => (d.id === id ? { ...d, status } : d)),
+      defects: prev.defects.map((d) =>
+        d.id === id
+          ? {
+              ...d,
+              status,
+              completedAt: status === 'Đã khắc phục' || status === 'Đã nghiệm thu' ? (d.completedAt || todayStr) : d.completedAt,
+            }
+          : d
+      ),
+    }));
+  };
+
+  const handleUpdateDefect = (updatedDefect: DefectItem) => {
+    updateAppData((prev) => ({
+      ...prev,
+      defects: prev.defects.map((d) => (d.id === updatedDefect.id ? updatedDefect : d)),
     }));
   };
 
@@ -1450,6 +1779,13 @@ export default function App() {
     updateAppData((prev) => ({
       ...prev,
       defects: prev.defects.filter((d) => d.id !== id),
+    }));
+  };
+
+  const handleDeleteMultipleDefects = (ids: string[]) => {
+    updateAppData((prev) => ({
+      ...prev,
+      defects: prev.defects.filter((d) => !ids.includes(d.id)),
     }));
   };
 
@@ -1480,6 +1816,13 @@ export default function App() {
     updateAppData((prev) => ({
       ...prev,
       roomProgressList: prev.roomProgressList.filter((r) => r.id !== id),
+    }));
+  };
+
+  const handleDeleteMultipleRoomProgress = (ids: string[]) => {
+    updateAppData((prev) => ({
+      ...prev,
+      roomProgressList: prev.roomProgressList.filter((r) => !ids.includes(r.id)),
     }));
   };
 
@@ -1529,6 +1872,13 @@ export default function App() {
     }));
   };
 
+  const handleDeleteMultipleChecklistItems = (ids: string[]) => {
+    updateAppData((prev) => ({
+      ...prev,
+      checklist: prev.checklist.filter((item) => !ids.includes(item.id)),
+    }));
+  };
+
   // Handlers for Crew/Quân số
   const handleAddCrewRecord = (record: Omit<CrewRecord, 'id'>) => {
     const newId = `crew-${Date.now()}`;
@@ -1549,6 +1899,13 @@ export default function App() {
     updateAppData((prev) => ({
       ...prev,
       crewRecords: prev.crewRecords.filter((r) => r.id !== id),
+    }));
+  };
+
+  const handleDeleteMultipleCrewRecords = (ids: string[]) => {
+    updateAppData((prev) => ({
+      ...prev,
+      crewRecords: prev.crewRecords.filter((r) => !ids.includes(r.id)),
     }));
   };
 
@@ -1584,6 +1941,7 @@ export default function App() {
         {/* Sticky Top Header */}
         <GoogleAuthHeader
           projectName={projectName}
+          lastUpdatedAt={lastUpdatedAt}
           setProjectName={setProjectName}
           onSyncAll={handleSyncAll}
           isSyncing={isSyncing}
@@ -1592,12 +1950,13 @@ export default function App() {
           onRedo={handleRedo}
           canUndo={past.length > 0}
           canRedo={future.length > 0}
-          onOpenProjectManager={() => setIsProjectManagerOpen(true)}
+          onOpenProjectManager={handleOpenProjectManager}
         />
-        
-        <ProjectManagerModal 
-          isOpen={isProjectManagerOpen} 
-          onClose={() => setIsProjectManagerOpen(false)} 
+
+        <ProjectManagerModal
+          isOpen={isProjectManagerOpen}
+          onClose={() => setIsProjectManagerOpen(false)}
+          initialTab={projectManagerInitialTab}
           onDriveSyncUpAll={handleDriveSyncUpAll}
           onDriveSyncDownAll={handleDriveSyncDownAll}
           localAllSyncStatus={localAllSyncStatus}
@@ -1606,6 +1965,10 @@ export default function App() {
           onLinkLocalAllFile={handleLinkLocalAllFile}
           onUnlinkLocalAllFile={handleUnlinkLocalAllFile}
           onRequestLocalAllFilePermission={handleRequestLocalAllFilePermission}
+          autosaveVersions={autosaveVersions}
+          onRestoreAutoSaveVersion={handleRestoreAutoSaveVersion}
+          onCreateManualBackup={handleCreateManualBackup}
+          onDeleteAutoSaveVersion={handleDeleteAutoSaveVersion}
           fullAppData={{
             projectName,
             contractorName,
@@ -1634,6 +1997,7 @@ export default function App() {
               inventory={inventory}
               onAddInventory={handleAddInventory}
               onDeleteInventory={handleDeleteInventory}
+              onDeleteMultipleInventory={handleDeleteMultipleInventory}
               onSyncSheets={handleSyncAll}
               materialNorms={computedMaterialNorms}
               onOpenNormModal={() => setIsMaterialNormOpen(true)}
@@ -1644,6 +2008,7 @@ export default function App() {
               canUndo={past.length > 0}
               canRedo={future.length > 0}
               workVolumes={computedWorkVolumes}
+              onImportInventory={handleImportInventory}
               onImportNorms={handleImportNorms}
               onImportWorkVolumes={(importedVolumes) => updateAppData((prev) => ({ ...prev, workVolumes: importedVolumes }))}
             />
@@ -1653,10 +2018,12 @@ export default function App() {
             <WorkVolumeTab
               workVolumes={computedWorkVolumes}
               floorPlans={floorPlans}
+              roomProgressList={roomProgressList}
               onAddWorkVolume={handleAddWorkVolume}
               onSaveWorkVolume={handleSaveWorkVolume}
               onUpdateActualVolume={handleUpdateActualVolume}
               onDeleteWorkVolume={handleDeleteWorkVolume}
+              onDeleteMultipleWorkVolumes={handleDeleteMultipleWorkVolumes}
               onOpenExportPdf={() => setIsExportPdfOpen(true)}
               onExportExcel={handleExportExcel}
               onUndo={handleUndo}
@@ -1682,13 +2049,17 @@ export default function App() {
               onUpdateFloorPlanImage={handleUpdateFloorPlanImage}
               onRenameFloorPlan={handleRenameFloorPlan}
               onDeleteFloorPlan={handleDeleteFloorPlan}
+              onDeleteMultipleFloorPlans={handleDeleteMultipleFloorPlans}
               onDuplicateFloorPlan={handleDuplicateFloorPlan}
               onMoveFloorPlan={handleMoveFloorPlan}
               onAddDefect={handleAddDefect}
               onUpdateDefectStatus={handleUpdateDefectStatus}
+              onUpdateDefect={handleUpdateDefect}
               onDeleteDefect={handleDeleteDefect}
+              onDeleteMultipleDefects={handleDeleteMultipleDefects}
               onSaveRoomProgress={handleSaveRoomProgress}
               onDeleteRoomProgress={handleDeleteRoomProgress}
+              onDeleteMultipleRoomProgress={handleDeleteMultipleRoomProgress}
               onOpenExportPdf={() => setIsExportPdfOpen(true)}
               onExportExcel={handleExportExcel}
               onUndo={handleUndo}
@@ -1703,10 +2074,12 @@ export default function App() {
               checklist={checklist}
               floors={floorNames}
               inspectorName={inspectorName}
+              workVolumes={computedWorkVolumes}
               onUpdateChecklistStatus={handleUpdateChecklistStatus}
               onAddChecklistItem={handleAddChecklistItem}
               onUpdateChecklistItem={handleUpdateChecklistItem}
               onDeleteChecklistItem={handleDeleteChecklistItem}
+              onDeleteMultipleChecklistItems={handleDeleteMultipleChecklistItems}
               onOpenExportPdf={() => setIsExportPdfOpen(true)}
               onExportExcel={handleExportExcel}
               onUndo={handleUndo}
@@ -1725,6 +2098,7 @@ export default function App() {
               onAddCrewRecord={handleAddCrewRecord}
               onUpdateCrewRecord={handleUpdateCrewRecord}
               onDeleteCrewRecord={handleDeleteCrewRecord}
+              onDeleteMultipleCrewRecords={handleDeleteMultipleCrewRecords}
               onCopyCrewRecordsFromDate={handleCopyCrewRecordsFromDate}
               onOpenExportPdf={() => setIsExportPdfOpen(true)}
               onExportExcel={handleExportExcel}
@@ -1764,7 +2138,7 @@ export default function App() {
               onLinkLocalFile={handleLinkLocalFile}
               onUnlinkLocalFile={handleUnlinkLocalFile}
               onRequestLocalFilePermission={handleRequestLocalFilePermission}
-              onOpenProjectManager={() => setIsProjectManagerOpen(true)}
+              onOpenProjectManager={() => handleOpenProjectManager('sync')}
               fullAppData={{
                 projectName,
                 contractorName,
@@ -1807,9 +2181,11 @@ export default function App() {
           onAddNorm={handleAddNorm}
           onUpdateNorm={handleUpdateNorm}
           onDeleteNorm={handleDeleteNorm}
+          onDeleteMultipleNorms={handleDeleteMultipleNorms}
           onImportNorms={handleImportNorms}
           inventory={inventory}
           workVolumes={computedWorkVolumes}
+          onImportInventory={handleImportInventory}
           onImportWorkVolumes={(importedVolumes) => updateAppData((prev) => ({ ...prev, workVolumes: importedVolumes }))}
         />
 

@@ -1,24 +1,27 @@
 import React, { useState } from 'react';
-import { 
-  X, 
-  Plus, 
-  Edit3, 
-  Trash2, 
-  Package, 
-  Layers, 
-  Sliders, 
-  AlertCircle, 
-  CheckCircle2, 
-  Save, 
+import {
+  X,
+  Plus,
+  Edit3,
+  Trash2,
+  Package,
+  Layers,
+  Sliders,
+  AlertCircle,
+  CheckCircle2,
+  Save,
   Search,
   BookOpen,
   Download,
   Upload,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Sparkles
 } from 'lucide-react';
 import { MaterialNorm, InventoryItem, WorkVolume } from '../types';
 import * as XLSX from 'xlsx';
 import { exportWarehouseUpdateTemplate } from '../utils/excelExport';
+import { confirmAsync } from '../utils/confirmAsync';
+import { formatExcelDate } from '../utils/dateFormatter';
 
 interface MaterialNormModalProps {
   isOpen: boolean;
@@ -27,10 +30,12 @@ interface MaterialNormModalProps {
   onAddNorm: (norm: Omit<MaterialNorm, 'id'>) => void;
   onUpdateNorm: (id: string, updated: Omit<MaterialNorm, 'id'>) => void;
   onDeleteNorm: (id: string) => void;
+  onDeleteMultipleNorms?: (ids: string[]) => void;
   onImportNorms?: (norms: MaterialNorm[]) => void;
   inventory: InventoryItem[];
   workVolumes?: WorkVolume[];
   onImportWorkVolumes?: (volumes: WorkVolume[]) => void;
+  onImportInventory?: (inventory: InventoryItem[]) => void;
 }
 
 export const COMMON_UNITS = ['Tấm', 'Thanh', 'Hộp (1000 con)', 'Bộ', 'Bao (25kg)', 'Cuộn (50m)', 'm²', 'm', 'kg', 'Thùng'];
@@ -62,14 +67,17 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   onAddNorm,
   onUpdateNorm,
   onDeleteNorm,
+  onDeleteMultipleNorms,
   onImportNorms,
   inventory,
   workVolumes,
   onImportWorkVolumes,
+  onImportInventory,
 }) => {
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
-  
+  const [selectedNormIds, setSelectedNormIds] = useState<string[]>([]);
+
   const workCategoriesList = React.useMemo(() => {
     const list = new Set<string>();
     if (workVolumes && workVolumes.length > 0) {
@@ -84,10 +92,10 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     }
     return Array.from(list);
   }, [workVolumes]);
-  
+
   // Drag and Drop State
   const [isDragging, setIsDragging] = useState(false);
-  
+
   // Modal mode: 'list' | 'add' | 'edit'
   const [mode, setMode] = useState<'list' | 'add' | 'edit'>('list');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -109,7 +117,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     setIsDragging(true);
   };
 
-  const handleDragLeave = () => {
+  const handleDragLeave = async () => {
     setIsDragging(false);
   };
 
@@ -122,46 +130,158 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     }
   };
 
-  const processExcelFile = (file: File) => {
+  const processExcelFile = async (file: File) => {
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
-        
+
+        let inCount = 0;
+        let outCount = 0;
         let normsUpdatedCount = 0;
         let normsAddedCount = 0;
         let volumesUpdatedCount = 0;
         let volumesAddedCount = 0;
 
+        let newInventory = [...inventory];
         let newNorms = [...materialNorms];
         let newWorkVolumes = workVolumes ? [...workVolumes] : [];
 
-        // 1. Parse Sheet "Dinh Muc" / "Vat Tu"
+        // 1. Sheet "Nhập Kho"
+        const inSheetName = workbook.SheetNames.find(
+          name => {
+            const n = name.toLowerCase();
+            return (n.includes('nhap') || n.includes('nhập')) && !n.includes('xuat') && !n.includes('xuất');
+          }
+        );
+
+        if (inSheetName) {
+          const sheet = workbook.Sheets[inSheetName];
+          const jsonData = XLSX.utils.sheet_to_json<any>(sheet);
+
+          jsonData.forEach((row, rIdx) => {
+            const materialNameRaw = row['Tên Vật Tư'] || row['Tên Vật Tư Thạch Cao'] || row['materialName'] || row['Vật tư'] || row['Vat tu'];
+            if (!materialNameRaw) return;
+
+            const materialNameStr = String(materialNameRaw).trim();
+            const quantityNum = Number(row['Số Lượng'] || row['quantity'] || 0);
+            if (isNaN(quantityNum) || quantityNum <= 0) return;
+
+            const unitStr = String(row['Đơn Vị Tính'] || row['unit'] || 'Tấm').trim();
+            const locationStr = String(row['Vị Trí Kho'] || row['Vị Trí Lưu Kho / Hạng Mục'] || row['location'] || 'Kho chính').trim();
+            const handlerStr = String(row['Người Thực Hiện'] || row['handler'] || 'Thủ kho').trim();
+            const rawDate = row['Ngày Thực Hiện'] || row['Ngày Lập Phiếu'] || row['date'];
+            const dateStr = formatExcelDate(rawDate);
+            const notesStr = String(row['Ghi Chú'] || row['notes'] || '').trim();
+            const rawId = row['Mã Phiếu'] || row['id'] || row['ID'];
+
+            const existingIdx = rawId ? newInventory.findIndex(i => i.id === String(rawId).trim()) : -1;
+
+            const invItem: InventoryItem = {
+              id: existingIdx >= 0 ? newInventory[existingIdx].id : (rawId ? String(rawId).trim() : `INV-IN-${Date.now()}-${rIdx}-${Math.random().toString(36).substring(2, 5)}`),
+              type: 'in',
+              materialName: materialNameStr,
+              unit: unitStr,
+              quantity: quantityNum,
+              location: locationStr,
+              handler: handlerStr,
+              date: dateStr,
+              notes: notesStr || undefined
+            };
+
+            if (existingIdx >= 0) {
+              newInventory[existingIdx] = invItem;
+            } else {
+              newInventory.unshift(invItem);
+            }
+            inCount++;
+          });
+        }
+
+        // 2. Sheet "Xuất Kho"
+        const outSheetName = workbook.SheetNames.find(
+          name => {
+            const n = name.toLowerCase();
+            return n.includes('xuat') || n.includes('xuất');
+          }
+        );
+
+        if (outSheetName) {
+          const sheet = workbook.Sheets[outSheetName];
+          const jsonData = XLSX.utils.sheet_to_json<any>(sheet);
+
+          jsonData.forEach((row, rIdx) => {
+            const materialNameRaw = row['Tên Vật Tư'] || row['Tên Vật Tư Thạch Cao'] || row['materialName'] || row['Vật tư'] || row['Vat tu'];
+            if (!materialNameRaw) return;
+
+            const materialNameStr = String(materialNameRaw).trim();
+            const quantityNum = Number(row['Số Lượng'] || row['quantity'] || 0);
+            if (isNaN(quantityNum) || quantityNum <= 0) return;
+
+            const unitStr = String(row['Đơn Vị Tính'] || row['unit'] || 'Tấm').trim();
+            const locationStr = String(row['Vị Trí Kho'] || row['Vị Trí Kho / Hạng Mục'] || row['Vị Trí Lưu Kho / Hạng Mục'] || row['location'] || 'Công trình').trim();
+            const handlerStr = String(row['Người Thực Hiện'] || row['handler'] || 'Thủ kho').trim();
+            const rawDate = row['Ngày Thực Hiện'] || row['Ngày Lập Phiếu'] || row['date'];
+            const dateStr = formatExcelDate(rawDate);
+            const notesStr = String(row['Ghi Chú'] || row['notes'] || '').trim();
+            const rawId = row['Mã Phiếu'] || row['id'] || row['ID'];
+
+            const existingIdx = rawId ? newInventory.findIndex(i => i.id === String(rawId).trim()) : -1;
+
+            const invItem: InventoryItem = {
+              id: existingIdx >= 0 ? newInventory[existingIdx].id : (rawId ? String(rawId).trim() : `INV-OUT-${Date.now()}-${rIdx}-${Math.random().toString(36).substring(2, 5)}`),
+              type: 'out',
+              materialName: materialNameStr,
+              unit: unitStr,
+              quantity: quantityNum,
+              location: locationStr,
+              handler: handlerStr,
+              date: dateStr,
+              notes: notesStr || undefined
+            };
+
+            if (existingIdx >= 0) {
+              newInventory[existingIdx] = invItem;
+            } else {
+              newInventory.unshift(invItem);
+            }
+            outCount++;
+          });
+        }
+
+        // 3. Sheet "Định Mức Vật Tư"
         const normSheetName = workbook.SheetNames.find(
-          name => name.toLowerCase().includes('dinh muc') || name.toLowerCase().includes('vat tu')
-        ) || workbook.SheetNames[0];
+          name => {
+            const n = name.toLowerCase();
+            return n.includes('dinh muc') || n.includes('định mức') || (n.includes('vat tu') && !n.includes('nhap') && !n.includes('xuat'));
+          }
+        );
 
         if (normSheetName) {
           const sheet = workbook.Sheets[normSheetName];
           const jsonData = XLSX.utils.sheet_to_json<any>(sheet);
-          
+
           jsonData.forEach((row, rIdx) => {
             const materialNameRaw = row['Tên Vật Tư'] || row['materialName'] || row['Vật tư'] || row['Vat tu'];
             if (!materialNameRaw) return;
 
             const materialNameStr = String(materialNameRaw).trim();
             const categoryStr = String(row['Chủng Loại'] || row['Phân Loại'] || row['category'] || 'Vật tư thạch cao').trim();
+            const workCategoryRaw = row['Tên Hạng Mục Thi Công'] || row['Hạng Mục Thi Công'] || row['Hạng mục thi công'] || row['Tên Hạng Mục'] || row['workCategory'];
+            const workCategoryStr = workCategoryRaw ? String(workCategoryRaw).trim() : undefined;
             const unitStr = String(row['Đơn Vị Tính'] || row['unit'] || 'Tấm').trim();
             const quotaQuantityNum = Number(row['Số Lượng Định Mức'] || row['quotaQuantity'] || 0);
             const unitNormPerM2Num = row['Định Mức / m2'] || row['Định Mức Hao Phí / m2'] || row['Định mức tiêu hao'] || row['unitNormPerM2'];
             const notesStr = String(row['Ghi Chú'] || row['notes'] || '').trim();
 
             const existingIdx = newNorms.findIndex(n => n.materialName.toLowerCase() === materialNameStr.toLowerCase());
-            
+
             const normData: MaterialNorm = {
               id: existingIdx >= 0 ? newNorms[existingIdx].id : `NORM-${Date.now()}-${rIdx}-${Math.random().toString(36).substring(2, 5)}`,
               category: categoryStr,
+              workCategory: workCategoryStr,
+              workCategories: workCategoryStr ? workCategoryStr.split(',').map(s => s.trim()).filter(Boolean) : undefined,
               materialName: materialNameStr,
               unit: unitStr,
               quotaQuantity: quotaQuantityNum,
@@ -179,15 +299,18 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
           });
         }
 
-        // 2. Parse Sheet "Khoi Luong" / "Hang Muc"
+        // 4. Sheet "Hạng Mục Thi Công"
         const volumeSheetName = workbook.SheetNames.find(
-          name => name.toLowerCase().includes('khoi luong') || name.toLowerCase().includes('hang muc') || name.toLowerCase().includes('thi cong')
-        ) || workbook.SheetNames[1];
+          name => {
+            const n = name.toLowerCase();
+            return n.includes('khoi luong') || n.includes('khối lượng') || n.includes('hang muc') || n.includes('hạng mục');
+          }
+        );
 
         if (volumeSheetName && workVolumes) {
           const sheet = workbook.Sheets[volumeSheetName];
           const jsonData = XLSX.utils.sheet_to_json<any>(sheet);
-          
+
           jsonData.forEach((row, rIdx) => {
             const titleRaw = row['Tên Hạng Mục Công Việc'] || row['Tên Hạng Mục'] || row['Hạng mục'] || row['title'];
             if (!titleRaw) return;
@@ -228,26 +351,33 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
           });
         }
 
-        // 3. Confirm with user and trigger updates
-        const confirmMsg = 
+        const totalItemsFound = inCount + outCount + normsUpdatedCount + normsAddedCount + volumesUpdatedCount + volumesAddedCount;
+
+        if (totalItemsFound === 0) {
+          alert('⚠️ Không tìm thấy dữ liệu hợp lệ trong tệp Excel. Vui lòng kiểm tra lại định dạng tệp!');
+          return;
+        }
+
+        const confirmMsg =
           `📊 Kết quả phân tích tệp Excel:\n\n` +
-          `🔹 ĐỊNH MỨC VẬT TƯ:\n` +
-          `   • Cập nhật: ${normsUpdatedCount} định mức\n` +
-          `   • Thêm mới: ${normsAddedCount} định mức\n\n` +
-          `🔹 HẠNG MỤC THI CÔNG:\n` +
-          `   • Cập nhật: ${volumesUpdatedCount} hạng mục\n` +
-          `   • Thêm mới: ${volumesAddedCount} hạng mục\n\n` +
+          `📥 NHẬP KHO: ${inCount} phiếu nhập\n` +
+          `📤 XUẤT KHO: ${outCount} phiếu xuất\n` +
+          `📋 ĐỊNH MỨC VẬT TƯ: ${normsUpdatedCount} cập nhật, ${normsAddedCount} mới\n` +
+          `🏗️ HẠNG MỤC THI CÔNG: ${volumesUpdatedCount} cập nhật, ${volumesAddedCount} mới\n\n` +
           `Bạn có đồng ý áp dụng các thay đổi này vào hệ thống?`;
 
-        const confirmUpdate = window.confirm(confirmMsg);
+        const confirmUpdate = await confirmAsync(confirmMsg);
         if (confirmUpdate) {
-          if (onImportNorms) {
+          if (onImportInventory && (inCount > 0 || outCount > 0)) {
+            onImportInventory(newInventory);
+          }
+          if (onImportNorms && (normsUpdatedCount > 0 || normsAddedCount > 0)) {
             onImportNorms(newNorms);
           }
-          if (onImportWorkVolumes && workVolumes) {
+          if (onImportWorkVolumes && workVolumes && (volumesUpdatedCount > 0 || volumesAddedCount > 0)) {
             onImportWorkVolumes(newWorkVolumes);
           }
-          alert('🎉 Đã cập nhật định mức vật tư và khối lượng hạng mục thi công thành công!');
+          alert('🎉 Đã cập nhật thành công dữ liệu từ tệp Excel!');
         }
       } catch (err: any) {
         alert(`❌ Lỗi đọc hoặc xử lý tệp Excel: ${err.message}`);
@@ -258,7 +388,11 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   const [unit, setUnit] = useState<string>(COMMON_UNITS[0]);
   const [customUnit, setCustomUnit] = useState<string>('');
   const [quotaQuantity, setQuotaQuantity] = useState<number | ''>(500);
+  const [quotaQuantityStr, setQuotaQuantityStr] = useState<string>('500');
   const [unitNormPerM2, setUnitNormPerM2] = useState<number | ''>(0.35);
+  const [unitNormPerM2Str, setUnitNormPerM2Str] = useState<string>('0.35');
+  const [workCategoryNorms, setWorkCategoryNorms] = useState<Record<string, number>>({});
+  const [workCategoryNormsStr, setWorkCategoryNormsStr] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState<string>('');
 
   // Calculate actual stock received per material
@@ -277,11 +411,11 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     }
   });
 
-  const categoriesInUse = Array.from(new Set([...COMMON_CATEGORIES, ...materialNorms.map((n) => n.category)]));
+  const categoriesInUse = Array.from(new Set(materialNorms.map((n) => n.category).filter(Boolean)));
 
   const filteredNorms = materialNorms.filter((norm) => {
     const matchesCategory = selectedCategoryFilter === 'all' || norm.category === selectedCategoryFilter;
-    const matchesSearch = 
+    const matchesSearch =
       norm.materialName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       norm.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
       norm.unit.toLowerCase().includes(searchTerm.toLowerCase());
@@ -298,13 +432,36 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   }, [workVolumes, workCategories]);
 
   const computedAutoQuota = React.useMemo(() => {
-    if (selectedWorkCategoriesVolume > 0 && unitNormPerM2 && Number(unitNormPerM2) > 0) {
-      return Math.round(selectedWorkCategoriesVolume * Number(unitNormPerM2) * 100) / 100;
+    if (!workVolumes || workCategories.length === 0) return null;
+
+    let totalQuota = 0;
+    let hasNorms = false;
+
+    workCategories.forEach(cat => {
+      const catVolume = workVolumes
+        .filter(v => v.title === cat)
+        .reduce((sum, v) => sum + (v.planned || 0), 0);
+
+      if (catVolume > 0) {
+        let factor = 0;
+        if (workCategoryNorms && workCategoryNorms[cat] !== undefined) {
+          factor = workCategoryNorms[cat];
+          hasNorms = true;
+        } else if (unitNormPerM2 && Number(unitNormPerM2) > 0) {
+          factor = Number(unitNormPerM2);
+          hasNorms = true;
+        }
+        totalQuota += catVolume * factor;
+      }
+    });
+
+    if (hasNorms && totalQuota > 0) {
+      return Math.round(totalQuota * 100) / 100;
     }
     return null;
-  }, [selectedWorkCategoriesVolume, unitNormPerM2]);
+  }, [workVolumes, workCategories, workCategoryNorms, unitNormPerM2]);
 
-  const handleOpenAdd = () => {
+  const handleOpenAdd = async () => {
     setCategory(COMMON_CATEGORIES[0]);
     setCustomCategory('');
     setWorkCategories([workCategoriesList[0] || WORK_CATEGORIES_LIST[0]]);
@@ -312,13 +469,17 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     setUnit(COMMON_UNITS[0]);
     setCustomUnit('');
     setQuotaQuantity(100);
+    setQuotaQuantityStr('100');
     setUnitNormPerM2('');
+    setUnitNormPerM2Str('');
+    setWorkCategoryNorms({});
+    setWorkCategoryNormsStr({});
     setNotes('');
     setEditingId(null);
     setMode('add');
   };
 
-  const handleOpenEdit = (norm: MaterialNorm) => {
+  const handleOpenEdit = async (norm: MaterialNorm) => {
     setEditingId(norm.id);
     if (COMMON_CATEGORIES.includes(norm.category)) {
       setCategory(norm.category);
@@ -346,7 +507,17 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     }
 
     setQuotaQuantity(norm.quotaQuantity);
+    setQuotaQuantityStr(norm.quotaQuantity.toString());
     setUnitNormPerM2(norm.unitNormPerM2 || '');
+    setUnitNormPerM2Str(norm.unitNormPerM2 !== undefined ? norm.unitNormPerM2.toString() : '');
+    setWorkCategoryNorms(norm.workCategoryNorms || {});
+    const initialNormsStr: Record<string, string> = {};
+    if (norm.workCategoryNorms) {
+      Object.entries(norm.workCategoryNorms).forEach(([cat, val]) => {
+        initialNormsStr[cat] = val.toString();
+      });
+    }
+    setWorkCategoryNormsStr(initialNormsStr);
     setNotes(norm.notes || '');
     setMode('edit');
   };
@@ -385,6 +556,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
       unit: finalUnit,
       quotaQuantity: Number(quotaQuantity),
       unitNormPerM2: unitNormPerM2 ? Number(unitNormPerM2) : undefined,
+      workCategoryNorms: workCategoryNorms,
       notes: notes.trim(),
     };
 
@@ -402,7 +574,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
       <div className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-2xl p-4 sm:p-5 space-y-4 max-h-[92vh] flex flex-col border border-slate-100 shadow-2xl">
-        
+
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-100 pb-3 shrink-0">
           <div className="flex items-center gap-2.5">
@@ -425,7 +597,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
         {/* View Switcher: List vs Add/Edit */}
         {mode === 'list' ? (
           <div className="flex-1 overflow-y-auto space-y-3 pr-1">
-            
+
             {/* Top Action & Search Bar */}
             <div className="flex items-center gap-2">
               <div className="relative flex-1">
@@ -447,55 +619,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               </button>
             </div>
 
-            {/* Quick Excel Import/Template Actions */}
-            <div 
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-              className={`border-2 border-dashed rounded-2xl p-3.5 space-y-2.5 text-xs transition-all ${
-                isDragging 
-                  ? 'border-indigo-500 bg-indigo-50/50 scale-[1.01]' 
-                  : 'border-slate-200 bg-slate-50/50 hover:bg-slate-50 hover:border-slate-300'
-              }`}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-start gap-2">
-                  <div className="p-1.5 bg-indigo-50 text-indigo-600 rounded-lg">
-                    <FileSpreadsheet className="w-5 h-5 shrink-0" />
-                  </div>
-                  <div className="text-left space-y-0.5">
-                    <p className="font-extrabold text-xs text-slate-800">Cập Nhật Định Mức &amp; Hạng Mục Hàng Loạt</p>
-                    <p className="text-[10px] text-slate-500 leading-relaxed">
-                      Mẫu Excel gồm 2 trang: <strong>Định Mức Vật Tư</strong> và <strong>Hạng Mục Thi Công</strong> (gồm tên hạng mục, ĐVT, KL kế hoạch/thực hiện, đơn giá...). Chỉnh sửa mẫu và tải lên để cập nhật nhanh chóng cả hai mục.
-                    </p>
-                  </div>
-                </div>
-                <span className="text-[9px] text-indigo-600 font-extrabold bg-indigo-100/70 px-1.5 py-0.5 rounded-md uppercase tracking-wider shrink-0">
-                  2 TRANG
-                </span>
-              </div>
 
-              <div className="grid grid-cols-2 gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => exportWarehouseUpdateTemplate(materialNorms, workVolumes || [])}
-                  className="flex items-center justify-center gap-1.5 bg-white border border-slate-200 text-slate-700 hover:text-slate-900 hover:bg-slate-50 hover:border-slate-300 font-bold py-2 px-3 rounded-xl transition-all shadow-3xs active:scale-95 text-xs cursor-pointer"
-                >
-                  <Download className="w-4 h-4 text-indigo-600 shrink-0" />
-                  Tải File Mẫu
-                </button>
-                <label className="flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-3 rounded-xl cursor-pointer text-center transition-all shadow-xs hover:shadow active:scale-95 text-xs">
-                  <Upload className="w-4 h-4 text-white shrink-0" />
-                  <span>Chọn File Excel</span>
-                  <input
-                    type="file"
-                    accept=".xlsx, .xls"
-                    onChange={handleFileUpload}
-                    className="hidden"
-                  />
-                </label>
-              </div>
-            </div>
 
             {/* Category Filter Pills */}
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
@@ -533,6 +657,47 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               </div>
             ) : (
               <div className="space-y-2.5">
+                {/* Bulk actions toolbar */}
+                <div className="flex items-center justify-between bg-slate-100 border border-slate-200 rounded-xl px-3 py-2 text-xs gap-2">
+                  <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={filteredNorms.length > 0 && filteredNorms.every(item => selectedNormIds.includes(item.id))}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedNormIds(prev => Array.from(new Set([...prev, ...filteredNorms.map(item => item.id)])));
+                        } else {
+                          setSelectedNormIds(prev => prev.filter(id => !filteredNorms.some(item => item.id === id)));
+                        }
+                      }}
+                      className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                    />
+                    <span>Chọn Tất Cả ({filteredNorms.length})</span>
+                  </label>
+
+                  <div className="flex items-center gap-3 justify-end">
+                    {selectedNormIds.some(id => filteredNorms.some(item => item.id === id)) && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const idsToDelete = selectedNormIds.filter(id => filteredNorms.some(item => item.id === id));
+                          if (await confirmAsync(`Bạn có chắc muốn xóa ${idsToDelete.length} định mức đã chọn?`)) {
+                            if (onDeleteMultipleNorms) {
+                              onDeleteMultipleNorms(idsToDelete);
+                            } else {
+                              idsToDelete.forEach(id => onDeleteNorm(id));
+                            }
+                            setSelectedNormIds(prev => prev.filter(id => !idsToDelete.includes(id)));
+                          }
+                        }}
+                        className="text-rose-600 hover:text-rose-700 font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" /> Xóa Đã Chọn ({selectedNormIds.filter(id => filteredNorms.some(item => item.id === id)).length})
+                      </button>
+                    )}
+                  </div>
+                </div>
+
                 {filteredNorms.map((norm) => {
                   const stockKey = norm.materialName.trim().toLowerCase();
                   const actualStock = stockMap[stockKey]?.inQty || 0;
@@ -545,24 +710,38 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                       className="bg-slate-50 border border-slate-200/80 hover:border-indigo-300 rounded-2xl p-3 space-y-2 transition-all shadow-xs"
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div className="flex flex-wrap gap-1 mb-1">
-                            <span className="inline-block px-2 py-0.5 bg-indigo-100 text-indigo-700 text-[10px] font-bold rounded-md uppercase">
-                              {norm.category}
-                            </span>
-                            {norm.workCategories && norm.workCategories.length > 0 ? (
-                              norm.workCategories.map((wCat, wIdx) => (
-                                <span key={`${wCat}-${wIdx}`} className="inline-block px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-md">
-                                  🏗️ {wCat}
-                                </span>
-                              ))
-                            ) : norm.workCategory ? (
-                              <span className="inline-block px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-md">
-                                🏗️ {norm.workCategory}
+                        <div className="flex items-start gap-2.5 min-w-0">
+                          <input
+                            type="checkbox"
+                            checked={selectedNormIds.includes(norm.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedNormIds(prev => [...prev, norm.id]);
+                              } else {
+                                setSelectedNormIds(prev => prev.filter(id => id !== norm.id));
+                              }
+                            }}
+                            className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer mt-1 shrink-0"
+                          />
+                          <div>
+                            <div className="flex flex-wrap gap-1 mb-1">
+                              <span className="inline-block px-2 py-0.5 bg-indigo-100 text-indigo-700 text-[10px] font-bold rounded-md uppercase">
+                                {norm.category}
                               </span>
-                            ) : null}
+                              {norm.workCategories && norm.workCategories.length > 0 ? (
+                                norm.workCategories.map((wCat, wIdx) => (
+                                  <span key={`${wCat}-${wIdx}`} className="inline-block px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-md">
+                                    🏗️ {wCat}
+                                  </span>
+                                ))
+                              ) : norm.workCategory ? (
+                                <span className="inline-block px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-md">
+                                  🏗️ {norm.workCategory}
+                                </span>
+                              ) : null}
+                            </div>
+                            <h4 className="text-xs font-bold text-slate-900 leading-snug">{norm.materialName}</h4>
                           </div>
-                          <h4 className="text-xs font-bold text-slate-900 leading-snug">{norm.materialName}</h4>
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
                           <button
@@ -590,7 +769,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                         </div>
                         <div>
                           <p className="text-[10px] text-slate-400 font-semibold uppercase">Số Lượng Định Mức</p>
-                          <p className="font-bold text-indigo-600">{(norm.quotaQuantity ?? 0).toLocaleString()} {norm.unit}</p>
+                          <p className="font-bold text-indigo-600">{(norm.quotaQuantity ?? 0).toLocaleString('en-US')} {norm.unit}</p>
                         </div>
                         <div>
                           <p className="text-[10px] text-slate-400 font-semibold uppercase">Định Mức / m²</p>
@@ -601,7 +780,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                       {/* Stock vs Quota Progress */}
                       <div className="space-y-1">
                         <div className="flex justify-between text-[10px] font-bold">
-                          <span className="text-slate-500">Thực tế đã nhập: <strong className="text-slate-800">{(actualStock ?? 0).toLocaleString()} {norm.unit}</strong></span>
+                          <span className="text-slate-500">Thực tế đã nhập: <strong className="text-slate-800">{(actualStock ?? 0).toLocaleString('en-US')} {norm.unit}</strong></span>
                           <span className={isExceeded ? 'text-amber-600' : 'text-emerald-600'}>
                             {percent}% định mức
                           </span>
@@ -667,7 +846,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                 <span>Liên Kết Hạng Mục Thi Công Căn Hộ *</span>
                 <span className="text-[10px] text-indigo-600 font-bold">(Chọn một hoặc nhiều hạng mục)</span>
               </label>
-              
+
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2 max-h-48 overflow-y-auto">
                 {workCategoriesList.map((wCat) => {
                   const isChecked = workCategories.includes(wCat);
@@ -737,22 +916,29 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               <div>
                 <label className="block font-bold text-slate-700 mb-1">Số Lượng Định Mức *</label>
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   placeholder="VD: 500"
-                  value={quotaQuantity}
-                  onChange={(e) => setQuotaQuantity(e.target.value === '' ? '' : Number(e.target.value))}
+                  value={quotaQuantityStr}
+                  onChange={(e) => {
+                    const typedVal = e.target.value.replace(/,/g, '.');
+                    setQuotaQuantityStr(typedVal);
+                    setQuotaQuantity(typedVal === '' ? '' : Number(typedVal));
+                  }}
                   className="w-full border border-slate-200 rounded-xl p-2.5 font-bold text-indigo-600 focus:ring-2 focus:ring-indigo-500"
-                  min="1"
                   required
                 />
                 {computedAutoQuota !== null ? (
                   <button
                     type="button"
-                    onClick={() => setQuotaQuantity(computedAutoQuota)}
+                    onClick={() => {
+                      setQuotaQuantity(computedAutoQuota);
+                      setQuotaQuantityStr(computedAutoQuota.toString());
+                    }}
                     className="mt-1 text-[10px] text-indigo-700 hover:text-indigo-900 font-extrabold flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 p-1.5 rounded-lg border border-indigo-200 transition-all active:scale-95 text-left w-full"
                     title={`Khối lượng thi công liên kết (${selectedWorkCategoriesVolume} m²) x Định mức hao phí (${unitNormPerM2})`}
                   >
-                    <span>💡 Áp dụng định mức: <strong>{computedAutoQuota.toLocaleString()}</strong> {unit === 'khac' ? customUnit : unit}</span>
+                    <span>💡 Áp dụng định mức: <strong>{computedAutoQuota.toLocaleString('en-US')}</strong> {unit === 'khac' ? customUnit : unit}</span>
                   </button>
                 ) : (
                   <span className="text-[10px] text-slate-400 mt-0.5 block">Tổng số định mức toàn công trình</span>
@@ -761,16 +947,68 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               <div>
                 <label className="block font-bold text-slate-700 mb-1">Định Mức / m² (Không bắt buộc)</label>
                 <input
-                  type="number"
-                  step="0.001"
+                  type="text"
+                  inputMode="decimal"
                   placeholder="VD: 0.35"
-                  value={unitNormPerM2}
-                  onChange={(e) => setUnitNormPerM2(e.target.value === '' ? '' : Number(e.target.value))}
+                  value={unitNormPerM2Str}
+                  onChange={(e) => {
+                    const typedVal = e.target.value.replace(/,/g, '.');
+                    setUnitNormPerM2Str(typedVal);
+                    setUnitNormPerM2(typedVal === '' ? '' : Number(typedVal));
+                  }}
                   className="w-full border border-slate-200 rounded-xl p-2.5 font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500"
                 />
-                <span className="text-[10px] text-slate-400 mt-0.5 block">Hào phí tiêu hao trên 1m² sàn/trần</span>
+                <span className="text-[10px] text-slate-400 mt-0.5 block">Hao phí tiêu hao trên 1m² sàn/trần</span>
               </div>
             </div>
+
+            {/* Specific Norm overrides for each selected work category */}
+            {workCategories.length > 0 && (
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
+                <div className="text-xs font-extrabold text-indigo-700 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Định mức riêng cho từng Hạng Mục Thi Công (Tùy chọn)</span>
+                </div>
+                <p className="text-[10px] text-slate-500 font-medium">Nếu có định mức khác nhau, hãy nhập riêng tại đây (mặc định sẽ dùng định mức chung ở trên):</p>
+                <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                  {workCategories.map(cat => {
+                    return (
+                      <div key={cat} className="flex items-center justify-between gap-2 bg-white border border-slate-100 rounded-lg p-2">
+                        <span className="text-[11px] font-bold text-slate-700 truncate max-w-[180px]">{cat}</span>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            placeholder="Mặc định"
+                            value={workCategoryNormsStr[cat] !== undefined ? workCategoryNormsStr[cat] : ''}
+                            onChange={(e) => {
+                              const typedVal = e.target.value.replace(/,/g, '.');
+                              setWorkCategoryNormsStr(prev => ({
+                                ...prev,
+                                [cat]: typedVal
+                              }));
+
+                              const val = typedVal === '' ? undefined : Number(typedVal);
+                              setWorkCategoryNorms(prev => {
+                                const next = { ...prev };
+                                if (val === undefined || isNaN(val)) {
+                                  delete next[cat];
+                                } else {
+                                  next[cat] = val;
+                                }
+                                return next;
+                              });
+                            }}
+                            className="w-20 border border-slate-200 rounded px-1.5 py-1 text-right font-bold text-xs text-indigo-600 focus:ring-1 focus:ring-indigo-500"
+                          />
+                          <span className="text-[10px] text-slate-400 font-bold">/{unit === 'khac' ? customUnit : unit}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Notes */}
             <div>

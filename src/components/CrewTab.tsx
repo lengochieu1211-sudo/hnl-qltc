@@ -1,18 +1,18 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
-import { 
-  Users, 
-  Calendar, 
-  Plus, 
-  Trash2, 
-  Edit2, 
-  Copy, 
-  ChevronLeft, 
-  ChevronRight, 
-  MapPin, 
-  Clipboard, 
-  User, 
-  X, 
+import {
+  Users,
+  Calendar,
+  Plus,
+  Trash2,
+  Edit2,
+  Copy,
+  ChevronLeft,
+  ChevronRight,
+  MapPin,
+  Clipboard,
+  User,
+  X,
   TrendingUp,
   Briefcase,
   Phone,
@@ -27,9 +27,10 @@ import {
   Home,
   CheckCircle
 } from 'lucide-react';
-import { CrewRecord, FloorPlan, TeamInfo, RoomProgressItem, DefectItem } from '../types';
+import { CrewRecord, FloorPlan, TeamInfo, RoomProgressItem, DefectItem, CrewFloorWork, CrewFloorCategoryWork } from '../types';
 import { formatDateDDMMYYYY } from '../utils/dateFormatter';
 import { exportTeamStatisticsToExcel } from '../utils/excelExport';
+import { confirmAsync } from '../utils/confirmAsync';
 import { saveWorkbookFile } from '../utils/fileExport';
 
 
@@ -41,6 +42,7 @@ interface CrewTabProps {
   onAddCrewRecord: (record: Omit<CrewRecord, 'id'>) => void;
   onUpdateCrewRecord: (id: string, record: Partial<CrewRecord>) => void;
   onDeleteCrewRecord: (id: string) => void;
+  onDeleteMultipleCrewRecords?: (ids: string[]) => void;
   onCopyCrewRecordsFromDate: (sourceDate: string, targetDate: string) => void;
   onOpenExportPdf?: () => void;
   onExportExcel?: () => void;
@@ -66,6 +68,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   onAddCrewRecord,
   onUpdateCrewRecord,
   onDeleteCrewRecord,
+  onDeleteMultipleCrewRecords,
   onCopyCrewRecordsFromDate,
   onOpenExportPdf,
   onExportExcel,
@@ -74,6 +77,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 }) => {
   // Navigation Tabs: 'logs' (Daily logs) or 'teams' (Manage team directory)
   const [activeSubTab, setActiveSubTab] = useState<'logs' | 'teams'>('logs');
+  const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
 
   // Load custom teams list from localStorage
   const [teams, setTeams] = useState<TeamInfo[]>(() => {
@@ -100,6 +104,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [selectedTeamForDetail, setSelectedTeamForDetail] = useState<TeamInfo | null>(null);
   const [detailModalTab, setDetailModalTab] = useState<'rooms' | 'defects' | 'logs'>('rooms');
   const [defectFilter, setDefectFilter] = useState<'all' | 'open' | 'resolved'>('all');
+  const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
 
   // Helper function to match team strings flexibly
   const isTeamMatch = (targetStr?: string, team?: TeamInfo | null): boolean => {
@@ -138,11 +143,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   };
 
   const [selectedDate, setSelectedDate] = useState<string>(getTodayString());
-  
+
   // Modals visibility states
   const [showAddLogModal, setShowAddLogModal] = useState(false);
   const [showTeamModal, setShowTeamModal] = useState(false);
-  
+
   // Editing targets
   const [editingRecord, setEditingRecord] = useState<CrewRecord | null>(null);
   const [editingTeam, setEditingTeam] = useState<TeamInfo | null>(null);
@@ -161,6 +166,124 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [taskDescription, setTaskDescription] = useState('');
   const [selectedShifts, setSelectedShifts] = useState<string[]>(['Sáng', 'Chiều']);
   const [notes, setNotes] = useState('');
+  const [floorWorks, setFloorWorks] = useState<CrewFloorWork[]>([]);
+
+  const addFloorWork = () => {
+    const defaultFp = floorPlans[0];
+    setFloorWorks(prev => [
+      ...prev,
+      {
+        floorId: defaultFp ? defaultFp.id : 'floor-1',
+        floorName: defaultFp ? defaultFp.floorName : 'Tầng 1',
+        categories: [
+          {
+            categoryName: 'Thi công thạch cao',
+            subItems: ['Bắn tấm khung trần']
+          }
+        ]
+      }
+    ]);
+  };
+
+  const removeFloorWork = async (floorIndex: number) => {
+    setFloorWorks(prev => prev.filter((_, idx) => idx !== floorIndex));
+  };
+
+  const updateFloorWorkFloor = (floorIndex: number, floorId: string) => {
+    const fp = floorPlans.find(f => f.id === floorId);
+    setFloorWorks(prev => prev.map((fw, idx) => {
+      if (idx === floorIndex) {
+        return {
+          ...fw,
+          floorId,
+          floorName: fp ? fp.floorName : fw.floorName
+        };
+      }
+      return fw;
+    }));
+  };
+
+  const addCategoryToFloor = (floorIndex: number) => {
+    setFloorWorks(prev => prev.map((fw, idx) => {
+      if (idx === floorIndex) {
+        return {
+          ...fw,
+          categories: [
+            ...fw.categories,
+            {
+              categoryName: 'Hạng mục mới',
+              subItems: ['Công đoạn 1']
+            }
+          ]
+        };
+      }
+      return fw;
+    }));
+  };
+
+  const removeCategoryFromFloor = (floorIndex: number, catIndex: number) => {
+    setFloorWorks(prev => prev.map((fw, idx) => {
+      if (idx === floorIndex) {
+        return {
+          ...fw,
+          categories: fw.categories.filter((_, cIdx) => cIdx !== catIndex)
+        };
+      }
+      return fw;
+    }));
+  };
+
+  const updateCategoryName = (floorIndex: number, catIndex: number, categoryName: string) => {
+    setFloorWorks(prev => prev.map((fw, idx) => {
+      if (idx === floorIndex) {
+        return {
+          ...fw,
+          categories: fw.categories.map((cat, cIdx) => {
+            if (cIdx === catIndex) {
+              return { ...cat, categoryName };
+            }
+            return cat;
+          })
+        };
+      }
+      return fw;
+    }));
+  };
+
+  const addSubItemToCategory = (floorIndex: number, catIndex: number, subItemName: string) => {
+    if (!subItemName.trim()) return;
+    setFloorWorks(prev => prev.map((fw, idx) => {
+      if (idx === floorIndex) {
+        return {
+          ...fw,
+          categories: fw.categories.map((cat, cIdx) => {
+            if (cIdx === catIndex) {
+              return { ...cat, subItems: [...cat.subItems, subItemName.trim()] };
+            }
+            return cat;
+          })
+        };
+      }
+      return fw;
+    }));
+  };
+
+  const removeSubItemFromCategory = (floorIndex: number, catIndex: number, subIdx: number) => {
+    setFloorWorks(prev => prev.map((fw, idx) => {
+      if (idx === floorIndex) {
+        return {
+          ...fw,
+          categories: fw.categories.map((cat, cIdx) => {
+            if (cIdx === catIndex) {
+              return { ...cat, subItems: cat.subItems.filter((_, sIdx) => sIdx !== subIdx) };
+            }
+            return cat;
+          })
+        };
+      }
+      return fw;
+    }));
+  };
 
   const toggleShift = (value: string) => {
     setSelectedShifts(prev => {
@@ -187,9 +310,23 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       setTeamName(editingRecord.teamName);
       setLeaderName(editingRecord.leaderName);
       setWorkerCount(editingRecord.workerCount);
-      setSelectedFloorId(editingRecord.floorId);
+      if (editingRecord.floorWorks && editingRecord.floorWorks.length > 0) {
+        setFloorWorks(editingRecord.floorWorks);
+      } else if (editingRecord.floorId) {
+        setFloorWorks([{
+          floorId: editingRecord.floorId,
+          floorName: editingRecord.floorName || 'Tầng',
+          categories: [{
+            categoryName: editingRecord.taskDescription || 'Thi công thạch cao',
+            subItems: []
+          }]
+        }]);
+      } else {
+        setFloorWorks([]);
+      }
+      setSelectedFloorId(editingRecord.floorId || '');
       setTaskDescription(editingRecord.taskDescription);
-      
+
       const sVal = editingRecord.shift || 'Hành chính';
       if (sVal === 'Hành chính') {
         setSelectedShifts(['Sáng', 'Chiều']);
@@ -198,7 +335,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       } else {
         setSelectedShifts(sVal.split(', ').map(s => s.trim()));
       }
-      
+
       setNotes(editingRecord.notes || '');
     } else {
       // Set to first team in directory if available, otherwise blank
@@ -211,7 +348,20 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         setLeaderName('');
         setWorkerCount(5);
       }
-      setSelectedFloorId(floorPlans[0]?.id || '');
+      if (floorPlans.length > 0) {
+        setFloorWorks([{
+          floorId: floorPlans[0].id,
+          floorName: floorPlans[0].floorName,
+          categories: [{
+            categoryName: 'Thi công thạch cao',
+            subItems: ['Bắn tấm khung chìm', 'Bả matit 2 lớp']
+          }]
+        }]);
+        setSelectedFloorId(floorPlans[0].id);
+      } else {
+        setFloorWorks([]);
+        setSelectedFloorId('');
+      }
       setTaskDescription(COMMON_TASKS[0]);
       setSelectedShifts(['Sáng', 'Chiều']);
       setNotes('');
@@ -367,8 +517,15 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       return;
     }
 
-    const matchedFloor = floorPlans.find((fp) => fp.id === selectedFloorId);
-    const floorName = matchedFloor ? matchedFloor.floorName : 'Tầng Chưa Xác Định';
+    const firstFw = floorWorks[0];
+    const floorId = firstFw ? firstFw.floorId : selectedFloorId;
+    const floorName = floorWorks.length > 0
+      ? floorWorks.map(fw => fw.floorName).join(', ')
+      : (floorPlans.find(fp => fp.id === selectedFloorId)?.floorName || 'Tầng');
+
+    const taskDesc = floorWorks.length > 0
+      ? floorWorks.map(fw => `[${fw.floorName}]: ` + fw.categories.map(c => `${c.categoryName} (${c.subItems.join(', ')})`).join('; ')).join(' | ')
+      : taskDescription;
 
     const shiftValue = selectedShifts.length > 0 ? selectedShifts.join(', ') : 'Nghỉ';
 
@@ -377,9 +534,10 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       teamName: teamName.trim(),
       leaderName: leaderName.trim(),
       workerCount,
-      floorId: selectedFloorId,
+      floorId,
       floorName,
-      taskDescription,
+      floorWorks,
+      taskDescription: taskDesc,
       shift: shiftValue,
       notes: notes.trim() || undefined
     };
@@ -494,7 +652,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     }));
 
     const ws = XLSX.utils.json_to_sheet(data);
-    
+
     // Auto-fit column widths
     const maxLens = data.reduce((acc: any, row: any) => {
       Object.keys(row).forEach((key) => {
@@ -590,7 +748,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
   return (
     <div className="pb-24 pt-4 px-4 max-w-lg mx-auto bg-slate-50 min-h-screen text-slate-800" id="crew-tab-container">
-      
+
       {/* Sub-tab Navigation Selector */}
       <div className="flex bg-slate-200 p-1.5 rounded-xl mb-4 shadow-sm" id="crew-subtab-navigation">
         <button
@@ -615,7 +773,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         <>
           {/* Daily Date Header Controller */}
           <div className="flex items-center justify-between bg-white px-3 py-2.5 rounded-xl border border-slate-200 shadow-sm mb-4">
-            <button 
+            <button
               onClick={handlePrevDay}
               className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition"
               title="Ngày trước"
@@ -625,7 +783,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
             <div className="flex items-center gap-2">
               <Calendar className="w-4 h-4 text-indigo-600" />
-              <input 
+              <input
                 type="date"
                 value={selectedDate}
                 onChange={(e) => {
@@ -643,7 +801,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               />
             </div>
 
-            <button 
+            <button
               onClick={handleNextDay}
               className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition"
               title="Ngày tiếp theo"
@@ -695,7 +853,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                         <span className="text-indigo-600 font-bold">{floor.count} người ({Math.round(pct)}%)</span>
                       </div>
                       <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                        <div 
+                        <div
                           className="bg-indigo-500 h-full rounded-full transition-all duration-500"
                           style={{ width: `${pct}%` }}
                         />
@@ -710,7 +868,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           {/* Functional Actions */}
           <div className="flex items-center gap-2 mb-4">
             <button
-              onClick={() => {
+              onClick={async () => {
                 setEditingRecord(null);
                 setShowAddLogModal(true);
               }}
@@ -734,7 +892,65 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               <Clipboard className="w-3.5 h-3.5 text-indigo-500" /> Nhật ký làm việc ({formatDateDDMMYYYY(selectedDate)})
             </h2>
 
+            {filteredRecords.length > 0 && (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs gap-2">
+                <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={filteredRecords.length > 0 && filteredRecords.every(item => selectedRecordIds.includes(item.id))}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedRecordIds(prev => Array.from(new Set([...prev, ...filteredRecords.map(item => item.id)])));
+                      } else {
+                        setSelectedRecordIds(prev => prev.filter(id => !filteredRecords.some(item => item.id === id)));
+                      }
+                    }}
+                    className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                  />
+                  <span>Chọn Tất Cả Quân Số Ngày Này ({filteredRecords.length})</span>
+                </label>
 
+                <div className="flex items-center gap-3 justify-end">
+                  {selectedRecordIds.some(id => filteredRecords.some(item => item.id === id)) && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const idsToDelete = selectedRecordIds.filter(id => filteredRecords.some(item => item.id === id));
+                        if (await confirmAsync(`Bạn có chắc muốn xóa ${idsToDelete.length} bản ghi quân số đã chọn?`)) {
+                          if (onDeleteMultipleCrewRecords) {
+                            onDeleteMultipleCrewRecords(idsToDelete);
+                          } else {
+                            idsToDelete.forEach(id => onDeleteCrewRecord(id));
+                          }
+                          setSelectedRecordIds(prev => prev.filter(id => !idsToDelete.includes(id)));
+                        }
+                      }}
+                      className="text-rose-600 hover:text-rose-700 font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Xóa Đã Chọn ({selectedRecordIds.filter(id => filteredRecords.some(item => item.id === id)).length})
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const allFilteredIds = filteredRecords.map(item => item.id);
+                      if (await confirmAsync(`⚠️ Bạn có chắc muốn xóa TOÀN BỘ ${allFilteredIds.length} bản ghi quân số của ngày này không?`)) {
+                        if (onDeleteMultipleCrewRecords) {
+                          onDeleteMultipleCrewRecords(allFilteredIds);
+                        } else {
+                          allFilteredIds.forEach(id => onDeleteCrewRecord(id));
+                        }
+                        setSelectedRecordIds(prev => prev.filter(id => !allFilteredIds.includes(id)));
+                      }
+                    }}
+                    className="text-slate-500 hover:text-rose-600 font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-slate-400 hover:text-rose-500" /> Xóa Tất Cả
+                  </button>
+                </div>
+              </div>
+            )}
 
             {filteredRecords.length === 0 ? (
               <div className="bg-white border border-dashed border-slate-300 rounded-xl p-8 text-center flex flex-col items-center justify-center shadow-sm">
@@ -744,87 +960,108 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
             ) : (
               filteredRecords.map((record) => (
-                <div 
+                <div
                   key={record.id}
-                  className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm relative hover:border-slate-300 transition"
+                  className={`bg-white border rounded-xl p-4 transition-all duration-150 relative hover:border-slate-300 ${
+                    selectedRecordIds.includes(record.id)
+                      ? 'border-indigo-300 bg-indigo-50/10 shadow-xs'
+                      : 'border-slate-200 shadow-sm'
+                  }`}
                 >
-                  <div className="flex justify-between items-start gap-4 mb-2">
-                    <div>
-                      <h4 className="font-bold text-slate-800 text-sm leading-tight">{record.teamName}</h4>
-                      <div className="flex items-center gap-1.5 text-xs text-slate-400 mt-1">
-                        <User className="w-3.5 h-3.5 text-slate-300" />
-                        <span>Đội trưởng: <strong>{record.leaderName}</strong></span>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col items-end gap-1.5 shrink-0">
-                      <div className="bg-indigo-50 text-indigo-700 border border-indigo-100 px-2.5 py-1 rounded-lg text-center font-black text-xs min-w-[50px]">
-                        {record.workerCount} thợ
-                      </div>
-                      <div className="flex flex-wrap gap-1 justify-end max-w-[140px]">
-                        {(() => {
-                          const sVal = record.shift || 'Sáng, Chiều';
-                          if (sVal === 'Hành chính') {
-                            return (
-                              <>
-                                <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-100">Sáng</span>
-                                <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50/50 text-indigo-700 border border-indigo-100">Chiều</span>
-                              </>
-                            );
-                          }
-                          if (sVal === 'Tăng ca') {
-                            return <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">Tối</span>;
-                          }
-                          return sVal.split(', ').map(part => {
-                            if (part === 'Sáng') return <span key={part} className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-100">Sáng</span>;
-                            if (part === 'Chiều') return <span key={part} className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50/50 text-indigo-700 border border-indigo-100">Chiều</span>;
-                            if (part === 'Tối') return <span key={part} className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">Tối</span>;
-                            return <span key={part} className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">Nghỉ</span>;
-                          });
-                        })()}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-1.5 pt-2 border-t border-slate-100 text-xs">
-                    <div className="flex items-center gap-1.5 text-slate-600">
-                      <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      <span>Tầng làm việc: <strong className="text-indigo-600">{record.floorName}</strong></span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 text-slate-600">
-                      <Briefcase className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      <span>Nhiệm vụ: <span className="font-medium text-slate-700">{record.taskDescription}</span></span>
-                    </div>
-                  </div>
-
-                  {record.notes && (
-                    <div className="mt-2 text-[11px] text-slate-500 bg-slate-50 p-2 rounded-lg border border-slate-100">
-                      <strong>Ghi chú:</strong> {record.notes}
-                    </div>
-                  )}
-
-                  {/* Actions buttons */}
-                  <div className="flex items-center justify-end gap-3 mt-3 pt-2 border-t border-slate-100">
-                    <button
-                      onClick={() => {
-                        setEditingRecord(record);
-                        setShowAddLogModal(true);
+                  <div className="flex items-start gap-2.5">
+                    <input
+                      type="checkbox"
+                      checked={selectedRecordIds.includes(record.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedRecordIds(prev => [...prev, record.id]);
+                        } else {
+                          setSelectedRecordIds(prev => prev.filter(id => id !== record.id));
+                        }
                       }}
-                      className="flex items-center gap-1 text-xs text-slate-500 hover:text-indigo-600 transition"
-                      title="Sửa bản ghi"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" /> <span>Sửa</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        setDeletingRecordTarget(record);
-                      }}
-                      className="flex items-center gap-1 text-xs text-slate-500 hover:text-rose-600 transition"
-                      title="Xóa bản ghi"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" /> <span className="text-rose-500 font-semibold">Xóa</span>
-                    </button>
+                      className="mt-1 w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0"
+                    />
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex justify-between items-start gap-4 mb-2">
+                        <div>
+                          <h4 className="font-bold text-slate-800 text-sm leading-tight">{record.teamName}</h4>
+                          <div className="flex items-center gap-1.5 text-xs text-slate-400 mt-1">
+                            <User className="w-3.5 h-3.5 text-slate-300" />
+                            <span>Đội trưởng: <strong>{record.leaderName}</strong></span>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col items-end gap-1.5 shrink-0">
+                          <div className="bg-indigo-50 text-indigo-700 border border-indigo-100 px-2.5 py-1 rounded-lg text-center font-black text-xs min-w-[50px]">
+                            {(record.workerCount ?? 0).toLocaleString('en-US')} thợ
+                          </div>
+                          <div className="flex flex-wrap gap-1 justify-end max-w-[140px]">
+                            {(() => {
+                              const sVal = record.shift || 'Sáng, Chiều';
+                              if (sVal === 'Hành chính') {
+                                return (
+                                  <>
+                                    <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-100">Sáng</span>
+                                    <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50/50 text-indigo-700 border border-indigo-100">Chiều</span>
+                                  </>
+                                );
+                              }
+                              if (sVal === 'Tăng ca') {
+                                return <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">Tối</span>;
+                              }
+                              return sVal.split(', ').map(part => {
+                                if (part === 'Sáng') return <span key={part} className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-100">Sáng</span>;
+                                if (part === 'Chiều') return <span key={part} className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50/50 text-indigo-700 border border-indigo-100">Chiều</span>;
+                                if (part === 'Tối') return <span key={part} className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">Tối</span>;
+                                return <span key={part} className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">Nghỉ</span>;
+                              });
+                            })()}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-1.5 pt-2 border-t border-slate-100 text-xs">
+                        <div className="flex items-center gap-1.5 text-slate-600">
+                          <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span>Tầng làm việc: <strong className="text-indigo-600">{record.floorName}</strong></span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 text-slate-600">
+                          <Briefcase className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span>Nhiệm vụ: <span className="font-medium text-slate-700">{record.taskDescription}</span></span>
+                        </div>
+                      </div>
+
+                      {record.notes && (
+                        <div className="mt-2 text-[11px] text-slate-500 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                          <strong>Ghi chú:</strong> {record.notes}
+                        </div>
+                      )}
+
+                      {/* Actions buttons */}
+                      <div className="flex items-center justify-end gap-3 mt-3 pt-2 border-t border-slate-100">
+                        <button
+                          onClick={async () => {
+                            setEditingRecord(record);
+                            setShowAddLogModal(true);
+                          }}
+                          className="flex items-center gap-1 text-xs text-slate-500 hover:text-indigo-600 transition"
+                          title="Sửa bản ghi"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" /> <span>Sửa</span>
+                        </button>
+                        <button
+                          onClick={async () => {
+                            setDeletingRecordTarget(record);
+                          }}
+                          className="flex items-center gap-1 text-xs text-slate-500 hover:text-rose-600 transition"
+                          title="Xóa bản ghi"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" /> <span className="text-rose-500 font-semibold">Xóa</span>
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               ))
@@ -846,7 +1083,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <button
                   type="button"
-                  onClick={() => {
+                  onClick={async () => {
                     setEditingTeam(null);
                     setShowTeamModal(true);
                   }}
@@ -894,6 +1131,44 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             <h2 className="text-xs font-bold text-slate-400 tracking-wider uppercase flex items-center gap-1.5 px-1">
               <Users className="w-3.5 h-3.5 text-indigo-500" /> Danh sách ({teams.length} đội thi công)
             </h2>
+
+            {teams.length > 0 && (
+              <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs gap-2">
+                <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={teams.length > 0 && teams.every(item => selectedTeamIds.includes(item.id))}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedTeamIds(prev => Array.from(new Set([...prev, ...teams.map(item => item.id)])));
+                      } else {
+                        setSelectedTeamIds(prev => prev.filter(id => !teams.some(item => item.id === id)));
+                      }
+                    }}
+                    className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                  />
+                  <span>Chọn Tất Cả Đội ({teams.length})</span>
+                </label>
+
+                <div className="flex items-center gap-3 justify-end">
+                  {selectedTeamIds.some(id => teams.some(item => item.id === id)) && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const idsToDelete = selectedTeamIds.filter(id => teams.some(item => item.id === id));
+                        if (await confirmAsync(`Bạn có chắc muốn xóa ${idsToDelete.length} đội thi công đã chọn?`)) {
+                          setTeams((prev) => prev.filter((t) => !idsToDelete.includes(t.id)));
+                          setSelectedTeamIds(prev => prev.filter(id => !idsToDelete.includes(id)));
+                        }
+                      }}
+                      className="text-rose-600 hover:text-rose-700 font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Xóa Đã Chọn ({selectedTeamIds.filter(id => teams.some(item => item.id === id)).length})
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
 
             {teams.length === 0 ? (
               <div className="bg-white border border-dashed border-slate-300 rounded-xl p-8 text-center flex flex-col items-center justify-center shadow-sm">
@@ -946,26 +1221,40 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                 })();
 
                 return (
-                  <div 
+                  <div
                     key={team.id}
                     className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:border-indigo-300 transition-all duration-200 hover:shadow-md"
                   >
                     <div className="flex justify-between items-start gap-4 mb-2">
-                      <div>
-                        <h4 
-                          onClick={() => {
-                            setSelectedTeamForDetail(team);
-                            setDetailModalTab('rooms');
+                      <div className="flex items-start gap-2.5 min-w-0">
+                        <input
+                          type="checkbox"
+                          checked={selectedTeamIds.includes(team.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedTeamIds(prev => [...prev, team.id]);
+                            } else {
+                              setSelectedTeamIds(prev => prev.filter(id => id !== team.id));
+                            }
                           }}
-                          className="font-bold text-slate-800 text-sm leading-tight hover:text-indigo-600 cursor-pointer transition flex items-center gap-1.5"
-                          title="Bấm để xem chi tiết thống kê căn & defect"
-                        >
-                          <span>{team.name}</span>
-                          <BarChart3 className="w-3.5 h-3.5 text-indigo-500 opacity-80" />
-                        </h4>
-                        <div className="flex items-center gap-1.5 text-xs text-slate-400 mt-1">
-                          <User className="w-3.5 h-3.5 text-slate-300" />
-                          <span>Đội trưởng: <strong className="text-slate-700">{team.leader}</strong></span>
+                          className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer mt-0.5 shrink-0"
+                        />
+                        <div>
+                          <h4
+                            onClick={async () => {
+                              setSelectedTeamForDetail(team);
+                              setDetailModalTab('rooms');
+                            }}
+                            className="font-bold text-slate-800 text-sm leading-tight hover:text-indigo-600 cursor-pointer transition flex items-center gap-1.5"
+                            title="Bấm để xem chi tiết thống kê căn & defect"
+                          >
+                            <span>{team.name}</span>
+                            <BarChart3 className="w-3.5 h-3.5 text-indigo-500 opacity-80" />
+                          </h4>
+                          <div className="flex items-center gap-1.5 text-xs text-slate-400 mt-1">
+                            <User className="w-3.5 h-3.5 text-slate-300" />
+                            <span>Đội trưởng: <strong className="text-slate-700">{team.leader}</strong></span>
+                          </div>
                         </div>
                       </div>
 
@@ -976,8 +1265,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
                     {/* Quick Stat Pill Widgets */}
                     <div className="grid grid-cols-3 gap-2 my-2.5 pt-2 border-t border-slate-100 text-xs">
-                      <div 
-                        onClick={() => {
+                      <div
+                        onClick={async () => {
                           setSelectedTeamForDetail(team);
                           setDetailModalTab('rooms');
                         }}
@@ -998,14 +1287,14 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                         </div>
                       </div>
 
-                      <div 
-                        onClick={() => {
+                      <div
+                        onClick={async () => {
                           setSelectedTeamForDetail(team);
                           setDetailModalTab('defects');
                         }}
                         className={`border p-2 rounded-lg cursor-pointer transition text-center ${
-                          openDefects.length > 0 
-                            ? 'bg-rose-50/70 border-rose-200 hover:bg-rose-100/70' 
+                          openDefects.length > 0
+                            ? 'bg-rose-50/70 border-rose-200 hover:bg-rose-100/70'
                             : 'bg-emerald-50/70 border-emerald-100 hover:bg-emerald-100/70'
                         }`}
                         title="Xem các defect/lỗi gán cho đội"
@@ -1019,8 +1308,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                         </div>
                       </div>
 
-                      <div 
-                        onClick={() => {
+                      <div
+                        onClick={async () => {
                           setSelectedTeamForDetail(team);
                           setDetailModalTab('logs');
                         }}
@@ -1030,7 +1319,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                         <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Tổng Công</div>
                         <div className="text-sm font-black text-slate-700 flex items-center justify-center gap-1 mt-0.5">
                           <Users className="w-3.5 h-3.5 text-slate-400" />
-                          <span>{totalManDays}</span>
+                          <span>{totalManDays.toLocaleString('en-US')}</span>
                         </div>
                       </div>
                     </div>
@@ -1090,7 +1379,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
                     {/* Primary Button to open statistics modal */}
                     <button
-                      onClick={() => {
+                      onClick={async () => {
                         setSelectedTeamForDetail(team);
                         setDetailModalTab('rooms');
                       }}
@@ -1103,7 +1392,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     {/* Team edit / delete actions */}
                     <div className="flex items-center justify-end gap-3 mt-2.5 pt-2 border-t border-slate-100">
                       <button
-                        onClick={() => {
+                        onClick={async () => {
                           setEditingTeam(team);
                           setShowTeamModal(true);
                         }}
@@ -1113,7 +1402,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                         <Edit2 className="w-3.5 h-3.5" /> <span>Sửa</span>
                       </button>
                       <button
-                        onClick={() => {
+                        onClick={async () => {
                           setDeletingTeamTarget(team);
                         }}
                         className="flex items-center gap-1 text-xs text-slate-500 hover:text-rose-600 transition"
@@ -1135,7 +1424,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       {/* Ghi nhận quân số Modal */}
       {showAddLogModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div 
+          <div
             className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
@@ -1144,8 +1433,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               <h3 className="font-bold text-sm">
                 {editingRecord ? '✍️ Sửa Ghi Nhận Quân Số' : '👷 Ghi Nhận Quân Số Mới'}
               </h3>
-              <button 
-                onClick={() => {
+              <button
+                onClick={async () => {
                   setShowAddLogModal(false);
                   setEditingRecord(null);
                 }}
@@ -1195,7 +1484,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   </select>
 
                   {(!teams.some((t) => t.name === teamName) || teamName === '') && (
-                    <input 
+                    <input
                       type="text"
                       placeholder="Nhập tên đội thi công tùy chỉnh..."
                       value={teamName}
@@ -1210,7 +1499,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               {/* Leader Name */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Trưởng Nhóm / Đội Trưởng</label>
-                <input 
+                <input
                   type="text"
                   placeholder="Ví dụ: Đội trưởng Hùng, Anh Cường..."
                   value={leaderName}
@@ -1223,9 +1512,10 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               {/* Worker Count */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Quân Số (Số lượng thợ tại công trình)</label>
-                <input 
+                <input
                   type="number"
-                  min="1"
+                  step="any"
+                  min="0.01"
                   value={workerCount}
                   onChange={(e) => setWorkerCount(Number(e.target.value))}
                   className="w-full text-xs bg-white border border-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-bold"
@@ -1276,66 +1566,135 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                 </div>
               </div>
 
-              {/* Floor Plan selection */}
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Vị Trí Làm Việc (Tầng)</label>
-                <select
-                  value={selectedFloorId}
-                  onChange={(e) => setSelectedFloorId(e.target.value)}
-                  className="w-full text-xs bg-white border border-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-semibold"
-                  required
-                >
-                  {floorPlans.length === 0 ? (
-                    <option value="">Không tìm thấy mặt bằng tầng nào. Hãy tạo bên tab Mặt bằng</option>
-                  ) : (
-                    floorPlans.map((fp) => (
-                      <option key={fp.id} value={fp.id}>{fp.floorName}</option>
-                    ))
-                  )}
-                </select>
-                <p className="text-[10px] text-slate-400 mt-1">
-                  * Mặt bằng tầng được lấy liên thông từ tab Mặt Bằng thi công.
-                </p>
-              </div>
-
-              {/* Task description list / input */}
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Nhiệm Vụ Trong Ngày</label>
-                <div className="space-y-1.5">
-                  <select
-                    value={COMMON_TASKS.includes(taskDescription) ? taskDescription : 'Khác'}
-                    onChange={(e) => {
-                      if (e.target.value === 'Khác') {
-                        setTaskDescription('');
-                      } else {
-                        setTaskDescription(e.target.value);
-                      }
-                    }}
-                    className="w-full text-xs bg-white border border-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+              {/* Multi-floor & Multi-category Work Configuration */}
+              <div className="space-y-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                    <MapPin className="w-3.5 h-3.5 text-indigo-600" />
+                    Phân Phối Tầng, Hạng Mục & Hạng Mục Phụ
+                  </label>
+                  <button
+                    type="button"
+                    onClick={addFloorWork}
+                    className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2 py-1 rounded flex items-center gap-1 transition"
                   >
-                    {COMMON_TASKS.map((task) => (
-                      <option key={task} value={task}>{task}</option>
-                    ))}
-                    <option value="Khác">-- Tự nhập nhiệm vụ khác --</option>
-                  </select>
-
-                  {!COMMON_TASKS.includes(taskDescription) && (
-                    <input 
-                      type="text"
-                      placeholder="Nhập nhiệm vụ thi công chi tiết..."
-                      value={taskDescription}
-                      onChange={(e) => setTaskDescription(e.target.value)}
-                      className="w-full text-xs bg-white border border-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                      required
-                    />
-                  )}
+                    <Plus className="w-3 h-3" /> Thêm Tầng Làm Việc
+                  </button>
                 </div>
+
+                {floorWorks.length === 0 ? (
+                  <div className="text-center py-4 text-xs text-slate-400">
+                    Chưa có tầng nào được thêm. Bấm "Thêm Tầng Làm Việc" để phân công.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {floorWorks.map((fw, fIdx) => (
+                      <div key={fIdx} className="bg-white p-3 rounded-lg border border-slate-200 space-y-2.5 relative shadow-sm">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex-1">
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">Tầng</label>
+                            <select
+                              value={fw.floorId}
+                              onChange={(e) => updateFloorWorkFloor(fIdx, e.target.value)}
+                              className="w-full text-xs bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                            >
+                              {floorPlans.map(fp => (
+                                <option key={fp.id} value={fp.id}>{fp.floorName}</option>
+                              ))}
+                            </select>
+                          </div>
+                          {floorWorks.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => removeFloorWork(fIdx)}
+                              className="text-slate-400 hover:text-rose-600 p-1 rounded transition mt-4"
+                              title="Xoá tầng này"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Categories on this floor */}
+                        <div className="space-y-2 pt-1 border-t border-slate-100">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-bold text-slate-600">Hạng mục thi công trên tầng này:</span>
+                            <button
+                              type="button"
+                              onClick={() => addCategoryToFloor(fIdx)}
+                              className="text-[10px] font-semibold text-indigo-600 hover:text-indigo-700 flex items-center gap-0.5"
+                            >
+                              <Plus className="w-3 h-3" /> Thêm Hạng Mục
+                            </button>
+                          </div>
+
+                          {fw.categories.map((cat, cIdx) => (
+                            <div key={cIdx} className="bg-slate-50 p-2 rounded border border-slate-200 space-y-2">
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="text"
+                                  placeholder="Tên hạng mục (VD: Trần thạch cao, Vách ngăn...)"
+                                  value={cat.categoryName}
+                                  onChange={(e) => updateCategoryName(fIdx, cIdx, e.target.value)}
+                                  className="flex-1 text-xs bg-white border border-slate-200 px-2 py-1 rounded font-medium focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                />
+                                {fw.categories.length > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => removeCategoryFromFloor(fIdx, cIdx)}
+                                    className="text-slate-400 hover:text-rose-600 p-1"
+                                    title="Xoá hạng mục"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+
+                              {/* Sub-items / Hạng mục phụ */}
+                              <div className="pl-2 space-y-1">
+                                <div className="text-[10px] text-slate-500 font-semibold">Hạng mục phụ / Công đoạn:</div>
+                                <div className="flex flex-wrap gap-1 items-center">
+                                  {cat.subItems.map((sub, sIdx) => (
+                                    <span key={sIdx} className="inline-flex items-center gap-1 bg-indigo-50 text-indigo-700 text-[10px] px-2 py-0.5 rounded-full font-medium">
+                                      {sub}
+                                      <button
+                                        type="button"
+                                        onClick={() => removeSubItemFromCategory(fIdx, cIdx, sIdx)}
+                                        className="hover:text-rose-600"
+                                      >
+                                        <X className="w-3 h-3" />
+                                      </button>
+                                    </span>
+                                  ))}
+                                  <div className="flex items-center gap-1">
+                                    <input
+                                      type="text"
+                                      placeholder="+ Thêm hạng mục phụ (Enter)..."
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          e.preventDefault();
+                                          addSubItemToCategory(fIdx, cIdx, (e.target as HTMLInputElement).value);
+                                          (e.target as HTMLInputElement).value = '';
+                                        }
+                                      }}
+                                      className="text-[10px] bg-white border border-slate-200 px-2 py-0.5 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500 w-36"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Ghi chú */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Ghi Chú Thêm (Tùy chọn)</label>
-                <textarea 
+                <textarea
                   placeholder="Ví dụ: Đã nhận đủ vật tư, tăng ca hoàn thành trần phòng A102..."
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
@@ -1347,7 +1706,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               <div className="flex gap-2.5 pt-2">
                 <button
                   type="button"
-                  onClick={() => {
+                  onClick={async () => {
                     setShowAddLogModal(false);
                     setEditingRecord(null);
                   }}
@@ -1370,7 +1729,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       {/* Thêm / Sửa thông tin Đội thi công Modal */}
       {showTeamModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div 
+          <div
             className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
@@ -1379,8 +1738,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               <h3 className="font-bold text-sm">
                 {editingTeam ? '✍️ Sửa Thông Tin Đội' : '👥 Thêm Đội Thi Công Mới'}
               </h3>
-              <button 
-                onClick={() => {
+              <button
+                onClick={async () => {
                   setShowTeamModal(false);
                   setEditingTeam(null);
                 }}
@@ -1395,7 +1754,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               {/* Team Name */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Tên Đội Thi Công</label>
-                <input 
+                <input
                   type="text"
                   placeholder="Ví dụ: Đội Thạch Cao Hà Nội..."
                   value={tName}
@@ -1408,7 +1767,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               {/* Leader Name */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Trưởng Nhóm / Đội Trưởng</label>
-                <input 
+                <input
                   type="text"
                   placeholder="Ví dụ: Đội trưởng Hùng, Anh Tiến..."
                   value={tLeader}
@@ -1421,9 +1780,10 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               {/* Default worker count */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Quân Số Định Biên Mặc Định</label>
-                <input 
+                <input
                   type="number"
-                  min="1"
+                  step="any"
+                  min="0.01"
                   value={tCount}
                   onChange={(e) => setTCount(Number(e.target.value))}
                   className="w-full text-xs bg-white border border-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-bold"
@@ -1455,7 +1815,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   </div>
                 </div>
                 <div className="relative">
-                  <input 
+                  <input
                     type="tel"
                     autoComplete="tel"
                     placeholder="Ví dụ: 0912345678"
@@ -1478,7 +1838,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               {/* Notes */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Mô Tả / Ghi Chú</label>
-                <textarea 
+                <textarea
                   placeholder="Ví dụ: Đội chuyên thạch cao trần giật cấp, khoán khối lượng..."
                   value={tNotes}
                   onChange={(e) => setTNotes(e.target.value)}
@@ -1490,7 +1850,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               <div className="flex gap-2.5 pt-2">
                 <button
                   type="button"
-                  onClick={() => {
+                  onClick={async () => {
                     setShowTeamModal(false);
                     setEditingTeam(null);
                   }}
@@ -1609,7 +1969,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         const teamRooms = (roomProgressList || []).filter(r => isTeamMatch(r.assignedTeam, team));
         const teamDefects = (defects || []).filter(d => isTeamMatch(d.assignedTo, team));
         const teamLogs = (crewRecords || []).filter(l => isTeamMatch(l.teamName, team));
-        
+
         const totalWorkdays = teamLogs.reduce((sum, item) => sum + (item.workerCount || 0), 0);
         const openDefectsList = teamDefects.filter(d => d.status === 'Mới phát hiện' || d.status === 'Đang sửa');
         const resolvedDefectsList = teamDefects.filter(d => d.status === 'Đã khắc phục' || d.status === 'Đã nghiệm thu');
@@ -1683,7 +2043,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/70 backdrop-blur-md">
-            <div 
+            <div
               className="bg-slate-50 rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[92vh] border border-slate-200 animate-in fade-in zoom-in-95 duration-200"
               onClick={(e) => e.stopPropagation()}
             >
@@ -1728,7 +2088,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   )}
                 </div>
 
-                <button 
+                <button
                   onClick={() => setSelectedTeamForDetail(null)}
                   className="text-slate-400 hover:text-white transition bg-slate-800 hover:bg-slate-700 p-2 rounded-xl"
                   title="Đóng"
@@ -1850,7 +2210,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                         <p className="text-[11px] text-slate-500 mt-1 max-w-md mx-auto leading-relaxed">
                           Để gán đội thi công cho từng căn hộ / phòng, bạn hãy vào tab <strong className="text-slate-700">"Sơ đồ mặt bằng"</strong>, chọn vùng phòng cần giao và chọn đội <strong className="text-indigo-600">{team.name}</strong>.
                         </p>
-                        
+
                         {loggedFloors.length > 0 && (
                           <div className="mt-4 pt-3 border-t border-slate-100 text-left bg-indigo-50/50 p-3 rounded-lg">
                             <span className="text-[11px] font-bold text-indigo-900 block mb-1">
@@ -1954,7 +2314,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                             })();
 
                             return (
-                              <div 
+                              <div
                                 key={room.id}
                                 className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs hover:border-indigo-300 transition"
                               >
@@ -2077,8 +2437,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                       <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-6 text-center">
                         <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
                         <h4 className="text-sm font-bold text-emerald-900">
-                          {defectFilter === 'open' 
-                            ? 'Không có lỗi defect nào cần khắc phục!' 
+                          {defectFilter === 'open'
+                            ? 'Không có lỗi defect nào cần khắc phục!'
                             : 'Không tìm thấy defect nào theo bộ lọc'}
                         </h4>
                         <p className="text-xs text-emerald-700 mt-1">
@@ -2088,7 +2448,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     ) : (
                       <div className="space-y-2.5">
                         {displayedDefects.map((defect) => (
-                          <div 
+                          <div
                             key={defect.id}
                             className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs hover:border-rose-200 transition"
                           >
@@ -2131,9 +2491,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
                             {defect.imageUrl && (
                               <div className="mt-2">
-                                <img 
-                                  src={defect.imageUrl} 
-                                  alt="Ảnh defect" 
+                                <img
+                                  src={defect.imageUrl}
+                                  alt="Ảnh defect"
                                   className="w-full max-h-36 object-cover rounded-lg border border-slate-200"
                                 />
                               </div>
@@ -2167,7 +2527,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                           Lịch sử công nhật đã ghi nhận ({teamLogs.length} ngày / {totalWorkdays} công thợ):
                         </div>
                         {teamLogs.map((log) => (
-                          <div 
+                          <div
                             key={log.id}
                             className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs text-xs space-y-1"
                           >
@@ -2178,7 +2538,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                 <span className="text-[11px] font-normal text-slate-500">({log.floorName})</span>
                               </div>
                               <span className="bg-indigo-50 text-indigo-700 font-black px-2 py-0.5 rounded-md border border-indigo-100 text-[11px]">
-                                {log.workerCount} thợ
+                                {(log.workerCount ?? 0).toLocaleString('en-US')} thợ
                               </span>
                             </div>
 
