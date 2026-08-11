@@ -1,9 +1,7 @@
-const CACHE_NAME = 'qltc-an-phu-cache-v3';
+const CACHE_NAME = 'qltc-an-phu-cache-v4';
 
 // Essential App Shell Resources
 const STATIC_ASSETS = [
-  '/',
-  '/index.html',
   '/manifest.json',
   '/icon.png'
 ];
@@ -34,7 +32,13 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Fetch Event: Cache First for Static Assets, Network First with Offline JSON for API
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
+// Fetch Event: Network First for HTML/API, Stale-While-Revalidate for static assets
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
@@ -61,6 +65,23 @@ self.addEventListener('fetch', (event) => {
             }
           );
         })
+    );
+    return;
+  }
+
+  if (request.mode === 'navigate' || request.headers.get('accept')?.includes('text/html')) {
+    event.respondWith(
+      fetch(request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+            const responseToCache = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put('/index.html', responseToCache);
+            });
+          }
+          return networkResponse;
+        })
+        .catch(() => caches.match('/index.html'))
     );
     return;
   }

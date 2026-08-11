@@ -7,7 +7,7 @@ namespace QLTCAnPhu
 {
     internal static class Program
     {
-        private const string AppUrl = "https://com-example-qlct-61329.web.app";
+        private const string AppUrl = "https://com-example-qlct-61329.web.app/?app=desktop&v=20260811-qltc";
 
         [STAThread]
         private static void Main()
@@ -27,6 +27,7 @@ namespace QLTCAnPhu
                     "EdgeProfile"
                 );
                 Directory.CreateDirectory(profileDir);
+                ClearWebCaches(profileDir);
 
                 var args =
                     "--app=" + AppUrl +
@@ -69,6 +70,39 @@ namespace QLTCAnPhu
             }
 
             return null;
+        }
+
+        private static void ClearWebCaches(string profileDir)
+        {
+            var cacheDirs = new[]
+            {
+                Path.Combine(profileDir, "Default", "Cache"),
+                Path.Combine(profileDir, "Default", "Code Cache"),
+                Path.Combine(profileDir, "Default", "GPUCache"),
+                Path.Combine(profileDir, "Default", "Service Worker", "CacheStorage"),
+                Path.Combine(profileDir, "Default", "Service Worker", "ScriptCache"),
+                Path.Combine(profileDir, "Default", "Storage", "ext"),
+            };
+
+            foreach (var cacheDir in cacheDirs)
+            {
+                TryDeleteDirectory(cacheDir);
+            }
+        }
+
+        private static void TryDeleteDirectory(string path)
+        {
+            try
+            {
+                if (Directory.Exists(path))
+                {
+                    Directory.Delete(path, true);
+                }
+            }
+            catch
+            {
+                // Edge may still be closing; cached files are safe to leave for this launch.
+            }
         }
     }
 }
