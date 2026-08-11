@@ -5,6 +5,22 @@ localforage.config({
   storeName: 'app_data'
 });
 
+const ASYNC_DATA_KEY_PREFIXES = [
+  'construction_material_norms',
+  'construction_inventory',
+  'construction_work_volumes',
+  'construction_floor_plans',
+  'construction_defects',
+  'construction_room_progress',
+  'construction_checklist',
+  'construction_crew_records',
+  'construction_teams',
+];
+
+export const isAsyncDataKey = (key: string): boolean => {
+  return ASYNC_DATA_KEY_PREFIXES.some((prefix) => key === prefix || key.startsWith(`${prefix}_proj_`));
+};
+
 export const getAsyncItem = async <T>(key: string, fallback: T): Promise<T> => {
   try {
     const val = await localforage.getItem<string>(key);
@@ -70,6 +86,40 @@ export const getAllStorageData = async (): Promise<Record<string, string>> => {
   }
 
   return data;
+};
+
+export const getAllConstructionStorageData = async (): Promise<Record<string, string>> => {
+  const allData = await getAllStorageData();
+  const data: Record<string, string> = {};
+
+  for (const key in allData) {
+    if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
+      data[key] = allData[key] || '';
+    }
+  }
+
+  return data;
+};
+
+export const restoreConstructionStorageData = async (data: Record<string, string>): Promise<void> => {
+  for (const key in data) {
+    if (!key || (!key.startsWith('construction_') && !key.startsWith('active_project_id'))) {
+      continue;
+    }
+
+    const rawValue = data[key];
+    const value = typeof rawValue === 'string' ? rawValue : JSON.stringify(rawValue ?? '');
+    if (isAsyncDataKey(key)) {
+      await setAsyncItem(key, value);
+    } else {
+      try {
+        localStorage.setItem(key, value);
+      } catch (err) {
+        console.warn(`localStorage restore failed for ${key}, using IndexedDB fallback.`, err);
+        await setAsyncItem(key, value);
+      }
+    }
+  }
 };
 
 export const getStorageKeys = async (): Promise<string[]> => {

@@ -37,7 +37,7 @@ function readEnvFirebaseConfig(): FirebaseOptions {
 }
 
 function hasFirebaseConfig(config: FirebaseOptions | null): config is FirebaseOptions {
-  return Boolean(config?.apiKey && config?.projectId && config?.appId);
+  return Boolean(config?.apiKey && config?.projectId);
 }
 
 async function loadFirebaseConfig(): Promise<FirebaseOptions | null> {
@@ -253,6 +253,9 @@ export interface CloudProjectRecord {
   updatedAt: string;
   updatedBy?: string;
   data: any;
+  payloadChunked?: boolean;
+  chunkCount?: number;
+  payloadSize?: number;
 }
 
 export interface CloudBackupRecord {
@@ -261,6 +264,79 @@ export interface CloudBackupRecord {
   createdAt: string;
   projectCount: number;
   projects: any[];
+  payloadChunked?: boolean;
+  chunkCount?: number;
+  payloadSize?: number;
+}
+
+const FIRESTORE_INLINE_JSON_LIMIT = 700 * 1024;
+const FIRESTORE_CHUNK_SIZE = 650 * 1024;
+
+function splitString(value: string, size = FIRESTORE_CHUNK_SIZE): string[] {
+  const chunks: string[] = [];
+  for (let i = 0; i < value.length; i += size) {
+    chunks.push(value.slice(i, i + size));
+  }
+  return chunks.length ? chunks : [''];
+}
+
+async function clearPayloadChunks(firestore: Firestore, parentCollection: 'projects' | 'cloud_backups', docId: string) {
+  const snap = await getDocs(collection(firestore, parentCollection, docId, 'chunks'));
+  await Promise.all(snap.docs.map((chunkDoc) => deleteDoc(chunkDoc.ref)));
+}
+
+async function replacePayloadChunks(
+  firestore: Firestore,
+  parentCollection: 'projects' | 'cloud_backups',
+  docId: string,
+  chunks: string[]
+) {
+  await clearPayloadChunks(firestore, parentCollection, docId);
+  await Promise.all(
+    chunks.map((chunk, index) => setDoc(doc(firestore, parentCollection, docId, 'chunks', String(index).padStart(6, '0')), {
+      index,
+      total: chunks.length,
+      data: chunk,
+    }))
+  );
+}
+
+async function readPayloadChunks<T>(
+  firestore: Firestore,
+  parentCollection: 'projects' | 'cloud_backups',
+  docId: string
+): Promise<T> {
+  const q = query(collection(firestore, parentCollection, docId, 'chunks'), orderBy('index', 'asc'));
+  const snap = await getDocs(q);
+  const payloadJson = snap.docs.map((chunkDoc) => String(chunkDoc.data().data || '')).join('');
+  return JSON.parse(payloadJson) as T;
+}
+
+async function hydrateProjectRecord(firestore: Firestore, projectId: string, record: CloudProjectRecord): Promise<CloudProjectRecord> {
+  if (record.payloadChunked || record.data?.payloadChunked) {
+    const payload = await readPayloadChunks<Record<string, string>>(firestore, 'projects', projectId);
+    return {
+      ...record,
+      data: {
+        ...(record.data || {}),
+        payload,
+      },
+    };
+  }
+
+  return record;
+}
+
+async function hydrateBackupRecord(firestore: Firestore, backupId: string, record: CloudBackupRecord): Promise<CloudBackupRecord> {
+  if (record.payloadChunked) {
+    const projects = await readPayloadChunks<any[]>(firestore, 'cloud_backups', backupId);
+    return {
+      ...record,
+      projects,
+    };
+  }
+
+  return record;
 }
 
 export function getCloudPayload(record: any): Record<string, string> | null {
@@ -327,8 +403,9 @@ export async function saveProjectToCloud(project: {
       payloadData = copy;
     }
 
-    const sanitizedPayload = sanitizePayloadForCloud(payloadData);
     const syncCode = project.syncCode || project.id.slice(0, 8).toUpperCase();
+    const payloadJson = JSON.stringify(payloadData || {});
+    const chunks = payloadJson.length > FIRESTORE_INLINE_JSON_LIMIT ? splitString(payloadJson) : [];
 
     const record: CloudProjectRecord = {
       id: project.id,
@@ -336,13 +413,25 @@ export async function saveProjectToCloud(project: {
       syncCode,
       updatedAt: new Date().toISOString(),
       updatedBy: typeof window !== 'undefined' ? window.navigator.userAgent : 'device',
+      payloadChunked: chunks.length > 0,
+      chunkCount: chunks.length,
+      payloadSize: payloadJson.length,
       data: {
         id: project.id,
         name: project.name || 'Du an',
         syncCode,
-        payload: sanitizedPayload,
+        payload: chunks.length > 0 ? null : JSON.parse(payloadJson),
+        payloadChunked: chunks.length > 0,
+        chunkCount: chunks.length,
       },
     };
+
+    if (chunks.length > 0) {
+      await replacePayloadChunks(firestore, 'projects', project.id, chunks);
+    } else {
+      await clearPayloadChunks(firestore, 'projects', project.id);
+    }
+
     await setDoc(doc(firestore, 'projects', project.id), record);
   } catch (err) {
     console.error('Firestore Write Error:', err);
@@ -356,7 +445,8 @@ export async function fetchProjectFromCloud(projectId: string): Promise<CloudPro
 
   try {
     const snap = await getDoc(doc(firestore, 'projects', projectId));
-    return snap.exists() ? (snap.data() as CloudProjectRecord) : null;
+    if (!snap.exists()) return null;
+    return await hydrateProjectRecord(firestore, projectId, snap.data() as CloudProjectRecord);
   } catch (err) {
     console.error('Firestore Get Error:', err);
     return null;
@@ -381,9 +471,14 @@ export function subscribeToCloudProject(
 
       unsubscribe = onSnapshot(
         doc(services.db, 'projects', projectId),
-        (snap) => {
+        async (snap) => {
           if (snap.exists()) {
-            onUpdate(snap.data() as CloudProjectRecord);
+            try {
+              onUpdate(await hydrateProjectRecord(services.db, projectId, snap.data() as CloudProjectRecord));
+            } catch (err) {
+              console.warn('Firestore Chunk Hydration Error:', err);
+              onError?.(err);
+            }
           }
         },
         (err) => {
@@ -408,15 +503,23 @@ export async function saveCloudBackup(backupName: string, allProjects: any[]): P
   const backupId = `backup_${Date.now()}`;
   const firestore = await requireFirestore(OperationType.WRITE, `cloud_backups/${backupId}`);
   try {
-    const sanitizedProjects = sanitizePayloadForCloud(allProjects);
+    const payloadJson = JSON.stringify(allProjects || []);
+    const chunks = payloadJson.length > FIRESTORE_INLINE_JSON_LIMIT ? splitString(payloadJson) : [];
 
     const record: CloudBackupRecord = {
       id: backupId,
       backupName: backupName || `Backup ${new Date().toLocaleString('vi-VN')}`,
       createdAt: new Date().toISOString(),
-      projectCount: Array.isArray(sanitizedProjects) ? sanitizedProjects.length : 1,
-      projects: sanitizedProjects,
+      projectCount: Array.isArray(allProjects) ? allProjects.length : 1,
+      projects: chunks.length > 0 ? [] : JSON.parse(payloadJson),
+      payloadChunked: chunks.length > 0,
+      chunkCount: chunks.length,
+      payloadSize: payloadJson.length,
     };
+
+    if (chunks.length > 0) {
+      await replacePayloadChunks(firestore, 'cloud_backups', backupId, chunks);
+    }
 
     await setDoc(doc(firestore, 'cloud_backups', backupId), record);
     return backupId;
@@ -434,9 +537,9 @@ export async function listCloudBackups(): Promise<CloudBackupRecord[]> {
     const q = query(collection(firestore, 'cloud_backups'), orderBy('createdAt', 'desc'));
     const snap = await getDocs(q);
     const results: CloudBackupRecord[] = [];
-    snap.forEach((docSnap) => {
-      results.push(docSnap.data() as CloudBackupRecord);
-    });
+    for (const docSnap of snap.docs) {
+      results.push(await hydrateBackupRecord(firestore, docSnap.id, docSnap.data() as CloudBackupRecord));
+    }
     return results;
   } catch (err) {
     console.warn('Firestore List Backups Error:', err);
@@ -449,6 +552,7 @@ export async function deleteCloudBackup(backupId: string): Promise<void> {
   if (!firestore) return;
 
   try {
+    await clearPayloadChunks(firestore, 'cloud_backups', backupId);
     await deleteDoc(doc(firestore, 'cloud_backups', backupId));
   } catch (err) {
     console.warn('Firestore Delete Backup Error:', err);

@@ -46,10 +46,10 @@ import {
   exportCrewToExcel
 } from './utils/excelExport';
 import { getFileHandle, saveFileHandle, removeFileHandle } from './utils/localSyncDb';
-import { isAndroidExportBridgeAvailable, saveTextFile } from './utils/fileExport';
+import { isAndroidExportBridgeAvailable, saveJsonRecordFile, saveTextFile, writeJsonRecordToWritable } from './utils/fileExport';
 import { getAllBackupVersions, saveBackupVersion, deleteBackupVersion, BackupVersion } from './utils/backupDb';
 import { cleanupAndCompressOldImages } from './utils/cleanupStorage';
-import { getAsyncItem, setAsyncItem, getAllStorageData } from './utils/asyncStorage';
+import { getAllConstructionStorageData, getAsyncItem, restoreConstructionStorageData, setAsyncItem } from './utils/asyncStorage';
 import { migrateAndCleanLocalStorage } from './utils/migrateStorage';
 import { confirmAsync } from './utils/confirmAsync';
 
@@ -451,16 +451,19 @@ export default function App() {
     const unsubscribe = subscribeToCloudProject(curId, (record) => {
       const cloudData = getCloudPayload(record);
       if (cloudData) {
-        let updatedAny = false;
-        for (const k in cloudData) {
-          if (localStorage.getItem(k) !== cloudData[k]) {
-            safeSetLocalStorageItem(k, cloudData[k]);
-            updatedAny = true;
+        void (async () => {
+          const localData = await getAllConstructionStorageData();
+          let updatedAny = false;
+          for (const k in cloudData) {
+            if (localData[k] !== cloudData[k]) {
+              await restoreConstructionStorageData({ [k]: cloudData[k] });
+              updatedAny = true;
+            }
           }
-        }
-        if (updatedAny) {
+          if (updatedAny) {
           console.log("⚡ Nhận dữ liệu đồng bộ Realtime từ Đám Mây cho dự án:", curId);
         }
+        })();
       }
     });
     return () => {
@@ -636,13 +639,7 @@ export default function App() {
   const handleDriveSyncUpAll = async (customFolderId?: string) => {
     try {
       const folderId = customFolderId || '1se6PAsmGQ2hwPqUCiQoueksEFPP_YMO6';
-      const allData: Record<string, string> = {};
-      const storageData = await getAllStorageData();
-      for (const key in storageData) {
-        if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
-          allData[key] = storageData[key] || '';
-        }
-      }
+      const allData = await getAllConstructionStorageData();
 
       const res = await fetch('/api/drive/sync-up-all', {
         method: 'POST',
@@ -690,11 +687,7 @@ export default function App() {
       }
       const result = await res.json();
       if (result.success && result.found && result.data) {
-        for (const key in result.data) {
-          if (key.startsWith('construction_') || key.startsWith('active_project_id')) {
-            localStorage.setItem(key, result.data[key]);
-          }
-        }
+        await restoreConstructionStorageData(result.data);
         window.location.reload();
         return { success: true, message: result.message };
       }
@@ -716,15 +709,9 @@ export default function App() {
       }
       if (!('showSaveFilePicker' in window)) {
         if (isAndroidExportBridgeAvailable()) {
-          const allData: Record<string, string> = {};
-          const storageData = await getAllStorageData();
-          for (const key in storageData) {
-            if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
-              allData[key] = storageData[key] || '';
-            }
-          }
+          const allData = await getAllConstructionStorageData();
           const fileName = `[Toan_Bo_Du_An]_Backup_${Date.now()}.json`;
-          await saveTextFile(JSON.stringify(allData, null, 2), fileName);
+          await saveJsonRecordFile(allData, fileName);
           setLocalAllSyncStatus('synced');
           alert('APK da luu ban JSON day du vao thu muc Download/QLCT. Du lieu lon trong IndexedDB/localforage cung duoc gom vao file nay. Android WebView khong ho tro lien ket ghi de mot file cuc bo; dong bo tu dong tren dien thoai se dung Cloud Firebase.');
           return;
@@ -743,15 +730,9 @@ export default function App() {
         setLocalAllSyncPermissionNeeded(false);
         setLocalAllSyncStatus('saving');
 
-        const allData: Record<string, string> = {};
-        const storageData = await getAllStorageData();
-      for (const key in storageData) {
-        if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
-          allData[key] = storageData[key] || '';
-        }
-      }
+        const allData = await getAllConstructionStorageData();
         const writable = await handle.createWritable();
-        await writable.write(JSON.stringify(allData, null, 2));
+        await writeJsonRecordToWritable(writable, allData);
         await writable.close();
         setLocalAllSyncStatus('synced');
       }
@@ -776,14 +757,8 @@ export default function App() {
         setLocalAllSyncPermissionNeeded(false);
         setLocalAllSyncStatus('saving');
         const writable = await localAllFileHandle.createWritable();
-        const allData: Record<string, string> = {};
-        const storageData = await getAllStorageData();
-      for (const key in storageData) {
-        if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
-          allData[key] = storageData[key] || '';
-        }
-      }
-        await writable.write(JSON.stringify(allData, null, 2));
+        const allData = await getAllConstructionStorageData();
+        await writeJsonRecordToWritable(writable, allData);
         await writable.close();
         setLocalAllSyncStatus('synced');
       }
@@ -1068,13 +1043,7 @@ export default function App() {
   };
 
   const handleCreateManualBackup = async () => {
-    const allData: Record<string, string> = {};
-    const storageData = await getAllStorageData();
-      for (const key in storageData) {
-        if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
-          allData[key] = storageData[key] || '';
-        }
-      }
+    const allData = await getAllConstructionStorageData();
 
     try {
       const now = Date.now();
@@ -1135,9 +1104,7 @@ export default function App() {
       if (await confirmAsync('⚠️ Chú ý: Việc phục hồi phiên bản này sẽ ghi đè toàn bộ dữ liệu hiện tại của bạn và tải lại trang. Bạn có muốn tiếp tục?')) {
         syncLockRef.current = true;
         try {
-          for (const key in versionData) {
-            localStorage.setItem(key, versionData[key]);
-          }
+          await restoreConstructionStorageData(versionData);
           window.location.reload();
         } finally {
           syncLockRef.current = false;
@@ -1169,17 +1136,9 @@ export default function App() {
         setLocalAllSyncStatus('saving');
         const writable = await localAllFileHandle.createWritable();
 
-        const allData: Record<string, string> = {};
-        const storageData = await getAllStorageData();
-      for (const key in storageData) {
-        if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
-          allData[key] = storageData[key] || '';
-        }
-      }
+        const allData = await getAllConstructionStorageData();
 
-        const jsonString = JSON.stringify(allData, null, 2);
-
-        await writable.write(jsonString);
+        await writeJsonRecordToWritable(writable, allData);
         await writable.close();
 
         // Save to version history too
@@ -1203,13 +1162,7 @@ export default function App() {
 
     const timer = setTimeout(async () => {
       try {
-        const allData: Record<string, string> = {};
-        const storageData = await getAllStorageData();
-      for (const key in storageData) {
-        if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
-          allData[key] = storageData[key] || '';
-        }
-      }
+        const allData = await getAllConstructionStorageData();
 
         // Save to version history automatically
         await saveAutoSaveVersion(allData);

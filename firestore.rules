@@ -2,10 +2,10 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /projects/{projectId} {
+    match /projects/{projectId}/{document=**} {
       allow read, write: if request.auth != null;
     }
-    match /cloud_backups/{backupId} {
+    match /cloud_backups/{backupId}/{document=**} {
       allow read, write: if request.auth != null;
     }
     match /{document=**} {

@@ -1,4 +1,3 @@
-import { downloadOrShareFile } from '../utils/downloadUtils';
 import React, { useState, useEffect } from 'react';
 import {
   X, Plus, Folder, Trash2, HardDrive, Download, Upload, RefreshCw,
@@ -9,7 +8,8 @@ import {
 } from 'lucide-react';
 import { ProjectInfo, getProjectsList, getActiveProjectId, setActiveProject, saveProjectsList } from '../App';
 import { safeSetLocalStorageItem } from '../utils/storage';
-import { getAllStorageData, getStorageKeys, getStorageItem, removeAsyncItem, setAsyncItem } from '../utils/asyncStorage';
+import { getAllStorageData, getStorageKeys, removeAsyncItem, restoreConstructionStorageData } from '../utils/asyncStorage';
+import { saveJsonRecordFile } from '../utils/fileExport';
 import {
   saveCloudBackup,
   listCloudBackups,
@@ -212,16 +212,14 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       if (saveScope === 'active' && activeId) {
         filename = `Backup_DA_${activeId}_${Date.now()}.json`;
       }
-      const jsonString = JSON.stringify(data, null, 2);
-      const blob = new Blob([jsonString], { type: 'application/json' });
-      await downloadOrShareFile(filename, blob, 'application/json');
+      await saveJsonRecordFile(data, filename);
     } catch (e) {
       alert('Lỗi xuất tệp JSON: ' + (e instanceof Error ? e.message : String(e)));
     }
   };
 
   // 2. Process Imported JSON Data (File or Pasted Text)
-  const processImportedJsonData = (parsedData: any) => {
+  const processImportedJsonData = async (parsedData: any) => {
     // Check if it's a structured single-project data object (containing defects, inventory, workVolumes, or roomProgressList)
     if (parsedData && typeof parsedData === 'object' && (parsedData.defects || parsedData.inventory || parsedData.workVolumes || parsedData.roomProgressList || parsedData.projectName)) {
       if (fullAppData) {
@@ -238,11 +236,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
     // Otherwise, handle as key-value pairs (or multi-project storage dump)
     if (confirm('Bạn có chắc chắn muốn khôi phục dữ liệu từ tệp này? Thao tác sẽ ghi đè các mục tương ứng.')) {
-      for (const key in parsedData) {
-        if (key.startsWith('construction_') || key.startsWith('active_project_id')) {
-          safeSetLocalStorageItem(key, parsedData[key]);
-        }
-      }
+      await restoreConstructionStorageData(parsedData);
       alert('🎉 Khôi phục dữ liệu từ tệp JSON thành công!');
       window.location.reload();
     }
@@ -252,7 +246,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
         let resultString = event.target?.result as string;
         if (resultString && resultString.startsWith('data:text/json')) {
@@ -262,7 +256,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           }
         }
         const parsedData = JSON.parse(resultString);
-        processImportedJsonData(parsedData);
+        await processImportedJsonData(parsedData);
       } catch (err) {
         console.error("JSON parse error:", err);
         alert('Tệp JSON không hợp lệ hoặc bị hỏng!');
@@ -272,7 +266,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     e.target.value = '';
   };
 
-  const handleRestoreFromPastedJson = () => {
+  const handleRestoreFromPastedJson = async () => {
     if (!pasteValue.trim()) return;
     try {
       let resultString = pasteValue.trim();
@@ -283,7 +277,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         }
       }
       const parsedData = JSON.parse(resultString);
-      processImportedJsonData(parsedData);
+      await processImportedJsonData(parsedData);
       setPasteValue('');
       setShowPasteArea(false);
     } catch (err) {
@@ -297,7 +291,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       setIsSavingCloudBackup(true);
       setCloudStatusMsg(null);
 
-      const scopeData = getStorageDataForScope(saveScope);
+      const scopeData = await getStorageDataForScope(saveScope);
       const items = Object.keys(scopeData).map(k => ({ key: k, value: scopeData[k] }));
 
       let scopeLabel = 'Toàn bộ hệ thống';
@@ -328,11 +322,11 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     }
     try {
       if (Array.isArray(backup.projects)) {
-        backup.projects.forEach((item: { key: string; value: string }) => {
+        for (const item of backup.projects as Array<{ key: string; value: string }>) {
           if (item.key && item.value) {
-            safeSetLocalStorageItem(item.key, item.value);
+            await restoreConstructionStorageData({ [item.key]: item.value });
           }
-        });
+        }
         alert('🎉 Khôi phục dữ liệu từ Đám Mây thành công!');
         window.location.reload();
       }
@@ -366,7 +360,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       const curId = getActiveProjectId();
       const currentProj = projects.find(p => p.id === curId) || { id: curId, name: 'Dự án hiện tại' };
 
-      const projData = getStorageDataForScope('active');
+      const projData = await getStorageDataForScope('active');
 
       await saveProjectToCloud({
         id: curId,
@@ -399,7 +393,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       const cloudPayload = getCloudPayload(rec);
       if (cloudPayload) {
         for (const k in cloudPayload) {
-          safeSetLocalStorageItem(k, cloudPayload[k]);
+          await restoreConstructionStorageData({ [k]: cloudPayload[k] });
         }
 
         const curList = getProjectsList();
@@ -486,7 +480,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     }
   };
 
-  const handleCreateProject = () => {
+  const handleCreateProject = async () => {
     if (!newProjectName.trim()) return;
     try {
       const newProjectId = `proj_${Date.now()}`;
@@ -496,15 +490,13 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         createdAt: new Date().toISOString(),
       };
 
-      let hadQuotaIssue = false;
-
       if (duplicateFromCurrent) {
         const activeSuffix = activeId === 'default' ? '' : `_${activeId}`;
         const newSuffix = `_${newProjectId}`;
+        const dataToCopy = await getAllStorageData();
         const keysToCopy: string[] = [];
 
-        for (let i = 0; i < localStorage.length; i++) {
-          const k = localStorage.key(i);
+        for (const k in dataToCopy) {
           if (k && k.startsWith('construction_') && k !== 'construction_projects_list') {
             if (activeId === 'default') {
               if (!k.includes('_proj_')) {
@@ -518,14 +510,13 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           }
         }
 
-        keysToCopy.forEach(k => {
-          const val = localStorage.getItem(k);
-          let newKey = activeId === 'default' ? `${k}${newSuffix}` : k.replace(activeSuffix, newSuffix);
-          if (newKey && val !== null) {
-            const saved = safeSetLocalStorageItem(newKey, val);
-            if (!saved) hadQuotaIssue = true;
+        for (const k of keysToCopy) {
+          const val = dataToCopy[k];
+          const newKey = activeId === 'default' ? `${k}${newSuffix}` : k.replace(activeSuffix, newSuffix);
+          if (newKey && val !== undefined) {
+            await restoreConstructionStorageData({ [newKey]: val });
           }
-        });
+        }
       }
 
       safeSetLocalStorageItem(`construction_project_name_${newProjectId}`, newProjectName.trim());
@@ -534,9 +525,6 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       saveProjectsList(updated);
       setActiveProject(newProject.id);
 
-      if (hadQuotaIssue) {
-        alert('Tạo dự án mới thành công! Do bộ nhớ đầy, một số hình ảnh lớn từ dự án cũ đã được bỏ qua.');
-      }
       window.location.reload();
     } catch (err) {
       console.error("Error creating project:", err);

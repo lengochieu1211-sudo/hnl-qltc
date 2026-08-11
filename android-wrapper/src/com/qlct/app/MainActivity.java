@@ -179,6 +179,15 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public boolean beginBase64File(String sessionId, String fileName, String mimeType) {
+            return beginChunkedFile(sessionId, fileName, mimeType);
+        }
+
+        @JavascriptInterface
+        public boolean beginTextFile(String sessionId, String fileName, String mimeType) {
+            return beginChunkedFile(sessionId, fileName, mimeType);
+        }
+
+        private boolean beginChunkedFile(String sessionId, String fileName, String mimeType) {
             try {
                 String safeSessionId = sanitizeFileName(sessionId);
                 File tempFile = new File(getCacheDir(), safeSessionId + ".bin");
@@ -216,7 +225,34 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public boolean appendTextChunk(String sessionId, String textChunk) {
+            try {
+                ChunkedExport export;
+                synchronized (chunkedExports) {
+                    export = chunkedExports.get(sessionId);
+                }
+                if (export == null) {
+                    throw new IOException("Missing export session");
+                }
+                export.output.write(textChunk.getBytes(StandardCharsets.UTF_8));
+                return true;
+            } catch (Exception error) {
+                showToast("Khong the ghi du lieu file: " + error.getMessage());
+                return false;
+            }
+        }
+
+        @JavascriptInterface
         public boolean finishBase64File(String sessionId) {
+            return finishChunkedFile(sessionId);
+        }
+
+        @JavascriptInterface
+        public boolean finishTextFile(String sessionId) {
+            return finishChunkedFile(sessionId);
+        }
+
+        private boolean finishChunkedFile(String sessionId) {
             ChunkedExport export;
             synchronized (chunkedExports) {
                 export = chunkedExports.remove(sessionId);
@@ -241,6 +277,15 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void abortBase64File(String sessionId) {
+            abortChunkedFile(sessionId);
+        }
+
+        @JavascriptInterface
+        public void abortTextFile(String sessionId) {
+            abortChunkedFile(sessionId);
+        }
+
+        private void abortChunkedFile(String sessionId) {
             ChunkedExport export;
             synchronized (chunkedExports) {
                 export = chunkedExports.remove(sessionId);
