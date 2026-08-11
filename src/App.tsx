@@ -66,6 +66,15 @@ interface AppData {
   teams: TeamInfo[];
 }
 
+const parseSyncTimestamp = (value: unknown): number => {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  if (typeof value !== 'string' || !value.trim()) return 0;
+  const numericValue = Number(value);
+  if (Number.isFinite(numericValue)) return numericValue;
+  const dateValue = Date.parse(value);
+  return Number.isFinite(dateValue) ? dateValue : 0;
+};
+
 export const getActiveProjectId = () => {
   if (typeof window !== 'undefined') {
     return localStorage.getItem('active_project_id') || 'default';
@@ -326,6 +335,16 @@ export default function App() {
 
   const [autosaveVersions, setAutosaveVersions] = useState<BackupVersion[]>([]);
 
+  useEffect(() => {
+    const storageManager = typeof navigator !== 'undefined'
+      ? navigator.storage as StorageManager & { persist?: () => Promise<boolean> }
+      : null;
+
+    storageManager?.persist?.().catch((err) => {
+      console.warn('Persistent storage request failed:', err);
+    });
+  }, []);
+
   // Load autosave versions on mount
   useEffect(() => {
     const loadBackups = async () => {
@@ -448,6 +467,23 @@ export default function App() {
         const cloudData = getCloudPayload(record);
         if (cloudData) {
           const localData = await getAllConstructionStorageData();
+          const updatedAtKey = getKey('construction_updated_at');
+          const localUpdatedAt = parseSyncTimestamp(localData[updatedAtKey] || localStorage.getItem(updatedAtKey));
+          const cloudUpdatedAt = parseSyncTimestamp(cloudData[updatedAtKey] || (record as any).updatedAt);
+
+          if (localUpdatedAt > 0 && cloudUpdatedAt > 0 && cloudUpdatedAt <= localUpdatedAt) {
+            return;
+          }
+
+          const isStorageDump = Object.keys(cloudData).some((key) => key.startsWith('construction_') || key === 'active_project_id');
+          if (!isStorageDump) {
+            if (cloudUpdatedAt > localUpdatedAt) {
+              await handleRestoreData(cloudData);
+              console.log("Newer cloud project data received:", curId);
+            }
+            return;
+          }
+
           let updatedAny = false;
           for (const k in cloudData) {
             if (localData[k] !== cloudData[k]) {
