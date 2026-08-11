@@ -16,7 +16,7 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
 }) => {
   // Detect conflicts between local and imported data
   const [selectedStrategy, setSelectedStrategy] = useState<'smart' | 'import' | 'local' | 'manual'>('smart');
-  
+
   // For manual resolution choices: store mapping of key -> 'local' | 'import'
   const [manualChoices, setManualChoices] = useState<Record<string, 'local' | 'import'>>({});
 
@@ -25,7 +25,7 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
   const importedRooms = Array.isArray(importedData?.roomProgressList) ? importedData.roomProgressList : [];
 
   const roomConflicts: Array<{ id: string; name: string; localItem: any; importedItem: any }> = [];
-  
+
   localRooms.forEach((lRoom: any) => {
     const key = lRoom.id || lRoom.roomId || lRoom.roomName;
     const iRoom = importedRooms.find((r: any) => (r.id || r.roomId || r.roomName) === key);
@@ -166,12 +166,48 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
     }
   };
 
+  // Combine all conflicts for a single clean comparison table representation
+  const allConflicts = [
+    ...roomConflicts.map(c => ({
+      id: c.id,
+      name: c.name,
+      type: 'room' as const,
+      typeName: 'Tiến độ phòng',
+      local: c.localItem,
+      imported: c.importedItem,
+    })),
+    ...defectConflicts.map(c => ({
+      id: c.id,
+      name: c.name,
+      type: 'defect' as const,
+      typeName: 'Trạng thái lỗi',
+      local: c.localItem,
+      imported: c.importedItem,
+    }))
+  ];
+
+  // Helper to determine which side is active/selected based on current strategy
+  const getSelectedSide = (conflictId: string, type: 'room' | 'defect', local: any, imported: any): 'local' | 'import' => {
+    if (selectedStrategy === 'local') return 'local';
+    if (selectedStrategy === 'import') return 'import';
+    if (selectedStrategy === 'smart') {
+      if (type === 'room') {
+        const lProg = local.progress || 0;
+        const iProg = imported.progress || 0;
+        return iProg > lProg ? 'import' : 'local';
+      }
+      return 'local';
+    }
+    // manual (Chọn Từng Mục)
+    return manualChoices[conflictId] || 'local';
+  };
+
   const totalConflicts = roomConflicts.length + defectConflicts.length;
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-        
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+
         {/* Header */}
         <div className="px-6 py-4 bg-gradient-to-r from-amber-600 to-amber-700 text-white flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -195,7 +231,7 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
 
         {/* Content Body */}
         <div className="p-6 overflow-y-auto space-y-5 text-xs text-slate-700">
-          
+
           {/* Strategy selection */}
           <div className="space-y-2">
             <label className="font-bold text-slate-900 text-xs block">
@@ -279,71 +315,177 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
             <div className="space-y-3">
               <h4 className="font-bold text-slate-900 flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 text-amber-600" />
-                Danh Sách Xung Đột Cần Lưu Ý ({totalConflicts}):
+                Bảng So Sánh Chi Tiết &amp; Quyết Định Giữ Dữ Liệu ({totalConflicts}):
               </h4>
 
-              <div className="space-y-2.5 max-h-[300px] overflow-y-auto pr-1">
-                {roomConflicts.map((c) => {
-                  const currentChoice = manualChoices[c.id] || 'local';
-                  return (
-                    <div key={`room-${c.id}`} className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-slate-900">Phòng / Khu vực: {c.name}</span>
-                        <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full text-[10px] font-bold">Xung đột tiến độ</span>
-                      </div>
-                      
-                      <div className="grid grid-cols-2 gap-2 text-[11px]">
-                        <div className={`p-2 rounded-lg border ${currentChoice === 'local' && selectedStrategy === 'manual' ? 'bg-indigo-50 border-indigo-300' : 'bg-white border-slate-200'}`}>
-                          <p className="font-bold text-slate-700 mb-0.5">Máy này (Local):</p>
-                          <p className="text-slate-600">Tiến độ: <strong>{c.localItem.progress}%</strong> - Trạng thái: {c.localItem.status || 'Chưa cập nhật'}</p>
-                        </div>
-                        <div className={`p-2 rounded-lg border ${currentChoice === 'import' && selectedStrategy === 'manual' ? 'bg-emerald-50 border-emerald-300' : 'bg-white border-slate-200'}`}>
-                          <p className="font-bold text-slate-700 mb-0.5">Tệp Import:</p>
-                          <p className="text-slate-600">Tiến độ: <strong>{c.importedItem.progress}%</strong> - Trạng thái: {c.importedItem.status || 'Chưa cập nhật'}</p>
-                        </div>
-                      </div>
+              <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+                <div className="overflow-x-auto max-h-[350px]">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead className="bg-slate-100 text-slate-700 font-bold sticky top-0 z-10 border-b border-slate-200">
+                      <tr>
+                        <th className="p-3 w-1/4">HẠNG MỤC / VỊ TRÍ</th>
+                        <th className="p-3 w-3/8 text-center">BẢN MÁY NÀY (LOCAL)</th>
+                        <th className="p-3 w-3/8 text-center">BẢN TỆP IMPORT</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 bg-white">
+                      {allConflicts.map((c) => {
+                        const localSideSelected = getSelectedSide(c.id, c.type, c.local, c.imported) === 'local';
+                        const importSideSelected = !localSideSelected;
 
-                      {selectedStrategy === 'manual' && (
-                        <div className="flex items-center justify-end gap-2 pt-1">
-                          <button
-                            type="button"
-                            onClick={() => handleManualToggle(c.id, 'local')}
-                            className={`px-3 py-1 rounded-lg text-[10px] font-bold transition-all ${currentChoice === 'local' ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-700'}`}
-                          >
-                            Dùng bản Máy này
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleManualToggle(c.id, 'import')}
-                            className={`px-3 py-1 rounded-lg text-[10px] font-bold transition-all ${currentChoice === 'import' ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'}`}
-                          >
-                            Dùng tệp Import
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                        return (
+                          <tr key={`${c.type}-${c.id}`} className="hover:bg-slate-50/50 transition-colors">
+                            {/* Left column: Name and Badge */}
+                            <td className="p-3 align-top space-y-1">
+                              <div className="font-bold text-slate-900 leading-tight">{c.name}</div>
+                              <div className="flex flex-wrap gap-1">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                                  c.type === 'room' ? 'bg-sky-50 text-sky-700 border border-sky-100' : 'bg-rose-50 text-rose-700 border border-rose-100'
+                                }`}>
+                                  {c.type === 'room' ? 'Tiến độ phòng' : 'Trạng thái lỗi'}
+                                </span>
+                              </div>
+                            </td>
 
-                {defectConflicts.map((c) => {
-                  const currentChoice = manualChoices[c.id] || 'local';
-                  return (
-                    <div key={`defect-${c.id}`} className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-slate-900">Lỗi (Defect): {c.name}</span>
-                        <span className="px-2 py-0.5 bg-red-100 text-red-800 rounded-full text-[10px] font-bold">Xung đột trạng thái lỗi</span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 text-[11px]">
-                        <div className="p-2 bg-white rounded-lg border border-slate-200">
-                          <p className="font-bold text-slate-700">Máy này: {c.localItem.status}</p>
-                        </div>
-                        <div className="p-2 bg-white rounded-lg border border-slate-200">
-                          <p className="font-bold text-slate-700">Tệp Import: {c.importedItem.status}</p>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+                            {/* Local side card */}
+                            <td className="p-2 align-top">
+                              <div
+                                onClick={() => selectedStrategy === 'manual' && handleManualToggle(c.id, 'local')}
+                                className={`h-full p-3 rounded-xl border transition-all text-left relative ${
+                                  selectedStrategy === 'manual' ? 'cursor-pointer hover:shadow-xs active:scale-[0.99]' : ''
+                                } ${
+                                  localSideSelected
+                                    ? 'bg-indigo-50/70 border-indigo-300 text-indigo-950 shadow-xs'
+                                    : 'bg-white border-slate-200 text-slate-400 opacity-60'
+                                }`}
+                              >
+                                {/* Check indicator */}
+                                <div className="absolute top-2.5 right-2.5 flex items-center justify-center">
+                                  {localSideSelected ? (
+                                    <div className="w-5 h-5 bg-indigo-600 text-white rounded-full flex items-center justify-center shadow-xs animate-in zoom-in-50 duration-150">
+                                      <Check className="w-3.5 h-3.5 stroke-[3]" />
+                                    </div>
+                                  ) : (
+                                    selectedStrategy === 'manual' ? (
+                                      <div className="w-5 h-5 rounded-full border border-slate-300 bg-white flex items-center justify-center hover:border-indigo-400 transition-colors" />
+                                    ) : null
+                                  )}
+                                </div>
+
+                                <div className="pr-6 space-y-1 text-[11px]">
+                                  <div className={`font-bold flex items-center gap-1 ${localSideSelected ? 'text-indigo-900' : 'text-slate-400'}`}>
+                                    <span>Giữ bản trên Máy</span>
+                                  </div>
+
+                                  {c.type === 'room' ? (
+                                    <div className="space-y-0.5">
+                                      <div className="flex justify-between">
+                                        <span className="text-slate-500">Tiến độ:</span>
+                                        <span className="font-bold">{c.local.progress}%</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-slate-500">Trạng thái:</span>
+                                        <span className="font-medium">{c.local.status || 'Chưa thi công'}</span>
+                                      </div>
+                                      {c.local.notes && (
+                                        <div className="mt-1 pt-1 border-t border-slate-100 text-[10px] italic line-clamp-2">
+                                          Ghi chú: {c.local.notes}
+                                        </div>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div className="space-y-0.5">
+                                      <div className="flex justify-between">
+                                        <span className="text-slate-500">Trạng thái:</span>
+                                        <span className="font-bold">{c.local.status}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-slate-500">Mức độ:</span>
+                                        <span className={`font-medium ${c.local.severity === 'Nghiêm trọng' ? 'text-rose-600' : ''}`}>{c.local.severity || 'Thường'}</span>
+                                      </div>
+                                      {c.local.description && (
+                                        <div className="mt-1 pt-1 border-t border-slate-100 text-[10px] italic line-clamp-2">
+                                          Mô tả: {c.local.description}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Import side card */}
+                            <td className="p-2 align-top">
+                              <div
+                                onClick={() => selectedStrategy === 'manual' && handleManualToggle(c.id, 'import')}
+                                className={`h-full p-3 rounded-xl border transition-all text-left relative ${
+                                  selectedStrategy === 'manual' ? 'cursor-pointer hover:shadow-xs active:scale-[0.99]' : ''
+                                } ${
+                                  importSideSelected
+                                    ? 'bg-emerald-50/70 border-emerald-300 text-emerald-950 shadow-xs'
+                                    : 'bg-white border-slate-200 text-slate-400 opacity-60'
+                                }`}
+                              >
+                                {/* Check indicator */}
+                                <div className="absolute top-2.5 right-2.5 flex items-center justify-center">
+                                  {importSideSelected ? (
+                                    <div className="w-5 h-5 bg-emerald-600 text-white rounded-full flex items-center justify-center shadow-xs animate-in zoom-in-50 duration-150">
+                                      <Check className="w-3.5 h-3.5 stroke-[3]" />
+                                    </div>
+                                  ) : (
+                                    selectedStrategy === 'manual' ? (
+                                      <div className="w-5 h-5 rounded-full border border-slate-300 bg-white flex items-center justify-center hover:border-emerald-400 transition-colors" />
+                                    ) : null
+                                  )}
+                                </div>
+
+                                <div className="pr-6 space-y-1 text-[11px]">
+                                  <div className={`font-bold flex items-center gap-1 ${importSideSelected ? 'text-emerald-900' : 'text-slate-400'}`}>
+                                    <span>Lấy bản tệp Import</span>
+                                  </div>
+
+                                  {c.type === 'room' ? (
+                                    <div className="space-y-0.5">
+                                      <div className="flex justify-between">
+                                        <span className="text-slate-500">Tiến độ:</span>
+                                        <span className="font-bold">{c.imported.progress}%</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-slate-500">Trạng thái:</span>
+                                        <span className="font-medium">{c.imported.status || 'Chưa thi công'}</span>
+                                      </div>
+                                      {c.imported.notes && (
+                                        <div className="mt-1 pt-1 border-t border-slate-100 text-[10px] italic line-clamp-2">
+                                          Ghi chú: {c.imported.notes}
+                                        </div>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div className="space-y-0.5">
+                                      <div className="flex justify-between">
+                                        <span className="text-slate-500">Trạng thái:</span>
+                                        <span className="font-bold">{c.imported.status}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-slate-500">Mức độ:</span>
+                                        <span className={`font-medium ${c.imported.severity === 'Nghiêm trọng' ? 'text-rose-600' : ''}`}>{c.imported.severity || 'Thường'}</span>
+                                      </div>
+                                      {c.imported.description && (
+                                        <div className="mt-1 pt-1 border-t border-slate-100 text-[10px] italic line-clamp-2">
+                                          Mô tả: {c.imported.description}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}
@@ -352,6 +494,7 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
           <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-blue-900 space-y-1">
             <p className="font-bold">💡 Hướng dẫn xử lý cuối ngày cho nhóm nhiều kỹ sư:</p>
             <p className="text-slate-700 text-[11px]">
+              - Chế độ <strong>Chọn Từng Mục (Manual)</strong> cho phép bạn so sánh song song và tích chọn trực tiếp vào từng ô để quyết định giữ dữ liệu nào cho từng căn hộ hoặc lỗi cụ thể.<br/>
               - Nếu 2 kỹ sư cùng sửa 1 phòng, chế độ <strong>Gộp Thông Minh</strong> sẽ tự động lấy giá trị hoàn thành cao nhất hoặc mới nhất.<br/>
               - Sau khi đồng bộ xong, bạn có thể xuất tệp JSON mới nhất gửi lại cho cả nhóm vào sáng hôm sau.
             </p>

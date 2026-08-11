@@ -31,7 +31,6 @@ import { CrewRecord, FloorPlan, TeamInfo, RoomProgressItem, DefectItem, CrewFloo
 import { formatDateDDMMYYYY } from '../utils/dateFormatter';
 import { exportTeamStatisticsToExcel } from '../utils/excelExport';
 import { confirmAsync } from '../utils/confirmAsync';
-import { saveWorkbookFile } from '../utils/fileExport';
 
 
 interface CrewTabProps {
@@ -664,7 +663,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     ws['!cols'] = Object.keys(maxLens).map((key) => ({ wch: maxLens[key] }));
 
     XLSX.utils.book_append_sheet(wb, ws, 'Danh Sach Doi Thi Cong');
-    saveWorkbookFile(wb, 'Mau_Danh_Sach_Doi_Thi_Cong.xlsx');
+    XLSX.writeFile(wb, 'Mau_Danh_Sach_Doi_Thi_Cong.xlsx');
   };
 
   const handleExportTeamStats = (teamName?: string) => {
@@ -693,7 +692,23 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         const jsonData = XLSX.utils.sheet_to_json<any>(worksheet);
 
         if (!jsonData || jsonData.length === 0) {
-          alert('Tệp Excel không có dữ liệu hoặc định dạng không đúng!');
+          alert('❌ Thất bại: Tệp Excel không có dữ liệu hoặc định dạng không đúng! Vui lòng tải lại tệp chuẩn.');
+          return;
+        }
+
+        // Validate that we can find the team name column
+        const firstRow = jsonData[0];
+        const foundHeaders = Object.keys(firstRow);
+        const nameMatchKey = foundHeaders.find(h =>
+          ['Tên Đội Thi Công', 'teamName', 'Tên Đội', 'Đội Thi Công', 'team'].some(rk => h.toLowerCase().includes(rk.toLowerCase()))
+        );
+
+        if (!nameMatchKey) {
+          alert(
+            `⚠️ Không tìm thấy cột thông tin bắt buộc 'Tên Đội Thi Công'!\n\n` +
+            `• Các cột tìm thấy trong file: [${foundHeaders.join(', ')}]\n` +
+            `• Vui lòng đặt lại tiêu đề cột trong file Excel trùng với mẫu để hệ thống nhận diện đúng.`
+          );
           return;
         }
 
@@ -703,11 +718,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         let newTeams = [...teams];
 
         jsonData.forEach((row: any) => {
-          const nameStr = String(row['Tên Đội Thi Công'] || '').trim();
-          const leaderStr = String(row['Trưởng Nhóm / Đội Trưởng'] || '').trim();
-          const countNum = Number(row['Quân Số Định Biên Mặc Định'] || 0);
-          const phoneStr = String(row['Số Điện Thoại'] || '').trim();
-          const notesStr = String(row['Ghi Chú'] || '').trim();
+          const nameStr = String(row[nameMatchKey] || '').trim();
+          const leaderStr = String(row['Trưởng Nhóm / Đội Trưởng'] || row['Trưởng Nhóm'] || row['Đội Trưởng'] || row['leader'] || '').trim();
+          const countNum = Number(row['Quân Số Định Biên Mặc Định'] || row['defaultCount'] || row['Quân số'] || row['Số người'] || 0);
+          const phoneStr = String(row['Số Điện Thoại'] || row['phone'] || row['sdt'] || '').trim();
+          const notesStr = String(row['Ghi Chú'] || row['notes'] || '').trim();
 
           if (!nameStr || !leaderStr || countNum <= 0) {
             skippedCount++;
@@ -737,9 +752,14 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         });
 
         setTeams(newTeams);
-        alert(`Nhập Excel thành công!\n- Đã cập nhật/chỉnh sửa: ${updatedCount} đội\n- Đã thêm mới: ${addedCount} đội\n- Bỏ qua do thiếu thông tin: ${skippedCount}`);
+        alert(
+          `🎉 Nhập Đội Thi Công từ Excel thành công!\n\n` +
+          `• Đã cập nhật/chỉnh sửa: ${updatedCount} đội\n` +
+          `• Đã thêm mới: ${addedCount} đội\n` +
+          `• Bỏ qua do thiếu thông tin bắt buộc (Tên đội, Đội trưởng hoặc Quân số > 0): ${skippedCount} dòng`
+        );
       } catch (err: any) {
-        alert(`Lỗi đọc tệp Excel: ${err.message}`);
+        alert(`❌ Lỗi đọc hoặc phân tích tệp Excel:\n${err.message || err}`);
       }
     };
     reader.readAsArrayBuffer(file);

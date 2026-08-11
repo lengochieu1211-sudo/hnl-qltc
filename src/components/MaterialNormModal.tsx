@@ -110,6 +110,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
     processExcelFile(file);
+    e.target.value = '';
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -354,7 +355,16 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
         const totalItemsFound = inCount + outCount + normsUpdatedCount + normsAddedCount + volumesUpdatedCount + volumesAddedCount;
 
         if (totalItemsFound === 0) {
-          alert('⚠️ Không tìm thấy dữ liệu hợp lệ trong tệp Excel. Vui lòng kiểm tra lại định dạng tệp!');
+          alert(
+            `⚠️ Không tìm thấy dữ liệu hợp lệ trong các trang Excel của bạn!\n\n` +
+            `• Danh sách Sheet tìm thấy trong file: [${workbook.SheetNames.join(', ')}]\n` +
+            `• Yêu cầu tên Sheet (không phân biệt hoa thường):\n` +
+            `  - Nhập Kho: chứa chữ 'nhap' hoặc 'nhập'\n` +
+            `  - Xuất Kho: chứa chữ 'xuat' hoặc 'xuất'\n` +
+            `  - Định Mức Vật Tư: chứa chữ 'dinh muc' hoặc 'định mức'\n` +
+            `  - Hạng Mục Thi Công: chứa chữ 'khoi luong', 'khối lượng', 'hang muc' hoặc 'hạng mục'\n\n` +
+            `Vui lòng kiểm tra lại tên các Sheet và tiêu đề cột dữ liệu trong tệp.`
+          );
           return;
         }
 
@@ -364,7 +374,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
           `📤 XUẤT KHO: ${outCount} phiếu xuất\n` +
           `📋 ĐỊNH MỨC VẬT TƯ: ${normsUpdatedCount} cập nhật, ${normsAddedCount} mới\n` +
           `🏗️ HẠNG MỤC THI CÔNG: ${volumesUpdatedCount} cập nhật, ${volumesAddedCount} mới\n\n` +
-          `Bạn có đồng ý áp dụng các thay đổi này vào hệ thống?`;
+          `Bạn có đồng ý áp dụng các thay đổi này vào hệ thống không?`;
 
         const confirmUpdate = await confirmAsync(confirmMsg);
         if (confirmUpdate) {

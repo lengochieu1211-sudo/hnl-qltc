@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { InventoryItem, TransactionType, MaterialNorm, WorkVolume } from '../types';
 import { formatDateDDMMYYYY, formatExcelDate } from '../utils/dateFormatter';
+import { formatDecimal, evaluateMathExpression } from '../utils/numberUtils';
 import * as XLSX from 'xlsx';
 import { exportWarehouseUpdateTemplate } from '../utils/excelExport';
 import { confirmAsync } from '../utils/confirmAsync';
@@ -280,16 +281,16 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           const jsonData = XLSX.utils.sheet_to_json<any>(sheet);
 
           jsonData.forEach((row, rIdx) => {
-            const titleRaw = row['Tên Hạng Mục Công Việc'] || row['Tên Hạng Mục'] || row['Hạng mục'] || row['title'];
+            const titleRaw = row['Tên Hạng Mục Công Việc'] || row['Tên Hạng Mục Thi Công'] || row['Hạng Mục Công Việc'] || row['Tên Hạng Mục'] || row['Hạng mục'] || row['title'];
             if (!titleRaw) return;
 
             const titleStr = String(titleRaw).trim();
             const floorStr = String(row['Tầng / Khu Vực'] || row['Tầng'] || row['floor'] || 'Tầng 1').trim();
-            const categoryStr = String(row['Phân Loại'] || row['category'] || 'khung_tran').trim() as any;
+            const categoryStr = String(row['Nhóm Hạng Mục'] || row['Phân Loại'] || row['category'] || 'khung_tran').trim() as any;
             const unitStr = String(row['Đơn Vị Tính'] || row['Đơn Vị'] || row['unit'] || 'm2').trim();
-            const plannedNum = Number(row['KL Kế Hoạch'] || row['planned'] || 0);
-            const actualNum = Number(row['KL Thực Hiện'] || row['actual'] || 0);
-            const unitPriceNum = Number(row['Đơn Giá (VNĐ)'] || row['unitPrice'] || 0);
+            const plannedNum = Number(row['KL Định Mức'] || row['KL Kế Hoạch'] || row['planned'] || 0);
+            const actualNum = Number(row['KL Thực Tế'] || row['KL Thực Hiện'] || row['actual'] || 0);
+            const unitPriceNum = Number(row['Đơn Giá (VNĐ)'] || row['Đơn Giá'] || row['unitPrice'] || 0);
 
             const existingIdx = newWorkVolumes.findIndex(
               w => w.title.toLowerCase() === titleStr.toLowerCase() && w.floor.toLowerCase() === floorStr.toLowerCase()
@@ -322,7 +323,16 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         const totalItemsFound = inCount + outCount + normsUpdatedCount + normsAddedCount + volumesUpdatedCount + volumesAddedCount;
 
         if (totalItemsFound === 0) {
-          alert('⚠️ Không tìm thấy dữ liệu hợp lệ trong các trang Excel (Nhập Kho, Xuất Kho, Định Mức, Hạng Mục). Vui lòng kiểm tra định dạng file mẫu!');
+          alert(
+            `⚠️ Không tìm thấy dữ liệu hợp lệ trong các trang Excel của bạn!\n\n` +
+            `• Danh sách Sheet tìm thấy trong file: [${workbook.SheetNames.join(', ')}]\n` +
+            `• Yêu cầu tên Sheet (không phân biệt hoa thường):\n` +
+            `  - Nhập Kho: chứa chữ 'nhap' hoặc 'nhập'\n` +
+            `  - Xuất Kho: chứa chữ 'xuat' hoặc 'xuất'\n` +
+            `  - Định Mức Vật Tư: chứa chữ 'dinh muc' hoặc 'định mức'\n` +
+            `  - Hạng Mục Thi Công: chứa chữ 'khoi luong', 'khối lượng', 'hang muc' hoặc 'hạng mục'\n\n` +
+            `Vui lòng kiểm tra lại tên Sheet và đảm bảo có đúng tiêu đề cột dữ liệu.`
+          );
           return;
         }
 
@@ -366,6 +376,13 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [handler, setHandler] = useState('Nguyễn Văn Hùng (Thủ kho)');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
+
+  const liveQuantityCalc = useMemo(() => {
+    if (/[+\-*/]/.test(quantityStr)) {
+      return evaluateMathExpression(quantityStr);
+    }
+    return null;
+  }, [quantityStr]);
 
   // Delete confirmation state
   const [deletingInventoryTarget, setDeletingInventoryTarget] = useState<InventoryItem | null>(null);
@@ -581,7 +598,14 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const finalMaterialName = customMaterial.trim() ? customMaterial.trim() : materialName;
-    if (!finalMaterialName || !quantity || quantity <= 0) {
+
+    let finalQuantity = Number(quantity);
+    const parsedQuantity = evaluateMathExpression(quantityStr);
+    if (parsedQuantity !== null) {
+      finalQuantity = parsedQuantity;
+    }
+
+    if (!finalMaterialName || !finalQuantity || finalQuantity <= 0) {
       alert('Vui lòng nhập tên vật tư và số lượng hợp lệ!');
       return;
     }
@@ -590,7 +614,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       type,
       materialName: finalMaterialName,
       unit,
-      quantity: Number(quantity),
+      quantity: finalQuantity,
       location,
       handler,
       date,
@@ -813,19 +837,19 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     )}
                     <p className="font-bold text-slate-800 truncate">{name}</p>
                     <p className="text-[10px] text-slate-500">
-                      Nhập: <span className="text-emerald-600 font-bold">{(data.inQty ?? 0).toLocaleString('en-US')}</span> |
-                      Xuất: <span className="text-amber-600 font-bold">{(data.outQty ?? 0).toLocaleString('en-US')}</span> {data.unit}
+                      Nhập: <span className="text-emerald-600 font-bold">{formatDecimal(data.inQty)}</span> |
+                      Xuất: <span className="text-amber-600 font-bold">{formatDecimal(data.outQty)}</span> {data.unit}
                     </p>
                   </div>
                   <div className="text-right shrink-0">
                     <span className={`inline-block px-2 py-0.5 rounded-lg text-xs font-bold ${
                       data.balance <= 20 ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'
                     }`}>
-                      Tồn: {(data.balance ?? 0).toLocaleString('en-US')} {data.unit}
+                      Tồn: {formatDecimal(data.balance)} {data.unit}
                     </span>
                     {quota && (
                       <p className="text-[10px] text-slate-500 mt-0.5 font-semibold">
-                        Định mức: <strong className="text-indigo-600">{(quota ?? 0).toLocaleString('en-US')}</strong> {data.unit}
+                        Định mức: <strong className="text-indigo-600">{formatDecimal(quota)}</strong> {data.unit}
                       </p>
                     )}
                   </div>
@@ -995,7 +1019,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
                     <div className="text-right shrink-0">
                       <div className="text-sm font-extrabold text-slate-900">
-                        {item.type === 'in' ? '+' : '-'}{(item.quantity ?? 0).toLocaleString('en-US')}
+                        {item.type === 'in' ? '+' : '-'}{formatDecimal(item.quantity)}
                       </div>
                       <div className="text-[11px] text-slate-500 font-medium">{item.unit}</div>
                     </div>
@@ -1152,15 +1176,29 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               {/* Quantity & Unit */}
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-slate-700 font-bold mb-1">Số Lượng</label>
+                  <label className="block text-slate-700 font-bold mb-1 flex items-center justify-between">
+                    <span>Số Lượng *</span>
+                    {liveQuantityCalc !== null && (
+                      <span className="text-blue-600 bg-blue-50 px-1 py-0.5 rounded text-[9px] font-extrabold animate-pulse" title="Kết quả tính toán">
+                        = {formatDecimal(liveQuantityCalc)}
+                      </span>
+                    )}
+                  </label>
                   <input
                     type="text"
-                    inputMode="decimal"
                     value={quantityStr}
                     onChange={(e) => {
-                      const typedVal = e.target.value.replace(/,/g, '.');
+                      const typedVal = e.target.value;
                       setQuantityStr(typedVal);
-                      setQuantity(typedVal === '' ? '' : Number(typedVal));
+                      const parsed = evaluateMathExpression(typedVal);
+                      setQuantity(parsed !== null ? parsed : (typedVal === '' ? '' : Number(typedVal)));
+                    }}
+                    onBlur={() => {
+                      const parsed = evaluateMathExpression(quantityStr);
+                      if (parsed !== null) {
+                        setQuantity(parsed);
+                        setQuantityStr(formatDecimal(parsed));
+                      }
                     }}
                     className="w-full border border-slate-200 rounded-xl p-2.5 font-bold text-slate-900 focus:ring-2 focus:ring-blue-500"
                     required

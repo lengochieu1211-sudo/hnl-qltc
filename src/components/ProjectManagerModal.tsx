@@ -21,6 +21,7 @@ import {
 } from '../lib/firebase';
 import { ConflictMergeModal } from './ConflictMergeModal';
 import { confirmAsync } from '../utils/confirmAsync';
+import { normalizeImportedData } from '../utils/dataNormalizer';
 
 interface ProjectManagerModalProps {
   isOpen: boolean;
@@ -38,7 +39,7 @@ interface ProjectManagerModalProps {
   handleExportAllJson?: () => void;
   handleImportAllJson?: (e: React.ChangeEvent<HTMLInputElement>) => void;
   fullAppData?: any;
-  onRestoreData?: (data: any) => void;
+  onRestoreData?: (data: any) => void | Promise<void>;
   autosaveVersions?: any[];
   onRestoreAutoSaveVersion?: (version: any) => void;
   onCreateManualBackup?: () => void;
@@ -220,14 +221,31 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
   // 2. Process Imported JSON Data (File or Pasted Text)
   const processImportedJsonData = async (parsedData: any) => {
+    const normalized = normalizeImportedData(parsedData);
+
     // Check if it's a structured single-project data object (containing defects, inventory, workVolumes, or roomProgressList)
-    if (parsedData && typeof parsedData === 'object' && (parsedData.defects || parsedData.inventory || parsedData.workVolumes || parsedData.roomProgressList || parsedData.projectName)) {
+    if (
+      normalized &&
+      typeof normalized === 'object' &&
+      (
+        normalized.defects ||
+        normalized.inventory ||
+        normalized.workVolumes ||
+        normalized.floorPlans ||
+        normalized.roomProgressList ||
+        normalized.projectName ||
+        normalized.checklist ||
+        normalized.crewRecords ||
+        normalized.teams ||
+        normalized.materialNorms
+      )
+    ) {
       if (fullAppData) {
-        setPendingImportData(parsedData);
+        setPendingImportData(normalized);
         setShowConflictModal(true);
         return;
       } else if (onRestoreData) {
-        onRestoreData(parsedData);
+        await onRestoreData(normalized);
         alert('🎉 Khôi phục dữ liệu dự án từ tệp JSON thành công!');
         window.location.reload();
         return;
@@ -1352,9 +1370,9 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             setShowConflictModal(false);
             setPendingImportData(null);
           }}
-          onApplyMerged={(merged) => {
+          onApplyMerged={async (merged) => {
             if (onRestoreData) {
-              onRestoreData(merged);
+              await onRestoreData(merged);
               alert('🎉 Đã hợp nhất và khôi phục dữ liệu dự án thành công!');
             }
             setShowConflictModal(false);

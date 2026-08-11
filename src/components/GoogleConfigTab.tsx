@@ -26,7 +26,9 @@ import {
 } from 'lucide-react';
 import { GoogleAuthStatus, FloorPlan } from '../types';
 import { ConflictMergeModal } from './ConflictMergeModal';
-import { getFirebaseAuthStatus, signInWithGoogleAccount, signOutFirebaseAccount } from '../lib/firebase';
+import { normalizeImportedData } from '../utils/dataNormalizer';
+
+declare const __BUILD_TIME__: string;
 
 interface GoogleConfigTabProps {
   projectName: string;
@@ -39,7 +41,7 @@ interface GoogleConfigTabProps {
   onUpdateFloorPlan?: (id: string, updates: Partial<FloorPlan>) => void;
   onSyncAll: () => Promise<{ success: boolean; url?: string; message?: string }>;
   isSyncing: boolean;
-  onRestoreData?: (data: any) => void;
+  onRestoreData?: (data: any) => void | Promise<void>;
     fullAppData?: any;
   driveSyncStatus: 'synced' | 'syncing' | 'error' | 'idle';
   driveLastSyncTime: string | null;
@@ -187,12 +189,6 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
 
   const checkAuth = async () => {
     try {
-      const firebaseStatus = await getFirebaseAuthStatus();
-      if (firebaseStatus.authenticated) {
-        setAuthStatus(firebaseStatus);
-        return;
-      }
-
       const res = await fetch('/api/auth/status');
       if (!res.ok) {
         setAuthStatus({ authenticated: false });
@@ -218,25 +214,6 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
 
   const handleConnect = async () => {
     try {
-      try {
-        const status = await signInWithGoogleAccount();
-        if (status.authenticated) {
-          setAuthStatus(status);
-          return;
-        }
-      } catch (firebaseErr: any) {
-        const code = String(firebaseErr?.code || '');
-        if (code.includes('operation-not-allowed')) {
-          alert('Firebase Google Auth chua duoc bat. Trong Firebase Console vao Authentication > Methode de connexion > Google > Activer.');
-          return;
-        }
-        if (code.includes('popup-blocked') || code.includes('popup-closed-by-user')) {
-          alert('Trinh duyet da chan cua so dang nhap Google. Hay cho phep popup roi thu lai.');
-          return;
-        }
-        console.warn('Firebase Google login fallback:', firebaseErr);
-      }
-
       const res = await fetch('/api/auth/url');
       const text = await res.text();
       let data: any = {};
@@ -252,8 +229,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   };
 
   const handleLogout = async () => {
-    await signOutFirebaseAccount();
-    await fetch('/api/auth/logout', { method: 'POST' }).catch(() => undefined);
+    await fetch('/api/auth/logout', { method: 'POST' });
     setAuthStatus({ authenticated: false });
   };
 
@@ -303,7 +279,9 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           }
         }
         const parsedData = JSON.parse(resultString);
-        setPendingImportAllData(parsedData);
+        // Normalize if it contains project structure
+        const normalized = normalizeImportedData(parsedData);
+        setPendingImportAllData(normalized);
       } catch (err) {
         console.error("JSON parse error:", err);
         alert('Tệp JSON không hợp lệ!');
@@ -328,7 +306,8 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           }
         }
         const parsedData = JSON.parse(resultString);
-        setPendingImportData(parsedData);
+        const normalized = normalizeImportedData(parsedData);
+        setPendingImportData(normalized);
         setShowConflictModal(true);
       } catch (err) {
         console.error("JSON parse error:", err);
@@ -353,7 +332,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
         <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-2.5 text-[11px] text-indigo-800 space-y-1.5 shadow-sm">
           <div className="flex items-center gap-1.5 font-medium">
             <Info className="w-3.5 h-3.5 text-indigo-500" />
-            <span>Phiên bản: 1.0.0 (Cập nhật: 11/08/2026 15:15)</span>
+            <span>Phiên bản: 1.0.0 (Cập nhật: {__BUILD_TIME__})</span>
           </div>
         </div>
       </div>
@@ -496,9 +475,9 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
             setShowConflictModal(false);
             setPendingImportData(null);
           }}
-          onApplyMerged={(merged) => {
+          onApplyMerged={async (merged) => {
             if (onRestoreData) {
-              onRestoreData(merged);
+              await onRestoreData(merged);
               alert('🎉 Đã hợp nhất và khôi phục dữ liệu thành công!');
             }
             setShowConflictModal(false);

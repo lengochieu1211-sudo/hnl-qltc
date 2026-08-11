@@ -22,7 +22,7 @@ export async function convertPdfToImage(file: File): Promise<string> {
         // Fetch first page
         const page = await pdf.getPage(1);
 
-        const scale = 2.0; // High resolution scale for clear floor plan blueprint
+        const scale = 3.0; // High resolution scale for clear floor plan blueprint
         const viewport = page.getViewport({ scale });
 
         // Prepare canvas for rendering
@@ -43,7 +43,7 @@ export async function convertPdfToImage(file: File): Promise<string> {
         };
 
         await page.render(renderContext).promise;
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
         resolve(dataUrl);
       } catch (err) {
         console.error('Error rendering PDF page to image:', err);

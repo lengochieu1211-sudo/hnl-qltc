@@ -52,6 +52,7 @@ import { cleanupAndCompressOldImages } from './utils/cleanupStorage';
 import { getAllConstructionStorageData, getAsyncItem, restoreConstructionStorageData, setAsyncItem } from './utils/asyncStorage';
 import { migrateAndCleanLocalStorage } from './utils/migrateStorage';
 import { confirmAsync } from './utils/confirmAsync';
+import { normalizeImportedData } from './utils/dataNormalizer';
 
 interface AppData {
   materialNorms: MaterialNorm[];
@@ -524,7 +525,9 @@ export default function App() {
     setAsyncItem(getKey('construction_teams'), teams);
   }, [present]);
 
-  const handleRestoreData = (data: any) => {
+  const handleRestoreData = async (rawData: any) => {
+    if (!rawData) return;
+    const data = normalizeImportedData(rawData);
     if (!data || typeof data !== 'object') return;
     syncLockRef.current = true;
     try {
@@ -540,21 +543,27 @@ export default function App() {
         setInspectorName(data.inspectorName);
         localStorage.setItem(getKey('construction_inspector'), data.inspectorName);
       }
-      setPresent({
-        materialNorms: Array.isArray(data.materialNorms) ? data.materialNorms : present.materialNorms,
-        inventory: Array.isArray(data.inventory) ? data.inventory : present.inventory,
-        workVolumes: Array.isArray(data.workVolumes) ? data.workVolumes : present.workVolumes,
-        floorPlans: Array.isArray(data.floorPlans) ? data.floorPlans : present.floorPlans,
-        defects: Array.isArray(data.defects) ? data.defects : present.defects,
-        roomProgressList: Array.isArray(data.roomProgressList) ? data.roomProgressList : present.roomProgressList,
-        checklist: Array.isArray(data.checklist) ? data.checklist : present.checklist,
-        crewRecords: Array.isArray(data.crewRecords) ? data.crewRecords : present.crewRecords,
-        teams: Array.isArray(data.teams) ? data.teams : present.teams,
-      });
+      setPresent((prev) => ({
+        materialNorms: Array.isArray(data.materialNorms) ? data.materialNorms : prev.materialNorms,
+        inventory: Array.isArray(data.inventory) ? data.inventory : prev.inventory,
+        workVolumes: Array.isArray(data.workVolumes) ? data.workVolumes : prev.workVolumes,
+        floorPlans: Array.isArray(data.floorPlans) ? data.floorPlans : prev.floorPlans,
+        defects: Array.isArray(data.defects) ? data.defects : prev.defects,
+        roomProgressList: Array.isArray(data.roomProgressList) ? data.roomProgressList : prev.roomProgressList,
+        checklist: Array.isArray(data.checklist) ? data.checklist : prev.checklist,
+        crewRecords: Array.isArray(data.crewRecords) ? data.crewRecords : prev.crewRecords,
+        teams: Array.isArray(data.teams) ? data.teams : prev.teams,
+      }));
 
-      if (Array.isArray(data.teams)) {
-        localStorage.setItem(getKey('construction_teams'), JSON.stringify(data.teams));
-      }
+      if (Array.isArray(data.materialNorms)) await setAsyncItem(getKey('construction_material_norms'), data.materialNorms);
+      if (Array.isArray(data.inventory)) await setAsyncItem(getKey('construction_inventory'), data.inventory);
+      if (Array.isArray(data.workVolumes)) await setAsyncItem(getKey('construction_work_volumes'), data.workVolumes);
+      if (Array.isArray(data.floorPlans)) await setAsyncItem(getKey('construction_floor_plans'), data.floorPlans);
+      if (Array.isArray(data.defects)) await setAsyncItem(getKey('construction_defects'), data.defects);
+      if (Array.isArray(data.roomProgressList)) await setAsyncItem(getKey('construction_room_progress'), data.roomProgressList);
+      if (Array.isArray(data.checklist)) await setAsyncItem(getKey('construction_checklist'), data.checklist);
+      if (Array.isArray(data.crewRecords)) await setAsyncItem(getKey('construction_crew_records'), data.crewRecords);
+      if (Array.isArray(data.teams)) await setAsyncItem(getKey('construction_teams'), data.teams);
 
       const updatedTime = data.updatedAt || Date.now();
       setLastUpdatedAt(updatedTime);
@@ -617,7 +626,7 @@ export default function App() {
 
         // Restore returned processed data (replaces large Base64 strings with public direct Google Drive URLs)
         if (result.data) {
-          handleRestoreData(result.data);
+          await handleRestoreData(result.data);
         }
 
         // Tự động lưu toàn bộ dữ liệu tất cả công trình lên Google Drive nếu đã xác thực
@@ -1112,7 +1121,7 @@ export default function App() {
       }
     } else {
       if (await confirmAsync('Bạn có muốn phục hồi các bảng dữ liệu từ bản sao lưu này không? (Có thể hoàn tác sau)')) {
-        handleRestoreData(versionData);
+        await handleRestoreData(versionData);
       }
     }
   };
@@ -2148,6 +2157,8 @@ export default function App() {
           setActiveTab={setActiveTab}
           defectBadgeCount={unhandledDefectsCount}
         />
+
+        <GlobalConfirmModal />
       </div>
     </div>
   );

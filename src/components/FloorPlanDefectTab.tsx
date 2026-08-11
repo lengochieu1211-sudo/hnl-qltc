@@ -59,7 +59,6 @@ import { ImageViewerModal } from './ImageViewerModal';
 import { ImageEditorModal } from './ImageEditorModal';
 import { RoomHighlightModal } from './RoomHighlightModal';
 import { convertPdfToImage } from '../utils/pdfToImage';
-import { saveWorkbookFile } from '../utils/fileExport';
 import * as pdfjsLib from 'pdfjs-dist';
 
 try {
@@ -400,7 +399,7 @@ const readFileAsDataUrl = (file: File): Promise<string> => {
     const reader = new FileReader();
     reader.onload = async () => {
       const dataUrl = reader.result as string;
-      const compressed = await compressImage(dataUrl);
+      const compressed = await compressImage(dataUrl, 3200, 0.92);
       resolve(compressed);
     };
     reader.onerror = (err) => reject(err);
@@ -966,7 +965,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
     const ws = XLSX.utils.json_to_sheet(data);
     XLSX.utils.book_append_sheet(wb, ws, activeFloor ? activeFloor.floorName : 'DanhSachPhong');
-    saveWorkbookFile(wb, `Danh_Sach_Phong_${activeFloor ? activeFloor.floorName.replace(/\s+/g, '_') : 'MatBang'}.xlsx`);
+    XLSX.writeFile(wb, `Danh_Sach_Phong_${activeFloor ? activeFloor.floorName.replace(/\s+/g, '_') : 'MatBang'}.xlsx`);
   };
 
 
@@ -986,7 +985,23 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         const jsonData = XLSX.utils.sheet_to_json<any>(worksheet);
 
         if (!jsonData || jsonData.length === 0) {
-          alert('Tệp Excel không có dữ liệu hoặc định dạng không đúng!');
+          alert('❌ Thất bại: Tệp Excel không có dữ liệu hoặc định dạng không đúng! Vui lòng tải lại tệp chuẩn.');
+          return;
+        }
+
+        // Validate that we can find the room name column
+        const firstRow = jsonData[0];
+        const foundHeaders = Object.keys(firstRow);
+        const nameMatchKey = foundHeaders.find(h =>
+          ['Tên Căn Hộ hoặc Phòng', 'roomName', 'Tên Phòng', 'Phòng', 'Căn Hộ', 'can ho', 'room'].some(rk => h.toLowerCase().includes(rk.toLowerCase()))
+        );
+
+        if (!nameMatchKey) {
+          alert(
+            `⚠️ Không tìm thấy cột thông tin bắt buộc 'Tên Căn Hộ hoặc Phòng'!\n\n` +
+            `• Các cột tìm thấy trong file: [${foundHeaders.join(', ')}]\n` +
+            `• Vui lòng đặt lại tiêu đề cột trong file Excel trùng với mẫu để hệ thống nhận diện đúng phòng.`
+          );
           return;
         }
 
@@ -995,7 +1010,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         let existingMatchCount = 0;
         let newCount = 0;
         jsonData.forEach((row: any) => {
-          const rawName = row['Tên Căn Hộ hoặc Phòng'] || row['roomName'];
+          const rawName = row[nameMatchKey];
           if (rawName) {
             const nameStr = String(rawName).trim();
             if (nameStr) {
@@ -1006,10 +1021,15 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           }
         });
 
+        if (existingMatchCount === 0 && newCount === 0) {
+          alert('⚠️ Không tìm thấy phòng hoặc căn hộ hợp lệ nào trong tệp Excel để xử lý!');
+          return;
+        }
+
         const confirmMerge = await confirmAsync(
-          `📂 Phát hiện ${jsonData.length} phòng trong tệp Excel (${existingMatchCount} phòng trùng tên đã có sẵn, ${newCount} phòng mới).` +
-          `• Bấm "OK" để CẬP NHẬT thông tin các phòng cũ & THÊM MỚI các phòng chưa có.` +
-          `• Bấm "Cancel" để XÓA TOÀN BỘ dữ liệu cũ trên tầng này và THAY THẾ HOÀN TOÀN từ file Excel.`
+          `📂 Phát hiện ${jsonData.length} phòng trong tệp Excel (${existingMatchCount} phòng trùng tên đã có sẵn, ${newCount} phòng mới).\n\n` +
+          `• Bấm "Đồng ý" để CẬP NHẬT thông tin các phòng cũ & THÊM MỚI các phòng chưa có.\n` +
+          `• Bấm "Hủy" để XÓA TOÀN BỘ dữ liệu cũ trên tầng này và THAY THẾ HOÀN TOÀN từ file Excel.`
         );
 
         if (!confirmMerge) {
@@ -1027,7 +1047,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         let updatedCount = 0;
 
         jsonData.forEach((row: any) => {
-          const rawName = row['Tên Căn Hộ hoặc Phòng'] || row['roomName'];
+          const rawName = row[nameMatchKey];
           if (!rawName) return;
 
           const nameStr = String(rawName).trim();
@@ -1093,12 +1113,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         });
 
         alert(
-          `Nhập dữ liệu thành công!` +
-          `- Đã cập nhật/chỉnh sửa: ${updatedCount} căn` +
-          `- Đã tạo mới thêm: ${importedCount} căn`
+          `🎉 Nhập dữ liệu Mặt Bằng từ Excel thành công!\n\n` +
+          `• Đã cập nhật/chỉnh sửa: ${updatedCount} phòng/căn\n` +
+          `• Đã tạo mới/thêm mới: ${importedCount} phòng/căn`
         );
       } catch (err: any) {
-        alert(`Lỗi đọc tệp Excel: ${err.message}`);
+        alert(`❌ Lỗi đọc hoặc phân tích tệp Excel:\n${err.message || err}`);
       }
     };
     reader.readAsArrayBuffer(file);
@@ -1164,13 +1184,16 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   }, [zoomScale]);
 
   useEffect(() => {
-    const container = imageContainerRef.current;
-    if (!container) return;
+    const parentEl = parentRef.current;
+    const imgEl = imageContainerRef.current;
+    const elementsToBind = [parentEl, imgEl].filter((el): el is HTMLElement => el !== null);
+
+    if (elementsToBind.length === 0) return;
 
     let initialDist = 0;
     let initialZoom = 1;
 
-    const onTouchStart = async (e: TouchEvent) => {
+    const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 2) {
         initialDist = Math.hypot(
           e.touches[0].clientX - e.touches[1].clientX,
@@ -1187,10 +1210,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           e.touches[0].clientX - e.touches[1].clientX,
           e.touches[0].clientY - e.touches[1].clientY
         );
-        const scaleChange = dist / initialDist;
-        let newScale = initialZoom * scaleChange;
-        newScale = Math.min(20, Math.max(1, newScale));
-        setZoomScale(Number(newScale.toFixed(2)));
+        if (dist > 0) {
+          const scaleChange = dist / initialDist;
+          let newScale = initialZoom * scaleChange;
+          newScale = Math.min(20, Math.max(1, newScale));
+          setZoomScale(Number(newScale.toFixed(2)));
+        }
       }
     };
 
@@ -1201,30 +1226,34 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     };
 
     const onWheel = (e: WheelEvent) => {
-      // Zoom with wheel ONLY when holding Ctrl / Cmd (or standard touchpad pinch which sets ctrlKey = true)
+      // Zoom with wheel when holding Ctrl / Cmd (or standard touchpad pinch which sets ctrlKey = true)
       if (e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-        const factor = e.deltaY < 0 ? 1.08 : 0.92;
+        if (e.cancelable) e.preventDefault();
+        const factor = e.deltaY < 0 ? 1.1 : 0.9;
         let newScale = zoomScaleRef.current * factor;
         newScale = Math.min(20, Math.max(1, newScale));
         setZoomScale(Number(newScale.toFixed(2)));
       }
     };
 
-    container.addEventListener('touchstart', onTouchStart, { passive: false });
-    container.addEventListener('touchmove', onTouchMove, { passive: false });
-    container.addEventListener('touchend', onTouchEnd);
-    container.addEventListener('touchcancel', onTouchEnd);
-    container.addEventListener('wheel', onWheel, { passive: false });
+    elementsToBind.forEach(container => {
+      container.addEventListener('touchstart', onTouchStart, { passive: false });
+      container.addEventListener('touchmove', onTouchMove, { passive: false });
+      container.addEventListener('touchend', onTouchEnd);
+      container.addEventListener('touchcancel', onTouchEnd);
+      container.addEventListener('wheel', onWheel, { passive: false });
+    });
 
     return () => {
-      container.removeEventListener('touchstart', onTouchStart);
-      container.removeEventListener('touchmove', onTouchMove);
-      container.removeEventListener('touchend', onTouchEnd);
-      container.removeEventListener('touchcancel', onTouchEnd);
-      container.removeEventListener('wheel', onWheel);
+      elementsToBind.forEach(container => {
+        container.removeEventListener('touchstart', onTouchStart);
+        container.removeEventListener('touchmove', onTouchMove);
+        container.removeEventListener('touchend', onTouchEnd);
+        container.removeEventListener('touchcancel', onTouchEnd);
+        container.removeEventListener('wheel', onWheel);
+      });
     };
-  }, []);
+  }, [selectedFloorId, isFullscreen]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

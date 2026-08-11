@@ -18,3 +18,5 @@ android-wrapper/*.keystore
 android-wrapper/web-url.txt
 *.apk
 *.apk.idsig
+*.exe
+desktop-wrapper/bin/

@@ -31,9 +31,23 @@ const firebaseEnvDefine = Object.fromEntries(
 );
 
 export default defineConfig(() => {
+  const now = new Date();
+  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+  const vnOffset = 7; // Vietnam is UTC+7
+  const vnDate = new Date(utc + 3600000 * vnOffset);
+  const dd = String(vnDate.getDate()).padStart(2, '0');
+  const mm = String(vnDate.getMonth() + 1).padStart(2, '0');
+  const yyyy = vnDate.getFullYear();
+  const hh = String(vnDate.getHours()).padStart(2, '0');
+  const min = String(vnDate.getMinutes()).padStart(2, '0');
+  const buildTimeStr = `${dd}/${mm}/${yyyy} ${hh}:${min}`;
+
   return {
     plugins: [react(), tailwindcss()],
-    define: firebaseEnvDefine,
+    define: {
+      ...firebaseEnvDefine,
+      __BUILD_TIME__: JSON.stringify(buildTimeStr),
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

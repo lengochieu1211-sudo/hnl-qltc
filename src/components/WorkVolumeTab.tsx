@@ -18,6 +18,7 @@ import {
 import { WorkVolume, CategoryType, FloorPlan, RoomProgressItem } from '../types';
 import { exportWorkVolumesTemplate } from '../utils/excelExport';
 import { confirmAsync } from '../utils/confirmAsync';
+import { formatDecimal, evaluateMathExpression } from '../utils/numberUtils';
 
 interface WorkVolumeTabProps {
   workVolumes: WorkVolume[];
@@ -111,6 +112,20 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     return { plannedValue, actualValue, percent };
   }, [workVolumes]);
 
+  const livePlannedCalc = useMemo(() => {
+    if (/[+\-*/]/.test(plannedStr)) {
+      return evaluateMathExpression(plannedStr);
+    }
+    return null;
+  }, [plannedStr]);
+
+  const liveUnitPriceCalc = useMemo(() => {
+    if (/[+\-*/]/.test(unitPriceStr)) {
+      return evaluateMathExpression(unitPriceStr);
+    }
+    return null;
+  }, [unitPriceStr]);
+
   const filteredVolumes = useMemo(() => {
     if (selectedCategory === 'all') return workVolumes;
     return workVolumes.filter((item) => item.category === selectedCategory);
@@ -132,7 +147,20 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
 
   const handleAddSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !planned || Number(planned) <= 0) {
+
+    let finalPlanned = Number(planned);
+    const parsedPlanned = evaluateMathExpression(plannedStr);
+    if (parsedPlanned !== null) {
+      finalPlanned = parsedPlanned;
+    }
+
+    let finalUnitPrice = Number(unitPrice || 0);
+    const parsedUnitPrice = evaluateMathExpression(unitPriceStr);
+    if (parsedUnitPrice !== null) {
+      finalUnitPrice = parsedUnitPrice;
+    }
+
+    if (!title.trim() || !finalPlanned || finalPlanned <= 0) {
       alert('Vui lòng điền tên hạng mục và khối lượng định mức hợp lệ!');
       return;
     }
@@ -145,10 +173,10 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           floor,
           category,
           unit,
-          planned: Number(planned),
+          planned: finalPlanned,
           actual: Number(actual || 0),
-          unitPrice: Number(unitPrice || 0),
-          status: Number(actual) >= Number(planned) ? 'Đã hoàn thành' : Number(actual) > 0 ? 'Đang thi công' : 'Chưa thi công',
+          unitPrice: finalUnitPrice,
+          status: Number(actual) >= finalPlanned ? 'Đã hoàn thành' : Number(actual) > 0 ? 'Đang thi công' : 'Chưa thi công',
         });
       }
     } else {
@@ -157,10 +185,10 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         floor,
         category,
         unit,
-        planned: Number(planned),
+        planned: finalPlanned,
         actual: Number(actual || 0),
-        unitPrice: Number(unitPrice || 0),
-        status: Number(actual) >= Number(planned) ? 'Đã hoàn thành' : Number(actual) > 0 ? 'Đang thi công' : 'Chưa thi công',
+        unitPrice: finalUnitPrice,
+        status: Number(actual) >= finalPlanned ? 'Đã hoàn thành' : Number(actual) > 0 ? 'Đang thi công' : 'Chưa thi công',
       });
     }
 
@@ -181,14 +209,30 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         const jsonData = XLSX.utils.sheet_to_json<any>(worksheet);
 
         if (!jsonData || jsonData.length === 0) {
-          alert('Tệp Excel không có dữ liệu hoặc định dạng không đúng!');
+          alert('❌ Thất bại: Tệp Excel không có dữ liệu hoặc định dạng không đúng! Vui lòng tải lại tệp chuẩn.');
+          return;
+        }
+
+        // Validate that we can find the Work Volume titles
+        const firstRow = jsonData[0];
+        const foundHeaders = Object.keys(firstRow);
+        const titleMatchKey = foundHeaders.find(h =>
+          ['Tên Hạng Mục Công Việc', 'Tên Hạng Mục Thi Công', 'Hạng Mục Công Việc', 'Tên Hạng Mục', 'Hạng mục', 'title'].some(rk => h.toLowerCase().includes(rk.toLowerCase()))
+        );
+
+        if (!titleMatchKey) {
+          alert(
+            `⚠️ Không tìm thấy cột thông tin bắt buộc 'Tên Hạng Mục Công Việc'!\n\n` +
+            `• Các cột tìm thấy trong file: [${foundHeaders.join(', ')}]\n` +
+            `• Vui lòng đặt lại tiêu đề cột trong file Excel trùng với mẫu (Ví dụ: 'Tên Hạng Mục Thi Công') để hệ thống nhận diện đúng.`
+          );
           return;
         }
 
         let existingMatchCount = 0;
         let newCount = 0;
         jsonData.forEach((row: any) => {
-          const titleStr = String(row['Tên Hạng Mục Công Việc'] || row['title'] || '').trim();
+          const titleStr = String(row[titleMatchKey] || '').trim();
           const floorStr = String(row['Tầng / Khu Vực'] || row['Tầng'] || row['floor'] || 'Tầng 1').trim();
           if (titleStr) {
             const found = workVolumes.find(
@@ -199,10 +243,15 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           }
         });
 
+        if (existingMatchCount === 0 && newCount === 0) {
+          alert('⚠️ Không tìm thấy hạng mục hợp lệ nào trong tệp Excel để xử lý!');
+          return;
+        }
+
         const confirmMerge = await confirmAsync(
-          `📂 Phát hiện ${jsonData.length} hạng mục trong tệp Excel (${existingMatchCount} hạng mục trùng tên & tầng đã có sẵn, ${newCount} mới).\n\n` +
-          `• Bấm "OK" để CẬP NHẬT thông tin các hạng mục cũ & THÊM MỚI các hạng mục chưa có.\n` +
-          `• Bấm "Cancel" để Hủy thao tác.`
+          `📂 Phát hiện ${jsonData.length} hạng mục trong tệp Excel (${existingMatchCount} trùng tên & tầng đã có sẵn, ${newCount} mới).\n\n` +
+          `• Bấm "Đồng ý" để CẬP NHẬT thông tin các hạng mục cũ & THÊM MỚI các hạng mục chưa có.\n` +
+          `• Bấm "Hủy" để dừng thao tác.`
         );
 
         if (!confirmMerge) {
@@ -214,7 +263,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         let addedCount = 0;
 
         jsonData.forEach((row: any) => {
-          const titleStr = String(row['Tên Hạng Mục Công Việc'] || row['title'] || '').trim();
+          const titleStr = String(row[titleMatchKey] || '').trim();
           if (!titleStr) return;
 
           const floorStr = String(row['Tầng / Khu Vực'] || row['Tầng'] || row['floor'] || 'Tầng 1').trim();
@@ -222,7 +271,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           const unitStr = String(row['Đơn Vị Tính'] || row['Đơn Vị'] || row['unit'] || 'm2').trim();
           const plannedNum = Number(row['KL Định Mức'] || row['KL Kế Hoạch'] || row['planned'] || 0);
           const actualNum = Number(row['KL Thực Tế'] || row['KL Thực Hiện'] || row['actual'] || 0);
-          const unitPriceNum = Number(row['Đơn Giá (VNĐ)'] || row['unitPrice'] || 0);
+          const unitPriceNum = Number(row['Đơn Giá (VNĐ)'] || row['Đơn Giá'] || row['unitPrice'] || 0);
 
           const existing = workVolumes.find(
             w => w.title.toLowerCase() === titleStr.toLowerCase() && w.floor.toLowerCase() === floorStr.toLowerCase()
@@ -258,9 +307,13 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           }
         });
 
-        alert(`Nhập Excel thành công!\n- Đã cập nhật/chỉnh sửa: ${updatedCount} hạng mục\n- Đã thêm mới: ${addedCount} hạng mục`);
+        alert(
+          `🎉 Nhập Hạng Mục Khối Lượng thành công!\n\n` +
+          `• Đã cập nhật/chỉnh sửa: ${updatedCount} hạng mục cũ\n` +
+          `• Đã thêm mới: ${addedCount} hạng mục mới`
+        );
       } catch (err: any) {
-        alert(`Lỗi đọc tệp Excel: ${err.message}`);
+        alert(`❌ Lỗi đọc hoặc phân tích tệp Excel:\n${err.message || err}`);
       }
     };
     reader.readAsArrayBuffer(file);
@@ -300,16 +353,6 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               className="hidden"
             />
           </label>
-          {roomProgressList && roomProgressList.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setIsImportFromRoomsOpen(true)}
-              className="text-[11px] font-extrabold text-blue-700 hover:text-blue-950 bg-blue-50 hover:bg-blue-100 px-2.5 py-1.5 rounded-xl flex items-center gap-1 border border-blue-200 transition-all active:scale-95 shadow-2xs"
-              title="Lấy thông tin và hạng mục con từ danh sách căn hộ / phòng"
-            >
-              <Building className="w-3.5 h-3.5" /> Lấy từ Căn Hộ
-            </button>
-          )}
           <button
             onClick={async () => {
               setTitle('');
@@ -509,7 +552,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                       <div>
                         <span className="text-slate-500 text-[11px]">Thực hiện: </span>
                         <span className="font-extrabold text-slate-900">
-                          {item.actual} / {item.planned} {item.unit}
+                          {formatDecimal(item.actual)} / {formatDecimal(item.planned)} {item.unit}
                         </span>
                       </div>
                       <div className="text-right">
@@ -588,43 +631,6 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
             </div>
 
             <form onSubmit={handleAddSubmit} className="space-y-3 text-xs">
-              {roomProgressList && roomProgressList.length > 0 && !editingVolume && (
-                <div className="bg-blue-50/70 p-2.5 rounded-xl border border-blue-200 space-y-1">
-                  <label className="block text-[11px] font-extrabold text-blue-900">
-                    ⚡ Lấy thông tin nhanh từ Căn hộ / Phòng:
-                  </label>
-                  <select
-                    onChange={(e) => {
-                      const roomId = e.target.value;
-                      if (!roomId) return;
-                      const rm = roomProgressList.find(r => r.id === roomId);
-                      if (rm) {
-                        setTitle(rm.roomName + (rm.workCategory ? ` - ${rm.workCategory}` : ''));
-                        const fpName = floorPlans.find(f => f.id === rm.floorId)?.floorName || rm.floorName || floorOptions[0];
-                        setFloor(fpName);
-                        if (rm.workCategory) setCategory(rm.workCategory);
-                        if (rm.workVolume) {
-                          setPlanned(rm.workVolume);
-                          setPlannedStr(rm.workVolume.toString());
-                        }
-                        if (rm.volumeUnit) setUnit(rm.volumeUnit);
-                      }
-                    }}
-                    className="w-full text-xs bg-white border border-blue-300 rounded-lg p-2 font-bold text-blue-900 focus:outline-none"
-                  >
-                    <option value="">-- Chọn căn hộ / phòng để điền nhanh --</option>
-                    {roomProgressList.map(rm => {
-                      const fpName = floorPlans.find(f => f.id === rm.floorId)?.floorName || rm.floorName || '';
-                      return (
-                        <option key={rm.id} value={rm.id}>
-                          {rm.roomName} {fpName ? `(${fpName})` : ''} {rm.workCategory ? `- ${rm.workCategory}` : ''}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </div>
-              )}
-
               <div>
                 <label className="block text-slate-700 font-bold mb-1">Tên Hạng Mục Công Việc *</label>
                 <input
@@ -681,17 +687,29 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
 
               <div className="grid grid-cols-3 gap-2 items-end">
                 <div>
-                  <div className="h-6 flex items-center text-slate-700 font-bold text-[11px] sm:text-xs truncate mb-1">
-                    KL Định Mức *
+                  <div className="h-6 flex items-center justify-between text-slate-700 font-bold text-[11px] sm:text-xs truncate mb-1">
+                    <span>KL Định Mức *</span>
+                    {livePlannedCalc !== null && (
+                      <span className="text-blue-600 bg-blue-50 px-1 py-0.5 rounded text-[9px] font-extrabold animate-pulse" title="Kết quả tính toán">
+                        = {formatDecimal(livePlannedCalc)}
+                      </span>
+                    )}
                   </div>
                   <input
                     type="text"
-                    inputMode="decimal"
                     value={plannedStr}
                     onChange={(e) => {
-                      const typedVal = e.target.value.replace(/,/g, '.');
+                      const typedVal = e.target.value;
                       setPlannedStr(typedVal);
-                      setPlanned(typedVal === '' ? '' : Number(typedVal));
+                      const parsed = evaluateMathExpression(typedVal);
+                      setPlanned(parsed !== null ? parsed : (typedVal === '' ? '' : Number(typedVal)));
+                    }}
+                    onBlur={() => {
+                      const parsed = evaluateMathExpression(plannedStr);
+                      if (parsed !== null) {
+                        setPlanned(parsed);
+                        setPlannedStr(formatDecimal(parsed));
+                      }
                     }}
                     className="w-full border border-slate-200 rounded-xl p-2.5 font-bold text-blue-600 focus:ring-2 focus:ring-blue-500"
                     required
@@ -725,15 +743,29 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               </div>
 
               <div>
-                <label className="block text-slate-700 font-bold mb-1">Đơn Giá VNĐ / {unit}</label>
+                <label className="block text-slate-700 font-bold mb-1 flex items-center justify-between">
+                  <span>Đơn Giá VNĐ / {unit}</span>
+                  {liveUnitPriceCalc !== null && (
+                    <span className="text-indigo-600 bg-indigo-50 px-1 py-0.5 rounded text-[9px] font-extrabold animate-pulse" title="Kết quả tính toán">
+                      = {formatDecimal(liveUnitPriceCalc)}
+                    </span>
+                  )}
+                </label>
                 <input
                   type="text"
-                  inputMode="decimal"
                   value={unitPriceStr}
                   onChange={(e) => {
-                    const typedVal = e.target.value.replace(/,/g, '.');
+                    const typedVal = e.target.value;
                     setUnitPriceStr(typedVal);
-                    setUnitPrice(typedVal === '' ? '' : Number(typedVal));
+                    const parsed = evaluateMathExpression(typedVal);
+                    setUnitPrice(parsed !== null ? parsed : (typedVal === '' ? '' : Number(typedVal)));
+                  }}
+                  onBlur={() => {
+                    const parsed = evaluateMathExpression(unitPriceStr);
+                    if (parsed !== null) {
+                      setUnitPrice(parsed);
+                      setUnitPriceStr(formatDecimal(parsed));
+                    }
                   }}
                   className="w-full border border-slate-200 rounded-xl p-2.5 font-bold focus:ring-2 focus:ring-indigo-500"
                 />
@@ -796,116 +828,6 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         </div>
       )}
 
-      {/* Import From Rooms Modal */}
-      {isImportFromRoomsOpen && roomProgressList && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl p-5 max-w-md w-full space-y-4 max-h-[85vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                <Building className="w-5 h-5 text-indigo-600" />
-                Lấy Hạng Mục &amp; Công Đoạn Từ Căn Hộ
-              </h3>
-              <button onClick={() => setIsImportFromRoomsOpen(false)} className="w-8 h-8 bg-slate-100 rounded-full font-bold text-slate-500">✕</button>
-            </div>
-            <p className="text-xs text-slate-500">
-              Chọn các căn hộ / phòng đã thiết lập trên mặt bằng để nhập tự động vào danh sách khối lượng thi công cùng với các hạng mục con (sub-items):
-            </p>
-
-            <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
-              {roomProgressList.map((rm) => {
-                const fpName = floorPlans.find(f => f.id === rm.floorId)?.floorName || rm.floorName || 'Tầng 1';
-                const isSelected = selectedRoomIdsForImport.includes(rm.id);
-                return (
-                  <div
-                    key={rm.id}
-                    onClick={async () => {
-                      setSelectedRoomIdsForImport(prev =>
-                        isSelected ? prev.filter(id => id !== rm.id) : [...prev, rm.id]
-                      );
-                    }}
-                    className={`p-3 rounded-xl border cursor-pointer transition-all ${
-                      isSelected ? 'border-indigo-500 bg-indigo-50/40 shadow-xs' : 'border-slate-200 bg-white hover:border-slate-300'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => {}}
-                          className="w-4 h-4 rounded text-indigo-600 cursor-pointer"
-                        />
-                        <div>
-                          <h4 className="text-xs font-bold text-slate-900">{rm.roomName} <span className="text-[10px] text-slate-500 font-normal">({fpName})</span></h4>
-                          <p className="text-[11px] text-indigo-600 font-medium">{rm.workCategory || 'Chưa phân nhóm'}</p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-xs font-extrabold text-blue-600">{rm.workVolume || 100} {rm.volumeUnit || 'm2'}</span>
-                      </div>
-                    </div>
-                    {rm.subItems && rm.subItems.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-2 pt-2 border-t border-slate-100/80">
-                        <span className="text-[10px] text-slate-400">Công đoạn:</span>
-                        {rm.subItems.map((sub, idx) => (
-                          <span key={idx} className="bg-slate-100 text-slate-700 text-[9px] px-1.5 py-0.5 rounded">
-                            {sub.name}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="flex gap-2 pt-2 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={() => setIsImportFromRoomsOpen(false)}
-                className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl font-bold text-xs"
-              >
-                Hủy
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  if (selectedRoomIdsForImport.length === 0) {
-                    alert('Vui lòng chọn ít nhất một căn hộ / phòng!');
-                    return;
-                  }
-                  let addedCount = 0;
-                  selectedRoomIdsForImport.forEach(id => {
-                    const rm = roomProgressList.find(r => r.id === id);
-                    if (!rm) return;
-                    const fpName = floorPlans.find(f => f.id === rm.floorId)?.floorName || rm.floorName || 'Tầng 1';
-                    const subItemNames = rm.subItems ? rm.subItems.map(s => s.name) : [];
-
-                    onAddWorkVolume({
-                      title: `${rm.roomName} - ${rm.workCategory || 'Hạng mục chung'}`,
-                      floor: fpName,
-                      category: rm.workCategory || 'khung_tran',
-                      unit: rm.volumeUnit || 'm2',
-                      planned: rm.workVolume || 100,
-                      actual: 0,
-                      unitPrice: 110000,
-                      status: 'Chưa thi công',
-                      subItems: subItemNames
-                    });
-                    addedCount++;
-                  });
-                  alert(`Đã nhập thành công ${addedCount} hạng mục từ danh sách căn hộ!`);
-                  setSelectedRoomIdsForImport([]);
-                  setIsImportFromRoomsOpen(false);
-                }}
-                className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs shadow"
-              >
-                Nhập Vào Khối Lượng ({selectedRoomIdsForImport.length})
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

@@ -6,7 +6,6 @@ import { exportAllToExcel, exportAllToExcelBase64 } from '../utils/excelExport';
 import { formatDateDDMMYYYY } from '../utils/dateFormatter';
 import { getRoomColorStyle } from '../utils/colorPalette';
 import { getDefectOverdueInfo } from '../utils/defectUtils';
-import { saveHtmlPdf } from '../utils/fileExport';
 
 interface ExportPdfModalProps {
   isOpen: boolean;
@@ -714,12 +713,6 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   // High-fidelity HTML Print / Save as PDF with FULL Unicode Vietnamese support (Có dấu 100%)
   const handlePrintHTML = () => {
     const htmlContent = getReportHtml();
-    const safeProjectName = (projectName || 'Du_An').replace(/[^a-zA-Z0-9]/g, '_');
-    const dateStr = new Date().toISOString().slice(0,10);
-    if (saveHtmlPdf(htmlContent, `Bao_Cao_${safeProjectName}_${dateStr}.pdf`)) {
-      return;
-    }
-
     const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
     const blobUrl = URL.createObjectURL(blob);
 

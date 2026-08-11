@@ -18,7 +18,6 @@ import {
 } from 'lucide-react';
 import { ChecklistItem, ChecklistStatus, WorkVolume } from '../types';
 import { confirmAsync } from '../utils/confirmAsync';
-import { saveWorkbookFile } from '../utils/fileExport';
 
 interface ChecklistTabProps {
   checklist: ChecklistItem[];
@@ -231,7 +230,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
     ws['!cols'] = Object.keys(maxLens).map((key) => ({ wch: maxLens[key] }));
 
     XLSX.utils.book_append_sheet(wb, ws, 'Checklist');
-    saveWorkbookFile(wb, `Mau_Checklist_Nghiem_Thu.xlsx`);
+    XLSX.writeFile(wb, `Mau_Checklist_Nghiem_Thu.xlsx`);
   };
 
   const handleImportExcelChecklist = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -248,7 +247,22 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
         const jsonData = XLSX.utils.sheet_to_json<any>(worksheet);
 
         if (!jsonData || jsonData.length === 0) {
-          alert('Tệp Excel không có dữ liệu hoặc định dạng không đúng!');
+          alert('❌ Thất bại: Tệp Excel không có dữ liệu hoặc định dạng không đúng! Vui lòng tải lại tệp chuẩn.');
+          return;
+        }
+
+        // Validate headers to provide a clear explanation if something goes wrong
+        const firstRow = jsonData[0];
+        const foundHeaders = Object.keys(firstRow);
+        const requiredKeys = ['Nội Dung Tiêu Chuẩn', 'title', 'Nội dung', 'noi dung'];
+        const hasMatch = foundHeaders.some(h => requiredKeys.some(rk => h.toLowerCase().includes(rk.toLowerCase())));
+
+        if (!hasMatch) {
+          alert(
+            `⚠️ Không tìm thấy cột thông tin bắt buộc 'Nội Dung Tiêu Chuẩn'!\n\n` +
+            `• Các cột tìm thấy trong file: [${foundHeaders.join(', ')}]\n` +
+            `• Vui lòng đặt lại tiêu đề cột trong file Excel trùng với mẫu để hệ thống nhận diện đúng.`
+          );
           return;
         }
 
@@ -256,12 +270,12 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
         let skippedCount = 0;
 
         jsonData.forEach((row: any) => {
-          const rawFloor = String(row['Vị Trí (Tầng)'] || selectedFloor).trim();
-          const rawCategory = String(row['Hạng Mục Kiểm Tra'] || 'Thi công khung trần').trim();
-          const rawTitle = String(row['Nội Dung Tiêu Chuẩn'] || '').trim();
-          const rawStatusStr = String(row['Trạng Thái'] || 'Chờ nghiệm thu').trim();
-          const rawNotes = String(row['Ghi Chú'] || '').trim();
-          const rawInspectedBy = String(row['Người Kiểm Tra'] || inspectorName).trim();
+          const rawFloor = String(row['Vị Trí (Tầng)'] || row['floor'] || row['Tầng'] || selectedFloor).trim();
+          const rawCategory = String(row['Hạng Mục Kiểm Tra'] || row['category'] || 'Thi công khung trần').trim();
+          const rawTitle = String(row['Nội Dung Tiêu Chuẩn'] || row['title'] || row['Nội dung'] || row['noi dung'] || '').trim();
+          const rawStatusStr = String(row['Trạng Thái'] || row['status'] || 'Chờ nghiệm thu').trim();
+          const rawNotes = String(row['Ghi Chú'] || row['notes'] || '').trim();
+          const rawInspectedBy = String(row['Người Kiểm Tra'] || row['inspectorName'] || inspectorName).trim();
 
           if (!rawTitle) {
             skippedCount++;
@@ -307,9 +321,14 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
           addedCount++;
         });
 
-        alert(`Nhập Checklist thành công!\n- Đã thêm mới: ${addedCount} tiêu chí\n- Bỏ qua do thiếu thông tin: ${skippedCount}`);
+        alert(
+          `🎉 Nhập Checklist từ Excel thành công!\n\n` +
+          `• Đã thêm mới thành công: ${addedCount} tiêu chí nghiệm thu\n` +
+          `• Bỏ qua do thiếu nội dung chính: ${skippedCount} dòng\n` +
+          `• Vị trí mặt bằng áp dụng: ${selectedFloor}`
+        );
       } catch (err: any) {
-        alert(`Lỗi đọc tệp Excel: ${err.message}`);
+        alert(`❌ Lỗi đọc hoặc phân tích tệp Excel:\n${err.message || err}`);
       }
     };
     reader.readAsArrayBuffer(file);
