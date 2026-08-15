@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
-import {
-  GitMerge,
-  AlertTriangle,
-  CheckCircle2,
-  ArrowRight,
-  X,
-  ShieldAlert,
-  Layers,
-  Check,
+import { 
+  GitMerge, 
+  AlertTriangle, 
+  CheckCircle2, 
+  ArrowRight, 
+  X, 
+  ShieldAlert, 
+  Layers, 
+  Check, 
   RefreshCw,
   Filter,
   Search,
@@ -33,10 +33,10 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
 }) => {
   // Methods of merging: 'smart' | 'import' | 'local' | 'manual'
   const [selectedStrategy, setSelectedStrategy] = useState<'smart' | 'import' | 'local' | 'manual'>('manual');
-
+  
   // Category tab filter inside manual comparison
   const [activeTab, setActiveTab] = useState<'all' | 'room' | 'defect' | 'inventory' | 'workVolume' | 'checklist' | 'crew'>('all');
-
+  
   // Search query to filter items
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -47,7 +47,7 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
   const localRooms = Array.isArray(localData?.roomProgressList) ? localData.roomProgressList : [];
   const importedRooms = Array.isArray(importedData?.roomProgressList) ? importedData.roomProgressList : [];
   const roomConflicts: Array<{ id: string; name: string; type: 'room'; typeName: string; localItem: any; importedItem: any }> = [];
-
+  
   localRooms.forEach((lRoom: any) => {
     const key = lRoom.id || lRoom.roomId || lRoom.roomName;
     const iRoom = importedRooms.find((r: any) => (r.id || r.roomId || r.roomName) === key);
@@ -79,8 +79,8 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
     const iDef = importedDefects.find((d: any) => d.id === key);
     if (iDef) {
       if (
-        lDef.status !== iDef.status ||
-        lDef.severity !== iDef.severity ||
+        lDef.status !== iDef.status || 
+        lDef.severity !== iDef.severity || 
         lDef.description !== iDef.description
       ) {
         defectConflicts.push({
@@ -283,10 +283,10 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
 
     // Standardizer for lists
     const resolveAndMergeArray = (
-      keyName: string,
-      localArray: any[],
-      importedArray: any[],
-      conflictList: any[],
+      keyName: string, 
+      localArray: any[], 
+      importedArray: any[], 
+      conflictList: any[], 
       idField: string = 'id'
     ) => {
       const mergedMap = new Map();
@@ -348,20 +348,20 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
   // Filter list by Tab and Search Query
   const filteredConflicts = allConflicts.filter(c => {
     const matchesTab = activeTab === 'all' || c.type === activeTab;
-    const matchesSearch = c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    const matchesSearch = c.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
                           c.typeName.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesTab && matchesSearch;
   });
 
   // Calculate user's resolved progress in "manual" mode
-  const manualResolvedCount = Object.keys(manualChoices).filter(k =>
+  const manualResolvedCount = Object.keys(manualChoices).filter(k => 
     allConflicts.some(c => c.uniqueKey === k)
   ).length;
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-
+        
         {/* Header Banner */}
         <div className="px-6 py-4 bg-gradient-to-r from-amber-600 to-amber-700 text-white flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -385,7 +385,7 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
 
         {/* Content Body */}
         <div className="p-5 overflow-y-auto space-y-4 text-xs text-slate-700 flex-1">
-
+          
           {/* Strategy Chooser */}
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
             <label className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
@@ -473,7 +473,7 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
             </div>
           ) : (
             <div className="space-y-3.5">
-
+              
               {/* Header Title & Selection Stats */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-white px-2">
                 <div className="space-y-0.5">
@@ -485,7 +485,7 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
                     Hãy tích chọn trực tiếp vào ô <strong className="text-indigo-600">Máy Này</strong> hoặc <strong className="text-emerald-600">Tệp Import</strong> để quyết định giữ dữ liệu cho từng hạng mục cụ thể.
                   </p>
                 </div>
-
+                
                 {selectedStrategy === 'manual' && (
                   <div className="bg-amber-100/70 border border-amber-200/80 px-2.5 py-1.5 rounded-lg flex items-center gap-2 self-start sm:self-center text-[10px] sm:text-xs text-amber-900">
                     <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
@@ -501,7 +501,7 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
                   <span className="text-[11px] text-slate-500 font-medium flex items-center gap-1 pr-1">
                     <Filter className="w-3.5 h-3.5" /> Lọc phân hệ:
                   </span>
-
+                  
                   <button
                     type="button"
                     onClick={() => setActiveTab('all')}
@@ -513,7 +513,7 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
                   >
                     Tất cả ({counts.all})
                   </button>
-
+                  
                   {counts.room > 0 && (
                     <button
                       type="button"
@@ -689,12 +689,12 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
                           const isCrew = c.type === 'crew';
 
                           const diffFlags = {
-                            progress: (isRoom && c.localItem.progress !== c.importedItem.progress) ||
+                            progress: (isRoom && c.localItem.progress !== c.importedItem.progress) || 
                                       (isVolume && c.localItem.progress !== c.importedItem.progress),
-                            status: (isRoom && c.localItem.status !== c.importedItem.status) ||
-                                    (isDefect && c.localItem.status !== c.importedItem.status) ||
+                            status: (isRoom && c.localItem.status !== c.importedItem.status) || 
+                                    (isDefect && c.localItem.status !== c.importedItem.status) || 
                                     (isChecklist && c.localItem.status !== c.importedItem.status),
-                            notes: (isRoom && c.localItem.notes !== c.importedItem.notes) ||
+                            notes: (isRoom && c.localItem.notes !== c.importedItem.notes) || 
                                    (isChecklist && c.localItem.notes !== c.importedItem.notes),
                             severity: isDefect && c.localItem.severity !== c.importedItem.severity,
                             description: isDefect && c.localItem.description !== c.importedItem.description,
@@ -732,8 +732,8 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
                                 <div
                                   onClick={() => selectedStrategy === 'manual' && handleManualToggle(c.uniqueKey, 'local')}
                                   className={`h-full p-2.5 rounded-xl border text-left relative transition-all ${
-                                    selectedStrategy === 'manual'
-                                      ? 'cursor-pointer hover:shadow-xs hover:border-indigo-400 active:scale-[0.99]'
+                                    selectedStrategy === 'manual' 
+                                      ? 'cursor-pointer hover:shadow-xs hover:border-indigo-400 active:scale-[0.99]' 
                                       : ''
                                   } ${
                                     localSideSelected
@@ -758,7 +758,7 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
                                     <div className={`font-bold text-[10px] uppercase tracking-wider ${localSideSelected ? 'text-indigo-800' : 'text-slate-400'}`}>
                                       {localSideSelected ? '✓ Giữ bản máy này' : 'Bản Máy Này'}
                                     </div>
-
+                                    
                                     {/* Fields list */}
                                     <div className="space-y-1 text-slate-700">
                                       {isRoom && (
@@ -868,8 +868,8 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
                                 <div
                                   onClick={() => selectedStrategy === 'manual' && handleManualToggle(c.uniqueKey, 'import')}
                                   className={`h-full p-2.5 rounded-xl border text-left relative transition-all ${
-                                    selectedStrategy === 'manual'
-                                      ? 'cursor-pointer hover:shadow-xs hover:border-emerald-400 active:scale-[0.99]'
+                                    selectedStrategy === 'manual' 
+                                      ? 'cursor-pointer hover:shadow-xs hover:border-emerald-400 active:scale-[0.99]' 
                                       : ''
                                   } ${
                                     importSideSelected
@@ -894,7 +894,7 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
                                     <div className={`font-bold text-[10px] uppercase tracking-wider ${importSideSelected ? 'text-emerald-800' : 'text-slate-400'}`}>
                                       {importSideSelected ? '✓ Lấy bản tệp import' : 'Bản Tệp Import'}
                                     </div>
-
+                                    
                                     {/* Fields list */}
                                     <div className="space-y-1 text-slate-700">
                                       {isRoom && (
@@ -1028,7 +1028,7 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
           <div className="text-slate-500 hidden sm:block">
             Nhấn <strong className="text-indigo-600">Đồng ý</strong> để xác nhận quyết định của bạn.
           </div>
-
+          
           <div className="flex items-center gap-2.5 ml-auto">
             <button
               type="button"

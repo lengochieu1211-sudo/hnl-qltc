@@ -7,7 +7,10 @@ export const migrateAndCleanLocalStorage = async () => {
       if (key && (key.startsWith('construction_floor_plans') || key.startsWith('construction_defects') || key.startsWith('construction_crew_records'))) {
         const val = localStorage.getItem(key);
         if (val) {
-          await localforage.setItem(key, val);
+          const existingInIdb = await localforage.getItem(key);
+          if (!existingInIdb) {
+            await localforage.setItem(key, val);
+          }
           localStorage.removeItem(key);
           i--; // adjust index since we removed an item
         }

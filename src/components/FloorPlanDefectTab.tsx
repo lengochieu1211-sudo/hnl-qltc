@@ -1,16 +1,18 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useLanguage } from '../context/LanguageContext';
 import * as XLSX from 'xlsx';
-import {
-  MapPin,
-  Upload,
+import { 
+  MapPin, 
+  Upload, 
   Download,
-  AlertTriangle,
-  CheckCircle,
-  Camera,
-  Layers,
+  AlertTriangle, 
+  CheckCircle, 
+  Camera, 
+  Layers, 
   User,
-  UserCheck,
+  UserCheck, 
   Image as ImageIcon,
+  Images,
   ExternalLink,
   Plus,
   PlusCircle,
@@ -49,15 +51,22 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
-  Palette
+  ChevronUp,
+  Palette,
+  ArrowUpDown,
+  GripVertical
 } from 'lucide-react';
 import { FloorPlan, DefectItem, DefectCategory, DefectSeverity, DefectStatus, RoomProgressItem, RoomSubItem, Point2D, ChecklistItem, TeamInfo, MaterialNorm, InventoryItem, WorkVolume } from '../types';
+import { UndoRedoControls } from './UndoRedoControls';
 import { getRoomColorStyle, ROOM_COLOR_PALETTE } from '../utils/colorPalette';
 import { getDefectOverdueInfo } from '../utils/defectUtils';
 import { formatDateDDMMYYYY } from '../utils/dateFormatter';
+import { useFormatSettings } from '../utils/numberUtils';
 import { ImageViewerModal } from './ImageViewerModal';
 import { ImageEditorModal } from './ImageEditorModal';
 import { RoomHighlightModal } from './RoomHighlightModal';
+import { PhotoAttachmentPicker } from './PhotoAttachmentPicker';
+import { deleteEntityPhotos, savePhotoAttachment } from '../utils/photoStorage';
 import { convertPdfToImage } from '../utils/pdfToImage';
 import * as pdfjsLib from 'pdfjs-dist';
 
@@ -69,7 +78,7 @@ const getMappedCoordinates = (e: React.PointerEvent | React.MouseEvent | Touch, 
   const rect = element.getBoundingClientRect();
   const clientX = 'clientX' in e ? e.clientX : (e as Touch).clientX;
   const clientY = 'clientY' in e ? e.clientY : (e as Touch).clientY;
-
+  
   let x = (clientX - rect.left) / rect.width;
   let y = (clientY - rect.top) / rect.height;
 
@@ -220,7 +229,7 @@ const TeamSelectorInput: React.FC<TeamSelectorInputProps> = ({
           className="w-full border border-slate-300 bg-white rounded-xl p-2.5 font-bold text-slate-800 text-xs focus:ring-2 focus:ring-rose-500 focus:border-rose-500 shadow-sm"
         >
           <option value="">-- Chọn đội từ danh sách ở đây --</option>
-
+          
           {roomAtPosTeam && (
             <optgroup label="📍 Đội thuộc căn hộ hiện tại">
               <option value={roomAtPosTeam}>📍 {roomAtPosTeam} ({roomAtPos?.roomName || 'Căn hiện tại'})</option>
@@ -271,7 +280,7 @@ const TeamSelectorInput: React.FC<TeamSelectorInputProps> = ({
       {/* 3. Inline Quick Click Badges (For instant 1-tap experience) */}
       <div className="space-y-1.5 pt-1 text-[11px] border-t border-slate-200/60 mt-1">
         <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">⚡ Chọn Nhanh Bằng 1 Click:</span>
-
+        
         {/* Room at Pin Location */}
         {roomAtPos && (
           <div className="bg-amber-50 border border-amber-200/60 p-2 rounded-xl flex items-center justify-between gap-2">
@@ -348,6 +357,7 @@ const TeamSelectorInput: React.FC<TeamSelectorInputProps> = ({
 
 
 interface FloorPlanDefectTabProps {
+  projectId?: string;
   floorPlans: FloorPlan[];
   defects: DefectItem[];
   roomProgressList: RoomProgressItem[];
@@ -371,8 +381,11 @@ interface FloorPlanDefectTabProps {
   onDeleteDefect: (id: string) => void;
   onDeleteMultipleDefects?: (ids: string[]) => void;
   onSaveRoomProgress: (room: Omit<RoomProgressItem, 'id' | 'updatedAt'> & { id?: string }) => void;
+  onBatchSaveRooms?: (rooms: RoomProgressItem[]) => void;
   onDeleteRoomProgress: (id: string) => void;
   onDeleteMultipleRoomProgress?: (ids: string[]) => void;
+  onReorderRoomProgressList?: (reorderedList: RoomProgressItem[]) => void;
+  onReorderFloorPlans?: (reorderedList: FloorPlan[]) => void;
   onOpenExportPdf?: () => void;
   onExportExcel?: () => void;
   onUndo?: () => void;
@@ -391,40 +404,20 @@ const DEFECT_CATEGORIES: DefectCategory[] = [
   'Khác',
 ];
 
-import { compressImage } from '../utils/imageCompressor';
+import { compressImage, compressDefectPhoto, compressFloorPlanImage, readFloorPlanAsDataUrl } from '../utils/imageCompressor';
 import { confirmAsync } from '../utils/confirmAsync';
 import { apiFetch, hasApiBackend } from '../utils/api';
 
 const readFileAsDataUrl = (file: File): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const dataUrl = reader.result as string;
-      const compressed = await compressImage(dataUrl, 3200, 0.92);
-      resolve(compressed);
-    };
-    reader.onerror = (err) => reject(err);
-    reader.readAsDataURL(file);
-  });
+  return readFloorPlanAsDataUrl(file);
 };
 
-const uploadImageToServerDrive = async (file: File, fileName: string): Promise<string | null> => {
-  if (!hasApiBackend()) return null;
-
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('fileName', fileName);
-
-  const res = await apiFetch('/api/drive/upload-image', {
-    method: 'POST',
-    body: formData,
-  });
-
-  const data = await res.json();
-  return data.url || null;
+const readDefectPhotoAsDataUrl = (file: File | Blob | string): Promise<string> => {
+  return compressDefectPhoto(file);
 };
 
 export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
+  projectId,
   floorPlans,
   defects,
   roomProgressList,
@@ -448,8 +441,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   onDeleteDefect,
   onDeleteMultipleDefects,
   onSaveRoomProgress,
+  onBatchSaveRooms,
   onDeleteRoomProgress,
   onDeleteMultipleRoomProgress,
+  onReorderRoomProgressList,
+  onReorderFloorPlans,
   onOpenExportPdf,
   onExportExcel,
   onUndo,
@@ -457,7 +453,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   canUndo,
   canRedo,
 }) => {
-  const [selectedFloorId, setSelectedFloorId] = useState<string>(floorPlans[0]?.id || 'fp-1');
+  const { t } = useLanguage();
+  const currentProjectId = projectId || (typeof localStorage !== 'undefined' ? localStorage.getItem('active_project_id') : '') || 'default';
+  const getDraftKey = (base: string) => (currentProjectId === 'default' ? base : `${base}_${currentProjectId}`);
+
+  const [selectedFloorId, setSelectedFloorId] = useState<string>(() => {
+    const saved = localStorage.getItem(getDraftKey('construction_selected_floor_id'));
+    if (saved && floorPlans.some((fp) => fp.id === saved)) {
+      return saved;
+    }
+    return floorPlans[0]?.id || 'fp-1';
+  });
+  useFormatSettings();
   const [selectedDefectIds, setSelectedDefectIds] = useState<string[]>([]);
 
   // Auto-select newly added or duplicated floor by detecting the new ID
@@ -478,13 +485,39 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   // Keep selectedFloorId in sync with valid floorPlans
   React.useEffect(() => {
     if (floorPlans.length > 0) {
+      const saved = localStorage.getItem(getDraftKey('construction_selected_floor_id'));
+      if (saved && floorPlans.some((fp) => fp.id === saved)) {
+        if (selectedFloorId !== saved) {
+          setSelectedFloorId(saved);
+        }
+        return;
+      }
       const exists = floorPlans.some((fp) => fp.id === selectedFloorId);
       if (!exists) {
         setSelectedFloorId(floorPlans[0].id);
       }
     }
-  }, [floorPlans, selectedFloorId]);
-  const [viewMode, setViewMode] = useState<'all' | 'highlight' | 'defect'>('highlight'); // Default 'highlight' (Mặt bằng thi công) to separate from Defect mode
+  }, [floorPlans, currentProjectId]);
+
+  // Sync selectedFloorId to localStorage
+  React.useEffect(() => {
+    if (selectedFloorId) {
+      localStorage.setItem(getDraftKey('construction_selected_floor_id'), selectedFloorId);
+    }
+  }, [selectedFloorId, currentProjectId]);
+
+  const [viewMode, setViewMode] = useState<'all' | 'highlight' | 'defect'>(() => {
+    const saved = localStorage.getItem(getDraftKey('construction_selected_view_mode'));
+    if (saved === 'all' || saved === 'highlight' || saved === 'defect') {
+      return saved;
+    }
+    return 'highlight';
+  });
+
+  React.useEffect(() => {
+    localStorage.setItem(getDraftKey('construction_selected_view_mode'), viewMode);
+  }, [viewMode, currentProjectId]);
+
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [isUploadingPlan, setIsUploadingPlan] = useState(false);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
@@ -494,6 +527,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   // Floor Customization & Management State
   const [showManageFloorsModal, setShowManageFloorsModal] = useState(false);
+  const [floorSortBy, setFloorSortBy] = useState<'none' | 'name' | 'rooms' | 'defects'>('none');
+  const [floorSortOrder, setFloorSortOrder] = useState<'asc' | 'desc'>('asc');
   const [editingFloorId, setEditingFloorId] = useState<string | null>(null);
   const [editingFloorName, setEditingFloorName] = useState<string>('');
   const [inlineEditingFloorId, setInlineEditingFloorId] = useState<string | null>(null);
@@ -512,30 +547,183 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const [confirmDeleteOrphanedModal, setConfirmDeleteOrphanedModal] = useState<boolean>(false);
 
   // Defect Pin state
-  const [pinPos, setPinPos] = useState<{ x: number; y: number } | null>(null);
-  const [showDefectModal, setShowDefectModal] = useState(false);
+  const [pinPos, setPinPos] = useState<{ x: number; y: number } | null>(() => {
+    try {
+      const saved = localStorage.getItem(getDraftKey('construction_defect_draft_pinPos'));
+      return saved ? JSON.parse(saved) : null;
+    } catch { return null; }
+  });
+  const [showDefectModal, setShowDefectModal] = useState(() => {
+    return localStorage.getItem(getDraftKey('construction_defect_draft_showDefectModal')) === 'true';
+  });
+  const [draftDefectId, setDraftDefectId] = useState<string>(() => {
+    let saved = localStorage.getItem(getDraftKey('construction_defect_draft_id'));
+    if (!saved) {
+      saved = `defect_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      localStorage.setItem(getDraftKey('construction_defect_draft_id'), saved);
+    }
+    return saved;
+  });
   const [activeDefectDetail, setActiveDefectDetail] = useState<DefectItem | null>(null);
 
   // Choice modal when clicking blueprint in 'all' mode
   const [clickChoicePos, setClickChoicePos] = useState<{ x: number; y: number } | null>(null);
 
   // Defect Form State
-  const [category, setCategory] = useState<DefectCategory>(DEFECT_CATEGORIES[0]);
-  const [description, setDescription] = useState('');
-  const [severity, setSeverity] = useState<DefectSeverity>('Trung bình');
-  const [assignedTo, setAssignedTo] = useState('Đội thi công bắn tấm');
+  const [category, setCategory] = useState<DefectCategory>(() => {
+    const saved = localStorage.getItem(getDraftKey('construction_defect_draft_category'));
+    return (saved as DefectCategory) || DEFECT_CATEGORIES[0];
+  });
+  const [description, setDescription] = useState(() => {
+    return localStorage.getItem(getDraftKey('construction_defect_draft_description')) || '';
+  });
+  const [severity, setSeverity] = useState<DefectSeverity>(() => {
+    return (localStorage.getItem(getDraftKey('construction_defect_draft_severity')) as DefectSeverity) || 'Trung bình';
+  });
+  const [assignedTo, setAssignedTo] = useState(() => {
+    return localStorage.getItem(getDraftKey('construction_defect_draft_assignedTo')) || 'Đội thi công bắn tấm';
+  });
   const [createdBy, setCreatedBy] = useState(() => inspectorName || 'Kỹ sư QC');
   const [dueDate, setDueDate] = useState(() => {
+    const saved = localStorage.getItem(getDraftKey('construction_defect_draft_dueDate'));
+    if (saved) return saved;
     const d = new Date();
     d.setDate(d.getDate() + 3);
     return d.toISOString().split('T')[0];
   });
-  const [photoUrl, setPhotoUrl] = useState('');
+  const [photoUrl, setPhotoUrl] = useState(() => {
+    return localStorage.getItem(getDraftKey('construction_defect_draft_photoUrl')) || '';
+  });
   const [afterPhotoUrl, setAfterPhotoUrl] = useState('');
 
+  // Effects to save draft fields
+  React.useEffect(() => {
+    if (pinPos) {
+      localStorage.setItem(getDraftKey('construction_defect_draft_pinPos'), JSON.stringify(pinPos));
+    } else {
+      localStorage.removeItem(getDraftKey('construction_defect_draft_pinPos'));
+    }
+  }, [pinPos, currentProjectId]);
+
+  React.useEffect(() => {
+    localStorage.setItem(getDraftKey('construction_defect_draft_showDefectModal'), String(showDefectModal));
+  }, [showDefectModal, currentProjectId]);
+
+  React.useEffect(() => {
+    localStorage.setItem(getDraftKey('construction_defect_draft_category'), category);
+  }, [category, currentProjectId]);
+
+  React.useEffect(() => {
+    localStorage.setItem(getDraftKey('construction_defect_draft_description'), description);
+  }, [description, currentProjectId]);
+
+  React.useEffect(() => {
+    localStorage.setItem(getDraftKey('construction_defect_draft_severity'), severity);
+  }, [severity, currentProjectId]);
+
+  React.useEffect(() => {
+    localStorage.setItem(getDraftKey('construction_defect_draft_assignedTo'), assignedTo);
+  }, [assignedTo, currentProjectId]);
+
+  React.useEffect(() => {
+    localStorage.setItem(getDraftKey('construction_defect_draft_dueDate'), dueDate);
+  }, [dueDate, currentProjectId]);
+
+  // Legacy photo auto-migration effect for activeDefectDetail
+  React.useEffect(() => {
+    if (!activeDefectDetail) return;
+    const pid = currentProjectId;
+    const defectId = activeDefectDetail.id;
+
+    let hasLegacy = false;
+    const updated = { ...activeDefectDetail };
+
+    const migrate = async () => {
+      if (activeDefectDetail.imageUrl) {
+        hasLegacy = true;
+        try {
+          await savePhotoAttachment(
+            {
+              projectId: pid,
+              entityType: 'defect',
+              entityId: defectId,
+              category: 'defect_before',
+              fileName: 'ảnh_trước_sửa.jpg',
+              mimeType: 'image/jpeg',
+              fileSize: 0,
+            },
+            activeDefectDetail.imageUrl
+          );
+        } catch (_) {}
+        updated.imageUrl = undefined;
+      }
+
+      if (activeDefectDetail.afterImageUrl) {
+        hasLegacy = true;
+        try {
+          await savePhotoAttachment(
+            {
+              projectId: pid,
+              entityType: 'defect',
+              entityId: defectId,
+              category: 'defect_after',
+              fileName: 'ảnh_sau_sửa.jpg',
+              mimeType: 'image/jpeg',
+              fileSize: 0,
+            },
+            activeDefectDetail.afterImageUrl
+          );
+        } catch (_) {}
+        updated.afterImageUrl = undefined;
+      }
+
+      if (hasLegacy) {
+        setActiveDefectDetail(updated);
+        if (onUpdateDefect) {
+          onUpdateDefect(updated);
+        }
+      }
+    };
+
+    migrate();
+  }, [activeDefectDetail?.id]);
+
+  React.useEffect(() => {
+    localStorage.setItem(getDraftKey('construction_defect_draft_photoUrl'), photoUrl);
+  }, [photoUrl, currentProjectId]);
+
+  const handleCancelDefectModal = async () => {
+    if (draftDefectId) {
+      try {
+        await deleteEntityPhotos(currentProjectId, 'defect', draftDefectId);
+      } catch (_) {}
+    }
+    const nextDraftId = `defect_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    localStorage.setItem(getDraftKey('construction_defect_draft_id'), nextDraftId);
+    setDraftDefectId(nextDraftId);
+
+    setShowDefectModal(false);
+    setPinPos(null);
+    setDescription('');
+    setPhotoUrl('');
+    setAfterPhotoUrl('');
+    
+    // Clear draft storage
+    localStorage.removeItem(getDraftKey('construction_defect_draft_pinPos'));
+    localStorage.setItem(getDraftKey('construction_defect_draft_showDefectModal'), 'false');
+    localStorage.removeItem(getDraftKey('construction_defect_draft_category'));
+    localStorage.removeItem(getDraftKey('construction_defect_draft_description'));
+    localStorage.removeItem(getDraftKey('construction_defect_draft_severity'));
+    localStorage.removeItem(getDraftKey('construction_defect_draft_assignedTo'));
+    localStorage.removeItem(getDraftKey('construction_defect_draft_dueDate'));
+    localStorage.removeItem(getDraftKey('construction_defect_draft_photoUrl'));
+  };
+
   const afterPhotoInputRef = useRef<HTMLInputElement>(null);
-  const modalBeforePhotoInputRef = useRef<HTMLInputElement>(null);
-  const modalAfterPhotoInputRef = useRef<HTMLInputElement>(null);
+  const modalBeforeCameraRef = useRef<HTMLInputElement>(null);
+  const modalBeforeGalleryRef = useRef<HTMLInputElement>(null);
+  const modalAfterCameraRef = useRef<HTMLInputElement>(null);
+  const modalAfterGalleryRef = useRef<HTMLInputElement>(null);
 
   // Draft Highlight Preview State (Requirement #1: Show highlight region on map BEFORE opening edit modal)
   const [pendingDraftHighlight, setPendingDraftHighlight] = useState<{
@@ -574,6 +762,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const [isSelectingMultipleFloors, setIsSelectingMultipleFloors] = useState<boolean>(false);
   const [copiedRoomsState, setCopiedRoomsState] = useState<RoomProgressItem[]>([]);
   const [copyNotification, setCopyNotification] = useState<string | null>(null);
+  const lastPointerMapPosRef = useRef<{ x: number; y: number }>({ x: 50, y: 50 });
 
   // Touch Context Menu State for Mobile (Long-press)
   interface TouchContextMenuState {
@@ -584,7 +773,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     rawY: number;
   }
   const [touchMenu, setTouchMenu] = useState<TouchContextMenuState | null>(null);
-
+  
   const touchHoldTimerRef = useRef<any>(null);
   const touchStartPosRef = useRef<{ clientX: number; clientY: number } | null>(null);
   const isLongPressActiveRef = useRef<boolean>(false);
@@ -631,6 +820,29 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     setTimeout(() => setCopyNotification(null), 3500);
   };
 
+  const sortedFloorPlans = React.useMemo(() => {
+    if (floorSortBy === 'none') {
+      return floorPlans;
+    }
+    return [...floorPlans].sort((a, b) => {
+      if (floorSortBy === 'name') {
+        const comp = a.floorName.localeCompare(b.floorName, 'vi', { numeric: true, sensitivity: 'base' });
+        return floorSortOrder === 'asc' ? comp : -comp;
+      }
+      if (floorSortBy === 'rooms') {
+        const getCount = (fp: FloorPlan) => roomProgressList.filter(r => r.floorId === fp.id).length;
+        const comp = getCount(a) - getCount(b);
+        return floorSortOrder === 'asc' ? comp : -comp;
+      }
+      if (floorSortBy === 'defects') {
+        const getCount = (fp: FloorPlan) => defects.filter(d => d.floorId === fp.id).length;
+        const comp = getCount(a) - getCount(b);
+        return floorSortOrder === 'asc' ? comp : -comp;
+      }
+      return 0;
+    });
+  }, [floorPlans, floorSortBy, floorSortOrder, roomProgressList, defects]);
+
   const orphanedRooms = React.useMemo(() => {
     return roomProgressList.filter((r) => !floorPlans.some((fp) => fp.id === r.floorId));
   }, [roomProgressList, floorPlans]);
@@ -653,9 +865,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     setConfirmDeleteOrphanedModal(false);
   };
 
-  const handlePasteRoom = (targetX: number, targetY: number) => {
+  const handlePasteRoom = (targetX: number, targetY: number, overwrite = false) => {
     if (copiedRoomsState.length === 0 || !activeFloor) return;
-
+    
     // Find bounding box center of all copied rooms
     let minX = 100, minY = 100, maxX = 0, maxY = 0;
     copiedRoomsState.forEach(room => {
@@ -703,21 +915,28 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         newY = Math.round(newY * 10) / 10;
       }
 
-      // Format clean duplicate name (e.g. "Căn A101 (Bản sao)" or "Căn A101 (Bản sao 2)")
+      // Format clean duplicate name or keep exact name if overwriting
       let newName = room.roomName;
-      if (newName.includes('(Bản sao')) {
-        const match = newName.match(/\(Bản sao\s*(\d*)\)/);
-        if (match) {
-          const num = match[1] ? parseInt(match[1], 10) + 1 : 2;
-          newName = newName.replace(/\(Bản sao\s*\d*\)/, `(Bản sao ${num})`);
+      if (!overwrite) {
+        if (newName.includes('(Bản sao')) {
+          const match = newName.match(/\(Bản sao\s*(\d*)\)/);
+          if (match) {
+            const num = match[1] ? parseInt(match[1], 10) + 1 : 2;
+            newName = newName.replace(/\(Bản sao\s*\d*\)/, `(Bản sao ${num})`);
+          } else {
+            newName = `${newName} (Bản sao)`;
+          }
         } else {
           newName = `${newName} (Bản sao)`;
         }
-      } else {
-        newName = `${newName} (Bản sao)`;
       }
 
-      const generatedId = `ROOM-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      // Check for an existing room of the same name on this floor to overwrite
+      const existingRoom = overwrite
+        ? floorRooms.find((r) => r.roomName.trim().toLowerCase() === room.roomName.trim().toLowerCase())
+        : undefined;
+
+      const generatedId = existingRoom ? existingRoom.id : `ROOM-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
       newPastedIds.push(generatedId);
 
       const newRoom: RoomProgressItem = {
@@ -739,9 +958,21 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         targetFrameDate: room.targetFrameDate,
         targetBoardDate: room.targetBoardDate,
         points: newPoints,
-        updatedAt: new Date().toLocaleString('vi-VN')
+        workCategory: room.workCategory,
+        categoryVolumes: room.categoryVolumes ? { ...room.categoryVolumes } : undefined,
+        subItems: room.subItems
+          ? room.subItems.map((subItem) => ({
+              ...subItem,
+              id: `sub-custom-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            }))
+          : undefined,
+        workVolume: room.workVolume,
+        volumeUnit: room.volumeUnit,
+        isPolyline: room.isPolyline,
+        color: room.color,
+        updatedAt: Date.now()
       };
-
+      
       onSaveRoomProgress(newRoom);
     });
 
@@ -749,7 +980,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       const lastId = newPastedIds[newPastedIds.length - 1];
       setSelectedRoomForDragId(lastId);
       setSelectedRoomIds(newPastedIds);
-      setCopyNotification(`🎉 Đã dán thành công ${newPastedIds.length} căn mới!`);
+      setCopyNotification(
+        overwrite
+          ? `🎉 Đã dán đè/cập nhật thành công ${newPastedIds.length} căn!`
+          : `🎉 Đã dán thành công ${newPastedIds.length} căn mới!`
+      );
       setTimeout(() => setCopyNotification(null), 3500);
     }
 
@@ -764,7 +999,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const handleRoomTouchStart = (e: React.TouchEvent, room: RoomProgressItem) => {
     e.stopPropagation();
     if (e.touches.length !== 1) return;
-
+    
     const touch = e.touches[0];
     const clientX = touch.clientX;
     const clientY = touch.clientY;
@@ -896,8 +1131,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         return updated;
       });
     } else {
-      setSelectedRoomIds([room.id]);
-      setSelectedRoomForDragId(room.id);
+      setSelectedRoomIds((prev) => {
+        if (prev.length === 1 && prev[0] === room.id) {
+          setSelectedRoomForDragId(null);
+          return [];
+        }
+        setSelectedRoomForDragId(room.id);
+        return [room.id];
+      });
     }
   };
 
@@ -908,6 +1149,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     mouseX: number;
     mouseY: number;
     room: RoomProgressItem;
+    rooms?: RoomProgressItem[];
   } | null>(null);
 
 
@@ -923,9 +1165,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const [redrawingRoomTarget, setRedrawingRoomTarget] = useState<RoomProgressItem | null>(null);
   const [is2PointDragging, setIs2PointDragging] = useState(false);
 
-  const handleStartRedraw2Point = (room: RoomProgressItem) => {
+  const handleStartRedraw2Point = (room: RoomProgressItem, tool: 'freehand' | 'polygon' | '2point' = '2point') => {
     setRedrawingRoomTarget(room);
-    setDrawTool('2point');
+    setDrawTool(tool);
     setDrawStartPos(null);
     setDrawHoverPos(null);
     setPolygonPoints([]);
@@ -967,6 +1209,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     ];
 
     const data = roomsToExport.map(r => ({
+      'STT': roomsToExport.indexOf(r) + 1,
+      '__recordId': (r as any).id || '',
       'Tên Căn Hộ hoặc Phòng': r.roomName,
       'Tọa độ X (%)': r.x,
       'Tọa độ Y (%)': r.y,
@@ -1009,7 +1253,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         // Validate that we can find the room name column
         const firstRow = jsonData[0];
         const foundHeaders = Object.keys(firstRow);
-        const nameMatchKey = foundHeaders.find(h =>
+        const nameMatchKey = foundHeaders.find(h => 
           ['Tên Căn Hộ hoặc Phòng', 'roomName', 'Tên Phòng', 'Phòng', 'Căn Hộ', 'can ho', 'room'].some(rk => h.toLowerCase().includes(rk.toLowerCase()))
         );
 
@@ -1043,27 +1287,36 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           return;
         }
 
-        const confirmMerge = await confirmAsync(
+        // Ask Step 1: Merge or choose replace/cancel
+        const wantMerge = await confirmAsync(
           `📂 Phát hiện ${jsonData.length} phòng trong tệp Excel (${existingMatchCount} phòng trùng tên đã có sẵn, ${newCount} phòng mới).\n\n` +
           `• Bấm "Đồng ý" để CẬP NHẬT thông tin các phòng cũ & THÊM MỚI các phòng chưa có.\n` +
-          `• Bấm "Hủy" để XÓA TOÀN BỘ dữ liệu cũ trên tầng này và THAY THẾ HOÀN TOÀN từ file Excel.`
+          `• Bấm "Hủy" để mở tùy chọn THAY THẾ TOÀN BỘ hoặc HỦY THAO TÁC.`
         );
 
-        if (!confirmMerge) {
-          // Delete all current floor rooms first
-          if (onDeleteMultipleRoomProgress) {
-            onDeleteMultipleRoomProgress(currentFloorRooms.map(r => r.id));
-          } else {
-            currentFloorRooms.forEach(room => {
-              onDeleteRoomProgress(room.id);
-            });
+        let importMode: 'merge' | 'replace' = 'merge';
+
+        if (!wantMerge) {
+          const wantReplace = await confirmAsync(
+            `⚠️ Bạn có chắc chắn muốn XÓA TOÀN BỘ ${currentFloorRooms.length} căn/phòng hiện tại trên mặt bằng "${activeFloor?.floorName}" và THAY THẾ HOÀN TOÀN bằng dữ liệu mới từ file Excel không?\n\n` +
+            `• Bấm "Đồng ý" để XÓA TOÀN BỘ & NẠP LẠI MỚI.\n` +
+            `• Bấm "Hủy" để DỪNG THAO TÁC VÀ GIỮ NGUYÊN DỮ LIỆU CŨ.`
+          );
+
+          if (!wantReplace) {
+            e.target.value = '';
+            return;
           }
+
+          importMode = 'replace';
         }
 
         let importedCount = 0;
         let updatedCount = 0;
+        const processedRoomIds = new Set<string>();
 
         jsonData.forEach((row: any) => {
+          const rawRecordId = String(row['__recordId'] || row['Mã Định Danh'] || row['id'] || '').trim();
           const rawName = row[nameMatchKey];
           if (!rawName) return;
 
@@ -1098,20 +1351,25 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           }
 
           let existingId: string | undefined = undefined;
-          if (confirmMerge) {
-            const match = currentFloorRooms.find(r => r.roomName.toLowerCase() === nameStr.toLowerCase());
-            if (match) {
-              existingId = match.id;
-              updatedCount++;
-            } else {
-              importedCount++;
-            }
+          let existingRoomObj: any = null;
+          
+          // Match by __recordId or name
+          const match = currentFloorRooms.find(r => (rawRecordId && r.id === rawRecordId) || r.roomName.toLowerCase() === nameStr.toLowerCase());
+          if (match) {
+            existingId = match.id;
+            existingRoomObj = match;
+            updatedCount++;
           } else {
+            existingId = rawRecordId || undefined;
             importedCount++;
           }
 
+          const targetId = existingId || `room_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+          processedRoomIds.add(targetId);
+
           onSaveRoomProgress({
-            id: existingId,
+            ...(existingRoomObj || {}),
+            id: targetId,
             floorId: activeFloor?.id || 'fp-1',
             floorName: activeFloor?.floorName || 'Mặt bằng',
             roomName: nameStr,
@@ -1129,6 +1387,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           });
         });
 
+        // In replace mode, delete only obsolete rooms not present in the Excel file
+        if (importMode === 'replace') {
+          const obsoleteRooms = currentFloorRooms.filter(r => !processedRoomIds.has(r.id));
+          if (obsoleteRooms.length > 0) {
+            if (onDeleteMultipleRoomProgress) {
+              onDeleteMultipleRoomProgress(obsoleteRooms.map(r => r.id));
+            } else {
+              obsoleteRooms.forEach(r => onDeleteRoomProgress(r.id));
+            }
+          }
+        }
+
         alert(
           `🎉 Nhập dữ liệu Mặt Bằng từ Excel thành công!\n\n` +
           `• Đã cập nhật/chỉnh sửa: ${updatedCount} phòng/căn\n` +
@@ -1145,7 +1415,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   // Minimalist Overlay Mode State (Default FALSE so only clean highlights show without cluttered text)
   const [showTextOverlay, setShowTextOverlay] = useState(false);
   const [hoveredRoomId, setHoveredRoomId] = useState<string | null>(null);
-
+  
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [imgAspect, setImgAspect] = useState<number>(1.414);
   const [rotation, setRotation] = useState<number>(0);
@@ -1155,7 +1425,45 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const activeFloor = floorPlans.find((fp) => fp.id === selectedFloorId) || floorPlans[0];
   const floorDefects = defects.filter((d) => d.floorId === activeFloor?.id);
   const floorRooms = roomProgressList.filter((r) => r.floorId === activeFloor?.id);
-  const selectedRoomObject = floorRooms.find((r) => r.id === selectedRoomForDragId || selectedRoomIds.includes(r.id));
+  const [draggingRoomsPreview, setDraggingRoomsPreview] = useState<Record<string, RoomProgressItem> | null>(null);
+  const draggingRoomsPreviewRef = useRef<Record<string, RoomProgressItem> | null>(null);
+
+  const displayedFloorRooms = React.useMemo(() => {
+    if (!draggingRoomsPreview) return floorRooms;
+    return floorRooms.map((r) => draggingRoomsPreview[r.id] || r);
+  }, [floorRooms, draggingRoomsPreview]);
+
+  const [roomSortBy, setRoomSortBy] = useState<'name' | 'createdAt' | 'updatedAt' | 'manual'>('manual');
+  const [roomSortOrder, setRoomSortOrder] = useState<'asc' | 'desc'>('asc');
+
+  const sortedFloorRooms = React.useMemo(() => {
+    if (roomSortBy === 'manual') return displayedFloorRooms;
+
+    const getCreatedAt = (room: RoomProgressItem) => {
+      const parts = room.id.split('-');
+      if (parts.length > 1) {
+        const ts = parseInt(parts[1], 10);
+        if (!isNaN(ts) && ts > 1000000000000) {
+          return ts;
+        }
+      }
+      return room.updatedAt || 0;
+    };
+
+    return [...displayedFloorRooms].sort((a, b) => {
+      let comparison = 0;
+      if (roomSortBy === 'name') {
+        comparison = a.roomName.localeCompare(b.roomName, 'vi', { numeric: true, sensitivity: 'base' });
+      } else if (roomSortBy === 'createdAt') {
+        comparison = getCreatedAt(a) - getCreatedAt(b);
+      } else if (roomSortBy === 'updatedAt') {
+        comparison = (a.updatedAt || 0) - (b.updatedAt || 0);
+      }
+      return roomSortOrder === 'asc' ? comparison : -comparison;
+    });
+  }, [displayedFloorRooms, roomSortBy, roomSortOrder]);
+
+  const selectedRoomObject = displayedFloorRooms.find((r) => r.id === selectedRoomForDragId || selectedRoomIds.includes(r.id));
 
   useEffect(() => {
     setRotation(0);
@@ -1206,7 +1514,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const elementsToBind = [parentEl, imgEl].filter((el): el is HTMLElement => el !== null);
 
     if (elementsToBind.length === 0) return;
-
+    
     let initialDist = 0;
     let initialZoom = 1;
 
@@ -1235,7 +1543,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         }
       }
     };
-
+    
     const onTouchEnd = (e: TouchEvent) => {
       if (e.touches.length < 2) {
         initialDist = 0;
@@ -1277,6 +1585,16 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       const target = e.target as HTMLElement;
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
 
+      // Ctrl+A / Cmd+A: Select all rooms on current floor
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        const allRoomIds = floorRooms.map(r => r.id);
+        setSelectedRoomIds(allRoomIds);
+        if (allRoomIds.length > 0) {
+          setSelectedRoomForDragId(allRoomIds[allRoomIds.length - 1]);
+        }
+      }
+
       // Ctrl+C / Cmd+C: Copy selected rooms
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
         const roomsToCopy = floorRooms.filter(r => selectedRoomIds.includes(r.id) || r.id === selectedRoomForDragId);
@@ -1289,9 +1607,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
         if (copiedRoomsState.length > 0 && activeFloor) {
           e.preventDefault();
-          const selectedRoom = floorRooms.find(r => r.id === selectedRoomForDragId);
-          const px = selectedRoom ? selectedRoom.x + 4 : 50;
-          const py = selectedRoom ? selectedRoom.y + 4 : 50;
+          const px = lastPointerMapPosRef.current ? lastPointerMapPosRef.current.x : 50;
+          const py = lastPointerMapPosRef.current ? lastPointerMapPosRef.current.y : 50;
           handlePasteRoom(px, py);
         }
       }
@@ -1426,18 +1743,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const boardInspectPercent = total > 0 ? Math.round((boardInspectPassed / total) * 100) : 0;
     const inspectPercent = total > 0 ? Math.round((inspectedPassed / total) * 100) : 0;
 
-    return {
-      total,
-      frameDone,
-      boardDone,
-      frameInspectPassed,
-      boardInspectPassed,
-      inspectedPassed,
-      framePercent,
-      boardPercent,
-      frameInspectPercent,
-      boardInspectPercent,
-      inspectPercent
+    return { 
+      total, 
+      frameDone, 
+      boardDone, 
+      frameInspectPassed, 
+      boardInspectPassed, 
+      inspectedPassed, 
+      framePercent, 
+      boardPercent, 
+      frameInspectPercent, 
+      boardInspectPercent, 
+      inspectPercent 
     };
   }, [floorRooms]);
 
@@ -1581,15 +1898,33 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     } catch {}
 
+    const isSelected = selectedRoomIds.includes(room.id);
+    let roomsToDrag = [room];
+    if (isSelected && handle === 'move') {
+      roomsToDrag = floorRooms.filter(r => selectedRoomIds.includes(r.id));
+    }
+    
+    // If we click the move icon but the room isn't in selectedRoomIds, maybe select it?
+    if (!isSelected) {
+      setSelectedRoomIds([room.id]);
+    }
+
     setSelectedRoomForDragId(room.id);
     setActiveDragHandle(handle);
-    setDragStartInfo({ mouseX, mouseY, room: JSON.parse(JSON.stringify(room)) });
+    setDraggingRoomsPreview(null);
+    draggingRoomsPreviewRef.current = null;
+    setDragStartInfo({ 
+      mouseX, 
+      mouseY, 
+      room: JSON.parse(JSON.stringify(room)),
+      rooms: JSON.parse(JSON.stringify(roomsToDrag))
+    });
   };
 
   // Pointer Down on Floor Plan (Freehand start or Polygon or 2-Point)
   const handlePointerDownImage = (e: React.PointerEvent<HTMLDivElement>) => {
     activePointersRef.current.add(e.pointerId);
-
+    
     if (activePointersRef.current.size > 1) {
       // It's a multi-touch/pinch, so cancel any drawing we just started
       setIsFreehandDrawing(false);
@@ -1634,6 +1969,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const x = Math.min(100, Math.max(0, Math.round(rawX * 10) / 10));
     const y = Math.min(100, Math.max(0, Math.round(rawY * 10) / 10));
 
+    lastPointerMapPosRef.current = { x, y };
     setDrawHoverPos({ x, y });
 
     // Handle Active Drag-and-Resize on Highlight Region
@@ -1648,18 +1984,36 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       let newH = initRoom.height || 15;
       let newPoints = initRoom.points ? [...initRoom.points] : undefined;
 
-      if (activeDragHandle === 'move') {
-        newX = Math.min(100 - newW, Math.max(0, Math.round((initRoom.x + dx) * 10) / 10));
-        newY = Math.min(100 - newH, Math.max(0, Math.round((initRoom.y + dy) * 10) / 10));
+      if (activeDragHandle === 'move' && dragStartInfo.rooms && dragStartInfo.rooms.length > 0) {
+        const previewMap: Record<string, RoomProgressItem> = {};
+        dragStartInfo.rooms.forEach(roomToMove => {
+          const roomW = roomToMove.width || 20;
+          const roomH = roomToMove.height || 15;
+          let newX = Math.min(100 - roomW, Math.max(0, Math.round((roomToMove.x + dx) * 10) / 10));
+          let newY = Math.min(100 - roomH, Math.max(0, Math.round((roomToMove.y + dy) * 10) / 10));
+          let newPoints = roomToMove.points ? [...roomToMove.points] : undefined;
 
-        if (newPoints && initRoom.points) {
-          const pdx = newX - initRoom.x;
-          const pdy = newY - initRoom.y;
-          newPoints = initRoom.points.map((p) => ({
-            x: Math.min(100, Math.max(0, Math.round((p.x + pdx) * 10) / 10)),
-            y: Math.min(100, Math.max(0, Math.round((p.y + pdy) * 10) / 10)),
-          }));
-        }
+          if (newPoints && roomToMove.points) {
+            const pdx = newX - roomToMove.x;
+            const pdy = newY - roomToMove.y;
+            newPoints = roomToMove.points.map((p) => ({
+              x: Math.min(100, Math.max(0, Math.round((p.x + pdx) * 10) / 10)),
+              y: Math.min(100, Math.max(0, Math.round((p.y + pdy) * 10) / 10)),
+            }));
+          }
+
+          previewMap[roomToMove.id] = {
+            ...roomToMove,
+            x: newX,
+            y: newY,
+            width: roomW,
+            height: roomH,
+            points: newPoints,
+          };
+        });
+        setDraggingRoomsPreview(previewMap);
+        draggingRoomsPreviewRef.current = previewMap;
+        return;
       } else if (typeof activeDragHandle === 'number' && newPoints) {
         // Drag individual polygon point
         newPoints[activeDragHandle] = { x, y };
@@ -1713,14 +2067,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         }
       }
 
-      onSaveRoomProgress({
-        ...initRoom,
-        x: newX,
-        y: newY,
-        width: newW,
-        height: newH,
-        points: newPoints,
-      });
+      const previewMap: Record<string, RoomProgressItem> = {
+        [initRoom.id]: {
+          ...initRoom,
+          x: newX,
+          y: newY,
+          width: newW,
+          height: newH,
+          points: newPoints,
+        }
+      };
+      setDraggingRoomsPreview(previewMap);
+      draggingRoomsPreviewRef.current = previewMap;
       return;
     }
 
@@ -1746,8 +2104,23 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       try {
         (e.target as HTMLElement).releasePointerCapture(e.pointerId);
       } catch {}
+
+      const previewToCommit = draggingRoomsPreviewRef.current;
+      if (previewToCommit) {
+        const modifiedRooms = Object.values(previewToCommit);
+        if (modifiedRooms.length > 0) {
+          if (onBatchSaveRooms && modifiedRooms.length > 1) {
+            onBatchSaveRooms(modifiedRooms);
+          } else {
+            modifiedRooms.forEach((r) => onSaveRoomProgress(r));
+          }
+        }
+      }
+
       setActiveDragHandle(null);
       setDragStartInfo(null);
+      setDraggingRoomsPreview(null);
+      draggingRoomsPreviewRef.current = null;
       return;
     }
 
@@ -1808,11 +2181,25 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         const w = Math.max(4, maxX - minX);
         const h = Math.max(4, maxY - minY);
 
-        // Preview highlight on map FIRST before opening modal
-        setPendingDraftHighlight({
-          rect: { x: minX, y: minY, width: w, height: h },
-          points: [...freehandPoints],
-        });
+        if (redrawingRoomTarget) {
+          onSaveRoomProgress({
+            ...redrawingRoomTarget,
+            x: minX,
+            y: minY,
+            width: w,
+            height: h,
+            points: [...freehandPoints],
+            isPolyline: false,
+          });
+          setRedrawingRoomTarget(null);
+          setDrawTool('none');
+        } else {
+          // Preview highlight on map FIRST before opening modal
+          setPendingDraftHighlight({
+            rect: { x: minX, y: minY, width: w, height: h },
+            points: [...freehandPoints],
+          });
+        }
       }
       setFreehandPoints([]);
     }
@@ -1850,12 +2237,26 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const w = Math.max(3, maxX - minX);
     const h = Math.max(3, maxY - minY);
 
-    // Preview highlight on map FIRST before opening modal
-    setPendingDraftHighlight({
-      rect: { x: minX, y: minY, width: w, height: h },
-      points: finalPoints,
-      isPolyline,
-    });
+    if (redrawingRoomTarget) {
+      onSaveRoomProgress({
+        ...redrawingRoomTarget,
+        x: minX,
+        y: minY,
+        width: w,
+        height: h,
+        points: finalPoints,
+        isPolyline,
+      });
+      setRedrawingRoomTarget(null);
+      setDrawTool('none');
+    } else {
+      // Preview highlight on map FIRST before opening modal
+      setPendingDraftHighlight({
+        rect: { x: minX, y: minY, width: w, height: h },
+        points: finalPoints,
+        isPolyline,
+      });
+    }
 
     setPolygonPoints([]);
   };
@@ -1888,6 +2289,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const x = Math.min(100, Math.max(0, Math.round(rawX * 10) / 10));
     const y = Math.min(100, Math.max(0, Math.round(rawY * 10) / 10));
 
+    lastPointerMapPosRef.current = { x, y };
+
     // Defect Mode: Always place a defect pin directly without room highlight drawing
     if (viewMode === 'defect') {
       openDefectModalForPin(x, y);
@@ -1896,17 +2299,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
     // Polygon Point-by-Point Mode (2 or more points)
     if (drawTool === 'polygon') {
-      // If clicking close to first point when we have 2 or more points, complete polygon
-      if (polygonPoints.length >= 2) {
-        const first = polygonPoints[0];
-        const dx = x - first.x;
-        const dy = y - first.y;
-        if (dx * dx + dy * dy < 25) {
-          handleCompletePolygon();
-          return;
-        }
-      }
       setPolygonPoints((prev) => [...prev, { x, y }]);
+      setDrawHoverPos({ x, y });
       return;
     }
 
@@ -1965,7 +2359,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     }
 
     if (drawTool === 'none') {
-      if (viewMode === 'all' && copiedRoomsState.length > 0) {
+      if (viewMode === 'all') {
         setClickChoicePos({ x, y });
       } else {
         setClickChoicePos(null);
@@ -2003,7 +2397,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     e.stopPropagation();
     const current = room.frameInspectionStatus || 'Chưa nghiệm thu';
     const nextStatus = current === 'Chưa nghiệm thu' ? 'Đạt nghiệm thu' : current === 'Đạt nghiệm thu' ? 'Chưa đạt (Cần sửa)' : 'Chưa nghiệm thu';
-
+    
     // Auto sync overall inspection
     const boardInsp = room.boardInspectionStatus || 'Chưa nghiệm thu';
     let overall = room.inspectionStatus;
@@ -2025,7 +2419,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     e.stopPropagation();
     const current = room.boardInspectionStatus || 'Chưa nghiệm thu';
     const nextStatus = current === 'Chưa nghiệm thu' ? 'Đạt nghiệm thu' : current === 'Đạt nghiệm thu' ? 'Chưa đạt (Cần sửa)' : 'Chưa nghiệm thu';
-
+    
     // Auto sync overall inspection
     const frameInsp = room.frameInspectionStatus || 'Chưa nghiệm thu';
     let overall = room.inspectionStatus;
@@ -2061,11 +2455,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       setIsUploadingPlan(true);
       let planUrl = await readFileAsDataUrl(file);
 
-      try {
-        const uploadedUrl = await uploadImageToServerDrive(file, `MB_${newFloorName}_${Date.now()}.png`);
-        if (uploadedUrl) planUrl = uploadedUrl;
-      } catch (uploadErr) {
-        console.warn('Drive upload fallback to local base64:', uploadErr);
+      if (hasApiBackend()) {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('fileName', `MB_${newFloorName}_${Date.now()}.png`);
+
+        const res = await apiFetch('/api/drive/upload-image', {
+          method: 'POST',
+          body: formData,
+        });
+
+        const data = await res.json();
+        if (data.url) planUrl = data.url;
       }
 
       onAddFloorPlan({
@@ -2084,18 +2485,26 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     }
   };
 
-  // Select Defect Photo to Edit
+  // Select Defect Photo
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     try {
-      const url = await readFileAsDataUrl(file);
+      setIsUploadingPhoto(true);
+      const url = await readDefectPhotoAsDataUrl(file);
+      if (!url) {
+        alert('Không thể đọc ảnh');
+        return;
+      }
+      setPhotoUrl(url);
       setEditingPhotoUrl(url);
-      setIsImageEditorOpen(true);
     } catch (err) {
       console.error(err);
       alert('Không thể đọc ảnh');
+    } finally {
+      setIsUploadingPhoto(false);
+      if (photoInputRef.current) photoInputRef.current.value = '';
     }
   };
 
@@ -2104,13 +2513,25 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     setEditingPhotoUrl(null);
     try {
       setIsUploadingPhoto(true);
-      let photoResultUrl = await readFileAsDataUrl(editedFile);
+      let photoResultUrl = await readDefectPhotoAsDataUrl(editedFile);
 
-      try {
-        const uploadedUrl = await uploadImageToServerDrive(editedFile, `Defect_Photo_Edited_${Date.now()}.jpg`);
-        if (uploadedUrl) photoResultUrl = uploadedUrl;
-      } catch (uploadErr) {
-        console.warn('Drive upload fallback to local base64:', uploadErr);
+      if (hasApiBackend()) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+        const formData = new FormData();
+        formData.append('file', editedFile);
+        formData.append('fileName', `Defect_Photo_Edited_${Date.now()}.jpg`);
+
+        const res = await apiFetch('/api/drive/upload-image', {
+          method: 'POST',
+          body: formData,
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        const data = await res.json();
+        if (data.url) photoResultUrl = data.url;
       }
 
       setPhotoUrl(photoResultUrl);
@@ -2129,13 +2550,25 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
     try {
       setIsUploadingPhoto(true);
-      let photoResultUrl = await readFileAsDataUrl(file);
+      let photoResultUrl = await readDefectPhotoAsDataUrl(file);
 
-      try {
-        const uploadedUrl = await uploadImageToServerDrive(file, `Defect_After_Photo_${Date.now()}.jpg`);
-        if (uploadedUrl) photoResultUrl = uploadedUrl;
-      } catch (uploadErr) {
-        console.warn('Drive upload fallback to local base64:', uploadErr);
+      if (hasApiBackend()) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('fileName', `Defect_After_Photo_${Date.now()}.jpg`);
+
+        const res = await apiFetch('/api/drive/upload-image', {
+          method: 'POST',
+          body: formData,
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        const data = await res.json();
+        if (data.url) photoResultUrl = data.url;
       }
 
       if (forModal && activeDefectDetail) {
@@ -2163,13 +2596,25 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
     try {
       setIsUploadingPhoto(true);
-      let photoResultUrl = await readFileAsDataUrl(file);
+      let photoResultUrl = await readDefectPhotoAsDataUrl(file);
 
-      try {
-        const uploadedUrl = await uploadImageToServerDrive(file, `Defect_Before_Photo_${Date.now()}.jpg`);
-        if (uploadedUrl) photoResultUrl = uploadedUrl;
-      } catch (uploadErr) {
-        console.warn('Drive upload fallback to local base64:', uploadErr);
+      if (hasApiBackend()) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('fileName', `Defect_Before_Photo_${Date.now()}.jpg`);
+
+        const res = await apiFetch('/api/drive/upload-image', {
+          method: 'POST',
+          body: formData,
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        const data = await res.json();
+        if (data.url) photoResultUrl = data.url;
       }
 
       const updated = { ...activeDefectDetail, imageUrl: photoResultUrl };
@@ -2185,13 +2630,59 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     }
   };
 
+  const handleClearModalBeforePhoto = () => {
+    if (!activeDefectDetail) return;
+    const updated = { ...activeDefectDetail, imageUrl: undefined };
+    setActiveDefectDetail(updated);
+    if (onUpdateDefect) {
+      onUpdateDefect(updated);
+    }
+  };
+
+  const handleClearModalAfterPhoto = () => {
+    if (!activeDefectDetail) return;
+    const updated = { ...activeDefectDetail, afterImageUrl: undefined };
+    setActiveDefectDetail(updated);
+    if (onUpdateDefect) {
+      onUpdateDefect(updated);
+    } else {
+      onUpdateDefectStatus(updated.id, updated.status);
+    }
+  };
+
   const handleCreateDefect = (e: React.FormEvent) => {
     e.preventDefault();
     if (!pinPos || !activeFloor) return;
 
+    const isPointInRoom = (px: number, py: number, r: any) => {
+      if (r.points && r.points.length >= 3) {
+        let inside = false;
+        for (let i = 0, j = r.points.length - 1; i < r.points.length; j = i++) {
+          const xi = r.points[i].x, yi = r.points[i].y;
+          const xj = r.points[j].x, yj = r.points[j].y;
+          const intersect = ((yi > py) !== (yj > py))
+              && (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
+          if (intersect) inside = !inside;
+        }
+        return inside;
+      }
+      const rx = r.x;
+      const ry = r.y;
+      const rw = r.width || 0;
+      const rh = r.height || 0;
+      return px >= rx && px <= rx + rw && py >= ry && py <= ry + rh;
+    };
+    const matchedRoom = floorRooms.find(r => isPointInRoom(pinPos.x, pinPos.y, r));
+
+    const matchingTeam = teams.find(t => t.name.trim().toLowerCase() === assignedTo.trim().toLowerCase());
+    const finalTeamId = matchingTeam?.id || undefined;
+
     onAddDefect({
+      id: draftDefectId,
       floorId: activeFloor.id,
       floorName: activeFloor.floorName,
+      roomId: matchedRoom?.id || undefined,
+      teamId: finalTeamId,
       category,
       x: pinPos.x,
       y: pinPos.y,
@@ -2205,23 +2696,38 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       status: 'Mới phát hiện',
     });
 
+    const nextDraftId = `defect_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    localStorage.setItem(getDraftKey('construction_defect_draft_id'), nextDraftId);
+    setDraftDefectId(nextDraftId);
+
     setShowDefectModal(false);
     setPinPos(null);
     setDescription('');
     setPhotoUrl('');
     setAfterPhotoUrl('');
+
+    // Clear draft storage
+    localStorage.removeItem(getDraftKey('construction_defect_draft_pinPos'));
+    localStorage.setItem(getDraftKey('construction_defect_draft_showDefectModal'), 'false');
+    localStorage.removeItem(getDraftKey('construction_defect_draft_category'));
+    localStorage.removeItem(getDraftKey('construction_defect_draft_description'));
+    localStorage.removeItem(getDraftKey('construction_defect_draft_severity'));
+    localStorage.removeItem(getDraftKey('construction_defect_draft_assignedTo'));
+    localStorage.removeItem(getDraftKey('construction_defect_draft_dueDate'));
+    localStorage.removeItem(getDraftKey('construction_defect_draft_photoUrl'));
+
     alert('Đã định vị và lưu Defect thành công!');
   };
 
   const isRotated = rotation === 90 || rotation === 270;
   const availW = isRotated ? parentSize.h : parentSize.w;
   const availH = isRotated ? parentSize.w : parentSize.h;
-
+  
   // High-reliability dimension calculations:
   // If parent size is not yet measured (0), use the default layout height (400px) and scale width using imgAspect to completely avoid distortion.
   let targetW = 400;
   let targetH = 400;
-
+  
   if (imgAspect) {
     if (availW > 10 && availH > 10) {
       if (availW / availH > imgAspect) {
@@ -2256,13 +2762,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   }
 
   return (
-    <div className="p-4 space-y-4 pb-24 max-w-md mx-auto">
+    <div className="p-4 space-y-4 pb-24 w-full max-w-6xl mx-auto">
       {/* Title Header */}
       <div className="flex items-center justify-between gap-2">
         <div>
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
             <Building2 className="w-5 h-5 text-indigo-600" />
-            Mặt Bằng Thi Công
+            {t('floorplan_title')}
           </h2>
           <p className="text-xs text-slate-500 font-medium">
             Đang xem: <span className="font-extrabold text-indigo-600">{activeFloor?.floorName}</span> ({floorPlans.length} tầng)
@@ -2401,7 +2907,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         </div>
 
         <div className="flex gap-2 overflow-x-auto pb-1 text-xs no-scrollbar">
-          {floorPlans.map((fp, index) => {
+          {sortedFloorPlans.map((fp, index) => {
             const isSelected = selectedFloorId === fp.id || (!selectedFloorId && fp.id === activeFloor?.id);
             const defectCount = defects.filter((d) => d.floorId === fp.id && d.status !== 'Đã nghiệm thu').length;
             const roomCount = roomProgressList.filter((r) => r.floorId === fp.id).length;
@@ -2560,7 +3066,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     </button>
 
                     {/* Move Left Button */}
-                    {index > 0 && (
+                    {index > 0 && floorSortBy === 'none' && (
                       <button
                         type="button"
                         onClick={(e) => {
@@ -2575,7 +3081,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     )}
 
                     {/* Move Right Button */}
-                    {index < floorPlans.length - 1 && (
+                    {index < sortedFloorPlans.length - 1 && floorSortBy === 'none' && (
                       <button
                         type="button"
                         onClick={(e) => {
@@ -2824,24 +3330,86 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
           {/* Active Drawing Tool Info Banner */}
           {redrawingRoomTarget ? (
-            <div className="bg-amber-500 text-slate-950 p-2.5 rounded-2xl text-xs font-black flex items-center justify-between border-2 border-amber-400 shadow-md animate-in slide-in-from-top-1">
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-slate-950 shrink-0 animate-spin" />
-                <span>
-                  <strong>Đang vẽ lại Highlight cho căn "{redrawingRoomTarget.roomName}":</strong> Click/Kéo 2 điểm tự do trên mặt bằng để chốt vị trí mới!
-                </span>
+            <div className="bg-amber-500 text-slate-950 p-2.5 rounded-2xl text-xs font-black flex flex-col gap-2 border-2 border-amber-400 shadow-md animate-in slide-in-from-top-1">
+              <div className="flex items-center justify-between gap-3 w-full">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-slate-950 shrink-0 animate-spin" />
+                  <span>
+                    <strong>Đang vẽ lại vùng cho căn "{redrawingRoomTarget.roomName}":</strong>{' '}
+                    {drawTool === 'freehand' && 'Nhấn giữ và rê chuột/ngón tay trên mặt bằng để vẽ tự do. Nhả tay để lưu!'}
+                    {drawTool === 'polygon' && `Chấm từng góc đa giác mới (Đã chấm ${polygonPoints.length} góc). Hãy bấm nút Chốt bên dưới để lưu!`}
+                    {drawTool === '2point' && 'Click 2 điểm góc đối diện (hoặc kéo thả) trên mặt bằng để vẽ khung hình chữ nhật!'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setRedrawingRoomTarget(null);
+                    setDrawTool('none');
+                    setDrawStartPos(null);
+                    setDrawHoverPos(null);
+                    setPolygonPoints([]);
+                  }}
+                  className="bg-slate-950 text-white text-[10px] font-bold px-2.5 py-1 rounded-xl hover:bg-slate-900 shrink-0 cursor-pointer"
+                >
+                  ✕ Hủy Vẽ Lại
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={async () => {
-                  setRedrawingRoomTarget(null);
-                  setDrawStartPos(null);
-                  setDrawHoverPos(null);
-                }}
-                className="bg-slate-950 text-white text-[10px] font-bold px-2.5 py-1 rounded-xl hover:bg-slate-900 shrink-0"
-              >
-                ✕ Hủy Vẽ Lại
-              </button>
+
+              {drawTool === 'polygon' && polygonPoints.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 w-full bg-amber-600/30 p-1.5 rounded-xl border border-amber-600/40">
+                  {polygonPoints.length === 2 && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleCompletePolygon(true)}
+                        className="bg-indigo-950 text-indigo-200 text-[10px] font-black px-2.5 py-1 rounded-lg hover:bg-indigo-900 transition-colors shadow-xs cursor-pointer"
+                      >
+                        📏 Chốt Đường Thẳng (2 điểm)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleCompletePolygon(false)}
+                        className="bg-emerald-950 text-emerald-300 text-[10px] font-black px-2.5 py-1 rounded-lg hover:bg-emerald-900 transition-colors shadow-xs cursor-pointer"
+                      >
+                        📦 Chốt Khung Chữ Nhật
+                      </button>
+                    </>
+                  )}
+                  {polygonPoints.length >= 3 && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleCompletePolygon(true)}
+                        className="bg-indigo-950 text-indigo-200 text-[10px] font-black px-2.5 py-1 rounded-lg hover:bg-indigo-900 transition-colors shadow-xs cursor-pointer"
+                      >
+                        〰️ Chốt Đường Gấp Khúc ({polygonPoints.length} điểm)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleCompletePolygon(false)}
+                        className="bg-emerald-950 text-emerald-300 text-[10px] font-black px-2.5 py-1 rounded-lg hover:bg-emerald-900 transition-colors shadow-xs cursor-pointer"
+                      >
+                        🔷 Chốt Đa Giác Diện Tích ({polygonPoints.length} góc)
+                      </button>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setPolygonPoints((prev) => prev.slice(0, -1))}
+                    className="bg-slate-900/80 text-white text-[10px] font-bold px-2 py-1 rounded-lg hover:bg-slate-900 cursor-pointer"
+                  >
+                    ↺ Xóa góc cuối
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPolygonPoints([])}
+                    className="bg-slate-950 text-white text-[10px] font-bold px-2 py-1 rounded-lg hover:bg-slate-800 cursor-pointer"
+                  >
+                    ✕ Xóa hết
+                  </button>
+                </div>
+              )}
             </div>
           ) : drawTool === 'drag' ? (
             <div className="bg-amber-50 text-slate-950 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center justify-between border border-amber-300 shadow-xs animate-in slide-in-from-top-1">
@@ -2863,7 +3431,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             </div>
           ) : drawTool === 'freehand' ? (
             <div className="bg-amber-50 text-slate-900 px-3 py-1.5 rounded-xl text-[11px] font-semibold flex items-center justify-between border border-amber-200 shadow-2xs animate-in slide-in-from-top-1">
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 w-full sm:w-auto">
                 <Pencil className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                 <span>
                   <strong>Kéo Vẽ Tự Do:</strong> Nhấn giữ & rê chuột/tay khoanh vùng bất kỳ. Nhả tay ra để chốt!
@@ -2876,14 +3444,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               )}
             </div>
           ) : drawTool === 'polygon' ? (
-            <div className="bg-amber-500 text-slate-950 px-3 py-2 rounded-xl text-xs font-bold flex flex-col sm:flex-row sm:items-center justify-between gap-2 border border-amber-400 shadow-sm animate-in slide-in-from-top-1">
+            <div className="bg-amber-500 text-slate-950 p-2 sm:px-3 sm:py-2 rounded-xl text-xs font-bold flex flex-col items-start sm:flex-row sm:items-center justify-between gap-2 border border-amber-400 shadow-sm animate-in slide-in-from-top-1">
               <div className="flex items-center gap-2">
                 <Sparkles className="w-3.5 h-3.5 text-slate-950 shrink-0" />
                 <span className="leading-tight">
                   <strong>Vẽ Đa Giác Chấm Góc:</strong> Click từng góc căn hộ trên mặt bằng (Đã chấm {polygonPoints.length} góc)
                 </span>
               </div>
-              <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+              <div className="flex flex-wrap items-center gap-1.5 w-full sm:w-auto">
                 {polygonPoints.length === 2 && (
                   <>
                     <button
@@ -2996,7 +3564,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       height: pendingDraftHighlight.rect?.height ?? 15,
                       points: pendingDraftHighlight.points,
                       isPolyline: pendingDraftHighlight.isPolyline,
-                      updatedAt: new Date().toISOString(),
+                      updatedAt: Date.now(),
                     });
                     setIsRoomModalOpen(true);
                   }}
@@ -3041,9 +3609,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
           {/* Blueprint Image Outer Container with Controls */}
           <div className={`${isFullscreen ? 'fixed inset-0 z-[100] bg-slate-950 rounded-none h-[100dvh] w-[100dvw] flex flex-col' : 'relative w-full h-[400px] bg-slate-900 rounded-2xl'} overflow-hidden border border-slate-300 select-none group shadow-inner`}>
-            {/* Fullscreen Floating Drawing Toolbar & Active Banners */}
+            {/* Fullscreen Pinned Drawing Toolbar & Active Banners */}
             {isFullscreen && (
-              <div className="absolute top-2 left-2 right-2 z-[70] pointer-events-auto flex flex-col gap-1.5 animate-in slide-in-from-top-2">
+              <div className="shrink-0 z-[70] pointer-events-auto flex flex-col gap-1.5 p-2 bg-slate-950/95 border-b border-slate-800 shadow-lg">
                 {/* Fullscreen Top Control Bar */}
                 <div className="flex items-center justify-between gap-2 bg-slate-900/95 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-slate-700 shadow-2xl text-white overflow-x-auto no-scrollbar">
                   <div className="flex items-center gap-2 shrink-0">
@@ -3172,38 +3740,75 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     )}
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      setRotation(0);
-                      setIsFullscreen(false);
-                    }}
-                    className="bg-rose-600/90 hover:bg-rose-600 text-white font-bold text-xs px-2.5 py-1 rounded-xl flex items-center gap-1 shadow-md shrink-0 ml-1"
-                    title="Thu nhỏ màn hình"
-                  >
-                    <Minimize2 className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Thu Nhỏ</span>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <UndoRedoControls
+                      onUndo={onUndo}
+                      onRedo={onRedo}
+                      canUndo={canUndo}
+                      canRedo={canRedo}
+                      variant="dark"
+                      showLabel={false}
+                    />
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setRotation(0);
+                        setIsFullscreen(false);
+                      }}
+                      className="bg-rose-600/90 hover:bg-rose-600 text-white font-bold text-xs px-2.5 py-1 rounded-xl flex items-center gap-1 shadow-md shrink-0 ml-1"
+                      title="Thu nhỏ màn hình"
+                    >
+                      <Minimize2 className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Thu Nhỏ</span>
+                    </button>
+                  </div>
                 </div>
 
                 {/* Floating Active Drawing Action Banner in Fullscreen */}
-                {drawTool === 'polygon' && (
-                  <div className="bg-amber-500 text-slate-950 p-2 rounded-2xl text-xs font-bold flex flex-wrap items-center justify-between gap-2 border-2 border-amber-300 shadow-2xl animate-in slide-in-from-top-2">
-                    <div className="flex items-center gap-1.5">
+                {drawTool === 'polygon' && !redrawingRoomTarget && (
+                  <div className="bg-amber-500 text-slate-950 p-2 rounded-2xl text-xs font-bold flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-2 border-amber-300 shadow-2xl animate-in slide-in-from-top-2 w-full">
+                    <div className="flex items-center gap-1.5 w-full sm:w-auto">
                       <Sparkles className="w-4 h-4 text-slate-950 shrink-0" />
                       <span>
                         <strong>Chấm Góc Đa Giác:</strong> Click từng góc trên bản vẽ (Đã chấm {polygonPoints.length} góc)
                       </span>
                     </div>
-                    <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                    <div className="flex flex-wrap items-center gap-1.5 w-full sm:w-auto sm:ml-auto">
+                      {polygonPoints.length === 2 && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleCompletePolygon(true)}
+                            className="bg-indigo-950 hover:bg-indigo-900 text-indigo-200 text-xs font-black px-3 py-1.5 rounded-xl transition-all shadow-md active:scale-95 flex items-center gap-1 cursor-pointer"
+                          >
+                            📏 Chốt Đường Thẳng (2 điểm)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleCompletePolygon(false)}
+                            className="bg-emerald-950 hover:bg-emerald-900 text-emerald-300 text-xs font-black px-3 py-1.5 rounded-xl transition-all shadow-md active:scale-95 flex items-center gap-1 cursor-pointer"
+                          >
+                            📦 Chốt Khung Chữ Nhật
+                          </button>
+                        </>
+                      )}
                       {polygonPoints.length >= 3 && (
-                        <button
-                          type="button"
-                          onClick={handleCompletePolygon}
-                          className="bg-emerald-950 hover:bg-emerald-900 text-emerald-300 text-xs font-black px-3 py-1.5 rounded-xl transition-all shadow-md active:scale-95 flex items-center gap-1"
-                        >
-                          ✓ Chốt Căn / Kết Thúc Vẽ ({polygonPoints.length} góc)
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleCompletePolygon(true)}
+                            className="bg-indigo-950 hover:bg-indigo-900 text-indigo-200 text-xs font-black px-3 py-1.5 rounded-xl transition-all shadow-md active:scale-95 flex items-center gap-1 cursor-pointer"
+                          >
+                            〰️ Chốt Đường Gấp Khúc ({polygonPoints.length} điểm)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleCompletePolygon(false)}
+                            className="bg-emerald-950 hover:bg-emerald-900 text-emerald-300 text-xs font-black px-3 py-1.5 rounded-xl transition-all shadow-md active:scale-95 flex items-center gap-1 cursor-pointer"
+                          >
+                            🔷 Chốt Đa Giác Diện Tích ({polygonPoints.length} góc)
+                          </button>
+                        </>
                       )}
                       {polygonPoints.length > 0 && (
                         <button
@@ -3230,7 +3835,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
                 {pendingDraftHighlight && (
                   <div className="bg-amber-500 text-slate-950 p-2 rounded-2xl shadow-2xl border-2 border-amber-300 flex flex-wrap items-center justify-between gap-2 animate-in zoom-in-95">
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 w-full sm:w-auto">
                       <Sparkles className="w-4 h-4 text-slate-950 shrink-0 animate-spin" />
                       <span className="font-black text-xs">Đã khoanh xong! Kiểm tra vùng vàng nhấp nháy trên bản vẽ.</span>
                     </div>
@@ -3253,7 +3858,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                             height: pendingDraftHighlight.rect?.height ?? 15,
                             points: pendingDraftHighlight.points,
                             isPolyline: pendingDraftHighlight.isPolyline,
-                            updatedAt: new Date().toISOString(),
+                            updatedAt: Date.now(),
                           });
                           setIsRoomModalOpen(true);
                         }}
@@ -3296,9 +3901,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   </div>
                 )}
 
-                {drawTool === 'freehand' && (
+                {drawTool === 'freehand' && !redrawingRoomTarget && (
                   <div className="bg-amber-500 text-slate-950 p-2 rounded-2xl text-xs font-bold flex items-center justify-between gap-2 border border-amber-300 shadow-xl">
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 w-full sm:w-auto">
                       <Pencil className="w-3.5 h-3.5 shrink-0" />
                       <span>💡 <strong>Kéo Vẽ Tự Do:</strong> Nhấn giữ & rê chuột/ngón tay khoanh vùng bất kỳ. Nhả tay để chốt!</span>
                     </div>
@@ -3312,9 +3917,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   </div>
                 )}
 
-                {drawStartPos && (
+                {drawStartPos && !redrawingRoomTarget && (
                   <div className="bg-amber-500 text-slate-950 p-2 rounded-2xl text-xs font-bold flex items-center justify-between gap-2 border border-amber-300 shadow-xl">
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 w-full sm:w-auto">
                       <div className="w-2.5 h-2.5 bg-slate-950 rounded-full animate-ping shrink-0" />
                       <span>🎯 <strong>Đã chọn Điểm 1.</strong> Click <strong>Điểm 2 (Góc đối diện)</strong> để chốt!</span>
                     </div>
@@ -3331,23 +3936,87 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   </div>
                 )}
 
-                {redrawingRoomTarget && (
-                  <div className="bg-amber-500 text-slate-950 p-2 rounded-2xl text-xs font-bold flex items-center justify-between gap-2 border border-amber-300 shadow-xl">
-                    <div className="flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5 shrink-0 animate-spin" />
-                      <span>📐 <strong>Đang vẽ lại Highlight cho căn "{redrawingRoomTarget.roomName}":</strong> Click/Kéo 2 điểm vị trí mới!</span>
+                 {redrawingRoomTarget && (
+                  <div className="bg-amber-500 text-slate-950 p-2 rounded-2xl text-xs font-bold flex flex-col gap-2 border border-amber-300 shadow-xl w-full">
+                    <div className="flex items-center justify-between gap-2 w-full">
+                      <div className="flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 shrink-0 animate-spin" />
+                        <span>
+                          📐 <strong>Đang vẽ lại vùng cho căn "{redrawingRoomTarget.roomName}":</strong>{' '}
+                          {drawTool === 'freehand' && 'Nhấn giữ & rê ngón tay/chuột để vẽ tự do. Nhả tay để lưu!'}
+                          {drawTool === 'polygon' && `Chấm từng điểm góc đa giác mới (Đã chấm ${polygonPoints.length} góc). Bấm nút Chốt để lưu!`}
+                          {drawTool === '2point' && 'Bấm 2 điểm đối góc trên mặt bằng để vẽ khung hình chữ nhật!'}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setRedrawingRoomTarget(null);
+                          setDrawTool('none');
+                          setDrawStartPos(null);
+                          setDrawHoverPos(null);
+                          setPolygonPoints([]);
+                        }}
+                        className="bg-slate-950 text-white text-[11px] font-bold px-2 py-1 rounded-xl cursor-pointer"
+                      >
+                        ✕ Hủy
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        setRedrawingRoomTarget(null);
-                        setDrawStartPos(null);
-                        setDrawHoverPos(null);
-                      }}
-                      className="bg-slate-950 text-white text-[11px] font-bold px-2 py-1 rounded-xl"
-                    >
-                      ✕ Hủy
-                    </button>
+
+                    {drawTool === 'polygon' && polygonPoints.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5 w-full bg-amber-600/30 p-1.5 rounded-xl border border-amber-600/40">
+                        {polygonPoints.length === 2 && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleCompletePolygon(true)}
+                              className="bg-indigo-950 text-indigo-200 text-[10px] font-black px-2.5 py-1 rounded-lg hover:bg-indigo-900 transition-colors shadow-xs cursor-pointer"
+                            >
+                              📏 Chốt Đường Thẳng (2 điểm)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleCompletePolygon(false)}
+                              className="bg-emerald-950 text-emerald-300 text-[10px] font-black px-2.5 py-1 rounded-lg hover:bg-emerald-900 transition-colors shadow-xs cursor-pointer"
+                            >
+                              📦 Chốt Khung Chữ Nhật
+                            </button>
+                          </>
+                        )}
+                        {polygonPoints.length >= 3 && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleCompletePolygon(true)}
+                              className="bg-indigo-950 text-indigo-200 text-[10px] font-black px-2.5 py-1 rounded-lg hover:bg-indigo-900 transition-colors shadow-xs cursor-pointer"
+                            >
+                              〰️ Chốt Gấp Khúc ({polygonPoints.length} điểm)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleCompletePolygon(false)}
+                              className="bg-emerald-950 text-emerald-300 text-[10px] font-black px-2.5 py-1 rounded-lg hover:bg-emerald-900 transition-colors shadow-xs cursor-pointer"
+                            >
+                              🔷 Chốt Đa Giác Diện Tích ({polygonPoints.length} góc)
+                            </button>
+                          </>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setPolygonPoints((prev) => prev.slice(0, -1))}
+                          className="bg-slate-900 text-white text-[11px] font-bold px-2 py-1 rounded-xl hover:bg-slate-800 cursor-pointer"
+                        >
+                          ↺ Xóa góc
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPolygonPoints([])}
+                          className="bg-slate-950 text-white text-[11px] font-bold px-2 py-1 rounded-xl hover:bg-slate-850 cursor-pointer"
+                        >
+                          ✕ Xóa hết
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -3487,10 +4156,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 <button
                   type="button"
                   onClick={() => setZoomScale(1)}
-                  className="px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-[10px] font-bold text-slate-300 transition-colors ml-1"
+                  className="px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-[10px] font-bold text-slate-300 transition-colors ml-1 flex items-center justify-center min-w-[24px]"
                   title="Đặt lại zoom 100%"
                 >
-                  <RotateCcw className="w-3 h-3" />
+                  1:1
                 </button>
               )}
               {isFullscreen && (
@@ -3520,7 +4189,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             </div>
 
             {/* Scrollable / Zoomable Inner Area */}
-            <div ref={parentRef} className={`w-full h-full overflow-auto flex ${zoomScale > 1 ? 'items-start justify-start p-4' : 'items-center justify-center'} ${isFullscreen ? 'flex-1' : ''}`}>
+            <div ref={parentRef} className={`w-full overflow-auto flex ${zoomScale > 1 ? 'items-start justify-start p-4' : 'items-center justify-center'} ${isFullscreen ? 'flex-1' : 'h-full'}`}>
               <div
                 style={{
                    width: containerW,
@@ -3550,7 +4219,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       height: targetH,
                       transform: transformStr,
                       transformOrigin: '0 0',
-                      touchAction: viewMode === 'highlight' && drawTool === 'freehand' ? 'none' : 'pan-x pan-y',
+                      touchAction: (viewMode === 'highlight' && drawTool === 'freehand') || selectedRoomForDragId !== null || activeDragHandle !== null || drawTool === 'drag' ? 'none' : 'pan-x pan-y',
                     }}
                     className="relative cursor-crosshair select-none"
                   >
@@ -3653,7 +4322,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   <g>
                     <polyline
                       points={
-                        drawHoverPos
+                        drawHoverPos && (drawHoverPos.x !== polygonPoints[polygonPoints.length - 1].x || drawHoverPos.y !== polygonPoints[polygonPoints.length - 1].y)
                           ? [...polygonPoints, drawHoverPos].map((p) => `${p.x},${p.y}`).join(' ')
                           : polygonPoints.map((p) => `${p.x},${p.y}`).join(' ')
                       }
@@ -3671,7 +4340,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 )}
 
                 {/* Render All Saved Room Highlights */}
-                {floorRooms.map((room, roomIdx) => {
+                {displayedFloorRooms.map((room, roomIdx) => {
                   const { fill: fillColor, stroke: strokeColor } = getRoomColorStyle(room, roomIdx, roomColorMode);
                   const isSelectedForDrag = selectedRoomForDragId === room.id || selectedRoomIds.includes(room.id);
 
@@ -3701,9 +4370,6 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           onMouseLeave={() => setHoveredRoomId(null)}
                           onPointerDown={(e) => {
                             e.stopPropagation();
-                            if (drawTool === 'none' || drawTool === 'drag' || e.altKey) {
-                              handleStartDrag(e, room, 'move');
-                            }
                           }}
                           onClick={(e) => {
                             e.stopPropagation();
@@ -3738,9 +4404,6 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       onMouseLeave={() => setHoveredRoomId(null)}
                       onPointerDown={(e) => {
                         e.stopPropagation();
-                        if (drawTool === 'none' || drawTool === 'drag' || e.altKey) {
-                          handleStartDrag(e, room, 'move');
-                        }
                       }}
                       onClick={(e) => {
                         e.stopPropagation();
@@ -3773,9 +4436,6 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       onMouseLeave={() => setHoveredRoomId(null)}
                       onPointerDown={(e) => {
                         e.stopPropagation();
-                        if (drawTool === 'none' || drawTool === 'drag' || e.altKey) {
-                          handleStartDrag(e, room, 'move');
-                        }
                       }}
                       onClick={(e) => {
                         e.stopPropagation();
@@ -3800,7 +4460,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             {/* INTERACTIVE DRAG & RESIZE HANDLES OVERLAY */}
             {(viewMode === 'all' || viewMode === 'highlight') && (
               <>
-                {floorRooms.map((room) => {
+                {displayedFloorRooms.map((room) => {
                   const isSelectedForDrag = selectedRoomForDragId === room.id || selectedRoomIds.includes(room.id) || (drawTool === 'drag' && hoveredRoomId === room.id);
 
                   if (!isSelectedForDrag) return null;
@@ -3833,7 +4493,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
                   {/* Center Move Handle Badge */}
                   <div
-                    style={{ left: `${cx}%`, top: `${cy}%` }}
+                    style={{ left: `${cx}%`, top: `${cy}%`, touchAction: 'none' }}
                     onPointerDown={(e) => handleStartDrag(e, room, 'move')}
                     className="absolute -translate-x-1/2 -translate-y-1/2 z-40 pointer-events-auto cursor-grab active:cursor-grabbing bg-slate-950 text-amber-400 p-1.5 rounded-full shadow-2xl border-2 border-amber-400 flex items-center justify-center hover:scale-125 transition-transform group"
                     title="Nhấn giữ & kéo rê để di chuyển toàn bộ vùng highlight"
@@ -3843,25 +4503,25 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
                   {/* 4 Corner Resizing Handles */}
                   <div
-                    style={{ left: `${rx}%`, top: `${ry}%` }}
+                    style={{ left: `${rx}%`, top: `${ry}%`, touchAction: 'none' }}
                     onPointerDown={(e) => handleStartDrag(e, room, 'nw')}
                     className="absolute -translate-x-1/2 -translate-y-1/2 z-40 pointer-events-auto cursor-nwse-resize w-4 h-4 bg-amber-400 border-2 border-slate-950 rounded-full shadow-lg hover:scale-150 transition-transform"
                     title="Kéo chỉnh góc Trên-Trái"
                   />
                   <div
-                    style={{ left: `${rx + rw}%`, top: `${ry}%` }}
+                    style={{ left: `${rx + rw}%`, top: `${ry}%`, touchAction: 'none' }}
                     onPointerDown={(e) => handleStartDrag(e, room, 'ne')}
                     className="absolute -translate-x-1/2 -translate-y-1/2 z-40 pointer-events-auto cursor-nesw-resize w-4 h-4 bg-amber-400 border-2 border-slate-950 rounded-full shadow-lg hover:scale-150 transition-transform"
                     title="Kéo chỉnh góc Trên-Phải"
                   />
                   <div
-                    style={{ left: `${rx}%`, top: `${ry + rh}%` }}
+                    style={{ left: `${rx}%`, top: `${ry + rh}%`, touchAction: 'none' }}
                     onPointerDown={(e) => handleStartDrag(e, room, 'sw')}
                     className="absolute -translate-x-1/2 -translate-y-1/2 z-40 pointer-events-auto cursor-nesw-resize w-4 h-4 bg-amber-400 border-2 border-slate-950 rounded-full shadow-lg hover:scale-150 transition-transform"
                     title="Kéo chỉnh góc Dưới-Trái"
                   />
                   <div
-                    style={{ left: `${rx + rw}%`, top: `${ry + rh}%` }}
+                    style={{ left: `${rx + rw}%`, top: `${ry + rh}%`, touchAction: 'none' }}
                     onPointerDown={(e) => handleStartDrag(e, room, 'se')}
                     className="absolute -translate-x-1/2 -translate-y-1/2 z-40 pointer-events-auto cursor-nwse-resize w-4 h-4 bg-amber-400 border-2 border-slate-950 rounded-full shadow-lg hover:scale-150 transition-transform"
                     title="Kéo chỉnh góc Dưới-Phải"
@@ -3869,25 +4529,25 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
                   {/* 4 Side Midpoint Handles */}
                   <div
-                    style={{ left: `${cx}%`, top: `${ry}%` }}
+                    style={{ left: `${cx}%`, top: `${ry}%`, touchAction: 'none' }}
                     onPointerDown={(e) => handleStartDrag(e, room, 'n')}
                     className="absolute -translate-x-1/2 -translate-y-1/2 z-40 pointer-events-auto cursor-ns-resize w-3.5 h-3.5 bg-amber-300 border-2 border-slate-900 rounded-sm shadow-md hover:scale-150 transition-transform"
                     title="Kéo chỉnh viền Cạnh Trên"
                   />
                   <div
-                    style={{ left: `${cx}%`, top: `${ry + rh}%` }}
+                    style={{ left: `${cx}%`, top: `${ry + rh}%`, touchAction: 'none' }}
                     onPointerDown={(e) => handleStartDrag(e, room, 's')}
                     className="absolute -translate-x-1/2 -translate-y-1/2 z-40 pointer-events-auto cursor-ns-resize w-3.5 h-3.5 bg-amber-300 border-2 border-slate-900 rounded-sm shadow-md hover:scale-150 transition-transform"
                     title="Kéo chỉnh viền Cạnh Dưới"
                   />
                   <div
-                    style={{ left: `${rx}%`, top: `${cy}%` }}
+                    style={{ left: `${rx}%`, top: `${cy}%`, touchAction: 'none' }}
                     onPointerDown={(e) => handleStartDrag(e, room, 'w')}
                     className="absolute -translate-x-1/2 -translate-y-1/2 z-40 pointer-events-auto cursor-ew-resize w-3.5 h-3.5 bg-amber-300 border-2 border-slate-900 rounded-sm shadow-md hover:scale-150 transition-transform"
                     title="Kéo chỉnh viền Cạnh Trái"
                   />
                   <div
-                    style={{ left: `${rx + rw}%`, top: `${cy}%` }}
+                    style={{ left: `${rx + rw}%`, top: `${cy}%`, touchAction: 'none' }}
                     onPointerDown={(e) => handleStartDrag(e, room, 'e')}
                     className="absolute -translate-x-1/2 -translate-y-1/2 z-40 pointer-events-auto cursor-ew-resize w-3.5 h-3.5 bg-amber-300 border-2 border-slate-900 rounded-sm shadow-md hover:scale-150 transition-transform"
                     title="Kéo chỉnh viền Cạnh Phải"
@@ -3898,7 +4558,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     room.points!.map((pt, pIdx) => (
                       <div
                         key={`poly-handle-${pIdx}`}
-                        style={{ left: `${pt.x}%`, top: `${pt.y}%` }}
+                        style={{ left: `${pt.x}%`, top: `${pt.y}%`, touchAction: 'none' }}
                         onPointerDown={(e) => handleStartDrag(e, room, pIdx)}
                         className="absolute -translate-x-1/2 -translate-y-1/2 z-45 pointer-events-auto cursor-crosshair w-4 h-4 bg-amber-500 border-2 border-slate-950 rounded-full shadow-lg hover:scale-150 transition-transform flex items-center justify-center text-[8px] font-black text-slate-950"
                         title={`Kéo di chuyển Đỉnh Góc #${pIdx + 1}`}
@@ -3954,7 +4614,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             {/* MINIMALIST OR FULL TEXT BADGES OVERLAY */}
             {(viewMode === 'all' || viewMode === 'highlight') && (
               <>
-                {floorRooms.map((room) => {
+                {displayedFloorRooms.map((room) => {
                   const isPassed = room.inspectionStatus === 'Đạt nghiệm thu';
                   const isFailed = room.inspectionStatus === 'Chưa đạt (Cần sửa)';
                   const isHovered = hoveredRoomId === room.id;
@@ -4173,9 +4833,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   >
                     <div className="flex items-center justify-between border-b border-slate-800 pb-1 text-[11px] font-extrabold text-amber-300">
                       <span>🎯 Vị trí ({clickChoicePos.x}%, {clickChoicePos.y}%)</span>
-                      <button
+                      <button 
                         type="button"
-                        onClick={() => setClickChoicePos(null)}
+                        onClick={() => setClickChoicePos(null)} 
                         className="text-slate-400 hover:text-white font-black px-1 text-xs"
                       >
                         ✕
@@ -4183,14 +4843,25 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     </div>
 
                     {copiedRoomsState.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => handlePasteRoom(clickChoicePos.x, clickChoicePos.y)}
-                        className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-xs font-black rounded-xl flex items-center justify-center gap-1.5 shadow-md active:scale-95 transition-all border border-indigo-400"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                        <span>📋 Dán {copiedRoomsState.length > 1 ? `${copiedRoomsState.length} căn` : `căn "${copiedRoomsState[0].roomName}"`} tại đây</span>
-                      </button>
+                      <div className="flex flex-col gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handlePasteRoom(clickChoicePos.x, clickChoicePos.y, false)}
+                          className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-xs font-black rounded-xl flex items-center justify-center gap-1.5 shadow-xs active:scale-95 transition-all border border-indigo-400 cursor-pointer"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>📋 Dán thường (Tạo Bản Sao)</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handlePasteRoom(clickChoicePos.x, clickChoicePos.y, true)}
+                          className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white text-xs font-black rounded-xl flex items-center justify-center gap-1.5 shadow-xs active:scale-95 transition-all border border-emerald-400 cursor-pointer"
+                          title="Giữ nguyên tên gốc, ghi đè/cập nhật nếu trùng tên"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>📝 Dán đè (Giữ nguyên tên)</span>
+                        </button>
+                      </div>
                     )}
 
                     <div className="grid grid-cols-2 gap-1.5 text-[10px] font-bold">
@@ -4233,8 +4904,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
           {/* Hint text */}
           <p className="text-[10px] text-slate-500 text-center italic">
-            {viewMode === 'highlight'
-              ? '💡 Dùng công cụ "Vẽ Tự Do" hoặc "Vẽ 2 Điểm" để đánh dấu vùng thi công trên mặt bằng.'
+            {viewMode === 'highlight' 
+              ? '💡 Dùng công cụ "Vẽ Tự Do" hoặc "Vẽ 2 Điểm" để đánh dấu vùng thi công trên mặt bằng.' 
               : '💡 Bấm trực tiếp vào các ghim đỏ/vàng trên hình để xem ảnh & chi tiết lỗi.'}
           </p>
         </div>
@@ -4347,6 +5018,81 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               </div>
             ) : (
               <>
+                {/* Quick Sort Controls */}
+                <div className="flex items-center gap-2 bg-indigo-50/60 border border-indigo-100 rounded-xl px-3 py-2 text-xs text-slate-700 flex-wrap mb-2.5">
+                  <span className="font-bold text-[11px] text-indigo-800 flex items-center gap-1">
+                    <ArrowUpDown className="w-3.5 h-3.5 text-indigo-500" /> Sắp xếp nhanh:
+                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (roomSortBy === 'name') {
+                          if (roomSortOrder === 'asc') {
+                            setRoomSortOrder('desc');
+                          } else {
+                            setRoomSortBy('manual');
+                          }
+                        } else {
+                          setRoomSortBy('name');
+                          setRoomSortOrder('asc');
+                        }
+                      }}
+                      className={`px-2.5 py-1 rounded-lg transition-all font-bold text-[11px] flex items-center gap-1 cursor-pointer ${
+                        roomSortBy === 'name'
+                          ? 'bg-indigo-600 text-white shadow-2xs'
+                          : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
+                      }`}
+                    >
+                      Tên {roomSortBy === 'name' && (roomSortOrder === 'asc' ? '↑' : '↓')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (roomSortBy === 'createdAt') {
+                          if (roomSortOrder === 'asc') {
+                            setRoomSortOrder('desc');
+                          } else {
+                            setRoomSortBy('manual');
+                          }
+                        } else {
+                          setRoomSortBy('createdAt');
+                          setRoomSortOrder('asc');
+                        }
+                      }}
+                      className={`px-2.5 py-1 rounded-lg transition-all font-bold text-[11px] flex items-center gap-1 cursor-pointer ${
+                        roomSortBy === 'createdAt'
+                          ? 'bg-indigo-600 text-white shadow-2xs'
+                          : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
+                      }`}
+                    >
+                      Ngày tạo {roomSortBy === 'createdAt' && (roomSortOrder === 'asc' ? '↑' : '↓')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (roomSortBy === 'updatedAt') {
+                          if (roomSortOrder === 'asc') {
+                            setRoomSortOrder('desc');
+                          } else {
+                            setRoomSortBy('manual');
+                          }
+                        } else {
+                          setRoomSortBy('updatedAt');
+                          setRoomSortOrder('asc');
+                        }
+                      }}
+                      className={`px-2.5 py-1 rounded-lg transition-all font-bold text-[11px] flex items-center gap-1 cursor-pointer ${
+                        roomSortBy === 'updatedAt'
+                          ? 'bg-indigo-600 text-white shadow-2xs'
+                          : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
+                      }`}
+                    >
+                      Ngày chỉnh sửa {roomSortBy === 'updatedAt' && (roomSortOrder === 'asc' ? '↑' : '↓')}
+                    </button>
+                  </div>
+                </div>
+
                 {/* Bulk actions toolbar for rooms */}
                 <div className="flex items-center justify-between bg-slate-100 border border-slate-200 rounded-xl px-3 py-2 text-xs gap-2 mb-2">
                   <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer select-none">
@@ -4388,14 +5134,87 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   </div>
                 </div>
 
-                {floorRooms.map((room) => (
+                {sortedFloorRooms.map((room, index) => (
                   <div
                     key={room.id}
-                    className="bg-white rounded-2xl p-3.5 border border-slate-200/90 shadow-2xs space-y-2.5 hover:border-slate-300 transition-all"
+                    draggable={roomSortBy === 'manual'}
+                    onDragStart={(e) => {
+                      if (roomSortBy !== 'manual') return;
+                      e.dataTransfer.setData('text/plain', room.id);
+                      e.dataTransfer.effectAllowed = 'move';
+                      e.currentTarget.classList.add('opacity-40');
+                    }}
+                    onDragEnd={(e) => {
+                      e.currentTarget.classList.remove('opacity-40');
+                    }}
+                    onDragOver={(e) => {
+                      if (roomSortBy !== 'manual') return;
+                      e.preventDefault();
+                    }}
+                    onDrop={(e) => {
+                      if (roomSortBy !== 'manual') return;
+                      e.preventDefault();
+                      const draggedId = e.dataTransfer.getData('text/plain');
+                      if (draggedId && draggedId !== room.id) {
+                        const draggedIndex = floorRooms.findIndex(r => r.id === draggedId);
+                        const targetIndex = floorRooms.findIndex(r => r.id === room.id);
+                        if (draggedIndex !== -1 && targetIndex !== -1) {
+                          const updated = [...floorRooms];
+                          const [removed] = updated.splice(draggedIndex, 1);
+                          updated.splice(targetIndex, 0, removed);
+                          if (onReorderRoomProgressList) {
+                            onReorderRoomProgressList(updated);
+                          }
+                        }
+                      }
+                    }}
+                    className={`bg-white rounded-2xl p-3.5 border border-slate-200/90 shadow-2xs space-y-2.5 hover:border-slate-300 transition-all ${
+                      roomSortBy === 'manual' ? 'hover:bg-slate-50/40 select-none' : ''
+                    }`}
                   >
                     {/* Card Header: Room Name + Badges */}
-                    <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2">
-                      <div className="flex items-start gap-2.5 min-w-0">
+                    <div className="flex items-center justify-between gap-3 border-b border-slate-100 pb-2.5 mb-2.5">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        {roomSortBy === 'manual' && (
+                          <div className="flex flex-col items-center justify-center gap-0.5 shrink-0 select-none mr-1 bg-slate-50/50 border border-slate-200/40 w-6 h-8 rounded-lg shadow-3xs">
+                            <button
+                              type="button"
+                              disabled={index === 0}
+                              onClick={() => {
+                                const updated = [...floorRooms];
+                                const idx = updated.findIndex(r => r.id === room.id);
+                                if (idx > 0) {
+                                  const temp = updated[idx];
+                                  updated[idx] = updated[idx - 1];
+                                  updated[idx - 1] = temp;
+                                  if (onReorderRoomProgressList) onReorderRoomProgressList(updated);
+                                }
+                              }}
+                              className="p-0.5 rounded hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 disabled:opacity-20 disabled:hover:bg-transparent cursor-pointer transition-colors"
+                              title="Dời lên"
+                            >
+                              <ChevronUp className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={index === sortedFloorRooms.length - 1}
+                              onClick={() => {
+                                const updated = [...floorRooms];
+                                const idx = updated.findIndex(r => r.id === room.id);
+                                if (idx !== -1 && idx < updated.length - 1) {
+                                  const temp = updated[idx];
+                                  updated[idx] = updated[idx + 1];
+                                  updated[idx + 1] = temp;
+                                  if (onReorderRoomProgressList) onReorderRoomProgressList(updated);
+                                }
+                              }}
+                              className="p-0.5 rounded hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 disabled:opacity-20 disabled:hover:bg-transparent cursor-pointer transition-colors"
+                              title="Dời xuống"
+                            >
+                              <ChevronDown className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
                         <input
                           type="checkbox"
                           checked={selectedApartmentIds.includes(room.id)}
@@ -4406,37 +5225,37 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                               setSelectedApartmentIds(prev => prev.filter(id => id !== room.id));
                             }
                           }}
-                          className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer mt-0.5 shrink-0"
+                          className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0 transition-colors"
                         />
-                        <div className="flex flex-col gap-0.5">
-                          <span className="font-extrabold text-sm text-slate-900">{room.roomName}</span>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            {/* Deleted redundant category, team, and volume badges */}
-                          </div>
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="font-bold text-sm text-slate-800 truncate" title={room.roomName}>
+                            {room.roomName}
+                          </span>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-1.5 flex-wrap">
+                      <div className="flex items-center gap-1.5 shrink-0">
                         <button
                           type="button"
                           onClick={async () => {
                             setSelectedRoomForEdit(room);
                             setIsRoomModalOpen(true);
                           }}
-                          className="text-[11px] font-extrabold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg border border-indigo-200 transition-all flex items-center gap-1 cursor-pointer shadow-2xs active:scale-95"
+                          className="text-[11px] font-semibold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100/80 px-2.5 py-1 rounded-lg border border-indigo-200/60 transition-all flex items-center gap-1 cursor-pointer shadow-3xs active:scale-95"
                           title="Chỉnh sửa hoặc quản lý các hạng mục thi công"
                         >
-                          <Pencil className="w-3.5 h-3.5 text-indigo-600" />
-                          <span>Chỉnh Sửa</span>
+                          <Pencil className="w-3.5 h-3.5 text-indigo-500" />
+                          <span>Chỉnh sửa</span>
                         </button>
 
                         <button
                           type="button"
                           onClick={() => setDeletingRoomTarget({ id: room.id, name: room.roomName })}
-                          className="text-[11px] font-bold text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 px-2 py-0.5 rounded-lg border border-rose-200 transition-all flex items-center gap-1 active:scale-95 cursor-pointer"
+                          className="text-[11px] font-semibold text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100/80 px-2.5 py-1 rounded-lg border border-rose-200/60 transition-all flex items-center gap-1 cursor-pointer shadow-3xs active:scale-95"
                           title="Xóa căn hộ / vùng highlight này"
                         >
-                          <Trash2 className="w-3 h-3" /> Xóa
+                          <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                          <span>Xóa</span>
                         </button>
 
                         {/* Deleted redundant overall inspection status badge */}
@@ -4842,11 +5661,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   disabled={isUploadingPlan || !newFloorName.trim()}
                   className="w-full text-xs text-slate-500 file:mr-3 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
                 />
-                {isUploadingPlan && (
-                  <p className="text-blue-600 text-[11px] mt-1">
-                    {hasApiBackend() ? 'Đang tải bản vẽ lên Google Drive...' : 'Đang xử lý và lưu bản vẽ cục bộ...'}
-                  </p>
-                )}
+                {isUploadingPlan && <p className="text-blue-600 text-[11px] mt-1">Dang xu ly ban ve va luu cuc bo...</p>}
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
@@ -4872,7 +5687,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 <AlertTriangle className="w-5 h-5 text-rose-600" />
                 Định Vị Defect Vị Trí ({pinPos.x}%, {pinPos.y}%)
               </h3>
-              <button onClick={() => setShowDefectModal(false)} className="font-bold text-slate-500 hover:text-slate-700">✕</button>
+              <button onClick={handleCancelDefectModal} className="font-bold text-slate-500 hover:text-slate-700">✕</button>
             </div>
 
             <form onSubmit={handleCreateDefect} className="space-y-3.5 text-xs">
@@ -4952,84 +5767,28 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 </div>
               </div>
 
-              {/* 2 Image Upload Slots (Before & After) */}
-              <div className="space-y-2">
-                <div>
-                  <label className="block text-slate-700 font-bold mb-1">📷 Ảnh Báo Lỗi Ban Đầu (Trước Sửa)</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      ref={photoInputRef}
-                      onChange={handlePhotoUpload}
-                      className="hidden"
-                    />
-                    <input
-                      type="file"
-                      accept="image/*"
-                      id="gallery-upload"
-                      onChange={handlePhotoUpload}
-                      className="hidden"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => photoInputRef.current?.click()}
-                      disabled={isUploadingPhoto}
-                      className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-xl font-bold text-slate-700 flex items-center justify-center gap-1.5"
-                    >
-                      <Camera className="w-3.5 h-3.5 text-blue-600" />
-                      {isUploadingPhoto ? 'Đang tải...' : 'Chụp Ảnh'}
-                    </button>
-                    <label
-                      htmlFor="gallery-upload"
-                      className={`flex-1 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-xl font-bold text-slate-700 flex items-center justify-center gap-1.5 cursor-pointer ${isUploadingPhoto ? 'opacity-50 pointer-events-none' : ''}`}
-                    >
-                      <ImageIcon className="w-3.5 h-3.5 text-emerald-600" />
-                      {isUploadingPhoto ? 'Đang tải...' : 'Thư Viện'}
-                    </label>
-                  </div>
-
-                  {Boolean(photoUrl) && (
-                    <div className="mt-2 relative w-20 h-20 rounded-xl overflow-hidden border border-slate-200">
-                      <img src={photoUrl} alt="Defect Before" referrerPolicy="no-referrer" crossOrigin="anonymous" className="w-full h-full object-cover" />
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-slate-700 font-bold mb-1">🛠️ Ảnh Bằng Chứng Sau Khi Sửa (Tùy Chọn)</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      ref={afterPhotoInputRef}
-                      onChange={(e) => handleAfterPhotoUpload(e, false)}
-                      className="hidden"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => afterPhotoInputRef.current?.click()}
-                      disabled={isUploadingPhoto}
-                      className="w-full py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-xl font-bold text-emerald-800 flex items-center justify-center gap-1.5"
-                    >
-                      <ImageIcon className="w-3.5 h-3.5 text-emerald-600" />
-                      {isUploadingPhoto ? 'Đang tải...' : 'Tải Ảnh Bằng Chứng Sau Sửa'}
-                    </button>
-                  </div>
-
-                  {Boolean(afterPhotoUrl) && (
-                    <div className="mt-2 relative w-20 h-20 rounded-xl overflow-hidden border border-emerald-300">
-                      <img src={afterPhotoUrl} alt="Defect After" referrerPolicy="no-referrer" crossOrigin="anonymous" className="w-full h-full object-cover" />
-                    </div>
-                  )}
-                </div>
+              {/* PhotoAttachmentPicker for multiple photo management during creation */}
+              <div className="space-y-3 pt-1">
+                <PhotoAttachmentPicker
+                  projectId={currentProjectId}
+                  entityType="defect"
+                  entityId={draftDefectId}
+                  category="defect_before"
+                  label="📷 Ảnh Báo Lỗi Ban Đầu (Trước Sửa)"
+                />
+                <PhotoAttachmentPicker
+                  projectId={currentProjectId}
+                  entityType="defect"
+                  entityId={draftDefectId}
+                  category="defect_after"
+                  label="🛠️ Ảnh Bằng Chứng Sau Khi Sửa (Tùy Chọn)"
+                />
               </div>
 
               <div className="flex gap-2 pt-2 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setShowDefectModal(false)}
+                  onClick={handleCancelDefectModal}
                   className="flex-1 py-3 bg-slate-100 rounded-xl font-bold text-slate-600"
                 >
                   Hủy
@@ -5050,7 +5809,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       {activeDefectDetail && (() => {
         const overdueInfo = getDefectOverdueInfo(activeDefectDetail);
         const handleDetailFieldChange = (field: keyof DefectItem, value: any) => {
-          const updated = { ...activeDefectDetail, [field]: value };
+          let updated = { ...activeDefectDetail, [field]: value };
+          if (field === 'assignedTo') {
+            const matchingTeam = teams.find(t => t.name.trim().toLowerCase() === String(value).trim().toLowerCase());
+            updated.teamId = matchingTeam?.id || undefined;
+          }
           setActiveDefectDetail(updated);
           if (onUpdateDefect) {
             onUpdateDefect(updated);
@@ -5089,9 +5852,6 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               {/* Overdue / Progress Banner */}
               <div className={`p-3 rounded-2xl border flex items-center justify-between gap-3 ${overdueInfo.badgeClass}`}>
                 <div className="flex items-center gap-2.5">
-                  <span className="text-xl">
-                    {overdueInfo.badgeColor === 'rose' ? '🔴' : overdueInfo.badgeColor === 'amber' ? '⚠️' : overdueInfo.badgeColor === 'emerald' ? '✅' : '⏱️'}
-                  </span>
                   <div>
                     <p className="font-black text-xs uppercase tracking-wide">{overdueInfo.statusText}</p>
                     <p className="text-[10px] opacity-80 font-medium">Trạng thái: {activeDefectDetail.status}</p>
@@ -5115,7 +5875,27 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     rows={2}
                     className="w-full border border-slate-200 rounded-xl p-2.5 font-medium text-slate-800"
                   />
-                  <p className="text-[10px] text-slate-400 mt-1">📍 Vị trí trên mặt bằng: {activeDefectDetail.floorName} ({activeDefectDetail.x}%, {activeDefectDetail.y}%)</p>
+                  <div className="flex items-center justify-between gap-2 mt-1 flex-wrap">
+                    <p className="text-[10px] text-slate-500 font-medium">📍 Vị trí trên mặt bằng: {activeDefectDetail.floorName || 'Mặt bằng'} ({Math.round(activeDefectDetail.x)}%, {Math.round(activeDefectDetail.y)}%)</p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const targetFp = floorPlans.find(f => f.id === activeDefectDetail.floorId || f.floorName === activeDefectDetail.floorName);
+                        if (targetFp) {
+                          setSelectedFloorId(targetFp.id);
+                        }
+                        setSelectedDefectIds([activeDefectDetail.id]);
+                        setActiveDefectDetail(null);
+                        if (imageContainerRef.current) {
+                          imageContainerRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                      }}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 rounded-lg text-[11px] font-bold transition-all shadow-2xs shrink-0"
+                    >
+                      <MapPin className="w-3 h-3 text-indigo-600" />
+                      <span>Xem vị trí trên mặt bằng</span>
+                    </button>
+                  </div>
                 </div>
 
                 {/* 5 Control Fields Grid */}
@@ -5164,73 +5944,22 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   </div>
                 </div>
 
-                {/* 2 Photos Section (Before vs After) */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {/* Before Photo */}
-                  <div className="space-y-1.5 bg-slate-50 p-2.5 rounded-2xl border border-slate-200">
-                    <div className="flex items-center justify-between">
-                      <span className="font-extrabold text-slate-800 text-[11px]">📷 Ảnh Trước Khi Sửa</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        ref={modalBeforePhotoInputRef}
-                        onChange={handleModalBeforePhotoUpload}
-                        className="hidden"
-                      />
-                      <button
-                        onClick={() => modalBeforePhotoInputRef.current?.click()}
-                        className="text-[10px] font-bold text-blue-600 hover:underline"
-                      >
-                        {activeDefectDetail.imageUrl ? 'Thay ảnh' : '+ Thêm ảnh'}
-                      </button>
-                    </div>
-
-                    {Boolean(activeDefectDetail.imageUrl) ? (
-                      <button
-                        onClick={() => setViewingImageUrl(activeDefectDetail.imageUrl!)}
-                        className="block w-full cursor-pointer hover:opacity-90 transition-opacity"
-                      >
-                        <img src={activeDefectDetail.imageUrl} alt="Before" referrerPolicy="no-referrer" crossOrigin="anonymous" className="w-full h-32 object-cover rounded-xl border border-slate-200" />
-                      </button>
-                    ) : (
-                      <div className="h-32 rounded-xl border border-dashed border-slate-300 flex items-center justify-center text-slate-400 text-[10px]">
-                        Chưa có ảnh ban đầu
-                      </div>
-                    )}
-                  </div>
-
-                  {/* After Photo */}
-                  <div className="space-y-1.5 bg-emerald-50/50 p-2.5 rounded-2xl border border-emerald-200">
-                    <div className="flex items-center justify-between">
-                      <span className="font-extrabold text-emerald-900 text-[11px]">🛠️ Ảnh Sau Khi Sửa</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        ref={modalAfterPhotoInputRef}
-                        onChange={(e) => handleAfterPhotoUpload(e, true)}
-                        className="hidden"
-                      />
-                      <button
-                        onClick={() => modalAfterPhotoInputRef.current?.click()}
-                        className="text-[10px] font-bold text-emerald-700 hover:underline"
-                      >
-                        {activeDefectDetail.afterImageUrl ? 'Thay ảnh' : '+ Tải bằng chứng'}
-                      </button>
-                    </div>
-
-                    {Boolean(activeDefectDetail.afterImageUrl) ? (
-                      <button
-                        onClick={() => setViewingImageUrl(activeDefectDetail.afterImageUrl!)}
-                        className="block w-full cursor-pointer hover:opacity-90 transition-opacity"
-                      >
-                        <img src={activeDefectDetail.afterImageUrl} alt="After" referrerPolicy="no-referrer" crossOrigin="anonymous" className="w-full h-32 object-cover rounded-xl border border-emerald-300" />
-                      </button>
-                    ) : (
-                      <div className="h-32 rounded-xl border border-dashed border-emerald-300 flex items-center justify-center text-emerald-600/60 text-[10px] text-center p-2">
-                        Chưa có ảnh bằng chứng đã sửa
-                      </div>
-                    )}
-                  </div>
+                {/* Bộ Sưu Tập Ảnh Đính Kèm (Defect Photos) */}
+                <div className="space-y-3 pt-1 border-t border-slate-100">
+                  <PhotoAttachmentPicker
+                    projectId={currentProjectId}
+                    entityType="defect"
+                    entityId={activeDefectDetail.id}
+                    category="defect_before"
+                    label="📷 Ảnh Báo Lỗi Ban Đầu (Trước Sửa)"
+                  />
+                  <PhotoAttachmentPicker
+                    projectId={currentProjectId}
+                    entityType="defect"
+                    entityId={activeDefectDetail.id}
+                    category="defect_after"
+                    label="🛠️ Ảnh Bằng Chứng Sau Khi Sửa (Tùy Chọn)"
+                  />
                 </div>
 
                 {/* Status Update Action Grid */}
@@ -5316,9 +6045,84 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <button onClick={() => setShowManageFloorsModal(false)} className="font-bold text-slate-400 hover:text-slate-600 text-lg">✕</button>
             </div>
 
+            {/* Quick Sort Floors Controls */}
+            <div className="flex items-center gap-2 bg-indigo-50/60 border border-indigo-100 rounded-xl px-3 py-2 text-xs text-slate-700 flex-wrap">
+              <span className="font-bold text-[11px] text-indigo-800 flex items-center gap-1">
+                <ArrowUpDown className="w-3.5 h-3.5 text-indigo-500" /> Sắp xếp nhanh:
+              </span>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (floorSortBy === 'name') {
+                      if (floorSortOrder === 'asc') {
+                        setFloorSortOrder('desc');
+                      } else {
+                        setFloorSortBy('none');
+                      }
+                    } else {
+                      setFloorSortBy('name');
+                      setFloorSortOrder('asc');
+                    }
+                  }}
+                  className={`px-2.5 py-1 rounded-lg transition-all font-bold text-[11px] flex items-center gap-1 cursor-pointer ${
+                    floorSortBy === 'name'
+                      ? 'bg-indigo-600 text-white shadow-2xs'
+                      : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
+                  }`}
+                >
+                  Tên {floorSortBy === 'name' && (floorSortOrder === 'asc' ? '↑' : '↓')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (floorSortBy === 'rooms') {
+                      if (floorSortOrder === 'asc') {
+                        setFloorSortOrder('desc');
+                      } else {
+                        setFloorSortBy('none');
+                      }
+                    } else {
+                      setFloorSortBy('rooms');
+                      setFloorSortOrder('asc');
+                    }
+                  }}
+                  className={`px-2.5 py-1 rounded-lg transition-all font-bold text-[11px] flex items-center gap-1 cursor-pointer ${
+                    floorSortBy === 'rooms'
+                      ? 'bg-indigo-600 text-white shadow-2xs'
+                      : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
+                  }`}
+                >
+                  Số Căn Hộ {floorSortBy === 'rooms' && (floorSortOrder === 'asc' ? '↑' : '↓')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (floorSortBy === 'defects') {
+                      if (floorSortOrder === 'asc') {
+                        setFloorSortOrder('desc');
+                      } else {
+                        setFloorSortBy('none');
+                      }
+                    } else {
+                      setFloorSortBy('defects');
+                      setFloorSortOrder('asc');
+                    }
+                  }}
+                  className={`px-2.5 py-1 rounded-lg transition-all font-bold text-[11px] flex items-center gap-1 cursor-pointer ${
+                    floorSortBy === 'defects'
+                      ? 'bg-indigo-600 text-white shadow-2xs'
+                      : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
+                  }`}
+                >
+                  Số Ghim Lỗi {floorSortBy === 'defects' && (floorSortOrder === 'asc' ? '↑' : '↓')}
+                </button>
+              </div>
+            </div>
+
             {/* List of Floor Plans */}
             <div className="space-y-2.5">
-              {floorPlans.map((fp, index) => {
+              {sortedFloorPlans.map((fp, index) => {
                 const isSelected = selectedFloorId === fp.id;
                 const roomCount = roomProgressList.filter((r) => r.floorId === fp.id).length;
                 const defectCount = defects.filter((d) => d.floorId === fp.id).length;
@@ -5346,7 +6150,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
                       <div className="space-y-0.5">
                         {isEditingThis ? (
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 w-full sm:w-auto">
                             <input
                               type="text"
                               value={editingFloorName}
@@ -5398,7 +6202,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     {/* Floor Action Buttons */}
                     <div className="flex items-center gap-1.5 self-end sm:self-center flex-wrap">
                       {/* Move Up / Move Left */}
-                      {index > 0 && (
+                      {index > 0 && floorSortBy === 'none' && (
                         <button
                           type="button"
                           onClick={async () => {
@@ -5412,7 +6216,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       )}
 
                       {/* Move Down / Move Right */}
-                      {index < floorPlans.length - 1 && (
+                      {index < sortedFloorPlans.length - 1 && floorSortBy === 'none' && (
                         <button
                           type="button"
                           onClick={async () => {
@@ -5786,8 +6590,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
       {/* MOBILE LONG PRESS TOUCH CONTEXT MENU */}
       {touchMenu && (
-        <div
-          className="fixed inset-0 z-50 bg-black/20 backdrop-blur-[1px]"
+        <div 
+          className="fixed inset-0 z-50 bg-black/20 backdrop-blur-[1px]" 
           onClick={(e) => {
             e.stopPropagation();
             setTouchMenu(null);
@@ -5806,7 +6610,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             <div className="px-2 py-1 text-[10px] text-slate-400 font-extrabold uppercase border-b border-slate-100 pb-1.5 mb-1 truncate">
               {touchMenu.room ? `Căn: ${touchMenu.room.roomName}` : 'Mặt bằng'}
             </div>
-
+            
             {touchMenu.room ? (
               <>
                 <button
@@ -5820,19 +6624,32 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   <Copy className="w-4 h-4 text-slate-500" />
                   Sao chép căn
                 </button>
-
+                
                 {copiedRoomsState.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handlePasteRoom(touchMenu.rawX, touchMenu.rawY);
-                    }}
-                    className="w-full flex items-center gap-2 px-2.5 py-2 text-xs font-extrabold text-indigo-600 hover:bg-indigo-50 active:bg-indigo-100 rounded-lg text-left transition-colors"
-                  >
-                    <Check className="w-4 h-4 text-indigo-500" />
-                    Dán tại đây
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handlePasteRoom(touchMenu.rawX, touchMenu.rawY, false);
+                      }}
+                      className="w-full flex items-center gap-2 px-2.5 py-2 text-xs font-extrabold text-indigo-600 hover:bg-indigo-50 active:bg-indigo-100 rounded-lg text-left transition-colors cursor-pointer"
+                    >
+                      <Check className="w-4 h-4 text-indigo-500" />
+                      Dán thường (Tạo Bản Sao)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handlePasteRoom(touchMenu.rawX, touchMenu.rawY, true);
+                      }}
+                      className="w-full flex items-center gap-2 px-2.5 py-2 text-xs font-extrabold text-emerald-600 hover:bg-emerald-50 active:bg-emerald-100 rounded-lg text-left transition-colors cursor-pointer"
+                    >
+                      <Check className="w-4 h-4 text-emerald-500" />
+                      Dán đè (Giữ nguyên tên)
+                    </button>
+                  </>
                 )}
 
                 <button
@@ -5841,7 +6658,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     e.stopPropagation();
                     handleDeleteRoom(touchMenu.room!);
                   }}
-                  className="w-full flex items-center gap-2 px-2.5 py-2 text-xs font-extrabold text-rose-600 hover:bg-rose-50 active:bg-rose-100 rounded-lg text-left transition-colors"
+                  className="w-full flex items-center gap-2 px-2.5 py-2 text-xs font-extrabold text-rose-600 hover:bg-rose-50 active:bg-rose-100 rounded-lg text-left transition-colors cursor-pointer"
                 >
                   <Trash2 className="w-4 h-4 text-rose-500" />
                   Xóa căn
@@ -5850,17 +6667,30 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             ) : (
               <>
                 {copiedRoomsState.length > 0 ? (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handlePasteRoom(touchMenu.rawX, touchMenu.rawY);
-                    }}
-                    className="w-full flex items-center gap-2 px-2.5 py-2 text-xs font-extrabold text-indigo-600 hover:bg-indigo-50 active:bg-indigo-100 rounded-lg text-left transition-colors"
-                  >
-                    <Check className="w-4 h-4 text-indigo-500" />
-                    Dán căn đã copy
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handlePasteRoom(touchMenu.rawX, touchMenu.rawY, false);
+                      }}
+                      className="w-full flex items-center gap-2 px-2.5 py-2 text-xs font-extrabold text-indigo-600 hover:bg-indigo-50 active:bg-indigo-100 rounded-lg text-left transition-colors cursor-pointer"
+                    >
+                      <Check className="w-4 h-4 text-indigo-500" />
+                      Dán thường (Tạo Bản Sao)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handlePasteRoom(touchMenu.rawX, touchMenu.rawY, true);
+                      }}
+                      className="w-full flex items-center gap-2 px-2.5 py-2 text-xs font-extrabold text-emerald-600 hover:bg-emerald-50 active:bg-emerald-100 rounded-lg text-left transition-colors cursor-pointer"
+                    >
+                      <Check className="w-4 h-4 text-emerald-500" />
+                      Dán đè (Giữ nguyên tên)
+                    </button>
+                  </>
                 ) : (
                   <div className="px-2 py-1.5 text-[10px] text-amber-600 font-extrabold text-center bg-amber-50 rounded-lg leading-relaxed">
                     Vui lòng đè vào một căn để Sao chép trước!

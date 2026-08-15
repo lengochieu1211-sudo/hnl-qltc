@@ -26,32 +26,44 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
   const [textPos, setTextPos] = useState<{x: number, y: number} | null>(null);
 
   useEffect(() => {
+    if (!isOpen) {
+      setHistory([]);
+      setTextPos(null);
+      setTextInput('');
+      return;
+    }
+
     if (isOpen && imageUrl && canvasRef.current) {
       const img = new Image();
       img.crossOrigin = 'anonymous';
       img.onload = () => {
         const canvas = canvasRef.current;
-        const ctx = canvas?.getContext('2d');
+        const ctx = canvas?.getContext('2d', { willReadFrequently: true });
         if (!canvas || !ctx) return;
         
         // Adjust canvas size to fit container but keep aspect ratio
-        let w = img.width;
-        let h = img.height;
-        const maxW = window.innerWidth * 0.9;
-        const maxH = window.innerHeight * 0.6;
+        let w = img.naturalWidth || img.width;
+        let h = img.naturalHeight || img.height;
+        const maxW = Math.min(window.innerWidth * 0.9, 1280);
+        const maxH = Math.min(window.innerHeight * 0.65, 960);
         
         if (w > maxW || h > maxH) {
           const ratio = Math.min(maxW / w, maxH / h);
-          w = w * ratio;
-          h = h * ratio;
+          w = Math.round(w * ratio);
+          h = Math.round(h * ratio);
         }
         
         canvas.width = w;
         canvas.height = h;
+        ctx.imageSmoothingEnabled = true;
         ctx.drawImage(img, 0, 0, w, h);
         
-        // Save initial state
-        setHistory([ctx.getImageData(0, 0, w, h)]);
+        // Save initial state (keep max 5 states to save memory on mobile)
+        try {
+          setHistory([ctx.getImageData(0, 0, w, h)]);
+        } catch (err) {
+          console.warn('Could not save initial image state:', err);
+        }
       };
       img.src = imageUrl;
     }
@@ -59,13 +71,17 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
 
   const saveState = () => {
     const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
+    const ctx = canvas?.getContext('2d', { willReadFrequently: true });
     if (!canvas || !ctx) return;
     
-    const newHistory = [...history, ctx.getImageData(0, 0, canvas.width, canvas.height)];
-    // Keep max 10 states
-    if (newHistory.length > 10) newHistory.shift();
-    setHistory(newHistory);
+    try {
+      const newHistory = [...history, ctx.getImageData(0, 0, canvas.width, canvas.height)];
+      // Keep max 5 states to prevent mobile memory bloat
+      if (newHistory.length > 5) newHistory.shift();
+      setHistory(newHistory);
+    } catch (err) {
+      console.warn('saveState failed:', err);
+    }
   };
 
   const handleUndo = () => {
@@ -248,7 +264,7 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
       if (!blob) return;
       const file = new File([blob], `Edited_Defect_${Date.now()}.jpg`, { type: 'image/jpeg' });
       onSave(file);
-    }, 'image/jpeg', 0.9);
+    }, 'image/jpeg', 0.82);
   };
 
   if (!isOpen) return null;

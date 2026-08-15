@@ -60,6 +60,42 @@
       "schema": "ProjectData",
       "description": "Synced construction projects"
     },
+    "/projects/{projectId}/rooms/{roomId}": {
+      "schema": "object",
+      "description": "Synced rooms under project progress"
+    },
+    "/projects/{projectId}/inventory/{itemId}": {
+      "schema": "object",
+      "description": "Synced inventory tickets/items"
+    },
+    "/projects/{projectId}/defects/{defectId}": {
+      "schema": "object",
+      "description": "Synced quality defects"
+    },
+    "/projects/{projectId}/work_volumes/{volumeId}": {
+      "schema": "object",
+      "description": "Synced work volume progress"
+    },
+    "/projects/{projectId}/floor_plans/{planId}": {
+      "schema": "object",
+      "description": "Synced floor plans"
+    },
+    "/projects/{projectId}/checklist/{checklistId}": {
+      "schema": "object",
+      "description": "Synced checklist items"
+    },
+    "/projects/{projectId}/crew_records/{crewId}": {
+      "schema": "object",
+      "description": "Synced daily crew records"
+    },
+    "/projects/{projectId}/teams/{teamId}": {
+      "schema": "object",
+      "description": "Synced subcontractor teams"
+    },
+    "/projects/{projectId}/material_norms/{normId}": {
+      "schema": "object",
+      "description": "Synced material norms"
+    },
     "/cloud_backups/{backupId}": {
       "schema": "CloudBackup",
       "description": "Cloud backup snapshots"

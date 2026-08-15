@@ -4,14 +4,20 @@ import { X, ZoomIn, ZoomOut, RotateCcw, Download } from 'lucide-react';
 interface ImageViewerModalProps {
   isOpen: boolean;
   onClose: () => void;
-  imageUrl: string;
+  imageUrl?: string;
+  images?: string[];
+  initialIndex?: number;
 }
 
 export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
   isOpen,
   onClose,
-  imageUrl
+  imageUrl,
+  images,
+  initialIndex = 0
 }) => {
+  const allImages = images && images.length > 0 ? images : (imageUrl ? [imageUrl] : []);
+  const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [scale, setScale] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
@@ -23,10 +29,29 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
+      setCurrentIndex(initialIndex >= 0 && initialIndex < allImages.length ? initialIndex : 0);
       setScale(1);
       setPosition({ x: 0, y: 0 });
     }
-  }, [isOpen]);
+  }, [isOpen, initialIndex, images, imageUrl]);
+
+  const activeImage = allImages[currentIndex] || imageUrl || '';
+
+  const handlePrev = () => {
+    if (currentIndex > 0) {
+      setCurrentIndex(c => c - 1);
+      setScale(1);
+      setPosition({ x: 0, y: 0 });
+    }
+  };
+
+  const handleNext = () => {
+    if (currentIndex < allImages.length - 1) {
+      setCurrentIndex(c => c + 1);
+      setScale(1);
+      setPosition({ x: 0, y: 0 });
+    }
+  };
 
   useEffect(() => {
     const container = containerRef.current;
@@ -99,7 +124,9 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
   return (
     <div className="fixed inset-0 bg-slate-950/95 z-[200] flex flex-col animate-in fade-in">
       <div className="flex items-center justify-between p-4 text-white z-10 bg-gradient-to-b from-slate-950 to-transparent">
-        <h3 className="font-bold text-sm">Xem chi tiết ảnh</h3>
+        <h3 className="font-bold text-sm">
+          Xem chi tiết ảnh {allImages.length > 1 ? `(${currentIndex + 1}/${allImages.length})` : ''}
+        </h3>
         <button onClick={onClose} className="p-2 bg-slate-800/80 hover:bg-slate-700 rounded-full transition-colors backdrop-blur-sm">
           <X className="w-5 h-5" />
         </button>
@@ -113,10 +140,19 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
       >
-        {imageUrl ? (
+        {allImages.length > 1 && currentIndex > 0 && (
+          <button 
+            onClick={handlePrev}
+            className="absolute left-4 z-20 p-3 bg-slate-900/80 hover:bg-slate-800 text-white rounded-full shadow-lg transition-colors"
+          >
+            ‹
+          </button>
+        )}
+
+        {activeImage ? (
           <img 
-            src={imageUrl} 
-            alt="Defect Full" 
+            src={activeImage} 
+            alt="Full Photo" 
             referrerPolicy="no-referrer" 
             crossOrigin="anonymous"
             style={{
@@ -127,6 +163,15 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
           />
         ) : (
           <div className="text-white/60 font-bold text-sm">Không có hình ảnh để hiển thị</div>
+        )}
+
+        {allImages.length > 1 && currentIndex < allImages.length - 1 && (
+          <button 
+            onClick={handleNext}
+            className="absolute right-4 z-20 p-3 bg-slate-900/80 hover:bg-slate-800 text-white rounded-full shadow-lg transition-colors"
+          >
+            ›
+          </button>
         )}
       </div>
       

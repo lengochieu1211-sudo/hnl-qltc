@@ -7,6 +7,7 @@ import {
   Users,
   Settings
 } from 'lucide-react';
+import { useLanguage } from '../context/LanguageContext';
 
 export type TabType = 'warehouse' | 'volume' | 'floorplan' | 'checklist' | 'crew' | 'config';
 
@@ -21,13 +22,15 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   setActiveTab,
   defectBadgeCount,
 }) => {
+  const { t } = useLanguage();
+  
   const tabs = [
-    { id: 'warehouse' as TabType, label: 'Kho Vật Tư', icon: PackageCheck },
-    { id: 'volume' as TabType, label: 'Khối Lượng', icon: BarChart3 },
-    { id: 'floorplan' as TabType, label: 'Mặt Bằng', icon: MapPin, badge: defectBadgeCount },
-    { id: 'checklist' as TabType, label: 'Checklist', icon: ClipboardCheck },
-    { id: 'crew' as TabType, label: 'Quân Số', icon: Users },
-    { id: 'config' as TabType, label: 'Cấu Hình', icon: Settings },
+    { id: 'warehouse' as TabType, label: t('warehouse'), icon: PackageCheck },
+    { id: 'volume' as TabType, label: t('volume'), icon: BarChart3 },
+    { id: 'floorplan' as TabType, label: t('floorplan'), icon: MapPin, badge: defectBadgeCount },
+    { id: 'checklist' as TabType, label: t('checklist'), icon: ClipboardCheck },
+    { id: 'crew' as TabType, label: t('crew'), icon: Users },
+    { id: 'config' as TabType, label: t('config'), icon: Settings },
   ];
 
   return (

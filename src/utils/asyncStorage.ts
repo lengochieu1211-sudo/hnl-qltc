@@ -5,50 +5,69 @@ localforage.config({
   storeName: 'app_data'
 });
 
-const ASYNC_DATA_KEY_PREFIXES = [
-  'construction_material_norms',
-  'construction_inventory',
-  'construction_work_volumes',
-  'construction_floor_plans',
-  'construction_defects',
-  'construction_room_progress',
-  'construction_checklist',
-  'construction_crew_records',
-  'construction_teams',
-];
-
-export const isAsyncDataKey = (key: string): boolean => {
-  return ASYNC_DATA_KEY_PREFIXES.some((prefix) => key === prefix || key.startsWith(`${prefix}_proj_`));
+export const isMetadataKey = (key: string): boolean => {
+  return (
+    key.includes('construction_project_name') ||
+    key.includes('construction_contractor') ||
+    key.includes('construction_inspector') ||
+    key.includes('construction_updated_at') ||
+    key.includes('construction_drive_')
+  );
 };
 
 export const getAsyncItem = async <T>(key: string, fallback: T): Promise<T> => {
+  if (isMetadataKey(key)) {
+    const localVal = localStorage.getItem(key);
+    if (localVal !== null) {
+      try { return JSON.parse(localVal); } catch { return localVal as unknown as T; }
+    }
+  }
   try {
-    const val = await localforage.getItem<string>(key);
-    if (val !== null) {
-      return JSON.parse(val);
+    const val = await localforage.getItem<any>(key);
+    if (val !== null && val !== undefined) {
+      if (typeof val === 'string') {
+        try {
+          return JSON.parse(val);
+        } catch {
+          return val as unknown as T;
+        }
+      }
+      return val as T;
     }
     // Migration: try to get from localStorage if not in localforage yet
     const localVal = localStorage.getItem(key);
     if (localVal !== null) {
-      const parsed = JSON.parse(localVal);
-      await localforage.setItem(key, localVal); // migrate
+      let parsed: any;
+      try {
+        parsed = JSON.parse(localVal);
+      } catch {
+        parsed = localVal;
+      }
+      await localforage.setItem(key, localVal).catch(() => {}); // migrate
       return parsed;
     }
     return fallback;
   } catch (err) {
     console.error(`Error reading async item ${key}:`, err);
-    return fallback;
+    throw err; // Do not swallow DB read errors as fallback to prevent data overwrite
   }
 };
 
 export const setAsyncItem = async (key: string, value: any): Promise<void> => {
   try {
+    if (isMetadataKey(key)) {
+      localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
+      // Remove metadata from localforage to prevent stale overwrites
+      localforage.removeItem(key).catch(() => {});
+      return;
+    }
     const str = typeof value === 'string' ? value : JSON.stringify(value);
     await localforage.setItem(key, str);
-    // Delete from localStorage to free up space
+    // Delete domain collection data from localStorage to free up space
     localStorage.removeItem(key);
   } catch (err) {
     console.error(`Error setting async item ${key}:`, err);
+    throw err;
   }
 };
 
@@ -58,6 +77,7 @@ export const removeAsyncItem = async (key: string): Promise<void> => {
     localStorage.removeItem(key);
   } catch (err) {
     console.error(`Error removing async item ${key}:`, err);
+    throw err;
   }
 };
 
@@ -72,54 +92,32 @@ export const getAllStorageData = async (): Promise<Record<string, string>> => {
     }
   }
 
-  // 2. Get all from localforage
+  // 2. Get all from localforage (prioritizing localStorage for metadata & cleaning up localforage metadata)
   try {
     const keys = await localforage.keys();
     for (const key of keys) {
-      const val = await localforage.getItem<string>(key);
-      if (val) {
-        data[key] = val;
+      if (isMetadataKey(key)) {
+        const val = await localforage.getItem<string>(key);
+        if (val !== null && val !== undefined) {
+          if (!(key in data)) {
+            data[key] = val;
+            localStorage.setItem(key, val);
+          }
+          await localforage.removeItem(key);
+        }
+      } else {
+        const val = await localforage.getItem<string>(key);
+        if (val !== null && val !== undefined) {
+          data[key] = val;
+        }
       }
     }
   } catch (err) {
-    console.error('Error getting localforage keys:', err);
+    console.error('Error getting localforage keys/data in getAllStorageData:', err);
+    throw err;
   }
 
   return data;
-};
-
-export const getAllConstructionStorageData = async (): Promise<Record<string, string>> => {
-  const allData = await getAllStorageData();
-  const data: Record<string, string> = {};
-
-  for (const key in allData) {
-    if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
-      data[key] = allData[key] || '';
-    }
-  }
-
-  return data;
-};
-
-export const restoreConstructionStorageData = async (data: Record<string, string>): Promise<void> => {
-  for (const key in data) {
-    if (!key || (!key.startsWith('construction_') && !key.startsWith('active_project_id'))) {
-      continue;
-    }
-
-    const rawValue = data[key];
-    const value = typeof rawValue === 'string' ? rawValue : JSON.stringify(rawValue ?? '');
-    if (isAsyncDataKey(key)) {
-      await setAsyncItem(key, value);
-    } else {
-      try {
-        localStorage.setItem(key, value);
-      } catch (err) {
-        console.warn(`localStorage restore failed for ${key}, using IndexedDB fallback.`, err);
-        await setAsyncItem(key, value);
-      }
-    }
-  }
 };
 
 export const getStorageKeys = async (): Promise<string[]> => {

@@ -18,10 +18,10 @@ export async function convertPdfToImage(file: File): Promise<string> {
         const typedArray = new Uint8Array(event.target?.result as ArrayBuffer);
         const loadingTask = pdfjsLib.getDocument({ data: typedArray });
         const pdf = await loadingTask.promise;
-
+        
         // Fetch first page
         const page = await pdf.getPage(1);
-
+        
         const scale = 3.0; // High resolution scale for clear floor plan blueprint
         const viewport = page.getViewport({ scale });
 

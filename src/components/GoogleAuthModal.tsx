@@ -1,12 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import {
-  X,
-  Cloud,
-  CheckCircle2,
-  LogOut,
-  ShieldCheck,
-  User,
-  Mail,
+import React, { useState } from 'react';
+import { 
+  X, 
+  Cloud, 
+  CheckCircle2, 
+  LogOut, 
+  ShieldCheck, 
+  User, 
+  Mail, 
   Lock,
   ExternalLink,
   Info
@@ -30,12 +30,6 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (isOpen) {
-      setErrorMsg(null);
-    }
-  }, [isOpen]);
-
   if (!isOpen) return null;
 
   const handleGoogleLogin = async () => {
@@ -45,7 +39,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
       await signInWithGoogleAccount();
       onRefreshAuth();
     } catch (err: any) {
-      setErrorMsg('Không thể đăng nhập Google bằng Firebase Auth: ' + (err?.message || String(err)));
+      setErrorMsg('Khong the dang nhap Google bang Firebase Auth: ' + (err?.message || err));
     } finally {
       setLoading(false);
     }
@@ -101,8 +95,8 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
           </h3>
           <p className="text-xs text-slate-500 max-w-xs mx-auto">
             {authStatus.authenticated
-              ? 'Tài khoản Google đã kết nối bằng Firebase Auth để đồng bộ dữ liệu qua Cloud Firebase'
-              : 'Đăng nhập bằng tài khoản Google qua Firebase Auth miễn phí'}
+              ? 'Tai khoan Google da ket noi qua Firebase Auth de dong bo dam may mien phi.'
+              : 'Dang nhap Google bang Firebase Auth mien phi de dong bo du lieu qua Firestore.'}
           </p>
         </div>
 
@@ -138,9 +132,9 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
             <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 text-xs space-y-1.5 text-slate-600">
               <p className="font-semibold text-slate-800">Quyền hạn đã kích hoạt:</p>
               <ul className="list-disc list-inside space-y-0.5 text-[11px]">
-                <li>Đăng nhập Google qua Firebase Authentication</li>
-                <li>Đồng bộ dữ liệu dự án qua Cloud Firestore</li>
-                <li>Xuất/nhập JSON, Excel, PDF vẫn chạy cục bộ</li>
+                <li>Dang nhap Google bang Firebase Authentication</li>
+                <li>Dong bo du lieu qua Firestore free tier khi du cau hinh</li>
+                <li>Khong can server rieng, khong goi Google Drive/Sheets tren Hosting tinh</li>
               </ul>
             </div>
 

@@ -1,9 +1,11 @@
-const CACHE_NAME = 'qltc-an-phu-cache-v4';
+const CACHE_NAME = 'thicong-thachcao-cache-v2';
 
 // Essential App Shell Resources
 const STATIC_ASSETS = [
+  '/',
+  '/index.html',
   '/manifest.json',
-  '/icon.png'
+  '/icon.svg'
 ];
 
 // Install Event: Cache Core App Shell
@@ -32,13 +34,7 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-self.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'SKIP_WAITING') {
-    self.skipWaiting();
-  }
-});
-
-// Fetch Event: Network First for HTML/API, Stale-While-Revalidate for static assets
+// Fetch Event: Cache First for Static Assets, Network First with Offline JSON for API
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
@@ -69,24 +65,23 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  if (request.mode === 'navigate' || request.headers.get('accept')?.includes('text/html')) {
+  // Navigation & HTML document requests: Network First -> Fallback to Cache
+  if (request.mode === 'navigate' || url.pathname === '/' || url.pathname.endsWith('/index.html')) {
     event.respondWith(
       fetch(request)
         .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+          if (networkResponse && networkResponse.status === 200) {
             const responseToCache = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put('/index.html', responseToCache);
-            });
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, responseToCache));
           }
           return networkResponse;
         })
-        .catch(() => caches.match('/index.html'))
+        .catch(() => caches.match(request))
     );
     return;
   }
 
-  // Static Assets / HTML / JS / Images: Stale-While-Revalidate
+  // Static Assets / JS / Images: Stale-While-Revalidate
   event.respondWith(
     caches.match(request).then((cachedResponse) => {
       const fetchPromise = fetch(request)

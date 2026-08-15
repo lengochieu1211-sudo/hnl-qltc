@@ -2,14 +2,105 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /projects/{projectId}/{document=**} {
-      allow read, write: if request.auth != null;
+    
+    // Check if request is authenticated with Google Auth
+    function isGoogleAuthed() {
+      return request.auth != null && request.auth.token.firebase.sign_in_provider == 'google.com';
     }
-    match /cloud_backups/{backupId}/{document=**} {
-      allow read, write: if request.auth != null;
+
+    // Helper functions for project access control
+    function isProjectOwner(projectId) {
+      return isGoogleAuthed() && (
+        (resource != null && resource.data.ownerUid == request.auth.uid) ||
+        (get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid)
+      );
     }
-    match /{document=**} {
-      allow read, write: if false;
+
+    function isProjectMember(projectId) {
+      return isGoogleAuthed() && (
+        isProjectOwner(projectId) ||
+        exists(/databases/$(database)/documents/projects/$(projectId)/members/$(request.auth.uid))
+      );
+    }
+
+    function getProjectMemberRole(projectId) {
+      return get(/databases/$(database)/documents/projects/$(projectId)/members/$(request.auth.uid)).data.role;
+    }
+
+    function isProjectAdmin(projectId) {
+      return isGoogleAuthed() && (
+        isProjectOwner(projectId) ||
+        (exists(/databases/$(database)/documents/projects/$(projectId)/members/$(request.auth.uid)) && 
+         getProjectMemberRole(projectId) == 'ADMIN')
+      );
+    }
+
+    function isProjectEngineerOrAdmin(projectId) {
+      return isGoogleAuthed() && (
+        isProjectAdmin(projectId) ||
+        (exists(/databases/$(database)/documents/projects/$(projectId)/members/$(request.auth.uid)) && 
+         (getProjectMemberRole(projectId) == 'ENGINEER' || getProjectMemberRole(projectId) == 'ADMIN'))
+      );
+    }
+
+    // Projects collection & subcollections
+    match /projects/{projectId} {
+      allow read: if isGoogleAuthed() && (
+        isProjectMember(projectId) || 
+        (resource != null && resource.data.ownerUid == request.auth.uid)
+      );
+
+      allow create: if isGoogleAuthed() 
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.ownerUid == request.auth.uid;
+
+      allow update: if isGoogleAuthed() && (
+        isProjectAdmin(projectId) || 
+        (resource != null && resource.data.ownerUid == request.auth.uid)
+      );
+
+      allow delete: if isGoogleAuthed() && (
+        (resource != null && resource.data.ownerUid == request.auth.uid) ||
+        isProjectOwner(projectId)
+      );
+
+      // Project members subcollection
+      match /members/{memberUid} {
+        allow read: if isGoogleAuthed() && isProjectMember(projectId);
+        allow write: if isGoogleAuthed() && isProjectAdmin(projectId);
+      }
+
+      // Business subcollections
+      match /{allSubcollections=**} {
+        allow read: if isGoogleAuthed() && isProjectMember(projectId);
+        allow write: if isGoogleAuthed() && isProjectEngineerOrAdmin(projectId);
+      }
+    }
+
+    // User profile documents
+    match /users/{userId} {
+      allow read: if isGoogleAuthed();
+      allow write: if isGoogleAuthed() && request.auth.uid == userId;
+    }
+
+    // Project invitations
+    match /projectInvitations/{invitationId} {
+      allow read: if isGoogleAuthed() && (
+        (resource != null && (resource.data.invitedEmail == request.auth.token.email || resource.data.createdByUid == request.auth.uid)) ||
+        (resource != null && isProjectMember(resource.data.projectId))
+      );
+      allow create: if isGoogleAuthed() && isProjectAdmin(request.resource.data.projectId);
+      allow update, delete: if isGoogleAuthed() && (
+        (resource != null && isProjectAdmin(resource.data.projectId)) || 
+        (resource != null && resource.data.invitedEmail == request.auth.token.email)
+      );
+    }
+
+    // Cloud backups collection
+    match /cloud_backups/{backupId} {
+      allow read, delete: if isGoogleAuthed() && (resource == null || resource.data.ownerUid == request.auth.uid);
+      allow create, update: if isGoogleAuthed() && request.resource.data.ownerUid == request.auth.uid;
     }
   }
 }

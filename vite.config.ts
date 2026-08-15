@@ -22,6 +22,7 @@ const firebaseEnvFallbacks: Record<string, string | undefined> = {
   'import.meta.env.VITE_FIREBASE_APP_ID': process.env.VITE_FIREBASE_APP_ID || firebaseWebConfig.appId,
   'import.meta.env.VITE_FIREBASE_MEASUREMENT_ID': process.env.VITE_FIREBASE_MEASUREMENT_ID || firebaseWebConfig.measurementId,
   'import.meta.env.VITE_FIRESTORE_DATABASE_ID': process.env.VITE_FIRESTORE_DATABASE_ID || '(default)',
+  'import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID': process.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || process.env.VITE_FIRESTORE_DATABASE_ID || '(default)',
 };
 
 const firebaseEnvDefine = Object.fromEntries(

@@ -40,7 +40,7 @@ function parseCookies(cookieHeader?: string): Record<string, string> {
 
 function getSessionId(req?: express.Request, res?: express.Response): string {
   if (!req) return 'default_session';
-
+  
   // Header or query override
   const headerSid = (req.headers['x-session-id'] as string) || (req.query.sid as string);
   if (headerSid) return headerSid;
@@ -75,7 +75,7 @@ function clearUserTokens(req?: express.Request, res?: express.Response): void {
 function getOAuth2Client(req?: express.Request) {
   const clientId = process.env.CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET;
-
+  
   let appUrl = process.env.APP_URL;
   if (!appUrl && req) {
     const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
@@ -418,7 +418,7 @@ app.post('/api/sheets/sync-all', async (req, res) => {
 
 app.post('/api/drive/upload-image', upload.single('file'), async (req, res) => {
   const authClient = getAuthenticatedAuthClient(req);
-
+  
   // Base64 or multipart support
   let fileBuffer: Buffer | null = null;
   let fileName = req.body.fileName || `construction_upload_${Date.now()}.png`;
@@ -527,6 +527,28 @@ app.post('/api/drive/upload-image', upload.single('file'), async (req, res) => {
   }
 });
 
+app.get('/api/drive/photo/:fileId', async (req, res) => {
+  const fileId = req.params.fileId;
+  if (!fileId) return res.status(400).send('Missing fileId');
+
+  const authClient = getAuthenticatedAuthClient(req);
+  if (!authClient) {
+    return res.redirect(`https://lh3.googleusercontent.com/d/${fileId}`);
+  }
+
+  try {
+    const drive = google.drive({ version: 'v3', auth: authClient });
+    const fileRes = await drive.files.get(
+      { fileId, alt: 'media' },
+      { responseType: 'stream' }
+    );
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    fileRes.data.pipe(res);
+  } catch (err) {
+    res.redirect(`https://lh3.googleusercontent.com/d/${fileId}`);
+  }
+});
+
 app.post('/api/drive/sync-up', async (req, res) => {
   const authClient = getAuthenticatedAuthClient(req);
   if (!authClient) {
@@ -535,6 +557,7 @@ app.post('/api/drive/sync-up', async (req, res) => {
 
   const {
     folderId = '1se6PAsmGQ2hwPqUCiQoueksEFPP_YMO6',
+    projectId,
     projectName,
     contractorName,
     inspectorName,
@@ -547,7 +570,9 @@ app.post('/api/drive/sync-up', async (req, res) => {
     materialNorms,
     crewRecords,
     teams,
-    updatedAt
+    photos,
+    updatedAt,
+    categoryUpdatedAt = {}
   } = req.body;
 
   try {
@@ -555,6 +580,8 @@ app.post('/api/drive/sync-up', async (req, res) => {
 
     let processedFloorPlans = [...(floorPlans || [])];
     let processedDefects = [...(defects || [])];
+    let processedCrewRecords = [...(crewRecords || [])];
+    let processedPhotos = [...(photos || [])];
     let hasUploadedImages = false;
     let imagesFolderId = '';
 
@@ -633,7 +660,7 @@ app.post('/api/drive/sync-up', async (req, res) => {
             });
 
             const imgId = imgFile.data.id!;
-
+            
             // Try to set public read permission on individual file
             try {
               await drive.permissions.create({
@@ -691,7 +718,7 @@ app.post('/api/drive/sync-up', async (req, res) => {
             });
 
             const imgId = imgFile.data.id!;
-
+            
             // Try to set public read permission on individual file
             try {
               await drive.permissions.create({
@@ -709,36 +736,207 @@ app.post('/api/drive/sync-up', async (req, res) => {
             processedDefects[i] = defect;
             hasUploadedImages = true;
           }
+
+          // Handle afterImageUrl if present
+          if (defect.afterImageUrl && defect.afterImageUrl.startsWith('data:image/')) {
+            const afterMatches = defect.afterImageUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+            if (afterMatches) {
+              const mimeType = afterMatches[1];
+              const base64String = afterMatches[2];
+              const fileBuffer = Buffer.from(base64String, 'base64');
+
+              const stream = new Readable();
+              stream.push(fileBuffer);
+              stream.push(null);
+
+              const safeCategory = (defect.category || 'suco').replace(/[^a-zA-Z0-9\s-_]/g, '').trim().replace(/\s+/g, '_');
+              const fileName = `AnhKhacPhuc_${safeCategory}_${defect.id || Date.now()}.png`;
+
+              const imgFile = await drive.files.create({
+                requestBody: {
+                  name: fileName,
+                  parents: [targetFolder],
+                },
+                media: {
+                  mimeType,
+                  body: stream,
+                },
+                fields: 'id, name, webViewLink',
+              });
+
+              const imgId = imgFile.data.id!;
+              
+              try {
+                await drive.permissions.create({
+                  fileId: imgId,
+                  requestBody: {
+                    role: 'reader',
+                    type: 'anyone',
+                  },
+                });
+              } catch (pe) {
+                console.warn('Could not set public read on defect after-image:', pe);
+              }
+
+              defect.afterImageUrl = `https://lh3.googleusercontent.com/d/${imgId}`;
+              processedDefects[i] = defect;
+              hasUploadedImages = true;
+            }
+          }
         } catch (uploadErr) {
           console.error(`Error uploading defect image ${defect.id}:`, uploadErr);
         }
       }
     }
 
-    // Format the backup JSON data with processed (clean direct link) values
-    const backupData = JSON.stringify({
-      projectName: projectName || 'Công Trình Mẫu',
-      contractorName: contractorName || '',
-      inspectorName: inspectorName || '',
-      inventory: inventory || [],
-      workVolumes: workVolumes || [],
-      checklist: checklist || [],
-      defects: processedDefects,
-      floorPlans: processedFloorPlans,
-      roomProgressList: roomProgressList || [],
-      materialNorms: materialNorms || [],
-      crewRecords: crewRecords || [],
-      teams: teams || [],
-      updatedAt: updatedAt || Date.now()
-    }, null, 2);
+    // 3. Process Crew Records images
+    for (let i = 0; i < processedCrewRecords.length; i++) {
+      const record = { ...processedCrewRecords[i] };
+      if (record.imageUrl && record.imageUrl.startsWith('data:')) {
+        try {
+          const targetFolder = await getImagesFolderId();
+          const matches = record.imageUrl.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
+          if (matches) {
+            const mimeType = matches[1];
+            const base64String = matches[2];
+            const fileBuffer = Buffer.from(base64String, 'base64');
+            const stream = new Readable();
+            stream.push(fileBuffer);
+            stream.push(null);
 
-    const backupFileName = 'construction_sync.json';
+            const uploadRes = await drive.files.create({
+              requestBody: {
+                name: `Crew_${record.id || i}_${Date.now()}.jpg`,
+                parents: [targetFolder],
+                mimeType,
+              },
+              media: { mimeType, body: stream },
+              fields: 'id, webViewLink, webContentLink',
+            });
+            const fileId = uploadRes.data.id;
+            if (fileId) {
+              try {
+                await drive.permissions.create({
+                  fileId,
+                  requestBody: { role: 'reader', type: 'anyone' },
+                });
+              } catch (_) {}
+              record.imageUrl = `https://lh3.googleusercontent.com/d/${fileId}`;
+              hasUploadedImages = true;
+              processedCrewRecords[i] = record;
+            }
+          }
+        } catch (err) {
+          console.error(`Error uploading crew image ${record.id}:`, err);
+        }
+      }
+    }
+
+    // 4. Process Photo Attachments
+    for (let i = 0; i < processedPhotos.length; i++) {
+      const photo = { ...processedPhotos[i] };
+      const rawData = photo.dataUrl || photo.localUri || photo.base64;
+      if (rawData && rawData.startsWith('data:')) {
+        try {
+          const targetFolder = await getImagesFolderId();
+          const matches = rawData.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
+          if (matches) {
+            const mimeType = matches[1] || photo.mimeType || 'image/jpeg';
+            const base64String = matches[2];
+            const fileBuffer = Buffer.from(base64String, 'base64');
+            const stream = new Readable();
+            stream.push(fileBuffer);
+            stream.push(null);
+
+            const uploadRes = await drive.files.create({
+              requestBody: {
+                name: photo.fileName || `Photo_${photo.id || i}_${Date.now()}.jpg`,
+                parents: [targetFolder],
+                mimeType,
+              },
+              media: { mimeType, body: stream },
+              fields: 'id, webViewLink, webContentLink',
+            });
+            const fileId = uploadRes.data.id;
+            if (fileId) {
+              try {
+                await drive.permissions.create({
+                  fileId,
+                  requestBody: { role: 'reader', type: 'anyone' },
+                });
+              } catch (_) {}
+              photo.cloudUrl = `https://lh3.googleusercontent.com/d/${fileId}`;
+              photo.cloudFileId = fileId;
+              delete photo.dataUrl;
+              delete photo.base64;
+              hasUploadedImages = true;
+              processedPhotos[i] = photo;
+            }
+          }
+        } catch (err) {
+          console.error(`Error uploading photo attachment ${photo.id}:`, err);
+        }
+      }
+    }
+
+    const backupFileName = projectId ? `construction_sync_${projectId}.json` : 'construction_sync.json';
 
     // 1. Search for existing sync file inside the specific parent folder
     const fileSearch = await drive.files.list({
       q: `name = '${backupFileName}' and '${folderId}' in parents and trashed = false`,
       fields: 'files(id, name, webViewLink)',
     });
+
+    let existingData: any = {};
+    if (fileSearch.data.files && fileSearch.data.files.length > 0) {
+      const existingFileId = fileSearch.data.files[0].id!;
+      try {
+        const fileContentRes = await drive.files.get({
+          fileId: existingFileId,
+          alt: 'media',
+        });
+        if (fileContentRes.data && typeof fileContentRes.data === 'object') {
+          existingData = fileContentRes.data;
+        }
+      } catch (e) {
+        console.warn('Could not read existing backup JSON from Drive:', e);
+      }
+    }
+
+    const finalInventory = inventory !== undefined ? inventory : (existingData.inventory || []);
+    const finalWorkVolumes = workVolumes !== undefined ? workVolumes : (existingData.workVolumes || []);
+    const finalChecklist = checklist !== undefined ? checklist : (existingData.checklist || []);
+    const finalDefects = defects !== undefined ? processedDefects : (existingData.defects || []);
+    const finalFloorPlans = floorPlans !== undefined ? processedFloorPlans : (existingData.floorPlans || []);
+    const finalRoomProgressList = roomProgressList !== undefined ? roomProgressList : (existingData.roomProgressList || []);
+    const finalMaterialNorms = materialNorms !== undefined ? materialNorms : (existingData.materialNorms || []);
+    const finalCrewRecords = crewRecords !== undefined ? processedCrewRecords : (existingData.crewRecords || []);
+    const finalTeams = teams !== undefined ? teams : (existingData.teams || []);
+    const finalPhotos = photos !== undefined ? processedPhotos : (existingData.photos || []);
+    const finalCategoryUpdatedAt = {
+      ...(existingData.categoryUpdatedAt || {}),
+      ...(categoryUpdatedAt || {})
+    };
+
+    // Format the backup JSON data with processed (clean direct link) values
+    const backupData = JSON.stringify({
+      projectId: projectId || undefined,
+      projectName: projectName || 'Công Trình Mẫu',
+      contractorName: contractorName || '',
+      inspectorName: inspectorName || '',
+      inventory: finalInventory,
+      workVolumes: finalWorkVolumes,
+      checklist: finalChecklist,
+      defects: finalDefects,
+      floorPlans: finalFloorPlans,
+      roomProgressList: finalRoomProgressList,
+      materialNorms: finalMaterialNorms,
+      crewRecords: finalCrewRecords,
+      teams: finalTeams,
+      photos: finalPhotos,
+      updatedAt: updatedAt || 0,
+      categoryUpdatedAt: finalCategoryUpdatedAt
+    }, null, 2);
 
     const stream = new Readable();
     stream.push(backupData);
@@ -776,41 +974,32 @@ app.post('/api/drive/sync-up', async (req, res) => {
       webViewLink = createRes.data.webViewLink || '';
     }
 
-    // Try to set anyone reader permission so other devices can easily access it if needed (optional)
-    try {
-      await drive.permissions.create({
-        fileId,
-        requestBody: {
-          role: 'reader',
-          type: 'anyone',
-        },
-      });
-    } catch (permErr) {
-      console.warn('Could not make backup file public, proceeding anyway:', permErr);
-    }
+    // Backup JSON file is kept private in the user's Google Drive.
 
     return res.json({
       success: true,
       fileId,
       webViewLink,
-      updatedAt: updatedAt || Date.now(),
-      message: hasUploadedImages
-        ? 'Đã tự động tải cấu hình & các tệp tin hình ảnh riêng biệt lên thư mục Google Drive thành công!'
+      updatedAt: updatedAt || 0,
+      message: hasUploadedImages 
+        ? 'Đã tự động tải cấu hình & các tệp tin hình ảnh riêng biệt lên thư mục Google Drive thành công!' 
         : 'Đã tự động tải cấu hình & dữ liệu thi công lên thư mục Google Drive thành công!',
       data: {
         projectName: projectName || 'Công Trình Mẫu',
         contractorName: contractorName || '',
         inspectorName: inspectorName || '',
-        inventory: inventory || [],
-        workVolumes: workVolumes || [],
-        checklist: checklist || [],
-        defects: processedDefects,
-        floorPlans: processedFloorPlans,
-        roomProgressList: roomProgressList || [],
-        materialNorms: materialNorms || [],
-        crewRecords: crewRecords || [],
-        teams: teams || [],
-        updatedAt: updatedAt || Date.now()
+        inventory: finalInventory,
+        workVolumes: finalWorkVolumes,
+        checklist: finalChecklist,
+        defects: finalDefects,
+        floorPlans: finalFloorPlans,
+        roomProgressList: finalRoomProgressList,
+        materialNorms: finalMaterialNorms,
+        crewRecords: finalCrewRecords,
+        teams: finalTeams,
+        photos: finalPhotos,
+        updatedAt: updatedAt || 0,
+        categoryUpdatedAt: finalCategoryUpdatedAt
       }
     });
   } catch (err: any) {
@@ -834,7 +1023,7 @@ app.post('/api/drive/upload-report', async (req, res) => {
 
   try {
     const drive = google.drive({ version: 'v3', auth: authClient });
-
+    
     // Decode base64 to buffer
     const fileBuffer = Buffer.from(base64Data, 'base64');
     const stream = new Readable();
@@ -911,11 +1100,11 @@ app.post('/api/drive/sync-down', async (req, res) => {
     return res.status(401).json({ error: 'Chưa kết nối tài khoản Google.' });
   }
 
-  const { folderId = '1se6PAsmGQ2hwPqUCiQoueksEFPP_YMO6' } = req.body;
+  const { folderId = '1se6PAsmGQ2hwPqUCiQoueksEFPP_YMO6', projectId } = req.body;
 
   try {
     const drive = google.drive({ version: 'v3', auth: authClient });
-    const backupFileName = 'construction_sync.json';
+    const backupFileName = projectId ? `construction_sync_${projectId}.json` : 'construction_sync.json';
 
     // Search for sync file inside the specific folder
     const fileSearch = await drive.files.list({
@@ -959,7 +1148,7 @@ app.post('/api/drive/sync-up-all', async (req, res) => {
     return res.status(401).json({ error: 'Chưa kết nối tài khoản Google.' });
   }
 
-  const { folderId = '1se6PAsmGQ2hwPqUCiQoueksEFPP_YMO6', allData, createSnapshot = true } = req.body;
+  const { folderId = '1se6PAsmGQ2hwPqUCiQoueksEFPP_YMO6', allData } = req.body;
   if (!allData) {
     return res.status(400).json({ error: 'Không tìm thấy dữ liệu để sao lưu.' });
   }
@@ -967,26 +1156,22 @@ app.post('/api/drive/sync-up-all', async (req, res) => {
   try {
     const drive = google.drive({ version: 'v3', auth: authClient });
     const backupFileName = 'construction_all_projects_sync.json';
-    const backupJson = JSON.stringify(allData, null, 2);
-    const createJsonStream = () => {
-      const stream = new Readable();
-      stream.push(backupJson);
-      stream.push(null);
-      return stream;
-    };
 
     const fileSearch = await drive.files.list({
       q: `name = '${backupFileName}' and '${folderId}' in parents and trashed = false`,
       fields: 'files(id, name, webViewLink)',
     });
 
+    const stream = new Readable();
+    stream.push(JSON.stringify(allData, null, 2));
+    stream.push(null);
+
     const media = {
       mimeType: 'application/json',
-      body: createJsonStream(),
+      body: stream,
     };
 
     let fileId = '';
-    let snapshotFileId = '';
     if (fileSearch.data.files && fileSearch.data.files.length > 0) {
       fileId = fileSearch.data.files[0].id!;
       await drive.files.update({
@@ -1005,23 +1190,6 @@ app.post('/api/drive/sync-up-all', async (req, res) => {
         fields: 'id, name, webViewLink',
       });
       fileId = createRes.data.id!;
-    }
-
-    if (createSnapshot) {
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const snapshotRes = await drive.files.create({
-        requestBody: {
-          name: `construction_all_projects_snapshot_${timestamp}.json`,
-          parents: [folderId],
-          mimeType: 'application/json',
-        },
-        media: {
-          mimeType: 'application/json',
-          body: createJsonStream(),
-        },
-        fields: 'id, name, webViewLink',
-      });
-      snapshotFileId = snapshotRes.data.id || '';
     }
 
     return res.json({

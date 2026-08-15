@@ -1,32 +1,55 @@
+import { downloadOrShareFile } from '../utils/downloadUtils';
 import React, { useState, useEffect } from 'react';
-import {
-  X, Plus, Folder, Trash2, HardDrive, Download, Upload, RefreshCw,
-  CheckCircle2, AlertTriangle, ShieldCheck, ArrowLeftRight, ChevronDown,
+import { 
+  X, Plus, Folder, Trash2, HardDrive, Download, Upload, RefreshCw, 
+  CheckCircle2, AlertTriangle, ShieldCheck, ArrowLeftRight, ChevronDown, 
   ChevronUp, Search, Edit3, Check, Building2, Copy, Sparkles, FolderPlus,
   Cloud, CloudUpload, CloudDownload, Smartphone, Monitor, Share2, Layers,
-  CheckSquare, Square, FileSpreadsheet, Layers3, CheckCircle, Database, History
+  CheckSquare, Square, FileSpreadsheet, Layers3, CheckCircle, Database, History, Eye,
+  Lock, Key, ShieldAlert
 } from 'lucide-react';
-import { ProjectInfo, getProjectsList, getActiveProjectId, setActiveProject, saveProjectsList } from '../App';
+import { ProjectInfo, getProjectsList, getActiveProjectId, setActiveProject, saveProjectsList, getKey } from '../App';
 import { safeSetLocalStorageItem } from '../utils/storage';
-import { getAllStorageData, getStorageKeys, removeAsyncItem, restoreConstructionStorageData, setAsyncItem } from '../utils/asyncStorage';
-import { saveJsonRecordFile } from '../utils/fileExport';
-import {
-  saveCloudBackup,
-  listCloudBackups,
-  deleteCloudBackup,
-  saveProjectToCloud,
+import { getAllStorageData, getStorageKeys, getStorageItem, getAsyncItem, removeAsyncItem, setAsyncItem } from '../utils/asyncStorage';
+import { 
+  saveCloudBackup, 
+  listCloudBackups, 
+  deleteCloudBackup, 
+  saveProjectToCloud, 
   fetchProjectFromCloud,
   getCloudPayload,
-  CloudBackupRecord
+  CloudBackupRecord,
+  signInWithGoogle,
+  signOutGoogle,
+  onAuthUserChanged
 } from '../lib/firebase';
+import type { User as FirebaseUser } from 'firebase/auth';
 import { ConflictMergeModal } from './ConflictMergeModal';
 import { confirmAsync } from '../utils/confirmAsync';
-import { normalizeImportedData } from '../utils/dataNormalizer';
+import { 
+  normalizeImportedData, 
+  isStorageDump, 
+  getProjectsFromStorageDump, 
+  createProjectId,
+  extractProjectsFromImportData,
+  smartMergeProjectData,
+  ProjectImportCandidate
+} from '../utils/dataNormalizer';
+import { formatDateTime, parseLegacyTimestamp } from '../utils/dateFormatter';
+import { useFormatSettings } from '../utils/numberUtils';
+import { detectOrphanProjectData, cleanupOrphanProjectData, OrphanScanResult, OrphanProjectInfo } from '../utils/projectReconciliation';
+import { isStorageKeyOwnedByProject, getProjectStorageKeys } from '../utils/projectStorageUtils';
+import { deleteProjectPhotos, getProjectPhotos, saveProjectPhotos, getProjectPhotosWithBinary, restorePhotosFromBackup } from '../utils/photoStorage';
+import { logAuditAction, UserRole, getCurrentUserRole, canManageProjects, canEditProjectData } from '../utils/securityUtils';
+import { encryptBackupData, decryptBackupData, isEncryptedBackup, EncryptedBackupContainer } from '../utils/cryptoUtils';
 
 interface ProjectManagerModalProps {
   isOpen: boolean;
   onClose: () => void;
+  activeProjectId?: string;
   initialTab?: 'sync' | 'projects';
+  autoSyncEnabled?: boolean;
+  setAutoSyncEnabled?: (enabled: boolean) => void;
   onDriveSyncUpAll?: (customFolderId?: string) => Promise<{ success: boolean; message?: string; error?: string }>;
   onDriveSyncDownAll?: (customFolderId?: string) => Promise<{ success: boolean; message?: string; error?: string }>;
   localAllSyncStatus?: 'synced' | 'saving' | 'error' | 'idle';
@@ -39,19 +62,25 @@ interface ProjectManagerModalProps {
   handleExportAllJson?: () => void;
   handleImportAllJson?: (e: React.ChangeEvent<HTMLInputElement>) => void;
   fullAppData?: any;
-  onRestoreData?: (data: any) => void | Promise<void>;
+  onRestoreData?: (data: any) => void;
   autosaveVersions?: any[];
   onRestoreAutoSaveVersion?: (version: any) => void;
   onCreateManualBackup?: () => void;
   onDeleteAutoSaveVersion?: (id: string) => void;
+  onSwitchProject?: (id: string) => Promise<void>;
+  onFlushCurrentProject?: () => Promise<void>;
+  userRole?: UserRole;
 }
 
 export type ScopeType = 'active' | 'selected' | 'all';
 
-export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
-  isOpen,
+export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({ 
+  isOpen, 
   onClose,
+  activeProjectId,
   initialTab = 'projects',
+  autoSyncEnabled = false,
+  setAutoSyncEnabled,
   onDriveSyncUpAll,
   onDriveSyncDownAll,
   localAllSyncStatus,
@@ -67,23 +96,31 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   onRestoreAutoSaveVersion,
   onCreateManualBackup,
   onDeleteAutoSaveVersion,
+  onSwitchProject,
+  onFlushCurrentProject,
+  userRole,
 }) => {
-  const [projects, setProjects] = useState<ProjectInfo[]>(getProjectsList);
-  const [activeId] = useState(getActiveProjectId);
-  const [searchQuery, setSearchQuery] = useState('');
+  useFormatSettings();
+  const effectiveRole = userRole || getCurrentUserRole();
+  const canManage = canManageProjects(effectiveRole);
+  const canEdit = canEditProjectData(effectiveRole);
+  const hasDriveBackend = Boolean(onDriveSyncUpAll && onDriveSyncDownAll);
 
+  const [projects, setProjects] = useState<ProjectInfo[]>(getProjectsList);
+  const [activeId, setActiveId] = useState<string>(() => activeProjectId || getActiveProjectId());
+  const [searchQuery, setSearchQuery] = useState('');
+  
   // Scope selection: 'active' (1 dự án), 'selected' (chọn nhiều), 'all' (tất cả)
-  const [saveScope, setSaveScope] = useState<ScopeType>('all');
-  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>(() => getProjectsList().map(p => p.id));
+  const [saveScope, setSaveScope] = useState<ScopeType>('active');
+  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([getActiveProjectId()]);
 
   // Main navigation tab within the modal
   const [modalTab, setModalTab] = useState<'sync' | 'projects'>('sync');
-  const hasDriveBackend = Boolean(onDriveSyncUpAll && onDriveSyncDownAll);
 
   // Creation state
   const [isCreating, setIsCreating] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
-  const [duplicateFromCurrent, setDuplicateFromCurrent] = useState(true);
+  const [duplicateFromCurrent, setDuplicateFromCurrent] = useState(false);
 
   // Rename state
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
@@ -93,6 +130,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deletingCloudBackupTarget, setDeletingCloudBackupTarget] = useState<{ id: string; name: string } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [switchingProjectId, setSwitchingProjectId] = useState<string | null>(null);
 
   // Cloud Backup & Multi-device Sync State
   const [cloudBackups, setCloudBackups] = useState<CloudBackupRecord[]>([]);
@@ -101,17 +139,205 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   const [cloudBackupName, setCloudBackupName] = useState('');
   const [cloudSyncCodeInput, setCloudSyncCodeInput] = useState('');
   const [isSyncingCurrentProject, setIsSyncingCurrentProject] = useState(false);
-  const [cloudStatusMsg, setCloudStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Auto Backup toggles per category
+  const [syncNorms, setSyncNorms] = useState(() => localStorage.getItem('construction_sync_opt_norms') !== 'false');
+  const [syncInventory, setSyncInventory] = useState(() => localStorage.getItem('construction_sync_opt_inventory') !== 'false');
+  const [syncWorkVolumes, setSyncWorkVolumes] = useState(() => localStorage.getItem('construction_sync_opt_workVolumes') !== 'false');
+  const [syncFloorPlans, setSyncFloorPlans] = useState(() => localStorage.getItem('construction_sync_opt_floorPlans') !== 'false');
+  const [syncDefects, setSyncDefects] = useState(() => localStorage.getItem('construction_sync_opt_defects') !== 'false');
+  const [syncRoomProgress, setSyncRoomProgress] = useState(() => localStorage.getItem('construction_sync_opt_roomProgress') !== 'false');
+  const [syncChecklist, setSyncChecklist] = useState(() => localStorage.getItem('construction_sync_opt_checklist') !== 'false');
+  const [syncCrew, setSyncCrew] = useState(() => localStorage.getItem('construction_sync_opt_crew') !== 'false');
+
+  useEffect(() => { localStorage.setItem('construction_sync_opt_norms', String(syncNorms)); }, [syncNorms]);
+  useEffect(() => { localStorage.setItem('construction_sync_opt_inventory', String(syncInventory)); }, [syncInventory]);
+  useEffect(() => { localStorage.setItem('construction_sync_opt_workVolumes', String(syncWorkVolumes)); }, [syncWorkVolumes]);
+  useEffect(() => { localStorage.setItem('construction_sync_opt_floorPlans', String(syncFloorPlans)); }, [syncFloorPlans]);
+  useEffect(() => { localStorage.setItem('construction_sync_opt_defects', String(syncDefects)); }, [syncDefects]);
+  useEffect(() => { localStorage.setItem('construction_sync_opt_roomProgress', String(syncRoomProgress)); }, [syncRoomProgress]);
+  useEffect(() => { localStorage.setItem('construction_sync_opt_checklist', String(syncChecklist)); }, [syncChecklist]);
+  useEffect(() => { localStorage.setItem('construction_sync_opt_crew', String(syncCrew)); }, [syncCrew]);
+  const [cloudStatusMsg, setCloudStatusMsg] = useState<{ type: 'success' | 'error'; text: string; stats?: any } | null>(null);
+  const [driveStatusMsg, setDriveStatusMsg] = useState<{ type: 'success' | 'error'; text: string; stats?: any } | null>(null);
+  const [isAutoBackupConfigExpanded, setIsAutoBackupConfigExpanded] = useState(false);
+  const [exportedFileInfo, setExportedFileInfo] = useState<{
+    fileName: string;
+    fileSizeStr: string;
+    projectsExported: string[];
+    categoriesExported: { label: string; count: number; icon: any; details?: string }[];
+    imageStats: { hasImages: boolean; imageCount: number; detailStats?: { label: string; count: number }[] };
+    isFullBackup: boolean;
+    title?: string;
+  } | null>(null);
+
+  const [importedFileInfo, setImportedFileInfo] = useState<{
+    fileName: string;
+    fileSizeStr: string;
+    projectsImported: string[];
+    categoriesImported: { label: string; count: number; icon: any; details?: string }[];
+    imageStats: { hasImages: boolean; imageCount: number; detailStats: { label: string; count: number }[] };
+    isFullBackup: boolean;
+  } | null>(null);
 
   // Drive sync state
   const [isDriveSyncing, setIsDriveSyncing] = useState(false);
 
-  // Conflict modal & Paste JSON state
+  // Multi-Project Intelligent Sync & Conflict Resolution state
+  const [multiProjectSyncState, setMultiProjectSyncState] = useState<{
+    fileName: string;
+    fileSize?: number;
+    rawData: any;
+    items: {
+      candidate: ProjectImportCandidate;
+      existsLocally: boolean;
+      localProjectInfo?: ProjectInfo;
+      localUpdatedAt: number;
+      isLocalNewer: boolean;
+      isIncomingNewer: boolean;
+      action: 'CREATE_PRESERVE_ID' | 'KEEP_LOCAL' | 'OVERWRITE_FILE' | 'SMART_MERGE' | 'IMPORT_AS_NEW_COPY' | 'SKIP';
+    }[];
+  } | null>(null);
+  const [isExecutingMultiSync, setIsExecutingMultiSync] = useState(false);
+
+  // Legacy single project conflict modal state & Paste JSON state
   const [pendingImportData, setPendingImportData] = useState<any | null>(null);
   const [showConflictModal, setShowConflictModal] = useState(false);
   const [showPasteArea, setShowPasteArea] = useState(false);
   const [pasteValue, setPasteValue] = useState('');
-  const [pendingImportChoice, setPendingImportChoice] = useState<{ parsedData: any; normalized: any } | null>(null);
+  const [pendingImportChoice, setPendingImportChoice] = useState<{ parsedData: any; normalized: any; fileName?: string; fileSize?: number } | null>(null);
+  const [selectedDumpProjectId, setSelectedDumpProjectId] = useState<string>('default');
+
+  // Google Auth User state
+  const [googleUser, setGoogleUser] = useState<FirebaseUser | null>(null);
+  const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
+
+  useEffect(() => {
+    const unsub = onAuthUserChanged((user) => {
+      setGoogleUser(user);
+    });
+    return () => unsub();
+  }, []);
+
+  const handleGoogleSignIn = async () => {
+    try {
+      setIsGoogleSigningIn(true);
+      await signInWithGoogle();
+      setCloudStatusMsg({ type: 'success', text: '✅ Đăng nhập Google thành công! Dữ liệu Cloud được bảo vệ an toàn.' });
+      await fetchCloudBackups();
+    } catch (err: any) {
+      setCloudStatusMsg({ type: 'error', text: 'Lỗi đăng nhập Google: ' + (err?.message || err) });
+    } finally {
+      setIsGoogleSigningIn(false);
+    }
+  };
+
+  const handleGoogleSignOut = async () => {
+    try {
+      await signOutGoogle();
+      setCloudStatusMsg({ type: 'success', text: 'Đã đăng xuất tài khoản Google.' });
+    } catch (err: any) {
+      setCloudStatusMsg({ type: 'error', text: 'Lỗi đăng xuất: ' + (err?.message || err) });
+    }
+  };
+
+  // Encrypted Backup (AES-GCM) states
+  const [exportEncrypt, setExportEncrypt] = useState(false);
+  const [exportPassword, setExportPassword] = useState('');
+  const [exportHint, setExportHint] = useState('');
+  const [showExportEncryptOptions, setShowExportEncryptOptions] = useState(false);
+
+  const [pendingEncryptedPayload, setPendingEncryptedPayload] = useState<EncryptedBackupContainer | null>(null);
+  const [decryptPassword, setDecryptPassword] = useState('');
+  const [decryptError, setDecryptError] = useState('');
+  const [isDecrypting, setIsDecrypting] = useState(false);
+  const [pendingImportFileInfo, setPendingImportFileInfo] = useState<{ name?: string; size?: number } | null>(null);
+  const [showReencryptOptions, setShowReencryptOptions] = useState(false);
+  const [newReencryptPassword, setNewReencryptPassword] = useState('');
+  const [newReencryptHint, setNewReencryptHint] = useState('');
+
+  // Orphan project diagnostics & cleanup state
+  const [isScanningOrphans, setIsScanningOrphans] = useState(false);
+  const [orphanScanResult, setOrphanScanResult] = useState<OrphanScanResult | null>(null);
+  const [isCleaningOrphans, setIsCleaningOrphans] = useState(false);
+  const [selectedOrphanIds, setSelectedOrphanIds] = useState<string[]>([]);
+
+  const handleScanOrphans = async () => {
+    try {
+      setIsScanningOrphans(true);
+      const allStorage = await getAllStorageData();
+      const curProjects = getProjectsList();
+      const result = detectOrphanProjectData(allStorage, curProjects);
+      setOrphanScanResult(result);
+      setSelectedOrphanIds(result.orphanProjects.map(p => p.id));
+    } catch (e: any) {
+      setErrorMessage(`Lỗi khi quét dữ liệu mồ côi: ${e?.message || e}`);
+    } finally {
+      setIsScanningOrphans(false);
+    }
+  };
+
+  const handleCleanupOrphans = async () => {
+    if (!orphanScanResult || selectedOrphanIds.length === 0) return;
+    const count = selectedOrphanIds.length;
+    const confirm = await confirmAsync(
+      `⚠️ CẢNH BÁO DỌN DẸP BỘ NHỚ:\n\n` +
+      `Bạn có chắc chắn muốn xóa vĩnh viễn dữ liệu của ${count} dự án mồ côi đã chọn khỏi thiết bị này?\n\n` +
+      `Thao tác này sẽ giải phóng bộ nhớ và không thể hoàn tác.`
+    );
+    if (!confirm) return;
+
+    try {
+      setIsCleaningOrphans(true);
+      const targetOrphans = orphanScanResult.orphanProjects.filter(p => selectedOrphanIds.includes(p.id));
+      const specificKeys = targetOrphans.flatMap(p => p.keys);
+      const cleanResult = await cleanupOrphanProjectData(selectedOrphanIds, specificKeys);
+      
+      // Re-scan
+      const allStorage = await getAllStorageData();
+      const curProjects = getProjectsList();
+      const result = detectOrphanProjectData(allStorage, curProjects);
+      setOrphanScanResult(result);
+
+      // Only unselect projects that were completely deleted with zero remaining/failed keys
+      const successfullyDeletedPids = targetOrphans
+        .filter(p => p.keys.every(k => cleanResult.deletedKeys.includes(k) && !cleanResult.remainingKeys.includes(k) && !cleanResult.failedKeys.includes(k)))
+        .map(p => p.id);
+      
+      setSelectedOrphanIds(prev => prev.filter(id => !successfullyDeletedPids.includes(id)));
+
+      logAuditAction('ORPHAN_CLEANUP', `Đã dọn dẹp ${cleanResult.deletedKeys.length} khóa dữ liệu mồ côi thuộc ${count} dự án`);
+      
+      if (cleanResult.success && cleanResult.remainingKeys.length === 0 && cleanResult.failedKeys.length === 0) {
+        alert(`🎉 Đã dọn dẹp và giải phóng hoàn toàn ${cleanResult.deletedKeys.length} khóa dữ liệu mồ côi thuộc ${count} dự án!`);
+      } else {
+        const errorMsg = cleanResult.errorDetails ? `\nChi tiết lỗi: ${cleanResult.errorDetails.join('; ')}` : '';
+        alert(`⚠️ Đã xóa ${cleanResult.deletedKeys.length}/${cleanResult.requestedKeys.length} khóa. Còn ${cleanResult.remainingKeys.length + cleanResult.failedKeys.length} khóa chưa giải phóng xong.${errorMsg}`);
+      }
+    } catch (e: any) {
+      setErrorMessage(`Lỗi khi dọn dẹp dữ liệu: ${e?.message || e}`);
+    } finally {
+      setIsCleaningOrphans(false);
+    }
+  };
+
+  const handleExportOrphansBackup = async () => {
+    if (!orphanScanResult || selectedOrphanIds.length === 0) return;
+    try {
+      const allStorage = await getAllStorageData();
+      const exportData: Record<string, string> = {};
+      const targetOrphans = orphanScanResult.orphanProjects.filter(p => selectedOrphanIds.includes(p.id));
+      targetOrphans.forEach(p => {
+        p.keys.forEach(k => {
+          exportData[k] = allStorage[k] || '';
+        });
+      });
+      const jsonStr = JSON.stringify(exportData, null, 2);
+      await downloadOrShareFile(`Du_Lieu_Mo_Coi_Backup_${new Date().toISOString().split('T')[0]}.json`, jsonStr, 'application/json');
+    } catch (e: any) {
+      setErrorMessage(`Lỗi khi xuất tệp: ${e?.message || e}`);
+    }
+  };
 
   const fetchCloudBackups = async () => {
     try {
@@ -133,13 +359,14 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       }
       const curList = getProjectsList();
       setProjects(curList);
-      const curActive = getActiveProjectId();
+      const curActive = activeProjectId || getActiveProjectId();
+      setActiveId(curActive);
       if (!selectedProjectIds.includes(curActive)) {
         setSelectedProjectIds([curActive]);
       }
       fetchCloudBackups();
     }
-  }, [isOpen, initialTab]);
+  }, [isOpen, initialTab, activeProjectId]);
 
   // Toggle project selection for 'selected' scope
   const toggleSelectProject = async (id: string) => {
@@ -162,105 +389,1255 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     const allKeys = Object.keys(allStorage);
 
     if (scope === 'all') {
-      // Collect all keys
+      // Collect valid keys belonging to currently registered projects and global configs
+      const currentProjects = getProjectsList();
+      const validProjectIds = new Set(currentProjects.map(p => p.id));
+      if (validProjectIds.size === 0) validProjectIds.add('default');
+
       allKeys.forEach(key => {
-        if (key.startsWith('construction_') || key.startsWith('active_project_id')) {
+        if (!key.startsWith('construction_') && !key.startsWith('active_project_id')) return;
+
+        // Global keys that should always be kept
+        const isGlobalKey = [
+          'construction_projects_list',
+          'active_project_id',
+          'construction_theme',
+          'construction_format_settings',
+          'construction_notification_settings',
+          'construction_drive_last_sync',
+          'construction_drive_auto_sync_enabled',
+          'construction_google_cloud_folder_id'
+        ].includes(key) || key.startsWith('construction_sync_opt_');
+
+        if (isGlobalKey) {
+          data[key] = allStorage[key] || '';
+          return;
+        }
+
+        // Project-specific key: verify it belongs to a valid project ID
+        let belongsToValid = false;
+        for (const pid of validProjectIds) {
+          if (isStorageKeyOwnedByProject(key, pid)) {
+            belongsToValid = true;
+            break;
+          }
+        }
+
+        if (belongsToValid) {
           data[key] = allStorage[key] || '';
         }
       });
+      data['construction_projects_list'] = JSON.stringify(currentProjects);
+      if (activeId) {
+        data['active_project_id'] = activeId;
+      }
     } else if (scope === 'active') {
-      const activeSuffix = activeId === 'default' ? '' : `_${activeId}`;
+      const activeProjId = activeId || 'default';
       allKeys.forEach(key => {
         if (key.startsWith('construction_')) {
-          if (activeId === 'default') {
-            if (!key.includes('_proj_')) {
-              data[key] = allStorage[key] || '';
-            }
-          } else {
-            if (key.endsWith(activeSuffix) || key === `construction_project_name_${activeId}`) {
-              data[key] = allStorage[key] || '';
-            }
+          if (isStorageKeyOwnedByProject(key, activeProjId)) {
+            data[key] = allStorage[key] || '';
           }
         }
       });
-      data['construction_projects_list'] = allStorage['construction_projects_list'] || '[]';
+      const allProjectsList = JSON.parse(allStorage['construction_projects_list'] || '[]');
+      const filteredProjects = allProjectsList.filter((p: any) => p.id === activeProjId);
+      data['construction_projects_list'] = JSON.stringify(filteredProjects.length > 0 ? filteredProjects : [{ id: activeProjId, name: 'Dự án hiện tại' }]);
+      if (activeProjId) {
+        data['active_project_id'] = activeProjId;
+      }
     } else if (scope === 'selected') {
       // Selected specific projects
-      selectedProjectIds.forEach(pId => {
-        const suffix = pId === 'default' ? '' : `_${pId}`;
-        allKeys.forEach(key => {
-          if (key.startsWith('construction_')) {
-            if (pId === 'default') {
-              if (!key.includes('_proj_')) {
-                data[key] = allStorage[key] || '';
-              }
-            } else {
-              if (key.endsWith(suffix) || key === `construction_project_name_${pId}`) {
-                data[key] = allStorage[key] || '';
-              }
-            }
+      allKeys.forEach(key => {
+        if (key.startsWith('construction_')) {
+          const belongsToSelected = selectedProjectIds.some(pId => isStorageKeyOwnedByProject(key, pId));
+          if (belongsToSelected) {
+            data[key] = allStorage[key] || '';
           }
-        });
+        }
       });
-      data['construction_projects_list'] = allStorage['construction_projects_list'] || '[]';
+      const allProjectsList = JSON.parse(allStorage['construction_projects_list'] || '[]');
+      const filteredProjects = allProjectsList.filter((p: any) => selectedProjectIds.includes(p.id));
+      data['construction_projects_list'] = JSON.stringify(filteredProjects);
+      if (selectedProjectIds.length === 1) {
+        data['active_project_id'] = selectedProjectIds[0];
+      }
     }
     return data;
+  };
+
+  const analyzeExportData = (scope: ScopeType, exportedData: any, rawJsonString: string) => {
+    const exportedProjects: string[] = [];
+    let processedData = { ...exportedData };
+    
+    if (exportedData && exportedData.schemaVersion === 3 && exportedData.data) {
+      const d = exportedData.data;
+      const pid = exportedData.project?.id || 'active';
+      const suffix = pid === 'default' ? '' : `_${pid}`;
+      processedData = {
+        [`construction_project_name_${pid}`]: d.projectName || exportedData.project?.name || '',
+        [`construction_material_norms${suffix}`]: JSON.stringify(d.materialNorms || []),
+        [`construction_inventory${suffix}`]: JSON.stringify(d.inventory || []),
+        [`construction_work_volumes${suffix}`]: JSON.stringify(d.workVolumes || []),
+        [`construction_floor_plans${suffix}`]: JSON.stringify(d.floorPlans || []),
+        [`construction_defects${suffix}`]: JSON.stringify(d.defects || []),
+        [`construction_room_progress${suffix}`]: JSON.stringify(d.roomProgressList || []),
+        [`construction_checklist${suffix}`]: JSON.stringify(d.checklist || []),
+        [`construction_crew_records${suffix}`]: JSON.stringify(d.crewRecords || []),
+        [`construction_teams${suffix}`]: JSON.stringify(d.teams || []),
+      };
+    }
+
+    const projListRaw = processedData['construction_projects_list'] || localStorage.getItem('construction_projects_list') || '[]';
+    let allProjsList: any[] = [];
+    try {
+      allProjsList = JSON.parse(projListRaw);
+    } catch (_) {}
+
+    let normsCount = 0;
+    let invCount = 0;
+    let volsCount = 0;
+    let plansCount = 0;
+    let defectsCount = 0;
+    let progressCount = 0;
+    let checkCount = 0;
+    let crewCount = 0;
+
+    // Granular details
+    let invInCount = 0;
+    let invOutCount = 0;
+    let defectsWithImage = 0;
+    let defectsWithAfterImage = 0;
+    let floorPlansWithImage = 0;
+    let volsDoneCount = 0;
+    let volsInProgCount = 0;
+    let volsNotStartedCount = 0;
+
+    Object.keys(processedData).forEach(k => {
+      try {
+        const valStr = processedData[k];
+        if (!valStr || valStr.trim() === '') return;
+
+        // Trace project names
+        if (k.startsWith('construction_project_name_')) {
+          const pId = k.substring('construction_project_name_'.length);
+          const foundProj = allProjsList.find(p => p.id === pId);
+          if (foundProj && !exportedProjects.includes(foundProj.name)) {
+            exportedProjects.push(foundProj.name);
+          }
+        } else if (k === 'construction_project_name') {
+          const defaultProjName = localStorage.getItem('construction_project_name') || 'Dự án mặc định';
+          if (!exportedProjects.includes(defaultProjName)) {
+            exportedProjects.push(defaultProjName);
+          }
+        }
+
+        // Granular scanning of standard tables
+        if (k.includes('construction_material_norms')) {
+          const parsed = JSON.parse(valStr);
+          if (Array.isArray(parsed)) normsCount += parsed.length;
+        }
+        else if (k.includes('construction_inventory')) {
+          const parsed = JSON.parse(valStr);
+          if (Array.isArray(parsed)) {
+            invCount += parsed.length;
+            parsed.forEach((item: any) => {
+              if (item.type === 'in') invInCount++;
+              if (item.type === 'out') invOutCount++;
+            });
+          }
+        }
+        else if (k.includes('construction_work_volumes')) {
+          const parsed = JSON.parse(valStr);
+          if (Array.isArray(parsed)) {
+            volsCount += parsed.length;
+            parsed.forEach((item: any) => {
+              if (item.status === 'Đã hoàn thành') volsDoneCount++;
+              else if (item.status === 'Đang thi công') volsInProgCount++;
+              else volsNotStartedCount++;
+            });
+          }
+        }
+        else if (k.includes('construction_floor_plans')) {
+          const parsed = JSON.parse(valStr);
+          if (Array.isArray(parsed)) {
+            plansCount += parsed.length;
+            parsed.forEach((item: any) => {
+              if (item.imageUrl && item.imageUrl.trim().length > 0) {
+                floorPlansWithImage++;
+              }
+            });
+          }
+        }
+        else if (k.includes('construction_defects')) {
+          const parsed = JSON.parse(valStr);
+          if (Array.isArray(parsed)) {
+            defectsCount += parsed.length;
+            parsed.forEach((item: any) => {
+              if (item.imageUrl && item.imageUrl.trim().length > 0) {
+                defectsWithImage++;
+              }
+              if (item.afterImageUrl && item.afterImageUrl.trim().length > 0) {
+                defectsWithAfterImage++;
+              }
+            });
+          }
+        }
+        else if (k.includes('construction_room_progress')) {
+          const parsed = JSON.parse(valStr);
+          if (Array.isArray(parsed)) {
+            progressCount += parsed.length;
+          }
+        }
+        else if (k.includes('construction_checklist')) {
+          const parsed = JSON.parse(valStr);
+          if (Array.isArray(parsed)) {
+            checkCount += parsed.length;
+          }
+        }
+        else if (k.includes('construction_crew_records')) {
+          const parsed = JSON.parse(valStr);
+          if (Array.isArray(parsed)) {
+            crewCount += parsed.length;
+          }
+        }
+        else if (k.includes('construction_teams')) {
+          const parsed = JSON.parse(valStr);
+          if (Array.isArray(parsed)) {
+            crewCount += parsed.length;
+          }
+        }
+      } catch (_) {}
+    });
+
+    if (exportedProjects.length === 0) {
+      if (scope === 'active') {
+        const curName = projects.find(p => p.id === activeId)?.name || 'Dự án hiện tại';
+        exportedProjects.push(curName);
+      } else {
+        if (projects.length > 0) {
+          projects.forEach(p => exportedProjects.push(p.name));
+        } else {
+          exportedProjects.push('Dự án mặc định');
+        }
+      }
+    }
+
+    const categories: { label: string; count: number; icon: any; details?: string }[] = [];
+    if (normsCount > 0) {
+      categories.push({ 
+        label: 'Định mức vật tư', 
+        count: normsCount, 
+        icon: Layers3,
+        details: `${normsCount} chủng loại định mức thiết lập`
+      });
+    }
+    if (invCount > 0) {
+      categories.push({ 
+        label: 'Kho & Phân phối', 
+        count: invCount, 
+        icon: HardDrive,
+        details: `${invInCount} Nhập kho | ${invOutCount} Xuất kho`
+      });
+    }
+    if (volsCount > 0) {
+      categories.push({ 
+        label: 'Khối lượng hoàn thành', 
+        count: volsCount, 
+        icon: FileSpreadsheet,
+        details: `${volsDoneCount} Xong | ${volsInProgCount} Đang làm | ${volsNotStartedCount} Chưa làm`
+      });
+    }
+    if (plansCount > 0) {
+      categories.push({ 
+        label: 'Mặt bằng & Bản vẽ', 
+        count: plansCount, 
+        icon: Building2,
+        details: `${plansCount} tầng bản vẽ (${floorPlansWithImage} ảnh sơ đồ)`
+      });
+    }
+    if (defectsCount > 0) {
+      categories.push({ 
+        label: 'Nhật ký lỗi Defect', 
+        count: defectsCount, 
+        icon: AlertTriangle,
+        details: `${defectsCount} lỗi ghim (${defectsWithImage} ảnh trước, ${defectsWithAfterImage} ảnh sau)`
+      });
+    }
+    if (progressCount > 0) {
+      categories.push({ 
+        label: 'Tiến độ tầng', 
+        count: progressCount, 
+        icon: CheckCircle,
+        details: `${progressCount} căn hộ đã định vị`
+      });
+    }
+    if (checkCount > 0) {
+      categories.push({ 
+        label: 'Danh mục kiểm tra', 
+        count: checkCount, 
+        icon: CheckSquare,
+        details: `${checkCount} chỉ tiêu nghiệm thu`
+      });
+    }
+    if (crewCount > 0) {
+      categories.push({ 
+        label: 'Nhân công & Đội thợ', 
+        count: crewCount, 
+        icon: History,
+        details: `${crewCount} đội & nhật ký chấm công`
+      });
+    }
+
+    const matches = rawJsonString.match(/data:image\//g);
+    const imageCount = matches ? matches.length : 0;
+    const isFullBackup = categories.length >= 4;
+
+    // Detailed image audit
+    const imageDetailStats: { label: string; count: number }[] = [];
+    if (floorPlansWithImage > 0) {
+      imageDetailStats.push({ label: 'Ảnh sơ đồ mặt bằng', count: floorPlansWithImage });
+    }
+    if (defectsWithImage > 0) {
+      imageDetailStats.push({ label: 'Ảnh lỗi phát hiện (Trước)', count: defectsWithImage });
+    }
+    if (defectsWithAfterImage > 0) {
+      imageDetailStats.push({ label: 'Ảnh lỗi khắc phục (Sau)', count: defectsWithAfterImage });
+    }
+
+    return {
+      projectsExported: exportedProjects,
+      categoriesExported: categories,
+      imageStats: {
+        hasImages: imageCount > 0 || floorPlansWithImage > 0 || defectsWithImage > 0 || defectsWithAfterImage > 0,
+        imageCount: floorPlansWithImage + defectsWithImage + defectsWithAfterImage,
+        detailStats: imageDetailStats
+      },
+      isFullBackup
+    };
+  };
+
+  const analyzeImportData = (parsedData: any) => {
+    const importedProjects: string[] = [];
+    const projListRaw = localStorage.getItem('construction_projects_list') || '[]';
+    let allProjsList: any[] = [];
+    try {
+      allProjsList = JSON.parse(projListRaw);
+    } catch (_) {}
+
+    let normsCount = 0;
+    let invCount = 0;
+    let volsCount = 0;
+    let plansCount = 0;
+    let defectsCount = 0;
+    let progressCount = 0;
+    let checkCount = 0;
+    let crewCount = 0;
+
+    // Granular details
+    let invInCount = 0;
+    let invOutCount = 0;
+    let defectsWithImage = 0;
+    let defectsWithAfterImage = 0;
+    let floorPlansWithImage = 0;
+    let volsDoneCount = 0;
+    let volsInProgCount = 0;
+    let volsNotStartedCount = 0;
+
+    const normalized = normalizeImportedData(parsedData);
+    const keys = Object.keys(parsedData || {});
+    const isStorageDump = keys.some(k => k.startsWith('construction_') || k === 'active_project_id');
+
+    if (isStorageDump) {
+      keys.forEach(k => {
+        try {
+          const valStr = parsedData[k];
+          if (!valStr || typeof valStr !== 'string' || valStr.trim() === '') return;
+
+          // Trace project names
+          if (k.startsWith('construction_project_name_')) {
+            const pId = k.substring('construction_project_name_'.length);
+            const foundProj = allProjsList.find(p => p.id === pId);
+            if (foundProj && !importedProjects.includes(foundProj.name)) {
+              importedProjects.push(foundProj.name);
+            }
+          } else if (k === 'construction_project_name') {
+            const defaultProjName = localStorage.getItem('construction_project_name') || 'Dự án mặc định';
+            if (!importedProjects.includes(defaultProjName)) {
+              importedProjects.push(defaultProjName);
+            }
+          }
+
+          // Granular scanning of standard tables
+          if (k.includes('construction_material_norms')) {
+            const parsed = JSON.parse(valStr);
+            if (Array.isArray(parsed)) normsCount += parsed.length;
+          }
+          else if (k.includes('construction_inventory')) {
+            const parsed = JSON.parse(valStr);
+            if (Array.isArray(parsed)) {
+              invCount += parsed.length;
+              parsed.forEach((item: any) => {
+                if (item.type === 'in') invInCount++;
+                if (item.type === 'out') invOutCount++;
+              });
+            }
+          }
+          else if (k.includes('construction_work_volumes')) {
+            const parsed = JSON.parse(valStr);
+            if (Array.isArray(parsed)) {
+              volsCount += parsed.length;
+              parsed.forEach((item: any) => {
+                if (item.status === 'Đã hoàn thành') volsDoneCount++;
+                else if (item.status === 'Đang thi công') volsInProgCount++;
+                else volsNotStartedCount++;
+              });
+            }
+          }
+          else if (k.includes('construction_floor_plans')) {
+            const parsed = JSON.parse(valStr);
+            if (Array.isArray(parsed)) {
+              plansCount += parsed.length;
+              parsed.forEach((item: any) => {
+                if (item.imageUrl && item.imageUrl.trim().length > 0) {
+                  floorPlansWithImage++;
+                }
+              });
+            }
+          }
+          else if (k.includes('construction_defects')) {
+            const parsed = JSON.parse(valStr);
+            if (Array.isArray(parsed)) {
+              defectsCount += parsed.length;
+              parsed.forEach((item: any) => {
+                if (item.imageUrl && item.imageUrl.trim().length > 0) {
+                  defectsWithImage++;
+                }
+                if (item.afterImageUrl && item.afterImageUrl.trim().length > 0) {
+                  defectsWithAfterImage++;
+                }
+              });
+            }
+          }
+          else if (k.includes('construction_room_progress')) {
+            const parsed = JSON.parse(valStr);
+            if (Array.isArray(parsed)) progressCount += parsed.length;
+          }
+          else if (k.includes('construction_checklist')) {
+            const parsed = JSON.parse(valStr);
+            if (Array.isArray(parsed)) checkCount += parsed.length;
+          }
+          else if (k.includes('construction_crew_records')) {
+            const parsed = JSON.parse(valStr);
+            if (Array.isArray(parsed)) crewCount += parsed.length;
+          }
+          else if (k.includes('construction_teams')) {
+            const parsed = JSON.parse(valStr);
+            if (Array.isArray(parsed)) crewCount += parsed.length;
+          }
+        } catch (_) {}
+      });
+    } else {
+      const pName = normalized.projectName || 'Dự án khôi phục';
+      importedProjects.push(pName);
+
+      if (Array.isArray(normalized.materialNorms)) {
+        normsCount = normalized.materialNorms.length;
+      }
+      if (Array.isArray(normalized.inventory)) {
+        invCount = normalized.inventory.length;
+        normalized.inventory.forEach((item: any) => {
+          if (item.type === 'in') invInCount++;
+          if (item.type === 'out') invOutCount++;
+        });
+      }
+      if (Array.isArray(normalized.workVolumes)) {
+        volsCount = normalized.workVolumes.length;
+        normalized.workVolumes.forEach((item: any) => {
+          if (item.status === 'Đã hoàn thành') volsDoneCount++;
+          else if (item.status === 'Đang thi công') volsInProgCount++;
+          else volsNotStartedCount++;
+        });
+      }
+      if (Array.isArray(normalized.floorPlans)) {
+        plansCount = normalized.floorPlans.length;
+        normalized.floorPlans.forEach((item: any) => {
+          if (item.imageUrl && item.imageUrl.trim().length > 0) {
+            floorPlansWithImage++;
+          }
+        });
+      }
+      if (Array.isArray(normalized.defects)) {
+        defectsCount = normalized.defects.length;
+        normalized.defects.forEach((item: any) => {
+          if (item.imageUrl && item.imageUrl.trim().length > 0) {
+            defectsWithImage++;
+          }
+          if (item.afterImageUrl && item.afterImageUrl.trim().length > 0) {
+            defectsWithAfterImage++;
+          }
+        });
+      }
+      if (Array.isArray(normalized.roomProgressList)) {
+        progressCount = normalized.roomProgressList.length;
+      }
+      if (Array.isArray(normalized.checklist)) {
+        checkCount = normalized.checklist.length;
+      }
+      if (Array.isArray(normalized.crewRecords)) {
+        crewCount += normalized.crewRecords.length;
+      }
+      if (Array.isArray(normalized.teams)) {
+        crewCount += normalized.teams.length;
+      }
+    }
+
+    if (importedProjects.length === 0) {
+      if (projects.length > 0) {
+        projects.forEach(p => importedProjects.push(p.name));
+      } else {
+        importedProjects.push('Dự án mặc định');
+      }
+    }
+
+    const categories: { label: string; count: number; icon: any; details?: string }[] = [];
+    if (normsCount > 0) {
+      categories.push({ 
+        label: 'Định mức vật tư', 
+        count: normsCount, 
+        icon: Layers3,
+        details: `${normsCount} chủng loại định mức thiết lập`
+      });
+    }
+    if (invCount > 0) {
+      categories.push({ 
+        label: 'Kho & Phân phối', 
+        count: invCount, 
+        icon: HardDrive,
+        details: `${invInCount} Nhập kho | ${invOutCount} Xuất kho`
+      });
+    }
+    if (volsCount > 0) {
+      categories.push({ 
+        label: 'Khối lượng hoàn thành', 
+        count: volsCount, 
+        icon: FileSpreadsheet,
+        details: `${volsDoneCount} Xong | ${volsInProgCount} Đang làm | ${volsNotStartedCount} Chưa làm`
+      });
+    }
+    if (plansCount > 0) {
+      categories.push({ 
+        label: 'Mặt bằng & Bản vẽ', 
+        count: plansCount, 
+        icon: Building2,
+        details: `${plansCount} tầng bản vẽ (${floorPlansWithImage} ảnh sơ đồ)`
+      });
+    }
+    if (defectsCount > 0) {
+      categories.push({ 
+        label: 'Nhật ký lỗi Defect', 
+        count: defectsCount, 
+        icon: AlertTriangle,
+        details: `${defectsCount} lỗi ghim (${defectsWithImage} ảnh trước, ${defectsWithAfterImage} ảnh sau)`
+      });
+    }
+    if (progressCount > 0) {
+      categories.push({ 
+        label: 'Tiến độ tầng', 
+        count: progressCount, 
+        icon: CheckCircle,
+        details: `${progressCount} căn hộ đã định vị`
+      });
+    }
+    if (checkCount > 0) {
+      categories.push({ 
+        label: 'Danh mục kiểm tra', 
+        count: checkCount, 
+        icon: CheckSquare,
+        details: `${checkCount} chỉ tiêu nghiệm thu`
+      });
+    }
+    if (crewCount > 0) {
+      categories.push({ 
+        label: 'Nhân công & Đội thợ', 
+        count: crewCount, 
+        icon: History,
+        details: `${crewCount} đội & nhật ký chấm công`
+      });
+    }
+
+    const rawJsonString = JSON.stringify(parsedData);
+    const matches = rawJsonString.match(/data:image\//g);
+    const imageCount = matches ? matches.length : 0;
+
+    const imageDetailStats: { label: string; count: number }[] = [];
+    if (floorPlansWithImage > 0) {
+      imageDetailStats.push({ label: 'Ảnh sơ đồ mặt bằng', count: floorPlansWithImage });
+    }
+    if (defectsWithImage > 0) {
+      imageDetailStats.push({ label: 'Ảnh lỗi phát hiện (Trước)', count: defectsWithImage });
+    }
+    if (defectsWithAfterImage > 0) {
+      imageDetailStats.push({ label: 'Ảnh lỗi khắc phục (Sau)', count: defectsWithAfterImage });
+    }
+
+    return {
+      projectsImported: importedProjects,
+      categoriesImported: categories,
+      imageStats: {
+        hasImages: imageCount > 0 || floorPlansWithImage > 0 || defectsWithImage > 0 || defectsWithAfterImage > 0,
+        imageCount: floorPlansWithImage + defectsWithImage + defectsWithAfterImage,
+        detailStats: imageDetailStats
+      },
+      isFullBackup: categories.length >= 4
+    };
+  };
+
+  // Helper to sanitize project name for filenames
+  const sanitizeFilename = (name: string) => {
+    return name
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // Remove accents
+      .replace(/đ/g, 'd').replace(/Đ/g, 'D') // Replace đ/Đ
+      .replace(/[^a-zA-Z0-9]/g, '_') // Replace non-alphanumeric with underscore
+      .replace(/_+/g, '_') // Remove duplicate underscores
+      .replace(/^_|_$/g, ''); // Trim underscores
   };
 
   // 1. Export JSON based on chosen scope
   const handleExportJsonForScope = async () => {
     try {
+      if (exportEncrypt && (!exportPassword || exportPassword.length < 4)) {
+        alert('Vui lòng nhập mật khẩu mã hóa từ 4 ký tự trở lên để bảo vệ tệp sao lưu.');
+        return;
+      }
+
       const data = await getStorageDataForScope(saveScope);
       let filename = `Backup_TatCa_${Date.now()}.json`;
+      let finalDataToExport: any = data;
+      
       if (saveScope === 'active' && activeId) {
-        filename = `Backup_DA_${activeId}_${Date.now()}.json`;
+        const curName = projects.find(p => p.id === activeId)?.name || activeId;
+        const safeName = sanitizeFilename(curName);
+        filename = `Backup_${safeName}_${Date.now()}.json`;
+
+        const normalized = normalizeImportedData(data, activeId);
+        const photosWithBinary = await getProjectPhotosWithBinary(activeId);
+        const photoDataMap: Record<string, string> = {};
+        photosWithBinary.forEach(p => {
+          if (p.id && (p.base64 || p.localUri)) {
+            photoDataMap[p.id] = p.base64 || p.localUri;
+          }
+        });
+
+        finalDataToExport = {
+          schemaVersion: 3,
+          backupType: "single-project",
+          project: {
+            id: activeId,
+            name: curName
+          },
+          data: {
+            projectName: normalized.projectName || curName,
+            contractorName: normalized.contractorName || '',
+            inspectorName: normalized.inspectorName || '',
+            materialNorms: normalized.materialNorms || [],
+            inventory: normalized.inventory || [],
+            workVolumes: normalized.workVolumes || [],
+            floorPlans: normalized.floorPlans || [],
+            defects: normalized.defects || [],
+            roomProgressList: normalized.roomProgressList || [],
+            checklist: normalized.checklist || [],
+            crewRecords: normalized.crewRecords || [],
+            teams: normalized.teams || [],
+            photos: photosWithBinary || [],
+            photoData: photoDataMap,
+            tombstones: normalized.tombstones || data[getKey('construction_tombstones', activeId)] || {},
+            updatedAt: normalized.updatedAt || Date.now()
+          },
+          photoData: photoDataMap,
+          tombstones: normalized.tombstones || data[getKey('construction_tombstones', activeId)] || {}
+        };
+      } else {
+        const targetPids = saveScope === 'selected' ? selectedProjectIds : projects.map(p => p.id);
+        if (saveScope === 'selected' && selectedProjectIds.length > 0) {
+          filename = `Backup_${selectedProjectIds.length}_DuAn_${Date.now()}.json`;
+        }
+
+        const allProjectPhotos: Record<string, any[]> = {};
+        const allProjectPhotoData: Record<string, Record<string, string>> = {};
+
+        for (const pId of targetPids) {
+          const pPhotos = await getProjectPhotosWithBinary(pId);
+          if (pPhotos.length > 0) {
+            allProjectPhotos[pId] = pPhotos;
+            const pDataMap: Record<string, string> = {};
+            pPhotos.forEach(ph => {
+              if (ph.id && (ph.base64 || ph.localUri)) {
+                pDataMap[ph.id] = ph.base64 || ph.localUri;
+              }
+            });
+            allProjectPhotoData[pId] = pDataMap;
+          }
+        }
+
+        if (Object.keys(allProjectPhotos).length > 0) {
+          finalDataToExport.projectPhotos = allProjectPhotos;
+          finalDataToExport.projectPhotoData = allProjectPhotoData;
+        }
       }
-      await saveJsonRecordFile(data, filename);
+      
+      // Analyze export stats before encryption
+      const stats = analyzeExportData(saveScope, finalDataToExport, JSON.stringify(finalDataToExport));
+
+      // Apply AES-GCM encryption if user toggled encryption
+      if (exportEncrypt && exportPassword) {
+        finalDataToExport = await encryptBackupData(finalDataToExport, exportPassword, exportHint.trim() || undefined);
+        filename = filename.replace('.json', '_Encrypted.json');
+      }
+
+      const jsonString = JSON.stringify(finalDataToExport, null, 2);
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      await downloadOrShareFile(filename, blob, 'application/json');
+
+      // Calculate file size
+      let fileSizeStr = '';
+      const bytes = jsonString.length;
+      if (bytes >= 1024 * 1024) {
+        fileSizeStr = `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+      } else {
+        fileSizeStr = `${(bytes / 1024).toFixed(1)} KB`;
+      }
+
+      logAuditAction('BACKUP_EXPORT', `Xuất file sao lưu (${saveScope}) ${exportEncrypt ? '[AES-GCM Encrypted]' : ''}`);
+
+      setExportedFileInfo({
+        fileName: filename,
+        fileSizeStr,
+        ...stats
+      });
+
     } catch (e) {
       alert('Lỗi xuất tệp JSON: ' + (e instanceof Error ? e.message : String(e)));
     }
   };
 
-  // 2. Process Imported JSON Data (File or Pasted Text)
-  const processImportedJsonData = async (parsedData: any) => {
-    const normalized = normalizeImportedData(parsedData);
-    const hasProjectData = !!(
-      normalized &&
-      ((normalized.defects && normalized.defects.length > 0) ||
-       (normalized.inventory && normalized.inventory.length > 0) ||
-       (normalized.workVolumes && normalized.workVolumes.length > 0) ||
-       (normalized.floorPlans && normalized.floorPlans.length > 0) ||
-       (normalized.roomProgressList && normalized.roomProgressList.length > 0) ||
-       (normalized.checklist && normalized.checklist.length > 0) ||
-       (normalized.crewRecords && normalized.crewRecords.length > 0) ||
-       (normalized.teams && normalized.teams.length > 0) ||
-       (normalized.materialNorms && normalized.materialNorms.length > 0) ||
-       normalized.projectName)
-    );
-
-    if (hasProjectData) {
-      setPendingImportChoice({ parsedData, normalized });
-    } else {
-      if (confirm('Bạn có chắc chắn muốn khôi phục dữ liệu từ tệp này? Thao tác sẽ ghi đè các mục tương ứng.')) {
-        await executeDirectOverwrite(parsedData);
-      }
+  // Handler for decrypting encrypted backup payloads
+  const handlePerformDecryption = async () => {
+    if (!pendingEncryptedPayload) return;
+    if (!decryptPassword) {
+      setDecryptError('Vui lòng nhập mật khẩu giải mã.');
+      return;
+    }
+    try {
+      setIsDecrypting(true);
+      setDecryptError('');
+      const decrypted = await decryptBackupData(pendingEncryptedPayload, decryptPassword);
+      const fileInfo = pendingImportFileInfo;
+      setPendingEncryptedPayload(null);
+      setDecryptPassword('');
+      setShowReencryptOptions(false);
+      setNewReencryptPassword('');
+      setNewReencryptHint('');
+      await processImportedJsonData(decrypted, fileInfo?.name || 'Bản sao lưu đã giải mã', fileInfo?.size);
+    } catch (err: any) {
+      console.error('Decryption error:', err);
+      setDecryptError('Mật khẩu giải mã không chính xác hoặc dữ liệu bị sửa đổi!');
+    } finally {
+      setIsDecrypting(false);
     }
   };
 
-  const executeDirectOverwrite = async (parsedData: any) => {
-    const keys = Object.keys(parsedData || {});
-    const isStorageDump = keys.some(k => k.startsWith('construction_') || k === 'active_project_id');
-
-    if (isStorageDump) {
-      await restoreConstructionStorageData(parsedData);
-    } else {
-      const normalized = normalizeImportedData(parsedData);
-      if (onRestoreData) {
-        await onRestoreData(normalized);
-      }
+  // Handler for changing backup password (decrypt with old key -> re-encrypt with new key)
+  const handleReencryptBackupPayload = async () => {
+    if (!pendingEncryptedPayload) return;
+    if (!decryptPassword) {
+      setDecryptError('Vui lòng nhập mật khẩu hiện tại để giải mã.');
+      return;
     }
-    alert('🎉 Khôi phục dữ liệu từ tệp JSON thành công!');
-    window.location.reload();
+    if (!newReencryptPassword || newReencryptPassword.length < 4) {
+      setDecryptError('Mật khẩu mới phải từ 4 ký tự trở lên.');
+      return;
+    }
+    try {
+      setIsDecrypting(true);
+      setDecryptError('');
+      // 1. Decrypt using current password
+      const decryptedData = await decryptBackupData(pendingEncryptedPayload, decryptPassword);
+      
+      // 2. Encrypt with new password
+      const reencryptedPayload = await encryptBackupData(decryptedData, newReencryptPassword, newReencryptHint.trim() || undefined);
+      
+      // 3. Export new file
+      let baseName = pendingImportFileInfo?.name || 'Backup_Encrypted.json';
+      if (!baseName.endsWith('.json')) baseName += '.json';
+      const newFileName = baseName.replace(/\.json$/i, '_NewPassword.json');
+      
+      const jsonString = JSON.stringify(reencryptedPayload, null, 2);
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      await downloadOrShareFile(newFileName, blob, 'application/json');
+
+      logAuditAction('BACKUP_EXPORT', `Đã đổi mật khẩu mã hóa cho file sao lưu: ${newFileName}`);
+      alert(`🎉 Đổi mật khẩu file backup thành công!\n\nDữ liệu đã được giải mã bằng mật khẩu cũ và mã hóa lại bằng mật khẩu mới. File mới đã được xuất với tên:\n${newFileName}`);
+      
+      setPendingEncryptedPayload(null);
+      setDecryptPassword('');
+      setNewReencryptPassword('');
+      setNewReencryptHint('');
+      setShowReencryptOptions(false);
+    } catch (err: any) {
+      console.error('Re-encryption error:', err);
+      setDecryptError('Mật khẩu hiện tại không chính xác! Không thể giải mã để đổi mật khẩu mới.');
+    } finally {
+      setIsDecrypting(false);
+    }
+  };
+
+  // 2. Process Imported JSON Data (File or Pasted Text)
+  const processImportedJsonData = async (parsedData: any, fileName?: string, fileSize?: number) => {
+    try {
+      const candidates = extractProjectsFromImportData(parsedData);
+      if (!candidates || candidates.length === 0) {
+        alert('Tệp sao lưu không chứa dữ liệu công trình hợp lệ hoặc cấu trúc không được nhận diện.');
+        return;
+      }
+
+      const curList = getProjectsList();
+      const pendingItems: {
+        candidate: ProjectImportCandidate;
+        existsLocally: boolean;
+        localProjectInfo?: ProjectInfo;
+        localUpdatedAt: number;
+        isLocalNewer: boolean;
+        isIncomingNewer: boolean;
+        action: 'CREATE_PRESERVE_ID' | 'KEEP_LOCAL' | 'OVERWRITE_FILE' | 'SMART_MERGE' | 'IMPORT_AS_NEW_COPY' | 'SKIP';
+      }[] = [];
+
+      for (const cand of candidates) {
+        const localMatch = curList.find(p => p.id === cand.id);
+        if (!localMatch) {
+          // Project does not exist locally: default to creating preserving exact original ID
+          pendingItems.push({
+            candidate: cand,
+            existsLocally: false,
+            localUpdatedAt: 0,
+            isLocalNewer: false,
+            isIncomingNewer: true,
+            action: 'CREATE_PRESERVE_ID',
+          });
+        } else {
+          // Project exists locally: compare timestamps
+          const localUpdatedStr = localStorage.getItem(getKey('construction_updated_at', cand.id));
+          const localUpdatedAt = localUpdatedStr ? parseInt(localUpdatedStr, 10) : (localMatch.updatedAt || 0);
+
+          const isLocalNewer = localUpdatedAt > cand.updatedAt;
+          const isIncomingNewer = cand.updatedAt > localUpdatedAt;
+
+          // Default action: SMART_MERGE preserves changes from both sides
+          pendingItems.push({
+            candidate: cand,
+            existsLocally: true,
+            localProjectInfo: localMatch,
+            localUpdatedAt,
+            isLocalNewer,
+            isIncomingNewer,
+            action: 'SMART_MERGE',
+          });
+        }
+      }
+
+      setMultiProjectSyncState({
+        fileName: fileName || 'Tệp sao lưu',
+        fileSize,
+        rawData: parsedData,
+        items: pendingItems,
+      });
+    } catch (err) {
+      console.error('Error analyzing backup file:', err);
+      alert('Có lỗi khi phân tích dữ liệu tệp sao lưu: ' + (err instanceof Error ? err.message : String(err)));
+    }
+  };
+
+  const executeMultiProjectSync = async () => {
+    if (!multiProjectSyncState || isExecutingMultiSync) return;
+    setIsExecutingMultiSync(true);
+
+    try {
+      if (onFlushCurrentProject) {
+        await onFlushCurrentProject();
+      }
+
+      let curList = getProjectsList();
+      let createdCount = 0;
+      let updatedCount = 0;
+      let skippedCount = 0;
+      let newlyCreatedFirstId: string | null = null;
+
+      for (const item of multiProjectSyncState.items) {
+        const { candidate, action } = item;
+        const candData = candidate.normalizedData;
+
+        if (action === 'SKIP' || action === 'KEEP_LOCAL') {
+          skippedCount++;
+          continue;
+        }
+
+        const candidatePhotos = candData.photos || (multiProjectSyncState.rawData?.projectPhotos && multiProjectSyncState.rawData.projectPhotos[candidate.id]);
+        const candidatePhotoData = candData.photoData || candData.photoDataMap || candidate.photoData || (multiProjectSyncState.rawData?.projectPhotoData && multiProjectSyncState.rawData.projectPhotoData[candidate.id]);
+
+        if (action === 'CREATE_PRESERVE_ID') {
+          const targetId = candidate.id;
+          if (Array.isArray(candidatePhotos)) {
+            await restorePhotosFromBackup(targetId, candidatePhotos, candidatePhotoData);
+          }
+          await Promise.all([
+            setAsyncItem(getKey('construction_project_name', targetId), candidate.name),
+            setAsyncItem(getKey('construction_contractor', targetId), candidate.contractorName || ''),
+            setAsyncItem(getKey('construction_inspector', targetId), candidate.inspectorName || ''),
+            setAsyncItem(getKey('construction_material_norms', targetId), candData.materialNorms || []),
+            setAsyncItem(getKey('construction_inventory', targetId), candData.inventory || []),
+            setAsyncItem(getKey('construction_work_volumes', targetId), candData.workVolumes || []),
+            setAsyncItem(getKey('construction_floor_plans', targetId), candData.floorPlans || []),
+            setAsyncItem(getKey('construction_defects', targetId), candData.defects || []),
+            setAsyncItem(getKey('construction_room_progress', targetId), candData.roomProgressList || []),
+            setAsyncItem(getKey('construction_checklist', targetId), candData.checklist || []),
+            setAsyncItem(getKey('construction_crew_records', targetId), candData.crewRecords || []),
+            setAsyncItem(getKey('construction_teams', targetId), candData.teams || []),
+            setAsyncItem(getKey('construction_updated_at', targetId), String(candidate.updatedAt || Date.now())),
+            ...(candData.tombstones ? [setAsyncItem(getKey('construction_tombstones', targetId), candData.tombstones)] : []),
+          ]);
+
+          safeSetLocalStorageItem(getKey('construction_project_name', targetId), candidate.name);
+          safeSetLocalStorageItem(getKey('construction_contractor', targetId), candidate.contractorName || '');
+          safeSetLocalStorageItem(getKey('construction_inspector', targetId), candidate.inspectorName || '');
+          safeSetLocalStorageItem(getKey('construction_updated_at', targetId), String(candidate.updatedAt || Date.now()));
+          if (candData.tombstones) {
+            safeSetLocalStorageItem(getKey('construction_tombstones', targetId), JSON.stringify(candData.tombstones));
+          }
+
+          if (!curList.some(p => p.id === targetId)) {
+            curList.push({
+              id: targetId,
+              name: candidate.name,
+              createdAt: Date.now(),
+              updatedAt: candidate.updatedAt || Date.now()
+            });
+          }
+          createdCount++;
+          if (!newlyCreatedFirstId) newlyCreatedFirstId = targetId;
+        } else if (action === 'OVERWRITE_FILE') {
+          const targetId = candidate.id;
+          if (Array.isArray(candidatePhotos)) {
+            await restorePhotosFromBackup(targetId, candidatePhotos, candidatePhotoData);
+          }
+          await Promise.all([
+            setAsyncItem(getKey('construction_project_name', targetId), candidate.name),
+            setAsyncItem(getKey('construction_contractor', targetId), candidate.contractorName || ''),
+            setAsyncItem(getKey('construction_inspector', targetId), candidate.inspectorName || ''),
+            setAsyncItem(getKey('construction_material_norms', targetId), candData.materialNorms || []),
+            setAsyncItem(getKey('construction_inventory', targetId), candData.inventory || []),
+            setAsyncItem(getKey('construction_work_volumes', targetId), candData.workVolumes || []),
+            setAsyncItem(getKey('construction_floor_plans', targetId), candData.floorPlans || []),
+            setAsyncItem(getKey('construction_defects', targetId), candData.defects || []),
+            setAsyncItem(getKey('construction_room_progress', targetId), candData.roomProgressList || []),
+            setAsyncItem(getKey('construction_checklist', targetId), candData.checklist || []),
+            setAsyncItem(getKey('construction_crew_records', targetId), candData.crewRecords || []),
+            setAsyncItem(getKey('construction_teams', targetId), candData.teams || []),
+            setAsyncItem(getKey('construction_updated_at', targetId), String(candidate.updatedAt || Date.now())),
+            ...(candData.tombstones ? [setAsyncItem(getKey('construction_tombstones', targetId), candData.tombstones)] : []),
+          ]);
+
+          safeSetLocalStorageItem(getKey('construction_project_name', targetId), candidate.name);
+          safeSetLocalStorageItem(getKey('construction_contractor', targetId), candidate.contractorName || '');
+          safeSetLocalStorageItem(getKey('construction_inspector', targetId), candidate.inspectorName || '');
+          safeSetLocalStorageItem(getKey('construction_updated_at', targetId), String(candidate.updatedAt || Date.now()));
+          if (candData.tombstones) {
+            safeSetLocalStorageItem(getKey('construction_tombstones', targetId), JSON.stringify(candData.tombstones));
+          }
+
+          curList = curList.map(p => p.id === targetId ? { ...p, name: candidate.name, updatedAt: candidate.updatedAt || Date.now() } : p);
+          updatedCount++;
+
+          if (targetId === activeId && onRestoreData) {
+            await onRestoreData(candData, targetId);
+          }
+        } else if (action === 'SMART_MERGE') {
+          const targetId = candidate.id;
+          if (Array.isArray(candidatePhotos)) {
+            await restorePhotosFromBackup(targetId, candidatePhotos, candidatePhotoData);
+          }
+          let localData: any = {};
+          if (targetId === activeId && fullAppData) {
+            localData = fullAppData;
+          } else {
+            const [norms, inv, vols, plans, defs, rooms, chk, crew, teams, pName, cName, iName, uTime, tombstones] = await Promise.all([
+              getAsyncItem(getKey('construction_material_norms', targetId), []),
+              getAsyncItem(getKey('construction_inventory', targetId), []),
+              getAsyncItem(getKey('construction_work_volumes', targetId), []),
+              getAsyncItem(getKey('construction_floor_plans', targetId), []),
+              getAsyncItem(getKey('construction_defects', targetId), []),
+              getAsyncItem(getKey('construction_room_progress', targetId), []),
+              getAsyncItem(getKey('construction_checklist', targetId), []),
+              getAsyncItem(getKey('construction_crew_records', targetId), []),
+              getAsyncItem(getKey('construction_teams', targetId), []),
+              getAsyncItem(getKey('construction_project_name', targetId), candidate.name),
+              getAsyncItem(getKey('construction_contractor', targetId), ''),
+              getAsyncItem(getKey('construction_inspector', targetId), ''),
+              getAsyncItem(getKey('construction_updated_at', targetId), '0'),
+              getAsyncItem(getKey('construction_tombstones', targetId), {}),
+            ]);
+            localData = {
+              projectName: pName,
+              contractorName: cName,
+              inspectorName: iName,
+              materialNorms: norms,
+              inventory: inv,
+              workVolumes: vols,
+              floorPlans: plans,
+              defects: defs,
+              roomProgressList: rooms,
+              checklist: chk,
+              crewRecords: crew,
+              teams,
+              updatedAt: parseInt(uTime || '0', 10),
+              tombstones: (tombstones && typeof tombstones === 'object' && !Array.isArray(tombstones)) ? tombstones : {}
+            };
+          }
+
+          const merged = smartMergeProjectData(localData, candData);
+
+          await Promise.all([
+            setAsyncItem(getKey('construction_project_name', targetId), merged.projectName || candidate.name),
+            setAsyncItem(getKey('construction_contractor', targetId), merged.contractorName || ''),
+            setAsyncItem(getKey('construction_inspector', targetId), merged.inspectorName || ''),
+            setAsyncItem(getKey('construction_material_norms', targetId), merged.materialNorms || []),
+            setAsyncItem(getKey('construction_inventory', targetId), merged.inventory || []),
+            setAsyncItem(getKey('construction_work_volumes', targetId), merged.workVolumes || []),
+            setAsyncItem(getKey('construction_floor_plans', targetId), merged.floorPlans || []),
+            setAsyncItem(getKey('construction_defects', targetId), merged.defects || []),
+            setAsyncItem(getKey('construction_room_progress', targetId), merged.roomProgressList || []),
+            setAsyncItem(getKey('construction_checklist', targetId), merged.checklist || []),
+            setAsyncItem(getKey('construction_crew_records', targetId), merged.crewRecords || []),
+            setAsyncItem(getKey('construction_teams', targetId), merged.teams || []),
+            setAsyncItem(getKey('construction_updated_at', targetId), String(merged.updatedAt || Date.now())),
+            ...(merged.tombstones ? [setAsyncItem(getKey('construction_tombstones', targetId), merged.tombstones)] : []),
+          ]);
+
+          safeSetLocalStorageItem(getKey('construction_project_name', targetId), merged.projectName || candidate.name);
+          safeSetLocalStorageItem(getKey('construction_contractor', targetId), merged.contractorName || '');
+          safeSetLocalStorageItem(getKey('construction_inspector', targetId), merged.inspectorName || '');
+          safeSetLocalStorageItem(getKey('construction_updated_at', targetId), String(merged.updatedAt || Date.now()));
+          if (merged.tombstones) {
+            safeSetLocalStorageItem(getKey('construction_tombstones', targetId), JSON.stringify(merged.tombstones));
+          }
+
+          curList = curList.map(p => p.id === targetId ? { ...p, name: merged.projectName || candidate.name, updatedAt: merged.updatedAt || Date.now() } : p);
+          updatedCount++;
+
+          if (targetId === activeId && onRestoreData) {
+            await onRestoreData(merged, targetId);
+          }
+        } else if (action === 'IMPORT_AS_NEW_COPY') {
+          const newTargetId = createProjectId();
+          const copyName = `${candidate.name} (Bản sao nhập)`;
+          await Promise.all([
+            setAsyncItem(getKey('construction_project_name', newTargetId), copyName),
+            setAsyncItem(getKey('construction_contractor', newTargetId), candidate.contractorName || ''),
+            setAsyncItem(getKey('construction_inspector', newTargetId), candidate.inspectorName || ''),
+            setAsyncItem(getKey('construction_material_norms', newTargetId), candData.materialNorms || []),
+            setAsyncItem(getKey('construction_inventory', newTargetId), candData.inventory || []),
+            setAsyncItem(getKey('construction_work_volumes', newTargetId), candData.workVolumes || []),
+            setAsyncItem(getKey('construction_floor_plans', newTargetId), candData.floorPlans || []),
+            setAsyncItem(getKey('construction_defects', newTargetId), candData.defects || []),
+            setAsyncItem(getKey('construction_room_progress', newTargetId), candData.roomProgressList || []),
+            setAsyncItem(getKey('construction_checklist', newTargetId), candData.checklist || []),
+            setAsyncItem(getKey('construction_crew_records', newTargetId), candData.crewRecords || []),
+            setAsyncItem(getKey('construction_teams', newTargetId), candData.teams || []),
+            setAsyncItem(getKey('construction_updated_at', newTargetId), String(Date.now())),
+            ...(candData.tombstones ? [setAsyncItem(getKey('construction_tombstones', newTargetId), candData.tombstones)] : []),
+          ]);
+
+          safeSetLocalStorageItem(getKey('construction_project_name', newTargetId), copyName);
+          safeSetLocalStorageItem(getKey('construction_contractor', newTargetId), candidate.contractorName || '');
+          safeSetLocalStorageItem(getKey('construction_inspector', newTargetId), candidate.inspectorName || '');
+          safeSetLocalStorageItem(getKey('construction_updated_at', newTargetId), String(Date.now()));
+          if (candData.tombstones) {
+            safeSetLocalStorageItem(getKey('construction_tombstones', newTargetId), JSON.stringify(candData.tombstones));
+          }
+
+          curList.push({
+            id: newTargetId,
+            name: copyName,
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+          });
+          createdCount++;
+          if (!newlyCreatedFirstId) newlyCreatedFirstId = newTargetId;
+        }
+      }
+
+      saveProjectsList(curList);
+      setProjects(curList);
+      setMultiProjectSyncState(null);
+
+      const summaryParts: string[] = [];
+      if (createdCount > 0) summaryParts.push(`Thêm mới ${createdCount} dự án (Bảo toàn ID gốc)`);
+      if (updatedCount > 0) summaryParts.push(`Đồng bộ / Cập nhật ${updatedCount} dự án`);
+      if (skippedCount > 0) summaryParts.push(`Giữ nguyên ${skippedCount} dự án`);
+
+      const summaryMsg = `🎉 Đồng bộ & Nhập hoàn tất!\n• ${summaryParts.join('\n• ')}`;
+      alert(summaryMsg);
+
+      if (newlyCreatedFirstId && (!curList.some(p => p.id === activeId) || createdCount === 1)) {
+        if (confirm(`Bạn có muốn chuyển sang xem dự án vừa thêm ("${curList.find(p => p.id === newlyCreatedFirstId)?.name}") ngay không?`)) {
+          await handleSwitchProject(newlyCreatedFirstId);
+        }
+      }
+    } catch (err) {
+      console.error('Multi project sync error:', err);
+      alert('Lỗi khi đồng bộ dự án: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setIsExecutingMultiSync(false);
+    }
+  };
+
+  const executeFullReplaceRestore = async () => {
+    if (!multiProjectSyncState) return;
+    const candidates = multiProjectSyncState.items.map(it => it.candidate);
+    const count = candidates.length;
+
+    const confirm = await confirmAsync(
+      `⚠️ CẢNH BÁO KHÔI PHỤC TOÀN BỘ & THAY THẾ (FULL REPLACE):\n\n` +
+      `Thao tác này sẽ:\n` +
+      `1. XÓA HOÀN TOÀN các dự án hiện có trên máy không nằm trong tệp sao lưu này.\n` +
+      `2. Ghi đè toàn bộ dữ liệu của ${count} dự án trong tệp sao lưu vào máy.\n` +
+      `3. Đồng bộ danh sách dự án khớp 100% với tệp sao lưu.\n\n` +
+      `Bạn có chắc chắn muốn thực hiện Khôi Phục Thay Thế không?`
+    );
+    if (!confirm) return;
+
+    try {
+      setIsExecutingMultiSync(true);
+      const curList = getProjectsList();
+      const incomingIds = new Set(candidates.map(c => c.id));
+      
+      // Atomic snapshot for rollback if operation fails
+      const preSnapshot = await getAllStorageData();
+      const preProjectsList = [...curList];
+
+      try {
+        // 1. Dynamic key cleanup for obsolete local projects not in incoming backup
+        const obsoleteProjects = curList.filter(p => !incomingIds.has(p.id));
+        for (const p of obsoleteProjects) {
+          const keysToRemove = await getProjectStorageKeys(p.id);
+          for (const k of keysToRemove) {
+            localStorage.removeItem(k);
+            await removeAsyncItem(k);
+          }
+          await deleteProjectPhotos(p.id);
+        }
+
+        // 2. Write all incoming projects data with exact original ID using normalizedData
+        const newProjectsList: ProjectInfo[] = [];
+        let activeRestoredData: any = null;
+
+        for (const cand of candidates) {
+          const candData = cand.normalizedData || {};
+          const targetId = cand.id;
+
+          const candidatePhotos = candData.photos || (multiProjectSyncState.rawData?.projectPhotos && multiProjectSyncState.rawData.projectPhotos[cand.id]);
+          const candidatePhotoData = candData.photoData || candData.photoDataMap || cand.photoData || (multiProjectSyncState.rawData?.projectPhotoData && multiProjectSyncState.rawData.projectPhotoData[cand.id]);
+
+          if (Array.isArray(candidatePhotos)) {
+            await restorePhotosFromBackup(targetId, candidatePhotos, candidatePhotoData);
+          }
+
+          await Promise.all([
+            setAsyncItem(getKey('construction_project_name', targetId), candData.projectName || cand.name),
+            setAsyncItem(getKey('construction_contractor', targetId), candData.contractorName || ''),
+            setAsyncItem(getKey('construction_inspector', targetId), candData.inspectorName || ''),
+            setAsyncItem(getKey('construction_material_norms', targetId), candData.materialNorms || []),
+            setAsyncItem(getKey('construction_inventory', targetId), candData.inventory || []),
+            setAsyncItem(getKey('construction_work_volumes', targetId), candData.workVolumes || []),
+            setAsyncItem(getKey('construction_floor_plans', targetId), candData.floorPlans || []),
+            setAsyncItem(getKey('construction_defects', targetId), candData.defects || []),
+            setAsyncItem(getKey('construction_room_progress', targetId), candData.roomProgressList || []),
+            setAsyncItem(getKey('construction_checklist', targetId), candData.checklist || []),
+            setAsyncItem(getKey('construction_crew_records', targetId), candData.crewRecords || []),
+            setAsyncItem(getKey('construction_teams', targetId), candData.teams || []),
+            setAsyncItem(getKey('construction_updated_at', targetId), String(candData.updatedAt || Date.now())),
+            ...(candData.tombstones ? [setAsyncItem(getKey('construction_tombstones', targetId), candData.tombstones)] : []),
+          ]);
+
+          safeSetLocalStorageItem(getKey('construction_project_name', targetId), candData.projectName || cand.name);
+          safeSetLocalStorageItem(getKey('construction_contractor', targetId), candData.contractorName || '');
+          safeSetLocalStorageItem(getKey('construction_inspector', targetId), candData.inspectorName || '');
+          safeSetLocalStorageItem(getKey('construction_updated_at', targetId), String(candData.updatedAt || Date.now()));
+          if (candData.tombstones) {
+            safeSetLocalStorageItem(getKey('construction_tombstones', targetId), JSON.stringify(candData.tombstones));
+          }
+
+          const resolvedCreatedAt = cand.normalizedData?.project?.createdAt || candData.createdAt || Date.now();
+          const resolvedUpdatedAt = candData.updatedAt || Date.now();
+
+          newProjectsList.push({
+            id: targetId,
+            name: candData.projectName || cand.name,
+            createdAt: resolvedCreatedAt,
+            updatedAt: resolvedUpdatedAt
+          });
+
+          if (targetId === activeId) {
+            activeRestoredData = candData;
+          }
+        }
+
+        saveProjectsList(newProjectsList);
+        setProjects(newProjectsList);
+        setMultiProjectSyncState(null);
+
+        // If active project is not in new list, switch to first project
+        const nextActiveId = newProjectsList.some(p => p.id === activeId) ? activeId! : newProjectsList[0]?.id;
+        if (nextActiveId && nextActiveId !== activeId) {
+          await handleSwitchProject(nextActiveId);
+        } else if (activeRestoredData && onRestoreData && activeId) {
+          await onRestoreData(activeRestoredData, activeId);
+        }
+
+        logAuditAction('FULL_RESTORE_REPLACE', `Khôi phục thay thế toàn bộ ${count} dự án từ tệp sao lưu`);
+        alert(`🎉 Khôi phục hoàn tất! Đã thay thế toàn bộ hệ thống bằng ${count} dự án trong tệp sao lưu.`);
+      } catch (innerErr) {
+        // Rollback state from preSnapshot on failure
+        console.error('Full replace restore failed, rolling back to original state:', innerErr);
+        saveProjectsList(preProjectsList);
+        setProjects(preProjectsList);
+
+        // Remove any keys created during failed restore that were not present in preSnapshot
+        const postKeys = await getStorageKeys();
+        const preKeysSet = new Set(Object.keys(preSnapshot));
+        for (const k of postKeys) {
+          if (!preKeysSet.has(k)) {
+            localStorage.removeItem(k);
+            await removeAsyncItem(k);
+          }
+        }
+
+        // Restore all original keys and values from preSnapshot
+        for (const k of Object.keys(preSnapshot)) {
+          const val = preSnapshot[k];
+          if (val !== undefined && val !== null) {
+            safeSetLocalStorageItem(k, typeof val === 'string' ? val : JSON.stringify(val));
+            await setAsyncItem(k, val);
+          }
+        }
+        throw innerErr;
+      }
+    } catch (err: any) {
+      console.error('Full replace restore error:', err);
+      alert('Lỗi khi khôi phục thay thế: ' + (err?.message || err));
+    } finally {
+      setIsExecutingMultiSync(false);
+    }
   };
 
   const handleImportJsonForScope = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -277,7 +1654,17 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           }
         }
         const parsedData = JSON.parse(resultString);
-        await processImportedJsonData(parsedData);
+
+        // Check if file is AES-GCM Encrypted
+        if (isEncryptedBackup(parsedData)) {
+          setPendingEncryptedPayload(parsedData as EncryptedBackupContainer);
+          setPendingImportFileInfo({ name: file.name, size: file.size });
+          setDecryptPassword('');
+          setDecryptError('');
+          return;
+        }
+
+        await processImportedJsonData(parsedData, file.name, file.size);
       } catch (err) {
         console.error("JSON parse error:", err);
         alert('Tệp JSON không hợp lệ hoặc bị hỏng!');
@@ -298,7 +1685,20 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         }
       }
       const parsedData = JSON.parse(resultString);
-      await processImportedJsonData(parsedData);
+      const byteLen = new Blob([resultString]).size;
+
+      // Check if encrypted
+      if (isEncryptedBackup(parsedData)) {
+        setPendingEncryptedPayload(parsedData as EncryptedBackupContainer);
+        setPendingImportFileInfo({ name: 'Nội dung dán mã hóa', size: byteLen });
+        setDecryptPassword('');
+        setDecryptError('');
+        setPasteValue('');
+        setShowPasteArea(false);
+        return;
+      }
+
+      await processImportedJsonData(parsedData, 'Nội dung dán trực tiếp', byteLen);
       setPasteValue('');
       setShowPasteArea(false);
     } catch (err) {
@@ -311,7 +1711,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     try {
       setIsSavingCloudBackup(true);
       setCloudStatusMsg(null);
-
+      
       const scopeData = await getStorageDataForScope(saveScope);
       const items = Object.keys(scopeData).map(k => ({ key: k, value: scopeData[k] }));
 
@@ -325,7 +1725,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
       const defaultName = cloudBackupName.trim() || `Sao lưu ${scopeLabel} (${new Date().toLocaleDateString('vi-VN')} ${new Date().toLocaleTimeString('vi-VN')})`;
       await saveCloudBackup(defaultName, items);
-
+      
       setCloudBackupName('');
       setCloudStatusMsg({ type: 'success', text: '🎉 Tạo bản sao lưu Đám Mây thành công!' });
       await fetchCloudBackups();
@@ -337,25 +1737,32 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   };
 
   // Restore Cloud Backup
-  const handleRestoreCloudBackup = async (backup: CloudBackupRecord) => {
-    if (!confirm(`Bạn có chắc muốn khôi phục bản sao lưu "${backup.backupName}"? Thao tác này sẽ ghi đè dữ liệu tương ứng.`)) {
+  
+  const handleViewCloudBackupStats = (b: any) => {
+    const payload = getCloudPayload(b);
+    if (!payload) {
+      alert('Không thể đọc dữ liệu chi tiết của bản lưu này.');
       return;
     }
-    try {
-      if (Array.isArray(backup.projects)) {
-        const dataToRestore: Record<string, string> = {};
-        for (const item of backup.projects) {
-          if (item.key && item.value !== undefined) {
-            dataToRestore[item.key] = item.value;
-          }
-        }
-        await restoreConstructionStorageData(dataToRestore);
-        alert('🎉 Khôi phục dữ liệu từ Đám Mây thành công!');
-        window.location.reload();
-      }
-    } catch (err) {
-      alert('Lỗi khi khôi phục bản sao lưu: ' + (err instanceof Error ? err.message : String(err)));
+    const stats = analyzeImportData(payload);
+    setExportedFileInfo({
+      title: 'Chi Tiết Bản Lưu Đám Mây',
+      fileName: b.backupName,
+      fileSizeStr: formatDateTime(b.createdAt),
+      projectsExported: stats.projectsImported,
+      categoriesExported: stats.categoriesImported,
+      imageStats: stats.imageStats,
+      isFullBackup: stats.isFullBackup,
+    });
+  };
+
+  const handleRestoreCloudBackup = async (backup: CloudBackupRecord) => {
+    const payload = getCloudPayload(backup);
+    if (!payload) {
+      alert('Không thể đọc dữ liệu từ bản sao lưu đám mây này.');
+      return;
     }
+    await processImportedJsonData(payload, backup.backupName);
   };
 
   // Delete Cloud Backup
@@ -375,24 +1782,33 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     }
   };
 
-  // Upload full app data to Cloud (Sync Code)
+  // Upload Active Project to Cloud (Sync Code)
   const handleUploadActiveProjectToCloud = async () => {
     try {
       setIsSyncingCurrentProject(true);
       setCloudStatusMsg(null);
       const curId = getActiveProjectId();
       const currentProj = projects.find(p => p.id === curId) || { id: curId, name: 'Dự án hiện tại' };
-
-      const projData = await getStorageDataForScope('all');
+      
+      const projData = await getStorageDataForScope('active');
+      const normalized = normalizeImportedData(projData, curId);
 
       await saveProjectToCloud({
         id: curId,
-        name: `Toan bo du lieu - ${currentProj.name}`,
+        name: normalized.projectName || currentProj.name,
+        contractorName: normalized.contractorName || '',
+        inspectorName: normalized.inspectorName || '',
         syncCode: curId.toUpperCase().slice(0, 8),
-        payload: projData
+        payload: normalized
       });
 
-      setCloudStatusMsg({ type: 'success', text: `Đã đẩy TOÀN BỘ dữ liệu lên Cloud. Mã Sync: ${curId}` });
+      const jsonString = JSON.stringify(normalized);
+      const stats = analyzeExportData('active', projData, jsonString);
+      setCloudStatusMsg({ 
+        type: 'success', 
+        text: `✅ Đã đẩy dự án "${normalized.projectName || currentProj.name}" lên Cloud! Mã Sync: ${curId}`,
+        stats 
+      });
     } catch (err) {
       setCloudStatusMsg({ type: 'error', text: 'Lỗi đồng bộ đám mây: ' + (err instanceof Error ? err.message : String(err)) });
     } finally {
@@ -413,18 +1829,65 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         return;
       }
 
-      const cloudPayload = getCloudPayload(rec);
+      const cloudPayload = getCloudPayload(rec) as any;
       if (cloudPayload) {
-        await restoreConstructionStorageData(cloudPayload);
+        const pid = rec.id;
+        const pName = cloudPayload.projectName || rec.name || 'Dự Án Mới';
+        const pContractor = cloudPayload.contractorName || '';
+        const pInspector = cloudPayload.inspectorName || '';
+        let fallbackUpdatedAt = 0;
+        const scanArray = (arr: any[]) => {
+          if (!Array.isArray(arr)) return;
+          for (const item of arr) {
+            if (item && typeof item === 'object') {
+              const t = parseLegacyTimestamp(item.updatedAt || item.date, 0);
+              if (t > fallbackUpdatedAt) fallbackUpdatedAt = t;
+            }
+          }
+        };
+        scanArray(cloudPayload.materialNorms);
+        scanArray(cloudPayload.inventory);
+        scanArray(cloudPayload.workVolumes);
+        scanArray(cloudPayload.floorPlans);
+        scanArray(cloudPayload.defects);
+        scanArray(cloudPayload.roomProgressList);
+        scanArray(cloudPayload.checklist);
+        scanArray(cloudPayload.crewRecords);
+        scanArray(cloudPayload.teams);
 
+        const pUpdatedAt = String(cloudPayload.updatedAt || fallbackUpdatedAt);
+
+        // Write metadata
+        localStorage.setItem(getKey('construction_project_name', pid), pName);
+        localStorage.setItem(getKey('construction_contractor', pid), pContractor);
+        localStorage.setItem(getKey('construction_inspector', pid), pInspector);
+        localStorage.setItem(getKey('construction_updated_at', pid), pUpdatedAt);
+
+        // Write domain collections to IndexedDB with correct project-scoped keys
+        await Promise.all([
+          setAsyncItem(getKey('construction_project_name', pid), pName),
+          setAsyncItem(getKey('construction_contractor', pid), pContractor),
+          setAsyncItem(getKey('construction_inspector', pid), pInspector),
+          setAsyncItem(getKey('construction_material_norms', pid), cloudPayload.materialNorms || []),
+          setAsyncItem(getKey('construction_inventory', pid), cloudPayload.inventory || []),
+          setAsyncItem(getKey('construction_work_volumes', pid), cloudPayload.workVolumes || []),
+          setAsyncItem(getKey('construction_floor_plans', pid), cloudPayload.floorPlans || []),
+          setAsyncItem(getKey('construction_defects', pid), cloudPayload.defects || []),
+          setAsyncItem(getKey('construction_room_progress', pid), cloudPayload.roomProgressList || []),
+          setAsyncItem(getKey('construction_checklist', pid), cloudPayload.checklist || []),
+          setAsyncItem(getKey('construction_crew_records', pid), cloudPayload.crewRecords || []),
+          setAsyncItem(getKey('construction_teams', pid), cloudPayload.teams || []),
+          setAsyncItem(getKey('construction_updated_at', pid), pUpdatedAt),
+        ]);
+        
         const curList = getProjectsList();
-        if (!curList.some(p => p.id === rec.id)) {
-          curList.push({ id: rec.id, name: rec.name, createdAt: new Date().toISOString() });
+        if (!curList.some(p => p.id === pid)) {
+          curList.push({ id: pid, name: pName, createdAt: new Date().toISOString() });
           saveProjectsList(curList);
         }
-
-        setActiveProject(rec.id);
-        alert(`🎉 Tải dữ liệu dự án "${rec.name}" từ Đám Mây thành công! Ứng dụng sẽ tự động tải lại.`);
+        
+        setActiveProject(pid);
+        alert(`🎉 Tải dữ liệu dự án "${pName}" từ Đám Mây thành công! Ứng dụng sẽ tự động tải lại.`);
         window.location.reload();
       }
     } catch (err) {
@@ -471,10 +1934,21 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     }
   };
 
-  const handleSwitchProject = (id: string) => {
-    if (id === activeId) return;
-    setActiveProject(id);
-    window.location.reload();
+  const handleSwitchProject = async (id: string) => {
+    if (id === activeId || switchingProjectId) return;
+    setSwitchingProjectId(id);
+    try {
+      if (onSwitchProject) {
+        await onSwitchProject(id);
+        setActiveId(id);
+        onClose();
+      } else {
+        setActiveProject(id);
+        window.location.reload();
+      }
+    } finally {
+      setSwitchingProjectId(null);
+    }
   };
 
   const handleStartRename = (proj: ProjectInfo, e: React.MouseEvent) => {
@@ -483,10 +1957,11 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     setEditingProjectName(proj.name);
   };
 
-  const handleSaveRename = (id: string) => {
+  const handleSaveRename = async (id: string) => {
     if (!editingProjectName.trim()) return;
     const trimmed = editingProjectName.trim();
-    const updated = projects.map(p => p.id === id ? { ...p, name: trimmed } : p);
+    const now = Date.now();
+    const updated = projects.map(p => p.id === id ? { ...p, name: trimmed, updatedAt: now } : p);
     saveProjectsList(updated);
     setProjects(updated);
 
@@ -497,27 +1972,40 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
     setEditingProjectId(null);
     if (id === activeId) {
-      window.location.reload();
+      if (onFlushCurrentProject) {
+        await onFlushCurrentProject();
+      }
+      if (onSwitchProject) {
+        await onSwitchProject(id);
+      } else {
+        window.location.reload();
+      }
     }
   };
 
   const handleCreateProject = async () => {
     if (!newProjectName.trim()) return;
     try {
-      const newProjectId = `proj_${Date.now()}`;
+      if (onFlushCurrentProject) {
+        await onFlushCurrentProject();
+      }
+      const newProjectId = createProjectId();
+      const now = Date.now();
+      const trimmedName = newProjectName.trim();
       const newProject: ProjectInfo = {
         id: newProjectId,
-        name: newProjectName.trim(),
-        createdAt: new Date().toISOString(),
+        name: trimmedName,
+        createdAt: now,
+        updatedAt: now,
       };
-
+      
       let hadQuotaIssue = false;
 
       if (duplicateFromCurrent) {
         const activeSuffix = activeId === 'default' ? '' : `_${activeId}`;
         const newSuffix = `_${newProjectId}`;
         const keysToCopy: string[] = [];
-
+        
         // Fetch keys from both localStorage and localforage
         const allKeys = await getStorageKeys();
         const allStorage = await getAllStorageData();
@@ -535,7 +2023,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             }
           }
         });
-
+        
         for (const k of keysToCopy) {
           const val = allStorage[k];
           let newKey = activeId === 'default' ? `${k}${newSuffix}` : k.replace(activeSuffix, newSuffix);
@@ -553,18 +2041,48 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             }
           }
         }
+      } else {
+        // Explicitly initialize empty collections for the new project so it has a completely clean slate
+        await Promise.all([
+          setAsyncItem(getKey('construction_material_norms', newProjectId), []),
+          setAsyncItem(getKey('construction_inventory', newProjectId), []),
+          setAsyncItem(getKey('construction_work_volumes', newProjectId), []),
+          setAsyncItem(getKey('construction_floor_plans', newProjectId), []),
+          setAsyncItem(getKey('construction_defects', newProjectId), []),
+          setAsyncItem(getKey('construction_room_progress', newProjectId), []),
+          setAsyncItem(getKey('construction_checklist', newProjectId), []),
+          setAsyncItem(getKey('construction_crew_records', newProjectId), []),
+          setAsyncItem(getKey('construction_teams', newProjectId), []),
+          setAsyncItem(getKey('construction_project_name', newProjectId), trimmedName),
+          setAsyncItem(getKey('construction_contractor', newProjectId), ''),
+          setAsyncItem(getKey('construction_inspector', newProjectId), ''),
+          setAsyncItem(getKey('construction_updated_at', newProjectId), String(now)),
+        ]);
       }
-
-      safeSetLocalStorageItem(`construction_project_name_${newProjectId}`, newProjectName.trim());
+      
+      safeSetLocalStorageItem(getKey('construction_project_name', newProjectId), trimmedName);
+      safeSetLocalStorageItem(getKey('construction_contractor', newProjectId), duplicateFromCurrent ? (localStorage.getItem(getKey('construction_contractor', activeId)) || '') : '');
+      safeSetLocalStorageItem(getKey('construction_inspector', newProjectId), duplicateFromCurrent ? (localStorage.getItem(getKey('construction_inspector', activeId)) || '') : '');
+      safeSetLocalStorageItem(getKey('construction_updated_at', newProjectId), String(now));
 
       const updated = [...projects, newProject];
       saveProjectsList(updated);
-      setActiveProject(newProject.id);
+      setProjects(updated);
+      setNewProjectName('');
+      setIsCreating(false);
 
       if (hadQuotaIssue) {
         alert('Tạo dự án mới thành công! Do bộ nhớ đầy, một số hình ảnh lớn từ dự án cũ đã được bỏ qua.');
       }
-      window.location.reload();
+
+      if (onSwitchProject) {
+        await onSwitchProject(newProjectId);
+        setActiveId(newProjectId);
+        onClose();
+      } else {
+        setActiveProject(newProjectId);
+        window.location.reload();
+      }
     } catch (err) {
       console.error("Error creating project:", err);
       setErrorMessage('Lỗi khi tạo dự án mới: ' + (err instanceof Error ? err.message : String(err)));
@@ -582,27 +2100,52 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   const confirmDelete = async () => {
     if (!confirmDeleteId) return;
 
-    const updated = projects.filter(p => p.id !== confirmDeleteId);
+    const targetDeleteId = confirmDeleteId;
+    setConfirmDeleteId(null);
+
+    const updated = projects.filter(p => p.id !== targetDeleteId);
     saveProjectsList(updated);
     setProjects(updated);
-
-    const keysToRemove: string[] = [];
-    const allKeys = await getStorageKeys();
-    for (const k of allKeys) {
-      if (k && (k.endsWith(`_${confirmDeleteId}`) || k === `construction_project_name_${confirmDeleteId}`)) {
-        keysToRemove.push(k);
-      }
-    }
-
+    
+    // 1. Dynamic storage cleanup across all storage layers
+    const keysToRemove = await getProjectStorageKeys(targetDeleteId);
     for (const k of keysToRemove) {
+      localStorage.removeItem(k);
       await removeAsyncItem(k);
     }
+    await deleteProjectPhotos(targetDeleteId);
 
-    if (confirmDeleteId === activeId) {
-      setActiveProject(updated[0].id);
-      window.location.reload();
+    // 2. Write project deletion tombstone to prevent resurrection during sync
+    try {
+      const deletedListRaw = localStorage.getItem('construction_deleted_projects') || '[]';
+      let deletedList: any[] = [];
+      try { deletedList = JSON.parse(deletedListRaw); } catch (_) {}
+      if (!deletedList.some((d: any) => d.projectId === targetDeleteId)) {
+        deletedList.push({
+          projectId: targetDeleteId,
+          deleted: true,
+          deletedAt: Date.now(),
+          updatedAt: Date.now()
+        });
+        localStorage.setItem('construction_deleted_projects', JSON.stringify(deletedList));
+        await setAsyncItem('construction_deleted_projects', deletedList);
+      }
+    } catch (e) {
+      console.warn('Error recording project deletion tombstone:', e);
     }
-    setConfirmDeleteId(null);
+
+    logAuditAction('PROJECT_DELETE', `Đã xóa dự án ID: ${targetDeleteId}`, targetDeleteId);
+
+    if (targetDeleteId === activeId) {
+      const nextId = updated[0]?.id || 'default';
+      if (onSwitchProject) {
+        await onSwitchProject(nextId);
+        setActiveId(nextId);
+      } else {
+        setActiveProject(nextId);
+        window.location.reload();
+      }
+    }
   };
 
   // Handle ESC key to close modal
@@ -618,14 +2161,14 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
   if (!isOpen) return null;
 
-  const filteredProjects = projects.filter(p =>
+  const filteredProjects = projects.filter(p => 
     p.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
     <div className="fixed inset-0 bg-slate-900/65 backdrop-blur-md z-50 flex items-center justify-center p-3 md:p-4 animate-in fade-in duration-200">
       <div className="bg-white w-full max-w-lg rounded-2xl p-4 md:p-6 shadow-2xl relative border border-slate-100 flex flex-col max-h-[92vh] overflow-hidden">
-
+        
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
           <div className="flex items-center gap-3">
@@ -637,20 +2180,46 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                 {modalTab === 'sync' ? 'Trung Tâm Lưu & Đồng Bộ Dự Án' : 'Quản Lý Danh Sách Dự Án'}
               </h2>
               <p className="text-[11px] text-slate-500 font-medium">
-                {modalTab === 'sync'
-                  ? hasDriveBackend
-                    ? 'Lưu trữ cục bộ, Đám mây Firebase, Google Drive & Google Sheets'
-                    : 'Lưu trữ cục bộ và Đám mây Firebase miễn phí'
+                {modalTab === 'sync' 
+                  ? (hasDriveBackend ? 'Lưu trữ cục bộ, Đám mây Firebase, Google Drive & Google Sheets' : 'Lưu trữ cục bộ và Đám mây Firebase miễn phí')
                   : 'Tạo mới, chuyển đổi, tìm kiếm và quản lý danh sách dự án công trình'}
               </p>
             </div>
           </div>
-          <button
+          <button 
             onClick={onClose}
             className="text-slate-400 hover:text-slate-600 bg-slate-100 hover:bg-slate-200 p-2 rounded-full transition-colors cursor-pointer"
             title="Đóng"
           >
             <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Top Tab Bar Switcher */}
+        <div className="grid grid-cols-2 gap-2 mt-3 p-1 bg-slate-100/90 rounded-xl shrink-0">
+          <button
+            type="button"
+            onClick={() => setModalTab('sync')}
+            className={`py-2 px-3 rounded-lg font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              modalTab === 'sync'
+                ? 'bg-white text-emerald-700 shadow-xs ring-1 ring-slate-200/50'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Lưu & Đồng Bộ</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setModalTab('projects')}
+            className={`py-2 px-3 rounded-lg font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              modalTab === 'projects'
+                ? 'bg-white text-indigo-700 shadow-xs ring-1 ring-slate-200/50'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            <Building2 className="w-3.5 h-3.5" />
+            <span>Danh Sách Dự Án ({projects.length})</span>
           </button>
         </div>
 
@@ -673,7 +2242,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           {/* TAB 1: SAVING & SYNC HUB */}
           {modalTab === 'sync' && (
             <div className="space-y-4">
-
+              
               {/* 🎯 SECTION 1: SCOPE SELECTOR */}
               <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/80 space-y-2">
                 <div className="flex items-center justify-between">
@@ -696,8 +2265,8 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     type="button"
                     onClick={() => setSaveScope('active')}
                     className={`py-2 px-1 rounded-lg text-[11px] font-extrabold transition-all flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
-                      saveScope === 'active'
-                        ? 'bg-indigo-600 text-white shadow-xs'
+                      saveScope === 'active' 
+                        ? 'bg-indigo-600 text-white shadow-xs' 
                         : 'text-slate-600 hover:bg-slate-50'
                     }`}
                   >
@@ -708,8 +2277,8 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     type="button"
                     onClick={() => setSaveScope('selected')}
                     className={`py-2 px-1 rounded-lg text-[11px] font-extrabold transition-all flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
-                      saveScope === 'selected'
-                        ? 'bg-indigo-600 text-white shadow-xs'
+                      saveScope === 'selected' 
+                        ? 'bg-indigo-600 text-white shadow-xs' 
                         : 'text-slate-600 hover:bg-slate-50'
                     }`}
                   >
@@ -720,8 +2289,8 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     type="button"
                     onClick={() => setSaveScope('all')}
                     className={`py-2 px-1 rounded-lg text-[11px] font-extrabold transition-all flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
-                      saveScope === 'all'
-                        ? 'bg-indigo-600 text-white shadow-xs'
+                      saveScope === 'all' 
+                        ? 'bg-indigo-600 text-white shadow-xs' 
                         : 'text-slate-600 hover:bg-slate-50'
                     }`}
                   >
@@ -744,7 +2313,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                         const isChecked = selectedProjectIds.includes(p.id);
                         return (
                           <label key={p.id} className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-slate-50 cursor-pointer text-xs">
-                            <input
+                            <input 
                               type="checkbox"
                               checked={isChecked}
                               onChange={() => toggleSelectProject(p.id)}
@@ -769,20 +2338,171 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
 
 
-              {/* Status Message Alert */}
-              {cloudStatusMsg && (
-                <div className={`p-3 rounded-xl border font-bold text-xs flex items-center justify-between animate-in fade-in duration-150 ${
-                  cloudStatusMsg.type === 'success'
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
-                    : 'bg-rose-50 border-rose-200 text-rose-900'
-                }`}>
-                  <div className="flex items-center gap-2">
-                    {cloudStatusMsg.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />}
-                    <span>{cloudStatusMsg.text}</span>
+              {/* 🤖 AUTOMATIC BACKUP CONFIGURATION & CATEGORY STATUS */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden transition-all duration-200">
+                {/* Header Row */}
+                <div 
+                  onClick={() => setIsAutoBackupConfigExpanded(!isAutoBackupConfigExpanded)}
+                  className="flex items-center justify-between p-4 cursor-pointer hover:bg-slate-50/50 select-none transition-colors"
+                >
+                  <span className="font-extrabold text-slate-800 text-xs flex items-center gap-1.5">
+                    <Database className="w-4 h-4 text-emerald-600 animate-pulse" />
+                    Cấu Hình &amp; Trạng Thái Sao Lưu Tự Động
+                  </span>
+                  
+                  <div className="flex items-center gap-2.5" onClick={(e) => e.stopPropagation()}>
+                    {hasDriveBackend && (
+                      <label className="relative inline-flex items-center cursor-pointer select-none">
+                        <input 
+                          type="checkbox" 
+                          checked={autoSyncEnabled} 
+                          onChange={(e) => setAutoSyncEnabled && setAutoSyncEnabled(e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-slate-200 rounded-full peer peer-focus:ring-2 peer-focus:ring-emerald-500/20 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+                        <span className="ml-1.5 text-[10.5px] font-bold text-slate-700">
+                          {autoSyncEnabled ? 'BẬT' : 'TẮT'}
+                        </span>
+                      </label>
+                    )}
+
+                    {/* Collapse Button */}
+                    <button 
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsAutoBackupConfigExpanded(!isAutoBackupConfigExpanded);
+                      }}
+                      className="p-1 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors"
+                      title={isAutoBackupConfigExpanded ? 'Thu gọn' : 'Mở rộng'}
+                    >
+                      {isAutoBackupConfigExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    </button>
                   </div>
-                  <button onClick={() => setCloudStatusMsg(null)} className="text-slate-400 hover:text-slate-700 text-xs font-bold px-1">✕</button>
                 </div>
-              )}
+
+                {/* Collapsible Content */}
+                {isAutoBackupConfigExpanded && (
+                  <div className="p-4 pt-0 border-t border-slate-100 space-y-3.5 bg-slate-50/20 animate-in fade-in slide-in-from-top-1 duration-200">
+                    <p className="text-slate-500 text-[10px] leading-relaxed pt-3">
+                      {hasDriveBackend
+                        ? 'Tự động lưu và đồng bộ dữ liệu lên Đám mây Firebase & Google Drive khi có thay đổi. Tích chọn các danh mục muốn đưa vào bản sao lưu:'
+                        : 'Dữ liệu được lưu cục bộ và đồng bộ qua Đám mây Firebase miễn phí. Google Drive trực tiếp cần backend server nên đang được ẩn trên Firebase Hosting tĩnh.'}
+                    </p>
+
+                    {/* Categories & Timestamps Grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {[
+                        { 
+                          key: 'norms', 
+                          label: 'Định mức vật tư', 
+                          icon: Layers3, 
+                          checked: syncNorms, 
+                          setter: setSyncNorms, 
+                          time: localStorage.getItem(getKey('construction_last_backup_norms')) 
+                        },
+                        { 
+                          key: 'inventory', 
+                          label: 'Kho & Phân phối', 
+                          icon: HardDrive, 
+                          checked: syncInventory, 
+                          setter: setSyncInventory, 
+                          time: localStorage.getItem(getKey('construction_last_backup_inventory')) 
+                        },
+                        { 
+                          key: 'workVolumes', 
+                          label: 'Khối lượng hoàn thành', 
+                          icon: FileSpreadsheet, 
+                          checked: syncWorkVolumes, 
+                          setter: setSyncWorkVolumes, 
+                          time: localStorage.getItem(getKey('construction_last_backup_workVolumes')) 
+                        },
+                        { 
+                          key: 'floorPlans', 
+                          label: 'Mặt bằng & Bản vẽ', 
+                          icon: Building2, 
+                          checked: syncFloorPlans, 
+                          setter: setSyncFloorPlans, 
+                          time: localStorage.getItem(getKey('construction_last_backup_floorPlans')) 
+                        },
+                        { 
+                          key: 'defects', 
+                          label: 'Nhật ký lỗi Defect', 
+                          icon: AlertTriangle, 
+                          checked: syncDefects, 
+                          setter: setSyncDefects, 
+                          time: localStorage.getItem(getKey('construction_last_backup_defects')) 
+                        },
+                        { 
+                          key: 'roomProgress', 
+                          label: 'Tiến độ tầng', 
+                          icon: CheckCircle, 
+                          checked: syncRoomProgress, 
+                          setter: setSyncRoomProgress, 
+                          time: localStorage.getItem(getKey('construction_last_backup_roomProgress')) 
+                        },
+                        { 
+                          key: 'checklist', 
+                          label: 'Danh mục kiểm tra', 
+                          icon: CheckSquare, 
+                          checked: syncChecklist, 
+                          setter: setSyncChecklist, 
+                          time: localStorage.getItem(getKey('construction_last_backup_checklist')) 
+                        },
+                        { 
+                          key: 'crew', 
+                          label: 'Nhân công & Đội thợ', 
+                          icon: History, 
+                          checked: syncCrew, 
+                          setter: setSyncCrew, 
+                          time: localStorage.getItem(getKey('construction_last_backup_crew')) 
+                        },
+                      ].map((cat) => {
+                        const CatIcon = cat.icon;
+                        return (
+                          <div 
+                            key={cat.key} 
+                            className={`p-2 rounded-xl border transition-all flex flex-col justify-between min-h-[56px] ${
+                              cat.checked 
+                                ? 'bg-emerald-50/20 border-emerald-100 hover:border-emerald-200' 
+                                : 'bg-slate-50/50 border-slate-200/50 opacity-60'
+                            }`}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <input 
+                                type="checkbox" 
+                                checked={cat.checked} 
+                                onChange={(e) => cat.setter(e.target.checked)}
+                                className="rounded text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5 cursor-pointer shrink-0"
+                              />
+                              <span className="font-extrabold text-slate-700 text-[10px] leading-tight flex items-center gap-1">
+                                <CatIcon className={`w-3.5 h-3.5 ${cat.checked ? 'text-emerald-600' : 'text-slate-400'}`} />
+                                {cat.label}
+                              </span>
+                            </div>
+                            <div className="mt-1 pl-5 flex items-center">
+                              {cat.time ? (
+                                <span className="text-[8.5px] bg-emerald-50 text-emerald-700 font-extrabold px-1.5 py-0.5 rounded border border-emerald-100/60 shadow-3xs">
+                                  🕒 {cat.time}
+                                </span>
+                              ) : (
+                                <span className="text-[8.5px] bg-slate-100 text-slate-400 font-bold px-1.5 py-0.5 rounded border border-slate-200/30 italic">
+                                  Chưa sao lưu
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+
+
+              
+              
 
               {/* 💾 SECTION 2: LOCAL SAVE & RESTORE (JSON FILE) */}
               <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-2.5 shadow-xs">
@@ -802,13 +2522,79 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     onClick={handleExportJsonForScope}
                     className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center justify-center gap-1.5 text-xs transition-colors cursor-pointer shadow-xs active:scale-95"
                   >
-                    <Download className="w-3.5 h-3.5" /> Xuất File JSON
+                    <Download className="w-3.5 h-3.5" /> Xuất File JSON {exportEncrypt ? '🔒' : ''}
                   </button>
 
                   <label className="w-full py-2 bg-slate-50 hover:bg-slate-100 border border-slate-300 text-slate-700 rounded-xl font-bold flex items-center justify-center gap-1.5 text-xs transition-colors cursor-pointer active:scale-95">
                     <Upload className="w-3.5 h-3.5 text-slate-600" /> Đọc File JSON
                     <input type="file" accept=".json" className="hidden" onChange={handleImportJsonForScope} />
                   </label>
+                </div>
+
+                {/* AES-GCM Encryption options for exported JSON backup */}
+                <div className="pt-1">
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-1.5 cursor-pointer text-[10.5px] font-bold text-slate-700 select-none">
+                      <input 
+                        type="checkbox"
+                        checked={exportEncrypt}
+                        onChange={(e) => {
+                          setExportEncrypt(e.target.checked);
+                          if (e.target.checked) setShowExportEncryptOptions(true);
+                        }}
+                        className="w-3.5 h-3.5 text-indigo-600 rounded"
+                      />
+                      <Lock className="w-3 h-3 text-indigo-600" />
+                      <span>Mã hóa AES-256 GCM (Bảo mật sao lưu)</span>
+                    </label>
+                    {exportEncrypt && (
+                      <button 
+                        type="button" 
+                        onClick={() => setShowExportEncryptOptions(!showExportEncryptOptions)}
+                        className="text-[10px] text-indigo-600 font-bold hover:underline"
+                      >
+                        {showExportEncryptOptions ? 'Thu gọn' : 'Tùy chỉnh'}
+                      </button>
+                    )}
+                  </div>
+
+                  {exportEncrypt && showExportEncryptOptions && (
+                    <div className="mt-2 p-2.5 bg-indigo-50/70 border border-indigo-200 rounded-xl space-y-2 animate-in fade-in duration-150">
+                      <div>
+                        <label className="block text-[10px] font-extrabold text-indigo-900 mb-0.5">
+                          Mật khẩu mã hóa (Tối thiểu 4 ký tự):
+                        </label>
+                        <input
+                          type="password"
+                          placeholder="Nhập mật khẩu bảo vệ file..."
+                          value={exportPassword}
+                          onChange={(e) => setExportPassword(e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-white border border-indigo-200 rounded-lg text-xs font-mono outline-none focus:border-indigo-600"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 mb-0.5">
+                          Gợi ý mật khẩu (Tùy chọn - Hiển thị khi mở tệp):
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Ví dụ: Sinh nhật + tên công trình..."
+                          value={exportHint}
+                          onChange={(e) => setExportHint(e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-600"
+                        />
+                      </div>
+                      <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-[10px] text-rose-800 space-y-1">
+                        <div className="font-extrabold flex items-center gap-1 text-rose-900">
+                          <ShieldAlert className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                          <span>CẢNH BÁO BẢO MẬT MẬT KHẨU BACKUP:</span>
+                        </div>
+                        <p className="leading-normal">
+                          Mật khẩu này không thể khôi phục nếu bị quên. Hãy lưu mật khẩu ở nơi an toàn. Nếu quên mật khẩu, file backup mã hóa sẽ không thể mở hay khôi phục.
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Optional Paste JSON text input for devices/mobile without file picker */}
@@ -953,12 +2739,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   ) : (
                     <div className="space-y-1.5 max-h-[180px] overflow-y-auto pr-1 bg-slate-50 p-1.5 rounded-xl border border-slate-100">
                       {autosaveVersions.map((ver) => {
-                        const dateStr = new Date(ver.timestamp).toLocaleString('vi-VN', {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          day: '2-digit',
-                          month: '2-digit',
-                        });
+                        const dateStr = formatDateTime(ver.timestamp);
                         return (
                           <div
                             key={ver.id}
@@ -999,15 +2780,19 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                                 type="button"
                                 onClick={async () => {
                                   if (await confirmAsync('Bạn có chắc muốn xóa bản sao lưu này?')) {
-                                    const raw = localStorage.getItem('construction_autosave_versions');
-                                    let versions: any[] = raw ? JSON.parse(raw) : [];
-                                    versions = versions.filter((v: any) => v.id !== ver.id);
-                                    localStorage.setItem('construction_autosave_versions', JSON.stringify(versions));
+                                    if (onDeleteAutoSaveVersion) {
+                                      onDeleteAutoSaveVersion(ver.id);
+                                    } else {
+                                      const raw = localStorage.getItem('construction_autosave_versions');
+                                      let versions: any[] = raw ? JSON.parse(raw) : [];
+                                      versions = versions.filter((v: any) => v.id !== ver.id);
+                                      localStorage.setItem('construction_autosave_versions', JSON.stringify(versions));
+                                    }
                                     // Refresh view
                                     setProjects(getProjectsList());
                                   }
                                 }}
-                                className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
+                                className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer"
                                 title="Xóa bản sao lưu"
                               >
                                 <Trash2 className="w-3 h-3" />
@@ -1033,6 +2818,86 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   </span>
                 </div>
 
+                {/* Google Authentication Account Card */}
+                <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-full bg-white border border-slate-200 flex items-center justify-center overflow-hidden shrink-0 shadow-2xs">
+                        {googleUser?.photoURL ? (
+                          <img src={googleUser.photoURL} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        ) : (
+                          <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-bold text-slate-800 truncate">
+                          {googleUser?.displayName || (googleUser?.email ? googleUser.email.split('@')[0] : 'Phiên Ẩn Danh Firebase')}
+                        </p>
+                        <p className="text-[9px] text-slate-400 truncate font-mono">
+                          {googleUser?.email ? googleUser.email : 'Chưa liên kết tài khoản Google'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {googleUser && !googleUser.isAnonymous ? (
+                      <button
+                        type="button"
+                        onClick={handleGoogleSignOut}
+                        className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
+                      >
+                        Đăng xuất
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleGoogleSignIn}
+                        disabled={isGoogleSigningIn}
+                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[10.5px] font-bold rounded-lg transition-colors cursor-pointer shadow-2xs flex items-center gap-1.5 disabled:opacity-50"
+                      >
+                        {isGoogleSigningIn ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Key className="w-3 h-3" />}
+                        <span>Đăng Nhập Google</span>
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[9.5px] text-slate-500 italic">
+                    {googleUser && !googleUser.isAnonymous 
+                      ? '🔒 Tài khoản Google đã được xác thực để bảo vệ quyền truy cập và sao lưu dữ liệu đám mây.' 
+                      : 'ℹ️ Đăng nhập tài khoản Google để bảo vệ quyền sở hữu dữ liệu sao lưu trên Firebase Cloud.'}
+                  </p>
+                </div>
+
+                
+                {/* Cloud Status Message */}
+                {cloudStatusMsg && (
+                  <div className={`p-3 rounded-xl border font-bold text-xs flex flex-col gap-2 animate-in fade-in duration-150 mb-2 ${
+                    cloudStatusMsg.type === 'success' 
+                       ? 'bg-emerald-50 border-emerald-200 text-emerald-900' 
+                       : 'bg-rose-50 border-rose-200 text-rose-900'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {cloudStatusMsg.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />}
+                        <span>{cloudStatusMsg.text}</span>
+                      </div>
+                      <button onClick={() => setCloudStatusMsg(null)} className="text-slate-400 hover:text-slate-700 text-xs font-bold px-1">✕</button>
+                    </div>
+                    {cloudStatusMsg.type === 'success' && cloudStatusMsg.stats && (
+                      <button 
+                        onClick={() => setExportedFileInfo({
+                          title: 'Chi Tiết Sao Lưu Cloud',
+                          fileName: `Cloud_Sync_${getActiveProjectId()}`,
+                          fileSizeStr: 'Cloud Storage',
+                          ...cloudStatusMsg.stats
+                        })}
+                        className="mt-1 self-start flex items-center gap-1.5 px-3 py-1.5 bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-100 rounded-lg text-[10.5px] shadow-xs transition-colors cursor-pointer"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Xem chi tiết dữ liệu đã sao lưu</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+
                 {/* Quick Multi-Device Transfer Code */}
                 <div className="bg-indigo-50/60 p-2.5 rounded-xl border border-indigo-100 space-y-2">
                   <p className="font-bold text-indigo-950 text-[11px] flex items-center gap-1">
@@ -1045,7 +2910,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                       disabled={isSyncingCurrentProject}
                       className="flex-1 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg font-bold text-[10.5px] flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-xs"
                     >
-                      <CloudUpload className="w-3.5 h-3.5" /> Đẩy Toàn Bộ Dữ Liệu Lên Cloud
+                      <CloudUpload className="w-3.5 h-3.5" /> Đẩy Dự Án Hiện Tại Lên Cloud
                     </button>
                   </div>
                   <div className="flex gap-1.5 pt-0.5">
@@ -1095,6 +2960,14 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                             </p>
                           </div>
                           <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleViewCloudBackupStats(b)}
+                              className="px-2 py-1 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-bold rounded-lg border border-indigo-200 text-[10px] transition-colors cursor-pointer flex items-center gap-1"
+                              title="Xem chi tiết sao lưu"
+                            >
+                              <Eye className="w-3 h-3" /> Chi tiết
+                            </button>
                             <button
                               type="button"
                               onClick={() => handleRestoreCloudBackup(b)}
@@ -1152,6 +3025,36 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                       <span>Tải Từ Google Drive</span>
                     </button>
                   </div>
+                  {/* Google Drive Status Message */}
+                  {driveStatusMsg && (
+                    <div className={`p-3 rounded-xl border font-bold text-xs flex flex-col gap-2 animate-in fade-in duration-150 mt-2 ${
+                      driveStatusMsg.type === 'success' 
+                         ? 'bg-emerald-50 border-emerald-200 text-emerald-900' 
+                         : 'bg-rose-50 border-rose-200 text-rose-900'
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          {driveStatusMsg.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />}
+                          <span>{driveStatusMsg.text}</span>
+                        </div>
+                        <button onClick={() => setDriveStatusMsg(null)} className="text-slate-400 hover:text-slate-700 text-xs font-bold px-1">✕</button>
+                      </div>
+                      {driveStatusMsg.type === 'success' && driveStatusMsg.stats && (
+                        <button 
+                          onClick={() => setExportedFileInfo({
+                            title: 'Chi Tiết Sao Lưu Google Drive',
+                            fileName: `GoogleDrive_Backup_${new Date().toISOString().split('T')[0]}`,
+                            fileSizeStr: 'Google Drive',
+                            ...driveStatusMsg.stats
+                          })}
+                          className="mt-1 self-start flex items-center gap-1.5 px-3 py-1.5 bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-100 rounded-lg text-[10.5px] shadow-xs transition-colors cursor-pointer"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>Xem chi tiết dữ liệu đã đồng bộ</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1161,12 +3064,12 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           {/* TAB 2: PROJECTS LIST & MANAGEMENT */}
           {modalTab === 'projects' && (
             <div className="space-y-3">
-
+              
               {/* Search Bar */}
               {projects.length > 2 && (
                 <div className="relative">
                   <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                  <input
+                  <input 
                     type="text"
                     placeholder="Tìm kiếm dự án..."
                     value={searchQuery}
@@ -1213,11 +3116,11 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     const isEditing = editingProjectId === proj.id;
 
                     return (
-                      <div
-                        key={proj.id}
+                      <div 
+                        key={proj.id} 
                         className={`p-3 rounded-2xl border transition-all ${
-                          isActive
-                            ? 'bg-gradient-to-r from-indigo-50/90 to-blue-50/50 border-indigo-300 ring-2 ring-indigo-500/20 shadow-xs'
+                          isActive 
+                            ? 'bg-gradient-to-r from-indigo-50/90 to-blue-50/50 border-indigo-300 ring-2 ring-indigo-500/20 shadow-xs' 
                             : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/60'
                         }`}
                       >
@@ -1253,7 +3156,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                           </div>
                         ) : (
                           <div className="flex items-center justify-between gap-3">
-                            <div
+                            <div 
                               className="flex-1 min-w-0 cursor-pointer"
                               onClick={() => handleSwitchProject(proj.id)}
                             >
@@ -1267,15 +3170,19 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                                 Khởi tạo: {new Date(proj.createdAt).toLocaleDateString('vi-VN')}
                               </p>
                             </div>
-
+                            
                             <div className="flex items-center gap-1.5 shrink-0">
                               {isActive ? (
                                 <span className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-indigo-600 text-white px-2.5 py-1 rounded-lg shadow-xs">
                                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse" />
                                   Đang mở
                                 </span>
+                              ) : switchingProjectId === proj.id ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-amber-500 text-white px-2.5 py-1 rounded-lg shadow-xs animate-pulse">
+                                  Đang chuyển...
+                                </span>
                               ) : (
-                                <button
+                                <button 
                                   type="button"
                                   onClick={() => handleSwitchProject(proj.id)}
                                   className="text-[11px] font-extrabold bg-slate-100 hover:bg-indigo-600 hover:text-white text-slate-700 px-3 py-1 rounded-lg transition-all cursor-pointer"
@@ -1283,7 +3190,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                                   Mở
                                 </button>
                               )}
-
+                              
                               <button
                                 type="button"
                                 onClick={(e) => handleStartRename(proj, e)}
@@ -1314,7 +3221,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
               {/* Create New Project Section */}
               {isCreating ? (
-                <form
+                <form 
                   onSubmit={(e) => {
                     e.preventDefault();
                     handleCreateProject();
@@ -1336,9 +3243,9 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   />
 
                   <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer bg-white p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors">
-                    <input
-                      type="checkbox"
-                      checked={duplicateFromCurrent}
+                    <input 
+                      type="checkbox" 
+                      checked={duplicateFromCurrent} 
                       onChange={(e) => setDuplicateFromCurrent(e.target.checked)}
                       className="w-4 h-4 mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
                     />
@@ -1378,6 +3285,113 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                 </button>
               )}
 
+              {/* 🧹 CARD: ORPHAN PROJECT DIAGNOSTICS & CLEANUP */}
+              <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3.5 space-y-3 mt-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Database className="w-4 h-4 text-amber-600" />
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-800">Dọn Dẹp Dữ Liệu Rác & Dự Án Cũ</h4>
+                      <p className="text-[10px] text-slate-500">Quét tìm và loại bỏ dữ liệu của các dự án đã xóa để giải phóng dung lượng</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleScanOrphans}
+                    disabled={isScanningOrphans}
+                    className="px-2.5 py-1.5 bg-amber-100/80 hover:bg-amber-200 text-amber-900 border border-amber-300 rounded-xl text-[11px] font-bold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 shadow-2xs shrink-0"
+                  >
+                    {isScanningOrphans ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+                    <span>{isScanningOrphans ? 'Đang quét...' : 'Quét rác'}</span>
+                  </button>
+                </div>
+
+                {orphanScanResult && (
+                  <div className="space-y-2.5 pt-1">
+                    {orphanScanResult.orphanProjects.length === 0 ? (
+                      <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-2.5 text-emerald-800 text-[11px] font-medium flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>Bộ nhớ thiết bị hoàn toàn sạch sẽ! Không tìm thấy dự án mồ côi nào.</span>
+                      </div>
+                    ) : (
+                      <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-3 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-bold text-amber-900 flex items-center gap-1.5">
+                            <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                            Phát hiện {orphanScanResult.orphanProjects.length} dự án mồ côi ({orphanScanResult.totalOrphanKeys} khóa dữ liệu)
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (selectedOrphanIds.length === orphanScanResult.orphanProjects.length) {
+                                  setSelectedOrphanIds([]);
+                                } else {
+                                  setSelectedOrphanIds(orphanScanResult.orphanProjects.map(p => p.id));
+                                }
+                              }}
+                              className="text-[10px] font-bold text-amber-800 hover:underline"
+                            >
+                              {selectedOrphanIds.length === orphanScanResult.orphanProjects.length ? 'Bỏ chọn hết' : 'Chọn tất cả'}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                          {orphanScanResult.orphanProjects.map(p => (
+                            <label
+                              key={p.id}
+                              className="flex items-center justify-between p-2 bg-white rounded-lg border border-amber-200/80 hover:bg-amber-50/50 cursor-pointer text-[11px]"
+                            >
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedOrphanIds.includes(p.id)}
+                                  onChange={e => {
+                                    if (e.target.checked) {
+                                      setSelectedOrphanIds([...selectedOrphanIds, p.id]);
+                                    } else {
+                                      setSelectedOrphanIds(selectedOrphanIds.filter(id => id !== p.id));
+                                    }
+                                  }}
+                                  className="w-3.5 h-3.5 text-amber-600 rounded"
+                                />
+                                <span className="font-bold text-slate-800">{p.name}</span>
+                                <span className="text-[9px] text-slate-400 font-mono">({p.id})</span>
+                              </div>
+                              <span className="text-[10px] text-slate-500 font-medium bg-slate-100 px-1.5 py-0.5 rounded">
+                                {p.keys.length} mục
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+
+                        <div className="flex items-center justify-between gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={handleExportOrphansBackup}
+                            disabled={selectedOrphanIds.length === 0}
+                            className="px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-xl text-[11px] font-bold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40"
+                          >
+                            <Download className="w-3 h-3 text-slate-500" />
+                            <span>Tải bản sao lưu (.json)</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleCleanupOrphans}
+                            disabled={isCleaningOrphans || selectedOrphanIds.length === 0}
+                            className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[11px] font-bold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40 shadow-xs"
+                          >
+                            {isCleaningOrphans ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                            <span>Xóa vĩnh viễn ({selectedOrphanIds.length})</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
             </div>
           )}
 
@@ -1393,10 +3407,15 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             setShowConflictModal(false);
             setPendingImportData(null);
           }}
-          onApplyMerged={async (merged) => {
+          onApplyMerged={(merged) => {
             if (onRestoreData) {
-              await onRestoreData(merged);
-              alert('🎉 Đã hợp nhất và khôi phục dữ liệu dự án thành công!');
+              onRestoreData(merged);
+              const stats = analyzeImportData(merged);
+              setImportedFileInfo({
+                fileName: 'Hợp nhất dữ liệu thông minh',
+                fileSizeStr: 'Được gộp & tối ưu',
+                ...stats
+              });
             }
             setShowConflictModal(false);
             setPendingImportData(null);
@@ -1404,77 +3423,313 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         />
       )}
 
-      {/* CHOICE OF IMPORT STYLE MODAL */}
-      {pendingImportChoice && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[260] flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl p-5 max-w-md w-full space-y-4 border border-indigo-100 shadow-2xl">
-            <div className="text-center">
-              <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-2">
-                <Upload className="w-6 h-6" />
+      {/* MULTI-PROJECT INTELLIGENT SYNC & IMPORT MODAL */}
+      {multiProjectSyncState && (
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs z-[280] flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col border border-indigo-100 shadow-2xl overflow-hidden">
+            {/* Header */}
+            <div className="p-4 sm:p-5 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-indigo-50/40 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs shrink-0">
+                  <Layers className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                    Đồng Bộ &amp; Nhập Dự Án
+                    <span className="px-2 py-0.5 text-xs font-bold bg-indigo-100 text-indigo-700 rounded-full">
+                      {multiProjectSyncState.items.length} dự án
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5 truncate max-w-md" title={multiProjectSyncState.fileName}>
+                    Nguồn: <span className="font-semibold text-slate-700">{multiProjectSyncState.fileName}</span>
+                  </p>
+                </div>
               </div>
-              <h3 className="text-base font-extrabold text-slate-900">Phương Thức Nhập Dữ Liệu</h3>
-              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                Tệp sao lưu tải lên chứa dữ liệu công trình hợp lệ. Bạn muốn nhập tệp này vào hệ thống bằng cách nào?
-              </p>
-            </div>
-
-            <div className="space-y-3 pt-1">
-              {/* Option A: Smart Sync */}
               <button
                 type="button"
-                onClick={() => {
-                  setPendingImportData(pendingImportChoice.normalized);
-                  setShowConflictModal(true);
-                  setPendingImportChoice(null);
-                }}
-                className="w-full text-left p-3.5 rounded-xl border border-indigo-200 hover:border-indigo-400 bg-indigo-50/30 hover:bg-indigo-50 transition-all flex gap-3 cursor-pointer group active:scale-[0.99]"
+                onClick={() => setMultiProjectSyncState(null)}
+                disabled={isExecutingMultiSync}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-white transition-all cursor-pointer font-bold text-lg leading-none"
               >
-                <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
-                  <Sparkles className="w-4 h-4 group-hover:scale-110 transition-transform" />
-                </div>
-                <div>
-                  <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                    Đồng bộ thông minh &amp; Gộp dữ liệu
-                    <span className="text-[9px] bg-indigo-600 text-white font-bold px-1.5 py-0.5 rounded-full">Khuyên Dùng</span>
+                &times;
+              </button>
+            </div>
+
+            {/* Subtitle / Tip banner */}
+            <div className="px-4 py-2.5 bg-blue-50/70 border-b border-blue-100 text-[11px] text-blue-900 flex items-start gap-2">
+              <Sparkles className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+              <span>
+                Hệ thống tự động phân loại theo <strong>Mã định danh (ID)</strong> của từng dự án. Các dự án mới sẽ được tạo và giữ nguyên ID gốc để đồng bộ đa thiết bị; dự án trùng ID sẽ được hợp nhất thông minh mà không làm ảnh hưởng lẫn nhau.
+              </span>
+            </div>
+
+            {/* Projects List */}
+            <div className="p-4 sm:p-5 overflow-y-auto flex-1 space-y-4">
+              {multiProjectSyncState.items.map((item, idx) => {
+                const { candidate, existsLocally, localUpdatedAt, isLocalNewer, isIncomingNewer, action } = item;
+                const counts = candidate.itemCounts;
+
+                return (
+                  <div
+                    key={candidate.id || idx}
+                    className={`p-4 rounded-xl border transition-all ${
+                      action === 'SKIP'
+                        ? 'border-slate-200 bg-slate-50/50 opacity-60'
+                        : existsLocally
+                        ? 'border-amber-200 bg-amber-50/20'
+                        : 'border-emerald-200 bg-emerald-50/20'
+                    }`}
+                  >
+                    {/* Top Row: Name, ID, Exists Status */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Building2 className="w-4 h-4 text-indigo-600 shrink-0" />
+                        <span className="font-extrabold text-sm text-slate-900 truncate" title={candidate.name}>
+                          {candidate.name}
+                        </span>
+                        <span className="px-2 py-0.5 text-[10px] font-mono bg-slate-100 text-slate-600 rounded border border-slate-200">
+                          ID: {candidate.id}
+                        </span>
+                      </div>
+
+                      <div>
+                        {!existsLocally ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 text-[11px] font-bold bg-emerald-100 text-emerald-800 rounded-full border border-emerald-200">
+                            ✨ Dự án mới (Chưa có trên máy)
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 text-[11px] font-bold bg-amber-100 text-amber-800 rounded-full border border-amber-200">
+                            ⚠️ Đã có trên máy (Trùng ID)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Middle: Content stats & Comparison */}
+                    <div className="text-xs text-slate-600 bg-white/80 rounded-lg p-2.5 border border-slate-100 mb-3 space-y-1.5">
+                      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-700">
+                        <span>📦 {counts.inventory} vật tư</span>
+                        <span>📋 {counts.workVolumes} đầu việc</span>
+                        <span>📐 {counts.floorPlans} bản vẽ</span>
+                        <span>⚠️ {counts.defects} lỗi</span>
+                        <span>🏢 {counts.roomProgressList} căn</span>
+                        <span>✅ {counts.checklist} kiểm</span>
+                        <span>👷 {counts.crewRecords} điểm danh</span>
+                      </div>
+
+                      {existsLocally && (
+                        <div className="pt-1.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-[10.5px]">
+                          <div>
+                            <span className="text-slate-400">Máy này:</span>{' '}
+                            <span className="font-semibold text-slate-700">
+                              {localUpdatedAt ? formatDateTime(localUpdatedAt) : 'Chưa có mốc thời gian'}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400">Trong tệp:</span>{' '}
+                            <span className="font-semibold text-slate-700">
+                              {candidate.updatedAt ? formatDateTime(candidate.updatedAt) : 'Chưa có mốc thời gian'}
+                            </span>
+                          </div>
+                          <div>
+                            {isLocalNewer ? (
+                              <span className="text-amber-700 font-bold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                                ⚡ Dữ liệu trên máy MỚI HƠN
+                              </span>
+                            ) : isIncomingNewer ? (
+                              <span className="text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                                ✨ Dữ liệu trong tệp MỚI HƠN
+                              </span>
+                            ) : (
+                              <span className="text-slate-500 font-medium">Thời gian tương đương</span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Action Selector Buttons */}
+                    <div>
+                      <div className="text-[11px] font-bold text-slate-700 mb-1.5 flex items-center justify-between">
+                        <span>Hành động áp dụng:</span>
+                        <span className="text-[10px] text-slate-400 font-normal">
+                          {action === 'CREATE_PRESERVE_ID' && 'Tạo dự án mới giữ nguyên ID để đồng bộ'}
+                          {action === 'SMART_MERGE' && 'Gộp 2 bên, tự động giữ mục mới nhất'}
+                          {action === 'KEEP_LOCAL' && 'Bỏ qua tệp, bảo toàn 100% dữ liệu máy'}
+                          {action === 'OVERWRITE_FILE' && 'Ghi đè hoàn toàn bằng dữ liệu tệp'}
+                          {action === 'IMPORT_AS_NEW_COPY' && 'Tạo dự án mới độc lập (mã ID mới)'}
+                          {action === 'SKIP' && 'Bỏ qua, không nạp dự án này'}
+                        </span>
+                      </div>
+
+                      {!existsLocally ? (
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMultiProjectSyncState(prev => {
+                                if (!prev) return null;
+                                return {
+                                  ...prev,
+                                  items: prev.items.map((it, i) => i === idx ? { ...it, action: 'CREATE_PRESERVE_ID' } : it)
+                                };
+                              });
+                            }}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                              action === 'CREATE_PRESERVE_ID'
+                                ? 'bg-emerald-600 text-white shadow-2xs'
+                                : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+                            }`}
+                          >
+                            <CheckCircle className="w-3.5 h-3.5" /> Thêm vào máy (Giữ ID gốc)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMultiProjectSyncState(prev => {
+                                if (!prev) return null;
+                                return {
+                                  ...prev,
+                                  items: prev.items.map((it, i) => i === idx ? { ...it, action: 'SKIP' } : it)
+                                };
+                              });
+                            }}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                              action === 'SKIP'
+                                ? 'bg-slate-700 text-white shadow-2xs'
+                                : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'
+                            }`}
+                          >
+                            Bỏ qua
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMultiProjectSyncState(prev => {
+                                if (!prev) return null;
+                                return {
+                                  ...prev,
+                                  items: prev.items.map((it, i) => i === idx ? { ...it, action: 'SMART_MERGE' } : it)
+                                };
+                              });
+                            }}
+                            className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                              action === 'SMART_MERGE'
+                                ? 'bg-indigo-600 text-white shadow-2xs'
+                                : 'bg-white border border-slate-200 text-slate-700 hover:bg-indigo-50/50'
+                            }`}
+                          >
+                            <Sparkles className="w-3 h-3 text-amber-300" /> Hợp nhất thông minh
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMultiProjectSyncState(prev => {
+                                if (!prev) return null;
+                                return {
+                                  ...prev,
+                                  items: prev.items.map((it, i) => i === idx ? { ...it, action: 'KEEP_LOCAL' } : it)
+                                };
+                              });
+                            }}
+                            className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                              action === 'KEEP_LOCAL'
+                                ? 'bg-blue-600 text-white shadow-2xs'
+                                : 'bg-white border border-slate-200 text-slate-700 hover:bg-blue-50/50'
+                            }`}
+                          >
+                            Giữ dữ liệu máy
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMultiProjectSyncState(prev => {
+                                if (!prev) return null;
+                                return {
+                                  ...prev,
+                                  items: prev.items.map((it, i) => i === idx ? { ...it, action: 'OVERWRITE_FILE' } : it)
+                                };
+                              });
+                            }}
+                            className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                              action === 'OVERWRITE_FILE'
+                                ? 'bg-rose-600 text-white shadow-2xs'
+                                : 'bg-white border border-slate-200 text-slate-700 hover:bg-rose-50/50'
+                            }`}
+                          >
+                            Ghi đè bằng tệp
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMultiProjectSyncState(prev => {
+                                if (!prev) return null;
+                                return {
+                                  ...prev,
+                                  items: prev.items.map((it, i) => i === idx ? { ...it, action: 'IMPORT_AS_NEW_COPY' } : it)
+                                };
+                              });
+                            }}
+                            className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                              action === 'IMPORT_AS_NEW_COPY'
+                                ? 'bg-purple-600 text-white shadow-2xs'
+                                : 'bg-white border border-slate-200 text-slate-700 hover:bg-purple-50/50'
+                            }`}
+                          >
+                            Tạo bản sao mới
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <p className="text-[10.5px] text-slate-500 mt-1 leading-relaxed">
-                    Hệ thống sẽ đối soát từng dòng (tiến độ, vật tư, quân số, lỗi, checklist, v.v.) và cho bạn tự chọn lấy dữ liệu nào. Tránh tối đa mất mát dữ liệu mới của bạn.
-                  </p>
-                </div>
-              </button>
-
-              {/* Option B: Direct Overwrite */}
-              <button
-                type="button"
-                onClick={async () => {
-                  if (confirm('⚠️ Cảnh báo: Lựa chọn này sẽ ghi đè và làm mất các số liệu mới chưa đồng bộ trên máy này. Bạn có muốn tiếp tục?')) {
-                    const data = pendingImportChoice.parsedData;
-                    setPendingImportChoice(null);
-                    await executeDirectOverwrite(data);
-                  }
-                }}
-                className="w-full text-left p-3.5 rounded-xl border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-all flex gap-3 cursor-pointer group active:scale-[0.99]"
-              >
-                <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
-                  <Database className="w-4 h-4 text-slate-500" />
-                </div>
-                <div>
-                  <div className="text-xs font-bold text-slate-900">Ghi đè trực tiếp toàn bộ dữ liệu</div>
-                  <p className="text-[10.5px] text-slate-500 mt-1 leading-relaxed">
-                    Ghi đè trực tiếp toàn bộ dữ liệu trên máy bằng dữ liệu trong file này. Toàn bộ thông tin hiện tại sẽ bị thay thế hoàn toàn.
-                  </p>
-                </div>
-              </button>
+                );
+              })}
             </div>
 
-            <div className="pt-2 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setPendingImportChoice(null)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs"
-              >
-                Hủy Bỏ
-              </button>
+            {/* Footer */}
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex flex-wrap items-center justify-between gap-3">
+              <div className="text-xs text-slate-500">
+                {multiProjectSyncState.items.filter(it => it.action !== 'SKIP' && it.action !== 'KEEP_LOCAL').length} / {multiProjectSyncState.items.length} dự án sẽ được nạp/đồng bộ
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setMultiProjectSyncState(null)}
+                  disabled={isExecutingMultiSync}
+                  className="px-3.5 py-2 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 rounded-xl font-bold text-xs cursor-pointer transition-all"
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  type="button"
+                  onClick={executeFullReplaceRestore}
+                  disabled={isExecutingMultiSync}
+                  title="Xóa các dự án khác trên máy và thay thế 100% bằng danh sách dự án trong tệp sao lưu"
+                  className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 rounded-xl font-bold text-xs cursor-pointer transition-all shadow-2xs flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                  <span>Thay Thế Toàn Bộ (Full Replace)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={executeMultiProjectSync}
+                  disabled={isExecutingMultiSync}
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs cursor-pointer transition-all shadow-xs flex items-center gap-2 disabled:opacity-50"
+                >
+                  {isExecutingMultiSync ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" /> Đang đồng bộ...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" /> Tiến Hành Đồng Bộ &amp; Nhập
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1508,6 +3763,404 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
               >
                 Xác Nhận Xóa
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 📥 SUCCESSFUL MANUAL EXPORT SUMMARY OVERLAY */}
+      {exportedFileInfo && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[270] flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl p-5 max-w-sm w-full space-y-4 border border-emerald-100 shadow-2xl relative">
+            <button 
+              type="button" 
+              onClick={() => setExportedFileInfo(null)} 
+              className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-all font-bold"
+            >
+              &times;
+            </button>
+
+            <div className="text-center">
+              <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-2 shadow-xs">
+                <CheckCircle className="w-6 h-6 text-emerald-600" />
+              </div>
+              <h3 className="text-sm font-extrabold text-slate-950">Xuất File JSON Thành Công!</h3>
+              <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">
+                Tệp sao lưu cục bộ đã được nén hoàn tất và tải về thiết bị của bạn.
+              </p>
+            </div>
+
+            <div className="bg-slate-50/70 rounded-xl border border-slate-200/60 p-3 space-y-2.5">
+              {/* File details */}
+              <div className="grid grid-cols-2 gap-x-2 text-[10px] border-b border-slate-200/40 pb-2">
+                <div>
+                  <span className="text-slate-500 font-semibold block">Tên tệp tin:</span>
+                  <span className="text-slate-800 font-extrabold truncate block max-w-[140px]" title={exportedFileInfo.fileName}>
+                    {exportedFileInfo.fileName}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500 font-semibold block">Dung lượng tệp:</span>
+                  <span className="text-emerald-700 font-black block">
+                    {exportedFileInfo.fileSizeStr}
+                  </span>
+                </div>
+              </div>
+
+              {/* Projects List */}
+              <div className="space-y-1">
+                <span className="text-slate-500 text-[9px] font-bold uppercase tracking-wider block">Dự án đã xuất ({exportedFileInfo.projectsExported.length})</span>
+                <div className="flex flex-wrap gap-1 max-h-[60px] overflow-y-auto">
+                  {exportedFileInfo.projectsExported.map((name, i) => (
+                    <span key={i} className="bg-indigo-50 text-indigo-700 text-[9px] font-extrabold px-2 py-0.5 rounded border border-indigo-100/60">
+                      🏢 {name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Categories Grid */}
+              <div className="space-y-1.5 pt-0.5">
+                <span className="text-slate-500 text-[9px] font-bold uppercase tracking-wider block">Chi tiết danh mục đã đóng gói ({exportedFileInfo.categoriesExported.length})</span>
+                {exportedFileInfo.categoriesExported.length > 0 ? (
+                  <div className="space-y-1 max-h-[160px] overflow-y-auto pr-0.5">
+                    {exportedFileInfo.categoriesExported.map((cat, i) => {
+                      const CatIcon = cat.icon;
+                      return (
+                        <div key={i} className="flex items-start gap-2 p-1.5 bg-white border border-slate-200/80 rounded-lg shadow-3xs hover:bg-slate-50/50 transition-colors">
+                          <div className="p-1 rounded bg-slate-50 text-slate-600 mt-0.5 shrink-0">
+                            <CatIcon className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="leading-normal flex-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-extrabold text-slate-800">{cat.label}</span>
+                              <span className="text-[10px] font-black text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded-full">{cat.count}</span>
+                            </div>
+                            {cat.details && (
+                              <span className="text-[9px] text-slate-500 font-medium block mt-0.5">{cat.details}</span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <span className="text-[9px] text-slate-400 italic block">Không có bản ghi nào được ghi nhận</span>
+                )}
+              </div>
+
+              {/* Detailed Image Audit */}
+              {exportedFileInfo.imageStats.hasImages && exportedFileInfo.imageStats.detailStats && exportedFileInfo.imageStats.detailStats.length > 0 && (
+                <div className="space-y-1 pt-2 border-t border-slate-200/40">
+                  <span className="text-slate-500 text-[9px] font-bold uppercase tracking-wider block">Vị trí ảnh đính kèm ({exportedFileInfo.imageStats.imageCount} ảnh)</span>
+                  <div className="grid grid-cols-1 gap-1">
+                    {exportedFileInfo.imageStats.detailStats.map((imgStat, i) => (
+                      <div key={i} className="flex justify-between items-center text-[9px] bg-emerald-50/40 text-emerald-800 border border-emerald-100/40 px-2 py-1 rounded">
+                        <span className="font-semibold">📸 {imgStat.label}:</span>
+                        <span className="font-black">{imgStat.count} hình</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Photos check fallback */}
+              {!exportedFileInfo.imageStats.hasImages && (
+                <div className="pt-2 border-t border-slate-200/40 flex items-center justify-between text-[10px]">
+                  <span className="text-slate-500 font-bold">Hình ảnh đính kèm:</span>
+                  <span className="text-slate-400 bg-slate-100 border border-slate-200/40 font-semibold px-2 py-0.5 rounded-full text-[9px]">
+                    Không chứa hình ảnh
+                  </span>
+                </div>
+              )}
+
+              {/* Integrity check */}
+              <div className="pt-1.5 flex items-center gap-1 text-[9px] font-bold text-emerald-800">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0 animate-pulse" />
+                <span>Cấu trúc tệp hoàn toàn đầy đủ &amp; an toàn để khôi phục!</span>
+              </div>
+            </div>
+
+            <div className="flex pt-1">
+              <button
+                type="button"
+                onClick={() => setExportedFileInfo(null)}
+                className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs transition-colors cursor-pointer shadow-xs active:scale-95"
+              >
+                Xác Nhận &amp; Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 📥 SUCCESSFUL MANUAL IMPORT SUMMARY OVERLAY */}
+      {importedFileInfo && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[270] flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl p-5 max-w-sm w-full space-y-4 border border-indigo-100 shadow-2xl relative">
+            <button 
+              type="button" 
+              onClick={() => window.location.reload()} 
+              className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-all font-bold"
+            >
+              &times;
+            </button>
+
+            <div className="text-center">
+              <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-2 shadow-xs">
+                <CheckCircle className="w-6 h-6 text-indigo-600" />
+              </div>
+              <h3 className="text-sm font-extrabold text-slate-950">Khôi Phục Dữ Liệu Thành Công!</h3>
+              <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">
+                Hệ thống đã nạp và lưu trữ thành công các hạng mục sau từ tệp JSON của bạn.
+              </p>
+            </div>
+
+            <div className="bg-slate-50/70 rounded-xl border border-slate-200/60 p-3 space-y-2.5">
+              {/* File details */}
+              <div className="grid grid-cols-2 gap-x-2 text-[10px] border-b border-slate-200/40 pb-2">
+                <div>
+                  <span className="text-slate-500 font-semibold block">Nguồn tệp:</span>
+                  <span className="text-slate-800 font-extrabold truncate block max-w-[140px]" title={importedFileInfo.fileName}>
+                    {importedFileInfo.fileName}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500 font-semibold block">Dung lượng:</span>
+                  <span className="text-indigo-700 font-black block">
+                    {importedFileInfo.fileSizeStr}
+                  </span>
+                </div>
+              </div>
+
+              {/* Projects List */}
+              <div className="space-y-1">
+                <span className="text-slate-500 text-[9px] font-bold uppercase tracking-wider block">Dự án đã khôi phục ({importedFileInfo.projectsImported.length})</span>
+                <div className="flex flex-wrap gap-1 max-h-[60px] overflow-y-auto">
+                  {importedFileInfo.projectsImported.map((name, i) => (
+                    <span key={i} className="bg-indigo-50 text-indigo-700 text-[9px] font-extrabold px-2 py-0.5 rounded border border-indigo-100/60">
+                      🏢 {name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Categories Grid */}
+              <div className="space-y-1.5 pt-0.5">
+                <span className="text-slate-500 text-[9px] font-bold uppercase tracking-wider block">Chi tiết danh mục đã khôi phục ({importedFileInfo.categoriesImported.length})</span>
+                {importedFileInfo.categoriesImported.length > 0 ? (
+                  <div className="space-y-1 max-h-[160px] overflow-y-auto pr-0.5">
+                    {importedFileInfo.categoriesImported.map((cat, i) => {
+                      const CatIcon = cat.icon;
+                      return (
+                        <div key={i} className="flex items-start gap-2 p-1.5 bg-white border border-slate-200/80 rounded-lg shadow-3xs hover:bg-slate-50/50 transition-colors">
+                          <div className="p-1 rounded bg-slate-50 text-slate-600 mt-0.5 shrink-0">
+                            <CatIcon className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="leading-normal flex-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-extrabold text-slate-800">{cat.label}</span>
+                              <span className="text-[10px] font-black text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded-full">{cat.count}</span>
+                            </div>
+                            {cat.details && (
+                              <span className="text-[9px] text-slate-500 font-medium block mt-0.5">{cat.details}</span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <span className="text-[9px] text-slate-400 italic block">Không ghi nhận danh mục nào</span>
+                )}
+              </div>
+
+              {/* Detailed Image Audit */}
+              {importedFileInfo.imageStats.hasImages && importedFileInfo.imageStats.detailStats && importedFileInfo.imageStats.detailStats.length > 0 && (
+                <div className="space-y-1 pt-2 border-t border-slate-200/40">
+                  <span className="text-slate-500 text-[9px] font-bold uppercase tracking-wider block">Vị trí ảnh đính kèm ({importedFileInfo.imageStats.imageCount} ảnh)</span>
+                  <div className="grid grid-cols-1 gap-1">
+                    {importedFileInfo.imageStats.detailStats.map((imgStat, i) => (
+                      <div key={i} className="flex justify-between items-center text-[9px] bg-emerald-50/40 text-emerald-800 border border-emerald-100/40 px-2 py-1 rounded">
+                        <span className="font-semibold">📸 {imgStat.label}:</span>
+                        <span className="font-black">{imgStat.count} hình</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Photos check fallback */}
+              {!importedFileInfo.imageStats.hasImages && (
+                <div className="pt-2 border-t border-slate-200/40 flex items-center justify-between text-[10px]">
+                  <span className="text-slate-500 font-bold">Hình ảnh đính kèm:</span>
+                  <span className="text-slate-400 bg-slate-100 border border-slate-200/40 font-semibold px-2 py-0.5 rounded-full text-[9px]">
+                    Không chứa hình ảnh
+                  </span>
+                </div>
+              )}
+
+              {/* Integrity check */}
+              <div className="pt-1.5 flex items-center gap-1 text-[9px] font-bold text-emerald-800">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0 animate-pulse" />
+                <span>Cấu trúc tệp hoàn toàn đầy đủ &amp; đồng bộ hoàn hảo!</span>
+              </div>
+            </div>
+
+            <div className="flex pt-1">
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs transition-colors cursor-pointer shadow-xs active:scale-95"
+              >
+                Xác Nhận &amp; Hoàn Tất
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Decrypt Password Modal for AES-GCM Encrypted Backups */}
+      {pendingEncryptedPayload && (
+        <div className="fixed inset-0 z-100 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl p-5 w-full max-w-md shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shrink-0">
+                <Lock className="w-5 h-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="font-extrabold text-slate-800 text-sm">
+                  Tệp Sao Lưu Đã Được Mã Hóa (AES-256)
+                </h3>
+                <p className="text-slate-500 text-xs truncate">
+                  {pendingImportFileInfo?.name || 'Bản sao lưu bảo mật'}
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Tệp sao lưu này được bảo vệ bằng chuẩn mã hóa cấp cao AES-256-GCM. Vui lòng nhập mật khẩu để mở khóa và xem nội dung:
+            </p>
+
+            <div className="p-2.5 bg-amber-50/80 border border-amber-200 rounded-xl text-[10.5px] text-amber-900 leading-relaxed">
+              ⚠️ <strong>Lưu ý bảo mật:</strong> Mật khẩu mã hóa AES-256 không thể khôi phục nếu bị quên. Nếu quên mật khẩu, hãy sử dụng bản sao lưu khác hoặc dùng dữ liệu hiện có để xuất bản sao lưu mới.
+            </div>
+
+            {pendingEncryptedPayload.hint && (
+              <div className="p-2.5 bg-indigo-50/70 border border-indigo-200 rounded-xl text-xs text-indigo-950">
+                <span className="font-bold">💡 Gợi ý mật khẩu:</span> {pendingEncryptedPayload.hint}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  Mật Khẩu Giải Mã Hiện Tại:
+                </label>
+                <input
+                  type="password"
+                  placeholder="Nhập mật khẩu hiện tại..."
+                  value={decryptPassword}
+                  onChange={(e) => {
+                    setDecryptPassword(e.target.value);
+                    setDecryptError('');
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !showReencryptOptions) handlePerformDecryption();
+                  }}
+                  autoFocus
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                />
+              </div>
+
+              {/* Option to Change Backup Password */}
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowReencryptOptions(!showReencryptOptions)}
+                  className="text-[11px] text-indigo-600 font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <Key className="w-3.5 h-3.5 text-indigo-500" />
+                  <span>{showReencryptOptions ? 'Ẩn tùy chọn đổi mật khẩu file' : 'Muốn đổi mật khẩu mới cho file backup này?'}</span>
+                </button>
+
+                {showReencryptOptions && (
+                  <div className="mt-2 p-3 bg-indigo-50/60 border border-indigo-200 rounded-xl space-y-2 animate-in fade-in duration-150">
+                    <div>
+                      <label className="block text-[10px] font-extrabold text-indigo-950 mb-0.5">
+                        Mật Khẩu Mới Cho File Backup (Tối thiểu 4 ký tự):
+                      </label>
+                      <input
+                        type="password"
+                        placeholder="Nhập mật khẩu mới..."
+                        value={newReencryptPassword}
+                        onChange={(e) => setNewReencryptPassword(e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-white border border-indigo-200 rounded-lg text-xs font-mono outline-none focus:border-indigo-600"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-600 mb-0.5">
+                        Gợi Ý Mật Khẩu Mới (Tùy chọn):
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ví dụ: Tên công trình + 2026"
+                        value={newReencryptHint}
+                        onChange={(e) => setNewReencryptHint(e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-600"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {decryptError && (
+                <p className="text-[11px] text-rose-600 font-bold flex items-center gap-1 pt-1">
+                  <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+                  <span>{decryptError}</span>
+                </p>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingEncryptedPayload(null);
+                  setDecryptPassword('');
+                  setDecryptError('');
+                  setShowReencryptOptions(false);
+                  setNewReencryptPassword('');
+                  setNewReencryptHint('');
+                }}
+                className="px-3.5 py-2 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+              >
+                Hủy Bỏ
+              </button>
+
+              <div className="flex items-center gap-2">
+                {showReencryptOptions && (
+                  <button
+                    type="button"
+                    onClick={handleReencryptBackupPayload}
+                    disabled={isDecrypting || !decryptPassword || !newReencryptPassword}
+                    className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-xs flex items-center gap-1.5"
+                  >
+                    {isDecrypting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Lock className="w-3.5 h-3.5" />}
+                    <span>Đổi Mật Khẩu &amp; Tải Tệp</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handlePerformDecryption}
+                  disabled={isDecrypting || !decryptPassword}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-xs flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {isDecrypting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Key className="w-3.5 h-3.5" />}
+                  <span>Giải Mã &amp; Khôi Phục</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

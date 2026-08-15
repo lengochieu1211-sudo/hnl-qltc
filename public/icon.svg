@@ -14,7 +14,7 @@
       <stop offset="100%" stop-color="#d97706" />
     </linearGradient>
 
-    <!-- Vibrant Cyan/Blue for digital construction lines -->
+    <!-- Vibrant Cyan/Blue for Sitelinks and Digital Lines -->
     <linearGradient id="cyanGrad" x1="100" y1="380" x2="400" y2="100" gradientUnits="userSpaceOnUse">
       <stop offset="0%" stop-color="#06b6d4" />
       <stop offset="50%" stop-color="#3b82f6" />
@@ -74,7 +74,7 @@
     <!-- Core Plasterboard Corner Cut (Demonstrating precision, square-ruler, ceiling design) -->
     <path d="M 280,170 L 370,260 L 320,310 L 230,220 Z" fill="url(#cyanGrad)" opacity="0.85" />
     
-    <!-- Laser Alignment Guide / Link Symbol for construction elements -->
+    <!-- Laser Alignment Guide / Link Symbol (SiteLink Core Concept - linking construction elements) -->
     <path d="M 100,310 L 250,140" stroke="url(#goldGrad)" stroke-width="8" stroke-linecap="round" />
     <circle cx="250" cy="140" r="12" fill="url(#goldGrad)" />
     <circle cx="100" cy="310" r="12" fill="url(#goldGrad)" />

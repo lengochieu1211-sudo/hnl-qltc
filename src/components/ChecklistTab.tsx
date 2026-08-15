@@ -1,27 +1,34 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useLanguage } from '../context/LanguageContext';
 import * as XLSX from 'xlsx';
-import {
-  ClipboardCheck,
-  CheckCircle2,
-  AlertCircle,
-  Clock,
-  Plus,
-  Layers,
-  User,
+import { 
+  ClipboardCheck, 
+  CheckCircle2, 
+  AlertCircle, 
+  Clock, 
+  Plus, 
+  Layers, 
+  User, 
   FileCheck,
   Edit,
   Trash2,
   FileText,
   FileSpreadsheet,
   Download,
-  Upload
+  Upload,
+  Calendar,
+  AlertTriangle,
+  Bell,
+  ArrowUpDown
 } from 'lucide-react';
-import { ChecklistItem, ChecklistStatus, WorkVolume } from '../types';
+import { ChecklistItem, ChecklistStatus, WorkVolume, FloorPlan } from '../types';
 import { confirmAsync } from '../utils/confirmAsync';
+import { getTodayDateString, addDaysToDateString, formatDateVN, calculateDiffDays } from '../utils/dueDateUtils';
 
 interface ChecklistTabProps {
   checklist: ChecklistItem[];
   floors: string[];
+  floorPlans?: FloorPlan[];
   inspectorName?: string;
   workVolumes?: WorkVolume[];
   onUpdateChecklistStatus: (id: string, status: ChecklistStatus, notes?: string, inspector?: string) => void;
@@ -40,6 +47,7 @@ interface ChecklistTabProps {
 export const ChecklistTab: React.FC<ChecklistTabProps> = ({
   checklist,
   floors,
+  floorPlans,
   inspectorName = 'KS. Nguyễn Văn Bình',
   workVolumes = [],
   onUpdateChecklistStatus,
@@ -54,8 +62,11 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
   canUndo,
   canRedo,
 }) => {
+  const { t } = useLanguage();
   const [selectedFloor, setSelectedFloor] = useState<string>(floors[0] || 'Tầng 1');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [checklistSortBy, setChecklistSortBy] = useState<'none' | 'title' | 'status' | 'dueDate'>('none');
+  const [checklistSortOrder, setChecklistSortOrder] = useState<'asc' | 'desc'>('asc');
 
   // Keep selectedFloor in sync with floors
   useEffect(() => {
@@ -74,6 +85,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
   const [title, setTitle] = useState('');
   const [notes, setNotes] = useState('');
   const [inspectedBy, setInspectedBy] = useState(inspectorName);
+  const [dueDate, setDueDate] = useState<string>('');
 
   // Extract unique work volume categories/titles for the currently selected floor
   const categoriesList = useMemo(() => {
@@ -143,6 +155,35 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
     });
   }, [checklist, selectedFloor, selectedCategory]);
 
+  const sortedFilteredChecklist = useMemo(() => {
+    const list = [...filteredChecklist];
+    if (checklistSortBy === 'none') return list;
+    
+    return list.sort((a, b) => {
+      if (checklistSortBy === 'title') {
+        const comp = a.title.localeCompare(b.title, 'vi', { numeric: true, sensitivity: 'base' });
+        return checklistSortOrder === 'asc' ? comp : -comp;
+      }
+      if (checklistSortBy === 'status') {
+        // passed -> defect -> pending
+        const getWeight = (s: ChecklistStatus) => {
+          if (s === 'passed') return 1;
+          if (s === 'defect') return 2;
+          return 3;
+        };
+        const comp = getWeight(a.status) - getWeight(b.status);
+        return checklistSortOrder === 'asc' ? comp : -comp;
+      }
+      if (checklistSortBy === 'dueDate') {
+        const dateA = a.dueDate || '9999-12-31';
+        const dateB = b.dueDate || '9999-12-31';
+        const comp = dateA.localeCompare(dateB);
+        return checklistSortOrder === 'asc' ? comp : -comp;
+      }
+      return 0;
+    });
+  }, [filteredChecklist, checklistSortBy, checklistSortOrder]);
+
   const summary = useMemo(() => {
     const floorItems = checklist.filter((item) => item.floorName === selectedFloor);
     const total = floorItems.length;
@@ -161,11 +202,14 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
       return;
     }
 
+    const matchedFloor = floorPlans?.find(fp => fp.floorName === selectedFloor);
     onAddChecklistItem({
+      floorId: matchedFloor?.id,
       floorName: selectedFloor,
       category,
       title: title.trim(),
       status: 'pending',
+      dueDate: dueDate ? dueDate : undefined,
       notes,
       inspectedBy: inspectedBy.trim() || inspectorName,
       inspectedAt: new Date().toLocaleString('vi-VN'),
@@ -174,6 +218,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
     setShowAddForm(false);
     setTitle('');
     setNotes('');
+    setDueDate('');
   };
 
   const handleEditSubmit = (e: React.FormEvent) => {
@@ -210,6 +255,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
 
     const data = sourceData.map((item, idx) => ({
       'STT': idx + 1,
+      '__recordId': item.id || '',
       'Vị Trí (Tầng)': item.floorName || selectedFloor,
       'Hạng Mục Kiểm Tra': item.category,
       'Nội Dung Tiêu Chuẩn': item.title,
@@ -219,7 +265,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
     }));
 
     const ws = XLSX.utils.json_to_sheet(data);
-
+    
     const maxLens = data.reduce((acc: any, row: any) => {
       Object.keys(row).forEach((key) => {
         const valLen = String(row[key] || '').length;
@@ -267,15 +313,19 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
         }
 
         let addedCount = 0;
+        let updatedCount = 0;
+        let unchangedCount = 0;
         let skippedCount = 0;
 
         jsonData.forEach((row: any) => {
-          const rawFloor = String(row['Vị Trí (Tầng)'] || row['floor'] || row['Tầng'] || selectedFloor).trim();
-          const rawCategory = String(row['Hạng Mục Kiểm Tra'] || row['category'] || 'Thi công khung trần').trim();
-          const rawTitle = String(row['Nội Dung Tiêu Chuẩn'] || row['title'] || row['Nội dung'] || row['noi dung'] || '').trim();
+          const rawRecordId = String(row['__recordId'] || row['Mã Checklist'] || row['Mã Định Danh'] || row['id'] || '').trim();
+          const rawFloor = String(row['Tầng / Khu Vực'] || row['Vị Trí (Tầng)'] || row['floor'] || row['Tầng'] || selectedFloor).trim();
+          const rawCategory = String(row['Phân Loại Hạng Mục'] || row['Hạng Mục Kiểm Tra'] || row['category'] || 'Thi công khung trần').trim();
+          const rawTitle = String(row['Nội Dung Tiêu Chí Kiểm Tra'] || row['Nội Dung Tiêu Chuẩn'] || row['title'] || row['Nội dung'] || row['noi dung'] || '').trim();
           const rawStatusStr = String(row['Trạng Thái'] || row['status'] || 'Chờ nghiệm thu').trim();
           const rawNotes = String(row['Ghi Chú'] || row['notes'] || '').trim();
-          const rawInspectedBy = String(row['Người Kiểm Tra'] || row['inspectorName'] || inspectorName).trim();
+          const rawInspectedBy = String(row['Người Giám Sát'] || row['Người Kiểm Tra'] || row['inspectorName'] || inspectorName).trim();
+          const rawDueDate = String(row['Ngày Hạn Định'] || row['Hạn Định'] || row['dueDate'] || '').trim();
 
           if (!rawTitle) {
             skippedCount++;
@@ -309,23 +359,61 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
             statusNorm = 'defect';
           }
 
-          onAddChecklistItem({
-            floorName: rawFloor,
-            category: categoryNorm,
-            title: rawTitle,
-            status: statusNorm,
-            notes: rawNotes || undefined,
-            inspectedBy: rawInspectedBy || inspectorName,
-            inspectedAt: new Date().toLocaleString('vi-VN')
-          });
-          addedCount++;
+          // Check for existing record by ID or title+floor+category
+          const existing = checklist.find(c => 
+            (rawRecordId && c.id === rawRecordId) ||
+            (c.floorName.toLowerCase() === rawFloor.toLowerCase() && c.category.toLowerCase() === categoryNorm.toLowerCase() && c.title.toLowerCase() === rawTitle.toLowerCase())
+          );
+
+          if (existing && onUpdateChecklistItem) {
+            const isUnchanged = 
+              existing.floorName === rawFloor &&
+              existing.category === categoryNorm &&
+              existing.title === rawTitle &&
+              existing.status === statusNorm &&
+              (!rawDueDate || existing.dueDate === rawDueDate) &&
+              (!rawNotes || existing.notes === rawNotes) &&
+              (!rawInspectedBy || existing.inspectedBy === rawInspectedBy);
+
+            if (isUnchanged) {
+              unchangedCount++;
+            } else {
+              onUpdateChecklistItem({
+                ...existing,
+                floorName: rawFloor,
+                category: categoryNorm,
+                title: rawTitle,
+                status: statusNorm,
+                dueDate: rawDueDate || existing.dueDate,
+                notes: rawNotes || existing.notes,
+                inspectedBy: rawInspectedBy || existing.inspectedBy,
+                inspectedAt: new Date().toLocaleString('vi-VN'),
+              });
+              updatedCount++;
+            }
+          } else {
+            const matchedFloor = floorPlans?.find(fp => fp.floorName === rawFloor);
+            onAddChecklistItem({
+              floorId: matchedFloor?.id,
+              floorName: rawFloor,
+              category: categoryNorm,
+              title: rawTitle,
+              status: statusNorm,
+              dueDate: rawDueDate || undefined,
+              notes: rawNotes || undefined,
+              inspectedBy: rawInspectedBy || inspectorName,
+              inspectedAt: new Date().toLocaleString('vi-VN')
+            });
+            addedCount++;
+          }
         });
 
         alert(
-          `🎉 Nhập Checklist từ Excel thành công!\n\n` +
-          `• Đã thêm mới thành công: ${addedCount} tiêu chí nghiệm thu\n` +
-          `• Bỏ qua do thiếu nội dung chính: ${skippedCount} dòng\n` +
-          `• Vị trí mặt bằng áp dụng: ${selectedFloor}`
+          `🎉 Nhập Checklist từ Excel hoàn tất!\n\n` +
+          `• Thêm mới: ${addedCount} tiêu chí\n` +
+          `• Cập nhật thay đổi: ${updatedCount} tiêu chí\n` +
+          `• Không thay đổi (giữ nguyên): ${unchangedCount} tiêu chí\n` +
+          `• Bỏ qua do rỗng: ${skippedCount} dòng`
         );
       } catch (err: any) {
         alert(`❌ Lỗi đọc hoặc phân tích tệp Excel:\n${err.message || err}`);
@@ -336,13 +424,13 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
   };
 
   return (
-    <div className="p-4 space-y-4 pb-24 max-w-md mx-auto">
+    <div className="p-4 space-y-4 pb-24 w-full max-w-6xl mx-auto">
       {/* Title */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
             <ClipboardCheck className="w-5 h-5 text-emerald-600" />
-            Checklist Nghiệm Thu
+            {t('checklist_title')}
           </h2>
           <p className="text-xs text-slate-500">Tiêu chuẩn thi công &amp; Kỹ sư giám sát: <span className="font-semibold text-indigo-700">{inspectorName}</span></p>
         </div>
@@ -365,10 +453,10 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
           className="flex items-center justify-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-extrabold py-2.5 px-3 rounded-xl shadow-xs transition-all text-xs cursor-pointer"
           title="Tải mẫu Excel hoặc danh sách checklist hiện tại để chỉnh sửa"
         >
-          <Download className="w-4 h-4 text-indigo-600" /> Tải Mẫu Excel
+          <Download className="w-4 h-4 text-indigo-600" /> Tải Excel để chỉnh sửa
         </button>
         <label className="flex items-center justify-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 font-extrabold py-2.5 px-3 rounded-xl shadow-xs cursor-pointer transition-all text-xs">
-          <Upload className="w-4 h-4 text-emerald-600" /> Nhập Excel
+          <Upload className="w-4 h-4 text-emerald-600" /> Nhập lại từ Excel
           <input
             type="file"
             accept=".xlsx, .xls"
@@ -444,31 +532,106 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
         </div>
       )}
 
+      {/* Quick Sort Checklist Items */}
+      <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-100 rounded-2xl px-3.5 py-2.5 text-xs text-slate-700 flex-wrap shrink-0">
+        <span className="font-bold text-[11px] text-indigo-800 flex items-center gap-1 shrink-0">
+          <ArrowUpDown className="w-3.5 h-3.5 text-indigo-500" /> Sắp xếp nhanh:
+        </span>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <button
+            type="button"
+            onClick={() => {
+              if (checklistSortBy === 'title') {
+                if (checklistSortOrder === 'asc') {
+                  setChecklistSortOrder('desc');
+                } else {
+                  setChecklistSortBy('none');
+                }
+              } else {
+                setChecklistSortBy('title');
+                setChecklistSortOrder('asc');
+              }
+            }}
+            className={`px-2.5 py-1 rounded-lg transition-all font-bold text-[11px] flex items-center gap-1 cursor-pointer ${
+              checklistSortBy === 'title'
+                ? 'bg-indigo-600 text-white shadow-2xs'
+                : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
+            }`}
+          >
+            Nội Dung Tiêu Chí {checklistSortBy === 'title' && (checklistSortOrder === 'asc' ? '↑' : '↓')}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (checklistSortBy === 'status') {
+                if (checklistSortOrder === 'asc') {
+                  setChecklistSortOrder('desc');
+                } else {
+                  setChecklistSortBy('none');
+                }
+              } else {
+                setChecklistSortBy('status');
+                setChecklistSortOrder('asc');
+              }
+            }}
+            className={`px-2.5 py-1 rounded-lg transition-all font-bold text-[11px] flex items-center gap-1 cursor-pointer ${
+              checklistSortBy === 'status'
+                ? 'bg-indigo-600 text-white shadow-2xs'
+                : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
+            }`}
+          >
+            Trạng Thái Nghiệm Thu {checklistSortBy === 'status' && (checklistSortOrder === 'asc' ? '↑' : '↓')}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (checklistSortBy === 'dueDate') {
+                if (checklistSortOrder === 'asc') {
+                  setChecklistSortOrder('desc');
+                } else {
+                  setChecklistSortBy('none');
+                }
+              } else {
+                setChecklistSortBy('dueDate');
+                setChecklistSortOrder('asc');
+              }
+            }}
+            className={`px-2.5 py-1 rounded-lg transition-all font-bold text-[11px] flex items-center gap-1 cursor-pointer ${
+              checklistSortBy === 'dueDate'
+                ? 'bg-indigo-600 text-white shadow-2xs'
+                : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
+            }`}
+          >
+            Thời Hạn {checklistSortBy === 'dueDate' && (checklistSortOrder === 'asc' ? '↑' : '↓')}
+          </button>
+        </div>
+      </div>
+
       {/* Select and Bulk Actions Bar */}
-      {filteredChecklist.length > 0 && (
+      {sortedFilteredChecklist.length > 0 && (
         <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs gap-2">
           <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer select-none">
             <input
               type="checkbox"
-              checked={filteredChecklist.length > 0 && filteredChecklist.every(item => selectedItemIds.includes(item.id))}
+              checked={sortedFilteredChecklist.length > 0 && sortedFilteredChecklist.every(item => selectedItemIds.includes(item.id))}
               onChange={(e) => {
                 if (e.target.checked) {
-                  setSelectedItemIds(prev => Array.from(new Set([...prev, ...filteredChecklist.map(item => item.id)])));
+                  setSelectedItemIds(prev => Array.from(new Set([...prev, ...sortedFilteredChecklist.map(item => item.id)])));
                 } else {
-                  setSelectedItemIds(prev => prev.filter(id => !filteredChecklist.some(item => item.id === id)));
+                  setSelectedItemIds(prev => prev.filter(id => !sortedFilteredChecklist.some(item => item.id === id)));
                 }
               }}
               className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
             />
-            <span>Chọn Tất Cả Trên Trang ({filteredChecklist.length})</span>
+            <span>Chọn Tất Cả Trên Trang ({sortedFilteredChecklist.length})</span>
           </label>
 
           <div className="flex items-center gap-3 justify-end">
-            {selectedItemIds.some(id => filteredChecklist.some(item => item.id === id)) && (
+            {selectedItemIds.some(id => sortedFilteredChecklist.some(item => item.id === id)) && (
               <button
                 type="button"
                 onClick={async () => {
-                  const idsToDelete = selectedItemIds.filter(id => filteredChecklist.some(item => item.id === id));
+                  const idsToDelete = selectedItemIds.filter(id => sortedFilteredChecklist.some(item => item.id === id));
                   if (await confirmAsync(`Bạn có chắc muốn xóa ${idsToDelete.length} tiêu chí đã chọn?`)) {
                     if (onDeleteMultipleChecklistItems) {
                       onDeleteMultipleChecklistItems(idsToDelete);
@@ -480,7 +643,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
                 }}
                 className="text-rose-600 hover:text-rose-700 font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
               >
-                <Trash2 className="w-3.5 h-3.5" /> Xóa Đã Chọn ({selectedItemIds.filter(id => filteredChecklist.some(item => item.id === id)).length})
+                <Trash2 className="w-3.5 h-3.5" /> Xóa Đã Chọn ({selectedItemIds.filter(id => sortedFilteredChecklist.some(item => item.id === id)).length})
               </button>
             )}
           </div>
@@ -489,12 +652,12 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
 
       {/* Checklist items list */}
       <div className="space-y-3">
-        {filteredChecklist.length === 0 ? (
+        {sortedFilteredChecklist.length === 0 ? (
           <div className="text-center py-8 text-slate-400 text-xs bg-white rounded-2xl border border-dashed border-slate-200">
             Chưa có tiêu chí checklist nào cho {selectedFloor}. Bấm "Thêm Tiêu Chí" hoặc "Nhập Excel" để bắt đầu.
           </div>
         ) : (
-          filteredChecklist.map((item) => (
+          sortedFilteredChecklist.map((item) => (
             <div
               key={item.id}
               className={`bg-white rounded-2xl p-3.5 border transition-all duration-150 space-y-2.5 ${
@@ -514,7 +677,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
                   }}
                   className="mt-1 w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0"
                 />
-
+                
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2">
                     <div>
@@ -522,6 +685,54 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
                         {getCategoryLabel(item.category)}
                       </span>
                       <h4 className="text-xs font-bold text-slate-900 leading-snug">{item.title}</h4>
+
+                      {/* Due Date Badge */}
+                      {item.dueDate && (
+                        <div className="mt-1 flex items-center gap-1.5 text-[10px]">
+                          {(() => {
+                            const isDone = item.status === 'passed';
+                            const diffDays = calculateDiffDays(item.dueDate);
+                            if (isDone) {
+                              return (
+                                <span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-md font-bold border border-emerald-200 flex items-center gap-1">
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                                  Hạn: {formatDateVN(item.dueDate)} (Đã nghiệm thu)
+                                </span>
+                              );
+                            }
+                            if (diffDays < 0) {
+                              return (
+                                <span className="bg-rose-100 text-rose-800 px-2 py-0.5 rounded-md font-extrabold border border-rose-300 flex items-center gap-1">
+                                  <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0 animate-bounce" />
+                                  🚨 Quá hạn {Math.abs(diffDays)} ngày ({formatDateVN(item.dueDate)})
+                                </span>
+                              );
+                            }
+                            if (diffDays === 0) {
+                              return (
+                                <span className="bg-amber-100 text-amber-900 px-2 py-0.5 rounded-md font-extrabold border border-amber-300 flex items-center gap-1">
+                                  <Clock className="w-3 h-3 text-amber-600 shrink-0 animate-pulse" />
+                                  ⏰ Hạn hôm nay ({formatDateVN(item.dueDate)})
+                                </span>
+                              );
+                            }
+                            if (diffDays <= 3) {
+                              return (
+                                <span className="bg-amber-50 text-amber-800 px-2 py-0.5 rounded-md font-bold border border-amber-200 flex items-center gap-1">
+                                  <Bell className="w-3 h-3 text-amber-600 shrink-0" />
+                                  🔔 Còn {diffDays} ngày ({formatDateVN(item.dueDate)})
+                                </span>
+                              );
+                            }
+                            return (
+                              <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md font-medium border border-slate-200 flex items-center gap-1">
+                                <Calendar className="w-3 h-3 text-slate-500 shrink-0" />
+                                Hạn: {formatDateVN(item.dueDate)}
+                              </span>
+                            );
+                          })()}
+                        </div>
+                      )}
                     </div>
 
                     <div className="shrink-0">
@@ -587,14 +798,14 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
               <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-100">
                 <span className="truncate max-w-[200px]">👤 GS: <strong className="text-slate-700">{item.inspectedBy || inspectorName}</strong></span>
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setEditingChecklistItem(item)}
+                  <button 
+                    onClick={() => setEditingChecklistItem(item)} 
                     className="text-indigo-600 hover:underline font-bold flex items-center gap-0.5 cursor-pointer"
                   >
                     <Edit className="w-3 h-3" /> Sửa
                   </button>
-                  <button
-                    onClick={() => setDeletingChecklistTarget(item)}
+                  <button 
+                    onClick={() => setDeletingChecklistTarget(item)} 
                     className="text-rose-500 hover:underline font-bold flex items-center gap-0.5 cursor-pointer"
                   >
                     <Trash2 className="w-3 h-3" /> Xóa
@@ -666,6 +877,62 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
                   rows={2}
                   className="w-full border border-slate-200 rounded-xl p-2.5"
                 />
+              </div>
+
+              {/* Ngày Hạn Định (DueDate) */}
+              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/80 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-slate-800 font-extrabold text-xs flex items-center gap-1.5">
+                    <Calendar className="w-4 h-4 text-indigo-600" />
+                    <span>Ngày Hạn Định Nghiệm Thu (Deadline)</span>
+                  </label>
+                  {dueDate && (
+                    <button
+                      type="button"
+                      onClick={() => setDueDate('')}
+                      className="text-[11px] text-rose-600 hover:underline font-bold cursor-pointer"
+                    >
+                      ✕ Xóa hạn
+                    </button>
+                  )}
+                </div>
+                <input
+                  type="date"
+                  value={dueDate}
+                  onChange={(e) => setDueDate(e.target.value)}
+                  className="w-full bg-white border border-slate-300 rounded-xl p-2 text-xs font-bold text-slate-900 focus:ring-2 focus:ring-indigo-500"
+                />
+                <div className="flex items-center gap-1.5 flex-wrap text-[10px] pt-0.5">
+                  <span className="text-slate-500 font-semibold">Chọn nhanh:</span>
+                  <button
+                    type="button"
+                    onClick={() => setDueDate(getTodayDateString())}
+                    className="px-2 py-1 bg-white hover:bg-slate-200 border border-slate-200 rounded-lg font-bold text-slate-700 cursor-pointer"
+                  >
+                    Hôm nay
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDueDate(addDaysToDateString(getTodayDateString(), 1))}
+                    className="px-2 py-1 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg font-bold text-blue-700 cursor-pointer"
+                  >
+                    +1 ngày
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDueDate(addDaysToDateString(getTodayDateString(), 3))}
+                    className="px-2 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg font-bold text-amber-700 cursor-pointer"
+                  >
+                    +3 ngày
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDueDate(addDaysToDateString(getTodayDateString(), 7))}
+                    className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg font-bold text-emerald-700 cursor-pointer"
+                  >
+                    +7 ngày
+                  </button>
+                </div>
               </div>
 
               <div className="flex gap-2 pt-2">
@@ -771,6 +1038,62 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
                   rows={2}
                   className="w-full border border-slate-200 rounded-xl p-2.5"
                 />
+              </div>
+
+              {/* Ngày Hạn Định (DueDate) */}
+              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/80 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-slate-800 font-extrabold text-xs flex items-center gap-1.5">
+                    <Calendar className="w-4 h-4 text-indigo-600" />
+                    <span>Ngày Hạn Định Nghiệm Thu (Deadline)</span>
+                  </label>
+                  {editingChecklistItem.dueDate && (
+                    <button
+                      type="button"
+                      onClick={() => setEditingChecklistItem({ ...editingChecklistItem, dueDate: undefined })}
+                      className="text-[11px] text-rose-600 hover:underline font-bold cursor-pointer"
+                    >
+                      ✕ Xóa hạn
+                    </button>
+                  )}
+                </div>
+                <input
+                  type="date"
+                  value={editingChecklistItem.dueDate || ''}
+                  onChange={(e) => setEditingChecklistItem({ ...editingChecklistItem, dueDate: e.target.value || undefined })}
+                  className="w-full bg-white border border-slate-300 rounded-xl p-2 text-xs font-bold text-slate-900 focus:ring-2 focus:ring-indigo-500"
+                />
+                <div className="flex items-center gap-1.5 flex-wrap text-[10px] pt-0.5">
+                  <span className="text-slate-500 font-semibold">Chọn nhanh:</span>
+                  <button
+                    type="button"
+                    onClick={() => setEditingChecklistItem({ ...editingChecklistItem, dueDate: getTodayDateString() })}
+                    className="px-2 py-1 bg-white hover:bg-slate-200 border border-slate-200 rounded-lg font-bold text-slate-700 cursor-pointer"
+                  >
+                    Hôm nay
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingChecklistItem({ ...editingChecklistItem, dueDate: addDaysToDateString(getTodayDateString(), 1) })}
+                    className="px-2 py-1 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg font-bold text-blue-700 cursor-pointer"
+                  >
+                    +1 ngày
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingChecklistItem({ ...editingChecklistItem, dueDate: addDaysToDateString(getTodayDateString(), 3) })}
+                    className="px-2 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg font-bold text-amber-700 cursor-pointer"
+                  >
+                    +3 ngày
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingChecklistItem({ ...editingChecklistItem, dueDate: addDaysToDateString(getTodayDateString(), 7) })}
+                    className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg font-bold text-emerald-700 cursor-pointer"
+                  >
+                    +7 ngày
+                  </button>
+                </div>
               </div>
 
               <div className="flex gap-2 pt-2">

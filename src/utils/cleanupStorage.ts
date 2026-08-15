@@ -1,35 +1,33 @@
 import { compressImage } from './imageCompressor';
+import { getStorageKeys, getAsyncItem, setAsyncItem } from './asyncStorage';
 
 export const cleanupAndCompressOldImages = async () => {
   try {
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && (key.includes('construction_floor_plans') || key.includes('construction_defects'))) {
+    const keys = await getStorageKeys();
+    for (const key of keys) {
+      // NOTE: NEVER compress floor plans (construction_floor_plans) to preserve 100% crisp architectural drawing resolution!
+      // Only optimize defect inspection photos if they exceed reasonable storage sizes.
+      if (key && key.includes('construction_defects')) {
         try {
-          const val = localStorage.getItem(key);
-          if (val && val.includes('data:image')) {
-            const parsed = JSON.parse(val);
+          const val = await getAsyncItem<any[]>(key, []);
+          if (Array.isArray(val) && val.length > 0) {
             let hasChanges = false;
             
-            const compressArray = async (arr: any[]) => {
-              for (const item of arr) {
-                if (item.imageUrl && item.imageUrl.length > 50000) {
-                  item.imageUrl = await compressImage(item.imageUrl, 1200, 0.7);
-                  hasChanges = true;
-                }
-                if (item.afterImageUrl && item.afterImageUrl.length > 50000) {
-                  item.afterImageUrl = await compressImage(item.afterImageUrl, 1200, 0.7);
-                  hasChanges = true;
-                }
+            for (const item of val) {
+              // Only compress if the data URL is excessively large (> 800KB raw base64)
+              if (item.imageUrl && typeof item.imageUrl === 'string' && item.imageUrl.startsWith('data:image') && item.imageUrl.length > 800000) {
+                item.imageUrl = await compressImage(item.imageUrl, 1440, 0.82);
+                hasChanges = true;
               }
-            };
+              if (item.afterImageUrl && typeof item.afterImageUrl === 'string' && item.afterImageUrl.startsWith('data:image') && item.afterImageUrl.length > 800000) {
+                item.afterImageUrl = await compressImage(item.afterImageUrl, 1440, 0.82);
+                hasChanges = true;
+              }
+            }
             
-            if (Array.isArray(parsed)) {
-              await compressArray(parsed);
-              if (hasChanges) {
-                localStorage.setItem(key, JSON.stringify(parsed));
-                console.log(`Cleaned up and compressed images for key: ${key}`);
-              }
+            if (hasChanges) {
+              await setAsyncItem(key, val);
+              console.log(`Optimized oversized defect photos for key: ${key}`);
             }
           }
         } catch (err) {
@@ -41,3 +39,4 @@ export const cleanupAndCompressOldImages = async () => {
     console.error('Error during global cleanup:', globalErr);
   }
 };
+

@@ -25,7 +25,7 @@ export function safeSetLocalStorageItem(key: string, value: string): boolean {
     return true;
   } catch (e: any) {
     console.warn(`localStorage setItem failed for key "${key}", attempting cleaning...`, e);
-
+    
     // Attempt 1: If stringified JSON, strip heavy base64 images to free up space
     if (value && (value.startsWith('{') || value.startsWith('['))) {
       try {

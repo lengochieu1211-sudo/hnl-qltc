@@ -1,18 +1,19 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useLanguage } from '../context/LanguageContext';
 import * as XLSX from 'xlsx';
-import {
-  Users,
-  Calendar,
-  Plus,
-  Trash2,
-  Edit2,
-  Copy,
-  ChevronLeft,
-  ChevronRight,
-  MapPin,
-  Clipboard,
-  User,
-  X,
+import { 
+  Users, 
+  Calendar, 
+  Plus, 
+  Trash2, 
+  Edit2, 
+  Copy, 
+  ChevronLeft, 
+  ChevronRight, 
+  MapPin, 
+  Clipboard, 
+  User, 
+  X, 
   TrendingUp,
   Briefcase,
   Phone,
@@ -27,13 +28,18 @@ import {
   Home,
   CheckCircle
 } from 'lucide-react';
-import { CrewRecord, FloorPlan, TeamInfo, RoomProgressItem, DefectItem, CrewFloorWork, CrewFloorCategoryWork } from '../types';
+import { CrewRecord, FloorPlan, TeamInfo, RoomProgressItem, DefectItem, CrewFloorWork, CrewFloorCategoryWork, AcceptanceStatus, RoomInspectionResult } from '../types';
 import { formatDateDDMMYYYY } from '../utils/dateFormatter';
 import { exportTeamStatisticsToExcel } from '../utils/excelExport';
 import { confirmAsync } from '../utils/confirmAsync';
-
+import { formatDecimal, evaluateMathExpression, useFormatSettings } from '../utils/numberUtils';
+import { isTeamMatch, getTeamCategoriesForRoom, calculateTeamStatistics, isTeamWorkCompletedInRoom, FloorGroupDetail } from '../utils/teamUtils';
+import { PhotoAttachmentPicker } from './PhotoAttachmentPicker';
+import { deleteEntityPhotos } from '../utils/photoStorage';
 
 interface CrewTabProps {
+  projectId?: string;
+  projectName?: string;
   crewRecords: CrewRecord[];
   floorPlans: FloorPlan[];
   roomProgressList?: RoomProgressItem[];
@@ -60,6 +66,8 @@ const COMMON_TASKS = [
 ];
 
 export const CrewTab: React.FC<CrewTabProps> = ({
+  projectId = 'default-project',
+  projectName,
   crewRecords,
   floorPlans,
   roomProgressList = [],
@@ -74,30 +82,14 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   teams: propTeams,
   onUpdateTeams,
 }) => {
+  const { t } = useLanguage();
   // Navigation Tabs: 'logs' (Daily logs) or 'teams' (Manage team directory)
   const [activeSubTab, setActiveSubTab] = useState<'logs' | 'teams'>('logs');
+  useFormatSettings();
   const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
 
-  // Load custom teams list from localStorage
-  const [teams, setTeams] = useState<TeamInfo[]>(() => {
-    if (propTeams && propTeams.length > 0) return propTeams;
-    const saved = localStorage.getItem('construction_teams');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        console.error('Error parsing construction_teams', e);
-      }
-    }
-    return [
-      { id: 'team-1', name: 'Đội Thạch Cao Hà Nội', leader: 'Đội trưởng Hùng', defaultCount: 12, phone: '0912345678', notes: 'Đội chính đóng tấm Gyproc' },
-      { id: 'team-2', name: 'Đội Khung Xương Tiến Phát', leader: 'Đội trưởng Tiến', defaultCount: 8, phone: '0987654321', notes: 'Chuyên lắp ráp giàn khung xương chính' },
-      { id: 'team-3', name: 'Đội Sơn Bả Hùng Cường', leader: 'Anh Cường', defaultCount: 6, phone: '0905556677', notes: 'Sơn bả trần thạch cao' },
-      { id: 'team-4', name: 'Đội Trần Chìm Hải Phòng', leader: 'Anh Hải', defaultCount: 10, notes: 'Thi công trần giật cấp nghệ thuật' },
-      { id: 'team-5', name: 'Đội Cơ Điện & Nước', leader: 'Anh Điện', defaultCount: 4, notes: 'Đi ống luồn dây điện âm trần' },
-      { id: 'team-6', name: 'Đội Phụ Trợ & Dọn Dẹp', leader: 'Chị Hoa', defaultCount: 5, notes: 'Thu dọn phế thải thạch cao tấm vụn' },
-    ];
-  });
+  // Load custom teams list from props
+  const [teams, setTeams] = useState<TeamInfo[]>(() => propTeams || []);
 
   // Team detail & statistics modal state
   const [selectedTeamForDetail, setSelectedTeamForDetail] = useState<TeamInfo | null>(null);
@@ -105,32 +97,20 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [defectFilter, setDefectFilter] = useState<'all' | 'open' | 'resolved'>('all');
   const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
 
-  // Helper function to match team strings flexibly
-  const isTeamMatch = (targetStr?: string, team?: TeamInfo | null): boolean => {
-    if (!targetStr || !team) return false;
-    const t = targetStr.trim().toLowerCase();
-    const name = team.name.trim().toLowerCase();
-    const leader = team.leader.trim().toLowerCase();
-    if (!t) return false;
-    return t === name || t === leader || (name.length > 2 && t.includes(name)) || (t.length > 2 && name.includes(t));
-  };
-
   // Sync state if prop changes
   useEffect(() => {
-    if (propTeams && propTeams.length > 0 && JSON.stringify(propTeams) !== JSON.stringify(teams)) {
+    if (propTeams) {
       setTeams(propTeams);
     }
   }, [propTeams]);
 
-  // Save teams to localStorage and call onUpdateTeams
-  useEffect(() => {
-    localStorage.setItem('construction_teams', JSON.stringify(teams));
-    if (onUpdateTeams && propTeams && JSON.stringify(propTeams) !== JSON.stringify(teams)) {
-      onUpdateTeams(teams);
-    } else if (onUpdateTeams && !propTeams) {
-      onUpdateTeams(teams);
+  // Call onUpdateTeams when teams change
+  const updateTeamsAndParent = (nextTeams: TeamInfo[]) => {
+    setTeams(nextTeams);
+    if (onUpdateTeams) {
+      onUpdateTeams(nextTeams);
     }
-  }, [teams]);
+  };
 
   // Today's date YYYY-MM-DD
   const getTodayString = () => {
@@ -142,11 +122,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   };
 
   const [selectedDate, setSelectedDate] = useState<string>(getTodayString());
-
+  
   // Modals visibility states
   const [showAddLogModal, setShowAddLogModal] = useState(false);
   const [showTeamModal, setShowTeamModal] = useState(false);
-
+  
   // Editing targets
   const [editingRecord, setEditingRecord] = useState<CrewRecord | null>(null);
   const [editingTeam, setEditingTeam] = useState<TeamInfo | null>(null);
@@ -159,6 +139,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
   // Daily Log Form State
   const [teamName, setTeamName] = useState('');
+  const [teamId, setTeamId] = useState('');
   const [leaderName, setLeaderName] = useState('');
   const [workerCount, setWorkerCount] = useState<number>(5);
   const [selectedFloorId, setSelectedFloorId] = useState('');
@@ -304,9 +285,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [tNotes, setTNotes] = useState('');
 
   // Synchronize Daily Log Form values
+  const [activeLogEntityId, setActiveLogEntityId] = useState<string>(`crew_${Date.now()}`);
+
   useEffect(() => {
     if (editingRecord) {
+      setActiveLogEntityId(editingRecord.id);
       setTeamName(editingRecord.teamName);
+      setTeamId(editingRecord.teamId || '');
       setLeaderName(editingRecord.leaderName);
       setWorkerCount(editingRecord.workerCount);
       if (editingRecord.floorWorks && editingRecord.floorWorks.length > 0) {
@@ -325,7 +310,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       }
       setSelectedFloorId(editingRecord.floorId || '');
       setTaskDescription(editingRecord.taskDescription);
-
+      
       const sVal = editingRecord.shift || 'Hành chính';
       if (sVal === 'Hành chính') {
         setSelectedShifts(['Sáng', 'Chiều']);
@@ -334,16 +319,19 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       } else {
         setSelectedShifts(sVal.split(', ').map(s => s.trim()));
       }
-
+      
       setNotes(editingRecord.notes || '');
     } else {
+      setActiveLogEntityId(`crew_${Date.now()}`);
       // Set to first team in directory if available, otherwise blank
       if (teams.length > 0) {
         setTeamName(teams[0].name);
+        setTeamId(teams[0].id || '');
         setLeaderName(teams[0].leader);
         setWorkerCount(teams[0].defaultCount);
       } else {
         setTeamName('');
+        setTeamId('');
         setLeaderName('');
         setWorkerCount(5);
       }
@@ -469,16 +457,30 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
   // Statistics for the selected date
   const stats = useMemo(() => {
-    const totalWorkers = filteredRecords.reduce((sum, r) => sum + r.workerCount, 0);
-    const totalTeams = filteredRecords.length;
+    // Avoid double-counting when same team is recorded across multiple floors for the same shift/date
+    const teamShiftMap: Record<string, number> = {};
+    const teamSet = new Set<string>();
+
+    filteredRecords.forEach((r) => {
+      const teamKey = r.teamId || r.teamName.trim().toLowerCase();
+      teamSet.add(teamKey);
+
+      const shiftKey = `${teamKey}_${r.shift || 'default'}`;
+      teamShiftMap[shiftKey] = Math.max(teamShiftMap[shiftKey] || 0, r.workerCount);
+    });
+
+    const totalWorkers = Object.values(teamShiftMap).reduce((sum, count) => sum + count, 0);
+    const totalTeams = teamSet.size;
 
     // Distribution by floor
     const floorDistribution: { [key: string]: { name: string; count: number } } = {};
     filteredRecords.forEach((r) => {
-      if (!floorDistribution[r.floorId]) {
-        floorDistribution[r.floorId] = { name: r.floorName, count: 0 };
+      if (r.floorId) {
+        if (!floorDistribution[r.floorId]) {
+          floorDistribution[r.floorId] = { name: r.floorName || 'Tầng', count: 0 };
+        }
+        floorDistribution[r.floorId].count += r.workerCount;
       }
-      floorDistribution[r.floorId].count += r.workerCount;
     });
 
     const activeFloorsList = Object.values(floorDistribution).sort((a, b) => b.count - a.count);
@@ -489,6 +491,17 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       activeFloorsList
     };
   }, [filteredRecords]);
+
+  // Centralized calculations for all construction teams
+  const allTeamStatsMap = useMemo(() => {
+    return calculateTeamStatistics({
+      teams,
+      roomProgressList: roomProgressList || [],
+      defects: defects || [],
+      crewRecords: crewRecords || [],
+      floorPlans: floorPlans || []
+    });
+  }, [teams, roomProgressList, defects, crewRecords, floorPlans]);
 
   // Handle Daily Log Submission
   const handleLogSubmit = (e: React.FormEvent) => {
@@ -516,26 +529,59 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       return;
     }
 
-    const firstFw = floorWorks[0];
+    // Auto-commit any currently typed but unadded sub-items / work categories
+    let finalFloorWorks = [...floorWorks];
+    floorWorks.forEach((fw, fIdx) => {
+      fw.categories.forEach((cat, cIdx) => {
+        const inputEl = document.getElementById(`sub-input-${fIdx}-${cIdx}`) as HTMLInputElement;
+        if (inputEl && inputEl.value.trim()) {
+          const val = inputEl.value.trim();
+          finalFloorWorks = finalFloorWorks.map((fItem, fI) => {
+            if (fI === fIdx) {
+              return {
+                ...fItem,
+                categories: fItem.categories.map((cItem, cI) => {
+                  if (cI === cIdx) {
+                    return {
+                      ...cItem,
+                      subItems: [...cItem.subItems, val]
+                    };
+                  }
+                  return cItem;
+                })
+              };
+            }
+            return fItem;
+          });
+          inputEl.value = ''; // clear the input field
+        }
+      });
+    });
+
+    const firstFw = finalFloorWorks[0];
     const floorId = firstFw ? firstFw.floorId : selectedFloorId;
-    const floorName = floorWorks.length > 0
-      ? floorWorks.map(fw => fw.floorName).join(', ')
+    const floorName = finalFloorWorks.length > 0
+      ? finalFloorWorks.map(fw => fw.floorName).join(', ')
       : (floorPlans.find(fp => fp.id === selectedFloorId)?.floorName || 'Tầng');
 
-    const taskDesc = floorWorks.length > 0
-      ? floorWorks.map(fw => `[${fw.floorName}]: ` + fw.categories.map(c => `${c.categoryName} (${c.subItems.join(', ')})`).join('; ')).join(' | ')
+    const taskDesc = finalFloorWorks.length > 0
+      ? finalFloorWorks.map(fw => `[${fw.floorName}]: ` + fw.categories.map(c => `${c.categoryName} (${c.subItems.join(', ')})`).join('; ')).join(' | ')
       : taskDescription;
 
     const shiftValue = selectedShifts.length > 0 ? selectedShifts.join(', ') : 'Nghỉ';
 
+    const matchingTeam = teams.find(t => t.name.trim().toLowerCase() === teamName.trim().toLowerCase());
+    const finalTeamId = teamId || matchingTeam?.id || '';
+
     const recordData = {
       date: selectedDate,
+      teamId: finalTeamId || undefined,
       teamName: teamName.trim(),
       leaderName: leaderName.trim(),
-      workerCount,
+      workerCount: Math.max(0, workerCount),
       floorId,
       floorName,
-      floorWorks,
+      floorWorks: finalFloorWorks,
       taskDescription: taskDesc,
       shift: shiftValue,
       notes: notes.trim() || undefined
@@ -545,7 +591,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       onUpdateCrewRecord(editingRecord.id, recordData);
       setEditingRecord(null);
     } else {
-      onAddCrewRecord(recordData);
+      onAddCrewRecord({ ...recordData, id: activeLogEntityId });
     }
     setShowAddLogModal(false);
   };
@@ -575,11 +621,16 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       notes: tNotes.trim() || undefined
     };
 
+    let nextTeams: TeamInfo[];
     if (editingTeam) {
-      setTeams((prev) => prev.map((t) => (t.id === editingTeam.id ? teamData : t)));
+      nextTeams = teams.map((t) => (t.id === editingTeam.id ? teamData : t));
       setEditingTeam(null);
     } else {
-      setTeams((prev) => [...prev, teamData]);
+      nextTeams = [...teams, teamData];
+    }
+    setTeams(nextTeams);
+    if (onUpdateTeams) {
+      onUpdateTeams(nextTeams);
     }
     setShowTeamModal(false);
   };
@@ -615,8 +666,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     setShowCopyConfirm(false);
   };
 
-  const executeDeleteRecord = () => {
+  const executeDeleteRecord = async () => {
     if (deletingRecordTarget) {
+      if (projectId) {
+        try {
+          await deleteEntityPhotos(projectId, 'crewRecord', deletingRecordTarget.id);
+        } catch (_) {}
+      }
       onDeleteCrewRecord(deletingRecordTarget.id);
       setDeletingRecordTarget(null);
     }
@@ -624,7 +680,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
   const executeDeleteTeam = () => {
     if (deletingTeamTarget) {
-      setTeams((prev) => prev.filter((t) => t.id !== deletingTeamTarget.id));
+      const nextTeams = teams.filter((t) => t.id !== deletingTeamTarget.id);
+      setTeams(nextTeams);
+      if (onUpdateTeams) {
+        onUpdateTeams(nextTeams);
+      }
       setDeletingTeamTarget(null);
     }
   };
@@ -643,6 +703,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
     const data = sourceData.map((item, idx) => ({
       'STT': idx + 1,
+      '__teamId': item.id,
       'Tên Đội Thi Công': item.name,
       'Trưởng Nhóm / Đội Trưởng': item.leader,
       'Quân Số Định Biên Mặc Định': item.defaultCount,
@@ -651,7 +712,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     }));
 
     const ws = XLSX.utils.json_to_sheet(data);
-
+    
     // Auto-fit column widths
     const maxLens = data.reduce((acc: any, row: any) => {
       Object.keys(row).forEach((key) => {
@@ -667,13 +728,14 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   };
 
   const handleExportTeamStats = (teamName?: string) => {
+    const currentProjName = projectName || 'Công Trình';
     exportTeamStatisticsToExcel({
       teams,
       roomProgressList: roomProgressList || [],
       defects: defects || [],
       crewRecords,
       floorPlans,
-      projectName: 'CongTrinh',
+      projectName: currentProjName,
       selectedTeamName: teamName
     });
   };
@@ -699,7 +761,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         // Validate that we can find the team name column
         const firstRow = jsonData[0];
         const foundHeaders = Object.keys(firstRow);
-        const nameMatchKey = foundHeaders.find(h =>
+        const nameMatchKey = foundHeaders.find(h => 
           ['Tên Đội Thi Công', 'teamName', 'Tên Đội', 'Đội Thi Công', 'team'].some(rk => h.toLowerCase().includes(rk.toLowerCase()))
         );
 
@@ -718,6 +780,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         let newTeams = [...teams];
 
         jsonData.forEach((row: any) => {
+          const rawTeamId = String(row['__teamId'] || row['Mã Đội'] || row['id'] || '').trim();
           const nameStr = String(row[nameMatchKey] || '').trim();
           const leaderStr = String(row['Trưởng Nhóm / Đội Trưởng'] || row['Trưởng Nhóm'] || row['Đội Trưởng'] || row['leader'] || '').trim();
           const countNum = Number(row['Quân Số Định Biên Mặc Định'] || row['defaultCount'] || row['Quân số'] || row['Số người'] || 0);
@@ -729,12 +792,12 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             return;
           }
 
-          const existingIdx = newTeams.findIndex(
-            (t) => t.name.toLowerCase() === nameStr.toLowerCase()
-          );
+          const existingIdx = rawTeamId 
+            ? newTeams.findIndex(t => t.id === rawTeamId)
+            : newTeams.findIndex(t => t.name.toLowerCase() === nameStr.toLowerCase());
 
           const teamData: TeamInfo = {
-            id: existingIdx !== -1 ? newTeams[existingIdx].id : `team-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            id: existingIdx !== -1 ? newTeams[existingIdx].id : (rawTeamId || `team-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`),
             name: nameStr,
             leader: leaderStr,
             defaultCount: countNum,
@@ -767,8 +830,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   };
 
   return (
-    <div className="pb-24 pt-4 px-4 max-w-lg mx-auto bg-slate-50 min-h-screen text-slate-800" id="crew-tab-container">
-
+    <div className="pb-24 pt-4 px-4 w-full max-w-6xl mx-auto bg-slate-50 min-h-screen text-slate-800" id="crew-tab-container">
+      
       {/* Sub-tab Navigation Selector */}
       <div className="flex bg-slate-200 p-1.5 rounded-xl mb-4 shadow-sm" id="crew-subtab-navigation">
         <button
@@ -777,7 +840,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             activeSubTab === 'logs' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
           }`}
         >
-          <Calendar className="w-4 h-4" /> Nhật Ký Hằng Ngày
+          <Calendar className="w-4 h-4" /> {t('daily_diary')}
         </button>
         <button
           onClick={() => setActiveSubTab('teams')}
@@ -785,7 +848,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             activeSubTab === 'teams' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
           }`}
         >
-          <Users className="w-4 h-4" /> Mục Nhập Thông Tin Đội
+          <Users className="w-4 h-4" /> {t('team_directory')}
         </button>
       </div>
 
@@ -793,7 +856,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         <>
           {/* Daily Date Header Controller */}
           <div className="flex items-center justify-between bg-white px-3 py-2.5 rounded-xl border border-slate-200 shadow-sm mb-4">
-            <button
+            <button 
               onClick={handlePrevDay}
               className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition"
               title="Ngày trước"
@@ -803,7 +866,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
             <div className="flex items-center gap-2">
               <Calendar className="w-4 h-4 text-indigo-600" />
-              <input
+              <input 
                 type="date"
                 value={selectedDate}
                 onChange={(e) => {
@@ -821,7 +884,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               />
             </div>
 
-            <button
+            <button 
               onClick={handleNextDay}
               className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition"
               title="Ngày tiếp theo"
@@ -834,11 +897,15 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           <div className="grid grid-cols-2 gap-3 mb-4">
             <div className="bg-gradient-to-br from-indigo-500 to-blue-600 text-white p-4 rounded-xl shadow-md">
               <div className="flex justify-between items-start">
-                <span className="text-white/80 text-[10px] font-bold tracking-wider uppercase">Tổng Quân Số Hôm Nay</span>
+                <span className="text-white/80 text-[10px] font-bold tracking-wider uppercase">
+                  {selectedDate === getTodayString() ? 'Tổng Quân Số Hôm Nay' : `Tổng Quân Số Ngày ${formatDateDDMMYYYY(selectedDate)}`}
+                </span>
                 <Users className="w-4 h-4 text-white/80" />
               </div>
               <div className="text-2xl font-black mt-1 leading-none">{stats.totalWorkers}</div>
-              <p className="text-white/70 text-[10px] mt-1.5">Từ {stats.totalTeams} đội làm việc</p>
+              <div className="flex justify-between text-[10px] text-white/90 mt-1.5 border-t border-white/20 pt-1">
+                <span>Lực lượng thi công: <strong>{stats.totalTeams} tổ/đội</strong></span>
+              </div>
             </div>
 
             <div className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm flex flex-col justify-between">
@@ -873,7 +940,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                         <span className="text-indigo-600 font-bold">{floor.count} người ({Math.round(pct)}%)</span>
                       </div>
                       <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                        <div
+                        <div 
                           className="bg-indigo-500 h-full rounded-full transition-all duration-500"
                           style={{ width: `${pct}%` }}
                         />
@@ -980,7 +1047,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
             ) : (
               filteredRecords.map((record) => (
-                <div
+                <div 
                   key={record.id}
                   className={`bg-white border rounded-xl p-4 transition-all duration-150 relative hover:border-slate-300 ${
                     selectedRecordIds.includes(record.id)
@@ -1012,30 +1079,28 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                           </div>
                         </div>
 
-                        <div className="flex flex-col items-end gap-1.5 shrink-0">
+                        <div className="flex flex-col items-end gap-1 shrink-0">
                           <div className="bg-indigo-50 text-indigo-700 border border-indigo-100 px-2.5 py-1 rounded-lg text-center font-black text-xs min-w-[50px]">
-                            {(record.workerCount ?? 0).toLocaleString('en-US')} thợ
+                            {formatDecimal(record.workerCount)} thợ
                           </div>
-                          <div className="flex flex-wrap gap-1 justify-end max-w-[140px]">
+                          <div className="flex flex-wrap gap-1 justify-end">
                             {(() => {
                               const sVal = record.shift || 'Sáng, Chiều';
+                              let parts: string[] = [];
                               if (sVal === 'Hành chính') {
-                                return (
-                                  <>
-                                    <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-100">Sáng</span>
-                                    <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50/50 text-indigo-700 border border-indigo-100">Chiều</span>
-                                  </>
-                                );
+                                parts = ['Sáng', 'Chiều'];
+                              } else if (sVal === 'Tăng ca') {
+                                parts = ['Tối'];
+                              } else {
+                                parts = sVal.split(/[,;•\n]+/).map(s => s.trim()).filter(Boolean);
                               }
-                              if (sVal === 'Tăng ca') {
-                                return <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">Tối</span>;
-                              }
-                              return sVal.split(', ').map(part => {
-                                if (part === 'Sáng') return <span key={part} className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-100">Sáng</span>;
-                                if (part === 'Chiều') return <span key={part} className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50/50 text-indigo-700 border border-indigo-100">Chiều</span>;
-                                if (part === 'Tối') return <span key={part} className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">Tối</span>;
-                                return <span key={part} className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">Nghỉ</span>;
-                              });
+                              if (parts.length === 0) parts = ['Sáng', 'Chiều'];
+
+                              return (
+                                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 text-indigo-800 border border-indigo-200">
+                                  Ca làm việc: {parts.join(' • ')}
+                                </span>
+                              );
                             })()}
                           </div>
                         </div>
@@ -1058,6 +1123,17 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                           <strong>Ghi chú:</strong> {record.notes}
                         </div>
                       )}
+
+                      {/* Attached photos for this crew record */}
+                      <div className="mt-2.5 pt-2 border-t border-slate-100">
+                        <PhotoAttachmentPicker
+                          projectId={projectId}
+                          entityType="crewRecord"
+                          entityId={record.id}
+                          category="crew_progress"
+                          label="HÌNH ẢNH HIỆN TRƯỜNG"
+                        />
+                      </div>
 
                       {/* Actions buttons */}
                       <div className="flex items-center justify-end gap-3 mt-3 pt-2 border-t border-slate-100">
@@ -1120,7 +1196,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   title="Tải báo cáo Excel thống kê căn, tầng, khối lượng và defect của tất cả các đội thi công"
                 >
                   <Download className="w-4 h-4 shrink-0" />
-                  <span className="truncate">Xuất Thống Kê</span>
+                  <span className="truncate">Xuất báo cáo Excel</span>
                 </button>
 
                 <button
@@ -1130,12 +1206,12 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   title="Tải mẫu Excel danh bạ đội thi công"
                 >
                   <FileSpreadsheet className="w-4 h-4 text-slate-500 shrink-0" />
-                  <span className="truncate">Tải Mẫu Excel</span>
+                  <span className="truncate">Tải Excel để chỉnh sửa</span>
                 </button>
 
                 <label className="h-10 px-3 flex items-center justify-center gap-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold rounded-xl border border-slate-200 text-xs shadow-2xs cursor-pointer transition-all active:scale-95">
                   <Upload className="w-4 h-4 text-slate-500 shrink-0" />
-                  <span className="truncate">Nhập từ Excel</span>
+                  <span className="truncate">Nhập lại từ Excel</span>
                   <input
                     type="file"
                     accept=".xlsx, .xls"
@@ -1198,50 +1274,21 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
             ) : (
               teams.map((team) => {
-                const assignedRooms = (roomProgressList || []).filter(r => isTeamMatch(r.assignedTeam, team));
-                const totalTeamVol = assignedRooms.reduce((sum, r) => sum + (r.workVolume || 0), 0);
-                const teamFloorNames = Array.from(new Set(assignedRooms.map(r => r.floorName || (floorPlans || []).find(f => f.id === r.floorId)?.floorName || 'Mặt bằng')));
-                const assignedDefects = (defects || []).filter(d => isTeamMatch(d.assignedTo, team));
-                const openDefects = assignedDefects.filter(d => d.status === 'Mới phát hiện' || d.status === 'Đang sửa');
-                const teamLogs = (crewRecords || []).filter(l => isTeamMatch(l.teamName, team));
-                const totalManDays = teamLogs.reduce((sum, item) => sum + (item.workerCount || 0), 0);
+                const stat = allTeamStatsMap[team.id];
+                if (!stat) return null;
+                const {
+                  teamRooms: assignedRooms,
+                  totalTeamVol,
+                  openDefectsCount,
+                  totalMandays: totalManDays,
+                  categoryBreakdown
+                } = stat;
 
-                const teamWorkCategories = (() => {
-                  const categoriesSet = new Set<string>();
-                  (roomProgressList || []).forEach(room => {
-                    const isMainTeam = isTeamMatch(room.assignedTeam, team);
-                    if (isMainTeam) {
-                      if (room.workCategory) {
-                        categoriesSet.add(room.workCategory);
-                      }
-                      if (room.categoryVolumes) {
-                        Object.keys(room.categoryVolumes).forEach(cat => {
-                          if (cat) categoriesSet.add(cat);
-                        });
-                      }
-                      if (room.subItems) {
-                        room.subItems.forEach(sub => {
-                          if (!sub.assignedTeam) {
-                            const cat = sub.category || room.workCategory;
-                            if (cat) categoriesSet.add(cat);
-                          }
-                        });
-                      }
-                    }
-                    if (room.subItems) {
-                      room.subItems.forEach(sub => {
-                        if (isTeamMatch(sub.assignedTeam, team)) {
-                          const cat = sub.category || room.workCategory;
-                          if (cat) categoriesSet.add(cat);
-                        }
-                      });
-                    }
-                  });
-                  return Array.from(categoriesSet).filter(Boolean);
-                })();
+                const teamFloorNames = Array.from(new Set(assignedRooms.map(r => r.floorName || (floorPlans || []).find(f => f.id === r.floorId)?.floorName || 'Mặt bằng')));
+                const teamWorkCategories = categoryBreakdown.map(cb => cb.categoryName);
 
                 return (
-                  <div
+                  <div 
                     key={team.id}
                     className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:border-indigo-300 transition-all duration-200 hover:shadow-md"
                   >
@@ -1260,7 +1307,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                           className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer mt-0.5 shrink-0"
                         />
                         <div>
-                          <h4
+                          <h4 
                             onClick={async () => {
                               setSelectedTeamForDetail(team);
                               setDetailModalTab('rooms');
@@ -1285,7 +1332,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
                     {/* Quick Stat Pill Widgets */}
                     <div className="grid grid-cols-3 gap-2 my-2.5 pt-2 border-t border-slate-100 text-xs">
-                      <div
+                      <div 
                         onClick={async () => {
                           setSelectedTeamForDetail(team);
                           setDetailModalTab('rooms');
@@ -1299,36 +1346,50 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                             <Home className="w-3.5 h-3.5" />
                             {assignedRooms.length} căn
                           </span>
-                          {totalTeamVol > 0 && (
-                            <span className="text-[10px] text-indigo-900 bg-indigo-100/80 px-1.5 py-0.2 rounded font-extrabold">
-                              {totalTeamVol} m²
-                            </span>
+                          {categoryBreakdown && categoryBreakdown.length > 0 ? (
+                            <div className="text-[9px] text-indigo-950 bg-indigo-100/50 px-1 py-0.5 rounded font-extrabold flex flex-col gap-0.5 mt-0.5 max-w-[120px] text-left truncate">
+                              {categoryBreakdown.map(cb => (
+                                <div key={cb.categoryName} className="truncate">
+                                  {cb.categoryName}: {cb.assignedVol} {cb.unit}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            stat.volumeByUnit && Object.keys(stat.volumeByUnit).length > 0 ? (
+                              <div className="flex flex-wrap gap-1 mt-0.5">
+                                {Object.entries(stat.volumeByUnit).map(([unit, val]) => (
+                                  <span key={unit} className="text-[10px] text-indigo-900 bg-indigo-100/80 px-1.5 py-0.2 rounded font-extrabold">
+                                    {val} {unit}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null
                           )}
                         </div>
                       </div>
 
-                      <div
+                      <div 
                         onClick={async () => {
                           setSelectedTeamForDetail(team);
                           setDetailModalTab('defects');
                         }}
                         className={`border p-2 rounded-lg cursor-pointer transition text-center ${
-                          openDefects.length > 0
-                            ? 'bg-rose-50/70 border-rose-200 hover:bg-rose-100/70'
+                          openDefectsCount > 0 
+                            ? 'bg-rose-50/70 border-rose-200 hover:bg-rose-100/70' 
                             : 'bg-emerald-50/70 border-emerald-100 hover:bg-emerald-100/70'
                         }`}
                         title="Xem các defect/lỗi gán cho đội"
                       >
-                        <div className={`text-[10px] font-bold uppercase tracking-wider ${openDefects.length > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                        <div className={`text-[10px] font-bold uppercase tracking-wider ${openDefectsCount > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
                           Defect Tồn
                         </div>
-                        <div className={`text-sm font-black flex items-center justify-center gap-1 mt-0.5 ${openDefects.length > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                        <div className={`text-sm font-black flex items-center justify-center gap-1 mt-0.5 ${openDefectsCount > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
                           <AlertTriangle className="w-3.5 h-3.5" />
-                          <span>{openDefects.length}</span>
+                          <span>{openDefectsCount}</span>
                         </div>
                       </div>
 
-                      <div
+                      <div 
                         onClick={async () => {
                           setSelectedTeamForDetail(team);
                           setDetailModalTab('logs');
@@ -1339,7 +1400,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                         <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Tổng Công</div>
                         <div className="text-sm font-black text-slate-700 flex items-center justify-center gap-1 mt-0.5">
                           <Users className="w-3.5 h-3.5 text-slate-400" />
-                          <span>{totalManDays.toLocaleString('en-US')}</span>
+                          <span>{formatDecimal(totalManDays)}</span>
                         </div>
                       </div>
                     </div>
@@ -1444,7 +1505,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       {/* Ghi nhận quân số Modal */}
       {showAddLogModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div
+          <div 
             className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
@@ -1453,8 +1514,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               <h3 className="font-bold text-sm">
                 {editingRecord ? '✍️ Sửa Ghi Nhận Quân Số' : '👷 Ghi Nhận Quân Số Mới'}
               </h3>
-              <button
+              <button 
                 onClick={async () => {
+                  if (!editingRecord && activeLogEntityId && projectId) {
+                    try {
+                      await deleteEntityPhotos(projectId, 'crewRecord', activeLogEntityId);
+                    } catch (_) {}
+                  }
                   setShowAddLogModal(false);
                   setEditingRecord(null);
                 }}
@@ -1480,18 +1546,22 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Đội Thi Công</label>
                 <div className="space-y-1.5">
                   <select
-                    value={teams.some((t) => t.name === teamName) ? teamName : 'Khác'}
+                    value={teams.some((t) => t.id === teamId) ? teams.find(t => t.id === teamId)?.name : (teams.some((t) => t.name === teamName) ? teamName : 'Khác')}
                     onChange={(e) => {
                       const selectedVal = e.target.value;
                       if (selectedVal === 'Khác') {
                         setTeamName('');
+                        setTeamId('');
                       } else {
                         setTeamName(selectedVal);
-                        // Auto-populate leaderName and workerCount
+                        // Auto-populate leaderName, workerCount, and teamId
                         const selectedTeam = teams.find((t) => t.name === selectedVal);
                         if (selectedTeam) {
+                          setTeamId(selectedTeam.id || '');
                           setLeaderName(selectedTeam.leader);
                           setWorkerCount(selectedTeam.defaultCount);
+                        } else {
+                          setTeamId('');
                         }
                       }
                     }}
@@ -1503,12 +1573,15 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     <option value="Khác">-- Tự nhập tên đội khác --</option>
                   </select>
 
-                  {(!teams.some((t) => t.name === teamName) || teamName === '') && (
-                    <input
+                  {(!teams.some((t) => t.id === teamId || t.name === teamName) || teamName === '') && (
+                    <input 
                       type="text"
                       placeholder="Nhập tên đội thi công tùy chỉnh..."
                       value={teamName}
-                      onChange={(e) => setTeamName(e.target.value)}
+                      onChange={(e) => {
+                        setTeamName(e.target.value);
+                        setTeamId('');
+                      }}
                       className="w-full text-xs bg-white border border-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 mt-1.5"
                       required
                     />
@@ -1519,7 +1592,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               {/* Leader Name */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Trưởng Nhóm / Đội Trưởng</label>
-                <input
+                <input 
                   type="text"
                   placeholder="Ví dụ: Đội trưởng Hùng, Anh Cường..."
                   value={leaderName}
@@ -1531,14 +1604,18 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
               {/* Worker Count */}
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Quân Số (Số lượng thợ tại công trình)</label>
-                <input
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Số Lượng Quân Số (Thợ)</label>
+                <input 
                   type="number"
-                  step="any"
-                  min="0.01"
+                  min="0.5"
+                  step="0.5"
+                  placeholder="Ví dụ: 5"
                   value={workerCount}
-                  onChange={(e) => setWorkerCount(Number(e.target.value))}
-                  className="w-full text-xs bg-white border border-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-bold"
+                  onChange={(e) => {
+                    const val = Math.max(0, parseFloat(e.target.value) || 0);
+                    setWorkerCount(val);
+                  }}
+                  className="w-full text-xs bg-white border border-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-bold text-indigo-700"
                   required
                 />
               </div>
@@ -1688,6 +1765,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                   ))}
                                   <div className="flex items-center gap-1">
                                     <input
+                                      id={`sub-input-${fIdx}-${cIdx}`}
                                       type="text"
                                       placeholder="+ Thêm hạng mục phụ (Enter)..."
                                       onKeyDown={(e) => {
@@ -1699,6 +1777,19 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                       }}
                                       className="text-[10px] bg-white border border-slate-200 px-2 py-0.5 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500 w-36"
                                     />
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const inputEl = document.getElementById(`sub-input-${fIdx}-${cIdx}`) as HTMLInputElement;
+                                        if (inputEl && inputEl.value.trim()) {
+                                          addSubItemToCategory(fIdx, cIdx, inputEl.value);
+                                          inputEl.value = '';
+                                        }
+                                      }}
+                                      className="bg-indigo-600 hover:bg-indigo-700 text-white rounded px-2 py-0.5 text-[10px] font-bold shrink-0 transition"
+                                    >
+                                      Thêm
+                                    </button>
                                   </div>
                                 </div>
                               </div>
@@ -1714,11 +1805,22 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               {/* Ghi chú */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Ghi Chú Thêm (Tùy chọn)</label>
-                <textarea
+                <textarea 
                   placeholder="Ví dụ: Đã nhận đủ vật tư, tăng ca hoàn thành trần phòng A102..."
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   className="w-full text-xs bg-white border border-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 h-16 resize-none"
+                />
+              </div>
+
+              {/* Hình ảnh đính kèm */}
+              <div className="pt-1">
+                <PhotoAttachmentPicker
+                  projectId={projectId}
+                  entityType="crewRecord"
+                  entityId={activeLogEntityId}
+                  category="crew_progress"
+                  label="HÌNH ẢNH HIỆN TRƯỜNG"
                 />
               </div>
 
@@ -1727,6 +1829,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                 <button
                   type="button"
                   onClick={async () => {
+                    if (!editingRecord && activeLogEntityId && projectId) {
+                      try {
+                        await deleteEntityPhotos(projectId, 'crewRecord', activeLogEntityId);
+                      } catch (_) {}
+                    }
                     setShowAddLogModal(false);
                     setEditingRecord(null);
                   }}
@@ -1749,7 +1856,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       {/* Thêm / Sửa thông tin Đội thi công Modal */}
       {showTeamModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div
+          <div 
             className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
@@ -1758,7 +1865,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               <h3 className="font-bold text-sm">
                 {editingTeam ? '✍️ Sửa Thông Tin Đội' : '👥 Thêm Đội Thi Công Mới'}
               </h3>
-              <button
+              <button 
                 onClick={async () => {
                   setShowTeamModal(false);
                   setEditingTeam(null);
@@ -1774,7 +1881,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               {/* Team Name */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Tên Đội Thi Công</label>
-                <input
+                <input 
                   type="text"
                   placeholder="Ví dụ: Đội Thạch Cao Hà Nội..."
                   value={tName}
@@ -1787,7 +1894,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               {/* Leader Name */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Trưởng Nhóm / Đội Trưởng</label>
-                <input
+                <input 
                   type="text"
                   placeholder="Ví dụ: Đội trưởng Hùng, Anh Tiến..."
                   value={tLeader}
@@ -1800,7 +1907,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               {/* Default worker count */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Quân Số Định Biên Mặc Định</label>
-                <input
+                <input 
                   type="number"
                   step="any"
                   min="0.01"
@@ -1835,7 +1942,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   </div>
                 </div>
                 <div className="relative">
-                  <input
+                  <input 
                     type="tel"
                     autoComplete="tel"
                     placeholder="Ví dụ: 0912345678"
@@ -1858,7 +1965,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               {/* Notes */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Mô Tả / Ghi Chú</label>
-                <textarea
+                <textarea 
                   placeholder="Ví dụ: Đội chuyên thạch cao trần giật cấp, khoán khối lượng..."
                   value={tNotes}
                   onChange={(e) => setTNotes(e.target.value)}
@@ -1986,70 +2093,30 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       {/* TEAM DETAIL & STATISTICS MODAL */}
       {selectedTeamForDetail && (() => {
         const team = selectedTeamForDetail;
-        const teamRooms = (roomProgressList || []).filter(r => isTeamMatch(r.assignedTeam, team));
-        const teamDefects = (defects || []).filter(d => isTeamMatch(d.assignedTo, team));
-        const teamLogs = (crewRecords || []).filter(l => isTeamMatch(l.teamName, team));
+        const stat = allTeamStatsMap[team.id];
+        if (!stat) return null;
 
-        const totalWorkdays = teamLogs.reduce((sum, item) => sum + (item.workerCount || 0), 0);
+        const {
+          teamRooms,
+          totalTeamVol: totalTeamVolume,
+          completedFrameVol,
+          completedBoardVol,
+          inspectedVol,
+          floorGroupMap,
+          totalMandays: totalWorkdays,
+          categoryBreakdown
+        } = stat;
+        
+        const teamDefects = (defects || []).filter(d => isTeamMatch(d.assignedTo, team, d.teamId));
+        const teamLogs = (crewRecords || []).filter(l => isTeamMatch(l.teamName, team, l.teamId));
+        
         const openDefectsList = teamDefects.filter(d => d.status === 'Mới phát hiện' || d.status === 'Đang sửa');
         const resolvedDefectsList = teamDefects.filter(d => d.status === 'Đã khắc phục' || d.status === 'Đã nghiệm thu');
-        const completedRooms = teamRooms.filter(r => r.inspectionStatus === 'Đạt nghiệm thu');
+        const completedRooms = teamRooms.filter(r => isTeamWorkCompletedInRoom(r, team));
 
-        // Volume statistics
-        const totalTeamVolume = teamRooms.reduce((sum, r) => sum + (r.workVolume || 0), 0);
-        const completedFrameVol = teamRooms.filter(r => r.frameStatus === 'Đã hoàn thành').reduce((sum, r) => sum + (r.workVolume || 0), 0);
-        const completedBoardVol = teamRooms.filter(r => r.boardStatus === 'Đã hoàn thành').reduce((sum, r) => sum + (r.workVolume || 0), 0);
-        const inspectedVol = teamRooms.filter(r => r.inspectionStatus === 'Đạt nghiệm thu').reduce((sum, r) => sum + (r.workVolume || 0), 0);
+        const floorStatList: FloorGroupDetail[] = Object.values(floorGroupMap) as FloorGroupDetail[];
 
-        // Floor breakdown statistics
-        const floorGroupMap: Record<string, { floorName: string; rooms: typeof teamRooms; totalVol: number; doneFrameVol: number; doneBoardVol: number; doneRooms: number }> = {};
-        teamRooms.forEach((room) => {
-          const fp = floorPlans.find(f => f.id === room.floorId);
-          const fName = room.floorName || fp?.floorName || 'Mặt bằng';
-          if (!floorGroupMap[fName]) {
-            floorGroupMap[fName] = { floorName: fName, rooms: [], totalVol: 0, doneFrameVol: 0, doneBoardVol: 0, doneRooms: 0 };
-          }
-          floorGroupMap[fName].rooms.push(room);
-          floorGroupMap[fName].totalVol += (room.workVolume || 0);
-          if (room.frameStatus === 'Đã hoàn thành') floorGroupMap[fName].doneFrameVol += (room.workVolume || 0);
-          if (room.boardStatus === 'Đã hoàn thành') floorGroupMap[fName].doneBoardVol += (room.workVolume || 0);
-          if (room.inspectionStatus === 'Đạt nghiệm thu') floorGroupMap[fName].doneRooms += 1;
-        });
-        const floorStatList = Object.values(floorGroupMap);
-
-        const teamWorkCategories = (() => {
-          const categoriesSet = new Set<string>();
-          (roomProgressList || []).forEach(room => {
-            const isMainTeam = isTeamMatch(room.assignedTeam, team);
-            if (isMainTeam) {
-              if (room.workCategory) {
-                categoriesSet.add(room.workCategory);
-              }
-              if (room.categoryVolumes) {
-                Object.keys(room.categoryVolumes).forEach(cat => {
-                  if (cat) categoriesSet.add(cat);
-                });
-              }
-              if (room.subItems) {
-                room.subItems.forEach(sub => {
-                  if (!sub.assignedTeam) {
-                    const cat = sub.category || room.workCategory;
-                    if (cat) categoriesSet.add(cat);
-                  }
-                });
-              }
-            }
-            if (room.subItems) {
-              room.subItems.forEach(sub => {
-                if (isTeamMatch(sub.assignedTeam, team)) {
-                  const cat = sub.category || room.workCategory;
-                  if (cat) categoriesSet.add(cat);
-                }
-              });
-            }
-          });
-          return Array.from(categoriesSet).filter(Boolean);
-        })();
+        const teamWorkCategories = categoryBreakdown.map(cb => cb.categoryName);
 
         // Filter defects by tab state
         const displayedDefects = teamDefects.filter(d => {
@@ -2063,7 +2130,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/70 backdrop-blur-md">
-            <div
+            <div 
               className="bg-slate-50 rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[92vh] border border-slate-200 animate-in fade-in zoom-in-95 duration-200"
               onClick={(e) => e.stopPropagation()}
             >
@@ -2108,7 +2175,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   )}
                 </div>
 
-                <button
+                <button 
                   onClick={() => setSelectedTeamForDetail(null)}
                   className="text-slate-400 hover:text-white transition bg-slate-800 hover:bg-slate-700 p-2 rounded-xl"
                   title="Đóng"
@@ -2134,10 +2201,16 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Khối Lượng Thi Công</div>
                   <div className="text-sm sm:text-base font-black text-emerald-900 mt-0.5 flex items-center justify-center gap-1">
                     <BarChart3 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                    <span>{totalTeamVolume > 0 ? `${totalTeamVolume} m²` : 'Chưa nhập'}</span>
+                    <span>
+                      {stat.volumeByUnit && Object.keys(stat.volumeByUnit).length > 0
+                        ? Object.entries(stat.volumeByUnit).map(([unit, val]) => `${val} ${unit}`).join(' + ')
+                        : (totalTeamVolume > 0 ? `${totalTeamVolume} m²` : 'Chưa nhập')}
+                    </span>
                   </div>
                   <div className="text-[10px] text-emerald-700 mt-0.5 font-semibold truncate">
-                    {inspectedVol > 0 ? `NT: ${inspectedVol} m²` : `Khung: ${completedFrameVol} m² | Tấm: ${completedBoardVol} m²`}
+                    {stat.completedVolumeByUnit && Object.keys(stat.completedVolumeByUnit).length > 0
+                      ? `NT: ${Object.entries(stat.completedVolumeByUnit).map(([unit, val]) => `${Math.round(Number(val) * 100) / 100} ${unit}`).join(' + ')}`
+                      : (inspectedVol > 0 ? `NT: ${inspectedVol} m²` : `Khung: ${completedFrameVol} m² | Tấm: ${completedBoardVol} m²`)}
                   </div>
                 </div>
 
@@ -2230,7 +2303,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                         <p className="text-[11px] text-slate-500 mt-1 max-w-md mx-auto leading-relaxed">
                           Để gán đội thi công cho từng căn hộ / phòng, bạn hãy vào tab <strong className="text-slate-700">"Sơ đồ mặt bằng"</strong>, chọn vùng phòng cần giao và chọn đội <strong className="text-indigo-600">{team.name}</strong>.
                         </p>
-
+                        
                         {loggedFloors.length > 0 && (
                           <div className="mt-4 pt-3 border-t border-slate-100 text-left bg-indigo-50/50 p-3 rounded-lg">
                             <span className="text-[11px] font-bold text-indigo-900 block mb-1">
@@ -2248,165 +2321,279 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                       </div>
                     ) : (
                       <div className="space-y-3">
-                        {/* Floor Summary Grid */}
-                        {floorStatList.length > 0 && (
-                          <div className="bg-white border border-indigo-100 rounded-xl p-3 shadow-2xs space-y-2">
-                            <div className="flex items-center justify-between text-xs font-bold text-indigo-900 border-b border-slate-100 pb-1.5">
-                              <span className="flex items-center gap-1.5">
-                                <MapPin className="w-4 h-4 text-indigo-600" />
-                                Thống Kê Khối Lượng Thi Công Theo Tầng
-                              </span>
-                              <span className="text-[11px] text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100 font-extrabold">
-                                Tổng {floorStatList.length} tầng
-                              </span>
-                            </div>
-
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                              {floorStatList.map(f => (
-                                <div key={f.floorName} className="bg-slate-50 p-2.5 rounded-lg border border-slate-200/80 space-y-1">
-                                  <div className="flex justify-between items-center font-bold text-slate-800 text-[11px]">
-                                    <span className="text-indigo-700 font-extrabold">{f.floorName}</span>
-                                    <span className="bg-white px-1.5 py-0.2 rounded border border-slate-200 text-slate-600 text-[10px]">
-                                      {f.rooms.length} căn ({f.doneRooms}/{f.rooms.length} đạt NT)
-                                    </span>
-                                  </div>
-
-                                  <div className="grid grid-cols-3 gap-1 text-[10px] text-slate-600 pt-1 border-t border-slate-200/60">
-                                    <div>
-                                      <span className="text-slate-400 block text-[9px]">Tổng KL:</span>
-                                      <strong className="text-slate-800">{f.totalVol} m²</strong>
-                                    </div>
-                                    <div>
-                                      <span className="text-slate-400 block text-[9px]">Xong Khung:</span>
-                                      <strong className="text-emerald-700">{f.doneFrameVol} m²</strong>
-                                    </div>
-                                    <div>
-                                      <span className="text-slate-400 block text-[9px]">Xong Tấm:</span>
-                                      <strong className="text-blue-700">{f.doneBoardVol} m²</strong>
-                                    </div>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        <div className="flex justify-between items-center text-xs text-slate-500 font-medium px-1">
-                          <span>Danh sách căn hộ / phòng đội <strong className="text-slate-800">{team.name}</strong> đang thực hiện:</span>
-                          <span className="text-[11px] bg-slate-200/80 text-slate-700 px-2 py-0.5 rounded-md font-bold">
-                            {teamRooms.length} vị trí ({totalTeamVolume} m²)
+                        <div className="flex justify-between items-center text-xs text-slate-500 font-medium px-1 mb-2">
+                          <span>Thống kê chi tiết theo tầng đang thi công</span>
+                          <span className="text-[11px] bg-indigo-600 text-white px-2.5 py-0.5 rounded-md font-extrabold shadow-2xs">
+                            {floorStatList.length} Tầng ({teamRooms.length} Căn / Phòng)
                           </span>
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                          {teamRooms.map((room) => {
-                            const floorPlan = floorPlans.find(f => f.id === room.floorId);
-                            const floorName = room.floorName || floorPlan?.floorName || 'Mặt bằng';
-
-                            const roomTeamCategories = (() => {
-                              const cats = new Set<string>();
-                              const isMainTeam = isTeamMatch(room.assignedTeam, team);
-                              if (isMainTeam) {
-                                if (room.workCategory) cats.add(room.workCategory);
-                                if (room.categoryVolumes) {
-                                  Object.keys(room.categoryVolumes).forEach(c => {
-                                    if (c) cats.add(c);
-                                  });
-                                }
-                                if (room.subItems) {
-                                  room.subItems.forEach(sub => {
-                                    if (!sub.assignedTeam) {
-                                      const c = sub.category || room.workCategory;
-                                      if (c) cats.add(c);
-                                    }
-                                  });
-                                }
-                              }
-                              if (room.subItems) {
-                                room.subItems.forEach(sub => {
-                                  if (isTeamMatch(sub.assignedTeam, team)) {
-                                    const c = sub.category || room.workCategory;
-                                    if (c) cats.add(c);
-                                  }
-                                });
-                              }
-                              return Array.from(cats);
-                            })();
-
+                        <div className="space-y-4">
+                          {floorStatList.map((f) => {
                             return (
-                              <div
-                                key={room.id}
-                                className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs hover:border-indigo-300 transition"
-                              >
-                                <div className="flex justify-between items-start gap-2 mb-2">
-                                  <div>
-                                    <h4 className="font-bold text-slate-900 text-sm leading-tight flex items-center gap-1.5 flex-wrap">
-                                      <Home className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                                      <span>{room.roomName}</span>
-                                      {room.workVolume !== undefined && room.workVolume !== null && (
-                                        <span className="text-[10px] font-extrabold bg-indigo-50 text-indigo-700 border border-indigo-200/80 px-1.5 py-0.2 rounded-md">
-                                          {room.workVolume} {room.volumeUnit || 'm²'}
-                                        </span>
-                                      )}
-                                    </h4>
-                                    <p className="text-[11px] text-indigo-600 font-semibold mt-0.5 flex items-center gap-1">
-                                      <MapPin className="w-3 h-3 text-slate-400" />
-                                      {floorName}
-                                    </p>
+                              <div key={f.floorName} className="bg-slate-50/70 border border-slate-200/60 rounded-xl p-3.5 space-y-3">
+                                {/* Floor Header Group */}
+                                <div className="flex justify-between items-center pb-2.5 border-b border-slate-200/60">
+                                  <div className="flex items-center gap-1.5 font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wider">
+                                    <MapPin className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                                    <span>TẦNG: {f.floorName}</span>
+                                  </div>
+                                  <div className="flex gap-1.5 text-[10px] font-semibold">
+                                    <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md border border-slate-200/40">
+                                      {f.rooms.length} Căn hộ
+                                    </span>
+                                    <span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-md border border-emerald-100">
+                                      {f.categoryDetails && Object.keys(f.categoryDetails).length > 0
+                                        ? Object.values(f.categoryDetails).map(d => `${Math.round(d.totalVol * 100) / 100} ${d.unit || 'm²'}`).join(' + ')
+                                        : `${f.totalVol} m²`}
+                                    </span>
+                                  </div>
+                                </div>
 
-                                    {roomTeamCategories.length > 0 && (
-                                      <div className="flex flex-wrap gap-1 mt-1.5">
-                                        {roomTeamCategories.map(cat => (
-                                          <span key={cat} className="bg-indigo-50/50 text-indigo-700 border border-indigo-100/50 text-[9px] font-extrabold px-1.5 py-0.2 rounded">
-                                            🏗️ {cat}
-                                          </span>
-                                        ))}
+                                {/* Rooms list inside this floor */}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                  {f.rooms.map((room) => {
+                                    const roomStats = (() => {
+                                      let totalVol = 0;
+                                      let doneFrameVol = 0;
+                                      let doneBoardVol = 0;
+                                      let doneInspectedVol = 0;
+
+                                      const isMain = isTeamMatch(room.assignedTeam, team, room.teamId);
+                                      const teamCats = getTeamCategoriesForRoom(room, team);
+
+                                      const categoriesDetailList: {
+                                        name: string;
+                                        vol: number;
+                                        frameVol: number;
+                                        boardVol: number;
+                                        inspectedVol: number;
+                                        frameStatus: AcceptanceStatus;
+                                        boardStatus: AcceptanceStatus;
+                                        inspectionStatus: RoomInspectionResult;
+                                        subItems?: typeof room.subItems;
+                                      }[] = [];
+
+                                      if (teamCats.size > 0 && room.categoryVolumes) {
+                                        teamCats.forEach(cat => {
+                                          const catVol = room.categoryVolumes?.[cat] || 0;
+                                          totalVol += catVol;
+
+                                          let catFrameVol = 0;
+                                          let catBoardVol = 0;
+                                          let catInspectedVol = 0;
+
+                                          const subItemsInCat = (room.subItems?.filter(s => s.category === cat) || []).filter(s => 
+                                            isTeamMatch(s.assignedTeam, team, s.teamId) || (!s.assignedTeam && !s.teamId && isMain)
+                                          );
+                                          let catFrameStatus: AcceptanceStatus = 'Chưa làm';
+                                          let catBoardStatus: AcceptanceStatus = 'Chưa làm';
+                                          let catInspectionStatus: RoomInspectionResult = 'Chưa nghiệm thu';
+
+                                          if (subItemsInCat.length > 0) {
+                                            const frameSubs = subItemsInCat.filter(s => s.name.toLowerCase().includes('khung'));
+                                            const boardSubs = subItemsInCat.filter(s => s.name.toLowerCase().includes('tấm') || s.name.toLowerCase().includes('bắn'));
+
+                                            const doneFrameCount = frameSubs.filter(s => s.status === 'Đã hoàn thành' || s.inspectionStatus === 'Đạt nghiệm thu').length;
+                                            const doneBoardCount = boardSubs.filter(s => s.status === 'Đã hoàn thành' || s.inspectionStatus === 'Đạt nghiệm thu').length;
+
+                                            if (frameSubs.length > 0) {
+                                              catFrameStatus = doneFrameCount === frameSubs.length ? 'Đã hoàn thành' : (doneFrameCount > 0 ? 'Đang làm' : 'Chưa làm');
+                                            } else {
+                                              catFrameStatus = room.frameStatus;
+                                            }
+
+                                            if (boardSubs.length > 0) {
+                                              catBoardStatus = doneBoardCount === boardSubs.length ? 'Đã hoàn thành' : (doneBoardCount > 0 ? 'Đang làm' : 'Chưa làm');
+                                            } else {
+                                              catBoardStatus = room.boardStatus;
+                                            }
+
+                                            const doneAll = subItemsInCat.filter(s => s.status === 'Đã hoàn thành' || s.inspectionStatus === 'Đạt nghiệm thu').length;
+                                            catInspectedVol = catVol * (doneAll / subItemsInCat.length);
+                                            catFrameVol = catVol * (frameSubs.length > 0 ? doneFrameCount / frameSubs.length : (room.frameStatus === 'Đã hoàn thành' ? 1 : (room.frameStatus === 'Đang làm' ? 0.5 : 0)));
+                                            catBoardVol = catVol * (boardSubs.length > 0 ? doneBoardCount / boardSubs.length : (room.boardStatus === 'Đã hoàn thành' ? 1 : (room.boardStatus === 'Đang làm' ? 0.5 : 0)));
+
+                                            if (subItemsInCat.every(s => s.inspectionStatus === 'Đạt nghiệm thu')) {
+                                              catInspectionStatus = 'Đạt nghiệm thu';
+                                            } else if (subItemsInCat.some(s => s.inspectionStatus === 'Chưa đạt (Cần sửa)')) {
+                                              catInspectionStatus = 'Chưa đạt (Cần sửa)';
+                                            } else if (subItemsInCat.some(s => s.inspectionStatus === 'Đạt nghiệm thu')) {
+                                              catInspectionStatus = 'Chưa đạt (Cần sửa)';
+                                            }
+                                          } else {
+                                            catFrameStatus = room.frameStatus;
+                                            catBoardStatus = room.boardStatus;
+                                            catInspectionStatus = room.inspectionStatus;
+
+                                            catInspectedVol = room.inspectionStatus === 'Đạt nghiệm thu' ? catVol : 0;
+                                            catFrameVol = room.frameStatus === 'Đã hoàn thành' ? catVol : (room.frameStatus === 'Đang làm' ? catVol * 0.5 : 0);
+                                            catBoardVol = room.boardStatus === 'Đã hoàn thành' ? catVol : (room.boardStatus === 'Đang làm' ? catVol * 0.5 : 0);
+                                          }
+
+                                          doneFrameVol += catFrameVol;
+                                          doneBoardVol += catBoardVol;
+                                          doneInspectedVol += catInspectedVol;
+
+                                          categoriesDetailList.push({
+                                            name: cat,
+                                            vol: catVol,
+                                            frameVol: catFrameVol,
+                                            boardVol: catBoardVol,
+                                            inspectedVol: catInspectedVol,
+                                            frameStatus: catFrameStatus,
+                                            boardStatus: catBoardStatus,
+                                            inspectionStatus: catInspectionStatus,
+                                            subItems: subItemsInCat
+                                          });
+                                        });
+                                      } else {
+                                        totalVol = room.workVolume || 0;
+                                        doneFrameVol = room.frameStatus === 'Đã hoàn thành' ? totalVol : (room.frameStatus === 'Đang làm' ? totalVol * 0.5 : 0);
+                                        doneBoardVol = room.boardStatus === 'Đã hoàn thành' ? totalVol : (room.boardStatus === 'Đang làm' ? totalVol * 0.5 : 0);
+                                        doneInspectedVol = room.inspectionStatus === 'Đạt nghiệm thu' ? totalVol : 0;
+
+                                        categoriesDetailList.push({
+                                          name: room.workCategory || 'Hạng mục khác',
+                                          vol: totalVol,
+                                          frameVol: doneFrameVol,
+                                          boardVol: doneBoardVol,
+                                          inspectedVol: doneInspectedVol,
+                                          frameStatus: room.frameStatus,
+                                          boardStatus: room.boardStatus,
+                                          inspectionStatus: room.inspectionStatus,
+                                          subItems: room.subItems
+                                        });
+                                      }
+
+                                      return {
+                                        totalVol: Math.round(totalVol * 100) / 100,
+                                        doneFrameVol: Math.round(doneFrameVol * 100) / 100,
+                                        doneBoardVol: Math.round(doneBoardVol * 100) / 100,
+                                        doneInspectedVol: Math.round(doneInspectedVol * 100) / 100,
+                                        categories: categoriesDetailList
+                                      };
+                                    })();
+
+                                    return (
+                                      <div 
+                                        key={room.id}
+                                        className="bg-white border border-slate-200/80 rounded-lg p-3 hover:border-indigo-200 transition flex flex-col justify-between shadow-xs"
+                                      >
+                                        <div>
+                                          {/* Room Title */}
+                                          <div className="flex justify-between items-start gap-2 mb-2.5">
+                                            <div>
+                                              <h4 className="font-semibold text-slate-900 text-xs sm:text-sm leading-tight flex items-center gap-1.5 flex-wrap">
+                                                <Home className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                                                <span>{room.roomName}</span>
+                                                <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                                                  Tổng KL: {roomStats.totalVol} {room.volumeUnit || 'm²'}
+                                                </span>
+                                              </h4>
+                                            </div>
+
+                                            {/* Room Acceptance Status */}
+                                            <span className={`text-[9.5px] font-bold tracking-wide uppercase px-2 py-0.5 rounded shrink-0 ${
+                                              room.inspectionStatus === 'Đạt nghiệm thu'
+                                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/50'
+                                                : room.inspectionStatus === 'Chưa đạt (Cần sửa)'
+                                                ? 'bg-rose-50 text-rose-700 border border-rose-200/50'
+                                                : 'bg-slate-50 text-slate-500 border border-slate-200/40'
+                                            }`}>
+                                              {room.inspectionStatus}
+                                            </span>
+                                          </div>
+
+                                          {/* Detailed Main Categories list in this apartment */}
+                                          <div className="space-y-3 mt-2.5 pt-2.5 border-t border-slate-100">
+                                            {roomStats.categories.map((c, idx) => {
+                                              return (
+                                                <div key={idx} className="pb-3 last:pb-0 border-b last:border-0 border-slate-100 space-y-1.5">
+                                                  {/* Category Title Header */}
+                                                  <div className="flex justify-between items-center text-[11px] font-bold text-slate-800">
+                                                    <span className="truncate max-w-[150px] font-semibold text-slate-700 flex items-center gap-1.5">
+                                                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0"></span>
+                                                      {c.name}
+                                                    </span>
+                                                    <span className="bg-slate-50 text-slate-600 text-[10px] px-1.5 py-0.5 rounded font-medium border border-slate-200/40">
+                                                      {c.vol} {room.volumeUnit || 'm²'}
+                                                    </span>
+                                                  </div>
+
+                                                  <div className="space-y-1.5 text-[10px]">
+                                                    {/* Sub-items list with clean flat layout */}
+                                                    {c.subItems && c.subItems.length > 0 && (
+                                                      <div className="mt-1.5 pl-3.5 border-l border-slate-200 space-y-1.5">
+                                                        <div className="text-[9.5px] font-medium text-slate-400 flex items-center gap-1">
+                                                          <span>Hạng mục con:</span>
+                                                        </div>
+                                                        <div className="grid grid-cols-1 gap-1 text-[10px] text-slate-600 max-h-[140px] overflow-y-auto">
+                                                          {c.subItems.map((sub, sIdx) => {
+                                                            const hasStarted = sub.status && sub.status !== 'Chưa làm';
+                                                            const isDone = sub.status === 'Đã hoàn thành';
+                                                            const isApproved = sub.inspectionStatus === 'Đạt nghiệm thu';
+
+                                                            let statusTextStr = "Chưa làm";
+                                                            let statusColorStr = "bg-slate-50 text-slate-400 border border-slate-100";
+                                                            if (isDone) {
+                                                              statusTextStr = "Đã xong";
+                                                              statusColorStr = "bg-emerald-50 text-emerald-700 border border-emerald-100 font-medium";
+                                                            } else if (hasStarted) {
+                                                              statusTextStr = "Đang làm";
+                                                              statusColorStr = "bg-amber-50 text-amber-700 border border-amber-100 font-medium";
+                                                            }
+
+                                                            let inspectionTextStr = "Chưa NT";
+                                                            let inspectionColorStr = "bg-slate-50 text-slate-400 border border-slate-100";
+                                                            if (isApproved) {
+                                                              inspectionTextStr = "Đạt NT";
+                                                              inspectionColorStr = "bg-emerald-500 text-white font-bold";
+                                                            } else if (sub.inspectionStatus === 'Chưa đạt (Cần sửa)') {
+                                                              inspectionTextStr = "Chưa đạt (Sửa)";
+                                                              inspectionColorStr = "bg-rose-500 text-white font-bold";
+                                                            }
+
+                                                            return (
+                                                              <div key={sIdx} className="flex justify-between items-center py-0.5 border-b border-dashed border-slate-100/60 last:border-0 hover:bg-slate-50/50 transition">
+                                                                <span className="truncate max-w-[130px] font-medium">• {sub.name}</span>
+                                                                <div className="flex items-center gap-1">
+                                                                  <span className={`px-1.5 py-0.2 rounded text-[8px] ${statusColorStr}`}>{statusTextStr}</span>
+                                                                  <span className={`px-1.5 py-0.2 rounded text-[8px] ${inspectionColorStr}`}>{inspectionTextStr}</span>
+                                                                </div>
+                                                              </div>
+                                                            );
+                                                          })}
+                                                        </div>
+                                                      </div>
+                                                    )}
+                                                  </div>
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+
+                                        {/* Dates and Notes */}
+                                        {(room.targetFrameDate || room.targetBoardDate || room.notes) && (
+                                          <div className="text-[10px] text-slate-500 pt-2.5 mt-2.5 border-t border-dashed border-slate-200/80 space-y-1">
+                                            {room.targetBoardDate && (
+                                              <div className="flex justify-between">
+                                                <span>📅 Hạn bắn tấm:</span>
+                                                <strong className="text-slate-700">{formatDateDDMMYYYY(room.targetBoardDate)}</strong>
+                                              </div>
+                                            )}
+                                            {room.notes && (
+                                              <div className="bg-amber-50/50 text-amber-900/90 p-1.5 rounded border border-amber-100/50 text-[9.5px] italic leading-tight">
+                                                💡 {room.notes}
+                                              </div>
+                                            )}
+                                          </div>
+                                        )}
                                       </div>
-                                    )}
-                                  </div>
-
-                                  {/* Inspection overall badge */}
-                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border shrink-0 ${
-                                    room.inspectionStatus === 'Đạt nghiệm thu'
-                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                      : room.inspectionStatus === 'Chưa đạt (Cần sửa)'
-                                      ? 'bg-rose-50 text-rose-700 border-rose-200'
-                                      : 'bg-slate-100 text-slate-600 border-slate-200'
-                                  }`}>
-                                    {room.inspectionStatus}
-                                  </span>
+                                    );
+                                  })}
                                 </div>
-
-                                <div className="grid grid-cols-2 gap-1.5 my-2 pt-2 border-t border-slate-100 text-[11px]">
-                                  <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-100">
-                                    <span className="text-slate-400 block text-[9px] font-bold uppercase">Thi công Khung</span>
-                                    <span className={`font-bold block ${
-                                      room.frameStatus === 'Đã hoàn thành' ? 'text-emerald-600' : room.frameStatus === 'Đang làm' ? 'text-amber-600' : 'text-slate-400'
-                                    }`}>
-                                      {room.frameStatus}
-                                    </span>
-                                  </div>
-
-                                  <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-100">
-                                    <span className="text-slate-400 block text-[9px] font-bold uppercase">Thi công Bắn tấm</span>
-                                    <span className={`font-bold block ${
-                                      room.boardStatus === 'Đã hoàn thành' ? 'text-emerald-600' : room.boardStatus === 'Đang làm' ? 'text-amber-600' : 'text-slate-400'
-                                    }`}>
-                                      {room.boardStatus}
-                                    </span>
-                                  </div>
-                                </div>
-
-                                {(room.targetFrameDate || room.targetBoardDate || room.notes) && (
-                                  <div className="text-[10px] text-slate-500 pt-1 border-t border-dashed border-slate-100 space-y-0.5">
-                                    {room.targetBoardDate && (
-                                      <div>Hạn bắn tấm: <strong className="text-slate-700">{formatDateDDMMYYYY(room.targetBoardDate)}</strong></div>
-                                    )}
-                                    {room.notes && (
-                                      <div className="italic text-slate-600 truncate">Ghi chú: {room.notes}</div>
-                                    )}
-                                  </div>
-                                )}
                               </div>
                             );
                           })}
@@ -2457,8 +2644,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                       <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-6 text-center">
                         <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
                         <h4 className="text-sm font-bold text-emerald-900">
-                          {defectFilter === 'open'
-                            ? 'Không có lỗi defect nào cần khắc phục!'
+                          {defectFilter === 'open' 
+                            ? 'Không có lỗi defect nào cần khắc phục!' 
                             : 'Không tìm thấy defect nào theo bộ lọc'}
                         </h4>
                         <p className="text-xs text-emerald-700 mt-1">
@@ -2468,7 +2655,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     ) : (
                       <div className="space-y-2.5">
                         {displayedDefects.map((defect) => (
-                          <div
+                          <div 
                             key={defect.id}
                             className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs hover:border-rose-200 transition"
                           >
@@ -2511,9 +2698,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
                             {defect.imageUrl && (
                               <div className="mt-2">
-                                <img
-                                  src={defect.imageUrl}
-                                  alt="Ảnh defect"
+                                <img 
+                                  src={defect.imageUrl} 
+                                  alt="Ảnh defect" 
                                   className="w-full max-h-36 object-cover rounded-lg border border-slate-200"
                                 />
                               </div>
@@ -2547,7 +2734,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                           Lịch sử công nhật đã ghi nhận ({teamLogs.length} ngày / {totalWorkdays} công thợ):
                         </div>
                         {teamLogs.map((log) => (
-                          <div
+                          <div 
                             key={log.id}
                             className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs text-xs space-y-1"
                           >
@@ -2558,7 +2745,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                 <span className="text-[11px] font-normal text-slate-500">({log.floorName})</span>
                               </div>
                               <span className="bg-indigo-50 text-indigo-700 font-black px-2 py-0.5 rounded-md border border-indigo-100 text-[11px]">
-                                {(log.workerCount ?? 0).toLocaleString('en-US')} thợ
+                                {formatDecimal(log.workerCount)} thợ
                               </span>
                             </div>
 

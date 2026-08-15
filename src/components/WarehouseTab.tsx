@@ -1,14 +1,15 @@
 import React, { useState, useMemo } from 'react';
-import {
-  ArrowDownLeft,
-  ArrowUpRight,
-  Plus,
-  Search,
-  PackageCheck,
-  Layers,
-  Calendar,
-  User,
-  MapPin,
+import { useLanguage } from '../context/LanguageContext';
+import { 
+  ArrowDownLeft, 
+  ArrowUpRight, 
+  Plus, 
+  Search, 
+  PackageCheck, 
+  Layers, 
+  Calendar, 
+  User, 
+  MapPin, 
   FileSpreadsheet,
   FileText,
   Trash2,
@@ -22,17 +23,18 @@ import {
 } from 'lucide-react';
 import { InventoryItem, TransactionType, MaterialNorm, WorkVolume } from '../types';
 import { formatDateDDMMYYYY, formatExcelDate } from '../utils/dateFormatter';
-import { formatDecimal, evaluateMathExpression } from '../utils/numberUtils';
+import { formatDecimal, evaluateMathExpression, useFormatSettings, parseVietnameseNumber, parseExcelNumber } from '../utils/numberUtils';
 import * as XLSX from 'xlsx';
 import { exportWarehouseUpdateTemplate } from '../utils/excelExport';
 import { confirmAsync } from '../utils/confirmAsync';
+import { calculateStockSummary } from '../utils/inventoryUtils';
 
 interface WarehouseTabProps {
   inventory: InventoryItem[];
   onAddInventory: (item: Omit<InventoryItem, 'id'>) => void;
   onDeleteInventory: (id: string) => void;
   onDeleteMultipleInventory?: (ids: string[]) => void;
-  onSyncSheets: () => void;
+  onSyncSheets?: () => void;
   materialNorms: MaterialNorm[];
   onOpenNormModal: () => void;
   onOpenExportPdf?: () => void;
@@ -66,7 +68,9 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   onImportNorms,
   onImportWorkVolumes,
 }) => {
+  const { t } = useLanguage();
   const [filterType, setFilterType] = useState<'all' | 'in' | 'out'>('all');
+  useFormatSettings();
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
@@ -105,7 +109,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       try {
         const data = new Uint8Array(evt.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
-
+        
         let inCount = 0;
         let outCount = 0;
         let normsUpdatedCount = 0;
@@ -128,13 +132,13 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         if (inSheetName) {
           const sheet = workbook.Sheets[inSheetName];
           const jsonData = XLSX.utils.sheet_to_json<any>(sheet);
-
+          
           jsonData.forEach((row, rIdx) => {
             const materialNameRaw = row['Tên Vật Tư'] || row['Tên Vật Tư Thạch Cao'] || row['materialName'] || row['Vật tư'] || row['Vat tu'];
             if (!materialNameRaw) return;
 
             const materialNameStr = String(materialNameRaw).trim();
-            const quantityNum = Number(row['Số Lượng'] || row['quantity'] || 0);
+            const quantityNum = parseVietnameseNumber(row['Số Lượng'] || row['quantity'] || 0);
             if (isNaN(quantityNum) || quantityNum <= 0) return;
 
             const unitStr = String(row['Đơn Vị Tính'] || row['unit'] || 'Tấm').trim();
@@ -144,12 +148,16 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             const dateStr = formatExcelDate(rawDate);
             const notesStr = String(row['Ghi Chú'] || row['notes'] || '').trim();
             const rawId = row['Mã Phiếu'] || row['id'] || row['ID'];
+            const rawMaterialId = row['__materialId'] || row['Mã Vật Tư'] || row['materialId'] || row['Mã định mức'];
 
             const existingIdx = rawId ? newInventory.findIndex(i => i.id === String(rawId).trim()) : -1;
+            
+            const matchedNorm = materialNorms.find(n => (rawMaterialId && (n.materialId === rawMaterialId || n.id === rawMaterialId)) || n.materialName.trim().toLowerCase() === materialNameStr.toLowerCase());
 
             const invItem: InventoryItem = {
               id: existingIdx >= 0 ? newInventory[existingIdx].id : (rawId ? String(rawId).trim() : `INV-IN-${Date.now()}-${rIdx}-${Math.random().toString(36).substring(2, 5)}`),
               type: 'in',
+              materialId: rawMaterialId ? String(rawMaterialId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].materialId : (matchedNorm?.materialId || matchedNorm?.id)),
               materialName: materialNameStr,
               unit: unitStr,
               quantity: quantityNum,
@@ -179,13 +187,13 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         if (outSheetName) {
           const sheet = workbook.Sheets[outSheetName];
           const jsonData = XLSX.utils.sheet_to_json<any>(sheet);
-
+          
           jsonData.forEach((row, rIdx) => {
             const materialNameRaw = row['Tên Vật Tư'] || row['Tên Vật Tư Thạch Cao'] || row['materialName'] || row['Vật tư'] || row['Vat tu'];
             if (!materialNameRaw) return;
 
             const materialNameStr = String(materialNameRaw).trim();
-            const quantityNum = Number(row['Số Lượng'] || row['quantity'] || 0);
+            const quantityNum = parseVietnameseNumber(row['Số Lượng'] || row['quantity'] || 0);
             if (isNaN(quantityNum) || quantityNum <= 0) return;
 
             const unitStr = String(row['Đơn Vị Tính'] || row['unit'] || 'Tấm').trim();
@@ -195,12 +203,16 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             const dateStr = formatExcelDate(rawDate);
             const notesStr = String(row['Ghi Chú'] || row['notes'] || '').trim();
             const rawId = row['Mã Phiếu'] || row['id'] || row['ID'];
+            const rawMaterialId = row['__materialId'] || row['Mã Vật Tư'] || row['materialId'] || row['Mã định mức'];
 
             const existingIdx = rawId ? newInventory.findIndex(i => i.id === String(rawId).trim()) : -1;
+            
+            const matchedNorm = materialNorms.find(n => (rawMaterialId && (n.materialId === rawMaterialId || n.id === rawMaterialId)) || n.materialName.trim().toLowerCase() === materialNameStr.toLowerCase());
 
             const invItem: InventoryItem = {
               id: existingIdx >= 0 ? newInventory[existingIdx].id : (rawId ? String(rawId).trim() : `INV-OUT-${Date.now()}-${rIdx}-${Math.random().toString(36).substring(2, 5)}`),
               type: 'out',
+              materialId: rawMaterialId ? String(rawMaterialId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].materialId : (matchedNorm?.materialId || matchedNorm?.id)),
               materialName: materialNameStr,
               unit: unitStr,
               quantity: quantityNum,
@@ -230,7 +242,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         if (normSheetName) {
           const sheet = workbook.Sheets[normSheetName];
           const jsonData = XLSX.utils.sheet_to_json<any>(sheet);
-
+          
           jsonData.forEach((row, rIdx) => {
             const materialNameRaw = row['Tên Vật Tư'] || row['materialName'] || row['Vật tư'] || row['Vat tu'];
             if (!materialNameRaw) return;
@@ -240,21 +252,24 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             const workCategoryRaw = row['Tên Hạng Mục Thi Công'] || row['Hạng Mục Thi Công'] || row['Hạng mục thi công'] || row['Tên Hạng Mục'] || row['workCategory'];
             const workCategoryStr = workCategoryRaw ? String(workCategoryRaw).trim() : undefined;
             const unitStr = String(row['Đơn Vị Tính'] || row['unit'] || 'Tấm').trim();
-            const quotaQuantityNum = Number(row['Số Lượng Định Mức'] || row['quotaQuantity'] || 0);
+            const quotaQuantityNum = parseVietnameseNumber(row['Số Lượng Định Mức'] || row['quotaQuantity'] || 0);
             const unitNormPerM2Num = row['Định Mức / m2'] || row['Định Mức Hao Phí / m2'] || row['Định mức tiêu hao'] || row['unitNormPerM2'];
             const notesStr = String(row['Ghi Chú'] || row['notes'] || '').trim();
 
-            const existingIdx = newNorms.findIndex(n => n.materialName.toLowerCase() === materialNameStr.toLowerCase());
-
+            const rawId = row['__normId'] || row['__recordId'] || row['Mã Định Mức'] || row['id'];
+            const existingIdx = rawId 
+              ? newNorms.findIndex(n => n.id === String(rawId).trim()) 
+              : newNorms.findIndex(n => n.materialName.toLowerCase() === materialNameStr.toLowerCase());
+            
             const normData: MaterialNorm = {
-              id: existingIdx >= 0 ? newNorms[existingIdx].id : `NORM-${Date.now()}-${rIdx}-${Math.random().toString(36).substring(2, 5)}`,
+              id: existingIdx >= 0 ? newNorms[existingIdx].id : (rawId ? String(rawId).trim() : `NORM-${Date.now()}-${rIdx}-${Math.random().toString(36).substring(2, 5)}`),
               category: categoryStr,
               workCategory: workCategoryStr,
               workCategories: workCategoryStr ? workCategoryStr.split(',').map(s => s.trim()).filter(Boolean) : undefined,
               materialName: materialNameStr,
               unit: unitStr,
               quotaQuantity: quotaQuantityNum,
-              unitNormPerM2: unitNormPerM2Num ? Number(unitNormPerM2Num) : undefined,
+              unitNormPerM2: unitNormPerM2Num ? parseExcelNumber(unitNormPerM2Num) : undefined,
               notes: notesStr || undefined
             };
 
@@ -279,7 +294,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         if (volumeSheetName && workVolumes) {
           const sheet = workbook.Sheets[volumeSheetName];
           const jsonData = XLSX.utils.sheet_to_json<any>(sheet);
-
+          
           jsonData.forEach((row, rIdx) => {
             const titleRaw = row['Tên Hạng Mục Công Việc'] || row['Tên Hạng Mục Thi Công'] || row['Hạng Mục Công Việc'] || row['Tên Hạng Mục'] || row['Hạng mục'] || row['title'];
             if (!titleRaw) return;
@@ -288,18 +303,20 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             const floorStr = String(row['Tầng / Khu Vực'] || row['Tầng'] || row['floor'] || 'Tầng 1').trim();
             const categoryStr = String(row['Nhóm Hạng Mục'] || row['Phân Loại'] || row['category'] || 'khung_tran').trim() as any;
             const unitStr = String(row['Đơn Vị Tính'] || row['Đơn Vị'] || row['unit'] || 'm2').trim();
-            const plannedNum = Number(row['KL Định Mức'] || row['KL Kế Hoạch'] || row['planned'] || 0);
-            const actualNum = Number(row['KL Thực Tế'] || row['KL Thực Hiện'] || row['actual'] || 0);
-            const unitPriceNum = Number(row['Đơn Giá (VNĐ)'] || row['Đơn Giá'] || row['unitPrice'] || 0);
+            const plannedNum = parseExcelNumber(row['KL Định Mức'] || row['KL Kế Hoạch'] || row['planned'] || 0);
+            const actualNum = parseExcelNumber(row['KL Thực Tế'] || row['KL Thực Hiện'] || row['actual'] || 0);
+            const unitPriceNum = parseExcelNumber(row['Đơn Giá (VNĐ)'] || row['Đơn Giá'] || row['unitPrice'] || 0);
 
-            const existingIdx = newWorkVolumes.findIndex(
-              w => w.title.toLowerCase() === titleStr.toLowerCase() && w.floor.toLowerCase() === floorStr.toLowerCase()
-            );
+            const rawVolId = row['__workCategoryId'] || row['__recordId'] || row['Mã Hạng Mục'] || row['id'];
+            const existingIdx = rawVolId
+              ? newWorkVolumes.findIndex(w => (w.workCategoryId && w.workCategoryId === String(rawVolId).trim()) || w.id === String(rawVolId).trim())
+              : newWorkVolumes.findIndex(w => w.title.toLowerCase() === titleStr.toLowerCase() && w.floor.toLowerCase() === floorStr.toLowerCase());
 
             const statusVal = actualNum >= plannedNum ? 'Đã hoàn thành' : actualNum > 0 ? 'Đang thi công' : 'Chưa thi công';
 
             const volumeData: any = {
-              id: existingIdx >= 0 ? newWorkVolumes[existingIdx].id : `HM-${Date.now()}-${rIdx}-${Math.random().toString(36).substring(2, 5)}`,
+              id: existingIdx >= 0 ? newWorkVolumes[existingIdx].id : (rawVolId ? String(rawVolId).trim() : `HM-${Date.now()}-${rIdx}-${Math.random().toString(36).substring(2, 5)}`),
+              workCategoryId: existingIdx >= 0 ? (newWorkVolumes[existingIdx].workCategoryId || newWorkVolumes[existingIdx].id) : (rawVolId ? String(rawVolId).trim() : `CAT-${Date.now()}-${rIdx}`),
               title: titleStr,
               floor: floorStr,
               category: categoryStr,
@@ -337,7 +354,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         }
 
         // Summary message
-        const confirmMsg =
+        const confirmMsg = 
           `📊 Kết quả phân tích tệp Excel Kho & Vật Tư:\n\n` +
           `📥 NHẬP KHO: ${inCount} phiếu nhập\n` +
           `📤 XUẤT KHO: ${outCount} phiếu xuất\n` +
@@ -378,7 +395,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [notes, setNotes] = useState('');
 
   const liveQuantityCalc = useMemo(() => {
-    if (/[+\-*/]/.test(quantityStr)) {
+    if (/[+\-*/xX×:÷]/.test(quantityStr)) {
       return evaluateMathExpression(quantityStr);
     }
     return null;
@@ -398,111 +415,96 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     }
   }, [materialNorms]);
 
-  // Map material norms by name for quick lookup
+  // Map material norms by ID or name for quick lookup
   const normMap = useMemo(() => {
     const map: Record<string, MaterialNorm> = {};
     materialNorms.forEach((n) => {
+      if (n.materialId) map[n.materialId] = n;
       map[n.materialName.trim().toLowerCase()] = n;
     });
     return map;
   }, [materialNorms]);
 
-  // Calculate stock balance per material (includes all material norms automatically)
-  const stockBalance = useMemo(() => {
-    const balances: Record<string, { inQty: number; outQty: number; balance: number; unit: string }> = {};
-
-    // First initialize with all material norms so every material in norm list appears automatically
-    materialNorms.forEach((norm) => {
-      const name = norm.materialName.trim();
-      balances[name] = { inQty: 0, outQty: 0, balance: 0, unit: norm.unit };
-    });
-
-    inventory.forEach((item) => {
-      const name = item.materialName.trim();
-      if (!balances[name]) {
-        balances[name] = { inQty: 0, outQty: 0, balance: 0, unit: item.unit };
-      }
-      if (item.type === 'in') {
-        balances[name].inQty += item.quantity;
-        balances[name].balance += item.quantity;
-      } else {
-        balances[name].outQty += item.quantity;
-        balances[name].balance -= item.quantity;
-      }
-    });
-
-    return balances;
+  // Calculate stock balance per material using unified calculateStockSummary helper
+  const stockSummaries = useMemo(() => {
+    return calculateStockSummary(inventory, materialNorms);
   }, [inventory, materialNorms]);
 
-  // Calculate low stock warnings
+  const stockBalance = useMemo(() => {
+    const balances: Record<string, { materialId?: string; displayName: string; inQty: number; outQty: number; balance: number; unit: string; normQuantity: number }> = {};
+    stockSummaries.forEach(s => {
+      const data = {
+        materialId: s.materialId,
+        displayName: s.materialName,
+        inQty: s.totalIn,
+        outQty: s.totalOut,
+        balance: s.currentStock,
+        unit: s.unit,
+        normQuantity: s.normQuantity
+      };
+      if (s.materialId) {
+        balances[s.materialId] = data;
+        balances[s.materialId.toLowerCase()] = data;
+      }
+      balances[s.materialName.trim().toLowerCase()] = data;
+    });
+    return balances;
+  }, [stockSummaries]);
+
+  // Calculate low stock warnings based on remaining demand (Nhu cầu còn lại = Quota - OutQty)
   const lowStockItems = useMemo(() => {
     const items: Array<{
       name: string;
       balance: number;
       quota?: number;
+      remainingDemand?: number;
+      deficit?: number;
       unit: string;
-      status: 'out' | 'very-low' | 'low';
-      percent: number;
+      status: 'out' | 'low';
     }> = [];
 
-    (Object.entries(stockBalance) as [string, { inQty: number; outQty: number; balance: number; unit: string }][]).forEach(([name, data]) => {
-      const matchedNorm = normMap[name.toLowerCase()];
-      const quota = matchedNorm?.quotaQuantity;
-
+    stockSummaries.forEach((s) => {
+      const quota = s.normQuantity;
+      const name = s.materialName;
+      
       if (quota && quota > 0) {
-        const percent = Math.round((data.balance / quota) * 100);
-        if (data.balance <= 0) {
+        const remainingDemand = Math.max(0, quota - s.totalOut);
+        if (s.currentStock <= 0) {
           items.push({
             name,
-            balance: data.balance,
+            balance: s.currentStock,
             quota,
-            unit: data.unit,
+            remainingDemand,
+            deficit: remainingDemand - s.currentStock,
+            unit: s.unit,
             status: 'out',
-            percent,
           });
-        } else if (percent <= 5) {
+        } else if (s.currentStock < remainingDemand) {
           items.push({
             name,
-            balance: data.balance,
+            balance: s.currentStock,
             quota,
-            unit: data.unit,
-            status: 'very-low',
-            percent,
-          });
-        } else if (percent <= 15) {
-          items.push({
-            name,
-            balance: data.balance,
-            quota,
-            unit: data.unit,
+            remainingDemand,
+            deficit: remainingDemand - s.currentStock,
+            unit: s.unit,
             status: 'low',
-            percent,
           });
         }
       } else {
         // No quota defined
-        if (data.balance <= 0) {
+        if (s.currentStock <= 0) {
           items.push({
             name,
-            balance: data.balance,
-            unit: data.unit,
+            balance: s.currentStock,
+            unit: s.unit,
             status: 'out',
-            percent: 0,
-          });
-        } else if (data.balance <= 15) {
-          items.push({
-            name,
-            balance: data.balance,
-            unit: data.unit,
-            status: 'low',
-            percent: 0,
           });
         }
       }
     });
 
     return items;
-  }, [stockBalance, normMap]);
+  }, [stockSummaries]);
 
   // Calculate material quota import warnings (exceeded or near-complete)
   const quotaWarnings = useMemo(() => {
@@ -515,27 +517,27 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       percent: number;
     }> = [];
 
-    (Object.entries(stockBalance) as [string, { inQty: number; outQty: number; balance: number; unit: string }][]).forEach(([name, data]) => {
-      const matchedNorm = normMap[name.toLowerCase()];
-      const quota = matchedNorm?.quotaQuantity;
-
+    stockSummaries.forEach((s) => {
+      const quota = s.normQuantity;
+      const name = s.materialName;
+      
       if (quota && quota > 0) {
-        const percent = Math.round((data.inQty / quota) * 100);
-        if (data.inQty > quota) {
+        const percent = Math.round((s.totalIn / quota) * 100);
+        if (s.totalIn > quota) {
           warnings.push({
             name,
-            inQty: data.inQty,
+            inQty: s.totalIn,
             quota,
-            unit: data.unit,
+            unit: s.unit,
             status: 'exceeded',
             percent,
           });
-        } else if (data.inQty >= quota * 0.9) {
+        } else if (s.totalIn >= quota * 0.9) {
           warnings.push({
             name,
-            inQty: data.inQty,
+            inQty: s.totalIn,
             quota,
-            unit: data.unit,
+            unit: s.unit,
             status: 'near-complete',
             percent,
           });
@@ -544,7 +546,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     });
 
     return warnings;
-  }, [stockBalance, normMap]);
+  }, [stockSummaries]);
 
   // Live warning for the form
   const formQuotaWarning = useMemo(() => {
@@ -552,18 +554,19 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     const targetName = customMaterial.trim() || materialName.trim();
     if (!targetName) return null;
 
-    const matchedNorm = normMap[targetName.toLowerCase()];
+    const key = targetName.toLocaleLowerCase('vi-VN');
+    const matchedNorm = normMap[key];
     if (!matchedNorm || !matchedNorm.quotaQuantity) return null;
 
     const quota = matchedNorm.quotaQuantity;
-    const currentInQty = stockBalance[matchedNorm.materialName]?.inQty || 0;
+    const currentInQty = stockBalance[key]?.inQty || 0;
     const projectedInQty = currentInQty + Number(quantity);
     const percent = Math.round((projectedInQty / quota) * 100);
 
     if (projectedInQty > quota) {
       return {
         status: 'exceeded',
-        text: `Cảnh báo: Tổng lượng nhập sau phiếu này sẽ đạt ${projectedInQty} ${unit} (vượt định mức ${quota} ${unit}). Đã nhập lố ${percent - 100}%!`,
+        text: `Cảnh báo: Tổng lượng nhập sau phiếu này sẽ đạt ${projectedInQty} ${unit} (vượt định mức ${quota} ${unit}). Vượt nhu cầu theo định mức: +${projectedInQty - quota} ${unit}!`,
         currentInQty,
         quota,
         projectedInQty,
@@ -586,7 +589,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const filteredInventory = useMemo(() => {
     return inventory.filter((item) => {
       const matchesType = filterType === 'all' || item.type === filterType;
-      const matchesSearch =
+      const matchesSearch = 
         item.materialName.toLowerCase().includes(searchTerm.toLowerCase()) ||
         item.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
         item.handler.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -598,7 +601,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const finalMaterialName = customMaterial.trim() ? customMaterial.trim() : materialName;
-
+    
     let finalQuantity = Number(quantity);
     const parsedQuantity = evaluateMathExpression(quantityStr);
     if (parsedQuantity !== null) {
@@ -606,12 +609,32 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     }
 
     if (!finalMaterialName || !finalQuantity || finalQuantity <= 0) {
-      alert('Vui lòng nhập tên vật tư và số lượng hợp lệ!');
+      alert('Vui lòng nhập tên vật tư và số lượng hợp lệ (> 0)!');
       return;
     }
 
+    if (type === 'out') {
+      const key = finalMaterialName.trim().toLocaleLowerCase('vi-VN');
+      const currentStock = stockBalance[key]?.balance || 0;
+      if (finalQuantity > currentStock) {
+        const excess = finalQuantity - currentStock;
+        const confirmIssue = window.confirm(
+          `⚠️ CẢNH BÁO XUẤT VƯỢT TỒN KHO:\n` +
+          `- Vật tư: ${finalMaterialName}\n` +
+          `- Tồn kho hiện tại: ${currentStock} ${unit}\n` +
+          `- Số lượng bạn xuất: ${finalQuantity} ${unit}\n` +
+          `- Vượt tồn kho: ${excess} ${unit}\n\n` +
+          `Bạn có chắc chắn muốn tiếp tục tạo phiếu xuất kho này không?`
+        );
+        if (!confirmIssue) return;
+      }
+    }
+
+    const matchedNorm = materialNorms.find(n => n.materialName.trim().toLowerCase() === finalMaterialName.trim().toLowerCase());
+
     onAddInventory({
       type,
+      materialId: matchedNorm?.materialId || matchedNorm?.id,
       materialName: finalMaterialName,
       unit,
       quantity: finalQuantity,
@@ -628,15 +651,15 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   };
 
   return (
-    <div className="p-4 space-y-4 pb-24 max-w-xl mx-auto">
+    <div className="p-4 space-y-4 pb-24 w-full max-w-6xl mx-auto">
       {/* Title & Action Row */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
             <PackageCheck className="w-5 h-5 text-blue-600" />
-            Quản Lý Nhập Xuất Kho
+            {t('warehouse_title')}
           </h2>
-          <p className="text-xs text-slate-500">Tồn kho vật tư &amp; định mức công trình</p>
+          <p className="text-xs text-slate-500">{t('warehouse_subtitle')}</p>
         </div>
         <div className="flex items-center gap-1.5 flex-wrap justify-end">
           <button
@@ -645,7 +668,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             title="Cập nhật chủng loại vật tư, ĐVT, định mức"
           >
             <Sliders className="w-3.5 h-3.5 text-indigo-600" />
-            <span>Định Mức</span>
+            <span>{t('norms_button')}</span>
           </button>
           <button
             onClick={() => setShowAddForm(true)}
@@ -675,7 +698,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             </div>
             <div>
               <h3 className="font-bold text-xs text-slate-800">
-                Nhập / Tải Mẫu Excel Xuất &amp; Nhập Kho
+                Tải Excel &amp; Nhập dữ liệu Xuất &amp; Nhập Kho
               </h3>
               <p className="text-[11px] text-slate-500 leading-snug mt-0.5">
                 Mẫu Excel gồm các trang: <strong>Nhập Kho</strong>, <strong>Xuất Kho</strong>, <strong>Định Mức Vật Tư</strong> (có cột Tên Hạng Mục Thi Công) &amp; <strong>Tồn Kho</strong>. Chỉnh sửa và tải lên để cập nhật hàng loạt.
@@ -694,12 +717,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             className="flex items-center justify-center gap-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 font-bold py-2 px-3 rounded-xl transition-all text-xs active:scale-95 cursor-pointer"
           >
             <Download className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>Tải File Mẫu Excel</span>
+            <span>Tải Excel để chỉnh sửa</span>
           </button>
 
           <label className="flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-3 rounded-xl cursor-pointer transition-all shadow-3xs active:scale-95 text-xs text-center">
             <Upload className="w-4 h-4 text-white shrink-0" />
-            <span>Chọn File Upload</span>
+            <span>Nhập lại từ Excel</span>
             <input
               type="file"
               accept=".xlsx, .xls"
@@ -716,40 +739,37 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           <div className="flex items-center gap-1.5 text-amber-800">
             <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 animate-pulse" />
             <span className="text-xs font-extrabold uppercase tracking-wider">
-              🚨 Cảnh Báo Vật Tư Sắp Hết ({lowStockItems.length})
+              🚨 Cảnh Báo Vật Tư Thiếu So Với Nhu Cầu ({lowStockItems.length})
             </span>
           </div>
           <p className="text-[11px] text-amber-700 leading-normal">
-            Hệ thống phát hiện các vật tư dưới đây có tồn kho ở mức cảnh báo nguy hiểm (dưới 15% định mức hoặc đã hết). Vui lòng lên kế hoạch nhập hàng bổ sung!
+            Hệ thống phát hiện các vật tư dưới đây có tồn kho thấp hơn nhu cầu còn lại theo định mức. Vui lòng lên kế hoạch nhập bổ sung!
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-36 overflow-y-auto pr-1 pt-1">
             {lowStockItems.map((item, idx) => {
               const isOut = item.status === 'out';
-              const isVeryLow = item.status === 'very-low';
               return (
-                <div
-                  key={`${item.name}-${idx}`}
+                <div 
+                  key={`${item.name}-${idx}`} 
                   className={`flex items-center justify-between p-2 rounded-xl text-xs font-medium border ${
-                    isOut
-                      ? 'bg-rose-50 border-rose-100 text-rose-800'
-                      : isVeryLow
-                        ? 'bg-amber-50 border-amber-200 text-amber-800'
-                        : 'bg-yellow-50 border-yellow-200 text-yellow-800'
+                    isOut 
+                      ? 'bg-rose-50 border-rose-100 text-rose-800' 
+                      : 'bg-amber-50 border-amber-200 text-amber-800'
                   }`}
                 >
                   <div className="min-w-0 flex-1 text-left">
                     <p className="font-bold truncate">{item.name}</p>
                     <p className="text-[10px] opacity-80">
-                      Tồn thực tế: <strong className="font-extrabold">{(item.balance ?? 0).toLocaleString('en-US')}</strong> {item.unit}
-                      {item.quota ? ` / Định mức: ${(item.quota ?? 0).toLocaleString('en-US')} ${item.unit}` : ''}
+                      Tồn thực tế: <strong className="font-extrabold">{formatDecimal(item.balance)}</strong> {item.unit}
+                      {item.remainingDemand !== undefined ? ` / Nhu cầu còn lại: ${formatDecimal(item.remainingDemand)} ${item.unit}` : ''}
                     </p>
                   </div>
-                  <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-md shrink-0 ${
-                    isOut
-                      ? 'bg-rose-100 text-rose-800 uppercase'
+                  <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-md shrink-0 ml-1 ${
+                    isOut 
+                      ? 'bg-rose-100 text-rose-800 uppercase' 
                       : 'bg-amber-100 text-amber-800'
                   }`}>
-                    {isOut ? 'HẾT HÀNG' : `${item.percent}%`}
+                    {isOut ? 'HẾT HÀNG' : `Thiếu: ${formatDecimal(item.deficit)} ${item.unit}`}
                   </span>
                 </div>
               );
@@ -774,23 +794,23 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             {quotaWarnings.map((item, idx) => {
               const isExceeded = item.status === 'exceeded';
               return (
-                <div
-                  key={`${item.name}-${idx}`}
+                <div 
+                  key={`${item.name}-${idx}`} 
                   className={`flex items-center justify-between p-2 rounded-xl text-xs font-medium border ${
-                    isExceeded
-                      ? 'bg-rose-50 border-rose-200 text-rose-800'
+                    isExceeded 
+                      ? 'bg-rose-50 border-rose-200 text-rose-800' 
                       : 'bg-indigo-50 border-indigo-100 text-indigo-800'
                   }`}
                 >
                   <div className="min-w-0 flex-1 text-left">
                     <p className="font-bold truncate">{item.name}</p>
                     <p className="text-[10px] opacity-80">
-                      Tổng đã nhập: <strong className="font-extrabold">{item.inQty}</strong> / Định mức: {item.quota} {item.unit}
+                      Tổng đã nhập: <strong className="font-extrabold">{formatDecimal(item.inQty)}</strong> / Định mức: {formatDecimal(item.quota)} {item.unit}
                     </p>
                   </div>
                   <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-md shrink-0 ml-1 text-center ${
-                    isExceeded
-                      ? 'bg-rose-100 text-rose-700 uppercase'
+                    isExceeded 
+                      ? 'bg-rose-100 text-rose-700 uppercase' 
                       : 'bg-indigo-100 text-indigo-700'
                   }`}>
                     {isExceeded ? `LỐ ${item.percent - 100}%` : `${item.percent}%`}
@@ -821,13 +841,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         </div>
 
         <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-          {(Object.entries(stockBalance) as [string, { inQty: number; outQty: number; balance: number; unit: string }][]).map(([name, data]) => {
-            const matchedNorm = normMap[name.toLowerCase()];
-            const quota = matchedNorm?.quotaQuantity;
-            const category = matchedNorm?.category;
+          {stockSummaries.map((item) => {
+            const quota = item.normQuantity;
+            const category = item.category;
 
             return (
-              <div key={name} className="bg-slate-50 p-2.5 rounded-xl border border-slate-200/80 text-xs space-y-1">
+              <div key={item.materialId || item.materialName} className="bg-slate-50 p-2.5 rounded-xl border border-slate-200/80 text-xs space-y-1">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     {category && (
@@ -835,21 +854,25 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                         {category}
                       </span>
                     )}
-                    <p className="font-bold text-slate-800 truncate">{name}</p>
+                    <p className="font-bold text-slate-800 truncate">{item.materialName}</p>
                     <p className="text-[10px] text-slate-500">
-                      Nhập: <span className="text-emerald-600 font-bold">{formatDecimal(data.inQty)}</span> |
-                      Xuất: <span className="text-amber-600 font-bold">{formatDecimal(data.outQty)}</span> {data.unit}
+                      Nhập: <span className="text-emerald-600 font-bold">{formatDecimal(item.totalIn)}</span> | 
+                      Xuất: <span className="text-amber-600 font-bold">{formatDecimal(item.totalOut)}</span> {item.unit}
                     </p>
                   </div>
                   <div className="text-right shrink-0">
                     <span className={`inline-block px-2 py-0.5 rounded-lg text-xs font-bold ${
-                      data.balance <= 20 ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'
+                      item.currentStock <= 0 
+                        ? 'bg-rose-100 text-rose-800' 
+                        : item.currentStock <= 20 
+                          ? 'bg-amber-100 text-amber-800' 
+                          : 'bg-blue-100 text-blue-800'
                     }`}>
-                      Tồn: {formatDecimal(data.balance)} {data.unit}
+                      Tồn: {formatDecimal(item.currentStock)} {item.unit}
                     </span>
-                    {quota && (
+                    {quota > 0 && (
                       <p className="text-[10px] text-slate-500 mt-0.5 font-semibold">
-                        Định mức: <strong className="text-indigo-600">{formatDecimal(quota)}</strong> {data.unit}
+                        Định mức: <strong className="text-indigo-600">{formatDecimal(quota)}</strong> {item.unit}
                       </p>
                     )}
                   </div>

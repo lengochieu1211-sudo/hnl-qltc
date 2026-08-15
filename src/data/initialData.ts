@@ -19,7 +19,7 @@ export const INITIAL_ROOM_PROGRESS: RoomProgressItem[] = [
     inspectionStatus: 'Đạt nghiệm thu',
     inspectorName: 'KS. Nguyễn Văn Bình',
     notes: 'Khung xương C-line & Tấm 9mm hoàn thiện đúng tiêu chuẩn',
-    updatedAt: '2026-08-06 14:00',
+    updatedAt: Date.now(),
   },
   {
     id: 'ROOM-102',
@@ -39,7 +39,7 @@ export const INITIAL_ROOM_PROGRESS: RoomProgressItem[] = [
     inspectionStatus: 'Chưa nghiệm thu',
     inspectorName: 'KS. Trịnh Quốc An',
     notes: 'Khung xong 100%, đang bắn tấm chống ẩm Gyproc khu vực WC',
-    updatedAt: '2026-08-06 15:30',
+    updatedAt: Date.now(),
   },
   {
     id: 'ROOM-103',
@@ -59,7 +59,7 @@ export const INITIAL_ROOM_PROGRESS: RoomProgressItem[] = [
     inspectionStatus: 'Chưa nghiệm thu',
     inspectorName: 'Đội trưởng Hùng',
     notes: 'Đang đi ty ren & gắn thanh C-line chính',
-    updatedAt: '2026-08-06 16:10',
+    updatedAt: Date.now(),
   },
   {
     id: 'ROOM-104',
@@ -79,7 +79,7 @@ export const INITIAL_ROOM_PROGRESS: RoomProgressItem[] = [
     inspectionStatus: 'Chưa đạt (Cần sửa)',
     inspectorName: 'KS. Nguyễn Văn Bình',
     notes: 'Phát hiện bắn thưa vít trần khu vực giáp tường, yêu cầu bổ sung vít',
-    updatedAt: '2026-08-06 16:45',
+    updatedAt: Date.now(),
   },
 ];
 
@@ -168,13 +168,13 @@ export const DEMO_FLOOR_PLANS: Record<string, string> = {
       <!-- Rooms -->
       <rect x="40" y="40" width="330" height="240" fill="#f8fafc" stroke="#475569" stroke-width="3"/>
       <text x="50" y="70" font-family="sans-serif" font-weight="bold" font-size="16" fill="#1e293b">PHÒNG KHÁCH (Lắp Khung C &amp; Bắn Tấm 9mm)</text>
-
+      
       <rect x="410" y="40" width="350" height="240" fill="#f8fafc" stroke="#475569" stroke-width="3"/>
       <text x="420" y="70" font-family="sans-serif" font-weight="bold" font-size="16" fill="#1e293b">KHU VỰC BẾP &amp; SẢNH (Khung Chìm Chống Ẩm)</text>
-
+      
       <rect x="40" y="320" width="400" height="240" fill="#f8fafc" stroke="#475569" stroke-width="3"/>
       <text x="50" y="350" font-family="sans-serif" font-weight="bold" font-size="16" fill="#1e293b">PHÒNG LÀM VIỆC (Trần Giật Cấp Hắt Đèn)</text>
-
+      
       <rect x="480" y="320" width="280" height="240" fill="#f8fafc" stroke="#475569" stroke-width="3"/>
       <text x="490" y="350" font-family="sans-serif" font-weight="bold" font-size="16" fill="#1e293b">KHU WC (Tấm Chống Nước 12mm)</text>
       <!-- Ceiling lights/vents markers -->
@@ -291,6 +291,7 @@ export const INITIAL_WORK_VOLUMES: WorkVolume[] = [
     actual: 380,
     unitPrice: 110000,
     status: 'Đã hoàn thành',
+    dueDate: '2026-08-08',
   },
   {
     id: 'HM-102',
@@ -302,6 +303,7 @@ export const INITIAL_WORK_VOLUMES: WorkVolume[] = [
     actual: 310,
     unitPrice: 95000,
     status: 'Đang thi công',
+    dueDate: '2026-08-12',
   },
   {
     id: 'HM-103',
@@ -313,6 +315,7 @@ export const INITIAL_WORK_VOLUMES: WorkVolume[] = [
     actual: 0,
     unitPrice: 65000,
     status: 'Chưa thi công',
+    dueDate: '2026-08-10',
   },
   {
     id: 'HM-201',
@@ -324,6 +327,7 @@ export const INITIAL_WORK_VOLUMES: WorkVolume[] = [
     actual: 250,
     unitPrice: 110000,
     status: 'Đang thi công',
+    dueDate: '2026-08-13',
   },
   {
     id: 'HM-202',
@@ -335,6 +339,7 @@ export const INITIAL_WORK_VOLUMES: WorkVolume[] = [
     actual: 80,
     unitPrice: 95000,
     status: 'Đang thi công',
+    dueDate: '2026-08-15',
   },
 ];
 
@@ -344,12 +349,14 @@ export const INITIAL_FLOOR_PLANS: FloorPlan[] = [
     floorName: 'Tầng 1',
     imageUrl: DEMO_FLOOR_PLANS['Tầng 1'],
     uploadedAt: '2026-08-02',
+    order: 0,
   },
   {
     id: 'fp-2',
     floorName: 'Tầng 2',
     imageUrl: DEMO_FLOOR_PLANS['Tầng 2'],
     uploadedAt: '2026-08-03',
+    order: 1,
   },
 ];
 
@@ -432,6 +439,7 @@ export const INITIAL_CHECKLIST: ChecklistItem[] = [
     notes: 'Phát hiện DEF-101 bắn thưa vít ở phòng khách',
     inspectedBy: 'Kỹ sư Bình',
     inspectedAt: '2026-08-05 09:40',
+    dueDate: '2026-08-11',
   },
   {
     id: 'CHK-104',
@@ -440,6 +448,7 @@ export const INITIAL_CHECKLIST: ChecklistItem[] = [
     title: 'Xử lý khe nối tấm thạch cao & băng keo dán mối nối',
     status: 'pending',
     notes: 'Đang đợi khắc phục bớt lỗi bắn tấm trước khi dán keo',
+    dueDate: '2026-08-12',
   },
 
   // Tầng 2
@@ -452,6 +461,7 @@ export const INITIAL_CHECKLIST: ChecklistItem[] = [
     notes: 'Khung xương hoàn thành 80%',
     inspectedBy: 'Kỹ sư Bình',
     inspectedAt: '2026-08-05 15:00',
+    dueDate: '2026-08-09',
   },
   {
     id: 'CHK-202',
@@ -459,6 +469,7 @@ export const INITIAL_CHECKLIST: ChecklistItem[] = [
     category: 'Thi công bắn tấm trần',
     title: 'Kiểm tra tấm thạch cao không bị nứt móp, gãy góc trước khi bắn',
     status: 'defect',
+    dueDate: '2026-08-14',
     notes: 'Có lỗi DEF-201 chừa thiếu lỗ kỹ thuật',
     inspectedBy: 'Kỹ sư Bình',
     inspectedAt: '2026-08-06 10:15',
@@ -509,3 +520,5 @@ export const INITIAL_TEAMS: TeamInfo[] = [
   { id: 'team-5', name: 'Đội Cơ Điện & Nước', leader: 'Anh Điện', defaultCount: 4, notes: 'Đi ống luồn dây điện âm trần' },
   { id: 'team-6', name: 'Đội Phụ Trợ & Dọn Dẹp', leader: 'Chị Hoa', defaultCount: 5, notes: 'Thu dọn phế thải thạch cao tấm vụn' },
 ];
+
+

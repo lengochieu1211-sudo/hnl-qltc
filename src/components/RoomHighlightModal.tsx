@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import {
-  X,
-  CheckCircle2,
-  AlertCircle,
-  User,
-  Trash2,
-  Building2,
+import { 
+  X, 
+  CheckCircle2, 
+  AlertCircle, 
+  User, 
+  Trash2, 
+  Building2, 
   Clock,
   Sparkles,
   Plus,
@@ -21,11 +21,13 @@ import {
   ChevronDown,
   Edit2,
   Check,
-  Phone
+  Phone,
+  Pencil
 } from 'lucide-react';
 import { RoomProgressItem, RoomSubItem, AcceptanceStatus, RoomInspectionResult, Point2D, TeamInfo, ChecklistItem, MaterialNorm, InventoryItem, WorkVolume } from '../types';
 import { ROOM_COLOR_PALETTE } from '../utils/colorPalette';
 import { confirmAsync } from '../utils/confirmAsync';
+import { formatDecimal, evaluateMathExpression, useFormatSettings } from '../utils/numberUtils';
 
 interface RoomHighlightModalProps {
   isOpen: boolean;
@@ -45,7 +47,7 @@ interface RoomHighlightModalProps {
   onAddInventory?: (item: Omit<InventoryItem, 'id'>) => void;
   onSaveRoom: (room: Omit<RoomProgressItem, 'id' | 'updatedAt'> & { id?: string }) => void;
   onDeleteRoom?: (id: string) => void;
-  onStartRedraw2Point?: (room: RoomProgressItem) => void;
+  onStartRedraw2Point?: (room: RoomProgressItem, tool: 'freehand' | 'polygon' | '2point') => void;
 }
 
 // Preset mapping for Construction & Acceptance Categories requested by user
@@ -115,13 +117,16 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   onDeleteRoom,
   onStartRedraw2Point,
 }) => {
-  const activeDefaultInspector = defaultInspectorName || localStorage.getItem('construction_inspector') || 'KS. Nguyễn Văn Bình';
+  const activeDefaultInspector = defaultInspectorName || 'KS. Nguyễn Văn Bình';
 
   const [roomName, setRoomName] = useState('');
   const [workCategory, setWorkCategory] = useState('Trần Thạch Cao Khung Chìm Tấm Tiêu Chuẩn');
   const [presetSelection, setPresetSelection] = useState('Trần Thạch Cao Khung Chìm Tấm Tiêu Chuẩn');
   const [subItems, setSubItems] = useState<RoomSubItem[]>([]);
   const [categoryVolumes, setCategoryVolumes] = useState<Record<string, number>>({});
+  const [volumeStrings, setVolumeStrings] = useState<Record<string, string>>({});
+
+  useFormatSettings();
   const [renamingCategory, setRenamingCategory] = useState<string | null>(null);
   const [renamingValue, setRenamingValue] = useState<string>('');
 
@@ -131,7 +136,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       return;
     }
     const trimmed = newName.trim();
-
+    
     // 1. Update subItems
     setSubItems(prev => prev.map(item => {
       const itemCat = item.category || workCategory || 'Chưa phân nhóm';
@@ -143,6 +148,15 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
     // 2. Update categoryVolumes
     setCategoryVolumes(prev => {
+      const updated = { ...prev };
+      if (oldName in updated) {
+        updated[trimmed] = updated[oldName];
+        delete updated[oldName];
+      }
+      return updated;
+    });
+
+    setVolumeStrings(prev => {
       const updated = { ...prev };
       if (oldName in updated) {
         updated[trimmed] = updated[oldName];
@@ -182,28 +196,12 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   const [showMaterialEstimates, setShowMaterialEstimates] = useState<boolean>(false);
   const [selectedSubItemIds, setSelectedSubItemIds] = useState<string[]>([]);
 
-  useEffect(() => {
-    try {
-      const savedTeams = localStorage.getItem('construction_teams');
-      if (savedTeams) {
-        setAvailableTeams(JSON.parse(savedTeams));
-      }
-    } catch (e) {
-      console.error('Failed to load teams', e);
-    }
-  }, []);
-
   // Combined teams list from props or local storage
-  const displayTeams = (teams && teams.length > 0)
-    ? teams
+  const displayTeams = (teams && teams.length > 0) 
+    ? teams 
     : (availableTeams && availableTeams.length > 0)
     ? availableTeams
-    : [
-        { id: 't1', name: 'Đội Thạch Cao 1', leader: 'Anh Tuấn', defaultCount: 5 },
-        { id: 't2', name: 'Đội Thạch Cao 2', leader: 'Anh Hùng', defaultCount: 6 },
-        { id: 't3', name: 'Đội Thạch Cao 3', leader: 'Anh Nam', defaultCount: 4 },
-        { id: 't4', name: 'Đội Sơn Bả 1', leader: 'Anh Minh', defaultCount: 4 },
-      ];
+    : [];
 
   useEffect(() => {
     setIsConfirmingDelete(false);
@@ -218,7 +216,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       setWidth(roomItem.width || 30);
       setHeight(roomItem.height || 30);
       setPoints(roomItem.points);
-
+      
       // Load subItems or build from legacy fields
       if (roomItem.subItems && roomItem.subItems.length > 0) {
         setSubItems(roomItem.subItems);
@@ -253,6 +251,11 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       // Load categoryVolumes
       if (roomItem.categoryVolumes) {
         setCategoryVolumes(roomItem.categoryVolumes);
+        const initialStrings: Record<string, string> = {};
+        Object.entries(roomItem.categoryVolumes).forEach(([key, val]) => {
+          initialStrings[key] = val !== undefined && val !== null ? formatDecimal(val as any) : '';
+        });
+        setVolumeStrings(initialStrings);
       } else {
         const initialMap: Record<string, number> = {};
         const cat = roomItem.workCategory || 'Trần Thạch Cao Khung Chìm Tấm Tiêu Chuẩn';
@@ -260,14 +263,21 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
           initialMap[cat] = Number(roomItem.workVolume);
         }
         setCategoryVolumes(initialMap);
+        const initialStrings: Record<string, string> = {};
+        if (roomItem.workVolume !== undefined && roomItem.workVolume !== null) {
+          initialStrings[cat] = formatDecimal(roomItem.workVolume);
+        }
+        setVolumeStrings(initialStrings);
       }
     } else {
+      setVolumeStrings({});
+      setCategoryVolumes({});
       setRoomName('Căn ' + Math.floor(100 + Math.random() * 800));
-      const defaultCat = (workVolumes && workVolumes.length > 0 && workVolumes[0].title)
-        ? workVolumes[0].title
+      const defaultCat = (workVolumes && workVolumes.length > 0 && workVolumes[0].title) 
+        ? workVolumes[0].title 
         : 'Trần Thạch Cao Khung Chìm Tấm Tiêu Chuẩn';
       setWorkCategory(defaultCat);
-
+      
       const names = getSubItemsForCategory(defaultCat);
 
       setSubItems(
@@ -314,7 +324,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   // Handler to change work category preset (mode: 'append' to add more categories to the room, 'replace' to reset)
   const handleApplyPreset = (catName: string, mode: 'replace' | 'append' = 'append') => {
     setWorkCategory(catName);
-
+    
     // Find all material norms matching this category
     const matchingNorms = materialNorms ? materialNorms.filter(norm => {
       if (norm.workCategories && norm.workCategories.length > 0) {
@@ -324,7 +334,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     }) : [];
 
     const names = getSubItemsForCategory(catName);
-
+    
     // Short category prefix so sub-items are clearly distinguished when multiple categories exist in 1 room
     const shortPrefix = catName
       .replace('Trần Thạch Cao ', 'Trần ')
@@ -347,12 +357,19 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
     if (mode === 'replace') {
       setSubItems(newItems);
-      setCategoryVolumes({ [catName]: Number(workVolume) || 0 });
+      const vol = Number(workVolume) || 0;
+      setCategoryVolumes({ [catName]: vol });
+      setVolumeStrings({ [catName]: formatDecimal(vol) });
     } else {
       setSubItems(prev => [...prev, ...newItems]);
+      const existingVol = categoryVolumes[catName] !== undefined ? categoryVolumes[catName] : (Number(workVolume) || 0);
       setCategoryVolumes(prev => ({
         ...prev,
-        [catName]: prev[catName] !== undefined ? prev[catName] : (Number(workVolume) || 0)
+        [catName]: existingVol
+      }));
+      setVolumeStrings(prev => ({
+        ...prev,
+        [catName]: formatDecimal(existingVol)
       }));
     }
   };
@@ -360,6 +377,52 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   // Get unique work categories from work volumes, fallback to material norms & presets
   const availableWorkCategories = React.useMemo(() => {
     const list = new Set<string>();
+
+    // 1. Add current room's workCategory (state)
+    if (workCategory && workCategory.trim()) {
+      list.add(workCategory.trim());
+    }
+
+    // 2. Add any active categories from subItems state
+    if (subItems && subItems.length > 0) {
+      subItems.forEach((item) => {
+        if (item.category && item.category.trim()) {
+          list.add(item.category.trim());
+        }
+      });
+    }
+
+    // 3. Add any categories from categoryVolumes state
+    if (categoryVolumes) {
+      Object.keys(categoryVolumes).forEach((cat) => {
+        if (cat && cat.trim()) {
+          list.add(cat.trim());
+        }
+      });
+    }
+
+    // 4. Add original roomItem's values just in case
+    if (roomItem) {
+      if (roomItem.workCategory && roomItem.workCategory.trim()) {
+        list.add(roomItem.workCategory.trim());
+      }
+      if (roomItem.subItems) {
+        roomItem.subItems.forEach((item) => {
+          if (item.category && item.category.trim()) {
+            list.add(item.category.trim());
+          }
+        });
+      }
+      if (roomItem.categoryVolumes) {
+        Object.keys(roomItem.categoryVolumes).forEach((cat) => {
+          if (cat && cat.trim()) {
+            list.add(cat.trim());
+          }
+        });
+      }
+    }
+
+    // 5. Add categories from project work volumes
     if (workVolumes && workVolumes.length > 0) {
       workVolumes.forEach((v) => {
         if (v.title && v.title.trim()) {
@@ -368,7 +431,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       });
     }
 
-    // If we have items from workVolumes, return them
+    // If we have items from our explicit sources, return them
     if (list.size > 0) {
       return Array.from(list);
     }
@@ -390,7 +453,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
     // Fallback to keys of WORK_CATEGORY_PRESETS
     return Object.keys(WORK_CATEGORY_PRESETS);
-  }, [workVolumes, materialNorms]);
+  }, [workVolumes, materialNorms, workCategory, subItems, categoryVolumes, roomItem]);
 
   // Calculate stock balance map from inventory
   const stockMap = React.useMemo(() => {
@@ -475,13 +538,13 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       alert('Không có hàm nạp phiếu kho!');
       return;
     }
-
+    
     const validCategories = activeCategories.filter(cat => (categoryVolumes[cat] || 0) > 0);
     if (validCategories.length === 0) {
       alert('Vui lòng nhập khối lượng thi công (> 0 m²) cho ít nhất một hạng mục trước khi xuất kho!');
       return;
     }
-
+    
     if (roomMaterialEstimates.length === 0) {
       alert('Chưa tìm thấy định mức vật tư nào phù hợp với các hạng mục thi công này trong Kho Vật Tư!');
       return;
@@ -545,19 +608,19 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     if (index === -1) return;
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= currentCats.length) return;
-
+    
     const neighborCat = currentCats[targetIndex];
-
+    
     const newCatOrder = [...currentCats];
     newCatOrder[index] = neighborCat;
     newCatOrder[targetIndex] = catName;
-
+    
     const sortedSubItems = [...subItems].sort((a, b) => {
       const catA = a.category || workCategory || 'Chưa phân nhóm';
       const catB = b.category || workCategory || 'Chưa phân nhóm';
       return newCatOrder.indexOf(catA) - newCatOrder.indexOf(catB);
     });
-
+    
     setSubItems(sortedSubItems);
   };
 
@@ -567,24 +630,24 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     if (index === -1) return;
     const item = subItems[index];
     const itemCat = item.category || workCategory || 'Chưa phân nhóm';
-
+    
     const sameCatIndices = subItems
       .map((it, idx) => ({ id: it.id, cat: it.category || workCategory || 'Chưa phân nhóm', idx }))
       .filter(it => it.cat === itemCat);
-
+      
     const sameCatPos = sameCatIndices.findIndex(it => it.id === itemId);
     if (sameCatPos === -1) return;
-
+    
     const targetSameCatPos = direction === 'up' ? sameCatPos - 1 : sameCatPos + 1;
     if (targetSameCatPos < 0 || targetSameCatPos >= sameCatIndices.length) return;
-
+    
     const targetIndex = sameCatIndices[targetSameCatPos].idx;
-
+    
     const newSubItems = [...subItems];
     const temp = newSubItems[index];
     newSubItems[index] = newSubItems[targetIndex];
     newSubItems[targetIndex] = temp;
-
+    
     setSubItems(newSubItems);
   };
 
@@ -599,7 +662,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     let overall: RoomInspectionResult = 'Chưa nghiệm thu';
     const allPassed = subItems.length > 0 && subItems.every(s => s.inspectionStatus === 'Đạt nghiệm thu');
     const anyDefect = subItems.some(s => s.inspectionStatus === 'Chưa đạt (Cần sửa)');
-
+    
     if (allPassed) {
       overall = 'Đạt nghiệm thu';
     } else if (anyDefect) {
@@ -611,13 +674,36 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
     const parsedVol = workVolume !== '' ? parseFloat(String(workVolume)) : undefined;
 
+    const matchingTeam = displayTeams.find(t => t.name.trim().toLowerCase() === assignedTeam.trim().toLowerCase());
+    const finalTeamId = matchingTeam?.id || undefined;
+
+    const matchingVolume = workVolumes.find(v => v.title.trim().toLowerCase() === workCategory.trim().toLowerCase());
+    const finalWorkCategoryId = matchingVolume?.workCategoryId || matchingVolume?.id || undefined;
+
+    const finalSubItems = subItems.map(s => {
+      const sCat = s.category || workCategory || '';
+      const matchingSubVol = workVolumes.find(v => v.title.trim().toLowerCase() === sCat.trim().toLowerCase());
+      const subWorkCategoryId = matchingSubVol?.workCategoryId || matchingSubVol?.id || undefined;
+
+      const sTeam = s.assignedTeam || '';
+      const matchingSubTeam = displayTeams.find(t => t.name.trim().toLowerCase() === sTeam.trim().toLowerCase());
+      const subTeamId = matchingSubTeam?.id || undefined;
+
+      return {
+        ...s,
+        workCategoryId: subWorkCategoryId,
+        teamId: subTeamId
+      };
+    });
+
     onSaveRoom({
       id: roomItem?.id,
       floorId,
       roomName: roomName.trim(),
       workCategory,
+      workCategoryId: finalWorkCategoryId,
       categoryVolumes,
-      subItems,
+      subItems: finalSubItems,
       workVolume: parsedVol !== undefined && !isNaN(parsedVol) ? parsedVol : undefined,
       volumeUnit: volumeUnit.trim() || 'm²',
       x,
@@ -633,6 +719,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       inspectorName: inspectorName.trim(),
       notes: notes.trim(),
       assignedTeam,
+      teamId: finalTeamId,
       color: selectedColor || undefined,
       isPolyline,
       targetFrameDate: firstSub.targetDate || '',
@@ -655,7 +742,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
       <div className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-2xl p-4 sm:p-5 space-y-4 max-h-[92vh] flex flex-col border border-slate-100 shadow-2xl">
-
+        
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-100 pb-3 shrink-0">
           <div className="flex items-center gap-2.5">
@@ -679,7 +766,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto overflow-x-hidden space-y-3.5 pr-1 text-xs">
-
+          
           {/* Room / Apartment Name */}
           <div>
             <label className="block font-bold text-slate-800 mb-1">Tên Căn Hộ / Tên Phòng *</label>
@@ -1005,6 +1092,12 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                               delete updated[catName];
                               return updated;
                             });
+                            setVolumeStrings(prev => {
+                              const updated = { ...prev };
+                              updated[newCat] = updated[catName] || '';
+                              delete updated[catName];
+                              return updated;
+                            });
                             // Update workCategory if matches
                             if (workCategory === catName) {
                               setWorkCategory(newCat);
@@ -1023,19 +1116,51 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                         <div className="flex items-center gap-1.5 shrink-0 bg-emerald-50/70 border border-emerald-100 rounded-xl px-2.5 py-1">
                           <span className="text-[10px] font-extrabold text-emerald-800">Khối lượng:</span>
                           <input
-                            type="number"
-                            step="any"
+                            type="text"
                             placeholder="0"
-                            value={categoryVolumes[catName] !== undefined ? categoryVolumes[catName] : ''}
+                            value={volumeStrings[catName] !== undefined ? volumeStrings[catName] : (categoryVolumes[catName] !== undefined ? formatDecimal(categoryVolumes[catName]) : '')}
                             onChange={(e) => {
-                              const valStr = e.target.value;
-                              const val = valStr !== '' ? parseFloat(valStr) : 0;
-                              setCategoryVolumes(prev => ({
+                              const typedVal = e.target.value;
+                              setVolumeStrings(prev => ({
                                 ...prev,
-                                [catName]: val
+                                [catName]: typedVal
                               }));
+                              const parsed = evaluateMathExpression(typedVal);
+                              const numericVal = parsed !== null ? parsed : (typedVal === '' ? 0 : Number(typedVal.replace(/,/g, '.')));
+                              if (!isNaN(numericVal)) {
+                                setCategoryVolumes(prev => ({
+                                  ...prev,
+                                  [catName]: numericVal
+                                }));
+                              }
                             }}
-                            className="w-14 text-center font-black text-xs text-emerald-950 bg-white border border-emerald-300 rounded focus:ring-1 focus:ring-emerald-500 outline-none px-1.5 py-0.5"
+                            onBlur={() => {
+                              const typedVal = volumeStrings[catName] || '';
+                              const parsed = evaluateMathExpression(typedVal);
+                              if (parsed !== null) {
+                                setCategoryVolumes(prev => ({
+                                  ...prev,
+                                  [catName]: parsed
+                                }));
+                                setVolumeStrings(prev => ({
+                                  ...prev,
+                                  [catName]: formatDecimal(parsed)
+                                }));
+                              } else {
+                                const numericVal = typedVal === '' ? 0 : Number(typedVal.replace(/,/g, '.'));
+                                if (!isNaN(numericVal)) {
+                                  setCategoryVolumes(prev => ({
+                                    ...prev,
+                                    [catName]: numericVal
+                                  }));
+                                  setVolumeStrings(prev => ({
+                                    ...prev,
+                                    [catName]: formatDecimal(numericVal)
+                                  }));
+                                }
+                              }
+                            }}
+                            className="w-20 text-center font-black text-xs text-emerald-950 bg-white border border-emerald-300 rounded focus:ring-1 focus:ring-emerald-500 outline-none px-1.5 py-0.5"
                           />
                           <span className="text-[10px] font-black text-emerald-800">{volumeUnit || 'm²'}</span>
 
@@ -1408,17 +1533,51 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
             {showDimensionSettings && (
               <div className="p-3.5 pt-0 border-t border-amber-200/70 space-y-3">
                 {roomItem && onStartRedraw2Point && (
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      onStartRedraw2Point(roomItem);
-                      onClose();
-                    }}
-                    className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-xl shadow-xs flex items-center justify-center gap-2 transition-all active:scale-98 text-xs border border-amber-400 cursor-pointer mt-2"
-                  >
-                    <Sparkles className="w-4 h-4 text-slate-950" />
-                    Căn Lại Vùng Này Bằng 2 Điểm Tự Do Trên Mặt Bằng
-                  </button>
+                  <div className="mt-2.5 space-y-2">
+                    <p className="text-[11px] font-extrabold text-amber-900 flex items-center gap-1.5">
+                      🎨 Chọn chế độ để vẽ lại vùng cho căn này:
+                    </p>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          onStartRedraw2Point(roomItem, 'freehand');
+                          onClose();
+                        }}
+                        className="py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-xl shadow-2xs flex flex-col items-center justify-center gap-1 transition-all active:scale-95 text-[10.5px] border border-amber-400 cursor-pointer"
+                        title="Vẽ tự do bằng cách nhấn giữ và kéo chuột/tay trên mặt bằng"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                        <span>Vẽ Tự Do</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          onStartRedraw2Point(roomItem, 'polygon');
+                          onClose();
+                        }}
+                        className="py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-xl shadow-2xs flex flex-col items-center justify-center gap-1 transition-all active:scale-95 text-[10.5px] border border-indigo-500 cursor-pointer"
+                        title="Chấm từng điểm góc trên mặt bằng để vẽ đa giác"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>Vẽ Đa Giác</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          onStartRedraw2Point(roomItem, '2point');
+                          onClose();
+                        }}
+                        className="py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-black rounded-xl shadow-2xs flex flex-col items-center justify-center gap-1 transition-all active:scale-95 text-[10.5px] border border-slate-950 cursor-pointer"
+                        title="Chấm 2 điểm đối góc để vẽ khung hình chữ nhật"
+                      >
+                        <span className="text-xs leading-none">📦</span>
+                        <span>Vẽ Chữ Nhật</span>
+                      </button>
+                    </div>
+                  </div>
                 )}
 
                 {/* 2 Free Points Coordinate Inputs */}

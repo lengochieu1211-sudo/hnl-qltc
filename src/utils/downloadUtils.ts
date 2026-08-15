@@ -1,5 +1,3 @@
-import { saveBlob } from './fileExport';
-
 export const downloadOrShareFile = async (filename: string, content: string | Blob, mimeType: string) => {
   let fileBlob: Blob;
   if (typeof content === 'string') {
@@ -21,12 +19,7 @@ export const downloadOrShareFile = async (filename: string, content: string | Bl
     fileBlob = content;
   }
 
-  if (typeof window !== 'undefined' && window.AndroidExport?.saveBase64File) {
-    await saveBlob(fileBlob, filename, mimeType);
-    return;
-  }
-
-  // Try navigator.share (works great in mobile browsers)
+  // Try navigator.share (works great in WebViews / Mobile)
   if (navigator.share && navigator.canShare) {
     const file = new File([fileBlob], filename, { type: fileBlob.type });
     if (navigator.canShare({ files: [file] })) {
@@ -42,5 +35,13 @@ export const downloadOrShareFile = async (filename: string, content: string | Bl
     }
   }
 
-  await saveBlob(fileBlob, filename, mimeType);
+  // Fallback to traditional download anchor
+  const url = URL.createObjectURL(fileBlob);
+  const downloadAnchor = document.createElement('a');
+  downloadAnchor.setAttribute('href', url);
+  downloadAnchor.setAttribute('download', filename);
+  document.body.appendChild(downloadAnchor);
+  downloadAnchor.click();
+  document.body.removeChild(downloadAnchor);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 };

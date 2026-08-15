@@ -55,7 +55,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
             <div className="w-16 h-16 bg-rose-500/20 text-rose-400 rounded-full flex items-center justify-center mx-auto border border-rose-500/30 animate-pulse">
               <AlertTriangle className="w-8 h-8" />
             </div>
-
+            
             <div className="space-y-2">
               <h1 className="text-lg font-black text-slate-100">Đã xảy ra sự cố không mong muốn</h1>
               <p className="text-xs text-slate-400 leading-relaxed">
