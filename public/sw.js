@@ -1,11 +1,13 @@
-const CACHE_NAME = 'thicong-thachcao-cache-v2';
+const CACHE_NAME = 'thicong-thachcao-cache-v3';
 
 // Essential App Shell Resources
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
-  '/icon.svg'
+  '/favicon-3d.ico',
+  '/icon-3d-192.png',
+  '/icon-3d-512.png'
 ];
 
 // Install Event: Cache Core App Shell

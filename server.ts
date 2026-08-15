@@ -1245,9 +1245,9 @@ app.post('/api/drive/sync-down-all', async (req, res) => {
   }
 });
 
-// Redirect legacy icon.png and apple-touch-icon.png requests to the custom rounded icon.svg
+// Redirect legacy icon requests to the current 3D launcher artwork.
 app.get(['/icon.png', '/apple-touch-icon.png', '/apple-touch-icon-precomposed.png'], (req, res) => {
-  res.redirect('/icon.svg');
+  res.redirect('/icon-3d-512.png');
 });
 
 // ==========================================
