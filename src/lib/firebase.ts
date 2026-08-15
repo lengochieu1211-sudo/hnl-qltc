@@ -12,6 +12,7 @@ import {
   onSnapshot, 
   getDocFromServer,
   query,
+  where,
   orderBy,
   writeBatch
 } from 'firebase/firestore';
@@ -80,6 +81,45 @@ export const auth = getAuth(app);
 
 let localMockUser: User | null = null;
 const authListeners: Array<(user: User | null) => void> = [];
+
+function normalizeEmail(email?: string | null): string {
+  return (email || '').trim().toLowerCase();
+}
+
+function getCurrentAppUser(): User | null {
+  return auth.currentUser || localMockUser || getStoredLocalUser();
+}
+
+function getMemberDocIdsForUser(user: { uid?: string | null; email?: string | null }): string[] {
+  const ids = new Set<string>();
+  if (user.uid) ids.add(user.uid);
+  const email = normalizeEmail(user.email);
+  if (email) ids.add(email);
+  return Array.from(ids);
+}
+
+async function writeProjectMemberDocs(
+  projectId: string,
+  member: { uid?: string | null; email: string; role: string; active?: boolean; assignedAt?: number }
+): Promise<void> {
+  const normalizedEmail = normalizeEmail(member.email);
+  if (!projectId || !normalizedEmail) return;
+
+  const payload = {
+    ...(member.uid ? { uid: member.uid } : {}),
+    email: normalizedEmail,
+    role: member.role,
+    active: member.active !== false,
+    assignedAt: member.assignedAt || Date.now(),
+    updatedAt: Date.now()
+  };
+
+  const ids = new Set<string>([normalizedEmail]);
+  if (member.uid) ids.add(member.uid);
+  for (const id of ids) {
+    await setDoc(doc(db, 'projects', projectId, 'members', id), payload, { merge: true });
+  }
+}
 
 function getStoredLocalUser(): User | null {
   try {
@@ -159,6 +199,10 @@ export async function signInWithGoogle(): Promise<User | null> {
       const provider = new GoogleAuthProvider();
       provider.setCustomParameters({ prompt: 'select_account' });
       const result = await signInWithPopup(auth, provider);
+      await saveUserProfileToCloud(result.user).catch((profileErr) => {
+        console.warn('Could not save Google profile after sign-in:', profileErr);
+      });
+      notifyAuthListeners(result.user);
       return result.user;
     } catch (err: any) {
       const code = err?.code || '';
@@ -223,7 +267,7 @@ export const signInWithGoogleAccount = signInWithGoogle;
 export const signOutFirebaseAccount = signOutGoogle;
 
 export function getCurrentFirebaseUser(): User | null {
-  return auth.currentUser || localMockUser || getStoredLocalUser();
+  return getCurrentAppUser();
 }
 
 export function onAuthUserChanged(callback: (user: User | null) => void): () => void {
@@ -277,7 +321,8 @@ export async function fetchProjectUserRoleFromCloud(
   }
 
   try {
-    // 1. Fetch project document to check ownerUid and ownerEmail
+    // 1. Fetch project document to check ownerUid and ownerEmail.
+    // Firestore rules now allow the stored ownerEmail to recover ADMIN even if UID changed.
     const projectSnap = await getDoc(doc(db, 'projects', projectId));
     let pOwnerUid: string | undefined;
     let pOwnerEmail: string | undefined;
@@ -285,7 +330,7 @@ export async function fetchProjectUserRoleFromCloud(
     if (projectSnap.exists()) {
       const pData = projectSnap.data();
       pOwnerUid = pData?.ownerUid;
-      pOwnerEmail = pData?.ownerEmail;
+      pOwnerEmail = normalizeEmail(pData?.ownerEmail);
 
       if (pData) {
         // Direct UID match -> Project Owner (ADMIN)
@@ -293,41 +338,23 @@ export async function fetchProjectUserRoleFromCloud(
           return { allowed: true, role: 'ADMIN', isCloudSynced: true, ownerUid: pData.ownerUid, ownerEmail: pData.ownerEmail, isOwner: true };
         }
         // Direct Email match -> Project Owner (ADMIN)
-        if (pData.ownerEmail && user.email && pData.ownerEmail.trim().toLowerCase() === user.email.trim().toLowerCase()) {
+        if (pOwnerEmail && normalizeEmail(user.email) && pOwnerEmail === normalizeEmail(user.email)) {
           return { allowed: true, role: 'ADMIN', isCloudSynced: true, ownerUid: pData.ownerUid || user.uid, ownerEmail: pData.ownerEmail, isOwner: true };
         }
       }
     }
 
-    // 2. Fetch member document at /projects/{projectId}/members/{user.uid}
-    const memberSnap = await getDoc(doc(db, 'projects', projectId, 'members', user.uid));
-    if (memberSnap.exists()) {
-      const mData = memberSnap.data();
-      if (mData && mData.active === false) {
-        return { allowed: false, role: 'VIEWER', isCloudSynced: true, ownerUid: pOwnerUid, ownerEmail: pOwnerEmail, isOwner: false };
-      }
-      const role = (mData?.role as 'ADMIN' | 'ENGINEER' | 'VIEWER') || 'VIEWER';
-      return { allowed: true, role, isCloudSynced: true, ownerUid: pOwnerUid, ownerEmail: pOwnerEmail, isOwner: role === 'ADMIN' };
-    }
-
-    // 3. Fallback: search members collection by email
-    if (user.email) {
-      const normEmail = user.email.trim().toLowerCase();
-      const membersSnap = await getDocs(collection(db, 'projects', projectId, 'members'));
-      let foundRole: 'ADMIN' | 'ENGINEER' | 'VIEWER' | null = null;
-      let isActive = true;
-
-      membersSnap.forEach((mDoc) => {
-        const mData = mDoc.data();
-        if (mData && mData.email && mData.email.trim().toLowerCase() === normEmail) {
-          if (mData.active === false) isActive = false;
-          foundRole = (mData.role as 'ADMIN' | 'ENGINEER' | 'VIEWER') || 'VIEWER';
+    // 2. Fetch direct member documents by UID and normalized email.
+    // Avoid collection-wide reads because Firestore rules cannot authorize a broad members scan.
+    for (const memberDocId of getMemberDocIdsForUser(user)) {
+      const memberSnap = await getDoc(doc(db, 'projects', projectId, 'members', memberDocId));
+      if (memberSnap.exists()) {
+        const mData = memberSnap.data();
+        if (mData && mData.active === false) {
+          return { allowed: false, role: 'VIEWER', isCloudSynced: true, ownerUid: pOwnerUid, ownerEmail: pOwnerEmail, isOwner: false };
         }
-      });
-
-      if (foundRole) {
-        if (!isActive) return { allowed: false, role: 'VIEWER', isCloudSynced: true, ownerUid: pOwnerUid, ownerEmail: pOwnerEmail, isOwner: false };
-        return { allowed: true, role: foundRole, isCloudSynced: true, ownerUid: pOwnerUid, ownerEmail: pOwnerEmail, isOwner: foundRole === 'ADMIN' };
+        const role = (mData?.role as 'ADMIN' | 'ENGINEER' | 'VIEWER') || 'VIEWER';
+        return { allowed: true, role, isCloudSynced: true, ownerUid: pOwnerUid, ownerEmail: pOwnerEmail, isOwner: role === 'ADMIN' };
       }
     }
 
@@ -520,8 +547,9 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
       const metadataRef = doc(db, 'projects', project.id);
       const existingSnap = await getDoc(metadataRef).catch(() => null);
       const existingData = existingSnap && existingSnap.exists() ? existingSnap.data() : null;
-      const finalOwnerUid = existingData?.ownerUid || (auth.currentUser ? auth.currentUser.uid : null);
-      const finalOwnerEmail = existingData?.ownerEmail || (auth.currentUser?.email ? auth.currentUser.email.trim().toLowerCase() : null);
+      const currentUser = getCurrentAppUser();
+      const finalOwnerUid = existingData?.ownerUid || (currentUser ? currentUser.uid : null);
+      const finalOwnerEmail = existingData?.ownerEmail || normalizeEmail(currentUser?.email);
 
       await setDoc(metadataRef, {
         id: project.id,
@@ -901,7 +929,7 @@ export async function saveCloudBackup(backupName: string, allProjects: any[]): P
       createdAt: new Date().toISOString(),
       projectCount: Array.isArray(sanitizedProjects) ? sanitizedProjects.length : 1,
       projects: sanitizedProjects,
-      ownerUid: auth.currentUser ? auth.currentUser.uid : null
+      ownerUid: getCurrentAppUser() ? getCurrentAppUser()!.uid : null
     };
 
     await setDoc(doc(db, 'cloud_backups', backupId), record);
@@ -918,7 +946,7 @@ export async function saveCloudBackup(backupName: string, allProjects: any[]): P
 export async function saveUserProfileToCloud(user: { uid: string; email: string; displayName?: string; photoURL?: string }): Promise<void> {
   if (!user || !user.uid) return;
   try {
-    const normalizedEmail = user.email.toLowerCase().trim();
+    const normalizedEmail = normalizeEmail(user.email);
     // 1. Save user profile
     await setDoc(doc(db, 'users', user.uid), {
       uid: user.uid,
@@ -929,22 +957,36 @@ export async function saveUserProfileToCloud(user: { uid: string; email: string;
     }, { merge: true });
 
     // 2. Check pending invitations
-    const invSnap = await getDocs(query(collection(db, 'projectInvitations')));
-    invSnap.forEach(async (invDoc) => {
-      const data = invDoc.data();
-      if (data && data.email === normalizedEmail && data.projectId) {
-        // Create member doc using UID
-        await setDoc(doc(db, 'projects', data.projectId, 'members', user.uid), {
-          uid: user.uid,
-          email: normalizedEmail,
-          role: data.role || 'ENGINEER',
-          active: true,
-          updatedAt: Date.now()
-        }, { merge: true });
-        // Clean up invitation
-        await deleteDoc(doc(db, 'projectInvitations', invDoc.id)).catch(() => {});
+    // 2. Check pending invitations using constrained queries.
+    // Legacy builds wrote "email"; current builds write "invitedEmail".
+    const invitationQueries = [
+      query(collection(db, 'projectInvitations'), where('invitedEmail', '==', normalizedEmail)),
+      query(collection(db, 'projectInvitations'), where('email', '==', normalizedEmail))
+    ];
+    const handledInvitationIds = new Set<string>();
+    for (const invQuery of invitationQueries) {
+      const invSnap = await getDocs(invQuery).catch((err) => {
+        console.warn('Pending invitation query skipped:', err);
+        return null;
+      });
+      if (!invSnap) continue;
+
+      for (const invDoc of invSnap.docs) {
+        if (handledInvitationIds.has(invDoc.id)) continue;
+        handledInvitationIds.add(invDoc.id);
+        const data = invDoc.data();
+        const inviteEmail = normalizeEmail(data?.invitedEmail || data?.email);
+        if (data && inviteEmail === normalizedEmail && data.projectId) {
+          await writeProjectMemberDocs(data.projectId, {
+            uid: user.uid,
+            email: normalizedEmail,
+            role: data.role || 'ENGINEER',
+            active: true
+          }).catch((err) => console.warn('Could not materialize invitation as member:', err));
+          await deleteDoc(doc(db, 'projectInvitations', invDoc.id)).catch(() => {});
+        }
       }
-    });
+    }
   } catch (err) {
     console.warn('saveUserProfileToCloud error:', err);
   }
@@ -959,7 +1001,7 @@ export async function saveProjectMemberToCloud(
 ): Promise<void> {
   if (!projectId || !member.email) return;
   try {
-    const normalizedEmail = member.email.trim().toLowerCase();
+    const normalizedEmail = normalizeEmail(member.email);
     let targetUid = member.uid;
 
     if (!targetUid) {
@@ -973,25 +1015,24 @@ export async function saveProjectMemberToCloud(
       });
     }
 
-    if (targetUid) {
-      // Save member doc with UID as Document ID
-      await setDoc(doc(db, 'projects', projectId, 'members', targetUid), {
-        uid: targetUid,
-        email: normalizedEmail,
-        role: member.role,
-        active: true,
-        updatedAt: Date.now()
-      }, { merge: true });
-    } else {
-      // Save pending invitation
-      const invId = `${projectId}_${normalizedEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
-      await setDoc(doc(db, 'projectInvitations', invId), {
-        projectId,
-        email: normalizedEmail,
-        role: member.role,
-        createdAt: Date.now()
-      }, { merge: true });
-    }
+    await writeProjectMemberDocs(projectId, {
+      uid: targetUid,
+      email: normalizedEmail,
+      role: member.role,
+      active: true,
+      assignedAt: member.assignedAt
+    });
+
+    // Keep an invitation record as a compatibility hint for first login on older builds.
+    const invId = `${projectId}_${normalizedEmail}`;
+    await setDoc(doc(db, 'projectInvitations', invId), {
+      projectId,
+      email: normalizedEmail,
+      invitedEmail: normalizedEmail,
+      role: member.role,
+      createdByUid: getCurrentAppUser()?.uid || null,
+      createdAt: Date.now()
+    }, { merge: true }).catch(() => {});
   } catch (err) {
     console.warn('saveProjectMemberToCloud error:', err);
   }
@@ -1003,7 +1044,7 @@ export async function saveProjectMemberToCloud(
 export async function removeProjectMemberFromCloud(projectId: string, email: string, uid?: string): Promise<void> {
   if (!projectId || !email) return;
   try {
-    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedEmail = normalizeEmail(email);
     let targetUid = uid;
 
     if (!targetUid) {
@@ -1019,9 +1060,12 @@ export async function removeProjectMemberFromCloud(projectId: string, email: str
     if (targetUid) {
       await deleteDoc(doc(db, 'projects', projectId, 'members', targetUid));
     }
+    await deleteDoc(doc(db, 'projects', projectId, 'members', normalizedEmail)).catch(() => {});
 
-    const invId = `${projectId}_${normalizedEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    const invId = `${projectId}_${normalizedEmail}`;
     await deleteDoc(doc(db, 'projectInvitations', invId)).catch(() => {});
+    const legacyInvId = `${projectId}_${normalizedEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    await deleteDoc(doc(db, 'projectInvitations', legacyInvId)).catch(() => {});
   } catch (err) {
     console.warn('removeProjectMemberFromCloud error:', err);
   }

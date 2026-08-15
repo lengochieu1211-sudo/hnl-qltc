@@ -153,8 +153,8 @@ export default function App() {
     let isMounted = true;
     async function syncUserRole() {
       try {
-        const { auth, fetchProjectUserRoleFromCloud } = await import('./lib/firebase');
-        const user = auth.currentUser;
+        const { getCurrentFirebaseUser, fetchProjectUserRoleFromCloud } = await import('./lib/firebase');
+        const user = getCurrentFirebaseUser();
         if (user && activeProjectId) {
           const res = await fetchProjectUserRoleFromCloud(activeProjectId, user);
           if (isMounted && res.role) {

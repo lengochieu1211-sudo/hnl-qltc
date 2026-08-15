@@ -222,7 +222,11 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   const handleGoogleSignIn = async () => {
     try {
       setIsGoogleSigningIn(true);
-      await signInWithGoogle();
+      const user = await signInWithGoogle();
+      if (user) {
+        const { saveUserProfileToCloud } = await import('../lib/firebase');
+        await saveUserProfileToCloud(user).catch(() => {});
+      }
       setCloudStatusMsg({ type: 'success', text: '✅ Đăng nhập Google thành công! Dữ liệu Cloud được bảo vệ an toàn.' });
       await fetchCloudBackups();
     } catch (err: any) {

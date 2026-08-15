@@ -36,7 +36,7 @@ import {
   AuditLogEntry
 } from '../utils/securityUtils';
 import { hashPin, verifyPin } from '../utils/cryptoUtils';
-import { signInWithGoogle, auth, fetchProjectUserRoleFromCloud, claimProjectOwnership } from '../lib/firebase';
+import { signInWithGoogle, getCurrentFirebaseUser, fetchProjectUserRoleFromCloud, claimProjectOwnership } from '../lib/firebase';
 
 interface SecurityModalProps {
   isOpen: boolean;
@@ -65,7 +65,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
 
   // RBAC & Cloud Auth state
   const [currentRole, setRoleState] = useState<UserRole>(getCurrentUserRole());
-  const [cloudUser, setCloudUser] = useState<any>(auth.currentUser);
+  const [cloudUser, setCloudUser] = useState<any>(getCurrentFirebaseUser());
   const [cloudRoleInfo, setCloudRoleInfo] = useState<{ allowed: boolean; role: UserRole; isCloudSynced: boolean; ownerUid?: string; ownerEmail?: string; isOwner?: boolean } | null>(null);
   const [isCheckingCloud, setIsCheckingCloud] = useState<boolean>(false);
   const [isClaiming, setIsClaiming] = useState<boolean>(false);
@@ -87,7 +87,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
   const refreshCloudStatus = async (pid: string) => {
     setIsCheckingCloud(true);
     try {
-      const u = auth.currentUser;
+      const u = getCurrentFirebaseUser();
       setCloudUser(u);
       if (u && pid) {
         const info = await fetchProjectUserRoleFromCloud(pid, u);
@@ -162,8 +162,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
 
     try {
       const { hash, salt } = await hashPin(newPin);
-      const { auth } = await import('../lib/firebase');
-      const currentUser = auth.currentUser;
+      const currentUser = getCurrentFirebaseUser();
       const updated = {
         ...pinConfig,
         enabled: true,
@@ -288,7 +287,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
 
   const handleClaimOwnership = async () => {
     if (!selectedPid) return;
-    let u = auth.currentUser;
+    let u = getCurrentFirebaseUser();
     if (!u) {
       try {
         u = await signInWithGoogle();

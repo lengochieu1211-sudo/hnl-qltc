@@ -8,38 +8,68 @@ service cloud.firestore {
       return request.auth != null && request.auth.token.firebase.sign_in_provider == 'google.com';
     }
 
+    function signedInEmail() {
+      return request.auth.token.email;
+    }
+
+    function hasSignedInEmail() {
+      return isGoogleAuthed() && request.auth.token.email is string && request.auth.token.email.size() > 0;
+    }
+
     // Helper functions for project access control
     function isProjectOwner(projectId) {
       return isGoogleAuthed() && (
-        (resource != null && resource.data.ownerUid == request.auth.uid) ||
-        (get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid)
+        (resource != null && (
+          resource.data.ownerUid == request.auth.uid ||
+          (hasSignedInEmail() && resource.data.ownerEmail == signedInEmail())
+        )) ||
+        (
+          get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid ||
+          (hasSignedInEmail() && get(/databases/$(database)/documents/projects/$(projectId)).data.ownerEmail == signedInEmail())
+        )
       );
+    }
+
+    function hasUidProjectMember(projectId) {
+      return exists(/databases/$(database)/documents/projects/$(projectId)/members/$(request.auth.uid));
+    }
+
+    function hasEmailProjectMember(projectId) {
+      return hasSignedInEmail() &&
+        exists(/databases/$(database)/documents/projects/$(projectId)/members/$(signedInEmail()));
+    }
+
+    function uidProjectMemberRole(projectId) {
+      return get(/databases/$(database)/documents/projects/$(projectId)/members/$(request.auth.uid)).data.role;
+    }
+
+    function emailProjectMemberRole(projectId) {
+      return get(/databases/$(database)/documents/projects/$(projectId)/members/$(signedInEmail())).data.role;
     }
 
     function isProjectMember(projectId) {
       return isGoogleAuthed() && (
         isProjectOwner(projectId) ||
-        exists(/databases/$(database)/documents/projects/$(projectId)/members/$(request.auth.uid))
+        hasUidProjectMember(projectId) ||
+        hasEmailProjectMember(projectId)
       );
-    }
-
-    function getProjectMemberRole(projectId) {
-      return get(/databases/$(database)/documents/projects/$(projectId)/members/$(request.auth.uid)).data.role;
     }
 
     function isProjectAdmin(projectId) {
       return isGoogleAuthed() && (
         isProjectOwner(projectId) ||
-        (exists(/databases/$(database)/documents/projects/$(projectId)/members/$(request.auth.uid)) && 
-         getProjectMemberRole(projectId) == 'ADMIN')
+        (hasUidProjectMember(projectId) && uidProjectMemberRole(projectId) == 'ADMIN') ||
+        (hasEmailProjectMember(projectId) && emailProjectMemberRole(projectId) == 'ADMIN')
       );
     }
 
     function isProjectEngineerOrAdmin(projectId) {
       return isGoogleAuthed() && (
         isProjectAdmin(projectId) ||
-        (exists(/databases/$(database)/documents/projects/$(projectId)/members/$(request.auth.uid)) && 
-         (getProjectMemberRole(projectId) == 'ENGINEER' || getProjectMemberRole(projectId) == 'ADMIN'))
+        (hasUidProjectMember(projectId) &&
+         (uidProjectMemberRole(projectId) == 'ENGINEER' || uidProjectMemberRole(projectId) == 'ADMIN')) ||
+        (hasEmailProjectMember(projectId) &&
+         (emailProjectMemberRole(projectId) == 'ENGINEER' || emailProjectMemberRole(projectId) == 'ADMIN'))
       );
     }
 
@@ -67,7 +97,11 @@ service cloud.firestore {
 
       // Project members subcollection
       match /members/{memberUid} {
-        allow read: if isGoogleAuthed() && isProjectMember(projectId);
+        allow read: if isGoogleAuthed() && (
+          isProjectMember(projectId) ||
+          memberUid == request.auth.uid ||
+          (hasSignedInEmail() && memberUid == signedInEmail())
+        );
         allow write: if isGoogleAuthed() && isProjectAdmin(projectId);
       }
 
@@ -87,13 +121,20 @@ service cloud.firestore {
     // Project invitations
     match /projectInvitations/{invitationId} {
       allow read: if isGoogleAuthed() && (
-        (resource != null && (resource.data.invitedEmail == request.auth.token.email || resource.data.createdByUid == request.auth.uid)) ||
+        (resource != null && (
+          resource.data.invitedEmail == signedInEmail() ||
+          resource.data.email == signedInEmail() ||
+          resource.data.createdByUid == request.auth.uid
+        )) ||
         (resource != null && isProjectMember(resource.data.projectId))
       );
       allow create: if isGoogleAuthed() && isProjectAdmin(request.resource.data.projectId);
       allow update, delete: if isGoogleAuthed() && (
         (resource != null && isProjectAdmin(resource.data.projectId)) || 
-        (resource != null && resource.data.invitedEmail == request.auth.token.email)
+        (resource != null && (
+          resource.data.invitedEmail == signedInEmail() ||
+          resource.data.email == signedInEmail()
+        ))
       );
     }
 
