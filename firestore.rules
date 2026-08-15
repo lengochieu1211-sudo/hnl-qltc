@@ -63,6 +63,15 @@ service cloud.firestore {
       );
     }
 
+    function isClaimingUnownedProject() {
+      return isGoogleAuthed() &&
+        resource != null &&
+        (resource.data.ownerUid == null || resource.data.ownerUid == '') &&
+        (resource.data.ownerEmail == null || resource.data.ownerEmail == '' || (hasSignedInEmail() && resource.data.ownerEmail == signedInEmail())) &&
+        request.resource.data.ownerUid == request.auth.uid &&
+        (!hasSignedInEmail() || request.resource.data.ownerEmail == signedInEmail());
+    }
+
     function isProjectEngineerOrAdmin(projectId) {
       return isGoogleAuthed() && (
         isProjectAdmin(projectId) ||
@@ -87,7 +96,8 @@ service cloud.firestore {
 
       allow update: if isGoogleAuthed() && (
         isProjectAdmin(projectId) || 
-        (resource != null && resource.data.ownerUid == request.auth.uid)
+        (resource != null && resource.data.ownerUid == request.auth.uid) ||
+        isClaimingUnownedProject()
       );
 
       allow delete: if isGoogleAuthed() && (
