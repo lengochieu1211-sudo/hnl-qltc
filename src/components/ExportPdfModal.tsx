@@ -6,6 +6,7 @@ import { exportAllToExcel, exportAllToExcelBase64 } from '../utils/excelExport';
 import { formatDateDDMMYYYY } from '../utils/dateFormatter';
 import { getRoomColorStyle } from '../utils/colorPalette';
 import { getDefectOverdueInfo } from '../utils/defectUtils';
+import { apiFetch, hasApiBackend } from '../utils/api';
 
 interface ExportPdfModalProps {
   isOpen: boolean;
@@ -836,6 +837,13 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
   };
 
   const handleUploadExcelToDrive = async () => {
+    if (!hasApiBackend()) {
+      const message = 'Google Drive upload is disabled on the free static Firebase Hosting deployment. Download the Excel file locally instead.';
+      setDriveUploadError(message);
+      alert(message);
+      return;
+    }
+
     setIsUploadingExcel(true);
     setDriveUploadError(null);
     try {
@@ -859,7 +867,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
       });
 
       const cleanProjectName = projectName.replace(/[^a-zA-Z0-9_-\s]/g, '').trim().replace(/\s+/g, '_');
-      const response = await fetch('/api/drive/upload-report', {
+      const response = await apiFetch('/api/drive/upload-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -894,6 +902,13 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
   };
 
   const handleUploadHtmlToDrive = async () => {
+    if (!hasApiBackend()) {
+      const message = 'Google Drive upload is disabled on the free static Firebase Hosting deployment. Download the HTML/PDF report locally instead.';
+      setDriveUploadError(message);
+      alert(message);
+      return;
+    }
+
     setIsUploadingPdf(true);
     setDriveUploadError(null);
     try {
@@ -902,7 +917,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
       const base64 = window.btoa(unescape(encodeURIComponent(htmlContent)));
 
       const cleanProjectName = projectName.replace(/[^a-zA-Z0-9_-\s]/g, '').trim().replace(/\s+/g, '_');
-      const response = await fetch('/api/drive/upload-report', {
+      const response = await apiFetch('/api/drive/upload-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

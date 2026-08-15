@@ -393,6 +393,7 @@ const DEFECT_CATEGORIES: DefectCategory[] = [
 
 import { compressImage } from '../utils/imageCompressor';
 import { confirmAsync } from '../utils/confirmAsync';
+import { apiFetch, hasApiBackend } from '../utils/api';
 
 const readFileAsDataUrl = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -405,6 +406,22 @@ const readFileAsDataUrl = (file: File): Promise<string> => {
     reader.onerror = (err) => reject(err);
     reader.readAsDataURL(file);
   });
+};
+
+const uploadImageToServerDrive = async (file: File, fileName: string): Promise<string | null> => {
+  if (!hasApiBackend()) return null;
+
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('fileName', fileName);
+
+  const res = await apiFetch('/api/drive/upload-image', {
+    method: 'POST',
+    body: formData,
+  });
+
+  const data = await res.json();
+  return data.url || null;
 };
 
 export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
@@ -2045,17 +2062,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       let planUrl = await readFileAsDataUrl(file);
 
       try {
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('fileName', `MB_${newFloorName}_${Date.now()}.png`);
-
-        const res = await fetch('/api/drive/upload-image', {
-          method: 'POST',
-          body: formData,
-        });
-
-        const data = await res.json();
-        if (data.url) planUrl = data.url;
+        const uploadedUrl = await uploadImageToServerDrive(file, `MB_${newFloorName}_${Date.now()}.png`);
+        if (uploadedUrl) planUrl = uploadedUrl;
       } catch (uploadErr) {
         console.warn('Drive upload fallback to local base64:', uploadErr);
       }
@@ -2099,17 +2107,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       let photoResultUrl = await readFileAsDataUrl(editedFile);
 
       try {
-        const formData = new FormData();
-        formData.append('file', editedFile);
-        formData.append('fileName', `Defect_Photo_Edited_${Date.now()}.jpg`);
-
-        const res = await fetch('/api/drive/upload-image', {
-          method: 'POST',
-          body: formData,
-        });
-
-        const data = await res.json();
-        if (data.url) photoResultUrl = data.url;
+        const uploadedUrl = await uploadImageToServerDrive(editedFile, `Defect_Photo_Edited_${Date.now()}.jpg`);
+        if (uploadedUrl) photoResultUrl = uploadedUrl;
       } catch (uploadErr) {
         console.warn('Drive upload fallback to local base64:', uploadErr);
       }
@@ -2133,17 +2132,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       let photoResultUrl = await readFileAsDataUrl(file);
 
       try {
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('fileName', `Defect_After_Photo_${Date.now()}.jpg`);
-
-        const res = await fetch('/api/drive/upload-image', {
-          method: 'POST',
-          body: formData,
-        });
-
-        const data = await res.json();
-        if (data.url) photoResultUrl = data.url;
+        const uploadedUrl = await uploadImageToServerDrive(file, `Defect_After_Photo_${Date.now()}.jpg`);
+        if (uploadedUrl) photoResultUrl = uploadedUrl;
       } catch (uploadErr) {
         console.warn('Drive upload fallback to local base64:', uploadErr);
       }
@@ -2176,17 +2166,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       let photoResultUrl = await readFileAsDataUrl(file);
 
       try {
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('fileName', `Defect_Before_Photo_${Date.now()}.jpg`);
-
-        const res = await fetch('/api/drive/upload-image', {
-          method: 'POST',
-          body: formData,
-        });
-
-        const data = await res.json();
-        if (data.url) photoResultUrl = data.url;
+        const uploadedUrl = await uploadImageToServerDrive(file, `Defect_Before_Photo_${Date.now()}.jpg`);
+        if (uploadedUrl) photoResultUrl = uploadedUrl;
       } catch (uploadErr) {
         console.warn('Drive upload fallback to local base64:', uploadErr);
       }
@@ -4861,7 +4842,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   disabled={isUploadingPlan || !newFloorName.trim()}
                   className="w-full text-xs text-slate-500 file:mr-3 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
                 />
-                {isUploadingPlan && <p className="text-blue-600 text-[11px] mt-1">Đang tải bản vẽ lên Google Drive...</p>}
+                {isUploadingPlan && (
+                  <p className="text-blue-600 text-[11px] mt-1">
+                    {hasApiBackend() ? 'Đang tải bản vẽ lên Google Drive...' : 'Đang xử lý và lưu bản vẽ cục bộ...'}
+                  </p>
+                )}
               </div>
 
               <div className="flex justify-end gap-2 pt-2">

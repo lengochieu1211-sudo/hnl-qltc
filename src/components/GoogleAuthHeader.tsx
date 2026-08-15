@@ -15,6 +15,7 @@ import {
 import { UndoRedoControls } from './UndoRedoControls';
 import { GoogleAuthStatus } from '../types';
 import { GoogleAuthModal } from './GoogleAuthModal';
+import { getFirebaseAuthStatus, subscribeToFirebaseAuthStatus } from '../lib/firebase';
 
 interface GoogleAuthHeaderProps {
   projectName: string;
@@ -69,19 +70,7 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
   const checkAuthStatus = async () => {
     try {
       setLoadingAuth(true);
-      const res = await fetch('/api/auth/status');
-      if (!res.ok) {
-        setAuthStatus({ authenticated: false });
-        return;
-      }
-      const text = await res.text();
-      let data: GoogleAuthStatus = { authenticated: false };
-      try {
-        data = JSON.parse(text);
-      } catch {
-        data = { authenticated: false };
-      }
-      setAuthStatus(data);
+      setAuthStatus(await getFirebaseAuthStatus());
     } catch (err) {
       console.warn('Auth status check skipped:', err);
       setAuthStatus({ authenticated: false });
@@ -91,16 +80,11 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
   };
 
   useEffect(() => {
-    checkAuthStatus();
-
-    // Listen to OAuth popup message
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'GOOGLE_AUTH_SUCCESS') {
-        checkAuthStatus();
-      }
-    };
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
+    setLoadingAuth(true);
+    return subscribeToFirebaseAuthStatus((status) => {
+      setAuthStatus(status);
+      setLoadingAuth(false);
+    });
   }, []);
 
   const handleConnectGoogle = async () => {
@@ -198,7 +182,7 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
                     ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/80 hover:bg-emerald-900'
                     : 'bg-blue-950/80 text-blue-300 border-blue-700/80 hover:bg-blue-900'
                 }`}
-                title={authStatus.authenticated ? `Tài khoản Google Drive đã kết nối (${authStatus.email || authStatus.name})` : 'Nhấn để kết nối Google Drive & Sheets'}
+                title={authStatus.authenticated ? `Tài khoản Google đã kết nối (${authStatus.email || authStatus.name})` : 'Nhấn để đăng nhập Google bằng Firebase Auth'}
               >
                 <UserCheck className={`w-3.5 h-3.5 shrink-0 ${authStatus.authenticated ? 'text-emerald-400' : 'text-blue-300'}`} />
               </button>

@@ -1,6 +1,6 @@
 # QLCT - Quan Ly Thi Cong
 
-React/Vite web app with Firebase Auth + Firestore cloud sync. The free deployment path uses Firebase Hosting static output from `dist`; the optional Express server is kept for future Google Drive/Sheets integration on App Hosting or another server.
+React/Vite web app with Firebase Auth + Firestore cloud sync. The production deployment is the free Firebase Hosting static output from `dist`. The optional Express server is kept for local development or a future explicitly approved backend, but Google Drive/Sheets server features are gated off on the free Hosting path.
 
 ## Local development
 
@@ -26,6 +26,10 @@ Do not commit real values from `.env.local`, Firebase config files, OAuth creden
 
 Deployment notes are in `docs/deploy-firebase-app-hosting.md`.
 Future AI Studio ZIP merge notes are in `docs/merge-ai-studio-zip.md`.
+
+## Cost policy
+
+The recurring-cost target is 0 VND/month. Do not enable Firebase Blaze, App Hosting, Cloud Run, paid APIs, paid databases, paid VPS, paid domains, or trial services that can auto-charge unless the owner explicitly approves it first.
 
 ## Android APK
 

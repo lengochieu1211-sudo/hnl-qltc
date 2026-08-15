@@ -1,11 +1,15 @@
 const API_BASE_STORAGE_KEY = 'qlct_api_base_url';
 
+function envValue(name: string) {
+  return ((import.meta as any).env?.[name] || '').trim();
+}
+
 export function normalizeApiBaseUrl(url: string) {
   return (url || '').trim().replace(/\/+$/, '');
 }
 
 export function getApiBaseUrl() {
-  const envUrl = normalizeApiBaseUrl((import.meta as any).env?.VITE_API_BASE_URL || '');
+  const envUrl = normalizeApiBaseUrl(envValue('VITE_API_BASE_URL'));
   if (envUrl) return envUrl;
 
   try {
@@ -25,8 +29,16 @@ export function setApiBaseUrl(url: string) {
   return normalized;
 }
 
+function isLocalExpressDevServer() {
+  if (typeof window === 'undefined') return false;
+  const host = window.location.hostname;
+  return (host === 'localhost' || host === '127.0.0.1' || host === '::1') && window.location.port === '3000';
+}
+
 export function hasApiBackend() {
-  return getApiBaseUrl() !== '' || window.location.protocol !== 'file:';
+  if (getApiBaseUrl() !== '') return true;
+  if (envValue('VITE_ENABLE_SERVER_API') === 'true') return true;
+  return isLocalExpressDevServer();
 }
 
 export function apiUrl(path: string) {
@@ -37,7 +49,7 @@ export function apiUrl(path: string) {
 
 export function apiFetch(path: string, init?: RequestInit) {
   if (!hasApiBackend()) {
-    throw new Error('Chua cau hinh dia chi backend Google. Vao tab Cau Hinh va nhap URL server dang chay server.ts.');
+    throw new Error('Tinh nang Google Drive/Sheets can backend server. Firebase Hosting mien phi dang chay static-only nen tinh nang nay duoc tat de tranh loi va tranh phat sinh chi phi.');
   }
 
   return fetch(apiUrl(path), init);

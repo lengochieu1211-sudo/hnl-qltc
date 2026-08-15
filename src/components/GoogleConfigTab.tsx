@@ -23,7 +23,7 @@ import {
   ArrowUpCircle,
   ArrowDownCircle
 } from 'lucide-react';
-import { GoogleAuthStatus, FloorPlan } from '../types';
+import { FloorPlan } from '../types';
 import { ConflictMergeModal } from './ConflictMergeModal';
 import { normalizeImportedData } from '../utils/dataNormalizer';
 import { restoreConstructionStorageData } from '../utils/asyncStorage';
@@ -91,10 +91,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   onRequestLocalFilePermission,
   onOpenProjectManager,
 }) => {
-  const [authStatus, setAuthStatus] = useState<GoogleAuthStatus>({ authenticated: false });
-  const [sheetUrl, setSheetUrl] = useState<string | null>(null);
   const [pendingImportAllData, setPendingImportAllData] = useState<any | null>(null);
-  const [syncMsg, setSyncMsg] = useState<string | null>(null);
 
   const isIframe = typeof window !== 'undefined' && window.self !== window.top;
 
@@ -111,17 +108,6 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   const [pasteValue, setPasteValue] = useState('');
   const [showPasteArea, setShowPasteArea] = useState(false);
 
-  // Drive Backup Comparison State
-  const [checkingCloud, setCheckingCloud] = useState(false);
-  const [comparisonResult, setComparisonResult] = useState<{
-    status: 'newer' | 'older' | 'equal' | 'no_cloud' | null;
-    localTimeStr: string;
-    cloudTimeStr: string;
-    cloudProjectName: string;
-    localUpdatedAt: number;
-    cloudUpdatedAt: number;
-  } | null>(null);
-
   useEffect(() => {
     setLocalProjectName(projectName);
   }, [projectName]);
@@ -133,114 +119,6 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   useEffect(() => {
     setLocalInspectorName(inspectorName);
   }, [inspectorName]);
-
-  // Handle data comparison between device and cloud
-  const handleCompareData = async () => {
-    setCheckingCloud(true);
-    try {
-      const res = await fetch('/api/drive/sync-down', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ folderId: '1se6PAsmGQ2hwPqUCiQoueksEFPP_YMO6' }),
-      });
-      if (!res.ok) {
-        throw new Error('Không thể tải dữ liệu từ Google Drive. Vui lòng kiểm tra quyền kết nối.');
-      }
-      const result = await res.json();
-      const localUpdatedAt = parseInt(localStorage.getItem('construction_updated_at') || '0', 10);
-      const localTimeStr = localUpdatedAt ? new Date(localUpdatedAt).toLocaleString('vi-VN') : 'Chưa lưu lần nào';
-
-      if (result.success && result.found && result.data) {
-        const remoteData = result.data;
-        const remoteUpdatedAt = remoteData.updatedAt || 0;
-        const cloudTimeStr = remoteUpdatedAt ? new Date(remoteUpdatedAt).toLocaleString('vi-VN') : 'Chưa rõ';
-        const cloudProj = remoteData.projectName || 'Công Trình Mẫu';
-
-        let status: 'newer' | 'older' | 'equal' = 'equal';
-        if (localUpdatedAt > remoteUpdatedAt) {
-          status = 'newer';
-        } else if (remoteUpdatedAt > localUpdatedAt) {
-          status = 'older';
-        }
-
-        setComparisonResult({
-          status,
-          localTimeStr,
-          cloudTimeStr,
-          cloudProjectName: cloudProj,
-          localUpdatedAt,
-          cloudUpdatedAt: remoteUpdatedAt
-        });
-      } else {
-        setComparisonResult({
-          status: 'no_cloud',
-          localTimeStr,
-          cloudTimeStr: 'Không tìm thấy file trên Drive',
-          cloudProjectName: '-',
-          localUpdatedAt,
-          cloudUpdatedAt: 0
-        });
-      }
-    } catch (err: any) {
-      alert('Lỗi khi so sánh dữ liệu: ' + err.message);
-    } finally {
-      setCheckingCloud(false);
-    }
-  };
-
-  const checkAuth = async () => {
-    try {
-      const res = await fetch('/api/auth/status');
-      if (!res.ok) {
-        setAuthStatus({ authenticated: false });
-        return;
-      }
-      const text = await res.text();
-      let data: GoogleAuthStatus = { authenticated: false };
-      try {
-        data = JSON.parse(text);
-      } catch {
-        data = { authenticated: false };
-      }
-      setAuthStatus(data);
-    } catch (e) {
-      console.warn('GoogleConfigTab checkAuth error:', e);
-      setAuthStatus({ authenticated: false });
-    }
-  };
-
-  useEffect(() => {
-    checkAuth();
-  }, []);
-
-  const handleConnect = async () => {
-    try {
-      const res = await fetch('/api/auth/url');
-      const text = await res.text();
-      let data: any = {};
-      try { data = JSON.parse(text); } catch {}
-      if (data.url) {
-        window.open(data.url, 'GoogleAuth', 'width=550,height=650');
-      } else {
-        alert(data.message || 'Hệ thống đang hoạt động ở Chế độ Tự Do. Mọi cài đặt & dữ liệu của bạn đều được lưu 100% tự động.');
-      }
-    } catch (e) {
-      alert('Không thể kết nối dịch vụ Google Auth');
-    }
-  };
-
-  const handleLogout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
-    setAuthStatus({ authenticated: false });
-  };
-
-  const handleSync = async () => {
-    const res = await onSyncAll();
-    if (res.url) {
-      setSheetUrl(res.url);
-      setSyncMsg(res.message || 'Đã đồng bộ thành công!');
-    }
-  };
 
   // Save Settings Handler
   const handleSaveSettings = (e: React.FormEvent) => {

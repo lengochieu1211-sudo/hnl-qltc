@@ -73,11 +73,12 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
 
   // Scope selection: 'active' (1 dự án), 'selected' (chọn nhiều), 'all' (tất cả)
-  const [saveScope, setSaveScope] = useState<ScopeType>('active');
-  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([getActiveProjectId()]);
+  const [saveScope, setSaveScope] = useState<ScopeType>('all');
+  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>(() => getProjectsList().map(p => p.id));
 
   // Main navigation tab within the modal
   const [modalTab, setModalTab] = useState<'sync' | 'projects'>('sync');
+  const hasDriveBackend = Boolean(onDriveSyncUpAll && onDriveSyncDownAll);
 
   // Creation state
   const [isCreating, setIsCreating] = useState(false);
@@ -374,7 +375,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     }
   };
 
-  // Upload Active Project to Cloud (Sync Code)
+  // Upload full app data to Cloud (Sync Code)
   const handleUploadActiveProjectToCloud = async () => {
     try {
       setIsSyncingCurrentProject(true);
@@ -382,16 +383,16 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       const curId = getActiveProjectId();
       const currentProj = projects.find(p => p.id === curId) || { id: curId, name: 'Dự án hiện tại' };
 
-      const projData = await getStorageDataForScope('active');
+      const projData = await getStorageDataForScope('all');
 
       await saveProjectToCloud({
         id: curId,
-        name: currentProj.name,
+        name: `Toan bo du lieu - ${currentProj.name}`,
         syncCode: curId.toUpperCase().slice(0, 8),
         payload: projData
       });
 
-      setCloudStatusMsg({ type: 'success', text: `✅ Đã đẩy dự án "${currentProj.name}" lên Cloud! Mã Sync: ${curId}` });
+      setCloudStatusMsg({ type: 'success', text: `Đã đẩy TOÀN BỘ dữ liệu lên Cloud. Mã Sync: ${curId}` });
     } catch (err) {
       setCloudStatusMsg({ type: 'error', text: 'Lỗi đồng bộ đám mây: ' + (err instanceof Error ? err.message : String(err)) });
     } finally {
@@ -637,7 +638,9 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
               </h2>
               <p className="text-[11px] text-slate-500 font-medium">
                 {modalTab === 'sync'
-                  ? 'Lưu trữ cục bộ, Đám mây Firebase, Google Drive & Google Sheets'
+                  ? hasDriveBackend
+                    ? 'Lưu trữ cục bộ, Đám mây Firebase, Google Drive & Google Sheets'
+                    : 'Lưu trữ cục bộ và Đám mây Firebase miễn phí'
                   : 'Tạo mới, chuyển đổi, tìm kiếm và quản lý danh sách dự án công trình'}
               </p>
             </div>
@@ -1042,7 +1045,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                       disabled={isSyncingCurrentProject}
                       className="flex-1 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg font-bold text-[10.5px] flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-xs"
                     >
-                      <CloudUpload className="w-3.5 h-3.5" /> Đẩy Dự Án Hiện Tại Lên Cloud
+                      <CloudUpload className="w-3.5 h-3.5" /> Đẩy Toàn Bộ Dữ Liệu Lên Cloud
                     </button>
                   </div>
                   <div className="flex gap-1.5 pt-0.5">
@@ -1116,7 +1119,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
               </div>
 
               {/* 📁 SECTION 4: GOOGLE DRIVE SYNC */}
-              {onDriveSyncUpAll && (
+              {hasDriveBackend && (
                 <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-2.5 shadow-xs">
                   <div className="flex items-center justify-between">
                     <span className="font-extrabold text-slate-800 text-xs flex items-center gap-1.5">

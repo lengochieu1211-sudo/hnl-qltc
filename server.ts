@@ -545,6 +545,8 @@ app.post('/api/drive/sync-up', async (req, res) => {
     floorPlans,
     roomProgressList,
     materialNorms,
+    crewRecords,
+    teams,
     updatedAt
   } = req.body;
 
@@ -725,6 +727,8 @@ app.post('/api/drive/sync-up', async (req, res) => {
       floorPlans: processedFloorPlans,
       roomProgressList: roomProgressList || [],
       materialNorms: materialNorms || [],
+      crewRecords: crewRecords || [],
+      teams: teams || [],
       updatedAt: updatedAt || Date.now()
     }, null, 2);
 
@@ -804,6 +808,8 @@ app.post('/api/drive/sync-up', async (req, res) => {
         floorPlans: processedFloorPlans,
         roomProgressList: roomProgressList || [],
         materialNorms: materialNorms || [],
+        crewRecords: crewRecords || [],
+        teams: teams || [],
         updatedAt: updatedAt || Date.now()
       }
     });
@@ -953,7 +959,7 @@ app.post('/api/drive/sync-up-all', async (req, res) => {
     return res.status(401).json({ error: 'Chưa kết nối tài khoản Google.' });
   }
 
-  const { folderId = '1se6PAsmGQ2hwPqUCiQoueksEFPP_YMO6', allData } = req.body;
+  const { folderId = '1se6PAsmGQ2hwPqUCiQoueksEFPP_YMO6', allData, createSnapshot = true } = req.body;
   if (!allData) {
     return res.status(400).json({ error: 'Không tìm thấy dữ liệu để sao lưu.' });
   }
@@ -961,22 +967,26 @@ app.post('/api/drive/sync-up-all', async (req, res) => {
   try {
     const drive = google.drive({ version: 'v3', auth: authClient });
     const backupFileName = 'construction_all_projects_sync.json';
+    const backupJson = JSON.stringify(allData, null, 2);
+    const createJsonStream = () => {
+      const stream = new Readable();
+      stream.push(backupJson);
+      stream.push(null);
+      return stream;
+    };
 
     const fileSearch = await drive.files.list({
       q: `name = '${backupFileName}' and '${folderId}' in parents and trashed = false`,
       fields: 'files(id, name, webViewLink)',
     });
 
-    const stream = new Readable();
-    stream.push(JSON.stringify(allData, null, 2));
-    stream.push(null);
-
     const media = {
       mimeType: 'application/json',
-      body: stream,
+      body: createJsonStream(),
     };
 
     let fileId = '';
+    let snapshotFileId = '';
     if (fileSearch.data.files && fileSearch.data.files.length > 0) {
       fileId = fileSearch.data.files[0].id!;
       await drive.files.update({
@@ -995,6 +1005,23 @@ app.post('/api/drive/sync-up-all', async (req, res) => {
         fields: 'id, name, webViewLink',
       });
       fileId = createRes.data.id!;
+    }
+
+    if (createSnapshot) {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const snapshotRes = await drive.files.create({
+        requestBody: {
+          name: `construction_all_projects_snapshot_${timestamp}.json`,
+          parents: [folderId],
+          mimeType: 'application/json',
+        },
+        media: {
+          mimeType: 'application/json',
+          body: createJsonStream(),
+        },
+        fields: 'id, name, webViewLink',
+      });
+      snapshotFileId = snapshotRes.data.id || '';
     }
 
     return res.json({

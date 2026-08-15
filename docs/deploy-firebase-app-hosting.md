@@ -6,6 +6,14 @@ Use this path when the Firebase project is on the free Spark plan and has no pay
 
 This deploys the Vite web app as static files from `dist`. Firebase Auth and Cloud Firestore still work for login and cloud sync. Google Sheets/Drive routes in `server.ts` need a real server, so they are disabled on this static-only path.
 
+Current decision for the 0 VND/month target:
+
+- Keep Firebase Hosting static deployment.
+- Keep Firebase Authentication on the free/Spark allowance.
+- Keep Cloud Firestore usage inside the free/Spark allowance.
+- Do not enable Firebase App Hosting, Cloud Run, Cloud Functions, Blaze billing, paid domains, paid databases, paid VPS, or trial services that can auto-charge.
+- Do not show Google Drive/Sheets buttons on the live static Hosting app unless a real backend URL is explicitly configured and approved.
+
 ## Required Firebase setup
 
 1. Create or select the Firebase project.
@@ -37,7 +45,7 @@ For local development or a different host, use `.env.local` based on `.env.examp
 
 ## Optional App Hosting/server path
 
-Use this later only if the project is upgraded to Blaze or another server host is available.
+Use this later only if the project owner explicitly approves a backend path. Firebase App Hosting and most Firebase server runtimes require billing/Blaze, so they are not part of the current free production architecture.
 
 The Node server in `server.ts` provides:
 
@@ -51,6 +59,12 @@ Required server environment variables:
 - `GOOGLE_CLIENT_SECRET`
 - `APP_URL`
 - `GEMINI_API_KEY` if Gemini server features are used.
+
+Frontend server API gate:
+
+- `VITE_API_BASE_URL` can point the static frontend at an approved backend.
+- `VITE_ENABLE_SERVER_API=true` allows same-origin `/api/*` calls for an approved server deployment.
+- Without those settings, the live Firebase Hosting app treats Google Drive/Sheets API features as unavailable and hides the server-only UI.
 
 Do not commit real values to GitHub. Keep local values in `.env.local` or provider secrets.
 

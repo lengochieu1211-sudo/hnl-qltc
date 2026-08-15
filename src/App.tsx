@@ -1,7 +1,6 @@
 import { GlobalConfirmModal } from './components/GlobalConfirmModal';
 import React, { useState, useEffect, useMemo } from 'react';
 import { safeSetLocalStorageItem } from './utils/storage';
-import { saveProjectToCloud } from './lib/firebase';
 import {
   InventoryItem,
   WorkVolume,
@@ -48,11 +47,12 @@ import {
 import { getFileHandle, saveFileHandle, removeFileHandle } from './utils/localSyncDb';
 import { getAllBackupVersions, saveBackupVersion, deleteBackupVersion, BackupVersion } from './utils/backupDb';
 import { cleanupAndCompressOldImages } from './utils/cleanupStorage';
-import { isAndroidExportBridgeAvailable, saveJsonRecordFile, saveTextFile, writeJsonRecordToWritable } from './utils/fileExport';
+import { isAndroidExportBridgeAvailable, saveJsonRecordFile, writeJsonRecordToWritable } from './utils/fileExport';
 import { getAllConstructionStorageData, getAsyncItem, restoreConstructionStorageData, setAsyncItem } from './utils/asyncStorage';
 import { migrateAndCleanLocalStorage } from './utils/migrateStorage';
 import { confirmAsync } from './utils/confirmAsync';
 import { normalizeImportedData } from './utils/dataNormalizer';
+import { apiFetch, hasApiBackend } from './utils/api';
 
 interface AppData {
   materialNorms: MaterialNorm[];
@@ -103,6 +103,7 @@ export const saveProjectsList = (list: ProjectInfo[]) => {
 };
 
 export default function App() {
+  const googleServerBackendAvailable = hasApiBackend();
   const [activeTab, setActiveTab] = useState<TabType>('floorplan');
   const [isExportPdfOpen, setIsExportPdfOpen] = useState(false);
   const [isMaterialNormOpen, setIsMaterialNormOpen] = useState(false);
@@ -556,12 +557,20 @@ export default function App() {
 
   // Google Drive Sync Up
   const handleDriveSyncUp = async (customFolderId?: string) => {
+    if (!googleServerBackendAvailable) {
+      setDriveSyncStatus('idle');
+      return {
+        success: false,
+        error: 'Google Drive sync is disabled on the free static Firebase Hosting deployment. Use Firebase Cloud sync or JSON export instead.'
+      };
+    }
+
     try {
       setDriveSyncStatus('syncing');
       const folderId = customFolderId || '1se6PAsmGQ2hwPqUCiQoueksEFPP_YMO6';
       const now = Date.now();
 
-      const res = await fetch('/api/drive/sync-up', {
+      const res = await apiFetch('/api/drive/sync-up', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -624,15 +633,22 @@ export default function App() {
     }
   };
 
-  const handleDriveSyncUpAll = async (customFolderId?: string) => {
+  const handleDriveSyncUpAll = async (customFolderId?: string, createSnapshot = true) => {
+    if (!googleServerBackendAvailable) {
+      return {
+        success: false,
+        error: 'Google Drive sync is disabled on the free static Firebase Hosting deployment. Use Firebase Cloud sync or JSON export instead.'
+      };
+    }
+
     try {
       const folderId = customFolderId || '1se6PAsmGQ2hwPqUCiQoueksEFPP_YMO6';
       const allData = await getAllConstructionStorageData();
 
-      const res = await fetch('/api/drive/sync-up-all', {
+      const res = await apiFetch('/api/drive/sync-up-all', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ folderId, allData }),
+        body: JSON.stringify({ folderId, allData, createSnapshot }),
       });
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
@@ -655,9 +671,16 @@ export default function App() {
   };
 
   const handleDriveSyncDownAll = async (customFolderId?: string) => {
+    if (!googleServerBackendAvailable) {
+      return {
+        success: false,
+        error: 'Google Drive sync is disabled on the free static Firebase Hosting deployment. Use Firebase Cloud sync or JSON export instead.'
+      };
+    }
+
     try {
       const folderId = customFolderId || '1se6PAsmGQ2hwPqUCiQoueksEFPP_YMO6';
-      const res = await fetch('/api/drive/sync-down-all', {
+      const res = await apiFetch('/api/drive/sync-down-all', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ folderId }),
@@ -757,13 +780,21 @@ export default function App() {
 
   // Google Drive Sync Down
   const handleDriveSyncDown = async (customFolderId?: string, forceOverwrite = false) => {
+    if (!googleServerBackendAvailable) {
+      setDriveSyncStatus('idle');
+      return {
+        success: false,
+        message: 'Google Drive sync is disabled on the free static Firebase Hosting deployment. Use Firebase Cloud sync or JSON export instead.'
+      };
+    }
+
     if (syncLockRef.current) return { success: false, message: 'Hệ thống đang đồng bộ dữ liệu.' };
     try {
       syncLockRef.current = true;
       setDriveSyncStatus('syncing');
       const folderId = customFolderId || '1se6PAsmGQ2hwPqUCiQoueksEFPP_YMO6';
 
-      const res = await fetch('/api/drive/sync-down', {
+      const res = await apiFetch('/api/drive/sync-down', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ folderId }),
@@ -811,7 +842,7 @@ export default function App() {
           setDriveSyncStatus('synced');
           if (autoSyncEnabled) {
             syncLockRef.current = false;
-            await handleDriveSyncUp(folderId);
+            await handleDriveSyncUpAll(folderId, false);
             syncLockRef.current = true;
           }
           return { success: true, updated: false, message: 'Thiết bị hiện tại mới nhất, đã đẩy lên Drive.' };
@@ -823,7 +854,7 @@ export default function App() {
         // No backup file yet, perform a first upload if enabled
         if (autoSyncEnabled) {
           syncLockRef.current = false;
-          await handleDriveSyncUp(folderId);
+          await handleDriveSyncUpAll(folderId, false);
           syncLockRef.current = true;
         }
         setDriveSyncStatus('idle');
@@ -842,9 +873,11 @@ export default function App() {
 
   // Check auth on mount; cloud download is manual to protect local edits.
   useEffect(() => {
+    if (!googleServerBackendAvailable) return;
+
     const checkAuthStatus = async () => {
       try {
-        const res = await fetch('/api/auth/status');
+        const res = await apiFetch('/api/auth/status');
         if (res.ok) {
           const authData = await res.json();
           if (authData.authenticated) {
@@ -856,10 +889,11 @@ export default function App() {
       }
     };
     checkAuthStatus();
-  }, []);
+  }, [googleServerBackendAvailable]);
 
-  // Debounced auto-save to Google Drive & Cloud on local changes
+  // Debounced Drive backup on local changes. Firebase Cloud writes stay manual to avoid last-write-wins data loss.
   useEffect(() => {
+    if (!googleServerBackendAvailable) return;
     if (isInitializing) return;
     if (syncLockRef.current) return;
     if (skipNextAutoSaveRef.current) {
@@ -870,28 +904,13 @@ export default function App() {
     const timer = setTimeout(() => {
       if (!syncLockRef.current) {
         if (autoSyncEnabled) {
-          handleDriveSyncUp().catch(err => console.warn('Auto drive sync warning:', err));
-        }
-
-        // Realtime Cloud Auto Save
-        try {
-          const activeId = getActiveProjectId();
-          saveProjectToCloud({
-            id: activeId,
-            name: projectName,
-            contractorName,
-            inspectorName,
-            ...present,
-            updatedAt: Date.now()
-          }).catch(err => console.warn('Cloud auto save notice:', err));
-        } catch (e) {
-          console.warn('Cloud auto save exception:', e);
+          handleDriveSyncUpAll(undefined, false).catch(err => console.warn('Auto drive sync warning:', err));
         }
       }
     }, 2000); // 2 seconds debounce after input changes
 
     return () => clearTimeout(timer);
-  }, [present, projectName, contractorName, inspectorName, autoSyncEnabled, isInitializing]);
+  }, [present, projectName, contractorName, inspectorName, autoSyncEnabled, isInitializing, googleServerBackendAvailable]);
 
   // Local File Auto-Save Debounced Effect
   useEffect(() => {
@@ -911,23 +930,8 @@ export default function App() {
 
         setLocalSyncStatus('saving');
         const writable = await localFileHandle.createWritable();
-        const jsonString = JSON.stringify({
-          projectName,
-          contractorName,
-          inspectorName,
-          materialNorms,
-          inventory,
-          workVolumes,
-          floorPlans,
-          defects,
-          roomProgressList,
-          checklist,
-          crewRecords,
-          teams,
-          updatedAt: lastUpdatedAt,
-        }, null, 2);
-
-        await writable.write(jsonString);
+        const allData = await getAllConstructionStorageData();
+        await writeJsonRecordToWritable(writable, allData);
         await writable.close();
         setLocalSyncStatus('synced');
         setLocalSyncPermissionNeeded(false);
@@ -1178,24 +1182,9 @@ export default function App() {
 
       if (!('showSaveFilePicker' in window)) {
         if (isAndroidExportBridgeAvailable()) {
-          const fileName = `[Auto_Sync_Backup]_${projectName.replace(/[^a-zA-Z0-9_-]/g, '_')}_${Date.now()}.json`;
-          const jsonString = JSON.stringify({
-            projectName,
-            contractorName,
-            inspectorName,
-            materialNorms,
-            inventory,
-            workVolumes,
-            floorPlans,
-            defects,
-            roomProgressList,
-            checklist,
-            crewRecords,
-            teams,
-            updatedAt: lastUpdatedAt,
-          }, null, 2);
-
-          await saveTextFile(jsonString, fileName);
+          const allData = await getAllConstructionStorageData();
+          const fileName = `[Auto_Sync_Backup_All]_${Date.now()}.json`;
+          await saveJsonRecordFile(allData, fileName);
           setLocalSyncStatus('synced');
           alert('APK da luu file JSON cua du an hien tai vao thu muc Download/QLCT. Android WebView khong ho tro lien ket ghi de file nhu Chrome may tinh, nen tren dien thoai ban dung nut xuat file de tao ban sao luu moi.');
           return;
@@ -1222,25 +1211,10 @@ export default function App() {
         setLocalSyncPermissionNeeded(false);
         setLocalSyncStatus('saving');
 
-        // Immediately write current state to the selected file
+        // Immediately write the full app storage dump to the selected file.
         const writable = await handle.createWritable();
-        const jsonString = JSON.stringify({
-          projectName,
-          contractorName,
-          inspectorName,
-          materialNorms,
-          inventory,
-          workVolumes,
-          floorPlans,
-          defects,
-          roomProgressList,
-          checklist,
-          crewRecords,
-          teams,
-          updatedAt: lastUpdatedAt,
-        }, null, 2);
-
-        await writable.write(jsonString);
+        const allData = await getAllConstructionStorageData();
+        await writeJsonRecordToWritable(writable, allData);
         await writable.close();
         setLocalSyncStatus('synced');
         alert(`🎉 Đã liên kết và tự động đồng bộ thành công với tệp: ${handle.name}\nMọi thay đổi từ giờ sẽ tự động ghi đè cập nhật vào tệp này!`);
@@ -1295,25 +1269,10 @@ export default function App() {
         setLocalSyncPermissionNeeded(false);
         setLocalSyncStatus('saving');
 
-        // Immediately trigger a save to make sure it's updated
+        // Immediately trigger a full save to make sure it's updated.
         const writable = await localFileHandle.createWritable();
-        const jsonString = JSON.stringify({
-          projectName,
-          contractorName,
-          inspectorName,
-          materialNorms,
-          inventory,
-          workVolumes,
-          floorPlans,
-          defects,
-          roomProgressList,
-          checklist,
-          crewRecords,
-          teams,
-          updatedAt: lastUpdatedAt,
-        }, null, 2);
-
-        await writable.write(jsonString);
+        const allData = await getAllConstructionStorageData();
+        await writeJsonRecordToWritable(writable, allData);
         await writable.close();
         setLocalSyncStatus('synced');
       } else {
@@ -1327,11 +1286,18 @@ export default function App() {
 
   // Sync to Google Sheets API
   const handleSyncAll = async () => {
+    if (!googleServerBackendAvailable) {
+      return {
+        success: false,
+        message: 'Google Sheets sync is disabled on the free static Firebase Hosting deployment. Use Firebase Cloud sync or JSON/Excel export instead.'
+      };
+    }
+
     try {
       setIsSyncing(true);
 
       // Perform Sheet Sync
-      const res = await fetch('/api/sheets/sync-all', {
+      const res = await apiFetch('/api/sheets/sync-all', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1359,8 +1325,8 @@ export default function App() {
         return { success: false };
       }
 
-      // Perform a Drive Backup sync up as well
-      await handleDriveSyncUp();
+      // Perform a full Drive backup sync up as well
+      await handleDriveSyncUpAll();
 
       return {
         success: true,
@@ -1900,8 +1866,8 @@ export default function App() {
           isOpen={isProjectManagerOpen}
           onClose={() => setIsProjectManagerOpen(false)}
           initialTab={projectManagerInitialTab}
-          onDriveSyncUpAll={handleDriveSyncUpAll}
-          onDriveSyncDownAll={handleDriveSyncDownAll}
+          onDriveSyncUpAll={googleServerBackendAvailable ? handleDriveSyncUpAll : undefined}
+          onDriveSyncDownAll={googleServerBackendAvailable ? handleDriveSyncDownAll : undefined}
           localAllSyncStatus={localAllSyncStatus}
           localAllFileName={localAllFileName}
           localAllFileHandle={localAllFileHandle}
@@ -1931,7 +1897,7 @@ export default function App() {
         />
 
         {/* Offline & Sync Status Banner */}
-        <OfflineSyncBanner onAutoSync={handleSyncAll} isSyncing={isSyncing} />
+        <OfflineSyncBanner onAutoSync={googleServerBackendAvailable ? handleSyncAll : undefined} isSyncing={isSyncing} />
 
         {/* Tab Content */}
         <main className="animate-in fade-in duration-150">

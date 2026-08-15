@@ -12,6 +12,7 @@ import {
   Info
 } from 'lucide-react';
 import { GoogleAuthStatus } from '../types';
+import { signInWithGoogleAccount, signOutFirebaseAccount } from '../lib/firebase';
 
 interface GoogleAuthModalProps {
   isOpen: boolean;
@@ -28,28 +29,12 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
 }) => {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [authUrl, setAuthUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isOpen && !authStatus.authenticated) {
-      fetch('/api/auth/url')
-        .then(async (res) => {
-          if (!res.ok) return {};
-          const text = await res.text();
-          try {
-            return JSON.parse(text);
-          } catch {
-            return {};
-          }
-        })
-        .then((data) => {
-          if (data?.url) {
-            setAuthUrl(data.url);
-          }
-        })
-        .catch((err) => console.warn('Failed to pre-fetch auth URL:', err));
+    if (isOpen) {
+      setErrorMsg(null);
     }
-  }, [isOpen, authStatus.authenticated]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -57,34 +42,10 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
     try {
       setLoading(true);
       setErrorMsg(null);
-
-      let urlToOpen = authUrl;
-      if (!urlToOpen) {
-        const res = await fetch('/api/auth/url');
-        const text = await res.text();
-        let data: any = {};
-        try {
-          data = JSON.parse(text);
-        } catch {
-          data = {};
-        }
-        if (data.url) {
-          urlToOpen = data.url;
-          setAuthUrl(data.url);
-        } else {
-          setErrorMsg(data.message || 'Hệ thống đã tự động kích hoạt Chế độ Tự do. Dữ liệu công trình và xuất báo cáo PDF/Excel đều hoạt động 100% đầy đủ!');
-          return;
-        }
-      }
-
-      // Try opening popup
-      const popup = window.open(urlToOpen, 'GoogleAuth', 'width=550,height=650');
-      if (!popup || popup.closed || typeof popup.closed === 'undefined') {
-        // If popup blocked, redirect directly
-        window.location.href = urlToOpen;
-      }
+      await signInWithGoogleAccount();
+      onRefreshAuth();
     } catch (err: any) {
-      setErrorMsg('Không thể khởi chạy đăng nhập Google: ' + err.message);
+      setErrorMsg('Không thể đăng nhập Google bằng Firebase Auth: ' + (err?.message || String(err)));
     } finally {
       setLoading(false);
     }
@@ -93,7 +54,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
   const handleLogout = async () => {
     try {
       setLoading(true);
-      await fetch('/api/auth/logout', { method: 'POST' });
+      await signOutFirebaseAccount();
       onRefreshAuth();
     } catch (err) {
       console.error(err);
@@ -140,8 +101,8 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
           </h3>
           <p className="text-xs text-slate-500 max-w-xs mx-auto">
             {authStatus.authenticated
-              ? 'Tài khoản Google đã kết nối để đồng bộ dữ liệu thi công & Drive'
-              : 'Đăng ký / Đăng nhập nhanh bằng tài khoản Google để lưu trữ tự động'}
+              ? 'Tài khoản Google đã kết nối bằng Firebase Auth để đồng bộ dữ liệu qua Cloud Firebase'
+              : 'Đăng nhập bằng tài khoản Google qua Firebase Auth miễn phí'}
           </p>
         </div>
 
@@ -177,9 +138,9 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
             <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 text-xs space-y-1.5 text-slate-600">
               <p className="font-semibold text-slate-800">Quyền hạn đã kích hoạt:</p>
               <ul className="list-disc list-inside space-y-0.5 text-[11px]">
-                <li>Lưu &amp; tạo bảng tính Google Sheets tự động</li>
-                <li>Tải ảnh defect thi công lên Google Drive</li>
-                <li>Xác thực chính chủ tài khoản Google</li>
+                <li>Đăng nhập Google qua Firebase Authentication</li>
+                <li>Đồng bộ dữ liệu dự án qua Cloud Firestore</li>
+                <li>Xuất/nhập JSON, Excel, PDF vẫn chạy cục bộ</li>
               </ul>
             </div>
 
@@ -226,18 +187,6 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
               </svg>
               <span>Tiếp Tục Với Tài Khoản Google</span>
             </button>
-
-            {authUrl && (
-              <a
-                href={authUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-xl border border-blue-200 transition-all text-[11px] flex items-center justify-center gap-1.5"
-              >
-                <span>Mở Trang Đăng Nhập Trong Tab Mới</span>
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
-            )}
 
             <div className="bg-slate-50 border border-slate-200 p-3 rounded-2xl text-[11px] text-slate-500 space-y-1">
               <p className="font-bold text-slate-700 flex items-center gap-1">
