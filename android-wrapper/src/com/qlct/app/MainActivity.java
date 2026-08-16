@@ -14,6 +14,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Message;
 import android.print.PrintAttributes;
 import android.print.PrintDocumentAdapter;
 import android.print.PrintManager;
@@ -21,9 +22,11 @@ import android.provider.DocumentsContract;
 import android.provider.MediaStore;
 import android.util.Base64;
 import android.view.ViewGroup;
+import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -50,6 +53,7 @@ public class MainActivity extends Activity {
     private static final String PREF_AUTO_SAVE_TREE_URI = "auto_save_tree_uri";
 
     private WebView webView;
+    private WebView authPopupWebView;
     private WebView printWebView;
     private ValueCallback<Uri[]> filePathCallback;
     private String startUrl = LOCAL_FALLBACK_URL;
@@ -68,41 +72,10 @@ public class MainActivity extends Activity {
         setContentView(webView);
         requestLegacyStoragePermissionIfNeeded();
 
-        WebSettings settings = webView.getSettings();
-        settings.setJavaScriptEnabled(true);
-        settings.setDomStorageEnabled(true);
-        settings.setDatabaseEnabled(true);
-        settings.setAllowFileAccess(true);
-        settings.setAllowContentAccess(true);
-        settings.setAllowFileAccessFromFileURLs(true);
-        settings.setAllowUniversalAccessFromFileURLs(true);
-        settings.setMediaPlaybackRequiresUserGesture(false);
-        settings.setBuiltInZoomControls(false);
-        settings.setDisplayZoomControls(false);
-        settings.setLoadWithOverviewMode(true);
-        settings.setUseWideViewPort(true);
-        settings.setJavaScriptCanOpenWindowsAutomatically(true);
+        configureWebView(webView);
 
         startUrl = getConfiguredStartUrl();
-        webView.setWebViewClient(new WebViewClient() {
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                if (shouldOpenExternally(url)) {
-                    openExternalBrowser(url);
-                    return true;
-                }
-                return false;
-            }
-
-            @Override
-            public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
-                if (!loadedFallback && isRemoteUrl(startUrl) && startUrl.equals(failingUrl)) {
-                    loadLocalFallback();
-                    return;
-                }
-                super.onReceivedError(view, errorCode, description, failingUrl);
-            }
-        });
+        webView.setWebViewClient(createAppWebViewClient(true));
         webView.addJavascriptInterface(new AndroidExportBridge(), "AndroidExport");
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
@@ -124,6 +97,38 @@ public class MainActivity extends Activity {
                 }
                 return true;
             }
+
+            @Override
+            public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, Message resultMsg) {
+                closeAuthPopup();
+
+                authPopupWebView = new WebView(MainActivity.this);
+                authPopupWebView.setLayoutParams(new ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT));
+                configureWebView(authPopupWebView);
+                authPopupWebView.setWebViewClient(createAppWebViewClient(false));
+                authPopupWebView.setWebChromeClient(new WebChromeClient() {
+                    @Override
+                    public void onCloseWindow(WebView window) {
+                        closeAuthPopup();
+                    }
+                });
+
+                addContentView(authPopupWebView, new ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT));
+
+                WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
+                transport.setWebView(authPopupWebView);
+                resultMsg.sendToTarget();
+                return true;
+            }
+
+            @Override
+            public void onCloseWindow(WebView window) {
+                closeAuthPopup();
+            }
         });
 
         webView.loadUrl(startUrl);
@@ -141,14 +146,72 @@ public class MainActivity extends Activity {
         return url != null && (url.startsWith("https://") || url.startsWith("http://"));
     }
 
+    private void configureWebView(WebView target) {
+        WebSettings settings = target.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setDatabaseEnabled(true);
+        settings.setAllowFileAccess(true);
+        settings.setAllowContentAccess(true);
+        settings.setAllowFileAccessFromFileURLs(true);
+        settings.setAllowUniversalAccessFromFileURLs(true);
+        settings.setMediaPlaybackRequiresUserGesture(false);
+        settings.setBuiltInZoomControls(false);
+        settings.setDisplayZoomControls(false);
+        settings.setLoadWithOverviewMode(true);
+        settings.setUseWideViewPort(true);
+        settings.setJavaScriptCanOpenWindowsAutomatically(true);
+        settings.setSupportMultipleWindows(true);
+
+        CookieManager cookieManager = CookieManager.getInstance();
+        cookieManager.setAcceptCookie(true);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            cookieManager.setAcceptThirdPartyCookies(target, true);
+        }
+    }
+
+    private WebViewClient createAppWebViewClient(final boolean allowFallback) {
+        return new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                return handleUrlOverride(url);
+            }
+
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                return request != null && handleUrlOverride(request.getUrl().toString());
+            }
+
+            @Override
+            public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
+                if (allowFallback && !loadedFallback && isRemoteUrl(startUrl) && startUrl.equals(failingUrl)) {
+                    loadLocalFallback();
+                    return;
+                }
+                super.onReceivedError(view, errorCode, description, failingUrl);
+            }
+        };
+    }
+
+    private boolean handleUrlOverride(String url) {
+        if (shouldOpenExternally(url)) {
+            openExternalBrowser(url);
+            return true;
+        }
+        return false;
+    }
+
     private boolean shouldOpenExternally(String url) {
         if (url == null) {
             return false;
         }
         String lowerUrl = url.toLowerCase();
-        return lowerUrl.contains("accounts.google.com")
-                || lowerUrl.contains("oauth2.googleapis.com")
-                || lowerUrl.contains("googleusercontent.com");
+        return lowerUrl.startsWith("tel:")
+                || lowerUrl.startsWith("mailto:")
+                || lowerUrl.startsWith("sms:")
+                || lowerUrl.startsWith("geo:")
+                || lowerUrl.startsWith("market:")
+                || lowerUrl.startsWith("intent:");
     }
 
     private void loadLocalFallback() {
@@ -846,6 +909,18 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void closeAuthPopup() {
+        if (authPopupWebView == null) {
+            return;
+        }
+        ViewGroup parent = (ViewGroup) authPopupWebView.getParent();
+        if (parent != null) {
+            parent.removeView(authPopupWebView);
+        }
+        authPopupWebView.destroy();
+        authPopupWebView = null;
+    }
+
     private void showToast(final String message) {
         runOnUiThread(new Runnable() {
             @Override
@@ -880,6 +955,15 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
+        if (authPopupWebView != null) {
+            if (authPopupWebView.canGoBack()) {
+                authPopupWebView.goBack();
+            } else {
+                closeAuthPopup();
+            }
+            return;
+        }
+
         if (webView != null && webView.canGoBack()) {
             webView.goBack();
             return;
@@ -947,6 +1031,8 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        closeAuthPopup();
+
         if (webView != null) {
             webView.destroy();
             webView = null;
