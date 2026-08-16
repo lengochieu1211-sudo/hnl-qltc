@@ -405,7 +405,8 @@ export async function fetchProjectUserRoleFromCloud(
  */
 export async function claimProjectOwnership(
   projectId: string,
-  user: User
+  user: User,
+  projectName = 'Dự án'
 ): Promise<{ success: boolean; message: string }> {
   if (!projectId || !user) {
     return { success: false, message: 'Thiếu thông tin dự án hoặc tài khoản Google.' };
@@ -419,6 +420,7 @@ export async function claimProjectOwnership(
       // Create new project metadata with current user as owner
       await setDoc(projRef, {
         id: projectId,
+        name: projectName || projectId,
         ownerUid: user.uid,
         ownerEmail: userEmail,
         updatedAt: Date.now()
@@ -1035,18 +1037,7 @@ export async function saveProjectMemberToCloud(
   if (!projectId || !member.email) return;
   try {
     const normalizedEmail = normalizeEmail(member.email);
-    let targetUid = member.uid;
-
-    if (!targetUid) {
-      // Find UID from users collection
-      const userSnap = await getDocs(query(collection(db, 'users')));
-      userSnap.forEach((uDoc) => {
-        const uData = uDoc.data();
-        if (uData && uData.email === normalizedEmail) {
-          targetUid = uDoc.id;
-        }
-      });
-    }
+    const targetUid = member.uid;
 
     await writeProjectMemberDocs(projectId, {
       uid: targetUid,

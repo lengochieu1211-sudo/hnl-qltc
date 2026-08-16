@@ -326,7 +326,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
     setIsClaiming(true);
     setClaimMsg(null);
     try {
-      const res = await claimProjectOwnership(selectedPid, u);
+      const res = await claimProjectOwnership(selectedPid, u, getSelectedProjectName(selectedPid));
       if (res.success) {
         setClaimMsg({ type: 'success', text: res.message });
         await refreshCloudStatus(selectedPid);
@@ -422,6 +422,39 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
 
   const countAdmins = (members: ProjectMember[]) => members.filter(m => m.role === 'ADMIN').length;
 
+  const getSelectedProjectName = (projectId: string) =>
+    projects.find(p => p.id === projectId)?.name || projectId || 'Dự án';
+
+  const ensureCloudAdminForMemberWrite = async (projectId: string) => {
+    let u = getCurrentFirebaseUser();
+    if (!u) {
+      u = await signInWithGoogle();
+      if (!u) {
+        throw new Error('Can dang nhap Google bang tai khoan ADMIN/Owner de dong bo phan quyen Cloud.');
+      }
+      setCloudUser(u);
+    }
+
+    const info = await fetchProjectUserRoleFromCloud(projectId, u);
+    if (info.allowed && info.role === 'ADMIN') {
+      setCloudRoleInfo(info);
+      return u;
+    }
+
+    const claimResult = await claimProjectOwnership(projectId, u, getSelectedProjectName(projectId));
+    if (!claimResult.success) {
+      throw new Error(claimResult.message || 'Tai khoan hien tai khong co quyen ADMIN tren Cloud cho du an nay.');
+    }
+
+    const refreshedInfo = await fetchProjectUserRoleFromCloud(projectId, u);
+    setCloudRoleInfo(refreshedInfo);
+    if (!refreshedInfo.allowed || refreshedInfo.role !== 'ADMIN') {
+      throw new Error('Da khoi phuc owner nhung chua xac nhan duoc quyen ADMIN Cloud. Hay thu dong bo lai.');
+    }
+
+    return u;
+  };
+
   const handleAddMemberSafe = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSavingMember) return;
@@ -453,6 +486,8 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
       if (selectedPidRef.current === pidAtSubmit) {
         setProjectMembers(getProjectMembers(pidAtSubmit));
       }
+
+      await ensureCloudAdminForMemberWrite(pidAtSubmit);
 
       const { saveProjectMemberToCloud } = await import('../lib/firebase');
       await saveProjectMemberToCloud(pidAtSubmit, { email, role: newMemberRole, assignedAt });
