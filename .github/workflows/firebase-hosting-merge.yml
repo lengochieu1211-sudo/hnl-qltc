@@ -9,6 +9,15 @@ on:
 jobs:
   build_and_deploy:
     runs-on: ubuntu-latest
+    env:
+      VITE_FIREBASE_API_KEY: AIzaSyAShhTKSnmLMOEm4dST--1_X7fjJUE4znY
+      VITE_FIREBASE_AUTH_DOMAIN: com-example-qlct-61329.firebaseapp.com
+      VITE_FIREBASE_PROJECT_ID: com-example-qlct-61329
+      VITE_FIREBASE_STORAGE_BUCKET: com-example-qlct-61329.firebasestorage.app
+      VITE_FIREBASE_MESSAGING_SENDER_ID: "119152410850"
+      VITE_FIREBASE_APP_ID: ""
+      VITE_FIRESTORE_DATABASE_ID: "(default)"
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: "(default)"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

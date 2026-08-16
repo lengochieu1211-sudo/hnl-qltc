@@ -31,7 +31,7 @@ function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
   }
   return merged;
 }
-import { subscribeToProjectRealtime, saveProjectDiffsToCloud, saveProjectToCloud, getCloudPayload } from './lib/firebase';
+import { subscribeToProjectRealtime, saveProjectDiffsToCloud, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud } from './lib/firebase';
 import { 
   InventoryItem, 
   WorkVolume, 
@@ -170,11 +170,10 @@ export default function App() {
     let isMounted = true;
     async function syncUserRole() {
       try {
-        const { getCurrentFirebaseUser, fetchProjectUserRoleFromCloud } = await import('./lib/firebase');
-        const user = getCurrentFirebaseUser();
+        const user = getCurrentRealFirebaseUser();
         if (user && activeProjectId) {
           const res = await fetchProjectUserRoleFromCloud(activeProjectId, user);
-          if (isMounted && res.role) {
+          if (isMounted && res.role && (res.allowed || res.isCloudSynced)) {
             setCurrentUserRole(res.role);
             setCurrentUserRoleState(res.role);
           }
@@ -188,11 +187,9 @@ export default function App() {
     syncUserRole();
 
     let unsub: (() => void) | null = null;
-    import('./lib/firebase').then(({ onAuthUserChanged }) => {
-      unsub = onAuthUserChanged(() => {
-        syncUserRole();
-      });
-    }).catch(() => {});
+    unsub = onAuthUserChanged(() => {
+      syncUserRole();
+    });
 
     return () => {
       isMounted = false;
@@ -742,6 +739,22 @@ export default function App() {
     }
   }, null, 2);
 
+  const buildCloudProjectPayload = () => ({
+    projectName,
+    contractorName,
+    inspectorName,
+    materialNorms,
+    inventory,
+    workVolumes,
+    floorPlans,
+    defects,
+    roomProgressList,
+    checklist,
+    crewRecords,
+    teams,
+    updatedAt: lastUpdatedAt || Date.now(),
+  });
+
   const switchingProjectRef = useRef<boolean>(false);
   const activeProjectIdRef = useRef<string>(activeProjectId);
   useEffect(() => {
@@ -750,6 +763,18 @@ export default function App() {
 
   const [cloudInitialReady, setCloudInitialReady] = useState<boolean>(false);
   const receivedInitialSubcollectionsRef = useRef<Set<string>>(new Set());
+  const [cloudUserKey, setCloudUserKey] = useState<string>('');
+  const [cloudBootstrapVersion, setCloudBootstrapVersion] = useState<number>(0);
+  const cloudBootstrapAttemptsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const refreshCloudUser = () => {
+      const user = getCurrentRealFirebaseUser();
+      setCloudUserKey(user ? `${user.uid}:${user.email || ''}` : '');
+    };
+    refreshCloudUser();
+    return onAuthUserChanged(refreshCloudUser);
+  }, []);
 
   const [autosaveVersions, setAutosaveVersions] = useState<BackupVersion[]>([]);
 
@@ -1088,9 +1113,87 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [past, present, future]);
 
+  // Create the Cloud project automatically once a real Google account is connected.
+  // Without this bootstrap, a new project can get stuck waiting for Cloud snapshots
+  // before the first Firestore write is ever allowed.
+  useEffect(() => {
+    if (!isHydrated || isLoadingProject || isRestoring || isInitializing) return;
+    if (switchingProjectRef.current || !cloudUserKey || cloudInitialReady) return;
+
+    const user = getCurrentRealFirebaseUser();
+    if (!user || !activeProjectId) return;
+
+    const projectId = activeProjectId;
+    const attemptKey = `${projectId}:${cloudUserKey}`;
+    if (cloudBootstrapAttemptsRef.current.has(attemptKey)) return;
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      if (cancelled || cloudInitialReady || switchingProjectRef.current) return;
+      cloudBootstrapAttemptsRef.current.add(attemptKey);
+
+      try {
+        const roleInfo = await fetchProjectUserRoleFromCloud(projectId, user);
+        if (cancelled || activeProjectIdRef.current !== projectId) return;
+
+        if (roleInfo.allowed || roleInfo.isCloudSynced) {
+          if (roleInfo.role) {
+            setCurrentUserRole(roleInfo.role);
+            setCurrentUserRoleState(roleInfo.role);
+          }
+          setCloudBootstrapVersion((v) => v + 1);
+          return;
+        }
+
+        const payload = buildCloudProjectPayload();
+        await saveProjectToCloud({
+          id: projectId,
+          name: projectName || `Du an ${projectId}`,
+          contractorName,
+          inspectorName,
+          syncCode: projectId.slice(0, 8).toUpperCase(),
+          payload
+        });
+
+        if (cancelled || activeProjectIdRef.current !== projectId) return;
+        setCurrentUserRole('ADMIN');
+        setCurrentUserRoleState('ADMIN');
+        lastSyncedPresentRef.current = null;
+        lastSyncedMetadataRef.current = null;
+        receivedInitialSubcollectionsRef.current.clear();
+        setCloudInitialReady(false);
+        setCloudBootstrapVersion((v) => v + 1);
+      } catch (err) {
+        console.warn('Cloud project bootstrap skipped:', err);
+      }
+    }, 1200);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    activeProjectId,
+    cloudUserKey,
+    cloudInitialReady,
+    isHydrated,
+    isLoadingProject,
+    isRestoring,
+    isInitializing,
+    projectName,
+    contractorName,
+    inspectorName,
+    present,
+    lastUpdatedAt
+  ]);
+
   // Firebase Realtime Subcollection-Based Multi-Device Sync Listener
   useEffect(() => {
     if (!isHydrated || isLoadingProject || isRestoring || isInitializing) return;
+    if (!cloudUserKey) {
+      setCloudInitialReady(false);
+      return;
+    }
 
     const subscribedProjectId = activeProjectId;
     setCloudInitialReady(false);
@@ -1226,7 +1329,7 @@ export default function App() {
     return () => {
       if (unsubscribe) unsubscribe();
     };
-  }, [activeProjectId, isHydrated, isLoadingProject, isRestoring, isInitializing]);
+  }, [activeProjectId, cloudUserKey, cloudBootstrapVersion, isHydrated, isLoadingProject, isRestoring, isInitializing]);
 
   const handleUpdateProjectName = (val: string) => {
     hasUserEditedSinceHydrateRef.current = true;
@@ -1975,6 +2078,7 @@ export default function App() {
   useEffect(() => {
     if (!isHydrated || isLoadingProject || isRestoring || isInitializing) return;
     if (syncLockRef.current || switchingProjectRef.current) return;
+    if (!cloudUserKey) return;
     if (!cloudInitialReady) return;
 
     const projectIdForThisSave = activeProjectId;
@@ -2084,7 +2188,7 @@ export default function App() {
     }, 2000); // 2 seconds debounce after input changes
 
     return () => clearTimeout(timer);
-  }, [present, projectName, contractorName, inspectorName, autoSyncEnabled, isHydrated, isLoadingProject, isRestoring, isInitializing, activeProjectId, cloudInitialReady]);
+  }, [present, projectName, contractorName, inspectorName, autoSyncEnabled, isHydrated, isLoadingProject, isRestoring, isInitializing, activeProjectId, cloudUserKey, cloudInitialReady]);
 
   // Local File Auto-Save Debounced Effect
   useEffect(() => {

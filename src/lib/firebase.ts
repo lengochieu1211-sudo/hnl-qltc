@@ -20,6 +20,28 @@ import { getAuth, signInAnonymously, signInWithPopup, GoogleAuthProvider, signOu
 const env = (import.meta as any).env || {};
 const isDev = env.DEV || env.MODE === 'development' || !env.PROD;
 
+const hostedFirebaseConfig = {
+  apiKey: 'AIzaSyAShhTKSnmLMOEm4dST--1_X7fjJUE4znY',
+  authDomain: 'com-example-qlct-61329.firebaseapp.com',
+  projectId: 'com-example-qlct-61329',
+  storageBucket: 'com-example-qlct-61329.firebasestorage.app',
+  messagingSenderId: '119152410850',
+  appId: '',
+  firestoreDatabaseId: '(default)'
+};
+
+const mockFirebaseConfig = {
+  apiKey: 'AIzaSy-mock',
+  authDomain: 'mock-project.firebaseapp.com',
+  projectId: 'mock-project',
+  storageBucket: 'mock-project.appspot.com',
+  messagingSenderId: '1234567890',
+  appId: '1:1234567890:web:abcdef',
+  firestoreDatabaseId: '(default)'
+};
+
+const defaultFirebaseConfig = isDev ? mockFirebaseConfig : hostedFirebaseConfig;
+
 const sanitizeConfigValue = (val: string | undefined, fallback: string): string => {
   if (!val) return fallback;
   const trimmed = val.trim();
@@ -35,27 +57,27 @@ const sanitizeConfigValue = (val: string | undefined, fallback: string): string 
   return trimmed;
 };
 
+const firebaseConfig = {
+  apiKey: sanitizeConfigValue(env.VITE_FIREBASE_API_KEY, defaultFirebaseConfig.apiKey),
+  authDomain: sanitizeConfigValue(env.VITE_FIREBASE_AUTH_DOMAIN, defaultFirebaseConfig.authDomain),
+  projectId: sanitizeConfigValue(env.VITE_FIREBASE_PROJECT_ID, defaultFirebaseConfig.projectId),
+  storageBucket: sanitizeConfigValue(env.VITE_FIREBASE_STORAGE_BUCKET, defaultFirebaseConfig.storageBucket),
+  messagingSenderId: sanitizeConfigValue(env.VITE_FIREBASE_MESSAGING_SENDER_ID, defaultFirebaseConfig.messagingSenderId),
+  appId: sanitizeConfigValue(env.VITE_FIREBASE_APP_ID, defaultFirebaseConfig.appId),
+  firestoreDatabaseId: env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || env.VITE_FIRESTORE_DATABASE_ID || defaultFirebaseConfig.firestoreDatabaseId
+};
+
 export const isFirebaseConfigured = Boolean(
-  env.VITE_FIREBASE_API_KEY &&
-  !env.VITE_FIREBASE_API_KEY.includes('YOUR_') &&
-  !env.VITE_FIREBASE_API_KEY.includes('mock') &&
-  env.VITE_FIREBASE_PROJECT_ID &&
-  !env.VITE_FIREBASE_PROJECT_ID.includes('mock')
+  firebaseConfig.apiKey &&
+  !firebaseConfig.apiKey.includes('YOUR_') &&
+  !firebaseConfig.apiKey.includes('mock') &&
+  firebaseConfig.projectId &&
+  !firebaseConfig.projectId.includes('mock')
 );
 
 if (!isDev && !isFirebaseConfigured) {
   console.error('⚠️ THIẾU CẤU HÌNH FIREBASE TRONG MÔI TRƯỜNG PRODUCTION! Ứng dụng sẽ hoạt động ở chế độ Offline/Local Storage. Vui lòng khai báo đầy đủ các biến VITE_FIREBASE_* trước khi build APK/Web App.');
 }
-
-const firebaseConfig = {
-  apiKey: sanitizeConfigValue(env.VITE_FIREBASE_API_KEY, 'AIzaSy-mock'),
-  authDomain: sanitizeConfigValue(env.VITE_FIREBASE_AUTH_DOMAIN, 'mock-project.firebaseapp.com'),
-  projectId: sanitizeConfigValue(env.VITE_FIREBASE_PROJECT_ID, 'mock-project'),
-  storageBucket: sanitizeConfigValue(env.VITE_FIREBASE_STORAGE_BUCKET, 'mock-project.appspot.com'),
-  messagingSenderId: sanitizeConfigValue(env.VITE_FIREBASE_MESSAGING_SENDER_ID, '1234567890'),
-  appId: sanitizeConfigValue(env.VITE_FIREBASE_APP_ID, '1:1234567890:web:abcdef'),
-  firestoreDatabaseId: env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || env.VITE_FIRESTORE_DATABASE_ID || '(default)'
-};
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApps()[0];
 const dbId = firebaseConfig.firestoreDatabaseId;
@@ -268,6 +290,13 @@ export const signOutFirebaseAccount = signOutGoogle;
 
 export function getCurrentFirebaseUser(): User | null {
   return getCurrentAppUser();
+}
+
+export function getCurrentRealFirebaseUser(): User | null {
+  const user = auth.currentUser;
+  if (!user || user.isAnonymous || !user.email) return null;
+  const hasGoogleProvider = user.providerData?.some((provider) => provider.providerId === 'google.com');
+  return hasGoogleProvider ? user : null;
 }
 
 export function onAuthUserChanged(callback: (user: User | null) => void): () => void {
@@ -672,6 +701,8 @@ export async function saveProjectDiffsToCloud(
     // 1. Try updating metadata (only if user has Admin/Owner permissions; ignore error if Engineer)
     try {
       const metadataRef = doc(db, 'projects', projectId);
+      const currentUser = getCurrentAppUser();
+      const ownerEmail = normalizeEmail(currentUser?.email);
       const metaPayload: Record<string, any> = {
         id: projectId,
         name: projectName,
@@ -680,7 +711,9 @@ export async function saveProjectDiffsToCloud(
         updatedAt: Date.now(),
         schemaVersion: 2, // Subcollection mode
         syncCode: projectId.slice(0, 8).toUpperCase(),
-        updatedBy: typeof window !== 'undefined' ? window.navigator.userAgent : 'device'
+        updatedBy: typeof window !== 'undefined' ? window.navigator.userAgent : 'device',
+        ...(currentUser?.uid ? { ownerUid: currentUser.uid } : {}),
+        ...(ownerEmail ? { ownerEmail } : {})
       };
       await setDoc(metadataRef, metaPayload, { merge: true });
     } catch (metaErr) {
