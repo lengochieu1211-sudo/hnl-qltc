@@ -66,7 +66,7 @@ import { ImageViewerModal } from './ImageViewerModal';
 import { ImageEditorModal } from './ImageEditorModal';
 import { RoomHighlightModal } from './RoomHighlightModal';
 import { PhotoAttachmentPicker } from './PhotoAttachmentPicker';
-import { deleteEntityPhotos, savePhotoAttachment } from '../utils/photoStorage';
+import { PhotoAttachment, deleteEntityPhotos, getEntityPhotos, getPhotoDataUrl, savePhotoAttachment } from '../utils/photoStorage';
 import { saveWorkbookFile } from '../utils/fileExport';
 import { convertPdfToImage } from '../utils/pdfToImage';
 import * as pdfjsLib from 'pdfjs-dist';
@@ -474,6 +474,157 @@ const readFileAsDataUrl = (file: File): Promise<string> => {
 
 const readDefectPhotoAsDataUrl = (file: File | Blob | string): Promise<string> => {
   return compressDefectPhoto(file);
+};
+
+interface DefectPhotoStripProps {
+  projectId: string;
+  defect: DefectItem;
+  category: 'defect_before' | 'defect_after';
+  legacyUrl?: string;
+  label: string;
+  emptyText: string;
+  tone: 'slate' | 'emerald';
+  onOpen: (images: string[], initialIndex: number) => void;
+}
+
+const DefectPhotoStrip: React.FC<DefectPhotoStripProps> = ({
+  projectId,
+  defect,
+  category,
+  legacyUrl,
+  label,
+  emptyText,
+  tone,
+  onOpen,
+}) => {
+  const [photos, setPhotos] = useState<PhotoAttachment[]>([]);
+  const [thumbUrls, setThumbUrls] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      if (!projectId || !defect.id) return;
+      setLoading(true);
+      try {
+        const items = await getEntityPhotos(projectId, 'defect', defect.id, category);
+        const visibleItems = items.slice(0, 3);
+        const thumbs = await Promise.all(
+          visibleItems.map((p) => getPhotoDataUrl(p.id, p.cloudUrl || p.localUri, true))
+        );
+        if (!cancelled) {
+          setPhotos(items);
+          setThumbUrls(thumbs.filter(Boolean));
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setPhotos([]);
+          setThumbUrls([]);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    const handlePhotosChanged = () => {
+      load();
+    };
+
+    load();
+    if (typeof window !== 'undefined') {
+      window.addEventListener('qlct-photo-attachments-changed', handlePhotosChanged);
+    }
+    return () => {
+      cancelled = true;
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('qlct-photo-attachments-changed', handlePhotosChanged);
+      }
+    };
+  }, [projectId, defect.id, category, legacyUrl]);
+
+  const legacyImages = legacyUrl ? [legacyUrl] : [];
+  const totalCount = legacyImages.length + photos.length;
+  const shownLegacy = legacyImages.slice(0, 3);
+  const remainingThumbSlots = Math.max(0, 3 - shownLegacy.length);
+  const shownThumbUrls = thumbUrls.slice(0, remainingThumbSlots);
+  const overflowCount = Math.max(0, totalCount - shownLegacy.length - shownThumbUrls.length);
+  const labelClass = tone === 'emerald' ? 'text-emerald-700' : 'text-slate-700';
+  const chipClass = tone === 'emerald' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-50 border-slate-200 text-slate-600';
+
+  const openGallery = async (initialIndex: number) => {
+    const fullStoredImages = await Promise.all(
+      photos.map((p) => getPhotoDataUrl(p.id, p.cloudUrl || p.localUri, false))
+    );
+    const images = [...legacyImages, ...fullStoredImages.filter(Boolean)];
+    if (images.length > 0) {
+      onOpen(images, Math.min(Math.max(initialIndex, 0), images.length - 1));
+    }
+  };
+
+  return (
+    <div className="min-w-0">
+      <div className={`flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wide ${labelClass}`}>
+        <Images className="w-3.5 h-3.5 shrink-0" />
+        <span>{label} ({totalCount})</span>
+      </div>
+
+      {totalCount === 0 ? (
+        <div className={`mt-1 inline-flex items-center px-2 py-1 rounded-lg border text-[10px] font-bold ${chipClass}`}>
+          {loading ? 'Đang tải ảnh...' : emptyText}
+        </div>
+      ) : (
+        <div className="mt-1 flex items-center gap-1.5 overflow-hidden">
+          {shownLegacy.map((url, index) => (
+            <button
+              key={`legacy-${index}`}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                openGallery(index);
+              }}
+              className="w-12 h-12 sm:w-14 sm:h-14 rounded-lg overflow-hidden border border-slate-200 bg-slate-50 shadow-2xs shrink-0"
+              title="Mở ảnh"
+            >
+              <img src={url} alt={label} className="w-full h-full object-cover" />
+            </button>
+          ))}
+
+          {shownThumbUrls.map((url, index) => {
+            const fullIndex = shownLegacy.length + index;
+            return (
+              <button
+                key={`${category}-${photos[index]?.id || index}`}
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openGallery(fullIndex);
+                }}
+                className="w-12 h-12 sm:w-14 sm:h-14 rounded-lg overflow-hidden border border-slate-200 bg-slate-50 shadow-2xs shrink-0"
+                title="Mở ảnh"
+              >
+                <img src={url} alt={label} className="w-full h-full object-cover" />
+              </button>
+            );
+          })}
+
+          {overflowCount > 0 && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                openGallery(shownLegacy.length + shownThumbUrls.length);
+              }}
+              className="w-12 h-12 sm:w-14 sm:h-14 rounded-lg border border-slate-200 bg-slate-900/90 text-white text-xs font-black shadow-2xs shrink-0"
+              title="Mở thêm ảnh"
+            >
+              +{overflowCount}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
 };
 
 export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
@@ -5730,35 +5881,28 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     </div>
                   </div>
 
-                  {/* Photo Badges / Thumbnails */}
-                  {(Boolean(defect.imageUrl) || Boolean(defect.afterImageUrl)) && (
-                    <div className="flex items-center gap-3 pt-1">
-                      {Boolean(defect.imageUrl) && (
-                        <div
-                          className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openDefectLegacyImageViewer(defect, defect.imageUrl);
-                          }}
-                        >
-                          <img src={defect.imageUrl} alt="Trước sửa" className="w-8 h-8 rounded-lg object-cover border border-slate-200 shrink-0" />
-                          <span>Ảnh trước sửa</span>
-                        </div>
-                      )}
-                      {Boolean(defect.afterImageUrl) && (
-                        <div
-                          className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-700"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openDefectLegacyImageViewer(defect, defect.afterImageUrl);
-                          }}
-                        >
-                          <img src={defect.afterImageUrl} alt="Sau sửa" className="w-8 h-8 rounded-lg object-cover border border-emerald-300 shrink-0" />
-                          <span>✅ Ảnh sau sửa</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                    <DefectPhotoStrip
+                      projectId={currentProjectId}
+                      defect={defect}
+                      category="defect_before"
+                      legacyUrl={defect.imageUrl}
+                      label="Ảnh lỗi / trước sửa"
+                      emptyText="Chưa có ảnh lỗi"
+                      tone="slate"
+                      onOpen={(images, initialIndex) => setViewingImageSet({ images, initialIndex })}
+                    />
+                    <DefectPhotoStrip
+                      projectId={currentProjectId}
+                      defect={defect}
+                      category="defect_after"
+                      legacyUrl={defect.afterImageUrl}
+                      label="Ảnh sau sửa / khắc phục"
+                      emptyText="Chưa có ảnh khắc phục"
+                      tone="emerald"
+                      onOpen={(images, initialIndex) => setViewingImageSet({ images, initialIndex })}
+                    />
+                  </div>
                     </div>
                   </div>
                 </div>

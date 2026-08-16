@@ -16,6 +16,12 @@ interface PhotoAttachmentPickerProps {
   onPhotosChanged?: (photos: PhotoAttachment[]) => void;
 }
 
+const notifyPhotoAttachmentsChanged = () => {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('qlct-photo-attachments-changed'));
+  }
+};
+
 export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
   projectId,
   entityType,
@@ -95,6 +101,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
           file
         );
       }
+      notifyPhotoAttachmentsChanged();
       await loadPhotos();
     } catch (err) {
       console.error('Error uploading photo:', err);
@@ -112,6 +119,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
     if (!confirmed) return;
     try {
       await deletePhotoAttachment(projectId, photoId);
+      notifyPhotoAttachmentsChanged();
       await loadPhotos();
     } catch (err) {
       console.error('Error deleting photo:', err);
@@ -137,6 +145,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
       setUploading(true);
       await updatePhotoAttachmentBlob(projectId, editingPhoto.id, editedFile);
       setEditingPhoto(null);
+      notifyPhotoAttachmentsChanged();
       await loadPhotos();
     } catch (err) {
       console.error('Error saving edited photo:', err);

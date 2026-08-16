@@ -26,7 +26,8 @@ import {
   FileSpreadsheet,
   BarChart3,
   Home,
-  CheckCircle
+  CheckCircle,
+  ArrowUpDown
 } from 'lucide-react';
 import { CrewRecord, FloorPlan, TeamInfo, RoomProgressItem, DefectItem, CrewFloorWork, CrewFloorCategoryWork, AcceptanceStatus, RoomInspectionResult } from '../types';
 import { formatDateDDMMYYYY } from '../utils/dateFormatter';
@@ -66,6 +67,46 @@ const COMMON_TASKS = [
   'Thi công cách âm / bảo ôn bông thủy tinh'
 ];
 
+type TeamFloorSortOrder = 'asc' | 'desc';
+
+const normalizeSortText = (value: string) =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+
+const getFloorSortRank = (floorName: string) => {
+  const text = normalizeSortText(floorName);
+
+  const basementMatch = text.match(/(?:ham|b)\s*(-?\d+)/);
+  if (basementMatch) {
+    return -Math.abs(Number(basementMatch[1]));
+  }
+
+  if (/(tret|ground|san-tret|san tret)/.test(text)) {
+    return 0;
+  }
+
+  const floorMatch = text.match(/(?:tang|floor|lau)\s*(\d+)/) || text.match(/(\d+)/);
+  if (floorMatch) {
+    return Number(floorMatch[1]);
+  }
+
+  if (/(mai|tum|thuong)/.test(text)) {
+    return 10000;
+  }
+
+  return 5000;
+};
+
+const compareFloorNames = (a: string, b: string) => {
+  const rankA = getFloorSortRank(a);
+  const rankB = getFloorSortRank(b);
+  if (rankA !== rankB) return rankA - rankB;
+  return a.localeCompare(b, 'vi', { numeric: true, sensitivity: 'base' });
+};
+
 export const CrewTab: React.FC<CrewTabProps> = ({
   projectId = 'default-project',
   projectName,
@@ -96,6 +137,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [selectedTeamForDetail, setSelectedTeamForDetail] = useState<TeamInfo | null>(null);
   const [detailModalTab, setDetailModalTab] = useState<'rooms' | 'defects' | 'logs'>('rooms');
   const [defectFilter, setDefectFilter] = useState<'all' | 'open' | 'resolved'>('all');
+  const [teamFloorSortOrder, setTeamFloorSortOrder] = useState<TeamFloorSortOrder>('asc');
   const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
 
   // Sync state if prop changes
@@ -2116,7 +2158,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         const resolvedDefectsList = teamDefects.filter(d => d.status === 'Đã khắc phục' || d.status === 'Đã nghiệm thu');
         const completedRooms = teamRooms.filter(r => isTeamWorkCompletedInRoom(r, team));
 
-        const floorStatList: FloorGroupDetail[] = Object.values(floorGroupMap) as FloorGroupDetail[];
+        const floorStatList: FloorGroupDetail[] = (Object.values(floorGroupMap) as FloorGroupDetail[])
+          .sort((a, b) => {
+            const comparison = compareFloorNames(a.floorName, b.floorName);
+            return teamFloorSortOrder === 'asc' ? comparison : -comparison;
+          });
 
         const teamWorkCategories = categoryBreakdown.map(cb => cb.categoryName);
 
@@ -2323,11 +2369,22 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                       </div>
                     ) : (
                       <div className="space-y-3">
-                        <div className="flex justify-between items-center text-xs text-slate-500 font-medium px-1 mb-2">
+                        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 text-xs text-slate-500 font-medium px-1 mb-2">
                           <span>Thống kê chi tiết theo tầng đang thi công</span>
-                          <span className="text-[11px] bg-indigo-600 text-white px-2.5 py-0.5 rounded-md font-extrabold shadow-2xs">
-                            {floorStatList.length} Tầng ({teamRooms.length} Căn / Phòng)
-                          </span>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() => setTeamFloorSortOrder((order) => (order === 'asc' ? 'desc' : 'asc'))}
+                              className="inline-flex items-center gap-1.5 text-[11px] bg-white border border-indigo-200 text-indigo-700 px-2.5 py-1 rounded-md font-extrabold hover:bg-indigo-50 active:scale-95 transition-all shadow-2xs"
+                              title="Sắp xếp nhanh theo tên tầng"
+                            >
+                              <ArrowUpDown className="w-3.5 h-3.5" />
+                              <span>Tầng {teamFloorSortOrder === 'asc' ? '↑' : '↓'}</span>
+                            </button>
+                            <span className="text-[11px] bg-indigo-600 text-white px-2.5 py-0.5 rounded-md font-extrabold shadow-2xs">
+                              {floorStatList.length} Tầng ({teamRooms.length} Căn / Phòng)
+                            </span>
+                          </div>
                         </div>
 
                         <div className="space-y-4">

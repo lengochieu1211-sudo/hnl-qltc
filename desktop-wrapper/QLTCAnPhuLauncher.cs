@@ -7,7 +7,7 @@ namespace QLTCAnPhu
 {
     internal static class Program
     {
-        private const string AppUrl = "https://com-example-qlct-61329.web.app/?app=desktop&v=20260816-authfix";
+        private const string AppUrl = "https://com-example-qlct-61329.web.app/?app=desktop&v=20260816-defectphotos";
 
         [STAThread]
         private static void Main()
