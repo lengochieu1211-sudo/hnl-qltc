@@ -45,6 +45,15 @@ export interface FloorPlan {
 }
 
 export type DefectCategory = 
+  | 'Khung trần'
+  | 'Tấm thạch cao'
+  | 'Vách thạch cao'
+  | 'Hoàn thiện bả sơn'
+  | 'Khe hở / mối nối'
+  | 'Ty treo / phụ kiện'
+  | 'Sai vị trí / sai cao độ'
+  | 'Thiết bị liên quan'
+  | 'Vệ sinh / bảo vệ thành phẩm'
   | 'Khung trần lệch/xô lệch'
   | 'Bắn thiếu vít / thưa vít tấm'
   | 'Hở khe / Nứt mối nối tấm'
@@ -270,4 +279,3 @@ export interface TeamRoomDetail {
   targetDate?: string;
   notes?: string;
 }
-

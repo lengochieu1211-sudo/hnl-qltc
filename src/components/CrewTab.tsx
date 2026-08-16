@@ -1133,6 +1133,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                           entityId={record.id}
                           category="crew_progress"
                           label="HÌNH ẢNH HIỆN TRƯỜNG"
+                          readOnly
                         />
                       </div>
 

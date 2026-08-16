@@ -3,6 +3,7 @@ import { Camera, Image as ImageIcon, Images, Eye, Loader2, X, Pencil } from 'luc
 import { PhotoAttachment, getEntityPhotos, savePhotoAttachment, deletePhotoAttachment, getPhotoDataUrl, updatePhotoAttachmentBlob } from '../utils/photoStorage';
 import { ImageViewerModal } from './ImageViewerModal';
 import { ImageEditorModal } from './ImageEditorModal';
+import { confirmAsync } from '../utils/confirmAsync';
 
 interface PhotoAttachmentPickerProps {
   projectId: string;
@@ -107,6 +108,8 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
   const handleDeletePhoto = async (photoId: string, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    const confirmed = await confirmAsync('Xóa ảnh này?\n\nBạn có chắc muốn xóa ảnh này không?');
+    if (!confirmed) return;
     try {
       await deletePhotoAttachment(projectId, photoId);
       await loadPhotos();
@@ -193,7 +196,9 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
         </div>
       ) : photos.length === 0 ? (
         <div className="p-3 bg-slate-50 border border-dashed border-slate-300 rounded-lg text-center text-slate-400 text-xs">
-          Chưa có hình ảnh được đính kèm (Bấm &quot;Chụp ảnh&quot; hoặc &quot;Thư viện&quot; để thêm ảnh)
+          {readOnly
+            ? 'Chưa có hình ảnh được đính kèm'
+            : 'Chưa có hình ảnh được đính kèm (Bấm "Chụp ảnh" hoặc "Thư viện" để thêm ảnh)'}
         </div>
       ) : (
         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">

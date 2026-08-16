@@ -130,6 +130,13 @@ export const getKey = (baseKey: string, pid?: string) => {
   return p === 'default' ? baseKey : `${baseKey}_${p}`;
 };
 
+const isEditableTextTarget = (target: EventTarget | null): boolean => {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  const tagName = target.tagName.toLowerCase();
+  return tagName === 'input' || tagName === 'textarea' || tagName === 'select';
+};
+
 export interface ProjectInfo {
   id: string;
   name: string;
@@ -436,6 +443,8 @@ export default function App() {
     setLocalFileHandle(null);
     setLocalFileName('');
     lastSavedLocalSnapshotRef.current = '';
+    setPast([]);
+    setFuture([]);
 
     setIsSaving(true);
     try {
@@ -1099,13 +1108,17 @@ export default function App() {
   // Keyboard shortcut listener for Undo / Redo
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (isEditableTextTarget(e.target)) return;
+
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
         if (e.shiftKey) {
           handleRedo();
         } else {
           handleUndo();
         }
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
         handleRedo();
       }
     };

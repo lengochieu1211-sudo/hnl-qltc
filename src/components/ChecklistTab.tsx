@@ -166,19 +166,19 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
         return checklistSortOrder === 'asc' ? comp : -comp;
       }
       if (checklistSortBy === 'status') {
-        // passed -> defect -> pending
         const getWeight = (s: ChecklistStatus) => {
-          if (s === 'passed') return 1;
-          if (s === 'defect') return 2;
+          if (s === 'defect') return 1;
+          if (s === 'pending') return 2;
           return 3;
         };
         const comp = getWeight(a.status) - getWeight(b.status);
         return checklistSortOrder === 'asc' ? comp : -comp;
       }
       if (checklistSortBy === 'dueDate') {
-        const dateA = a.dueDate || '9999-12-31';
-        const dateB = b.dueDate || '9999-12-31';
-        const comp = dateA.localeCompare(dateB);
+        if (!a.dueDate && !b.dueDate) return 0;
+        if (!a.dueDate) return 1;
+        if (!b.dueDate) return -1;
+        const comp = a.dueDate.localeCompare(b.dueDate);
         return checklistSortOrder === 'asc' ? comp : -comp;
       }
       return 0;

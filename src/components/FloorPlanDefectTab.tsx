@@ -396,14 +396,73 @@ interface FloorPlanDefectTabProps {
 }
 
 const DEFECT_CATEGORIES: DefectCategory[] = [
-  'Bắn thiếu vít / thưa vít tấm',
-  'Khung trần lệch/xô lệch',
-  'Hở khe / Nứt mối nối tấm',
-  'Ty treo lỏng / Sai khoảng cách',
-  'Tấm trần bị ẩm / ố vàng / móp',
-  'Chừa thiếu lỗ điện/máy lạnh',
+  'Khung trần',
+  'Tấm thạch cao',
+  'Vách thạch cao',
+  'Hoàn thiện bả sơn',
+  'Khe hở / mối nối',
+  'Ty treo / phụ kiện',
+  'Sai vị trí / sai cao độ',
+  'Thiết bị liên quan',
+  'Vệ sinh / bảo vệ thành phẩm',
   'Khác',
 ];
+
+type DefectSortBy = 'createdAt' | 'priority' | 'category' | 'floorName' | 'roomName' | 'severity' | 'dueDate' | 'status' | 'assignedTo';
+type SortOrder = 'asc' | 'desc';
+
+const compareVietnameseText = (a: string | undefined, b: string | undefined) =>
+  (a || '').localeCompare(b || '', 'vi', { numeric: true, sensitivity: 'base' });
+
+const normalizeVietnameseSearchText = (value: string) =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+
+const getSuggestedDefectCategory = (description: string): DefectCategory | null => {
+  const text = normalizeVietnameseSearchText(description);
+  if (!text.trim()) return null;
+
+  if (/(vach)/.test(text)) return 'Vách thạch cao';
+  if (/(xuong|khung|thanh chinh|thanh phu|cong|venh)/.test(text)) return 'Khung trần';
+  if (/(tam|ban tam|thieu tam|nut|vo|vong|lech tam)/.test(text)) return 'Tấm thạch cao';
+  if (/(ba|son|hoan thien|tray|do ban|be mat)/.test(text)) return 'Hoàn thiện bả sơn';
+  if (/(khe|mi|moi noi|ho)/.test(text)) return 'Khe hở / mối nối';
+  if (/(ty treo|lien ket|phu kien|vit)/.test(text)) return 'Ty treo / phụ kiện';
+  if (/(sai vi tri|sai kich thuoc|cao do|lech vi tri)/.test(text)) return 'Sai vị trí / sai cao độ';
+  if (/(den|cua tham|mieng gio|sprinkler|thiet bi)/.test(text)) return 'Thiết bị liên quan';
+  if (/(ve sinh|bao ve|thanh pham|rac)/.test(text)) return 'Vệ sinh / bảo vệ thành phẩm';
+
+  return null;
+};
+
+const getDefectSeverityWeight = (severity: DefectSeverity) => {
+  if (severity === 'Nghiêm trọng') return 1;
+  if (severity === 'Trung bình') return 2;
+  return 3;
+};
+
+const getDefectStatusWeight = (status: DefectStatus) => {
+  if (status === 'Mới phát hiện') return 1;
+  if (status === 'Đang sửa') return 2;
+  if (status === 'Đã khắc phục') return 3;
+  return 4;
+};
+
+const getDefectPriorityWeight = (defect: DefectItem) => {
+  const overdueInfo = getDefectOverdueInfo(defect);
+  const isClosed = defect.status === 'Đã nghiệm thu';
+  const isFixed = defect.status === 'Đã khắc phục';
+
+  if (!isClosed && !isFixed && overdueInfo.isOverdue) return 1;
+  if (!isClosed && !isFixed && defect.dueDate && overdueInfo.daysDiff === 0) return 2;
+  if (!isClosed && !isFixed && defect.dueDate && overdueInfo.daysDiff < 0 && Math.abs(overdueInfo.daysDiff) <= 3) return 3;
+  if (defect.status === 'Mới phát hiện') return 4;
+  if (defect.status === 'Đang sửa') return 5;
+  if (isFixed) return 6;
+  return 7;
+};
 
 import { compressImage, compressDefectPhoto, compressFloorPlanImage, readFloorPlanAsDataUrl } from '../utils/imageCompressor';
 import { confirmAsync } from '../utils/confirmAsync';
@@ -520,6 +579,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   }, [viewMode, currentProjectId]);
 
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [defectSortBy, setDefectSortBy] = useState<DefectSortBy>('createdAt');
+  const [defectSortOrder, setDefectSortOrder] = useState<SortOrder>('desc');
   const [isUploadingPlan, setIsUploadingPlan] = useState(false);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [editingPhotoUrl, setEditingPhotoUrl] = useState<string | null>(null);
@@ -597,6 +658,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     return localStorage.getItem(getDraftKey('construction_defect_draft_photoUrl')) || '';
   });
   const [afterPhotoUrl, setAfterPhotoUrl] = useState('');
+  const suggestedDefectCategory = React.useMemo(() => getSuggestedDefectCategory(description), [description]);
 
   // Effects to save draft fields
   React.useEffect(() => {
@@ -1655,10 +1717,53 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedRoomForDragId, selectedRoomIds, floorRooms, copiedRoomsState, activeFloor, onSaveRoomProgress, onDeleteRoomProgress]);
 
-  const filteredDefects = floorDefects.filter((d) => {
-    if (statusFilter === 'all') return true;
-    return d.status === statusFilter;
-  });
+  const filteredDefects = React.useMemo(() => {
+    const getRoomLabel = (defect: DefectItem) => {
+      const matchedRoom = floorRooms.find((room) => room.id === defect.roomId);
+      return matchedRoom?.roomName || defect.positionDetail || defect.axisGrid || '';
+    };
+
+    const compareDueDate = (a: DefectItem, b: DefectItem) => {
+      if (!a.dueDate && !b.dueDate) return 0;
+      if (!a.dueDate) return 1;
+      if (!b.dueDate) return -1;
+      return a.dueDate.localeCompare(b.dueDate);
+    };
+
+    const list = floorDefects.filter((d) => {
+      if (statusFilter === 'all') return true;
+      return d.status === statusFilter;
+    });
+
+    return [...list].sort((a, b) => {
+      let comparison = 0;
+
+      if (defectSortBy === 'createdAt') {
+        comparison = new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
+      } else if (defectSortBy === 'priority') {
+        comparison = getDefectPriorityWeight(a) - getDefectPriorityWeight(b);
+        if (comparison === 0) comparison = getDefectSeverityWeight(a.severity) - getDefectSeverityWeight(b.severity);
+        if (comparison === 0) comparison = compareDueDate(a, b);
+        if (comparison === 0) comparison = new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
+      } else if (defectSortBy === 'category') {
+        comparison = compareVietnameseText(a.category, b.category);
+      } else if (defectSortBy === 'floorName') {
+        comparison = compareVietnameseText(a.floorName, b.floorName);
+      } else if (defectSortBy === 'roomName') {
+        comparison = compareVietnameseText(getRoomLabel(a), getRoomLabel(b));
+      } else if (defectSortBy === 'severity') {
+        comparison = getDefectSeverityWeight(a.severity) - getDefectSeverityWeight(b.severity);
+      } else if (defectSortBy === 'dueDate') {
+        comparison = compareDueDate(a, b);
+      } else if (defectSortBy === 'status') {
+        comparison = getDefectStatusWeight(a.status) - getDefectStatusWeight(b.status);
+      } else if (defectSortBy === 'assignedTo') {
+        comparison = compareVietnameseText(a.assignedTo, b.assignedTo);
+      }
+
+      return defectSortOrder === 'asc' ? comparison : -comparison;
+    });
+  }, [floorDefects, floorRooms, statusFilter, defectSortBy, defectSortOrder]);
 
   // Helper handlers for floor plan customization (rename, duplicate, delete, quick add)
   const handleRenameFloor = (floorId: string, currentName: string) => {
@@ -5438,22 +5543,55 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       {/* SECTION FOR DEFECT MODE: DEFECT LIST & FILTER */}
       {(viewMode === 'defect' || viewMode === 'all') && (
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
               Danh Sách Lỗi Defect ({filteredDefects.length})
             </h3>
 
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="bg-white border border-slate-200 text-xs font-semibold rounded-lg px-2 py-1 text-slate-700"
-            >
-              <option value="all">Tất cả trạng thái</option>
-              <option value="Mới phát hiện">🔴 Mới phát hiện</option>
-              <option value="Đang sửa">🟡 Đang sửa</option>
-              <option value="Đã khắc phục">🟢 Đã khắc phục</option>
-              <option value="Đã nghiệm thu">✅ Đã nghiệm thu</option>
-            </select>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="bg-white border border-slate-200 text-xs font-semibold rounded-lg px-2 py-1 text-slate-700"
+              >
+                <option value="all">Tất cả trạng thái</option>
+                <option value="Mới phát hiện">🔴 Mới phát hiện</option>
+                <option value="Đang sửa">🟡 Đang sửa</option>
+                <option value="Đã khắc phục">🟢 Đã khắc phục</option>
+                <option value="Đã nghiệm thu">✅ Đã nghiệm thu</option>
+              </select>
+
+              <select
+                value={defectSortBy}
+                onChange={(e) => {
+                  const nextSortBy = e.target.value as DefectSortBy;
+                  setDefectSortBy(nextSortBy);
+                  setDefectSortOrder(nextSortBy === 'createdAt' ? 'desc' : 'asc');
+                }}
+                className="bg-white border border-slate-200 text-xs font-semibold rounded-lg px-2 py-1 text-slate-700"
+                title="Sắp xếp danh sách lỗi defect"
+              >
+                <option value="createdAt">Ngày ghi nhận</option>
+                <option value="priority">⚠ Ưu tiên xử lý</option>
+                <option value="category">Loại lỗi</option>
+                <option value="floorName">Tầng</option>
+                <option value="roomName">Căn / Phòng</option>
+                <option value="severity">Mức độ</option>
+                <option value="dueDate">Deadline</option>
+                <option value="status">Trạng thái</option>
+                <option value="assignedTo">Đội phụ trách</option>
+              </select>
+
+              <button
+                type="button"
+                onClick={() => setDefectSortOrder((order) => (order === 'asc' ? 'desc' : 'asc'))}
+                className="inline-flex items-center gap-1 bg-white border border-slate-200 text-xs font-extrabold rounded-lg px-2 py-1 text-slate-700 hover:bg-slate-50"
+                title="Đổi chiều sắp xếp"
+              >
+                <ArrowUpDown className="w-3.5 h-3.5 text-slate-500" />
+                {defectSortOrder === 'asc' ? '↑' : '↓'}
+              </button>
+            </div>
           </div>
 
           {filteredDefects.length > 0 && (
@@ -5713,13 +5851,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
             <form onSubmit={handleCreateDefect} className="space-y-3.5 text-xs">
               <div>
-                <label className="block text-slate-700 font-bold mb-1">Loại Lỗi Thạch Cao / Khung Trần</label>
+                <label className="block text-slate-700 font-bold mb-1">Nhóm lỗi / hạng mục lỗi</label>
                 <select
                   value={category}
                   onChange={(e) => setCategory(e.target.value as DefectCategory)}
                   className="w-full border border-slate-200 rounded-xl p-2.5 font-bold bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500"
                 >
-                  {DEFECT_CATEGORIES.map((cat) => (
+                  {Array.from(new Set([category, ...DEFECT_CATEGORIES])).map((cat) => (
                     <option key={cat} value={cat}>{cat}</option>
                   ))}
                 </select>
@@ -5735,6 +5873,16 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   className="w-full border border-slate-200 rounded-xl p-2.5"
                   required
                 />
+                {suggestedDefectCategory && suggestedDefectCategory !== category && (
+                  <button
+                    type="button"
+                    onClick={() => setCategory(suggestedDefectCategory)}
+                    className="mt-1.5 inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[11px] font-extrabold text-indigo-700 hover:bg-indigo-100"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Gợi ý: {suggestedDefectCategory}
+                  </button>
+                )}
               </div>
 
               {/* 5 Key Control Fields */}
