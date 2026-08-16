@@ -22,7 +22,7 @@ const isDev = env.DEV || env.MODE === 'development' || !env.PROD;
 
 const hostedFirebaseConfig = {
   apiKey: 'AIzaSyAShhTKSnmLMOEm4dST--1_X7fjJUE4znY',
-  authDomain: 'com-example-qlct-61329.web.app',
+  authDomain: 'com-example-qlct-61329.firebaseapp.com',
   projectId: 'com-example-qlct-61329',
   storageBucket: 'com-example-qlct-61329.firebasestorage.app',
   messagingSenderId: '119152410850',

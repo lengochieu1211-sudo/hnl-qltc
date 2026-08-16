@@ -67,7 +67,8 @@ const COMMON_TASKS = [
   'Thi công cách âm / bảo ôn bông thủy tinh'
 ];
 
-type TeamFloorSortOrder = 'asc' | 'desc';
+type TeamSortOrder = 'asc' | 'desc';
+type TeamFloorSortOrder = TeamSortOrder;
 
 const normalizeSortText = (value: string) =>
   value
@@ -107,6 +108,57 @@ const compareFloorNames = (a: string, b: string) => {
   return a.localeCompare(b, 'vi', { numeric: true, sensitivity: 'base' });
 };
 
+const compareDisplayNames = (a?: string | null, b?: string | null) => {
+  const safeA = a || '';
+  const safeB = b || '';
+  const normalizedComparison = normalizeSortText(safeA).localeCompare(
+    normalizeSortText(safeB),
+    'vi',
+    { numeric: true, sensitivity: 'base' }
+  );
+  if (normalizedComparison !== 0) return normalizedComparison;
+  return safeA.localeCompare(safeB, 'vi', { numeric: true, sensitivity: 'base' });
+};
+
+const applySortOrder = (comparison: number, order: TeamSortOrder) =>
+  order === 'asc' ? comparison : -comparison;
+
+const getDefectSortName = (defect: DefectItem) =>
+  [
+    defect.floorName,
+    defect.category,
+    defect.roomId,
+    defect.axisGrid,
+    defect.positionDetail,
+    defect.description
+  ].filter(Boolean).join(' ');
+
+const getLogSortName = (log: CrewRecord) =>
+  [
+    log.floorName,
+    log.taskDescription,
+    log.date
+  ].filter(Boolean).join(' ');
+
+const QuickNameSortButton: React.FC<{
+  order: TeamSortOrder;
+  onToggle: () => void;
+  title?: string;
+}> = ({ order, onToggle, title = 'Sắp xếp nhanh theo tên' }) => (
+  <div className="inline-flex items-center gap-1.5 bg-indigo-50 border border-indigo-100 text-indigo-700 px-2 py-1 rounded-xl text-[11px] font-bold shadow-2xs">
+    <ArrowUpDown className="w-3.5 h-3.5 shrink-0" />
+    <span className="whitespace-nowrap">Sắp xếp nhanh:</span>
+    <button
+      type="button"
+      onClick={onToggle}
+      className="bg-white border border-indigo-200 text-indigo-700 px-2 py-0.5 rounded-md font-extrabold hover:bg-indigo-100 active:scale-95 transition-all"
+      title={title}
+    >
+      Tên {order === 'asc' ? '↑' : '↓'}
+    </button>
+  </div>
+);
+
 export const CrewTab: React.FC<CrewTabProps> = ({
   projectId = 'default-project',
   projectName,
@@ -138,6 +190,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [detailModalTab, setDetailModalTab] = useState<'rooms' | 'defects' | 'logs'>('rooms');
   const [defectFilter, setDefectFilter] = useState<'all' | 'open' | 'resolved'>('all');
   const [teamFloorSortOrder, setTeamFloorSortOrder] = useState<TeamFloorSortOrder>('asc');
+  const [teamRoomNameSortOrder, setTeamRoomNameSortOrder] = useState<TeamSortOrder>('asc');
+  const [teamDefectNameSortOrder, setTeamDefectNameSortOrder] = useState<TeamSortOrder>('asc');
+  const [teamLogNameSortOrder, setTeamLogNameSortOrder] = useState<TeamSortOrder>('asc');
   const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
 
   // Sync state if prop changes
@@ -2159,19 +2214,33 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         const completedRooms = teamRooms.filter(r => isTeamWorkCompletedInRoom(r, team));
 
         const floorStatList: FloorGroupDetail[] = (Object.values(floorGroupMap) as FloorGroupDetail[])
+          .map(floorGroup => ({
+            ...floorGroup,
+            rooms: [...floorGroup.rooms].sort((a, b) =>
+              applySortOrder(compareDisplayNames(a.roomName, b.roomName), teamRoomNameSortOrder)
+            )
+          }))
           .sort((a, b) => {
             const comparison = compareFloorNames(a.floorName, b.floorName);
-            return teamFloorSortOrder === 'asc' ? comparison : -comparison;
+            return applySortOrder(comparison, teamFloorSortOrder);
           });
 
         const teamWorkCategories = categoryBreakdown.map(cb => cb.categoryName);
 
         // Filter defects by tab state
-        const displayedDefects = teamDefects.filter(d => {
+        const unsortedDisplayedDefects = teamDefects.filter(d => {
           if (defectFilter === 'open') return d.status === 'Mới phát hiện' || d.status === 'Đang sửa';
           if (defectFilter === 'resolved') return d.status === 'Đã khắc phục' || d.status === 'Đã nghiệm thu';
           return true;
         });
+
+        const displayedDefects = [...unsortedDisplayedDefects].sort((a, b) =>
+          applySortOrder(compareDisplayNames(getDefectSortName(a), getDefectSortName(b)), teamDefectNameSortOrder)
+        );
+
+        const displayedTeamLogs = [...teamLogs].sort((a, b) =>
+          applySortOrder(compareDisplayNames(getLogSortName(a), getLogSortName(b)), teamLogNameSortOrder)
+        );
 
         // Collect unique floors where this team worked from daily logs
         const loggedFloors = Array.from(new Set(teamLogs.map(l => l.floorName).filter(Boolean)));
@@ -2372,6 +2441,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 text-xs text-slate-500 font-medium px-1 mb-2">
                           <span>Thống kê chi tiết theo tầng đang thi công</span>
                           <div className="flex items-center gap-2 flex-wrap">
+                            <QuickNameSortButton
+                              order={teamRoomNameSortOrder}
+                              onToggle={() => setTeamRoomNameSortOrder((order) => (order === 'asc' ? 'desc' : 'asc'))}
+                              title="Sắp xếp nhanh căn / phòng theo tên"
+                            />
                             <button
                               type="button"
                               onClick={() => setTeamFloorSortOrder((order) => (order === 'asc' ? 'desc' : 'asc'))}
@@ -2699,6 +2773,14 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                       </button>
                     </div>
 
+                    <div className="flex justify-end px-1">
+                      <QuickNameSortButton
+                        order={teamDefectNameSortOrder}
+                        onToggle={() => setTeamDefectNameSortOrder((order) => (order === 'asc' ? 'desc' : 'asc'))}
+                        title="Sắp xếp nhanh defect theo tên tầng, loại lỗi và vị trí"
+                      />
+                    </div>
+
                     {displayedDefects.length === 0 ? (
                       <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-6 text-center">
                         <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
@@ -2792,7 +2874,14 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                         <div className="text-xs text-slate-500 font-medium px-1 mb-1">
                           Lịch sử công nhật đã ghi nhận ({teamLogs.length} ngày / {totalWorkdays} công thợ):
                         </div>
-                        {teamLogs.map((log) => (
+                        <div className="flex justify-end px-1">
+                          <QuickNameSortButton
+                            order={teamLogNameSortOrder}
+                            onToggle={() => setTeamLogNameSortOrder((order) => (order === 'asc' ? 'desc' : 'asc'))}
+                            title="Sắp xếp nhanh nhật ký theo tầng, nhiệm vụ và ngày"
+                          />
+                        </div>
+                        {displayedTeamLogs.map((log) => (
                           <div 
                             key={log.id}
                             className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs text-xs space-y-1"
