@@ -143,7 +143,8 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
     }
   };
 
-  const imageUrls = photos.map(p => photoDataUrls[p.id] || p.localUri || p.cloudUrl || '').filter(Boolean);
+  const photoImageUrls = photos.map(p => photoDataUrls[p.id] || p.localUri || p.cloudUrl || '');
+  const imageUrls = photoImageUrls.filter(Boolean);
 
   return (
     <div className="space-y-2">
@@ -201,7 +202,12 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
             return (
               <div
                 key={photo.id}
-                onClick={() => setViewingIndex(index)}
+                onClick={() => {
+                  const viewableIndex = photoImageUrls.slice(0, index + 1).filter(Boolean).length - 1;
+                  if (viewableIndex >= 0) {
+                    setViewingIndex(viewableIndex);
+                  }
+                }}
                 className="relative group aspect-square rounded-lg border border-slate-200 overflow-hidden bg-slate-100 cursor-pointer hover:border-blue-400 transition-all shadow-sm"
               >
                 {url ? (

@@ -88,6 +88,13 @@ import { normalizeImportedData } from './utils/dataNormalizer';
 import { getSubItemEffectiveWeight } from './utils/teamUtils';
 import { reconcileMaterialNormWorkCategoryLinks } from './utils/projectReconciliation';
 import { apiFetch, hasApiBackend } from './utils/api';
+import {
+  getAndroidAutoSaveFolderName,
+  hasAndroidAutoSaveFolder,
+  isAndroidAutoSaveAvailable,
+  pickAndroidAutoSaveFolder,
+  saveTextFileToAndroidAutoFolder
+} from './utils/fileExport';
 
 interface AppData {
   materialNorms: MaterialNorm[];
@@ -100,6 +107,16 @@ interface AppData {
   crewRecords: CrewRecord[];
   teams: TeamInfo[];
 }
+
+const ANDROID_AUTO_SAVE_HANDLE_FLAG = '__qlctAndroidAutoSave';
+const ANDROID_ALL_AUTOSAVE_ENABLED_KEY = 'qlct_android_all_autosave_enabled';
+const getAndroidSingleAutosaveKey = (projectId: string) => `qlct_android_single_autosave_enabled_${projectId || 'default'}`;
+const makeAndroidAutoSaveHandle = (scope: string, name: string) => ({
+  [ANDROID_AUTO_SAVE_HANDLE_FLAG]: true,
+  scope,
+  name
+});
+const isAndroidAutoSaveHandle = (handle: any) => Boolean(handle && handle[ANDROID_AUTO_SAVE_HANDLE_FLAG]);
 
 export const getActiveProjectId = () => {
   if (typeof window !== 'undefined') {
@@ -693,6 +710,38 @@ export default function App() {
   const lastSavedLocalSnapshotRef = useRef<string>('');
   const lastSavedLocalAllSnapshotRef = useRef<string>('');
 
+  const getSafeProjectFileName = () => (projectName || activeProjectId || 'Du_An')
+    .replace(/[^a-zA-Z0-9_-]/g, '_')
+    .replace(/_+/g, '_');
+  const getSingleAutoSaveFileName = () => `[Auto_Sync_Backup]_${getSafeProjectFileName()}.json`;
+  const getAllAutoSaveFileName = () => '[Toan_Bo_Du_An]_Backup.json';
+  const buildSingleProjectBackupJson = () => JSON.stringify({
+    schemaVersion: 3,
+    backupType: 'single-project',
+    project: {
+      id: activeProjectId,
+      name: projectName,
+      contractorName,
+      inspectorName,
+      updatedAt: lastUpdatedAt,
+    },
+    data: {
+      projectName,
+      contractorName,
+      inspectorName,
+      materialNorms,
+      inventory,
+      workVolumes,
+      floorPlans,
+      defects,
+      roomProgressList,
+      checklist,
+      crewRecords,
+      teams,
+      updatedAt: lastUpdatedAt,
+    }
+  }, null, 2);
+
   const switchingProjectRef = useRef<boolean>(false);
   const activeProjectIdRef = useRef<string>(activeProjectId);
   useEffect(() => {
@@ -708,6 +757,19 @@ export default function App() {
   useEffect(() => {
     const loadStoredAllHandle = async () => {
       try {
+        if (
+          isAndroidAutoSaveAvailable()
+          && hasAndroidAutoSaveFolder()
+          && localStorage.getItem(ANDROID_ALL_AUTOSAVE_ENABLED_KEY) === 'true'
+        ) {
+          const folderName = getAndroidAutoSaveFolderName();
+          const name = folderName ? `${folderName}/${getAllAutoSaveFileName()}` : getAllAutoSaveFileName();
+          setLocalAllFileHandle(makeAndroidAutoSaveHandle('ALL', name));
+          setLocalAllFileName(name);
+          setLocalAllSyncPermissionNeeded(false);
+          setLocalAllSyncStatus('synced');
+          return;
+        }
         if (window.self !== window.top) return;
         const handle = await getFileHandle('ALL');
         if (handle) {
@@ -786,6 +848,20 @@ export default function App() {
     const targetProjectId = activeProjectId;
     const loadStoredHandle = async () => {
       try {
+        if (
+          isAndroidAutoSaveAvailable()
+          && hasAndroidAutoSaveFolder()
+          && localStorage.getItem(getAndroidSingleAutosaveKey(targetProjectId)) === 'true'
+        ) {
+          const folderName = getAndroidAutoSaveFolderName();
+          const fileName = getSingleAutoSaveFileName();
+          const displayName = folderName ? `${folderName}/${fileName}` : fileName;
+          setLocalFileHandle(makeAndroidAutoSaveHandle(targetProjectId, displayName));
+          setLocalFileName(displayName);
+          setLocalSyncPermissionNeeded(false);
+          setLocalSyncStatus('synced');
+          return;
+        }
         if (window.self !== window.top) return; // Prevent filesystem access in iframe sandbox
         const handle = await getFileHandle(targetProjectId);
         if (cancelled || targetProjectId !== activeProjectId) return;
@@ -1592,6 +1668,33 @@ export default function App() {
   // Local All File Link
   const handleLinkLocalAllFile = async () => {
     try {
+      if (isAndroidAutoSaveAvailable()) {
+        if (!hasAndroidAutoSaveFolder()) {
+          await pickAndroidAutoSaveFolder();
+        }
+        const allData: Record<string, string> = {};
+        const storageData = await getAllStorageData();
+        for (const key in storageData) {
+          if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
+            allData[key] = storageData[key] || '';
+          }
+        }
+        const jsonStr = JSON.stringify(allData, null, 2);
+        const fileName = getAllAutoSaveFileName();
+        await saveTextFileToAndroidAutoFolder(jsonStr, fileName);
+
+        localStorage.setItem(ANDROID_ALL_AUTOSAVE_ENABLED_KEY, 'true');
+        const folderName = getAndroidAutoSaveFolderName();
+        const displayName = folderName ? `${folderName}/${fileName}` : fileName;
+        setLocalAllFileHandle(makeAndroidAutoSaveHandle('ALL', displayName));
+        setLocalAllFileName(displayName);
+        setLocalAllSyncPermissionNeeded(false);
+        setLocalAllSyncStatus('synced');
+        lastSavedLocalAllSnapshotRef.current = jsonStr;
+        hasUnsavedAllBackupChangesRef.current = false;
+        alert(`Da lien ket thu muc Android autosave JSON: ${displayName}`);
+        return;
+      }
       if (window.self !== window.top) {
         alert(
           `⚠️ Không thể sử dụng tính năng liên kết tệp trực tiếp trong khung xem trước.\n` +
@@ -1637,6 +1740,14 @@ export default function App() {
   };
 
   const handleUnlinkLocalAllFile = async () => {
+    if (isAndroidAutoSaveHandle(localAllFileHandle)) {
+      localStorage.removeItem(ANDROID_ALL_AUTOSAVE_ENABLED_KEY);
+      setLocalAllFileHandle(null);
+      setLocalAllFileName('');
+      setLocalAllSyncStatus('idle');
+      setLocalAllSyncPermissionNeeded(false);
+      return;
+    }
     await removeFileHandle('ALL');
     setLocalAllFileHandle(null);
     setLocalAllFileName('');
@@ -1647,6 +1758,26 @@ export default function App() {
   const handleRequestLocalAllFilePermission = async () => {
     if (!localAllFileHandle) return;
     try {
+      if (isAndroidAutoSaveHandle(localAllFileHandle)) {
+        if (!hasAndroidAutoSaveFolder()) {
+          await pickAndroidAutoSaveFolder();
+        }
+        setLocalAllSyncPermissionNeeded(false);
+        setLocalAllSyncStatus('saving');
+        const allData: Record<string, string> = {};
+        const storageData = await getAllStorageData();
+        for (const key in storageData) {
+          if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
+            allData[key] = storageData[key] || '';
+          }
+        }
+        const jsonStr = JSON.stringify(allData, null, 2);
+        await saveTextFileToAndroidAutoFolder(jsonStr, getAllAutoSaveFileName());
+        lastSavedLocalAllSnapshotRef.current = jsonStr;
+        hasUnsavedAllBackupChangesRef.current = false;
+        setLocalAllSyncStatus('synced');
+        return;
+      }
       const options = { mode: 'readwrite' as const };
       const permission = await localAllFileHandle.requestPermission(options);
       if (permission === 'granted') {
@@ -1995,6 +2126,20 @@ export default function App() {
           return;
         }
 
+        if (isAndroidAutoSaveHandle(localFileHandle)) {
+          if (!hasAndroidAutoSaveFolder()) {
+            setLocalSyncPermissionNeeded(true);
+            setLocalSyncStatus('idle');
+            return;
+          }
+          setLocalSyncStatus('saving');
+          await saveTextFileToAndroidAutoFolder(jsonString, getSingleAutoSaveFileName());
+          lastSavedLocalSnapshotRef.current = jsonString;
+          setLocalSyncStatus('synced');
+          setLocalSyncPermissionNeeded(false);
+          return;
+        }
+
         const options = { mode: 'readwrite' as const };
         const permissionStatus = await localFileHandle.queryPermission(options);
         
@@ -2235,6 +2380,22 @@ export default function App() {
           return;
         }
 
+        if (isAndroidAutoSaveHandle(localAllFileHandle)) {
+          if (!hasAndroidAutoSaveFolder()) {
+            setLocalAllSyncPermissionNeeded(true);
+            setLocalAllSyncStatus('idle');
+            return;
+          }
+          setLocalAllSyncStatus('saving');
+          await saveTextFileToAndroidAutoFolder(jsonString, getAllAutoSaveFileName());
+          lastSavedLocalAllSnapshotRef.current = jsonString;
+          hasUnsavedAllBackupChangesRef.current = false;
+          saveAutoSaveVersion(allData);
+          setLocalAllSyncStatus('synced');
+          setLocalAllSyncPermissionNeeded(false);
+          return;
+        }
+
         const options = { mode: 'readwrite' as const };
         const permissionStatus = await localAllFileHandle.queryPermission(options);
         
@@ -2294,6 +2455,25 @@ export default function App() {
   // Link local JSON file for auto sync
   const handleLinkLocalFile = async () => {
     try {
+      if (isAndroidAutoSaveAvailable()) {
+        if (!hasAndroidAutoSaveFolder()) {
+          await pickAndroidAutoSaveFolder();
+        }
+        const jsonString = buildSingleProjectBackupJson();
+        const fileName = getSingleAutoSaveFileName();
+        await saveTextFileToAndroidAutoFolder(jsonString, fileName);
+
+        localStorage.setItem(getAndroidSingleAutosaveKey(activeProjectId), 'true');
+        const folderName = getAndroidAutoSaveFolderName();
+        const displayName = folderName ? `${folderName}/${fileName}` : fileName;
+        setLocalFileHandle(makeAndroidAutoSaveHandle(activeProjectId, displayName));
+        setLocalFileName(displayName);
+        setLocalSyncPermissionNeeded(false);
+        setLocalSyncStatus('synced');
+        lastSavedLocalSnapshotRef.current = jsonString;
+        alert(`Da lien ket thu muc Android autosave JSON: ${displayName}`);
+        return;
+      }
       if (window.self !== window.top) {
         alert(
           `⚠️ Không thể sử dụng tính năng liên kết tệp trực tiếp trong khung xem trước (Iframe) của AI Studio.\n\n` +
@@ -2410,6 +2590,15 @@ export default function App() {
   // Unlink local file
   const handleUnlinkLocalFile = async () => {
     try {
+      if (isAndroidAutoSaveHandle(localFileHandle)) {
+        localStorage.removeItem(getAndroidSingleAutosaveKey(activeProjectId));
+        setLocalFileHandle(null);
+        setLocalFileName('');
+        setLocalSyncPermissionNeeded(false);
+        setLocalSyncStatus('idle');
+        alert('Da huy lien ket autosave JSON tren Android.');
+        return;
+      }
       await removeFileHandle(activeProjectId);
       setLocalFileHandle(null);
       setLocalFileName('');
@@ -2425,6 +2614,18 @@ export default function App() {
   const handleRequestLocalFilePermission = async () => {
     if (!localFileHandle) return;
     try {
+      if (isAndroidAutoSaveHandle(localFileHandle)) {
+        if (!hasAndroidAutoSaveFolder()) {
+          await pickAndroidAutoSaveFolder();
+        }
+        setLocalSyncPermissionNeeded(false);
+        setLocalSyncStatus('saving');
+        const jsonString = buildSingleProjectBackupJson();
+        await saveTextFileToAndroidAutoFolder(jsonString, getSingleAutoSaveFileName());
+        lastSavedLocalSnapshotRef.current = jsonString;
+        setLocalSyncStatus('synced');
+        return;
+      }
       const options = { mode: 'readwrite' as const };
       const permission = await localFileHandle.requestPermission(options);
       if (permission === 'granted') {

@@ -5,12 +5,20 @@ type AndroidExportBridge = {
   beginBase64File?: (sessionId: string, fileName: string, mimeType: string) => boolean;
   appendBase64Chunk?: (sessionId: string, base64Chunk: string) => boolean;
   finishBase64File?: (sessionId: string) => boolean;
+  finishBase64FileWithPicker?: (sessionId: string, requestId: string) => boolean;
+  finishBase64FileToAutoSaveFolder?: (sessionId: string, requestId: string) => boolean;
   abortBase64File?: (sessionId: string) => void;
   beginTextFile?: (sessionId: string, fileName: string, mimeType: string) => boolean;
   appendTextChunk?: (sessionId: string, textChunk: string) => boolean;
   finishTextFile?: (sessionId: string) => boolean;
+  finishTextFileWithPicker?: (sessionId: string, requestId: string) => boolean;
+  finishTextFileToAutoSaveFolder?: (sessionId: string, requestId: string) => boolean;
   abortTextFile?: (sessionId: string) => void;
   saveHtmlPdf?: (fileName: string, htmlBase64: string) => void;
+  pickAutoSaveFolder?: (requestId: string) => boolean;
+  hasAutoSaveFolder?: () => boolean;
+  getAutoSaveFolderName?: () => string;
+  forgetAutoSaveFolder?: () => void;
 };
 
 declare global {
@@ -79,6 +87,37 @@ function createExportSessionId() {
   return `export_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 }
 
+function createAndroidRequestId(kind: string) {
+  return `${kind}_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
+
+function waitForAndroidResult(eventName: string, requestId: string, timeoutMs = 120000) {
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => {
+      settled = true;
+      window.removeEventListener(eventName, onResult as EventListener);
+      clearTimeout(timer);
+    };
+    const onResult = (event: Event) => {
+      const detail = (event as CustomEvent<{ requestId?: string; success?: boolean; message?: string }>).detail || {};
+      if (detail.requestId !== requestId) return;
+      cleanup();
+      if (detail.success) {
+        resolve();
+      } else {
+        reject(new Error(detail.message || 'Android file action was cancelled or failed.'));
+      }
+    };
+    const timer = window.setTimeout(() => {
+      if (settled) return;
+      cleanup();
+      reject(new Error('Android file action timed out.'));
+    }, timeoutMs);
+    window.addEventListener(eventName, onResult as EventListener);
+  });
+}
+
 function* chunkText(text: string, chunkSize = ANDROID_TEXT_CHUNK_SIZE) {
   let i = 0;
   while (i < text.length) {
@@ -106,7 +145,7 @@ function* jsonRecordChunks(data: Record<string, string>) {
   yield '}';
 }
 
-async function saveTextChunksToAndroid(chunks: Iterable<string>, fileName: string, mimeType: string) {
+async function saveTextChunksToAndroid(chunks: Iterable<string>, fileName: string, mimeType: string, destination: 'picker' | 'downloads' | 'autosave' = 'picker') {
   const bridge = window.AndroidExport!;
   const sessionId = createExportSessionId();
 
@@ -121,6 +160,27 @@ async function saveTextChunksToAndroid(chunks: Iterable<string>, fileName: strin
           throw new Error('Android text export chunk failed.');
         }
       }
+    }
+
+    if (destination === 'autosave') {
+      if (typeof bridge.finishTextFileToAutoSaveFolder !== 'function') {
+        throw new Error('Android autosave folder bridge is not available.');
+      }
+      const requestId = createAndroidRequestId('autosave');
+      if (!bridge.finishTextFileToAutoSaveFolder(sessionId, requestId)) {
+        throw new Error('Android autosave failed to finish.');
+      }
+      await waitForAndroidResult('android-autosave-result', requestId);
+      return;
+    }
+
+    if (destination === 'picker' && typeof bridge.finishTextFileWithPicker === 'function') {
+      const requestId = createAndroidRequestId('text_export');
+      if (!bridge.finishTextFileWithPicker(sessionId, requestId)) {
+        throw new Error('Android text export picker failed to open.');
+      }
+      await waitForAndroidResult('android-export-result', requestId);
+      return;
     }
 
     if (!bridge.finishTextFile!(sessionId)) {
@@ -154,7 +214,13 @@ export async function saveBlob(blob: Blob, fileName: string, mimeType = blob.typ
             throw new Error('Android export chunk failed.');
           }
         }
-        if (!bridge.finishBase64File(sessionId)) {
+        if (typeof bridge.finishBase64FileWithPicker === 'function') {
+          const requestId = createAndroidRequestId('blob_export');
+          if (!bridge.finishBase64FileWithPicker(sessionId, requestId)) {
+            throw new Error('Android export picker failed to open.');
+          }
+          await waitForAndroidResult('android-export-result', requestId);
+        } else if (!bridge.finishBase64File(sessionId)) {
           throw new Error('Android export failed to finish.');
         }
       } catch (err) {
@@ -174,7 +240,7 @@ export async function saveBlob(blob: Blob, fileName: string, mimeType = blob.typ
 export function saveTextFile(text: string, fileName: string, mimeType = 'application/json;charset=utf-8') {
   const safeName = sanitizeFileName(fileName);
   if (hasAndroidTextBridge()) {
-    return saveTextChunksToAndroid(chunkText(text), safeName, mimeType);
+    return saveTextChunksToAndroid(chunkText(text), safeName, mimeType, 'picker');
   }
 
   const blob = new Blob([text], { type: mimeType });
@@ -186,7 +252,7 @@ export async function saveJsonRecordFile(data: Record<string, string>, fileName:
   const mimeType = 'application/json;charset=utf-8';
 
   if (hasAndroidTextBridge()) {
-    await saveTextChunksToAndroid(jsonRecordChunks(data), safeName, mimeType);
+    await saveTextChunksToAndroid(jsonRecordChunks(data), safeName, mimeType, 'picker');
     return;
   }
 
@@ -213,4 +279,57 @@ export function saveHtmlPdf(html: string, fileName: string) {
   }
 
   return false;
+}
+
+export function isAndroidAutoSaveAvailable() {
+  return typeof window !== 'undefined'
+    && hasAndroidTextBridge()
+    && typeof window.AndroidExport?.pickAutoSaveFolder === 'function'
+    && typeof window.AndroidExport?.finishTextFileToAutoSaveFolder === 'function';
+}
+
+export function hasAndroidAutoSaveFolder() {
+  if (!isAndroidAutoSaveAvailable()) return false;
+  try {
+    return Boolean(window.AndroidExport?.hasAutoSaveFolder?.());
+  } catch {
+    return false;
+  }
+}
+
+export function getAndroidAutoSaveFolderName() {
+  if (!isAndroidAutoSaveAvailable()) return '';
+  try {
+    return window.AndroidExport?.getAutoSaveFolderName?.() || '';
+  } catch {
+    return '';
+  }
+}
+
+export async function pickAndroidAutoSaveFolder() {
+  if (!isAndroidAutoSaveAvailable()) {
+    throw new Error('Android autosave folder bridge is not available.');
+  }
+  const requestId = createAndroidRequestId('folder');
+  if (!window.AndroidExport!.pickAutoSaveFolder!(requestId)) {
+    throw new Error('Khong the mo hop chon thu muc tu dong luu.');
+  }
+  await waitForAndroidResult('android-folder-result', requestId);
+  return getAndroidAutoSaveFolderName();
+}
+
+export function clearAndroidAutoSaveFolder() {
+  if (isAndroidAutoSaveAvailable()) {
+    window.AndroidExport?.forgetAutoSaveFolder?.();
+  }
+}
+
+export async function saveTextFileToAndroidAutoFolder(text: string, fileName: string, mimeType = 'application/json;charset=utf-8') {
+  if (!isAndroidAutoSaveAvailable()) {
+    throw new Error('Android autosave folder bridge is not available.');
+  }
+  if (!hasAndroidAutoSaveFolder()) {
+    throw new Error('Chua chon thu muc tu dong luu JSON tren Android.');
+  }
+  await saveTextChunksToAndroid(chunkText(text), sanitizeFileName(fileName), mimeType, 'autosave');
 }

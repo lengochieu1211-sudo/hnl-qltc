@@ -67,6 +67,7 @@ import { ImageEditorModal } from './ImageEditorModal';
 import { RoomHighlightModal } from './RoomHighlightModal';
 import { PhotoAttachmentPicker } from './PhotoAttachmentPicker';
 import { deleteEntityPhotos, savePhotoAttachment } from '../utils/photoStorage';
+import { saveWorkbookFile } from '../utils/fileExport';
 import { convertPdfToImage } from '../utils/pdfToImage';
 import * as pdfjsLib from 'pdfjs-dist';
 
@@ -524,6 +525,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const [editingPhotoUrl, setEditingPhotoUrl] = useState<string | null>(null);
   const [isImageEditorOpen, setIsImageEditorOpen] = useState(false);
   const [viewingImageUrl, setViewingImageUrl] = useState<string | null>(null);
+  const [viewingImageSet, setViewingImageSet] = useState<{ images: string[]; initialIndex: number } | null>(null);
 
   // Floor Customization & Management State
   const [showManageFloorsModal, setShowManageFloorsModal] = useState(false);
@@ -1226,7 +1228,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
     const ws = XLSX.utils.json_to_sheet(data);
     XLSX.utils.book_append_sheet(wb, ws, activeFloor ? activeFloor.floorName : 'DanhSachPhong');
-    XLSX.writeFile(wb, `Danh_Sach_Phong_${activeFloor ? activeFloor.floorName.replace(/\s+/g, '_') : 'MatBang'}.xlsx`);
+    return saveWorkbookFile(wb, `Danh_Sach_Phong_${activeFloor ? activeFloor.floorName.replace(/\s+/g, '_') : 'MatBang'}.xlsx`);
   };
 
 
@@ -1423,6 +1425,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const [parentSize, setParentSize] = useState({ w: 0, h: 0 });
 
   const activeFloor = floorPlans.find((fp) => fp.id === selectedFloorId) || floorPlans[0];
+  const openDefectLegacyImageViewer = (defect: DefectItem, requestedUrl?: string) => {
+    const images = [defect.imageUrl, defect.afterImageUrl].filter((url): url is string => Boolean(url));
+    if (images.length === 0) return;
+    const initialIndex = Math.max(0, requestedUrl ? images.indexOf(requestedUrl) : 0);
+    setViewingImageSet({ images, initialIndex });
+  };
+
   const floorDefects = defects.filter((d) => d.floorId === activeFloor?.id);
   const floorRooms = roomProgressList.filter((r) => r.floorId === activeFloor?.id);
   const [draggingRoomsPreview, setDraggingRoomsPreview] = useState<Record<string, RoomProgressItem> | null>(null);
@@ -5587,13 +5596,25 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   {(Boolean(defect.imageUrl) || Boolean(defect.afterImageUrl)) && (
                     <div className="flex items-center gap-3 pt-1">
                       {Boolean(defect.imageUrl) && (
-                        <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700">
+                        <div
+                          className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openDefectLegacyImageViewer(defect, defect.imageUrl);
+                          }}
+                        >
                           <img src={defect.imageUrl} alt="Trước sửa" className="w-8 h-8 rounded-lg object-cover border border-slate-200 shrink-0" />
                           <span>Ảnh trước sửa</span>
                         </div>
                       )}
                       {Boolean(defect.afterImageUrl) && (
-                        <div className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-700">
+                        <div
+                          className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-700"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openDefectLegacyImageViewer(defect, defect.afterImageUrl);
+                          }}
+                        >
                           <img src={defect.afterImageUrl} alt="Sau sửa" className="w-8 h-8 rounded-lg object-cover border border-emerald-300 shrink-0" />
                           <span>✅ Ảnh sau sửa</span>
                         </div>
@@ -6585,6 +6606,15 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           isOpen={!!viewingImageUrl}
           onClose={() => setViewingImageUrl(null)}
           imageUrl={viewingImageUrl}
+        />
+      )}
+
+      {viewingImageSet && (
+        <ImageViewerModal
+          isOpen={!!viewingImageSet}
+          onClose={() => setViewingImageSet(null)}
+          images={viewingImageSet.images}
+          initialIndex={viewingImageSet.initialIndex}
         />
       )}
 

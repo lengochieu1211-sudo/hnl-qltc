@@ -1,10 +1,10 @@
-import { downloadOrShareFile } from './downloadUtils';
 import * as XLSX from 'xlsx';
 import { InventoryItem, WorkVolume, DefectItem, ChecklistItem, FloorPlan, RoomProgressItem, MaterialNorm, CrewRecord, TeamInfo } from '../types';
 import { getDefectOverdueInfo } from './defectUtils';
 import { isTeamMatch, calculateTeamStatistics } from './teamUtils';
 import { calculateStockSummary } from './inventoryUtils';
 import { formatDateDDMMYYYY } from './dateFormatter';
+import { saveWorkbookFile } from './fileExport';
 
 function autoFitColumns(ws: XLSX.WorkSheet) {
   if (!ws || !ws['!ref']) return;
@@ -104,7 +104,7 @@ export function exportFloorPlanToExcel(
   XLSX.utils.book_append_sheet(wb, wsDefects, 'Danh Sach Defect');
 
   const safeName = (projectName || 'Cong_Trinh').replace(/[^a-zA-Z0-9_ -]/g, '');
-  XLSX.writeFile(wb, `Mat_Bang_Thi_Cong_${safeName}_${Date.now()}.xlsx`);
+  return saveWorkbookFile(wb, `Mat_Bang_Thi_Cong_${safeName}_${Date.now()}.xlsx`);
 }
 
 export function exportChecklistToExcel(checklist: ChecklistItem[], projectName: string) {
@@ -129,7 +129,7 @@ export function exportChecklistToExcel(checklist: ChecklistItem[], projectName: 
   XLSX.utils.book_append_sheet(wb, ws, 'Checklist Nghiem Thu');
 
   const safeName = (projectName || 'Cong_Trinh').replace(/[^a-zA-Z0-9_ -]/g, '');
-  XLSX.writeFile(wb, `Checklist_${safeName}_${Date.now()}.xlsx`);
+  return saveWorkbookFile(wb, `Checklist_${safeName}_${Date.now()}.xlsx`);
 }
 
 export function exportAllToExcel(params: {
@@ -313,7 +313,7 @@ export function exportAllToExcel(params: {
     alert('Không có dữ liệu nào được chọn để xuất báo cáo.');
     return;
   }
-  XLSX.writeFile(wb, `Bao_Cao_Tong_Hop_${safeName}_${Date.now()}.xlsx`);
+  return saveWorkbookFile(wb, `Bao_Cao_Tong_Hop_${safeName}_${Date.now()}.xlsx`);
 }
 
 export function exportAllToExcelBase64(params: {
@@ -522,7 +522,7 @@ export function exportCrewRecordsToExcel(crewRecords: CrewRecord[], teams: TeamI
   XLSX.utils.book_append_sheet(wb, ws, 'Nhat Ky Quan So');
 
   const safeName = (projectName || 'Cong_Trinh').replace(/[^a-zA-Z0-9_ -]/g, '');
-  XLSX.writeFile(wb, `Nhat_Ky_Quan_So_${safeName}_${Date.now()}.xlsx`);
+  return saveWorkbookFile(wb, `Nhat_Ky_Quan_So_${safeName}_${Date.now()}.xlsx`);
 }
 
 export function exportMaterialNormTemplate(materialNorms?: MaterialNorm[]) {
@@ -544,7 +544,7 @@ export function exportMaterialNormTemplate(materialNorms?: MaterialNorm[]) {
   const ws = XLSX.utils.json_to_sheet(templateData);
   autoFitColumns(ws);
   XLSX.utils.book_append_sheet(wb, ws, 'Dinh Muc Vat Tu');
-  XLSX.writeFile(wb, 'Danh_Sach_Dinh_Muc_Vat_Tu.xlsx');
+  return saveWorkbookFile(wb, 'Danh_Sach_Dinh_Muc_Vat_Tu.xlsx');
 }
 
 export function exportWorkVolumesTemplate(workVolumes?: WorkVolume[], projectName?: string, canViewFinancials: boolean = true) {
@@ -573,7 +573,7 @@ export function exportWorkVolumesTemplate(workVolumes?: WorkVolume[], projectNam
   autoFitColumns(ws);
   XLSX.utils.book_append_sheet(wb, ws, 'Khoi Luong Thi Cong');
   const safeName = (projectName || 'Cong_Trinh').replace(/[^a-zA-Z0-9_ -]/g, '');
-  XLSX.writeFile(wb, `Khoi_Luong_Thi_Cong_${safeName}.xlsx`);
+  return saveWorkbookFile(wb, `Khoi_Luong_Thi_Cong_${safeName}.xlsx`);
 }
 
 export function exportTeamStatisticsToExcel(params: {
@@ -747,7 +747,7 @@ export function exportTeamStatisticsToExcel(params: {
 
     const safeProj = projectNameStr.replace(/[^a-zA-Z0-9_ -]/g, '');
     const safeTeam = team.name.replace(/[^a-zA-Z0-9_ -]/g, '');
-    XLSX.writeFile(wb, `ThongKeDoiThiCong_${safeProj}_${safeTeam}_${Date.now()}.xlsx`);
+    return saveWorkbookFile(wb, `ThongKeDoiThiCong_${safeProj}_${safeTeam}_${Date.now()}.xlsx`);
     return;
   }
 
@@ -779,7 +779,7 @@ export function exportTeamStatisticsToExcel(params: {
   XLSX.utils.book_append_sheet(wb, wsSummary, 'Tong Quan Cac Doi');
 
   const safeName = projectNameStr.replace(/[^a-zA-Z0-9_ -]/g, '');
-  XLSX.writeFile(wb, `Thong_Ke_Doi_Thi_Cong_${safeName}_${Date.now()}.xlsx`);
+  return saveWorkbookFile(wb, `Thong_Ke_Doi_Thi_Cong_${safeName}_${Date.now()}.xlsx`);
 }
 
 export function exportWarehouseUpdateTemplate(
@@ -868,5 +868,5 @@ export function exportWarehouseUpdateTemplate(
   XLSX.utils.book_append_sheet(wb, wsStock, 'Tồn Kho Hiện Tại');
 
   const safeName = (projectName || 'Cong_Trinh').replace(/[^a-zA-Z0-9_ -]/g, '');
-  XLSX.writeFile(wb, `Quan_Ly_Kho_Vat_Tu_${safeName}.xlsx`);
+  return saveWorkbookFile(wb, `Quan_Ly_Kho_Vat_Tu_${safeName}.xlsx`);
 }

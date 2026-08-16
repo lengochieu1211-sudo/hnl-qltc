@@ -5,7 +5,9 @@ import android.app.Activity;
 import android.content.ContentValues;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -15,6 +17,7 @@ import android.os.Looper;
 import android.print.PrintAttributes;
 import android.print.PrintDocumentAdapter;
 import android.print.PrintManager;
+import android.provider.DocumentsContract;
 import android.provider.MediaStore;
 import android.util.Base64;
 import android.view.ViewGroup;
@@ -35,16 +38,24 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.json.JSONObject;
+
 public class MainActivity extends Activity {
     private static final int FILE_CHOOSER_REQUEST = 1001;
     private static final int STORAGE_PERMISSION_REQUEST = 1002;
+    private static final int EXPORT_CREATE_DOCUMENT_REQUEST = 1003;
+    private static final int AUTO_SAVE_TREE_REQUEST = 1004;
     private static final String LOCAL_FALLBACK_URL = "file:///android_asset/www/index.html";
+    private static final String PREFS_NAME = "qlct_native_prefs";
+    private static final String PREF_AUTO_SAVE_TREE_URI = "auto_save_tree_uri";
 
     private WebView webView;
     private WebView printWebView;
     private ValueCallback<Uri[]> filePathCallback;
     private String startUrl = LOCAL_FALLBACK_URL;
     private boolean loadedFallback = false;
+    private PendingExport pendingExport;
+    private String pendingAutoSaveTreeRequestId;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -252,6 +263,16 @@ public class MainActivity extends Activity {
             return finishChunkedFile(sessionId);
         }
 
+        @JavascriptInterface
+        public boolean finishBase64FileWithPicker(String sessionId, String requestId) {
+            return finishChunkedFileWithPicker(sessionId, requestId);
+        }
+
+        @JavascriptInterface
+        public boolean finishTextFileWithPicker(String sessionId, String requestId) {
+            return finishChunkedFileWithPicker(sessionId, requestId);
+        }
+
         private boolean finishChunkedFile(String sessionId) {
             ChunkedExport export;
             synchronized (chunkedExports) {
@@ -269,6 +290,64 @@ public class MainActivity extends Activity {
                 return true;
             } catch (Exception error) {
                 showToast("Khong the hoan tat luu file: " + error.getMessage());
+                return false;
+            } finally {
+                export.deleteTemp();
+            }
+        }
+
+        private boolean finishChunkedFileWithPicker(String sessionId, String requestId) {
+            ChunkedExport export;
+            synchronized (chunkedExports) {
+                export = chunkedExports.remove(sessionId);
+            }
+            if (export == null) {
+                showToast("Khong tim thay phien luu file");
+                dispatchAndroidEvent("android-export-result", requestId, false, "Missing export session", null);
+                return false;
+            }
+
+            try {
+                export.output.close();
+                startCreateDocumentForExport(new PendingExport(requestId, export.fileName, export.mimeType, export.tempFile));
+                return true;
+            } catch (Exception error) {
+                export.deleteTemp();
+                showToast("Khong the mo hop luu file: " + error.getMessage());
+                dispatchAndroidEvent("android-export-result", requestId, false, error.getMessage(), export.fileName);
+                return false;
+            }
+        }
+
+        @JavascriptInterface
+        public boolean finishBase64FileToAutoSaveFolder(String sessionId, String requestId) {
+            return finishChunkedFileToAutoSaveFolder(sessionId, requestId);
+        }
+
+        @JavascriptInterface
+        public boolean finishTextFileToAutoSaveFolder(String sessionId, String requestId) {
+            return finishChunkedFileToAutoSaveFolder(sessionId, requestId);
+        }
+
+        private boolean finishChunkedFileToAutoSaveFolder(String sessionId, String requestId) {
+            ChunkedExport export;
+            synchronized (chunkedExports) {
+                export = chunkedExports.remove(sessionId);
+            }
+            if (export == null) {
+                dispatchAndroidEvent("android-autosave-result", requestId, false, "Missing autosave session", null);
+                return false;
+            }
+
+            try {
+                export.output.close();
+                writeFileToAutoSaveFolder(export.fileName, export.mimeType, export.tempFile);
+                showToast("Da tu dong luu JSON: " + export.fileName);
+                dispatchAndroidEvent("android-autosave-result", requestId, true, "Saved", export.fileName);
+                return true;
+            } catch (Exception error) {
+                showToast("Khong the tu dong luu JSON: " + error.getMessage());
+                dispatchAndroidEvent("android-autosave-result", requestId, false, error.getMessage(), export.fileName);
                 return false;
             } finally {
                 export.deleteTemp();
@@ -321,6 +400,36 @@ public class MainActivity extends Activity {
                 showToast("Khong the mo trinh duyet: " + error.getMessage());
             }
         }
+
+        @JavascriptInterface
+        public boolean pickAutoSaveFolder(String requestId) {
+            return startAutoSaveFolderPicker(requestId);
+        }
+
+        @JavascriptInterface
+        public boolean hasAutoSaveFolder() {
+            return getAutoSaveTreeUri() != null;
+        }
+
+        @JavascriptInterface
+        public String getAutoSaveFolderName() {
+            return getAutoSaveFolderLabel();
+        }
+
+        @JavascriptInterface
+        public void forgetAutoSaveFolder() {
+            Uri uri = getAutoSaveTreeUri();
+            if (uri != null) {
+                try {
+                    getContentResolver().releasePersistableUriPermission(
+                            uri,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                } catch (Exception ignored) {
+                }
+            }
+            getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().remove(PREF_AUTO_SAVE_TREE_URI).apply();
+            showToast("Da huy thu muc tu dong luu JSON");
+        }
     }
 
     private static class ChunkedExport {
@@ -349,6 +458,82 @@ public class MainActivity extends Activity {
                 tempFile.delete();
             }
         }
+    }
+
+    private static class PendingExport {
+        final String requestId;
+        final String fileName;
+        final String mimeType;
+        final File tempFile;
+
+        PendingExport(String requestId, String fileName, String mimeType, File tempFile) {
+            this.requestId = requestId;
+            this.fileName = fileName;
+            this.mimeType = mimeType;
+            this.tempFile = tempFile;
+        }
+
+        void deleteTemp() {
+            if (tempFile != null && tempFile.exists()) {
+                tempFile.delete();
+            }
+        }
+    }
+
+    private void startCreateDocumentForExport(final PendingExport export) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                synchronized (MainActivity.this) {
+                    if (pendingExport != null) {
+                        export.deleteTemp();
+                        dispatchAndroidEvent("android-export-result", export.requestId, false, "Another export is pending", export.fileName);
+                        showToast("Dang co file khac cho chon noi luu");
+                        return;
+                    }
+                    pendingExport = export;
+                }
+
+                try {
+                    Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                    intent.addCategory(Intent.CATEGORY_OPENABLE);
+                    intent.setType(normalizeMimeType(export.mimeType));
+                    intent.putExtra(Intent.EXTRA_TITLE, sanitizeFileName(export.fileName));
+                    startActivityForResult(intent, EXPORT_CREATE_DOCUMENT_REQUEST);
+                } catch (Exception error) {
+                    synchronized (MainActivity.this) {
+                        if (pendingExport == export) {
+                            pendingExport = null;
+                        }
+                    }
+                    export.deleteTemp();
+                    dispatchAndroidEvent("android-export-result", export.requestId, false, error.getMessage(), export.fileName);
+                    showToast("Khong the mo hop chon noi luu: " + error.getMessage());
+                }
+            }
+        });
+    }
+
+    private boolean startAutoSaveFolderPicker(final String requestId) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    pendingAutoSaveTreeRequestId = requestId;
+                    Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                    intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                            | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                            | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+                            | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+                    startActivityForResult(intent, AUTO_SAVE_TREE_REQUEST);
+                } catch (Exception error) {
+                    pendingAutoSaveTreeRequestId = null;
+                    dispatchAndroidEvent("android-folder-result", requestId, false, error.getMessage(), null);
+                    showToast("Khong the chon thu muc: " + error.getMessage());
+                }
+            }
+        });
+        return true;
     }
 
     private void renderHtmlToPdf(final String fileName, String html) {
@@ -489,6 +674,126 @@ public class MainActivity extends Activity {
         return uri;
     }
 
+    private void savePendingExportToUri(PendingExport export, Uri uri) throws IOException {
+        OutputStream output;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+            output = getContentResolver().openOutputStream(uri, "wt");
+        } else {
+            output = getContentResolver().openOutputStream(uri);
+        }
+        if (output == null) {
+            throw new IOException("Cannot open output stream");
+        }
+        try {
+            copyFileToOutput(export.tempFile, output);
+        } finally {
+            output.close();
+        }
+    }
+
+    private Uri getAutoSaveTreeUri() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        String uriString = prefs.getString(PREF_AUTO_SAVE_TREE_URI, "");
+        if (uriString == null || uriString.length() == 0) {
+            return null;
+        }
+        try {
+            return Uri.parse(uriString);
+        } catch (Exception error) {
+            return null;
+        }
+    }
+
+    private String getAutoSaveFolderLabel() {
+        Uri uri = getAutoSaveTreeUri();
+        if (uri == null) {
+            return "";
+        }
+        try {
+            String docId = DocumentsContract.getTreeDocumentId(uri);
+            int colon = docId == null ? -1 : docId.lastIndexOf(':');
+            if (colon >= 0 && colon < docId.length() - 1) {
+                return docId.substring(colon + 1);
+            }
+            return docId == null ? uri.toString() : docId;
+        } catch (Exception error) {
+            return uri.toString();
+        }
+    }
+
+    private void writeFileToAutoSaveFolder(String fileName, String mimeType, File sourceFile) throws IOException {
+        Uri treeUri = getAutoSaveTreeUri();
+        if (treeUri == null) {
+            throw new IOException("Chua chon thu muc tu dong luu");
+        }
+
+        String safeFileName = sanitizeFileName(fileName);
+        Uri targetUri = findChildDocumentByName(treeUri, safeFileName);
+        if (targetUri == null) {
+            String treeDocId = DocumentsContract.getTreeDocumentId(treeUri);
+            Uri parentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, treeDocId);
+            targetUri = DocumentsContract.createDocument(
+                    getContentResolver(),
+                    parentUri,
+                    normalizeMimeType(mimeType),
+                    safeFileName);
+            if (targetUri == null) {
+                throw new IOException("Cannot create autosave file");
+            }
+        }
+
+        OutputStream output = getContentResolver().openOutputStream(targetUri, "wt");
+        if (output == null) {
+            throw new IOException("Cannot open autosave output");
+        }
+        try {
+            copyFileToOutput(sourceFile, output);
+        } finally {
+            output.close();
+        }
+    }
+
+    private Uri findChildDocumentByName(Uri treeUri, String displayName) {
+        Cursor cursor = null;
+        try {
+            String treeDocId = DocumentsContract.getTreeDocumentId(treeUri);
+            Uri childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, treeDocId);
+            cursor = getContentResolver().query(
+                    childrenUri,
+                    new String[]{
+                            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                            DocumentsContract.Document.COLUMN_DISPLAY_NAME
+                    },
+                    null,
+                    null,
+                    null);
+            if (cursor == null) {
+                return null;
+            }
+            while (cursor.moveToNext()) {
+                String childDocId = cursor.getString(0);
+                String childName = cursor.getString(1);
+                if (displayName.equals(childName)) {
+                    return DocumentsContract.buildDocumentUriUsingTree(treeUri, childDocId);
+                }
+            }
+        } catch (Exception ignored) {
+            return null;
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+        return null;
+    }
+
+    private String normalizeMimeType(String mimeType) {
+        if (mimeType == null || mimeType.trim().length() == 0) {
+            return "application/octet-stream";
+        }
+        return mimeType.split(";")[0].trim();
+    }
+
     private void copyFileToOutput(File sourceFile, OutputStream output) throws IOException {
         FileInputStream input = new FileInputStream(sourceFile);
         try {
@@ -550,6 +855,29 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void dispatchAndroidEvent(final String eventName, final String requestId, final boolean success, final String message, final String fileName) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (webView == null) {
+                    return;
+                }
+                String script = "window.dispatchEvent(new CustomEvent("
+                        + JSONObject.quote(eventName)
+                        + ",{detail:{requestId:"
+                        + JSONObject.quote(requestId == null ? "" : requestId)
+                        + ",success:"
+                        + (success ? "true" : "false")
+                        + ",message:"
+                        + JSONObject.quote(message == null ? "" : message)
+                        + ",fileName:"
+                        + JSONObject.quote(fileName == null ? "" : fileName)
+                        + "}}));";
+                webView.evaluateJavascript(script, null);
+            }
+        });
+    }
+
     @Override
     public void onBackPressed() {
         if (webView != null && webView.canGoBack()) {
@@ -568,6 +896,52 @@ public class MainActivity extends Activity {
             Uri[] results = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
             filePathCallback.onReceiveValue(results);
             filePathCallback = null;
+        } else if (requestCode == EXPORT_CREATE_DOCUMENT_REQUEST) {
+            PendingExport export;
+            synchronized (this) {
+                export = pendingExport;
+                pendingExport = null;
+            }
+            if (export == null) {
+                return;
+            }
+            try {
+                if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                    savePendingExportToUri(export, data.getData());
+                    showToast("Da luu file: " + export.fileName);
+                    dispatchAndroidEvent("android-export-result", export.requestId, true, "Saved", export.fileName);
+                } else {
+                    dispatchAndroidEvent("android-export-result", export.requestId, false, "Cancelled", export.fileName);
+                }
+            } catch (Exception error) {
+                showToast("Khong the luu file: " + error.getMessage());
+                dispatchAndroidEvent("android-export-result", export.requestId, false, error.getMessage(), export.fileName);
+            } finally {
+                export.deleteTemp();
+            }
+        } else if (requestCode == AUTO_SAVE_TREE_REQUEST) {
+            String requestId = pendingAutoSaveTreeRequestId;
+            pendingAutoSaveTreeRequestId = null;
+            try {
+                if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                    Uri uri = data.getData();
+                    int flags = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                    if (flags != 0) {
+                        getContentResolver().takePersistableUriPermission(uri, flags);
+                    }
+                    getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                            .edit()
+                            .putString(PREF_AUTO_SAVE_TREE_URI, uri.toString())
+                            .apply();
+                    showToast("Da chon thu muc tu dong luu JSON");
+                    dispatchAndroidEvent("android-folder-result", requestId, true, "Folder selected", getAutoSaveFolderLabel());
+                } else {
+                    dispatchAndroidEvent("android-folder-result", requestId, false, "Cancelled", null);
+                }
+            } catch (Exception error) {
+                showToast("Khong the luu quyen thu muc: " + error.getMessage());
+                dispatchAndroidEvent("android-folder-result", requestId, false, error.getMessage(), null);
+            }
         }
     }
 

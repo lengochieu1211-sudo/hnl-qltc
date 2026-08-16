@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Shield,
   Lock,
@@ -37,6 +37,7 @@ import {
 } from '../utils/securityUtils';
 import { hashPin, verifyPin } from '../utils/cryptoUtils';
 import { signInWithGoogle, getCurrentFirebaseUser, fetchProjectUserRoleFromCloud, claimProjectOwnership } from '../lib/firebase';
+import { saveTextFile } from '../utils/fileExport';
 
 interface SecurityModalProps {
   isOpen: boolean;
@@ -80,29 +81,47 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
   const [projectMembers, setProjectMembers] = useState<any[]>([]);
   const [newMemberEmail, setNewMemberEmail] = useState('');
   const [newMemberRole, setNewMemberRole] = useState<UserRole>('ENGINEER');
+  const [isSavingMember, setIsSavingMember] = useState(false);
+  const [memberMsg, setMemberMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const selectedPidRef = useRef(selectedPid);
+  const cloudStatusRequestRef = useRef(0);
 
   // Audit state
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
 
+  useEffect(() => {
+    selectedPidRef.current = selectedPid;
+  }, [selectedPid]);
+
   const refreshCloudStatus = async (pid: string) => {
+    const requestId = ++cloudStatusRequestRef.current;
     setIsCheckingCloud(true);
     try {
       const u = getCurrentFirebaseUser();
-      setCloudUser(u);
+      if (requestId === cloudStatusRequestRef.current && selectedPidRef.current === pid) {
+        setCloudUser(u);
+      }
       if (u && pid) {
         const info = await fetchProjectUserRoleFromCloud(pid, u);
+        if (requestId !== cloudStatusRequestRef.current || selectedPidRef.current !== pid) {
+          return;
+        }
         setCloudRoleInfo(info);
         if (info.allowed && info.role) {
           setRoleState(info.role);
           setCurrentUserRole(info.role);
         }
       } else {
-        setCloudRoleInfo(null);
+        if (requestId === cloudStatusRequestRef.current && selectedPidRef.current === pid) {
+          setCloudRoleInfo(null);
+        }
       }
     } catch (e) {
       console.warn('Error refreshing cloud status in SecurityModal:', e);
     } finally {
-      setIsCheckingCloud(false);
+      if (requestId === cloudStatusRequestRef.current && selectedPidRef.current === pid) {
+        setIsCheckingCloud(false);
+      }
     }
   };
 
@@ -121,6 +140,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
       setAdminPinPrompt(false);
       setAdminPinInput('');
       setAdminPinError('');
+      setMemberMsg(null);
       refreshCloudStatus(pid);
     }
   }, [isOpen, activeProjectId, projects]);
@@ -128,6 +148,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
   useEffect(() => {
     if (selectedPid) {
       setProjectMembers(getProjectMembers(selectedPid));
+      setMemberMsg(null);
       refreshCloudStatus(selectedPid);
     }
   }, [selectedPid]);
@@ -399,6 +420,113 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
     }
   };
 
+  const countAdmins = (members: ProjectMember[]) => members.filter(m => m.role === 'ADMIN').length;
+
+  const handleAddMemberSafe = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isSavingMember) return;
+
+    const pidAtSubmit = selectedPid;
+    const email = newMemberEmail.trim().toLowerCase();
+    if (!email) {
+      setMemberMsg({ type: 'error', text: 'Vui long nhap email thanh vien.' });
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setMemberMsg({ type: 'error', text: 'Email thanh vien khong hop le.' });
+      return;
+    }
+
+    const existingMembers = getProjectMembers(pidAtSubmit);
+    const existingMember = existingMembers.find(m => m.email.toLowerCase() === email);
+    if (existingMember?.role === 'ADMIN' && newMemberRole !== 'ADMIN' && countAdmins(existingMembers) <= 1) {
+      setMemberMsg({ type: 'error', text: 'Khong the ha quyen ADMIN cuoi cung cua du an. Hay them/chuyen mot ADMIN khac truoc.' });
+      return;
+    }
+
+    const assignedAt = Date.now();
+    setIsSavingMember(true);
+    setMemberMsg(null);
+
+    try {
+      addProjectMember(pidAtSubmit, { email, role: newMemberRole, assignedAt });
+      if (selectedPidRef.current === pidAtSubmit) {
+        setProjectMembers(getProjectMembers(pidAtSubmit));
+      }
+
+      const { saveProjectMemberToCloud } = await import('../lib/firebase');
+      await saveProjectMemberToCloud(pidAtSubmit, { email, role: newMemberRole, assignedAt });
+
+      if (selectedPidRef.current === pidAtSubmit) {
+        setProjectMembers(getProjectMembers(pidAtSubmit));
+        setNewMemberEmail('');
+        setMemberMsg({ type: 'success', text: `Da luu quyen ${newMemberRole} cho ${email}.` });
+        await refreshCloudStatus(pidAtSubmit);
+      }
+      logAuditAction('ROLE_CHANGE', `Da gan quyen ${newMemberRole} cho email ${email} o du an ${pidAtSubmit}`, pidAtSubmit);
+    } catch (err: any) {
+      if (selectedPidRef.current === pidAtSubmit) {
+        setProjectMembers(getProjectMembers(pidAtSubmit));
+        setMemberMsg({
+          type: 'error',
+          text: `Da luu offline cho ${email}, nhung chua dong bo Cloud: ${err?.message || err}`
+        });
+      }
+    } finally {
+      if (selectedPidRef.current === pidAtSubmit) {
+        setIsSavingMember(false);
+      }
+    }
+  };
+
+  const handleRemoveMemberSafe = async (email: string) => {
+    const pidAtSubmit = selectedPid;
+    const existingMembers = getProjectMembers(pidAtSubmit);
+    const targetMember = existingMembers.find(m => m.email.toLowerCase() === email.toLowerCase());
+    if (targetMember?.role === 'ADMIN' && countAdmins(existingMembers) <= 1) {
+      setMemberMsg({ type: 'error', text: 'Khong the xoa ADMIN cuoi cung cua du an. Hay them/chuyen mot ADMIN khac truoc.' });
+      return;
+    }
+
+    if (confirm(`XÃ¡c nháº­n thu há»“i quyá»n truy cáº­p cá»§a ${email}?`)) {
+      setIsSavingMember(true);
+      setMemberMsg(null);
+      try {
+        removeProjectMember(pidAtSubmit, email);
+        if (selectedPidRef.current === pidAtSubmit) {
+          setProjectMembers(getProjectMembers(pidAtSubmit));
+        }
+
+        const { removeProjectMemberFromCloud } = await import('../lib/firebase');
+        await removeProjectMemberFromCloud(pidAtSubmit, email);
+
+        if (selectedPidRef.current === pidAtSubmit) {
+          setProjectMembers(getProjectMembers(pidAtSubmit));
+          setMemberMsg({ type: 'success', text: `Da xoa quyen cua ${email}.` });
+          await refreshCloudStatus(pidAtSubmit);
+        }
+        logAuditAction('ROLE_CHANGE', `Da xoa quyen thanh vien cua ${email} o du an ${pidAtSubmit}`, pidAtSubmit);
+      } catch (err: any) {
+        if (selectedPidRef.current === pidAtSubmit) {
+          setProjectMembers(getProjectMembers(pidAtSubmit));
+          setMemberMsg({
+            type: 'error',
+            text: `Da xoa offline, nhung chua dong bo Cloud: ${err?.message || err}`
+          });
+        }
+      } finally {
+        if (selectedPidRef.current === pidAtSubmit) {
+          setIsSavingMember(false);
+        }
+      }
+    }
+  };
+
+  const handleExportLogsSafe = async () => {
+    const json = JSON.stringify(auditLogs, null, 2);
+    await saveTextFile(json, `Nhat_Ky_Bao_Mat_${new Date().toISOString().split('T')[0]}.json`, 'application/json;charset=utf-8');
+  };
+
   const handleClearLogs = () => {
     if (confirm('Bạn có chắc chắn muốn xóa toàn bộ nhật ký thao tác bảo mật?')) {
       clearAuditLogs();
@@ -407,14 +535,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
   };
 
   const handleExportLogs = () => {
-    const json = JSON.stringify(auditLogs, null, 2);
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Nhat_Ky_Bao_Mat_${new Date().toISOString().split('T')[0]}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    void handleExportLogsSafe();
   };
 
   return (
@@ -950,11 +1071,12 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                   )}
                 </div>
 
-                <form onSubmit={handleAddMember} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
+                <form onSubmit={handleAddMemberSafe} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
                   <input
                     type="email"
                     value={newMemberEmail}
                     onChange={e => setNewMemberEmail(e.target.value)}
+                    disabled={isSavingMember}
                     placeholder="email.nhanvien@gmail.com"
                     className="flex-1 min-w-0 w-full px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500"
                   />
@@ -962,6 +1084,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                     <select
                       value={newMemberRole}
                       onChange={e => setNewMemberRole(e.target.value as UserRole)}
+                      disabled={isSavingMember}
                       className="flex-1 sm:flex-initial px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700"
                     >
                       <option value="ENGINEER">Kỹ Sư</option>
@@ -970,12 +1093,23 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                     </select>
                     <button
                       type="submit"
-                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs shrink-0 transition-colors cursor-pointer"
+                      disabled={isSavingMember}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs shrink-0 transition-colors cursor-pointer disabled:opacity-50"
                     >
                       Thêm
                     </button>
                   </div>
                 </form>
+
+                {memberMsg && (
+                  <div className={`p-2 rounded-xl text-[10.5px] font-bold border ${
+                    memberMsg.type === 'success'
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                      : 'bg-rose-50 text-rose-800 border-rose-200'
+                  }`}>
+                    {memberMsg.text}
+                  </div>
+                )}
 
                 <div className="space-y-1 pt-1 max-h-36 overflow-y-auto">
                   {projectMembers.length === 0 ? (
@@ -1002,7 +1136,8 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                         </div>
                         <button
                           type="button"
-                          onClick={() => handleRemoveMember(m.email)}
+                          onClick={() => handleRemoveMemberSafe(m.email)}
+                          disabled={isSavingMember}
                           className="text-rose-500 hover:text-rose-700 p-1 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -1025,7 +1160,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                 <div className="flex items-center gap-1.5">
                   <button
                     type="button"
-                    onClick={handleExportLogs}
+                    onClick={handleExportLogsSafe}
                     disabled={auditLogs.length === 0}
                     className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-colors disabled:opacity-40"
                   >

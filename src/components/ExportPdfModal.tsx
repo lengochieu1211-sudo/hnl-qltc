@@ -11,6 +11,7 @@ import { getProjectPhotos, getPhotoDataUrl } from '../utils/photoStorage';
 import { computeDefectLabelPositions, computeRoomLabelPositions } from '../utils/pdfMapUtils';
 import { canViewFinancials, getCurrentUserRole, UserRole } from '../utils/securityUtils';
 import { apiFetch, hasApiBackend } from '../utils/api';
+import { saveHtmlPdf } from '../utils/fileExport';
 
 interface ExportPdfModalProps {
   isOpen: boolean;
@@ -895,6 +896,11 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   // High-fidelity HTML Print / Save as PDF with FULL Unicode Vietnamese support (Có dấu 100%)
   const handlePrintHTML = () => {
     const htmlContent = getReportHtml();
+    const androidSafeProjectName = (projectName || 'Du_An').replace(/[^a-zA-Z0-9_-\s]/g, '').trim().replace(/\s+/g, '_');
+    const androidDateStr = new Date().toISOString().slice(0, 10);
+    if (saveHtmlPdf(htmlContent, `Bao_Cao_Tong_Hop_${androidSafeProjectName}_${androidDateStr}.pdf`)) {
+      return;
+    }
     const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
     const blobUrl = URL.createObjectURL(blob);
 

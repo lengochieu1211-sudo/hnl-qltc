@@ -1,3 +1,5 @@
+import { saveBlob, saveTextFile } from './fileExport';
+
 export const downloadOrShareFile = async (filename: string, content: string | Blob, mimeType: string) => {
   let fileBlob: Blob;
   if (typeof content === 'string') {
@@ -13,35 +15,12 @@ export const downloadOrShareFile = async (filename: string, content: string | Bl
       }
       fileBlob = new Blob([u8arr], { type: mime });
     } else {
-      fileBlob = new Blob([content], { type: mimeType });
+      await saveTextFile(content, filename, mimeType);
+      return;
     }
   } else {
     fileBlob = content;
   }
 
-  // Try navigator.share (works great in WebViews / Mobile)
-  if (navigator.share && navigator.canShare) {
-    const file = new File([fileBlob], filename, { type: fileBlob.type });
-    if (navigator.canShare({ files: [file] })) {
-      try {
-        await navigator.share({
-          files: [file],
-          title: filename,
-        });
-        return;
-      } catch (err) {
-        console.warn('Share API failed, falling back to download anchor', err);
-      }
-    }
-  }
-
-  // Fallback to traditional download anchor
-  const url = URL.createObjectURL(fileBlob);
-  const downloadAnchor = document.createElement('a');
-  downloadAnchor.setAttribute('href', url);
-  downloadAnchor.setAttribute('download', filename);
-  document.body.appendChild(downloadAnchor);
-  downloadAnchor.click();
-  document.body.removeChild(downloadAnchor);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  await saveBlob(fileBlob, filename, mimeType);
 };

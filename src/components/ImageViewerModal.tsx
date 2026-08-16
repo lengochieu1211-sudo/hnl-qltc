@@ -26,6 +26,13 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
   const initialScaleRef = useRef(1);
   const isDraggingRef = useRef(false);
   const lastPosRef = useRef({ x: 0, y: 0 });
+  const onCloseRef = useRef(onClose);
+  const pushedHistoryRef = useRef(false);
+  const closedFromHistoryRef = useRef(false);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (isOpen) {
@@ -34,6 +41,48 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
       setPosition({ x: 0, y: 0 });
     }
   }, [isOpen, initialIndex, images, imageUrl]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    try {
+      window.history.pushState({ qlctImageViewer: true }, '');
+      pushedHistoryRef.current = true;
+      closedFromHistoryRef.current = false;
+    } catch (_) {}
+
+    const onPopState = () => {
+      if (!pushedHistoryRef.current) return;
+      pushedHistoryRef.current = false;
+      closedFromHistoryRef.current = true;
+      onCloseRef.current();
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onCloseRef.current();
+      } else if (event.key === 'ArrowLeft') {
+        handlePrev();
+      } else if (event.key === 'ArrowRight') {
+        handleNext();
+      }
+    };
+
+    window.addEventListener('popstate', onPopState);
+    window.addEventListener('keydown', onKeyDown);
+
+    return () => {
+      window.removeEventListener('popstate', onPopState);
+      window.removeEventListener('keydown', onKeyDown);
+      if (pushedHistoryRef.current && !closedFromHistoryRef.current) {
+        pushedHistoryRef.current = false;
+        try {
+          window.history.back();
+        } catch (_) {}
+      }
+      closedFromHistoryRef.current = false;
+    };
+  }, [isOpen]);
 
   const activeImage = allImages[currentIndex] || imageUrl || '';
 

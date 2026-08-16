@@ -36,6 +36,7 @@ import { formatDecimal, evaluateMathExpression, useFormatSettings } from '../uti
 import { isTeamMatch, getTeamCategoriesForRoom, calculateTeamStatistics, isTeamWorkCompletedInRoom, FloorGroupDetail } from '../utils/teamUtils';
 import { PhotoAttachmentPicker } from './PhotoAttachmentPicker';
 import { deleteEntityPhotos } from '../utils/photoStorage';
+import { saveWorkbookFile } from '../utils/fileExport';
 
 interface CrewTabProps {
   projectId?: string;
@@ -724,7 +725,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     ws['!cols'] = Object.keys(maxLens).map((key) => ({ wch: maxLens[key] }));
 
     XLSX.utils.book_append_sheet(wb, ws, 'Danh Sach Doi Thi Cong');
-    XLSX.writeFile(wb, 'Mau_Danh_Sach_Doi_Thi_Cong.xlsx');
+    return saveWorkbookFile(wb, 'Mau_Danh_Sach_Doi_Thi_Cong.xlsx');
   };
 
   const handleExportTeamStats = (teamName?: string) => {

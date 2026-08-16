@@ -24,6 +24,7 @@ import {
 import { ChecklistItem, ChecklistStatus, WorkVolume, FloorPlan } from '../types';
 import { confirmAsync } from '../utils/confirmAsync';
 import { getTodayDateString, addDaysToDateString, formatDateVN, calculateDiffDays } from '../utils/dueDateUtils';
+import { saveWorkbookFile } from '../utils/fileExport';
 
 interface ChecklistTabProps {
   checklist: ChecklistItem[];
@@ -276,7 +277,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
     ws['!cols'] = Object.keys(maxLens).map((key) => ({ wch: maxLens[key] }));
 
     XLSX.utils.book_append_sheet(wb, ws, 'Checklist');
-    XLSX.writeFile(wb, `Mau_Checklist_Nghiem_Thu.xlsx`);
+    return saveWorkbookFile(wb, `Mau_Checklist_Nghiem_Thu.xlsx`);
   };
 
   const handleImportExcelChecklist = (e: React.ChangeEvent<HTMLInputElement>) => {

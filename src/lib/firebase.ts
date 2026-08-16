@@ -1035,6 +1035,7 @@ export async function saveProjectMemberToCloud(
     }, { merge: true }).catch(() => {});
   } catch (err) {
     console.warn('saveProjectMemberToCloud error:', err);
+    throw err;
   }
 }
 
@@ -1068,6 +1069,7 @@ export async function removeProjectMemberFromCloud(projectId: string, email: str
     await deleteDoc(doc(db, 'projectInvitations', legacyInvId)).catch(() => {});
   } catch (err) {
     console.warn('removeProjectMemberFromCloud error:', err);
+    throw err;
   }
 }
 
