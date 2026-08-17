@@ -120,6 +120,61 @@ function getMemberDocIdsForUser(user: { uid?: string | null; email?: string | nu
   return Array.from(ids);
 }
 
+export interface CloudProjectSummary {
+  id: string;
+  name: string;
+  role?: string;
+  updatedAt?: number;
+}
+
+async function registerProjectForCurrentUser(projectId: string, projectName: string, role = 'ADMIN'): Promise<void> {
+  const user = getCurrentAppUser();
+  if (!user || !user.uid || (user as any).isAnonymous) return;
+
+  const normalizedEmail = normalizeEmail(user.email);
+  await setDoc(doc(db, 'users', user.uid), {
+    uid: user.uid,
+    email: normalizedEmail,
+    projects: {
+      [projectId]: {
+        id: projectId,
+        name: projectName || projectId,
+        role,
+        updatedAt: Date.now(),
+      }
+    },
+    updatedAt: Date.now(),
+  }, { merge: true });
+}
+
+export async function fetchCurrentUserProjectsFromCloud(): Promise<CloudProjectSummary[]> {
+  try {
+    await ensureAuth();
+    const user = getCurrentAppUser();
+    if (!user || !user.uid || (user as any).isAnonymous) return [];
+
+    const snap = await getDoc(doc(db, 'users', user.uid));
+    if (!snap.exists()) return [];
+
+    const data = snap.data();
+    const projects = data?.projects;
+    if (!projects || typeof projects !== 'object') return [];
+
+    return Object.values(projects)
+      .filter((item: any) => item && item.id)
+      .map((item: any) => ({
+        id: String(item.id),
+        name: String(item.name || item.id),
+        role: item.role,
+        updatedAt: Number(item.updatedAt || 0),
+      }))
+      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  } catch (err) {
+    console.warn('fetchCurrentUserProjectsFromCloud warning:', err);
+    return [];
+  }
+}
+
 async function writeProjectMemberDocs(
   projectId: string,
   member: { uid?: string | null; email: string; role: string; active?: boolean; assignedAt?: number }
@@ -594,6 +649,7 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
         ...(finalOwnerUid ? { ownerUid: finalOwnerUid } : {}),
         ...(finalOwnerEmail ? { ownerEmail: finalOwnerEmail } : {}),
       }, { merge: true });
+      await registerProjectForCurrentUser(project.id, project.name || project.id, 'ADMIN');
     } catch (metaErr) {
       console.warn('[Cloud Sync] Project metadata update skipped or disallowed for current role:', metaErr);
     }
@@ -718,6 +774,7 @@ export async function saveProjectDiffsToCloud(
         ...(ownerEmail ? { ownerEmail } : {})
       };
       await setDoc(metadataRef, metaPayload, { merge: true });
+      await registerProjectForCurrentUser(projectId, projectName || projectId, 'ADMIN');
     } catch (metaErr) {
       // Engineer role may not have permissions on root /projects/{projectId} document - this is expected
       console.warn('[Cloud Sync] Project metadata update skipped or disallowed for current role:', metaErr);

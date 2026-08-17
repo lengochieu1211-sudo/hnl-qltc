@@ -56,6 +56,7 @@ public class MainActivity extends Activity {
     private WebView authPopupWebView;
     private WebView printWebView;
     private ValueCallback<Uri[]> filePathCallback;
+    private Uri pendingCameraImageUri;
     private String startUrl = LOCAL_FALLBACK_URL;
     private boolean loadedFallback = false;
     private PendingExport pendingExport;
@@ -88,11 +89,15 @@ public class MainActivity extends Activity {
                 }
 
                 filePathCallback = callback;
-                Intent intent = params.createIntent();
                 try {
+                    Intent intent = buildFileChooserIntent(params);
                     startActivityForResult(intent, FILE_CHOOSER_REQUEST);
                 } catch (ActivityNotFoundException error) {
                     filePathCallback = null;
+                    return false;
+                } catch (Exception error) {
+                    filePathCallback = null;
+                    showToast("Khong the mo trinh chon anh: " + error.getMessage());
                     return false;
                 }
                 return true;
@@ -212,6 +217,88 @@ public class MainActivity extends Activity {
                 || lowerUrl.startsWith("geo:")
                 || lowerUrl.startsWith("market:")
                 || lowerUrl.startsWith("intent:");
+    }
+
+    private Intent buildFileChooserIntent(WebChromeClient.FileChooserParams params) {
+        boolean imageOnly = acceptsImages(params);
+
+        Intent contentIntent = new Intent(Intent.ACTION_GET_CONTENT);
+        contentIntent.addCategory(Intent.CATEGORY_OPENABLE);
+        contentIntent.setType(imageOnly ? "image/*" : "*/*");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
+            contentIntent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,
+                    params != null && params.getMode() == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE);
+        }
+
+        Intent chooser = Intent.createChooser(contentIntent, imageOnly ? "Chon hoac chup anh" : "Chon tep");
+        if (imageOnly) {
+            Intent cameraIntent = buildCameraCaptureIntent();
+            if (cameraIntent != null) {
+                chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, new Intent[]{cameraIntent});
+            }
+        }
+        return chooser;
+    }
+
+    private boolean acceptsImages(WebChromeClient.FileChooserParams params) {
+        if (params == null) {
+            return false;
+        }
+        String[] acceptTypes = params.getAcceptTypes();
+        if (acceptTypes == null || acceptTypes.length == 0) {
+            return params.isCaptureEnabled();
+        }
+        for (String acceptType : acceptTypes) {
+            if (acceptType == null || acceptType.trim().length() == 0) {
+                continue;
+            }
+            String lower = acceptType.toLowerCase();
+            if (lower.contains("image") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png") || lower.endsWith(".webp")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Intent buildCameraCaptureIntent() {
+        Intent cameraIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+        if (cameraIntent.resolveActivity(getPackageManager()) == null) {
+            return null;
+        }
+
+        pendingCameraImageUri = createCameraImageUri();
+        if (pendingCameraImageUri == null) {
+            return null;
+        }
+
+        cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, pendingCameraImageUri);
+        cameraIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        return cameraIntent;
+    }
+
+    private Uri createCameraImageUri() {
+        try {
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.Images.Media.DISPLAY_NAME, "QLCT_IMG_" + System.currentTimeMillis() + ".jpg");
+            values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/QLCT");
+            }
+            return getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+        } catch (Exception error) {
+            showToast("Khong the tao file anh tam: " + error.getMessage());
+            return null;
+        }
+    }
+
+    private void deletePendingCameraImage() {
+        if (pendingCameraImageUri != null) {
+            try {
+                getContentResolver().delete(pendingCameraImageUri, null, null);
+            } catch (Exception ignored) {
+            }
+        }
+        pendingCameraImageUri = null;
     }
 
     private void loadLocalFallback() {
@@ -977,7 +1064,29 @@ public class MainActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
 
         if (requestCode == FILE_CHOOSER_REQUEST && filePathCallback != null) {
-            Uri[] results = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
+            Uri[] results = null;
+            if (resultCode == RESULT_OK) {
+                results = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
+                if ((results == null || results.length == 0) && pendingCameraImageUri != null) {
+                    results = new Uri[]{pendingCameraImageUri};
+                }
+            }
+
+            boolean usedCameraImage = false;
+            if (results != null && pendingCameraImageUri != null) {
+                for (Uri resultUri : results) {
+                    if (pendingCameraImageUri.equals(resultUri)) {
+                        usedCameraImage = true;
+                        break;
+                    }
+                }
+            }
+            if (!usedCameraImage) {
+                deletePendingCameraImage();
+            } else {
+                pendingCameraImageUri = null;
+            }
+
             filePathCallback.onReceiveValue(results);
             filePathCallback = null;
         } else if (requestCode == EXPORT_CREATE_DOCUMENT_REQUEST) {

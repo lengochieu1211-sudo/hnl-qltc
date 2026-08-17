@@ -31,7 +31,7 @@ function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
   }
   return merged;
 }
-import { subscribeToProjectRealtime, saveProjectDiffsToCloud, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud } from './lib/firebase';
+import { subscribeToProjectRealtime, saveProjectDiffsToCloud, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, fetchCurrentUserProjectsFromCloud } from './lib/firebase';
 import { 
   InventoryItem, 
   WorkVolume, 
@@ -95,6 +95,7 @@ import {
   pickAndroidAutoSaveFolder,
   saveTextFileToAndroidAutoFolder
 } from './utils/fileExport';
+import { getProjectPhotosWithBinary, restorePhotosFromBackup } from './utils/photoStorage';
 
 interface AppData {
   materialNorms: MaterialNorm[];
@@ -721,32 +722,137 @@ export default function App() {
     .replace(/_+/g, '_');
   const getSingleAutoSaveFileName = () => `[Auto_Sync_Backup]_${getSafeProjectFileName()}.json`;
   const getAllAutoSaveFileName = () => '[Toan_Bo_Du_An]_Backup.json';
-  const buildSingleProjectBackupJson = () => JSON.stringify({
-    schemaVersion: 3,
-    backupType: 'single-project',
-    project: {
-      id: activeProjectId,
-      name: projectName,
-      contractorName,
-      inspectorName,
-      updatedAt: lastUpdatedAt,
-    },
-    data: {
-      projectName,
-      contractorName,
-      inspectorName,
-      materialNorms,
-      inventory,
-      workVolumes,
-      floorPlans,
-      defects,
-      roomProgressList,
-      checklist,
-      crewRecords,
-      teams,
-      updatedAt: lastUpdatedAt,
+
+  const collectProjectPhotoBackup = async (projectIds: string[]) => {
+    const projectPhotos: Record<string, any[]> = {};
+    const projectPhotoData: Record<string, Record<string, string>> = {};
+
+    for (const projectId of projectIds) {
+      const photos = await getProjectPhotosWithBinary(projectId);
+      if (photos.length === 0) continue;
+
+      const photoData: Record<string, string> = {};
+      for (const photo of photos) {
+        const dataUrl = photo.base64 || photo.localUri || photo.dataUrl || '';
+        if (photo.id && dataUrl.startsWith('data:image/')) {
+          photoData[photo.id] = dataUrl;
+        }
+      }
+
+      projectPhotos[projectId] = photos;
+      if (Object.keys(photoData).length > 0) {
+        projectPhotoData[projectId] = photoData;
+      }
     }
-  }, null, 2);
+
+    return { projectPhotos, projectPhotoData };
+  };
+
+  const buildSingleProjectBackupObject = async () => {
+    const { projectPhotos, projectPhotoData } = await collectProjectPhotoBackup([activeProjectId]);
+    const photos = projectPhotos[activeProjectId] || [];
+    const photoData = projectPhotoData[activeProjectId] || {};
+
+    return {
+      schemaVersion: 3,
+      backupType: 'single-project',
+      project: {
+        id: activeProjectId,
+        name: projectName,
+        contractorName,
+        inspectorName,
+        updatedAt: lastUpdatedAt,
+      },
+      data: {
+        projectName,
+        contractorName,
+        inspectorName,
+        materialNorms,
+        inventory,
+        workVolumes,
+        floorPlans,
+        defects,
+        roomProgressList,
+        checklist,
+        crewRecords,
+        teams,
+        photos,
+        photoData,
+        updatedAt: lastUpdatedAt,
+      },
+      photoData,
+    };
+  };
+
+  const buildSingleProjectBackupJson = async () => JSON.stringify(await buildSingleProjectBackupObject(), null, 2);
+
+  const buildAllProjectsBackupObject = async () => {
+    const allData: Record<string, any> = {};
+    const storageData = await getAllStorageData();
+    for (const key in storageData) {
+      if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
+        allData[key] = storageData[key] || '';
+      }
+    }
+
+    const projectList = getProjectsList();
+    const projectIds = projectList.length > 0 ? projectList.map((project) => project.id) : [activeProjectId || 'default'];
+    const { projectPhotos, projectPhotoData } = await collectProjectPhotoBackup(projectIds);
+    if (Object.keys(projectPhotos).length > 0) {
+      allData.projectPhotos = projectPhotos;
+      allData.projectPhotoData = projectPhotoData;
+    }
+    return allData;
+  };
+
+  const isLargeConstructionStorageKey = (key: string) => [
+    'material_norms',
+    'inventory',
+    'work_volumes',
+    'floor_plans',
+    'defects',
+    'room_progress',
+    'checklist',
+    'crew_records',
+    'teams',
+    'photos'
+  ].some(x => key.includes(`construction_${x}`));
+
+  const restorePhotoBackupBundle = async (backupData: any) => {
+    const projectPhotos = backupData?.projectPhotos;
+    if (!projectPhotos || typeof projectPhotos !== 'object') return;
+
+    const projectPhotoData = backupData?.projectPhotoData || {};
+    for (const projectId of Object.keys(projectPhotos)) {
+      const photos = projectPhotos[projectId];
+      if (Array.isArray(photos)) {
+        await restorePhotosFromBackup(projectId, photos, projectPhotoData[projectId] || {});
+      }
+    }
+  };
+
+  const restoreAllProjectsBackupObject = async (backupData: any) => {
+    if (!backupData || typeof backupData !== 'object') return;
+    await restorePhotoBackupBundle(backupData);
+
+    for (const key in backupData) {
+      if (key === 'projectPhotos' || key === 'projectPhotoData') continue;
+      const val = backupData[key];
+
+      if (key.startsWith('photo_blob_') || key.startsWith('photo_thumb_')) {
+        await setAsyncItem(key, val);
+        continue;
+      }
+
+      if (key.startsWith('construction_') || key.startsWith('active_project_id')) {
+        if (isLargeConstructionStorageKey(key)) {
+          await setAsyncItem(key, typeof val === 'string' ? JSON.parse(val) : val);
+        } else {
+          safeSetLocalStorageItem(key, typeof val === 'string' ? val : JSON.stringify(val));
+        }
+      }
+    }
+  };
 
   const buildCloudProjectPayload = () => ({
     projectName,
@@ -770,6 +876,18 @@ export default function App() {
     activeProjectIdRef.current = activeProjectId;
   }, [activeProjectId]);
 
+  useEffect(() => {
+    const handlePhotoAttachmentsChanged = () => {
+      hasUserEditedSinceHydrateRef.current = true;
+      hasUnsavedAllBackupChangesRef.current = true;
+      const now = Date.now();
+      setLastUpdatedAt(now);
+      localStorage.setItem(getKey('construction_updated_at'), String(now));
+    };
+    window.addEventListener('qlct-photo-attachments-changed', handlePhotoAttachmentsChanged);
+    return () => window.removeEventListener('qlct-photo-attachments-changed', handlePhotoAttachmentsChanged);
+  }, [activeProjectId]);
+
   const [cloudInitialReady, setCloudInitialReady] = useState<boolean>(false);
   const receivedInitialSubcollectionsRef = useRef<Set<string>>(new Set());
   const [cloudUserKey, setCloudUserKey] = useState<string>('');
@@ -784,6 +902,52 @@ export default function App() {
     refreshCloudUser();
     return onAuthUserChanged(refreshCloudUser);
   }, []);
+
+  useEffect(() => {
+    if (!cloudUserKey) return;
+
+    let cancelled = false;
+    const loadCloudProjectIndex = async () => {
+      const remoteProjects = await fetchCurrentUserProjectsFromCloud();
+      if (cancelled || remoteProjects.length === 0) return;
+
+      const localProjects = getProjectsList();
+      const mergedMap = new Map<string, ProjectInfo>();
+      for (const project of localProjects) {
+        mergedMap.set(project.id, project);
+      }
+
+      for (const remoteProject of remoteProjects) {
+        const existing = mergedMap.get(remoteProject.id);
+        mergedMap.set(remoteProject.id, {
+          id: remoteProject.id,
+          name: remoteProject.name || existing?.name || remoteProject.id,
+          createdAt: existing?.createdAt || remoteProject.updatedAt || Date.now(),
+          updatedAt: Math.max(existing?.updatedAt || 0, remoteProject.updatedAt || 0, Date.now()),
+        });
+      }
+
+      const mergedProjects = Array.from(mergedMap.values());
+      saveProjectsList(mergedProjects);
+
+      const currentActive = getActiveProjectId();
+      const currentIsRemote = remoteProjects.some((project) => project.id === currentActive);
+      const shouldAutoSwitchToCloudProject = !currentIsRemote
+        && !hasUserEditedSinceHydrateRef.current
+        && localProjects.length <= 1
+        && remoteProjects[0]?.id;
+
+      if (shouldAutoSwitchToCloudProject) {
+        setActiveProject(remoteProjects[0].id);
+        window.location.reload();
+      }
+    };
+
+    loadCloudProjectIndex().catch((err) => console.warn('Cloud project index load warning:', err));
+    return () => {
+      cancelled = true;
+    };
+  }, [cloudUserKey]);
 
   const [autosaveVersions, setAutosaveVersions] = useState<BackupVersion[]>([]);
 
@@ -1689,13 +1853,7 @@ export default function App() {
 
     try {
       const folderId = customFolderId || '1se6PAsmGQ2hwPqUCiQoueksEFPP_YMO6';
-      const allData: Record<string, string> = {};
-      const storageData = await getAllStorageData();
-      for (const key in storageData) {
-        if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
-          allData[key] = storageData[key] || '';
-        }
-      }
+      const allData = await buildAllProjectsBackupObject();
 
       const res = await apiFetch('/api/drive/sync-up-all', {
         method: 'POST',
@@ -1750,28 +1908,7 @@ export default function App() {
       }
       const result = await res.json();
       if (result.success && result.found && result.data) {
-        for (const key in result.data) {
-          if (key.startsWith('construction_') || key.startsWith('active_project_id')) {
-            const val = result.data[key];
-            const isLargeKey = [
-              'material_norms',
-              'inventory',
-              'work_volumes',
-              'floor_plans',
-              'defects',
-              'room_progress',
-              'checklist',
-              'crew_records',
-              'teams'
-            ].some(x => key.includes(`construction_${x}`));
-
-            if (isLargeKey) {
-              await setAsyncItem(key, typeof val === 'string' ? JSON.parse(val) : val);
-            } else {
-              localStorage.setItem(key, typeof val === 'string' ? val : JSON.stringify(val));
-            }
-          }
-        }
+        await restoreAllProjectsBackupObject(result.data);
         window.location.reload();
         return { success: true, message: result.message };
       }
@@ -1788,13 +1925,7 @@ export default function App() {
         if (!hasAndroidAutoSaveFolder()) {
           await pickAndroidAutoSaveFolder();
         }
-        const allData: Record<string, string> = {};
-        const storageData = await getAllStorageData();
-        for (const key in storageData) {
-          if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
-            allData[key] = storageData[key] || '';
-          }
-        }
+        const allData = await buildAllProjectsBackupObject();
         const jsonStr = JSON.stringify(allData, null, 2);
         const fileName = getAllAutoSaveFileName();
         await saveTextFileToAndroidAutoFolder(jsonStr, fileName);
@@ -1829,13 +1960,7 @@ export default function App() {
       const handle = await (window as any).showSaveFilePicker(opt);
       if (handle) {
         const file = await handle.getFile();
-        const allData: Record<string, string> = {};
-        const storageData = await getAllStorageData();
-        for (const key in storageData) {
-          if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
-            allData[key] = storageData[key] || '';
-          }
-        }
+        const allData = await buildAllProjectsBackupObject();
         const jsonStr = JSON.stringify(allData, null, 2);
         if (file.size === 0) {
           const writable = await handle.createWritable();
@@ -1880,13 +2005,7 @@ export default function App() {
         }
         setLocalAllSyncPermissionNeeded(false);
         setLocalAllSyncStatus('saving');
-        const allData: Record<string, string> = {};
-        const storageData = await getAllStorageData();
-        for (const key in storageData) {
-          if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
-            allData[key] = storageData[key] || '';
-          }
-        }
+        const allData = await buildAllProjectsBackupObject();
         const jsonStr = JSON.stringify(allData, null, 2);
         await saveTextFileToAndroidAutoFolder(jsonStr, getAllAutoSaveFileName());
         lastSavedLocalAllSnapshotRef.current = jsonStr;
@@ -1900,13 +2019,7 @@ export default function App() {
         setLocalAllSyncPermissionNeeded(false);
         setLocalAllSyncStatus('saving');
         const writable = await localAllFileHandle.createWritable();
-        const allData: Record<string, string> = {};
-        const storageData = await getAllStorageData();
-      for (const key in storageData) {
-        if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
-          allData[key] = storageData[key] || '';
-        }
-      }
+        const allData = await buildAllProjectsBackupObject();
         await writable.write(JSON.stringify(allData, null, 2));
         await writable.close();
         setLocalAllSyncStatus('synced');
@@ -2212,29 +2325,7 @@ export default function App() {
 
     const timer = setTimeout(async () => {
       try {
-        const jsonString = JSON.stringify({
-          schemaVersion: 3,
-          backupType: 'single-project',
-          project: {
-            id: activeProjectId,
-            name: projectName,
-          },
-          data: {
-            projectName,
-            contractorName,
-            inspectorName,
-            materialNorms,
-            inventory,
-            workVolumes,
-            floorPlans,
-            defects,
-            roomProgressList,
-            checklist,
-            crewRecords,
-            teams,
-            updatedAt: lastUpdatedAt,
-          }
-        }, null, 2);
+        const jsonString = await buildSingleProjectBackupJson();
 
         // Skip writing if data has not changed since link / last save
         if (jsonString === lastSavedLocalSnapshotRef.current) {
@@ -2376,13 +2467,7 @@ export default function App() {
   };
 
   const handleCreateManualBackup = async () => {
-    const allData: Record<string, string> = {};
-    const storageData = await getAllStorageData();
-      for (const key in storageData) {
-        if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
-          allData[key] = storageData[key] || '';
-        }
-      }
+    const allData = await buildAllProjectsBackupObject();
 
     try {
       const now = Date.now();
@@ -2440,27 +2525,7 @@ export default function App() {
     if (await confirmAsync('⚠️ Chú ý: Việc phục hồi phiên bản này sẽ ghi đè toàn bộ dữ liệu hiện tại của bạn. Bạn có muốn tiếp tục?')) {
       syncLockRef.current = true;
       try {
-        for (const key in versionData) {
-          const val = versionData[key];
-          
-          const isLargeKey = [
-            'material_norms',
-            'inventory',
-            'work_volumes',
-            'floor_plans',
-            'defects',
-            'room_progress',
-            'checklist',
-            'crew_records',
-            'teams'
-          ].some(x => key.includes(`construction_${x}`));
-
-          if (isLargeKey) {
-            await setAsyncItem(key, typeof val === 'string' ? JSON.parse(val) : val);
-          } else {
-            safeSetLocalStorageItem(key, typeof val === 'string' ? val : JSON.stringify(val));
-          }
-        }
+        await restoreAllProjectsBackupObject(versionData);
         alert('🎉 Phục hồi phiên bản sao lưu thành công!');
         window.location.reload();
       } catch (err) {
@@ -2480,13 +2545,7 @@ export default function App() {
 
     const timer = setTimeout(async () => {
       try {
-        const allData: Record<string, string> = {};
-        const storageData = await getAllStorageData();
-        for (const key in storageData) {
-          if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
-            allData[key] = storageData[key] || '';
-          }
-        }
+        const allData = await buildAllProjectsBackupObject();
         
         const jsonString = JSON.stringify(allData, null, 2);
 
@@ -2551,13 +2610,7 @@ export default function App() {
 
     const timer = setTimeout(async () => {
       try {
-        const allData: Record<string, string> = {};
-        const storageData = await getAllStorageData();
-      for (const key in storageData) {
-        if (key && (key.startsWith('construction_') || key.startsWith('active_project_id'))) {
-          allData[key] = storageData[key] || '';
-        }
-      }
+        const allData = await buildAllProjectsBackupObject();
         
         // Save to version history automatically
         await saveAutoSaveVersion(allData);
@@ -2576,7 +2629,7 @@ export default function App() {
         if (!hasAndroidAutoSaveFolder()) {
           await pickAndroidAutoSaveFolder();
         }
-        const jsonString = buildSingleProjectBackupJson();
+        const jsonString = await buildSingleProjectBackupJson();
         const fileName = getSingleAutoSaveFileName();
         await saveTextFileToAndroidAutoFolder(jsonString, fileName);
 
@@ -2619,32 +2672,7 @@ export default function App() {
       const handle = await (window as any).showSaveFilePicker(opt);
       if (handle) {
         const file = await handle.getFile();
-        const jsonString = JSON.stringify({
-          schemaVersion: 3,
-          backupType: 'single-project',
-          project: {
-            id: activeProjectId,
-            name: projectName,
-            contractorName,
-            inspectorName,
-            updatedAt: lastUpdatedAt,
-          },
-          data: {
-            projectName,
-            contractorName,
-            inspectorName,
-            materialNorms,
-            inventory,
-            workVolumes,
-            floorPlans,
-            defects,
-            roomProgressList,
-            checklist,
-            crewRecords,
-            teams,
-            updatedAt: lastUpdatedAt,
-          }
-        }, null, 2);
+        const jsonString = await buildSingleProjectBackupJson();
 
         if (file.size === 0) {
           const writable = await handle.createWritable();
@@ -2737,7 +2765,7 @@ export default function App() {
         }
         setLocalSyncPermissionNeeded(false);
         setLocalSyncStatus('saving');
-        const jsonString = buildSingleProjectBackupJson();
+        const jsonString = await buildSingleProjectBackupJson();
         await saveTextFileToAndroidAutoFolder(jsonString, getSingleAutoSaveFileName());
         lastSavedLocalSnapshotRef.current = jsonString;
         setLocalSyncStatus('synced');
@@ -2751,32 +2779,7 @@ export default function App() {
         
         // Immediately trigger a save to make sure it's updated
         const writable = await localFileHandle.createWritable();
-        const jsonString = JSON.stringify({
-          schemaVersion: 3,
-          backupType: 'single-project',
-          project: {
-            id: activeProjectId,
-            name: projectName,
-            contractorName,
-            inspectorName,
-            updatedAt: lastUpdatedAt,
-          },
-          data: {
-            projectName,
-            contractorName,
-            inspectorName,
-            materialNorms,
-            inventory,
-            workVolumes,
-            floorPlans,
-            defects,
-            roomProgressList,
-            checklist,
-            crewRecords,
-            teams,
-            updatedAt: lastUpdatedAt,
-          }
-        }, null, 2);
+        const jsonString = await buildSingleProjectBackupJson();
 
         await writable.write(jsonString);
         await writable.close();
