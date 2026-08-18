@@ -102,7 +102,13 @@ export async function savePhotoAttachment(
   
   // 1. Compress main image to max 1600px, quality 0.82
   const compressedDataUrl = await compressImage(imageSource, 1600, 0.82);
+  if (!compressedDataUrl || !compressedDataUrl.startsWith('data:image/')) {
+    throw new Error('Không đọc được ảnh đã chọn/chụp. Hãy dùng ảnh JPG, PNG hoặc WebP và thử lại.');
+  }
   const mainBlob = dataURItoBlob(compressedDataUrl);
+  if (!mainBlob || mainBlob.size <= 0) {
+    throw new Error('Ảnh sau khi xử lý bị rỗng. Ứng dụng chưa lưu ảnh để tránh tạo tệp lỗi.');
+  }
   
   // 2. Compress thumbnail image to max 320px, quality 0.70
   let thumbBlob: Blob | null = null;
@@ -149,6 +155,76 @@ export async function savePhotoAttachment(
   return { ...newPhotoMetadata, localUri: compressedDataUrl };
 }
 
+
+export async function getPhotoBlob(photoId: string, useThumbnail = false): Promise<Blob | null> {
+  if (!photoId) return null;
+  try {
+    const key = useThumbnail ? getPhotoThumbKey(photoId) : getPhotoBlobKey(photoId);
+    const val = await localforage.getItem<Blob | string>(key);
+    if (val instanceof Blob) return val;
+    if (typeof val === 'string' && val.startsWith('data:image/')) return dataURItoBlob(val);
+  } catch (_) {}
+  return null;
+}
+
+export async function cachePhotoBlob(photoId: string, blob: Blob, createThumbnail = true): Promise<void> {
+  if (!photoId || !blob) return;
+  await localforage.setItem(getPhotoBlobKey(photoId), blob);
+  if (!createThumbnail) return;
+  try {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
+    if (dataUrl) {
+      const thumbDataUrl = await compressImage(dataUrl, 320, 0.70);
+      await localforage.setItem(getPhotoThumbKey(photoId), dataURItoBlob(thumbDataUrl));
+    }
+  } catch (_) {}
+}
+
+export async function mergeCloudPhotoMetadata(projectId: string, cloudPhotos: PhotoAttachment[]): Promise<void> {
+  if (!projectId || !Array.isArray(cloudPhotos)) return;
+  const localPhotos = await getProjectPhotos(projectId, true);
+  const localMap = new Map(localPhotos.filter(p => p?.id).map(p => [p.id, p]));
+  const merged = new Map<string, PhotoAttachment>();
+
+  for (const local of localPhotos) {
+    if (local?.id) merged.set(local.id, local);
+  }
+
+  for (const cloud of cloudPhotos) {
+    if (!cloud?.id) continue;
+    const local = localMap.get(cloud.id);
+    const localTime = Number(local?.updatedAt || local?.createdAt || 0);
+    const cloudTime = Number(cloud.updatedAt || cloud.createdAt || 0);
+    if (!local || cloudTime > localTime || (cloudTime === localTime && cloud.deleted && !local.deleted)) {
+      const cleanCloud: PhotoAttachment = {
+        ...local,
+        ...cloud,
+        projectId,
+        localBlobKey: getPhotoBlobKey(cloud.id),
+        localUri: '',
+        cloudFileId: cloud.cloudFileId || `firestore:${projectId}:${cloud.id}`,
+        base64: undefined,
+        dataUrl: undefined,
+      };
+      merged.set(cloud.id, cleanCloud);
+      if (cloud.deleted) {
+        await localforage.removeItem(getPhotoBlobKey(cloud.id)).catch(() => {});
+        await localforage.removeItem(getPhotoThumbKey(cloud.id)).catch(() => {});
+      }
+    }
+  }
+
+  await saveProjectPhotos(projectId, Array.from(merged.values()));
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('qlct-photo-attachments-changed', { detail: { source: 'cloud' } }));
+  }
+}
+
 export async function getPhotoDataUrl(photoId: string, fallbackDataUrl?: string, useThumbnail = false): Promise<string> {
   if (!photoId) return fallbackDataUrl || '';
   try {
@@ -171,6 +247,23 @@ export async function getPhotoDataUrl(photoId: string, fallbackDataUrl?: string,
       if (typeof val === 'string' && val.length > 0) {
         return val;
       }
+    }
+
+    // Firestore photo binaries are downloaded lazily only when this image is actually displayed.
+    if (fallbackDataUrl && fallbackDataUrl.startsWith('firestore:')) {
+      try {
+        const [, projectId, cloudPhotoId] = fallbackDataUrl.split(':');
+        const { downloadPhotoBlobFromCloud } = await import('../lib/photoCloudSync');
+        const cloudBlob = await downloadPhotoBlobFromCloud(projectId, cloudPhotoId || photoId);
+        if (cloudBlob) {
+          if (useThumbnail) {
+            const thumbVal = await localforage.getItem<Blob | string>(getPhotoThumbKey(photoId));
+            if (thumbVal instanceof Blob) return URL.createObjectURL(thumbVal);
+          }
+          return URL.createObjectURL(cloudBlob);
+        }
+      } catch (_) {}
+      return '';
     }
 
     // Lazy load & cache from remote cloudUrl or fallback link if missing in IndexedDB
@@ -234,16 +327,38 @@ export async function getPhotoBase64(photoId: string): Promise<string> {
 
 export async function getProjectPhotosWithBinary(projectId: string): Promise<PhotoAttachment[]> {
   const photos = await getProjectPhotos(projectId, false);
-  const results = await Promise.all(
-    photos.map(async (p) => {
-      const base64 = await getPhotoBase64(p.id);
-      return {
-        ...p,
-        localUri: base64 || p.localUri || p.cloudUrl || '',
-        base64: base64 || undefined
-      };
-    })
-  );
+
+  // A backup must be self-contained. On a second phone/PC the photo metadata may
+  // already be synchronized while the binary is still only on Firestore. Fetch
+  // missing binaries lazily before building JSON so autosave/export never silently
+  // produces a lightweight backup that cannot restore defect/crew photos.
+  const results: PhotoAttachment[] = [];
+  for (const p of photos) {
+    let base64 = await getPhotoBase64(p.id);
+
+    if (!base64 && (p.cloudFileId?.startsWith('firestore:') || p.cloudUrl?.startsWith('firestore:'))) {
+      try {
+        const { downloadPhotoBlobFromCloud } = await import('../lib/photoCloudSync');
+        const cloudBlob = await downloadPhotoBlobFromCloud(projectId, p.id, p.mimeType || 'image/jpeg');
+        if (cloudBlob) {
+          base64 = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(String(reader.result || ''));
+            reader.onerror = () => resolve('');
+            reader.readAsDataURL(cloudBlob);
+          });
+        }
+      } catch (err) {
+        console.warn('[Backup] Could not download cloud photo binary:', p.id, err);
+      }
+    }
+
+    results.push({
+      ...p,
+      localUri: base64 || '',
+      base64: base64 || undefined,
+    });
+  }
   return results;
 }
 
@@ -318,7 +433,11 @@ export async function updatePhotoAttachmentBlob(
   imageSource: File | Blob | string
 ): Promise<string> {
   const compressedDataUrl = await compressImage(imageSource, 1600, 0.82);
+  if (!compressedDataUrl || !compressedDataUrl.startsWith('data:image/')) {
+    throw new Error('Không đọc được ảnh chỉnh sửa.');
+  }
   const mainBlob = dataURItoBlob(compressedDataUrl);
+  if (!mainBlob || mainBlob.size <= 0) throw new Error('Ảnh chỉnh sửa bị rỗng.');
 
   let thumbBlob: Blob | null = null;
   try {

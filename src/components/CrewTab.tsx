@@ -37,6 +37,7 @@ import { formatDecimal, evaluateMathExpression, useFormatSettings } from '../uti
 import { isTeamMatch, getTeamCategoriesForRoom, calculateTeamStatistics, isTeamWorkCompletedInRoom, FloorGroupDetail } from '../utils/teamUtils';
 import { SortOrder, applySortOrder, compareDateValues, compareFloorValues, naturalCompare } from '../utils/sortUtils';
 import { PhotoAttachmentPicker } from './PhotoAttachmentPicker';
+import { MathNumberInput } from './MathNumberInput';
 import { deleteEntityPhotos } from '../utils/photoStorage';
 import { saveWorkbookFile } from '../utils/fileExport';
 
@@ -1708,16 +1709,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               {/* Worker Count */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Số Lượng Quân Số (Thợ)</label>
-                <input 
-                  type="number"
-                  min="0.5"
-                  step="0.5"
-                  placeholder="Ví dụ: 5"
+                <MathNumberInput
+                  minValue={0}
+                  placeholder="Ví dụ: 5 hoặc 3+2"
                   value={workerCount}
-                  onChange={(e) => {
-                    const val = Math.max(0, parseFloat(e.target.value) || 0);
-                    setWorkerCount(val);
-                  }}
+                  onValueChange={(val) => setWorkerCount(Number(val || 0))}
                   className="w-full text-xs bg-white border border-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-bold text-indigo-700"
                   required
                 />
@@ -2010,12 +2006,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               {/* Default worker count */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Quân Số Định Biên Mặc Định</label>
-                <input 
-                  type="number"
-                  step="any"
-                  min="0.01"
+                <MathNumberInput
+                  minValue={0.01}
                   value={tCount}
-                  onChange={(e) => setTCount(Number(e.target.value))}
+                  onValueChange={(val) => setTCount(Number(val || 0))}
+                  placeholder="Ví dụ: 10+2"
                   className="w-full text-xs bg-white border border-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-bold"
                   required
                 />

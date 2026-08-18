@@ -14,9 +14,11 @@ import {
   query,
   where,
   orderBy,
+  limit,
   writeBatch
 } from 'firebase/firestore';
 import { getAuth, signInAnonymously, signInWithPopup, GoogleAuthProvider, signOut as fbSignOut, onAuthStateChanged, User } from 'firebase/auth';
+import { getDeviceId, getDeviceName } from '../utils/deviceIdentity';
 const env = (import.meta as any).env || {};
 const isDev = env.DEV || env.MODE === 'development' || !env.PROD;
 
@@ -177,13 +179,14 @@ export async function fetchCurrentUserProjectsFromCloud(): Promise<CloudProjectS
 
 async function writeProjectMemberDocs(
   projectId: string,
-  member: { uid?: string | null; email: string; role: string; active?: boolean; assignedAt?: number }
+  member: { uid?: string | null; email: string; role: string; active?: boolean; assignedAt?: number; displayName?: string }
 ): Promise<void> {
   const normalizedEmail = normalizeEmail(member.email);
   if (!projectId || !normalizedEmail) return;
 
   const payload = {
     ...(member.uid ? { uid: member.uid } : {}),
+    ...(member.displayName ? { displayName: member.displayName } : {}),
     email: normalizedEmail,
     role: member.role,
     active: member.active !== false,
@@ -649,7 +652,11 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
         ...(finalOwnerUid ? { ownerUid: finalOwnerUid } : {}),
         ...(finalOwnerEmail ? { ownerEmail: finalOwnerEmail } : {}),
       }, { merge: true });
-      await registerProjectForCurrentUser(project.id, project.name || project.id, 'ADMIN');
+      if (currentUser && !currentUser.isAnonymous) {
+        const roleInfo = await fetchProjectUserRoleFromCloud(project.id, currentUser).catch(() => null);
+        const safeRole = roleInfo?.allowed ? roleInfo.role : (finalOwnerUid === currentUser.uid ? 'ADMIN' : 'VIEWER');
+        await registerProjectForCurrentUser(project.id, project.name || project.id, safeRole);
+      }
     } catch (metaErr) {
       console.warn('[Cloud Sync] Project metadata update skipped or disallowed for current role:', metaErr);
     }
@@ -760,21 +767,22 @@ export async function saveProjectDiffsToCloud(
     try {
       const metadataRef = doc(db, 'projects', projectId);
       const currentUser = getCurrentAppUser();
-      const ownerEmail = normalizeEmail(currentUser?.email);
+      // IMPORTANT: normal autosync never rewrites ownerUid/ownerEmail or grants ADMIN.
+      // Ownership is assigned only when a project is created/claimed and membership is managed separately.
       const metaPayload: Record<string, any> = {
         id: projectId,
         name: projectName,
         contractorName,
         inspectorName,
         updatedAt: Date.now(),
-        schemaVersion: 2, // Subcollection mode
+        schemaVersion: 3,
         syncCode: projectId.slice(0, 8).toUpperCase(),
-        updatedBy: typeof window !== 'undefined' ? window.navigator.userAgent : 'device',
-        ...(currentUser?.uid ? { ownerUid: currentUser.uid } : {}),
-        ...(ownerEmail ? { ownerEmail } : {})
+        updatedByUid: currentUser?.uid || '',
+        updatedByEmail: normalizeEmail(currentUser?.email),
+        updatedByDeviceId: getDeviceId(),
+        updatedByDeviceName: getDeviceName()
       };
       await setDoc(metadataRef, metaPayload, { merge: true });
-      await registerProjectForCurrentUser(projectId, projectName || projectId, 'ADMIN');
     } catch (metaErr) {
       // Engineer role may not have permissions on root /projects/{projectId} document - this is expected
       console.warn('[Cloud Sync] Project metadata update skipped or disallowed for current role:', metaErr);
@@ -790,11 +798,16 @@ export async function saveProjectDiffsToCloud(
         const docRef = doc(db, 'projects', projectId, subName, item.id);
         const sanitized = sanitizePayloadForCloud(item);
         
+        const currentUser = getCurrentAppUser();
         batch.set(docRef, {
           ...sanitized,
           deleted: false,
           deletedAt: null,
-          updatedAt: item.updatedAt || Date.now()
+          updatedAt: item.updatedAt || Date.now(),
+          updatedByUid: currentUser?.uid || '',
+          updatedByEmail: normalizeEmail(currentUser?.email),
+          updatedByDeviceId: getDeviceId(),
+          updatedByDeviceName: getDeviceName()
         }, { merge: true });
         operationCount++;
 
@@ -811,11 +824,16 @@ export async function saveProjectDiffsToCloud(
     for (const [subName, ids] of Object.entries(diffs.deletedIds)) {
       for (const id of ids) {
         const docRef = doc(db, 'projects', projectId, subName, id);
+        const currentUser = getCurrentAppUser();
         batch.set(docRef, {
           id,
           deleted: true,
           deletedAt: now,
-          updatedAt: now
+          updatedAt: now,
+          updatedByUid: currentUser?.uid || '',
+          updatedByEmail: normalizeEmail(currentUser?.email),
+          updatedByDeviceId: getDeviceId(),
+          updatedByDeviceName: getDeviceName()
         }, { merge: true });
         operationCount++;
 
@@ -912,7 +930,7 @@ export async function fetchProjectFromCloud(projectId: string): Promise<CloudPro
 export function subscribeToProjectRealtime(
   projectId: string,
   onMetadataUpdate: (metadata: { projectName: string; contractorName: string; inspectorName: string; updatedAt: number }) => void,
-  onSubcollectionUpdate: (subcollectionName: string, items: any[], isInitial: boolean) => void,
+  onSubcollectionUpdate: (subcollectionName: string, items: any[], isInitial: boolean, isPatch?: boolean) => void,
   onError?: (err: any) => void
 ) {
   const unsubscribers: (() => void)[] = [];
@@ -960,15 +978,29 @@ export function subscribeToProjectRealtime(
       const unsub = onSnapshot(
         collection(db, 'projects', projectId, cloudName),
         (snap) => {
-          const items: any[] = [];
-          snap.forEach((docSnap) => {
-            items.push({ id: docSnap.id, ...docSnap.data() });
-          });
-          if (stateKey === 'floorPlans' && Array.isArray(items)) {
-            items.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+          if (isFirst) {
+            const items: any[] = [];
+            snap.forEach((docSnap) => {
+              items.push({ id: docSnap.id, ...docSnap.data() });
+            });
+            if (stateKey === 'floorPlans') {
+              items.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+            }
+            onSubcollectionUpdate(stateKey, items, true, false);
+            isFirst = false;
+            return;
           }
-          onSubcollectionUpdate(stateKey, items, isFirst);
-          isFirst = false;
+
+          // After bootstrap, send only changed documents. This avoids rebuilding and reconciling
+          // an entire project collection on every phone/PC edit.
+          const changedItems = snap.docChanges().map((change) => ({
+            id: change.doc.id,
+            ...change.doc.data(),
+            __firestoreChangeType: change.type
+          }));
+          if (changedItems.length > 0) {
+            onSubcollectionUpdate(stateKey, changedItems, false, true);
+          }
         },
         (err) => {
           console.warn(`Subcollection ${cloudName} subscribe error:`, err);
@@ -1004,6 +1036,56 @@ export function subscribeToCloudProject(projectId: string, onUpdate: (data: Clou
       if (onError) onError(err);
     }
   );
+}
+
+
+export interface ProjectAuditCloudEntry {
+  id?: string;
+  timestamp: number;
+  action: string;
+  details: string;
+  projectId: string;
+  actorUid?: string;
+  actorEmail?: string;
+  actorName?: string;
+  actorRole?: string;
+  deviceId?: string;
+  deviceName?: string;
+}
+
+export async function saveProjectAuditLog(projectId: string, entry: Omit<ProjectAuditCloudEntry, 'projectId' | 'id'>): Promise<void> {
+  if (!projectId) return;
+  const user = getCurrentRealFirebaseUser();
+  if (!user || user.isAnonymous) return;
+  const timestamp = Number(entry.timestamp || Date.now());
+  const id = `audit_${timestamp}_${Math.random().toString(36).slice(2, 8)}`;
+  await setDoc(doc(db, 'projects', projectId, 'audit_logs', id), {
+    ...entry,
+    id,
+    projectId,
+    timestamp,
+    actorUid: user.uid,
+    actorEmail: user.email || entry.actorEmail || '',
+    actorName: user.displayName || entry.actorName || '',
+    deviceId: getDeviceId(),
+    deviceName: getDeviceName(),
+  });
+}
+
+export async function fetchProjectAuditLogsFromCloud(projectId: string, maxItems = 200): Promise<ProjectAuditCloudEntry[]> {
+  if (!projectId) return [];
+  try {
+    const q = query(
+      collection(db, 'projects', projectId, 'audit_logs'),
+      orderBy('timestamp', 'desc'),
+      limit(Math.max(1, Math.min(500, maxItems)))
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() } as ProjectAuditCloudEntry));
+  } catch (err) {
+    console.warn('Error fetching project audit logs:', err);
+    return [];
+  }
 }
 
 /**
@@ -1072,6 +1154,7 @@ export async function saveUserProfileToCloud(user: { uid: string; email: string;
           await writeProjectMemberDocs(data.projectId, {
             uid: user.uid,
             email: normalizedEmail,
+            displayName: user.displayName || '',
             role: data.role || 'ENGINEER',
             active: true
           }).catch((err) => console.warn('Could not materialize invitation as member:', err));

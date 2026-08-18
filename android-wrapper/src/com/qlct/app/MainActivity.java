@@ -90,7 +90,18 @@ public class MainActivity extends Activity {
 
                 filePathCallback = callback;
                 try {
-                    Intent intent = buildFileChooserIntent(params);
+                    Intent intent;
+                    // For <input capture="environment"> open the camera directly.
+                    // Older code always opened a chooser containing Camera, which is unreliable
+                    // in several Android System WebView / Xiaomi builds.
+                    if (params != null && params.isCaptureEnabled() && acceptsImages(params)) {
+                        intent = buildCameraCaptureIntent();
+                        if (intent == null) {
+                            intent = buildFileChooserIntent(params);
+                        }
+                    } else {
+                        intent = buildFileChooserIntent(params);
+                    }
                     startActivityForResult(intent, FILE_CHOOSER_REQUEST);
                 } catch (ActivityNotFoundException error) {
                     filePathCallback = null;
@@ -273,6 +284,17 @@ public class MainActivity extends Activity {
 
         cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, pendingCameraImageUri);
         cameraIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
+            cameraIntent.setClipData(android.content.ClipData.newRawUri("QLCT camera output", pendingCameraImageUri));
+        }
+        // Explicitly grant the content URI to every camera activity. Some OEM camera apps
+        // ignore only the flag and otherwise return RESULT_OK with an empty/broken image.
+        java.util.List<android.content.pm.ResolveInfo> cameraActivities =
+                getPackageManager().queryIntentActivities(cameraIntent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY);
+        for (android.content.pm.ResolveInfo resolved : cameraActivities) {
+            grantUriPermission(resolved.activityInfo.packageName, pendingCameraImageUri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        }
         return cameraIntent;
     }
 

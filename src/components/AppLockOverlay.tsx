@@ -136,13 +136,13 @@ export const AppLockOverlay: React.FC<AppLockOverlayProps> = ({ isLocked, onUnlo
     <div
       tabIndex={0}
       onKeyDown={handleKeyDown}
-      className="fixed inset-0 bg-slate-950/90 backdrop-blur-xl z-[9999] flex items-center justify-center p-4 select-none animate-in fade-in duration-200 outline-none"
+      className="fixed inset-0 bg-slate-950 z-[9999] flex items-center justify-center p-4 select-none outline-none"
     >
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-xs w-full shadow-2xl text-center flex flex-col items-center space-y-5">
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-xs w-full shadow-lg text-center flex flex-col items-center space-y-5">
         
         {/* Shield Icon */}
         <div className="w-16 h-16 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shadow-inner">
-          <Lock className="w-8 h-8 animate-pulse" />
+          <Lock className="w-8 h-8 " />
         </div>
 
         <div>
@@ -157,7 +157,7 @@ export const AppLockOverlay: React.FC<AppLockOverlayProps> = ({ isLocked, onUnlo
           {[0, 1, 2, 3, 4, 5].map(idx => (
             <div
               key={idx}
-              className={`w-3.5 h-3.5 rounded-full transition-all duration-150 ${
+              className={`w-3.5 h-3.5 rounded-full transition-colors duration-75 ${
                 idx < pinInput.length
                   ? 'bg-indigo-500 scale-110 shadow-sm shadow-indigo-500/50'
                   : 'bg-slate-800 border border-slate-700'
@@ -193,7 +193,7 @@ export const AppLockOverlay: React.FC<AppLockOverlayProps> = ({ isLocked, onUnlo
                   }
                 }
               }}
-              className="h-12 rounded-2xl bg-slate-800/80 hover:bg-slate-700 text-white font-black text-lg border border-slate-700/50 transition-all active:scale-95 cursor-pointer flex items-center justify-center"
+              className="h-12 rounded-2xl bg-slate-800/80 hover:bg-slate-700 text-white font-black text-lg border border-slate-700/50 transition-colors active:opacity-80 cursor-pointer flex items-center justify-center"
             >
               {d}
             </button>
@@ -201,7 +201,7 @@ export const AppLockOverlay: React.FC<AppLockOverlayProps> = ({ isLocked, onUnlo
           <button
             type="button"
             onClick={handleDeleteDigit}
-            className="h-12 rounded-2xl bg-slate-800/40 hover:bg-slate-800 text-slate-400 font-bold text-xs border border-slate-800 transition-all active:scale-95 cursor-pointer flex items-center justify-center"
+            className="h-12 rounded-2xl bg-slate-800/40 hover:bg-slate-800 text-slate-400 font-bold text-xs border border-slate-800 transition-colors active:opacity-80 cursor-pointer flex items-center justify-center"
           >
             Xóa
           </button>
@@ -216,7 +216,7 @@ export const AppLockOverlay: React.FC<AppLockOverlayProps> = ({ isLocked, onUnlo
                 }
               }
             }}
-            className="h-12 rounded-2xl bg-slate-800/80 hover:bg-slate-700 text-white font-black text-lg border border-slate-700/50 transition-all active:scale-95 cursor-pointer flex items-center justify-center"
+            className="h-12 rounded-2xl bg-slate-800/80 hover:bg-slate-700 text-white font-black text-lg border border-slate-700/50 transition-colors active:opacity-80 cursor-pointer flex items-center justify-center"
           >
             0
           </button>
@@ -224,7 +224,7 @@ export const AppLockOverlay: React.FC<AppLockOverlayProps> = ({ isLocked, onUnlo
             type="button"
             onClick={() => handleVerify()}
             disabled={isVerifying || pinInput.length < 4}
-            className="h-12 rounded-2xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white font-bold text-xs transition-all active:scale-95 cursor-pointer flex items-center justify-center shadow-lg shadow-indigo-600/30"
+            className="h-12 rounded-2xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white font-bold text-xs transition-colors active:opacity-80 cursor-pointer flex items-center justify-center shadow-lg shadow-indigo-600/30"
           >
             <Unlock className="w-4 h-4" />
           </button>

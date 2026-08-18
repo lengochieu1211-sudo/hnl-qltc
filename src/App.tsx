@@ -31,7 +31,7 @@ function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
   }
   return merged;
 }
-import { subscribeToProjectRealtime, saveProjectDiffsToCloud, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, fetchCurrentUserProjectsFromCloud } from './lib/firebase';
+import { subscribeToProjectRealtime, saveProjectDiffsToCloud, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, fetchCurrentUserProjectsFromCloud, saveProjectAuditLog } from './lib/firebase';
 import { 
   InventoryItem, 
   WorkVolume, 
@@ -58,12 +58,6 @@ import {
 } from './data/initialData';
 import { GoogleAuthHeader } from './components/GoogleAuthHeader';
 import { OfflineSyncBanner } from './components/OfflineSyncBanner';
-import { WarehouseTab } from './components/WarehouseTab';
-import { WorkVolumeTab } from './components/WorkVolumeTab';
-import { FloorPlanDefectTab } from './components/FloorPlanDefectTab';
-import { ChecklistTab } from './components/ChecklistTab';
-import { CrewTab } from './components/CrewTab';
-import { GoogleConfigTab } from './components/GoogleConfigTab';
 import { ExportPdfModal } from './components/ExportPdfModal';
 import { MaterialNormModal } from './components/MaterialNormModal';
 import { ProjectManagerModal } from './components/ProjectManagerModal';
@@ -96,6 +90,15 @@ import {
   saveTextFileToAndroidAutoFolder
 } from './utils/fileExport';
 import { getProjectPhotosWithBinary, restorePhotosFromBackup } from './utils/photoStorage';
+import { subscribeProjectPhotosRealtime, syncProjectPhotosToCloud, PhotoCloudSyncStatus } from './lib/photoCloudSync';
+
+// Heavy screens are code-split so Android does not parse XLSX/PDF-heavy modules at startup.
+const WarehouseTab = React.lazy(() => import('./components/WarehouseTab').then(m => ({ default: m.WarehouseTab })));
+const WorkVolumeTab = React.lazy(() => import('./components/WorkVolumeTab').then(m => ({ default: m.WorkVolumeTab })));
+const FloorPlanDefectTab = React.lazy(() => import('./components/FloorPlanDefectTab').then(m => ({ default: m.FloorPlanDefectTab })));
+const ChecklistTab = React.lazy(() => import('./components/ChecklistTab').then(m => ({ default: m.ChecklistTab })));
+const CrewTab = React.lazy(() => import('./components/CrewTab').then(m => ({ default: m.CrewTab })));
+const GoogleConfigTab = React.lazy(() => import('./components/GoogleConfigTab').then(m => ({ default: m.GoogleConfigTab })));
 
 interface AppData {
   materialNorms: MaterialNorm[];
@@ -739,7 +742,13 @@ export default function App() {
         }
       }
 
-      projectPhotos[projectId] = photos;
+      // Keep photo metadata and binary payload separate. Storing Base64 inside both
+      // `projectPhotos` and `projectPhotoData` multiplies JSON size/RAM usage and can
+      // make Android exports appear as 0 KB when WebView runs out of memory.
+      projectPhotos[projectId] = photos.map((photo) => {
+        const { base64, localUri, dataUrl, ...metadataOnly } = photo as any;
+        return metadataOnly;
+      });
       if (Object.keys(photoData).length > 0) {
         projectPhotoData[projectId] = photoData;
       }
@@ -776,11 +785,13 @@ export default function App() {
         checklist,
         crewRecords,
         teams,
-        photos,
+        photos: photos.map((photo) => {
+          const { base64, localUri, dataUrl, ...metadataOnly } = photo as any;
+          return metadataOnly;
+        }),
         photoData,
         updatedAt: lastUpdatedAt,
       },
-      photoData,
     };
   };
 
@@ -876,16 +887,49 @@ export default function App() {
     activeProjectIdRef.current = activeProjectId;
   }, [activeProjectId]);
 
+  const [photoCloudStatus, setPhotoCloudStatus] = useState<PhotoCloudSyncStatus>({ phase: 'idle', pending: 0 });
+  const photoSyncTimerRef = useRef<number | null>(null);
+
   useEffect(() => {
-    const handlePhotoAttachmentsChanged = () => {
+    const handlePhotoAttachmentsChanged = (event: Event) => {
+      const eventDetail = (event as CustomEvent)?.detail || {};
+      const source = eventDetail?.source;
+      if (source === 'cloud') return;
+
       hasUserEditedSinceHydrateRef.current = true;
       hasUnsavedAllBackupChangesRef.current = true;
       const now = Date.now();
       setLastUpdatedAt(now);
-      localStorage.setItem(getKey('construction_updated_at'), String(now));
+      localStorage.setItem(getKey('construction_updated_at', activeProjectIdRef.current), String(now));
+      const photoArea = eventDetail.entityType === 'defect' ? 'Defect' : eventDetail.entityType === 'crewRecord' ? 'Báo cáo quân số' : 'Hình ảnh';
+      const photoVerb = eventDetail.operation === 'add' ? `Thêm ${Number(eventDetail.count || 1)} ảnh`
+        : eventDetail.operation === 'delete' ? 'Xóa ảnh'
+        : eventDetail.operation === 'edit' ? 'Chỉnh sửa ảnh'
+        : 'Thay đổi ảnh';
+      const photoTarget = eventDetail.entityId ? ` · bản ghi ${String(eventDetail.entityId)}` : '';
+      saveProjectAuditLog(activeProjectIdRef.current, {
+        timestamp: now,
+        action: 'PHOTO_CHANGE',
+        details: `${photoVerb} ${photoArea}${photoTarget}`,
+        actorRole: currentUserRole,
+      }).catch((err) => console.warn('Photo audit log warning:', err));
+
+      const photoUser = getCurrentRealFirebaseUser();
+      if (!photoUser || photoUser.isAnonymous || switchingProjectRef.current) return;
+      if (photoSyncTimerRef.current) window.clearTimeout(photoSyncTimerRef.current);
+      const projectId = activeProjectIdRef.current;
+      photoSyncTimerRef.current = window.setTimeout(() => {
+        setPhotoCloudStatus({ phase: 'syncing' });
+        syncProjectPhotosToCloud(projectId)
+          .then(() => setPhotoCloudStatus({ phase: 'synced', pending: 0, lastSyncAt: Date.now() }))
+          .catch((err) => setPhotoCloudStatus({ phase: 'error', message: err?.message || String(err) }));
+      }, 700);
     };
     window.addEventListener('qlct-photo-attachments-changed', handlePhotoAttachmentsChanged);
-    return () => window.removeEventListener('qlct-photo-attachments-changed', handlePhotoAttachmentsChanged);
+    return () => {
+      window.removeEventListener('qlct-photo-attachments-changed', handlePhotoAttachmentsChanged);
+      if (photoSyncTimerRef.current) window.clearTimeout(photoSyncTimerRef.current);
+    };
   }, [activeProjectId]);
 
   const [cloudInitialReady, setCloudInitialReady] = useState<boolean>(false);
@@ -1141,6 +1185,7 @@ export default function App() {
 
       let stampedNext = rawNext;
       let hasStamped = false;
+      const changedSummaries: string[] = [];
 
       collections.forEach((col) => {
         const prevList = prev[col] || [];
@@ -1148,19 +1193,35 @@ export default function App() {
 
         if (prevList !== nextList) {
           const prevMap = new Map<string, any>();
-          prevList.forEach(item => { if (item?.id) prevMap.set(item.id, item); });
+          (prevList as any[]).forEach(item => { if (item?.id) prevMap.set(String(item.id), item); });
+          const nextMap = new Map<string, any>();
+          (nextList as any[]).forEach(item => { if (item?.id) nextMap.set(String(item.id), item); });
+
+          const addedIds = Array.from(nextMap.keys()).filter((id) => !prevMap.has(id));
+          const deletedIds = Array.from(prevMap.keys()).filter((id) => !nextMap.has(id));
+          const modifiedDetails: string[] = [];
+          for (const [id, nextItem] of nextMap.entries()) {
+            const prevItem = prevMap.get(id);
+            if (!prevItem || prevItem === nextItem) continue;
+            const changedFields = Array.from(new Set([...Object.keys(prevItem), ...Object.keys(nextItem)]))
+              .filter((key) => key !== 'updatedAt' && prevItem[key] !== nextItem[key])
+              .slice(0, 6);
+            modifiedDetails.push(`${id}${changedFields.length ? ` [${changedFields.join(', ')}]` : ''}`);
+            if (modifiedDetails.length >= 3) break;
+          }
+          const auditParts: string[] = [];
+          if (addedIds.length) auditParts.push(`thêm ${addedIds.slice(0, 3).join(', ')}${addedIds.length > 3 ? ` +${addedIds.length - 3}` : ''}`);
+          if (deletedIds.length) auditParts.push(`xóa ${deletedIds.slice(0, 3).join(', ')}${deletedIds.length > 3 ? ` +${deletedIds.length - 3}` : ''}`);
+          if (modifiedDetails.length) auditParts.push(`sửa ${modifiedDetails.join('; ')}`);
+          if (auditParts.length) changedSummaries.push(`${String(col)}: ${auditParts.join(' · ')}`);
 
           const newColList = nextList.map(item => {
             if (!item || !item.id) return item;
-            const prevItem = prevMap.get(item.id);
-            if (!prevItem) {
+            const prevItem = prevMap.get(String(item.id));
+            // App updates are immutable: unchanged records preserve object identity. Avoid
+            // JSON.stringify on every record because it causes noticeable mobile input lag.
+            if (!prevItem || prevItem !== item) {
               return { ...item, updatedAt: now };
-            } else {
-              const { updatedAt: _pu, ...prevRest } = prevItem;
-              const { updatedAt: _nu, ...nextRest } = item;
-              if (JSON.stringify(prevRest) !== JSON.stringify(nextRest)) {
-                return { ...item, updatedAt: now };
-              }
             }
             return item;
           });
@@ -1177,13 +1238,21 @@ export default function App() {
 
       // Safe asynchronous scheduling to prevent React from warning about nested state updates during rendering
       setTimeout(() => {
-        setPast((p) => [...p.slice(-29), prev]);
+        setPast((p) => { const limit = typeof window !== 'undefined' && window.innerWidth < 768 ? 6 : 15; return [...p.slice(-(limit - 1)), prev]; });
         setFuture([]);
 
         // Update local modified timestamp on any UI action
         if (!syncLockRef.current) {
           setLastUpdatedAt(now);
           localStorage.setItem(getKey('construction_updated_at', activeProjectIdRef.current), String(now));
+          if (changedSummaries.length > 0) {
+            saveProjectAuditLog(activeProjectIdRef.current, {
+              timestamp: now,
+              action: 'DATA_CHANGE',
+              details: changedSummaries.join(' | '),
+              actorRole: currentUserRole,
+            }).catch((err) => console.warn('Cloud audit log warning:', err));
+          }
         }
       }, 0);
 
@@ -1406,7 +1475,7 @@ export default function App() {
           }, 50);
         }
       },
-      (stateKey, cloudItems, isInitial) => {
+      (stateKey, cloudItems, isInitial, isPatch = false) => {
         if (switchingProjectRef.current || activeProjectIdRef.current !== subscribedProjectId) return;
 
         receivedInitialSubcollectionsRef.current.add(stateKey);
@@ -1419,6 +1488,51 @@ export default function App() {
           if (switchingProjectRef.current || activeProjectIdRef.current !== subscribedProjectId) return prev;
 
           const localList = prev[stateKey as keyof AppData] || [];
+
+          if (isPatch) {
+            const byId = new Map<string, any>();
+            localList.forEach((item: any) => { if (item?.id) byId.set(item.id, item); });
+            let changed = false;
+
+            for (const cloudItemRaw of cloudItems) {
+              if (!cloudItemRaw?.id) continue;
+              const { __firestoreChangeType: _changeType, ...cloudItem } = cloudItemRaw;
+              const localItem = byId.get(cloudItem.id);
+              const localTime = parseLegacyTimestamp(localItem?.updatedAt, 0);
+              const cloudTime = parseLegacyTimestamp(cloudItem.updatedAt, 0);
+
+              if (cloudItem.deleted) {
+                if (localItem && cloudTime >= localTime) {
+                  byId.delete(cloudItem.id);
+                  changed = true;
+                }
+              } else if (!localItem || cloudTime > localTime) {
+                byId.set(cloudItem.id, localItem ? restoreLocalOmittedImages(cloudItem, localItem) : cloudItem);
+                changed = true;
+              }
+            }
+
+            if (!changed) return prev;
+            const mergedPatchList = Array.from(byId.values());
+            if (stateKey === 'floorPlans') mergedPatchList.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+            if (!lastSyncedPresentRef.current) {
+              lastSyncedPresentRef.current = { materialNorms: [], inventory: [], workVolumes: [], floorPlans: [], defects: [], roomProgressList: [], checklist: [], crewRecords: [], teams: [] };
+            }
+            const syncedMap = new Map<string, any>();
+            (lastSyncedPresentRef.current[stateKey as keyof AppData] || []).forEach((item: any) => { if (item?.id) syncedMap.set(item.id, item); });
+            cloudItems.forEach((raw: any) => {
+              if (!raw?.id) return;
+              const { __firestoreChangeType: _ct, ...cloudItem } = raw;
+              if (cloudItem.deleted) syncedMap.delete(cloudItem.id);
+              else syncedMap.set(cloudItem.id, cloudItem);
+            });
+            lastSyncedPresentRef.current[stateKey as keyof AppData] = Array.from(syncedMap.values());
+
+            const dbKey = getKey(`construction_${stateKey === 'roomProgressList' ? 'room_progress' : stateKey.replace(/([A-Z])/g, '_$1').toLowerCase()}`, subscribedProjectId);
+            setAsyncItem(dbKey, mergedPatchList).catch(err => console.warn('Patch sync save IndexedDB warning:', err));
+            return { ...prev, [stateKey]: mergedPatchList };
+          }
           
           const localMap = new Map<string, any>();
           localList.forEach(item => {
@@ -1507,6 +1621,20 @@ export default function App() {
       if (unsubscribe) unsubscribe();
     };
   }, [activeProjectId, cloudUserKey, cloudBootstrapVersion, isHydrated, isLoadingProject, isRestoring, isInitializing]);
+
+  // Photo metadata is realtime; binary image chunks are downloaded lazily only when an image is displayed.
+  // This keeps multi-device image sync complete without loading every photo into phone RAM at startup.
+  useEffect(() => {
+    if (!isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey) {
+      setPhotoCloudStatus({ phase: 'idle', pending: 0 });
+      return;
+    }
+    const projectId = activeProjectId;
+    const unsubscribePhotos = subscribeProjectPhotosRealtime(projectId, (status) => {
+      if (activeProjectIdRef.current === projectId) setPhotoCloudStatus(status);
+    });
+    return () => unsubscribePhotos();
+  }, [activeProjectId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing]);
 
   const handleUpdateProjectName = (val: string) => {
     hasUserEditedSinceHydrateRef.current = true;
@@ -2262,7 +2390,7 @@ export default function App() {
               if (!item || !item.id) return;
               nextMap.set(item.id, item);
               const prevItem = prevMap.get(item.id);
-              if (!prevItem || JSON.stringify(prevItem) !== JSON.stringify(item)) {
+              if (!prevItem || Number(prevItem.updatedAt || 0) !== Number(item.updatedAt || 0)) {
                 // Ensure item has updatedAt so conflict reconciliation knows which is newer
                 const updatedItem = {
                   ...item,
@@ -2302,7 +2430,7 @@ export default function App() {
             }).then(() => {
               // Update references only after successful commit
               if (!switchingProjectRef.current && activeProjectIdRef.current === activeId) {
-                lastSyncedPresentRef.current = JSON.parse(JSON.stringify(present));
+                lastSyncedPresentRef.current = present;
                 lastSyncedMetadataRef.current = { projectName, contractorName, inspectorName };
               }
             }).catch(err => console.warn('Cloud auto save notice:', err));
@@ -2919,6 +3047,13 @@ export default function App() {
     updateAppData((prev) => ({
       ...prev,
       inventory: [{ ...item, id: newId }, ...prev.inventory],
+    }));
+  };
+
+  const handleUpdateInventory = (id: string, item: Omit<InventoryItem, 'id'>) => {
+    updateAppData((prev) => ({
+      ...prev,
+      inventory: prev.inventory.map((existing) => existing.id === id ? { ...existing, ...item, id } : existing),
     }));
   };
 
@@ -3754,6 +3889,7 @@ export default function App() {
           onRestoreData={handleRestoreData}
           onSwitchProject={switchProject}
           onFlushCurrentProject={async () => await saveCurrentProject(activeProjectId)}
+          photoCloudStatus={photoCloudStatus}
         />
 
         {/* Offline & Sync Status Banner */}
@@ -3761,10 +3897,12 @@ export default function App() {
 
         {/* Tab Content */}
         <main className="animate-in fade-in duration-150">
+          <React.Suspense fallback={<div className="p-8 text-center text-sm text-slate-500"><RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />Đang tải mục...</div>}>
           {activeTab === 'warehouse' && (
             <WarehouseTab
               inventory={inventory}
               onAddInventory={handleAddInventory}
+              onUpdateInventory={handleUpdateInventory}
               onDeleteInventory={handleDeleteInventory}
               onDeleteMultipleInventory={handleDeleteMultipleInventory}
               onSyncSheets={googleServerBackendAvailable ? handleSyncAll : undefined}
@@ -4010,6 +4148,7 @@ export default function App() {
               }}
             />
           )}
+          </React.Suspense>
         </main>
 
         {/* PDF Export Modal */}

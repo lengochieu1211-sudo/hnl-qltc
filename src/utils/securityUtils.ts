@@ -22,6 +22,8 @@ export interface ProjectMember {
   email: string;
   role: UserRole;
   assignedAt: number;
+  uid?: string;
+  displayName?: string;
 }
 
 export interface AuditLogEntry {
@@ -29,9 +31,13 @@ export interface AuditLogEntry {
   timestamp: number;
   actorEmail: string;
   actorRole: UserRole;
-  action: 'PROJECT_DELETE' | 'PROJECT_CREATE' | 'FULL_RESTORE' | 'FULL_RESTORE_REPLACE' | 'ORPHAN_CLEANUP' | 'ROLE_CHANGE' | 'CATEGORY_DELETE' | 'BACKUP_EXPORT' | 'SECURITY_CONFIG_CHANGE';
+  action: 'PROJECT_DELETE' | 'PROJECT_CREATE' | 'FULL_RESTORE' | 'FULL_RESTORE_REPLACE' | 'ORPHAN_CLEANUP' | 'ROLE_CHANGE' | 'CATEGORY_DELETE' | 'BACKUP_EXPORT' | 'SECURITY_CONFIG_CHANGE' | 'DATA_CHANGE' | 'PHOTO_CHANGE';
   details: string;
   projectId?: string;
+  actorUid?: string;
+  actorName?: string;
+  deviceId?: string;
+  deviceName?: string;
 }
 
 const PIN_LOCK_STORAGE_KEY = 'construction_pin_lock_config';

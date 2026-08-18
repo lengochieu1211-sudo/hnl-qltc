@@ -28,6 +28,7 @@ import { RoomProgressItem, RoomSubItem, AcceptanceStatus, RoomInspectionResult, 
 import { ROOM_COLOR_PALETTE } from '../utils/colorPalette';
 import { confirmAsync } from '../utils/confirmAsync';
 import { formatDecimal, evaluateMathExpression, useFormatSettings } from '../utils/numberUtils';
+import { MathNumberInput } from './MathNumberInput';
 
 interface RoomHighlightModalProps {
   isOpen: boolean;
@@ -1589,14 +1590,12 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                       <div className="grid grid-cols-2 gap-1.5 items-center">
                         <div className="flex items-center gap-1 min-w-0">
                           <label className="font-bold text-slate-500 shrink-0 text-[10px]">X1:</label>
-                          <input
-                            type="number"
-                            step="any"
-                            min="0"
-                            max="100"
+                          <MathNumberInput
+                            minValue={0}
+                            maxValue={100}
                             value={x}
-                            onChange={(e) => {
-                              const val = Math.min(100, Math.max(0, Number(e.target.value)));
+                            onValueChange={(raw) => {
+                              const val = Math.min(100, Math.max(0, Number(raw || 0)));
                               const oldX2 = x + width;
                               setX(val);
                               if (oldX2 > val) setWidth(oldX2 - val);
@@ -1606,14 +1605,12 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                         </div>
                         <div className="flex items-center gap-1 min-w-0">
                           <label className="font-bold text-slate-500 shrink-0 text-[10px]">Y1:</label>
-                          <input
-                            type="number"
-                            step="any"
-                            min="0"
-                            max="100"
+                          <MathNumberInput
+                            minValue={0}
+                            maxValue={100}
                             value={y}
-                            onChange={(e) => {
-                              const val = Math.min(100, Math.max(0, Number(e.target.value)));
+                            onValueChange={(raw) => {
+                              const val = Math.min(100, Math.max(0, Number(raw || 0)));
                               const oldY2 = y + height;
                               setY(val);
                               if (oldY2 > val) setHeight(oldY2 - val);
@@ -1629,14 +1626,12 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                       <div className="grid grid-cols-2 gap-1.5 items-center">
                         <div className="flex items-center gap-1 min-w-0">
                           <label className="font-bold text-slate-500 shrink-0 text-[10px]">X2:</label>
-                          <input
-                            type="number"
-                            step="any"
-                            min="0"
-                            max="100"
+                          <MathNumberInput
+                            minValue={0}
+                            maxValue={100}
                             value={Number((x + width).toFixed(2))}
-                            onChange={(e) => {
-                              const val = Math.min(100, Math.max(0, Number(e.target.value)));
+                            onValueChange={(raw) => {
+                              const val = Math.min(100, Math.max(0, Number(raw || 0)));
                               if (val > x) setWidth(val - x);
                             }}
                             className="w-full min-w-0 border border-slate-300 rounded px-1.5 py-1 font-bold text-slate-900 text-xs focus:ring-1 focus:ring-indigo-500 bg-white"
@@ -1644,14 +1639,12 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                         </div>
                         <div className="flex items-center gap-1 min-w-0">
                           <label className="font-bold text-slate-500 shrink-0 text-[10px]">Y2:</label>
-                          <input
-                            type="number"
-                            step="any"
-                            min="0"
-                            max="100"
+                          <MathNumberInput
+                            minValue={0}
+                            maxValue={100}
                             value={Number((y + height).toFixed(2))}
-                            onChange={(e) => {
-                              const val = Math.min(100, Math.max(0, Number(e.target.value)));
+                            onValueChange={(raw) => {
+                              const val = Math.min(100, Math.max(0, Number(raw || 0)));
                               if (val > y) setHeight(val - y);
                             }}
                             className="w-full min-w-0 border border-slate-300 rounded px-1.5 py-1 font-bold text-slate-900 text-xs focus:ring-1 focus:ring-indigo-500 bg-white"

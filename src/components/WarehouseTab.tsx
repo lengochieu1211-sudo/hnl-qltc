@@ -19,7 +19,8 @@ import {
   AlertTriangle,
   AlertCircle,
   Download,
-  Upload
+  Upload,
+  Edit2
 } from 'lucide-react';
 import { InventoryItem, TransactionType, MaterialNorm, WorkVolume } from '../types';
 import { formatDateDDMMYYYY, formatExcelDate } from '../utils/dateFormatter';
@@ -32,6 +33,7 @@ import { calculateStockSummary } from '../utils/inventoryUtils';
 interface WarehouseTabProps {
   inventory: InventoryItem[];
   onAddInventory: (item: Omit<InventoryItem, 'id'>) => void;
+  onUpdateInventory?: (id: string, item: Omit<InventoryItem, 'id'>) => void;
   onDeleteInventory: (id: string) => void;
   onDeleteMultipleInventory?: (ids: string[]) => void;
   onSyncSheets?: () => void;
@@ -52,6 +54,7 @@ interface WarehouseTabProps {
 export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   inventory,
   onAddInventory,
+  onUpdateInventory,
   onDeleteInventory,
   onDeleteMultipleInventory,
   onSyncSheets,
@@ -73,6 +76,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   useFormatSettings();
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
+  const [editingInventory, setEditingInventory] = useState<InventoryItem | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
 
   // Drag and Drop state for Excel file
@@ -598,6 +602,33 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     });
   }, [inventory, filterType, searchTerm]);
 
+  const openCreateInventory = () => {
+    setEditingInventory(null);
+    setType('in');
+    setCustomMaterial('');
+    setQuantity(100);
+    setQuantityStr('100');
+    setNotes('');
+    setDate(new Date().toISOString().split('T')[0]);
+    setShowAddForm(true);
+  };
+
+  const openEditInventory = (item: InventoryItem) => {
+    setEditingInventory(item);
+    setType(item.type);
+    const matched = materialNorms.find((m) => (item.materialId && (m.materialId === item.materialId || m.id === item.materialId)) || m.materialName === item.materialName);
+    setMaterialName(matched?.materialName || item.materialName);
+    setCustomMaterial(matched ? '' : item.materialName);
+    setUnit(item.unit);
+    setQuantity(item.quantity);
+    setQuantityStr(String(item.quantity));
+    setLocation(item.location || '');
+    setHandler(item.handler || '');
+    setDate(item.date || new Date().toISOString().split('T')[0]);
+    setNotes(item.notes || '');
+    setShowAddForm(true);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const finalMaterialName = customMaterial.trim() ? customMaterial.trim() : materialName;
@@ -632,7 +663,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
     const matchedNorm = materialNorms.find(n => n.materialName.trim().toLowerCase() === finalMaterialName.trim().toLowerCase());
 
-    onAddInventory({
+    const payload = {
       type,
       materialId: matchedNorm?.materialId || matchedNorm?.id,
       materialName: finalMaterialName,
@@ -642,12 +673,19 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       handler,
       date,
       notes,
-    });
+    };
+
+    if (editingInventory && onUpdateInventory) {
+      onUpdateInventory(editingInventory.id, payload);
+    } else {
+      onAddInventory(payload);
+    }
 
     setShowAddForm(false);
+    setEditingInventory(null);
     setCustomMaterial('');
     setNotes('');
-    alert(`Đã thêm phiếu ${type === 'in' ? 'NHẬP KHO' : 'XUẤT KHO'} thành công!`);
+    alert(editingInventory ? 'Đã cập nhật phiếu kho thành công!' : `Đã thêm phiếu ${type === 'in' ? 'NHẬP KHO' : 'XUẤT KHO'} thành công!`);
   };
 
   return (
@@ -671,7 +709,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             <span>{t('norms_button')}</span>
           </button>
           <button
-            onClick={() => setShowAddForm(true)}
+            onClick={openCreateInventory}
             className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-xl text-xs font-bold shadow-md active:scale-95 transition-all"
           >
             <Plus className="w-4 h-4" />
@@ -1065,8 +1103,18 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     </div>
                   </div>
 
-                  <div className="flex justify-end pt-1">
+                  <div className="flex justify-end gap-3 pt-1">
+                    {onUpdateInventory && (
+                      <button
+                        type="button"
+                        onClick={() => openEditInventory(item)}
+                        className="text-[11px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-semibold"
+                      >
+                        <Edit2 className="w-3 h-3" /> Chỉnh phiếu
+                      </button>
+                    )}
                     <button
+                      type="button"
                       onClick={() => setDeletingInventoryTarget(item)}
                       className="text-[11px] text-rose-500 hover:text-rose-700 flex items-center gap-1 font-semibold"
                     >
@@ -1124,10 +1172,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <PackageCheck className="w-5 h-5 text-blue-600" />
-                Tạo Phiếu Nhập / Xuất Kho
+                {editingInventory ? 'Chỉnh Sửa Phiếu Kho' : 'Tạo Phiếu Nhập / Xuất Kho'}
               </h3>
               <button
-                onClick={() => setShowAddForm(false)}
+                onClick={() => { setShowAddForm(false); setEditingInventory(null); }}
                 className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center font-bold text-slate-500 hover:bg-slate-200"
               >
                 ✕
