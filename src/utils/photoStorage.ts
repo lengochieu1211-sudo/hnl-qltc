@@ -20,6 +20,10 @@ export interface PhotoAttachment {
   dataUrl?: string;
   cloudFileId?: string;
   cloudUrl?: string;
+  storageProvider?: 'google-drive-primary' | 'firestore-fallback' | string;
+  driveOwnerEmail?: string;
+  driveFolderPath?: string;
+  chunkCount?: number;
   width?: number;
   height?: number;
   fileSize?: number;
@@ -200,7 +204,13 @@ export async function mergeCloudPhotoMetadata(projectId: string, cloudPhotos: Ph
     const local = localMap.get(cloud.id);
     const localTime = Number(local?.updatedAt || local?.createdAt || 0);
     const cloudTime = Number(cloud.updatedAt || cloud.createdAt || 0);
-    if (!local || cloudTime > localTime || (cloudTime === localTime && cloud.deleted && !local.deleted)) {
+    const cloudStorageChanged = Boolean(local && cloudTime === localTime && (
+      String((cloud as any).cloudFileId || '') !== String((local as any).cloudFileId || '') ||
+      String((cloud as any).cloudUrl || '') !== String((local as any).cloudUrl || '') ||
+      String((cloud as any).storageProvider || '') !== String((local as any).storageProvider || '') ||
+      Number((cloud as any).chunkCount || 0) !== Number((local as any).chunkCount || 0)
+    ));
+    if (!local || cloudTime > localTime || cloudStorageChanged || (cloudTime === localTime && cloud.deleted && !local.deleted)) {
       const cleanCloud: PhotoAttachment = {
         ...local,
         ...cloud,
@@ -249,10 +259,14 @@ export async function getPhotoDataUrl(photoId: string, fallbackDataUrl?: string,
       }
     }
 
-    // Firestore photo binaries are downloaded lazily only when this image is actually displayed.
-    if (fallbackDataUrl && fallbackDataUrl.startsWith('firestore:')) {
+    // Cloud photo binaries (primary Drive or legacy Firestore chunks) are downloaded
+    // lazily only when this image is actually displayed. The projectId is embedded
+    // in the opaque cloud reference: provider:projectId:fileId/photoId.
+    if (fallbackDataUrl && (fallbackDataUrl.startsWith('firestore:') || fallbackDataUrl.startsWith('drive:'))) {
       try {
-        const [, projectId, cloudPhotoId] = fallbackDataUrl.split(':');
+        const parts = fallbackDataUrl.split(':');
+        const projectId = parts[1] || '';
+        const cloudPhotoId = fallbackDataUrl.startsWith('firestore:') ? (parts[2] || photoId) : photoId;
         const { downloadPhotoBlobFromCloud } = await import('../lib/photoCloudSync');
         const cloudBlob = await downloadPhotoBlobFromCloud(projectId, cloudPhotoId || photoId);
         if (cloudBlob) {
@@ -336,7 +350,7 @@ export async function getProjectPhotosWithBinary(projectId: string): Promise<Pho
   for (const p of photos) {
     let base64 = await getPhotoBase64(p.id);
 
-    if (!base64 && (p.cloudFileId?.startsWith('firestore:') || p.cloudUrl?.startsWith('firestore:'))) {
+    if (!base64 && (p.cloudFileId?.startsWith('firestore:') || p.cloudUrl?.startsWith('firestore:') || p.cloudFileId?.startsWith('drive:') || p.cloudUrl?.startsWith('drive:'))) {
       try {
         const { downloadPhotoBlobFromCloud } = await import('../lib/photoCloudSync');
         const cloudBlob = await downloadPhotoBlobFromCloud(projectId, p.id, p.mimeType || 'image/jpeg');

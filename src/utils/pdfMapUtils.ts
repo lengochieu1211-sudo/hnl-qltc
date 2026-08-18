@@ -1,222 +1,264 @@
-import { formatFloorName } from './dateFormatter';
-
 export interface Point {
   x: number;
   y: number;
 }
 
+export interface MapObstacle {
+  x: number;
+  y: number;
+  radius?: number;
+}
+
 export interface DefectMapLabelPos {
-  x: number;   // Origin dot X (0..100 percentage) - NEVER MOVES
-  y: number;   // Origin dot Y (0..100 percentage) - NEVER MOVES
-  lx: number;  // Label center X (0..100 percentage)
-  ly: number;  // Label center Y (0..100 percentage)
-  isOffset?: boolean;
+  x: number;   // exact defect coordinate (0..100)
+  y: number;
+  lx: number;  // numbered marker / label centre
+  ly: number;
+  isOffset: boolean;
+  showLabel: boolean;
+  clusterIndex: number;
+  clusterCount: number;
 }
 
 export interface RoomMapLabelPos {
-  x: number;   // Geometric centroid X (0..100 percentage)
-  y: number;   // Geometric centroid Y (0..100 percentage)
-  lx: number;  // Label center X (0..100 percentage)
-  ly: number;  // Label center Y (0..100 percentage)
+  x: number;
+  y: number;
+  lx: number;
+  ly: number;
   isOffset: boolean;
+  showLabel: boolean;
 }
 
-/**
- * Calculates optimal label offsets for defects to prevent overlapping labels.
- * The origin dot (x, y) stays 100% FIXED at its exact floor plan coordinates.
- */
-export function computeDefectLabelPositions<T extends { x: number; y: number; displayCode?: string }>(
-  defects: T[],
-  existingObstacles: { x: number; y: number; radius?: number }[] = []
-): DefectMapLabelPos[] {
-  const labelWidth = 8.5;
-  const labelHeight = 3.8;
+interface Box {
+  x1: number;
+  x2: number;
+  y1: number;
+  y2: number;
+}
 
-  const candidateOffsets = [
-    { dx: 3.2, dy: -2.8 },  // Top-Right
-    { dx: -3.2, dy: -2.8 }, // Top-Left
-    { dx: 3.2, dy: 2.8 },   // Bottom-Right
-    { dx: -3.2, dy: 2.8 },  // Bottom-Left
-    { dx: 4.0, dy: 0 },     // Right
-    { dx: -4.0, dy: 0 },    // Left
-    { dx: 0, dy: -3.5 },    // Top
-    { dx: 0, dy: 3.5 },     // Bottom
-    { dx: 5.5, dy: -4.5 },  // Farther Top-Right
-    { dx: -5.5, dy: -4.5 }, // Farther Top-Left
-    { dx: 5.5, dy: 4.5 },   // Farther Bottom-Right
-    { dx: -5.5, dy: 4.5 },  // Farther Bottom-Left
-    { dx: 6.5, dy: 0 },     // Farther Right
-    { dx: -6.5, dy: 0 },    // Farther Left
-    { dx: 0, dy: -5.5 },    // Farther Top
-    { dx: 0, dy: 5.5 },     // Farther Bottom
-    { dx: 7.5, dy: -6.0 },
-    { dx: -7.5, dy: -6.0 },
-    { dx: 7.5, dy: 6.0 },
-    { dx: -7.5, dy: 6.0 },
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const boxesOverlap = (a: Box, b: Box, padding = 0): boolean => (
+  a.x1 < b.x2 + padding &&
+  a.x2 > b.x1 - padding &&
+  a.y1 < b.y2 + padding &&
+  a.y2 > b.y1 - padding
+);
+
+const circleIntersectsBox = (cx: number, cy: number, radius: number, box: Box, padding = 0): boolean => {
+  const px = clamp(cx, box.x1, box.x2);
+  const py = clamp(cy, box.y1, box.y2);
+  return Math.hypot(cx - px, cy - py) < radius + padding;
+};
+
+const makeBox = (cx: number, cy: number, width: number, height: number): Box => ({
+  x1: cx - width / 2,
+  x2: cx + width / 2,
+  y1: cy - height / 2,
+  y2: cy + height / 2,
+});
+
+/**
+ * Candidate positions in 8 directions, expanding outward ring-by-ring.
+ * This deliberately favours short leader lines while guaranteeing that dense
+ * clusters get progressively more room before we give up and fall back to the legend.
+ */
+const buildCandidateOffsets = (radii: number[]): Array<{ dx: number; dy: number }> => {
+  const dirs = [
+    { dx: 1, dy: -1 }, { dx: 0, dy: -1 }, { dx: -1, dy: -1 },
+    { dx: 1, dy: 0 },                         { dx: -1, dy: 0 },
+    { dx: 1, dy: 1 },  { dx: 0, dy: 1 },   { dx: -1, dy: 1 },
   ];
 
-  const placedLabels: { lx: number; ly: number; x1: number; x2: number; y1: number; y2: number }[] = [];
-
-  return defects.map((d) => {
-    // Ensure raw origin coordinates are bounded 0..100
-    const origX = Math.min(98, Math.max(2, typeof d.x === 'number' && !isNaN(d.x) ? d.x : 50));
-    const origY = Math.min(98, Math.max(2, typeof d.y === 'number' && !isNaN(d.y) ? d.y : 50));
-
-    let bestLx = origX + 3.8;
-    let bestLy = origY - 2.8;
-    let minPenalty = Infinity;
-
-    for (const offset of candidateOffsets) {
-      let lx = origX + offset.dx;
-      let ly = origY + offset.dy;
-
-      lx = Math.min(94, Math.max(6, lx));
-      ly = Math.min(94, Math.max(6, ly));
-
-      const x1 = lx - labelWidth / 2;
-      const x2 = lx + labelWidth / 2;
-      const y1 = ly - labelHeight / 2;
-      const y2 = ly + labelHeight / 2;
-
-      let penalty = 0;
-
-      if (lx < 8 || lx > 92) penalty += 12;
-      if (ly < 6 || ly > 94) penalty += 12;
-
-      const distSq = (lx - origX) ** 2 + (ly - origY) ** 2;
-      penalty += distSq * 0.35;
-
-      for (const placed of placedLabels) {
-        const overlapX = Math.max(0, Math.min(x2, placed.x2) - Math.max(x1, placed.x1));
-        const overlapY = Math.max(0, Math.min(y2, placed.y2) - Math.max(y1, placed.y1));
-        if (overlapX > 0 && overlapY > 0) {
-          penalty += overlapX * overlapY * 150;
-        }
-      }
-
-      for (const obs of existingObstacles) {
-        const obsR = obs.radius || 3.0;
-        const ox1 = obs.x - obsR;
-        const ox2 = obs.x + obsR;
-        const oy1 = obs.y - obsR;
-        const oy2 = obs.y + obsR;
-        const overlapX = Math.max(0, Math.min(x2, ox2) - Math.max(x1, ox1));
-        const overlapY = Math.max(0, Math.min(y2, oy2) - Math.max(y1, oy1));
-        if (overlapX > 0 && overlapY > 0) {
-          penalty += overlapX * overlapY * 180;
-        }
-      }
-
-      for (const otherDefect of defects) {
-        if (otherDefect === d) continue;
-        const otherX = typeof otherDefect.x === 'number' ? otherDefect.x : 50;
-        const otherY = typeof otherDefect.y === 'number' ? otherDefect.y : 50;
-        if (otherX >= x1 && otherX <= x2 && otherY >= y1 && otherY <= y2) {
-          penalty += 250;
-        }
-      }
-
-      if (penalty < minPenalty) {
-        minPenalty = penalty;
-        bestLx = lx;
-        bestLy = ly;
-      }
-    }
-
-    const finalX1 = bestLx - labelWidth / 2;
-    const finalX2 = bestLx + labelWidth / 2;
-    const finalY1 = bestLy - labelHeight / 2;
-    const finalY2 = bestLy + labelHeight / 2;
-
-    placedLabels.push({ lx: bestLx, ly: bestLy, x1: finalX1, x2: finalX2, y1: finalY1, y2: finalY2 });
-
-    const isOffset = Math.abs(bestLx - origX) > 1.5 || Math.abs(bestLy - origY) > 1.5;
-
-    return {
-      x: origX,
-      y: origY,
-      lx: bestLx,
-      ly: bestLy,
-      isOffset,
-    };
+  const out: Array<{ dx: number; dy: number }> = [];
+  radii.forEach((radius) => {
+    dirs.forEach((dir) => {
+      const diag = dir.dx !== 0 && dir.dy !== 0 ? 0.78 : 1;
+      out.push({ dx: dir.dx * radius * diag, dy: dir.dy * radius * diag });
+    });
   });
-}
+  return out;
+};
+
+const DEFECT_CANDIDATES = buildCandidateOffsets([3.8, 5.3, 6.8, 8.5, 10.5, 12.5, 14.5]);
+const ROOM_CANDIDATES = buildCandidateOffsets([3.8, 5.2, 6.8, 8.5, 10.5, 12.5]);
 
 /**
- * Calculates centroid and optimal label position for rooms (#1, #2, #3...)
- * If a room is very narrow or small, offsets label outward with leader line.
+ * Places the small numbered defect markers without overlapping room-number badges,
+ * other defect-number markers or nearby raw defect coordinates.
+ *
+ * Exact defect coordinates (x/y) never move. If several defects share the same
+ * coordinate, their numbered markers fan out around that point and the renderer can
+ * draw a single cluster origin marker using clusterIndex/clusterCount.
  */
-export function computeRoomLabelPositions<T extends { x?: number; y?: number; width?: number; height?: number; points?: Point[] }>(
-  rooms: T[]
-): RoomMapLabelPos[] {
-  const badgeRadius = 2.4;
-  const placedBadges: { lx: number; ly: number; r: number }[] = [];
+export function computeDefectLabelPositions<T extends { x: number; y: number; markerCode?: string; displayCode?: string }>(
+  defects: T[],
+  existingObstacles: MapObstacle[] = []
+): DefectMapLabelPos[] {
+  // The map only renders a short sequence number (01/02/03), not the long defect name.
+  // Keep the collision rectangle deliberately compact.
+  const labelWidth = defects.length >= 100 ? 5.7 : 5.0;
+  const labelHeight = 3.5;
+  const placed: Box[] = [];
 
-  return rooms.map((r) => {
-    let cx = (typeof r.x === 'number' ? r.x : 10) + (r.width || 15) / 2;
-    let cy = (typeof r.y === 'number' ? r.y : 10) + (r.height || 15) / 2;
-    let isSmall = (r.width && r.width < 5) || (r.height && r.height < 5);
+  const origins = defects.map((d) => ({
+    x: clamp(Number.isFinite(d.x) ? d.x : 50, 2.2, 97.8),
+    y: clamp(Number.isFinite(d.y) ? d.y : 50, 2.2, 97.8),
+  }));
 
-    if (r.points && r.points.length > 0) {
-      cx = r.points.reduce((sum, p) => sum + p.x, 0) / r.points.length;
-      cy = r.points.reduce((sum, p) => sum + p.y, 0) / r.points.length;
-      const minX = Math.min(...r.points.map(p => p.x));
-      const maxX = Math.max(...r.points.map(p => p.x));
-      const minY = Math.min(...r.points.map(p => p.y));
-      const maxY = Math.max(...r.points.map(p => p.y));
-      if ((maxX - minX) < 5 || (maxY - minY) < 5) {
-        isSmall = true;
+  // Build near-identical-coordinate clusters (within ~1% of drawing size).
+  const clusterIds = new Array(defects.length).fill(-1);
+  const clusters: number[][] = [];
+  for (let i = 0; i < origins.length; i += 1) {
+    if (clusterIds[i] >= 0) continue;
+    const id = clusters.length;
+    const members: number[] = [];
+    for (let j = i; j < origins.length; j += 1) {
+      if (clusterIds[j] >= 0) continue;
+      if (Math.hypot(origins[i].x - origins[j].x, origins[i].y - origins[j].y) <= 1.05) {
+        clusterIds[j] = id;
+        members.push(j);
       }
     }
+    clusters.push(members);
+  }
 
-    cx = Math.min(96, Math.max(4, cx));
-    cy = Math.min(96, Math.max(4, cy));
+  return defects.map((_, index) => {
+    const orig = origins[index];
+    const cluster = clusters[clusterIds[index]] || [index];
+    const clusterIndex = Math.max(0, cluster.indexOf(index));
+    const clusterCount = cluster.length;
 
-    let lx = cx;
-    let ly = cy;
-    let isOffset = false;
+    let selected: { lx: number; ly: number; box: Box } | null = null;
 
-    // Check collision with previously placed badges
-    let collision = placedBadges.some(b => {
-      const dist = Math.hypot(b.lx - lx, b.ly - ly);
-      return dist < (b.r + badgeRadius + 1.0);
-    });
+    // Rotate candidate preference per item in a cluster so 2-5 defects at one point
+    // naturally spread around the coordinate instead of competing for the same corner.
+    const rotatedCandidates = DEFECT_CANDIDATES.map((_, i) => (
+      DEFECT_CANDIDATES[(i + clusterIndex * 2) % DEFECT_CANDIDATES.length]
+    ));
 
-    if (collision || isSmall) {
-      const offsets = [
-        { dx: 3.5, dy: -3.5 },
-        { dx: -3.5, dy: -3.5 },
-        { dx: 3.5, dy: 3.5 },
-        { dx: -3.5, dy: 3.5 },
-        { dx: 0, dy: -4.5 },
-        { dx: 0, dy: 4.5 },
-        { dx: 4.5, dy: 0 },
-        { dx: -4.5, dy: 0 },
-        { dx: 6.0, dy: -5.0 },
-        { dx: -6.0, dy: -5.0 },
-      ];
+    for (const off of rotatedCandidates) {
+      const lx = clamp(orig.x + off.dx, labelWidth / 2 + 0.8, 100 - labelWidth / 2 - 0.8);
+      const ly = clamp(orig.y + off.dy, labelHeight / 2 + 0.8, 100 - labelHeight / 2 - 0.8);
+      const box = makeBox(lx, ly, labelWidth, labelHeight);
 
-      for (const off of offsets) {
-        const testLx = Math.min(96, Math.max(4, cx + off.dx));
-        const testLy = Math.min(96, Math.max(4, cy + off.dy));
-        const coll = placedBadges.some(b => Math.hypot(b.lx - testLx, b.ly - testLy) < (b.r + badgeRadius + 0.8));
-        if (!coll) {
-          lx = testLx;
-          ly = testLy;
-          isOffset = true;
+      if (placed.some((p) => boxesOverlap(box, p, 0.5))) continue;
+
+      // Room number badges and any caller-provided obstacles.
+      if (existingObstacles.some((o) => circleIntersectsBox(o.x, o.y, o.radius ?? 2.2, box, 0.65))) continue;
+
+      // Do not place a numbered marker over any raw defect point, except its own cluster
+      // origin which is expected to be connected by the leader line.
+      const hitsOtherOrigin = origins.some((other, otherIndex) => {
+        if (clusterIds[otherIndex] === clusterIds[index]) return false;
+        return circleIntersectsBox(other.x, other.y, 1.25, box, 0.55);
+      });
+      if (hitsOtherOrigin) continue;
+
+      selected = { lx, ly, box };
+      break;
+    }
+
+    // Last-resort local grid search. We prefer dropping the numbered marker (legend-only)
+    // over knowingly overlapping another label or clipping the drawing edge.
+    if (!selected) {
+      for (let radius = 4; radius <= 18 && !selected; radius += 2) {
+        for (let angle = 0; angle < 360; angle += 30) {
+          const rad = angle * Math.PI / 180;
+          const lx = clamp(orig.x + Math.cos(rad) * radius, labelWidth / 2 + 0.8, 100 - labelWidth / 2 - 0.8);
+          const ly = clamp(orig.y + Math.sin(rad) * radius, labelHeight / 2 + 0.8, 100 - labelHeight / 2 - 0.8);
+          const box = makeBox(lx, ly, labelWidth, labelHeight);
+          if (placed.some((p) => boxesOverlap(box, p, 0.45))) continue;
+          if (existingObstacles.some((o) => circleIntersectsBox(o.x, o.y, o.radius ?? 2.2, box, 0.55))) continue;
+          selected = { lx, ly, box };
           break;
         }
       }
     }
 
-    placedBadges.push({ lx, ly, r: badgeRadius });
+    if (selected) placed.push(selected.box);
+
+    return {
+      x: orig.x,
+      y: orig.y,
+      lx: selected?.lx ?? orig.x,
+      ly: selected?.ly ?? orig.y,
+      isOffset: !!selected && Math.hypot(selected.lx - orig.x, selected.ly - orig.y) > 1.5,
+      showLabel: !!selected,
+      clusterIndex,
+      clusterCount,
+    };
+  });
+}
+
+/**
+ * Places room-number badges while avoiding each other and known defect coordinates.
+ * The centroid stays as the room's anchor; only the number badge may be offset.
+ */
+export function computeRoomLabelPositions<T extends { x?: number; y?: number; width?: number; height?: number; points?: Point[] }>(
+  rooms: T[],
+  existingObstacles: MapObstacle[] = []
+): RoomMapLabelPos[] {
+  const badgeRadius = 1.85;
+  const placed: Array<{ x: number; y: number; radius: number }> = [];
+
+  return rooms.map((r) => {
+    let cx = (typeof r.x === 'number' ? r.x : 10) + (r.width || 15) / 2;
+    let cy = (typeof r.y === 'number' ? r.y : 10) + (r.height || 15) / 2;
+    let isSmall = !!((r.width && r.width < 5) || (r.height && r.height < 5));
+
+    if (r.points && r.points.length > 0) {
+      cx = r.points.reduce((sum, p) => sum + p.x, 0) / r.points.length;
+      cy = r.points.reduce((sum, p) => sum + p.y, 0) / r.points.length;
+      const minX = Math.min(...r.points.map((p) => p.x));
+      const maxX = Math.max(...r.points.map((p) => p.x));
+      const minY = Math.min(...r.points.map((p) => p.y));
+      const maxY = Math.max(...r.points.map((p) => p.y));
+      if ((maxX - minX) < 5 || (maxY - minY) < 5) isSmall = true;
+    }
+
+    cx = clamp(cx, 2.2, 97.8);
+    cy = clamp(cy, 2.2, 97.8);
+
+    const collides = (x: number, y: number) => {
+      if (placed.some((p) => Math.hypot(p.x - x, p.y - y) < p.radius + badgeRadius + 0.7)) return true;
+      if (existingObstacles.some((o) => Math.hypot(o.x - x, o.y - y) < (o.radius ?? 1.3) + badgeRadius + 0.65)) return true;
+      return false;
+    };
+
+    let lx = cx;
+    let ly = cy;
+    let isOffset = false;
+    let showLabel = true;
+
+    if (isSmall || collides(lx, ly)) {
+      let found = false;
+      for (const off of ROOM_CANDIDATES) {
+        const tx = clamp(cx + off.dx, badgeRadius + 0.7, 100 - badgeRadius - 0.7);
+        const ty = clamp(cy + off.dy, badgeRadius + 0.7, 100 - badgeRadius - 0.7);
+        if (!collides(tx, ty)) {
+          lx = tx;
+          ly = ty;
+          isOffset = true;
+          found = true;
+          break;
+        }
+      }
+      if (!found && collides(lx, ly)) {
+        // Do not knowingly overlap. Room name remains available in the legend table.
+        showLabel = false;
+      }
+    }
+
+    if (showLabel) placed.push({ x: lx, y: ly, radius: badgeRadius });
 
     return {
       x: cx,
       y: cy,
       lx,
       ly,
-      isOffset: isOffset || Math.hypot(lx - cx, ly - cy) > 1.8,
+      isOffset: showLabel && (isOffset || Math.hypot(lx - cx, ly - cy) > 1.8),
+      showLabel,
     };
   });
 }
