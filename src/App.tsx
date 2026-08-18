@@ -12,9 +12,22 @@ function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
   const merged = { ...cloudItem };
   for (const key of Object.keys(merged)) {
     const val = merged[key];
-    if (typeof val === 'string' && val.includes('[IMAGE_OMITTED_FOR_CLOUD_SIZE_LIMIT]')) {
-      if (localItem[key] && typeof localItem[key] === 'string' && !localItem[key].includes('[IMAGE_OMITTED_FOR_CLOUD_SIZE_LIMIT]')) {
-        merged[key] = localItem[key];
+    if (typeof val === 'string' && (
+      val.includes('[IMAGE_OMITTED_FOR_CLOUD_SIZE_LIMIT]') ||
+      (key === 'imageUrl' && val.startsWith('cloud-floorplan:'))
+    )) {
+      const localImage = localItem[key];
+      const localImageDisplayable = typeof localImage === 'string' && (
+        localImage.startsWith('data:image/') || localImage.startsWith('blob:') || /^https?:\/\//i.test(localImage)
+      );
+      const cloudImageRevision = Number(cloudItem.imageCloudRevision || cloudItem.imageRevision || 0);
+      const localCloudRevision = Number(localItem.imageCloudRevision || 0);
+      const localImageRevision = Number(localItem.imageRevision || 0);
+      const sameDriveFile = Boolean(cloudItem.driveFileId && localItem.driveFileId && cloudItem.driveFileId === localItem.driveFileId);
+      const sameImageRevision = cloudImageRevision > 0 && (localCloudRevision === cloudImageRevision || localImageRevision === cloudImageRevision);
+      const localHasNewerUnsyncedImage = localImageRevision > cloudImageRevision;
+      if (localImageDisplayable && (key !== 'imageUrl' || !val.startsWith('cloud-floorplan:') || sameDriveFile || sameImageRevision || localHasNewerUnsyncedImage)) {
+        merged[key] = localImage;
       }
     } else if (Array.isArray(val) && Array.isArray(localItem[key])) {
       merged[key] = val.map((item: any, idx: number) => {
@@ -89,8 +102,10 @@ import {
   pickAndroidAutoSaveFolder,
   saveTextFileToAndroidAutoFolder
 } from './utils/fileExport';
-import { getProjectPhotosWithBinary, restorePhotosFromBackup } from './utils/photoStorage';
+import { getProjectPhotos, getProjectPhotosWithBinary, restorePhotosFromBackup } from './utils/photoStorage';
 import { subscribeProjectPhotosRealtime, syncProjectPhotosToCloud, PhotoCloudSyncStatus } from './lib/photoCloudSync';
+import { isPrimaryDriveReady, PRIMARY_DRIVE_OWNER_EMAIL, uploadProjectBackupToPrimaryDrive } from './lib/primaryDriveBridge';
+import { floorPlanNeedsCloudUpload, isDisplayableFloorPlanUrl, loadFloorPlanImageFromCloud, syncFloorPlanImageToCloud } from './lib/floorPlanImageSync';
 
 // Heavy screens are code-split so Android does not parse XLSX/PDF-heavy modules at startup.
 const WarehouseTab = React.lazy(() => import('./components/WarehouseTab').then(m => ({ default: m.WarehouseTab })));
@@ -719,6 +734,7 @@ export default function App() {
 
   const lastSavedLocalSnapshotRef = useRef<string>('');
   const lastSavedLocalAllSnapshotRef = useRef<string>('');
+  const lastPrimaryDriveBackupAtRef = useRef<number>(0);
 
   const getSafeProjectFileName = () => (projectName || activeProjectId || 'Du_An')
     .replace(/[^a-zA-Z0-9_-]/g, '_')
@@ -757,10 +773,22 @@ export default function App() {
     return { projectPhotos, projectPhotoData };
   };
 
-  const buildSingleProjectBackupObject = async () => {
-    const { projectPhotos, projectPhotoData } = await collectProjectPhotoBackup([activeProjectId]);
-    const photos = projectPhotos[activeProjectId] || [];
-    const photoData = projectPhotoData[activeProjectId] || {};
+  const buildSingleProjectBackupObject = async (includePhotoBinary = true) => {
+    let photos: any[] = [];
+    let photoData: Record<string, string> = {};
+    if (includePhotoBinary) {
+      const collected = await collectProjectPhotoBackup([activeProjectId]);
+      photos = collected.projectPhotos[activeProjectId] || [];
+      photoData = collected.projectPhotoData[activeProjectId] || {};
+    } else {
+      // Drive backup does not duplicate image Base64. Images are stored as separate
+      // files in the primary Drive; JSON only keeps metadata + drive file references.
+      const currentPhotos = await getProjectPhotos(activeProjectId, false);
+      photos = currentPhotos.map((photo: any) => {
+        const { base64, localUri, dataUrl, ...metadataOnly } = photo;
+        return metadataOnly;
+      });
+    }
 
     return {
       schemaVersion: 3,
@@ -779,7 +807,16 @@ export default function App() {
         materialNorms,
         inventory,
         workVolumes,
-        floorPlans,
+        floorPlans: includePhotoBinary ? floorPlans : floorPlans.map((plan) => ({
+          ...plan,
+          imageUrl: plan.driveFileId
+            ? `cloud-floorplan:drive:${activeProjectId}:${plan.driveFileId}`
+            : (plan.storageProvider === 'firestore-fallback' || String(plan.cloudFileId || '').startsWith('firestore:'))
+              ? `cloud-floorplan:firestore:${activeProjectId}:${plan.id}`
+              : (String(plan.imageUrl || '').startsWith('data:image/') || String(plan.imageUrl || '').startsWith('blob:'))
+                ? '[FLOOR_PLAN_IMAGE_BINARY_STORED_SEPARATELY]'
+                : plan.imageUrl,
+        })),
         defects,
         roomProgressList,
         checklist,
@@ -789,13 +826,21 @@ export default function App() {
           const { base64, localUri, dataUrl, ...metadataOnly } = photo as any;
           return metadataOnly;
         }),
-        photoData,
+        ...(includePhotoBinary ? { photoData } : {}),
         updatedAt: lastUpdatedAt,
       },
     };
   };
 
   const buildSingleProjectBackupJson = async () => JSON.stringify(await buildSingleProjectBackupObject(), null, 2);
+
+  const buildPrimaryDriveBackupObject = async () => ({
+    ...(await buildSingleProjectBackupObject(false)),
+    backupType: 'primary-drive-project',
+    primaryDriveOwnerEmail: PRIMARY_DRIVE_OWNER_EMAIL,
+    imageStorage: 'google-drive-primary',
+    generatedAt: Date.now(),
+  });
 
   const buildAllProjectsBackupObject = async () => {
     const allData: Record<string, any> = {};
@@ -889,6 +934,14 @@ export default function App() {
 
   const [photoCloudStatus, setPhotoCloudStatus] = useState<PhotoCloudSyncStatus>({ phase: 'idle', pending: 0 });
   const photoSyncTimerRef = useRef<number | null>(null);
+  const floorPlanImageSyncInFlightRef = useRef<Set<string>>(new Set());
+  const floorPlanImageHydrateInFlightRef = useRef<Set<string>>(new Set());
+
+  const [cloudInitialReady, setCloudInitialReady] = useState<boolean>(false);
+  const receivedInitialSubcollectionsRef = useRef<Set<string>>(new Set());
+  const [cloudUserKey, setCloudUserKey] = useState<string>('');
+  const [cloudBootstrapVersion, setCloudBootstrapVersion] = useState<number>(0);
+  const cloudBootstrapAttemptsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const handlePhotoAttachmentsChanged = (event: Event) => {
@@ -932,11 +985,98 @@ export default function App() {
     };
   }, [activeProjectId]);
 
-  const [cloudInitialReady, setCloudInitialReady] = useState<boolean>(false);
-  const receivedInitialSubcollectionsRef = useRef<Set<string>>(new Set());
-  const [cloudUserKey, setCloudUserKey] = useState<string>('');
-  const [cloudBootstrapVersion, setCloudBootstrapVersion] = useState<number>(0);
-  const cloudBootstrapAttemptsRef = useRef<Set<string>>(new Set());
+  // Floor-plan images use the same multi-device principle as Defect/Crew photos:
+  // metadata stays in Firestore, while the binary goes to the primary Drive account
+  // (Firestore chunks are retained as a safe zero-cost fallback until Drive is configured).
+  useEffect(() => {
+    if (!isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || switchingProjectRef.current) return;
+    const projectId = activeProjectId;
+    let cancelled = false;
+
+    const candidates = floorPlans.filter((plan) => floorPlanNeedsCloudUpload(plan));
+    if (candidates.length === 0) return;
+
+    const run = async () => {
+      // Sequential upload avoids large simultaneous Base64 copies on Android.
+      for (const plan of candidates) {
+        if (cancelled || activeProjectIdRef.current !== projectId) return;
+        if (floorPlanImageSyncInFlightRef.current.has(plan.id)) continue;
+        floorPlanImageSyncInFlightRef.current.add(plan.id);
+        try {
+          const metadata = await syncFloorPlanImageToCloud(projectId, plan);
+          if (!metadata || cancelled || activeProjectIdRef.current !== projectId) continue;
+          setPresent((prev) => {
+            const current = prev.floorPlans.find((item) => item.id === plan.id);
+            if (!current) return prev;
+            const expectedRevision = Number(plan.imageRevision || plan.updatedAt || 0);
+            const currentRevision = Number(current.imageRevision || current.updatedAt || 0);
+            // User selected a newer replacement image while the older upload was running.
+            if (currentRevision > expectedRevision) return prev;
+            const nextPlans = prev.floorPlans.map((item) => item.id === plan.id ? {
+              ...item,
+              ...metadata,
+              // Keep the local binary visible on the uploader; other devices lazily hydrate it.
+              imageUrl: isDisplayableFloorPlanUrl(item.imageUrl) ? item.imageUrl : (metadata.imageUrl || item.imageUrl),
+            } : item);
+            setAsyncItem(getKey('construction_floor_plans', projectId), nextPlans).catch((err) => console.warn('Floor-plan sync cache warning:', err));
+            return { ...prev, floorPlans: nextPlans };
+          });
+        } catch (err) {
+          console.warn('[Floor Plan Image] upload warning:', plan.floorName, err);
+        } finally {
+          floorPlanImageSyncInFlightRef.current.delete(plan.id);
+        }
+      }
+    };
+
+    const timer = window.setTimeout(run, 900);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [floorPlans, activeProjectId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing]);
+
+  // Hydrate cloud-backed floor-plan binaries on another phone/PC. Run one-by-one so
+  // opening a project does not allocate every large plan image in RAM at the same time.
+  useEffect(() => {
+    if (!isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || switchingProjectRef.current) return;
+    const projectId = activeProjectId;
+    let cancelled = false;
+    const candidates = floorPlans.filter((plan) => (
+      !isDisplayableFloorPlanUrl(plan.imageUrl) &&
+      Boolean(plan.driveFileId || plan.cloudFileId || plan.storageProvider)
+    ));
+    if (candidates.length === 0) return;
+
+    const run = async () => {
+      for (const plan of candidates) {
+        if (cancelled || activeProjectIdRef.current !== projectId) return;
+        if (floorPlanImageHydrateInFlightRef.current.has(plan.id)) continue;
+        floorPlanImageHydrateInFlightRef.current.add(plan.id);
+        try {
+          const imageUrl = await loadFloorPlanImageFromCloud(projectId, plan);
+          if (!imageUrl || cancelled || activeProjectIdRef.current !== projectId) continue;
+          setPresent((prev) => {
+            const current = prev.floorPlans.find((item) => item.id === plan.id);
+            if (!current || isDisplayableFloorPlanUrl(current.imageUrl)) return prev;
+            const nextPlans = prev.floorPlans.map((item) => item.id === plan.id ? { ...item, imageUrl } : item);
+            setAsyncItem(getKey('construction_floor_plans', projectId), nextPlans).catch((err) => console.warn('Floor-plan hydrate cache warning:', err));
+            return { ...prev, floorPlans: nextPlans };
+          });
+        } catch (err) {
+          console.warn('[Floor Plan Image] hydrate warning:', plan.floorName, err);
+        } finally {
+          floorPlanImageHydrateInFlightRef.current.delete(plan.id);
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 80));
+      }
+    };
+    const timer = window.setTimeout(run, 350);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [floorPlans, activeProjectId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing]);
 
   useEffect(() => {
     const refreshCloudUser = () => {
@@ -2629,6 +2769,14 @@ export default function App() {
 
       const updated = await saveBackupVersion(newVersion, maxVersions);
       setAutosaveVersions(updated);
+
+      try {
+        const driveBackup = await buildPrimaryDriveBackupObject();
+        await uploadProjectBackupToPrimaryDrive(activeProjectIdRef.current, driveBackup, 'manual');
+        lastPrimaryDriveBackupAtRef.current = Date.now();
+      } catch (driveErr) {
+        console.warn('[Primary Drive] manual backup mirror skipped:', driveErr);
+      }
       alert('Đã tạo điểm phục hồi dự án thành công!');
     } catch (e) {
       console.error(e);
@@ -2742,6 +2890,22 @@ export default function App() {
         
         // Save to version history automatically
         await saveAutoSaveVersion(allData);
+
+        // Mirror a lightweight project backup to the centralized primary Drive.
+        // Images are NOT duplicated as Base64 here; their Drive file IDs are kept
+        // in photo metadata, so the rolling JSON stays small and fast on Android.
+        const now = Date.now();
+        if (now - lastPrimaryDriveBackupAtRef.current >= 60_000 && await isPrimaryDriveReady().catch(() => false)) {
+          try {
+            const driveBackup = await buildPrimaryDriveBackupObject();
+            await uploadProjectBackupToPrimaryDrive(activeProjectIdRef.current, driveBackup, 'auto');
+            lastPrimaryDriveBackupAtRef.current = Date.now();
+          } catch (driveErr) {
+            // Drive is an additional backup layer. Firebase/local work must continue
+            // even when the bridge is not configured or Google is temporarily offline.
+            console.warn('[Primary Drive] auto backup skipped:', driveErr);
+          }
+        }
       } catch (err) {
         console.error('Error in background auto-saving version:', err);
       }
@@ -3302,8 +3466,9 @@ export default function App() {
   // Handlers for Floor Plans & Defects
   const handleAddFloorPlan = (plan: Omit<FloorPlan, 'id'> & { id?: string }) => {
     const newId = plan.id || `fp-${Date.now()}`;
+    const imageRevision = Number(plan.imageRevision || Date.now());
     updateAppData((prev) => {
-      const nextPlans = [...prev.floorPlans, { ...plan, id: newId }];
+      const nextPlans = [...prev.floorPlans, { ...plan, id: newId, imageRevision, imageCloudRevision: 0 }];
       return {
         ...prev,
         floorPlans: nextPlans.map((fp, idx) => ({ ...fp, order: idx })),
@@ -3319,9 +3484,19 @@ export default function App() {
   };
 
   const handleUpdateFloorPlanImage = (id: string, imageUrl: string) => {
+    const imageRevision = Date.now();
     updateAppData((prev) => ({
       ...prev,
-      floorPlans: prev.floorPlans.map((fp) => (fp.id === id ? { ...fp, imageUrl } : fp)),
+      floorPlans: prev.floorPlans.map((fp) => (fp.id === id ? {
+        ...fp,
+        imageUrl,
+        imageRevision,
+        imageCloudRevision: 0,
+        driveFileId: undefined,
+        driveUrl: undefined,
+        cloudFileId: undefined,
+        storageProvider: undefined,
+      } : fp)),
     }));
   };
 

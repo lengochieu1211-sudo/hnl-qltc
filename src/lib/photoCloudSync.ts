@@ -1,7 +1,6 @@
 import {
   Bytes,
   collection,
-  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -20,8 +19,17 @@ import {
   mergeCloudPhotoMetadata,
 } from '../utils/photoStorage';
 import { getDeviceId, getDeviceName } from '../utils/deviceIdentity';
+import {
+  deletePhotoFromPrimaryDrive,
+  downloadPhotoFromPrimaryDrive,
+  isPrimaryDriveReady,
+  PRIMARY_DRIVE_OWNER_EMAIL,
+  uploadPhotoToPrimaryDrive,
+} from './primaryDriveBridge';
 
-// Keep safely below Firestore's 1 MiB/document limit, including metadata overhead.
+// Firestore binary chunks remain as a fallback only when the primary Drive bridge
+// has not been configured or temporarily fails. This keeps the app usable during
+// rollout while allowing images to migrate away from the 1 GiB Firestore quota.
 const CHUNK_BYTES = 560 * 1024;
 
 export interface PhotoCloudSyncStatus {
@@ -39,6 +47,17 @@ function cleanPhotoMetadata(photo: PhotoAttachment) {
   delete copy.localBlobKey;
   delete copy.cloudUrl;
   return copy;
+}
+
+function parseDriveFileId(value?: string | null): string {
+  const raw = String(value || '');
+  if (!raw.startsWith('drive:')) return '';
+  const parts = raw.split(':');
+  return parts.length >= 3 ? parts.slice(2).join(':') : parts[1] || '';
+}
+
+function isDriveCloudValue(value?: string | null): boolean {
+  return String(value || '').startsWith('drive:');
 }
 
 async function blobToUint8Array(blob: Blob): Promise<Uint8Array> {
@@ -71,61 +90,11 @@ async function deletePhotoChunks(projectId: string, photoId: string): Promise<vo
   if (count > 0) await batch.commit();
 }
 
-export async function uploadPhotoToCloud(projectId: string, photo: PhotoAttachment): Promise<void> {
-  if (!projectId || !photo?.id) return;
-  const user = getCurrentRealFirebaseUser();
-  if (!user || user.isAnonymous) return;
-
-  const metaRef = doc(db, 'projects', projectId, 'photos', photo.id);
-  const cloudSnap = await getDoc(metaRef).catch(() => null);
-  const cloudData = cloudSnap?.exists() ? cloudSnap.data() : null;
-  const localUpdatedAt = Number(photo.updatedAt || photo.createdAt || 0);
-  const cloudUpdatedAt = Number(cloudData?.updatedAt || 0);
-
-  // Cloud version is already newer; realtime listener will reconcile it locally.
-  if (cloudData && cloudUpdatedAt > localUpdatedAt) return;
-
-  const baseMeta = {
-    ...cleanPhotoMetadata(photo),
-    projectId,
-    updatedByUid: user.uid,
-    updatedByEmail: user.email || '',
-    updatedByDeviceId: getDeviceId(),
-    updatedByDeviceName: getDeviceName(),
-  };
-
-  if (photo.deleted) {
-    await setDoc(metaRef, {
-      ...baseMeta,
-      deleted: true,
-      deletedAt: photo.deletedAt || Date.now(),
-      updatedAt: localUpdatedAt || Date.now(),
-      chunkCount: 0,
-      cloudSyncedAt: Date.now(),
-    }, { merge: true });
-    // Reclaim free Firestore storage after tombstoning metadata.
-    await deletePhotoChunks(projectId, photo.id).catch(() => {});
-    return;
-  }
-
-  const blob = await getPhotoBlob(photo.id, false);
-  if (!blob) {
-    // Metadata can still be synchronized; binary may be fetched from another device later.
-    await setDoc(metaRef, {
-      ...baseMeta,
-      deleted: false,
-      updatedAt: localUpdatedAt || Date.now(),
-      binaryMissingOnUploader: true,
-      cloudSyncedAt: Date.now(),
-    }, { merge: true });
-    return;
-  }
-
+async function uploadPhotoToFirestoreFallback(projectId: string, photo: PhotoAttachment, baseMeta: Record<string, any>, blob: Blob): Promise<void> {
   const bytes = await blobToUint8Array(blob);
   const chunks = splitBytes(bytes);
-  const contentVersion = localUpdatedAt || Date.now();
+  const contentVersion = Number(photo.updatedAt || photo.createdAt || Date.now());
 
-  // Delete stale chunks first so an edited photo cannot retain old trailing chunks.
   await deletePhotoChunks(projectId, photo.id).catch(() => {});
 
   let batch = writeBatch(db);
@@ -143,12 +112,15 @@ export async function uploadPhotoToCloud(projectId: string, photo: PhotoAttachme
   });
   if (count > 0) await batch.commit();
 
-  await setDoc(metaRef, {
+  await setDoc(doc(db, 'projects', projectId, 'photos', photo.id), {
     ...baseMeta,
     mimeType: blob.type || photo.mimeType || 'image/jpeg',
     fileSize: blob.size,
     chunkCount: chunks.length,
     contentVersion,
+    storageProvider: 'firestore-fallback',
+    cloudFileId: `firestore:${projectId}:${photo.id}`,
+    cloudUrl: `firestore:${projectId}:${photo.id}`,
     binaryMissingOnUploader: false,
     deleted: false,
     deletedAt: null,
@@ -157,10 +129,111 @@ export async function uploadPhotoToCloud(projectId: string, photo: PhotoAttachme
   }, { merge: true });
 }
 
-export async function syncProjectPhotosToCloud(projectId: string): Promise<{ uploaded: number; skipped: number }> {
+export async function uploadPhotoToCloud(projectId: string, photo: PhotoAttachment): Promise<void> {
+  if (!projectId || !photo?.id) return;
+  const user = getCurrentRealFirebaseUser();
+  if (!user || user.isAnonymous) return;
+
+  const metaRef = doc(db, 'projects', projectId, 'photos', photo.id);
+  const cloudSnap = await getDoc(metaRef).catch(() => null);
+  const cloudData = cloudSnap?.exists() ? cloudSnap.data() : null;
+  const localUpdatedAt = Number(photo.updatedAt || photo.createdAt || 0);
+  const cloudUpdatedAt = Number(cloudData?.updatedAt || 0);
+
+  if (cloudData && cloudUpdatedAt > localUpdatedAt) return;
+
+  const baseMeta = {
+    ...cleanPhotoMetadata(photo),
+    projectId,
+    updatedByUid: user.uid,
+    updatedByEmail: user.email || '',
+    updatedByDeviceId: getDeviceId(),
+    updatedByDeviceName: getDeviceName(),
+  };
+
+  if (photo.deleted) {
+    const driveFileId = parseDriveFileId(cloudData?.cloudFileId || cloudData?.cloudUrl);
+    if (driveFileId) {
+      await deletePhotoFromPrimaryDrive(projectId, photo.id, driveFileId).catch((err) => {
+        console.warn('[Photo Cloud] Drive delete warning:', err);
+      });
+    }
+    await setDoc(metaRef, {
+      ...baseMeta,
+      deleted: true,
+      deletedAt: photo.deletedAt || Date.now(),
+      updatedAt: localUpdatedAt || Date.now(),
+      chunkCount: 0,
+      cloudSyncedAt: Date.now(),
+    }, { merge: true });
+    await deletePhotoChunks(projectId, photo.id).catch(() => {});
+    return;
+  }
+
+  let blob = await getPhotoBlob(photo.id, false);
+
+  // During migration a second device may have only Firestore metadata/chunks. Pull
+  // the old binary once, then immediately re-upload it to the primary Drive.
+  if (!blob && cloudData && Number(cloudData?.chunkCount || 0) > 0) {
+    blob = await downloadPhotoBlobFromFirestoreChunks(projectId, photo.id, photo.mimeType || 'image/jpeg').catch(() => null);
+  }
+
+  if (!blob) {
+    await setDoc(metaRef, {
+      ...baseMeta,
+      deleted: false,
+      updatedAt: localUpdatedAt || Date.now(),
+      binaryMissingOnUploader: true,
+      cloudSyncedAt: Date.now(),
+    }, { merge: true });
+    return;
+  }
+
+  // Preferred path: every authorized user's image is written by the Apps Script
+  // that runs as lengochieu1211@gmail.com, so the file lands in the main Drive.
+  try {
+    if (await isPrimaryDriveReady()) {
+      const drive = await uploadPhotoToPrimaryDrive(projectId, { ...photo, mimeType: blob.type || photo.mimeType });
+      if (drive?.fileId) {
+        const driveRef = `drive:${projectId}:${drive.fileId}`;
+        const contentVersion = localUpdatedAt || Date.now();
+        await setDoc(metaRef, {
+          ...baseMeta,
+          mimeType: drive.mimeType || blob.type || photo.mimeType || 'image/jpeg',
+          fileSize: Number(drive.fileSize || blob.size || photo.fileSize || 0),
+          chunkCount: 0,
+          contentVersion,
+          storageProvider: 'google-drive-primary',
+          driveOwnerEmail: drive.ownerEmail || PRIMARY_DRIVE_OWNER_EMAIL,
+          driveFolderPath: drive.folderPath || '',
+          cloudFileId: driveRef,
+          cloudUrl: driveRef,
+          binaryMissingOnUploader: false,
+          deleted: false,
+          deletedAt: null,
+          updatedAt: contentVersion,
+          cloudSyncedAt: Date.now(),
+        }, { merge: true });
+        // Only delete old Firestore chunks AFTER the Drive upload + metadata write succeeded.
+        await deletePhotoChunks(projectId, photo.id).catch(() => {});
+        return;
+      }
+    }
+  } catch (err) {
+    console.warn('[Photo Cloud] Primary Drive unavailable, using Firestore fallback:', err);
+  }
+
+  // Safe fallback: keep old Firestore-chunk behavior so field work never loses a photo.
+  await uploadPhotoToFirestoreFallback(projectId, photo, baseMeta, blob);
+}
+
+export async function syncProjectPhotosToCloud(projectId: string): Promise<{ uploaded: number; skipped: number; migratedToDrive?: number }> {
   const photos = await getProjectPhotos(projectId, true);
+  const driveReady = await isPrimaryDriveReady().catch(() => false);
   let uploaded = 0;
   let skipped = 0;
+  let migratedToDrive = 0;
+
   for (const photo of photos) {
     try {
       const ref = doc(db, 'projects', projectId, 'photos', photo.id);
@@ -168,22 +241,27 @@ export async function syncProjectPhotosToCloud(projectId: string): Promise<{ upl
       const cloudUpdatedAt = snap?.exists() ? Number(snap.data()?.updatedAt || 0) : 0;
       const localUpdatedAt = Number(photo.updatedAt || photo.createdAt || 0);
       const cloudData = snap?.exists() ? snap.data() : null;
-      const cloudHasBinary = Boolean(cloudData?.deleted) || Number(cloudData?.chunkCount || 0) > 0;
-      if (snap?.exists() && cloudUpdatedAt >= localUpdatedAt && Boolean(cloudData?.deleted) === Boolean(photo.deleted) && cloudHasBinary) {
+      const driveBacked = isDriveCloudValue(cloudData?.cloudFileId) || cloudData?.storageProvider === 'google-drive-primary';
+      const firestoreBacked = Number(cloudData?.chunkCount || 0) > 0;
+      const cloudHasBinary = Boolean(cloudData?.deleted) || driveBacked || firestoreBacked;
+      const needsDriveMigration = Boolean(driveReady && !photo.deleted && cloudData && !driveBacked && firestoreBacked);
+
+      if (!needsDriveMigration && snap?.exists() && cloudUpdatedAt >= localUpdatedAt && Boolean(cloudData?.deleted) === Boolean(photo.deleted) && cloudHasBinary) {
         skipped++;
         continue;
       }
+
       await uploadPhotoToCloud(projectId, photo);
       uploaded++;
+      if (needsDriveMigration) migratedToDrive++;
     } catch (err) {
       console.warn('[Photo Cloud] upload warning:', photo.id, err);
     }
   }
-  return { uploaded, skipped };
+  return { uploaded, skipped, migratedToDrive };
 }
 
-export async function downloadPhotoBlobFromCloud(projectId: string, photoId: string, mimeType = 'image/jpeg'): Promise<Blob | null> {
-  if (!projectId || !photoId) return null;
+async function downloadPhotoBlobFromFirestoreChunks(projectId: string, photoId: string, mimeType = 'image/jpeg'): Promise<Blob | null> {
   const metaSnap = await getDoc(doc(db, 'projects', projectId, 'photos', photoId));
   if (!metaSnap.exists() || metaSnap.data()?.deleted) return null;
 
@@ -194,14 +272,32 @@ export async function downloadPhotoBlobFromCloud(projectId: string, photoId: str
   const parts: Uint8Array[] = [];
   snap.forEach((chunkDoc) => {
     const bytes = chunkDoc.data()?.data;
-    if (bytes && typeof bytes.toUint8Array === 'function') {
-      parts.push(bytes.toUint8Array());
-    }
+    if (bytes && typeof bytes.toUint8Array === 'function') parts.push(bytes.toUint8Array());
   });
   if (parts.length === 0) return null;
   const blob = new Blob(parts, { type: metaSnap.data()?.mimeType || mimeType });
   await cachePhotoBlob(photoId, blob, true);
   return blob;
+}
+
+export async function downloadPhotoBlobFromCloud(projectId: string, photoId: string, mimeType = 'image/jpeg'): Promise<Blob | null> {
+  if (!projectId || !photoId) return null;
+  const metaSnap = await getDoc(doc(db, 'projects', projectId, 'photos', photoId));
+  if (!metaSnap.exists() || metaSnap.data()?.deleted) return null;
+  const data = metaSnap.data();
+
+  const driveFileId = parseDriveFileId(data?.cloudFileId || data?.cloudUrl);
+  if (driveFileId) {
+    try {
+      const driveBlob = await downloadPhotoFromPrimaryDrive(projectId, photoId, driveFileId, data?.mimeType || mimeType);
+      if (driveBlob) return driveBlob;
+    } catch (err) {
+      console.warn('[Photo Cloud] Drive download warning:', err);
+    }
+  }
+
+  // Compatibility/fallback for images uploaded before the Drive bridge was enabled.
+  return downloadPhotoBlobFromFirestoreChunks(projectId, photoId, data?.mimeType || mimeType);
 }
 
 export function subscribeProjectPhotosRealtime(
@@ -219,10 +315,9 @@ export function subscribeProjectPhotosRealtime(
       await mergeCloudPhotoMetadata(projectId, cloudPhotos);
       onStatus?.({ phase: 'synced', pending: 0, lastSyncAt: Date.now() });
 
-      // After the initial merge, upload only local versions that are newer/missing on Cloud.
       if (firstSnapshot) {
         firstSnapshot = false;
-        syncProjectPhotosToCloud(projectId).catch((err) => console.warn('[Photo Cloud] initial upload warning:', err));
+        syncProjectPhotosToCloud(projectId).catch((err) => console.warn('[Photo Cloud] initial upload/migration warning:', err));
       }
     } catch (err: any) {
       onStatus?.({ phase: 'error', message: err?.message || String(err) });

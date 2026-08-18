@@ -76,6 +76,8 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   const [includeSignatures, setIncludeSignatures] = useState(true);
   const [skipEmptyFloors, setSkipEmptyFloors] = useState(false);
   const [onlyDefectMapIfHasDefects, setOnlyDefectMapIfHasDefects] = useState(true);
+  const [pdfPaperSize, setPdfPaperSize] = useState<'A4' | 'A3'>('A4');
+  const [pdfOrientation, setPdfOrientation] = useState<'portrait' | 'landscape'>('portrait');
 
   // Photos loaded asynchronously from local storage for report attachments
   const [crewPhotosMap, setCrewPhotosMap] = useState<Record<string, string[]>>({});
@@ -156,11 +158,33 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     return selectedFloors.includes(d.floorName);
   });
 
-  // Assign stable DF-001, DF-002 display codes
-  const defectsWithDisplayCode = filteredDefects.map((d, index) => ({
-    ...d,
-    displayCode: `DF-${String(index + 1).padStart(3, '0')}`
-  }));
+  // One stable defect sequence is shared by the floor-plan marker, legend and defect table.
+  // Never derive marker numbers independently from array indexes in different sections.
+  const defectsWithDisplayCode = filteredDefects
+    .slice()
+    .sort((a, b) => {
+      const floorCmp = String(a.floorName || '').localeCompare(String(b.floorName || ''), 'vi', { numeric: true, sensitivity: 'base' });
+      if (floorCmp !== 0) return floorCmp;
+      const roomCmp = String(a.roomId || '').localeCompare(String(b.roomId || ''), 'vi', { numeric: true, sensitivity: 'base' });
+      if (roomCmp !== 0) return roomCmp;
+      const yCmp = (Number(a.y) || 0) - (Number(b.y) || 0);
+      if (Math.abs(yCmp) > 0.01) return yCmp;
+      const xCmp = (Number(a.x) || 0) - (Number(b.x) || 0);
+      if (Math.abs(xCmp) > 0.01) return xCmp;
+      const dateCmp = String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
+      if (dateCmp !== 0) return dateCmp;
+      return String(a.id || '').localeCompare(String(b.id || ''));
+    })
+    .map((d, index, all) => {
+      const markerDigits = all.length >= 100 ? 3 : 2;
+      const markerCode = String(index + 1).padStart(markerDigits, '0');
+      return {
+        ...d,
+        markerNumber: index + 1,
+        markerCode,
+        displayCode: `DF-${String(index + 1).padStart(3, '0')}`,
+      };
+    });
 
   const filteredChecklist = checklist.filter((c) => {
     if (floorNames.length > 0 && !floorNames.includes(c.floorName)) return false;
@@ -215,13 +239,13 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
         <meta charset="UTF-8">
         <title>Báo Cáo Tổng Hợp Thi Công &amp; Nghiệm Thu - ${projectName || 'Công Trình'}</title>
         <style>
-          @page { size: A4 portrait; margin: 10mm 10mm 12mm 10mm; }
+          @page { size: ${pdfPaperSize} ${pdfOrientation}; margin: 10mm 10mm 12mm 10mm; }
           * { box-sizing: border-box; }
           body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; margin: 0; padding: 12px; color: #0f172a; line-height: 1.4; background: #fff; font-size: 10px; }
           .header { border-bottom: 2.5px solid #4f46e5; padding-bottom: 10px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: flex-start; }
           .header h1 { margin: 0; color: #1e1b4b; font-size: 18px; font-weight: 800; text-transform: uppercase; letter-spacing: -0.2px; }
           .header p { margin: 2px 0 0; color: #475569; font-size: 10.5px; }
-          .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 9px; white-space: nowrap; }
+          .badge { display: inline-block; max-width: 100%; padding: 2px 5px; border-radius: 4px; font-weight: 700; font-size: 8.8px; white-space: normal; word-break: break-word; overflow-wrap: anywhere; line-height: 1.25; text-align: center; vertical-align: middle; }
           .badge-passed { background-color: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; }
           .badge-defect { background-color: #ffe4e6; color: #9f1239; border: 1px solid #fecdd3; }
           .badge-pending { background-color: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
@@ -234,7 +258,10 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
           tfoot { display: table-footer-group; }
           tr { page-break-inside: avoid; page-break-after: auto; }
           th { background-color: #1e293b; color: #ffffff; text-align: left; padding: 5px 7px; font-weight: 700; border: 1px solid #0f172a; word-break: normal; overflow-wrap: break-word; white-space: normal; }
-          td { padding: 5px 7px; border: 1px solid #cbd5e1; word-break: normal; overflow-wrap: break-word; white-space: normal; vertical-align: top; }
+          td { padding: 5px 7px; border: 1px solid #cbd5e1; word-break: break-word; overflow-wrap: anywhere; white-space: normal; vertical-align: top; line-height: 1.3; height: auto; }
+          .status-cell { text-align: center; vertical-align: middle; white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
+          .wrap-cell { white-space: normal; word-break: break-word; overflow-wrap: anywhere; line-height: 1.3; }
+          .map-legend td, .map-legend th { padding: 4px 5px; }
           tr:nth-child(even) { background-color: #f8fafc; }
           .section-title { font-size: 12px; font-weight: 800; margin-top: 14px; margin-bottom: 8px; color: #1e1b4b; border-left: 4px solid #4f46e5; padding-left: 8px; background: #f1f5f9; padding-top: 4px; padding-bottom: 4px; page-break-after: avoid; break-after: avoid; text-transform: uppercase; }
           .footer { font-size: 8.5px; color: #94a3b8; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 6px; margin-top: 20px; }
@@ -392,10 +419,13 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
               `;
             }
 
-            const roomPositions = computeRoomLabelPositions(fpRooms);
+            const roomPositions = computeRoomLabelPositions(
+              fpRooms,
+              fpDefects.map((d) => ({ x: d.x, y: d.y, radius: 1.4 }))
+            );
             const defectPositions = computeDefectLabelPositions(
-              fpDefects, 
-              roomPositions.map(rp => ({ x: rp.lx, y: rp.ly, radius: 3.0 }))
+              fpDefects,
+              roomPositions.filter((rp) => rp.showLabel).map((rp) => ({ x: rp.lx, y: rp.ly, radius: 2.2 }))
             );
 
             return `
@@ -422,11 +452,11 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                             if (r.points && r.points.length >= 2) {
                               const ptsStr = r.points.map(p => `${p.x},${p.y}`).join(' ');
                               if (r.isPolyline) {
-                                return `<polyline points="${ptsStr}" fill="none" stroke="${borderColor}" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" />`;
+                                return `<polyline points="${ptsStr}" fill="none" stroke="${borderColor}" stroke-width="0.35" stroke-linecap="round" stroke-linejoin="round" opacity="0.82" />`;
                               }
-                              return `<polygon points="${ptsStr}" fill="${bgCol}" stroke="${borderColor}" stroke-width="0.8" />`;
+                              return `<polygon points="${ptsStr}" fill="${bgCol}" fill-opacity="0.16" stroke="${borderColor}" stroke-width="0.25" stroke-linejoin="round" />`;
                             }
-                            return `<rect x="${r.x}" y="${r.y}" width="${r.width || 15}" height="${r.height || 15}" fill="${bgCol}" stroke="${borderColor}" stroke-width="0.8" rx="0.5" />`;
+                            return `<rect x="${r.x}" y="${r.y}" width="${r.width || 15}" height="${r.height || 15}" fill="${bgCol}" fill-opacity="0.16" stroke="${borderColor}" stroke-width="0.25" stroke-linejoin="round" rx="0.5" />`;
                           }).join('')}
 
                           <!-- Sleek Room Number Badges in SVG (#1, #2, #3...) with collision leader lines -->
@@ -436,14 +466,15 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                             if (r.inspectionStatus === 'Đạt nghiệm thu') badgeBg = '#059669';
                             else if (r.inspectionStatus === 'Chưa đạt (Cần sửa)') badgeBg = '#dc2626';
 
+                            if (!rPos.showLabel) return '';
                             return `
                               <g>
                                 ${rPos.isOffset ? `
-                                  <circle cx="${rPos.x}" cy="${rPos.y}" r="0.8" fill="${badgeBg}" />
-                                  <line x1="${rPos.x}" y1="${rPos.y}" x2="${rPos.lx}" y2="${rPos.ly}" stroke="${badgeBg}" stroke-width="0.35" stroke-dasharray="0.6,0.3" />
+                                  <circle cx="${rPos.x}" cy="${rPos.y}" r="0.55" fill="${badgeBg}" />
+                                  <line x1="${rPos.x}" y1="${rPos.y}" x2="${rPos.lx}" y2="${rPos.ly}" stroke="${badgeBg}" stroke-width="0.18" stroke-dasharray="0.45,0.35" opacity="0.82" />
                                 ` : ''}
-                                <circle cx="${rPos.lx}" cy="${rPos.ly}" r="2.2" fill="${badgeBg}" stroke="#ffffff" stroke-width="0.4" />
-                                <text x="${rPos.lx}" y="${rPos.ly + 0.3}" text-anchor="middle" dominant-baseline="middle" fill="#ffffff" font-size="2.4" font-weight="900" style="font-family: Arial, sans-serif;">#${rIdx + 1}</text>
+                                <circle cx="${rPos.lx}" cy="${rPos.ly}" r="1.75" fill="${badgeBg}" fill-opacity="0.92" stroke="#ffffff" stroke-width="0.28" />
+                                <text x="${rPos.lx}" y="${rPos.ly + 0.2}" text-anchor="middle" dominant-baseline="middle" fill="#ffffff" font-size="1.85" font-weight="900" style="font-family: Arial, sans-serif;">#${rIdx + 1}</text>
                               </g>
                             `;
                           }).join('')}
@@ -500,30 +531,27 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
 
                           <svg style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible;" viewBox="0 0 100 100" preserveAspectRatio="none">
                             ${fpDefects.map((d, idx) => {
-                              const pos = defectPositions[idx] || { x: d.x, y: d.y, lx: d.x + 3, ly: d.y - 3 };
+                              const pos = defectPositions[idx] || { x: d.x, y: d.y, lx: d.x + 3, ly: d.y - 3, showLabel: true, clusterIndex: 0, clusterCount: 1 };
                               let pinColor = '#e11d48';
                               if (d.status === 'Đã nghiệm thu' || d.status === 'Đã khắc phục') {
                                 pinColor = '#059669';
-                              } else if (d.status === 'Đang sửa') {
+                              } else if (d.status === 'Đang sửa' || d.status === 'Đang khắc phục') {
                                 pinColor = '#d97706';
                               }
 
                               return `
                                 <g>
-                                  <!-- Outer ring around origin point -->
-                                  <circle cx="${pos.x}" cy="${pos.y}" r="2" fill="${pinColor}" fill-opacity="0.25" stroke="${pinColor}" stroke-width="0.3" />
+                                  ${pos.clusterIndex === 0 ? `
+                                    <circle cx="${pos.x}" cy="${pos.y}" r="${pos.clusterCount > 1 ? 1.55 : 1.15}" fill="#ffffff" fill-opacity="0.92" stroke="${pinColor}" stroke-width="0.24" />
+                                    <circle cx="${pos.x}" cy="${pos.y}" r="0.48" fill="${pinColor}" />
+                                    ${pos.clusterCount > 1 ? `<text x="${pos.x}" y="${Math.max(1.2, pos.y - 1.75)}" text-anchor="middle" fill="${pinColor}" font-size="1.45" font-weight="900" style="font-family: Arial, sans-serif;">×${pos.clusterCount}</text>` : ''}
+                                  ` : ''}
 
-                                  <!-- Fixed origin dot ● at exact real coordinate -->
-                                  <circle cx="${pos.x}" cy="${pos.y}" r="1" fill="${pinColor}" stroke="#ffffff" stroke-width="0.4" />
-
-                                  <!-- Leader Line connecting origin dot to label badge -->
-                                  <line x1="${pos.x}" y1="${pos.y}" x2="${pos.lx}" y2="${pos.ly}" stroke="${pinColor}" stroke-width="0.4" stroke-dasharray="0.8,0.4" />
-
-                                  <!-- Label Badge DF-xxx -->
-                                  <g transform="translate(${pos.lx}, ${pos.ly})">
-                                    <rect x="-5.5" y="-2.5" width="11" height="5" rx="1" fill="${pinColor}" stroke="#ffffff" stroke-width="0.4" />
-                                    <text x="0" y="0.3" text-anchor="middle" dominant-baseline="middle" fill="#ffffff" font-size="2.6" font-weight="900" style="font-family: Arial, sans-serif;">${d.displayCode}</text>
-                                  </g>
+                                  ${pos.showLabel ? `
+                                    <line x1="${pos.x}" y1="${pos.y}" x2="${pos.lx}" y2="${pos.ly}" stroke="${pinColor}" stroke-width="0.18" opacity="0.78" />
+                                    <circle cx="${pos.lx}" cy="${pos.ly}" r="2.05" fill="${pinColor}" fill-opacity="0.94" stroke="#ffffff" stroke-width="0.28" />
+                                    <text x="${pos.lx}" y="${pos.ly + 0.22}" text-anchor="middle" dominant-baseline="middle" fill="#ffffff" font-size="1.9" font-weight="900" style="font-family: Arial, sans-serif;">${d.markerCode}</text>
+                                  ` : ''}
                                 </g>
                               `;
                             }).join('')}
@@ -533,27 +561,33 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                         <!-- Legend Table for Defect Map 1:1 -->
                         <div style="background: #fff5f5; border: 1px solid #fecdd3; border-radius: 6px; padding: 6px 8px;">
                           <p style="margin: 0 0 4px 0; font-size: 9.5px; font-weight: bold; color: #9f1239;">Chú giải vị trí Defect trên bản vẽ (${formatFloorName(fp.floorName)}):</p>
-                          <table style="width: 100%; border-collapse: collapse; margin-bottom: 0; font-size: 9px; table-layout: fixed;">
+                          <table class="map-legend" style="width: 100%; border-collapse: collapse; margin-bottom: 0; font-size: 8.5px; table-layout: fixed;">
                             <thead>
                               <tr style="background: #ffe4e6;">
-                                <th style="width: 45px; text-align: center; color: #881337; padding: 4px;">Mã</th>
-                                <th style="width: 120px; color: #881337; padding: 4px;">Vị Trí / Khu Vực</th>
-                                <th style="width: 120px; color: #881337; padding: 4px;">Hạng Mục Lỗi</th>
-                                <th style="color: #881337; padding: 4px;">Mô Tả Chi Tiết</th>
-                                <th style="width: 85px; color: #881337; padding: 4px;">Trạng Thái</th>
+                                <th style="width: 6%; text-align: center; color: #881337;">STT</th>
+                                <th style="width: 10%; color: #881337;">Tầng</th>
+                                <th style="width: 11%; color: #881337;">Phòng</th>
+                                <th style="width: 14%; color: #881337;">Loại lỗi</th>
+                                <th style="width: 25%; color: #881337;">Mô tả</th>
+                                <th style="width: 12%; color: #881337;">Đội phụ trách</th>
+                                <th style="width: 13%; color: #881337; text-align: center;">Trạng thái</th>
+                                <th style="width: 9%; color: #881337; text-align: center;">Deadline</th>
                               </tr>
                             </thead>
                             <tbody>
                               ${fpDefects.map((d) => {
                                 const matchedRoom = roomProgressList.find(r => r.id === d.roomId || (r.floorId === d.floorId && r.roomName === d.roomId));
-                                const locationName = matchedRoom ? matchedRoom.roomName : formatFloorName(d.floorName);
+                                const roomName = matchedRoom ? matchedRoom.roomName : (d.roomId || '—');
                                 return `
                                 <tr>
-                                  <td style="text-align: center; font-weight: 900; color: #e11d48; padding: 4px;">${d.displayCode}</td>
-                                  <td style="font-weight: bold; padding: 4px; color: #475569; word-break: normal; overflow-wrap: break-word;">${locationName}</td>
-                                  <td style="font-weight: bold; padding: 4px; color: #9f1239; word-break: normal; overflow-wrap: break-word;">${d.category}</td>
-                                  <td style="padding: 4px; word-break: normal; overflow-wrap: break-word;">${d.description}</td>
-                                  <td style="padding: 4px;"><span class="badge ${d.status === 'Đã nghiệm thu' ? 'badge-passed' : d.status === 'Đang sửa' ? 'badge-pending' : 'badge-defect'}">${d.status}</span></td>
+                                  <td style="text-align: center; font-weight: 900; color: #e11d48;">${d.markerCode}</td>
+                                  <td class="wrap-cell">${formatFloorName(d.floorName)}</td>
+                                  <td class="wrap-cell" style="font-weight: 700;">${roomName}</td>
+                                  <td class="wrap-cell" style="font-weight: 700; color: #9f1239;">${d.category}</td>
+                                  <td class="wrap-cell">${d.description || '—'}</td>
+                                  <td class="wrap-cell"><strong>${d.assignedTo || '—'}</strong></td>
+                                  <td class="status-cell"><span class="badge ${d.status === 'Đã nghiệm thu' || d.status === 'Đã khắc phục' ? 'badge-passed' : d.status === 'Đang sửa' || d.status === 'Đang khắc phục' ? 'badge-pending' : 'badge-defect'}">${d.status}</span></td>
+                                  <td class="status-cell">${d.dueDate ? formatDateDDMMYYYY(d.dueDate) : '—'}</td>
                                 </tr>
                               `;
                               }).join('')}
@@ -632,13 +666,13 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
           <table style="table-layout: fixed; width: 100%;">
             <thead>
               <tr>
-                <th style="width: 45px; text-align: center;">Mã Lỗi</th>
-                <th style="width: 110px;">Vị Trí / Tầng</th>
-                <th style="width: 110px;">Hạng Mục Lỗi</th>
-                <th>Mô Tả &amp; Thông Tin Kiểm Soát</th>
-                <th style="width: 95px;">Người Tạo &amp; Hạn</th>
-                <th style="width: 85px;">Trách Nhiệm</th>
-                <th style="width: 95px;">Trạng Thái</th>
+                <th style="width: 7%; text-align: center;">Mã Lỗi</th>
+                <th style="width: 13%;">Vị Trí / Tầng</th>
+                <th style="width: 14%;">Hạng Mục Lỗi</th>
+                <th style="width: 25%;">Mô Tả &amp; Thông Tin Kiểm Soát</th>
+                <th style="width: 13%;">Người Tạo &amp; Hạn</th>
+                <th style="width: 14%;">Trách Nhiệm</th>
+                <th style="width: 14%; text-align: center;">Trạng Thái</th>
               </tr>
             </thead>
             <tbody>
@@ -658,9 +692,9 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                     ${d.completedAt ? `<div style="color: #166534; font-size: 8px;">Xong: ${d.completedAt}</div>` : ''}
                   </td>
                   <td style="word-break: normal; overflow-wrap: break-word;"><strong>${d.assignedTo}</strong></td>
-                  <td>
+                  <td class="status-cell">
                     <div style="margin-bottom: 2px;">
-                      <span class="badge ${d.status === 'Đã nghiệm thu' ? 'badge-passed' : d.status === 'Đang sửa' ? 'badge-pending' : 'badge-defect'}">${d.status}</span>
+                      <span class="badge ${d.status === 'Đã nghiệm thu' || d.status === 'Đã khắc phục' ? 'badge-passed' : d.status === 'Đang sửa' || d.status === 'Đang khắc phục' ? 'badge-pending' : 'badge-defect'}">${d.status}</span>
                     </div>
                     ${overdue.statusText ? `
                       <div>
@@ -1287,6 +1321,30 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
           {/* Tùy chỉnh nâng cao */}
           <div className="pt-1 space-y-2 text-slate-700 bg-slate-50 p-3 rounded-2xl border border-slate-200">
             <span className="block font-bold text-slate-800 text-[11px]">⚙️ Tùy Chỉnh Bố Cục Báo Cáo:</span>
+            <div className="grid grid-cols-2 gap-2 pb-1">
+              <label className="space-y-1">
+                <span className="block text-[10px] font-semibold text-slate-600">Khổ giấy PDF</span>
+                <select
+                  value={pdfPaperSize}
+                  onChange={(e) => setPdfPaperSize(e.target.value as 'A4' | 'A3')}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold"
+                >
+                  <option value="A4">A4</option>
+                  <option value="A3">A3</option>
+                </select>
+              </label>
+              <label className="space-y-1">
+                <span className="block text-[10px] font-semibold text-slate-600">Hướng giấy</span>
+                <select
+                  value={pdfOrientation}
+                  onChange={(e) => setPdfOrientation(e.target.value as 'portrait' | 'landscape')}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold"
+                >
+                  <option value="portrait">Dọc (Portrait)</option>
+                  <option value="landscape">Ngang (Landscape)</option>
+                </select>
+              </label>
+            </div>
             <label className="flex items-center gap-2 cursor-pointer select-none text-[11px] font-medium">
               <input
                 type="checkbox"

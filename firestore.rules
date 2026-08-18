@@ -122,6 +122,16 @@ service cloud.firestore {
       }
     }
 
+    // Centralized Google Drive bridge config. Everyone signed in may read the
+    // endpoint, but only the designated primary Drive account may change it.
+    // The endpoint itself still verifies Firebase ID tokens + per-project roles.
+    match /app_config/{configId} {
+      allow read: if isGoogleAuthed();
+      allow create, update, delete: if isGoogleAuthed()
+        && hasSignedInEmail()
+        && signedInEmail() == 'lengochieu1211@gmail.com';
+    }
+
     // User profile documents
     match /users/{userId} {
       allow read: if isGoogleAuthed();

@@ -25,6 +25,7 @@ import {
 } from '../lib/firebase';
 import type { User as FirebaseUser } from 'firebase/auth';
 import { ConflictMergeModal } from './ConflictMergeModal';
+import { PrimaryDriveStatusCard } from './PrimaryDriveStatusCard';
 import { confirmAsync } from '../utils/confirmAsync';
 import { 
   normalizeImportedData, 
@@ -2946,7 +2947,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   </div>
                   {googleUser && !googleUser.isAnonymous && (
                     <p className="text-[9px] text-slate-500 flex items-center justify-between gap-2">
-                      <span>Ảnh được lưu Cloud theo từng tệp và chỉ tải xuống khi cần xem để giảm lag điện thoại.</span>
+                      <span>Ảnh ưu tiên lưu vào Drive chính An Phú; Firebase giữ metadata và chỉ dùng Firestore làm dự phòng khi Drive chưa cấu hình hoặc tạm lỗi.</span>
                       {photoCloudStatus?.lastSyncAt ? <span className="shrink-0">{new Date(photoCloudStatus.lastSyncAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</span> : null}
                     </p>
                   )}
@@ -2988,6 +2989,12 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     </div>
                   </details>
                 </div>
+
+                <PrimaryDriveStatusCard
+                  activeProjectId={activeProjectId || activeId}
+                  userRole={effectiveRole}
+                  floorPlans={fullAppData?.floorPlans || []}
+                />
 
                 {/* Cloud History list */}
                 <div className="pt-2 border-t border-slate-100">

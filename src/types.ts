@@ -40,6 +40,14 @@ export interface FloorPlan {
   order?: number;
   driveFileId?: string;
   driveUrl?: string;
+  storageProvider?: 'google-drive-primary' | 'firestore-fallback' | string;
+  cloudFileId?: string;
+  imageMimeType?: string;
+  imageFileSize?: number;
+  imageRevision?: number;
+  imageCloudRevision?: number;
+  imageCloudSyncedAt?: number;
+  updatedAt?: number;
   targetFrameDate?: string; // YYYY-MM-DD
   targetBoardDate?: string; // YYYY-MM-DD
 }
