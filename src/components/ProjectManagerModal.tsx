@@ -70,6 +70,7 @@ interface ProjectManagerModalProps {
   onSwitchProject?: (id: string) => Promise<void>;
   onFlushCurrentProject?: () => Promise<void>;
   userRole?: UserRole;
+  photoCloudStatus?: { phase: 'idle' | 'syncing' | 'synced' | 'error'; pending?: number; message?: string; lastSyncAt?: number };
 }
 
 export type ScopeType = 'active' | 'selected' | 'all';
@@ -99,6 +100,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   onSwitchProject,
   onFlushCurrentProject,
   userRole,
+  photoCloudStatus,
 }) => {
   useFormatSettings();
   const effectiveRole = userRole || getCurrentUserRole();
@@ -1054,12 +1056,14 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             checklist: normalized.checklist || [],
             crewRecords: normalized.crewRecords || [],
             teams: normalized.teams || [],
-            photos: photosWithBinary || [],
+            photos: (photosWithBinary || []).map((photo) => {
+              const { base64, localUri, dataUrl, ...metadataOnly } = photo as any;
+              return metadataOnly;
+            }),
             photoData: photoDataMap,
             tombstones: normalized.tombstones || data[getKey('construction_tombstones', activeId)] || {},
             updatedAt: normalized.updatedAt || Date.now()
           },
-          photoData: photoDataMap,
           tombstones: normalized.tombstones || data[getKey('construction_tombstones', activeId)] || {}
         };
       } else {
@@ -1074,7 +1078,10 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         for (const pId of targetPids) {
           const pPhotos = await getProjectPhotosWithBinary(pId);
           if (pPhotos.length > 0) {
-            allProjectPhotos[pId] = pPhotos;
+            allProjectPhotos[pId] = pPhotos.map((photo) => {
+              const { base64, localUri, dataUrl, ...metadataOnly } = photo as any;
+              return metadataOnly;
+            });
             const pDataMap: Record<string, string> = {};
             pPhotos.forEach(ph => {
               if (ph.id && (ph.base64 || ph.localUri)) {
@@ -1101,8 +1108,10 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       }
 
       const jsonString = JSON.stringify(finalDataToExport, null, 2);
-      const blob = new Blob([jsonString], { type: 'application/json' });
-      await downloadOrShareFile(filename, blob, 'application/json');
+      // JSON is text: use the streaming Android text bridge instead of converting the
+      // whole file to Base64. Large photo backups previously exhausted WebView memory
+      // and could create a visible 0 KB file on Android.
+      await downloadOrShareFile(filename, jsonString, 'application/json;charset=utf-8');
 
       // Calculate file size
       let fileSizeStr = '';
@@ -2815,10 +2824,10 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                 <div className="flex items-center justify-between">
                   <span className="font-extrabold text-indigo-900 text-xs flex items-center gap-1.5">
                     <Cloud className="w-4 h-4 text-indigo-600" />
-                    Đồng Bộ Đám Mây (Cloud Firebase)
+                    Tài Khoản & Đồng Bộ Dự Án
                   </span>
                   <span className="text-[9px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-bold border border-indigo-200 flex items-center gap-1">
-                    <Smartphone className="w-2.5 h-2.5" /> <Monitor className="w-2.5 h-2.5" /> Multi-Device
+                    <Smartphone className="w-2.5 h-2.5" /> <Monitor className="w-2.5 h-2.5" /> Nhiều thiết bị
                   </span>
                 </div>
 
@@ -2865,8 +2874,8 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   </div>
                   <p className="text-[9.5px] text-slate-500 italic">
                     {googleUser && !googleUser.isAnonymous 
-                      ? '🔒 Tài khoản Google đã được xác thực để bảo vệ quyền truy cập và sao lưu dữ liệu đám mây.' 
-                      : 'ℹ️ Đăng nhập tài khoản Google để bảo vệ quyền sở hữu dữ liệu sao lưu trên Firebase Cloud.'}
+                      ? '🔒 Đã xác thực. Dự án được nhận diện theo tài khoản và đồng bộ tự động giữa các thiết bị.' 
+                      : 'ℹ️ Đăng nhập Google để nhận diện đúng dự án và đồng bộ dữ liệu/ảnh giữa các thiết bị.'}
                   </p>
                 </div>
 
@@ -2902,38 +2911,82 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   </div>
                 )}
 
-                {/* Quick Multi-Device Transfer Code */}
+                {/* Primary multi-device flow: account first, automatic sync by projectId. */}
                 <div className="bg-indigo-50/60 p-2.5 rounded-xl border border-indigo-100 space-y-2">
-                  <p className="font-bold text-indigo-950 text-[11px] flex items-center gap-1">
-                    <Share2 className="w-3.5 h-3.5 text-indigo-600" /> Đồng Bộ Nhanh Qua Mã Dự Án (Điện Thoại &lt;&gt; Máy Tính)
-                  </p>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={handleUploadActiveProjectToCloud}
-                      disabled={isSyncingCurrentProject}
-                      className="flex-1 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg font-bold text-[10.5px] flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-xs"
-                    >
-                      <CloudUpload className="w-3.5 h-3.5" /> Đẩy Dự Án Hiện Tại Lên Cloud
-                    </button>
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="font-bold text-indigo-950 text-[11px] flex items-center gap-1">
+                        <Share2 className="w-3.5 h-3.5 text-indigo-600" /> Đồng bộ tự động theo tài khoản
+                      </p>
+                      <p className="text-[9.5px] text-indigo-800/80 mt-1 leading-relaxed">
+                        Cùng tài khoản Google sẽ nhận đúng dự án và tự đồng bộ dữ liệu, phân quyền, defect, quân số và toàn bộ ảnh đính kèm giữa điện thoại &amp; máy tính.
+                      </p>
+                    </div>
+                    <span className={`shrink-0 text-[9px] px-2 py-1 rounded-full font-bold border ${
+                      !googleUser || googleUser.isAnonymous ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                      photoCloudStatus?.phase === 'error' ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                      photoCloudStatus?.phase === 'syncing' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                      'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    }`}>
+                      {!googleUser || googleUser.isAnonymous ? 'Cần đăng nhập' :
+                       photoCloudStatus?.phase === 'error' ? '● Lỗi ảnh' :
+                       photoCloudStatus?.phase === 'syncing' ? '● Đang đồng bộ' : '● Đã đồng bộ'}
+                    </span>
                   </div>
-                  <div className="flex gap-1.5 pt-0.5">
-                    <input
-                      type="text"
-                      placeholder="Nhập Mã Sync Dự Án..."
-                      value={cloudSyncCodeInput}
-                      onChange={(e) => setCloudSyncCodeInput(e.target.value)}
-                      className="flex-1 px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-[11px] font-bold outline-none focus:border-indigo-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={handlePullProjectFromCloud}
-                      disabled={!cloudSyncCodeInput.trim() || isSyncingCurrentProject}
-                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 disabled:opacity-50 text-white rounded-lg font-bold text-[10.5px] flex items-center gap-1 transition-colors cursor-pointer shrink-0"
-                    >
-                      <CloudDownload className="w-3.5 h-3.5 text-indigo-300" /> Tải Về
-                    </button>
+
+                  <div className="grid grid-cols-2 gap-1.5 text-[9.5px]">
+                    <div className="bg-white border border-indigo-100 rounded-lg px-2 py-1.5">
+                      <span className="text-slate-400">Dự án hiện tại</span>
+                      <p className="font-bold text-slate-800 truncate">{projects.find(p => p.id === (activeProjectId || activeId))?.name || activeProjectId || activeId}</p>
+                    </div>
+                    <div className="bg-white border border-indigo-100 rounded-lg px-2 py-1.5">
+                      <span className="text-slate-400">Nội dung Cloud</span>
+                      <p className="font-bold text-slate-800">Dữ liệu + ảnh đầy đủ</p>
+                    </div>
                   </div>
+                  {googleUser && !googleUser.isAnonymous && (
+                    <p className="text-[9px] text-slate-500 flex items-center justify-between gap-2">
+                      <span>Ảnh được lưu Cloud theo từng tệp và chỉ tải xuống khi cần xem để giảm lag điện thoại.</span>
+                      {photoCloudStatus?.lastSyncAt ? <span className="shrink-0">{new Date(photoCloudStatus.lastSyncAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</span> : null}
+                    </p>
+                  )}
+
+                  <details className="group bg-white/70 border border-indigo-100 rounded-lg">
+                    <summary className="cursor-pointer select-none px-2.5 py-2 text-[10px] font-bold text-indigo-700 flex items-center justify-between">
+                      <span>Công cụ đồng bộ nâng cao</span>
+                      <ChevronDown className="w-3.5 h-3.5 group-open:rotate-180 transition-transform" />
+                    </summary>
+                    <div className="px-2.5 pb-2.5 space-y-2 border-t border-indigo-100 pt-2">
+                      <button
+                        type="button"
+                        onClick={handleUploadActiveProjectToCloud}
+                        disabled={isSyncingCurrentProject || !googleUser || googleUser.isAnonymous}
+                        className="w-full py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg font-bold text-[10.5px] flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-xs"
+                      >
+                        <CloudUpload className="w-3.5 h-3.5" /> Đồng bộ lại dự án này
+                      </button>
+                      <div className="flex gap-1.5">
+                        <input
+                          type="text"
+                          placeholder="ID dự án (chỉ dùng khi phục hồi/liên kết cũ)"
+                          value={cloudSyncCodeInput}
+                          onChange={(e) => setCloudSyncCodeInput(e.target.value)}
+                          className="flex-1 min-w-0 px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-[10px] font-semibold outline-none focus:border-indigo-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={handlePullProjectFromCloud}
+                          disabled={!cloudSyncCodeInput.trim() || isSyncingCurrentProject}
+                          className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 disabled:opacity-50 text-white rounded-lg font-bold text-[10px] flex items-center gap-1 transition-colors cursor-pointer shrink-0"
+                        >
+                          <CloudDownload className="w-3.5 h-3.5 text-indigo-300" /> Phục hồi
+                        </button>
+                      </div>
+                      <p className="text-[9px] text-slate-500">
+                        Bình thường không cần nhập mã dự án. ID chỉ giữ lại để xử lý dự án cũ hoặc sự cố đặc biệt.
+                      </p>
+                    </div>
+                  </details>
                 </div>
 
                 {/* Cloud History list */}

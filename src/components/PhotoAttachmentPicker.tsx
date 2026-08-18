@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Camera, Image as ImageIcon, Images, Eye, Loader2, X, Pencil } from 'lucide-react';
 import { PhotoAttachment, getEntityPhotos, savePhotoAttachment, deletePhotoAttachment, getPhotoDataUrl, updatePhotoAttachmentBlob } from '../utils/photoStorage';
 import { ImageViewerModal } from './ImageViewerModal';
@@ -16,9 +16,9 @@ interface PhotoAttachmentPickerProps {
   onPhotosChanged?: (photos: PhotoAttachment[]) => void;
 }
 
-const notifyPhotoAttachmentsChanged = () => {
+const notifyPhotoAttachmentsChanged = (detail?: Record<string, any>) => {
   if (typeof window !== 'undefined') {
-    window.dispatchEvent(new Event('qlct-photo-attachments-changed'));
+    window.dispatchEvent(new CustomEvent('qlct-photo-attachments-changed', { detail }));
   }
 };
 
@@ -37,6 +37,8 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [viewingIndex, setViewingIndex] = useState<number | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const libraryInputRef = useRef<HTMLInputElement | null>(null);
   
   // Image editor state
   const [editingPhoto, setEditingPhoto] = useState<{ id: string; url: string } | null>(null);
@@ -57,7 +59,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
       const urlMap: Record<string, string> = {};
       await Promise.all(
         items.map(async (p) => {
-          const url = p.localUri || await getPhotoDataUrl(p.id, p.cloudUrl, true);
+          const url = p.localUri || await getPhotoDataUrl(p.id, p.cloudUrl || p.cloudFileId, true);
           if (url) urlMap[p.id] = url;
         })
       );
@@ -73,43 +75,89 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
 
   useEffect(() => {
     loadPhotos();
+    const handleExternalPhotoChange = () => loadPhotos();
+    if (typeof window !== 'undefined') {
+      window.addEventListener('qlct-photo-attachments-changed', handleExternalPhotoChange);
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('qlct-photo-attachments-changed', handleExternalPhotoChange);
+      }
+    };
   }, [projectId, entityType, entityId, category]);
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0 || !projectId || !entityId) return;
+  const processSelectedFiles = async (files: FileList | File[] | null) => {
+    const selected = files ? Array.from(files) : [];
+    if (selected.length === 0 || !projectId || !entityId) return;
 
-    if (photos.length + files.length > maxPhotos) {
+    if (photos.length + selected.length > maxPhotos) {
       alert(`Bạn chỉ có thể chèn tối đa ${maxPhotos} ảnh!`);
+      return;
+    }
+
+    const imageNamePattern = /\.(jpe?g|png|webp|gif|bmp|heic|heif)$/i;
+    const invalid = selected.find((file) => {
+      const mime = (file.type || '').toLowerCase();
+      // Android/Xiaomi document pickers sometimes return an empty MIME type for valid images.
+      return mime ? !mime.startsWith('image/') : !imageNamePattern.test(file.name || '');
+    });
+    if (invalid) {
+      alert(`Tệp "${invalid.name || 'đã chọn'}" không phải hình ảnh hợp lệ.`);
       return;
     }
 
     setUploading(true);
     try {
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        await savePhotoAttachment(
+      const savedNow: PhotoAttachment[] = [];
+      const optimisticUrls: Record<string, string> = {};
+
+      for (const file of selected) {
+        // Some Android galleries return HEIC/HEIF. Browser decoding support differs by device,
+        // so fail with a useful message instead of saving a broken attachment.
+        const type = (file.type || '').toLowerCase();
+        const name = (file.name || '').toLowerCase();
+        if (type.includes('heic') || type.includes('heif') || name.endsWith('.heic') || name.endsWith('.heif')) {
+          throw new Error('Ảnh HEIC/HEIF chưa được trình duyệt này hỗ trợ. Hãy chọn JPG/PNG/WebP hoặc đổi Camera sang định dạng JPG.');
+        }
+
+        const saved = await savePhotoAttachment(
           {
             projectId,
             entityType,
             entityId,
             category,
-            fileName: file.name,
+            fileName: file.name || `QLCT_${Date.now()}.jpg`,
             mimeType: file.type || 'image/jpeg',
             fileSize: file.size,
           },
           file
         );
+        savedNow.push(saved);
+        if (saved.localUri) optimisticUrls[saved.id] = saved.localUri;
       }
-      notifyPhotoAttachmentsChanged();
-      await loadPhotos();
-    } catch (err) {
+
+      // Render immediately from the just-compressed data URL. Do not wait for IndexedDB/cloud
+      // round-trips; this fixes the "saved but image does not appear" behavior on mobile.
+      if (savedNow.length > 0) {
+        setPhotos((prev) => [...savedNow, ...prev.filter((p) => !savedNow.some((n) => n.id === p.id))]);
+        setPhotoDataUrls((prev) => ({ ...prev, ...optimisticUrls }));
+      }
+
+      notifyPhotoAttachmentsChanged({ operation: 'add', entityType, entityId, category, count: savedNow.length });
+      // A background reload normalizes metadata after the optimistic render.
+      window.setTimeout(() => { loadPhotos().catch(() => {}); }, 50);
+    } catch (err: any) {
       console.error('Error uploading photo:', err);
-      alert('Có lỗi xảy ra khi xử lý ảnh. Vui lòng thử lại.');
+      alert(err?.message || 'Có lỗi xảy ra khi xử lý ảnh. Vui lòng thử lại.');
     } finally {
       setUploading(false);
-      e.target.value = '';
+      if (cameraInputRef.current) cameraInputRef.current.value = '';
+      if (libraryInputRef.current) libraryInputRef.current.value = '';
     }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    await processSelectedFiles(e.target.files);
   };
 
   const handleDeletePhoto = async (photoId: string, e: React.MouseEvent) => {
@@ -119,7 +167,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
     if (!confirmed) return;
     try {
       await deletePhotoAttachment(projectId, photoId);
-      notifyPhotoAttachmentsChanged();
+      notifyPhotoAttachmentsChanged({ operation: 'delete', entityType, entityId, category, photoId });
       await loadPhotos();
     } catch (err) {
       console.error('Error deleting photo:', err);
@@ -130,7 +178,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
     e.preventDefault();
     e.stopPropagation();
     try {
-      const fullUrl = await getPhotoDataUrl(photo.id, photo.cloudUrl, false);
+      const fullUrl = await getPhotoDataUrl(photo.id, photo.cloudUrl || photo.cloudFileId, false);
       if (fullUrl) {
         setEditingPhoto({ id: photo.id, url: fullUrl });
       }
@@ -145,7 +193,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
       setUploading(true);
       await updatePhotoAttachmentBlob(projectId, editingPhoto.id, editedFile);
       setEditingPhoto(null);
-      notifyPhotoAttachmentsChanged();
+      notifyPhotoAttachmentsChanged({ operation: 'edit', entityType, entityId, category, photoId: editingPhoto.id });
       await loadPhotos();
     } catch (err) {
       console.error('Error saving edited photo:', err);
@@ -172,10 +220,10 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
               {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
               <span>Chụp ảnh</span>
               <input
+                ref={cameraInputRef}
                 type="file"
-                accept="image/*"
+                accept="image/jpeg,image/png,image/webp"
                 capture="environment"
-                multiple
                 className="hidden"
                 onChange={handleFileChange}
                 disabled={uploading}
@@ -187,8 +235,9 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
               {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Images className="w-3.5 h-3.5 text-emerald-600" />}
               <span>Thư viện</span>
               <input
+                ref={libraryInputRef}
                 type="file"
-                accept="image/*"
+                accept="image/jpeg,image/png,image/webp,image/*"
                 multiple
                 className="hidden"
                 onChange={handleFileChange}

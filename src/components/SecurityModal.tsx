@@ -29,6 +29,7 @@ import {
   clearAuditLogs,
   logAuditAction,
   getProjectMembers,
+  saveProjectMembers,
   addProjectMember,
   removeProjectMember,
   ProjectMember,
@@ -36,7 +37,7 @@ import {
   AuditLogEntry
 } from '../utils/securityUtils';
 import { hashPin, verifyPin } from '../utils/cryptoUtils';
-import { signInWithGoogle, getCurrentFirebaseUser, fetchProjectUserRoleFromCloud, claimProjectOwnership } from '../lib/firebase';
+import { signInWithGoogle, getCurrentFirebaseUser, fetchProjectUserRoleFromCloud, claimProjectOwnership, fetchProjectMembersFromCloud, fetchProjectAuditLogsFromCloud } from '../lib/firebase';
 import { saveTextFile } from '../utils/fileExport';
 
 interface SecurityModalProps {
@@ -146,11 +147,47 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
   }, [isOpen, activeProjectId, projects]);
 
   useEffect(() => {
-    if (selectedPid) {
-      setProjectMembers(getProjectMembers(selectedPid));
-      setMemberMsg(null);
-      refreshCloudStatus(selectedPid);
-    }
+    if (!selectedPid) return;
+    let cancelled = false;
+    setProjectMembers(getProjectMembers(selectedPid));
+    setMemberMsg(null);
+    refreshCloudStatus(selectedPid);
+
+    // Cloud is the source of truth for permissions. Refresh the visible member list
+    // whenever a project is selected so another phone/PC immediately sees accounts
+    // assigned by the administrator.
+    fetchProjectMembersFromCloud(selectedPid).then((cloudMembers) => {
+      if (cancelled || selectedPidRef.current !== selectedPid || !Array.isArray(cloudMembers)) return;
+      const normalized = cloudMembers
+        .filter((m: any) => m && m.email)
+        .map((m: any) => ({
+          email: String(m.email).trim().toLowerCase(),
+          role: (m.role || 'VIEWER') as UserRole,
+          assignedAt: Number(m.assignedAt || m.updatedAt || Date.now()),
+        }));
+      if (normalized.length > 0) {
+        const byEmail = new Map<string, ProjectMember>();
+        getProjectMembers(selectedPid).forEach((m) => byEmail.set(m.email.toLowerCase(), m));
+        normalized.forEach((m) => byEmail.set(m.email.toLowerCase(), m));
+        const merged = Array.from(byEmail.values());
+        saveProjectMembers(selectedPid, merged);
+        setProjectMembers(merged);
+      }
+    }).catch((err) => console.warn('Could not refresh project members from Cloud:', err));
+
+    fetchProjectAuditLogsFromCloud(selectedPid, 200).then((cloudLogs) => {
+      if (cancelled || selectedPidRef.current !== selectedPid || !Array.isArray(cloudLogs)) return;
+      const local = getAuditLogs().filter((log) => !log.projectId || log.projectId === selectedPid);
+      const byId = new Map<string, any>();
+      cloudLogs.forEach((log: any) => byId.set(log.id || `${log.timestamp}-${log.action}`, log));
+      local.forEach((log: any) => {
+        const key = log.id || `${log.timestamp}-${log.action}`;
+        if (!byId.has(key)) byId.set(key, log);
+      });
+      setAuditLogs(Array.from(byId.values()).sort((a: any, b: any) => Number(b.timestamp || 0) - Number(a.timestamp || 0)));
+    }).catch((err) => console.warn('Could not refresh project audit logs from Cloud:', err));
+
+    return () => { cancelled = true; };
   }, [selectedPid]);
 
   if (!isOpen) return null;
@@ -1157,8 +1194,11 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                         key={m.email}
                         className="flex items-center justify-between p-2 bg-slate-50 rounded-xl border border-slate-100 text-xs"
                       >
-                        <div className="flex items-center gap-2 truncate">
-                          <span className="font-semibold text-slate-800 truncate">{m.email}</span>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="min-w-0">
+                            {m.displayName && <div className="font-bold text-slate-800 truncate">{m.displayName}</div>}
+                            <div className="font-semibold text-slate-600 truncate">{m.email}</div>
+                          </div>
                           <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-extrabold uppercase ${
                             m.role === 'ADMIN'
                               ? 'bg-rose-100 text-rose-700'
@@ -1238,8 +1278,11 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                       <p className="text-[10.5px] text-slate-700">
                         {log.details}
                       </p>
-                      <div className="flex items-center gap-2 text-[9px] text-slate-400">
-                        <span>Vai trò: <strong>{log.actorRole}</strong></span>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] text-slate-400">
+                        {log.actorEmail && <span>Tài khoản: <strong className="text-slate-600">{log.actorEmail}</strong></span>}
+                        <span>Vai trò: <strong>{log.actorRole || '—'}</strong></span>
+                        {(log as any).deviceName && <span>• Thiết bị: <strong className="text-slate-600">{(log as any).deviceName}</strong></span>}
+                        {(log as any).deviceId && <span className="font-mono">({String((log as any).deviceId).slice(-8)})</span>}
                         {log.projectId && <span>• Dự án: {log.projectId}</span>}
                       </div>
                     </div>
