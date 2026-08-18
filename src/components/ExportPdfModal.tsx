@@ -461,7 +461,8 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
 
                           <!-- Sleek Room Number Badges in SVG (#1, #2, #3...) with collision leader lines -->
                           ${fpRooms.map((r, rIdx) => {
-                            const rPos = roomPositions[rIdx] || { x: 50, y: 50, lx: 50, ly: 50, isOffset: false };
+                            const rPos = roomPositions[rIdx] || { x: 50, y: 50, lx: 50, ly: 50, isOffset: false,
+                                                                                                showLabel: true };
                             let badgeBg = '#2563eb';
                             if (r.inspectionStatus === 'Đạt nghiệm thu') badgeBg = '#059669';
                             else if (r.inspectionStatus === 'Chưa đạt (Cần sửa)') badgeBg = '#dc2626';
