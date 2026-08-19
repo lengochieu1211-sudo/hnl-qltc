@@ -1666,7 +1666,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   };
 
   const toggleRoomExpanded = (roomId: string) => {
-    const next = new Set(expandedRoomIds);
+    const next = new Set<string>(expandedRoomIds);
     if (next.has(roomId)) next.delete(roomId);
     else next.add(roomId);
     setExpandedRoomsForActiveFloor(Array.from(next));
@@ -5486,7 +5486,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     ? new Set((room.subItems || []).map((sub) => sub.category || room.workCategory || 'Chưa phân nhóm')).size
                     : 2;
                   const roomVolumeTotal = room.categoryVolumes && Object.keys(room.categoryVolumes).length > 0
-                    ? Object.values(room.categoryVolumes).reduce((sum, value) => sum + (Number(value) || 0), 0)
+                    ? Object.values(room.categoryVolumes).reduce<number>((sum, value) => sum + (Number(value) || 0), 0)
                     : Number(room.workVolume || 0);
 
                   return (
