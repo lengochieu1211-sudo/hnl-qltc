@@ -26,6 +26,8 @@ import { confirmAsync } from '../utils/confirmAsync';
 import { getTodayDateString, addDaysToDateString, formatDateVN, calculateDiffDays } from '../utils/dueDateUtils';
 import { saveWorkbookFile } from '../utils/fileExport';
 
+import { QuickSortBar } from './QuickSortBar';
+
 interface ChecklistTabProps {
   checklist: ChecklistItem[];
   floors: string[];
@@ -535,79 +537,18 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
       )}
 
       {/* Quick Sort Checklist Items */}
-      <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-100 rounded-2xl px-3.5 py-2.5 text-xs text-slate-700 flex-wrap shrink-0">
-        <span className="font-bold text-[11px] text-indigo-800 flex items-center gap-1 shrink-0">
-          <ArrowUpDown className="w-3.5 h-3.5 text-indigo-500" /> Sắp xếp nhanh:
-        </span>
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <button
-            type="button"
-            onClick={() => {
-              if (checklistSortBy === 'title') {
-                if (checklistSortOrder === 'asc') {
-                  setChecklistSortOrder('desc');
-                } else {
-                  setChecklistSortBy('none');
-                }
-              } else {
-                setChecklistSortBy('title');
-                setChecklistSortOrder('asc');
-              }
-            }}
-            className={`px-2.5 py-1 rounded-lg transition-all font-bold text-[11px] flex items-center gap-1 cursor-pointer ${
-              checklistSortBy === 'title'
-                ? 'bg-indigo-600 text-white shadow-2xs'
-                : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
-            }`}
-          >
-            Nội Dung Tiêu Chí {checklistSortBy === 'title' && (checklistSortOrder === 'asc' ? '↑' : '↓')}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (checklistSortBy === 'status') {
-                if (checklistSortOrder === 'asc') {
-                  setChecklistSortOrder('desc');
-                } else {
-                  setChecklistSortBy('none');
-                }
-              } else {
-                setChecklistSortBy('status');
-                setChecklistSortOrder('asc');
-              }
-            }}
-            className={`px-2.5 py-1 rounded-lg transition-all font-bold text-[11px] flex items-center gap-1 cursor-pointer ${
-              checklistSortBy === 'status'
-                ? 'bg-indigo-600 text-white shadow-2xs'
-                : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
-            }`}
-          >
-            Trạng thái nghiệm thu {checklistSortBy === 'status' && (checklistSortOrder === 'asc' ? '↑' : '↓')}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (checklistSortBy === 'dueDate') {
-                if (checklistSortOrder === 'asc') {
-                  setChecklistSortOrder('desc');
-                } else {
-                  setChecklistSortBy('none');
-                }
-              } else {
-                setChecklistSortBy('dueDate');
-                setChecklistSortOrder('asc');
-              }
-            }}
-            className={`px-2.5 py-1 rounded-lg transition-all font-bold text-[11px] flex items-center gap-1 cursor-pointer ${
-              checklistSortBy === 'dueDate'
-                ? 'bg-indigo-600 text-white shadow-2xs'
-                : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
-            }`}
-          >
-            Thời Hạn {checklistSortBy === 'dueDate' && (checklistSortOrder === 'asc' ? '↑' : '↓')}
-          </button>
-        </div>
-      </div>
+      <QuickSortBar
+        options={[
+          { key: 'title', label: 'Nội dung', kind: 'alpha' },
+          { key: 'status', label: 'Trạng thái', kind: 'status' },
+          { key: 'dueDate', label: 'Thời hạn', kind: 'date', defaultOrder: 'asc' },
+        ]}
+        activeKey={checklistSortBy === 'none' ? null : checklistSortBy}
+        order={checklistSortOrder}
+        onChange={(key, order) => { setChecklistSortBy(key); setChecklistSortOrder(order); }}
+        onToggleOrder={() => setChecklistSortOrder((order) => order === 'asc' ? 'desc' : 'asc')}
+        onReset={() => { setChecklistSortBy('none'); setChecklistSortOrder('asc'); }}
+      />
 
       {/* Select and Bulk Actions Bar */}
       {sortedFilteredChecklist.length > 0 && (

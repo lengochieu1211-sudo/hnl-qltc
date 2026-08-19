@@ -30,6 +30,8 @@ import { getCurrentUserRole, canViewFinancials, canEditProjectData, UserRole } f
 import { normalizeUnit, unitKey } from '../utils/unitUtils';
 import { createEntityId } from '../utils/idUtils';
 
+import { QuickSortBar } from './QuickSortBar';
+
 interface WorkVolumeTabProps {
   workVolumes: WorkVolume[];
   floorPlans?: FloorPlan[];
@@ -598,79 +600,18 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       )}
 
       {/* Quick Sort Work Volumes */}
-      <div className="flex items-center gap-2 bg-blue-50 border border-blue-100 rounded-2xl px-3.5 py-2.5 text-xs text-slate-700 flex-wrap">
-        <span className="font-bold text-[11px] text-blue-800 flex items-center gap-1 shrink-0">
-          <ArrowUpDown className="w-3.5 h-3.5 text-blue-500" /> Sắp xếp nhanh:
-        </span>
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <button
-            type="button"
-            onClick={() => {
-              if (volSortBy === 'title') {
-                if (volSortOrder === 'asc') {
-                  setVolSortOrder('desc');
-                } else {
-                  setVolSortBy('none');
-                }
-              } else {
-                setVolSortBy('title');
-                setVolSortOrder('asc');
-              }
-            }}
-            className={`px-2.5 py-1 rounded-lg transition-all font-bold text-[11px] flex items-center gap-1 cursor-pointer ${
-              volSortBy === 'title'
-                ? 'bg-blue-600 text-white shadow-2xs'
-                : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
-            }`}
-          >
-            Tên hạng mục {volSortBy === 'title' && (volSortOrder === 'asc' ? '↑' : '↓')}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (volSortBy === 'planned') {
-                if (volSortOrder === 'asc') {
-                  setVolSortOrder('desc');
-                } else {
-                  setVolSortBy('none');
-                }
-              } else {
-                setVolSortBy('planned');
-                setVolSortOrder('asc');
-              }
-            }}
-            className={`px-2.5 py-1 rounded-lg transition-all font-bold text-[11px] flex items-center gap-1 cursor-pointer ${
-              volSortBy === 'planned'
-                ? 'bg-blue-600 text-white shadow-2xs'
-                : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
-            }`}
-          >
-            Khối lượng kế hoạch {volSortBy === 'planned' && (volSortOrder === 'asc' ? '↑' : '↓')}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (volSortBy === 'progress') {
-                if (volSortOrder === 'asc') {
-                  setVolSortOrder('desc');
-                } else {
-                  setVolSortBy('none');
-                }
-              } else {
-                setVolSortBy('progress');
-                setVolSortOrder('asc');
-              }
-            }}
-            className={`px-2.5 py-1 rounded-lg transition-all font-bold text-[11px] flex items-center gap-1 cursor-pointer ${
-              volSortBy === 'progress'
-                ? 'bg-blue-600 text-white shadow-2xs'
-                : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
-            }`}
-          >
-            Tiến Độ % {volSortBy === 'progress' && (volSortOrder === 'asc' ? '↑' : '↓')}
-          </button>
-        </div>
-      </div>
+      <QuickSortBar
+        options={[
+          { key: 'title', label: 'Tên hạng mục', kind: 'alpha' },
+          { key: 'planned', label: 'Khối lượng', kind: 'number' },
+          { key: 'progress', label: 'Tiến độ', kind: 'number' },
+        ]}
+        activeKey={volSortBy === 'none' ? null : volSortBy}
+        order={volSortOrder}
+        onChange={(key, order) => { setVolSortBy(key); setVolSortOrder(order); }}
+        onToggleOrder={() => setVolSortOrder((order) => order === 'asc' ? 'desc' : 'asc')}
+        onReset={() => { setVolSortBy('none'); setVolSortOrder('asc'); }}
+      />
 
       {/* Items List */}
       <div className="space-y-3">

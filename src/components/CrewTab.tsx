@@ -41,6 +41,7 @@ import { MathNumberInput } from './MathNumberInput';
 import { deleteEntityPhotos } from '../utils/photoStorage';
 import { saveWorkbookFile } from '../utils/fileExport';
 import { createEntityId } from '../utils/idUtils';
+import { QuickSortBar } from './QuickSortBar';
 
 interface CrewTabProps {
   projectId?: string;
@@ -72,37 +73,6 @@ const COMMON_TASKS = [
 
 type TeamSortOrder = SortOrder;
 type TeamLogSortMode = 'date' | 'floor';
-
-const QuickSortControls: React.FC<{
-  options: Array<{
-    key: string;
-    label: string;
-    order: TeamSortOrder;
-    active: boolean;
-    onClick: () => void;
-    title?: string;
-  }>;
-}> = ({ options }) => (
-  <div className="inline-flex items-center gap-1.5 bg-indigo-50 border border-indigo-100 text-indigo-700 px-2 py-1 rounded-xl text-[11px] font-bold shadow-2xs flex-wrap">
-    <ArrowUpDown className="w-3.5 h-3.5 shrink-0" />
-    <span className="whitespace-nowrap">Sắp xếp nhanh:</span>
-    {options.map(option => (
-      <button
-        key={option.key}
-        type="button"
-        onClick={option.onClick}
-        className={`px-2 py-0.5 rounded-md font-extrabold active:scale-95 transition-all border ${
-          option.active
-            ? 'bg-indigo-600 border-indigo-600 text-white shadow-2xs'
-            : 'bg-white border-indigo-200 text-indigo-700 hover:bg-indigo-100'
-        }`}
-        title={option.title}
-      >
-        {option.label} {option.order === 'asc' ? '↑' : '↓'}
-      </button>
-    ))}
-  </div>
-);
 
 const getFloorPlanById = (floorPlans: FloorPlan[], floorId?: string | null) =>
   floorId ? floorPlans.find(floor => floor.id === floorId) : undefined;
@@ -2483,21 +2453,14 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 text-xs text-slate-500 font-medium px-1 mb-2">
                           <span>Thống kê chi tiết theo tầng đang thi công</span>
                           <div className="flex items-center gap-2 flex-wrap">
-                            <QuickSortControls
-                              options={[
-                                {
-                                  key: 'floor',
-                                  label: 'Tầng',
-                                  order: teamFloorSortOrder,
-                                  active: true,
-                                  onClick: () => setTeamFloorSortOrder((order) => (order === 'asc' ? 'desc' : 'asc')),
-                                  title: 'Sắp xếp nhanh theo tầng'
-                                }
-                              ]}
+                            <QuickSortBar
+                              options={[{ key: 'floor', label: 'Tầng', kind: 'floor' }]}
+                              activeKey="floor"
+                              order={teamFloorSortOrder}
+                              onChange={(_key, order) => setTeamFloorSortOrder(order)}
+                              onToggleOrder={() => setTeamFloorSortOrder((order) => order === 'asc' ? 'desc' : 'asc')}
+                              summary={`${floorStatList.length} tầng · ${teamRooms.length} Căn / Phòng`}
                             />
-                            <span className="text-[11px] bg-indigo-600 text-white px-2.5 py-0.5 rounded-md font-extrabold shadow-2xs">
-                              {floorStatList.length} Tầng ({teamRooms.length} Căn / Phòng)
-                            </span>
                           </div>
                         </div>
 
@@ -2811,17 +2774,12 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     </div>
 
                     <div className="flex justify-end px-1">
-                      <QuickSortControls
-                        options={[
-                          {
-                            key: 'floor',
-                            label: 'Tầng',
-                            order: teamDefectFloorSortOrder,
-                            active: true,
-                            onClick: () => setTeamDefectFloorSortOrder((order) => (order === 'asc' ? 'desc' : 'asc')),
-                            title: 'Sắp xếp nhanh defect theo tầng'
-                          }
-                        ]}
+                      <QuickSortBar
+                        options={[{ key: 'floor', label: 'Tầng', kind: 'floor' }]}
+                        activeKey="floor"
+                        order={teamDefectFloorSortOrder}
+                        onChange={(_key, order) => setTeamDefectFloorSortOrder(order)}
+                        onToggleOrder={() => setTeamDefectFloorSortOrder((order) => order === 'asc' ? 'desc' : 'asc')}
                       />
                     </div>
 
@@ -2919,37 +2877,22 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                           Lịch sử công nhật đã ghi nhận ({teamLogs.length} ngày / {formatDecimal(totalWorkdays)} công thợ):
                         </div>
                         <div className="flex justify-end px-1">
-                          <QuickSortControls
+                          <QuickSortBar
                             options={[
-                              {
-                                key: 'date',
-                                label: 'Ngày',
-                                order: teamLogDateSortOrder,
-                                active: teamLogSortMode === 'date',
-                                onClick: () => {
-                                  if (teamLogSortMode === 'date') {
-                                    setTeamLogDateSortOrder((order) => (order === 'asc' ? 'desc' : 'asc'));
-                                  } else {
-                                    setTeamLogSortMode('date');
-                                  }
-                                },
-                                title: 'Sắp xếp nhật ký theo ngày thực tế'
-                              },
-                              {
-                                key: 'floor',
-                                label: 'Tầng',
-                                order: teamLogFloorSortOrder,
-                                active: teamLogSortMode === 'floor',
-                                onClick: () => {
-                                  if (teamLogSortMode === 'floor') {
-                                    setTeamLogFloorSortOrder((order) => (order === 'asc' ? 'desc' : 'asc'));
-                                  } else {
-                                    setTeamLogSortMode('floor');
-                                  }
-                                },
-                                title: 'Sắp xếp nhật ký theo tầng'
-                              }
+                              { key: 'date', label: 'Ngày', kind: 'date', defaultOrder: 'desc' },
+                              { key: 'floor', label: 'Tầng', kind: 'floor' },
                             ]}
+                            activeKey={teamLogSortMode}
+                            order={teamLogSortMode === 'date' ? teamLogDateSortOrder : teamLogFloorSortOrder}
+                            onChange={(key, order) => {
+                              setTeamLogSortMode(key);
+                              if (key === 'date') setTeamLogDateSortOrder(order);
+                              else setTeamLogFloorSortOrder(order);
+                            }}
+                            onToggleOrder={() => {
+                              if (teamLogSortMode === 'date') setTeamLogDateSortOrder((order) => order === 'asc' ? 'desc' : 'asc');
+                              else setTeamLogFloorSortOrder((order) => order === 'asc' ? 'desc' : 'asc');
+                            }}
                           />
                         </div>
                         {displayedTeamLogs.map((log) => (

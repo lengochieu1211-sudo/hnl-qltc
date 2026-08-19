@@ -1,0 +1,2 @@
+V6.1.5.8 - Unified sort, move controls, wording and icons across the app.
+Base: V6.1.5.7.

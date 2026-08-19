@@ -33,6 +33,7 @@ import { calculateStockSummary, resolveNormMaterialId } from '../utils/inventory
 import { compareDateValues, naturalCompare } from '../utils/sortUtils';
 import { createEntityId } from '../utils/idUtils';
 import { normalizeUnit } from '../utils/unitUtils';
+import { QuickSortBar } from './QuickSortBar';
 
 interface WarehouseTabProps {
   inventory: InventoryItem[];
@@ -79,7 +80,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [filterType, setFilterType] = useState<'all' | 'in' | 'out'>('all');
   useFormatSettings();
   const [searchTerm, setSearchTerm] = useState('');
-  const [inventorySort, setInventorySort] = useState<'date-desc' | 'date-asc' | 'material' | 'location' | 'handler'>('date-desc');
+  const [inventorySortBy, setInventorySortBy] = useState<'date' | 'material' | 'location' | 'handler'>('date');
+  const [inventorySortOrder, setInventorySortOrder] = useState<'asc' | 'desc'>('desc');
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingInventory, setEditingInventory] = useState<InventoryItem | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
@@ -130,7 +132,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         let newNorms = [...materialNorms];
         let newWorkVolumes = workVolumes ? [...workVolumes] : [];
 
-        // 1. Sheet "Nhập Kho"
+        // 1. Sheet "Nhập kho"
         const inSheetName = workbook.SheetNames.find(
           name => {
             const n = name.toLowerCase();
@@ -195,7 +197,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           });
         }
 
-        // 2. Sheet "Xuất Kho"
+        // 2. Sheet "Xuất kho"
         const outSheetName = workbook.SheetNames.find(
           name => {
             const n = name.toLowerCase();
@@ -373,8 +375,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             `⚠️ Không tìm thấy dữ liệu hợp lệ trong các trang Excel của bạn!\n\n` +
             `• Danh sách Sheet tìm thấy trong file: [${workbook.SheetNames.join(', ')}]\n` +
             `• Yêu cầu tên Sheet (không phân biệt hoa thường):\n` +
-            `  - Nhập Kho: chứa chữ 'nhap' hoặc 'nhập'\n` +
-            `  - Xuất Kho: chứa chữ 'xuat' hoặc 'xuất'\n` +
+            `  - Nhập kho: chứa chữ 'nhap' hoặc 'nhập'\n` +
+            `  - Xuất kho: chứa chữ 'xuat' hoặc 'xuất'\n` +
             `  - Định Mức Vật Tư: chứa chữ 'dinh muc' hoặc 'định mức'\n` +
             `  - Hạng Mục Thi Công: chứa chữ 'khoi luong', 'khối lượng', 'hang muc' hoặc 'hạng mục'\n\n` +
             `Vui lòng kiểm tra lại tên Sheet và đảm bảo có đúng tiêu đề cột dữ liệu.`
@@ -634,10 +636,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
     return list.sort((a, b) => {
       let result = 0;
-      switch (inventorySort) {
-        case 'date-asc':
-          result = compareDateValues(a.date, b.date);
-          break;
+      switch (inventorySortBy) {
         case 'material':
           result = naturalCompare(a.materialName, b.materialName);
           break;
@@ -647,16 +646,17 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         case 'handler':
           result = naturalCompare(a.handler, b.handler);
           break;
-        case 'date-desc':
+        case 'date':
         default:
-          result = compareDateValues(b.date, a.date);
+          result = compareDateValues(a.date, b.date);
           break;
       }
+      if (inventorySortOrder === 'desc') result = -result;
       if (result !== 0) return result;
       // Stable deterministic tie-breaker across PC/phone.
       return naturalCompare(a.id, b.id);
     });
-  }, [inventory, filterType, searchTerm, inventorySort]);
+  }, [inventory, filterType, searchTerm, inventorySortBy, inventorySortOrder]);
 
   const openCreateInventory = () => {
     setEditingInventory(null);
@@ -804,10 +804,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             </div>
             <div>
               <h3 className="font-bold text-xs text-slate-800">
-                Tải Excel &amp; Nhập dữ liệu Xuất &amp; Nhập Kho
+                Tải Excel &amp; Nhập dữ liệu Xuất &amp; Nhập kho
               </h3>
               <p className="text-[11px] text-slate-500 leading-snug mt-0.5">
-                Mẫu Excel gồm các trang: <strong>Nhập Kho</strong>, <strong>Xuất Kho</strong>, <strong>Định Mức Vật Tư</strong> (có cột Tên Hạng Mục Thi Công) &amp; <strong>Tồn Kho</strong>. Chỉnh sửa và tải lên để cập nhật hàng loạt.
+                Mẫu Excel gồm các trang: <strong>Nhập kho</strong>, <strong>Xuất kho</strong>, <strong>Định Mức Vật Tư</strong> (có cột Tên Hạng Mục Thi Công) &amp; <strong>Tồn Kho</strong>. Chỉnh sửa và tải lên để cập nhật hàng loạt.
               </p>
             </div>
           </div>
@@ -1011,7 +1011,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 filterType === 'all' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
               }`}
             >
-              Tất Cả ({inventory.length})
+              Tất cả ({inventory.length})
             </button>
             <button
               onClick={() => setFilterType('in')}
@@ -1019,7 +1019,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 filterType === 'in' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600'
               }`}
             >
-              Nhập Kho
+              Nhập kho
             </button>
             <button
               onClick={() => setFilterType('out')}
@@ -1027,38 +1027,24 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 filterType === 'out' ? 'bg-amber-600 text-white shadow-sm' : 'text-slate-600'
               }`}
             >
-              Xuất Kho
+              Xuất kho
             </button>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="shrink-0 inline-flex items-center gap-1 text-[11px] font-bold text-indigo-800">
-            <ArrowUpDown className="w-3.5 h-3.5 text-indigo-500" /> Sắp xếp nhanh:
-          </span>
-          <div className="flex-1 flex items-center gap-1 overflow-x-auto no-scrollbar pb-0.5">
-            {[
-              ['date-desc', 'Ngày mới nhất'],
-              ['date-asc', 'Ngày cũ nhất'],
-              ['material', 'Vật tư'],
-              ['location', 'Vị trí/Tầng'],
-              ['handler', 'Người thực hiện'],
-            ].map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setInventorySort(value as typeof inventorySort)}
-                className={`shrink-0 px-2.5 py-1 rounded-lg border text-[10.5px] font-bold transition-all cursor-pointer ${
-                  inventorySort === value
-                    ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
-                    : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-300 hover:text-indigo-700'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
+        <QuickSortBar
+          options={[
+            { key: 'date', label: 'Ngày', kind: 'date', defaultOrder: 'desc' },
+            { key: 'material', label: 'Vật tư', kind: 'alpha' },
+            { key: 'location', label: 'Vị trí / Tầng', kind: 'alpha' },
+            { key: 'handler', label: 'Người thực hiện', kind: 'alpha' },
+          ]}
+          activeKey={inventorySortBy}
+          order={inventorySortOrder}
+          onChange={(key, order) => { setInventorySortBy(key); setInventorySortOrder(order); }}
+          onToggleOrder={() => setInventorySortOrder((order) => order === 'asc' ? 'desc' : 'asc')}
+          onReset={() => { setInventorySortBy('date'); setInventorySortOrder('desc'); }}
+        />
       </div>
 
       {/* Transaction List */}
@@ -1268,7 +1254,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <PackageCheck className="w-5 h-5 text-blue-600" />
-                {editingInventory ? 'Chỉnh Sửa Phiếu Kho' : 'Tạo phiếu Nhập / Xuất Kho'}
+                {editingInventory ? 'Chỉnh Sửa Phiếu Kho' : 'Tạo phiếu Nhập / Xuất kho'}
               </h3>
               <button
                 onClick={() => { setShowAddForm(false); setEditingInventory(null); }}

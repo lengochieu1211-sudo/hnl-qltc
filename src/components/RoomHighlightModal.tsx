@@ -15,6 +15,8 @@ import {
   PackageCheck,
   Boxes,
   ArrowUpRight,
+  ArrowUp,
+  ArrowDown,
   Calculator,
   Sliders,
   ChevronUp,
@@ -32,6 +34,7 @@ import { MathNumberInput } from './MathNumberInput';
 import { createEntityId, createDeterministicId } from '../utils/idUtils';
 import { normalizeUnit, areSameUnit } from '../utils/unitUtils';
 import { buildMaterialAliasMap, getMaterialIdentityKey, resolveNormMaterialId, normalizeMaterialNameKey } from '../utils/inventoryUtils';
+import { MoveOrderControls } from './MoveOrderControls';
 
 interface RoomHighlightModalProps {
   isOpen: boolean;
@@ -1316,25 +1319,12 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                           <span className="text-[10px] font-black text-emerald-800">{volumeUnit || 'm²'}</span>
 
                           {activeCategories.length > 1 && (
-                            <div className="flex items-center bg-white rounded-lg p-0.5 border border-slate-200 shrink-0 ml-1">
-                              <button
-                                type="button"
-                                onClick={() => handleMoveCategory(catName, 'up')}
-                                className="p-0.5 hover:bg-slate-100 rounded text-slate-700 hover:text-indigo-600 transition-all cursor-pointer"
-                                title="Di chuyển nhóm này lên"
-                              >
-                                <ChevronUp className="w-3.5 h-3.5" />
-                              </button>
-                              <div className="w-[1px] h-3 bg-slate-200 mx-0.5" />
-                              <button
-                                type="button"
-                                onClick={() => handleMoveCategory(catName, 'down')}
-                                className="p-0.5 hover:bg-slate-100 rounded text-slate-700 hover:text-indigo-600 transition-all cursor-pointer"
-                                title="Di chuyển nhóm này xuống"
-                              >
-                                <ChevronDown className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
+                            <MoveOrderControls
+                              onMoveUp={() => handleMoveCategory(catName, 'up')}
+                              onMoveDown={() => handleMoveCategory(catName, 'down')}
+                              className="shrink-0 ml-1"
+                              label="Sắp thứ tự hạng mục chính"
+                            />
                           )}
                         </div>
                       </div>
@@ -1374,26 +1364,12 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                 #{originalIndex + 1}
                               </span>
                               {itemsInCat.length > 1 && (
-                                <div className="flex flex-col gap-0 border border-slate-200 rounded bg-slate-50 px-0.5">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleMoveSubItem(item.id, 'up')}
-                                    className="hover:bg-slate-200 rounded-sm text-slate-500 hover:text-indigo-600 transition-colors cursor-pointer"
-                                    style={{ padding: '1px' }}
-                                    title="Di chuyển lên"
-                                  >
-                                    <ChevronUp className="w-2.5 h-2.5" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleMoveSubItem(item.id, 'down')}
-                                    className="hover:bg-slate-200 rounded-sm text-slate-500 hover:text-indigo-600 transition-colors cursor-pointer"
-                                    style={{ padding: '1px' }}
-                                    title="Di chuyển xuống"
-                                  >
-                                    <ChevronDown className="w-2.5 h-2.5" />
-                                  </button>
-                                </div>
+                                <MoveOrderControls
+                                  onMoveUp={() => handleMoveSubItem(item.id, 'up')}
+                                  onMoveDown={() => handleMoveSubItem(item.id, 'down')}
+                                  compact
+                                  label="Sắp thứ tự hạng mục con"
+                                />
                               )}
                             </div>
                             <input

@@ -75,6 +75,8 @@ import { saveWorkbookFile } from '../utils/fileExport';
 import { convertPdfToImage, describePdfError, getPdfDocumentInfo, loadPdfDocument, renderPdfDocumentPageToImage } from '../utils/pdfToImage';
 import { getImageQualityProfile } from '../utils/imageQualitySettings';
 import { detectPdfRoomCandidatesFromDocument, DEFAULT_PDF_ROOM_NAME_PATTERN, PdfRoomCandidate } from '../utils/pdfRoomDetection';
+import { QuickSortBar } from './QuickSortBar';
+import { MoveOrderControls } from './MoveOrderControls';
 
 const getMappedCoordinates = (e: React.PointerEvent | React.MouseEvent | Touch, element: HTMLElement, currentRotation: number) => {
   const rect = element.getBoundingClientRect();
@@ -3611,9 +3613,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           if (onMoveFloorPlan) onMoveFloorPlan(fp.id, 'left');
                         }}
                         className={`p-0.5 rounded hover:bg-black/10 transition-colors ${isSelected ? 'text-indigo-100' : 'text-slate-400 hover:text-slate-700'}`}
-                        title="Dời tầng sang Trái"
+                        title="Di chuyển tầng sang trái"
                       >
-                        <ChevronLeft className="w-3.5 h-3.5" />
+                        <ArrowLeft className="w-3.5 h-3.5" />
                       </button>
                     )}
 
@@ -3626,9 +3628,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           if (onMoveFloorPlan) onMoveFloorPlan(fp.id, 'right');
                         }}
                         className={`p-0.5 rounded hover:bg-black/10 transition-colors ${isSelected ? 'text-indigo-100' : 'text-slate-400 hover:text-slate-700'}`}
-                        title="Dời tầng sang Phải"
+                        title="Di chuyển tầng sang phải"
                       >
-                        <ChevronRight className="w-3.5 h-3.5" />
+                        <ArrowRight className="w-3.5 h-3.5" />
                       </button>
                     )}
                   </div>
@@ -5583,79 +5585,20 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             ) : (
               <>
                 {/* Quick Sort Controls */}
-                <div className="flex items-center gap-2 bg-indigo-50/60 border border-indigo-100 rounded-xl px-3 py-2 text-xs text-slate-700 flex-wrap mb-2.5">
-                  <span className="font-bold text-[11px] text-indigo-800 flex items-center gap-1">
-                    <ArrowUpDown className="w-3.5 h-3.5 text-indigo-500" /> Sắp xếp nhanh:
-                  </span>
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (roomSortBy === 'name') {
-                          if (roomSortOrder === 'asc') {
-                            setRoomSortOrder('desc');
-                          } else {
-                            setRoomSortBy('manual');
-                          }
-                        } else {
-                          setRoomSortBy('name');
-                          setRoomSortOrder('asc');
-                        }
-                      }}
-                      className={`px-2.5 py-1 rounded-lg transition-all font-bold text-[11px] flex items-center gap-1 cursor-pointer ${
-                        roomSortBy === 'name'
-                          ? 'bg-indigo-600 text-white shadow-2xs'
-                          : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
-                      }`}
-                    >
-                      Tên {roomSortBy === 'name' && (roomSortOrder === 'asc' ? '↑' : '↓')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (roomSortBy === 'createdAt') {
-                          if (roomSortOrder === 'asc') {
-                            setRoomSortOrder('desc');
-                          } else {
-                            setRoomSortBy('manual');
-                          }
-                        } else {
-                          setRoomSortBy('createdAt');
-                          setRoomSortOrder('asc');
-                        }
-                      }}
-                      className={`px-2.5 py-1 rounded-lg transition-all font-bold text-[11px] flex items-center gap-1 cursor-pointer ${
-                        roomSortBy === 'createdAt'
-                          ? 'bg-indigo-600 text-white shadow-2xs'
-                          : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
-                      }`}
-                    >
-                      Ngày tạo {roomSortBy === 'createdAt' && (roomSortOrder === 'asc' ? '↑' : '↓')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (roomSortBy === 'updatedAt') {
-                          if (roomSortOrder === 'asc') {
-                            setRoomSortOrder('desc');
-                          } else {
-                            setRoomSortBy('manual');
-                          }
-                        } else {
-                          setRoomSortBy('updatedAt');
-                          setRoomSortOrder('asc');
-                        }
-                      }}
-                      className={`px-2.5 py-1 rounded-lg transition-all font-bold text-[11px] flex items-center gap-1 cursor-pointer ${
-                        roomSortBy === 'updatedAt'
-                          ? 'bg-indigo-600 text-white shadow-2xs'
-                          : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
-                      }`}
-                    >
-                      Ngày chỉnh sửa {roomSortBy === 'updatedAt' && (roomSortOrder === 'asc' ? '↑' : '↓')}
-                    </button>
-                  </div>
-                </div>
+                <QuickSortBar
+                  className="mb-2.5"
+                  options={[
+                    { key: 'name', label: 'Tên Căn / Phòng', kind: 'alpha' },
+                    { key: 'createdAt', label: 'Ngày tạo', kind: 'date', defaultOrder: 'desc' },
+                    { key: 'updatedAt', label: 'Ngày chỉnh sửa', kind: 'date', defaultOrder: 'desc' },
+                  ]}
+                  activeKey={roomSortBy === 'manual' ? null : roomSortBy}
+                  order={roomSortOrder}
+                  onChange={(key, order) => { setRoomSortBy(key); setRoomSortOrder(order); }}
+                  onToggleOrder={() => setRoomSortOrder((order) => order === 'asc' ? 'desc' : 'asc')}
+                  onReset={() => { setRoomSortBy('manual'); setRoomSortOrder('asc'); }}
+                  resetLabel="Thứ tự thủ công"
+                />
 
                 <div className="flex items-center gap-1.5 flex-wrap mb-2.5">
                   <button
@@ -5776,44 +5719,29 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-2.5 mb-2.5">
                       <div className="flex items-start sm:items-center gap-2.5 min-w-0 w-full sm:flex-1">
                         {roomSortBy === 'manual' && (
-                          <div className="flex flex-col items-center justify-center gap-0.5 shrink-0 select-none mr-1 bg-slate-50/50 border border-slate-200/40 w-6 h-8 rounded-lg shadow-3xs">
-                            <button
-                              type="button"
-                              disabled={index === 0}
-                              onClick={() => {
-                                const updated = [...floorRooms];
-                                const idx = updated.findIndex(r => r.id === room.id);
-                                if (idx > 0) {
-                                  const temp = updated[idx];
-                                  updated[idx] = updated[idx - 1];
-                                  updated[idx - 1] = temp;
-                                  if (onReorderRoomProgressList) onReorderRoomProgressList(updated);
-                                }
-                              }}
-                              className="p-0.5 rounded hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 disabled:opacity-20 disabled:hover:bg-transparent cursor-pointer transition-colors"
-                              title="Dời lên"
-                            >
-                              <ChevronUp className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              disabled={index === sortedFloorRooms.length - 1}
-                              onClick={() => {
-                                const updated = [...floorRooms];
-                                const idx = updated.findIndex(r => r.id === room.id);
-                                if (idx !== -1 && idx < updated.length - 1) {
-                                  const temp = updated[idx];
-                                  updated[idx] = updated[idx + 1];
-                                  updated[idx + 1] = temp;
-                                  if (onReorderRoomProgressList) onReorderRoomProgressList(updated);
-                                }
-                              }}
-                              className="p-0.5 rounded hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 disabled:opacity-20 disabled:hover:bg-transparent cursor-pointer transition-colors"
-                              title="Dời xuống"
-                            >
-                              <ChevronDown className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
+                          <MoveOrderControls
+                            showDragHandle
+                            disableUp={index === 0}
+                            disableDown={index === sortedFloorRooms.length - 1}
+                            onMoveUp={() => {
+                              const updated = [...floorRooms];
+                              const idx = updated.findIndex(r => r.id === room.id);
+                              if (idx > 0) {
+                                [updated[idx - 1], updated[idx]] = [updated[idx], updated[idx - 1]];
+                                if (onReorderRoomProgressList) onReorderRoomProgressList(updated);
+                              }
+                            }}
+                            onMoveDown={() => {
+                              const updated = [...floorRooms];
+                              const idx = updated.findIndex(r => r.id === room.id);
+                              if (idx !== -1 && idx < updated.length - 1) {
+                                [updated[idx], updated[idx + 1]] = [updated[idx + 1], updated[idx]];
+                                if (onReorderRoomProgressList) onReorderRoomProgressList(updated);
+                              }
+                            }}
+                            className="shrink-0"
+                            label="Sắp thứ tự Căn / Phòng"
+                          />
                         )}
                         <button
                           type="button"
@@ -6077,40 +6005,41 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               Danh sách Defect ({filteredDefects.length})
             </h3>
 
-            <div className="bg-indigo-50/60 border border-indigo-100 rounded-xl px-3 py-2 text-xs text-slate-700 space-y-2">
-              <div className="font-bold text-[11px] text-indigo-800 flex items-center gap-1">
-                <ArrowUpDown className="w-3.5 h-3.5 text-indigo-500" /> Sắp xếp nhanh:
-              </div>
-              <div className="flex flex-wrap items-center gap-1.5">
-                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="min-w-[132px] max-w-full bg-white border border-slate-200 text-[11px] sm:text-xs font-bold rounded-lg px-2.5 py-1.5 text-slate-700 focus:ring-2 focus:ring-indigo-200" title="Lọc Defect theo trạng thái">
+            <div className="space-y-2">
+              <div className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 flex flex-wrap items-center gap-1.5 text-xs">
+                <span className="font-bold text-[11px] text-slate-600">Lọc:</span>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="min-w-[145px] max-w-full bg-white border border-slate-200 text-[11px] sm:text-xs font-bold rounded-lg px-2.5 py-1.5 text-slate-700 focus:ring-2 focus:ring-indigo-200"
+                  title="Lọc Defect theo trạng thái"
+                >
                   <option value="all">Tất cả trạng thái</option>
-                  <option value="Mới phát hiện">🔴 Mới phát hiện</option>
-                  <option value="Đang sửa">🟡 Đang sửa</option>
-                  <option value="Đã khắc phục">🟢 Đã khắc phục</option>
-                  <option value="Đã nghiệm thu">✅ Đã nghiệm thu</option>
+                  <option value="Mới phát hiện">Mới phát hiện</option>
+                  <option value="Đang sửa">Đang sửa</option>
+                  <option value="Đã khắc phục">Đã khắc phục</option>
+                  <option value="Đã nghiệm thu">Đã nghiệm thu</option>
                 </select>
-
-                <select value={defectSortBy} onChange={(e) => { const nextSortBy = e.target.value as DefectSortBy; setDefectSortBy(nextSortBy); setDefectSortOrder(nextSortBy === 'createdAt' ? 'desc' : 'asc'); }} className="min-w-[125px] max-w-full bg-white border border-slate-200 text-[11px] sm:text-xs font-bold rounded-lg px-2.5 py-1.5 text-slate-700 focus:ring-2 focus:ring-indigo-200" title="Chọn tiêu chí sắp xếp Defect">
-                  <option value="createdAt">Ngày ghi nhận</option>
-                  <option value="priority">⚠ Ưu tiên xử lý</option>
-                  <option value="category">Loại lỗi</option>
-                  <option value="floorName">Tầng</option>
-                  <option value="roomName">Căn / Phòng</option>
-                  <option value="severity">Mức độ</option>
-                  <option value="dueDate">Deadline</option>
-                  <option value="status">Trạng thái</option>
-                  <option value="assignedTo">Đội phụ trách</option>
-                </select>
-
-                <button type="button" onClick={() => setDefectSortOrder((order) => (order === 'asc' ? 'desc' : 'asc'))} className="inline-flex items-center justify-center gap-1 bg-white border border-slate-200 text-[11px] sm:text-xs font-extrabold rounded-lg px-2.5 py-1.5 text-slate-700 hover:bg-slate-50 min-w-[88px]" title="Đổi chiều sắp xếp">
-                  <ArrowUpDown className="w-3.5 h-3.5 text-indigo-500" />
-                  {defectSortBy === 'createdAt' ? (defectSortOrder === 'desc' ? 'Mới nhất' : 'Cũ nhất') : defectSortBy === 'dueDate' ? (defectSortOrder === 'asc' ? 'Gần nhất' : 'Xa nhất') : (defectSortOrder === 'asc' ? 'Tăng dần' : 'Giảm dần')}
-                </button>
-
-                {(statusFilter !== 'all' || defectSortBy !== 'createdAt' || defectSortOrder !== 'desc') && (
-                  <button type="button" onClick={() => { setStatusFilter('all'); setDefectSortBy('createdAt'); setDefectSortOrder('desc'); }} className="inline-flex items-center justify-center bg-white border border-indigo-200 text-[11px] font-bold rounded-lg px-2.5 py-1.5 text-indigo-700 hover:bg-indigo-50" title="Trở về sắp xếp mặc định">Mặc định</button>
-                )}
               </div>
+
+              <QuickSortBar
+                options={[
+                  { key: 'createdAt', label: 'Ngày ghi nhận', kind: 'date', defaultOrder: 'desc' },
+                  { key: 'priority', label: 'Ưu tiên xử lý', kind: 'generic' },
+                  { key: 'dueDate', label: 'Hạn sửa', kind: 'deadline', defaultOrder: 'asc' },
+                  { key: 'floorName', label: 'Tầng', kind: 'floor' },
+                  { key: 'roomName', label: 'Căn / Phòng', kind: 'alpha' },
+                  { key: 'category', label: 'Loại lỗi', kind: 'alpha' },
+                  { key: 'assignedTo', label: 'Đội phụ trách', kind: 'alpha' },
+                  { key: 'severity', label: 'Mức độ', kind: 'generic' },
+                  { key: 'status', label: 'Trạng thái', kind: 'generic' },
+                ]}
+                activeKey={defectSortBy}
+                order={defectSortOrder}
+                onChange={(key, order) => { setDefectSortBy(key); setDefectSortOrder(order); }}
+                onToggleOrder={() => setDefectSortOrder((order) => order === 'asc' ? 'desc' : 'asc')}
+                onReset={() => { setStatusFilter('all'); setDefectSortBy('createdAt'); setDefectSortOrder('desc'); }}
+              />
             </div>
           </div>
 
@@ -7031,79 +6960,19 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             </div>
 
             {/* Quick Sort Floors Controls */}
-            <div className="flex items-center gap-2 bg-indigo-50/60 border border-indigo-100 rounded-xl px-3 py-2 text-xs text-slate-700 flex-wrap">
-              <span className="font-bold text-[11px] text-indigo-800 flex items-center gap-1">
-                <ArrowUpDown className="w-3.5 h-3.5 text-indigo-500" /> Sắp xếp nhanh:
-              </span>
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (floorSortBy === 'name') {
-                      if (floorSortOrder === 'asc') {
-                        setFloorSortOrder('desc');
-                      } else {
-                        setFloorSortBy('none');
-                      }
-                    } else {
-                      setFloorSortBy('name');
-                      setFloorSortOrder('asc');
-                    }
-                  }}
-                  className={`px-2.5 py-1 rounded-lg transition-all font-bold text-[11px] flex items-center gap-1 cursor-pointer ${
-                    floorSortBy === 'name'
-                      ? 'bg-indigo-600 text-white shadow-2xs'
-                      : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
-                  }`}
-                >
-                  Tên {floorSortBy === 'name' && (floorSortOrder === 'asc' ? '↑' : '↓')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (floorSortBy === 'rooms') {
-                      if (floorSortOrder === 'asc') {
-                        setFloorSortOrder('desc');
-                      } else {
-                        setFloorSortBy('none');
-                      }
-                    } else {
-                      setFloorSortBy('rooms');
-                      setFloorSortOrder('asc');
-                    }
-                  }}
-                  className={`px-2.5 py-1 rounded-lg transition-all font-bold text-[11px] flex items-center gap-1 cursor-pointer ${
-                    floorSortBy === 'rooms'
-                      ? 'bg-indigo-600 text-white shadow-2xs'
-                      : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
-                  }`}
-                >
-                  Số Căn / Phòng {floorSortBy === 'rooms' && (floorSortOrder === 'asc' ? '↑' : '↓')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (floorSortBy === 'defects') {
-                      if (floorSortOrder === 'asc') {
-                        setFloorSortOrder('desc');
-                      } else {
-                        setFloorSortBy('none');
-                      }
-                    } else {
-                      setFloorSortBy('defects');
-                      setFloorSortOrder('asc');
-                    }
-                  }}
-                  className={`px-2.5 py-1 rounded-lg transition-all font-bold text-[11px] flex items-center gap-1 cursor-pointer ${
-                    floorSortBy === 'defects'
-                      ? 'bg-indigo-600 text-white shadow-2xs'
-                      : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
-                  }`}
-                >
-                  Số Ghim Lỗi {floorSortBy === 'defects' && (floorSortOrder === 'asc' ? '↑' : '↓')}
-                </button>
-              </div>
-            </div>
+            <QuickSortBar
+              options={[
+                { key: 'name', label: 'Tên tầng', kind: 'floor' },
+                { key: 'rooms', label: 'Số Căn / Phòng', kind: 'number' },
+                { key: 'defects', label: 'Số Defect', kind: 'number' },
+              ]}
+              activeKey={floorSortBy === 'none' ? null : floorSortBy}
+              order={floorSortOrder}
+              onChange={(key, order) => { setFloorSortBy(key); setFloorSortOrder(order); }}
+              onToggleOrder={() => setFloorSortOrder((order) => order === 'asc' ? 'desc' : 'asc')}
+              onReset={() => { setFloorSortBy('none'); setFloorSortOrder('asc'); }}
+              resetLabel="Thứ tự thủ công"
+            />
 
             {/* List of Floor Plans */}
             <div className="space-y-2.5">
@@ -7186,32 +7055,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
                     {/* Floor Action Buttons */}
                     <div className="flex items-center gap-1.5 self-end sm:self-center flex-wrap">
-                      {/* Move Up / Move Left */}
-                      {index > 0 && floorSortBy === 'none' && (
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            if (onMoveFloorPlan) onMoveFloorPlan(fp.id, 'left');
-                          }}
-                          className="bg-slate-100 hover:bg-slate-200 text-slate-700 p-1.5 rounded-xl text-xs font-bold transition-all"
-                          title="Dời tầng lên trước"
-                        >
-                          <ArrowUp className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-
-                      {/* Move Down / Move Right */}
-                      {index < sortedFloorPlans.length - 1 && floorSortBy === 'none' && (
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            if (onMoveFloorPlan) onMoveFloorPlan(fp.id, 'right');
-                          }}
-                          className="bg-slate-100 hover:bg-slate-200 text-slate-700 p-1.5 rounded-xl text-xs font-bold transition-all"
-                          title="Dời tầng xuống sau"
-                        >
-                          <ArrowDown className="w-3.5 h-3.5" />
-                        </button>
+                      {floorSortBy === 'none' && (
+                        <MoveOrderControls
+                          disableUp={index === 0}
+                          disableDown={index === sortedFloorPlans.length - 1}
+                          onMoveUp={() => { if (onMoveFloorPlan) onMoveFloorPlan(fp.id, 'left'); }}
+                          onMoveDown={() => { if (onMoveFloorPlan) onMoveFloorPlan(fp.id, 'right'); }}
+                          label="Sắp thứ tự tầng"
+                        />
                       )}
 
                       {!isSelected && (

@@ -9,7 +9,7 @@
 }
 
 
-/* V6.1.5.7: mobile safe-area helpers */
+/* V6.1.5.8: unified sort/move controls + mobile safe-area helpers */
 .safe-area-bottom { padding-bottom: env(safe-area-inset-bottom); }
 .safe-area-top { padding-top: env(safe-area-inset-top); }
 @supports (height: 100dvh) { .mobile-dvh-screen { min-height: 100dvh; } }
