@@ -256,7 +256,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             const workCategoryRaw = row['Tên Hạng Mục Thi Công'] || row['Hạng Mục Thi Công'] || row['Hạng mục thi công'] || row['Tên Hạng Mục'] || row['workCategory'];
             const workCategoryStr = workCategoryRaw ? String(workCategoryRaw).trim() : undefined;
             const unitStr = String(row['Đơn Vị Tính'] || row['unit'] || 'Tấm').trim();
-            const quotaQuantityNum = parseVietnameseNumber(row['Số Lượng Định Mức'] || row['quotaQuantity'] || 0);
+            const quotaQuantityNum = parseVietnameseNumber(row['Hao phí định mức'] || row['quotaQuantity'] || 0);
             const unitNormPerM2Num = row['Định Mức / m2'] || row['Định Mức Hao Phí / m2'] || row['Định mức tiêu hao'] || row['unitNormPerM2'];
             const notesStr = String(row['Ghi Chú'] || row['notes'] || '').trim();
 
@@ -1136,11 +1136,11 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               <AlertTriangle className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-900">Xác Nhận Xóa Phiếu Kho</h3>
+              <h3 className="text-base font-bold text-slate-900">Xác nhận xóa Phiếu Kho</h3>
               <p className="text-xs text-slate-500 mt-1">
                 Bạn có chắc chắn muốn xóa phiếu <strong className="text-slate-800">[{deletingInventoryTarget.id}] - {deletingInventoryTarget.materialName} ({deletingInventoryTarget.quantity} {deletingInventoryTarget.unit})</strong> không?
               </p>
-              <p className="text-[11px] text-indigo-600 mt-1 font-medium">💡 Thao tác này có thể Hoàn Tác (Undo).</p>
+              <p className="text-[11px] text-indigo-600 mt-1 font-medium">💡 Thao tác này có thể Hoàn tác.</p>
             </div>
             <div className="flex gap-2">
               <button
@@ -1158,7 +1158,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 }}
                 className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-xs shadow"
               >
-                Xác Nhận Xóa
+                Xác nhận xóa
               </button>
             </div>
           </div>
@@ -1214,7 +1214,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
               {/* Material Select */}
               <div>
-                <label className="block text-slate-700 font-bold mb-1">Chọn Vật Tư Trong Danh Mục Định Mức</label>
+                <label className="block text-slate-700 font-bold mb-1">Chọn vật tư</label>
                 <select
                   value={materialName}
                   onChange={(e) => {

@@ -17,7 +17,7 @@ import {
   limit,
   writeBatch
 } from 'firebase/firestore';
-import { getAuth, signInAnonymously, signInWithPopup, GoogleAuthProvider, signOut as fbSignOut, onAuthStateChanged, User } from 'firebase/auth';
+import { getAuth, signInWithPopup, GoogleAuthProvider, signOut as fbSignOut, onAuthStateChanged, User } from 'firebase/auth';
 import { getDeviceId, getDeviceName } from '../utils/deviceIdentity';
 const env = (import.meta as any).env || {};
 const isDev = env.DEV || env.MODE === 'development' || !env.PROD;
@@ -32,17 +32,10 @@ const hostedFirebaseConfig = {
   firestoreDatabaseId: '(default)'
 };
 
-const mockFirebaseConfig = {
-  apiKey: 'AIzaSy-mock',
-  authDomain: 'mock-project.firebaseapp.com',
-  projectId: 'mock-project',
-  storageBucket: 'mock-project.appspot.com',
-  messagingSenderId: '1234567890',
-  appId: '1:1234567890:web:abcdef',
-  firestoreDatabaseId: '(default)'
-};
-
-const defaultFirebaseConfig = isDev ? mockFirebaseConfig : hostedFirebaseConfig;
+// Use the real Firebase project as the fallback in every client build.
+// Development must not silently switch to a different/mock project because that
+// makes the same Google account see different project lists on PC vs Web/APK.
+const defaultFirebaseConfig = hostedFirebaseConfig;
 
 const sanitizeConfigValue = (val: string | undefined, fallback: string): string => {
   if (!val) return fallback;
@@ -103,7 +96,6 @@ export const db = dbInstance;
 
 export const auth = getAuth(app);
 
-let localMockUser: User | null = null;
 const authListeners: Array<(user: User | null) => void> = [];
 
 function normalizeEmail(email?: string | null): string {
@@ -111,8 +103,9 @@ function normalizeEmail(email?: string | null): string {
 }
 
 function getCurrentAppUser(): User | null {
-  return auth.currentUser || localMockUser || getStoredLocalUser();
+  return auth.currentUser;
 }
+
 
 function getMemberDocIdsForUser(user: { uid?: string | null; email?: string | null }): string[] {
   const ids = new Set<string>();
@@ -177,6 +170,50 @@ export async function fetchCurrentUserProjectsFromCloud(): Promise<CloudProjectS
   }
 }
 
+export function subscribeCurrentUserProjectsRealtime(onUpdate: (projects: CloudProjectSummary[]) => void): () => void {
+  const user = getCurrentRealFirebaseUser();
+  if (!user || !user.uid || !user.email) { onUpdate([]); return () => {}; }
+  const email = normalizeEmail(user.email);
+  let userProjects: Record<string, any> = {};
+  let invitationProjects: Record<string, any> = {};
+  let cancelled = false;
+  let refreshSeq = 0;
+
+  const emit = async () => {
+    const seq = ++refreshSeq;
+    const ids = new Set<string>([...Object.keys(userProjects), ...Object.keys(invitationProjects)]);
+    const result: CloudProjectSummary[] = [];
+    for (const id of ids) {
+      const hint = userProjects[id] || invitationProjects[id] || {};
+      try {
+        const snap = await getDoc(doc(db, 'projects', id));
+        if (!snap.exists() || snap.data()?.deleted) continue;
+        const data = snap.data();
+        result.push({ id, name: String(data?.name || hint.name || id), role: hint.role, updatedAt: Number(data?.updatedAt || hint.updatedAt || 0) });
+      } catch (_) {
+        result.push({ id, name: String(hint.name || id), role: hint.role, updatedAt: Number(hint.updatedAt || 0) });
+      }
+    }
+    if (!cancelled && seq === refreshSeq) onUpdate(result.sort((a,b) => Number(b.updatedAt||0)-Number(a.updatedAt||0)));
+  };
+
+  const unsubs: Array<() => void> = [];
+  unsubs.push(onSnapshot(doc(db, 'users', user.uid), (snap) => {
+    const data = snap.exists() ? snap.data() : {};
+    userProjects = data?.projects && typeof data.projects === 'object' ? data.projects : {};
+    emit();
+  }, (err) => console.warn('User project index realtime error:', err)));
+
+  const invitationQ = query(collection(db, 'projectInvitations'), where('invitedEmail', '==', email));
+  unsubs.push(onSnapshot(invitationQ, (snap) => {
+    invitationProjects = {};
+    snap.docs.forEach((d) => { const x=d.data(); if (x?.projectId) invitationProjects[String(x.projectId)] = { id: String(x.projectId), role: x.role || 'VIEWER', updatedAt: Number(x.updatedAt || x.createdAt || 0) }; });
+    emit();
+  }, (err) => console.warn('Project invitations realtime error:', err)));
+
+  return () => { cancelled = true; unsubs.forEach((u) => u()); };
+}
+
 async function writeProjectMemberDocs(
   projectId: string,
   member: { uid?: string | null; email: string; role: string; active?: boolean; assignedAt?: number; displayName?: string }
@@ -201,75 +238,16 @@ async function writeProjectMemberDocs(
   }
 }
 
-function getStoredLocalUser(): User | null {
-  try {
-    const raw = typeof window !== 'undefined' ? localStorage.getItem('construction_app_local_user') : null;
-    if (raw) {
-      return JSON.parse(raw) as User;
-    }
-  } catch (_) {}
-  return null;
-}
-
 function notifyAuthListeners(user: User | null) {
   authListeners.forEach(cb => {
-    try {
-      cb(user);
-    } catch (_) {}
+    try { cb(user); } catch (_) {}
   });
 }
 
-function createLocalMockUser(email: string): User {
-  const cleanEmail = email.trim().toLowerCase();
-  const displayName = cleanEmail.split('@')[0];
-  const uid = 'local_' + btoa(encodeURIComponent(cleanEmail)).replace(/[^a-zA-Z0-9]/g, '').slice(0, 20);
-  const mockUser: any = {
-    uid,
-    email: cleanEmail,
-    displayName,
-    photoURL: '',
-    emailVerified: true,
-    isAnonymous: false,
-    metadata: {
-      creationTime: new Date().toISOString(),
-      lastSignInTime: new Date().toISOString()
-    },
-    providerData: [
-      {
-        providerId: 'google.com',
-        uid: cleanEmail,
-        email: cleanEmail,
-        displayName,
-        photoURL: '',
-        phoneNumber: null
-      }
-    ],
-    getIdToken: async () => 'mock-token-' + Date.now(),
-    getIdTokenResult: async () => ({
-      token: 'mock-token-' + Date.now(),
-      claims: {},
-      authTime: new Date().toISOString(),
-      issuedAtTime: new Date().toISOString(),
-      expirationTime: new Date(Date.now() + 3600000).toISOString(),
-      signInProvider: 'google.com'
-    }),
-    reload: async () => {},
-    toJSON: () => ({ uid, email: cleanEmail, displayName })
-  };
-
-  try {
-    localStorage.setItem('construction_app_last_login_email', cleanEmail);
-    localStorage.setItem('construction_app_local_user', JSON.stringify(mockUser));
-  } catch (_) {}
-
-  localMockUser = mockUser;
-  notifyAuthListeners(mockUser);
-  return mockUser;
-}
-
 export async function ensureAuth(): Promise<void> {
-  // Do not auto sign-in anonymously if user is already present or to avoid anonymous access
-  if (auth.currentUser || localMockUser || getStoredLocalUser()) return;
+  // Firestore sync is identity-bound. Never fabricate an offline user or anonymous identity.
+  // Firestore's persistent cache remains available while signed out/offline, but Cloud writes wait for real Google Auth.
+  return;
 }
 
 export async function signInWithGoogle(): Promise<User | null> {
@@ -297,17 +275,9 @@ export async function signInWithGoogle(): Promise<User | null> {
     }
   }
 
-  // Offline / Local / Unconfigured fallback
-  const lastEmail = typeof window !== 'undefined' ? (localStorage.getItem('construction_app_last_login_email') || 'lengochieu1211@gmail.com') : 'lengochieu1211@gmail.com';
-  const emailInput = typeof window !== 'undefined'
-    ? window.prompt('Hệ thống đang hoạt động ở chế độ Offline/Local.\nNhập email Google để xác thực tài khoản:', lastEmail)
-    : lastEmail;
-
-  if (!emailInput || !emailInput.trim()) {
-    return null;
-  }
-
-  return createLocalMockUser(emailInput.trim());
+  // Never impersonate a Google identity locally. Offline mode may use cached project data,
+  // but Cloud permissions/sync resume only after a real Firebase Google login succeeds.
+  throw new Error('Không thể đăng nhập Google/Firebase. Hãy kiểm tra cấu hình Firebase hoặc kết nối mạng.');
 }
 
 export async function signOutGoogle(): Promise<void> {
@@ -318,10 +288,6 @@ export async function signOutGoogle(): Promise<void> {
   } catch (err: any) {
     console.warn('Google Sign-Out Error:', err);
   } finally {
-    localMockUser = null;
-    try {
-      localStorage.removeItem('construction_app_local_user');
-    } catch (_) {}
     notifyAuthListeners(null);
   }
 }
@@ -367,13 +333,7 @@ export function onAuthUserChanged(callback: (user: User | null) => void): () => 
   } catch (_) {}
 
   const fbUnsub = onAuthStateChanged(auth, (user) => {
-    if (user) {
-      callback(user);
-    } else if (localMockUser) {
-      callback(localMockUser);
-    } else {
-      callback(getStoredLocalUser());
-    }
+    callback(user);
   });
 
   return () => {
@@ -397,6 +357,21 @@ export async function fetchProjectMembersFromCloud(projectId: string): Promise<a
     console.warn('Error fetching cloud project members:', err);
     return [];
   }
+}
+
+export function subscribeProjectMembersRealtime(projectId: string, onUpdate: (members: any[]) => void): () => void {
+  if (!projectId) return () => {};
+  return onSnapshot(collection(db, 'projects', projectId, 'members'), (snap) => {
+    const byEmail = new Map<string, any>();
+    snap.docs.forEach((d) => {
+      const data = d.data();
+      const email = normalizeEmail(data?.email || (d.id.includes('@') ? d.id : ''));
+      if (!email) return;
+      const existing = byEmail.get(email);
+      if (!existing || Number(data?.updatedAt || 0) >= Number(existing?.updatedAt || 0)) byEmail.set(email, { id: d.id, ...data, email });
+    });
+    onUpdate(Array.from(byEmail.values()));
+  }, (err) => console.warn('Project members realtime error:', err));
 }
 
 export async function fetchProjectUserRoleFromCloud(
@@ -456,6 +431,28 @@ export async function fetchProjectUserRoleFromCloud(
     console.warn('Error fetching project user role from cloud, defaulting to VIEWER (fail-secure):', err);
     return { allowed: false, role: 'VIEWER', isCloudSynced: false };
   }
+}
+
+export function subscribeProjectUserRoleRealtime(
+  projectId: string,
+  user: User,
+  onUpdate: (info: { allowed: boolean; role: 'ADMIN' | 'ENGINEER' | 'VIEWER'; isCloudSynced: boolean; ownerUid?: string; ownerEmail?: string; isOwner?: boolean }) => void
+): () => void {
+  if (!projectId || !user?.uid) return () => {};
+  let cancelled = false;
+  let seq = 0;
+  const refresh = async () => {
+    const mySeq = ++seq;
+    const info = await fetchProjectUserRoleFromCloud(projectId, user);
+    if (!cancelled && mySeq === seq) onUpdate(info);
+  };
+  const unsubs: Array<() => void> = [];
+  unsubs.push(onSnapshot(doc(db, 'projects', projectId), refresh, (err) => console.warn('Role project listener warning:', err)));
+  for (const memberId of getMemberDocIdsForUser(user)) {
+    unsubs.push(onSnapshot(doc(db, 'projects', projectId, 'members', memberId), refresh, (err) => console.warn('Role member listener warning:', err)));
+  }
+  refresh();
+  return () => { cancelled = true; unsubs.forEach((u) => u()); };
 }
 
 /**
@@ -610,9 +607,92 @@ export function sanitizePayloadForCloud(obj: any): any {
   return copy;
 }
 
+export interface ProjectSharedSettings {
+  driveAutoSyncEnabled?: boolean;
+  syncOptions?: {
+    norms?: boolean;
+    inventory?: boolean;
+    workVolumes?: boolean;
+    floorPlans?: boolean;
+    defects?: boolean;
+    roomProgress?: boolean;
+    checklist?: boolean;
+    crew?: boolean;
+  };
+  report?: Record<string, any>;
+  workflow?: Record<string, any>;
+  photoBackup?: Record<string, any>;
+  updatedAt?: number;
+  updatedByUid?: string;
+  updatedByEmail?: string;
+}
+
+export async function saveProjectSharedSettings(projectId: string, patch: Partial<ProjectSharedSettings>): Promise<void> {
+  if (!projectId) return;
+  const user = getCurrentRealFirebaseUser();
+  if (!user || !user.email) return;
+  await setDoc(doc(db, 'projects', projectId, 'settings', 'shared'), sanitizePayloadForCloud({
+    ...patch,
+    updatedAt: Date.now(),
+    updatedByUid: user.uid,
+    updatedByEmail: normalizeEmail(user.email),
+    updatedByDeviceId: getDeviceId(),
+    updatedByDeviceName: getDeviceName(),
+  }), { merge: true });
+}
+
+export function subscribeProjectSharedSettings(projectId: string, onUpdate: (settings: ProjectSharedSettings) => void): () => void {
+  if (!projectId) return () => {};
+  return onSnapshot(doc(db, 'projects', projectId, 'settings', 'shared'), (snap) => {
+    if (snap.exists()) onUpdate(snap.data() as ProjectSharedSettings);
+  }, (err) => console.warn('Project shared settings realtime error:', err));
+}
+
 /**
  * Save / sync a single project to Firebase Cloud using modern subcollections
  */
+export async function saveProjectMetadataToCloud(projectId: string, name: string, extra: { contractorName?: string; inspectorName?: string } = {}): Promise<void> {
+  if (!projectId || !name.trim()) return;
+  const user = getCurrentRealFirebaseUser();
+  if (!user || !user.email) throw new Error('Cần đăng nhập Google/Firebase để đồng bộ dự án.');
+  const ref = doc(db, 'projects', projectId);
+  const snap = await getDoc(ref).catch(() => null);
+  const now = Date.now();
+  if (!snap || !snap.exists()) {
+    await setDoc(ref, {
+      id: projectId,
+      name: name.trim(),
+      ownerUid: user.uid,
+      ownerEmail: normalizeEmail(user.email),
+      contractorName: extra.contractorName || '',
+      inspectorName: extra.inspectorName || '',
+      syncCode: projectId.slice(0, 8).toUpperCase(),
+      schemaVersion: 3,
+      createdAt: now,
+      updatedAt: now,
+      updatedByUid: user.uid,
+      updatedByEmail: normalizeEmail(user.email),
+      updatedByDeviceId: getDeviceId(),
+      updatedByDeviceName: getDeviceName(),
+    });
+    await writeProjectMemberDocs(projectId, { uid: user.uid, email: user.email, role: 'ADMIN', active: true, displayName: user.displayName || '' }).catch(() => {});
+    await registerProjectForCurrentUser(projectId, name.trim(), 'ADMIN');
+    return;
+  }
+  await setDoc(ref, {
+    name: name.trim(),
+    ...(extra.contractorName !== undefined ? { contractorName: extra.contractorName } : {}),
+    ...(extra.inspectorName !== undefined ? { inspectorName: extra.inspectorName } : {}),
+    updatedAt: now,
+    updatedByUid: user.uid,
+    updatedByEmail: normalizeEmail(user.email),
+    updatedByDeviceId: getDeviceId(),
+    updatedByDeviceName: getDeviceName(),
+  }, { merge: true });
+  const roleInfo = await fetchProjectUserRoleFromCloud(projectId, user).catch(() => null);
+  await registerProjectForCurrentUser(projectId, name.trim(), roleInfo?.allowed ? roleInfo.role : 'VIEWER');
+}
+
 export async function saveProjectToCloud(project: { id: string; name: string; syncCode?: string; payload?: any; contractorName?: string; inspectorName?: string; [key: string]: any }): Promise<void> {
   try {
     await ensureAuth();
@@ -750,6 +830,42 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
  * Save only incremental changesets (diffs) to Firestore subcollections
  * Decouples project root metadata write from subcollection writes for ENGINEER role support
  */
+function auditSafeValue(value: any): any {
+  if (typeof value === 'string') {
+    if (value.startsWith('data:image/') || value.length > 2000) return `[VALUE_OMITTED:${value.length}]`;
+    return value;
+  }
+  if (Array.isArray(value)) {
+    if (value.length > 30) return `[ARRAY:${value.length}]`;
+    return value.map(auditSafeValue);
+  }
+  if (value && typeof value === 'object') {
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(value).slice(0, 30)) {
+      if (/base64|dataUrl|localUri|blob/i.test(k)) continue;
+      out[k] = auditSafeValue(v);
+    }
+    return out;
+  }
+  return value;
+}
+
+function buildAuditChangedFields(before: any, after: any): Record<string, { before: any; after: any }> {
+  const result: Record<string, { before: any; after: any }> = {};
+  const skip = new Set(['updatedAt','updatedByUid','updatedByEmail','updatedByDeviceId','updatedByDeviceName','deletedAt']);
+  const keys = new Set<string>([...Object.keys(before || {}), ...Object.keys(after || {})]);
+  for (const key of keys) {
+    if (skip.has(key) || /base64|dataUrl|localUri|blob/i.test(key)) continue;
+    const b = before?.[key];
+    const a = after?.[key];
+    let same = false;
+    try { same = JSON.stringify(b) === JSON.stringify(a); } catch (_) { same = b === a; }
+    if (!same) result[key] = { before: auditSafeValue(b), after: auditSafeValue(a) };
+    if (Object.keys(result).length >= 40) break;
+  }
+  return result;
+}
+
 export async function saveProjectDiffsToCloud(
   projectId: string,
   projectName: string,
@@ -790,6 +906,7 @@ export async function saveProjectDiffsToCloud(
 
     let batch = writeBatch(db);
     let operationCount = 0;
+    const auditEntries: Array<{ module: string; action: string; recordId: string; description: string; changedFields?: Record<string, { before: any; after: any }>; beforeData?: any; afterData?: any }> = [];
 
     // 2. Process added / modified items in subcollections
     for (const [subName, items] of Object.entries(diffs.addedOrModified)) {
@@ -797,6 +914,20 @@ export async function saveProjectDiffsToCloud(
         if (!item.id) continue;
         const docRef = doc(db, 'projects', projectId, subName, item.id);
         const sanitized = sanitizePayloadForCloud(item);
+        const beforeSnap = auditEntries.length < 120 ? await getDoc(docRef).catch(() => null) : null;
+        const beforeData = beforeSnap && beforeSnap.exists() ? beforeSnap.data() : null;
+        const changedFields = buildAuditChangedFields(beforeData || {}, sanitized);
+        if (Object.keys(changedFields).length > 0 && auditEntries.length < 120) {
+          auditEntries.push({
+            module: subName,
+            action: beforeData ? 'UPDATE' : 'CREATE',
+            recordId: item.id,
+            description: `${beforeData ? 'Cập nhật' : 'Tạo'} ${subName} · ${item.id}`,
+            changedFields,
+            ...(beforeData ? { beforeData: auditSafeValue(beforeData) } : {}),
+            afterData: auditSafeValue(sanitized),
+          });
+        }
         
         const currentUser = getCurrentAppUser();
         batch.set(docRef, {
@@ -824,6 +955,11 @@ export async function saveProjectDiffsToCloud(
     for (const [subName, ids] of Object.entries(diffs.deletedIds)) {
       for (const id of ids) {
         const docRef = doc(db, 'projects', projectId, subName, id);
+        const beforeSnap = auditEntries.length < 120 ? await getDoc(docRef).catch(() => null) : null;
+        const beforeData = beforeSnap && beforeSnap.exists() ? beforeSnap.data() : null;
+        if (auditEntries.length < 120) {
+          auditEntries.push({ module: subName, action: 'DELETE', recordId: id, description: `Xóa ${subName} · ${id}`, beforeData: auditSafeValue(beforeData || { id }) });
+        }
         const currentUser = getCurrentAppUser();
         batch.set(docRef, {
           id,
@@ -848,6 +984,21 @@ export async function saveProjectDiffsToCloud(
     if (operationCount > 0) {
       await batch.commit();
     }
+
+    // Audit is append-only and written only after the business batch succeeds.
+    // Failures here never roll back field work; they are surfaced for diagnostics.
+    for (const entry of auditEntries) {
+      await saveProjectAuditLog(projectId, {
+        module: entry.module,
+        action: entry.action,
+        recordId: entry.recordId,
+        description: entry.description,
+        details: entry.description,
+        changedFields: entry.changedFields,
+        beforeData: entry.beforeData,
+        afterData: entry.afterData,
+      }).catch((err) => console.warn('Activity log write warning:', err));
+    }
   } catch (err) {
     console.error("Firestore Save Diffs Error:", err);
     throw err;
@@ -865,8 +1016,8 @@ export async function fetchProjectFromCloud(projectId: string): Promise<CloudPro
 
     const meta = snap.data();
     
-    // If schemaVersion is 2, reconstruct full project data by fetching subcollections
-    if (meta.schemaVersion === 2) {
+    // Schema v2+ stores business data in subcollections; reconstruct a full project snapshot.
+    if (Number(meta.schemaVersion || 0) >= 2) {
       const payload: any = {
         projectName: meta.name,
         contractorName: meta.contractorName || '',
@@ -1041,49 +1192,91 @@ export function subscribeToCloudProject(projectId: string, onUpdate: (data: Clou
 
 export interface ProjectAuditCloudEntry {
   id?: string;
-  timestamp: number;
-  action: string;
-  details: string;
   projectId: string;
-  actorUid?: string;
-  actorEmail?: string;
-  actorName?: string;
+  userUid?: string;
+  userEmail?: string;
+  userName?: string;
   actorRole?: string;
   deviceId?: string;
   deviceName?: string;
+  platform?: string;
+  clientType?: 'WEB' | 'APK' | 'DESKTOP';
+  browser?: string;
+  appVersion?: string;
+  module?: string;
+  action: string;
+  recordId?: string;
+  description?: string;
+  details?: string;
+  changedFields?: Record<string, { before: any; after: any }>;
+  beforeData?: any;
+  afterData?: any;
+  createdAt?: any;
+  clientTimestamp: number;
+  timestamp?: number;
+  syncStatus?: 'SYNCED' | 'PENDING';
 }
 
-export async function saveProjectAuditLog(projectId: string, entry: Omit<ProjectAuditCloudEntry, 'projectId' | 'id'>): Promise<void> {
+function getClientAuditContext() {
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : 'server';
+  const w = typeof window !== 'undefined' ? (window as any) : {};
+  const clientType: 'WEB' | 'APK' | 'DESKTOP' = w.AndroidBridge ? 'APK' : (w.electronAPI || w.__TAURI__ ? 'DESKTOP' : 'WEB');
+  const platform = typeof navigator !== 'undefined' ? (navigator.platform || (/Android/i.test(ua) ? 'Android' : 'Web')) : 'server';
+  const browser = /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'Unknown';
+  return { clientType, platform, browser, appVersion: String((import.meta as any).env?.VITE_APP_VERSION || 'web') };
+}
+
+export async function saveProjectAuditLog(projectId: string, entry: Omit<ProjectAuditCloudEntry, 'projectId' | 'id' | 'userUid' | 'userEmail' | 'userName' | 'deviceId' | 'deviceName' | 'clientTimestamp'> & { clientTimestamp?: number; timestamp?: number }): Promise<void> {
   if (!projectId) return;
   const user = getCurrentRealFirebaseUser();
-  if (!user || user.isAnonymous) return;
-  const timestamp = Number(entry.timestamp || Date.now());
-  const id = `audit_${timestamp}_${Math.random().toString(36).slice(2, 8)}`;
-  await setDoc(doc(db, 'projects', projectId, 'audit_logs', id), {
+  if (!user || user.isAnonymous || !user.email) return;
+  const clientTimestamp = Number(entry.clientTimestamp || entry.timestamp || Date.now());
+  const id = `activity_${clientTimestamp}_${Math.random().toString(36).slice(2, 10)}`;
+  const ctx = getClientAuditContext();
+  const description = entry.description || entry.details || entry.action;
+  const roleInfo = entry.actorRole ? null : await fetchProjectUserRoleFromCloud(projectId, user).catch(() => null);
+  await setDoc(doc(db, 'projects', projectId, 'activityLogs', id), sanitizePayloadForCloud({
     ...entry,
     id,
     projectId,
-    timestamp,
-    actorUid: user.uid,
-    actorEmail: user.email || entry.actorEmail || '',
-    actorName: user.displayName || entry.actorName || '',
+    userUid: user.uid,
+    userEmail: normalizeEmail(user.email),
+    userName: user.displayName || '',
+    actorRole: entry.actorRole || roleInfo?.role || 'VIEWER',
     deviceId: getDeviceId(),
     deviceName: getDeviceName(),
-  });
+    ...ctx,
+    description,
+    details: description,
+    clientTimestamp,
+    timestamp: clientTimestamp,
+    createdAt: clientTimestamp,
+    syncStatus: 'SYNCED',
+  }));
+}
+
+export function subscribeProjectAuditLogsRealtime(projectId: string, onUpdate: (items: ProjectAuditCloudEntry[]) => void, maxItems = 200): () => void {
+  if (!projectId) return () => {};
+  const q = query(collection(db, 'projects', projectId, 'activityLogs'), orderBy('clientTimestamp', 'desc'), limit(Math.max(1, Math.min(500, maxItems))));
+  // includeMetadataChanges lets the UI distinguish a locally queued/offline audit write
+  // from a server-acknowledged entry without mutating the append-only log document.
+  return onSnapshot(q, { includeMetadataChanges: true }, (snap) => {
+    onUpdate(snap.docs.map((d) => ({
+      id: d.id,
+      ...d.data(),
+      syncStatus: d.metadata.hasPendingWrites ? 'PENDING' : 'SYNCED',
+    } as ProjectAuditCloudEntry)));
+  }, (err) => console.warn('Project activity log realtime error:', err));
 }
 
 export async function fetchProjectAuditLogsFromCloud(projectId: string, maxItems = 200): Promise<ProjectAuditCloudEntry[]> {
   if (!projectId) return [];
   try {
-    const q = query(
-      collection(db, 'projects', projectId, 'audit_logs'),
-      orderBy('timestamp', 'desc'),
-      limit(Math.max(1, Math.min(500, maxItems)))
-    );
+    const q = query(collection(db, 'projects', projectId, 'activityLogs'), orderBy('clientTimestamp', 'desc'), limit(Math.max(1, Math.min(500, maxItems))));
     const snap = await getDocs(q);
     return snap.docs.map((d) => ({ id: d.id, ...d.data() } as ProjectAuditCloudEntry));
   } catch (err) {
-    console.warn('Error fetching project audit logs:', err);
+    console.warn('Error fetching project activity logs:', err);
     return [];
   }
 }
@@ -1117,6 +1310,16 @@ export async function saveCloudBackup(backupName: string, allProjects: any[]): P
 /**
  * Save user profile and check pending invitations upon Google Login
  */
+export async function registerCurrentDevice(): Promise<void> {
+  const user = getCurrentRealFirebaseUser();
+  if (!user || !user.email) return;
+  const ctx = getClientAuditContext();
+  const deviceId = getDeviceId();
+  await setDoc(doc(db, 'users', user.uid, 'devices', deviceId), {
+    deviceId, deviceName: getDeviceName(), ...ctx, userEmail: normalizeEmail(user.email), lastActiveAt: Date.now()
+  }, { merge: true });
+}
+
 export async function saveUserProfileToCloud(user: { uid: string; email: string; displayName?: string; photoURL?: string }): Promise<void> {
   if (!user || !user.uid) return;
   try {
@@ -1129,6 +1332,7 @@ export async function saveUserProfileToCloud(user: { uid: string; email: string;
       photoURL: user.photoURL || '',
       updatedAt: Date.now()
     }, { merge: true });
+    await registerCurrentDevice().catch((err) => console.warn('Device registration warning:', err));
 
     // 2. Check pending invitations
     // 2. Check pending invitations using constrained queries.

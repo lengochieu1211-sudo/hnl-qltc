@@ -2,166 +2,161 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Check if request is authenticated with Google Auth
     function isGoogleAuthed() {
-      return request.auth != null && request.auth.token.firebase.sign_in_provider == 'google.com';
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider == 'google.com'
+        && request.auth.token.email is string;
     }
 
     function signedInEmail() {
-      return request.auth.token.email;
+      return request.auth.token.email.lower();
     }
 
-    function hasSignedInEmail() {
-      return isGoogleAuthed() && request.auth.token.email is string && request.auth.token.email.size() > 0;
+    function projectDoc(projectId) {
+      return get(/databases/$(database)/documents/projects/$(projectId));
     }
 
-    // Helper functions for project access control
-    function isProjectOwner(projectId) {
+    function isOwner(projectId) {
       return isGoogleAuthed() && (
-        (resource != null && (
-          resource.data.ownerUid == request.auth.uid ||
-          (hasSignedInEmail() && resource.data.ownerEmail == signedInEmail())
-        )) ||
-        (
-          get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid ||
-          (hasSignedInEmail() && get(/databases/$(database)/documents/projects/$(projectId)).data.ownerEmail == signedInEmail())
-        )
+        projectDoc(projectId).data.ownerUid == request.auth.uid ||
+        (projectDoc(projectId).data.ownerEmail is string && projectDoc(projectId).data.ownerEmail.lower() == signedInEmail())
       );
     }
 
-    function hasUidProjectMember(projectId) {
-      return exists(/databases/$(database)/documents/projects/$(projectId)/members/$(request.auth.uid));
+    function hasUidMember(projectId) {
+      return isGoogleAuthed() && exists(/databases/$(database)/documents/projects/$(projectId)/members/$(request.auth.uid));
     }
 
-    function hasEmailProjectMember(projectId) {
-      return hasSignedInEmail() &&
-        exists(/databases/$(database)/documents/projects/$(projectId)/members/$(signedInEmail()));
+    function hasEmailMember(projectId) {
+      return isGoogleAuthed() && exists(/databases/$(database)/documents/projects/$(projectId)/members/$(signedInEmail()));
     }
 
-    function uidProjectMemberRole(projectId) {
+    function uidRole(projectId) {
       return get(/databases/$(database)/documents/projects/$(projectId)/members/$(request.auth.uid)).data.role;
     }
 
-    function emailProjectMemberRole(projectId) {
+    function emailRole(projectId) {
       return get(/databases/$(database)/documents/projects/$(projectId)/members/$(signedInEmail())).data.role;
     }
 
-    function isProjectMember(projectId) {
+    function isMember(projectId) {
+      return isGoogleAuthed() && (isOwner(projectId) || hasUidMember(projectId) || hasEmailMember(projectId));
+    }
+
+    function isAdmin(projectId) {
       return isGoogleAuthed() && (
-        isProjectOwner(projectId) ||
-        hasUidProjectMember(projectId) ||
-        hasEmailProjectMember(projectId)
+        isOwner(projectId) ||
+        (hasUidMember(projectId) && uidRole(projectId) == 'ADMIN') ||
+        (hasEmailMember(projectId) && emailRole(projectId) == 'ADMIN')
       );
     }
 
-    function isProjectAdmin(projectId) {
+    function canEdit(projectId) {
       return isGoogleAuthed() && (
-        isProjectOwner(projectId) ||
-        (hasUidProjectMember(projectId) && uidProjectMemberRole(projectId) == 'ADMIN') ||
-        (hasEmailProjectMember(projectId) && emailProjectMemberRole(projectId) == 'ADMIN')
+        isAdmin(projectId) ||
+        (hasUidMember(projectId) && uidRole(projectId) == 'ENGINEER') ||
+        (hasEmailMember(projectId) && emailRole(projectId) == 'ENGINEER')
       );
     }
 
-    function isClaimingUnownedProject() {
-      return isGoogleAuthed() &&
-        resource != null &&
-        (resource.data.ownerUid == null || resource.data.ownerUid == '') &&
-        (resource.data.ownerEmail == null || resource.data.ownerEmail == '' || (hasSignedInEmail() && resource.data.ownerEmail == signedInEmail())) &&
-        request.resource.data.ownerUid == request.auth.uid &&
-        (!hasSignedInEmail() || request.resource.data.ownerEmail == signedInEmail());
+    function canReadAudit(projectId) {
+      return isAdmin(projectId) || canEdit(projectId);
     }
 
-    function isProjectEngineerOrAdmin(projectId) {
-      return isGoogleAuthed() && (
-        isProjectAdmin(projectId) ||
-        (hasUidProjectMember(projectId) &&
-         (uidProjectMemberRole(projectId) == 'ENGINEER' || uidProjectMemberRole(projectId) == 'ADMIN')) ||
-        (hasEmailProjectMember(projectId) &&
-         (emailProjectMemberRole(projectId) == 'ENGINEER' || emailProjectMemberRole(projectId) == 'ADMIN'))
-      );
-    }
-
-    // Projects collection & subcollections
     match /projects/{projectId} {
-      allow read: if isGoogleAuthed() && (
-        isProjectMember(projectId) || 
-        (resource != null && resource.data.ownerUid == request.auth.uid)
+      allow read: if isMember(projectId) || (
+        isGoogleAuthed() && resource.data.ownerUid == request.auth.uid
       );
 
-      allow create: if isGoogleAuthed() 
+      allow create: if isGoogleAuthed()
+        && request.resource.data.id == projectId
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0
-        && request.resource.data.ownerUid == request.auth.uid;
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.ownerEmail is string
+        && request.resource.data.ownerEmail.lower() == signedInEmail();
 
-      allow update: if isGoogleAuthed() && (
-        isProjectAdmin(projectId) || 
-        (resource != null && resource.data.ownerUid == request.auth.uid) ||
-        isClaimingUnownedProject()
-      );
+      allow update: if isAdmin(projectId)
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.ownerEmail == resource.data.ownerEmail;
 
-      allow delete: if isGoogleAuthed() && (
-        (resource != null && resource.data.ownerUid == request.auth.uid) ||
-        isProjectOwner(projectId)
-      );
+      allow delete: if isOwner(projectId);
 
-      // Project members subcollection
-      match /members/{memberUid} {
-        allow read: if isGoogleAuthed() && (
-          isProjectMember(projectId) ||
-          memberUid == request.auth.uid ||
-          (hasSignedInEmail() && memberUid == signedInEmail())
-        );
-        allow write: if isGoogleAuthed() && isProjectAdmin(projectId);
+      match /members/{memberId} {
+        allow read: if isMember(projectId)
+          || (isGoogleAuthed() && memberId == request.auth.uid)
+          || (isGoogleAuthed() && memberId == signedInEmail());
+        allow create, update, delete: if isAdmin(projectId);
       }
 
-      // Business subcollections
-      match /{allSubcollections=**} {
-        allow read: if isGoogleAuthed() && isProjectMember(projectId);
-        allow write: if isGoogleAuthed() && isProjectEngineerOrAdmin(projectId);
+      // Append-only, identity-bound audit stream. This path is intentionally
+      // excluded from the generic project-data rule below.
+      match /activityLogs/{logId} {
+        allow read: if canReadAudit(projectId);
+        allow create: if canEdit(projectId)
+          && request.resource.data.projectId == projectId
+          && request.resource.data.userUid == request.auth.uid
+          && request.resource.data.userEmail is string
+          && request.resource.data.userEmail.lower() == signedInEmail()
+          && request.resource.data.deviceId is string
+          && request.resource.data.action is string
+          && request.resource.data.clientTimestamp is number;
+        allow update, delete: if false;
+      }
+
+      // Business records: VIEWER reads only; ENGINEER/ADMIN may create/update/delete.
+      // activityLogs and members have their own stricter rules above.
+      match /{collectionName}/{recordId} {
+        allow read: if collectionName != 'activityLogs' && collectionName != 'members' && isMember(projectId);
+        allow write: if collectionName != 'activityLogs' && collectionName != 'members' && canEdit(projectId);
+
+        // Compatibility for photo binary chunks used only when Primary Drive is unavailable.
+        match /{nestedCollection}/{nestedId} {
+          allow read: if isMember(projectId);
+          allow write: if canEdit(projectId);
+        }
       }
     }
 
-    // Centralized Google Drive bridge config. Everyone signed in may read the
-    // endpoint, but only the designated primary Drive account may change it.
-    // The endpoint itself still verifies Firebase ID tokens + per-project roles.
+    // Primary Drive Bridge endpoint/config is readable to authenticated clients,
+    // but only the designated Drive owner can change it.
     match /app_config/{configId} {
       allow read: if isGoogleAuthed();
-      allow create, update, delete: if isGoogleAuthed()
-        && hasSignedInEmail()
-        && signedInEmail() == 'lengochieu1211@gmail.com';
+      allow create, update, delete: if isGoogleAuthed() && signedInEmail() == 'lengochieu1211@gmail.com';
     }
 
-    // User profile documents
     match /users/{userId} {
-      allow read: if isGoogleAuthed();
-      allow write: if isGoogleAuthed() && request.auth.uid == userId;
+      allow read, create, update: if isGoogleAuthed() && request.auth.uid == userId;
+      allow delete: if false;
+
+      match /devices/{deviceId} {
+        allow read, create, update: if isGoogleAuthed() && request.auth.uid == userId
+          && request.resource.data.deviceId == deviceId;
+        allow delete: if isGoogleAuthed() && request.auth.uid == userId;
+      }
     }
 
-    // Project invitations
     match /projectInvitations/{invitationId} {
       allow read: if isGoogleAuthed() && (
-        (resource != null && (
-          resource.data.invitedEmail == signedInEmail() ||
-          resource.data.email == signedInEmail() ||
-          resource.data.createdByUid == request.auth.uid
-        )) ||
-        (resource != null && isProjectMember(resource.data.projectId))
+        (resource.data.invitedEmail is string && resource.data.invitedEmail.lower() == signedInEmail()) ||
+        (resource.data.email is string && resource.data.email.lower() == signedInEmail()) ||
+        resource.data.createdByUid == request.auth.uid ||
+        isMember(resource.data.projectId)
       );
-      allow create: if isGoogleAuthed() && isProjectAdmin(request.resource.data.projectId);
+      allow create: if isGoogleAuthed() && isAdmin(request.resource.data.projectId);
       allow update, delete: if isGoogleAuthed() && (
-        (resource != null && isProjectAdmin(resource.data.projectId)) || 
-        (resource != null && (
-          resource.data.invitedEmail == signedInEmail() ||
-          resource.data.email == signedInEmail()
-        ))
+        isAdmin(resource.data.projectId) ||
+        (resource.data.invitedEmail is string && resource.data.invitedEmail.lower() == signedInEmail()) ||
+        (resource.data.email is string && resource.data.email.lower() == signedInEmail())
       );
     }
 
-    // Cloud backups collection
     match /cloud_backups/{backupId} {
-      allow read, delete: if isGoogleAuthed() && (resource == null || resource.data.ownerUid == request.auth.uid);
-      allow create, update: if isGoogleAuthed() && request.resource.data.ownerUid == request.auth.uid;
+      allow read, delete: if isGoogleAuthed() && resource.data.ownerUid == request.auth.uid;
+      allow create: if isGoogleAuthed() && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if isGoogleAuthed()
+        && resource.data.ownerUid == request.auth.uid
+        && request.resource.data.ownerUid == request.auth.uid;
     }
   }
 }

@@ -1394,34 +1394,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   // Download excel template or current room data for Room Highlights
   const downloadHighlightTemplate = () => {
     const wb = XLSX.utils.book_new();
-    const roomsToExport = floorRooms.length > 0 ? floorRooms : [
-      {
-        roomName: 'Phòng Khách Căn A101',
-        x: 15,
-        y: 20,
-        width: 30,
-        height: 25,
-        frameStatus: 'Đang làm',
-        boardStatus: 'Chưa làm',
-        frameInspectionStatus: 'Chưa nghiệm thu',
-        boardInspectionStatus: 'Chưa nghiệm thu',
-        inspectorName: 'KS. Nguyễn Văn Bình',
-        notes: 'Khung xương cá BASI lắp ghép thăng bằng tốt'
-      },
-      {
-        roomName: 'Phòng WC Căn A101',
-        x: 48,
-        y: 20,
-        width: 15,
-        height: 20,
-        frameStatus: 'Đã hoàn thành',
-        boardStatus: 'Đã hoàn thành',
-        frameInspectionStatus: 'Đạt nghiệm thu',
-        boardInspectionStatus: 'Đạt nghiệm thu',
-        inspectorName: 'KS. Nguyễn Văn Bình',
-        notes: 'Đã nghiệm thu xong cả khung và tấm'
-      }
-    ];
+    const roomsToExport = floorRooms;
 
     const data = roomsToExport.map(r => ({
       'STT': roomsToExport.indexOf(r) + 1,
@@ -1435,7 +1408,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       'Trạng Thái Bắn Tấm': r.boardStatus,
       'Nghiệm Thu Khung': r.frameInspectionStatus,
       'Nghiệm Thu Tấm': r.boardInspectionStatus,
-      'Kỹ Sư Giám Sát': r.inspectorName,
+      'Kỹ sư phụ trách': r.inspectorName,
       'Ghi Chú': r.notes || ''
     }));
 
@@ -1547,7 +1520,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           const boardSt = row['Trạng Thái Bắn Tấm'] || row['boardStatus'] || 'Chưa làm';
           const frameInsp = row['Nghiệm Thu Khung'] || row['frameInspectionStatus'] || 'Chưa nghiệm thu';
           const boardInsp = row['Nghiệm Thu Tấm'] || row['boardInspectionStatus'] || 'Chưa nghiệm thu';
-          const inspector = row['Kỹ Sư Giám Sát'] || row['inspectorName'] || 'KS. Nguyễn Văn Bình';
+          const inspector = row['Kỹ sư phụ trách'] || row['Kỹ Sư Giám Sát'] || row['inspectorName'] || '';
           const noteText = row['Ghi Chú'] || row['notes'] || '';
 
           const validAcceptance = ['Chưa làm', 'Đang làm', 'Đã hoàn thành'];
@@ -3459,7 +3432,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 title="Cập nhật tệp ảnh hoặc PDF bản vẽ mới cho tầng đang xem"
               >
                 <Upload className="w-3.5 h-3.5 text-slate-600" />
-                <span>Cập Nhật Bản Vẽ</span>
+                <span>Cập nhật bản vẽ</span>
               </button>
 
               {(viewMode === 'highlight' || viewMode === 'all') && (
@@ -3475,7 +3448,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   className="text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-xs active:scale-95 transition-all"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>Thêm Căn</span>
+                  <span>Thêm căn</span>
                 </button>
               )}
 
@@ -3485,7 +3458,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   className="text-xs bg-rose-600 hover:bg-rose-700 text-white font-bold px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-xs active:scale-95 transition-all"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>Ghim Defect</span>
+                  <span>Thêm Defect</span>
                 </button>
               )}
             </div>
@@ -3493,7 +3466,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
           {/* Dedicated Drawing & View Controls Toolbar */}
           {(viewMode === 'highlight' || viewMode === 'all') && (
-            <div className="bg-slate-50/90 p-2 rounded-xl border border-slate-200/80 flex flex-wrap items-center justify-between gap-2">
+            <details className="group bg-slate-50/90 rounded-xl border border-slate-200/80">
+              <summary className="cursor-pointer select-none px-3 py-2 text-[11px] font-bold text-slate-700 flex items-center justify-between">
+                <span>Công cụ vẽ vùng căn / phòng</span>
+                <span className="text-slate-400 group-open:hidden">Mở</span>
+                <span className="text-slate-400 hidden group-open:inline">Thu gọn</span>
+              </summary>
+              <div className="p-2 border-t border-slate-200/80 flex flex-wrap items-center justify-between gap-2">
               {/* Group 1: 3 Drawing Tools */}
               <div className="flex flex-wrap items-center gap-1.5">
 
@@ -3514,7 +3493,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   title="Nhấn giữ & kéo chuột/ngón tay để vẽ tự do trên mặt bằng"
                 >
                   <Pencil className="w-3.5 h-3.5 text-amber-700 shrink-0" />
-                  <span>Vẽ Tự Do</span>
+                  <span>Vẽ tự do</span>
                 </button>
 
                 {/* Tool 2: Line / Polygon Point-by-Point (2 or more points) */}
@@ -3531,10 +3510,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       ? 'bg-amber-500 text-slate-950 font-black shadow-sm ring-2 ring-amber-300'
                       : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/90 shadow-2xs'
                   }`}
-                  title="Chấm 2 hoặc nhiều điểm để vẽ đường thẳng / đa giác, rồi bấm [Xác Nhận]"
+                  title="Chấm 2 hoặc nhiều điểm để vẽ đường thẳng / đa giác, rồi bấm [Xác nhận]"
                 >
                   <Sparkles className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                  <span>Vẽ Đa Giác</span>
+                  <span>Vẽ đa giác</span>
                 </button>
 
                 {/* Tool 3: 2-Point Rectangle */}
@@ -3554,7 +3533,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   title="Bấm 2 điểm đối góc để tạo khung hình chữ nhật"
                 >
                   <span className="text-sm leading-none shrink-0">📦</span>
-                  <span>Vẽ Chữ Nhật</span>
+                  <span>Vẽ chữ nhật</span>
                 </button>
               </div>
 
@@ -3572,7 +3551,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   title="Đổi giữa Chế độ Mỗi căn 1 màu đa sắc phân biệt (Mặc định) và Màu theo Trạng thái Nghiệm thu"
                 >
                   <Palette className="w-3.5 h-3.5 shrink-0" />
-                  <span>{roomColorMode === 'palette' ? 'Mỗi Căn 1 Màu' : 'Theo Trạng Thái'}</span>
+                  <span>{roomColorMode === 'palette' ? 'Mỗi căn 1 màu' : 'Theo trạng thái'}</span>
                 </button>
 
                 {/* Show/Hide Text Label Toggle */}
@@ -3587,10 +3566,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   title="Bật/Tắt chế độ chỉ hiện màu Highlight (không hiện chữ rối)"
                 >
                   {!showTextOverlay ? <EyeOff className="w-3.5 h-3.5 shrink-0" /> : <Eye className="w-3.5 h-3.5 shrink-0" />}
-                  <span>{!showTextOverlay ? 'Chỉ Hiện Màu' : 'Hiện Tên Căn'}</span>
+                  <span>{!showTextOverlay ? 'Chỉ hiện màu' : 'Hiện tên căn'}</span>
                 </button>
               </div>
-            </div>
+              </div>
+            </details>
           )}
 
           {/* Active Drawing Tool Info Banner */}
@@ -3699,7 +3679,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <div className="flex items-center gap-1.5 w-full sm:w-auto">
                 <Pencil className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                 <span>
-                  <strong>Kéo Vẽ Tự Do:</strong> Nhấn giữ & rê chuột/tay khoanh vùng bất kỳ. Nhả tay ra để chốt!
+                  <strong>Kéo Vẽ tự do:</strong> Nhấn giữ & rê chuột/tay khoanh vùng bất kỳ. Nhả tay ra để chốt!
                 </span>
               </div>
               {!showTextOverlay && (
@@ -3713,7 +3693,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <div className="flex items-center gap-2">
                 <Sparkles className="w-3.5 h-3.5 text-slate-950 shrink-0" />
                 <span className="leading-tight">
-                  <strong>Vẽ Đa Giác Chấm Góc:</strong> Click từng góc căn hộ trên mặt bằng (Đã chấm {polygonPoints.length} góc)
+                  <strong>Vẽ đa giác Chấm Góc:</strong> Click từng góc căn hộ trên mặt bằng (Đã chấm {polygonPoints.length} góc)
                 </span>
               </div>
               <div className="flex flex-wrap items-center gap-1.5 w-full sm:w-auto">
@@ -3904,7 +3884,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           title="Nhấn giữ & kéo chuột/ngón tay để vẽ tự do"
                         >
                           <Pencil className="w-3.5 h-3.5 text-amber-400" />
-                          <span>Vẽ Tự Do</span>
+                          <span>Vẽ tự do</span>
                         </button>
 
                         {/* Tool 2: Polygon / Line (2+ Points) */}
@@ -3924,7 +3904,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           title="Chấm 2 hoặc nhiều điểm vẽ đường/được đa giác rồi chốt"
                         >
                           <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-                          <span>Vẽ Đa Giác</span>
+                          <span>Vẽ đa giác</span>
                         </button>
 
                         {/* Tool 3: 2-Point Rectangle */}
@@ -3943,7 +3923,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           }`}
                           title="Bấm 2 điểm tạo khung chữ nhật"
                         >
-                          <span>Vẽ Chữ Nhật</span>
+                          <span>Vẽ chữ nhật</span>
                         </button>
 
                         {/* Color Mode Toggle */}
@@ -3958,7 +3938,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           title="Đổi giữa Chế độ Mỗi căn 1 màu đa sắc phân biệt và Theo Trạng thái Nghiệm thu"
                         >
                           <Palette className="w-3.5 h-3.5" />
-                          <span>{roomColorMode === 'palette' ? 'Mỗi Căn 1 Màu' : 'Theo Trạng Thái'}</span>
+                          <span>{roomColorMode === 'palette' ? 'Mỗi căn 1 màu' : 'Theo trạng thái'}</span>
                         </button>
 
                         {/* Toggle Highlight Display */}
@@ -3973,7 +3953,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           title="Hiện màu sạch / Hiện đầy đủ tên căn"
                         >
                           {!showTextOverlay ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                          <span>{!showTextOverlay ? 'Chỉ Hiện Màu' : 'Hiện Tên Căn'}</span>
+                          <span>{!showTextOverlay ? 'Chỉ hiện màu' : 'Hiện tên căn'}</span>
                         </button>
 
                         {/* Add Room */}
@@ -3989,7 +3969,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           className="text-[11px] bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-2.5 py-1 rounded-xl flex items-center gap-1 shadow-xs shrink-0"
                         >
                           <Plus className="w-3.5 h-3.5" />
-                          <span>Thêm Căn</span>
+                          <span>Thêm căn</span>
                         </button>
                       </div>
                     )}
@@ -4000,7 +3980,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         className="text-[11px] bg-rose-600 hover:bg-rose-500 text-white font-black px-2.5 py-1 rounded-xl flex items-center gap-1 shadow-xs shrink-0"
                       >
                         <Plus className="w-3.5 h-3.5" />
-                        <span>Ghim Defect</span>
+                        <span>Thêm Defect</span>
                       </button>
                     )}
                   </div>
@@ -4170,7 +4150,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   <div className="bg-amber-500 text-slate-950 p-2 rounded-2xl text-xs font-bold flex items-center justify-between gap-2 border border-amber-300 shadow-xl">
                     <div className="flex items-center gap-1.5 w-full sm:w-auto">
                       <Pencil className="w-3.5 h-3.5 shrink-0" />
-                      <span>💡 <strong>Kéo Vẽ Tự Do:</strong> Nhấn giữ & rê chuột/ngón tay khoanh vùng bất kỳ. Nhả tay để chốt!</span>
+                      <span>💡 <strong>Kéo Vẽ tự do:</strong> Nhấn giữ & rê chuột/ngón tay khoanh vùng bất kỳ. Nhả tay để chốt!</span>
                     </div>
                     <button
                       type="button"
@@ -5155,7 +5135,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         className="py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg flex items-center justify-center gap-1"
                       >
                         <Building2 className="w-3 h-3 text-indigo-400" />
-                        Thêm Căn
+                        Thêm căn
                       </button>
                     </div>
                   </div>
@@ -5170,7 +5150,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           {/* Hint text */}
           <p className="text-[10px] text-slate-500 text-center italic">
             {viewMode === 'highlight' 
-              ? '💡 Dùng công cụ "Vẽ Tự Do" hoặc "Vẽ 2 Điểm" để đánh dấu vùng thi công trên mặt bằng.' 
+              ? '💡 Dùng công cụ "Vẽ tự do" hoặc "Vẽ 2 Điểm" để đánh dấu vùng thi công trên mặt bằng.' 
               : '💡 Bấm trực tiếp vào các ghim đỏ/vàng trên hình để xem ảnh & chi tiết lỗi.'}
           </p>
         </div>
@@ -5272,7 +5252,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   }}
                   className="text-xs font-extrabold text-indigo-600 hover:text-indigo-800 bg-indigo-50 px-2.5 py-1 rounded-lg flex items-center gap-1 border border-indigo-200 transition-all active:scale-95 cursor-pointer"
                 >
-                  <Plus className="w-3.5 h-3.5" /> Thêm Căn Hộ
+                  <Plus className="w-3.5 h-3.5" /> Thêm căn Hộ
                 </button>
               </div>
             </div>
@@ -6693,7 +6673,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <AlertTriangle className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="text-base font-extrabold text-slate-900">Xác Nhận Xóa Mặt Bằng Tầng</h3>
+              <h3 className="text-base font-extrabold text-slate-900">Xác nhận xóa Mặt Bằng Tầng</h3>
               <p className="text-xs text-slate-500 mt-1">
                 Bạn có chắc chắn muốn xóa <span className="font-bold text-rose-600">"{deletingFloorTarget.name}"</span>?
               </p>
@@ -6765,7 +6745,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-extrabold text-xs shadow-md transition-all flex items-center justify-center gap-1.5"
                 >
                   <Copy className="w-4 h-4" />
-                  Xác Nhận Nhân Bản
+                  Xác nhận Nhân Bản
                 </button>
               </div>
             </form>
@@ -6800,7 +6780,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-extrabold text-xs shadow-md transition-all flex items-center justify-center gap-1.5"
               >
                 <Trash2 className="w-4 h-4" />
-                Xác Nhận Xóa
+                Xác nhận xóa
               </button>
             </div>
           </div>
@@ -6815,11 +6795,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <AlertTriangle className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="text-base font-extrabold text-slate-900">Xác Nhận Xóa Pin Defect</h3>
+              <h3 className="text-base font-extrabold text-slate-900">Xác nhận xóa Vị trí Defect</h3>
               <p className="text-xs text-slate-500 mt-1">
                 Bạn có chắc chắn muốn xóa báo lỗi <strong className="text-slate-800 font-bold">[{deletingDefectTarget.id}] - {deletingDefectTarget.category}</strong> tại vị trí ({deletingDefectTarget.x}%, {deletingDefectTarget.y}%) không?
               </p>
-              <p className="text-[11px] text-indigo-600 mt-1 font-medium">💡 Thao tác này có thể Hoàn Tác (Undo).</p>
+              <p className="text-[11px] text-indigo-600 mt-1 font-medium">💡 Thao tác này có thể Hoàn tác.</p>
             </div>
             <div className="flex gap-2 pt-2">
               <button
@@ -6838,7 +6818,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-extrabold text-xs shadow-md transition-all flex items-center justify-center gap-1.5"
               >
                 <Trash2 className="w-4 h-4" />
-                Xác Nhận Xóa
+                Xác nhận xóa
               </button>
             </div>
           </div>
@@ -6853,7 +6833,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <Trash2 className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="text-base font-extrabold text-slate-900">Xác Nhận Xóa Phòng Ẩn</h3>
+              <h3 className="text-base font-extrabold text-slate-900">Xác nhận xóa Phòng Ẩn</h3>
               <p className="text-xs text-slate-500 mt-1">
                 Bạn có chắc chắn muốn xóa toàn bộ <span className="font-bold text-rose-600">{orphanedRooms.length} phòng ẩn / mất liên kết</span> khỏi hệ thống không?
               </p>
@@ -6871,7 +6851,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 onClick={handleConfirmDeleteAllOrphaned}
                 className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-extrabold text-xs shadow-md"
               >
-                Xác Nhận Xóa Sạch
+                Xác nhận xóa Sạch
               </button>
             </div>
           </div>

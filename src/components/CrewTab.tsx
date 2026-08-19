@@ -809,7 +809,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       '__teamId': item.id,
       'Tên Đội Thi Công': item.name,
       'Trưởng Nhóm / Đội Trưởng': item.leader,
-      'Quân Số Định Biên Mặc Định': item.defaultCount,
+      'Quân số định biên': item.defaultCount,
       'Số Điện Thoại': item.phone || '',
       'Ghi Chú': item.notes || '',
     }));
@@ -886,7 +886,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           const rawTeamId = String(row['__teamId'] || row['Mã Đội'] || row['id'] || '').trim();
           const nameStr = String(row[nameMatchKey] || '').trim();
           const leaderStr = String(row['Trưởng Nhóm / Đội Trưởng'] || row['Trưởng Nhóm'] || row['Đội Trưởng'] || row['leader'] || '').trim();
-          const countNum = Number(row['Quân Số Định Biên Mặc Định'] || row['defaultCount'] || row['Quân số'] || row['Số người'] || 0);
+          const countNum = Number(row['Quân số định biên'] || row['defaultCount'] || row['Quân số'] || row['Số người'] || 0);
           const phoneStr = String(row['Số Điện Thoại'] || row['phone'] || row['sdt'] || '').trim();
           const notesStr = String(row['Ghi Chú'] || row['notes'] || '').trim();
 
@@ -1001,7 +1001,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             <div className="bg-gradient-to-br from-indigo-500 to-blue-600 text-white p-4 rounded-xl shadow-md">
               <div className="flex justify-between items-start">
                 <span className="text-white/80 text-[10px] font-bold tracking-wider uppercase">
-                  {selectedDate === getTodayString() ? 'Tổng Quân Số Hôm Nay' : `Tổng Quân Số Ngày ${formatDateDDMMYYYY(selectedDate)}`}
+                  {selectedDate === getTodayString() ? 'Tổng quân số hôm nay' : `Tổng Quân Số Ngày ${formatDateDDMMYYYY(selectedDate)}`}
                 </span>
                 <Users className="w-4 h-4 text-white/80" />
               </div>
@@ -1014,7 +1014,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             <div className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm flex flex-col justify-between">
               <div>
                 <div className="flex justify-between items-start">
-                  <span className="text-slate-400 text-[10px] font-bold tracking-wider uppercase">Khu Vực Làm Nhiều</span>
+                  <span className="text-slate-400 text-[10px] font-bold tracking-wider uppercase">Khu vực đông nhất</span>
                   <TrendingUp className="w-4 h-4 text-emerald-500" />
                 </div>
                 <div className="text-sm font-bold mt-1 text-slate-800 truncate">
@@ -1571,7 +1571,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                       className="w-full mt-3 flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-3 rounded-xl transition text-xs shadow-xs active:scale-98"
                     >
                       <BarChart3 className="w-4 h-4 text-indigo-400" />
-                      <span>Xem Thống Kê Căn Đang Làm & Defect</span>
+                      <span>Xem Thống kê Căn Đang Làm & Defect</span>
                     </button>
 
                     {/* Team edit / delete actions */}
@@ -1708,7 +1708,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
               {/* Worker Count */}
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Số Lượng Quân Số (Thợ)</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Số thợ</label>
                 <MathNumberInput
                   minValue={0}
                   placeholder="Ví dụ: 5 hoặc 3+2"
@@ -2005,7 +2005,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
               {/* Default worker count */}
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Quân Số Định Biên Mặc Định</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Quân số định biên</label>
                 <MathNumberInput
                   minValue={0.01}
                   value={tCount}
@@ -2103,7 +2103,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               <div className="w-12 h-12 bg-rose-50 rounded-full flex items-center justify-center mx-auto mb-3 border border-rose-100">
                 <AlertTriangle className="w-6 h-6 text-rose-500" />
               </div>
-              <h3 className="font-bold text-slate-900 text-sm mb-1">Xác Nhận Xóa Nhật Ký</h3>
+              <h3 className="font-bold text-slate-900 text-sm mb-1">Xác nhận xóa Nhật Ký</h3>
               <p className="text-xs text-slate-500 leading-relaxed mb-4">
                 Bạn có chắc chắn muốn xóa bản ghi quân số của <strong className="text-slate-800">{deletingRecordTarget.teamName}</strong> tại <strong className="text-indigo-600">{deletingRecordTarget.floorName}</strong> không? Hành động này không thể hoàn tác.
               </p>

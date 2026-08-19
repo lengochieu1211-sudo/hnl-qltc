@@ -37,7 +37,7 @@ import {
   AuditLogEntry
 } from '../utils/securityUtils';
 import { hashPin, verifyPin } from '../utils/cryptoUtils';
-import { signInWithGoogle, getCurrentFirebaseUser, fetchProjectUserRoleFromCloud, claimProjectOwnership, fetchProjectMembersFromCloud, fetchProjectAuditLogsFromCloud } from '../lib/firebase';
+import { signInWithGoogle, getCurrentFirebaseUser, fetchProjectUserRoleFromCloud, claimProjectOwnership, fetchProjectMembersFromCloud, fetchProjectAuditLogsFromCloud, subscribeProjectMembersRealtime, subscribeProjectAuditLogsRealtime } from '../lib/firebase';
 import { saveTextFile } from '../utils/fileExport';
 
 interface SecurityModalProps {
@@ -153,41 +153,34 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
     setMemberMsg(null);
     refreshCloudStatus(selectedPid);
 
-    // Cloud is the source of truth for permissions. Refresh the visible member list
-    // whenever a project is selected so another phone/PC immediately sees accounts
-    // assigned by the administrator.
-    fetchProjectMembersFromCloud(selectedPid).then((cloudMembers) => {
-      if (cancelled || selectedPidRef.current !== selectedPid || !Array.isArray(cloudMembers)) return;
+    // Firestore is the permission source of truth. Keep this screen live while it is open.
+    const unsubMembers = subscribeProjectMembersRealtime(selectedPid, (cloudMembers) => {
+      if (cancelled || selectedPidRef.current !== selectedPid) return;
       const normalized = cloudMembers
-        .filter((m: any) => m && m.email)
+        .filter((m: any) => m && m.email && m.active !== false)
         .map((m: any) => ({
           email: String(m.email).trim().toLowerCase(),
           role: (m.role || 'VIEWER') as UserRole,
           assignedAt: Number(m.assignedAt || m.updatedAt || Date.now()),
         }));
-      if (normalized.length > 0) {
-        const byEmail = new Map<string, ProjectMember>();
-        getProjectMembers(selectedPid).forEach((m) => byEmail.set(m.email.toLowerCase(), m));
-        normalized.forEach((m) => byEmail.set(m.email.toLowerCase(), m));
-        const merged = Array.from(byEmail.values());
-        saveProjectMembers(selectedPid, merged);
-        setProjectMembers(merged);
-      }
-    }).catch((err) => console.warn('Could not refresh project members from Cloud:', err));
+      saveProjectMembers(selectedPid, normalized); // local cache only
+      setProjectMembers(normalized);
+      refreshCloudStatus(selectedPid);
+    });
 
-    fetchProjectAuditLogsFromCloud(selectedPid, 200).then((cloudLogs) => {
-      if (cancelled || selectedPidRef.current !== selectedPid || !Array.isArray(cloudLogs)) return;
-      const local = getAuditLogs().filter((log) => !log.projectId || log.projectId === selectedPid);
-      const byId = new Map<string, any>();
-      cloudLogs.forEach((log: any) => byId.set(log.id || `${log.timestamp}-${log.action}`, log));
-      local.forEach((log: any) => {
-        const key = log.id || `${log.timestamp}-${log.action}`;
-        if (!byId.has(key)) byId.set(key, log);
-      });
-      setAuditLogs(Array.from(byId.values()).sort((a: any, b: any) => Number(b.timestamp || 0) - Number(a.timestamp || 0)));
-    }).catch((err) => console.warn('Could not refresh project audit logs from Cloud:', err));
+    const unsubAudit = subscribeProjectAuditLogsRealtime(selectedPid, (cloudLogs) => {
+      if (cancelled || selectedPidRef.current !== selectedPid) return;
+      const normalized = cloudLogs.map((log: any) => ({
+        ...log,
+        timestamp: Number(log.clientTimestamp || log.timestamp || 0),
+        details: log.description || log.details || log.action,
+        userEmail: log.userEmail || log.actorEmail || '',
+        userName: log.userName || log.actorName || '',
+      }));
+      setAuditLogs(normalized as any);
+    }, 200);
 
-    return () => { cancelled = true; };
+    return () => { cancelled = true; unsubMembers(); unsubAudit(); };
   }, [selectedPid]);
 
   if (!isOpen) return null;
@@ -600,9 +593,10 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
   };
 
   const handleClearLogs = () => {
-    if (confirm('Bạn có chắc chắn muốn xóa toàn bộ nhật ký thao tác bảo mật?')) {
+    if (confirm('Chỉ xóa bộ nhớ đệm nhật ký trên thiết bị này? Nhật ký Cloud của dự án vẫn được giữ nguyên và không thể xóa từ ứng dụng.')) {
       clearAuditLogs();
-      setAuditLogs([]);
+      // Cloud activityLogs are append-only. Keep the currently rendered realtime list;
+      // the Firestore listener remains the source of truth for the selected project.
     }
   };
 
@@ -750,7 +744,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
               <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
                 <h4 className="font-extrabold text-slate-800 text-xs flex items-center gap-1.5">
                   <Key className="w-4 h-4 text-indigo-600" />
-                  <span>{pinConfig.enabled && pinConfig.pinHash ? 'Đổi Mã PIN Mới' : 'Thiết Lập Mã PIN'}</span>
+                  <span>{pinConfig.enabled && pinConfig.pinHash ? 'Đổi mã PIN Mới' : 'Thiết lập mã PIN'}</span>
                 </h4>
 
                 {pinConfig.enabled && pinConfig.pinHash && (
@@ -994,7 +988,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                       ) : currentRole === 'ENGINEER' ? (
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10.5px] font-extrabold bg-indigo-100 text-indigo-800 border border-indigo-300">
                           <Users className="w-3 h-3 text-indigo-600" />
-                          ENGINEER (Kỹ Sư Giám Sát)
+                          ENGINEER (Kỹ sư Giám Sát)
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10.5px] font-extrabold bg-slate-100 text-slate-700 border border-slate-300">
@@ -1049,8 +1043,8 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                     <div className="flex items-start gap-2">
                       <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                       <div className="text-[11px] text-amber-900 leading-relaxed">
-                        <span className="font-bold">Khôi phục quyền Chủ sở hữu (ADMIN): </span>
-                        Nếu bạn là tác giả ban đầu của dự án này hoặc dự án chưa có Owner trên Cloud, bấm nút dưới đây để xác nhận quyền Quản trị viên cao nhất.
+                        <span className="font-bold">Xác minh lại quyền chủ dự án: </span>
+                        Nếu tài khoản Google hiện tại là chủ dự án hoặc dự án chưa có chủ hợp lệ trên đám mây, hãy xác minh lại để khôi phục quyền quản trị.
                       </div>
                     </div>
 
@@ -1062,7 +1056,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                         className="px-3 py-1.5 bg-amber-700 hover:bg-amber-800 text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-50"
                       >
                         <Crown className="w-3.5 h-3.5" />
-                        <span>{isClaiming ? 'Đang xác thực...' : 'Khôi Phục Quyền ADMIN'}</span>
+                        <span>{isClaiming ? 'Đang xác thực...' : 'Xác minh quyền chủ dự án'}</span>
                       </button>
                       <button
                         type="button"
@@ -1089,7 +1083,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
               <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2.5">
                 <h4 className="font-extrabold text-slate-800 text-xs flex items-center gap-1.5">
                   <Users className="w-4 h-4 text-slate-600" />
-                  <span>Ma Trận Quyền Hạn Trong Hệ Thống</span>
+                  <span>Quyền theo vai trò</span>
                 </h4>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-[10.5px]">
@@ -1105,7 +1099,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                   <div className="p-3 bg-white rounded-xl border border-indigo-200 space-y-1">
                     <div className="font-bold text-indigo-800 flex items-center gap-1">
                       <Users className="w-3.5 h-3.5 text-indigo-600" />
-                      ENGINEER (Kỹ Sư Thi Công)
+                      ENGINEER (Kỹ sư Thi Công)
                     </div>
                     <p className="text-slate-500 leading-relaxed">
                       Cập nhật tiến độ phòng, khối lượng, defect, chấm công, ảnh hiện trường. Không xem đơn giá và không thể xóa/quản lý dự án.
@@ -1114,7 +1108,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                   <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-1">
                     <div className="font-bold text-slate-700 flex items-center gap-1">
                       <Eye className="w-3.5 h-3.5 text-slate-500" />
-                      VIEWER (Chỉ Xem)
+                      VIEWER (Chỉ xem)
                     </div>
                     <p className="text-slate-500 leading-relaxed">
                       Chế độ chỉ đọc: Xem tiến độ, mặt bằng, khuyết tật, ảnh đính kèm và báo cáo. Bị khóa mọi thao tác sửa đổi dữ liệu.
@@ -1128,7 +1122,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <h4 className="font-extrabold text-slate-800 text-xs flex items-center gap-1.5">
                     <Shield className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>Phân Quyền Thành Viên Theo Từng Dự Án</span>
+                    <span>Thành viên & phân quyền dự án</span>
                   </h4>
                   {projects.length > 0 && (
                     <select
@@ -1159,8 +1153,8 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                       disabled={isSavingMember}
                       className="flex-1 sm:flex-initial px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700"
                     >
-                      <option value="ENGINEER">Kỹ Sư</option>
-                      <option value="VIEWER">Chỉ Xem</option>
+                      <option value="ENGINEER">Kỹ sư</option>
+                      <option value="VIEWER">Chỉ xem</option>
                       <option value="ADMIN">Admin</option>
                     </select>
                     <button
@@ -1206,7 +1200,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                               ? 'bg-blue-100 text-blue-700'
                               : 'bg-slate-200 text-slate-700'
                           }`}>
-                            {m.role === 'ADMIN' ? 'Admin' : m.role === 'ENGINEER' ? 'Kỹ Sư' : 'Chỉ Xem'}
+                            {m.role === 'ADMIN' ? 'Admin' : m.role === 'ENGINEER' ? 'Kỹ sư' : 'Chỉ xem'}
                           </span>
                         </div>
                         <button
@@ -1230,7 +1224,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-extrabold text-slate-700 uppercase tracking-wider">
-                  Nhật Ký Thao Tác Hệ Thống ({auditLogs.length})
+                  Nhật ký hoạt động ({auditLogs.length})
                 </span>
                 <div className="flex items-center gap-1.5">
                   <button
@@ -1249,9 +1243,17 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                     className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-colors disabled:opacity-40"
                   >
                     <Trash2 className="w-3 h-3" />
-                    <span>Xóa</span>
+                    <span>Xóa cache máy</span>
                   </button>
                 </div>
+                <p className="text-[9.5px] text-slate-400">
+                  “Xóa cache máy” chỉ xóa bản nhật ký lưu tạm trên thiết bị này; nhật ký hoạt động trên Firestore không bị xóa.
+                </p>
+              </div>
+
+              <div className="text-[9.5px] text-slate-500 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+                Nhật ký được đồng bộ realtime theo đúng dự án đang mở.
               </div>
 
               {auditLogs.length === 0 ? (
@@ -1263,21 +1265,22 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
               ) : (
                 <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
                   {auditLogs.map(log => (
-                    <div
+                    <details
                       key={log.id}
-                      className="p-2.5 bg-white border border-slate-200 rounded-xl text-xs space-y-1 hover:bg-slate-50/50 transition-colors"
+                      className="group p-2.5 bg-white border border-slate-200 rounded-xl text-xs hover:bg-slate-50/50 transition-colors"
                     >
-                      <div className="flex items-center justify-between">
-                        <span className="font-extrabold text-indigo-800 text-[10.5px]">
-                          {log.action}
-                        </span>
-                        <span className="text-[9px] text-slate-400 font-mono">
-                          {new Date(log.timestamp).toLocaleString('vi-VN')}
-                        </span>
-                      </div>
-                      <p className="text-[10.5px] text-slate-700">
-                        {log.details}
-                      </p>
+                      <summary className="cursor-pointer list-none">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="font-extrabold text-indigo-800 text-[10.5px] truncate">{log.action}</div>
+                            <div className="text-[10px] text-slate-700 mt-0.5 line-clamp-2">{log.details}</div>
+                          </div>
+                          <span className="text-[9px] text-slate-400 font-mono shrink-0">
+                            {new Date(log.timestamp).toLocaleString('vi-VN')}
+                          </span>
+                        </div>
+                      </summary>
+                      <div className="pt-2 mt-2 border-t border-slate-100 space-y-1">
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] text-slate-400">
                         {log.actorEmail && <span>Tài khoản: <strong className="text-slate-600">{log.actorEmail}</strong></span>}
                         <span>Vai trò: <strong>{log.actorRole || '—'}</strong></span>
@@ -1285,7 +1288,8 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                         {(log as any).deviceId && <span className="font-mono">({String((log as any).deviceId).slice(-8)})</span>}
                         {log.projectId && <span>• Dự án: {log.projectId}</span>}
                       </div>
-                    </div>
+                      </div>
+                    </details>
                   ))}
                 </div>
               )}

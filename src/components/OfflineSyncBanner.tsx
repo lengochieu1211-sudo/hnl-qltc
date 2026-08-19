@@ -16,27 +16,31 @@ export const OfflineSyncBanner: React.FC<OfflineSyncBannerProps> = ({
   const [justReconnected, setJustReconnected] = useState(false);
   const [offlineChangeCount, setOfflineChangeCount] = useState<number>(0);
   const [syncStatusMsg, setSyncStatusMsg] = useState<string | null>(null);
+  const [retryNeeded, setRetryNeeded] = useState(false);
 
   // Monitor network status
   useEffect(() => {
     const handleOnline = async () => {
       setIsOnline(true);
       setJustReconnected(true);
-      setSyncStatusMsg('📶 Đã khôi phục kết nối! Đang tự động đồng bộ...');
+      setRetryNeeded(false);
+      setSyncStatusMsg('Đã có kết nối. Đang tự đồng bộ...');
 
       // Auto trigger sync if provided
       if (onAutoSync) {
         try {
           const res = await onAutoSync();
           if (res.success) {
-            setSyncStatusMsg('🎉 Đồng bộ dữ liệu ngoại tuyến thành công!');
+            setSyncStatusMsg('Đã đồng bộ dữ liệu ngoại tuyến.');
             localStorage.removeItem('construction_offline_pending');
             setOfflineChangeCount(0);
           } else {
-            setSyncStatusMsg('⚠️ Kết nối đã có lại, bấm "Đồng Bộ Ngay" để lưu lên Cloud.');
+            setRetryNeeded(true);
+            setSyncStatusMsg('Đồng bộ chưa hoàn tất. Bạn có thể thử lại.');
           }
         } catch {
-          setSyncStatusMsg('⚠️ Kết nối đã có lại, có thể bấm đồng bộ thủ công.');
+          setRetryNeeded(true);
+          setSyncStatusMsg('Đồng bộ chưa hoàn tất. Bạn có thể thử lại.');
         }
       }
 
@@ -44,6 +48,7 @@ export const OfflineSyncBanner: React.FC<OfflineSyncBannerProps> = ({
       setTimeout(() => {
         setJustReconnected(false);
         setSyncStatusMsg(null);
+      setRetryNeeded(false);
       }, 6000);
     };
 
@@ -86,9 +91,9 @@ export const OfflineSyncBanner: React.FC<OfflineSyncBannerProps> = ({
           <div className="flex items-center gap-2 min-w-0">
             <WifiOff className="w-4 h-4 text-amber-400 shrink-0 animate-pulse" />
             <div className="truncate">
-              <span className="font-extrabold text-white mr-1">⚡ Đang Ngoại Tuyến (Offline):</span>
+              <span className="font-extrabold text-white mr-1">Đang làm việc ngoại tuyến:</span>
               <span className="text-amber-300">
-                Mọi thao tác vẫn được tự động lưu vào máy (localStorage). Sẽ tự đồng bộ khi có mạng lại.
+                Dữ liệu được lưu tạm trên thiết bị và sẽ tự đồng bộ khi có mạng lại.
               </span>
             </div>
           </div>
@@ -108,18 +113,25 @@ export const OfflineSyncBanner: React.FC<OfflineSyncBannerProps> = ({
             <Wifi className="w-4 h-4 text-emerald-400 shrink-0" />
             <span className="font-semibold text-white">{syncStatusMsg || '📶 Đã có kết nối Internet trở lại!'}</span>
           </div>
-          {onAutoSync && (
+          {onAutoSync && retryNeeded && (
             <button
               type="button"
               onClick={async () => {
+                setRetryNeeded(false);
+                setSyncStatusMsg('Đang thử đồng bộ lại...');
                 const res = await onAutoSync();
-                if (res.success) setSyncStatusMsg('🎉 Đã đồng bộ xong!');
+                if (res.success) {
+                  setSyncStatusMsg('Đã đồng bộ xong.');
+                } else {
+                  setRetryNeeded(true);
+                  setSyncStatusMsg('Đồng bộ vẫn chưa hoàn tất.');
+                }
               }}
               disabled={isSyncing}
               className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-2.5 py-1 rounded-lg text-[11px] flex items-center gap-1 transition-all active:scale-95 shadow shrink-0"
             >
               <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin' : ''}`} />
-              {isSyncing ? 'Đang đồng bộ...' : 'Đồng Bộ Ngay'}
+              {isSyncing ? 'Đang đồng bộ...' : 'Thử lại'}
             </button>
           )}
         </div>

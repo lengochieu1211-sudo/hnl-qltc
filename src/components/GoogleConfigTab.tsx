@@ -316,7 +316,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       {/* PROJECT SETTINGS FORM CARD */}
       <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
         <h3 className="font-bold text-slate-900 border-b border-slate-100 pb-2 flex items-center gap-1.5 text-xs">
-          <Save className="w-4 h-4 text-blue-600" /> Cài Đặt Thông Tin Công Trình
+          <Save className="w-4 h-4 text-blue-600" /> Thông tin công trình
         </h3>
 
         <form onSubmit={handleSaveSettings} className="space-y-3">
@@ -327,7 +327,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
               value={localProjectName}
               onChange={(e) => setLocalProjectName(e.target.value)}
               className="w-full border border-slate-200 rounded-xl p-2.5 font-bold text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-              placeholder="Ví dụ: Tòa Nhà HH2 Sunrise Tower"
+              placeholder="Ví dụ: LTIA Sân bay Long Thành"
               required
             />
           </div>
@@ -476,7 +476,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       {/* Floor Plan Target Dates Configuration */}
       <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">
         <h4 className="font-bold text-slate-800 text-xs flex items-center gap-1.5 border-b border-slate-100 pb-2">
-          <Clock className="w-4 h-4 text-indigo-500" /> Cài Đặt Tiến Độ Mục Tiêu Từng Tầng
+          <Clock className="w-4 h-4 text-indigo-500" /> Cài đặt Tiến Độ Mục Tiêu Từng Tầng
         </h4>
         
         {(!floorPlans || floorPlans.length === 0) ? (

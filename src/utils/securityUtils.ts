@@ -247,6 +247,22 @@ export function logAuditAction(
     // Keep max 200 log entries
     const trimmed = logs.slice(0, 200);
     localStorage.setItem(AUDIT_LOG_STORAGE_KEY, JSON.stringify(trimmed));
+
+    // Best-effort Cloud append. Firestore rules bind the actor identity to real Google Auth,
+    // so the local actorEmail argument can never impersonate another account in Cloud.
+    if (projectId) {
+      import('../lib/firebase').then(({ saveProjectAuditLog }) => {
+        saveProjectAuditLog(projectId, {
+          timestamp: newEntry.timestamp,
+          action,
+          details,
+          description: details,
+          actorRole,
+          module: action.startsWith('ROLE_') || action === 'SECURITY_CONFIG_CHANGE' ? 'security' : 'app',
+          syncStatus: 'PENDING',
+        }).catch(() => {});
+      }).catch(() => {});
+    }
   } catch (_) {}
 }
 

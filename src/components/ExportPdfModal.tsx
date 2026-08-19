@@ -341,7 +341,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                 <th>Mã / Tên Vật Tư</th>
                 <th style="width: 60px; text-align: center;">ĐVT</th>
                 <th style="width: 80px; text-align: right;">Tồn Kho</th>
-                <th style="width: 110px;">Vị Trí Lưu Kho</th>
+                <th style="width: 110px;">Vị trí lưu kho</th>
                 <th style="width: 100px;">Trạng Thái</th>
               </tr>
             </thead>
@@ -369,7 +369,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
             <thead>
               <tr>
                 <th style="width: 35px; text-align: center;">STT</th>
-                <th>Hạng Mục Công Việc</th>
+                <th>Hạng mục công việc</th>
                 <th style="width: 90px;">Phân Loại</th>
                 <th style="width: 55px; text-align: center;">ĐVT</th>
                 <th style="width: 80px; text-align: right;">KL Kế Hoạch</th>
@@ -421,11 +421,11 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
 
             const roomPositions = computeRoomLabelPositions(
               fpRooms,
-              fpDefects.map((d) => ({ x: d.x, y: d.y, radius: 1.4 }))
+              fpDefects.map((d) => ({ x: d.x, y: d.y, radius: 0.9 }))
             );
             const defectPositions = computeDefectLabelPositions(
               fpDefects,
-              roomPositions.filter((rp) => rp.showLabel).map((rp) => ({ x: rp.lx, y: rp.ly, radius: 2.2 }))
+              roomPositions.filter((rp) => rp.showLabel).map((rp) => ({ x: rp.lx, y: rp.ly, radius: 1.15 }))
             );
 
             return `
@@ -436,10 +436,10 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                 </h4>
 
                 <div style="display: flex; flex-direction: column; gap: 14px;">
-                  <!-- Highlight Map -->
+                  <!-- Vùng đánh dấu Map -->
                   <div style="width: 100%;">
                     <p style="margin: 0 0 6px 0; font-size: 10.5px; font-weight: bold; color: #4f46e5;">
-                      1. Mặt Bằng Highlight Khu Vực / Phòng (${fpRooms.length} khu vực)
+                      1. Mặt Bằng Vùng đánh dấu Khu Vực / Phòng (${fpRooms.length} khu vực)
                     </p>
 
                     ${fp.imageUrl ? `
@@ -471,18 +471,18 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                             return `
                               <g>
                                 ${rPos.isOffset ? `
-                                  <circle cx="${rPos.x}" cy="${rPos.y}" r="0.55" fill="${badgeBg}" />
+                                  <circle cx="${rPos.x}" cy="${rPos.y}" r="0.23" fill="${badgeBg}" />
                                   <line x1="${rPos.x}" y1="${rPos.y}" x2="${rPos.lx}" y2="${rPos.ly}" stroke="${badgeBg}" stroke-width="0.18" stroke-dasharray="0.45,0.35" opacity="0.82" />
                                 ` : ''}
-                                <circle cx="${rPos.lx}" cy="${rPos.ly}" r="1.75" fill="${badgeBg}" fill-opacity="0.92" stroke="#ffffff" stroke-width="0.28" />
-                                <text x="${rPos.lx}" y="${rPos.ly + 0.2}" text-anchor="middle" dominant-baseline="middle" fill="#ffffff" font-size="1.85" font-weight="900" style="font-family: Arial, sans-serif;">#${rIdx + 1}</text>
+                                <circle cx="${rPos.lx}" cy="${rPos.ly}" r="0.95" fill="${badgeBg}" fill-opacity="0.92" stroke="#ffffff" stroke-width="0.28" />
+                                <text x="${rPos.lx}" y="${rPos.ly + 0.2}" text-anchor="middle" dominant-baseline="middle" fill="#ffffff" font-size="1.05" font-weight="900" style="font-family: Arial, sans-serif;">#${rIdx + 1}</text>
                               </g>
                             `;
                           }).join('')}
                         </svg>
                       </div>
 
-                      <!-- Legend Table below Highlight Map -->
+                      <!-- Legend Table below Vùng đánh dấu Map -->
                       ${fpRooms.length > 0 ? `
                         <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 8px; margin-bottom: 6px;">
                           <p style="margin: 0 0 4px 0; font-size: 9.5px; font-weight: bold; color: #1e1b4b;">Chú giải mã vị trí khu vực / phòng (${formatFloorName(fp.floorName)}):</p>
@@ -543,15 +543,15 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                               return `
                                 <g>
                                   ${pos.clusterIndex === 0 ? `
-                                    <circle cx="${pos.x}" cy="${pos.y}" r="${pos.clusterCount > 1 ? 1.55 : 1.15}" fill="#ffffff" fill-opacity="0.92" stroke="${pinColor}" stroke-width="0.24" />
-                                    <circle cx="${pos.x}" cy="${pos.y}" r="0.48" fill="${pinColor}" />
-                                    ${pos.clusterCount > 1 ? `<text x="${pos.x}" y="${Math.max(1.2, pos.y - 1.75)}" text-anchor="middle" fill="${pinColor}" font-size="1.45" font-weight="900" style="font-family: Arial, sans-serif;">×${pos.clusterCount}</text>` : ''}
+                                    <circle cx="${pos.x}" cy="${pos.y}" r="${pos.clusterCount > 1 ? 0.92 : 0.72}" fill="#ffffff" fill-opacity="0.92" stroke="${pinColor}" stroke-width="0.24" />
+                                    <circle cx="${pos.x}" cy="${pos.y}" r="0.24" fill="${pinColor}" />
+                                    ${pos.clusterCount > 1 ? `<text x="${pos.x}" y="${Math.max(1.0, pos.y - 1.05)}" text-anchor="middle" fill="${pinColor}" font-size="1.00" font-weight="900" style="font-family: Arial, sans-serif;">×${pos.clusterCount}</text>` : ''}
                                   ` : ''}
 
                                   ${pos.showLabel ? `
                                     <line x1="${pos.x}" y1="${pos.y}" x2="${pos.lx}" y2="${pos.ly}" stroke="${pinColor}" stroke-width="0.18" opacity="0.78" />
-                                    <circle cx="${pos.lx}" cy="${pos.ly}" r="2.05" fill="${pinColor}" fill-opacity="0.94" stroke="#ffffff" stroke-width="0.28" />
-                                    <text x="${pos.lx}" y="${pos.ly + 0.22}" text-anchor="middle" dominant-baseline="middle" fill="#ffffff" font-size="1.9" font-weight="900" style="font-family: Arial, sans-serif;">${d.markerCode}</text>
+                                    <circle cx="${pos.lx}" cy="${pos.ly}" r="1.05" fill="${pinColor}" fill-opacity="0.94" stroke="#ffffff" stroke-width="0.28" />
+                                    <text x="${pos.lx}" y="${pos.ly + 0.22}" text-anchor="middle" dominant-baseline="middle" fill="#ffffff" font-size="1.05" font-weight="900" style="font-family: Arial, sans-serif;">${d.markerCode}</text>
                                   ` : ''}
                                 </g>
                               `;
@@ -793,8 +793,8 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
             <thead>
               <tr>
                 <th style="width: 60px;">Tầng</th>
-                <th style="width: 130px;">Phân Loại Hạng Mục</th>
-                <th>Nội Dung Tiêu Chí Kiểm Tra</th>
+                <th style="width: 130px;">Phân loại hạng mục</th>
+                <th>Nội dung tiêu chí kiểm tra</th>
                 <th style="width: 90px;">Kết Quả</th>
                 <th style="width: 110px;">Người Giám Sát</th>
                 <th style="width: 100px;">Ghi Chú</th>
@@ -822,7 +822,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
               <tr>
                 <th style="width: 35px; text-align: center;">STT</th>
                 <th style="width: 75px;">Ngày</th>
-                <th style="width: 110px;">Tên Đội Thi Công</th>
+                <th style="width: 110px;">Tên đội thi công</th>
                 <th style="width: 90px;">Trưởng Nhóm</th>
                 <th style="width: 50px; text-align: center;">Quân Số</th>
                 <th style="width: 70px; text-align: center;">Ca Làm</th>
@@ -1169,7 +1169,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
             </div>
             <div>
               <h3 className="text-base font-bold text-slate-900">Xuất Báo Cáo PDF &amp; Excel</h3>
-              <p className="text-xs text-slate-500">Chuẩn định dạng tiếng Việt 100% có dấu</p>
+              <p className="text-xs text-slate-500"></p>
             </div>
           </div>
           <button
@@ -1341,8 +1341,8 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   onChange={(e) => setPdfOrientation(e.target.value as 'portrait' | 'landscape')}
                   className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold"
                 >
-                  <option value="portrait">Dọc (Portrait)</option>
-                  <option value="landscape">Ngang (Landscape)</option>
+                  <option value="portrait">Dọc (Dọc)</option>
+                  <option value="landscape">Ngang (Ngang)</option>
                 </select>
               </label>
             </div>
@@ -1375,7 +1375,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
               className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl font-black flex items-center justify-center gap-2 shadow-md active:scale-98 transition-all text-xs border border-indigo-400 cursor-pointer"
             >
               <Printer className="w-4 h-4 text-amber-300" />
-              <span>🖨️ Xuất / In Báo Cáo PDF (Mở Cửa Sổ In)</span>
+              <span>Xuất PDF</span>
             </button>
 
             <button

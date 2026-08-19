@@ -161,7 +161,7 @@ export const PrimaryDriveStatusCard: React.FC<Props> = ({ activeProjectId, userR
   const handleMigrate = async () => {
     try {
       setBusy('migrate');
-      setMessage({ type: 'info', text: 'Đang chuyển các ảnh Firestore cũ của dự án sang Drive chính. Không đóng ứng dụng...' });
+      setMessage({ type: 'info', text: 'Đang chuyển các ảnh Ảnh cũ chưa chuyển của dự án sang Drive chính. Không đóng ứng dụng...' });
       const result = await syncProjectPhotosToCloud(activeProjectId);
       const floorResult = await syncFloorPlanImagesToCloud(activeProjectId, floorPlans);
       await refreshPhotoStats();
@@ -189,13 +189,37 @@ export const PrimaryDriveStatusCard: React.FC<Props> = ({ activeProjectId, userR
           </div>
         </div>
         <span className={`shrink-0 px-2 py-1 rounded-full text-[10px] font-bold border ${config?.enabled && config?.webAppUrl ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-amber-100 text-amber-700 border-amber-200'}`}>
-          {config?.enabled && config?.webAppUrl ? '● Đã cấu hình' : '● Chưa cấu hình'}
+          {config?.enabled && config?.webAppUrl ? '● Đã kết nối' : '● Chưa kết nối'}
         </span>
       </div>
 
-      <p className="text-[11px] leading-5 text-slate-600 mt-2">
-        Mỗi người vẫn đăng nhập Gmail riêng. Ảnh Defect, báo quân số và ảnh mặt bằng do ADMIN/ENGINEER tải từ điện thoại/PC sẽ được đưa về Drive tài khoản chính; Firebase giữ dữ liệu dự án và liên kết file.
+      <p className="text-[10.5px] leading-4 text-slate-500 mt-1.5">
+        Ảnh tự lưu Drive; Firebase giữ dữ liệu và liên kết.
       </p>
+
+      <div className="grid grid-cols-3 gap-1.5 mt-2">
+        <div className="rounded-lg bg-white border border-slate-200 px-2 py-1.5">
+          <div className="text-[9px] text-slate-400">Ảnh</div>
+          <div className="text-[11px] font-extrabold text-slate-700">{photoStats.driveCount}/{photoStats.total}</div>
+        </div>
+
+        <div className="rounded-lg bg-white border border-cyan-200 px-2 py-1.5">
+          <div className="text-[9px] text-slate-400">Mặt bằng</div>
+          <div className="text-[11px] font-extrabold text-cyan-800">{floorPlanStats.driveCount}/{floorPlanStats.total}</div>
+        </div>
+        <div className="rounded-lg bg-white border border-amber-200 px-2 py-1.5">
+          <div className="text-[9px] text-slate-400">Chưa chuyển</div>
+          <div className="text-[11px] font-extrabold text-amber-700">{photoStats.firestoreCount + floorPlanStats.firestoreCount}</div>
+        </div>
+      </div>
+
+      <details className="group mt-3 rounded-xl border border-emerald-100 bg-white/80">
+        <summary className="cursor-pointer select-none px-3 py-2.5 text-[11px] font-bold text-emerald-800 flex items-center justify-between">
+          <span>Cài đặt & công cụ nâng cao</span>
+          <span className="text-[10px] text-slate-400 group-open:hidden">Mở</span>
+          <span className="text-[10px] text-slate-400 hidden group-open:inline">Thu gọn</span>
+        </summary>
+        <div className="px-3 pb-3 border-t border-emerald-100">
 
       {isPrimaryOwner && (
         <div className="mt-3 rounded-xl border border-slate-200 bg-white p-2.5">
@@ -239,7 +263,7 @@ export const PrimaryDriveStatusCard: React.FC<Props> = ({ activeProjectId, userR
           <div className="text-[10px] text-slate-500">{formatBytes(photoStats.driveBytes)}</div>
         </div>
         <div className="rounded-xl bg-white border border-amber-200 p-2.5">
-          <div className="text-[10px] text-amber-600">Firestore cũ</div>
+          <div className="text-[10px] text-amber-600">Ảnh cũ chưa chuyển</div>
           <div className="text-sm font-extrabold text-amber-700">{photoStats.firestoreCount}</div>
           <div className="text-[10px] text-slate-500">~{formatBytes(photoStats.firestoreBytes)}</div>
         </div>
@@ -249,7 +273,7 @@ export const PrimaryDriveStatusCard: React.FC<Props> = ({ activeProjectId, userR
           <div className="text-[10px] text-slate-500">Drive · {formatBytes(floorPlanStats.totalBytes)}</div>
         </div>
         <div className="rounded-xl bg-white border border-blue-200 p-2.5">
-          <div className="text-[10px] text-blue-600">Firebase free</div>
+          <div className="text-[10px] text-blue-600">Firebase</div>
           <div className="text-sm font-extrabold text-blue-700">1 GB</div>
           <div className="text-[10px] text-slate-500">Dữ liệu + index</div>
         </div>
@@ -301,7 +325,7 @@ export const PrimaryDriveStatusCard: React.FC<Props> = ({ activeProjectId, userR
             className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-800 disabled:opacity-50 flex items-center gap-1.5"
           >
             {busy === 'migrate' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CloudUpload className="w-3.5 h-3.5" />}
-            Đồng bộ toàn bộ ảnh lên Drive
+            Chuyển ảnh cũ lên Drive
           </button>
         )}
       </div>
@@ -312,10 +336,8 @@ export const PrimaryDriveStatusCard: React.FC<Props> = ({ activeProjectId, userR
           <span>{message.text}</span>
         </div>
       )}
-
-      <div className="mt-3 text-[10px] leading-4 text-slate-400">
-        “Firestore cũ” chỉ là ước tính phần binary ảnh Defect/Quân số còn nằm trong Firestore của dự án hiện tại. Card “Ảnh mặt bằng” cho biết số mặt bằng đã có file Drive trên tổng số mặt bằng có ảnh. Dung lượng Firestore chính xác toàn database vẫn xem trong Firebase Console. Khi Drive chính hoạt động, ảnh mới ưu tiên Drive; Firestore chỉ giữ metadata và tự fallback nếu Drive tạm lỗi.
-      </div>
+        </div>
+      </details>
     </div>
   );
 };

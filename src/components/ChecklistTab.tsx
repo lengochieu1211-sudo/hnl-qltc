@@ -49,7 +49,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
   checklist,
   floors,
   floorPlans,
-  inspectorName = 'KS. Nguyễn Văn Bình',
+  inspectorName = '',
   workVolumes = [],
   onUpdateChecklistStatus,
   onAddChecklistItem,
@@ -859,7 +859,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
               </div>
 
               <div>
-                <label className="block text-slate-700 font-bold mb-1">Kỹ Sư Giám Sát (Tùy chỉnh hoặc theo cấu hình)</label>
+                <label className="block text-slate-700 font-bold mb-1">Kỹ sư phụ trách (Tùy chỉnh hoặc theo cấu hình)</label>
                 <input
                   type="text"
                   value={inspectedBy}
@@ -1015,14 +1015,14 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
                   onChange={(e) => setEditingChecklistItem({ ...editingChecklistItem, status: e.target.value as ChecklistStatus })}
                   className="w-full border border-slate-200 rounded-xl p-2.5 font-bold bg-white"
                 >
-                  <option value="passed">✅ Đã nghiệm thu (Đạt)</option>
-                  <option value="defect">🔴 Có Defect (Lỗi)</option>
-                  <option value="pending">🟡 Chưa nghiệm thu (Chờ)</option>
+                  <option value="passed">✅ Đạt</option>
+                  <option value="defect">🔴 Không đạt / Có Defect</option>
+                  <option value="pending">🟡 Chờ nghiệm thu</option>
                 </select>
               </div>
 
               <div>
-                <label className="block text-slate-700 font-bold mb-1">Kỹ Sư Giám Sát</label>
+                <label className="block text-slate-700 font-bold mb-1">Kỹ sư phụ trách</label>
                 <input
                   type="text"
                   value={editingChecklistItem.inspectedBy || inspectorName}
@@ -1125,11 +1125,11 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
               <AlertCircle className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-900">Xác Nhận Xóa Tiêu Chí</h3>
+              <h3 className="text-base font-bold text-slate-900">Xác nhận xóa Tiêu Chí</h3>
               <p className="text-xs text-slate-500 mt-1">
                 Bạn có chắc chắn muốn xóa tiêu chí <strong className="text-slate-800">{deletingChecklistTarget.title}</strong> không?
               </p>
-              <p className="text-[11px] text-indigo-600 mt-1 font-medium">💡 Thao tác này có thể Hoàn Tác (Undo).</p>
+              <p className="text-[11px] text-indigo-600 mt-1 font-medium">💡 Thao tác này có thể Hoàn tác.</p>
             </div>
             <div className="flex gap-2">
               <button
@@ -1147,7 +1147,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
                 }}
                 className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-xs shadow cursor-pointer"
               >
-                Xác Nhận Xóa
+                Xác nhận xóa
               </button>
             </div>
           </div>

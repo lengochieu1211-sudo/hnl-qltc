@@ -118,7 +118,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   onDeleteRoom,
   onStartRedraw2Point,
 }) => {
-  const activeDefaultInspector = defaultInspectorName || 'KS. Nguyễn Văn Bình';
+  const activeDefaultInspector = defaultInspectorName || '';
 
   const [roomName, setRoomName] = useState('');
   const [workCategory, setWorkCategory] = useState('Trần Thạch Cao Khung Chìm Tấm Tiêu Chuẩn');
@@ -1491,7 +1491,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
           {/* Inspector & Notes */}
           <div className="space-y-2">
             <div>
-              <label className="block font-bold text-slate-700 mb-1">Kỹ Sư Giám Sát Nghiệm Thu</label>
+              <label className="block font-bold text-slate-700 mb-1">Kỹ sư phụ trách Nghiệm Thu</label>
               <input
                 type="text"
                 value={inspectorName}

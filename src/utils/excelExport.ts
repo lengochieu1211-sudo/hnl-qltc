@@ -66,7 +66,7 @@ export function exportFloorPlanToExcel(
       'Khung Trần': r.frameStatus || '-',
       'Bắn Tấm': r.boardStatus || '-',
       'Nghiệm Thu': r.inspectionStatus || 'Chưa nghiệm thu',
-      'Kỹ Sư Giám Sát': r.inspectorName || '',
+      'Kỹ sư phụ trách': r.inspectorName || '',
       'Ghi Chú': r.notes || '',
     };
   });

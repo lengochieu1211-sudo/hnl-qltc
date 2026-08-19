@@ -44,7 +44,7 @@ function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
   }
   return merged;
 }
-import { subscribeToProjectRealtime, saveProjectDiffsToCloud, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, fetchCurrentUserProjectsFromCloud, saveProjectAuditLog } from './lib/firebase';
+import { subscribeToProjectRealtime, saveProjectDiffsToCloud, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, subscribeProjectUserRoleRealtime, fetchCurrentUserProjectsFromCloud, subscribeCurrentUserProjectsRealtime, subscribeProjectSharedSettings, saveProjectSharedSettings, saveProjectAuditLog } from './lib/firebase';
 import { 
   InventoryItem, 
   WorkVolume, 
@@ -58,17 +58,6 @@ import {
   CrewRecord,
   TeamInfo
 } from './types';
-import { 
-  INITIAL_INVENTORY, 
-  INITIAL_WORK_VOLUMES, 
-  INITIAL_FLOOR_PLANS, 
-  INITIAL_DEFECTS, 
-  INITIAL_CHECKLIST,
-  INITIAL_MATERIAL_NORMS,
-  INITIAL_ROOM_PROGRESS,
-  INITIAL_CREW_RECORDS,
-  INITIAL_TEAMS
-} from './data/initialData';
 import { GoogleAuthHeader } from './components/GoogleAuthHeader';
 import { OfflineSyncBanner } from './components/OfflineSyncBanner';
 import { ExportPdfModal } from './components/ExportPdfModal';
@@ -170,7 +159,7 @@ export const getProjectsList = (): ProjectInfo[] => {
       try { return JSON.parse(saved); } catch (e) {}
     }
   }
-  return [{ id: 'default', name: 'Tòa Nhà HH2 Sunrise Tower', createdAt: new Date().toISOString() }];
+  return [{ id: 'default', name: 'Dự án chưa đặt tên', createdAt: new Date().toISOString() }];
 };
 
 export const setActiveProject = (id: string) => {
@@ -194,32 +183,30 @@ export default function App() {
 
   useEffect(() => {
     let isMounted = true;
-    async function syncUserRole() {
-      try {
-        const user = getCurrentRealFirebaseUser();
-        if (user && activeProjectId) {
-          const res = await fetchProjectUserRoleFromCloud(activeProjectId, user);
-          if (isMounted && res.role && (res.allowed || res.isCloudSynced)) {
-            setCurrentUserRole(res.role);
-            setCurrentUserRoleState(res.role);
-          }
-        } else {
-          const localRole = getCurrentUserRole();
-          if (isMounted) setCurrentUserRoleState(localRole);
-        }
-      } catch (_) {}
-    }
+    let roleUnsub: (() => void) | null = null;
 
-    syncUserRole();
+    const attachRoleListener = () => {
+      if (roleUnsub) { roleUnsub(); roleUnsub = null; }
+      const user = getCurrentRealFirebaseUser();
+      if (!user || !activeProjectId) {
+        if (isMounted) setCurrentUserRoleState('VIEWER');
+        return;
+      }
+      roleUnsub = subscribeProjectUserRoleRealtime(activeProjectId, user, (res) => {
+        if (!isMounted) return;
+        const effectiveRole: UserRole = res.allowed ? res.role : 'VIEWER';
+        setCurrentUserRole(effectiveRole);
+        setCurrentUserRoleState(effectiveRole);
+      });
+    };
 
-    let unsub: (() => void) | null = null;
-    unsub = onAuthUserChanged(() => {
-      syncUserRole();
-    });
+    attachRoleListener();
+    const authUnsub = onAuthUserChanged(attachRoleListener);
 
     return () => {
       isMounted = false;
-      if (unsub) unsub();
+      if (roleUnsub) roleUnsub();
+      authUnsub();
     };
   }, [activeProjectId]);
   const [isAppLocked, setIsAppLocked] = useState<boolean>(() => {
@@ -267,10 +254,10 @@ export default function App() {
     setProjectManagerInitialTab(tab);
     setIsProjectManagerOpen(true);
   };
-  const [projectName, setProjectName] = useState<string>('Tòa Nhà HH2 Sunrise Tower');
+  const [projectName, setProjectName] = useState<string>('Dự án chưa đặt tên');
 
-  const [contractorName, setContractorName] = useState<string>('Công Ty Cổ Phần Xây Dựng & Thạch Cao Hà Nội');
-  const [inspectorName, setInspectorName] = useState<string>('KS. Nguyễn Văn Bình');
+  const [contractorName, setContractorName] = useState<string>('');
+  const [inspectorName, setInspectorName] = useState<string>('');
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number>(Date.now());
 
   // App Data State with Undo/Redo support
@@ -340,15 +327,15 @@ export default function App() {
         rawWorkVolumes,
         rawTeams,
       ] = await Promise.all([
-        parseSaved('construction_floor_plans', isDefault ? INITIAL_FLOOR_PLANS : []),
-        parseSaved('construction_room_progress', isDefault ? INITIAL_ROOM_PROGRESS : []),
-        parseSaved('construction_defects', isDefault ? INITIAL_DEFECTS : []),
-        parseSaved('construction_checklist', isDefault ? INITIAL_CHECKLIST : []),
-        parseSaved('construction_crew_records', isDefault ? INITIAL_CREW_RECORDS : []),
-        parseSaved('construction_material_norms', isDefault ? INITIAL_MATERIAL_NORMS : []),
-        parseSaved('construction_inventory', isDefault ? INITIAL_INVENTORY : []),
-        parseSaved('construction_work_volumes', isDefault ? INITIAL_WORK_VOLUMES : []),
-        parseSaved('construction_teams', isDefault ? INITIAL_TEAMS : []),
+        parseSaved('construction_floor_plans', []),
+        parseSaved('construction_room_progress', []),
+        parseSaved('construction_defects', []),
+        parseSaved('construction_checklist', []),
+        parseSaved('construction_crew_records', []),
+        parseSaved('construction_material_norms', []),
+        parseSaved('construction_inventory', []),
+        parseSaved('construction_work_volumes', []),
+        parseSaved('construction_teams', []),
       ]);
 
       if (currentGeneration !== loadGenerationRef.current) {
@@ -368,9 +355,9 @@ export default function App() {
       const workVolumes = deduplicateById(rawWorkVolumes || [], 'VOL');
       const teams = deduplicateById(rawTeams || [], 'TEAM');
 
-      const loadedProjectName = localStorage.getItem(getKey('construction_project_name', projectId)) || (isDefault ? 'Tòa Nhà HH2 Sunrise Tower' : `Dự án ${projectId}`);
-      const loadedContractor = localStorage.getItem(getKey('construction_contractor', projectId)) || (isDefault ? 'Công Ty Cổ Phần Xây Dựng & Thạch Cao Hà Nội' : '');
-      const loadedInspector = localStorage.getItem(getKey('construction_inspector', projectId)) || (isDefault ? 'KS. Nguyễn Văn Bình' : '');
+      const loadedProjectName = localStorage.getItem(getKey('construction_project_name', projectId)) || (isDefault ? 'Dự án chưa đặt tên' : `Dự án ${projectId}`);
+      const loadedContractor = localStorage.getItem(getKey('construction_contractor', projectId)) || '';
+      const loadedInspector = localStorage.getItem(getKey('construction_inspector', projectId)) || '';
       const loadedUpdatedAt = Number(localStorage.getItem(getKey('construction_updated_at', projectId))) || 0;
 
       setProjectName(loadedProjectName);
@@ -718,6 +705,15 @@ export default function App() {
   useEffect(() => {
     const saved = localStorage.getItem(getKey('construction_drive_auto_sync_enabled', activeProjectId));
     setAutoSyncEnabled(saved === 'true');
+
+    // Project-level setting follows the project across PC/Web/APK. LocalStorage is only the offline cache.
+    const unsubscribe = subscribeProjectSharedSettings(activeProjectId, (settings) => {
+      if (typeof settings.driveAutoSyncEnabled === 'boolean') {
+        setAutoSyncEnabled(settings.driveAutoSyncEnabled);
+        localStorage.setItem(getKey('construction_drive_auto_sync_enabled', activeProjectId), String(settings.driveAutoSyncEnabled));
+      }
+    });
+    return unsubscribe;
   }, [activeProjectId]);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
 
@@ -1090,47 +1086,48 @@ export default function App() {
   useEffect(() => {
     if (!cloudUserKey) return;
 
-    let cancelled = false;
-    const loadCloudProjectIndex = async () => {
-      const remoteProjects = await fetchCurrentUserProjectsFromCloud();
-      if (cancelled || remoteProjects.length === 0) return;
-
+    // Firestore/invitations are the source of truth for the cross-device project index.
+    // construction_projects_list remains only a local cache for fast/offline startup.
+    let firstCloudEmission = true;
+    const unsubscribe = subscribeCurrentUserProjectsRealtime((remoteProjects) => {
       const localProjects = getProjectsList();
-      const mergedMap = new Map<string, ProjectInfo>();
-      for (const project of localProjects) {
-        mergedMap.set(project.id, project);
-      }
+      const localById = new Map(localProjects.map((p) => [p.id, p]));
+      const cloudIds = new Set(remoteProjects.map((p) => p.id));
 
-      for (const remoteProject of remoteProjects) {
-        const existing = mergedMap.get(remoteProject.id);
-        mergedMap.set(remoteProject.id, {
+      // Keep cloud-authorized projects plus local-only cached projects that have never been cloud-synced.
+      // We never generate a new projectId from a cloud login, preventing duplicate projects on a second device.
+      const cloudBacked: ProjectInfo[] = remoteProjects.map((remoteProject) => {
+        const cached = localById.get(remoteProject.id);
+        return {
           id: remoteProject.id,
-          name: remoteProject.name || existing?.name || remoteProject.id,
-          createdAt: existing?.createdAt || remoteProject.updatedAt || Date.now(),
-          updatedAt: Math.max(existing?.updatedAt || 0, remoteProject.updatedAt || 0, Date.now()),
-        });
-      }
+          name: remoteProject.name || cached?.name || remoteProject.id,
+          createdAt: cached?.createdAt || remoteProject.updatedAt || Date.now(),
+          updatedAt: Math.max(Number(cached?.updatedAt || 0), Number(remoteProject.updatedAt || 0)),
+        };
+      });
 
-      const mergedProjects = Array.from(mergedMap.values());
-      saveProjectsList(mergedProjects);
+      // Khi đã đăng nhập, danh sách Cloud là nguồn sự thật.
+      // Không tự ghép project local cũ vào danh sách Cloud vì có thể làm dự án đã xóa/tồn tại cũ xuất hiện lại.
+      // Cache local chỉ phản chiếu các project mà tài khoản hiện tại đang được Firestore cho phép truy cập.
+      const nextCache = cloudBacked;
+      saveProjectsList(nextCache);
 
       const currentActive = getActiveProjectId();
-      const currentIsRemote = remoteProjects.some((project) => project.id === currentActive);
-      const shouldAutoSwitchToCloudProject = !currentIsRemote
+      const currentIsAuthorized = remoteProjects.some((project) => project.id === currentActive);
+      const shouldAutoSwitch = firstCloudEmission
+        && !currentIsAuthorized
         && !hasUserEditedSinceHydrateRef.current
-        && localProjects.length <= 1
-        && remoteProjects[0]?.id;
+        && remoteProjects[0]?.id
+        && (currentActive === 'default' || localProjects.length <= 1);
+      firstCloudEmission = false;
 
-      if (shouldAutoSwitchToCloudProject) {
+      if (shouldAutoSwitch) {
         setActiveProject(remoteProjects[0].id);
         window.location.reload();
       }
-    };
+    });
 
-    loadCloudProjectIndex().catch((err) => console.warn('Cloud project index load warning:', err));
-    return () => {
-      cancelled = true;
-    };
+    return unsubscribe;
   }, [cloudUserKey]);
 
   const [autosaveVersions, setAutosaveVersions] = useState<BackupVersion[]>([]);
@@ -1831,6 +1828,10 @@ export default function App() {
   useEffect(() => {
     if (!isHydrated || isLoadingProject) return;
     localStorage.setItem(getKey('construction_drive_auto_sync_enabled', activeProjectId), String(autoSyncEnabled));
+    if (getCurrentRealFirebaseUser()) {
+      saveProjectSharedSettings(activeProjectId, { driveAutoSyncEnabled: autoSyncEnabled })
+        .catch((err) => console.warn('Project setting sync warning:', err));
+    }
   }, [autoSyncEnabled, activeProjectId, isHydrated, isLoadingProject]);
 
   const handleRestoreData = async (rawData: any, targetProjectId?: string) => {

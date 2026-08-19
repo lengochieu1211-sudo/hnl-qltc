@@ -348,7 +348,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           const floorStr = String(row['Tầng / Khu Vực'] || row['Tầng'] || row['floor'] || 'Tầng 1').trim();
           const categoryStr = String(row['Nhóm Hạng Mục'] || row['Phân Loại'] || row['category'] || 'khung_tran').trim() as CategoryType;
           const unitStr = String(row['Đơn Vị Tính'] || row['Đơn Vị'] || row['unit'] || 'm2').trim();
-          const plannedNum = parseExcelNumber(row['KL Định Mức'] || row['KL Kế Hoạch'] || row['planned']);
+          const plannedNum = parseExcelNumber(row['Khối lượng định mức'] || row['Khối lượng kế hoạch'] || row['planned']);
           const actualNum = parseExcelNumber(row['KL Thực Tế'] || row['KL Thực Hiện'] || row['actual']);
           const unitPriceNum = parseExcelNumber(row['Đơn Giá (VNĐ)'] || row['Đơn Giá'] || row['unitPrice']);
           const rawDueDate = String(row['Ngày Hạn Định'] || row['Hạn Định'] || row['Hạn Hoàn Thành'] || row['dueDate'] || '').trim();
@@ -528,14 +528,14 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               <p className="text-sm font-extrabold text-slate-100">{formatVND(totals.plannedValue)}</p>
             </div>
             <div className="bg-emerald-950/60 p-2.5 rounded-xl border border-emerald-700/40">
-              <p className="text-[10px] text-emerald-300">Đã Thực Hiện (Nghiệm thu)</p>
+              <p className="text-[10px] text-emerald-300">Khối lượng đã thực hiện</p>
               <p className="text-sm font-extrabold text-emerald-400">{formatVND(totals.actualValue)}</p>
             </div>
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-2 text-xs pt-1">
             <div className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/60">
-              <p className="text-[10px] text-slate-400">Tổng KL Định Mức</p>
+              <p className="text-[10px] text-slate-400">Tổng Khối lượng định mức</p>
               <p className="text-sm font-extrabold text-slate-100">{formatDecimal(totals.totalPlanned)}</p>
             </div>
             <div className="bg-emerald-950/60 p-2.5 rounded-xl border border-emerald-700/40">
@@ -619,7 +619,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                 : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
             }`}
           >
-            KL Kế Hoạch {volSortBy === 'planned' && (volSortOrder === 'asc' ? '↑' : '↓')}
+            Khối lượng kế hoạch {volSortBy === 'planned' && (volSortOrder === 'asc' ? '↑' : '↓')}
           </button>
           <button
             type="button"
@@ -998,7 +998,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               <div className="grid grid-cols-3 gap-2 items-end">
                 <div>
                   <div className="h-6 flex items-center justify-between text-slate-700 font-bold text-[11px] sm:text-xs truncate mb-1">
-                    <span>KL Định Mức *</span>
+                    <span>Khối lượng định mức *</span>
                     {livePlannedCalc !== null && (
                       <span className="text-blue-600 bg-blue-50 px-1 py-0.5 rounded text-[9px] font-extrabold animate-pulse" title="Kết quả tính toán">
                         = {formatDecimal(livePlannedCalc)}
@@ -1027,7 +1027,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                 </div>
                 <div>
                   <div className="h-6 flex items-center justify-between gap-1 text-slate-700 font-bold text-[11px] sm:text-xs truncate mb-1">
-                    <span className="truncate">KL Đã Làm</span>
+                    <span className="truncate">Khối lượng đã làm</span>
                     <span className="text-[9px] text-emerald-600 font-semibold bg-emerald-50 px-1 py-0.5 rounded border border-emerald-100 shrink-0" title="Khối lượng thực hiện tự động cập nhật từ Mặt Bằng">🔗 MB</span>
                   </div>
                   <input
@@ -1088,7 +1088,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                 <div className="flex items-center justify-between">
                   <label className="text-slate-800 font-extrabold text-xs flex items-center gap-1.5">
                     <Calendar className="w-4 h-4 text-indigo-600" />
-                    <span>Ngày Hạn Định Completing (Deadline)</span>
+                    <span>Hạn hoàn thành</span>
                   </label>
                   {dueDate && (
                     <button
@@ -1167,11 +1167,11 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               <Trash2 className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-900">Xác Nhận Xóa Hạng Mục</h3>
+              <h3 className="text-base font-bold text-slate-900">Xác nhận xóa Hạng Mục</h3>
               <p className="text-xs text-slate-500 mt-1">
                 Bạn có chắc chắn muốn xóa hạng mục <strong className="text-slate-800">{deletingVolumeTarget.title} ({deletingVolumeTarget.floor})</strong> không?
               </p>
-              <p className="text-[11px] text-indigo-600 mt-1 font-medium">💡 Thao tác này có thể Hoàn Tác (Undo).</p>
+              <p className="text-[11px] text-indigo-600 mt-1 font-medium">💡 Thao tác này có thể Hoàn tác.</p>
             </div>
             <div className="flex gap-2">
               <button
@@ -1189,7 +1189,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                 }}
                 className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-xs shadow"
               >
-                Xác Nhận Xóa
+                Xác nhận xóa
               </button>
             </div>
           </div>

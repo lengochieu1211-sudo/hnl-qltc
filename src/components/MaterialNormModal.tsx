@@ -281,7 +281,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             const workCategoryRaw = row['Tên Hạng Mục Thi Công'] || row['Hạng Mục Thi Công'] || row['Hạng mục thi công'] || row['Tên Hạng Mục'] || row['workCategory'];
             const workCategoryStr = workCategoryRaw ? String(workCategoryRaw).trim() : undefined;
             const unitStr = String(row['Đơn Vị Tính'] || row['unit'] || 'Tấm').trim();
-            const quotaQuantityNum = parseExcelNumber(row['Số Lượng Định Mức'] || row['quotaQuantity'] || 0);
+            const quotaQuantityNum = parseExcelNumber(row['Hao phí định mức'] || row['quotaQuantity'] || 0);
             const unitNormPerM2Num = parseExcelNumber(row['Định Mức / m2'] || row['Định Mức Hao Phí / m2'] || row['Định Mức Tiêu Hao (1m2)'] || row['unitNormPerM2'] || 0);
             const notesStr = String(row['Ghi Chú'] || row['notes'] || '').trim();
 
@@ -940,7 +940,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                           <p className="font-bold text-slate-800">{norm.unit}</p>
                         </div>
                         <div>
-                          <p className="text-[10px] text-slate-400 font-semibold uppercase">Số Lượng Định Mức</p>
+                          <p className="text-[10px] text-slate-400 font-semibold uppercase">Hao phí định mức</p>
                           <p className="font-bold text-indigo-600">{formatDecimal(norm.quotaQuantity)} {norm.unit}</p>
                         </div>
                         <div>
@@ -1019,7 +1019,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             {/* Work Category Select (Hạng Mục Thi Công Căn Hộ) */}
             <div>
               <label className="block font-bold text-slate-700 mb-1.5 flex items-center justify-between">
-                <span>Liên Kết Hạng Mục Thi Công Căn Hộ *</span>
+                <span>Liên kết hạng mục thi công căn / phòng *</span>
                 <span className="text-[10px] text-indigo-600 font-bold">(Chọn một hoặc nhiều hạng mục)</span>
               </label>
               
@@ -1091,7 +1091,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="block font-bold text-slate-700">Số Lượng Định Mức *</label>
+                  <label className="block font-bold text-slate-700">Hao phí định mức *</label>
                   {evaluateMathExpression(quotaQuantityStr) !== null && /[+\-*/xX×:÷]/.test(quotaQuantityStr) && (
                     <span className="text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded text-[10px] font-extrabold animate-pulse">
                       = {formatDecimal(evaluateMathExpression(quotaQuantityStr))}
@@ -1239,11 +1239,11 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               <AlertCircle className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-900">Xác Nhận Xóa Định Mức</h3>
+              <h3 className="text-base font-bold text-slate-900">Xác nhận xóa Định Mức</h3>
               <p className="text-xs text-slate-500 mt-1">
                 Bạn có chắc chắn muốn xóa định mức <strong className="text-slate-800">{deletingNormTarget.materialName}</strong>?
               </p>
-              <p className="text-[11px] text-indigo-600 mt-1 font-medium">💡 Thao tác này có thể Hoàn Tác (Undo).</p>
+              <p className="text-[11px] text-indigo-600 mt-1 font-medium">💡 Thao tác này có thể Hoàn tác.</p>
             </div>
             <div className="flex gap-2">
               <button
@@ -1261,7 +1261,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                 }}
                 className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-xs shadow"
               >
-                Xác Nhận Xóa
+                Xác nhận xóa
               </button>
             </div>
           </div>
