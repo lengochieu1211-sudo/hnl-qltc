@@ -429,9 +429,22 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       } catch (_) {}
 
       const current = getProjectsList();
-      const nextProjects = current.some((project) => project.id === orphan.id)
-        ? current.map((project) => project.id === orphan.id ? { ...project, name: restoredName, updatedAt: Date.now() } : project)
-        : [...current, { id: orphan.id, name: restoredName, createdAt: 0, createdAtSource: 'migrating', updatedAt: Date.now() }];
+      const nextProjects: ProjectInfo[] = current.some((project) => project.id === orphan.id)
+        ? current.map((project) =>
+            project.id === orphan.id
+              ? { ...project, name: restoredName, updatedAt: Date.now() }
+              : project
+          )
+        : [
+            ...current,
+            {
+              id: orphan.id,
+              name: restoredName,
+              createdAt: 0,
+              createdAtSource: 'migrating' as const,
+              updatedAt: Date.now(),
+            },
+          ];
       saveProjectsList(nextProjects);
       setProjects(nextProjects);
       setSelectedOrphanIds((prev) => prev.filter((id) => id !== orphan.id));
