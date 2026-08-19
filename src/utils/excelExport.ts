@@ -161,6 +161,11 @@ export function exportAllToExcel(params: {
       'STT': idx + 1,
       'Mã Phiếu': item.id,
       '__materialId': item.materialId || '',
+      '__sourceType': item.sourceType || '',
+      '__sourceRoomId': item.sourceRoomId || '',
+      '__sourceFloorId': item.sourceFloorId || '',
+      '__sourceNormId': item.sourceNormId || '',
+      '__sourceIssueKey': item.sourceIssueKey || '',
       'Loại Phiếu': item.type === 'in' ? 'NHẬP KHO' : 'XUẤT KHO',
       'Tên Vật Tư': item.materialName,
       'Đơn Vị Tính': item.unit,
@@ -344,6 +349,11 @@ export function exportAllToExcelBase64(params: {
       'STT': idx + 1,
       'Mã Phiếu': item.id,
       '__materialId': item.materialId || '',
+      '__sourceType': item.sourceType || '',
+      '__sourceRoomId': item.sourceRoomId || '',
+      '__sourceFloorId': item.sourceFloorId || '',
+      '__sourceNormId': item.sourceNormId || '',
+      '__sourceIssueKey': item.sourceIssueKey || '',
       'Loại Phiếu': item.type === 'in' ? 'NHẬP KHO' : 'XUẤT KHO',
       'Tên Vật Tư': item.materialName,
       'Đơn Vị Tính': item.unit,
@@ -538,6 +548,7 @@ export function exportMaterialNormTemplate(materialNorms?: MaterialNorm[]) {
     'Đơn Vị Tính': n.unit,
     'Số Lượng Định Mức': n.quotaQuantity,
     'Định Mức Tiêu Hao (1m2)': n.unitNormPerM2 || 0,
+    'ĐVT Khối Lượng Nguồn': n.normBasisUnit || 'm²',
     'Ghi Chú': n.notes || ''
   }));
 
@@ -697,11 +708,11 @@ export function exportTeamStatisticsToExcel(params: {
     XLSX.utils.book_append_sheet(wb, ws3, '03-Chi tiet phong');
 
     // Sheet 4: 04-Defect
-    const teamDefects = (params.defects || []).filter(d => isTeamMatch(d.assignedTo, team, d.teamId));
+    const teamDefects = (params.defects || []).filter(d => !d.archivedAt && isTeamMatch(d.assignedTo, team, d.teamId));
     const defectRows: any[] = teamDefects.map((d, idx) => ({
       'STT': idx + 1,
       '__defectId': d.id,
-      'Ngày Tạo': d.createdAt ? new Date(d.createdAt).toLocaleDateString('vi-VN') : '',
+      'Ngày Tạo': d.createdAt ? formatDateDDMMYYYY(d.createdAt) : '',
       'Tầng': d.floorName,
       'Mô Tả Lỗi': d.description,
       'Mức Độ': d.severity,
@@ -796,6 +807,11 @@ export function exportWarehouseUpdateTemplate(
     'STT': idx + 1,
     'Mã Phiếu': item.id,
     '__materialId': item.materialId || '',
+    '__sourceType': item.sourceType || '',
+    '__sourceRoomId': item.sourceRoomId || '',
+    '__sourceFloorId': item.sourceFloorId || '',
+    '__sourceNormId': item.sourceNormId || '',
+    '__sourceIssueKey': item.sourceIssueKey || '',
     'Tên Vật Tư': item.materialName,
     'Đơn Vị Tính': item.unit,
     'Số Lượng': item.quantity,
@@ -814,6 +830,11 @@ export function exportWarehouseUpdateTemplate(
     'STT': idx + 1,
     'Mã Phiếu': item.id,
     '__materialId': item.materialId || '',
+    '__sourceType': item.sourceType || '',
+    '__sourceRoomId': item.sourceRoomId || '',
+    '__sourceFloorId': item.sourceFloorId || '',
+    '__sourceNormId': item.sourceNormId || '',
+    '__sourceIssueKey': item.sourceIssueKey || '',
     'Tên Vật Tư': item.materialName,
     'Đơn Vị Tính': item.unit,
     'Số Lượng': item.quantity,
@@ -839,6 +860,7 @@ export function exportWarehouseUpdateTemplate(
       'Đơn Vị Tính': n.unit || 'Tấm',
       'Số Lượng Định Mức': n.quotaQuantity || 0,
       'Định Mức Hao Phí / m2': n.unitNormPerM2 || 0,
+      'ĐVT Khối Lượng Nguồn': n.normBasisUnit || 'm²',
       'Ghi Chú': n.notes || ''
     };
   });

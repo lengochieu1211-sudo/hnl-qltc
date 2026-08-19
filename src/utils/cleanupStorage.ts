@@ -1,12 +1,12 @@
-import { compressImage } from './imageCompressor';
+import { compressDefectPhoto } from './imageCompressor';
 import { getStorageKeys, getAsyncItem, setAsyncItem } from './asyncStorage';
 
 export const cleanupAndCompressOldImages = async () => {
   try {
     const keys = await getStorageKeys();
     for (const key of keys) {
-      // NOTE: NEVER compress floor plans (construction_floor_plans) to preserve 100% crisp architectural drawing resolution!
-      // Only optimize defect inspection photos if they exceed reasonable storage sizes.
+      // Floor-plan image quality is handled at import time. This cleanup only migrates
+      // oversized legacy Defect data URLs and respects the user's current Defect profile.
       if (key && key.includes('construction_defects')) {
         try {
           const val = await getAsyncItem<any[]>(key, []);
@@ -16,11 +16,11 @@ export const cleanupAndCompressOldImages = async () => {
             for (const item of val) {
               // Only compress if the data URL is excessively large (> 800KB raw base64)
               if (item.imageUrl && typeof item.imageUrl === 'string' && item.imageUrl.startsWith('data:image') && item.imageUrl.length > 800000) {
-                item.imageUrl = await compressImage(item.imageUrl, 1440, 0.82);
+                item.imageUrl = await compressDefectPhoto(item.imageUrl);
                 hasChanges = true;
               }
               if (item.afterImageUrl && typeof item.afterImageUrl === 'string' && item.afterImageUrl.startsWith('data:image') && item.afterImageUrl.length > 800000) {
-                item.afterImageUrl = await compressImage(item.afterImageUrl, 1440, 0.82);
+                item.afterImageUrl = await compressDefectPhoto(item.afterImageUrl);
                 hasChanges = true;
               }
             }

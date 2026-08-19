@@ -1,4 +1,5 @@
 import { DefectItem } from '../types';
+import { parseLegacyTimestamp } from './dateFormatter';
 
 export interface DefectOverdueInfo {
   isOverdue: boolean;
@@ -7,6 +8,32 @@ export interface DefectOverdueInfo {
   shortText: string; // e.g. "Quá hạn 3 ngày"
   badgeClass: string; // Tailwind classes for styling
   badgeColor: 'rose' | 'amber' | 'emerald' | 'blue' | 'slate';
+}
+
+/**
+ * Stable short code derived from the Defect ID. It does not change when the list
+ * is sorted/filtered, and keeps a short UUID suffix when two devices happen to
+ * allocate the same sequential number concurrently.
+ */
+export function getDefectShortCode(id?: string): string {
+  const raw = String(id || '').trim();
+  const numericMatch = raw.match(/^DEF-(\d+)(?:-([A-Z0-9]+))?/i);
+  if (numericMatch) {
+    const numericPart = numericMatch[1];
+    const suffix = String(numericMatch[2] || '').slice(0, 4).toUpperCase();
+
+    // New sequential IDs stay readable (e.g. DEF-101-ABC -> DF-101-ABC).
+    // Legacy IDs often embedded Date.now() (13+ digits); never render that full
+    // timestamp on the floor plan because it covers the drawing on mobile.
+    if (numericPart.length <= 6) {
+      return suffix ? `DF-${numericPart}-${suffix}` : `DF-${numericPart}`;
+    }
+
+    const legacyTail = numericPart.slice(-5);
+    return suffix ? `DF-${legacyTail}-${suffix}` : `DF-${legacyTail}`;
+  }
+  const compact = raw.replace(/[^a-zA-Z0-9]/g, '').slice(-6).toUpperCase();
+  return compact ? `DF-${compact}` : 'DF';
 }
 
 export function getDefectOverdueInfo(defect: DefectItem): DefectOverdueInfo {
@@ -42,10 +69,10 @@ export function getDefectOverdueInfo(defect: DefectItem): DefectOverdueInfo {
     // If finished, compare completedAt with dueDate
     let compDayObj = new Date();
     if (defect.completedAt) {
-      const compDateStr = defect.completedAt.split(' ')[0].split('T')[0];
-      const [cYear, cMonth, cDay] = compDateStr.split('-').map(Number);
-      if (!isNaN(cYear) && !isNaN(cMonth) && !isNaN(cDay)) {
-        compDayObj = new Date(cYear, cMonth - 1, cDay);
+      const completedTs = parseLegacyTimestamp(defect.completedAt, Number.NaN);
+      if (Number.isFinite(completedTs)) {
+        const parsed = new Date(completedTs);
+        compDayObj = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
       }
     }
 

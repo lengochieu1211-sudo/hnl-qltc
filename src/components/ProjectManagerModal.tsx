@@ -792,7 +792,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         label: 'Tiến độ tầng', 
         count: progressCount, 
         icon: CheckCircle,
-        details: `${progressCount} căn hộ đã định vị`
+        details: `${progressCount} Căn / Phòng đã định vị`
       });
     }
     if (checkCount > 0) {
@@ -1069,7 +1069,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         label: 'Tiến độ tầng', 
         count: progressCount, 
         icon: CheckCircle,
-        details: `${progressCount} căn hộ đã định vị`
+        details: `${progressCount} Căn / Phòng đã định vị`
       });
     }
     if (checkCount > 0) {
@@ -3306,7 +3306,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleDeleteCloudBackup({ id: b.id, name: b.projectName || 'Bản sao lưu' })}
+                              onClick={() => handleDeleteCloudBackup({ id: b.id, name: b.backupName || 'Bản sao lưu' })}
                               className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors cursor-pointer"
                               title="Xóa bản sao lưu"
                             >

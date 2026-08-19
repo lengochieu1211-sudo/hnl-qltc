@@ -1,4 +1,6 @@
 import { TeamInfo, RoomProgressItem, DefectItem, CrewRecord, FloorPlan, TeamRoomDetail, RoomSubItem } from '../types';
+import { normalizeUnit } from './unitUtils';
+import { getShiftDayFactor } from './crewUtils';
 
 /**
  * Unified helper to get effective weight or volume of a subitem across the whole system.
@@ -16,10 +18,38 @@ export function getSubItemEffectiveWeight(s: Partial<RoomSubItem> | any): number
 }
 
 /**
+ * Pick one progress-weight system for a whole sibling group. Never mix m²/m with
+ * percentage weights in the same calculation.
+ */
+export function getSubItemGroupWeightMode(items: Array<Partial<RoomSubItem> | any>): 'workVolume' | 'progressWeight' | 'equal' {
+  const list = (items || []).filter(Boolean);
+  if (list.length === 0) return 'equal';
+  if (list.every((s) => typeof s.workVolume === 'number' && Number.isFinite(s.workVolume) && s.workVolume > 0)) return 'workVolume';
+  if (list.every((s) => typeof s.progressWeight === 'number' && Number.isFinite(s.progressWeight) && s.progressWeight > 0)) return 'progressWeight';
+  return 'equal';
+}
+
+export function getSubItemGroupWeight(items: Array<Partial<RoomSubItem> | any>, item: Partial<RoomSubItem> | any): number {
+  const mode = getSubItemGroupWeightMode(items);
+  if (mode === 'workVolume') return Number(item?.workVolume || 0);
+  if (mode === 'progressWeight') return Number(item?.progressWeight || 0);
+  return 1;
+}
+
+/**
  * Unified matching for team identity.
  * Prioritizes assignedTeamId === team.id, with fallback to exact team name/leader matching.
  * Strictly avoids partial substring matching (e.g., 'Đội A' will NOT match 'Đội A1').
  */
+export function getRoomCategoryUnit(room: RoomProgressItem, categoryName: string): string {
+  const explicit = room.categoryVolumeUnits?.[categoryName];
+  if (explicit) return normalizeUnit(explicit) || explicit;
+  const categorySubs = room.subItems?.filter((s) => (s.category || room.workCategory) === categoryName) || [];
+  const units = Array.from(new Set(categorySubs.map((s) => normalizeUnit(s.volumeUnit || '')).filter(Boolean)));
+  if (units.length === 1) return units[0];
+  return normalizeUnit(room.volumeUnit || 'm²') || 'm²';
+}
+
 export function isTeamMatch(assignedName?: string, team?: TeamInfo | null, assignedTeamId?: string): boolean {
   if (!team) return false;
   if (assignedTeamId && team.id && assignedTeamId === team.id) {
@@ -144,19 +174,12 @@ export function isTeamWorkCompletedInRoom(room: RoomProgressItem, team: TeamInfo
     );
     
     if (teamSubItemsInCat.length > 0) {
-      const allDone = teamSubItemsInCat.every(s => s.status === 'Đã hoàn thành' || s.inspectionStatus === 'Đạt nghiệm thu');
-      if (!allDone) return false;
+      // “Thi công xong” và “Đạt nghiệm thu” là hai trạng thái khác nhau.
+      // Chỉ tính Căn / Phòng đã nghiệm thu cho đội khi toàn bộ phần việc của đội đã Đạt NT.
+      const allInspected = teamSubItemsInCat.every((s) => s.inspectionStatus === 'Đạt nghiệm thu');
+      if (!allInspected) return false;
     } else {
-      if (isMain) {
-        const frameDone = room.frameStatus === 'Đã hoàn thành';
-        const boardDone = room.boardStatus === 'Đã hoàn thành';
-        const inspected = room.inspectionStatus === 'Đạt nghiệm thu';
-        if (!inspected && !(frameDone && boardDone)) {
-          return false;
-        }
-      } else {
-        return false;
-      }
+      if (!isMain || room.inspectionStatus !== 'Đạt nghiệm thu') return false;
     }
   }
   return true;
@@ -180,7 +203,7 @@ export function calculateTeamStatistics(params: {
       const cats = getTeamCategoriesForRoom(r, team);
       return cats.size > 0;
     });
-    const teamDefects = defects.filter(d => isTeamMatch(d.assignedTo, team, d.teamId));
+    const teamDefects = defects.filter(d => !d.archivedAt && isTeamMatch(d.assignedTo, team, d.teamId));
     const teamLogs = crewRecords.filter(l => isTeamMatch(l.teamName, team, l.teamId));
 
     let totalTeamVol = 0;
@@ -223,11 +246,11 @@ export function calculateTeamStatistics(params: {
         teamCats.forEach(cat => {
           const catTotalVol = room.categoryVolumes?.[cat] ?? ((room.workCategory === cat || teamCats.size === 1) ? (room.workVolume || 0) : 0);
           
-          let unit = room.volumeUnit || 'm²';
+          let unit = getRoomCategoryUnit(room, cat);
           const allSubItemsInCat = room.subItems?.filter(s => (s.category || room.workCategory) === cat) || [];
           const subWithUnit = allSubItemsInCat.find(s => s.volumeUnit);
           if (subWithUnit?.volumeUnit) {
-            unit = subWithUnit.volumeUnit;
+            unit = normalizeUnit(subWithUnit.volumeUnit) || subWithUnit.volumeUnit;
           }
 
           const subItemsInCat = allSubItemsInCat.filter(s => 
@@ -237,8 +260,8 @@ export function calculateTeamStatistics(params: {
           // Calculate effective assigned category volume for this team (Fix P0-10)
           let catAssignedVol = catTotalVol;
           if (allSubItemsInCat.length > 0) {
-            const totalCatWeight = allSubItemsInCat.reduce((sum, s) => sum + getSubItemEffectiveWeight(s), 0);
-            const teamCatWeight = subItemsInCat.reduce((sum, s) => sum + getSubItemEffectiveWeight(s), 0);
+            const totalCatWeight = allSubItemsInCat.reduce((sum, s) => sum + getSubItemGroupWeight(allSubItemsInCat, s), 0);
+            const teamCatWeight = subItemsInCat.reduce((sum, s) => sum + getSubItemGroupWeight(allSubItemsInCat, s), 0);
             catAssignedVol = totalCatWeight > 0 ? (catTotalVol * (teamCatWeight / totalCatWeight)) : 0;
           } else {
             catAssignedVol = isMain ? catTotalVol : 0;
@@ -260,19 +283,19 @@ export function calculateTeamStatistics(params: {
               const allFrameSubs = allSubItemsInCat.filter(s => s.name.toLowerCase().includes('khung'));
               const allBoardSubs = allSubItemsInCat.filter(s => s.name.toLowerCase().includes('tấm') || s.name.toLowerCase().includes('bắn'));
 
-              const totalCatWeight = allSubItemsInCat.reduce((sum, s) => sum + getSubItemEffectiveWeight(s), 0);
-              const doneCatWeight = subItemsInCat.filter(s => s.status === 'Đã hoàn thành' || s.inspectionStatus === 'Đạt nghiệm thu')
-                .reduce((sum, s) => sum + getSubItemEffectiveWeight(s), 0);
+              const totalCatWeight = allSubItemsInCat.reduce((sum, s) => sum + getSubItemGroupWeight(allSubItemsInCat, s), 0);
+              const inspectedCatWeight = subItemsInCat.filter((s) => s.inspectionStatus === 'Đạt nghiệm thu')
+                .reduce((sum, s) => sum + getSubItemGroupWeight(allSubItemsInCat, s), 0);
 
-              const totalFrameWeight = allFrameSubs.reduce((sum, s) => sum + getSubItemEffectiveWeight(s), 0);
+              const totalFrameWeight = allFrameSubs.reduce((sum, s) => sum + getSubItemGroupWeight(allFrameSubs, s), 0);
               const doneFrameWeight = frameSubs.filter(s => s.status === 'Đã hoàn thành' || s.inspectionStatus === 'Đạt nghiệm thu')
-                .reduce((sum, s) => sum + getSubItemEffectiveWeight(s), 0);
+                .reduce((sum, s) => sum + getSubItemGroupWeight(allFrameSubs, s), 0);
 
-              const totalBoardWeight = allBoardSubs.reduce((sum, s) => sum + getSubItemEffectiveWeight(s), 0);
+              const totalBoardWeight = allBoardSubs.reduce((sum, s) => sum + getSubItemGroupWeight(allBoardSubs, s), 0);
               const doneBoardWeight = boardSubs.filter(s => s.status === 'Đã hoàn thành' || s.inspectionStatus === 'Đạt nghiệm thu')
-                .reduce((sum, s) => sum + getSubItemEffectiveWeight(s), 0);
+                .reduce((sum, s) => sum + getSubItemGroupWeight(allBoardSubs, s), 0);
 
-              catInspectedVol = catTotalVol * (totalCatWeight > 0 ? doneCatWeight / totalCatWeight : 0);
+              catInspectedVol = catTotalVol * (totalCatWeight > 0 ? inspectedCatWeight / totalCatWeight : 0);
               catFrameVol = catTotalVol * (allFrameSubs.length > 0 ? (totalFrameWeight > 0 ? doneFrameWeight / totalFrameWeight : 0) : (isMain && room.frameStatus === 'Đã hoàn thành' ? 1 : 0));
               catBoardVol = catTotalVol * (allBoardSubs.length > 0 ? (totalBoardWeight > 0 ? doneBoardWeight / totalBoardWeight : 0) : (isMain && room.boardStatus === 'Đã hoàn thành' ? 1 : 0));
             }
@@ -326,7 +349,7 @@ export function calculateTeamStatistics(params: {
       floorGroupMap[fName].doneFrameVol += roomFrameVol;
       floorGroupMap[fName].doneBoardVol += roomBoardVol;
       floorGroupMap[fName].doneInspectedVol += roomInspectedVol;
-      if (room.inspectionStatus === 'Đạt nghiệm thu' || (roomTeamVol > 0 && roomInspectedVol >= roomTeamVol)) {
+      if (isTeamWorkCompletedInRoom(room, team)) {
         floorGroupMap[fName].doneRooms += 1;
       }
 
@@ -370,25 +393,34 @@ export function calculateTeamStatistics(params: {
     // Mandays & Crew statistics (Unified single worker count avoiding double-counting across multiple floor records for same shift)
     const getWorkerCount = (r: CrewRecord) => r.workerCount || ((r.workersInside || 0) + (r.workersOutside || 0)) || 0;
 
-    // Group logs by date and shift to prevent double-counting team members on multiple floors in same shift
-    const dateShiftMaxMap: Record<string, number> = {};
-    const dailyWorkerSumMap: Record<string, number> = {};
-
+    // Group by date + shift to avoid double-counting the same team when one shift is
+    // recorded on multiple floors. Convert shifts to equivalent work-days so
+    // Sáng + Chiều = 1 công rather than 2 công.
+    const dateShiftMaxMap: Record<string, { workerCount: number; factor: number; date: string }> = {};
     teamLogs.forEach(l => {
-      const shiftKey = `${l.date}_${l.shift || 'default'}`;
+      const shiftLabel = l.shift || 'default';
+      const shiftKey = `${l.date}_${shiftLabel}`;
       const wc = getWorkerCount(l);
-      dateShiftMaxMap[shiftKey] = Math.max(dateShiftMaxMap[shiftKey] || 0, wc);
+      const existing = dateShiftMaxMap[shiftKey];
+      if (!existing || wc > existing.workerCount) {
+        dateShiftMaxMap[shiftKey] = { workerCount: wc, factor: getShiftDayFactor(shiftLabel), date: l.date };
+      }
     });
 
-    Object.entries(dateShiftMaxMap).forEach(([key, maxWc]) => {
-      const date = key.split('_')[0];
-      dailyWorkerSumMap[date] = (dailyWorkerSumMap[date] || 0) + maxWc;
+    const dailyMandayMap: Record<string, number> = {};
+    const dailyHeadcountMap: Record<string, number> = {};
+    Object.values(dateShiftMaxMap).forEach(({ workerCount, factor, date }) => {
+      const mandays = workerCount * factor;
+      if (mandays > 0) {
+        dailyMandayMap[date] = (dailyMandayMap[date] || 0) + mandays;
+        dailyHeadcountMap[date] = Math.max(dailyHeadcountMap[date] || 0, workerCount);
+      }
     });
 
-    const totalMandays = Object.values(dailyWorkerSumMap).reduce((sum, c) => sum + c, 0);
-    const dailyCounts = Object.values(dailyWorkerSumMap).filter(c => c > 0);
-    const daysWorked = Object.keys(dailyWorkerSumMap).length;
-    const avgWorkers = dailyCounts.length > 0 ? Math.round((totalMandays / dailyCounts.length) * 10) / 10 : 0;
+    const totalMandays = Math.round(Object.values(dailyMandayMap).reduce((sum, c) => sum + c, 0) * 100) / 100;
+    const dailyCounts = Object.values(dailyHeadcountMap).filter(c => c > 0);
+    const daysWorked = Object.values(dailyMandayMap).filter((mandays) => mandays > 0).length;
+    const avgWorkers = dailyCounts.length > 0 ? Math.round((dailyCounts.reduce((sum, c) => sum + c, 0) / dailyCounts.length) * 10) / 10 : 0;
     const maxWorkers = dailyCounts.length > 0 ? Math.max(...dailyCounts) : 0;
     const minWorkers = dailyCounts.length > 0 ? Math.min(...dailyCounts) : 0;
 

@@ -264,7 +264,7 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
       if (!blob) return;
       const file = new File([blob], `Edited_Defect_${Date.now()}.jpg`, { type: 'image/jpeg' });
       onSave(file);
-    }, 'image/jpeg', 0.82);
+    }, 'image/jpeg', 0.94);
   };
 
   if (!isOpen) return null;

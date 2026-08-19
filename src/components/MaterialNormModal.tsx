@@ -16,7 +16,8 @@ import {
   Upload,
   FileSpreadsheet,
   Sparkles,
-  ArrowUpDown
+  ArrowUpDown,
+  Calculator
 } from 'lucide-react';
 import { MaterialNorm, InventoryItem, WorkVolume } from '../types';
 import * as XLSX from 'xlsx';
@@ -25,6 +26,8 @@ import { confirmAsync } from '../utils/confirmAsync';
 import { formatExcelDate } from '../utils/dateFormatter';
 import { formatDecimal, evaluateMathExpression, useFormatSettings, parseExcelNumber } from '../utils/numberUtils';
 import { getResolvedNormWorkCategories } from '../utils/projectReconciliation';
+import { normalizeUnit, unitKey, areSameUnit } from '../utils/unitUtils';
+import { createEntityId } from '../utils/idUtils';
 
 interface MaterialNormModalProps {
   isOpen: boolean;
@@ -172,7 +175,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             if (!materialNameRaw) return;
 
             const materialNameStr = String(materialNameRaw).trim();
-            const quantityNum = Number(row['Số Lượng'] || row['quantity'] || 0);
+            const quantityNum = parseExcelNumber(row['Số Lượng'] || row['quantity'] || 0);
             if (isNaN(quantityNum) || quantityNum <= 0) return;
 
             const unitStr = String(row['Đơn Vị Tính'] || row['unit'] || 'Tấm').trim();
@@ -182,11 +185,16 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             const dateStr = formatExcelDate(rawDate);
             const notesStr = String(row['Ghi Chú'] || row['notes'] || '').trim();
             const rawId = row['Mã Phiếu'] || row['id'] || row['ID'];
+            const rawSourceType = row['__sourceType'] || row['sourceType'];
+            const rawSourceRoomId = row['__sourceRoomId'] || row['sourceRoomId'];
+            const rawSourceFloorId = row['__sourceFloorId'] || row['sourceFloorId'];
+            const rawSourceNormId = row['__sourceNormId'] || row['sourceNormId'];
+            const rawSourceIssueKey = row['__sourceIssueKey'] || row['sourceIssueKey'];
 
             const existingIdx = rawId ? newInventory.findIndex(i => i.id === String(rawId).trim()) : -1;
             
             const invItem: InventoryItem = {
-              id: existingIdx >= 0 ? newInventory[existingIdx].id : (rawId ? String(rawId).trim() : `INV-IN-${Date.now()}-${rIdx}-${Math.random().toString(36).substring(2, 5)}`),
+              id: existingIdx >= 0 ? newInventory[existingIdx].id : (rawId ? String(rawId).trim() : createEntityId('INV-IN')),
               type: 'in',
               materialName: materialNameStr,
               unit: unitStr,
@@ -194,7 +202,12 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               location: locationStr,
               handler: handlerStr,
               date: dateStr,
-              notes: notesStr || undefined
+              notes: notesStr || undefined,
+              sourceType: rawSourceType ? String(rawSourceType).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceType : undefined),
+              sourceRoomId: rawSourceRoomId ? String(rawSourceRoomId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceRoomId : undefined),
+              sourceFloorId: rawSourceFloorId ? String(rawSourceFloorId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceFloorId : undefined),
+              sourceNormId: rawSourceNormId ? String(rawSourceNormId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceNormId : undefined),
+              sourceIssueKey: rawSourceIssueKey ? String(rawSourceIssueKey).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceIssueKey : undefined)
             };
 
             if (existingIdx >= 0) {
@@ -223,7 +236,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             if (!materialNameRaw) return;
 
             const materialNameStr = String(materialNameRaw).trim();
-            const quantityNum = Number(row['Số Lượng'] || row['quantity'] || 0);
+            const quantityNum = parseExcelNumber(row['Số Lượng'] || row['quantity'] || 0);
             if (isNaN(quantityNum) || quantityNum <= 0) return;
 
             const unitStr = String(row['Đơn Vị Tính'] || row['unit'] || 'Tấm').trim();
@@ -233,11 +246,16 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             const dateStr = formatExcelDate(rawDate);
             const notesStr = String(row['Ghi Chú'] || row['notes'] || '').trim();
             const rawId = row['Mã Phiếu'] || row['id'] || row['ID'];
+            const rawSourceType = row['__sourceType'] || row['sourceType'];
+            const rawSourceRoomId = row['__sourceRoomId'] || row['sourceRoomId'];
+            const rawSourceFloorId = row['__sourceFloorId'] || row['sourceFloorId'];
+            const rawSourceNormId = row['__sourceNormId'] || row['sourceNormId'];
+            const rawSourceIssueKey = row['__sourceIssueKey'] || row['sourceIssueKey'];
 
             const existingIdx = rawId ? newInventory.findIndex(i => i.id === String(rawId).trim()) : -1;
             
             const invItem: InventoryItem = {
-              id: existingIdx >= 0 ? newInventory[existingIdx].id : (rawId ? String(rawId).trim() : `INV-OUT-${Date.now()}-${rIdx}-${Math.random().toString(36).substring(2, 5)}`),
+              id: existingIdx >= 0 ? newInventory[existingIdx].id : (rawId ? String(rawId).trim() : createEntityId('INV-OUT')),
               type: 'out',
               materialName: materialNameStr,
               unit: unitStr,
@@ -245,7 +263,12 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               location: locationStr,
               handler: handlerStr,
               date: dateStr,
-              notes: notesStr || undefined
+              notes: notesStr || undefined,
+              sourceType: rawSourceType ? String(rawSourceType).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceType : undefined),
+              sourceRoomId: rawSourceRoomId ? String(rawSourceRoomId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceRoomId : undefined),
+              sourceFloorId: rawSourceFloorId ? String(rawSourceFloorId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceFloorId : undefined),
+              sourceNormId: rawSourceNormId ? String(rawSourceNormId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceNormId : undefined),
+              sourceIssueKey: rawSourceIssueKey ? String(rawSourceIssueKey).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceIssueKey : undefined)
             };
 
             if (existingIdx >= 0) {
@@ -273,8 +296,10 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             const materialNameRaw = row['Tên Vật Tư'] || row['materialName'] || row['Vật tư'] || row['Vat tu'];
             if (!materialNameRaw) return;
 
-            const normIdRaw = row['__normId'] || row['__materialId'] || row['Mã Định Mức'] || row['id'];
+            const normIdRaw = row['__normId'] || row['Mã Định Mức'] || row['id'];
+            const materialIdRaw = row['__materialId'] || row['Mã Vật Tư'] || row['materialId'];
             const normIdStr = normIdRaw ? String(normIdRaw).trim() : undefined;
+            const materialIdStr = materialIdRaw ? String(materialIdRaw).trim() : undefined;
 
             const materialNameStr = String(materialNameRaw).trim();
             const categoryStr = String(row['Chủng Loại'] || row['Phân Loại'] || row['category'] || 'Vật tư thạch cao').trim();
@@ -293,9 +318,14 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               existingIdx = newNorms.findIndex(n => n.materialName.toLowerCase() === materialNameStr.toLowerCase());
             }
             
+            const importedNormId = existingIdx >= 0 ? newNorms[existingIdx].id : (normIdStr || createEntityId('NORM'));
+            const importedMaterialId = existingIdx >= 0
+              ? (newNorms[existingIdx].materialId || `MAT-${newNorms[existingIdx].id}`)
+              : (materialIdStr || `MAT-${importedNormId}`);
+
             const normData: MaterialNorm = {
-              id: existingIdx >= 0 ? newNorms[existingIdx].id : (normIdStr || `NORM-${Date.now()}-${rIdx}-${Math.random().toString(36).substring(2, 5)}`),
-              materialId: existingIdx >= 0 ? (newNorms[existingIdx].materialId || newNorms[existingIdx].id) : (normIdStr || `MAT-${Date.now()}-${rIdx}`),
+              id: importedNormId,
+              materialId: importedMaterialId,
               category: categoryStr,
               workCategory: workCategoryStr,
               workCategories: workCategoryStr ? workCategoryStr.split(',').map(s => s.trim()).filter(Boolean) : undefined,
@@ -303,6 +333,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               unit: unitStr,
               quotaQuantity: quotaQuantityNum,
               unitNormPerM2: unitNormPerM2Num || undefined,
+              normBasisUnit: normalizeUnit(row['ĐVT Khối Lượng Nguồn'] || row['Đơn Vị Khối Lượng Nguồn'] || row['normBasisUnit'] || '') || undefined,
               notes: notesStr || undefined
             };
 
@@ -336,9 +367,9 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             const floorStr = String(row['Tầng / Khu Vực'] || row['Tầng'] || row['floor'] || 'Tầng 1').trim();
             const categoryStr = String(row['Phân Loại'] || row['category'] || 'khung_tran').trim() as any;
             const unitStr = String(row['Đơn Vị Tính'] || row['Đơn Vị'] || row['unit'] || 'm2').trim();
-            const plannedNum = Number(row['KL Kế Hoạch'] || row['planned'] || 0);
-            const actualNum = Number(row['KL Thực Hiện'] || row['actual'] || 0);
-            const unitPriceNum = Number(row['Đơn Giá (VNĐ)'] || row['unitPrice'] || 0);
+            const plannedNum = parseExcelNumber(row['KL Kế Hoạch'] || row['planned'] || 0);
+            const actualNum = parseExcelNumber(row['KL Thực Hiện'] || row['actual'] || 0);
+            const unitPriceNum = parseExcelNumber(row['Đơn Giá (VNĐ)'] || row['unitPrice'] || 0);
 
             const existingIdx = newWorkVolumes.findIndex(
               w => w.title.toLowerCase() === titleStr.toLowerCase() && w.floor.toLowerCase() === floorStr.toLowerCase()
@@ -347,7 +378,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             const statusVal = actualNum >= plannedNum ? 'Đã hoàn thành' : actualNum > 0 ? 'Đang thi công' : 'Chưa thi công';
 
             const volumeData: any = {
-              id: existingIdx >= 0 ? newWorkVolumes[existingIdx].id : `HM-${Date.now()}-${rIdx}-${Math.random().toString(36).substring(2, 5)}`,
+              id: existingIdx >= 0 ? newWorkVolumes[existingIdx].id : createEntityId('HM'),
               title: titleStr,
               floor: floorStr,
               category: categoryStr,
@@ -473,12 +504,37 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
 
   const [workCategories, setWorkCategories] = useState<string[]>([]);
 
-  const selectedWorkCategoriesVolume = React.useMemo(() => {
-    if (!workVolumes || workCategories.length === 0) return 0;
-    return workVolumes
-      .filter((v) => workCategories.includes(v.title))
-      .reduce((sum, v) => sum + (v.planned || 0), 0);
+  const selectedWorkCategoryUnits = React.useMemo(() => {
+    const result: Record<string, string> = {};
+    workCategories.forEach((cat) => {
+      const units = Array.from(new Set((workVolumes || [])
+        .filter((v) => v.title === cat && (v.planned || 0) > 0)
+        .map((v) => normalizeUnit(v.unit) || v.unit)
+        .filter(Boolean)));
+      result[cat] = units.length === 1 ? String(units[0]) : (units.length > 1 ? 'Nhiều ĐVT' : 'm²');
+    });
+    return result;
   }, [workVolumes, workCategories]);
+
+  const selectedBasisUnits = React.useMemo(() => Array.from(new Set(
+    Object.values(selectedWorkCategoryUnits).filter((u) => u && u !== 'Nhiều ĐVT').map(unitKey)
+  )), [selectedWorkCategoryUnits]);
+  const hasMixedBasisUnits = selectedBasisUnits.length > 1 || Object.values(selectedWorkCategoryUnits).includes('Nhiều ĐVT');
+
+  const selectedWorkCategoriesVolumeByUnit = React.useMemo(() => {
+    const byUnit: Record<string, { unit: string; value: number }> = {};
+    (workVolumes || []).filter((v) => workCategories.includes(v.title)).forEach((v) => {
+      const unit = normalizeUnit(v.unit) || v.unit || 'Đơn vị';
+      const key = unitKey(unit) || 'đơn vị';
+      if (!byUnit[key]) byUnit[key] = { unit, value: 0 };
+      byUnit[key].value += v.planned || 0;
+    });
+    return Object.values(byUnit);
+  }, [workVolumes, workCategories]);
+
+  const selectedWorkCategoriesVolumeLabel = selectedWorkCategoriesVolumeByUnit
+    .map((g) => `${formatDecimal(g.value)} ${g.unit}`)
+    .join(' + ');
 
   const computedAutoQuota = React.useMemo(() => {
     if (!workVolumes || workCategories.length === 0) return null;
@@ -496,7 +552,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
         if (workCategoryNorms && workCategoryNorms[cat] !== undefined) {
           factor = workCategoryNorms[cat];
           hasNorms = true;
-        } else if (unitNormPerM2 && Number(unitNormPerM2) > 0) {
+        } else if (!hasMixedBasisUnits && unitNormPerM2 && Number(unitNormPerM2) > 0) {
           factor = Number(unitNormPerM2);
           hasNorms = true;
         }
@@ -508,7 +564,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
       return Math.round(totalQuota * 100) / 100;
     }
     return null;
-  }, [workVolumes, workCategories, workCategoryNorms, unitNormPerM2]);
+  }, [workVolumes, workCategories, workCategoryNorms, unitNormPerM2, hasMixedBasisUnits]);
 
   const handleOpenAdd = async () => {
     setCategory(COMMON_CATEGORIES[0]);
@@ -586,6 +642,65 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     setMode('edit');
   };
 
+  const parseInteractiveNumericInput = (raw: string): number | null => {
+    const trimmed = String(raw || '').trim();
+    if (!trimmed) return null;
+    const expressionValue = evaluateMathExpression(trimmed);
+    if (expressionValue !== null && Number.isFinite(expressionValue)) return expressionValue;
+    // If the user typed an operator, an invalid expression must stay invalid instead
+    // of falling back to the visible numeric prefix (e.g. "100+" must NOT become 100).
+    if (/[+\-*/xX×:÷()]/.test(trimmed)) return null;
+    const localizedValue = parseExcelNumber(trimmed);
+    return Number.isFinite(localizedValue) ? localizedValue : null;
+  };
+
+  const commitQuotaFormula = () => {
+    const parsed = parseInteractiveNumericInput(quotaQuantityStr);
+    if (parsed === null) {
+      alert('Công thức Hao phí định mức không hợp lệ. Ví dụ: 100*5, 1220/3 hoặc (50+20)*2.');
+      return false;
+    }
+    setQuotaQuantity(parsed);
+    setQuotaQuantityStr(formatDecimal(parsed));
+    return true;
+  };
+
+  const commitGeneralNormFormula = () => {
+    const raw = unitNormPerM2Str.trim();
+    if (!raw) {
+      setUnitNormPerM2('');
+      return true;
+    }
+    const parsed = parseInteractiveNumericInput(raw);
+    if (parsed === null) {
+      alert('Công thức Hao phí / đơn vị khối lượng không hợp lệ. Ví dụ: 0.35, 1/2.88 hoặc 2*0.35.');
+      return false;
+    }
+    setUnitNormPerM2(parsed);
+    setUnitNormPerM2Str(formatDecimal(parsed));
+    return true;
+  };
+
+  const commitCategoryNormFormula = (cat: string) => {
+    const raw = String(workCategoryNormsStr[cat] || '').trim();
+    if (!raw) {
+      setWorkCategoryNorms(prev => {
+        const next = { ...prev };
+        delete next[cat];
+        return next;
+      });
+      return true;
+    }
+    const parsed = parseInteractiveNumericInput(raw);
+    if (parsed === null) {
+      alert(`Công thức định mức riêng của “${cat}” không hợp lệ.`);
+      return false;
+    }
+    setWorkCategoryNorms(prev => ({ ...prev, [cat]: parsed }));
+    setWorkCategoryNormsStr(prev => ({ ...prev, [cat]: formatDecimal(parsed) }));
+    return true;
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const finalCategory = category === 'khac' ? customCategory.trim() : category;
@@ -603,6 +718,25 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
       alert('Vui lòng chọn hoặc nhập đơn vị tính!');
       return;
     }
+
+    const quotaParsedForSubmit = parseInteractiveNumericInput(quotaQuantityStr);
+    if (quotaQuantityStr.trim() && quotaParsedForSubmit === null) {
+      alert('Hao phí định mức có công thức hoặc số nhập không hợp lệ. Ví dụ hợp lệ: 500, 100*5, 1220/3.');
+      return;
+    }
+    if (unitNormPerM2Str.trim() && parseInteractiveNumericInput(unitNormPerM2Str) === null) {
+      alert('Hao phí / đơn vị khối lượng có công thức hoặc số nhập không hợp lệ.');
+      return;
+    }
+    const invalidOverrideCategory = workCategories.find((cat) => {
+      const raw = workCategoryNormsStr[cat];
+      return Boolean(raw && raw.trim()) && parseInteractiveNumericInput(raw) === null;
+    });
+    if (invalidOverrideCategory) {
+      alert(`Định mức riêng của hạng mục "${invalidOverrideCategory}" có công thức hoặc số nhập không hợp lệ.`);
+      return;
+    }
+
     if (!quotaQuantity || Number(quotaQuantity) <= 0) {
       alert('Vui lòng nhập số lượng định mức công trình hợp lệ (> 0)!');
       return;
@@ -614,18 +748,36 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
 
     if (mode === 'edit' && editingId) {
       const editingNorm = materialNorms.find(n => n.id === editingId);
-      if (editingNorm && editingNorm.unit !== finalUnit) {
+      if (editingNorm && !areSameUnit(editingNorm.unit, finalUnit)) {
         const normKey = editingNorm.materialName.trim().toLocaleLowerCase('vi-VN');
-        const existingTransactions = inventory.filter(i => (i.materialId && i.materialId === editingId) || i.materialName.trim().toLocaleLowerCase('vi-VN') === normKey).length;
+        const stableMaterialId = editingNorm.materialId || `MAT-${editingNorm.id}`;
+        const existingTransactions = inventory.filter((i) =>
+          i.materialId === stableMaterialId ||
+          i.materialId === editingNorm.id || // legacy V6.1.x records
+          i.materialName.trim().toLocaleLowerCase('vi-VN') === normKey
+        ).length;
         if (existingTransactions > 0) {
-          const confirmChange = window.confirm(
-            `⚠️ CẢNH BÁO THAY ĐỔI ĐƠN VỊ TÍNH:\n` +
-            `Vật tư "${editingNorm.materialName}" hiện có ${existingTransactions} giao dịch kho cũ sử dụng ĐVT "${editingNorm.unit}".\n\n` +
-            `Việc thay đổi ĐVT sang "${finalUnit}" sẽ cập nhật ĐVT của các phiếu kho nhưng KHÔNG TỰ QUY ĐỔI số lượng giao dịch cũ.\n` +
-            `Bạn có chắc chắn muốn tiếp tục đổi ĐVT không?`
+          alert(
+            `Không thể đổi trực tiếp đơn vị tính của vật tư "${editingNorm.materialName}" vì đã có ${existingTransactions} giao dịch kho.\n\n` +
+            `ĐVT hiện tại: ${editingNorm.unit}\nĐVT muốn đổi: ${finalUnit}\n\n` +
+            'Để tránh làm sai tồn kho lịch sử, hãy tạo một vật tư mới hoặc thực hiện quy đổi bằng phiếu điều chỉnh có hệ số rõ ràng.'
           );
-          if (!confirmChange) return;
+          return;
         }
+      }
+    }
+
+
+    const generalNormValue = unitNormPerM2 === '' ? 0 : Number(unitNormPerM2);
+    if (hasMixedBasisUnits && generalNormValue > 0) {
+      const categoriesWithoutOverride = workCategories.filter((cat) => !(workCategoryNorms[cat] > 0));
+      if (categoriesWithoutOverride.length > 0) {
+        alert(
+          'Các hạng mục đang dùng nhiều đơn vị khối lượng nguồn khác nhau.\n\n' +
+          'Không thể dùng một định mức chung cho m², m, bộ... cùng lúc. ' +
+          'Vui lòng nhập “Định mức riêng” cho từng hạng mục hoặc chỉ chọn các hạng mục cùng đơn vị.'
+        );
+        return;
       }
     }
 
@@ -657,6 +809,9 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
       unit: finalUnit,
       quotaQuantity: Number(quotaQuantity),
       unitNormPerM2: unitNormPerM2 ? Number(unitNormPerM2) : undefined,
+      normBasisUnit: !hasMixedBasisUnits && selectedBasisUnits.length === 1
+        ? (Object.values(selectedWorkCategoryUnits).find((u): u is string => typeof u === 'string' && Boolean(u) && u !== 'Nhiều ĐVT') || undefined)
+        : undefined,
       notes: notes.trim(),
     };
 
@@ -867,7 +1022,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                         }}
                         className="text-rose-600 hover:text-rose-700 font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
                       >
-                        <Trash2 className="w-3.5 h-3.5" /> Xóa Đã Chọn ({selectedNormIds.filter(id => sortedFilteredNorms.some(item => item.id === id)).length})
+                        <Trash2 className="w-3.5 h-3.5" /> Xóa đã chọn ({selectedNormIds.filter(id => sortedFilteredNorms.some(item => item.id === id)).length})
                       </button>
                     )}
                   </div>
@@ -915,7 +1070,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                             <h4 className="text-xs font-bold text-slate-900 leading-snug">{norm.materialName}</h4>
                           </div>
                         </div>
-                        <div className="flex items-center gap-1 shrink-0">
+                        <div className="flex items-center gap-1 shrink-0 justify-end">
                           <button
                             onClick={() => handleOpenEdit(norm)}
                             className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
@@ -936,7 +1091,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                       {/* Norm details grid */}
                       <div className="grid grid-cols-3 gap-1.5 bg-white p-2 rounded-xl border border-slate-100 text-[11px]">
                         <div>
-                          <p className="text-[10px] text-slate-400 font-semibold uppercase">Đơn Vị Tính</p>
+                          <p className="text-[10px] text-slate-400 font-semibold uppercase">Đơn vị tính</p>
                           <p className="font-bold text-slate-800">{norm.unit}</p>
                         </div>
                         <div>
@@ -944,10 +1099,10 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                           <p className="font-bold text-indigo-600">{formatDecimal(norm.quotaQuantity)} {norm.unit}</p>
                         </div>
                         <div>
-                          <p className="text-[10px] text-slate-400 font-semibold uppercase">Định Mức / m²</p>
+                          <p className="text-[10px] text-slate-400 font-semibold uppercase">Hao phí / ĐVT nguồn</p>
                           <p className="font-semibold text-slate-700">
-                            {norm.unitNormPerM2 !== undefined && norm.unitNormPerM2 !== null && norm.unitNormPerM2 !== ''
-                              ? `${formatDecimal(norm.unitNormPerM2)} ${norm.unit}/m²`
+                            {norm.unitNormPerM2 !== undefined && norm.unitNormPerM2 !== null
+                              ? `${formatDecimal(norm.unitNormPerM2)} ${norm.unit}/${norm.normBasisUnit || 'm²'}`
                               : 'Chưa nhập'}
                           </p>
                         </div>
@@ -1065,7 +1220,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
 
             {/* Unit Select */}
             <div>
-              <label className="block font-bold text-slate-700 mb-1">Tên Đơn Vị Tính (ĐVT) *</label>
+              <label className="block font-bold text-slate-700 mb-1">Tên đơn vị tính (ĐVT) *</label>
               <select
                 value={unit}
                 onChange={(e) => setUnit(e.target.value)}
@@ -1088,15 +1243,26 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             </div>
 
             {/* Quotas Input Grid */}
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="block font-bold text-slate-700">Hao phí định mức *</label>
-                  {evaluateMathExpression(quotaQuantityStr) !== null && /[+\-*/xX×:÷]/.test(quotaQuantityStr) && (
-                    <span className="text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded text-[10px] font-extrabold animate-pulse">
-                      = {formatDecimal(evaluateMathExpression(quotaQuantityStr))}
-                    </span>
-                  )}
+                  <div className="flex items-center gap-1">
+                    {evaluateMathExpression(quotaQuantityStr) !== null && /[+\-*/xX×:÷]/.test(quotaQuantityStr) && (
+                      <span className="text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded text-[10px] font-extrabold animate-pulse">
+                        = {formatDecimal(evaluateMathExpression(quotaQuantityStr))}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={commitQuotaFormula}
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-indigo-200 bg-indigo-50 text-indigo-700 text-[10px] font-extrabold hover:bg-indigo-100"
+                      title="Tính công thức đang nhập"
+                    >
+                      <Calculator className="w-3 h-3" /> Tính
+                    </button>
+                  </div>
                 </div>
                 <input
                   type="text"
@@ -1105,14 +1271,20 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                   onChange={(e) => {
                     const typedVal = e.target.value;
                     setQuotaQuantityStr(typedVal);
-                    const parsed = evaluateMathExpression(typedVal);
-                    setQuotaQuantity(parsed !== null ? parsed : (typedVal === '' ? '' : Number(typedVal)));
+                    if (typedVal === '') {
+                      setQuotaQuantity('');
+                      return;
+                    }
+                    const parsed = parseInteractiveNumericInput(typedVal);
+                    if (parsed !== null) setQuotaQuantity(parsed);
                   }}
                   onBlur={() => {
-                    const parsed = evaluateMathExpression(quotaQuantityStr);
-                    if (parsed !== null) {
-                      setQuotaQuantity(parsed);
-                      setQuotaQuantityStr(formatDecimal(parsed));
+                    if (quotaQuantityStr.trim()) commitQuotaFormula();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      commitQuotaFormula();
                     }
                   }}
                   className="w-full border border-slate-200 rounded-xl p-2.5 font-bold text-indigo-600 focus:ring-2 focus:ring-indigo-500"
@@ -1123,10 +1295,10 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                     type="button"
                     onClick={() => {
                       setQuotaQuantity(computedAutoQuota);
-                      setQuotaQuantityStr(computedAutoQuota.toString());
+                      setQuotaQuantityStr(formatDecimal(computedAutoQuota));
                     }}
                     className="mt-1 text-[10px] text-indigo-700 hover:text-indigo-900 font-extrabold flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 p-1.5 rounded-lg border border-indigo-200 transition-all active:scale-95 text-left w-full"
-                    title={`Khối lượng thi công liên kết (${formatDecimal(selectedWorkCategoriesVolume)} m²) x Định mức hao phí (${formatDecimal(unitNormPerM2)})`}
+                    title={`Khối lượng liên kết (${selectedWorkCategoriesVolumeLabel || '0'}) × định mức hao phí (${formatDecimal(unitNormPerM2)})`}
                   >
                     <span>💡 Áp dụng định mức: <strong>{formatDecimal(computedAutoQuota)}</strong> {unit === 'khac' ? customUnit : unit}</span>
                   </button>
@@ -1135,19 +1307,48 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                 )}
               </div>
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Định mức / m² (không bắt buộc)</label>
+                <div className="flex items-center justify-between mb-1 gap-1">
+                  <label className="block font-bold text-slate-700">Hao phí / đơn vị khối lượng (không bắt buộc)</label>
+                  <div className="flex items-center gap-1">
+                    {evaluateMathExpression(unitNormPerM2Str) !== null && /[+\-*/xX×:÷]/.test(unitNormPerM2Str) && (
+                      <span className="text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded text-[10px] font-extrabold">
+                        = {formatDecimal(evaluateMathExpression(unitNormPerM2Str))}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={commitGeneralNormFormula}
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-indigo-200 bg-indigo-50 text-indigo-700 text-[10px] font-extrabold hover:bg-indigo-100"
+                      title="Tính công thức đang nhập"
+                    >
+                      <Calculator className="w-3 h-3" /> Tính
+                    </button>
+                  </div>
+                </div>
                 <input
                   type="text"
-                  placeholder="VD: 0.35"
+                  placeholder="VD: 0.35 hoặc 1/2.88"
                   value={unitNormPerM2Str}
                   onChange={(e) => {
-                    const typedVal = e.target.value.replace(/,/g, '.');
+                    const typedVal = e.target.value;
                     setUnitNormPerM2Str(typedVal);
-                    setUnitNormPerM2(typedVal === '' ? '' : Number(typedVal));
+                    const parsed = parseInteractiveNumericInput(typedVal);
+                    if (typedVal === '') setUnitNormPerM2('');
+                    else if (parsed !== null) setUnitNormPerM2(parsed);
+                  }}
+                  onBlur={() => {
+                    if (unitNormPerM2Str.trim()) commitGeneralNormFormula();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      commitGeneralNormFormula();
+                    }
                   }}
                   className="w-full border border-slate-200 rounded-xl p-2.5 font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500"
                 />
-                <span className="text-[10px] text-slate-400 mt-0.5 block">Hao phí tiêu hao trên 1m² sàn/trần</span>
+                <span className="text-[10px] text-slate-400 mt-0.5 block">{hasMixedBasisUnits ? 'Đang chọn nhiều ĐVT nguồn: hãy nhập định mức riêng theo từng hạng mục.' : `Ví dụ: 0,35 ${unit === 'khac' ? customUnit : unit} / ${Object.values(selectedWorkCategoryUnits)[0] || 'm²'}`}</span>
               </div>
             </div>
 
@@ -1162,24 +1363,25 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                 <div className="space-y-1.5 max-h-40 overflow-y-auto">
                   {workCategories.map(cat => {
                     return (
-                      <div key={cat} className="flex items-center justify-between gap-2 bg-white border border-slate-100 rounded-lg p-2">
-                        <span className="text-[11px] font-bold text-slate-700 truncate max-w-[180px]">{cat}</span>
-                        <div className="flex items-center gap-1 shrink-0">
+                      <div key={cat} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-white border border-slate-100 rounded-lg p-2">
+                        <span className="text-[11px] font-bold text-slate-700 whitespace-normal break-words sm:max-w-[180px]">{cat}<span className="ml-1 text-[9px] text-slate-400">/{selectedWorkCategoryUnits[cat] || "m²"}</span></span>
+                        <div className="flex items-center gap-1 shrink-0 justify-end">
                           <input
                             type="text"
                             placeholder="Mặc định"
                             value={workCategoryNormsStr[cat] !== undefined ? workCategoryNormsStr[cat] : ''}
                             onChange={(e) => {
-                              const typedVal = e.target.value.replace(/,/g, '.');
+                              const typedVal = e.target.value;
                               setWorkCategoryNormsStr(prev => ({
                                 ...prev,
                                 [cat]: typedVal
                               }));
 
-                              const val = typedVal === '' ? undefined : Number(typedVal);
+                              const parsed = parseInteractiveNumericInput(typedVal);
+                              const val = typedVal === '' ? undefined : parsed ?? undefined;
                               setWorkCategoryNorms(prev => {
                                 const next = { ...prev };
-                                if (val === undefined || isNaN(val)) {
+                                if (val === undefined || !Number.isFinite(val)) {
                                   delete next[cat];
                                 } else {
                                   next[cat] = val;
@@ -1187,8 +1389,26 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                                 return next;
                               });
                             }}
+                            onBlur={() => {
+                              if ((workCategoryNormsStr[cat] || '').trim()) commitCategoryNormFormula(cat);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                commitCategoryNormFormula(cat);
+                              }
+                            }}
                             className="w-20 border border-slate-200 rounded px-1.5 py-1 text-right font-bold text-xs text-indigo-600 focus:ring-1 focus:ring-indigo-500"
                           />
+                          <button
+                            type="button"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => commitCategoryNormFormula(cat)}
+                            className="p-1 rounded-md border border-indigo-100 bg-indigo-50 text-indigo-600 hover:bg-indigo-100"
+                            title="Tính công thức định mức riêng"
+                          >
+                            <Calculator className="w-3 h-3" />
+                          </button>
                           <span className="text-[10px] text-slate-400 font-bold">/{unit === 'khac' ? customUnit : unit}</span>
                         </div>
                       </div>
@@ -1200,7 +1420,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
 
             {/* Notes */}
             <div>
-              <label className="block font-bold text-slate-700 mb-1">Ghi Chú / Tiêu Chuẩn Kỹ Thuật</label>
+              <label className="block font-bold text-slate-700 mb-1">Ghi chú / Tiêu chuẩn kỹ thuật</label>
               <textarea
                 placeholder="VD: Quy cách 1220x2440mm, độ dày 9mm, chuẩn ASTM..."
                 value={notes}

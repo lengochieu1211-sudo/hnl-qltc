@@ -29,12 +29,14 @@ import { formatDecimal, evaluateMathExpression, useFormatSettings, parseVietname
 import * as XLSX from 'xlsx';
 import { exportWarehouseUpdateTemplate } from '../utils/excelExport';
 import { confirmAsync } from '../utils/confirmAsync';
-import { calculateStockSummary } from '../utils/inventoryUtils';
+import { calculateStockSummary, resolveNormMaterialId } from '../utils/inventoryUtils';
 import { compareDateValues, naturalCompare } from '../utils/sortUtils';
+import { createEntityId } from '../utils/idUtils';
+import { normalizeUnit } from '../utils/unitUtils';
 
 interface WarehouseTabProps {
   inventory: InventoryItem[];
-  onAddInventory: (item: Omit<InventoryItem, 'id'>) => void;
+  onAddInventory: (item: Omit<InventoryItem, 'id'> & { id?: string }) => void;
   onUpdateInventory?: (id: string, item: Omit<InventoryItem, 'id'>) => void;
   onDeleteInventory: (id: string) => void;
   onDeleteMultipleInventory?: (ids: string[]) => void;
@@ -156,22 +158,32 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             const notesStr = String(row['Ghi Chú'] || row['notes'] || '').trim();
             const rawId = row['Mã Phiếu'] || row['id'] || row['ID'];
             const rawMaterialId = row['__materialId'] || row['Mã Vật Tư'] || row['materialId'] || row['Mã định mức'];
+            const rawSourceType = row['__sourceType'] || row['sourceType'];
+            const rawSourceRoomId = row['__sourceRoomId'] || row['sourceRoomId'];
+            const rawSourceFloorId = row['__sourceFloorId'] || row['sourceFloorId'];
+            const rawSourceNormId = row['__sourceNormId'] || row['sourceNormId'];
+            const rawSourceIssueKey = row['__sourceIssueKey'] || row['sourceIssueKey'];
 
             const existingIdx = rawId ? newInventory.findIndex(i => i.id === String(rawId).trim()) : -1;
             
             const matchedNorm = materialNorms.find(n => (rawMaterialId && (n.materialId === rawMaterialId || n.id === rawMaterialId)) || n.materialName.trim().toLowerCase() === materialNameStr.toLowerCase());
 
             const invItem: InventoryItem = {
-              id: existingIdx >= 0 ? newInventory[existingIdx].id : (rawId ? String(rawId).trim() : `INV-IN-${Date.now()}-${rIdx}-${Math.random().toString(36).substring(2, 5)}`),
+              id: existingIdx >= 0 ? newInventory[existingIdx].id : (rawId ? String(rawId).trim() : createEntityId('INV-IN')),
               type: 'in',
-              materialId: rawMaterialId ? String(rawMaterialId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].materialId : (matchedNorm?.materialId || matchedNorm?.id)),
+              materialId: rawMaterialId ? String(rawMaterialId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].materialId : resolveNormMaterialId(matchedNorm)),
               materialName: materialNameStr,
               unit: unitStr,
               quantity: quantityNum,
               location: locationStr,
               handler: handlerStr,
               date: dateStr,
-              notes: notesStr || undefined
+              notes: notesStr || undefined,
+              sourceType: rawSourceType ? String(rawSourceType).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceType : undefined),
+              sourceRoomId: rawSourceRoomId ? String(rawSourceRoomId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceRoomId : undefined),
+              sourceFloorId: rawSourceFloorId ? String(rawSourceFloorId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceFloorId : undefined),
+              sourceNormId: rawSourceNormId ? String(rawSourceNormId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceNormId : undefined),
+              sourceIssueKey: rawSourceIssueKey ? String(rawSourceIssueKey).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceIssueKey : undefined)
             };
 
             if (existingIdx >= 0) {
@@ -211,22 +223,32 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             const notesStr = String(row['Ghi Chú'] || row['notes'] || '').trim();
             const rawId = row['Mã Phiếu'] || row['id'] || row['ID'];
             const rawMaterialId = row['__materialId'] || row['Mã Vật Tư'] || row['materialId'] || row['Mã định mức'];
+            const rawSourceType = row['__sourceType'] || row['sourceType'];
+            const rawSourceRoomId = row['__sourceRoomId'] || row['sourceRoomId'];
+            const rawSourceFloorId = row['__sourceFloorId'] || row['sourceFloorId'];
+            const rawSourceNormId = row['__sourceNormId'] || row['sourceNormId'];
+            const rawSourceIssueKey = row['__sourceIssueKey'] || row['sourceIssueKey'];
 
             const existingIdx = rawId ? newInventory.findIndex(i => i.id === String(rawId).trim()) : -1;
             
             const matchedNorm = materialNorms.find(n => (rawMaterialId && (n.materialId === rawMaterialId || n.id === rawMaterialId)) || n.materialName.trim().toLowerCase() === materialNameStr.toLowerCase());
 
             const invItem: InventoryItem = {
-              id: existingIdx >= 0 ? newInventory[existingIdx].id : (rawId ? String(rawId).trim() : `INV-OUT-${Date.now()}-${rIdx}-${Math.random().toString(36).substring(2, 5)}`),
+              id: existingIdx >= 0 ? newInventory[existingIdx].id : (rawId ? String(rawId).trim() : createEntityId('INV-OUT')),
               type: 'out',
-              materialId: rawMaterialId ? String(rawMaterialId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].materialId : (matchedNorm?.materialId || matchedNorm?.id)),
+              materialId: rawMaterialId ? String(rawMaterialId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].materialId : resolveNormMaterialId(matchedNorm)),
               materialName: materialNameStr,
               unit: unitStr,
               quantity: quantityNum,
               location: locationStr,
               handler: handlerStr,
               date: dateStr,
-              notes: notesStr || undefined
+              notes: notesStr || undefined,
+              sourceType: rawSourceType ? String(rawSourceType).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceType : undefined),
+              sourceRoomId: rawSourceRoomId ? String(rawSourceRoomId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceRoomId : undefined),
+              sourceFloorId: rawSourceFloorId ? String(rawSourceFloorId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceFloorId : undefined),
+              sourceNormId: rawSourceNormId ? String(rawSourceNormId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceNormId : undefined),
+              sourceIssueKey: rawSourceIssueKey ? String(rawSourceIssueKey).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceIssueKey : undefined)
             };
 
             if (existingIdx >= 0) {
@@ -269,7 +291,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               : newNorms.findIndex(n => n.materialName.toLowerCase() === materialNameStr.toLowerCase());
             
             const normData: MaterialNorm = {
-              id: existingIdx >= 0 ? newNorms[existingIdx].id : (rawId ? String(rawId).trim() : `NORM-${Date.now()}-${rIdx}-${Math.random().toString(36).substring(2, 5)}`),
+              id: existingIdx >= 0 ? newNorms[existingIdx].id : (rawId ? String(rawId).trim() : createEntityId('NORM')),
               category: categoryStr,
               workCategory: workCategoryStr,
               workCategories: workCategoryStr ? workCategoryStr.split(',').map(s => s.trim()).filter(Boolean) : undefined,
@@ -322,8 +344,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             const statusVal = actualNum >= plannedNum ? 'Đã hoàn thành' : actualNum > 0 ? 'Đang thi công' : 'Chưa thi công';
 
             const volumeData: any = {
-              id: existingIdx >= 0 ? newWorkVolumes[existingIdx].id : (rawVolId ? String(rawVolId).trim() : `HM-${Date.now()}-${rIdx}-${Math.random().toString(36).substring(2, 5)}`),
-              workCategoryId: existingIdx >= 0 ? (newWorkVolumes[existingIdx].workCategoryId || newWorkVolumes[existingIdx].id) : (rawVolId ? String(rawVolId).trim() : `CAT-${Date.now()}-${rIdx}`),
+              id: existingIdx >= 0 ? newWorkVolumes[existingIdx].id : (rawVolId ? String(rawVolId).trim() : createEntityId('HM')),
+              workCategoryId: existingIdx >= 0 ? (newWorkVolumes[existingIdx].workCategoryId || newWorkVolumes[existingIdx].id) : (rawVolId ? String(rawVolId).trim() : createEntityId('CAT')),
               title: titleStr,
               floor: floorStr,
               category: categoryStr,
@@ -561,19 +583,24 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     const targetName = customMaterial.trim() || materialName.trim();
     if (!targetName) return null;
 
-    const key = targetName.toLocaleLowerCase('vi-VN');
-    const matchedNorm = normMap[key];
-    if (!matchedNorm || !matchedNorm.quotaQuantity) return null;
+    const normalizedTargetUnit = normalizeUnit(unit) || unit;
+    const matchedSummary = stockSummaries.find((summary) =>
+      summary.materialName.trim().toLocaleLowerCase('vi-VN') === targetName.toLocaleLowerCase('vi-VN') &&
+      (normalizeUnit(summary.unit) || summary.unit) === normalizedTargetUnit
+    ) || stockSummaries.find((summary) =>
+      summary.materialName.trim().toLocaleLowerCase('vi-VN') === targetName.toLocaleLowerCase('vi-VN')
+    );
+    const quota = Number(matchedSummary?.normQuantity || 0);
+    if (!(quota > 0)) return null;
 
-    const quota = matchedNorm.quotaQuantity;
-    const currentInQty = stockBalance[key]?.inQty || 0;
+    const currentInQty = Number(matchedSummary?.totalIn || 0);
     const projectedInQty = currentInQty + Number(quantity);
     const percent = Math.round((projectedInQty / quota) * 100);
 
     if (projectedInQty > quota) {
       return {
         status: 'exceeded',
-        text: `Cảnh báo: Tổng lượng nhập sau phiếu này sẽ đạt ${projectedInQty} ${unit} (vượt định mức ${quota} ${unit}). Vượt nhu cầu theo định mức: +${projectedInQty - quota} ${unit}!`,
+        text: `Cảnh báo: Tổng lượng nhập sau phiếu này sẽ đạt ${formatDecimal(projectedInQty)} ${unit} (vượt định mức ${formatDecimal(quota)} ${unit}). Vượt nhu cầu theo định mức: +${formatDecimal(projectedInQty - quota)} ${unit}!`,
         currentInQty,
         quota,
         projectedInQty,
@@ -582,7 +609,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     } else if (projectedInQty >= quota * 0.9) {
       return {
         status: 'near-complete',
-        text: `Lưu ý: Tổng lượng nhập sau phiếu này sẽ đạt ${projectedInQty} ${unit} (${percent}% định mức ${quota} ${unit}). Đang gần đủ định mức, vui lòng kiểm tra kỹ nếu đây là đơn hàng cuối!`,
+        text: `Lưu ý: Tổng lượng nhập sau phiếu này sẽ đạt ${formatDecimal(projectedInQty)} ${unit} (${percent}% định mức ${formatDecimal(quota)} ${unit}). Đang gần đủ định mức, vui lòng kiểm tra kỹ nếu đây là đơn hàng cuối!`,
         currentInQty,
         quota,
         projectedInQty,
@@ -591,7 +618,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     }
 
     return null;
-  }, [type, quantity, materialName, customMaterial, normMap, stockBalance, unit]);
+  }, [type, quantity, materialName, customMaterial, stockSummaries, unit]);
 
   const filteredInventory = useMemo(() => {
     const list = inventory.filter((item) => {
@@ -673,30 +700,42 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       return;
     }
 
+    const normalizedFinalUnit = normalizeUnit(unit) || unit;
+    const matchedStockSummary = stockSummaries.find((summary) =>
+      summary.materialName.trim().toLocaleLowerCase('vi-VN') === finalMaterialName.trim().toLocaleLowerCase('vi-VN') &&
+      (normalizeUnit(summary.unit) || summary.unit) === normalizedFinalUnit
+    ) || stockSummaries.find((summary) =>
+      summary.materialName.trim().toLocaleLowerCase('vi-VN') === finalMaterialName.trim().toLocaleLowerCase('vi-VN')
+    );
+
     if (type === 'out') {
-      const key = finalMaterialName.trim().toLocaleLowerCase('vi-VN');
-      const currentStock = stockBalance[key]?.balance || 0;
+      const currentStock = matchedStockSummary?.currentStock || 0;
       if (finalQuantity > currentStock) {
         const excess = finalQuantity - currentStock;
         const confirmIssue = window.confirm(
           `⚠️ CẢNH BÁO XUẤT VƯỢT TỒN KHO:\n` +
           `- Vật tư: ${finalMaterialName}\n` +
-          `- Tồn kho hiện tại: ${currentStock} ${unit}\n` +
-          `- Số lượng bạn xuất: ${finalQuantity} ${unit}\n` +
-          `- Vượt tồn kho: ${excess} ${unit}\n\n` +
+          `- Tồn kho hiện tại: ${formatDecimal(currentStock)} ${unit}\n` +
+          `- Số lượng bạn xuất: ${formatDecimal(finalQuantity)} ${unit}\n` +
+          `- Vượt tồn kho: ${formatDecimal(excess)} ${unit}\n\n` +
           `Bạn có chắc chắn muốn tiếp tục tạo phiếu xuất kho này không?`
         );
         if (!confirmIssue) return;
       }
     }
 
-    const matchedNorm = materialNorms.find(n => n.materialName.trim().toLowerCase() === finalMaterialName.trim().toLowerCase());
+    const matchedNorm = materialNorms.find((norm) =>
+      norm.materialName.trim().toLocaleLowerCase('vi-VN') === finalMaterialName.trim().toLocaleLowerCase('vi-VN') &&
+      (normalizeUnit(norm.unit) || norm.unit) === normalizedFinalUnit
+    ) || materialNorms.find((norm) =>
+      norm.materialName.trim().toLocaleLowerCase('vi-VN') === finalMaterialName.trim().toLocaleLowerCase('vi-VN')
+    );
 
     const payload = {
       type,
-      materialId: matchedNorm?.materialId || matchedNorm?.id,
+      materialId: resolveNormMaterialId(matchedNorm),
       materialName: finalMaterialName,
-      unit,
+      unit: normalizedFinalUnit,
       quantity: finalQuantity,
       location,
       handler,
@@ -1195,7 +1234,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             <div>
               <h3 className="text-base font-bold text-slate-900">Xác nhận xóa Phiếu Kho</h3>
               <p className="text-xs text-slate-500 mt-1">
-                Bạn có chắc chắn muốn xóa phiếu <strong className="text-slate-800">[{deletingInventoryTarget.id}] - {deletingInventoryTarget.materialName} ({deletingInventoryTarget.quantity} {deletingInventoryTarget.unit})</strong> không?
+                Bạn có chắc chắn muốn xóa phiếu <strong className="text-slate-800">[{deletingInventoryTarget.id}] - {deletingInventoryTarget.materialName} ({formatDecimal(deletingInventoryTarget.quantity)} {deletingInventoryTarget.unit})</strong> không?
               </p>
               <p className="text-[11px] text-indigo-600 mt-1 font-medium">💡 Thao tác này có thể Hoàn tác.</p>
             </div>
@@ -1333,7 +1372,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-700 font-bold mb-1">Đơn Vị Tính</label>
+                  <label className="block text-slate-700 font-bold mb-1">Đơn vị tính</label>
                   <input
                     type="text"
                     value={unit}
@@ -1360,7 +1399,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               {/* Location & Handler */}
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-slate-700 font-bold mb-1">Vị Trí Kho / Tầng</label>
+                  <label className="block text-slate-700 font-bold mb-1">Vị trí kho / tầng</label>
                   <input
                     type="text"
                     value={location}
@@ -1394,7 +1433,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               </div>
 
               <div>
-                <label className="block text-slate-700 font-bold mb-1">Ghi Chú Chi Tiết</label>
+                <label className="block text-slate-700 font-bold mb-1">Ghi chú chi tiết</label>
                 <textarea
                   placeholder="Ghi chú xuất cho tổ đội nào, hóa đơn đi kèm..."
                   value={notes}

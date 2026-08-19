@@ -29,6 +29,9 @@ import { ROOM_COLOR_PALETTE } from '../utils/colorPalette';
 import { confirmAsync } from '../utils/confirmAsync';
 import { formatDecimal, evaluateMathExpression, useFormatSettings } from '../utils/numberUtils';
 import { MathNumberInput } from './MathNumberInput';
+import { createEntityId, createDeterministicId } from '../utils/idUtils';
+import { normalizeUnit, areSameUnit } from '../utils/unitUtils';
+import { buildMaterialAliasMap, getMaterialIdentityKey, resolveNormMaterialId, normalizeMaterialNameKey } from '../utils/inventoryUtils';
 
 interface RoomHighlightModalProps {
   isOpen: boolean;
@@ -44,8 +47,9 @@ interface RoomHighlightModalProps {
   materialNorms?: MaterialNorm[];
   inventory?: InventoryItem[];
   workVolumes?: WorkVolume[];
+  existingRoomNames?: string[];
   defaultInspectorName?: string;
-  onAddInventory?: (item: Omit<InventoryItem, 'id'>) => void;
+  onAddInventory?: (item: Omit<InventoryItem, 'id'> & { id?: string }) => void;
   onSaveRoom: (room: Omit<RoomProgressItem, 'id' | 'updatedAt'> & { id?: string }) => void;
   onDeleteRoom?: (id: string) => void;
   onStartRedraw2Point?: (room: RoomProgressItem, tool: 'freehand' | 'polygon' | '2point') => void;
@@ -112,6 +116,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   materialNorms = [],
   inventory = [],
   workVolumes = [],
+  existingRoomNames = [],
   defaultInspectorName,
   onAddInventory,
   onSaveRoom,
@@ -195,6 +200,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   const [showColorPicker, setShowColorPicker] = useState<boolean>(false);
   const [showDimensionSettings, setShowDimensionSettings] = useState<boolean>(false);
   const [showMaterialEstimates, setShowMaterialEstimates] = useState<boolean>(false);
+  const [isAutoIssuing, setIsAutoIssuing] = useState<boolean>(false);
   const [selectedSubItemIds, setSelectedSubItemIds] = useState<string[]>([]);
 
   // Combined teams list from props or local storage
@@ -285,7 +291,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
         names.map((name, idx) => {
           const displaySubName = name.toLowerCase().startsWith('thi công') || name.toLowerCase().startsWith('sơn') || name.toLowerCase().startsWith('bả') ? name : `Thi công ${name}`;
           return {
-            id: `sub-init-${Date.now()}-${idx}`,
+            id: createEntityId(`sub-init-${idx}`),
             name: displaySubName,
             category: defaultCat,
             status: 'Chưa làm',
@@ -344,7 +350,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     const newItems: RoomSubItem[] = names.map((name, idx) => {
       const displaySubName = name.toLowerCase().startsWith('thi công') || name.toLowerCase().startsWith('sơn') || name.toLowerCase().startsWith('bả') ? name : `Thi công ${name}`;
       return {
-        id: `sub-preset-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 5)}`,
+        id: createEntityId(`sub-preset-${idx}`),
         name: displaySubName,
         category: catName,
         status: 'Chưa làm',
@@ -456,121 +462,236 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     return Object.keys(WORK_CATEGORY_PRESETS);
   }, [workVolumes, materialNorms, workCategory, subItems, categoryVolumes, roomItem]);
 
-  // Calculate stock balance map from inventory
+  const materialAliasMap = React.useMemo(() => buildMaterialAliasMap(materialNorms), [materialNorms]);
+
+  const canonicalMaterialKey = React.useCallback((materialId?: string, materialName?: string, unit?: string) => {
+    const resolvedId = materialId ? (materialAliasMap.get(String(materialId)) || String(materialId)) : undefined;
+    return getMaterialIdentityKey(resolvedId, materialName, unit);
+  }, [materialAliasMap]);
+
+  // Calculate stock balance map from inventory using one canonical material identity.
   const stockMap = React.useMemo(() => {
     const map: Record<string, number> = {};
-    if (inventory) {
-      inventory.forEach((item) => {
-        const key = item.materialName.trim().toLowerCase();
-        if (!map[key]) map[key] = 0;
-        if (item.type === 'in') map[key] += item.quantity;
-        else map[key] -= item.quantity;
-      });
-    }
-    return map;
-  }, [inventory]);
+    inventory.forEach((item) => {
+      const key = canonicalMaterialKey(item.materialId, item.materialName, item.unit);
+      map[key] = (map[key] || 0) + (item.type === 'in' ? 1 : -1) * (Number(item.quantity) || 0);
 
-  // Calculate active work categories present in this room
+      // Legacy transactions without materialId can still match a norm by name + unit.
+      if (!item.materialId) {
+        const matchedNorm = materialNorms.find((norm) =>
+          normalizeMaterialNameKey(norm.materialName) === normalizeMaterialNameKey(item.materialName) &&
+          areSameUnit(norm.unit, item.unit)
+        );
+        if (matchedNorm) {
+          const normKey = canonicalMaterialKey(resolveNormMaterialId(matchedNorm), matchedNorm.materialName, matchedNorm.unit);
+          if (normKey !== key) {
+            map[normKey] = (map[normKey] || 0) + (item.type === 'in' ? 1 : -1) * (Number(item.quantity) || 0);
+          }
+        }
+      }
+    });
+    return map;
+  }, [inventory, materialNorms, canonicalMaterialKey]);
+
+  // Calculate active work categories from every supported room representation.
+  // Legacy/imported rooms may have categoryVolumes without subItems, or may store
+  // the WorkVolume ID as the categoryVolumes key. Resolve those IDs back to titles.
   const activeCategories = React.useMemo(() => {
     const list = new Set<string>();
+    Object.keys(categoryVolumes || {}).forEach((rawKey) => {
+      const matched = workVolumes.find((v) => v.id === rawKey);
+      list.add(matched?.title || rawKey);
+    });
+    if (workCategory?.trim()) list.add(workCategory.trim());
     subItems.forEach((item) => {
       const cat = item.category || workCategory || 'Chưa phân nhóm';
-      list.add(cat);
+      if (cat?.trim()) list.add(cat.trim());
     });
-    return Array.from(list);
-  }, [workCategory, subItems]);
+    return Array.from(list).filter(Boolean);
+  }, [workCategory, subItems, categoryVolumes, workVolumes]);
+
+  const getCategoryVolume = React.useCallback((cat: string) => {
+    if (categoryVolumes[cat] !== undefined) return Number(categoryVolumes[cat]) || 0;
+    const matched = workVolumes.find((v) => v.title.trim().toLocaleLowerCase('vi-VN') === cat.trim().toLocaleLowerCase('vi-VN'));
+    if (matched && categoryVolumes[matched.id] !== undefined) return Number(categoryVolumes[matched.id]) || 0;
+    if (workCategory.trim().toLocaleLowerCase('vi-VN') === cat.trim().toLocaleLowerCase('vi-VN')) return Number(workVolume || 0) || 0;
+    return 0;
+  }, [categoryVolumes, workVolumes, workCategory, workVolume]);
+
+  const getCategorySourceUnit = (cat: string) => {
+    const normalizedCat = cat.trim().toLocaleLowerCase('vi-VN');
+    const matched = workVolumes.find((v) => v.id === cat || v.title.trim().toLocaleLowerCase('vi-VN') === normalizedCat);
+    return normalizeUnit(matched?.unit || volumeUnit || 'm²') || 'm²';
+  };
+
+  const currentRoomAutoIssuedMap = React.useMemo(() => {
+    const map: Record<string, { total: number; stableRecordQty: number }> = {};
+    if (!roomItem?.id) return map;
+    const legacyLocation = `${floorName} - ${roomItem.roomName}`.trim().toLowerCase();
+    inventory.forEach((tx) => {
+      if (tx.type !== 'out') return;
+      const isCurrentAutoTx =
+        (tx.sourceType === 'room-auto' && tx.sourceRoomId === roomItem.id) ||
+        (!tx.sourceRoomId &&
+          tx.location?.trim().toLowerCase() === legacyLocation &&
+          tx.notes?.startsWith('Tự động xuất kho dự toán tổng hợp cho ['));
+      if (!isCurrentAutoTx) return;
+
+      let key = canonicalMaterialKey(tx.materialId, tx.materialName, tx.unit);
+      if (!tx.materialId) {
+        const matchedNorm = materialNorms.find((norm) =>
+          normalizeMaterialNameKey(norm.materialName) === normalizeMaterialNameKey(tx.materialName) && areSameUnit(norm.unit, tx.unit)
+        );
+        if (matchedNorm) key = canonicalMaterialKey(resolveNormMaterialId(matchedNorm), matchedNorm.materialName, matchedNorm.unit);
+      }
+      if (!map[key]) map[key] = { total: 0, stableRecordQty: 0 };
+      map[key].total += Number(tx.quantity) || 0;
+      if (tx.sourceIssueKey && tx.id === createDeterministicId('AUTO-XK', tx.sourceIssueKey)) {
+        map[key].stableRecordQty = Math.max(map[key].stableRecordQty, Number(tx.quantity) || 0);
+      }
+    });
+    return map;
+  }, [inventory, roomItem?.id, roomItem?.roomName, floorName, materialNorms, canonicalMaterialKey]);
 
   // Sum up material estimates from all active categories based on their volumes
   const roomMaterialEstimates = React.useMemo(() => {
     if (!materialNorms || materialNorms.length === 0) return [];
 
-    const accumulated: Record<string, { norm: MaterialNorm; estQty: number }> = {};
+    const accumulated: Record<string, { norm: MaterialNorm; estQty: number; materialId?: string }> = {};
 
     activeCategories.forEach((cat) => {
-      const catVolume = categoryVolumes[cat] !== undefined ? categoryVolumes[cat] : 0;
+      const catVolume = getCategoryVolume(cat);
       if (catVolume <= 0) return;
 
+      const matchedWorkVolume = workVolumes.find((v) =>
+        v.id === cat || v.title.trim().toLocaleLowerCase('vi-VN') === cat.trim().toLocaleLowerCase('vi-VN')
+      );
+      const catId = matchedWorkVolume?.id;
       const matchingNorms = materialNorms.filter((norm) => {
-        const hasWorkCategories = (norm.workCategories && norm.workCategories.length > 0) || norm.workCategory;
-        if (!hasWorkCategories) return true; // general norms applied to all
-        if (norm.workCategories && norm.workCategories.length > 0) {
-          return norm.workCategories.includes(cat);
-        }
-        return norm.workCategory === cat;
+        // IDs are authoritative. Names are only a compatibility fallback for legacy data.
+        const normIds = norm.workCategoryIds || (norm.workCategoryId ? [norm.workCategoryId] : []);
+        if (normIds.length > 0 && catId) return normIds.includes(catId);
+        const normNames = norm.workCategories || (norm.workCategory ? [norm.workCategory] : []);
+        if (normNames.length === 0 && normIds.length === 0) return true;
+        return normNames.some((name) => name.trim().toLocaleLowerCase('vi-VN') === cat.trim().toLocaleLowerCase('vi-VN'));
       });
 
       matchingNorms.forEach((norm) => {
         let factor = 0;
-        if (norm.workCategoryNorms && norm.workCategoryNorms[cat] !== undefined) {
+        if (catId && norm.workCategoryNormsById && norm.workCategoryNormsById[catId] !== undefined) {
+          factor = norm.workCategoryNormsById[catId];
+        } else if (norm.workCategoryNorms && norm.workCategoryNorms[cat] !== undefined) {
           factor = norm.workCategoryNorms[cat];
         } else {
-          factor = norm.unitNormPerM2 || 0;
+          const sourceUnit = getCategorySourceUnit(cat);
+          const basisUnit = norm.normBasisUnit || 'm²';
+          factor = areSameUnit(basisUnit, sourceUnit) ? (norm.unitNormPerM2 || 0) : 0;
         }
         if (factor <= 0) return;
 
         const portionQty = catVolume * factor;
-        const key = norm.materialName.trim().toLowerCase();
-
-        if (accumulated[key]) {
-          accumulated[key].estQty += portionQty;
-        } else {
-          accumulated[key] = {
-            norm,
-            estQty: portionQty,
-          };
-        }
+        const materialId = resolveNormMaterialId(norm);
+        const key = canonicalMaterialKey(materialId, norm.materialName, norm.unit);
+        if (accumulated[key]) accumulated[key].estQty += portionQty;
+        else accumulated[key] = { norm, estQty: portionQty, materialId };
       });
     });
 
-    return Object.values(accumulated).map(({ norm, estQty }) => {
+    return Object.entries(accumulated).map(([materialKey, { norm, estQty, materialId }]) => {
       const roundedEstQty = Math.ceil(estQty * 100) / 100;
-      const stockQty = stockMap[norm.materialName.trim().toLowerCase()] || 0;
+      const stockQty = stockMap[materialKey] || 0;
+      const issued = currentRoomAutoIssuedMap[materialKey] || { total: 0, stableRecordQty: 0 };
+      const remainingQty = Math.max(0, Math.ceil((roundedEstQty - issued.total) * 100) / 100);
+      const overIssuedQty = Math.max(0, Math.ceil((issued.total - roundedEstQty) * 100) / 100);
       return {
         ...norm,
+        materialId,
+        materialKey,
         estQty: roundedEstQty,
+        alreadyIssued: issued.total,
+        stableRecordQty: issued.stableRecordQty,
+        remainingQty,
+        overIssuedQty,
         stockQty,
-        sufficient: stockQty >= roundedEstQty,
+        sufficient: stockQty >= remainingQty,
       };
     });
-  }, [materialNorms, activeCategories, categoryVolumes, stockMap]);
+  }, [materialNorms, activeCategories, getCategoryVolume, stockMap, currentRoomAutoIssuedMap, workVolumes, volumeUnit, canonicalMaterialKey]);
 
   const handleAutoIssueForRoom = async () => {
+    if (isAutoIssuing) return;
     if (!onAddInventory) {
-      alert('Không có hàm nạp phiếu kho!');
+      alert('Không có hàm tạo phiếu kho.');
       return;
     }
-    
-    const validCategories = activeCategories.filter(cat => (categoryVolumes[cat] || 0) > 0);
+    if (!roomItem?.id) {
+      alert('Vui lòng lưu Căn / Phòng trước, sau đó mở lại để xuất kho tự động. Điều này giúp hệ thống theo dõi chính xác vật tư đã xuất cho từng Căn / Phòng.');
+      return;
+    }
+
+    const validCategories = activeCategories.filter((cat) => getCategoryVolume(cat) > 0);
     if (validCategories.length === 0) {
-      alert('Vui lòng nhập khối lượng thi công (> 0 m²) cho ít nhất một hạng mục trước khi xuất kho!');
+      alert('Vui lòng nhập khối lượng thi công (> 0) cho ít nhất một hạng mục trước khi xuất kho.');
       return;
     }
-    
     if (roomMaterialEstimates.length === 0) {
-      alert('Chưa tìm thấy định mức vật tư nào phù hợp với các hạng mục thi công này trong Kho Vật Tư!');
+      alert('Chưa tìm thấy định mức vật tư phù hợp với các hạng mục thi công này.');
       return;
     }
 
-    let issuedCount = 0;
-    const catDetailsStr = validCategories.map(cat => `${cat} (${categoryVolumes[cat]} m²)`).join(', ');
+    const needsIssue = roomMaterialEstimates.filter((item: any) => item.remainingQty > 0);
+    if (needsIssue.length === 0) {
+      const over = roomMaterialEstimates.filter((item: any) => item.overIssuedQty > 0);
+      alert(over.length > 0
+        ? `Căn / Phòng này đã xuất đủ vật tư theo định mức hiện tại. Có ${over.length} vật tư đang xuất vượt nhu cầu; vui lòng kiểm tra lịch sử kho.`
+        : 'Căn / Phòng này đã xuất đủ vật tư theo định mức hiện tại. Không tạo thêm phiếu xuất trùng.');
+      return;
+    }
 
-    roomMaterialEstimates.forEach((item) => {
-      if (item.estQty > 0) {
+    setIsAutoIssuing(true);
+    let issuedCount = 0;
+    const insufficient: string[] = [];
+    const catDetailsStr = validCategories.map(cat => `${cat} (${formatDecimal(getCategoryVolume(cat))} ${getCategorySourceUnit(cat)})`).join(', ');
+
+    try {
+      needsIssue.forEach((item: any) => {
+        if (item.stockQty + 1e-9 < item.remainingQty) {
+          insufficient.push(`${item.materialName}: cần ${formatDecimal(item.remainingQty)} ${item.unit}, tồn ${formatDecimal(item.stockQty)} ${item.unit}`);
+          return;
+        }
+        const sourceIssueKey = `${roomItem.id}|${item.materialKey}`;
+        const deterministicId = createDeterministicId('AUTO-XK', sourceIssueKey);
+        // The deterministic record stores only the cumulative quantity created by
+        // the current auto-issue engine. Legacy auto issues remain separate and
+        // are included in alreadyIssued above.
+        const cumulativeStableQty = Math.ceil((Number(item.stableRecordQty || 0) + Number(item.remainingQty || 0)) * 100) / 100;
         onAddInventory({
+          id: deterministicId,
           type: 'out',
+          materialId: item.materialId,
           materialName: item.materialName,
           unit: item.unit,
-          quantity: item.estQty,
+          quantity: cumulativeStableQty,
           location: `${floorName} - ${roomName || 'Căn / Phòng'}`,
-          handler: assignedTeam || 'Đội thi công căn hộ',
+          handler: assignedTeam || 'Đội thi công Căn / Phòng',
           date: new Date().toISOString().split('T')[0],
           notes: `Tự động xuất kho dự toán tổng hợp cho [${roomName || 'Căn / Phòng'}] gồm các hạng mục: ${catDetailsStr}`,
+          sourceType: 'room-auto',
+          sourceRoomId: roomItem.id,
+          sourceFloorId: floorId,
+          sourceNormId: item.id,
+          sourceIssueKey,
         });
         issuedCount++;
-      }
-    });
+      });
 
-    alert(`🚚 Đã tự động tạo ${issuedCount} phiếu XUẤT KHO cho Căn / Phòng [${roomName || 'Căn / Phòng'}] dựa trên định mức chi tiết từng hạng mục!`);
+      const messages: string[] = [];
+      if (issuedCount > 0) messages.push(`Đã cập nhật ${issuedCount} phiếu xuất tự động theo phần vật tư còn thiếu cho [${roomName || 'Căn / Phòng'}].`);
+      if (insufficient.length > 0) messages.push(`Không xuất các vật tư thiếu tồn kho:\n• ${insufficient.join('\n• ')}`);
+      alert(messages.join('\n\n') || 'Không có phiếu nào cần tạo.');
+    } finally {
+      setIsAutoIssuing(false);
+    }
   };
 
   // Handler to add custom sub item
@@ -578,7 +699,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     setSubItems(prev => [
       ...prev,
       {
-        id: `sub-custom-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
+        id: createEntityId('sub-custom'),
         name: `Hạng mục ${prev.length + 1}`,
         status: 'Chưa làm',
         inspectionStatus: 'Chưa nghiệm thu',
@@ -655,7 +776,22 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!roomName.trim()) {
-      alert('Vui lòng nhập tên phòng hoặc mã căn hộ!');
+      alert('Vui lòng nhập tên hoặc mã Căn / Phòng!');
+      return;
+    }
+
+    const normalizedRoomName = roomName.trim().toLocaleLowerCase('vi-VN');
+    if (existingRoomNames.some((name) => String(name || '').trim().toLocaleLowerCase('vi-VN') === normalizedRoomName)) {
+      alert(`Tên Căn / Phòng “${roomName.trim()}” đã tồn tại trên mặt bằng này. Vui lòng dùng tên khác để tránh liên kết Defect/Checklist nhầm phòng.`);
+      return;
+    }
+
+    const invalidVolumeFormula = Object.entries(volumeStrings).find(([, raw]) => {
+      const text = String(raw || '').trim();
+      return Boolean(text) && evaluateMathExpression(text) === null;
+    });
+    if (invalidVolumeFormula) {
+      alert(`Khối lượng của hạng mục “${invalidVolumeFormula[0]}” có công thức không hợp lệ. Ví dụ: 100*5 hoặc 1220/3.`);
       return;
     }
 
@@ -697,6 +833,19 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       };
     });
 
+    const categoryVolumeUnits = activeCategories.reduce<Record<string, string>>((acc, cat) => {
+      const explicitSubUnits = finalSubItems
+        .filter((sub) => (sub.category || workCategory || '') === cat && sub.volumeUnit)
+        .map((sub) => normalizeUnit(sub.volumeUnit || ''))
+        .filter(Boolean);
+      const uniqueSubUnits = Array.from(new Set(explicitSubUnits));
+      const linkedVolume = workVolumes.find((v) => v.title.trim().toLocaleLowerCase('vi-VN') === cat.trim().toLocaleLowerCase('vi-VN'));
+      acc[cat] = uniqueSubUnits.length === 1
+        ? uniqueSubUnits[0]
+        : (normalizeUnit(linkedVolume?.unit || volumeUnit) || linkedVolume?.unit || volumeUnit || 'm²');
+      return acc;
+    }, {});
+
     onSaveRoom({
       id: roomItem?.id,
       floorId,
@@ -704,9 +853,10 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       workCategory,
       workCategoryId: finalWorkCategoryId,
       categoryVolumes,
+      categoryVolumeUnits,
       subItems: finalSubItems,
       workVolume: parsedVol !== undefined && !isNaN(parsedVol) ? parsedVol : undefined,
-      volumeUnit: volumeUnit.trim() || 'm²',
+      volumeUnit: normalizeUnit(volumeUnit) || 'm²',
       x,
       y,
       width,
@@ -843,7 +993,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                 <p className="text-[10px] text-slate-500 font-medium">
                   {!selectedColor
                     ? '✨ Đang dùng chế độ tự động: Hệ thống sẽ tự cấp mỗi căn 1 màu đa sắc phân biệt.'
-                    : '🎨 Bạn đã chọn màu tùy chỉnh riêng cho căn hộ này.'}
+                    : '🎨 Bạn đã chọn màu tùy chỉnh riêng cho Căn / Phòng này.'}
                 </p>
               </div>
             )}
@@ -1264,7 +1414,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                   }}
                                   className="px-1.5 py-0.5 bg-rose-600 text-white rounded text-[10px] font-bold hover:bg-rose-700 cursor-pointer shadow-2xs shrink-0"
                                 >
-                                  Đồng Ý
+                                  Đồng ý
                                 </button>
                                 <button
                                   type="button"
@@ -1345,7 +1495,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                       : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                                   }`}
                                 >
-                                  {st === 'Đã hoàn thành' ? '✅ Xong' : st === 'Đang làm' ? '🚧 Đang Làm' : '⏳ Chưa Làm'}
+                                  {st === 'Đã hoàn thành' ? '✅ Xong' : st === 'Đang làm' ? '🚧 Đang làm' : '⏳ Chưa làm'}
                                 </button>
                               ))}
                             </div>
@@ -1411,7 +1561,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                 </div>
                 <div className="min-w-0">
                   <h4 className="font-extrabold text-emerald-950 text-xs uppercase tracking-wide truncate">
-                    Vật Tư Dự Toán Tổng Hợp Liên Kết Từ Kho
+                    Vật tư dự toán liên kết từ kho
                   </h4>
                   <p className="text-[10.5px] text-emerald-700 font-medium truncate">
                     Tự động tính từ khối lượng các hạng mục &amp; định mức hao phí tương ứng
@@ -1436,17 +1586,19 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                     <button
                       type="button"
                       onClick={handleAutoIssueForRoom}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[11px] px-3 py-1.5 rounded-xl shadow-xs active:scale-95 transition-all flex items-center gap-1.5 shrink-0 cursor-pointer"
+                      disabled={!roomItem?.id || isAutoIssuing}
+                      title={!roomItem?.id ? 'Lưu Căn / Phòng trước để theo dõi chống xuất trùng' : 'Chỉ xuất phần vật tư còn thiếu so với định mức'}
+                      className="bg-emerald-600 disabled:bg-slate-300 disabled:cursor-not-allowed hover:bg-emerald-700 text-white font-extrabold text-[11px] px-3 py-1.5 rounded-xl shadow-xs active:scale-95 transition-all flex items-center gap-1.5 shrink-0 cursor-pointer"
                     >
                       <ArrowUpRight className="w-3.5 h-3.5" />
-                      Xuất kho Căn / Phòng
+                      {isAutoIssuing ? 'Đang tạo phiếu...' : roomItem?.id ? 'Xuất phần còn thiếu' : 'Lưu trước khi xuất kho'}
                     </button>
                   </div>
                 )}
 
                 {roomMaterialEstimates.length === 0 ? (
                   <p className="text-[11px] text-slate-500 italic text-center py-2 bg-white/60 rounded-xl">
-                    Chưa có định mức vật tư tiêu hao (ĐVT/m²) cài đặt cho hạng mục này hoặc khối lượng đang bằng 0 m². Vui lòng thiết lập ở mục "Kho vật tư &gt; Định mức".
+                    Chưa có định mức vật tư phù hợp với đơn vị khối lượng của hạng mục này hoặc khối lượng đang bằng 0. Vui lòng thiết lập ở mục "Kho vật tư &gt; Định mức".
                   </p>
                 ) : (
                   <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
@@ -1466,17 +1618,27 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                             </div>
                             <p className="font-bold text-slate-900 truncate mt-1">{item.materialName}</p>
                             <p className="text-[10px] text-slate-500">
-                              Định mức hao phí: <strong className="text-slate-700">{item.unitNormPerM2} {item.unit}/m²</strong>
+                              Định mức hao phí: <strong className="text-slate-700">{item.unitNormPerM2} {item.unit}/{item.normBasisUnit || getCategorySourceUnit(item.workCategory || workCategory)}</strong>
                             </p>
                           </div>
                           <div className="text-right shrink-0">
                             <p className="text-xs font-black text-emerald-700">
-                              Tổng cần: {item.estQty} {item.unit}
+                              Tổng cần: {formatDecimal(item.estQty)} {item.unit}
                             </p>
+                            {roomItem?.id && (
+                              <p className="text-[9.5px] text-slate-500 font-semibold">
+                                Đã xuất tự động: {formatDecimal(item.alreadyIssued)} · Còn: <strong className="text-indigo-700">{formatDecimal(item.remainingQty)}</strong> {item.unit}
+                              </p>
+                            )}
+                            {item.overIssuedQty > 0 && (
+                              <span className="text-[9px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded inline-block">
+                                Xuất vượt nhu cầu: {formatDecimal(item.overIssuedQty)} {item.unit}
+                              </span>
+                            )}
                             <span className={`text-[9.5px] font-bold px-1.5 py-0.2 rounded inline-block mt-0.5 ${
                               item.sufficient ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
                             }`}>
-                              {item.sufficient ? `Tồn kho: ${item.stockQty} (Đủ)` : `Tồn kho: ${item.stockQty} (Thiếu ${item.estQty - item.stockQty})`}
+                              {item.sufficient ? `Tồn kho: ${formatDecimal(item.stockQty)} (Đủ phần còn thiếu)` : `Tồn kho: ${formatDecimal(item.stockQty)} (Thiếu ${formatDecimal(Math.max(0, item.remainingQty - item.stockQty))})`}
                             </span>
                           </div>
                         </div>
@@ -1522,7 +1684,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
               <div className="flex items-center gap-1.5 min-w-0">
                 <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
                 <span className="font-extrabold text-amber-950 text-xs truncate">
-                  📐 Tùy Chỉnh Kích Thước &amp; Tọa Độ
+                  📐 Tùy chỉnh kích thước &amp; tọa độ
                 </span>
               </div>
               <div className="flex items-center gap-1 text-amber-900 text-xs font-semibold shrink-0">
@@ -1724,7 +1886,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                     }}
                     className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-extrabold rounded-lg text-xs shadow-xs active:scale-95 transition-all cursor-pointer"
                   >
-                    Đồng Ý Xóa
+                    Đồng ý xóa
                   </button>
                   <button
                     type="button"
@@ -1767,7 +1929,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
             <div>
               <h3 className="text-base font-bold text-slate-900">Xác Nhận Thay Thế Mẫu</h3>
               <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
-                Bạn có chắc chắn muốn nạp mẫu này và <strong className="text-rose-600 font-bold">XÓA TOÀN BỘ</strong> các hạng mục cũ đang có trong căn hộ không?
+                Bạn có chắc chắn muốn nạp mẫu này và <strong className="text-rose-600 font-bold">XÓA TOÀN BỘ</strong> các hạng mục cũ đang có trong Căn / Phòng không?
               </p>
             </div>
             <div className="flex gap-2 pt-2">
@@ -1786,7 +1948,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                 }}
                 className="flex-1 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-xs shadow-xs"
               >
-                Đồng Ý Xóa &amp; Thay Thế
+                Đồng ý xóa &amp; thay thế
               </button>
             </div>
           </div>

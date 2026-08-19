@@ -4,6 +4,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  deleteDoc,
   orderBy,
   query,
   setDoc,
@@ -16,6 +17,7 @@ import {
   isPrimaryDriveReady,
   PRIMARY_DRIVE_OWNER_EMAIL,
   uploadFloorPlanToPrimaryDrive,
+  deleteFloorPlanFromPrimaryDrive,
 } from './primaryDriveBridge';
 
 const CHUNK_BYTES = 560 * 1024;
@@ -256,4 +258,21 @@ export async function syncFloorPlanImagesToCloud(projectId: string, floorPlans: 
     }
   }
   return { uploaded, skipped, failed };
+}
+
+
+/** Remove binary floor-plan data from the active cloud provider after the business
+ * floor record has been deleted. Failures are non-fatal and can be retried later. */
+export async function deleteFloorPlanImageFromCloud(projectId: string, plan: FloorPlan): Promise<void> {
+  if (!projectId || !plan?.id) return;
+  const driveFileId = parseDriveFileId(plan);
+  if (driveFileId) {
+    await deleteFloorPlanFromPrimaryDrive(projectId, plan.id, driveFileId).catch((err) => {
+      console.warn('[Floor Plan Image] Drive delete warning:', err);
+    });
+  }
+  await deleteFallbackChunks(projectId, plan.id).catch((err) => {
+    console.warn('[Floor Plan Image] fallback chunk delete warning:', err);
+  });
+  await deleteDoc(doc(db, 'projects', projectId, 'floor_plan_images', plan.id)).catch(() => {});
 }

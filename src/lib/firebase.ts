@@ -935,6 +935,31 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
           if (!item || !item.id) continue;
           const docRef = doc(db, 'projects', project.id, cloudName, item.id);
           const sanitized = sanitizePayloadForCloud(item);
+
+          if (cloudName === 'inventory' && sanitized.sourceType === 'room-auto') {
+            // Deterministic room-auto records are monotonic. Two devices may calculate
+            // the same missing quantity at the same time; a transaction keeps only one
+            // cumulative record and never lets a stale device lower it.
+            if (operationCount > 0) {
+              await batch.commit();
+              batch = writeBatch(db);
+              operationCount = 0;
+            }
+            await runTransaction(db, async (transaction) => {
+              const snap = await transaction.get(docRef);
+              const current = snap.exists() ? snap.data() : {};
+              const quantity = Math.max(Number(current?.quantity || 0), Number(sanitized.quantity || 0));
+              transaction.set(docRef, {
+                ...sanitized,
+                quantity,
+                deleted: false,
+                deletedAt: null,
+                updatedAt: Math.max(Number(current?.updatedAt || 0), Number(item.updatedAt || now)),
+              }, { merge: true });
+            });
+            continue;
+          }
+
           batch.set(docRef, {
             ...sanitized,
             deleted: false,
@@ -1065,6 +1090,31 @@ export async function saveProjectDiffsToCloud(
         }
         
         const currentUser = getCurrentAppUser();
+        if (subName === 'inventory' && sanitized.sourceType === 'room-auto') {
+          if (operationCount > 0) {
+            await batch.commit();
+            batch = writeBatch(db);
+            operationCount = 0;
+          }
+          await runTransaction(db, async (transaction) => {
+            const snap = await transaction.get(docRef);
+            const current = snap.exists() ? snap.data() : {};
+            const quantity = Math.max(Number(current?.quantity || 0), Number(sanitized.quantity || 0));
+            transaction.set(docRef, {
+              ...sanitized,
+              quantity,
+              deleted: false,
+              deletedAt: null,
+              updatedAt: Math.max(Number(current?.updatedAt || 0), Number(item.updatedAt || Date.now())),
+              updatedByUid: currentUser?.uid || '',
+              updatedByEmail: normalizeEmail(currentUser?.email),
+              updatedByDeviceId: getDeviceId(),
+              updatedByDeviceName: getDeviceName(),
+            }, { merge: true });
+          });
+          continue;
+        }
+
         batch.set(docRef, {
           ...sanitized,
           deleted: false,

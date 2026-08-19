@@ -3,15 +3,22 @@ import React, { useState, useEffect } from 'react';
 import { FileText, Download, Printer, X, CheckCircle2, Filter, Mail, Package, BarChart3, Building2, ClipboardCheck, FileSpreadsheet, Users, Copy, HelpCircle, Camera, Image as ImageIcon } from 'lucide-react';
 import { InventoryItem, WorkVolume, DefectItem, ChecklistItem, FloorPlan, RoomProgressItem, MaterialNorm, CrewRecord, TeamInfo } from '../types';
 import { exportAllToExcel, exportAllToExcelBase64, exportTeamStatisticsToExcel } from '../utils/excelExport';
-import { formatDateDDMMYYYY, formatDateTime, formatFloorName } from '../utils/dateFormatter';
+import { formatDateDDMMYYYY, formatDateTime, formatFloorName, parseLegacyTimestamp } from '../utils/dateFormatter';
 import { getRoomColorStyle } from '../utils/colorPalette';
-import { getDefectOverdueInfo } from '../utils/defectUtils';
+import { getDefectOverdueInfo, getDefectShortCode } from '../utils/defectUtils';
 import { formatDecimal, useFormatSettings } from '../utils/numberUtils';
 import { getProjectPhotos, getPhotoDataUrl } from '../utils/photoStorage';
 import { computeDefectLabelPositions, computeRoomLabelPositions } from '../utils/pdfMapUtils';
 import { canViewFinancials, getCurrentUserRole, UserRole } from '../utils/securityUtils';
 import { apiFetch, hasApiBackend } from '../utils/api';
 import { saveHtmlPdf } from '../utils/fileExport';
+
+const escapeHtml = (value: unknown): string => String(value ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
 
 interface ExportPdfModalProps {
   isOpen: boolean;
@@ -78,6 +85,20 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   const [onlyDefectMapIfHasDefects, setOnlyDefectMapIfHasDefects] = useState(true);
   const [pdfPaperSize, setPdfPaperSize] = useState<'A4' | 'A3'>('A4');
   const [pdfOrientation, setPdfOrientation] = useState<'portrait' | 'landscape'>('portrait');
+
+  // PDF map appearance - display-only settings, never written into project data.
+  const [pdfHighlightOpacity, setPdfHighlightOpacity] = useState(16);
+  const [pdfHighlightBorderWidth, setPdfHighlightBorderWidth] = useState(0.25);
+  const [pdfRoomMarkerSizeScale, setPdfRoomMarkerSizeScale] = useState(1);
+  const [pdfDefectMarkerSizeScale, setPdfDefectMarkerSizeScale] = useState(0.9);
+  const [pdfMarkerFontScale, setPdfMarkerFontScale] = useState(1);
+  const [pdfMarkerOpacity, setPdfMarkerOpacity] = useState(96);
+  const [pdfShowMarkerOutline, setPdfShowMarkerOutline] = useState(true);
+  const [pdfShowLeaderLines, setPdfShowLeaderLines] = useState(true);
+  const [pdfShowRoomMarkers, setPdfShowRoomMarkers] = useState(true);
+  const [pdfShowDefectMarkers, setPdfShowDefectMarkers] = useState(true);
+  const [pdfRoomCodeStyle, setPdfRoomCodeStyle] = useState<'number' | 'hash' | 'room'>('number');
+  const [pdfDefectCodeStyle, setPdfDefectCodeStyle] = useState<'number' | 'df'>('number');
 
   // Photos loaded asynchronously from local storage for report attachments
   const [crewPhotosMap, setCrewPhotosMap] = useState<Record<string, string[]>>({});
@@ -152,7 +173,20 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     }
   };
 
+  const getRoomMapCode = (index: number) => {
+    const raw = String(index + 1);
+    if (pdfRoomCodeStyle === 'hash') return `#${raw}`;
+    if (pdfRoomCodeStyle === 'room') return `C${raw}`;
+    return raw;
+  };
+
+  const getDefectMapCode = (defect: DefectItem & { markerCode?: string; displayCode?: string }) =>
+    pdfDefectCodeStyle === 'df'
+      ? (defect.displayCode || `DF-${defect.markerCode || ''}`)
+      : (defect.markerCode || '');
+
   const filteredDefects = defects.filter((d) => {
+    if (d.archivedAt) return false;
     if (floorNames.length > 0 && !floorNames.includes(d.floorName)) return false;
     if (isAllSelected) return true;
     return selectedFloors.includes(d.floorName);
@@ -171,22 +205,23 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
       if (Math.abs(yCmp) > 0.01) return yCmp;
       const xCmp = (Number(a.x) || 0) - (Number(b.x) || 0);
       if (Math.abs(xCmp) > 0.01) return xCmp;
-      const dateCmp = String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
+      const dateCmp = parseLegacyTimestamp(a.createdAt, 0) - parseLegacyTimestamp(b.createdAt, 0);
       if (dateCmp !== 0) return dateCmp;
       return String(a.id || '').localeCompare(String(b.id || ''));
     })
-    .map((d, index, all) => {
-      const markerDigits = all.length >= 100 ? 3 : 2;
-      const markerCode = String(index + 1).padStart(markerDigits, '0');
+    .map((d, index) => {
+      const displayCode = getDefectShortCode(d.id);
+      const markerCode = displayCode.replace(/^DF-/, '');
       return {
         ...d,
         markerNumber: index + 1,
         markerCode,
-        displayCode: `DF-${String(index + 1).padStart(3, '0')}`,
+        displayCode,
       };
     });
 
   const filteredChecklist = checklist.filter((c) => {
+    if (c.archivedAt) return false;
     if (floorNames.length > 0 && !floorNames.includes(c.floorName)) return false;
     if (isAllSelected) return true;
     return selectedFloors.includes(c.floorName);
@@ -221,6 +256,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
 
   // High-fidelity HTML Report Generator
   const getReportHtml = (): string => {
+    const h = escapeHtml;
     const areaText = isAllSelected ? 'Toàn bộ công trình' : selectedFloors.join(', ');
 
     // Target floor plans to include
@@ -237,7 +273,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
       <html lang="vi">
       <head>
         <meta charset="UTF-8">
-        <title>Báo Cáo Tổng Hợp Thi Công &amp; Nghiệm Thu - ${projectName || 'Công Trình'}</title>
+        <title>Báo cáo tổng hợp thi công &amp; nghiệm thu - ${h(projectName || 'Công trình')}</title>
         <style>
           @page { size: ${pdfPaperSize} ${pdfOrientation}; margin: 10mm 10mm 12mm 10mm; }
           * { box-sizing: border-box; }
@@ -284,14 +320,14 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
 
         <div class="header">
           <div>
-            <h1>Báo Cáo Tổng Hợp Thi Công &amp; Nghiệm Thu</h1>
-            <p><strong>Dự án:</strong> ${projectName || '—'} | <strong>Khu vực:</strong> ${areaText}</p>
-            ${displayContractor !== '—' ? `<p><strong>Đơn vị thi công:</strong> ${displayContractor}</p>` : ''}
-            ${displayInspector !== '—' ? `<p><strong>Kỹ sư phụ trách:</strong> ${displayInspector}</p>` : ''}
+            <h1>Báo cáo tổng hợp thi công &amp; nghiệm thu</h1>
+            <p><strong>Dự án:</strong> ${h(projectName || '—')} | <strong>Khu vực:</strong> ${h(areaText)}</p>
+            ${displayContractor !== '—' ? `<p><strong>Đơn vị thi công:</strong> ${h(displayContractor)}</p>` : ''}
+            ${displayInspector !== '—' ? `<p><strong>Kỹ sư phụ trách:</strong> ${h(displayInspector)}</p>` : ''}
           </div>
           <div style="text-align: right;">
             <p><strong>Ngày xuất:</strong> ${formatDateTime(new Date())}</p>
-            <p style="color: #4f46e5; font-weight: bold;">Hệ Thống Quản Lý Thi Công &amp; Nghiệm Thu</p>
+            <p style="color: #4f46e5; font-weight: bold;">Hệ thống quản lý thi công &amp; nghiệm thu</p>
           </div>
         </div>
 
@@ -342,7 +378,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                 <th style="width: 60px; text-align: center;">ĐVT</th>
                 <th style="width: 80px; text-align: right;">Tồn Kho</th>
                 <th style="width: 110px;">Vị trí lưu kho</th>
-                <th style="width: 100px;">Trạng Thái</th>
+                <th style="width: 100px;">Trạng thái</th>
               </tr>
             </thead>
             <tbody>
@@ -413,32 +449,36 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
             if (!hasRooms && !hasDefects) {
               return `
                 <div class="page-break-avoid" style="margin-bottom: 16px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; background: #f8fafc;">
-                  <span style="font-weight: bold; color: #1e1b4b; font-size: 11px;">📍 Sơ đồ mặt bằng: ${formatFloorName(fp.floorName)}</span>
+                  <span style="font-weight: bold; color: #1e1b4b; font-size: 11px;">📍 Sơ đồ mặt bằng: ${h(formatFloorName(fp.floorName))}</span>
                   <span style="color: #64748b; font-size: 10px; margin-left: 8px;">(Chưa có khu vực/phòng được đánh dấu &amp; Không có Defect)</span>
                 </div>
               `;
             }
 
+            const roomCollisionScale = pdfRoomMarkerSizeScale * (pdfRoomCodeStyle === 'number' ? 1 : 1.22);
+            const defectCollisionScale = pdfDefectMarkerSizeScale * (pdfDefectCodeStyle === 'df' ? 1.55 : 1);
             const roomPositions = computeRoomLabelPositions(
               fpRooms,
-              fpDefects.map((d) => ({ x: d.x, y: d.y, radius: 1.15 }))
+              fpDefects.map((d) => ({ x: d.x, y: d.y, radius: 1.15 * pdfDefectMarkerSizeScale })),
+              roomCollisionScale
             );
             const defectPositions = computeDefectLabelPositions(
               fpDefects,
               roomPositions
                 .map((rp, roomIndex) => ({ rp, roomIndex }))
-                .filter(({ rp }) => rp.showLabel)
+                .filter(({ rp }) => rp.showLabel && pdfShowRoomMarkers)
                 .map(({ rp, roomIndex }) => ({
                   x: rp.lx,
                   y: rp.ly,
-                  radius: String(roomIndex + 1).length <= 1 ? 1.15 : String(roomIndex + 1).length === 2 ? 1.45 : 1.70,
-                }))
+                  radius: (String(roomIndex + 1).length <= 1 ? 1.15 : String(roomIndex + 1).length === 2 ? 1.45 : 1.70) * roomCollisionScale,
+                })),
+              defectCollisionScale
             );
 
             return `
               <div class="page-break-avoid" style="margin-bottom: 20px; border: 1px solid #cbd5e1; border-radius: 10px; padding: 12px; background: #fff;">
                 <h4 style="margin: 0 0 10px 0; font-size: 12.5px; color: #1e1b4b; font-weight: bold; border-bottom: 2px solid #4f46e5; padding-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
-                  <span>📍 Sơ đồ mặt bằng: <strong>${formatFloorName(fp.floorName)}</strong></span>
+                  <span>📍 Sơ đồ mặt bằng: <strong>${h(formatFloorName(fp.floorName))}</strong></span>
                   <span style="font-size: 10px; font-weight: normal; color: #475569;">(${fpRooms.length} khu vực/phòng, ${fpDefects.length} defect)</span>
                 </h4>
 
@@ -459,86 +499,99 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                             if (r.points && r.points.length >= 2) {
                               const ptsStr = r.points.map(p => `${p.x},${p.y}`).join(' ');
                               if (r.isPolyline) {
-                                return `<polyline points="${ptsStr}" fill="none" stroke="${borderColor}" stroke-width="0.35" stroke-linecap="round" stroke-linejoin="round" opacity="0.82" />`;
+                                return `<polyline points="${ptsStr}" fill="none" stroke="${borderColor}" stroke-width="${Math.max(0.1, pdfHighlightBorderWidth * 1.35)}" stroke-linecap="round" stroke-linejoin="round" opacity="${Math.max(0.35, pdfHighlightOpacity / 100)}" />`;
                               }
-                              return `<polygon points="${ptsStr}" fill="${bgCol}" fill-opacity="0.16" stroke="${borderColor}" stroke-width="0.25" stroke-linejoin="round" />`;
+                              return `<polygon points="${ptsStr}" fill="${bgCol}" fill-opacity="${pdfHighlightOpacity / 100}" stroke="${borderColor}" stroke-width="${pdfHighlightBorderWidth}" stroke-linejoin="round" />`;
                             }
-                            return `<rect x="${r.x}" y="${r.y}" width="${r.width || 15}" height="${r.height || 15}" fill="${bgCol}" fill-opacity="0.16" stroke="${borderColor}" stroke-width="0.25" stroke-linejoin="round" rx="0.5" />`;
+                            return `<rect x="${r.x}" y="${r.y}" width="${r.width || 15}" height="${r.height || 15}" fill="${bgCol}" fill-opacity="${pdfHighlightOpacity / 100}" stroke="${borderColor}" stroke-width="${pdfHighlightBorderWidth}" stroke-linejoin="round" rx="0.5" />`;
                           }).join('')}
 
-                          <!-- Compact room-number pills: map shows 1/11/101; legend keeps #1/#11/#101. Collision-safe vs Defect origins/labels. -->
-                          ${fpRooms.map((r, rIdx) => {
-                            const rPos = roomPositions[rIdx] || { x: 50, y: 50, lx: 50, ly: 50, isOffset: false,
-                                                                                                showLabel: true };
+                          <!-- Room marker labels - user adjustable in PDF export settings. -->
+                          ${pdfShowRoomMarkers ? fpRooms.map((r, rIdx) => {
+                            const rPos = roomPositions[rIdx] || { x: 50, y: 50, lx: 50, ly: 50, isOffset: false, showLabel: true };
                             let badgeBg = '#2563eb';
                             if (r.inspectionStatus === 'Đạt nghiệm thu') badgeBg = '#059669';
                             else if (r.inspectionStatus === 'Chưa đạt (Cần sửa)') badgeBg = '#dc2626';
 
                             if (!rPos.showLabel) return '';
+                            const roomCode = getRoomMapCode(rIdx);
+                            const pillWBase = Math.max(1.75, roomCode.length * 0.72 + 0.65);
+                            const pillW = pillWBase * pdfRoomMarkerSizeScale;
+                            const pillH = 1.70 * pdfRoomMarkerSizeScale;
+                            const fontSize = (roomCode.length >= 4 ? 0.78 : roomCode.length >= 3 ? 0.86 : 0.96) * pdfMarkerFontScale;
+                            const markerOpacity = Math.max(0.1, Math.min(1, pdfMarkerOpacity / 100));
                             return `
-                              <g>
-                                ${rPos.isOffset ? `
-                                  <circle cx="${rPos.x}" cy="${rPos.y}" r="0.23" fill="${badgeBg}" />
-                                  <line x1="${rPos.x}" y1="${rPos.y}" x2="${rPos.lx}" y2="${rPos.ly}" stroke="${badgeBg}" stroke-width="0.18" stroke-dasharray="0.45,0.35" opacity="0.82" />
+                              <g opacity="${markerOpacity}">
+                                ${rPos.isOffset && pdfShowLeaderLines ? `
+                                  <circle cx="${rPos.x}" cy="${rPos.y}" r="${0.23 * pdfRoomMarkerSizeScale}" fill="${badgeBg}" />
+                                  <line x1="${rPos.x}" y1="${rPos.y}" x2="${rPos.lx}" y2="${rPos.ly}" stroke="${badgeBg}" stroke-width="${0.18 * pdfRoomMarkerSizeScale}" stroke-dasharray="0.45,0.35" opacity="0.82" />
                                 ` : ''}
-                                ${(() => {
-                                  const roomNo = String(rIdx + 1);
-                                  const pillW = roomNo.length <= 1 ? 1.75 : roomNo.length === 2 ? 2.35 : 2.85;
-                                  const pillH = 1.70;
-                                  return `
-                                    <rect
-                                      x="${rPos.lx - pillW / 2}"
-                                      y="${rPos.ly - pillH / 2}"
-                                      width="${pillW}"
-                                      height="${pillH}"
-                                      rx="${pillH / 2}"
-                                      fill="#ffffff"
-                                      fill-opacity="0.96"
-                                      stroke="${badgeBg}"
-                                      stroke-width="0.22"
-                                    />
-                                    <text x="${rPos.lx}" y="${rPos.ly + 0.12}" text-anchor="middle" dominant-baseline="middle" fill="${badgeBg}" font-size="${roomNo.length >= 3 ? '0.88' : '0.96'}" font-weight="900" style="font-family: Arial, sans-serif;">${roomNo}</text>
-                                  `;
-                                })()}
+                                <rect
+                                  x="${rPos.lx - pillW / 2}"
+                                  y="${rPos.ly - pillH / 2}"
+                                  width="${pillW}"
+                                  height="${pillH}"
+                                  rx="${pillH / 2}"
+                                  fill="#ffffff"
+                                  fill-opacity="0.96"
+                                  stroke="${pdfShowMarkerOutline ? badgeBg : 'none'}"
+                                  stroke-width="${pdfShowMarkerOutline ? 0.22 * pdfRoomMarkerSizeScale : 0}"
+                                />
+                                <text x="${rPos.lx}" y="${rPos.ly + 0.12 * pdfRoomMarkerSizeScale}" text-anchor="middle" dominant-baseline="middle" fill="${badgeBg}" font-size="${fontSize}" font-weight="900" style="font-family: Arial, sans-serif;">${roomCode}</text>
                               </g>
                             `;
-                          }).join('')}
+                          }).join('') : ''}
                         </svg>
                       </div>
 
                       <!-- Legend Table below Vùng đánh dấu Map -->
                       ${fpRooms.length > 0 ? `
                         <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 8px; margin-bottom: 6px;">
-                          <p style="margin: 0 0 4px 0; font-size: 9.5px; font-weight: bold; color: #1e1b4b;">Chú giải mã vị trí khu vực / phòng (${formatFloorName(fp.floorName)}):</p>
+                          <p style="margin: 0 0 4px 0; font-size: 9.5px; font-weight: bold; color: #1e1b4b;">Chú giải mã vị trí khu vực / phòng (${h(formatFloorName(fp.floorName))}):</p>
                           <table style="width: 100%; border-collapse: collapse; margin-bottom: 0; font-size: 9px; table-layout: fixed;">
                             <thead>
                               <tr style="background: #e2e8f0;">
-                                <th style="width: 35px; text-align: center; color: #334155; padding: 4px;">Mã</th>
-                                <th style="width: 37%; color: #334155; padding: 4px;">Tên Khu Vực / Phòng</th>
-                                <th style="width: 16%; color: #334155; padding: 4px;">Trạng Thái Nghiệm Thu</th>
-                                <th style="width: 13%; color: #334155; padding: 4px;">Khung Trần</th>
-                                <th style="width: 13%; color: #334155; padding: 4px;">Bắn Tấm</th>
-                                <th style="width: 14%; color: #334155; padding: 4px;">Giám Sát</th>
+                                <th style="width: 7%; text-align: center; color: #334155; padding: 4px;">Mã</th>
+                                <th style="width: 22%; color: #334155; padding: 4px;">Căn / Phòng</th>
+                                <th style="width: 24%; color: #334155; padding: 4px;">Hạng mục thi công</th>
+                                <th style="width: 18%; color: #334155; padding: 4px;">Khối lượng</th>
+                                <th style="width: 15%; color: #334155; padding: 4px;">Nghiệm thu</th>
+                                <th style="width: 14%; color: #334155; padding: 4px;">Đội / Giám sát</th>
                               </tr>
                             </thead>
                             <tbody>
-                              ${fpRooms.map((r, rIdx) => `
-                                <tr>
-                                  <td style="text-align: center; font-weight: 900; color: #2563eb; padding: 4px;">#${rIdx + 1}</td>
-                                  <td style="font-weight: bold; padding: 4px; color: #0f172a; word-break: normal; overflow-wrap: break-word;">${r.roomName}</td>
-                                  <td style="padding: 4px;"><span class="badge ${r.inspectionStatus === 'Đạt nghiệm thu' ? 'badge-passed' : r.inspectionStatus === 'Chưa đạt (Cần sửa)' ? 'badge-defect' : 'badge-pending'}">${r.inspectionStatus}</span></td>
-                                  <td style="padding: 4px;">${r.frameStatus || '-'}</td>
-                                  <td style="padding: 4px;">${r.boardStatus || '-'}</td>
-                                  <td style="padding: 4px;">${r.inspectorName || displayInspector}</td>
-                                </tr>
-                              `).join('')}
+                              ${fpRooms.map((r, rIdx) => {
+                                const categoryNames = Array.from(new Set([
+                                  ...Object.keys(r.categoryVolumes || {}),
+                                  ...(r.subItems || []).map((sub) => sub.category || r.workCategory || '').filter(Boolean),
+                                  ...(r.workCategory ? [r.workCategory] : []),
+                                ])).filter(Boolean);
+                                const volumeEntries = Object.entries(r.categoryVolumes || {}) as Array<[string, number]>;
+                                const volumeText = volumeEntries.length > 0
+                                  ? volumeEntries.map(([name, value]) => `${h(name)}: ${formatDecimal(value)} ${h(r.volumeUnit || 'm²')}`).join('<br/>')
+                                  : (typeof r.workVolume === 'number' && r.workVolume > 0 ? `${formatDecimal(r.workVolume)} ${r.volumeUnit || 'm²'}` : '—');
+                                const assignedTeams = Array.from(new Set([
+                                  r.assignedTeam,
+                                  ...(r.subItems || []).map((sub) => sub.assignedTeam),
+                                ].filter((value): value is string => Boolean(value && value.trim()))));
+                                return `
+                                  <tr>
+                                    <td style="text-align: center; font-weight: 900; color: #2563eb; padding: 4px;">${getRoomMapCode(rIdx)}</td>
+                                    <td style="font-weight: bold; padding: 4px; color: #0f172a; word-break: normal; overflow-wrap: break-word;">${h(r.roomName)}</td>
+                                    <td style="padding: 4px; word-break: normal; overflow-wrap: break-word;">${categoryNames.length > 0 ? categoryNames.map((name) => h(name)).join('<br/>') : '—'}</td>
+                                    <td style="padding: 4px; word-break: normal; overflow-wrap: break-word;">${volumeText}</td>
+                                    <td style="padding: 4px;"><span class="badge ${r.inspectionStatus === 'Đạt nghiệm thu' ? 'badge-passed' : r.inspectionStatus === 'Chưa đạt (Cần sửa)' ? 'badge-defect' : 'badge-pending'}">${r.inspectionStatus}</span></td>
+                                    <td style="padding: 4px; word-break: normal; overflow-wrap: break-word;">${h(assignedTeams.length > 0 ? assignedTeams.join(', ') : '—')}<br/><span style="font-size: 8px; color: #64748b;">${h(r.inspectorName || displayInspector)}</span></td>
+                                  </tr>
+                                `;
+                              }).join('')}
                             </tbody>
                           </table>
                         </div>
                       ` : ''}
 
                       ${!hasDefects ? `
-                        <p style="margin: 4px 0 0 0; font-size: 9.5px; color: #166534; font-weight: bold;">✅ ${formatFloorName(fp.floorName)} không có Defect nào.</p>
+                        <p style="margin: 4px 0 0 0; font-size: 9.5px; color: #166534; font-weight: bold;">✅ ${h(formatFloorName(fp.floorName))} không có Defect nào.</p>
                       ` : ''}
                     ` : '<p style="font-size: 10px; color: #94a3b8; font-style: italic;">Chưa có ảnh bản vẽ.</p>'}
                   </div>
@@ -555,37 +608,43 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                           <img src="${fp.imageUrl}" style="width: 100%; height: auto; display: block; margin: 0 auto; vertical-align: top;" />
 
                           <svg style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible;" viewBox="0 0 100 100" preserveAspectRatio="none">
-                            ${fpDefects.map((d, idx) => {
+                            ${pdfShowDefectMarkers ? fpDefects.map((d, idx) => {
                               const pos = defectPositions[idx] || { x: d.x, y: d.y, lx: d.x + 3, ly: d.y - 3, showLabel: true, clusterIndex: 0, clusterCount: 1 };
                               let pinColor = '#e11d48';
                               if (d.status === 'Đã nghiệm thu' || d.status === 'Đã khắc phục') {
                                 pinColor = '#059669';
-                              } else if (d.status === 'Đang sửa' || d.status === 'Đang khắc phục') {
+                              } else if (d.status === 'Đang sửa') {
                                 pinColor = '#d97706';
                               }
 
+                              const defectCode = getDefectMapCode(d);
+                              const markerOpacity = Math.max(0.1, Math.min(1, pdfMarkerOpacity / 100));
+                              const pillH = 2.10 * pdfDefectMarkerSizeScale;
+                              const pillW = Math.max(pillH, (defectCode.length * 0.82 + 0.9) * pdfDefectMarkerSizeScale);
+                              const fontSize = (defectCode.length >= 6 ? 0.72 : defectCode.length >= 4 ? 0.86 : 1.05) * pdfMarkerFontScale;
+
                               return `
-                                <g>
+                                <g opacity="${markerOpacity}">
                                   ${pos.clusterIndex === 0 ? `
-                                    <circle cx="${pos.x}" cy="${pos.y}" r="${pos.clusterCount > 1 ? 0.92 : 0.72}" fill="#ffffff" fill-opacity="0.92" stroke="${pinColor}" stroke-width="0.24" />
-                                    <circle cx="${pos.x}" cy="${pos.y}" r="0.24" fill="${pinColor}" />
-                                    ${pos.clusterCount > 1 ? `<text x="${pos.x}" y="${Math.max(1.0, pos.y - 1.05)}" text-anchor="middle" fill="${pinColor}" font-size="1.00" font-weight="900" style="font-family: Arial, sans-serif;">×${pos.clusterCount}</text>` : ''}
+                                    <circle cx="${pos.x}" cy="${pos.y}" r="${(pos.clusterCount > 1 ? 0.92 : 0.72) * pdfDefectMarkerSizeScale}" fill="#ffffff" fill-opacity="0.92" stroke="${pdfShowMarkerOutline ? pinColor : 'none'}" stroke-width="${pdfShowMarkerOutline ? 0.24 * pdfDefectMarkerSizeScale : 0}" />
+                                    <circle cx="${pos.x}" cy="${pos.y}" r="${0.24 * pdfDefectMarkerSizeScale}" fill="${pinColor}" />
+                                    ${pos.clusterCount > 1 ? `<text x="${pos.x}" y="${Math.max(1.0, pos.y - 1.05 * pdfDefectMarkerSizeScale)}" text-anchor="middle" fill="${pinColor}" font-size="${1.0 * pdfMarkerFontScale}" font-weight="900" style="font-family: Arial, sans-serif;">×${pos.clusterCount}</text>` : ''}
                                   ` : ''}
 
                                   ${pos.showLabel ? `
-                                    <line x1="${pos.x}" y1="${pos.y}" x2="${pos.lx}" y2="${pos.ly}" stroke="${pinColor}" stroke-width="0.18" opacity="0.78" />
-                                    <circle cx="${pos.lx}" cy="${pos.ly}" r="1.05" fill="${pinColor}" fill-opacity="0.94" stroke="#ffffff" stroke-width="0.28" />
-                                    <text x="${pos.lx}" y="${pos.ly + 0.22}" text-anchor="middle" dominant-baseline="middle" fill="#ffffff" font-size="1.05" font-weight="900" style="font-family: Arial, sans-serif;">${d.markerCode}</text>
+                                    ${pdfShowLeaderLines ? `<line x1="${pos.x}" y1="${pos.y}" x2="${pos.lx}" y2="${pos.ly}" stroke="${pinColor}" stroke-width="${0.18 * pdfDefectMarkerSizeScale}" opacity="0.78" />` : ''}
+                                    <rect x="${pos.lx - pillW / 2}" y="${pos.ly - pillH / 2}" width="${pillW}" height="${pillH}" rx="${pillH / 2}" fill="${pinColor}" fill-opacity="0.94" stroke="${pdfShowMarkerOutline ? '#ffffff' : 'none'}" stroke-width="${pdfShowMarkerOutline ? 0.28 * pdfDefectMarkerSizeScale : 0}" />
+                                    <text x="${pos.lx}" y="${pos.ly + 0.16 * pdfDefectMarkerSizeScale}" text-anchor="middle" dominant-baseline="middle" fill="#ffffff" font-size="${fontSize}" font-weight="900" style="font-family: Arial, sans-serif;">${defectCode}</text>
                                   ` : ''}
                                 </g>
                               `;
-                            }).join('')}
+                            }).join('') : ''}
                           </svg>
                         </div>
 
                         <!-- Legend Table for Defect Map 1:1 -->
                         <div style="background: #fff5f5; border: 1px solid #fecdd3; border-radius: 6px; padding: 6px 8px;">
-                          <p style="margin: 0 0 4px 0; font-size: 9.5px; font-weight: bold; color: #9f1239;">Chú giải vị trí Defect trên bản vẽ (${formatFloorName(fp.floorName)}):</p>
+                          <p style="margin: 0 0 4px 0; font-size: 9.5px; font-weight: bold; color: #9f1239;">Chú giải vị trí Defect trên bản vẽ (${h(formatFloorName(fp.floorName))}):</p>
                           <table class="map-legend" style="width: 100%; border-collapse: collapse; margin-bottom: 0; font-size: 8.5px; table-layout: fixed;">
                             <thead>
                               <tr style="background: #ffe4e6;">
@@ -605,13 +664,13 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                                 const roomName = matchedRoom ? matchedRoom.roomName : (d.roomId || '—');
                                 return `
                                 <tr>
-                                  <td style="text-align: center; font-weight: 900; color: #e11d48;">${d.markerCode}</td>
-                                  <td class="wrap-cell">${formatFloorName(d.floorName)}</td>
-                                  <td class="wrap-cell" style="font-weight: 700;">${roomName}</td>
-                                  <td class="wrap-cell" style="font-weight: 700; color: #9f1239;">${d.category}</td>
+                                  <td style="text-align: center; font-weight: 900; color: #e11d48;">${getDefectMapCode(d)}</td>
+                                  <td class="wrap-cell">${h(formatFloorName(d.floorName))}</td>
+                                  <td class="wrap-cell" style="font-weight: 700;">${h(roomName)}</td>
+                                  <td class="wrap-cell" style="font-weight: 700; color: #9f1239;">${h(d.category)}</td>
                                   <td class="wrap-cell">${d.description || '—'}</td>
                                   <td class="wrap-cell"><strong>${d.assignedTo || '—'}</strong></td>
-                                  <td class="status-cell"><span class="badge ${d.status === 'Đã nghiệm thu' || d.status === 'Đã khắc phục' ? 'badge-passed' : d.status === 'Đang sửa' || d.status === 'Đang khắc phục' ? 'badge-pending' : 'badge-defect'}">${d.status}</span></td>
+                                  <td class="status-cell"><span class="badge ${d.status === 'Đã nghiệm thu' || d.status === 'Đã khắc phục' ? 'badge-passed' : d.status === 'Đang sửa' ? 'badge-pending' : 'badge-defect'}">${d.status}</span></td>
                                   <td class="status-cell">${d.dueDate ? formatDateDDMMYYYY(d.dueDate) : '—'}</td>
                                 </tr>
                               `;
@@ -629,54 +688,57 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
         ` : ''}
 
         ${includeFloorPlan && filteredRooms.length > 0 ? `
-          <div class="section-title">🏠 TIẾN ĐỘ THI CÔNG &amp; NGHIỆM THU KHU VỰC / PHÒNG</div>
+          <div class="section-title">🏠 TIẾN ĐỘ THI CÔNG &amp; NGHIỆM THU CĂN / PHÒNG</div>
           <table style="table-layout: fixed; width: 100%;">
             <thead>
               <tr>
-                <th style="width: 25%;">Tên Khu Vực / Phòng</th>
-                <th style="width: 12%;">Tầng</th>
-                <th style="width: 14%;">Khung Trần / HM</th>
-                <th style="width: 14%;">Bắn Tấm / KL</th>
-                <th style="width: 17%;">Kết Quả Nghiệm Thu</th>
-                <th style="width: 18%;">Đội / Giám Sát</th>
+                <th style="width: 19%;">Căn / Phòng</th>
+                <th style="width: 10%;">Tầng</th>
+                <th style="width: 20%;">Hạng mục</th>
+                <th style="width: 14%;">Khối lượng</th>
+                <th style="width: 13%;">Thi công</th>
+                <th style="width: 13%;">Nghiệm thu</th>
+                <th style="width: 11%;">Đội</th>
               </tr>
             </thead>
             <tbody>
               ${filteredRooms.map(r => {
                 const fp = floorPlans.find(f => f.id === r.floorId);
-                const hasSubs = r.subItems && r.subItems.length > 0;
-                
+                const hasSubs = Boolean(r.subItems && r.subItems.length > 0);
+                const categoryNames = Array.from(new Set([
+                  ...Object.keys(r.categoryVolumes || {}),
+                  ...(r.subItems || []).map((sub) => sub.category || r.workCategory || '').filter(Boolean),
+                  ...(r.workCategory ? [r.workCategory] : []),
+                ])).filter(Boolean);
+                const volumeEntries = Object.entries(r.categoryVolumes || {}) as Array<[string, number]>;
+                const volumeText = volumeEntries.length > 0
+                  ? volumeEntries.map(([name, value]) => `${h(name)}: ${formatDecimal(value)} ${h(r.volumeUnit || 'm²')}`).join('<br/>')
+                  : (typeof r.workVolume === 'number' && r.workVolume > 0 ? `${formatDecimal(r.workVolume)} ${r.volumeUnit || 'm²'}` : '—');
+                const roomWorkStatus = hasSubs
+                  ? ((r.subItems || []).every((sub) => sub.status === 'Đã hoàn thành') ? 'Đã hoàn thành' : (r.subItems || []).some((sub) => sub.status === 'Đang làm' || sub.status === 'Đã hoàn thành') ? 'Đang làm' : 'Chưa làm')
+                  : (r.frameStatus === 'Đã hoàn thành' && r.boardStatus === 'Đã hoàn thành' ? 'Đã hoàn thành' : r.frameStatus === 'Đang làm' || r.boardStatus === 'Đang làm' || r.frameStatus === 'Đã hoàn thành' || r.boardStatus === 'Đã hoàn thành' ? 'Đang làm' : 'Chưa làm');
+
                 const mainRow = `
                   <tr style="${hasSubs ? 'background-color: #f1f5f9; font-weight: bold;' : ''}">
-                    <td style="word-break: normal; overflow-wrap: break-word;">
-                      <strong>${r.roomName}</strong>
-                      ${r.workCategory ? `<div style="font-size: 8.5px; color: #475569; font-weight: normal;">${r.workCategory}</div>` : ''}
-                    </td>
-                    <td style="word-break: normal; overflow-wrap: break-word;">${formatFloorName(fp?.floorName)}</td>
-                    <td><span class="badge ${r.frameStatus === 'Đã hoàn thành' ? 'badge-passed' : r.frameStatus === 'Đang làm' ? 'badge-pending' : ''}">${r.frameStatus || '-'}</span></td>
-                    <td>
-                      ${typeof r.workVolume === 'number' && r.workVolume > 0 ? `<span>${formatDecimal(r.workVolume)} ${r.volumeUnit || 'm²'}</span>` : `<span class="badge ${r.boardStatus === 'Đã hoàn thành' ? 'badge-passed' : r.boardStatus === 'Đang làm' ? 'badge-pending' : ''}">${r.boardStatus || '-'}</span>`}
-                    </td>
+                    <td style="word-break: normal; overflow-wrap: break-word;"><strong>${h(r.roomName)}</strong></td>
+                    <td style="word-break: normal; overflow-wrap: break-word;">${h(formatFloorName(fp?.floorName))}</td>
+                    <td style="word-break: normal; overflow-wrap: break-word;">${categoryNames.length > 0 ? categoryNames.map((name) => h(name)).join('<br/>') : '—'}</td>
+                    <td style="word-break: normal; overflow-wrap: break-word;">${volumeText}</td>
+                    <td><span class="badge ${roomWorkStatus === 'Đã hoàn thành' ? 'badge-passed' : roomWorkStatus === 'Đang làm' ? 'badge-pending' : ''}">${roomWorkStatus}</span></td>
                     <td><span class="badge ${r.inspectionStatus === 'Đạt nghiệm thu' ? 'badge-passed' : r.inspectionStatus === 'Chưa đạt (Cần sửa)' ? 'badge-defect' : 'badge-pending'}">${r.inspectionStatus}</span></td>
-                    <td style="word-break: normal; overflow-wrap: break-word;">
-                      <div>${r.assignedTeam ? `Đội: <strong>${r.assignedTeam}</strong>` : ''}</div>
-                      <div style="font-size: 8.5px; color: #64748b;">${r.inspectorName || displayInspector}</div>
-                    </td>
+                    <td style="word-break: normal; overflow-wrap: break-word;">${h(r.assignedTeam || '—')}<br/><span style="font-size: 8px; color: #64748b;">${h(r.inspectorName || displayInspector)}</span></td>
                   </tr>
                 `;
 
                 const subRows = hasSubs ? r.subItems!.map(sub => `
                   <tr style="background-color: #ffffff; font-size: 8.5px;">
-                    <td style="padding-left: 16px; color: #334155; word-break: normal; overflow-wrap: break-word;">
-                      ↳ ${sub.name}
-                    </td>
-                    <td style="color: #64748b;">${sub.category || '-'}</td>
+                    <td style="padding-left: 16px; color: #334155; word-break: normal; overflow-wrap: break-word;">↳ ${h(sub.name)}</td>
+                    <td style="color: #64748b;">${h(formatFloorName(fp?.floorName))}</td>
+                    <td style="color: #334155; word-break: normal; overflow-wrap: break-word;">${h(sub.category || r.workCategory || '—')}</td>
+                    <td>${typeof sub.workVolume === 'number' && sub.workVolume > 0 ? `<strong>${formatDecimal(sub.workVolume)} ${sub.volumeUnit || r.volumeUnit || 'm²'}</strong>` : (typeof sub.progressWeight === 'number' ? `Tỷ trọng: ${formatDecimal(sub.progressWeight)}%` : '—')}</td>
                     <td><span class="badge ${sub.status === 'Đã hoàn thành' ? 'badge-passed' : sub.status === 'Đang làm' ? 'badge-pending' : ''}">${sub.status}</span></td>
-                    <td>
-                      ${typeof sub.workVolume === 'number' && sub.workVolume > 0 ? `<strong>${formatDecimal(sub.workVolume)} ${sub.volumeUnit || 'm²'}</strong>` : (typeof sub.progressWeight === 'number' ? `Tỷ trọng: ${sub.progressWeight}%` : '-')}
-                    </td>
                     <td><span class="badge ${sub.inspectionStatus === 'Đạt nghiệm thu' ? 'badge-passed' : sub.inspectionStatus === 'Chưa đạt (Cần sửa)' ? 'badge-defect' : 'badge-pending'}">${sub.inspectionStatus || 'Chưa nghiệm thu'}</span></td>
-                    <td style="color: #475569;">${sub.assignedTeam || r.assignedTeam || '-'}</td>
+                    <td style="color: #475569;">${h(sub.assignedTeam || r.assignedTeam || '—')}</td>
                   </tr>
                 `).join('') : '';
 
@@ -691,13 +753,13 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
           <table style="table-layout: fixed; width: 100%;">
             <thead>
               <tr>
-                <th style="width: 7%; text-align: center;">Mã Lỗi</th>
-                <th style="width: 13%;">Vị Trí / Tầng</th>
-                <th style="width: 14%;">Hạng Mục Lỗi</th>
-                <th style="width: 25%;">Mô Tả &amp; Thông Tin Kiểm Soát</th>
-                <th style="width: 13%;">Người Tạo &amp; Hạn</th>
+                <th style="width: 7%; text-align: center;">Mã lỗi</th>
+                <th style="width: 13%;">Vị trí / Tầng</th>
+                <th style="width: 14%;">Hạng mục lỗi</th>
+                <th style="width: 25%;">Mô tả &amp; thông tin kiểm soát</th>
+                <th style="width: 13%;">Người tạo &amp; hạn</th>
                 <th style="width: 14%;">Trách Nhiệm</th>
-                <th style="width: 14%; text-align: center;">Trạng Thái</th>
+                <th style="width: 14%; text-align: center;">Trạng thái</th>
               </tr>
             </thead>
             <tbody>
@@ -708,18 +770,18 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                 return `
                 <tr>
                   <td style="text-align: center;"><strong>${d.displayCode}</strong></td>
-                  <td style="word-break: normal; overflow-wrap: break-word;">${locationText}</td>
-                  <td><strong style="color: #9f1239; word-break: normal; overflow-wrap: break-word;">${d.category}</strong></td>
-                  <td style="word-break: normal; overflow-wrap: break-word;">${d.description}</td>
+                  <td style="word-break: normal; overflow-wrap: break-word;">${h(locationText)}</td>
+                  <td><strong style="color: #9f1239; word-break: normal; overflow-wrap: break-word;">${h(d.category)}</strong></td>
+                  <td style="word-break: normal; overflow-wrap: break-word;">${h(d.description)}</td>
                   <td style="font-size: 9px;">
-                    <div>Tạo: <strong>${d.createdBy || 'QC'}</strong></div>
+                    <div>Tạo: <strong>${h(d.createdBy || 'QC')}</strong></div>
                     ${d.dueDate ? `<div style="color: #e11d48; font-weight: bold;">Hạn: ${formatDateDDMMYYYY(d.dueDate)}</div>` : ''}
                     ${d.completedAt ? `<div style="color: #166534; font-size: 8px;">Xong: ${d.completedAt}</div>` : ''}
                   </td>
-                  <td style="word-break: normal; overflow-wrap: break-word;"><strong>${d.assignedTo}</strong></td>
+                  <td style="word-break: normal; overflow-wrap: break-word;"><strong>${h(d.assignedTo)}</strong></td>
                   <td class="status-cell">
                     <div style="margin-bottom: 2px;">
-                      <span class="badge ${d.status === 'Đã nghiệm thu' || d.status === 'Đã khắc phục' ? 'badge-passed' : d.status === 'Đang sửa' || d.status === 'Đang khắc phục' ? 'badge-pending' : 'badge-defect'}">${d.status}</span>
+                      <span class="badge ${d.status === 'Đã nghiệm thu' || d.status === 'Đã khắc phục' ? 'badge-passed' : d.status === 'Đang sửa' ? 'badge-pending' : 'badge-defect'}">${d.status}</span>
                     </div>
                     ${overdue.statusText ? `
                       <div>
@@ -736,7 +798,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
           </table>
         ` : ''}
 
-        <!-- Phụ Lục Hình Ảnh Defect Trước & Sau Khi Sửa -->
+        <!-- Phụ lục hình ảnh Defect trước & sau khi sửa -->
         ${includeDefectPhotos && defectsWithDisplayCode.length > 0 ? (() => {
           const defectsWithImages = defectsWithDisplayCode.filter(d => {
             const hasPropBefore = !!d.imageUrl;
@@ -770,11 +832,11 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                   return `
                     <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px;">
                       <div style="font-weight: 800; font-size: 10px; color: #0f172a; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
-                        <span style="color: #e11d48; font-weight: 900;">${d.displayCode} - ${d.category}</span>
-                        <span style="font-size: 8.5px; background: #f1f5f9; padding: 1px 6px; border-radius: 4px; color: #475569;">${formatFloorName(d.floorName)} | Đội: ${d.assignedTo}</span>
+                        <span style="color: #e11d48; font-weight: 900;">${d.displayCode} - ${h(d.category)}</span>
+                        <span style="font-size: 8.5px; background: #f1f5f9; padding: 1px 6px; border-radius: 4px; color: #475569;">${h(formatFloorName(d.floorName))} | Đội: ${h(d.assignedTo)}</span>
                       </div>
 
-                      <div style="font-size: 9px; color: #334155; margin-bottom: 6px;">Mô tả: ${d.description}</div>
+                      <div style="font-size: 9px; color: #334155; margin-bottom: 6px;">Mô tả: ${h(d.description)}</div>
 
                       <div style="display: flex; gap: 8px;">
                         <!-- Before Photos -->
@@ -819,20 +881,20 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                 <th style="width: 60px;">Tầng</th>
                 <th style="width: 130px;">Phân loại hạng mục</th>
                 <th>Nội dung tiêu chí kiểm tra</th>
-                <th style="width: 90px;">Kết Quả</th>
-                <th style="width: 110px;">Người Giám Sát</th>
-                <th style="width: 100px;">Ghi Chú</th>
+                <th style="width: 90px;">Kết quả</th>
+                <th style="width: 110px;">Người giám sát</th>
+                <th style="width: 100px;">Ghi chú</th>
               </tr>
             </thead>
             <tbody>
               ${filteredChecklist.map(c => `
                 <tr>
-                  <td><strong>${c.floorName}</strong></td>
-                  <td>${c.category}</td>
-                  <td>${c.title}</td>
+                  <td><strong>${h(c.floorName)}</strong></td>
+                  <td>${h(c.category)}</td>
+                  <td>${h(c.title)}</td>
                   <td><span class="badge ${c.status === 'passed' ? 'badge-passed' : c.status === 'defect' ? 'badge-defect' : 'badge-pending'}">${c.status === 'passed' ? '✅ ĐẠT' : c.status === 'defect' ? '🔴 DEFECT' : '🟡 CHỜ'}</span></td>
-                  <td>${c.inspectedBy || displayInspector}</td>
-                  <td>${c.notes || '-'}</td>
+                  <td>${h(c.inspectedBy || displayInspector)}</td>
+                  <td>${h(c.notes || '-')}</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -847,11 +909,11 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                 <th style="width: 35px; text-align: center;">STT</th>
                 <th style="width: 75px;">Ngày</th>
                 <th style="width: 110px;">Tên đội thi công</th>
-                <th style="width: 90px;">Trưởng Nhóm</th>
-                <th style="width: 50px; text-align: center;">Quân Số</th>
-                <th style="width: 70px; text-align: center;">Ca Làm</th>
+                <th style="width: 90px;">Trưởng nhóm</th>
+                <th style="width: 50px; text-align: center;">Quân số</th>
+                <th style="width: 70px; text-align: center;">Ca làm</th>
                 <th style="width: 80px;">Tầng</th>
-                <th>Nhiệm Vụ Thi Công Chi Tiết</th>
+                <th>Nhiệm vụ thi công chi tiết</th>
               </tr>
             </thead>
             <tbody>
@@ -859,14 +921,14 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                 <tr>
                   <td style="text-align: center;">${idx + 1}</td>
                   <td>${formatDateDDMMYYYY(c.date)}</td>
-                  <td><strong>${c.teamName}</strong></td>
-                  <td>${c.leaderName}</td>
+                  <td><strong>${escapeHtml(c.teamName)}</strong></td>
+                  <td>${escapeHtml(c.leaderName)}</td>
                   <td style="text-align: center; font-weight: bold; color: #4f46e5;">${c.workerCount}</td>
-                  <td style="text-align: center;">${c.shift || 'Hành chính'}</td>
-                  <td>${c.floorName || '-'}</td>
+                  <td style="text-align: center;">${escapeHtml(c.shift || 'Hành chính')}</td>
+                  <td>${escapeHtml(c.floorName || '-')}</td>
                   <td>
-                    <div><strong>${c.taskDescription}</strong></div>
-                    ${c.notes ? `<div style="color: #64748b; font-size: 8.5px;">Ghi chú: ${c.notes}</div>` : ''}
+                    <div><strong>${escapeHtml(c.taskDescription)}</strong></div>
+                    ${c.notes ? `<div style="color: #64748b; font-size: 8.5px;">Ghi chú: ${escapeHtml(c.notes)}</div>` : ''}
                   </td>
                 </tr>
               `).join('')}
@@ -874,7 +936,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
           </table>
         ` : ''}
 
-        <!-- Phụ Lục Hình Ảnh Thi Công Theo Đội -->
+        <!-- Phụ lục hình ảnh thi công theo đội -->
         ${includeCrewPhotos && filteredCrew.length > 0 ? (() => {
           const crewWithPhotos = filteredCrew.filter(c => crewPhotosMap[c.id] && crewPhotosMap[c.id].length > 0);
           if (crewWithPhotos.length === 0) return '';
@@ -890,10 +952,10 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                   return `
                     <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px;">
                       <div style="font-weight: 800; font-size: 10px; color: #0f172a; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center;">
-                        <span style="color: #1d4ed8;">${formatDateDDMMYYYY(c.date)} | Đội: <strong>${c.teamName}</strong></span>
-                        <span style="font-size: 8.5px; background: #f1f5f9; padding: 1px 6px; border-radius: 4px; color: #475569;">Tầng: ${c.floorName || 'Công trình'} | ${c.workerCount} người</span>
+                        <span style="color: #1d4ed8;">${formatDateDDMMYYYY(c.date)} | Đội: <strong>${escapeHtml(c.teamName)}</strong></span>
+                        <span style="font-size: 8.5px; background: #f1f5f9; padding: 1px 6px; border-radius: 4px; color: #475569;">Tầng: ${escapeHtml(c.floorName || 'Công trình')} | ${c.workerCount} người</span>
                       </div>
-                      <div style="font-size: 9px; color: #334155; margin-bottom: 6px;">Nhiệm vụ: ${c.taskDescription}</div>
+                      <div style="font-size: 9px; color: #334155; margin-bottom: 6px;">Nhiệm vụ: ${escapeHtml(c.taskDescription)}</div>
                       <div style="display: flex; flex-wrap: wrap; gap: 6px;">
                         ${photos.map(url => `
                           <div style="width: 120px; height: 100px; background: #f8fafc; border-radius: 4px; overflow: hidden; border: 1px solid #cbd5e1;">
@@ -914,18 +976,18 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
             <div style="text-align: center; width: 45%;">
               <p style="margin: 0; font-size: 11px; font-weight: bold; text-transform: uppercase; color: #334155;">ĐẠI DIỆN ĐƠN VỊ THI CÔNG</p>
               <p style="margin: 3px 0 30px; font-size: 10px; color: #64748b; font-style: italic;">(Ký và ghi rõ họ tên)</p>
-              <p style="margin: 0; font-size: 11.5px; font-weight: bold; color: #0f172a;">${displayContractor}</p>
+              <p style="margin: 0; font-size: 11.5px; font-weight: bold; color: #0f172a;">${h(displayContractor)}</p>
             </div>
             <div style="text-align: center; width: 45%;">
               <p style="margin: 0; font-size: 11px; font-weight: bold; text-transform: uppercase; color: #334155;">NGƯỜI LẬP / KỸ SƯ PHỤ TRÁCH</p>
               <p style="margin: 3px 0 30px; font-size: 10px; color: #64748b; font-style: italic;">(Ký và ghi rõ họ tên)</p>
-              <p style="margin: 0; font-size: 11.5px; font-weight: bold; color: #0f172a;">${displayInspector}</p>
+              <p style="margin: 0; font-size: 11.5px; font-weight: bold; color: #0f172a;">${h(displayInspector)}</p>
             </div>
           </div>
         ` : ''}
 
         <div class="footer">
-          <p>Báo cáo tổng hợp tự động từ Hệ Thống Quản Lý Thi Công &amp; Nghiệm Thu.</p>
+          <p>Báo cáo tổng hợp tự động từ Hệ thống quản lý thi công &amp; nghiệm thu.</p>
         </div>
 
         <script>
@@ -1192,7 +1254,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
               <FileText className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-900">Xuất Báo Cáo PDF &amp; Excel</h3>
+              <h3 className="text-base font-bold text-slate-900">Xuất báo cáo PDF &amp; Excel</h3>
               <p className="text-xs text-slate-500"></p>
             </div>
           </div>
@@ -1210,7 +1272,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
           <div className="space-y-1.5">
             <label className="block text-slate-700 font-bold flex items-center gap-1.5">
               <Filter className="w-3.5 h-3.5 text-indigo-600" />
-              Lọc Khu Vực / Tầng (Đã Khai Báo)
+              Lọc khu vực / tầng đã khai báo
             </label>
             <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 max-h-36 overflow-y-auto space-y-2.5">
               {/* Option: All */}
@@ -1251,7 +1313,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
 
           {/* Report Content Checkboxes */}
           <div>
-            <label className="block text-slate-700 font-bold mb-1.5">Hạng Mục Chọn Xuất Báo Cáo</label>
+            <label className="block text-slate-700 font-bold mb-1.5">Hạng mục chọn xuất báo cáo</label>
             <div className="grid grid-cols-2 gap-2">
               <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${includeWarehouse ? 'bg-indigo-50/70 border-indigo-300 text-indigo-900 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
                 <input
@@ -1316,7 +1378,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
                 />
                 <Camera className="w-4 h-4 text-sky-600 shrink-0" />
-                <span className="text-[11px]">Phụ Lục Ảnh Đội</span>
+                <span className="text-[11px]">Phụ lục ảnh đội</span>
               </label>
 
               <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${includeDefectPhotos ? 'bg-indigo-50/70 border-indigo-300 text-indigo-900 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
@@ -1327,7 +1389,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
                 />
                 <ImageIcon className="w-4 h-4 text-rose-600 shrink-0" />
-                <span className="text-[11px]">Phụ Lục Ảnh Defect</span>
+                <span className="text-[11px]">Phụ lục ảnh Defect</span>
               </label>
 
               <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${includeSignatures ? 'bg-indigo-50/70 border-indigo-300 text-indigo-900 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
@@ -1338,14 +1400,14 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
                 />
                 <FileText className="w-4 h-4 text-slate-600 shrink-0" />
-                <span className="text-[11px]">Chữ Ký Đơn Vị</span>
+                <span className="text-[11px]">Chữ ký đơn vị</span>
               </label>
             </div>
           </div>
 
           {/* Tùy chỉnh nâng cao */}
           <div className="pt-1 space-y-2 text-slate-700 bg-slate-50 p-3 rounded-2xl border border-slate-200">
-            <span className="block font-bold text-slate-800 text-[11px]">⚙️ Tùy Chỉnh Bố Cục Báo Cáo:</span>
+            <span className="block font-bold text-slate-800 text-[11px]">⚙️ Tùy chỉnh bố cục báo cáo:</span>
             <div className="grid grid-cols-2 gap-2 pb-1">
               <label className="space-y-1">
                 <span className="block text-[10px] font-semibold text-slate-600">Khổ giấy PDF</span>
@@ -1389,6 +1451,122 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
               />
               <span>↔️ Mở rộng full 100% sơ đồ mặt bằng khi tầng có 0 Defect</span>
             </label>
+
+            <details className="group bg-white border border-indigo-100 rounded-xl overflow-hidden">
+              <summary className="cursor-pointer select-none px-3 py-2 text-[11px] font-extrabold text-indigo-800 flex items-center justify-between gap-2">
+                <span>🎨 Tùy chỉnh highlight & ký hiệu trên PDF</span>
+                <span className="text-[10px] text-slate-400 group-open:hidden">Mở</span>
+                <span className="text-[10px] text-slate-400 hidden group-open:inline">Thu gọn</span>
+              </summary>
+              <div className="border-t border-indigo-100 p-3 space-y-3">
+                <p className="text-[10px] text-slate-500 leading-relaxed">
+                  Chỉ ảnh hưởng bản PDF/HTML xuất ra, không làm thay đổi màu, tọa độ hay dữ liệu Căn / Phòng trong dự án.
+                </p>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="space-y-1 min-w-0">
+                    <span className="flex items-center justify-between gap-1 text-[10px] font-bold text-slate-600">
+                      <span>Độ đậm highlight</span><strong className="text-indigo-700">{pdfHighlightOpacity}%</strong>
+                    </span>
+                    <input type="range" min="0" max="60" step="2" value={pdfHighlightOpacity} onChange={(e) => setPdfHighlightOpacity(Number(e.target.value))} className="w-full accent-indigo-600" />
+                  </label>
+                  <label className="space-y-1 min-w-0">
+                    <span className="flex items-center justify-between gap-1 text-[10px] font-bold text-slate-600">
+                      <span>Độ dày viền vùng</span><strong className="text-indigo-700">{pdfHighlightBorderWidth.toFixed(2)}</strong>
+                    </span>
+                    <input type="range" min="0" max="0.8" step="0.05" value={pdfHighlightBorderWidth} onChange={(e) => setPdfHighlightBorderWidth(Number(e.target.value))} className="w-full accent-indigo-600" />
+                  </label>
+                  <label className="space-y-1 min-w-0">
+                    <span className="flex items-center justify-between gap-1 text-[10px] font-bold text-slate-600">
+                      <span>Size ký hiệu Căn / Phòng</span><strong className="text-indigo-700">{Math.round(pdfRoomMarkerSizeScale * 100)}%</strong>
+                    </span>
+                    <input type="range" min="0.7" max="1.8" step="0.1" value={pdfRoomMarkerSizeScale} onChange={(e) => setPdfRoomMarkerSizeScale(Number(e.target.value))} className="w-full accent-indigo-600" />
+                  </label>
+                  <label className="space-y-1 min-w-0">
+                    <span className="flex items-center justify-between gap-1 text-[10px] font-bold text-slate-600">
+                      <span>Size ký hiệu Defect</span><strong className="text-rose-700">{Math.round(pdfDefectMarkerSizeScale * 100)}%</strong>
+                    </span>
+                    <input type="range" min="0.6" max="1.6" step="0.1" value={pdfDefectMarkerSizeScale} onChange={(e) => setPdfDefectMarkerSizeScale(Number(e.target.value))} className="w-full accent-rose-600" />
+                  </label>
+                  <label className="space-y-1 min-w-0">
+                    <span className="flex items-center justify-between gap-1 text-[10px] font-bold text-slate-600">
+                      <span>Size chữ ký hiệu</span><strong className="text-indigo-700">{Math.round(pdfMarkerFontScale * 100)}%</strong>
+                    </span>
+                    <input type="range" min="0.7" max="1.8" step="0.1" value={pdfMarkerFontScale} onChange={(e) => setPdfMarkerFontScale(Number(e.target.value))} className="w-full accent-indigo-600" />
+                  </label>
+                  <label className="space-y-1 min-w-0 col-span-2">
+                    <span className="flex items-center justify-between gap-1 text-[10px] font-bold text-slate-600">
+                      <span>Độ mờ ký hiệu</span><strong className="text-indigo-700">{pdfMarkerOpacity}%</strong>
+                    </span>
+                    <input type="range" min="30" max="100" step="5" value={pdfMarkerOpacity} onChange={(e) => setPdfMarkerOpacity(Number(e.target.value))} className="w-full accent-indigo-600" />
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="space-y-1">
+                    <span className="block text-[10px] font-bold text-slate-600">Ký hiệu Căn / Phòng</span>
+                    <select value={pdfRoomCodeStyle} onChange={(e) => setPdfRoomCodeStyle(e.target.value as 'number' | 'hash' | 'room')} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
+                      <option value="number">Số ngắn: 1, 2, 11</option>
+                      <option value="hash">Dạng #: #1, #2</option>
+                      <option value="room">Dạng C: C1, C2</option>
+                    </select>
+                  </label>
+                  <label className="space-y-1">
+                    <span className="block text-[10px] font-bold text-slate-600">Ký hiệu Defect</span>
+                    <select value={pdfDefectCodeStyle} onChange={(e) => setPdfDefectCodeStyle(e.target.value as 'number' | 'df')} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
+                      <option value="number">Số ngắn: 01, 02</option>
+                      <option value="df">Mã đầy đủ: DF-001</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-2 gap-1.5 text-[10.5px] text-slate-700">
+                  <label className="flex items-center gap-2 cursor-pointer select-none"><input type="checkbox" checked={pdfShowRoomMarkers} onChange={(e) => setPdfShowRoomMarkers(e.target.checked)} className="w-3.5 h-3.5 rounded text-indigo-600" /><span>Hiện ký hiệu Căn / Phòng</span></label>
+                  <label className="flex items-center gap-2 cursor-pointer select-none"><input type="checkbox" checked={pdfShowDefectMarkers} onChange={(e) => setPdfShowDefectMarkers(e.target.checked)} className="w-3.5 h-3.5 rounded text-indigo-600" /><span>Hiện ký hiệu Defect</span></label>
+                  <label className="flex items-center gap-2 cursor-pointer select-none"><input type="checkbox" checked={pdfShowMarkerOutline} onChange={(e) => setPdfShowMarkerOutline(e.target.checked)} className="w-3.5 h-3.5 rounded text-indigo-600" /><span>Viền/vòng quanh ký hiệu</span></label>
+                  <label className="flex items-center gap-2 cursor-pointer select-none"><input type="checkbox" checked={pdfShowLeaderLines} onChange={(e) => setPdfShowLeaderLines(e.target.checked)} className="w-3.5 h-3.5 rounded text-indigo-600" /><span>Đường dẫn tới vị trí</span></label>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-extrabold text-slate-700">Xem trước nhanh ký hiệu PDF</span>
+                    <span className="text-[9px] text-slate-400">Minh họa tỷ lệ, độ mờ, viền & đường dẫn</span>
+                  </div>
+                  <div className="relative h-24 overflow-hidden rounded-lg border border-slate-200 bg-white">
+                    <div className="absolute inset-0 opacity-25" style={{ backgroundImage: 'linear-gradient(#cbd5e1 1px, transparent 1px), linear-gradient(90deg, #cbd5e1 1px, transparent 1px)', backgroundSize: '16px 16px' }} />
+                    <div className="absolute left-[10%] top-[18%] w-[38%] h-[48%] rounded-md" style={{ backgroundColor: `rgba(79,70,229,${pdfHighlightOpacity / 100})`, border: `${Math.max(1, pdfHighlightBorderWidth * 4)}px solid rgba(79,70,229,.75)` }} />
+                    {pdfShowLeaderLines && <div className="absolute left-[41%] top-[39%] w-[22%] border-t border-dashed border-indigo-500 origin-left rotate-[-12deg]" />}
+                    {pdfShowRoomMarkers && <div className="absolute left-[59%] top-[28%] -translate-x-1/2 rounded-full bg-white text-indigo-700 font-black flex items-center justify-center" style={{ width: `${32 * pdfRoomMarkerSizeScale}px`, height: `${22 * pdfRoomMarkerSizeScale}px`, fontSize: `${10 * pdfMarkerFontScale}px`, opacity: pdfMarkerOpacity / 100, border: pdfShowMarkerOutline ? '2px solid #4f46e5' : 'none' }}>{pdfRoomCodeStyle === 'hash' ? '#1' : pdfRoomCodeStyle === 'room' ? 'C1' : '1'}</div>}
+                    {pdfShowLeaderLines && <div className="absolute left-[65%] top-[67%] w-[17%] border-t border-dashed border-rose-500 origin-left rotate-[15deg]" />}
+                    {pdfShowDefectMarkers && <div className="absolute left-[78%] top-[63%] -translate-x-1/2 rounded-full bg-rose-600 text-white font-black flex items-center justify-center" style={{ width: `${34 * pdfDefectMarkerSizeScale}px`, height: `${22 * pdfDefectMarkerSizeScale}px`, fontSize: `${9 * pdfMarkerFontScale}px`, opacity: pdfMarkerOpacity / 100, border: pdfShowMarkerOutline ? '2px solid white' : 'none' }}>{pdfDefectCodeStyle === 'df' ? 'DF-01' : '01'}</div>}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-2 bg-indigo-50/60 border border-indigo-100 rounded-lg p-2">
+                  <span className="text-[9.5px] text-indigo-800 leading-relaxed">Khuyến nghị in thi công: highlight 14–20%, viền 0.20–0.30, Căn/Phòng 100%, Defect 90%, giữ đường dẫn.</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPdfHighlightOpacity(16);
+                      setPdfHighlightBorderWidth(0.25);
+                      setPdfRoomMarkerSizeScale(1);
+                      setPdfDefectMarkerSizeScale(0.9);
+                      setPdfMarkerFontScale(1);
+                      setPdfMarkerOpacity(96);
+                      setPdfShowMarkerOutline(true);
+                      setPdfShowLeaderLines(true);
+                      setPdfShowRoomMarkers(true);
+                      setPdfShowDefectMarkers(true);
+                      setPdfRoomCodeStyle('number');
+                      setPdfDefectCodeStyle('number');
+                    }}
+                    className="shrink-0 px-2 py-1 rounded-lg bg-white border border-indigo-200 text-indigo-700 font-bold text-[10px] hover:bg-indigo-100"
+                  >
+                    Mặc định
+                  </button>
+                </div>
+              </div>
+            </details>
           </div>
 
           {/* Action Buttons */}

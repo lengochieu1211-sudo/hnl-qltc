@@ -64,6 +64,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
   canRedo,
 }) => {
   const { t } = useLanguage();
+  const activeChecklist = useMemo(() => checklist.filter((item) => !item.archivedAt), [checklist]);
   const [selectedFloor, setSelectedFloor] = useState<string>(floors[0] || 'Tầng 1');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [checklistSortBy, setChecklistSortBy] = useState<'none' | 'title' | 'status' | 'dueDate'>('none');
@@ -138,7 +139,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
   // Categories actually in use by items on the selected floor
   const categoriesInUseForFloor = useMemo(() => {
     const list = new Set<string>();
-    checklist
+    activeChecklist
       .filter((item) => item.floorName === selectedFloor)
       .forEach((item) => {
         if (item.category && item.category.trim()) {
@@ -146,15 +147,15 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
         }
       });
     return Array.from(list);
-  }, [checklist, selectedFloor]);
+  }, [activeChecklist, selectedFloor]);
 
   const filteredChecklist = useMemo(() => {
-    return checklist.filter((item) => {
+    return activeChecklist.filter((item) => {
       const matchFloor = item.floorName === selectedFloor;
       const matchCategory = selectedCategory === 'all' || item.category === selectedCategory;
       return matchFloor && matchCategory;
     });
-  }, [checklist, selectedFloor, selectedCategory]);
+  }, [activeChecklist, selectedFloor, selectedCategory]);
 
   const sortedFilteredChecklist = useMemo(() => {
     const list = [...filteredChecklist];
@@ -186,7 +187,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
   }, [filteredChecklist, checklistSortBy, checklistSortOrder]);
 
   const summary = useMemo(() => {
-    const floorItems = checklist.filter((item) => item.floorName === selectedFloor);
+    const floorItems = activeChecklist.filter((item) => item.floorName === selectedFloor);
     const total = floorItems.length;
     const passed = floorItems.filter((i) => i.status === 'passed').length;
     const defect = floorItems.filter((i) => i.status === 'defect').length;
@@ -194,7 +195,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
     const passRate = total > 0 ? Math.round((passed / total) * 100) : 0;
 
     return { total, passed, defect, pending, passRate };
-  }, [checklist, selectedFloor]);
+  }, [activeChecklist, selectedFloor]);
 
   const handleAddSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -212,8 +213,8 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
       status: 'pending',
       dueDate: dueDate ? dueDate : undefined,
       notes,
-      inspectedBy: inspectedBy.trim() || inspectorName,
-      inspectedAt: new Date().toLocaleString('vi-VN'),
+      inspectedBy: undefined,
+      inspectedAt: undefined,
     });
 
     setShowAddForm(false);
@@ -233,8 +234,8 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
     onUpdateChecklistItem({
       ...editingChecklistItem,
       title: editingChecklistItem.title.trim(),
-      inspectedBy: editingChecklistItem.inspectedBy?.trim() || inspectorName,
-      inspectedAt: new Date().toLocaleString('vi-VN'),
+      inspectedBy: editingChecklistItem.status === 'pending' ? undefined : (editingChecklistItem.inspectedBy?.trim() || inspectorName),
+      inspectedAt: editingChecklistItem.status === 'pending' ? undefined : editingChecklistItem.inspectedAt,
     });
 
     setEditingChecklistItem(null);
@@ -242,7 +243,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
 
   const handleExportChecklistTemplate = async () => {
     const wb = XLSX.utils.book_new();
-    const sourceData = checklist.length > 0 ? checklist : [
+    const sourceData = activeChecklist.length > 0 ? activeChecklist : [
       {
         floorName: selectedFloor,
         category: categoriesList[0] || 'Thi công khung trần',
@@ -250,7 +251,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
         status: 'pending' as const,
         notes: 'Kiểm tra kỹ khoảng cách ty treo',
         inspectedBy: inspectorName,
-        inspectedAt: new Date().toLocaleString('vi-VN')
+        inspectedAt: new Date().toISOString()
       }
     ];
 
@@ -361,7 +362,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
           }
 
           // Check for existing record by ID or title+floor+category
-          const existing = checklist.find(c => 
+          const existing = activeChecklist.find(c => 
             (rawRecordId && c.id === rawRecordId) ||
             (c.floorName.toLowerCase() === rawFloor.toLowerCase() && c.category.toLowerCase() === categoryNorm.toLowerCase() && c.title.toLowerCase() === rawTitle.toLowerCase())
           );
@@ -388,7 +389,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
                 dueDate: rawDueDate || existing.dueDate,
                 notes: rawNotes || existing.notes,
                 inspectedBy: rawInspectedBy || existing.inspectedBy,
-                inspectedAt: new Date().toLocaleString('vi-VN'),
+                inspectedAt: new Date().toISOString(),
               });
               updatedCount++;
             }
@@ -403,7 +404,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
               dueDate: rawDueDate || undefined,
               notes: rawNotes || undefined,
               inspectedBy: rawInspectedBy || inspectorName,
-              inspectedAt: new Date().toLocaleString('vi-VN')
+              inspectedAt: new Date().toISOString()
             });
             addedCount++;
           }
@@ -644,7 +645,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
                 }}
                 className="text-rose-600 hover:text-rose-700 font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
               >
-                <Trash2 className="w-3.5 h-3.5" /> Xóa Đã Chọn ({selectedItemIds.filter(id => sortedFilteredChecklist.some(item => item.id === id)).length})
+                <Trash2 className="w-3.5 h-3.5" /> Xóa đã chọn ({selectedItemIds.filter(id => sortedFilteredChecklist.some(item => item.id === id)).length})
               </button>
             )}
           </div>
@@ -870,7 +871,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
               </div>
 
               <div>
-                <label className="block text-slate-700 font-bold mb-1">Ghi Chú Ban Đầu</label>
+                <label className="block text-slate-700 font-bold mb-1">Ghi chú ban đầu</label>
                 <textarea
                   placeholder="Ghi chú cụ thể..."
                   value={notes}
@@ -1032,7 +1033,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
               </div>
 
               <div>
-                <label className="block text-slate-700 font-bold mb-1">Ghi Chú</label>
+                <label className="block text-slate-700 font-bold mb-1">Ghi chú</label>
                 <textarea
                   value={editingChecklistItem.notes || ''}
                   onChange={(e) => setEditingChecklistItem({ ...editingChecklistItem, notes: e.target.value })}

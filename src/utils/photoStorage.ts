@@ -1,6 +1,7 @@
 import localforage from 'localforage';
 import { getAsyncItem, setAsyncItem, removeAsyncItem } from './asyncStorage';
 import { compressImage } from './imageCompressor';
+import { getImageQualityProfile } from './imageQualitySettings';
 import { apiUrl, hasApiBackend } from './api';
 
 export interface PhotoAttachment {
@@ -104,8 +105,10 @@ export async function savePhotoAttachment(
 ): Promise<PhotoAttachment> {
   const photoId = generatePhotoUUID();
   
-  // 1. Compress main image to max 1600px, quality 0.82
-  const compressedDataUrl = await compressImage(imageSource, 1600, 0.82);
+  // 1. Separate quality profiles for Defect and Quân số photos.
+  const photoKind = photo.entityType === 'defect' ? 'defect' : 'crew';
+  const profile = getImageQualityProfile(photoKind);
+  const compressedDataUrl = await compressImage(imageSource, profile.maxDimension, profile.quality);
   if (!compressedDataUrl || !compressedDataUrl.startsWith('data:image/')) {
     throw new Error('Không đọc được ảnh đã chọn/chụp. Hãy dùng ảnh JPG, PNG hoặc WebP và thử lại.');
   }
@@ -446,7 +449,11 @@ export async function updatePhotoAttachmentBlob(
   photoId: string,
   imageSource: File | Blob | string
 ): Promise<string> {
-  const compressedDataUrl = await compressImage(imageSource, 1600, 0.82);
+  const existingPhotos = await getProjectPhotos(projectId, true);
+  const existingPhoto = existingPhotos.find((p) => p.id === photoId);
+  const photoKind = existingPhoto?.entityType === 'defect' ? 'defect' : 'crew';
+  const profile = getImageQualityProfile(photoKind);
+  const compressedDataUrl = await compressImage(imageSource, profile.maxDimension, profile.quality);
   if (!compressedDataUrl || !compressedDataUrl.startsWith('data:image/')) {
     throw new Error('Không đọc được ảnh chỉnh sửa.');
   }
@@ -465,7 +472,7 @@ export async function updatePhotoAttachmentBlob(
     await localforage.setItem(getPhotoThumbKey(photoId), thumbBlob);
   }
 
-  const photos = await getProjectPhotos(projectId, true);
+  const photos = existingPhotos;
   const updated = photos.map(p => {
     if (p.id === photoId) {
       return { ...p, updatedAt: now, fileSize: mainBlob.size };

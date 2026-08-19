@@ -1,3 +1,5 @@
+import { getImageQualityProfile } from './imageQualitySettings';
+
 /**
  * High-performance, memory-safe image compressor for construction defect photos and floor plans.
  * Prevents mobile browser crashes (Out-Of-Memory) when capturing high-resolution photos (12MP - 48MP)
@@ -34,18 +36,11 @@ export const readFloorPlanAsDataUrl = (file: File): Promise<string> => {
  * High-definition preset for architectural floor plans (keeps original quality).
  */
 export const compressFloorPlanImage = async (source: File | Blob | string): Promise<string> => {
-  if (source instanceof File) {
-    return readFloorPlanAsDataUrl(source);
-  }
-  if (typeof source === 'string') {
-    return source;
-  }
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string || '');
-    reader.onerror = () => resolve('');
-    reader.readAsDataURL(source);
-  });
+  const profile = getImageQualityProfile('floorPlan');
+  // Even the highest preset goes through the memory-safe decoder. Modern phone
+  // cameras can exceed 40 MP; keeping that raw bitmap as Base64 can crash Android
+  // WebView. The preset keeps a very high resolution, but caps it to a safe size.
+  return compressImage(source, profile.maxDimension, profile.quality);
 };
 
 /**
@@ -256,5 +251,11 @@ export const compressImage = async (
  * Downscales directly to 1440px max at 0.82 JPEG quality (~150KB - 280KB) - clear visual proof without lag or phone crash.
  */
 export const compressDefectPhoto = (source: File | Blob | string): Promise<string> => {
-  return compressImage(source, 1440, 0.82);
+  const profile = getImageQualityProfile('defect');
+  return compressImage(source, profile.maxDimension, profile.quality);
+};
+
+export const compressCrewPhoto = (source: File | Blob | string): Promise<string> => {
+  const profile = getImageQualityProfile('crew');
+  return compressImage(source, profile.maxDimension, profile.quality);
 };

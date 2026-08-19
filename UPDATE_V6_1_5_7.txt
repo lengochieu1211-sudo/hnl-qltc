@@ -1,0 +1,1 @@
+V6.1.5.7 - Mobile Layout Hardening: quick sort Defect, safe-area, responsive floor/mobile controls, compact Defect IDs and dates.

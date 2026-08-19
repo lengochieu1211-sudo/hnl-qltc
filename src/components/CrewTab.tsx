@@ -33,13 +33,14 @@ import { CrewRecord, FloorPlan, TeamInfo, RoomProgressItem, DefectItem, CrewFloo
 import { formatDateDDMMYYYY } from '../utils/dateFormatter';
 import { exportTeamStatisticsToExcel } from '../utils/excelExport';
 import { confirmAsync } from '../utils/confirmAsync';
-import { formatDecimal, evaluateMathExpression, useFormatSettings } from '../utils/numberUtils';
-import { isTeamMatch, getTeamCategoriesForRoom, calculateTeamStatistics, isTeamWorkCompletedInRoom, FloorGroupDetail } from '../utils/teamUtils';
+import { formatDecimal, evaluateMathExpression, useFormatSettings, parseExcelNumber } from '../utils/numberUtils';
+import { isTeamMatch, getTeamCategoriesForRoom, calculateTeamStatistics, isTeamWorkCompletedInRoom, FloorGroupDetail, getSubItemGroupWeight } from '../utils/teamUtils';
 import { SortOrder, applySortOrder, compareDateValues, compareFloorValues, naturalCompare } from '../utils/sortUtils';
 import { PhotoAttachmentPicker } from './PhotoAttachmentPicker';
 import { MathNumberInput } from './MathNumberInput';
 import { deleteEntityPhotos } from '../utils/photoStorage';
 import { saveWorkbookFile } from '../utils/fileExport';
+import { createEntityId } from '../utils/idUtils';
 
 interface CrewTabProps {
   projectId?: string;
@@ -48,7 +49,7 @@ interface CrewTabProps {
   floorPlans: FloorPlan[];
   roomProgressList?: RoomProgressItem[];
   defects?: DefectItem[];
-  onAddCrewRecord: (record: Omit<CrewRecord, 'id'>) => void;
+  onAddCrewRecord: (record: Omit<CrewRecord, 'id'> & { id?: string }) => void;
   onUpdateCrewRecord: (id: string, record: Partial<CrewRecord>) => void;
   onDeleteCrewRecord: (id: string) => void;
   onDeleteMultipleCrewRecords?: (ids: string[]) => void;
@@ -560,19 +561,19 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
   // Statistics for the selected date
   const stats = useMemo(() => {
-    // Avoid double-counting when same team is recorded across multiple floors for the same shift/date
-    const teamShiftMap: Record<string, number> = {};
+    // “Quân số trong ngày” is headcount, not the sum of morning + afternoon shifts.
+    // For each team, take the highest recorded headcount of the day so the same
+    // workers are not counted twice when they work both Sáng and Chiều.
+    const teamMaxMap: Record<string, number> = {};
     const teamSet = new Set<string>();
 
     filteredRecords.forEach((r) => {
       const teamKey = r.teamId || r.teamName.trim().toLowerCase();
       teamSet.add(teamKey);
-
-      const shiftKey = `${teamKey}_${r.shift || 'default'}`;
-      teamShiftMap[shiftKey] = Math.max(teamShiftMap[shiftKey] || 0, r.workerCount);
+      teamMaxMap[teamKey] = Math.max(teamMaxMap[teamKey] || 0, Number(r.workerCount) || 0);
     });
 
-    const totalWorkers = Object.values(teamShiftMap).reduce((sum, count) => sum + count, 0);
+    const totalWorkers = Object.values(teamMaxMap).reduce((sum, count) => sum + count, 0);
     const totalTeams = teamSet.size;
 
     // Distribution by floor
@@ -716,7 +717,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     }
 
     const teamData: TeamInfo = {
-      id: editingTeam ? editingTeam.id : `team-${Date.now()}`,
+      id: editingTeam ? editingTeam.id : createEntityId('team'),
       name: tName.trim(),
       leader: tLeader.trim(),
       defaultCount: tCount,
@@ -886,7 +887,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           const rawTeamId = String(row['__teamId'] || row['Mã Đội'] || row['id'] || '').trim();
           const nameStr = String(row[nameMatchKey] || '').trim();
           const leaderStr = String(row['Trưởng Nhóm / Đội Trưởng'] || row['Trưởng Nhóm'] || row['Đội Trưởng'] || row['leader'] || '').trim();
-          const countNum = Number(row['Quân số định biên'] || row['defaultCount'] || row['Quân số'] || row['Số người'] || 0);
+          const countNum = parseExcelNumber(row['Quân số định biên'] || row['defaultCount'] || row['Quân số'] || row['Số người'] || 0);
           const phoneStr = String(row['Số Điện Thoại'] || row['phone'] || row['sdt'] || '').trim();
           const notesStr = String(row['Ghi Chú'] || row['notes'] || '').trim();
 
@@ -900,7 +901,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             : newTeams.findIndex(t => t.name.toLowerCase() === nameStr.toLowerCase());
 
           const teamData: TeamInfo = {
-            id: existingIdx !== -1 ? newTeams[existingIdx].id : (rawTeamId || `team-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`),
+            id: existingIdx !== -1 ? newTeams[existingIdx].id : (rawTeamId || createEntityId('team')),
             name: nameStr,
             leader: leaderStr,
             defaultCount: countNum,
@@ -1117,7 +1118,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                       }}
                       className="text-rose-600 hover:text-rose-700 font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
                     >
-                      <Trash2 className="w-3.5 h-3.5" /> Xóa Đã Chọn ({selectedRecordIds.filter(id => filteredRecords.some(item => item.id === id)).length})
+                      <Trash2 className="w-3.5 h-3.5" /> Xóa đã chọn ({selectedRecordIds.filter(id => filteredRecords.some(item => item.id === id)).length})
                     </button>
                   )}
 
@@ -1363,7 +1364,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                       }}
                       className="text-rose-600 hover:text-rose-700 font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
                     >
-                      <Trash2 className="w-3.5 h-3.5" /> Xóa Đã Chọn ({selectedTeamIds.filter(id => teams.some(item => item.id === id)).length})
+                      <Trash2 className="w-3.5 h-3.5" /> Xóa đã chọn ({selectedTeamIds.filter(id => teams.some(item => item.id === id)).length})
                     </button>
                   )}
                 </div>
@@ -1454,7 +1455,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                             <div className="text-[9px] text-indigo-950 bg-indigo-100/50 px-1 py-0.5 rounded font-extrabold flex flex-col gap-0.5 mt-0.5 max-w-[120px] text-left truncate">
                               {categoryBreakdown.map(cb => (
                                 <div key={cb.categoryName} className="truncate">
-                                  {cb.categoryName}: {cb.assignedVol} {cb.unit}
+                                  {cb.categoryName}: {formatDecimal(cb.assignedVol)} {cb.unit}
                                 </div>
                               ))}
                             </div>
@@ -1463,7 +1464,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                               <div className="flex flex-wrap gap-1 mt-0.5">
                                 {Object.entries(stat.volumeByUnit).map(([unit, val]) => (
                                   <span key={unit} className="text-[10px] text-indigo-900 bg-indigo-100/80 px-1.5 py-0.2 rounded font-extrabold">
-                                    {val} {unit}
+                                    {formatDecimal(Number(val))} {unit}
                                   </span>
                                 ))}
                               </div>
@@ -1721,7 +1722,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
               {/* Ca làm việc */}
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Ca Làm Việc</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Ca làm việc</label>
                 <div className="grid grid-cols-3 gap-1.5">
                   <button
                     type="button"
@@ -1903,7 +1904,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
               {/* Ghi chú */}
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Ghi Chú Thêm (Tùy chọn)</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Ghi chú thêm (tùy chọn)</label>
                 <textarea 
                   placeholder="Ví dụ: Đã nhận đủ vật tư, tăng ca hoàn thành trần phòng A102..."
                   value={notes}
@@ -2062,7 +2063,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
               {/* Notes */}
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Mô Tả / Ghi Chú</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Mô tả / Ghi chú</label>
                 <textarea 
                   placeholder="Ví dụ: Đội chuyên thạch cao trần giật cấp, khoán khối lượng..."
                   value={tNotes}
@@ -2205,7 +2206,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           categoryBreakdown
         } = stat;
         
-        const teamDefects = (defects || []).filter(d => isTeamMatch(d.assignedTo, team, d.teamId));
+        const teamDefects = (defects || []).filter(d => !d.archivedAt && isTeamMatch(d.assignedTo, team, d.teamId));
         const teamLogs = (crewRecords || []).filter(l => isTeamMatch(l.teamName, team, l.teamId));
         
         const openDefectsList = teamDefects.filter(d => d.status === 'Mới phát hiện' || d.status === 'Đang sửa');
@@ -2284,15 +2285,18 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         const loggedFloors = Array.from(new Set(teamLogs.map(l => l.floorName).filter(Boolean)));
 
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/70 backdrop-blur-md">
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center px-2 sm:p-4 bg-slate-900/70 backdrop-blur-md"
+            style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top))', paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}
+          >
             <div 
-              className="bg-slate-50 rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[92vh] border border-slate-200 animate-in fade-in zoom-in-95 duration-200"
+              className="bg-slate-50 rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[calc(100dvh-1rem)] sm:max-h-[92vh] border border-slate-200 animate-in fade-in zoom-in-95 duration-200"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Header */}
-              <div className="bg-slate-900 p-4 text-white flex justify-between items-start border-b border-slate-800">
-                <div>
-                  <div className="flex items-center gap-2">
+              <div className="bg-slate-900 p-3 sm:p-4 text-white flex justify-between items-start gap-3 border-b border-slate-800">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2 pr-1">
                     <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 uppercase tracking-wider">
                       Thống kê Căn / Phòng & Defect
                     </span>
@@ -2332,7 +2336,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
                 <button 
                   onClick={() => setSelectedTeamForDetail(null)}
-                  className="text-slate-400 hover:text-white transition bg-slate-800 hover:bg-slate-700 p-2 rounded-xl"
+                  className="text-slate-400 hover:text-white transition bg-slate-800 hover:bg-slate-700 p-2 rounded-xl shrink-0"
                   title="Đóng"
                 >
                   <X className="w-5 h-5" />
@@ -2342,30 +2346,30 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               {/* KPI Summary Strip */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-3 bg-white border-b border-slate-200 text-xs">
                 <div className="bg-indigo-50/80 border border-indigo-100 p-2 rounded-xl text-center">
-                  <div className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider">Căn & Tầng</div>
+                  <div className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider">Căn / Phòng & Tầng</div>
                   <div className="text-sm sm:text-base font-black text-indigo-900 mt-0.5 flex items-center justify-center gap-1">
                     <Home className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                    <span>{teamRooms.length} căn ({floorStatList.length} tầng)</span>
+                    <span>{teamRooms.length} Căn / Phòng ({floorStatList.length} tầng)</span>
                   </div>
                   <div className="text-[10px] text-indigo-600 mt-0.5 font-medium">
-                    {completedRooms.length}/{teamRooms.length} căn nghiệm thu
+                    {completedRooms.length}/{teamRooms.length} Căn / Phòng nghiệm thu
                   </div>
                 </div>
 
                 <div className="bg-emerald-50/80 border border-emerald-100 p-2 rounded-xl text-center">
                   <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Khối lượng thi công</div>
-                  <div className="text-sm sm:text-base font-black text-emerald-900 mt-0.5 flex items-center justify-center gap-1">
+                  <div className="text-sm sm:text-base font-black text-emerald-900 mt-0.5 flex items-center justify-center gap-1 min-w-0">
                     <BarChart3 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                    <span>
+                    <span className="min-w-0 break-words leading-snug">
                       {stat.volumeByUnit && Object.keys(stat.volumeByUnit).length > 0
-                        ? Object.entries(stat.volumeByUnit).map(([unit, val]) => `${val} ${unit}`).join(' + ')
-                        : (totalTeamVolume > 0 ? `${totalTeamVolume} m²` : 'Chưa nhập')}
+                        ? Object.entries(stat.volumeByUnit).map(([unit, val]) => `${formatDecimal(Number(val))} ${unit}`).join(' + ')
+                        : (totalTeamVolume > 0 ? `${formatDecimal(totalTeamVolume)} m²` : 'Chưa nhập')}
                     </span>
                   </div>
-                  <div className="text-[10px] text-emerald-700 mt-0.5 font-semibold truncate">
+                  <div className="text-[10px] text-emerald-700 mt-0.5 font-semibold break-words leading-snug">
                     {stat.completedVolumeByUnit && Object.keys(stat.completedVolumeByUnit).length > 0
-                      ? `NT: ${Object.entries(stat.completedVolumeByUnit).map(([unit, val]) => `${Math.round(Number(val) * 100) / 100} ${unit}`).join(' + ')}`
-                      : (inspectedVol > 0 ? `NT: ${inspectedVol} m²` : `Khung: ${completedFrameVol} m² | Tấm: ${completedBoardVol} m²`)}
+                      ? `NT: ${Object.entries(stat.completedVolumeByUnit).map(([unit, val]) => `${formatDecimal(Number(val))} ${unit}`).join(' + ')}`
+                      : (inspectedVol > 0 ? `NT: ${formatDecimal(inspectedVol)} m²` : `Khung: ${formatDecimal(completedFrameVol)} m² | Tấm: ${formatDecimal(completedBoardVol)} m²`)}
                   </div>
                 </div>
 
@@ -2394,7 +2398,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Tổng công đã làm</div>
                   <div className="text-sm sm:text-base font-black text-slate-800 mt-0.5 flex items-center justify-center gap-1">
                     <Users className="w-3.5 h-3.5 text-slate-600" />
-                    <span>{totalWorkdays} công</span>
+                    <span>{formatDecimal(totalWorkdays)} công</span>
                   </div>
                   <div className="text-[10px] text-slate-500 mt-0.5 font-medium">
                     {teamLogs.length} lượt nhật ký
@@ -2456,7 +2460,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                         <Home className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                         <h4 className="text-xs font-bold text-slate-700">Đội chưa được gán trực tiếp cho căn / phòng cụ thể nào</h4>
                         <p className="text-[11px] text-slate-500 mt-1 max-w-md mx-auto leading-relaxed">
-                          Để gán đội thi công cho từng căn hộ / phòng, bạn hãy vào tab <strong className="text-slate-700">"Sơ đồ mặt bằng"</strong>, chọn vùng phòng cần giao và chọn đội <strong className="text-indigo-600">{team.name}</strong>.
+                          Để gán đội thi công cho từng Căn / Phòng, bạn hãy vào tab <strong className="text-slate-700">"Mặt bằng"</strong>, chọn vùng Căn / Phòng cần giao và chọn đội <strong className="text-indigo-600">{team.name}</strong>.
                         </p>
                         
                         {loggedFloors.length > 0 && (
@@ -2502,19 +2506,26 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                             return (
                               <div key={f.floorName} className="bg-slate-50/70 border border-slate-200/60 rounded-xl p-3.5 space-y-3">
                                 {/* Floor Header Group */}
-                                <div className="flex justify-between items-center pb-2.5 border-b border-slate-200/60">
+                                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 pb-2.5 border-b border-slate-200/60">
                                   <div className="flex items-center gap-1.5 font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wider">
                                     <MapPin className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                                    <span>TẦNG: {f.floorName}</span>
+                                    <span>{f.floorName}</span>
                                   </div>
-                                  <div className="flex gap-1.5 text-[10px] font-semibold">
+                                  <div className="flex gap-1.5 text-[10px] font-semibold flex-wrap w-full sm:w-auto sm:justify-end">
                                     <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md border border-slate-200/40">
                                       {f.rooms.length} Căn / Phòng
                                     </span>
                                     <span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-md border border-emerald-100">
                                       {f.categoryDetails && Object.keys(f.categoryDetails).length > 0
-                                        ? Object.values(f.categoryDetails).map(d => `${Math.round(d.totalVol * 100) / 100} ${d.unit || 'm²'}`).join(' + ')
-                                        : `${f.totalVol} m²`}
+                                        ? (() => {
+                                            const byUnit: Record<string, number> = {};
+                                            Object.values(f.categoryDetails).forEach((d) => {
+                                              const unit = d.unit || 'm²';
+                                              byUnit[unit] = (byUnit[unit] || 0) + Number(d.totalVol || 0);
+                                            });
+                                            return Object.entries(byUnit).map(([unit, value]) => `${formatDecimal(value)} ${unit}`).join(' + ');
+                                          })()
+                                        : `${formatDecimal(f.totalVol)} m²`}
                                     </span>
                                   </div>
                                 </div>
@@ -2543,67 +2554,58 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                         subItems?: typeof room.subItems;
                                       }[] = [];
 
-                                      if (teamCats.size > 0 && room.categoryVolumes) {
-                                        teamCats.forEach(cat => {
-                                          const catVol = room.categoryVolumes?.[cat] || 0;
+                                      if (teamCats.size > 0) {
+                                        teamCats.forEach((cat) => {
+                                          const catTotalVol = room.categoryVolumes?.[cat] ?? ((room.workCategory === cat || teamCats.size === 1) ? Number(room.workVolume || 0) : 0);
+                                          const allSubItemsInCat = room.subItems?.filter((s) => (s.category || room.workCategory) === cat) || [];
+                                          const subItemsInCat = allSubItemsInCat.filter((s) =>
+                                            isTeamMatch(s.assignedTeam, team, s.teamId) || (!s.assignedTeam && !s.teamId && isMain)
+                                          );
+
+                                          let catVol = isMain ? catTotalVol : 0;
+                                          if (allSubItemsInCat.length > 0) {
+                                            const totalWeight = allSubItemsInCat.reduce((sum, sub) => sum + getSubItemGroupWeight(allSubItemsInCat, sub), 0);
+                                            const teamWeight = subItemsInCat.reduce((sum, sub) => sum + getSubItemGroupWeight(allSubItemsInCat, sub), 0);
+                                            catVol = totalWeight > 0 ? catTotalVol * (teamWeight / totalWeight) : 0;
+                                          }
                                           totalVol += catVol;
 
                                           let catFrameVol = 0;
                                           let catBoardVol = 0;
                                           let catInspectedVol = 0;
-
-                                          const subItemsInCat = (room.subItems?.filter(s => s.category === cat) || []).filter(s => 
-                                            isTeamMatch(s.assignedTeam, team, s.teamId) || (!s.assignedTeam && !s.teamId && isMain)
-                                          );
                                           let catFrameStatus: AcceptanceStatus = 'Chưa làm';
                                           let catBoardStatus: AcceptanceStatus = 'Chưa làm';
                                           let catInspectionStatus: RoomInspectionResult = 'Chưa nghiệm thu';
 
-                                          if (subItemsInCat.length > 0) {
-                                            const frameSubs = subItemsInCat.filter(s => s.name.toLowerCase().includes('khung'));
-                                            const boardSubs = subItemsInCat.filter(s => s.name.toLowerCase().includes('tấm') || s.name.toLowerCase().includes('bắn'));
+                                          if (allSubItemsInCat.length > 0 && subItemsInCat.length > 0) {
+                                            const allWeight = allSubItemsInCat.reduce((sum, sub) => sum + getSubItemGroupWeight(allSubItemsInCat, sub), 0);
+                                            const inspectedWeight = subItemsInCat
+                                              .filter((sub) => sub.inspectionStatus === 'Đạt nghiệm thu')
+                                              .reduce((sum, sub) => sum + getSubItemGroupWeight(allSubItemsInCat, sub), 0);
+                                            catInspectedVol = allWeight > 0 ? catTotalVol * (inspectedWeight / allWeight) : 0;
 
-                                            const doneFrameCount = frameSubs.filter(s => s.status === 'Đã hoàn thành' || s.inspectionStatus === 'Đạt nghiệm thu').length;
-                                            const doneBoardCount = boardSubs.filter(s => s.status === 'Đã hoàn thành' || s.inspectionStatus === 'Đạt nghiệm thu').length;
-
-                                            if (frameSubs.length > 0) {
-                                              catFrameStatus = doneFrameCount === frameSubs.length ? 'Đã hoàn thành' : (doneFrameCount > 0 ? 'Đang làm' : 'Chưa làm');
-                                            } else {
-                                              catFrameStatus = room.frameStatus;
-                                            }
-
-                                            if (boardSubs.length > 0) {
-                                              catBoardStatus = doneBoardCount === boardSubs.length ? 'Đã hoàn thành' : (doneBoardCount > 0 ? 'Đang làm' : 'Chưa làm');
-                                            } else {
-                                              catBoardStatus = room.boardStatus;
-                                            }
-
-                                            const doneAll = subItemsInCat.filter(s => s.status === 'Đã hoàn thành' || s.inspectionStatus === 'Đạt nghiệm thu').length;
-                                            catInspectedVol = catVol * (doneAll / subItemsInCat.length);
-                                            catFrameVol = catVol * (frameSubs.length > 0 ? doneFrameCount / frameSubs.length : (room.frameStatus === 'Đã hoàn thành' ? 1 : (room.frameStatus === 'Đang làm' ? 0.5 : 0)));
-                                            catBoardVol = catVol * (boardSubs.length > 0 ? doneBoardCount / boardSubs.length : (room.boardStatus === 'Đã hoàn thành' ? 1 : (room.boardStatus === 'Đang làm' ? 0.5 : 0)));
-
-                                            if (subItemsInCat.every(s => s.inspectionStatus === 'Đạt nghiệm thu')) {
-                                              catInspectionStatus = 'Đạt nghiệm thu';
-                                            } else if (subItemsInCat.some(s => s.inspectionStatus === 'Chưa đạt (Cần sửa)')) {
-                                              catInspectionStatus = 'Chưa đạt (Cần sửa)';
-                                            } else if (subItemsInCat.some(s => s.inspectionStatus === 'Đạt nghiệm thu')) {
-                                              catInspectionStatus = 'Chưa đạt (Cần sửa)';
-                                            }
-                                          } else {
+                                            const frameSubs = subItemsInCat.filter((sub) => sub.name.toLocaleLowerCase('vi').includes('khung'));
+                                            const boardSubs = subItemsInCat.filter((sub) => sub.name.toLocaleLowerCase('vi').includes('tấm') || sub.name.toLocaleLowerCase('vi').includes('bắn'));
+                                            const doneFrameCount = frameSubs.filter((sub) => sub.status === 'Đã hoàn thành' || sub.inspectionStatus === 'Đạt nghiệm thu').length;
+                                            const doneBoardCount = boardSubs.filter((sub) => sub.status === 'Đã hoàn thành' || sub.inspectionStatus === 'Đạt nghiệm thu').length;
+                                            catFrameVol = catVol * (frameSubs.length > 0 ? doneFrameCount / frameSubs.length : 0);
+                                            catBoardVol = catVol * (boardSubs.length > 0 ? doneBoardCount / boardSubs.length : 0);
+                                            catFrameStatus = frameSubs.length > 0 ? (doneFrameCount === frameSubs.length ? 'Đã hoàn thành' : doneFrameCount > 0 ? 'Đang làm' : 'Chưa làm') : room.frameStatus;
+                                            catBoardStatus = boardSubs.length > 0 ? (doneBoardCount === boardSubs.length ? 'Đã hoàn thành' : doneBoardCount > 0 ? 'Đang làm' : 'Chưa làm') : room.boardStatus;
+                                            if (subItemsInCat.every((sub) => sub.inspectionStatus === 'Đạt nghiệm thu')) catInspectionStatus = 'Đạt nghiệm thu';
+                                            else if (subItemsInCat.some((sub) => sub.inspectionStatus === 'Chưa đạt (Cần sửa)')) catInspectionStatus = 'Chưa đạt (Cần sửa)';
+                                          } else if (isMain) {
+                                            catInspectedVol = room.inspectionStatus === 'Đạt nghiệm thu' ? catVol : 0;
+                                            catFrameVol = room.frameStatus === 'Đã hoàn thành' ? catVol : room.frameStatus === 'Đang làm' ? catVol * 0.5 : 0;
+                                            catBoardVol = room.boardStatus === 'Đã hoàn thành' ? catVol : room.boardStatus === 'Đang làm' ? catVol * 0.5 : 0;
                                             catFrameStatus = room.frameStatus;
                                             catBoardStatus = room.boardStatus;
                                             catInspectionStatus = room.inspectionStatus;
-
-                                            catInspectedVol = room.inspectionStatus === 'Đạt nghiệm thu' ? catVol : 0;
-                                            catFrameVol = room.frameStatus === 'Đã hoàn thành' ? catVol : (room.frameStatus === 'Đang làm' ? catVol * 0.5 : 0);
-                                            catBoardVol = room.boardStatus === 'Đã hoàn thành' ? catVol : (room.boardStatus === 'Đang làm' ? catVol * 0.5 : 0);
                                           }
 
                                           doneFrameVol += catFrameVol;
                                           doneBoardVol += catBoardVol;
                                           doneInspectedVol += catInspectedVol;
-
                                           categoriesDetailList.push({
                                             name: cat,
                                             vol: catVol,
@@ -2616,12 +2618,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                             subItems: subItemsInCat
                                           });
                                         });
-                                      } else {
-                                        totalVol = room.workVolume || 0;
-                                        doneFrameVol = room.frameStatus === 'Đã hoàn thành' ? totalVol : (room.frameStatus === 'Đang làm' ? totalVol * 0.5 : 0);
-                                        doneBoardVol = room.boardStatus === 'Đã hoàn thành' ? totalVol : (room.boardStatus === 'Đang làm' ? totalVol * 0.5 : 0);
+                                      } else if (isMain) {
+                                        totalVol = Number(room.workVolume || 0);
+                                        doneFrameVol = room.frameStatus === 'Đã hoàn thành' ? totalVol : room.frameStatus === 'Đang làm' ? totalVol * 0.5 : 0;
+                                        doneBoardVol = room.boardStatus === 'Đã hoàn thành' ? totalVol : room.boardStatus === 'Đang làm' ? totalVol * 0.5 : 0;
                                         doneInspectedVol = room.inspectionStatus === 'Đạt nghiệm thu' ? totalVol : 0;
-
                                         categoriesDetailList.push({
                                           name: room.workCategory || 'Hạng mục khác',
                                           vol: totalVol,
@@ -2657,7 +2658,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                                 <Home className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                                                 <span>{room.roomName}</span>
                                                 <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
-                                                  Tổng KL: {roomStats.totalVol} {room.volumeUnit || 'm²'}
+                                                  Tổng KL: {formatDecimal(roomStats.totalVol)} {room.volumeUnit || 'm²'}
                                                 </span>
                                               </h4>
                                             </div>
@@ -2686,7 +2687,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                                       {c.name}
                                                     </span>
                                                     <span className="bg-slate-50 text-slate-600 text-[10px] px-1.5 py-0.5 rounded font-medium border border-slate-200/40">
-                                                      {c.vol} {room.volumeUnit || 'm²'}
+                                                      {formatDecimal(c.vol)} {room.volumeUnit || 'm²'}
                                                     </span>
                                                   </div>
 
@@ -2915,7 +2916,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     ) : (
                       <div className="space-y-2">
                         <div className="text-xs text-slate-500 font-medium px-1 mb-1">
-                          Lịch sử công nhật đã ghi nhận ({teamLogs.length} ngày / {totalWorkdays} công thợ):
+                          Lịch sử công nhật đã ghi nhận ({teamLogs.length} ngày / {formatDecimal(totalWorkdays)} công thợ):
                         </div>
                         <div className="flex justify-end px-1">
                           <QuickSortControls

@@ -93,12 +93,13 @@ const ROOM_CANDIDATES = buildCandidateOffsets([3.8, 5.2, 6.8, 8.5, 10.5, 12.5]);
  */
 export function computeDefectLabelPositions<T extends { x: number; y: number; markerCode?: string; displayCode?: string }>(
   defects: T[],
-  existingObstacles: MapObstacle[] = []
+  existingObstacles: MapObstacle[] = [],
+  labelScale = 1
 ): DefectMapLabelPos[] {
-  // The map only renders a short sequence number (01/02/03), not the long defect name.
-  // Keep the collision rectangle deliberately compact.
-  const labelWidth = defects.length >= 100 ? 5.7 : 5.0;
-  const labelHeight = 3.5;
+  // Collision box follows the selected marker size from the PDF export settings.
+  const safeScale = clamp(Number.isFinite(labelScale) ? labelScale : 1, 0.65, 2.2);
+  const labelWidth = (defects.length >= 100 ? 5.7 : 5.0) * safeScale;
+  const labelHeight = 3.5 * safeScale;
   const placed: Box[] = [];
 
   const origins = defects.map((d) => ({
@@ -197,7 +198,8 @@ export function computeDefectLabelPositions<T extends { x: number; y: number; ma
  */
 export function computeRoomLabelPositions<T extends { x?: number; y?: number; width?: number; height?: number; points?: Point[] }>(
   rooms: T[],
-  existingObstacles: MapObstacle[] = []
+  existingObstacles: MapObstacle[] = [],
+  labelScale = 1
 ): RoomMapLabelPos[] {
   // Room numbers are rendered as compact white pills (no "#" on-map).
   // One digit is nearly circular; two/three digits gain only enough width for readability.
@@ -225,8 +227,9 @@ export function computeRoomLabelPositions<T extends { x?: number; y?: number; wi
     cy = clamp(cy, 1.5, 98.5);
 
     const digits = String(index + 1).length;
-    const labelWidth = digits <= 1 ? 1.75 : digits === 2 ? 2.35 : 2.85;
-    const labelHeight = 1.70;
+    const safeScale = clamp(Number.isFinite(labelScale) ? labelScale : 1, 0.65, 2.2);
+    const labelWidth = (digits <= 1 ? 1.75 : digits === 2 ? 2.35 : 2.85) * safeScale;
+    const labelHeight = 1.70 * safeScale;
     const edgePadX = labelWidth / 2 + 0.55;
     const edgePadY = labelHeight / 2 + 0.55;
 

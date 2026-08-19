@@ -81,8 +81,11 @@ import { getAsyncItem, setAsyncItem, getAllStorageData } from './utils/asyncStor
 import { migrateAndCleanLocalStorage } from './utils/migrateStorage';
 import { confirmAsync } from './utils/confirmAsync';
 import { normalizeImportedData } from './utils/dataNormalizer';
-import { getSubItemEffectiveWeight } from './utils/teamUtils';
+import { getSubItemGroupWeight } from './utils/teamUtils';
 import { reconcileMaterialNormWorkCategoryLinks } from './utils/projectReconciliation';
+import { createEntityId, createShortToken } from './utils/idUtils';
+import { normalizeUnit, areSameUnit } from './utils/unitUtils';
+import { resolveNormMaterialId, normalizeMaterialNameKey } from './utils/inventoryUtils';
 import { apiFetch, hasApiBackend } from './utils/api';
 import {
   getAndroidAutoSaveFolderName,
@@ -94,7 +97,7 @@ import {
 import { getProjectPhotos, getProjectPhotosWithBinary, restorePhotosFromBackup } from './utils/photoStorage';
 import { subscribeProjectPhotosRealtime, syncProjectPhotosToCloud, PhotoCloudSyncStatus } from './lib/photoCloudSync';
 import { isPrimaryDriveReady, PRIMARY_DRIVE_OWNER_EMAIL, uploadProjectBackupToPrimaryDrive } from './lib/primaryDriveBridge';
-import { floorPlanNeedsCloudUpload, isDisplayableFloorPlanUrl, loadFloorPlanImageFromCloud, syncFloorPlanImageToCloud } from './lib/floorPlanImageSync';
+import { floorPlanNeedsCloudUpload, isDisplayableFloorPlanUrl, loadFloorPlanImageFromCloud, syncFloorPlanImageToCloud, deleteFloorPlanImageFromCloud } from './lib/floorPlanImageSync';
 
 // Heavy screens are code-split so Android does not parse XLSX/PDF-heavy modules at startup.
 const WarehouseTab = React.lazy(() => import('./components/WarehouseTab').then(m => ({ default: m.WarehouseTab })));
@@ -174,6 +177,7 @@ export const saveProjectsList = (list: ProjectInfo[]) => {
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('floorplan');
   const [activeProjectId, setActiveProjectId] = useState<string>(() => getActiveProjectId());
+  const activeProjectIdRef = useRef<string>(activeProjectId);
   const [isExportPdfOpen, setIsExportPdfOpen] = useState(false);
   const [isMaterialNormOpen, setIsMaterialNormOpen] = useState(false);
   const [isProjectManagerOpen, setIsProjectManagerOpen] = useState(false);
@@ -278,6 +282,31 @@ export default function App() {
   const lastServerMetadataUpdatedAtRef = React.useRef<number>(0);
   const hasUserEditedSinceHydrateRef = React.useRef<boolean>(false);
   const hasUnsavedAllBackupChangesRef = React.useRef<boolean>(false);
+  const localTombstonesRef = React.useRef<Record<string, number>>({});
+
+  const persistLocalTombstones = (projectId: string) => {
+    const snapshot = { ...localTombstonesRef.current };
+    setAsyncItem(getKey('construction_tombstones', projectId), snapshot).catch((err) =>
+      console.warn('Tombstone cache save warning:', err)
+    );
+  };
+
+  const recordLocalTombstone = (stateKey: keyof AppData | string, id: string, timestamp: number, projectId = activeProjectIdRef.current || activeProjectId) => {
+    if (!id) return;
+    const key = `${String(stateKey)}_${id}`;
+    if (timestamp > Number(localTombstonesRef.current[key] || 0)) {
+      localTombstonesRef.current[key] = timestamp;
+      persistLocalTombstones(projectId);
+    }
+  };
+
+  const clearLocalTombstone = (stateKey: keyof AppData | string, id: string, projectId = activeProjectIdRef.current || activeProjectId) => {
+    const key = `${String(stateKey)}_${id}`;
+    if (key in localTombstonesRef.current) {
+      delete localTombstonesRef.current[key];
+      persistLocalTombstones(projectId);
+    }
+  };
 
   const [pendingFileRestorePrompt, setPendingFileRestorePrompt] = useState<{
     handleName: string;
@@ -309,7 +338,7 @@ export default function App() {
             const itemPrefix = (prefix === 'INV' && item.type)
               ? (item.type === 'in' ? 'NK' : 'XK')
               : prefix;
-            id = `${itemPrefix}-${Date.now().toString().slice(-6)}-${Math.random().toString(36).substring(2, 8).toUpperCase()}-${idx}`;
+            id = `${createEntityId(itemPrefix)}-${idx}`;
           }
           seen.add(id);
           return { ...item, id };
@@ -339,22 +368,64 @@ export default function App() {
         parseSaved('construction_teams', []),
       ]);
 
+      const rawTombstones = await parseSaved<Record<string, number>>('construction_tombstones', {});
+      const tombstoneMap = (rawTombstones && typeof rawTombstones === 'object' && !Array.isArray(rawTombstones)) ? rawTombstones : {};
+      const filterTombstoned = <T extends { id?: string; updatedAt?: any }>(stateKey: keyof AppData, list: T[] | undefined | null): T[] =>
+        (list || []).filter((item) => {
+          if (!item?.id) return true;
+          const tombTime = Number(tombstoneMap[`${String(stateKey)}_${item.id}`] || 0);
+          const itemTime = parseLegacyTimestamp(item.updatedAt, 0);
+          return !(tombTime > 0 && tombTime >= itemTime);
+        });
+
       if (currentGeneration !== loadGenerationRef.current) {
         console.log('[STALE LOAD DISCARDED]', projectId);
         return;
       }
 
-      const floorPlans = deduplicateById(rawFloorPlans || [], 'FP');
+      const floorPlans = deduplicateById(filterTombstoned('floorPlans', rawFloorPlans), 'FP');
       floorPlans.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
       floorPlans.forEach((fp, idx) => { fp.order = idx; });
-      const roomProgressList = deduplicateById(rawRooms || [], 'ROOM');
-      const defects = deduplicateById(rawDefects || [], 'DEF');
-      const checklist = deduplicateById(rawChecklist || [], 'CHK');
-      const crewRecords = deduplicateById(rawCrew || [], 'CREW');
-      const materialNorms = deduplicateById(rawMaterialNorms || [], 'NORM');
-      const inventory = deduplicateById(rawInventory || [], 'INV');
-      const workVolumes = deduplicateById(rawWorkVolumes || [], 'VOL');
-      const teams = deduplicateById(rawTeams || [], 'TEAM');
+      const roomProgressList = deduplicateById(filterTombstoned('roomProgressList', rawRooms), 'ROOM');
+      const defects = deduplicateById(filterTombstoned('defects', rawDefects), 'DEF');
+      const checklist = deduplicateById(filterTombstoned('checklist', rawChecklist), 'CHK');
+      const crewRecords = deduplicateById(filterTombstoned('crewRecords', rawCrew), 'CREW');
+      const materialIdByNameUnit = new Map<string, string>();
+      const materialNorms = deduplicateById(filterTombstoned('materialNorms', rawMaterialNorms), 'NORM').map((norm: MaterialNorm) => {
+        const normalizedUnit = normalizeUnit(norm.unit) || norm.unit;
+        const materialKey = `${normalizeMaterialNameKey(norm.materialName)}|${normalizedUnit}`;
+        const materialId = norm.materialId || materialIdByNameUnit.get(materialKey) || `MAT-${norm.id}`;
+        // Only fill missing legacy identities. Explicit IDs remain authoritative, while
+        // following legacy rows with the same physical name + unit can reuse the first ID.
+        if (materialKey && !materialIdByNameUnit.has(materialKey)) materialIdByNameUnit.set(materialKey, materialId);
+        return {
+          ...norm,
+          materialId,
+          unit: normalizedUnit,
+          normBasisUnit: norm.normBasisUnit ? (normalizeUnit(norm.normBasisUnit) || norm.normBasisUnit) : undefined,
+        };
+      });
+      const normByLegacyId = new Map<string, MaterialNorm>();
+      materialNorms.forEach((norm: MaterialNorm) => {
+        normByLegacyId.set(String(norm.id), norm);
+        if (norm.materialId) normByLegacyId.set(String(norm.materialId), norm);
+      });
+      const inventory = deduplicateById(filterTombstoned('inventory', rawInventory), 'INV').map((item: InventoryItem) => {
+        let matchedNorm = item.materialId ? normByLegacyId.get(String(item.materialId)) : undefined;
+        if (!matchedNorm) {
+          matchedNorm = materialNorms.find((norm: MaterialNorm) =>
+            normalizeMaterialNameKey(norm.materialName) === normalizeMaterialNameKey(item.materialName) &&
+            areSameUnit(norm.unit, item.unit)
+          );
+        }
+        return {
+          ...item,
+          materialId: matchedNorm ? resolveNormMaterialId(matchedNorm) : item.materialId,
+          unit: normalizeUnit(item.unit) || item.unit,
+        };
+      });
+      const workVolumes = deduplicateById(filterTombstoned('workVolumes', rawWorkVolumes), 'VOL');
+      const teams = deduplicateById(filterTombstoned('teams', rawTeams), 'TEAM');
 
       const loadedProjectName = localStorage.getItem(getKey('construction_project_name', projectId)) || (isDefault ? 'Dự án chưa đặt tên' : `Dự án ${projectId}`);
       const loadedContractor = localStorage.getItem(getKey('construction_contractor', projectId)) || '';
@@ -365,6 +436,8 @@ export default function App() {
       setContractorName(loadedContractor);
       setInspectorName(loadedInspector);
       setLastUpdatedAt(Number(loadedUpdatedAt) || 0);
+
+      localTombstonesRef.current = { ...tombstoneMap };
 
       const initialState = {
         materialNorms,
@@ -406,6 +479,13 @@ export default function App() {
     return next;
   };
 
+  const cloudSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const queueCloudSave = (job: () => Promise<void>) => {
+    const next = cloudSaveQueueRef.current.catch(() => {}).then(job);
+    cloudSaveQueueRef.current = next.catch((err) => console.warn('[CLOUD SAVE QUEUE ERROR]', err));
+    return next;
+  };
+
   const saveCurrentProject = async (targetProjectId?: string) => {
     if (!isHydrated || isRestoring || isLoadingProject) return;
     if (!canEditProjectData(currentUserRole)) return;
@@ -426,6 +506,7 @@ export default function App() {
           setAsyncItem(getKey('construction_checklist', frozenProjectId), checklist),
           setAsyncItem(getKey('construction_crew_records', frozenProjectId), crewRecords),
           setAsyncItem(getKey('construction_teams', frozenProjectId), teams),
+          setAsyncItem(getKey('construction_tombstones', frozenProjectId), localTombstonesRef.current),
         ]);
         safeSetLocalStorageItem(getKey('construction_project_name', frozenProjectId), projectName);
         safeSetLocalStorageItem(getKey('construction_contractor', frozenProjectId), contractorName);
@@ -511,6 +592,8 @@ export default function App() {
 
   // Destructure current present state
   const { materialNorms, inventory, workVolumes, floorPlans, defects, roomProgressList, checklist, crewRecords, teams } = present;
+  const activeDefects = useMemo(() => defects.filter((item) => !item.archivedAt), [defects]);
+  const activeChecklist = useMemo(() => checklist.filter((item) => !item.archivedAt), [checklist]);
 
   // Helper to match floor names or floor IDs (supports multi-floor strings like "Tầng 1, Tầng 2")
   const isFloorMatch = (volFloor: string, roomFloorName: string, volFloorIds?: string[], roomFloorId?: string) => {
@@ -561,7 +644,13 @@ export default function App() {
       });
 
       if (matchingRooms.length === 0) {
-        return item; // Fallback to raw item if no matching rooms in the floor plans
+        // Khối lượng thực hiện trong app là số liệu liên kết từ Căn / Phòng.
+        // Khi không còn Căn / Phòng nguồn, không giữ lại actual cũ vì sẽ tạo sản lượng “mồ côi”.
+        return {
+          ...item,
+          actual: 0,
+          status: 'Chưa thi công',
+        } as WorkVolume;
       }
 
       let totalPlanned = 0;
@@ -580,28 +669,25 @@ export default function App() {
           (itemCatId && s.workCategoryId === itemCatId) || 
           (s.category || room.workCategory) === item.title
         ) || [];
-        if (room.inspectionStatus === 'Đạt nghiệm thu') {
-          totalActual += roomVol;
-        } else if (subItemsInCat.length > 0) {
-          // Weighted progress calculation using getSubItemEffectiveWeight
-          const totalWeight = subItemsInCat.reduce((sum, s) => sum + getSubItemEffectiveWeight(s), 0);
-
+        if (subItemsInCat.length > 0) {
+          // Detailed sub-items are authoritative. A room-level “Đạt nghiệm thu”
+          // must not force unfinished sub-items to 100%. One sibling group also
+          // uses one weight system only (all volume, all %, or equal weights).
+          const totalWeight = subItemsInCat.reduce((sum, s) => sum + getSubItemGroupWeight(subItemsInCat, s), 0);
           const completedWeight = subItemsInCat.reduce((sum, s) => {
             const isDone = s.status === 'Đã hoàn thành' || s.inspectionStatus === 'Đạt nghiệm thu';
-            if (!isDone) return sum;
-            return sum + getSubItemEffectiveWeight(s);
+            return isDone ? sum + getSubItemGroupWeight(subItemsInCat, s) : sum;
           }, 0);
-
           const ratio = totalWeight > 0 ? Math.min(1, completedWeight / totalWeight) : 0;
           totalActual += roomVol * ratio;
+        } else if (room.inspectionStatus === 'Đạt nghiệm thu') {
+          totalActual += roomVol;
         } else {
           const titleLower = item.title.toLowerCase();
           const isFrame = titleLower.includes('khung') || titleLower.includes('xương');
           const isBoard = titleLower.includes('tấm');
 
-          if (room.inspectionStatus === 'Đạt nghiệm thu') {
-            totalActual += roomVol;
-          } else if (isFrame && room.frameStatus === 'Đã hoàn thành') {
+          if (isFrame && room.frameStatus === 'Đã hoàn thành') {
             totalActual += roomVol;
           } else if (isBoard && room.boardStatus === 'Đã hoàn thành') {
             totalActual += roomVol;
@@ -630,62 +716,65 @@ export default function App() {
     });
   }, [workVolumes, roomProgressList, floorPlans]);
 
-  // Dynamically compute materialNorms quantity (Số lượng định mức) based on matching work category volumes
+  // Dynamically compute materialNorms quantity based on linked work categories.
+  // ID links are authoritative; name links are legacy fallback only. Each WorkVolume
+  // can contribute at most once to one norm calculation.
   const computedMaterialNorms = useMemo(() => {
-    return materialNorms.map(norm => {
-      const categories = norm.workCategories || (norm.workCategory ? [norm.workCategory] : []);
-      const categoryIds = (norm as any).workCategoryIds || ((norm as any).workCategoryId ? [(norm as any).workCategoryId] : []);
-      
-      if (categories.length > 0 || categoryIds.length > 0) {
-        // Compute total volume multiplied by corresponding norm (either specific or general)
-        let totalQuota = 0;
-        let hasNorms = false;
-        
-        // Match by categories (names)
-        categories.forEach(cat => {
-          const catVolume = computedWorkVolumes
-            .filter(v => v.title === cat || v.category === cat)
-            .reduce((sum, v) => sum + (v.planned || 0), 0);
-          
-          if (catVolume > 0) {
-            let factor = 0;
-            if (norm.workCategoryNorms && norm.workCategoryNorms[cat] !== undefined) {
-              factor = norm.workCategoryNorms[cat];
-              hasNorms = true;
-            } else if (norm.unitNormPerM2 && norm.unitNormPerM2 > 0) {
-              factor = norm.unitNormPerM2;
-              hasNorms = true;
-            }
-            totalQuota += catVolume * factor;
-          }
-        });
+    return materialNorms.map((norm) => {
+      const categoryIds = Array.from(new Set([
+        ...(norm.workCategoryIds || []),
+        ...(norm.workCategoryId ? [norm.workCategoryId] : []),
+      ].filter(Boolean)));
+      const categories = Array.from(new Set([
+        ...(norm.workCategories || []),
+        ...(norm.workCategory ? [norm.workCategory] : []),
+      ].filter(Boolean)));
 
-        // Match by categoryIds (IDs)
-        categoryIds.forEach((catId: string) => {
-          const catVolume = computedWorkVolumes
-            .filter(v => (v.id === catId || v.workCategoryId === catId) && !categories.includes(v.title))
-            .reduce((sum, v) => sum + (v.planned || 0), 0);
+      const processedVolumeIds = new Set<string>();
+      let totalQuota = 0;
+      let hasNorms = false;
 
-          if (catVolume > 0) {
-            let factor = 0;
-            const normAny = norm as any;
-            if (normAny.workCategoryIdNorms && normAny.workCategoryIdNorms[catId] !== undefined) {
-              factor = normAny.workCategoryIdNorms[catId];
-              hasNorms = true;
-            } else if (norm.unitNormPerM2 && norm.unitNormPerM2 > 0) {
-              factor = norm.unitNormPerM2;
-              hasNorms = true;
+      const applyVolume = (volume: WorkVolume, factor: number) => {
+        if (!volume?.id || processedVolumeIds.has(volume.id) || factor <= 0) return;
+        processedVolumeIds.add(volume.id);
+        totalQuota += (Number(volume.planned) || 0) * factor;
+        hasNorms = true;
+      };
+
+      // 1) Authoritative ID links.
+      categoryIds.forEach((catId) => {
+        computedWorkVolumes
+          .filter((v) => v.id === catId || v.workCategoryId === catId)
+          .forEach((v) => {
+            let factor = Number(norm.workCategoryNormsById?.[catId] || 0);
+            if (!(factor > 0)) {
+              const byName = norm.workCategoryNorms?.[v.title];
+              if (Number(byName || 0) > 0) factor = Number(byName);
             }
-            totalQuota += catVolume * factor;
-          }
-        });
-        
-        if (hasNorms && totalQuota > 0) {
-          return {
-            ...norm,
-            quotaQuantity: Math.round(totalQuota * 100) / 100
-          };
-        }
+            if (!(factor > 0) && Number(norm.unitNormPerM2 || 0) > 0) {
+              const basisUnit = norm.normBasisUnit || 'm²';
+              if (areSameUnit(basisUnit, v.unit)) factor = Number(norm.unitNormPerM2);
+            }
+            applyVolume(v, factor);
+          });
+      });
+
+      // 2) Legacy name fallback only for volumes not already linked by ID.
+      categories.forEach((cat) => {
+        computedWorkVolumes
+          .filter((v) => !processedVolumeIds.has(v.id) && (v.title === cat || v.category === cat))
+          .forEach((v) => {
+            let factor = Number(norm.workCategoryNorms?.[cat] || 0);
+            if (!(factor > 0) && Number(norm.unitNormPerM2 || 0) > 0) {
+              const basisUnit = norm.normBasisUnit || 'm²';
+              if (areSameUnit(basisUnit, v.unit)) factor = Number(norm.unitNormPerM2);
+            }
+            applyVolume(v, factor);
+          });
+      });
+
+      if (hasNorms) {
+        return { ...norm, quotaQuantity: Math.round(totalQuota * 100) / 100 };
       }
       return norm;
     });
@@ -823,6 +912,7 @@ export default function App() {
           const { base64, localUri, dataUrl, ...metadataOnly } = photo as any;
           return metadataOnly;
         }),
+        tombstones: { ...localTombstonesRef.current },
         ...(includePhotoBinary ? { photoData } : {}),
         updatedAt: lastUpdatedAt,
       },
@@ -924,7 +1014,6 @@ export default function App() {
   });
 
   const switchingProjectRef = useRef<boolean>(false);
-  const activeProjectIdRef = useRef<string>(activeProjectId);
   useEffect(() => {
     activeProjectIdRef.current = activeProjectId;
   }, [activeProjectId]);
@@ -1359,6 +1448,8 @@ export default function App() {
 
           const addedIds = Array.from(nextMap.keys()).filter((id) => !prevMap.has(id));
           const deletedIds = Array.from(prevMap.keys()).filter((id) => !nextMap.has(id));
+          deletedIds.forEach((id) => recordLocalTombstone(col, id, now));
+          addedIds.forEach((id) => clearLocalTombstone(col, id));
           const modifiedDetails: string[] = [];
           for (const [id, nextItem] of nextMap.entries()) {
             const prevItem = prevMap.get(id);
@@ -1434,11 +1525,35 @@ export default function App() {
 
       const curMap = new Map<string, any>();
       curList.forEach(item => { if (item?.id) curMap.set(item.id, item); });
+      const targetMap = new Map<string, any>();
+      targetList.forEach(item => { if (item?.id) targetMap.set(item.id, item); });
+      for (const id of curMap.keys()) {
+        if (!targetMap.has(id)) recordLocalTombstone(col, id, now);
+      }
+      for (const id of targetMap.keys()) {
+        if (!curMap.has(id)) clearLocalTombstone(col, id);
+      }
 
       const newColList = targetList.map(item => {
         if (!item || !item.id) return item;
         const curItem = curMap.get(item.id);
         if (!curItem) {
+          // Undo/redo can re-add a previously deleted floor after its cloud binary was
+          // already cleaned up. Never reuse the old Drive/Firestore image identifiers;
+          // force the normal image-sync pipeline to upload a fresh copy for this floor ID.
+          if (col === 'floorPlans') {
+            return {
+              ...item,
+              driveFileId: undefined,
+              driveUrl: undefined,
+              cloudFileId: undefined,
+              storageProvider: undefined,
+              imageCloudRevision: 0,
+              imageCloudSyncedAt: undefined,
+              imageRevision: now,
+              updatedAt: now,
+            };
+          }
           return { ...item, updatedAt: now };
         } else {
           const { updatedAt: _cu, ...curRest } = curItem;
@@ -1648,11 +1763,19 @@ export default function App() {
           if (switchingProjectRef.current || activeProjectIdRef.current !== subscribedProjectId) return prev;
 
           const localList = prev[stateKey as keyof AppData] || [];
+          const tombstoneKeyFor = (id: string) => `${String(stateKey)}_${id}`;
+          const getLocalTombstoneTime = (id: string) => Number(localTombstonesRef.current[tombstoneKeyFor(id)] || 0);
 
           if (isPatch) {
             const byId = new Map<string, any>();
-            localList.forEach((item: any) => { if (item?.id) byId.set(item.id, item); });
-            let changed = false;
+            localList.forEach((item: any) => {
+              if (!item?.id) return;
+              const localTime = parseLegacyTimestamp(item.updatedAt, 0);
+              const tombTime = getLocalTombstoneTime(item.id);
+              if (tombTime >= localTime && tombTime > 0) return;
+              byId.set(item.id, item);
+            });
+            let changed = byId.size !== localList.length;
 
             for (const cloudItemRaw of cloudItems) {
               if (!cloudItemRaw?.id) continue;
@@ -1660,15 +1783,31 @@ export default function App() {
               const localItem = byId.get(cloudItem.id);
               const localTime = parseLegacyTimestamp(localItem?.updatedAt, 0);
               const cloudTime = parseLegacyTimestamp(cloudItem.updatedAt, 0);
+              const localTombstoneTime = getLocalTombstoneTime(cloudItem.id);
 
               if (cloudItem.deleted) {
+                const deletionTime = cloudTime > 0 ? cloudTime : Date.now();
+                recordLocalTombstone(stateKey, cloudItem.id, deletionTime, subscribedProjectId);
                 if (localItem && cloudTime >= localTime) {
                   byId.delete(cloudItem.id);
                   changed = true;
                 }
-              } else if (!localItem || cloudTime > localTime) {
-                byId.set(cloudItem.id, localItem ? restoreLocalOmittedImages(cloudItem, localItem) : cloudItem);
-                changed = true;
+              } else if (localTombstoneTime > 0 && localTombstoneTime >= cloudTime) {
+                // A local/offline deletion is newer than the cloud copy. Keep it deleted;
+                // lastSyncedPresentRef still tracks the cloud copy below so the next cloud
+                // diff publishes the deletion tombstone instead of resurrecting the item.
+                if (localItem) {
+                  byId.delete(cloudItem.id);
+                  changed = true;
+                }
+              } else {
+                if (localTombstoneTime > 0 && cloudTime > localTombstoneTime) {
+                  clearLocalTombstone(stateKey, cloudItem.id, subscribedProjectId);
+                }
+                if (!localItem || cloudTime > localTime) {
+                  byId.set(cloudItem.id, localItem ? restoreLocalOmittedImages(cloudItem, localItem) : cloudItem);
+                  changed = true;
+                }
               }
             }
 
@@ -1707,52 +1846,59 @@ export default function App() {
           const mergedList: any[] = [];
           let listHasChanges = false;
 
-          // Process items from cloud
+          // Process items from cloud with local tombstone protection.
           cloudItems.forEach(cloudItem => {
             if (!cloudItem || !cloudItem.id) return;
 
             const localItem = localMap.get(cloudItem.id);
             const localTime = localItem ? parseLegacyTimestamp(localItem.updatedAt, 0) : 0;
             const cloudTime = parseLegacyTimestamp(cloudItem.updatedAt, 0);
+            const localTombstoneTime = getLocalTombstoneTime(cloudItem.id);
 
             if (cloudItem.deleted) {
-              // Cloud item is a soft-deleted tombstone
+              // Cloud item is a soft-deleted tombstone. Mirror the deletion locally so
+              // reconnect/reload cannot restore an older IndexedDB copy.
+              recordLocalTombstone(stateKey, cloudItem.id, cloudTime > 0 ? cloudTime : Date.now(), subscribedProjectId);
               if (localItem) {
                 if (cloudTime >= localTime) {
-                  // Deletion on cloud is newer or equal -> delete locally
                   listHasChanges = true;
-                } else {
-                  // Local item was re-created/edited after deletion -> keep localItem
+                } else if (localTombstoneTime < localTime) {
+                  // Local item was explicitly re-created/edited after the cloud delete.
                   mergedList.push(localItem);
                 }
               }
-              // If localItem doesn't exist, omit it
+            } else if (localTombstoneTime > 0 && localTombstoneTime >= cloudTime) {
+              // Offline/local deletion wins over the older cloud copy. Do not resurrect it.
+              listHasChanges = true;
             } else {
-              // Active cloud item
+              if (localTombstoneTime > 0 && cloudTime > localTombstoneTime) {
+                // A genuinely newer cloud recreation may revive the ID.
+                clearLocalTombstone(stateKey, cloudItem.id, subscribedProjectId);
+              }
               if (!localItem) {
                 mergedList.push(cloudItem);
                 listHasChanges = true;
+              } else if (cloudTime > localTime) {
+                mergedList.push(restoreLocalOmittedImages(cloudItem, localItem));
+                listHasChanges = true;
               } else {
-                if (cloudTime > localTime) {
-                  // Cloud is newer -> use cloudItem, restoring local Base64 images if omitted for cloud size limit
-                  mergedList.push(restoreLocalOmittedImages(cloudItem, localItem));
-                  listHasChanges = true;
-                } else {
-                  // Local is newer or equal -> keep localItem
-                  mergedList.push(localItem);
-                  if (cloudTime < localTime) {
-                    listHasChanges = true;
-                  }
-                }
+                mergedList.push(localItem);
+                if (cloudTime < localTime) listHasChanges = true;
               }
             }
           });
 
-          // Process local-only items (keep them safely without assuming deletion by another device unless tombstoned)
+          // Process local-only items. A locally tombstoned record must stay deleted even
+          // if an old IndexedDB copy is still present.
           localList.forEach(localItem => {
-            if (localItem && localItem.id && !cloudMap.has(localItem.id)) {
-              mergedList.push(localItem);
+            if (!localItem?.id || cloudMap.has(localItem.id)) return;
+            const localTime = parseLegacyTimestamp(localItem.updatedAt, 0);
+            const tombTime = getLocalTombstoneTime(localItem.id);
+            if (tombTime > 0 && tombTime >= localTime) {
+              listHasChanges = true;
+              return;
             }
+            mergedList.push(localItem);
           });
 
           if (!lastSyncedPresentRef.current) {
@@ -1797,6 +1943,7 @@ export default function App() {
   }, [activeProjectId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing]);
 
   const handleUpdateProjectName = (val: string) => {
+    if (!canEditProjectData(currentUserRole)) return;
     hasUserEditedSinceHydrateRef.current = true;
     hasUnsavedAllBackupChangesRef.current = true;
     setProjectName(val);
@@ -1806,6 +1953,7 @@ export default function App() {
   };
 
   const handleUpdateContractorName = (val: string) => {
+    if (!canEditProjectData(currentUserRole)) return;
     hasUserEditedSinceHydrateRef.current = true;
     hasUnsavedAllBackupChangesRef.current = true;
     setContractorName(val);
@@ -1815,6 +1963,7 @@ export default function App() {
   };
 
   const handleUpdateInspectorName = (val: string) => {
+    if (!canEditProjectData(currentUserRole)) return;
     hasUserEditedSinceHydrateRef.current = true;
     hasUnsavedAllBackupChangesRef.current = true;
     setInspectorName(val);
@@ -1995,12 +2144,13 @@ export default function App() {
 
   // Google Drive Sync Up
   const handleDriveSyncUp = async (customFolderId?: string) => {
+    if (!canEditProjectData(currentUserRole)) return { success: false, error: 'Bạn chỉ có quyền xem dự án.' };
     const operationProjectId = activeProjectIdRef.current || activeProjectId;
     if (!googleServerBackendAvailable) {
       setDriveSyncStatus('idle');
       return {
         success: false,
-        error: 'Google Drive sync can server backend. Firebase Hosting mien phi dang chay static-only nen da tat tinh nang nay.',
+        error: 'Đồng bộ Google Drive cần backend riêng. Bản Firebase Hosting hiện chạy tĩnh nên chức năng này đang tắt.',
       };
     }
     if (switchingProjectRef.current) return { success: false, message: 'Đang chuyển dự án.' };
@@ -2063,7 +2213,7 @@ export default function App() {
 
       if (result.success) {
         setDriveSyncStatus('synced');
-        const timeStr = new Date().toLocaleString('vi-VN');
+        const timeStr = new Date().toISOString();
         setDriveLastSyncTime(timeStr);
         localStorage.setItem(getKey('construction_drive_last_sync', operationProjectId), timeStr);
         
@@ -2136,10 +2286,11 @@ export default function App() {
   };
 
   const handleDriveSyncUpAll = async (customFolderId?: string) => {
+    if (!canEditProjectData(currentUserRole)) return { success: false, error: 'Bạn chỉ có quyền xem dự án.' };
     if (!googleServerBackendAvailable) {
       return {
         success: false,
-        error: 'Google Drive sync can server backend. Firebase Hosting mien phi dang chay static-only nen da tat tinh nang nay.',
+        error: 'Đồng bộ Google Drive cần backend riêng. Bản Firebase Hosting hiện chạy tĩnh nên chức năng này đang tắt.',
       };
     }
 
@@ -2176,7 +2327,7 @@ export default function App() {
     if (!googleServerBackendAvailable) {
       return {
         success: false,
-        error: 'Google Drive sync can server backend. Firebase Hosting mien phi dang chay static-only nen da tat tinh nang nay.',
+        error: 'Đồng bộ Google Drive cần backend riêng. Bản Firebase Hosting hiện chạy tĩnh nên chức năng này đang tắt.',
       };
     }
 
@@ -2328,7 +2479,7 @@ export default function App() {
       setDriveSyncStatus('idle');
       return {
         success: false,
-        error: 'Google Drive sync can server backend. Firebase Hosting mien phi dang chay static-only nen da tat tinh nang nay.',
+        error: 'Đồng bộ Google Drive cần backend riêng. Bản Firebase Hosting hiện chạy tĩnh nên chức năng này đang tắt.',
       };
     }
     const operationProjectId = activeProjectIdRef.current || activeProjectId;
@@ -2495,6 +2646,7 @@ export default function App() {
   // Debounced auto-save to Google Drive & Cloud on local changes (using Subcollection Diffs)
   useEffect(() => {
     if (!isHydrated || isLoadingProject || isRestoring || isInitializing) return;
+    if (!canEditProjectData(currentUserRole)) return;
     if (syncLockRef.current || switchingProjectRef.current) return;
     if (!cloudUserKey) return;
     if (!cloudInitialReady) return;
@@ -2588,13 +2740,15 @@ export default function App() {
 
           if (hasChanges || metadataChanged || !lastSyncedPresentRef.current) {
             // Save metadata and only changed records
-            saveProjectDiffsToCloud(activeId, projectName, contractorName, inspectorName, {
-              addedOrModified,
-              deletedIds
-            }).then(() => {
-              // Update references only after successful commit
+            const snapshotForSave = present;
+            queueCloudSave(async () => {
+              await saveProjectDiffsToCloud(activeId, projectName, contractorName, inspectorName, {
+                addedOrModified,
+                deletedIds
+              });
+              // A single FIFO queue prevents an older request finishing after a newer one.
               if (!switchingProjectRef.current && activeProjectIdRef.current === activeId) {
-                lastSyncedPresentRef.current = present;
+                lastSyncedPresentRef.current = snapshotForSave;
                 lastSyncedMetadataRef.current = { projectName, contractorName, inspectorName };
               }
             }).catch(err => console.warn('Cloud auto save notice:', err));
@@ -3115,7 +3269,7 @@ export default function App() {
     if (!googleServerBackendAvailable) {
       return {
         success: false,
-        message: 'Google Sheets sync can server backend. Ban web mien phi hien dung Firebase Auth/Firestore va local backup.',
+        message: 'Đồng bộ Google Sheets cần backend riêng. Bản web hiện dùng Firebase Auth/Firestore và sao lưu cục bộ.',
       };
     }
 
@@ -3169,30 +3323,52 @@ export default function App() {
 
   // Handlers for Material Norms (Auto updates material names in inventory if norm is renamed)
   const handleAddNorm = (normData: Omit<MaterialNorm, 'id'>) => {
-    const newId = `NORM-${Date.now().toString().slice(-4)}-${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
-    updateAppData((prev) => ({
-      ...prev,
-      materialNorms: [{ ...normData, id: newId }, ...prev.materialNorms],
-    }));
+    const newId = createEntityId('NORM');
+    updateAppData((prev) => {
+      const normalizedUnit = normalizeUnit(normData.unit) || normData.unit;
+      const materialKey = `${normalizeMaterialNameKey(normData.materialName)}|${normalizedUnit}`;
+      const existingMaterial = prev.materialNorms.find((norm) =>
+        `${normalizeMaterialNameKey(norm.materialName)}|${normalizeUnit(norm.unit) || norm.unit}` === materialKey
+      );
+      const materialId = normData.materialId || resolveNormMaterialId(existingMaterial) || `MAT-${newId}`;
+      return {
+        ...prev,
+        materialNorms: [{
+          ...normData,
+          materialId,
+          unit: normalizedUnit,
+          normBasisUnit: normData.normBasisUnit ? (normalizeUnit(normData.normBasisUnit) || normData.normBasisUnit) : undefined,
+          id: newId,
+        }, ...prev.materialNorms],
+      };
+    });
   };
 
   const handleUpdateNorm = (id: string, updated: Omit<MaterialNorm, 'id'>) => {
     updateAppData((prev) => {
       const oldNorm = prev.materialNorms.find((n) => n.id === id);
       const oldName = oldNorm?.materialName;
-      const newName = updated.materialName;
+      const stableMaterialId = oldNorm?.materialId || `MAT-${id}`;
+      const normalizedUpdated = {
+        ...updated,
+        materialId: updated.materialId || stableMaterialId,
+        unit: normalizeUnit(updated.unit) || updated.unit,
+        normBasisUnit: updated.normBasisUnit ? (normalizeUnit(updated.normBasisUnit) || updated.normBasisUnit) : undefined,
+      };
+      const newName = normalizedUpdated.materialName;
 
       const newNorms = prev.materialNorms.map((norm) =>
-        norm.id === id ? { ...norm, ...updated, id: norm.id } : norm
+        norm.id === id ? { ...norm, ...normalizedUpdated, id: norm.id } : norm
       );
 
       let newInventory = prev.inventory;
       if (oldName && oldName.trim().toLocaleLowerCase('vi-VN') !== newName.trim().toLocaleLowerCase('vi-VN')) {
         const oldKey = oldName.trim().toLocaleLowerCase('vi-VN');
         newInventory = prev.inventory.map((inv) => {
-          const isMatch = (inv.materialId && (inv.materialId === id || (oldNorm && inv.materialId === oldNorm.materialId))) || (inv.materialName && inv.materialName.trim().toLocaleLowerCase('vi-VN') === oldKey);
+          const isMatch = (inv.materialId && (inv.materialId === id || inv.materialId === stableMaterialId || (oldNorm && inv.materialId === oldNorm.materialId)))
+            || (inv.materialName && inv.materialName.trim().toLocaleLowerCase('vi-VN') === oldKey);
           return isMatch
-            ? { ...inv, materialId: inv.materialId || id, materialName: newName, unit: updated.unit }
+            ? { ...inv, materialId: stableMaterialId, materialName: newName, unit: normalizedUpdated.unit }
             : inv;
         });
       }
@@ -3220,28 +3396,56 @@ export default function App() {
   };
 
   const handleImportNorms = (importedNorms: MaterialNorm[]) => {
-    updateAppData((prev) => ({
-      ...prev,
-      materialNorms: importedNorms,
-    }));
+    updateAppData((prev) => {
+      const materialIdByNameUnit = new Map<string, string>();
+      // Reuse current material identities first so importing norms cannot split one physical
+      // material into several stock buckets merely because each norm row has a different ID.
+      (prev.materialNorms || []).forEach((norm) => {
+        const key = `${normalizeMaterialNameKey(norm.materialName)}|${normalizeUnit(norm.unit) || norm.unit}`;
+        const resolvedId = resolveNormMaterialId(norm);
+        if (key && resolvedId && !materialIdByNameUnit.has(key)) materialIdByNameUnit.set(key, resolvedId);
+      });
+
+      const normalizedNorms = importedNorms.map((norm) => {
+        const normalizedUnit = normalizeUnit(norm.unit) || norm.unit;
+        const key = `${normalizeMaterialNameKey(norm.materialName)}|${normalizedUnit}`;
+        const materialId = norm.materialId || materialIdByNameUnit.get(key) || `MAT-${norm.id}`;
+        if (key && materialId && !materialIdByNameUnit.has(key)) materialIdByNameUnit.set(key, materialId);
+        return {
+          ...norm,
+          materialId,
+          unit: normalizedUnit,
+          normBasisUnit: norm.normBasisUnit ? (normalizeUnit(norm.normBasisUnit) || norm.normBasisUnit) : undefined,
+        };
+      });
+
+      return { ...prev, materialNorms: normalizedNorms };
+    });
   };
 
   // Handlers for Inventory
-  const handleAddInventory = (item: Omit<InventoryItem, 'id'>) => {
-    const randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
-    const newId = item.type === 'in' 
-      ? `NK-${Date.now().toString().slice(-6)}-${randomSuffix}` 
-      : `XK-${Date.now().toString().slice(-6)}-${randomSuffix}`;
-    updateAppData((prev) => ({
-      ...prev,
-      inventory: [{ ...item, id: newId }, ...prev.inventory],
-    }));
+  const handleAddInventory = (item: Omit<InventoryItem, 'id'> & { id?: string }) => {
+    const newId = item.id || createEntityId(item.type === 'in' ? 'NK' : 'XK');
+    updateAppData((prev) => {
+      const normalized = { ...item, unit: normalizeUnit(item.unit) || item.unit, id: newId } as InventoryItem;
+      const existingIndex = prev.inventory.findIndex((inv) => inv.id === newId);
+      if (existingIndex >= 0) {
+        const existing = prev.inventory[existingIndex];
+        // One deterministic room-auto record per room/material. Never let a stale
+        // device lower the cumulative quantity already recorded.
+        const merged = normalized.sourceType === 'room-auto'
+          ? { ...existing, ...normalized, quantity: Math.max(Number(existing.quantity || 0), Number(normalized.quantity || 0)) }
+          : { ...existing, ...normalized };
+        return { ...prev, inventory: prev.inventory.map((inv, idx) => idx === existingIndex ? merged : inv) };
+      }
+      return { ...prev, inventory: [normalized, ...prev.inventory] };
+    });
   };
 
   const handleUpdateInventory = (id: string, item: Omit<InventoryItem, 'id'>) => {
     updateAppData((prev) => ({
       ...prev,
-      inventory: prev.inventory.map((existing) => existing.id === id ? { ...existing, ...item, id } : existing),
+      inventory: prev.inventory.map((existing) => existing.id === id ? { ...existing, ...item, unit: normalizeUnit(item.unit) || item.unit, id } : existing),
     }));
   };
 
@@ -3262,23 +3466,21 @@ export default function App() {
   const handleImportInventory = (importedInventory: InventoryItem[]) => {
     updateAppData((prev) => ({
       ...prev,
-      inventory: importedInventory,
+      inventory: importedInventory.map((item) => ({ ...item, unit: normalizeUnit(item.unit) || item.unit })),
     }));
   };
 
   // Handlers for Work Volume
   const handleAddWorkVolume = (item: Omit<WorkVolume, 'id'>) => {
-    const randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
-    const newId = `HM-${Date.now().toString().slice(-6)}-${randomSuffix}`;
+    const newId = createEntityId('HM');
     updateAppData((prev) => ({
       ...prev,
-      workVolumes: [...prev.workVolumes, { ...item, id: newId }],
+      workVolumes: [...prev.workVolumes, { ...item, unit: normalizeUnit(item.unit) || item.unit, id: newId }],
     }));
   };
 
   const handleSaveWorkVolume = (item: Omit<WorkVolume, 'id'> & { id?: string }) => {
     updateAppData((prev) => {
-      const randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
       if (item.id) {
         const oldItem = prev.workVolumes.find((w) => w.id === item.id);
         const oldTitle = oldItem?.title;
@@ -3313,15 +3515,23 @@ export default function App() {
           updatedNorms = prev.materialNorms.map(norm => {
             const workCat = norm.workCategory === oldTitle ? newTitle : norm.workCategory;
             const workCats = norm.workCategories?.map(c => (c === oldTitle ? newTitle : c));
+            let workCategoryNorms = norm.workCategoryNorms ? { ...norm.workCategoryNorms } : undefined;
+            if (workCategoryNorms && workCategoryNorms[oldTitle] !== undefined) {
+              const oldFactor = workCategoryNorms[oldTitle];
+              delete workCategoryNorms[oldTitle];
+              workCategoryNorms[newTitle] = oldFactor;
+            }
             return {
               ...norm,
               workCategory: workCat,
-              workCategories: workCats
+              workCategories: workCats,
+              workCategoryNorms
             };
           });
         }
 
-        const newWorkVolumes = prev.workVolumes.map((w) => w.id === item.id ? { ...w, ...item, id: w.id } as WorkVolume : w);
+        const normalizedItem = { ...item, unit: normalizeUnit(item.unit) || item.unit };
+        const newWorkVolumes = prev.workVolumes.map((w) => w.id === item.id ? { ...w, ...normalizedItem, id: w.id } as WorkVolume : w);
         const { materialNorms: reconciledNorms } = reconcileMaterialNormWorkCategoryLinks(updatedNorms, newWorkVolumes);
 
         return {
@@ -3331,10 +3541,10 @@ export default function App() {
           workVolumes: newWorkVolumes
         };
       } else {
-        const newId = `HM-${Date.now().toString().slice(-6)}-${randomSuffix}`;
+        const newId = createEntityId('HM');
         return {
           ...prev,
-          workVolumes: [...prev.workVolumes, { ...item, id: newId }]
+          workVolumes: [...prev.workVolumes, { ...item, unit: normalizeUnit(item.unit) || item.unit, id: newId }]
         };
       }
     });
@@ -3361,57 +3571,50 @@ export default function App() {
     updateAppData((prev) => {
       const targetVolume = prev.workVolumes.find((item) => item.id === id);
       const remainingVolumes = prev.workVolumes.filter((item) => item.id !== id);
+      if (!targetVolume) return { ...prev, workVolumes: remainingVolumes };
 
-      if (!targetVolume) {
-        return {
-          ...prev,
-          workVolumes: remainingVolumes,
-        };
-      }
-
-      const titleStillUsed = remainingVolumes.some(
-        (item) => item.title.trim().toLowerCase() === targetVolume.title.trim().toLowerCase()
+      const replacementByTitle = remainingVolumes.find((item) =>
+        item.title.trim().toLocaleLowerCase('vi-VN') === targetVolume.title.trim().toLocaleLowerCase('vi-VN')
       );
+      const targetLinkIds = new Set([targetVolume.id, targetVolume.workCategoryId].filter((value): value is string => Boolean(value)));
 
-      // Cascading updates for roomProgressList only if title is no longer present in any work volume
+      // Deleting the master WorkVolume must never erase field history from a room.
+      // Keep category names, volumes and sub-items; only detach/remap the deleted foreign key.
       const updatedRoomProgressList = (prev.roomProgressList || []).map((room) => {
-        if (titleStillUsed) return room;
-
-        let hasChange = false;
-        let workCategory = room.workCategory;
+        let changed = false;
+        let workCategoryId = room.workCategoryId;
         let categoryVolumes = room.categoryVolumes ? { ...room.categoryVolumes } : undefined;
 
-        if (workCategory && workCategory.trim().toLowerCase() === targetVolume.title.trim().toLowerCase()) {
-          workCategory = '';
-          hasChange = true;
+        if (workCategoryId && targetLinkIds.has(workCategoryId)) {
+          workCategoryId = replacementByTitle?.workCategoryId || replacementByTitle?.id;
+          changed = true;
         }
 
         if (categoryVolumes) {
-          for (const key of Object.keys(categoryVolumes)) {
-            if (key.trim().toLowerCase() === targetVolume.title.trim().toLowerCase()) {
-              delete categoryVolumes[key];
-              hasChange = true;
-            }
+          for (const linkId of targetLinkIds) {
+            if (!Object.prototype.hasOwnProperty.call(categoryVolumes, linkId)) continue;
+            const preservedValue = Number(categoryVolumes[linkId] || 0);
+            const stableName = targetVolume.title || room.workCategory || 'Hạng mục đã xóa khỏi danh mục';
+            if (categoryVolumes[stableName] === undefined) categoryVolumes[stableName] = preservedValue;
+            else categoryVolumes[stableName] = Math.max(Number(categoryVolumes[stableName] || 0), preservedValue);
+            delete categoryVolumes[linkId];
+            changed = true;
           }
         }
 
         const subItems = room.subItems?.map((sub) => {
-          if (sub.category && sub.category.trim().toLowerCase() === targetVolume.title.trim().toLowerCase()) {
-            return { ...sub, category: '' };
-          }
-          return sub;
+          if (!sub.workCategoryId || !targetLinkIds.has(sub.workCategoryId)) return sub;
+          changed = true;
+          const replacement = remainingVolumes.find((item) =>
+            item.title.trim().toLocaleLowerCase('vi-VN') === String(sub.category || room.workCategory || targetVolume.title).trim().toLocaleLowerCase('vi-VN')
+          );
+          return { ...sub, workCategoryId: replacement?.workCategoryId || replacement?.id };
         });
 
-        if (room.subItems && JSON.stringify(subItems) !== JSON.stringify(room.subItems)) {
-          hasChange = true;
-        }
-
-        return hasChange ? { ...room, workCategory, categoryVolumes, subItems } : room;
+        return changed ? { ...room, workCategoryId, categoryVolumes, subItems } : room;
       });
 
-      // Reconcile and clean material norms work category links against remaining work volumes
       const { materialNorms: reconciledNorms } = reconcileMaterialNormWorkCategoryLinks(prev.materialNorms || [], remainingVolumes);
-
       return {
         ...prev,
         workVolumes: remainingVolumes,
@@ -3423,61 +3626,63 @@ export default function App() {
 
   const handleDeleteMultipleWorkVolumes = (ids: string[]) => {
     updateAppData((prev) => {
-      const targetVolumes = prev.workVolumes.filter((item) => ids.includes(item.id));
-      const remainingVolumes = prev.workVolumes.filter((item) => !ids.includes(item.id));
+      const deleteIdSet = new Set(ids);
+      const targetVolumes = prev.workVolumes.filter((item) => deleteIdSet.has(item.id));
+      const remainingVolumes = prev.workVolumes.filter((item) => !deleteIdSet.has(item.id));
+      if (targetVolumes.length === 0) return { ...prev, workVolumes: remainingVolumes };
 
-      if (targetVolumes.length === 0) {
-        return {
-          ...prev,
-          workVolumes: remainingVolumes,
-        };
-      }
-
-      const deletedCats: string[] = [];
-      targetVolumes.forEach(item => {
-        if (item.category) deletedCats.push(item.category);
-        if (item.title) deletedCats.push(item.title);
+      const deletedLinkIds = new Set<string>();
+      const deletedByLinkId = new Map<string, WorkVolume>();
+      targetVolumes.forEach((item) => {
+        [item.id, item.workCategoryId].filter((value): value is string => Boolean(value)).forEach((linkId) => {
+          deletedLinkIds.add(linkId);
+          deletedByLinkId.set(linkId, item);
+        });
       });
+      const findReplacement = (categoryName?: string) => {
+        const normalized = String(categoryName || '').trim().toLocaleLowerCase('vi-VN');
+        if (!normalized) return undefined;
+        return remainingVolumes.find((item) => item.title.trim().toLocaleLowerCase('vi-VN') === normalized);
+      };
 
-      const uniqueDeletedCats = Array.from(new Set(deletedCats));
-
-      // Cascading updates for roomProgressList
-      const updatedRoomProgressList = (prev.roomProgressList || []).map(room => {
-        let hasChange = false;
-        let workCategory = room.workCategory;
+      const updatedRoomProgressList = (prev.roomProgressList || []).map((room) => {
+        let changed = false;
+        let workCategoryId = room.workCategoryId;
         let categoryVolumes = room.categoryVolumes ? { ...room.categoryVolumes } : undefined;
 
-        if (workCategory && uniqueDeletedCats.some(cat => workCategory === cat || workCategory.trim() === cat.trim())) {
-          workCategory = '';
-          hasChange = true;
+        if (workCategoryId && deletedLinkIds.has(workCategoryId)) {
+          const replacement = findReplacement(room.workCategory);
+          workCategoryId = replacement?.workCategoryId || replacement?.id;
+          changed = true;
         }
 
         if (categoryVolumes) {
-          uniqueDeletedCats.forEach(cat => {
-            if (categoryVolumes && cat in categoryVolumes) {
-              delete categoryVolumes[cat];
-              hasChange = true;
+          for (const deleted of targetVolumes) {
+            const linkIds = [deleted.id, deleted.workCategoryId].filter((value): value is string => Boolean(value));
+            for (const linkId of linkIds) {
+              if (!Object.prototype.hasOwnProperty.call(categoryVolumes, linkId)) continue;
+              const preservedValue = Number(categoryVolumes[linkId] || 0);
+              const stableName = deleted.title || room.workCategory || 'Hạng mục đã xóa khỏi danh mục';
+              if (categoryVolumes[stableName] === undefined) categoryVolumes[stableName] = preservedValue;
+              else categoryVolumes[stableName] = Math.max(Number(categoryVolumes[stableName] || 0), preservedValue);
+              delete categoryVolumes[linkId];
+              changed = true;
             }
-          });
+          }
         }
 
-        const subItems = room.subItems?.map(sub => {
-          if (sub.category && uniqueDeletedCats.some(cat => sub.category === cat || sub.category.trim() === cat.trim())) {
-            return { ...sub, category: '' };
-          }
-          return sub;
+        const subItems = room.subItems?.map((sub) => {
+          if (!sub.workCategoryId || !deletedLinkIds.has(sub.workCategoryId)) return sub;
+          changed = true;
+          const deleted = deletedByLinkId.get(sub.workCategoryId);
+          const replacement = findReplacement(sub.category || room.workCategory || deleted?.title);
+          return { ...sub, workCategoryId: replacement?.workCategoryId || replacement?.id };
         });
 
-        if (room.subItems && JSON.stringify(subItems) !== JSON.stringify(room.subItems)) {
-          hasChange = true;
-        }
-
-        return hasChange ? { ...room, workCategory, categoryVolumes, subItems } : room;
+        return changed ? { ...room, workCategoryId, categoryVolumes, subItems } : room;
       });
 
-      // Reconcile and clean material norms against remaining work volumes
       const { materialNorms: reconciledNorms } = reconcileMaterialNormWorkCategoryLinks(prev.materialNorms || [], remainingVolumes);
-
       return {
         ...prev,
         workVolumes: remainingVolumes,
@@ -3489,7 +3694,7 @@ export default function App() {
 
   // Handlers for Floor Plans & Defects
   const handleAddFloorPlan = (plan: Omit<FloorPlan, 'id'> & { id?: string }) => {
-    const newId = plan.id || `fp-${Date.now()}`;
+    const newId = plan.id || createEntityId('fp');
     const imageRevision = Number(plan.imageRevision || Date.now());
     updateAppData((prev) => {
       const nextPlans = [...prev.floorPlans, { ...plan, id: newId, imageRevision, imageCloudRevision: 0 }];
@@ -3533,24 +3738,42 @@ export default function App() {
       ...prev,
       floorPlans: prev.floorPlans.map((fp) => (fp.id === id ? { ...fp, floorName: trimmed } : fp)),
       roomProgressList: prev.roomProgressList.map((r) => (r.floorId === id || (oldName && r.floorName === oldName) ? { ...r, floorId: id, floorName: trimmed } : r)),
-      defects: prev.defects.map((d) => (d.floorId === id || (oldName && d.floorName === oldName) ? { ...d, floorId: id, floorName: trimmed } : d)),
+      defects: prev.defects.map((d) => (!d.archivedAt && (d.floorId === id || (oldName && d.floorName === oldName)) ? { ...d, floorId: id, floorName: trimmed } : d)),
       checklist: prev.checklist.map((c) => {
-        if (c.floorId === id || (oldName && c.floorName === oldName)) {
+        if (!c.archivedAt && (c.floorId === id || (oldName && c.floorName === oldName))) {
           return { ...c, floorId: id, floorName: trimmed };
         }
         return c;
       }),
       workVolumes: (prev.workVolumes || []).map((w) => {
-        if (w.floorId === id || (oldName && w.floor === oldName)) {
-          return { ...w, floorId: id, floor: trimmed };
-        }
-        return w;
+        const floorNames = String(w.floor || '').split(/[,;\n]+/).map((name) => name.trim()).filter(Boolean);
+        const hasFloorId = w.floorId === id || (w.floorIds || []).includes(id);
+        const hasOldName = Boolean(oldName && floorNames.includes(oldName));
+        if (!hasFloorId && !hasOldName) return w;
+        return {
+          ...w,
+          floorId: w.floorId === id ? id : w.floorId,
+          floor: floorNames.length > 0
+            ? floorNames.map((name) => oldName && name === oldName ? trimmed : name).join(', ')
+            : trimmed,
+        };
       }),
       crewRecords: (prev.crewRecords || []).map((cr) => {
-        if (cr.floorId === id || (oldName && cr.floorName === oldName)) {
-          return { ...cr, floorId: id, floorName: trimmed };
-        }
-        return cr;
+        const floorNames = String(cr.floorName || '').split(/[,;\n]+/).map((name) => name.trim()).filter(Boolean);
+        const hasOldName = Boolean(oldName && floorNames.includes(oldName));
+        const hasNestedFloor = (cr.floorWorks || []).some((fw) => fw.floorId === id || (oldName && fw.floorName === oldName));
+        if (cr.floorId !== id && !hasOldName && !hasNestedFloor) return cr;
+        return {
+          ...cr,
+          floorName: floorNames.length > 0
+            ? floorNames.map((name) => oldName && name === oldName ? trimmed : name).join(', ')
+            : (cr.floorId === id ? trimmed : cr.floorName),
+          floorWorks: (cr.floorWorks || []).map((fw) =>
+            fw.floorId === id || (oldName && fw.floorName === oldName)
+              ? { ...fw, floorId: id, floorName: trimmed }
+              : fw
+          ),
+        };
       }),
     }));
   };
@@ -3561,45 +3784,149 @@ export default function App() {
       return;
     }
     const targetPlan = floorPlans.find((fp) => fp.id === id);
+    const archivedAt = new Date().toISOString();
     updateAppData((prev) => {
+      const deletedNames = new Set([targetPlan?.floorName].filter((v): v is string => Boolean(v)));
       const remaining = prev.floorPlans.filter((fp) => fp.id !== id).map((fp, idx) => ({ ...fp, order: idx }));
+
+      const workVolumesAfterFloorDelete = (prev.workVolumes || []).map((w) => {
+        const nextFloorIds = (w.floorIds || []).filter((floorId) => floorId !== id);
+        const nextFloorNames = String(w.floor || '')
+          .split(/[,;\n]+/)
+          .map((name) => name.trim())
+          .filter(Boolean)
+          .filter((name) => !deletedNames.has(name));
+        const hadDeletedLink = w.floorId === id || (w.floorIds || []).includes(id) || [...deletedNames].some((name) => String(w.floor || '').split(/[,;\n]+/).map(v => v.trim()).includes(name));
+        if (!hadDeletedLink) return w;
+        return {
+          ...w,
+          floorId: w.floorId === id ? (nextFloorIds[0] || undefined) : w.floorId,
+          floorIds: nextFloorIds,
+          floor: nextFloorNames.length > 0 ? nextFloorNames.join(', ') : 'Chưa gán tầng',
+        };
+      });
+
+      const crewRecordsAfterFloorDelete = (prev.crewRecords || []).map((record) => {
+        const nextFloorWorks = (record.floorWorks || []).filter((fw) => fw.floorId !== id && !deletedNames.has(fw.floorName));
+        const nextFloorNames = String(record.floorName || '')
+          .split(/[,;\n]+/)
+          .map((name) => name.trim())
+          .filter(Boolean)
+          .filter((name) => !deletedNames.has(name));
+        const hadDeletedLink = record.floorId === id || (record.floorWorks || []).some((fw) => fw.floorId === id || deletedNames.has(fw.floorName));
+        if (!hadDeletedLink && nextFloorNames.length === String(record.floorName || '').split(/[,;\n]+/).map(v => v.trim()).filter(Boolean).length) return record;
+        return {
+          ...record,
+          floorId: record.floorId === id ? (nextFloorWorks[0]?.floorId || undefined) : record.floorId,
+          floorName: nextFloorNames.length > 0 ? nextFloorNames.join(', ') : undefined,
+          floorWorks: nextFloorWorks,
+        };
+      });
+
       return {
         ...prev,
         floorPlans: remaining,
         roomProgressList: prev.roomProgressList.filter((r) => r.floorId !== id),
-        defects: prev.defects.filter((d) => d.floorId !== id),
-        checklist: prev.checklist.filter((c) => c.floorId !== id && (!targetPlan || c.floorName !== targetPlan.floorName)),
+        // Preserve QA history when deleting a drawing/floor. Detach it from the active
+        // floor so old Defects/Checklist do not count as current work.
+        defects: prev.defects.map((d) =>
+          d.floorId === id || (targetPlan && d.floorName === targetPlan.floorName)
+            ? { ...d, archivedFloorId: id, archivedFloorName: d.floorName || targetPlan?.floorName, archivedAt, floorId: '', roomId: undefined }
+            : d
+        ),
+        checklist: prev.checklist.map((c) =>
+          c.floorId === id || (targetPlan && c.floorName === targetPlan.floorName)
+            ? { ...c, archivedFloorId: id, archivedFloorName: c.floorName || targetPlan?.floorName, archivedAt, floorId: undefined, roomId: undefined }
+            : c
+        ),
+        workVolumes: workVolumesAfterFloorDelete,
+        crewRecords: crewRecordsAfterFloorDelete,
       };
     });
+
+    if (targetPlan) {
+      void deleteFloorPlanImageFromCloud(activeProjectIdRef.current, targetPlan).catch((err) =>
+        console.warn('Delete floor-plan cloud image warning:', err)
+      );
+    }
   };
 
   const handleDeleteMultipleFloorPlans = (ids: string[]) => {
+    const requestedIdsOuter = new Set(ids);
+    let cloudPlansToDelete = floorPlans.filter((fp) => requestedIdsOuter.has(fp.id));
+    if (cloudPlansToDelete.length >= floorPlans.length && floorPlans.length > 0) {
+      cloudPlansToDelete = cloudPlansToDelete.filter((fp) => fp.id !== floorPlans[0].id);
+    }
+    const archivedAt = new Date().toISOString();
+
     updateAppData((prev) => {
-      const remainingPlans = prev.floorPlans.filter((fp) => !ids.includes(fp.id));
-      if (remainingPlans.length === 0) {
-        const firstId = prev.floorPlans[0]?.id;
-        const keptPlans = prev.floorPlans.filter((fp) => fp.id === firstId).map((fp, idx) => ({ ...fp, order: idx }));
-        const idsToReallyDelete = ids.filter(id => id !== firstId);
-        const targetPlans = prev.floorPlans.filter((fp) => idsToReallyDelete.includes(fp.id));
-        const targetPlanNames = targetPlans.map(fp => fp.floorName);
-        return {
-          ...prev,
-          floorPlans: keptPlans,
-          roomProgressList: prev.roomProgressList.filter((r) => !idsToReallyDelete.includes(r.floorId)),
-          defects: prev.defects.filter((d) => !idsToReallyDelete.includes(d.floorId)),
-          checklist: prev.checklist.filter((c) => !idsToReallyDelete.includes(c.floorId || '') && !targetPlanNames.includes(c.floorName)),
-        };
+      const requestedIds = new Set(ids);
+      let idsToReallyDelete = ids;
+      let remainingPlans = prev.floorPlans.filter((fp) => !requestedIds.has(fp.id));
+
+      // Luôn giữ ít nhất một mặt bằng để project không rơi vào trạng thái không hợp lệ.
+      if (remainingPlans.length === 0 && prev.floorPlans.length > 0) {
+        const keepId = prev.floorPlans[0].id;
+        idsToReallyDelete = ids.filter((id) => id !== keepId);
+        remainingPlans = prev.floorPlans.filter((fp) => fp.id === keepId);
       }
-      
-      const targetPlans = prev.floorPlans.filter((fp) => ids.includes(fp.id));
-      const targetPlanNames = targetPlans.map(fp => fp.floorName);
+
+      const deleteIdSet = new Set(idsToReallyDelete);
+      const targetPlans = prev.floorPlans.filter((fp) => deleteIdSet.has(fp.id));
+      const deletedNames = new Set(targetPlans.map((fp) => fp.floorName));
+
+      const workVolumesAfterFloorDelete = (prev.workVolumes || []).map((w) => {
+        const oldFloorIds = w.floorIds || [];
+        const nextFloorIds = oldFloorIds.filter((floorId) => !deleteIdSet.has(floorId));
+        const oldFloorNames = String(w.floor || '').split(/[,;\n]+/).map((name) => name.trim()).filter(Boolean);
+        const nextFloorNames = oldFloorNames.filter((name) => !deletedNames.has(name));
+        const hadDeletedLink = (w.floorId ? deleteIdSet.has(w.floorId) : false) || oldFloorIds.some((floorId) => deleteIdSet.has(floorId)) || oldFloorNames.some((name) => deletedNames.has(name));
+        if (!hadDeletedLink) return w;
+        return {
+          ...w,
+          floorId: w.floorId && deleteIdSet.has(w.floorId) ? (nextFloorIds[0] || undefined) : w.floorId,
+          floorIds: nextFloorIds,
+          floor: nextFloorNames.length > 0 ? nextFloorNames.join(', ') : 'Chưa gán tầng',
+        };
+      });
+
+      const crewRecordsAfterFloorDelete = (prev.crewRecords || []).map((record) => {
+        const oldFloorNames = String(record.floorName || '').split(/[,;\n]+/).map((name) => name.trim()).filter(Boolean);
+        const nextFloorNames = oldFloorNames.filter((name) => !deletedNames.has(name));
+        const nextFloorWorks = (record.floorWorks || []).filter((fw) => !deleteIdSet.has(fw.floorId) && !deletedNames.has(fw.floorName));
+        const hadDeletedLink = (record.floorId ? deleteIdSet.has(record.floorId) : false) || oldFloorNames.some((name) => deletedNames.has(name)) || (record.floorWorks || []).some((fw) => deleteIdSet.has(fw.floorId) || deletedNames.has(fw.floorName));
+        if (!hadDeletedLink) return record;
+        return {
+          ...record,
+          floorId: record.floorId && deleteIdSet.has(record.floorId) ? (nextFloorWorks[0]?.floorId || undefined) : record.floorId,
+          floorName: nextFloorNames.length > 0 ? nextFloorNames.join(', ') : undefined,
+          floorWorks: nextFloorWorks,
+        };
+      });
+
       return {
         ...prev,
         floorPlans: remainingPlans.map((fp, idx) => ({ ...fp, order: idx })),
-        roomProgressList: prev.roomProgressList.filter((r) => !ids.includes(r.floorId)),
-        defects: prev.defects.filter((d) => !ids.includes(d.floorId)),
-        checklist: prev.checklist.filter((c) => !ids.includes(c.floorId || '') && !targetPlanNames.includes(c.floorName)),
+        roomProgressList: prev.roomProgressList.filter((r) => !deleteIdSet.has(r.floorId)),
+        defects: prev.defects.map((d) =>
+          deleteIdSet.has(d.floorId) || deletedNames.has(d.floorName)
+            ? { ...d, archivedFloorId: d.floorId || undefined, archivedFloorName: d.floorName, archivedAt, floorId: '', roomId: undefined }
+            : d
+        ),
+        checklist: prev.checklist.map((c) =>
+          deleteIdSet.has(c.floorId || '') || deletedNames.has(c.floorName)
+            ? { ...c, archivedFloorId: c.floorId, archivedFloorName: c.floorName, archivedAt, floorId: undefined, roomId: undefined }
+            : c
+        ),
+        workVolumes: workVolumesAfterFloorDelete,
+        crewRecords: crewRecordsAfterFloorDelete,
       };
+    });
+
+    cloudPlansToDelete.forEach((plan) => {
+      void deleteFloorPlanImageFromCloud(activeProjectIdRef.current, plan).catch((err) =>
+        console.warn('Delete floor-plan cloud image warning:', err)
+      );
     });
   };
 
@@ -3608,77 +3935,90 @@ export default function App() {
       const sourcePlan = prev.floorPlans.find((fp) => fp.id === id);
       if (!sourcePlan) return prev;
 
-      const uniqueFloorSuffix = Math.random().toString(36).substring(2, 7);
-      const newId = `fp-${Date.now()}-${uniqueFloorSuffix}`;
+      const newId = createEntityId('fp');
       const newFloorName = customName?.trim() || `${sourcePlan.floorName} (Bản sao)`;
+      const now = Date.now();
 
       const newPlan: FloorPlan = {
         ...sourcePlan,
         id: newId,
         floorName: newFloorName,
-        uploadedAt: new Date().toLocaleDateString('vi-VN'),
+        uploadedAt: new Date().toISOString().split('T')[0],
+        // The copied Base64/blob URL may be reused locally, but cloud identifiers belong
+        // to the source floor and must never be reused under a new floorId. Reset cloud
+        // metadata so the normal image-sync effect uploads a fresh file for the clone.
+        driveFileId: undefined,
+        driveUrl: undefined,
+        cloudFileId: undefined,
+        storageProvider: undefined,
+        imageCloudRevision: 0,
+        imageCloudSyncedAt: undefined,
+        imageRevision: now,
+        updatedAt: now,
       };
 
+      // Safe duplicate: copy geometry, categories, quantities and assignments, but
+      // reset all actual construction / inspection results. A new floor must never
+      // inherit completed work or Defects from the source floor.
       const sourceRooms = prev.roomProgressList.filter((r) => r.floorId === id || (!r.floorId && r.floorName === sourcePlan.floorName));
       const roomIdMap: Record<string, string> = {};
-      const clonedRooms: RoomProgressItem[] = sourceRooms.map((r, index) => {
-        const uniqueRoomSuffix = Math.random().toString(36).substring(2, 7);
+      const clonedRooms: RoomProgressItem[] = sourceRooms.map((r) => {
         const cloned = JSON.parse(JSON.stringify(r)) as RoomProgressItem;
-        const newRoomId = `ROOM-${Date.now()}-${index}-${uniqueRoomSuffix}`;
+        const newRoomId = createEntityId('ROOM');
         roomIdMap[r.id] = newRoomId;
         return {
           ...cloned,
           id: newRoomId,
           floorId: newId,
           floorName: newFloorName,
-          updatedAt: Date.now(),
-        };
-      });
-
-      const sourceChecklist = prev.checklist.filter((c) => (c.floorId && c.floorId === id) || (!c.floorId && c.floorName === sourcePlan.floorName));
-      const clonedChecklist = sourceChecklist.map((c, index) => {
-        const uniqueChecklistSuffix = Math.random().toString(36).substring(2, 7);
-        return {
-          ...c,
-          id: `CHK-${Date.now()}-${index}-${uniqueChecklistSuffix}`,
-          floorId: newId,
-          floorName: newFloorName,
-          roomId: c.roomId ? roomIdMap[c.roomId] || c.roomId : undefined,
-          status: 'pending' as const,
+          frameStatus: 'Chưa làm',
+          boardStatus: 'Chưa làm',
+          frameInspectionStatus: 'Chưa nghiệm thu',
+          boardInspectionStatus: 'Chưa nghiệm thu',
+          inspectionStatus: 'Chưa nghiệm thu',
+          inspectorName: '',
           notes: '',
-          inspectedBy: undefined,
-          inspectedAt: undefined,
+          targetFrameDate: '',
+          targetBoardDate: '',
+          subItems: cloned.subItems?.map((sub) => ({
+            ...sub,
+            id: createEntityId('sub'),
+            status: 'Chưa làm',
+            inspectionStatus: 'Chưa nghiệm thu',
+            targetDate: '',
+          })),
+          createdAt: now,
+          updatedAt: now,
         };
       });
 
-      const sourceDefects = (prev.defects || []).filter((d) => d.floorId === id || (!d.floorId && d.floorName === sourcePlan.floorName));
-      const clonedDefects = sourceDefects.map((d, index) => {
-        const uniqueDefectSuffix = Math.random().toString(36).substring(2, 7);
-        return {
-          ...d,
-          id: `DEF-${Date.now()}-${index}-${uniqueDefectSuffix}`,
-          floorId: newId,
-          floorName: newFloorName,
-          roomId: d.roomId ? roomIdMap[d.roomId] || d.roomId : undefined,
-          status: 'Mới phát hiện' as const,
-          createdAt: new Date().toLocaleDateString('vi-VN'),
-        };
-      });
+      // Checklist criteria are useful as a template, but all result/history fields
+      // are reset for the new floor. Defects are intentionally NOT duplicated.
+      const sourceChecklist = prev.checklist.filter((c) => (c.floorId && c.floorId === id) || (!c.floorId && c.floorName === sourcePlan.floorName));
+      const clonedChecklist = sourceChecklist.map((c) => ({
+        ...c,
+        id: createEntityId('CHK'),
+        floorId: newId,
+        floorName: newFloorName,
+        roomId: c.roomId ? roomIdMap[c.roomId] : undefined,
+        status: 'pending' as const,
+        notes: '',
+        inspectedBy: undefined,
+        inspectedAt: undefined,
+      }));
 
       const index = prev.floorPlans.findIndex((fp) => fp.id === id);
       const nextPlans = [...prev.floorPlans];
-      if (index !== -1) {
-        nextPlans.splice(index + 1, 0, newPlan);
-      } else {
-        nextPlans.push(newPlan);
-      }
+      if (index !== -1) nextPlans.splice(index + 1, 0, newPlan);
+      else nextPlans.push(newPlan);
 
       return {
         ...prev,
         floorPlans: nextPlans.map((fp, idx) => ({ ...fp, order: idx })),
         roomProgressList: [...clonedRooms, ...prev.roomProgressList],
         checklist: [...prev.checklist, ...clonedChecklist],
-        defects: [...(prev.defects || []), ...clonedDefects],
+        // Never clone defects: a duplicate floor starts with zero actual defects.
+        defects: prev.defects,
       };
     });
   };
@@ -3715,13 +4055,13 @@ export default function App() {
         nextNum = maxNum + 1;
       }
 
-      const uniqueDefectSuffix = Math.random().toString(36).substring(2, 5).toUpperCase();
+      const uniqueDefectSuffix = createShortToken(6);
       const newId = defect.id || `DEF-${nextNum}-${uniqueDefectSuffix}`;
       
       const newDefect: DefectItem = {
         ...defect,
         id: newId,
-        createdAt: new Date().toLocaleString('vi-VN'),
+        createdAt: new Date().toISOString(),
       };
 
       return {
@@ -3740,7 +4080,9 @@ export default function App() {
           ? {
               ...d,
               status,
-              completedAt: status === 'Đã khắc phục' || status === 'Đã nghiệm thu' ? (d.completedAt || todayStr) : d.completedAt,
+              completedAt: status === 'Đã khắc phục' || status === 'Đã nghiệm thu'
+                ? (d.completedAt || todayStr)
+                : undefined,
             }
           : d
       ),
@@ -3778,14 +4120,15 @@ export default function App() {
       if (room.id && exists) {
         return {
           ...prev,
-          roomProgressList: prev.roomProgressList.map((r) => (r.id === room.id ? { ...room, id: room.id, updatedAt } : r)),
+          roomProgressList: prev.roomProgressList.map((r) => (r.id === room.id
+            ? { ...r, ...room, id: room.id, createdAt: r.createdAt || updatedAt, updatedAt }
+            : r)),
         };
       } else {
-        const uniqueRoomSuffix = Math.random().toString(36).substring(2, 7);
-        const newId = room.id || `ROOM-${Date.now()}-${uniqueRoomSuffix}`;
+        const newId = room.id || createEntityId('ROOM');
         return {
           ...prev,
-          roomProgressList: [{ ...room, id: newId, updatedAt }, ...prev.roomProgressList],
+          roomProgressList: [{ ...room, id: newId, createdAt: updatedAt, updatedAt }, ...prev.roomProgressList],
         };
       }
     });
@@ -3804,18 +4147,54 @@ export default function App() {
     }));
   };
 
+  const handleCreateMultipleRoomProgress = (rooms: RoomProgressItem[]) => {
+    if (!rooms || rooms.length === 0) return;
+    const now = Date.now();
+    updateAppData((prev) => {
+      const existingIds = new Set(prev.roomProgressList.map((room) => room.id));
+      const uniqueNewRooms = rooms
+        .filter((room) => room.id && !existingIds.has(room.id))
+        .map((room) => ({ ...room, createdAt: room.createdAt || now, updatedAt: now }));
+      if (uniqueNewRooms.length === 0) return prev;
+      return { ...prev, roomProgressList: [...uniqueNewRooms, ...prev.roomProgressList] };
+    });
+  };
+
   const handleDeleteRoomProgress = (id: string) => {
-    updateAppData((prev) => ({
-      ...prev,
-      roomProgressList: prev.roomProgressList.filter((r) => r.id !== id),
-    }));
+    updateAppData((prev) => {
+      const deletedRoom = prev.roomProgressList.find((r) => r.id === id);
+      const deletedLabel = deletedRoom?.roomName || id;
+      return {
+        ...prev,
+        roomProgressList: prev.roomProgressList.filter((r) => r.id !== id),
+        // Giữ Defect/Checklist để không mất lịch sử, nhưng bỏ khóa ngoại roomId đã bị xóa.
+        defects: prev.defects.map((d) => d.roomId === id
+          ? { ...d, roomId: undefined, positionDetail: d.positionDetail || `Căn / Phòng đã xóa: ${deletedLabel}` }
+          : d),
+        checklist: prev.checklist.map((c) => c.roomId === id
+          ? { ...c, roomId: undefined, notes: c.notes || `Căn / Phòng đã xóa: ${deletedLabel}` }
+          : c),
+      };
+    });
   };
 
   const handleDeleteMultipleRoomProgress = (ids: string[]) => {
-    updateAppData((prev) => ({
-      ...prev,
-      roomProgressList: prev.roomProgressList.filter((r) => !ids.includes(r.id)),
-    }));
+    updateAppData((prev) => {
+      const deleteSet = new Set(ids);
+      const roomNameById = new Map(
+        prev.roomProgressList.filter((r) => deleteSet.has(r.id)).map((r) => [r.id, r.roomName])
+      );
+      return {
+        ...prev,
+        roomProgressList: prev.roomProgressList.filter((r) => !deleteSet.has(r.id)),
+        defects: prev.defects.map((d) => d.roomId && deleteSet.has(d.roomId)
+          ? { ...d, roomId: undefined, positionDetail: d.positionDetail || `Căn / Phòng đã xóa: ${roomNameById.get(d.roomId) || d.roomId}` }
+          : d),
+        checklist: prev.checklist.map((c) => c.roomId && deleteSet.has(c.roomId)
+          ? { ...c, roomId: undefined, notes: c.notes || `Căn / Phòng đã xóa: ${roomNameById.get(c.roomId) || c.roomId}` }
+          : c),
+      };
+    });
   };
 
   const handleReorderRoomProgressList = (reorderedList: RoomProgressItem[]) => {
@@ -3852,8 +4231,8 @@ export default function App() {
             ...item,
             status,
             notes: notes !== undefined ? notes : item.notes,
-            inspectedBy: inspectedBy || item.inspectedBy,
-            inspectedAt: new Date().toLocaleString('vi-VN'),
+            inspectedBy: status === 'pending' ? undefined : (inspectedBy || item.inspectedBy),
+            inspectedAt: status === 'pending' ? undefined : new Date().toISOString(),
           };
         }
         return item;
@@ -3862,7 +4241,7 @@ export default function App() {
   };
 
   const handleAddChecklistItem = (item: Omit<ChecklistItem, 'id'>) => {
-    const newId = `CHK-${Date.now().toString().slice(-4)}-${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
+    const newId = createEntityId('CHK');
     updateAppData((prev) => ({
       ...prev,
       checklist: [...prev.checklist, { ...item, id: newId }],
@@ -3870,9 +4249,12 @@ export default function App() {
   };
 
   const handleUpdateChecklistItem = (updatedItem: ChecklistItem) => {
+    const normalizedItem: ChecklistItem = updatedItem.status === 'pending'
+      ? { ...updatedItem, inspectedBy: undefined, inspectedAt: undefined }
+      : updatedItem;
     updateAppData((prev) => ({
       ...prev,
-      checklist: prev.checklist.map((item) => (item.id === updatedItem.id ? updatedItem : item)),
+      checklist: prev.checklist.map((item) => (item.id === normalizedItem.id ? normalizedItem : item)),
     }));
   };
 
@@ -3892,7 +4274,7 @@ export default function App() {
 
   // Handlers for Crew/Quân số
   const handleAddCrewRecord = (record: Omit<CrewRecord, 'id'> & { id?: string }) => {
-    const newId = record.id || `crew-${Date.now()}`;
+    const newId = record.id || createEntityId('crew');
     updateAppData((prev) => ({
       ...prev,
       crewRecords: [...prev.crewRecords, { ...record, id: newId }],
@@ -3924,9 +4306,9 @@ export default function App() {
     updateAppData((prev) => {
       const sourceRecords = prev.crewRecords.filter((r) => r.date === sourceDate);
       const keptRecords = prev.crewRecords.filter((r) => r.date !== targetDate);
-      const cloned = sourceRecords.map((r, index) => ({
+      const cloned = sourceRecords.map((r) => ({
         ...r,
-        id: `crew-${Date.now()}-${index}`,
+        id: createEntityId('crew'),
         date: targetDate,
       }));
       return {
@@ -3937,7 +4319,7 @@ export default function App() {
   };
 
   const floorNames = Array.from(new Set(floorPlans.map((fp) => fp.floorName)));
-  const unhandledDefectsCount = defects.filter((d) => d.status !== 'Đã nghiệm thu').length;
+  const unhandledDefectsCount = defects.filter((d) => !d.archivedAt && d.status !== 'Đã nghiệm thu').length;
 
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
 
@@ -3964,7 +4346,10 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900 font-sans selection:bg-blue-200">
       {/* Mobile & Responsive Shell Frame */}
-      <div className="w-full max-w-lg md:max-w-3xl lg:max-w-5xl mx-auto bg-slate-50 min-h-screen shadow-2xl relative border-x border-slate-200 overflow-x-hidden pb-20">
+      <div
+        className="w-full max-w-lg md:max-w-3xl lg:max-w-5xl mx-auto bg-slate-50 min-h-screen shadow-2xl relative border-x border-slate-200 overflow-x-hidden"
+        style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom))' }}
+      >
         {/* Sticky Top Header */}
         <GoogleAuthHeader
           projectName={projectName}
@@ -4090,7 +4475,7 @@ export default function App() {
               workVolumes={computedWorkVolumes}
               onImportInventory={handleImportInventory}
               onImportNorms={handleImportNorms}
-              onImportWorkVolumes={(importedVolumes) => updateAppData((prev) => ({ ...prev, workVolumes: importedVolumes }))}
+              onImportWorkVolumes={(importedVolumes) => updateAppData((prev) => ({ ...prev, workVolumes: importedVolumes.map((item) => ({ ...item, unit: normalizeUnit(item.unit) || item.unit })) }))}
             />
           )}
 
@@ -4119,9 +4504,9 @@ export default function App() {
             <FloorPlanDefectTab
               projectId={activeProjectId}
               floorPlans={floorPlans}
-              defects={defects}
+              defects={activeDefects}
               roomProgressList={roomProgressList}
-              checklistItems={checklist}
+              checklistItems={activeChecklist}
               teams={teams}
               materialNorms={computedMaterialNorms}
               inventory={inventory}
@@ -4142,6 +4527,7 @@ export default function App() {
               onDeleteMultipleDefects={handleDeleteMultipleDefects}
               onSaveRoomProgress={handleSaveRoomProgress}
               onBatchSaveRooms={handleBatchSaveRooms}
+              onCreateMultipleRoomProgress={handleCreateMultipleRoomProgress}
               onDeleteRoomProgress={handleDeleteRoomProgress}
               onDeleteMultipleRoomProgress={handleDeleteMultipleRoomProgress}
               onReorderRoomProgressList={handleReorderRoomProgressList}
@@ -4157,7 +4543,7 @@ export default function App() {
 
           {activeTab === 'checklist' && (
             <ChecklistTab
-              checklist={checklist}
+              checklist={activeChecklist}
               floors={floorNames}
               floorPlans={floorPlans}
               inspectorName={inspectorName}
@@ -4183,7 +4569,7 @@ export default function App() {
               crewRecords={crewRecords}
               floorPlans={floorPlans}
               roomProgressList={roomProgressList}
-              defects={defects}
+              defects={activeDefects}
               onAddCrewRecord={handleAddCrewRecord}
               onUpdateCrewRecord={handleUpdateCrewRecord}
               onDeleteCrewRecord={handleDeleteCrewRecord}
@@ -4336,8 +4722,8 @@ export default function App() {
           inventory={inventory}
           materialNorms={computedMaterialNorms}
           workVolumes={computedWorkVolumes}
-          defects={defects}
-          checklist={checklist}
+          defects={activeDefects}
+          checklist={activeChecklist}
           floorPlans={floorPlans}
           roomProgressList={roomProgressList}
           crewRecords={crewRecords}
@@ -4363,8 +4749,8 @@ export default function App() {
         {/* Floating Due Date Toast Notification */}
         <DueDateToastNotifier
           workVolumes={workVolumes}
-          checklist={checklist}
-          defects={defects}
+          checklist={activeChecklist}
+          defects={activeDefects}
           onNavigateToItem={handleNavigateFromAlert}
           onOpenNotificationCenter={() => setIsNotificationCenterOpen(true)}
         />
@@ -4374,8 +4760,8 @@ export default function App() {
           isOpen={isNotificationCenterOpen}
           onClose={() => setIsNotificationCenterOpen(false)}
           workVolumes={workVolumes}
-          checklist={checklist}
-          defects={defects}
+          checklist={activeChecklist}
+          defects={activeDefects}
           onNavigateToItem={handleNavigateFromAlert}
         />
 

@@ -91,7 +91,7 @@ export function collectDueDateAlerts(
 
   // 2. Checklist items
   checklist.forEach((chk) => {
-    if (!chk.dueDate) return;
+    if (chk.archivedAt || !chk.dueDate) return;
     const isCompleted = chk.status === 'passed';
     if (isCompleted) return;
 
@@ -108,7 +108,7 @@ export function collectDueDateAlerts(
         floor: chk.floorName,
         category: chk.category,
         dueDate: chk.dueDate,
-        statusStr: chk.status === 'defect' ? 'Có Lỗi' : 'Chờ nghiệm thu',
+        statusStr: chk.status === 'defect' ? 'Có lỗi' : 'Chờ nghiệm thu',
         isCompleted: false,
         diffDays,
         isOverdue,
@@ -121,7 +121,7 @@ export function collectDueDateAlerts(
 
   // 3. Defect items
   defects.forEach((def) => {
-    if (!def.dueDate) return;
+    if (def.archivedAt || !def.dueDate) return;
     const isCompleted = def.status === 'Đã khắc phục' || def.status === 'Đã nghiệm thu';
     if (isCompleted) return;
 

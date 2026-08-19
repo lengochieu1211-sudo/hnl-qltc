@@ -17,6 +17,7 @@ import {
   Users,
   Box
 } from 'lucide-react';
+import { formatDecimal } from '../utils/numberUtils';
 
 interface ConflictMergeModalProps {
   localData: any;
@@ -801,7 +802,7 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
                                         <>
                                           <div className={`flex justify-between p-1 rounded-sm ${diffFlags.quantity ? 'bg-amber-100/40 text-amber-950 font-medium' : ''}`}>
                                             <span className="text-slate-500">Số lượng kho:</span>
-                                            <span className="font-bold text-slate-900">{c.localItem.quantity}</span>
+                                            <span className="font-bold text-slate-900">{formatDecimal(c.localItem.quantity)}</span>
                                           </div>
                                           <div className={`flex justify-between p-1 rounded-sm ${diffFlags.unit ? 'bg-amber-100/40 text-amber-950 font-medium' : ''}`}>
                                             <span className="text-slate-500">Đơn vị:</span>
@@ -818,11 +819,11 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
                                           </div>
                                           <div className={`flex justify-between p-1 rounded-sm ${diffFlags.actual ? 'bg-amber-100/40 text-amber-950 font-medium' : ''}`}>
                                             <span className="text-slate-500">Thực tế:</span>
-                                            <span className="font-semibold text-slate-800">{c.localItem.actual}</span>
+                                            <span className="font-semibold text-slate-800">{formatDecimal(c.localItem.actual)}</span>
                                           </div>
                                           <div className={`flex justify-between p-1 rounded-sm ${diffFlags.planned ? 'bg-amber-100/40 text-amber-950 font-medium' : ''}`}>
                                             <span className="text-slate-500">Kế hoạch:</span>
-                                            <span className="text-slate-600">{c.localItem.planned}</span>
+                                            <span className="text-slate-600">{formatDecimal(c.localItem.planned)}</span>
                                           </div>
                                         </>
                                       )}
@@ -937,7 +938,7 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
                                         <>
                                           <div className={`flex justify-between p-1 rounded-sm ${diffFlags.quantity ? 'bg-amber-100/40 text-amber-950 font-medium' : ''}`}>
                                             <span className="text-slate-500">Số lượng kho:</span>
-                                            <span className="font-bold text-slate-900">{c.importedItem.quantity}</span>
+                                            <span className="font-bold text-slate-900">{formatDecimal(c.importedItem.quantity)}</span>
                                           </div>
                                           <div className={`flex justify-between p-1 rounded-sm ${diffFlags.unit ? 'bg-amber-100/40 text-amber-950 font-medium' : ''}`}>
                                             <span className="text-slate-500">Đơn vị:</span>
@@ -954,11 +955,11 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
                                           </div>
                                           <div className={`flex justify-between p-1 rounded-sm ${diffFlags.actual ? 'bg-amber-100/40 text-amber-950 font-medium' : ''}`}>
                                             <span className="text-slate-500">Thực tế:</span>
-                                            <span className="font-semibold text-slate-800">{c.importedItem.actual}</span>
+                                            <span className="font-semibold text-slate-800">{formatDecimal(c.importedItem.actual)}</span>
                                           </div>
                                           <div className={`flex justify-between p-1 rounded-sm ${diffFlags.planned ? 'bg-amber-100/40 text-amber-950 font-medium' : ''}`}>
                                             <span className="text-slate-500">Kế hoạch:</span>
-                                            <span className="text-slate-600">{c.importedItem.planned}</span>
+                                            <span className="text-slate-600">{formatDecimal(c.importedItem.planned)}</span>
                                           </div>
                                         </>
                                       )}

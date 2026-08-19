@@ -11,6 +11,12 @@ export interface InventoryItem {
   handler: string;
   date: string;
   notes?: string;
+  /** Optional provenance for automatically generated warehouse transactions. */
+  sourceType?: 'room-auto' | 'manual' | string;
+  sourceRoomId?: string;
+  sourceFloorId?: string;
+  sourceNormId?: string;
+  sourceIssueKey?: string;
 }
 
 export type CategoryType = string;
@@ -77,6 +83,9 @@ export interface DefectItem {
   id: string;
   floorId: string;
   floorName: string;
+  archivedFloorId?: string; // ID tầng đã xóa nhưng vẫn giữ lịch sử Defect
+  archivedFloorName?: string; // Tên tầng tại thời điểm lưu lịch sử
+  archivedAt?: string; // ISO timestamp khi mặt bằng nguồn bị xóa
   roomId?: string;
   axisGrid?: string;
   positionDetail?: string;
@@ -102,6 +111,9 @@ export interface ChecklistItem {
   id: string;
   floorId?: string;
   floorName: string;
+  archivedFloorId?: string; // ID tầng đã xóa nhưng vẫn giữ lịch sử Checklist
+  archivedFloorName?: string;
+  archivedAt?: string;
   roomId?: string;
   teamId?: string;
   category: string;
@@ -131,7 +143,8 @@ export interface MaterialNorm {
   materialName: string; // Tên vật tư
   unit: string; // Tên đơn vị tính (Tấm, Thanh, Hộp, Bao, Bộ, m2...)
   quotaQuantity: number; // Số lượng định mức công trình
-  unitNormPerM2?: number; // Định mức tiêu hao (VD: 0.35/m2)
+  unitNormPerM2?: number; // Legacy field name: hao phí trên 1 đơn vị khối lượng nguồn (VD: 0.35 Tấm/m²)
+  normBasisUnit?: string; // Đơn vị khối lượng nguồn áp dụng cho unitNormPerM2 (m², m, bộ...).
   workCategoryNorms?: Record<string, number>; // Định mức riêng theo tên hạng mục
   workCategoryNormsById?: Record<string, number>; // Định mức riêng theo ID hạng mục
   notes?: string;
@@ -168,6 +181,7 @@ export interface RoomProgressItem {
   workCategory?: string; // Loại hạng mục thi công (VD: Trần Thạch Cao Khung Chìm Tấm Tiêu Chuẩn, Vách Thạch Cao Hai Mặt...)
   workCategoryId?: string;
   categoryVolumes?: Record<string, number>; // Khối lượng riêng theo từng hạng mục thi công đang có trong căn hộ
+  categoryVolumeUnits?: Record<string, string>; // ĐVT riêng theo từng hạng mục (m², m, bộ, cái...). Nếu thiếu sẽ fallback volumeUnit.
   subItems?: RoomSubItem[]; // Danh sách các hạng mục/công đoạn thi công & nghiệm thu chi tiết
   workVolume?: number; // Khối lượng thi công (VD: 45.5 m2)
   volumeUnit?: string; // Đơn vị tính (VD: m2, m, căn)
@@ -189,6 +203,7 @@ export interface RoomProgressItem {
   targetFrameDate?: string; // YYYY-MM-DD
   targetBoardDate?: string; // YYYY-MM-DD
   color?: string; // Mã màu hex hoặc tên màu chọn riêng cho căn
+  createdAt?: number; // Ngày tạo Căn / Phòng, cố định sau lần tạo đầu tiên
   updatedAt: number;
 }
 

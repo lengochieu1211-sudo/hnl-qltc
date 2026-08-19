@@ -27,6 +27,8 @@ import { confirmAsync } from '../utils/confirmAsync';
 import { formatDecimal, formatVND, evaluateMathExpression, useFormatSettings, parseVietnameseNumber, parseExcelNumber } from '../utils/numberUtils';
 import { getTodayDateString, addDaysToDateString, formatDateVN, calculateDiffDays } from '../utils/dueDateUtils';
 import { getCurrentUserRole, canViewFinancials, canEditProjectData, UserRole } from '../utils/securityUtils';
+import { normalizeUnit, unitKey } from '../utils/unitUtils';
+import { createEntityId } from '../utils/idUtils';
 
 interface WorkVolumeTabProps {
   workVolumes: WorkVolume[];
@@ -134,21 +136,36 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   const totals = useMemo(() => {
     let plannedValue = 0;
     let actualValue = 0;
-    let totalPlanned = 0;
-    let totalActual = 0;
+    const byUnit: Record<string, { planned: number; actual: number; displayUnit: string }> = {};
 
     workVolumes.forEach((item) => {
       plannedValue += (item.planned || 0) * (item.unitPrice || 0);
       actualValue += (item.actual || 0) * (item.unitPrice || 0);
-      totalPlanned += item.planned || 0;
-      totalActual += item.actual || 0;
+      const canonicalUnit = normalizeUnit(item.unit || 'Đơn vị') || 'Đơn vị';
+      const key = unitKey(canonicalUnit) || 'đơn vị';
+      if (!byUnit[key]) byUnit[key] = { planned: 0, actual: 0, displayUnit: canonicalUnit };
+      byUnit[key].planned += item.planned || 0;
+      byUnit[key].actual += item.actual || 0;
     });
 
-    const percent = plannedValue > 0 
-      ? Math.round((actualValue / plannedValue) * 100) 
-      : (totalPlanned > 0 ? Math.round((totalActual / totalPlanned) * 100) : 0);
+    // Không cộng chéo m² + m + bộ + tấm. Chỉ dùng giá trị tiền làm mẫu số
+    // khi TẤT CẢ hạng mục có kế hoạch đều có đơn giá; nếu thiếu dù chỉ một đơn giá,
+    // dùng trung bình tiến độ theo nhóm đơn vị để không "bỏ quên" hạng mục chưa có giá.
+    const plannedItems = workVolumes.filter((item) => (item.planned || 0) > 0);
+    const canUseFinancialProgress = plannedItems.length > 0 && plannedItems.every((item) => (item.unitPrice || 0) > 0);
+    let percent = 0;
+    if (canUseFinancialProgress && plannedValue > 0) {
+      percent = Math.round((actualValue / plannedValue) * 100);
+    } else {
+      const unitProgress = Object.values(byUnit)
+        .filter((group) => group.planned > 0)
+        .map((group) => Math.min(1, group.actual / group.planned));
+      percent = unitProgress.length > 0
+        ? Math.round((unitProgress.reduce((sum, value) => sum + value, 0) / unitProgress.length) * 100)
+        : 0;
+    }
 
-    return { plannedValue, actualValue, totalPlanned, totalActual, percent };
+    return { plannedValue, actualValue, byUnit, percent };
   }, [workVolumes]);
 
   const livePlannedCalc = useMemo(() => {
@@ -211,17 +228,19 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   const handleAddSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    let finalPlanned = Number(planned);
     const parsedPlanned = evaluateMathExpression(plannedStr);
-    if (parsedPlanned !== null) {
-      finalPlanned = parsedPlanned;
+    if (plannedStr.trim() && parsedPlanned === null) {
+      alert('Khối lượng định mức có công thức/số không hợp lệ. Ví dụ: 100*5 hoặc 1220/3.');
+      return;
     }
+    const finalPlanned = parsedPlanned ?? Number(planned);
 
-    let finalUnitPrice = Number(unitPrice || 0);
-    const parsedUnitPrice = evaluateMathExpression(unitPriceStr);
-    if (parsedUnitPrice !== null) {
-      finalUnitPrice = parsedUnitPrice;
+    const parsedUnitPrice = unitPriceStr.trim() ? evaluateMathExpression(unitPriceStr) : 0;
+    if (unitPriceStr.trim() && parsedUnitPrice === null) {
+      alert('Đơn giá có công thức/số không hợp lệ. Vui lòng kiểm tra lại trước khi lưu.');
+      return;
     }
+    const finalUnitPrice = parsedUnitPrice ?? 0;
 
     if (!title.trim() || !finalPlanned || finalPlanned <= 0) {
       alert('Vui lòng điền tên hạng mục và khối lượng định mức hợp lệ!');
@@ -230,7 +249,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
 
     const floorNames = selectedFloors.length > 0 ? selectedFloors : ['Tầng 1'];
     const matchedFloorIds = floorNames.map(fName => floorPlans?.find(fp => (fp.floorName || fp.id) === fName)?.id || fName);
-    const assignedWorkCategoryId = editingVolume?.workCategoryId || ('CAT_' + Date.now());
+    const assignedWorkCategoryId = editingVolume?.workCategoryId || createEntityId('CAT');
 
     if (editingVolume) {
       if (onSaveWorkVolume) {
@@ -241,7 +260,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           title: title.trim(),
           floor: floorNames.join(', '),
           category,
-          unit,
+          unit: normalizeUnit(unit) || unit,
           planned: finalPlanned,
           actual: Number(actual || 0),
           unitPrice: finalUnitPrice,
@@ -256,7 +275,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         title: title.trim(),
         floor: floorNames.join(', '),
         category,
-        unit,
+        unit: normalizeUnit(unit) || unit,
         planned: finalPlanned,
         actual: Number(actual || 0),
         unitPrice: finalUnitPrice,
@@ -347,7 +366,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
 
           const floorStr = String(row['Tầng / Khu Vực'] || row['Tầng'] || row['floor'] || 'Tầng 1').trim();
           const categoryStr = String(row['Nhóm hạng mục'] || row['Phân Loại'] || row['category'] || 'khung_tran').trim() as CategoryType;
-          const unitStr = String(row['Đơn Vị Tính'] || row['Đơn Vị'] || row['unit'] || 'm2').trim();
+          const unitStr = String(row['Đơn vị Tính'] || row['Đơn vị'] || row['unit'] || 'm2').trim();
           const plannedNum = parseExcelNumber(row['Khối lượng định mức'] || row['Khối lượng kế hoạch'] || row['planned']);
           const actualNum = parseExcelNumber(row['KL Thực Tế'] || row['KL Thực Hiện'] || row['actual']);
           const unitPriceNum = parseExcelNumber(row['Đơn Giá (VNĐ)'] || row['Đơn Giá'] || row['unitPrice']);
@@ -413,7 +432,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
             }
           } else {
             onAddWorkVolume({
-              workCategoryId: rawRecordId || ('CAT_' + Date.now()),
+              workCategoryId: rawRecordId || createEntityId('CAT'),
               floorIds: parsedFloorIds,
               title: titleStr,
               floor: floorStr,
@@ -533,15 +552,22 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-2 text-xs pt-1">
-            <div className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/60">
-              <p className="text-[10px] text-slate-400">Tổng Khối lượng định mức</p>
-              <p className="text-sm font-extrabold text-slate-100">{formatDecimal(totals.totalPlanned)}</p>
-            </div>
-            <div className="bg-emerald-950/60 p-2.5 rounded-xl border border-emerald-700/40">
-              <p className="text-[10px] text-emerald-300">Tổng KL Hoàn Thành</p>
-              <p className="text-sm font-extrabold text-emerald-400">{formatDecimal(totals.totalActual)}</p>
-            </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs pt-1">
+            {Object.entries(totals.byUnit).length > 0 ? (Object.entries(totals.byUnit) as Array<[string, { planned: number; actual: number; displayUnit: string }]>).map(([unitName, values]) => (
+              <div key={unitName} className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/60">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[10px] text-slate-400">Khối lượng · {unitName}</p>
+                  <span className="text-[10px] font-extrabold text-emerald-300">
+                    {values.planned > 0 ? Math.min(100, Math.round((values.actual / values.planned) * 100)) : 0}%
+                  </span>
+                </div>
+                <p className="text-sm font-extrabold text-slate-100">
+                  <span className="text-emerald-400">{formatDecimal(values.actual)}</span> / {formatDecimal(values.planned)} {values.displayUnit}
+                </p>
+              </div>
+            )) : (
+              <div className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/60 text-slate-400">Chưa có dữ liệu khối lượng.</div>
+            )}
           </div>
         )}
       </div>
@@ -550,7 +576,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       {availableCategories.length > 0 && (
         <div className="flex gap-1 overflow-x-auto pb-1 text-xs no-scrollbar">
           {['all', ...availableCategories].map((catId) => {
-            const label = catId === 'all' ? 'Tất Cả' : 
+            const label = catId === 'all' ? 'Tất cả' : 
                           catId === 'khung_tran' ? ' Khung Trần' : 
                           catId === 'ban_tam' ? ' Bắn Tấm' : 
                           catId === 'son_ba' ? ' Sơn Bả' : catId;
@@ -683,7 +709,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                   }}
                   className="text-rose-600 hover:text-rose-700 font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
                 >
-                  <Trash2 className="w-3.5 h-3.5" /> Xóa Đã Chọn ({selectedItemIds.filter(id => sortedFilteredVolumes.some(item => item.id === id)).length})
+                  <Trash2 className="w-3.5 h-3.5" /> Xóa đã chọn ({selectedItemIds.filter(id => sortedFilteredVolumes.some(item => item.id === id)).length})
                 </button>
               )}
             </div>
@@ -927,7 +953,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-slate-700 font-bold mb-1 flex items-center justify-between">
-                    <span>Vị Trí Tầng</span>
+                    <span>Vị trí tầng</span>
                     {floorPlans && floorPlans.length > 0 && (
                       <span className="text-[10px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100 font-bold">
                         Đồng bộ từ Mặt bằng
@@ -995,7 +1021,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-2 items-end">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
                 <div>
                   <div className="h-6 flex items-center justify-between text-slate-700 font-bold text-[11px] sm:text-xs truncate mb-1">
                     <span>Khối lượng định mức *</span>
@@ -1041,7 +1067,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                 </div>
                 <div>
                   <div className="h-6 flex items-center text-slate-700 font-bold text-[11px] sm:text-xs truncate mb-1">
-                    Đơn Vị
+                    Đơn vị
                   </div>
                   <input
                     type="text"
@@ -1055,7 +1081,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               {hasFinancialAccess && (
                 <div>
                   <label className="block text-slate-700 font-bold mb-1 flex items-center justify-between">
-                    <span>Đơn Giá VNĐ / {unit}</span>
+                    <span>Đơn giá VNĐ / {unit}</span>
                     {liveUnitPriceCalc !== null && (
                       <span className="text-indigo-600 bg-indigo-50 px-1 py-0.5 rounded text-[9px] font-extrabold animate-pulse" title="Kết quả tính toán">
                         = {formatDecimal(liveUnitPriceCalc)}

@@ -47,7 +47,7 @@ export function setNumberFormatPreset(preset: NumberFormatPreset): void {
 
 /**
  * Formats a number according to the user's number format setting.
- * Maximum 3 decimal places for floating point values.
+ * Maximum 2 decimal places for display only. Stored/calculated values are not rounded.
  */
 export function formatDecimal(val: number | string | undefined | null): string {
   if (val === undefined || val === null || val === '') return '0';
@@ -61,12 +61,12 @@ export function formatDecimal(val: number | string | undefined | null): string {
     return num.toLocaleString(locale);
   }
   
-  // Format to at most 3 decimal places using user's configured locale
-  return num.toLocaleString(locale, { maximumFractionDigits: 3 });
+  // Display only: keep at most 2 decimal places. Do not mutate the stored/calculated value.
+  return num.toLocaleString(locale, { maximumFractionDigits: 2 });
 }
 
 /**
- * Formats currency in VND with maximum 3 fraction digits using configured number format.
+ * Formats currency in VND with maximum 2 fraction digits using configured number format.
  */
 export function formatVND(val: number | string | undefined | null): string {
   if (val === undefined || val === null || val === '') return '0 đ';

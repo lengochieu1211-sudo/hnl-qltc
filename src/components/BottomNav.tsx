@@ -35,7 +35,10 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   ];
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-40 shadow-2xl">
+    <div
+      className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-40 shadow-2xl"
+      style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+    >
       <div className="relative max-w-lg md:max-w-3xl lg:max-w-5xl mx-auto grid grid-cols-5 h-16">
         {mainTabs.map((tab) => {
           const Icon = tab.icon;
@@ -75,7 +78,10 @@ export const BottomNav: React.FC<BottomNavProps> = ({
         </button>
 
         {showMore && (
-          <div className="absolute right-2 bottom-[68px] w-44 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-2xl">
+          <div
+            className="absolute right-2 w-44 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-2xl"
+            style={{ bottom: 'calc(68px + env(safe-area-inset-bottom))' }}
+          >
             <button
               onClick={() => { setShowMore(false); setActiveTab('checklist'); }}
               className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50"

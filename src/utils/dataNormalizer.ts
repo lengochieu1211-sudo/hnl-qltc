@@ -376,6 +376,8 @@ export interface ProjectImportCandidate {
   inspectorName?: string;
   updatedAt: number;
   normalizedData: any;
+  photoData?: Record<string, string>;
+  photoDataMap?: Record<string, string>;
   itemCounts: {
     materialNorms: number;
     inventory: number;

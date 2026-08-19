@@ -39,8 +39,10 @@ export function parseLegacyTimestamp(ts: any, fallbackTime: number = Date.now())
       const hours = Number(h) || 0;
       const mins = Number(m) || 0;
       const secs = Number(s) || 0;
-      const d = new Date(Number(year), Number(month) - 1, Number(day), hours, mins, secs);
-      if (!isNaN(d.getTime())) return d.getTime();
+      const y = Number(year), mo = Number(month), da = Number(day);
+      const d = new Date(y, mo - 1, da, hours, mins, secs);
+      if (!isNaN(d.getTime()) && d.getFullYear() === y && d.getMonth() === mo - 1 && d.getDate() === da
+        && d.getHours() === hours && d.getMinutes() === mins && d.getSeconds() === secs) return d.getTime();
     }
 
     // Parse ISO YYYY-MM-DD
@@ -50,8 +52,10 @@ export function parseLegacyTimestamp(ts: any, fallbackTime: number = Date.now())
       const hours = Number(h) || 0;
       const mins = Number(m) || 0;
       const secs = Number(s) || 0;
-      const d = new Date(Number(year), Number(month) - 1, Number(day), hours, mins, secs);
-      if (!isNaN(d.getTime())) return d.getTime();
+      const y = Number(year), mo = Number(month), da = Number(day);
+      const d = new Date(y, mo - 1, da, hours, mins, secs);
+      if (!isNaN(d.getTime()) && d.getFullYear() === y && d.getMonth() === mo - 1 && d.getDate() === da
+        && d.getHours() === hours && d.getMinutes() === mins && d.getSeconds() === secs) return d.getTime();
     }
 
     const parsed = Date.parse(trimmed);
@@ -138,7 +142,8 @@ export function formatDate(dateInput: string | Date | number | null | undefined,
         const [_, day, month, year] = ddmmyyyyMatch;
         d = new Date(Number(year), Number(month) - 1, Number(day));
       } else {
-        d = new Date(trimmed);
+        const parsed = parseLegacyTimestamp(trimmed, Number.NaN);
+        d = Number.isFinite(parsed) ? new Date(parsed) : null;
       }
     }
   }
@@ -177,7 +182,9 @@ export function formatDateDDMMYYYY(dateStr: string | null | undefined): string {
  */
 export function formatDateTime(dateInput: string | Date | number | null | undefined): string {
   if (!dateInput) return '';
-  const d = new Date(dateInput);
+  const d = dateInput instanceof Date
+    ? dateInput
+    : new Date(parseLegacyTimestamp(dateInput, Number.NaN));
   if (isNaN(d.getTime())) return String(dateInput);
 
   const dateFormatted = formatDate(d);
