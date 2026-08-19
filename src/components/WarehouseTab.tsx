@@ -15,6 +15,7 @@ import {
   Trash2,
   Filter,
   Sliders,
+  ArrowUpDown,
   CheckCircle2,
   AlertTriangle,
   AlertCircle,
@@ -379,7 +380,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           if (onImportWorkVolumes && workVolumes && (volumesUpdatedCount > 0 || volumesAddedCount > 0)) {
             onImportWorkVolumes(newWorkVolumes);
           }
-          alert('🎉 Đã cập nhật thành công dữ liệu Kho, Nhập Xuất, Định Mức và Hạng Mục!');
+          alert('🎉 Đã cập nhật thành công dữ liệu kho, nhập/xuất, định mức và hạng mục!');
         }
       } catch (err: any) {
         alert(`❌ Lỗi đọc hoặc xử lý tệp Excel: ${err.message}`);
@@ -741,7 +742,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-xl text-xs font-bold shadow-md active:scale-95 transition-all"
           >
             <Plus className="w-4 h-4" />
-            Tạo Phiếu
+            Tạo phiếu
           </button>
         </div>
       </div>
@@ -844,13 +845,13 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         </div>
       )}
 
-      {/* Cảnh Báo Định Mức Nhập Kho */}
+      {/* Cảnh báo định mức nhập kho */}
       {quotaWarnings.length > 0 && (
         <div className="bg-indigo-50/75 border border-indigo-200 rounded-2xl p-3.5 space-y-2">
           <div className="flex items-center gap-1.5 text-indigo-800">
             <AlertTriangle className="w-5 h-5 text-indigo-600 shrink-0" />
             <span className="text-xs font-extrabold uppercase tracking-wider text-indigo-900">
-              ⚠️ Cảnh Báo Định Mức Nhập Kho ({quotaWarnings.length})
+              ⚠️ Cảnh báo định mức nhập kho ({quotaWarnings.length})
             </span>
           </div>
           <p className="text-[11px] text-indigo-700 leading-normal">
@@ -895,7 +896,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           <div className="flex items-center gap-1.5">
             <Layers className="w-4 h-4 text-blue-600" />
             <span className="text-xs font-bold text-slate-800">
-              Bảng Tổng Tồn Kho vs Định Mức
+              Bảng tổng tồn kho vs định mức
             </span>
           </div>
           <button
@@ -993,8 +994,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         </div>
 
         <div className="flex items-center gap-2 min-w-0">
-          <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-extrabold text-slate-500 uppercase tracking-wide">
-            <Sliders className="w-3.5 h-3.5" /> Sắp xếp nhanh
+          <span className="shrink-0 inline-flex items-center gap-1 text-[11px] font-bold text-indigo-800">
+            <ArrowUpDown className="w-3.5 h-3.5 text-indigo-500" /> Sắp xếp nhanh:
           </span>
           <div className="flex-1 flex items-center gap-1 overflow-x-auto no-scrollbar pb-0.5">
             {[
@@ -1025,7 +1026,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       <div className="space-y-2.5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1">
           <h3 className="text-xs font-bold text-slate-600 uppercase tracking-wider">
-            Nhật Ký Nhập Xuất ({filteredInventory.length})
+            Nhật ký nhập/xuất ({filteredInventory.length})
           </h3>
         </div>
 
@@ -1044,7 +1045,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 }}
                 className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
               />
-              <span>Chọn Tất Cả Trên Trang ({filteredInventory.length})</span>
+              <span>Chọn tất cả trên trang ({filteredInventory.length})</span>
             </label>
 
             <div className="flex items-center gap-3 justify-end">
@@ -1064,7 +1065,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   }}
                   className="text-rose-600 hover:text-rose-700 font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
                 >
-                  <Trash2 className="w-3.5 h-3.5" /> Xóa Đã Chọn ({selectedItemIds.filter(id => filteredInventory.some(item => item.id === id)).length})
+                  <Trash2 className="w-3.5 h-3.5" /> Xóa đã chọn ({selectedItemIds.filter(id => filteredInventory.some(item => item.id === id)).length})
                 </button>
               )}
             </div>
@@ -1228,7 +1229,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <PackageCheck className="w-5 h-5 text-blue-600" />
-                {editingInventory ? 'Chỉnh Sửa Phiếu Kho' : 'Tạo Phiếu Nhập / Xuất Kho'}
+                {editingInventory ? 'Chỉnh Sửa Phiếu Kho' : 'Tạo phiếu Nhập / Xuất Kho'}
               </h3>
               <button
                 onClick={() => { setShowAddForm(false); setEditingInventory(null); }}
@@ -1418,7 +1419,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     type === 'in' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-600 hover:bg-amber-700'
                   }`}
                 >
-                  Xác Nhận Tạo Phiếu
+                  Xác Nhận Tạo phiếu
                 </button>
               </div>
             </form>

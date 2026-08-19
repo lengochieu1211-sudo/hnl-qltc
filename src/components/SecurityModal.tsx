@@ -616,7 +616,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
             </div>
             <div>
               <h2 className="text-sm sm:text-base font-extrabold text-slate-800 leading-tight">
-                Trung Tâm Bảo Mật &amp; Phân Quyền
+                Trung tâm bảo mật &amp; phân quyền
               </h2>
               <p className="text-[10px] sm:text-[11px] text-slate-500 font-medium">
                 Khóa ứng dụng, phân quyền và mã hóa bảo mật
@@ -670,7 +670,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
             }`}
           >
             <FileText className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Nhật Ký</span>
+            <span className="truncate">Nhật ký</span>
           </button>
         </div>
 

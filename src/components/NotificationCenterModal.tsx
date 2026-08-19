@@ -89,7 +89,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
             </div>
             <div>
               <h3 className="text-base font-extrabold flex items-center gap-2">
-                Trung Tâm Thông Báo Tiến Độ & Defect
+                Trung tâm thông báo tiến độ & Defect
                 {counts.all > 0 && (
                   <span className="text-xs bg-rose-600 text-white px-2 py-0.5 rounded-full font-bold">
                     {counts.all}
@@ -200,7 +200,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
             </div>
           ) : (
             filteredAlerts.map((alert) => {
-              const typeLabel = alert.type === 'workVolume' ? 'Khối Lượng' :
+              const typeLabel = alert.type === 'workVolume' ? 'Khối lượng' :
                                 alert.type === 'checklist' ? 'Checklist' : 'Defect';
 
               let borderStyle = 'border-slate-200 bg-white hover:border-indigo-300';

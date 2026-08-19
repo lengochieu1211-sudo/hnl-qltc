@@ -561,16 +561,16 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
           materialName: item.materialName,
           unit: item.unit,
           quantity: item.estQty,
-          location: `${floorName} - ${roomName || 'Căn hộ'}`,
+          location: `${floorName} - ${roomName || 'Căn / Phòng'}`,
           handler: assignedTeam || 'Đội thi công căn hộ',
           date: new Date().toISOString().split('T')[0],
-          notes: `Tự động xuất kho dự toán tổng hợp cho [${roomName || 'Căn Hộ'}] gồm các hạng mục: ${catDetailsStr}`,
+          notes: `Tự động xuất kho dự toán tổng hợp cho [${roomName || 'Căn / Phòng'}] gồm các hạng mục: ${catDetailsStr}`,
         });
         issuedCount++;
       }
     });
 
-    alert(`🚚 Đã tự động tạo ${issuedCount} phiếu XUẤT KHO cho căn hộ [${roomName || 'Căn Hộ'}] dựa trên định mức chi tiết từng hạng mục!`);
+    alert(`🚚 Đã tự động tạo ${issuedCount} phiếu XUẤT KHO cho Căn / Phòng [${roomName || 'Căn / Phòng'}] dựa trên định mức chi tiết từng hạng mục!`);
   };
 
   // Handler to add custom sub item
@@ -752,7 +752,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
             </div>
             <div>
               <h3 className="text-base font-bold text-slate-900">
-                {roomItem ? `Sửa Nghiệm Thu - ${roomItem.roomName}` : `Tạo Vùng Highlight Căn / Phòng`}
+                {roomItem ? `Sửa nghiệm thu - ${roomItem.roomName}` : `Tạo vùng Căn / Phòng`}
               </h3>
               <p className="text-xs text-slate-500">Mặt bằng: {floorName}</p>
             </div>
@@ -770,7 +770,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
           
           {/* Room / Apartment Name */}
           <div>
-            <label className="block font-bold text-slate-800 mb-1">Tên Căn Hộ / Tên Phòng *</label>
+            <label className="block font-bold text-slate-800 mb-1">Tên Căn / Phòng *</label>
             <input
               type="text"
               placeholder="VD: Căn A101 (Phòng Khách), Phòng WC 2..."
@@ -861,7 +861,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
               </div>
               <div className="min-w-0 flex-1">
                 <h4 className="font-black text-indigo-950 text-xs uppercase tracking-wide leading-snug break-words">
-                  Nạp Mẫu Hạng Mục Thi Công (Presets)
+                  Nạp mẫu hạng mục thi công
                 </h4>
                 <p className="text-[11px] text-indigo-700/90 font-medium">
                   Nạp tự động các bộ công đoạn. Bạn có thể nạp thêm nhiều bộ khác nhau vào cùng 1 căn (VD: Trần Tiêu Chuẩn + Trần Chống Ẩm...).
@@ -919,7 +919,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
               <div className="min-w-0 flex-1">
                 <h4 className="font-extrabold text-slate-900 text-xs flex items-center gap-1.5 uppercase tracking-wider">
                   <Sparkles className="w-4 h-4 text-indigo-600" />
-                  Danh Sách Hạng Mục Thi Công Trong Căn Hộ ({subItems.length} hạng mục)
+                  Danh sách hạng mục thi công trong Căn / Phòng ({subItems.length} hạng mục)
                 </h4>
                 <p className="text-[10.5px] text-slate-500 font-medium mt-0.5 leading-tight">
                   💡 Mỗi hạng mục có thể phân công cho các đội thi công khác nhau từ danh sách Quân số.
@@ -944,7 +944,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                       }}
                       className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                     />
-                    <span>Chọn Tất Cả Hạng Mục ({subItems.length})</span>
+                    <span>Chọn tất cả hạng mục ({subItems.length})</span>
                   </label>
 
                   {selectedSubItemIds.length > 0 && (
@@ -968,7 +968,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                   <div className="bg-slate-50/80 p-2.5 rounded-xl border border-slate-100 space-y-2.5 text-[10px]">
                     <div className="font-extrabold text-slate-800 text-[10.5px] border-b border-slate-200/50 pb-1.5 flex items-center gap-1">
                       <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-                      <span>Cập Nhật Nhanh {selectedSubItemIds.length} Hạng Mục Đã Chọn:</span>
+                      <span>Cập nhật nhanh {selectedSubItemIds.length} hạng mục đã chọn:</span>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -1191,14 +1191,14 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                     </div>
                   </div>
 
-                  {/* "Thêm Hạng Mục Lẻ" button for this category */}
+                  {/* "Thêm hạng mục con" button for this category */}
                   <button
                     type="button"
                     onClick={() => handleAddSubItem(catName)}
                     className="w-full py-2 bg-white hover:bg-indigo-50 text-indigo-600 border border-indigo-200 border-dashed hover:border-indigo-300 font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-3xs active:scale-98 mb-2"
                   >
                     <Plus className="w-3.5 h-3.5" />
-                    <span>Thêm Hạng Mục Lẻ</span>
+                    <span>Thêm hạng mục con</span>
                   </button>
 
                   <div className="space-y-3">
@@ -1439,14 +1439,14 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                       className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[11px] px-3 py-1.5 rounded-xl shadow-xs active:scale-95 transition-all flex items-center gap-1.5 shrink-0 cursor-pointer"
                     >
                       <ArrowUpRight className="w-3.5 h-3.5" />
-                      Xuất Kho Căn Hộ
+                      Xuất kho Căn / Phòng
                     </button>
                   </div>
                 )}
 
                 {roomMaterialEstimates.length === 0 ? (
                   <p className="text-[11px] text-slate-500 italic text-center py-2 bg-white/60 rounded-xl">
-                    Chưa có định mức vật tư tiêu hao (ĐVT/m²) cài đặt cho hạng mục này hoặc khối lượng đang bằng 0 m². Vui lòng thiết lập ở mục "Kho Vật Tư &gt; Định Mức".
+                    Chưa có định mức vật tư tiêu hao (ĐVT/m²) cài đặt cho hạng mục này hoặc khối lượng đang bằng 0 m². Vui lòng thiết lập ở mục "Kho vật tư &gt; Định mức".
                   </p>
                 ) : (
                   <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
@@ -1491,7 +1491,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
           {/* Inspector & Notes */}
           <div className="space-y-2">
             <div>
-              <label className="block font-bold text-slate-700 mb-1">Kỹ sư phụ trách Nghiệm Thu</label>
+              <label className="block font-bold text-slate-700 mb-1">Kỹ sư phụ trách nghiệm thu</label>
               <input
                 type="text"
                 value={inspectorName}
@@ -1501,7 +1501,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
               />
             </div>
             <div>
-              <label className="block font-bold text-slate-700 mb-1">Ghi Chú Nghiệm Thu Căn Hộ</label>
+              <label className="block font-bold text-slate-700 mb-1">Ghi chú nghiệm thu Căn / Phòng</label>
               <textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
@@ -1751,7 +1751,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
               className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-xl shadow-md text-xs flex items-center justify-center gap-1.5 active:scale-98 transition-all cursor-pointer"
             >
               <CheckCircle2 className="w-4 h-4" />
-              {roomItem ? 'Lưu Thay Đổi Nghiệm Thu' : 'Tạo Highlight Căn Hộ'}
+              {roomItem ? 'Lưu thay đổi nghiệm thu' : 'Tạo vùng Căn / Phòng'}
             </button>
           </div>
         </form>

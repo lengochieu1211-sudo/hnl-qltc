@@ -111,7 +111,7 @@ export const DueDateToastNotifier: React.FC<DueDateToastNotifierProps> = ({
     urgencyText = 'Đến Hạn Hôm Nay!';
   }
 
-  const typeLabel = currentAlert.type === 'workVolume' ? 'Khối Lượng' :
+  const typeLabel = currentAlert.type === 'workVolume' ? 'Khối lượng' :
                     currentAlert.type === 'checklist' ? 'Checklist' : 'Defect';
 
   return (

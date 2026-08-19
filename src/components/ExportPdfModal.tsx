@@ -315,7 +315,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
             </div>
             <div class="card">
               <h3 style="color: #e11d48;">${filteredDefects.length}</h3>
-              <p>Lỗi Defect</p>
+              <p>Defect</p>
             </div>
           ` : ''}
           ${includeChecklist ? `
@@ -1272,7 +1272,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
                 />
                 <BarChart3 className="w-4 h-4 text-blue-600 shrink-0" />
-                <span className="text-[11px]">Khối Lượng</span>
+                <span className="text-[11px]">Khối lượng</span>
               </label>
 
               <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${includeFloorPlan ? 'bg-indigo-50/70 border-indigo-300 text-indigo-900 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
@@ -1283,7 +1283,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
                 />
                 <Building2 className="w-4 h-4 text-indigo-600 shrink-0" />
-                <span className="text-[11px]">Mặt Bằng &amp; Defect</span>
+                <span className="text-[11px]">Mặt bằng &amp; Defect</span>
               </label>
 
               <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${includeChecklist ? 'bg-indigo-50/70 border-indigo-300 text-indigo-900 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
@@ -1305,7 +1305,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
                 />
                 <Users className="w-4 h-4 text-indigo-600 shrink-0" />
-                <span className="text-[11px]">Nhật Ký Nhân Công</span>
+                <span className="text-[11px]">Nhật ký nhân công</span>
               </label>
 
               <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${includeCrewPhotos ? 'bg-indigo-50/70 border-indigo-300 text-indigo-900 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>

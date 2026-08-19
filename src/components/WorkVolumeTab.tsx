@@ -295,14 +295,14 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         const firstRow = jsonData[0];
         const foundHeaders = Object.keys(firstRow);
         const titleMatchKey = foundHeaders.find(h => 
-          ['Tên Hạng Mục Công Việc', 'Tên Hạng Mục Thi Công', 'Hạng Mục Công Việc', 'Tên Hạng Mục', 'Hạng mục', 'title'].some(rk => h.toLowerCase().includes(rk.toLowerCase()))
+          ['Tên hạng mục Công Việc', 'Tên hạng mục Thi Công', 'Hạng Mục Công Việc', 'Tên Hạng Mục', 'Hạng mục', 'title'].some(rk => h.toLowerCase().includes(rk.toLowerCase()))
         );
 
         if (!titleMatchKey) {
           alert(
-            `⚠️ Không tìm thấy cột thông tin bắt buộc 'Tên Hạng Mục Công Việc'!\n\n` +
+            `⚠️ Không tìm thấy cột thông tin bắt buộc 'Tên hạng mục Công Việc'!\n\n` +
             `• Các cột tìm thấy trong file: [${foundHeaders.join(', ')}]\n` +
-            `• Vui lòng đặt lại tiêu đề cột trong file Excel trùng với mẫu (Ví dụ: 'Tên Hạng Mục Thi Công') để hệ thống nhận diện đúng.`
+            `• Vui lòng đặt lại tiêu đề cột trong file Excel trùng với mẫu (Ví dụ: 'Tên hạng mục Thi Công') để hệ thống nhận diện đúng.`
           );
           return;
         }
@@ -346,7 +346,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           if (!titleStr) return;
 
           const floorStr = String(row['Tầng / Khu Vực'] || row['Tầng'] || row['floor'] || 'Tầng 1').trim();
-          const categoryStr = String(row['Nhóm Hạng Mục'] || row['Phân Loại'] || row['category'] || 'khung_tran').trim() as CategoryType;
+          const categoryStr = String(row['Nhóm hạng mục'] || row['Phân Loại'] || row['category'] || 'khung_tran').trim() as CategoryType;
           const unitStr = String(row['Đơn Vị Tính'] || row['Đơn Vị'] || row['unit'] || 'm2').trim();
           const plannedNum = parseExcelNumber(row['Khối lượng định mức'] || row['Khối lượng kế hoạch'] || row['planned']);
           const actualNum = parseExcelNumber(row['KL Thực Tế'] || row['KL Thực Hiện'] || row['actual']);
@@ -430,7 +430,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         });
 
         alert(
-          `🎉 Nhập Hạng Mục Khối Lượng thành công!\n\n` +
+          `🎉 Nhập hạng mục khối lượng thành công!\n\n` +
           `• Đã cập nhật/chỉnh sửa: ${updatedCount} hạng mục cũ\n` +
           `• Đã thêm mới: ${addedCount} hạng mục mới`
         );
@@ -504,7 +504,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         <div className="flex items-center justify-between border-b border-slate-700/80 pb-2">
           <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
             <TrendingUp className="w-4 h-4 text-emerald-400" />
-            {hasFinancialAccess ? 'Tổng Giá Trị & Tiến Độ Sản Lượng' : 'Tổng Hợp Tiến Độ Khối Lượng'}
+            {hasFinancialAccess ? 'Tổng giá trị & tiến độ sản lượng' : 'Tổng hợp tiến độ khối lượng'}
           </span>
           <span className="text-[11px] font-extrabold bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/40">
             {totals.percent}% Hoàn Thành
@@ -524,7 +524,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         {hasFinancialAccess ? (
           <div className="grid grid-cols-2 gap-2 text-xs pt-1">
             <div className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/60">
-              <p className="text-[10px] text-slate-400">Giá Trị Định Mức</p>
+              <p className="text-[10px] text-slate-400">Giá trị định mức</p>
               <p className="text-sm font-extrabold text-slate-100">{formatVND(totals.plannedValue)}</p>
             </div>
             <div className="bg-emerald-950/60 p-2.5 rounded-xl border border-emerald-700/40">
@@ -597,7 +597,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                 : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
             }`}
           >
-            Tên Hạng Mục {volSortBy === 'title' && (volSortOrder === 'asc' ? '↑' : '↓')}
+            Tên hạng mục {volSortBy === 'title' && (volSortOrder === 'asc' ? '↑' : '↓')}
           </button>
           <button
             type="button"
@@ -901,7 +901,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
               <h3 className="text-base font-bold text-slate-900">
-                {editingVolume ? 'Sửa Hạng Mục Khối Lượng' : 'Thêm Hạng Mục Khối Lượng'}
+                {editingVolume ? 'Sửa hạng mục khối lượng' : 'Thêm hạng mục khối lượng'}
               </h3>
               <button
                 onClick={handleCloseModal}
@@ -913,7 +913,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
 
             <form onSubmit={handleAddSubmit} className="space-y-3 text-xs">
               <div>
-                <label className="block text-slate-700 font-bold mb-1">Tên Hạng Mục Công Việc *</label>
+                <label className="block text-slate-700 font-bold mb-1">Tên hạng mục Công Việc *</label>
                 <input
                   type="text"
                   placeholder="Ví dụ: Thi công khung trần chìm Tầng 3"
@@ -930,7 +930,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                     <span>Vị Trí Tầng</span>
                     {floorPlans && floorPlans.length > 0 && (
                       <span className="text-[10px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100 font-bold">
-                        Đồng bộ từ Mặt Bằng
+                        Đồng bộ từ Mặt bằng
                       </span>
                     )}
                   </label>
@@ -974,7 +974,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                   </div>
                 </div>
                 <div>
-                  <label className="block text-slate-700 font-bold mb-1">Nhóm Hạng Mục</label>
+                  <label className="block text-slate-700 font-bold mb-1">Nhóm hạng mục</label>
                   <input
                     type="text"
                     list="category-options"
@@ -1028,7 +1028,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                 <div>
                   <div className="h-6 flex items-center justify-between gap-1 text-slate-700 font-bold text-[11px] sm:text-xs truncate mb-1">
                     <span className="truncate">Khối lượng đã làm</span>
-                    <span className="text-[9px] text-emerald-600 font-semibold bg-emerald-50 px-1 py-0.5 rounded border border-emerald-100 shrink-0" title="Khối lượng thực hiện tự động cập nhật từ Mặt Bằng">🔗 MB</span>
+                    <span className="text-[9px] text-emerald-600 font-semibold bg-emerald-50 px-1 py-0.5 rounded border border-emerald-100 shrink-0" title="Khối lượng thực hiện tự động cập nhật từ Mặt bằng">🔗 MB</span>
                   </div>
                   <input
                     type="text"
@@ -1036,7 +1036,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                     disabled
                     readOnly
                     className="w-full border border-slate-200 rounded-xl p-2.5 font-bold bg-slate-50 text-slate-500 cursor-not-allowed text-center"
-                    title="Khối lượng thực hiện tự động cập nhật từ danh sách nghiệm thu ở mục Mặt Bằng"
+                    title="Khối lượng thực hiện tự động cập nhật từ danh sách nghiệm thu ở mục Mặt bằng"
                   />
                 </div>
                 <div>
@@ -1151,7 +1151,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                   type="submit"
                   className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-md"
                 >
-                  {editingVolume ? 'Cập Nhật Hạng Mục' : 'Tạo Hạng Mục'}
+                  {editingVolume ? 'Cập nhật hạng mục' : 'Tạo hạng mục'}
                 </button>
               </div>
             </form>
@@ -1167,7 +1167,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               <Trash2 className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-900">Xác nhận xóa Hạng Mục</h3>
+              <h3 className="text-base font-bold text-slate-900">Xác nhận xóa hạng mục</h3>
               <p className="text-xs text-slate-500 mt-1">
                 Bạn có chắc chắn muốn xóa hạng mục <strong className="text-slate-800">{deletingVolumeTarget.title} ({deletingVolumeTarget.floor})</strong> không?
               </p>

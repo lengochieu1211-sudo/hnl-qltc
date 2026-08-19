@@ -321,7 +321,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
         jsonData.forEach((row: any) => {
           const rawRecordId = String(row['__recordId'] || row['Mã Checklist'] || row['Mã Định Danh'] || row['id'] || '').trim();
           const rawFloor = String(row['Tầng / Khu Vực'] || row['Vị Trí (Tầng)'] || row['floor'] || row['Tầng'] || selectedFloor).trim();
-          const rawCategory = String(row['Phân Loại Hạng Mục'] || row['Hạng Mục Kiểm Tra'] || row['category'] || 'Thi công khung trần').trim();
+          const rawCategory = String(row['Phân Loại hạng mục'] || row['Hạng Mục Kiểm Tra'] || row['category'] || 'Thi công khung trần').trim();
           const rawTitle = String(row['Nội Dung Tiêu Chí Kiểm Tra'] || row['Nội Dung Tiêu Chuẩn'] || row['title'] || row['Nội dung'] || row['noi dung'] || '').trim();
           const rawStatusStr = String(row['Trạng Thái'] || row['status'] || 'Chờ nghiệm thu').trim();
           const rawNotes = String(row['Ghi Chú'] || row['notes'] || '').trim();
@@ -488,7 +488,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
       {/* Inspection Pass Rate Summary Card */}
       <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-2">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-bold text-slate-800">Tỷ Lệ Nghiệm Thu - {selectedFloor}</span>
+          <span className="text-xs font-bold text-slate-800">Tỷ lệ nghiệm thu - {selectedFloor}</span>
           <span className="text-xs font-extrabold text-emerald-600">{summary.passRate}% Đạt</span>
         </div>
 
@@ -581,7 +581,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
                 : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
             }`}
           >
-            Trạng Thái Nghiệm Thu {checklistSortBy === 'status' && (checklistSortOrder === 'asc' ? '↑' : '↓')}
+            Trạng thái nghiệm thu {checklistSortBy === 'status' && (checklistSortOrder === 'asc' ? '↑' : '↓')}
           </button>
           <button
             type="button"
@@ -832,7 +832,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
 
             <form onSubmit={handleAddSubmit} className="space-y-3 text-xs">
               <div>
-                <label className="block text-slate-700 font-bold mb-1">Loại Hạng Mục</label>
+                <label className="block text-slate-700 font-bold mb-1">Loại hạng mục</label>
                 <select
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
@@ -885,7 +885,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
                 <div className="flex items-center justify-between">
                   <label className="text-slate-800 font-extrabold text-xs flex items-center gap-1.5">
                     <Calendar className="w-4 h-4 text-indigo-600" />
-                    <span>Ngày Hạn Định Nghiệm Thu (Deadline)</span>
+                    <span>Hạn nghiệm thu</span>
                   </label>
                   {dueDate && (
                     <button
@@ -983,7 +983,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
               </div>
 
               <div>
-                <label className="block text-slate-700 font-bold mb-1">Loại Hạng Mục</label>
+                <label className="block text-slate-700 font-bold mb-1">Loại hạng mục</label>
                 <select
                   value={editingChecklistItem.category}
                   onChange={(e) => setEditingChecklistItem({ ...editingChecklistItem, category: e.target.value })}
@@ -1009,7 +1009,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
               </div>
 
               <div>
-                <label className="block text-slate-700 font-bold mb-1">Trạng Thái Nghiệm Thu</label>
+                <label className="block text-slate-700 font-bold mb-1">Trạng thái nghiệm thu</label>
                 <select
                   value={editingChecklistItem.status}
                   onChange={(e) => setEditingChecklistItem({ ...editingChecklistItem, status: e.target.value as ChecklistStatus })}
@@ -1046,7 +1046,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
                 <div className="flex items-center justify-between">
                   <label className="text-slate-800 font-extrabold text-xs flex items-center gap-1.5">
                     <Calendar className="w-4 h-4 text-indigo-600" />
-                    <span>Ngày Hạn Định Nghiệm Thu (Deadline)</span>
+                    <span>Hạn nghiệm thu</span>
                   </label>
                   {editingChecklistItem.dueDate && (
                     <button

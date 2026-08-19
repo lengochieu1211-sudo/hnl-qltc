@@ -52,6 +52,8 @@ import {
   ChevronRight,
   ChevronDown,
   ChevronUp,
+  ChevronsDown,
+  ChevronsUp,
   Palette,
   ArrowUpDown,
   GripVertical
@@ -450,6 +452,14 @@ const getDefectStatusWeight = (status: DefectStatus) => {
   return 4;
 };
 
+const getDefectShortCode = (id: string) => {
+  const numericMatch = String(id || '').match(/^DEF-(\d+)/i);
+  if (numericMatch) return `DF-${numericMatch[1]}`;
+  const compact = String(id || '').replace(/[^a-zA-Z0-9]/g, '').slice(-4).toUpperCase();
+  return compact ? `DF-${compact}` : 'DF';
+};
+
+
 const getDefectPriorityWeight = (defect: DefectItem) => {
   const overdueInfo = getDefectOverdueInfo(defect);
   const isClosed = defect.status === 'Đã nghiệm thu';
@@ -779,6 +789,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     return saved;
   });
   const [activeDefectDetail, setActiveDefectDetail] = useState<DefectItem | null>(null);
+  const [isDefectPinPlacementMode, setIsDefectPinPlacementMode] = useState(false);
 
   // Choice modal when clicking blueprint in 'all' mode
   const [clickChoicePos, setClickChoicePos] = useState<{ x: number; y: number } | null>(null);
@@ -1399,7 +1410,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const data = roomsToExport.map(r => ({
       'STT': roomsToExport.indexOf(r) + 1,
       '__recordId': (r as any).id || '',
-      'Tên Căn Hộ hoặc Phòng': r.roomName,
+      'Tên Căn / Phòng': r.roomName,
       'Tọa độ X (%)': r.x,
       'Tọa độ Y (%)': r.y,
       'Chiều Rộng W (%)': r.width,
@@ -1442,12 +1453,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         const firstRow = jsonData[0];
         const foundHeaders = Object.keys(firstRow);
         const nameMatchKey = foundHeaders.find(h => 
-          ['Tên Căn Hộ hoặc Phòng', 'roomName', 'Tên Phòng', 'Phòng', 'Căn Hộ', 'can ho', 'room'].some(rk => h.toLowerCase().includes(rk.toLowerCase()))
+          ['Tên Căn / Phòng', 'Tên Căn Hộ hoặc Phòng', 'roomName', 'Tên Phòng', 'Phòng', 'Căn Hộ', 'can ho', 'room'].some(rk => h.toLowerCase().includes(rk.toLowerCase()))
         );
 
         if (!nameMatchKey) {
           alert(
-            `⚠️ Không tìm thấy cột thông tin bắt buộc 'Tên Căn Hộ hoặc Phòng'!\n\n` +
+            `⚠️ Không tìm thấy cột thông tin bắt buộc 'Tên Căn / Phòng'!\n\n` +
             `• Các cột tìm thấy trong file: [${foundHeaders.join(', ')}]\n` +
             `• Vui lòng đặt lại tiêu đề cột trong file Excel trùng với mẫu để hệ thống nhận diện đúng phòng.`
           );
@@ -1588,7 +1599,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         }
 
         alert(
-          `🎉 Nhập dữ liệu Mặt Bằng từ Excel thành công!\n\n` +
+          `🎉 Nhập dữ liệu Mặt bằng từ Excel thành công!\n\n` +
           `• Đã cập nhật/chỉnh sửa: ${updatedCount} phòng/căn\n` +
           `• Đã tạo mới/thêm mới: ${importedCount} phòng/căn`
         );
@@ -1630,6 +1641,56 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   const [roomSortBy, setRoomSortBy] = useState<'name' | 'createdAt' | 'updatedAt' | 'manual'>('manual');
   const [roomSortOrder, setRoomSortOrder] = useState<'asc' | 'desc'>('asc');
+
+  // Căn / Phòng collapse state is UI-only. With many rooms, default to collapsed
+  // to reduce scrolling and avoid rendering every sub-item until it is needed.
+  const [roomExpansionByFloor, setRoomExpansionByFloor] = useState<Record<string, string[]>>({});
+  const [collapsedRoomCategoryKeys, setCollapsedRoomCategoryKeys] = useState<Set<string>>(new Set());
+
+  const activeFloorExpansionKey = activeFloor?.id || '';
+  const hasSavedRoomExpansion = activeFloorExpansionKey
+    ? Object.prototype.hasOwnProperty.call(roomExpansionByFloor, activeFloorExpansionKey)
+    : false;
+  const expandedRoomIds = React.useMemo(() => {
+    if (!activeFloorExpansionKey) return new Set<string>();
+    if (hasSavedRoomExpansion) {
+      return new Set(roomExpansionByFloor[activeFloorExpansionKey] || []);
+    }
+    // Up to 5 rooms: open by default. More than 5: compact by default.
+    return new Set(floorRooms.length <= 5 ? floorRooms.map((room) => room.id) : []);
+  }, [activeFloorExpansionKey, floorRooms, hasSavedRoomExpansion, roomExpansionByFloor]);
+
+  const setExpandedRoomsForActiveFloor = (ids: string[]) => {
+    if (!activeFloorExpansionKey) return;
+    setRoomExpansionByFloor((prev) => ({ ...prev, [activeFloorExpansionKey]: ids }));
+  };
+
+  const toggleRoomExpanded = (roomId: string) => {
+    const next = new Set(expandedRoomIds);
+    if (next.has(roomId)) next.delete(roomId);
+    else next.add(roomId);
+    setExpandedRoomsForActiveFloor(Array.from(next));
+  };
+
+  const collapseAllRooms = () => {
+    setExpandedRoomsForActiveFloor([]);
+    setCollapsedRoomCategoryKeys(new Set());
+  };
+
+  const expandAllRooms = () => {
+    setExpandedRoomsForActiveFloor(floorRooms.map((room) => room.id));
+    setCollapsedRoomCategoryKeys(new Set());
+  };
+
+  const toggleRoomCategoryCollapsed = (roomId: string, categoryName: string) => {
+    const key = `${roomId}::${categoryName}`;
+    setCollapsedRoomCategoryKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   const sortedFloorRooms = React.useMemo(() => {
     if (roomSortBy === 'manual') return displayedFloorRooms;
@@ -2018,7 +2079,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       // Create Floor Plan
       onAddFloorPlan({
         id: newFloorId,
-        floorName: `Mặt Bằng PDF - ${floorNameClean}`,
+        floorName: `Mặt bằng PDF - ${floorNameClean}`,
         imageUrl: planUrl,
         uploadedAt: new Date().toISOString().split('T')[0],
       });
@@ -2529,9 +2590,16 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
     lastPointerMapPosRef.current = { x, y };
 
-    // Defect Mode: Always place a defect pin directly without room highlight drawing
-    if (viewMode === 'defect') {
+    // Defect pin placement is explicit: press "+ Defect" first, then tap the exact location.
+    // This prevents accidental defect creation while panning/inspecting the drawing.
+    if (isDefectPinPlacementMode) {
+      setIsDefectPinPlacementMode(false);
       openDefectModalForPin(x, y);
+      return;
+    }
+
+    // In Defect-only mode, a normal tap is inspection/navigation only.
+    if (viewMode === 'defect') {
       return;
     }
 
@@ -3342,11 +3410,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
       </div>
 
-      {/* View Mode Switcher Bar - Distinct Construction vs Defect Tabs */}
-      <div className="bg-slate-200/90 p-1.5 rounded-2xl grid grid-cols-2 sm:grid-cols-3 gap-1.5 text-xs font-bold shadow-inner">
+      {/* View mode: the same three names are used everywhere in the app.
+          Press the active button again to return to Mặt bằng tổng hợp. */}
+      <div className="bg-slate-200/90 p-1.5 rounded-2xl grid grid-cols-2 gap-1.5 text-xs font-bold shadow-inner">
         <button
-          onClick={async () => {
-            setViewMode('highlight');
+          type="button"
+          onClick={() => {
+            setViewMode((currentMode) => currentMode === 'highlight' ? 'all' : 'highlight');
+            setIsDefectPinPlacementMode(false);
             setDrawTool('none');
             setDrawStartPos(null);
             setDrawHoverPos(null);
@@ -3354,19 +3425,22 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             setPendingDraftHighlight(null);
             setSelectedRoomForDragId(null);
           }}
-          className={`py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 transition-all ${
+          className={`py-2.5 px-2 sm:px-3 rounded-xl flex items-center justify-center gap-1.5 transition-all ${
             viewMode === 'highlight'
               ? 'bg-indigo-600 text-white shadow-md font-black ring-2 ring-indigo-300 scale-[1.01]'
               : 'bg-white/80 text-slate-700 hover:bg-white hover:text-indigo-600'
           }`}
+          title={viewMode === 'highlight' ? 'Nhấn lại để về Mặt bằng tổng hợp' : 'Chỉ hiển thị vùng Căn / Phòng thi công'}
         >
           <Building2 className="w-4 h-4 shrink-0" />
-          <span className="truncate">Mặt Bằng Thi Công ({floorRooms.length})</span>
+          <span className="truncate">Mặt bằng thi công ({floorRooms.length})</span>
         </button>
 
         <button
-          onClick={async () => {
-            setViewMode('defect');
+          type="button"
+          onClick={() => {
+            setViewMode((currentMode) => currentMode === 'defect' ? 'all' : 'defect');
+            setIsDefectPinPlacementMode(false);
             setDrawTool('none');
             setDrawStartPos(null);
             setDrawHoverPos(null);
@@ -3374,34 +3448,15 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             setPendingDraftHighlight(null);
             setSelectedRoomForDragId(null);
           }}
-          className={`py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 transition-all ${
+          className={`py-2.5 px-2 sm:px-3 rounded-xl flex items-center justify-center gap-1.5 transition-all ${
             viewMode === 'defect'
               ? 'bg-rose-600 text-white shadow-md font-black ring-2 ring-rose-300 scale-[1.01]'
               : 'bg-white/80 text-slate-700 hover:bg-white hover:text-rose-600'
           }`}
+          title={viewMode === 'defect' ? 'Nhấn lại để về Mặt bằng tổng hợp' : 'Chỉ hiển thị vị trí Defect'}
         >
           <MapPin className="w-4 h-4 shrink-0" />
-          <span className="truncate">Mặt Bằng Defect ({floorDefects.length})</span>
-        </button>
-
-        <button
-          onClick={async () => {
-            setViewMode('all');
-            setDrawTool('none');
-            setDrawStartPos(null);
-            setDrawHoverPos(null);
-            setPolygonPoints([]);
-            setPendingDraftHighlight(null);
-            setSelectedRoomForDragId(null);
-          }}
-          className={`py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 transition-all col-span-2 sm:col-span-1 ${
-            viewMode === 'all'
-              ? 'bg-amber-500 text-slate-950 shadow-md font-black ring-2 ring-amber-300 scale-[1.01]'
-              : 'bg-white/80 text-slate-700 hover:bg-white hover:text-amber-600'
-          }`}
-        >
-          <Sparkles className="w-4 h-4 shrink-0" />
-          <span className="truncate">Xem Tổng Hợp Tất Cả</span>
+          <span className="truncate">Mặt bằng Defect ({floorDefects.length})</span>
         </button>
       </div>
 
@@ -3413,11 +3468,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             <div className="flex items-center gap-2">
               <span className="flex items-center gap-1.5 text-slate-900 font-extrabold text-sm">
                 {viewMode === 'all'
-                  ? '✨ Bản Vẽ Tổng Hợp'
+                  ? '✨ Mặt bằng tổng hợp'
                   : viewMode === 'highlight'
-                  ? '🏗️ Bản Vẽ Tiến Độ'
-                  : '📌 Bản Vẽ Vị Trí Lỗi'}{' '}
-                - <span className="text-indigo-700">{activeFloor.floorName}</span>
+                  ? '🏗️ Mặt bằng thi công'
+                  : '📌 Mặt bằng Defect'}{' '}
+                · <span className="text-indigo-700">{activeFloor.floorName}</span>
               </span>
             </div>
 
@@ -3439,6 +3494,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 <button
                   type="button"
                   onClick={async () => {
+                    setIsDefectPinPlacementMode(false);
                     setSelectedRoomForEdit(null);
                     setNewRoomClickPos({ x: 25, y: 25 });
                     setNewRoomRect({ x: 20, y: 20, width: 30, height: 25 });
@@ -3448,17 +3504,27 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   className="text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-xs active:scale-95 transition-all"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>Thêm căn</span>
+                  <span>Thêm Căn / Phòng</span>
                 </button>
               )}
 
-              {viewMode === 'defect' && (
+              {(viewMode === 'defect' || viewMode === 'all') && (
                 <button
-                  onClick={() => openDefectModalForPin(50, 50)}
-                  className="text-xs bg-rose-600 hover:bg-rose-700 text-white font-bold px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-xs active:scale-95 transition-all"
+                  type="button"
+                  onClick={() => {
+                    setDrawTool('none');
+                    setPinPos(null);
+                    setIsDefectPinPlacementMode((active) => !active);
+                  }}
+                  className={`text-xs font-bold px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-xs active:scale-95 transition-all ${
+                    isDefectPinPlacementMode
+                      ? 'bg-amber-400 hover:bg-amber-300 text-slate-950 ring-2 ring-amber-200'
+                      : 'bg-rose-600 hover:bg-rose-700 text-white'
+                  }`}
+                  title="Bấm nút rồi chạm đúng vị trí cần đặt Defect trên mặt bằng"
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Thêm Defect</span>
+                  <MapPin className="w-3.5 h-3.5" />
+                  <span>{isDefectPinPlacementMode ? 'Chạm vị trí Defect…' : 'Thêm Defect'}</span>
                 </button>
               )}
             </div>
@@ -3468,7 +3534,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           {(viewMode === 'highlight' || viewMode === 'all') && (
             <details className="group bg-slate-50/90 rounded-xl border border-slate-200/80">
               <summary className="cursor-pointer select-none px-3 py-2 text-[11px] font-bold text-slate-700 flex items-center justify-between">
-                <span>Công cụ vẽ vùng căn / phòng</span>
+                <span>Công cụ vẽ vùng Căn / Phòng</span>
                 <span className="text-slate-400 group-open:hidden">Mở</span>
                 <span className="text-slate-400 hidden group-open:inline">Thu gọn</span>
               </summary>
@@ -3551,7 +3617,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   title="Đổi giữa Chế độ Mỗi căn 1 màu đa sắc phân biệt (Mặc định) và Màu theo Trạng thái Nghiệm thu"
                 >
                   <Palette className="w-3.5 h-3.5 shrink-0" />
-                  <span>{roomColorMode === 'palette' ? 'Mỗi căn 1 màu' : 'Theo trạng thái'}</span>
+                  <span>{roomColorMode === 'palette' ? 'Mỗi Căn / Phòng 1 màu' : 'Theo trạng thái'}</span>
                 </button>
 
                 {/* Show/Hide Text Label Toggle */}
@@ -3566,7 +3632,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   title="Bật/Tắt chế độ chỉ hiện màu Highlight (không hiện chữ rối)"
                 >
                   {!showTextOverlay ? <EyeOff className="w-3.5 h-3.5 shrink-0" /> : <Eye className="w-3.5 h-3.5 shrink-0" />}
-                  <span>{!showTextOverlay ? 'Chỉ hiện màu' : 'Hiện tên căn'}</span>
+                  <span>{!showTextOverlay ? 'Chỉ hiện màu' : 'Hiện tên Căn / Phòng'}</span>
                 </button>
               </div>
               </div>
@@ -3938,7 +4004,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           title="Đổi giữa Chế độ Mỗi căn 1 màu đa sắc phân biệt và Theo Trạng thái Nghiệm thu"
                         >
                           <Palette className="w-3.5 h-3.5" />
-                          <span>{roomColorMode === 'palette' ? 'Mỗi căn 1 màu' : 'Theo trạng thái'}</span>
+                          <span>{roomColorMode === 'palette' ? 'Mỗi Căn / Phòng 1 màu' : 'Theo trạng thái'}</span>
                         </button>
 
                         {/* Toggle Highlight Display */}
@@ -3950,10 +4016,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                               ? 'bg-emerald-600 text-white shadow-xs'
                               : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
                           }`}
-                          title="Hiện màu sạch / Hiện đầy đủ tên căn"
+                          title="Hiện màu sạch / Hiện đầy đủ tên Căn / Phòng"
                         >
                           {!showTextOverlay ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                          <span>{!showTextOverlay ? 'Chỉ hiện màu' : 'Hiện tên căn'}</span>
+                          <span>{!showTextOverlay ? 'Chỉ hiện màu' : 'Hiện tên Căn / Phòng'}</span>
                         </button>
 
                         {/* Add Room */}
@@ -3969,18 +4035,27 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           className="text-[11px] bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-2.5 py-1 rounded-xl flex items-center gap-1 shadow-xs shrink-0"
                         >
                           <Plus className="w-3.5 h-3.5" />
-                          <span>Thêm căn</span>
+                          <span>Thêm Căn / Phòng</span>
                         </button>
                       </div>
                     )}
 
-                    {viewMode === 'defect' && (
+                    {(viewMode === 'defect' || viewMode === 'all') && (
                       <button
-                        onClick={() => openDefectModalForPin(50, 50)}
-                        className="text-[11px] bg-rose-600 hover:bg-rose-500 text-white font-black px-2.5 py-1 rounded-xl flex items-center gap-1 shadow-xs shrink-0"
+                        type="button"
+                        onClick={() => {
+                          setDrawTool('none');
+                          setPinPos(null);
+                          setIsDefectPinPlacementMode((active) => !active);
+                        }}
+                        className={`text-[11px] font-black px-2.5 py-1 rounded-xl flex items-center gap-1 shadow-xs shrink-0 ${
+                          isDefectPinPlacementMode
+                            ? 'bg-amber-400 hover:bg-amber-300 text-slate-950'
+                            : 'bg-rose-600 hover:bg-rose-500 text-white'
+                        }`}
                       >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>Thêm Defect</span>
+                        <MapPin className="w-3.5 h-3.5" />
+                        <span>{isDefectPinPlacementMode ? 'Chạm vị trí Defect…' : 'Thêm Defect'}</span>
                       </button>
                     )}
                   </div>
@@ -5027,6 +5102,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 {floorDefects.map((defect) => {
                   const isResolved = defect.status === 'Đã nghiệm thu' || defect.status === 'Đã khắc phục';
                   const isSevere = defect.severity === 'Nghiêm trọng';
+                  const shortDefectCode = getDefectShortCode(defect.id);
 
                   return (
                     <div
@@ -5036,21 +5112,19 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         setActiveDefectDetail(defect);
                       }}
                       style={{ left: `${defect.x}%`, top: `${defect.y}%` }}
-                      className="absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer z-30 transition-transform hover:scale-125 active:scale-110"
+                      className="absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer z-30 transition-transform hover:scale-110 active:scale-105"
+                      title={`${shortDefectCode} · ${defect.category}${defect.description ? ` · ${defect.description}` : ''}`}
                     >
                       <div
-                        className={`w-7 h-7 rounded-full flex items-center justify-center text-white font-extrabold text-[10px] shadow-lg border-2 border-white ${
+                        className={`h-6 min-w-7 px-1 rounded-full flex items-center justify-center text-white font-black text-[8px] sm:text-[9px] shadow-lg border-2 border-white ${
                           isResolved
                             ? 'bg-emerald-500'
                             : isSevere
-                            ? 'bg-rose-600 animate-bounce'
+                            ? 'bg-rose-600'
                             : 'bg-amber-500'
                         }`}
                       >
-                        📍
-                      </div>
-                      <div className="absolute top-7 left-1/2 -translate-x-1/2 bg-slate-900/90 text-white text-[9px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap shadow pointer-events-none">
-                        {defect.id}
+                        {shortDefectCode}
                       </div>
                     </div>
                   );
@@ -5121,7 +5195,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         className="py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg flex items-center justify-center gap-1 font-extrabold"
                       >
                         <Sparkles className="w-3 h-3" />
-                        Vẽ Khung
+                        Vẽ vùng
                       </button>
                       <button
                         type="button"
@@ -5135,7 +5209,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         className="py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg flex items-center justify-center gap-1"
                       >
                         <Building2 className="w-3 h-3 text-indigo-400" />
-                        Thêm căn
+                        Thêm Căn / Phòng
                       </button>
                     </div>
                   </div>
@@ -5149,9 +5223,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
           {/* Hint text */}
           <p className="text-[10px] text-slate-500 text-center italic">
-            {viewMode === 'highlight' 
-              ? '💡 Dùng công cụ "Vẽ tự do" hoặc "Vẽ 2 Điểm" để đánh dấu vùng thi công trên mặt bằng.' 
-              : '💡 Bấm trực tiếp vào các ghim đỏ/vàng trên hình để xem ảnh & chi tiết lỗi.'}
+            {viewMode === 'highlight'
+              ? '💡 Dùng công cụ vẽ để đánh dấu vùng Căn / Phòng thi công trên mặt bằng.'
+              : viewMode === 'defect'
+              ? '💡 Bấm “Thêm Defect” rồi chạm đúng vị trí cần ghim; bấm mã Defect để xem chi tiết.'
+              : '💡 Mặt bằng tổng hợp đang hiển thị cả Căn / Phòng thi công và vị trí Defect.'}
           </p>
         </div>
       )}
@@ -5223,7 +5299,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             <div className="flex items-center justify-between flex-wrap gap-2">
               <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
                 <Building2 className="w-4 h-4 text-indigo-600" />
-                Nghiệm Thu Từng Căn Hộ / Phòng ({floorRooms.length})
+                Nghiệm thu từng Căn / Phòng ({floorRooms.length})
               </h3>
               <div className="flex flex-wrap items-center gap-1.5 shrink-0">
                 <button
@@ -5252,7 +5328,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   }}
                   className="text-xs font-extrabold text-indigo-600 hover:text-indigo-800 bg-indigo-50 px-2.5 py-1 rounded-lg flex items-center gap-1 border border-indigo-200 transition-all active:scale-95 cursor-pointer"
                 >
-                  <Plus className="w-3.5 h-3.5" /> Thêm căn Hộ
+                  <Plus className="w-3.5 h-3.5" /> Thêm Căn / Phòng
                 </button>
               </div>
             </div>
@@ -5338,6 +5414,30 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   </div>
                 </div>
 
+                <div className="flex items-center gap-1.5 flex-wrap mb-2.5">
+                  <button
+                    type="button"
+                    onClick={collapseAllRooms}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-[11px] font-bold text-slate-700 hover:bg-slate-50 active:scale-95 transition"
+                    title="Thu gọn nhanh toàn bộ Căn / Phòng"
+                  >
+                    <ChevronsUp className="w-3.5 h-3.5 text-indigo-500" />
+                    Thu gọn tất cả
+                  </button>
+                  <button
+                    type="button"
+                    onClick={expandAllRooms}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-[11px] font-bold text-slate-700 hover:bg-slate-50 active:scale-95 transition"
+                    title="Mở nhanh toàn bộ Căn / Phòng"
+                  >
+                    <ChevronsDown className="w-3.5 h-3.5 text-indigo-500" />
+                    Mở rộng tất cả
+                  </button>
+                  <span className="text-[10px] text-slate-500 font-medium">
+                    {floorRooms.length > 5 ? 'Nhiều Căn / Phòng: mặc định thu gọn để lướt nhanh.' : 'Có thể thu gọn để xem danh sách nhanh hơn.'}
+                  </span>
+                </div>
+
                 {/* Bulk actions toolbar for rooms */}
                 <div className="flex items-center justify-between bg-slate-100 border border-slate-200 rounded-xl px-3 py-2 text-xs gap-2 mb-2">
                   <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer select-none">
@@ -5353,7 +5453,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       }}
                       className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                     />
-                    <span>Chọn Tất Cả Căn Hộ ({floorRooms.length})</span>
+                    <span>Chọn tất cả Căn / Phòng ({floorRooms.length})</span>
                   </label>
 
                   <div className="flex items-center gap-3 justify-end">
@@ -5362,7 +5462,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         type="button"
                         onClick={async () => {
                           const idsToDelete = selectedApartmentIds.filter(id => floorRooms.some(item => item.id === id));
-                          if (await confirmAsync(`Bạn có chắc muốn xóa ${idsToDelete.length} căn hộ/phòng đã chọn?`)) {
+                          if (await confirmAsync(`Bạn có chắc muốn xóa ${idsToDelete.length} Căn / Phòng đã chọn?`)) {
                             if (onDeleteMultipleRoomProgress) {
                               onDeleteMultipleRoomProgress(idsToDelete);
                             } else {
@@ -5373,13 +5473,23 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         }}
                         className="text-rose-600 hover:text-rose-700 font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
                       >
-                        <Trash2 className="w-3.5 h-3.5" /> Xóa Đã Chọn ({selectedApartmentIds.filter(id => floorRooms.some(item => item.id === id)).length})
+                        <Trash2 className="w-3.5 h-3.5" /> Xóa đã chọn ({selectedApartmentIds.filter(id => floorRooms.some(item => item.id === id)).length})
                       </button>
                     )}
                   </div>
                 </div>
 
-                {sortedFloorRooms.map((room, index) => (
+                {sortedFloorRooms.map((room, index) => {
+                  const roomExpanded = expandedRoomIds.has(room.id);
+                  const roomSubItemCount = room.subItems?.length || 0;
+                  const roomCategoryCount = room.subItems?.length
+                    ? new Set((room.subItems || []).map((sub) => sub.category || room.workCategory || 'Chưa phân nhóm')).size
+                    : 2;
+                  const roomVolumeTotal = room.categoryVolumes && Object.keys(room.categoryVolumes).length > 0
+                    ? Object.values(room.categoryVolumes).reduce((sum, value) => sum + (Number(value) || 0), 0)
+                    : Number(room.workVolume || 0);
+
+                  return (
                   <div
                     key={room.id}
                     draggable={roomSortBy === 'manual'}
@@ -5460,6 +5570,17 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                             </button>
                           </div>
                         )}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleRoomExpanded(room.id);
+                          }}
+                          className="w-7 h-7 shrink-0 inline-flex items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 hover:text-indigo-700 hover:bg-indigo-50 transition"
+                          title={roomExpanded ? 'Thu gọn Căn / Phòng' : 'Mở chi tiết Căn / Phòng'}
+                        >
+                          {roomExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                        </button>
                         <input
                           type="checkbox"
                           checked={selectedApartmentIds.includes(room.id)}
@@ -5507,6 +5628,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       </div>
                     </div>
 
+                    {roomExpanded ? (
+                      <>
                     {/* Sub-Items or Dual Grid */}
                     {room.subItems && room.subItems.length > 0 ? (
                       <div className="space-y-3">
@@ -5524,18 +5647,28 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           return (
                             <div key={`${catName}-${catIdx}`} className="space-y-2 border border-slate-100 bg-slate-50/50 p-2.5 rounded-xl">
                               {/* Group Header */}
-                              <div className="flex items-center justify-between border-b border-slate-200/60 pb-1.5 mb-1 text-xs">
-                                <span className="font-extrabold text-slate-800 flex items-center gap-1">
-                                  🏗️ {catName}
-                                </span>
+                              <div className="flex items-center justify-between border-b border-slate-200/60 pb-1.5 mb-1 text-xs gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => toggleRoomCategoryCollapsed(room.id, catName)}
+                                  className="min-w-0 font-extrabold text-slate-800 flex items-center gap-1 text-left hover:text-indigo-700 transition"
+                                  title={collapsedRoomCategoryKeys.has(`${room.id}::${catName}`) ? 'Mở hạng mục chính' : 'Thu gọn hạng mục chính'}
+                                >
+                                  {collapsedRoomCategoryKeys.has(`${room.id}::${catName}`)
+                                    ? <ChevronDown className="w-3.5 h-3.5 shrink-0" />
+                                    : <ChevronUp className="w-3.5 h-3.5 shrink-0" />}
+                                  <span className="truncate">{catName}</span>
+                                  <span className="text-[9px] font-bold text-slate-400 shrink-0">({subs.length})</span>
+                                </button>
                                 {room.categoryVolumes?.[catName] !== undefined && room.categoryVolumes[catName] !== null && (
-                                  <span className="text-[10px] font-extrabold text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.2 rounded">
+                                  <span className="text-[10px] font-extrabold text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.2 rounded shrink-0">
                                     {room.categoryVolumes[catName]} {room.volumeUnit || 'm²'}
                                   </span>
                                 )}
                               </div>
 
                               {/* Group Content */}
+                              {!collapsedRoomCategoryKeys.has(`${room.id}::${catName}`) && (
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                                 {subs.map((sub, idx) => (
                                   <div key={`${sub.id || 'sub'}-${idx}`} className="bg-white p-2 rounded-xl border border-slate-200/80 space-y-1.5">
@@ -5572,6 +5705,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                                   </div>
                                 ))}
                               </div>
+                              )}
                             </div>
                           );
                         })}
@@ -5610,7 +5744,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                                 ? 'bg-rose-600 text-white border-rose-600'
                                 : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
                             }`}
-                            title="Bấm để chuyển kết quả Nghiệm Thu Khung Trần"
+                            title="Bấm để chuyển kết quả nghiệm thu khung trần"
                           >
                             NT Khung: {room.frameInspectionStatus === 'Đạt nghiệm thu' ? '🏆 Đạt' : room.frameInspectionStatus === 'Chưa đạt (Cần sửa)' ? '⚠️ Sửa' : '⏳ Chờ'}
                           </button>
@@ -5649,7 +5783,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                                 ? 'bg-rose-600 text-white border-rose-600'
                                 : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
                             }`}
-                            title="Bấm để chuyển kết quả Nghiệm Thu Tấm Trần"
+                            title="Bấm để chuyển kết quả nghiệm thu tấm trần"
                           >
                             NT Tấm: {room.boardInspectionStatus === 'Đạt nghiệm thu' ? '🏆 Đạt' : room.boardInspectionStatus === 'Chưa đạt (Cần sửa)' ? '⚠️ Sửa' : '⏳ Chờ'}
                           </button>
@@ -5663,8 +5797,27 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       📝 <span className="font-semibold text-slate-800">Ghi chú:</span> {room.notes}
                     </p>
                   )}
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => toggleRoomExpanded(room.id)}
+                        className="w-full flex items-center justify-between gap-2 bg-slate-50/80 hover:bg-indigo-50/70 border border-slate-100 rounded-xl px-3 py-2 text-left transition"
+                        title="Mở chi tiết Căn / Phòng"
+                      >
+                        <span className="min-w-0 text-[11px] font-semibold text-slate-600 truncate">
+                          {roomCategoryCount} hạng mục chính
+                          {roomSubItemCount > 0 ? ` · ${roomSubItemCount} hạng mục con` : ''}
+                          {roomVolumeTotal > 0 ? ` · ${Math.round(roomVolumeTotal * 100) / 100} ${room.volumeUnit || 'm²'}` : ''}
+                        </span>
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-700 shrink-0">
+                          <ChevronDown className="w-3.5 h-3.5" /> Mở chi tiết
+                        </span>
+                      </button>
+                    )}
                 </div>
-              ))}
+                  );
+                })}
               </>
             )}
           </div>
@@ -5676,7 +5829,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         <div className="space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-              Danh Sách Lỗi Defect ({filteredDefects.length})
+              Danh sách Defect ({filteredDefects.length})
             </h3>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -5740,7 +5893,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   }}
                   className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                 />
-                <span>Chọn Tất Cả Lỗi ({filteredDefects.length})</span>
+                <span>Chọn tất cả Defect ({filteredDefects.length})</span>
               </label>
 
               <div className="flex items-center gap-3 justify-end">
@@ -5760,7 +5913,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     }}
                     className="text-rose-600 hover:text-rose-700 font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
                   >
-                    <Trash2 className="w-3.5 h-3.5" /> Xóa Đã Chọn ({selectedDefectIds.filter(id => filteredDefects.some(item => item.id === id)).length})
+                    <Trash2 className="w-3.5 h-3.5" /> Xóa đã chọn ({selectedDefectIds.filter(id => filteredDefects.some(item => item.id === id)).length})
                   </button>
                 )}
               </div>
@@ -5919,7 +6072,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-              <h3 className="text-base font-bold text-slate-900">Upload Mặt Bằng Thi Công Tầng</h3>
+              <h3 className="text-base font-bold text-slate-900">Tải mặt bằng thi công tầng</h3>
               <button onClick={() => setShowAddFloorModal(false)} className="font-bold text-slate-500">✕</button>
             </div>
 
@@ -5936,7 +6089,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               </div>
 
               <div>
-                <label className="block text-slate-700 font-bold mb-1">Chọn File Ảnh Bản Vẽ Mặt Bằng (PNG/JPG)</label>
+                <label className="block text-slate-700 font-bold mb-1">Chọn file ảnh mặt bằng (PNG/JPG)</label>
                 <input
                   type="file"
                   accept="image/*"
@@ -6090,7 +6243,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   type="submit"
                   className="flex-1 py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold shadow-md"
                 >
-                  Lưu Defect Lên Mặt Bằng
+                  Lưu Defect lên mặt bằng
                 </button>
               </div>
             </form>
@@ -6292,7 +6445,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         activeDefectDetail.status === 'Đã nghiệm thu' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                       }`}
                     >
-                      ✅ Nghiệm Thu
+                      ✅ Nghiệm thu
                     </button>
                   </div>
                 </div>
@@ -6331,7 +6484,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <div>
                 <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
                   <Settings className="w-5 h-5 text-indigo-600" />
-                  Quản Lý &amp; Tùy Chỉnh Các Tầng ({floorPlans.length})
+                  Quản lý &amp; tùy chỉnh tầng ({floorPlans.length})
                 </h3>
                 <p className="text-xs text-slate-500 font-medium">Thêm, xóa, đổi tên, hoặc sao chép nhân bản thiết kế tầng</p>
               </div>
@@ -6386,7 +6539,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
                   }`}
                 >
-                  Số Căn Hộ {floorSortBy === 'rooms' && (floorSortOrder === 'asc' ? '↑' : '↓')}
+                  Số Căn / Phòng {floorSortBy === 'rooms' && (floorSortOrder === 'asc' ? '↑' : '↓')}
                 </button>
                 <button
                   type="button"
@@ -6545,7 +6698,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         title="Cập nhật tệp ảnh hoặc PDF bản vẽ mới cho tầng này"
                       >
                         <Upload className="w-3.5 h-3.5 text-emerald-600" />
-                        Bản Vẽ
+                        Bản vẽ
                       </button>
 
                       <button
@@ -6608,7 +6761,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 className="flex-1 py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all"
               >
                 <Upload className="w-4 h-4" />
-                📤 Upload Bản Vẽ Ảnh / PDF
+                📤 Tải bản vẽ ảnh / PDF
               </button>
             </div>
           </div>
@@ -6673,7 +6826,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <AlertTriangle className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="text-base font-extrabold text-slate-900">Xác nhận xóa Mặt Bằng Tầng</h3>
+              <h3 className="text-base font-extrabold text-slate-900">Xác nhận xóa mặt bằng tầng</h3>
               <p className="text-xs text-slate-500 mt-1">
                 Bạn có chắc chắn muốn xóa <span className="font-bold text-rose-600">"{deletingFloorTarget.name}"</span>?
               </p>
@@ -6761,7 +6914,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <Trash2 className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="text-base font-extrabold text-slate-900">Xóa Vùng Highlight Căn Hộ</h3>
+              <h3 className="text-base font-extrabold text-slate-900">Xóa vùng Căn / Phòng</h3>
               <p className="text-xs text-slate-500 mt-1">
                 Xóa vùng highlight <span className="font-bold text-rose-600">"{deletingRoomTarget.name}"</span>?
               </p>

@@ -2449,7 +2449,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
-                {modalTab === 'sync' ? 'Trung Tâm Đồng bộ & Sao lưu Dự Án' : 'Quản Lý Danh Sách Dự Án'}
+                {modalTab === 'sync' ? 'Trung tâm đồng bộ & sao lưu dự án' : 'Quản lý danh sách dự án'}
               </h2>
               <p className="text-[11px] text-slate-500 font-medium">
                 {modalTab === 'sync' 
@@ -2491,7 +2491,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             }`}
           >
             <Building2 className="w-3.5 h-3.5" />
-            <span>Danh Sách Dự Án ({projects.length})</span>
+            <span>Danh sách dự án ({projects.length})</span>
           </button>
         </div>
 

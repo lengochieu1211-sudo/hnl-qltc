@@ -308,7 +308,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
         <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-2.5 text-[11px] text-indigo-800 space-y-1.5 shadow-sm">
           <div className="flex items-center gap-1.5 font-medium">
             <Info className="w-3.5 h-3.5 text-indigo-500" />
-            <span>{t('version')}: V6.1.3 (Cập nhật: {__BUILD_TIME__})</span>
+            <span>{t('version')}: V6.1.4 (Cập nhật: {__BUILD_TIME__})</span>
           </div>
         </div>
       </div>

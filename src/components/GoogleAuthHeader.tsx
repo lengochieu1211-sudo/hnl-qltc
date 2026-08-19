@@ -238,7 +238,7 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
                 <button
                   onClick={onOpenSecurity}
                   className="flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-indigo-200 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 shrink-0 border border-slate-700 cursor-pointer whitespace-nowrap"
-                  title="Trung Tâm Bảo Mật, Khóa Mã PIN & Phân Quyền"
+                  title="Trung tâm bảo mật, khóa mã PIN & phân quyền"
                 >
                   <Shield className="w-4 h-4 text-indigo-400 shrink-0" />
                   <span className="hidden sm:inline">Bảo Mật</span>
@@ -268,12 +268,12 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
                 </button>
               )}
 
-              {/* Nút Đồng Bộ mở Trung Tâm Lưu & Đồng Bộ Dự Án */}
+              {/* Nút Đồng Bộ mở Trung tâm lưu & đồng bộ dự án */}
               <button
                 onClick={() => onOpenProjectManager ? onOpenProjectManager('sync') : handleTriggerSync()}
                 disabled={isSyncing}
                 className="flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white p-1.5 sm:px-3 sm:py-1.5 rounded-lg text-xs font-extrabold transition-all shadow-sm active:scale-95 shrink-0 cursor-pointer border border-emerald-500/50 whitespace-nowrap"
-                title="Trung Tâm Lưu & Đồng Bộ Dự Án"
+                title="Trung tâm lưu & đồng bộ dự án"
               >
                 <RefreshCw className={`w-4 h-4 text-emerald-100 shrink-0 ${isSyncing ? 'animate-spin' : ''}`} />
                 <span className="hidden sm:inline">{isSyncing ? 'Đang đồng bộ...' : 'Đồng Bộ'}</span>

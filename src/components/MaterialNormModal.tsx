@@ -682,7 +682,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               <Sliders className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-900">Định Mức &amp; Chủng Loại Vật Tư</h3>
+              <h3 className="text-base font-bold text-slate-900">Định mức &amp; chủng loại vật tư</h3>
               <p className="text-xs text-slate-500">Quản lý tiêu chuẩn &amp; định mức công trình</p>
             </div>
           </div>
@@ -715,7 +715,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                 className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold shadow transition-all shrink-0 active:scale-95"
               >
                 <Plus className="w-4 h-4" />
-                Thêm Định Mức
+                Thêm định mức
               </button>
             </div>
 
@@ -796,7 +796,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                       : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
                   }`}
                 >
-                  Số Định Mức {normSortBy === 'quotaQuantity' && (normSortOrder === 'asc' ? '↑' : '↓')}
+                  Số định mức {normSortBy === 'quotaQuantity' && (normSortOrder === 'asc' ? '↑' : '↓')}
                 </button>
                 <button
                   type="button"
@@ -828,7 +828,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               <div className="text-center py-8 text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200 p-4">
                 <BookOpen className="w-8 h-8 mx-auto mb-2 opacity-50" />
                 <p className="text-xs font-semibold text-slate-600">Chưa có định mức vật tư nào trong danh mục</p>
-                <p className="text-[11px] text-slate-400 mt-1">Bấm "Thêm Định Mức" để thiết lập tiêu chuẩn chủng loại &amp; ĐVT công trình.</p>
+                <p className="text-[11px] text-slate-400 mt-1">Bấm "Thêm định mức" để thiết lập tiêu chuẩn chủng loại &amp; ĐVT công trình.</p>
               </div>
             ) : (
               <div className="space-y-2.5">
@@ -981,7 +981,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
           <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto space-y-3.5 pr-1 text-xs">
             <div className="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-200">
               <span className="font-bold text-slate-800">
-                {mode === 'add' ? 'Thêm Chủng Loại & Định Mức Mới' : 'Cập Nhật Định Mức Vật Tư'}
+                {mode === 'add' ? 'Thêm chủng loại & định mức' : 'Cập nhật định mức vật tư'}
               </span>
               <button
                 type="button"
@@ -1135,7 +1135,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                 )}
               </div>
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Định Mức / m² (Không bắt buộc)</label>
+                <label className="block font-bold text-slate-700 mb-1">Định mức / m² (không bắt buộc)</label>
                 <input
                   type="text"
                   placeholder="VD: 0.35"
@@ -1156,7 +1156,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
                 <div className="text-xs font-extrabold text-indigo-700 flex items-center gap-1.5">
                   <Sparkles className="w-3.5 h-3.5" />
-                  <span>Định mức riêng cho từng Hạng Mục Thi Công (Tùy chọn)</span>
+                  <span>Định mức riêng cho từng hạng mục thi công (tùy chọn)</span>
                 </div>
                 <p className="text-[10px] text-slate-500 font-medium">Nếu có định mức khác nhau, hãy nhập riêng tại đây (mặc định sẽ dùng định mức chung ở trên):</p>
                 <div className="space-y-1.5 max-h-40 overflow-y-auto">
@@ -1224,7 +1224,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                 className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md active:scale-95 transition-all flex items-center justify-center gap-1.5"
               >
                 <Save className="w-4 h-4" />
-                Lưu Định Mức
+                Lưu định mức
               </button>
             </div>
           </form>
@@ -1239,7 +1239,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               <AlertCircle className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-900">Xác nhận xóa Định Mức</h3>
+              <h3 className="text-base font-bold text-slate-900">Xác nhận xóa định mức</h3>
               <p className="text-xs text-slate-500 mt-1">
                 Bạn có chắc chắn muốn xóa định mức <strong className="text-slate-800">{deletingNormTarget.materialName}</strong>?
               </p>
