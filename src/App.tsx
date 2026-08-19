@@ -150,6 +150,7 @@ export interface ProjectInfo {
   name: string;
   createdAt: string | number;
   updatedAt?: number;
+  createdAtSource?: 'cloud' | 'local' | 'migrating';
 }
 
 export const getProjectsList = (): ProjectInfo[] => {
@@ -159,7 +160,7 @@ export const getProjectsList = (): ProjectInfo[] => {
       try { return JSON.parse(saved); } catch (e) {}
     }
   }
-  return [{ id: 'default', name: 'Dự án chưa đặt tên', createdAt: new Date().toISOString() }];
+  return [{ id: 'default', name: 'Dự án chưa đặt tên', createdAt: 0, createdAtSource: 'local' }];
 };
 
 export const setActiveProject = (id: string) => {
@@ -1101,7 +1102,10 @@ export default function App() {
         return {
           id: remoteProject.id,
           name: remoteProject.name || cached?.name || remoteProject.id,
-          createdAt: cached?.createdAt || remoteProject.updatedAt || Date.now(),
+          // Cloud metadata is the only source of truth for creation time.
+          // Never substitute cached.createdAt, updatedAt or Date.now().
+          createdAt: Number(remoteProject.createdAt || 0),
+          createdAtSource: remoteProject.createdAt ? 'cloud' : 'migrating',
           updatedAt: Math.max(Number(cached?.updatedAt || 0), Number(remoteProject.updatedAt || 0)),
         };
       });
@@ -1123,7 +1127,12 @@ export default function App() {
         !deletedProjectIds.has(p.id) &&
         Number(p.updatedAt || 0) > 0
       );
-      const nextCache = [...cloudBacked, ...recoverableLocal.filter((p) => !cloudBacked.some((c) => c.id === p.id))];
+      const nextCache = [
+        ...cloudBacked,
+        ...recoverableLocal
+          .filter((p) => !cloudBacked.some((c) => c.id === p.id))
+          .map((p) => ({ ...p, createdAtSource: 'local' as const })),
+      ];
       saveProjectsList(nextCache);
 
       const currentActive = getActiveProjectId();
@@ -3946,32 +3955,6 @@ export default function App() {
     }
   };
 
-  const handleCompleteFromAlert = (alertItem: DueDateAlertItem) => {
-    const originalId = alertItem.originalItem.id;
-    if (alertItem.type === 'workVolume') {
-      updateAppData((prev) => ({
-        ...prev,
-        workVolumes: prev.workVolumes.map((wv) =>
-          wv.id === originalId ? { ...wv, status: 'Đã hoàn thành', actual: wv.planned } : wv
-        ),
-      }));
-    } else if (alertItem.type === 'checklist') {
-      updateAppData((prev) => ({
-        ...prev,
-        checklist: prev.checklist.map((chk) =>
-          chk.id === originalId ? { ...chk, status: 'passed' } : chk
-        ),
-      }));
-    } else if (alertItem.type === 'defect') {
-      updateAppData((prev) => ({
-        ...prev,
-        defects: prev.defects.map((def) =>
-          def.id === originalId ? { ...def, status: 'Đã nghiệm thu' } : def
-        ),
-      }));
-    }
-  };
-
   const handleExportExcel = () => {
     setIsExportPdfOpen(true);
   };
@@ -4383,7 +4366,6 @@ export default function App() {
           checklist={checklist}
           defects={defects}
           onNavigateToItem={handleNavigateFromAlert}
-          onCompleteItem={handleCompleteFromAlert}
           onOpenNotificationCenter={() => setIsNotificationCenterOpen(true)}
         />
 
@@ -4395,7 +4377,6 @@ export default function App() {
           checklist={checklist}
           defects={defects}
           onNavigateToItem={handleNavigateFromAlert}
-          onCompleteItem={handleCompleteFromAlert}
         />
 
         {/* Fixed Mobile Bottom Navigation Bar */}

@@ -236,6 +236,7 @@ export interface ProjectInfo {
   inspectorName?: string;
   createdAt: string | number;
   updatedAt?: string | number;
+  createdAtSource?: 'cloud' | 'local' | 'migrating';
   ownerUid?: string;
   syncCode?: string;
   description?: string;

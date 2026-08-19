@@ -1,5 +1,5 @@
 import { downloadOrShareFile } from '../utils/downloadUtils';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   X, Plus, Folder, Trash2, HardDrive, Download, Upload, RefreshCw, 
   CheckCircle2, AlertTriangle, ShieldCheck, ArrowLeftRight, ChevronDown, 
@@ -68,7 +68,7 @@ interface ProjectManagerModalProps {
   handleExportAllJson?: () => void;
   handleImportAllJson?: (e: React.ChangeEvent<HTMLInputElement>) => void;
   fullAppData?: any;
-  onRestoreData?: (data: any) => void;
+  onRestoreData?: (data: any, targetProjectId?: string) => void | Promise<void>;
   autosaveVersions?: any[];
   onRestoreAutoSaveVersion?: (version: any) => void;
   onCreateManualBackup?: () => void;
@@ -126,7 +126,10 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       const next = cloudProjects.map((p) => ({
         id: p.id,
         name: p.name || cached.get(p.id)?.name || p.id,
-        createdAt: cached.get(p.id)?.createdAt || p.updatedAt || Date.now(),
+        // createdAt must come from projects/{projectId}.createdAt in Firestore.
+        // Missing legacy values stay visibly "migrating"; never fake them with cache/updatedAt/Date.now().
+        createdAt: Number(p.createdAt || 0),
+        createdAtSource: p.createdAt ? 'cloud' as const : 'migrating' as const,
         updatedAt: Number(p.updatedAt || cached.get(p.id)?.updatedAt || 0),
       }));
       saveProjectsList(next); // local cache only
@@ -155,6 +158,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   const [deletingCloudBackupTarget, setDeletingCloudBackupTarget] = useState<{ id: string; name: string } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [switchingProjectId, setSwitchingProjectId] = useState<string | null>(null);
+  const [mergingDuplicateTargetId, setMergingDuplicateTargetId] = useState<string | null>(null);
 
   // Cloud Backup & Multi-device Sync State
   const [cloudBackups, setCloudBackups] = useState<CloudBackupRecord[]>([]);
@@ -427,7 +431,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       const current = getProjectsList();
       const nextProjects = current.some((project) => project.id === orphan.id)
         ? current.map((project) => project.id === orphan.id ? { ...project, name: restoredName, updatedAt: Date.now() } : project)
-        : [...current, { id: orphan.id, name: restoredName, createdAt: orphan.lastUpdatedAt || Date.now(), updatedAt: Date.now() }];
+        : [...current, { id: orphan.id, name: restoredName, createdAt: 0, createdAtSource: 'migrating', updatedAt: Date.now() }];
       saveProjectsList(nextProjects);
       setProjects(nextProjects);
       setSelectedOrphanIds((prev) => prev.filter((id) => id !== orphan.id));
@@ -1432,7 +1436,10 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             curList.push({
               id: targetId,
               name: candidate.name,
-              createdAt: Date.now(),
+              // A preserved-ID restore must not invent a creation time from this device.
+              // Realtime Firestore metadata is the only authority for displayed createdAt.
+              createdAt: 0,
+              createdAtSource: 'migrating',
               updatedAt: candidate.updatedAt || Date.now()
             });
           }
@@ -1581,7 +1588,10 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           curList.push({
             id: newTargetId,
             name: copyName,
-            createdAt: Date.now(),
+            // This is a genuinely new project ID; Firestore assigns its immutable
+            // creation time via serverTimestamp() when metadata is first uploaded.
+            createdAt: 0,
+            createdAtSource: 'migrating',
             updatedAt: Date.now()
           });
           createdCount++;
@@ -1690,13 +1700,15 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             safeSetLocalStorageItem(getKey('construction_tombstones', targetId), JSON.stringify(candData.tombstones));
           }
 
-          const resolvedCreatedAt = cand.normalizedData?.project?.createdAt || candData.createdAt || Date.now();
           const resolvedUpdatedAt = candData.updatedAt || Date.now();
 
           newProjectsList.push({
             id: targetId,
             name: candData.projectName || cand.name,
-            createdAt: resolvedCreatedAt,
+            // Full restore replaces local data only. Do not restore/fabricate the
+            // display creation date; the same projectId must re-read it from Cloud.
+            createdAt: 0,
+            createdAtSource: 'migrating',
             updatedAt: resolvedUpdatedAt
           });
 
@@ -1995,7 +2007,13 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         
         const curList = getProjectsList();
         if (!curList.some(p => p.id === pid)) {
-          curList.push({ id: pid, name: pName, createdAt: new Date().toISOString() });
+          curList.push({
+            id: pid,
+            name: pName,
+            createdAt: 0,
+            createdAtSource: 'migrating',
+            updatedAt: Number(pUpdatedAt || 0),
+          });
           saveProjectsList(curList);
         }
         
@@ -2109,7 +2127,10 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       const newProject: ProjectInfo = {
         id: newProjectId,
         name: trimmedName,
-        createdAt: now,
+        // Do not fabricate the displayed creation date locally. Firestore writes
+        // serverTimestamp() and the realtime project index fills this value back in.
+        createdAt: 0,
+        createdAtSource: 'migrating',
         updatedAt: now,
       };
       
@@ -2267,6 +2288,124 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     }
   };
 
+  const normalizeProjectNameForDuplicate = (name: string): string =>
+    (name || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLocaleLowerCase('vi-VN')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+  const duplicateGroups = useMemo(() => {
+    const groups = new Map<string, ProjectInfo[]>();
+    projects.forEach((project) => {
+      const key = normalizeProjectNameForDuplicate(project.name);
+      if (!key) return;
+      const current = groups.get(key) || [];
+      current.push(project);
+      groups.set(key, current);
+    });
+    return Array.from(groups.values()).filter((group) => group.length > 1);
+  }, [projects]);
+
+  const duplicateProjectIds = useMemo(
+    () => new Set(duplicateGroups.flatMap((group) => group.map((project) => project.id))),
+    [duplicateGroups]
+  );
+
+  const formatProjectCreatedAt = (project: ProjectInfo): string => {
+    const timestamp = parseLegacyTimestamp(project.createdAt, 0);
+    if (project.createdAtSource === 'migrating') return 'Đang chuẩn hóa từ Cloud…';
+    if (!timestamp) return project.createdAtSource === 'local' ? 'Chưa có mốc Cloud' : 'Đang chuẩn hóa từ Cloud…';
+    const suffix = project.createdAtSource === 'local' ? ' (cục bộ)' : '';
+    return `${new Date(timestamp).toLocaleDateString('vi-VN')}${suffix}`;
+  };
+
+  const shortProjectId = (projectId: string): string => `…${projectId.slice(-4)}`;
+
+  const summarizeCloudPayload = (payload: any) => {
+    const keys = [
+      ['materialNorms', 'Định mức'],
+      ['inventory', 'Nhập/xuất'],
+      ['workVolumes', 'Khối lượng'],
+      ['floorPlans', 'Mặt bằng'],
+      ['defects', 'Defect'],
+      ['roomProgressList', 'Căn/phòng'],
+      ['checklist', 'Checklist'],
+      ['crewRecords', 'Quân số'],
+      ['teams', 'Đội'],
+    ] as const;
+    return keys.map(([key, label]) => `${label}: ${Array.isArray(payload?.[key]) ? payload[key].length : 0}`).join(', ');
+  };
+
+  /**
+   * Safely merge same-name/different-ID projects INTO the project chosen by the user.
+   * The source project(s) are never deleted automatically. This makes comparison and
+   * rollback possible before the user decides which duplicate ID should eventually be removed.
+   */
+  const handleMergeDuplicateInto = async (target: ProjectInfo) => {
+    const key = normalizeProjectNameForDuplicate(target.name);
+    const group = duplicateGroups.find((items) => normalizeProjectNameForDuplicate(items[0]?.name || '') === key) || [];
+    const sources = group.filter((project) => project.id !== target.id);
+    if (sources.length === 0 || mergingDuplicateTargetId) return;
+
+    setMergingDuplicateTargetId(target.id);
+    try {
+      const records = await Promise.all(group.map(async (project) => ({
+        project,
+        record: await fetchProjectFromCloud(project.id),
+      })));
+      const missing = records.filter((item) => !item.record);
+      if (missing.length > 0) {
+        throw new Error(`Không đọc được dữ liệu Cloud của: ${missing.map((item) => shortProjectId(item.project.id)).join(', ')}`);
+      }
+
+      const comparisonLines = records.map(({ project, record }) => {
+        const payload = getCloudPayload(record as any) || {};
+        const created = formatProjectCreatedAt(project);
+        const updated = project.updatedAt ? new Date(Number(project.updatedAt)).toLocaleString('vi-VN') : 'Chưa rõ';
+        const marker = project.id === target.id ? 'GIỮ LÀM DỰ ÁN CHÍNH' : 'Nguồn hợp nhất';
+        return `• ${project.name} ${shortProjectId(project.id)} [${marker}]\n  Khởi tạo: ${created} | Cập nhật: ${updated}\n  ${summarizeCloudPayload(payload)}`;
+      });
+
+      const accepted = await confirmAsync(
+        `Phát hiện ${group.length} dự án cùng tên nhưng projectId khác nhau.\n\n${comparisonLines.join('\n\n')}\n\n` +
+        `Hợp nhất dữ liệu vào ${shortProjectId(target.id)}?\n` +
+        `Nguồn còn lại SẼ ĐƯỢC GIỮ NGUYÊN, không xóa tự động. Sau khi kiểm tra dữ liệu đã đủ trên PC và điện thoại, bạn mới quyết định xóa bản dư.`
+      );
+      if (!accepted) return;
+
+      const targetRecord = records.find((item) => item.project.id === target.id)!.record!;
+      let mergedPayload: any = getCloudPayload(targetRecord) || {};
+      for (const source of sources) {
+        const sourceRecord = records.find((item) => item.project.id === source.id)!.record!;
+        mergedPayload = smartMergeProjectData(mergedPayload, getCloudPayload(sourceRecord) || {});
+      }
+
+      await saveProjectToCloud({
+        id: target.id,
+        name: target.name,
+        contractorName: mergedPayload.contractorName || '',
+        inspectorName: mergedPayload.inspectorName || '',
+        payload: mergedPayload,
+      });
+
+      if (target.id === activeId && onRestoreData) {
+        await onRestoreData(mergedPayload, target.id);
+      }
+
+      alert(
+        `Đã hợp nhất dữ liệu vào ${target.name} ${shortProjectId(target.id)}.\n\n` +
+        `Các projectId nguồn vẫn được giữ nguyên để đối chiếu; hệ thống KHÔNG tự xóa dự án trùng.`
+      );
+    } catch (err) {
+      console.error('Duplicate project merge error:', err);
+      setErrorMessage('Không thể so sánh/hợp nhất dự án trùng: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setMergingDuplicateTargetId(null);
+    }
+  };
+
   // Handle ESC key to close modal
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -2280,9 +2419,10 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
   if (!isOpen) return null;
 
-  const filteredProjects = projects.filter(p => 
-    p.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredProjects = projects.filter(p => {
+    const q = searchQuery.trim().toLowerCase();
+    return !q || p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q) || shortProjectId(p.id).toLowerCase().includes(q);
+  });
 
   return (
     <div className="fixed inset-0 bg-slate-900/65 backdrop-blur-md z-50 flex items-center justify-center p-3 md:p-4 animate-in fade-in duration-200">
@@ -3281,6 +3421,22 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                 </div>
               )}
 
+              {duplicateGroups.length > 0 && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl space-y-1.5">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div className="min-w-0">
+                      <p className="text-xs font-extrabold text-amber-900">
+                        Phát hiện {duplicateGroups.reduce((sum, group) => sum + group.length, 0)} dự án có tên trùng nhưng projectId khác nhau
+                      </p>
+                      <p className="text-[10.5px] text-amber-800 leading-relaxed">
+                        Không xóa theo ngày “Khởi tạo”. Hãy đối chiếu ID và dữ liệu, sau đó chọn đúng dự án chính để hợp nhất. Bản nguồn luôn được giữ lại sau khi hợp nhất.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Project Cards List */}
               <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
                 {filteredProjects.length === 0 ? (
@@ -3291,6 +3447,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   filteredProjects.map(proj => {
                     const isActive = proj.id === activeId;
                     const isEditing = editingProjectId === proj.id;
+                    const isDuplicate = duplicateProjectIds.has(proj.id);
 
                     return (
                       <div 
@@ -3337,14 +3494,19 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                               className="flex-1 min-w-0 cursor-pointer"
                               onClick={() => handleSwitchProject(proj.id)}
                             >
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 min-w-0">
                                 <Folder className={`w-4 h-4 shrink-0 ${isActive ? 'text-indigo-600' : 'text-slate-400'}`} />
                                 <p className={`font-bold text-xs truncate ${isActive ? 'text-indigo-900' : 'text-slate-800'}`}>
-                                  {proj.name}
+                                  {proj.name} <span className="font-mono text-[10px] text-slate-400">· {shortProjectId(proj.id)}</span>
                                 </p>
+                                {isDuplicate && (
+                                  <span className="shrink-0 text-[9px] font-extrabold bg-amber-100 text-amber-800 border border-amber-200 px-1.5 py-0.5 rounded-full">
+                                    Trùng tên · ID khác
+                                  </span>
+                                )}
                               </div>
                               <p className="text-[10px] text-slate-400 mt-0.5 pl-6 font-medium">
-                                Khởi tạo: {new Date(proj.createdAt).toLocaleDateString('vi-VN')}
+                                Khởi tạo: {formatProjectCreatedAt(proj)} · ID {shortProjectId(proj.id)}
                               </p>
                             </div>
                             
@@ -3388,6 +3550,28 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                                 </button>
                               )}
                             </div>
+                          </div>
+                        )}
+
+                        {!isEditing && isDuplicate && canManage && (
+                          <div className="mt-2 pl-6 flex items-center justify-between gap-2 border-t border-amber-100 pt-2">
+                            <span className="text-[10px] text-amber-700 font-semibold">
+                              Chọn ID này làm dự án chính
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleMergeDuplicateInto(proj)}
+                              disabled={Boolean(mergingDuplicateTargetId)}
+                              className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-[10px] font-extrabold transition-colors cursor-pointer"
+                              title="So sánh dữ liệu các projectId cùng tên rồi hợp nhất vào ID này, không xóa bản nguồn"
+                            >
+                              {mergingDuplicateTargetId === proj.id ? (
+                                <RefreshCw className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <ArrowLeftRight className="w-3 h-3" />
+                              )}
+                              So sánh &amp; hợp nhất vào ID này
+                            </button>
                           </div>
                         )}
                       </div>

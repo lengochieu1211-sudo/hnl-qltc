@@ -29,6 +29,7 @@ import * as XLSX from 'xlsx';
 import { exportWarehouseUpdateTemplate } from '../utils/excelExport';
 import { confirmAsync } from '../utils/confirmAsync';
 import { calculateStockSummary } from '../utils/inventoryUtils';
+import { compareDateValues, naturalCompare } from '../utils/sortUtils';
 
 interface WarehouseTabProps {
   inventory: InventoryItem[];
@@ -75,6 +76,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [filterType, setFilterType] = useState<'all' | 'in' | 'out'>('all');
   useFormatSettings();
   const [searchTerm, setSearchTerm] = useState('');
+  const [inventorySort, setInventorySort] = useState<'date-desc' | 'date-asc' | 'material' | 'location' | 'handler'>('date-desc');
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingInventory, setEditingInventory] = useState<InventoryItem | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
@@ -591,16 +593,42 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   }, [type, quantity, materialName, customMaterial, normMap, stockBalance, unit]);
 
   const filteredInventory = useMemo(() => {
-    return inventory.filter((item) => {
+    const list = inventory.filter((item) => {
+      const q = searchTerm.trim().toLocaleLowerCase('vi-VN');
       const matchesType = filterType === 'all' || item.type === filterType;
-      const matchesSearch = 
-        item.materialName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.handler.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.id.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesSearch = !q ||
+        item.materialName.toLocaleLowerCase('vi-VN').includes(q) ||
+        item.location.toLocaleLowerCase('vi-VN').includes(q) ||
+        item.handler.toLocaleLowerCase('vi-VN').includes(q) ||
+        item.id.toLocaleLowerCase('vi-VN').includes(q);
       return matchesType && matchesSearch;
     });
-  }, [inventory, filterType, searchTerm]);
+
+    return list.sort((a, b) => {
+      let result = 0;
+      switch (inventorySort) {
+        case 'date-asc':
+          result = compareDateValues(a.date, b.date);
+          break;
+        case 'material':
+          result = naturalCompare(a.materialName, b.materialName);
+          break;
+        case 'location':
+          result = naturalCompare(a.location, b.location);
+          break;
+        case 'handler':
+          result = naturalCompare(a.handler, b.handler);
+          break;
+        case 'date-desc':
+        default:
+          result = compareDateValues(b.date, a.date);
+          break;
+      }
+      if (result !== 0) return result;
+      // Stable deterministic tie-breaker across PC/phone.
+      return naturalCompare(a.id, b.id);
+    });
+  }, [inventory, filterType, searchTerm, inventorySort]);
 
   const openCreateInventory = () => {
     setEditingInventory(null);
@@ -961,6 +989,34 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             >
               Xuất Kho
             </button>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-extrabold text-slate-500 uppercase tracking-wide">
+            <Sliders className="w-3.5 h-3.5" /> Sắp xếp nhanh
+          </span>
+          <div className="flex-1 flex items-center gap-1 overflow-x-auto no-scrollbar pb-0.5">
+            {[
+              ['date-desc', 'Ngày mới nhất'],
+              ['date-asc', 'Ngày cũ nhất'],
+              ['material', 'Vật tư'],
+              ['location', 'Vị trí/Tầng'],
+              ['handler', 'Người thực hiện'],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setInventorySort(value as typeof inventorySort)}
+                className={`shrink-0 px-2.5 py-1 rounded-lg border text-[10.5px] font-bold transition-all cursor-pointer ${
+                  inventorySort === value
+                    ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
+                    : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-300 hover:text-indigo-700'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         </div>
       </div>

@@ -222,7 +222,7 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
                 <button
                   onClick={onOpenNotificationCenter}
                   className="relative p-1.5 sm:px-2.5 sm:py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded-lg transition-all shadow-sm active:scale-95 shrink-0 border border-slate-700 cursor-pointer flex items-center justify-center"
-                  title="Thông báo hạn định (Toast & Notification Center)"
+                  title="Trung tâm thông báo tiến độ, checklist & defect"
                 >
                   <Bell className="w-4 h-4 text-amber-300 shrink-0" />
                   {dueDateAlertCount > 0 && (

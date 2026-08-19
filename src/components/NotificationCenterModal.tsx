@@ -9,8 +9,6 @@ import {
   ExternalLink, 
   Filter,
   Calendar,
-  Check,
-  Layers,
   ChevronRight
 } from 'lucide-react';
 import { WorkVolume, ChecklistItem, DefectItem } from '../types';
@@ -23,7 +21,6 @@ interface NotificationCenterModalProps {
   checklist?: ChecklistItem[];
   defects?: DefectItem[];
   onNavigateToItem?: (alert: DueDateAlertItem) => void;
-  onCompleteItem?: (alert: DueDateAlertItem) => void;
 }
 
 export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = ({
@@ -33,26 +30,25 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
   checklist = [],
   defects = [],
   onNavigateToItem,
-  onCompleteItem,
 }) => {
   const [filterType, setFilterType] = useState<'all' | 'overdue' | 'today' | 'soon'>('all');
+  const [contentType, setContentType] = useState<'all' | 'workVolume' | 'checklist' | 'defect'>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [completedAlertIds, setCompletedAlertIds] = useState<Set<string>>(new Set());
 
   const allAlerts = useMemo(() => {
     return collectDueDateAlerts(workVolumes, checklist, defects);
   }, [workVolumes, checklist, defects]);
 
-  const activeAlerts = useMemo(() => {
-    return allAlerts.filter(a => !completedAlertIds.has(a.id));
-  }, [allAlerts, completedAlertIds]);
+  const activeAlerts = allAlerts;
 
   const filteredAlerts = useMemo(() => {
     return activeAlerts.filter(alert => {
-      // Type filter
+      // Deadline filter
       if (filterType === 'overdue' && !alert.isOverdue) return false;
       if (filterType === 'today' && !alert.isToday) return false;
       if (filterType === 'soon' && !alert.isDueSoon) return false;
+      // Business-area filter
+      if (contentType !== 'all' && alert.type !== contentType) return false;
 
       // Search query filter
       if (searchQuery.trim()) {
@@ -64,7 +60,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
       }
       return true;
     });
-  }, [activeAlerts, filterType, searchQuery]);
+  }, [activeAlerts, filterType, contentType, searchQuery]);
 
   const counts = useMemo(() => {
     const overdue = activeAlerts.filter(a => a.isOverdue).length;
@@ -72,6 +68,12 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
     const soon = activeAlerts.filter(a => a.isDueSoon).length;
     return { all: activeAlerts.length, overdue, today, soon };
   }, [activeAlerts]);
+
+  const contentCounts = useMemo(() => ({
+    workVolume: activeAlerts.filter(a => a.type === 'workVolume').length,
+    checklist: activeAlerts.filter(a => a.type === 'checklist').length,
+    defect: activeAlerts.filter(a => a.type === 'defect').length,
+  }), [activeAlerts]);
 
   if (!isOpen) return null;
 
@@ -87,7 +89,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
             </div>
             <div>
               <h3 className="text-base font-extrabold flex items-center gap-2">
-                Trung Tâm Thông Báo Tiến Độ
+                Trung Tâm Thông Báo Tiến Độ & Defect
                 {counts.all > 0 && (
                   <span className="text-xs bg-rose-600 text-white px-2 py-0.5 rounded-full font-bold">
                     {counts.all}
@@ -95,7 +97,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                 )}
               </h3>
               <p className="text-[11px] text-slate-300">
-                Theo dõi công việc &amp; checklist sắp tới hạn định thi công
+                Theo dõi tiến độ, checklist &amp; defect đến hạn theo đúng dự án đang mở
               </p>
             </div>
           </div>
@@ -121,7 +123,29 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
             />
           </div>
 
-          {/* Quick Filter Tabs */}
+          <div className="flex items-center gap-1 overflow-x-auto no-scrollbar text-[10.5px]">
+            {[
+              ['all', `Tất cả nội dung (${counts.all})`],
+              ['workVolume', `Tiến độ (${contentCounts.workVolume})`],
+              ['checklist', `Checklist (${contentCounts.checklist})`],
+              ['defect', `Defect (${contentCounts.defect})`],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setContentType(value as typeof contentType)}
+                className={`shrink-0 px-2.5 py-1 rounded-lg border font-bold transition-all cursor-pointer ${
+                  contentType === value
+                    ? 'bg-slate-800 text-white border-slate-800'
+                    : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Quick Deadline Filter Tabs */}
           <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-1 text-xs">
             <button
               onClick={() => setFilterType('all')}
@@ -172,12 +196,12 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
             <div className="text-center py-12 px-4 space-y-2 text-slate-400">
               <CheckCircle2 className="w-12 h-12 mx-auto text-emerald-400 opacity-60" />
               <p className="text-sm font-bold text-slate-700">Không có thông báo nào trong danh mục này</p>
-              <p className="text-xs">Tất cả các công việc &amp; checklist đều đúng hạn hoặc đã hoàn thành!</p>
+              <p className="text-xs">Không có tiến độ, checklist hoặc defect nào thuộc bộ lọc hiện tại cần cảnh báo.</p>
             </div>
           ) : (
             filteredAlerts.map((alert) => {
               const typeLabel = alert.type === 'workVolume' ? 'Khối Lượng' :
-                                alert.type === 'checklist' ? 'Checklist' : 'Lỗi QC';
+                                alert.type === 'checklist' ? 'Checklist' : 'Defect';
 
               let borderStyle = 'border-slate-200 bg-white hover:border-indigo-300';
               let badgeBg = 'bg-amber-100 text-amber-800 border-amber-200';
@@ -228,21 +252,9 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                     </div>
                   </div>
 
-                  {/* Actions */}
+                  {/* Actions: notification center never changes construction/QC status directly.
+                      Users must open the actual record so quantity, inspection and defect workflow remain auditable. */}
                   <div className="flex items-center gap-2 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 justify-end">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (onCompleteItem) {
-                          onCompleteItem(alert);
-                          setCompletedAlertIds(prev => new Set(prev).add(alert.id));
-                        }
-                      }}
-                      className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-all active:scale-95 cursor-pointer"
-                      title="Đánh dấu hoàn thành hạng mục này"
-                    >
-                      <Check className="w-3.5 h-3.5 text-emerald-600" /> Complete
-                    </button>
                     <button
                       type="button"
                       onClick={() => {
@@ -253,7 +265,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                       }}
                       className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-all shadow-xs active:scale-95 cursor-pointer"
                     >
-                      <span>Mở Tab</span>
+                      <span>Xem chi tiết</span>
                       <ExternalLink className="w-3.5 h-3.5" />
                     </button>
                   </div>
@@ -265,7 +277,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
 
         {/* Modal Footer */}
         <div className="p-3 bg-slate-100 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500 shrink-0">
-          <span>Tổng số thông báo: <strong className="text-slate-800">{counts.all}</strong></span>
+          <span>Đang hiển thị: <strong className="text-slate-800">{filteredAlerts.length}</strong> / {counts.all}</span>
           <button
             onClick={onClose}
             className="px-4 py-1.5 bg-white border border-slate-300 rounded-xl font-bold text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"

@@ -15,7 +15,9 @@ import {
   where,
   orderBy,
   limit,
-  writeBatch
+  writeBatch,
+  serverTimestamp,
+  runTransaction
 } from 'firebase/firestore';
 import { getAuth, signInWithPopup, GoogleAuthProvider, signOut as fbSignOut, onAuthStateChanged, User } from 'firebase/auth';
 import { getDeviceId, getDeviceName } from '../utils/deviceIdentity';
@@ -119,7 +121,64 @@ export interface CloudProjectSummary {
   id: string;
   name: string;
   role?: string;
+  createdAt?: number;
   updatedAt?: number;
+  createdAtSource?: 'cloud' | 'migrating';
+}
+
+function cloudTimestampToMillis(value: any): number {
+  if (value === null || value === undefined || value === '') return 0;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  if (typeof value === 'string') {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric > 0) return numeric;
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+  if (typeof value?.toMillis === 'function') {
+    const millis = value.toMillis();
+    return Number.isFinite(millis) ? millis : 0;
+  }
+  if (typeof value?.seconds === 'number') {
+    return Math.round(value.seconds * 1000 + Number(value.nanoseconds || 0) / 1_000_000);
+  }
+  return 0;
+}
+
+const createdAtMigrationInFlight = new Set<string>();
+
+/**
+ * One-time migration for legacy project documents that do not yet have createdAt.
+ * IMPORTANT: the value comes from Firestore serverTimestamp(), never from local cache,
+ * updatedAt or Date.now(). Once written, firestore.rules prevents it from changing.
+ */
+export async function ensureProjectCreatedAtInCloud(projectId: string): Promise<void> {
+  if (!projectId || createdAtMigrationInFlight.has(projectId)) return;
+  const user = getCurrentRealFirebaseUser();
+  if (!user || !user.email) return;
+
+  createdAtMigrationInFlight.add(projectId);
+  try {
+    const ref = doc(db, 'projects', projectId);
+    await runTransaction(db, async (transaction) => {
+      const snap = await transaction.get(ref);
+      if (!snap.exists()) return;
+      const data = snap.data();
+      if (data?.createdAt) return;
+      transaction.update(ref, {
+        createdAt: serverTimestamp(),
+        createdAtMigrated: true,
+        createdAtMigrationVersion: 1,
+        createdAtMigrationAt: serverTimestamp(),
+      });
+    });
+  } catch (err) {
+    // VIEWER/ENGINEER may not be allowed to update project metadata. In that case
+    // we keep the UI in "migrating" state until an ADMIN opens the project.
+    console.warn(`[Project createdAt migration] ${projectId}:`, err);
+  } finally {
+    createdAtMigrationInFlight.delete(projectId);
+  }
 }
 
 async function registerProjectForCurrentUser(projectId: string, projectName: string, role = 'ADMIN'): Promise<void> {
@@ -193,12 +252,43 @@ export function subscribeCurrentUserProjectsRealtime(onUpdate: (projects: CloudP
     for (const id of ids) {
       const hint = userProjects[id] || invitationProjects[id] || ownerUidProjects[id] || ownerEmailProjects[id] || {};
       try {
-        const snap = await getDoc(doc(db, 'projects', id));
+        const projectRef = doc(db, 'projects', id);
+        // Prefer the server copy so every device renders the exact same immutable createdAt.
+        // Offline fallback may use Firestore's own persisted document cache, never the app's
+        // construction_projects_list cache as a substitute for createdAt.
+        let snap;
+        try {
+          snap = await getDocFromServer(projectRef);
+        } catch (_) {
+          snap = await getDoc(projectRef);
+        }
         if (!snap.exists() || snap.data()?.deleted) continue;
         const data = snap.data();
-        result.push({ id, name: String(data?.name || hint.name || id), role: hint.role, updatedAt: Number(data?.updatedAt || hint.updatedAt || 0) });
+        const createdAt = cloudTimestampToMillis(data?.createdAt);
+        const updatedAt = cloudTimestampToMillis(data?.updatedAt) || Number(hint.updatedAt || 0);
+        const effectiveRole = String(hint.role || '').toUpperCase();
+        if (!createdAt && (effectiveRole === 'ADMIN' || data?.ownerUid === user.uid || normalizeEmail(data?.ownerEmail) === email)) {
+          // Fire-and-forget one-time migration. The next realtime emission will pick up
+          // the server-generated value. We intentionally do NOT invent a temporary date.
+          ensureProjectCreatedAtInCloud(id).catch(() => {});
+        }
+        result.push({
+          id,
+          name: String(data?.name || hint.name || id),
+          role: hint.role,
+          createdAt,
+          createdAtSource: createdAt ? 'cloud' : 'migrating',
+          updatedAt,
+        });
       } catch (_) {
-        result.push({ id, name: String(hint.name || id), role: hint.role, updatedAt: Number(hint.updatedAt || 0) });
+        result.push({
+          id,
+          name: String(hint.name || id),
+          role: hint.role,
+          createdAt: 0,
+          createdAtSource: 'migrating',
+          updatedAt: Number(hint.updatedAt || 0),
+        });
       }
     }
     if (!cancelled && seq === refreshSeq) onUpdate(result.sort((a,b) => Number(b.updatedAt||0)-Number(a.updatedAt||0)));
@@ -706,7 +796,7 @@ export async function saveProjectMetadataToCloud(projectId: string, name: string
       inspectorName: extra.inspectorName || '',
       syncCode: projectId.slice(0, 8).toUpperCase(),
       schemaVersion: 3,
-      createdAt: now,
+      createdAt: serverTimestamp(),
       updatedAt: now,
       updatedByUid: user.uid,
       updatedByEmail: normalizeEmail(user.email),
@@ -716,6 +806,9 @@ export async function saveProjectMetadataToCloud(projectId: string, name: string
     await writeProjectMemberDocs(projectId, { uid: user.uid, email: user.email, role: 'ADMIN', active: true, displayName: user.displayName || '' }).catch(() => {});
     await registerProjectForCurrentUser(projectId, name.trim(), 'ADMIN');
     return;
+  }
+  if (!snap.data()?.createdAt) {
+    await ensureProjectCreatedAtInCloud(projectId).catch(() => {});
   }
   await setDoc(ref, {
     name: name.trim(),
@@ -757,9 +850,13 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
       const currentUser = getCurrentAppUser();
       const finalOwnerUid = existingData?.ownerUid || (currentUser ? currentUser.uid : null);
       const finalOwnerEmail = existingData?.ownerEmail || normalizeEmail(currentUser?.email);
+      if (existingData && !existingData.createdAt) {
+        await ensureProjectCreatedAtInCloud(project.id).catch(() => {});
+      }
 
       await setDoc(metadataRef, {
         id: project.id,
+        ...(!existingData ? { createdAt: serverTimestamp() } : {}),
         name: project.name || 'Dự án',
         syncCode,
         updatedAt: Date.now(),
