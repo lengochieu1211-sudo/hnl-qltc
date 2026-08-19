@@ -421,11 +421,18 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
 
             const roomPositions = computeRoomLabelPositions(
               fpRooms,
-              fpDefects.map((d) => ({ x: d.x, y: d.y, radius: 0.9 }))
+              fpDefects.map((d) => ({ x: d.x, y: d.y, radius: 1.15 }))
             );
             const defectPositions = computeDefectLabelPositions(
               fpDefects,
-              roomPositions.filter((rp) => rp.showLabel).map((rp) => ({ x: rp.lx, y: rp.ly, radius: 1.15 }))
+              roomPositions
+                .map((rp, roomIndex) => ({ rp, roomIndex }))
+                .filter(({ rp }) => rp.showLabel)
+                .map(({ rp, roomIndex }) => ({
+                  x: rp.lx,
+                  y: rp.ly,
+                  radius: String(roomIndex + 1).length <= 1 ? 1.15 : String(roomIndex + 1).length === 2 ? 1.45 : 1.70,
+                }))
             );
 
             return `
@@ -439,7 +446,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                   <!-- Vùng đánh dấu Map -->
                   <div style="width: 100%;">
                     <p style="margin: 0 0 6px 0; font-size: 10.5px; font-weight: bold; color: #4f46e5;">
-                      1. Mặt Bằng Vùng đánh dấu Khu Vực / Phòng (${fpRooms.length} khu vực)
+                      1. Mặt bằng vùng đánh dấu khu vực / phòng (${fpRooms.length} khu vực)
                     </p>
 
                     ${fp.imageUrl ? `
@@ -459,7 +466,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                             return `<rect x="${r.x}" y="${r.y}" width="${r.width || 15}" height="${r.height || 15}" fill="${bgCol}" fill-opacity="0.16" stroke="${borderColor}" stroke-width="0.25" stroke-linejoin="round" rx="0.5" />`;
                           }).join('')}
 
-                          <!-- Sleek Room Number Badges in SVG (#1, #2, #3...) with collision leader lines -->
+                          <!-- Compact room-number pills: map shows 1/11/101; legend keeps #1/#11/#101. Collision-safe vs Defect origins/labels. -->
                           ${fpRooms.map((r, rIdx) => {
                             const rPos = roomPositions[rIdx] || { x: 50, y: 50, lx: 50, ly: 50, isOffset: false,
                                                                                                 showLabel: true };
@@ -474,8 +481,25 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                                   <circle cx="${rPos.x}" cy="${rPos.y}" r="0.23" fill="${badgeBg}" />
                                   <line x1="${rPos.x}" y1="${rPos.y}" x2="${rPos.lx}" y2="${rPos.ly}" stroke="${badgeBg}" stroke-width="0.18" stroke-dasharray="0.45,0.35" opacity="0.82" />
                                 ` : ''}
-                                <circle cx="${rPos.lx}" cy="${rPos.ly}" r="0.95" fill="${badgeBg}" fill-opacity="0.92" stroke="#ffffff" stroke-width="0.28" />
-                                <text x="${rPos.lx}" y="${rPos.ly + 0.2}" text-anchor="middle" dominant-baseline="middle" fill="#ffffff" font-size="1.05" font-weight="900" style="font-family: Arial, sans-serif;">#${rIdx + 1}</text>
+                                ${(() => {
+                                  const roomNo = String(rIdx + 1);
+                                  const pillW = roomNo.length <= 1 ? 1.75 : roomNo.length === 2 ? 2.35 : 2.85;
+                                  const pillH = 1.70;
+                                  return `
+                                    <rect
+                                      x="${rPos.lx - pillW / 2}"
+                                      y="${rPos.ly - pillH / 2}"
+                                      width="${pillW}"
+                                      height="${pillH}"
+                                      rx="${pillH / 2}"
+                                      fill="#ffffff"
+                                      fill-opacity="0.96"
+                                      stroke="${badgeBg}"
+                                      stroke-width="0.22"
+                                    />
+                                    <text x="${rPos.lx}" y="${rPos.ly + 0.12}" text-anchor="middle" dominant-baseline="middle" fill="${badgeBg}" font-size="${roomNo.length >= 3 ? '0.88' : '0.96'}" font-weight="900" style="font-family: Arial, sans-serif;">${roomNo}</text>
+                                  `;
+                                })()}
                               </g>
                             `;
                           }).join('')}
@@ -523,7 +547,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                   ${hasDefects ? `
                     <div style="width: 100%; border-top: 1px dashed #cbd5e1; padding-top: 10px;">
                       <p style="margin: 0 0 6px 0; font-size: 10.5px; font-weight: bold; color: #e11d48;">
-                        2. Sơ Đồ Defect Vị Trí Lỗi (${fpDefects.length} lỗi)
+                        2. Sơ đồ Defect vị trí lỗi (${fpDefects.length} lỗi)
                       </p>
 
                       ${fp.imageUrl ? `

@@ -304,6 +304,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   const [orphanScanResult, setOrphanScanResult] = useState<OrphanScanResult | null>(null);
   const [isCleaningOrphans, setIsCleaningOrphans] = useState(false);
   const [selectedOrphanIds, setSelectedOrphanIds] = useState<string[]>([]);
+  const [recoveringOrphanId, setRecoveringOrphanId] = useState<string | null>(null);
 
   const handleScanOrphans = async () => {
     try {
@@ -312,7 +313,8 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       const curProjects = getProjectsList();
       const result = detectOrphanProjectData(allStorage, curProjects);
       setOrphanScanResult(result);
-      setSelectedOrphanIds(result.orphanProjects.map(p => p.id));
+      // Never pre-select local-only project data for permanent deletion.
+      setSelectedOrphanIds([]);
     } catch (e: any) {
       setErrorMessage(`Lỗi khi quét dữ liệu mồ côi: ${e?.message || e}`);
     } finally {
@@ -325,8 +327,8 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     const count = selectedOrphanIds.length;
     const confirm = await confirmAsync(
       `⚠️ CẢNH BÁO DỌN DẸP BỘ NHỚ:\n\n` +
-      `Bạn có chắc chắn muốn xóa vĩnh viễn dữ liệu của ${count} dự án mồ côi đã chọn khỏi thiết bị này?\n\n` +
-      `Thao tác này sẽ giải phóng bộ nhớ và không thể hoàn tác.`
+      `Bạn có chắc chắn muốn xóa dữ liệu cục bộ của ${count} dự án đã chọn khỏi thiết bị này?\n\n` +
+      `Chỉ thực hiện khi bạn chắc chắn dự án đã có trên Cloud hoặc không còn cần dữ liệu này. Thao tác không thể hoàn tác.`
     );
     if (!confirm) return;
 
@@ -379,6 +381,67 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       await downloadOrShareFile(`Du_Lieu_Mo_Coi_Backup_${new Date().toISOString().split('T')[0]}.json`, jsonStr, 'application/json');
     } catch (e: any) {
       setErrorMessage(`Lỗi khi xuất tệp: ${e?.message || e}`);
+    }
+  };
+
+
+  const handleRecoverLocalProject = async (orphan: OrphanProjectInfo) => {
+    if (!orphan?.id || recoveringOrphanId) return;
+    try {
+      setRecoveringOrphanId(orphan.id);
+      setErrorMessage(null);
+
+      const allStorage = await getAllStorageData();
+      const projectStorage: Record<string, string> = {};
+      orphan.keys.forEach((key) => {
+        const value = allStorage[key];
+        projectStorage[key] = typeof value === 'string' ? value : JSON.stringify(value ?? '');
+      });
+
+      const normalized = normalizeImportedData(projectStorage, orphan.id);
+      const restoredName = String(normalized.projectName || orphan.name || `Dự án ${orphan.id}`).trim();
+      const contractorName = String(normalized.contractorName || '');
+      const inspectorName = String(normalized.inspectorName || '');
+
+      // Preserve the original projectId. This either repairs the old Cloud project
+      // index or creates the missing metadata for a genuinely local-only legacy project.
+      await saveProjectMetadataToCloud(orphan.id, restoredName, { contractorName, inspectorName });
+      await saveProjectToCloud({
+        id: orphan.id,
+        name: restoredName,
+        contractorName,
+        inspectorName,
+        syncCode: orphan.id.toUpperCase().slice(0, 8),
+        payload: normalized,
+      });
+
+      // Explicit recovery cancels any stale local project-deletion tombstone.
+      try {
+        const raw = localStorage.getItem('construction_deleted_projects') || '[]';
+        const list = Array.isArray(JSON.parse(raw)) ? JSON.parse(raw) : [];
+        const nextDeleted = list.filter((item: any) => item?.projectId !== orphan.id);
+        localStorage.setItem('construction_deleted_projects', JSON.stringify(nextDeleted));
+        await setAsyncItem('construction_deleted_projects', nextDeleted);
+      } catch (_) {}
+
+      const current = getProjectsList();
+      const nextProjects = current.some((project) => project.id === orphan.id)
+        ? current.map((project) => project.id === orphan.id ? { ...project, name: restoredName, updatedAt: Date.now() } : project)
+        : [...current, { id: orphan.id, name: restoredName, createdAt: orphan.lastUpdatedAt || Date.now(), updatedAt: Date.now() }];
+      saveProjectsList(nextProjects);
+      setProjects(nextProjects);
+      setSelectedOrphanIds((prev) => prev.filter((id) => id !== orphan.id));
+
+      const refreshedStorage = await getAllStorageData();
+      const refreshed = detectOrphanProjectData(refreshedStorage, nextProjects);
+      setOrphanScanResult(refreshed);
+
+      logAuditAction('PROJECT_RECOVER_LOCAL', `Đã khôi phục dự án cục bộ lên Cloud, giữ nguyên ID: ${orphan.id}`, orphan.id);
+      alert(`Đã khôi phục dự án “${restoredName}” lên Cloud với đúng ID cũ. Dự án sẽ xuất hiện lại trong danh sách và đồng bộ trên các thiết bị.`);
+    } catch (e: any) {
+      setErrorMessage(`Không thể khôi phục dự án lên Cloud: ${e?.message || e}`);
+    } finally {
+      setRecoveringOrphanId(null);
     }
   };
 
@@ -3406,7 +3469,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     <Database className="w-4 h-4 text-amber-600" />
                     <div>
                       <h4 className="text-xs font-bold text-slate-800">Bảo trì dữ liệu</h4>
-                      <p className="text-[10px] text-slate-500">Quét tìm và loại bỏ dữ liệu của các dự án đã xóa để giải phóng dung lượng</p>
+                      <p className="text-[10px] text-slate-500">Kiểm tra dữ liệu dự án còn trên thiết bị nhưng chưa có trong danh sách Cloud. Có thể khôi phục trước khi xóa.</p>
                     </div>
                   </div>
                   <button
@@ -3416,7 +3479,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     className="px-2.5 py-1.5 bg-amber-100/80 hover:bg-amber-200 text-amber-900 border border-amber-300 rounded-xl text-[11px] font-bold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 shadow-2xs shrink-0"
                   >
                     {isScanningOrphans ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
-                    <span>{isScanningOrphans ? 'Đang quét...' : 'Quét rác'}</span>
+                    <span>{isScanningOrphans ? 'Đang kiểm tra...' : 'Kiểm tra dữ liệu'}</span>
                   </button>
                 </div>
 
@@ -3425,14 +3488,14 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     {orphanScanResult.orphanProjects.length === 0 ? (
                       <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-2.5 text-emerald-800 text-[11px] font-medium flex items-center gap-2">
                         <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <span>Bộ nhớ thiết bị hoàn toàn sạch sẽ! Không tìm thấy dự án mồ côi nào.</span>
+                        <span>Không phát hiện dữ liệu dự án cục bộ bị tách khỏi danh sách Cloud.</span>
                       </div>
                     ) : (
                       <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-3 space-y-2.5">
                         <div className="flex items-center justify-between">
                           <span className="text-[11px] font-bold text-amber-900 flex items-center gap-1.5">
                             <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
-                            Phát hiện {orphanScanResult.orphanProjects.length} dự án mồ côi ({orphanScanResult.totalOrphanKeys} khóa dữ liệu)
+                            Phát hiện {orphanScanResult.orphanProjects.length} dự án cục bộ chưa liên kết Cloud ({orphanScanResult.totalOrphanKeys} khóa dữ liệu)
                           </span>
                           <div className="flex items-center gap-1.5">
                             <button
@@ -3451,32 +3514,48 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                           </div>
                         </div>
 
-                        <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                        <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
                           {orphanScanResult.orphanProjects.map(p => (
-                            <label
+                            <div
                               key={p.id}
-                              className="flex items-center justify-between p-2 bg-white rounded-lg border border-amber-200/80 hover:bg-amber-50/50 cursor-pointer text-[11px]"
+                              className="p-2 bg-white rounded-lg border border-amber-200/80 text-[11px] space-y-2"
                             >
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="checkbox"
-                                  checked={selectedOrphanIds.includes(p.id)}
-                                  onChange={e => {
-                                    if (e.target.checked) {
-                                      setSelectedOrphanIds([...selectedOrphanIds, p.id]);
-                                    } else {
-                                      setSelectedOrphanIds(selectedOrphanIds.filter(id => id !== p.id));
-                                    }
-                                  }}
-                                  className="w-3.5 h-3.5 text-amber-600 rounded"
-                                />
-                                <span className="font-bold text-slate-800">{p.name}</span>
-                                <span className="text-[9px] text-slate-400 font-mono">({p.id})</span>
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="font-bold text-slate-800 truncate">{p.name}</div>
+                                  <div className="text-[9px] text-slate-400 font-mono break-all">{p.id}</div>
+                                </div>
+                                <span className="shrink-0 text-[10px] text-slate-500 font-medium bg-slate-100 px-1.5 py-0.5 rounded">
+                                  {p.keys.length} mục
+                                </span>
                               </div>
-                              <span className="text-[10px] text-slate-500 font-medium bg-slate-100 px-1.5 py-0.5 rounded">
-                                {p.keys.length} mục
-                              </span>
-                            </label>
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleRecoverLocalProject(p)}
+                                  disabled={Boolean(recoveringOrphanId)}
+                                  className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10.5px] font-bold flex items-center gap-1.5 disabled:opacity-50"
+                                >
+                                  {recoveringOrphanId === p.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <CloudUpload className="w-3 h-3" />}
+                                  {recoveringOrphanId === p.id ? 'Đang khôi phục...' : 'Khôi phục lên Cloud'}
+                                </button>
+                                <label className="flex items-center gap-1.5 text-[10px] text-rose-700 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedOrphanIds.includes(p.id)}
+                                    onChange={e => {
+                                      if (e.target.checked) {
+                                        setSelectedOrphanIds([...selectedOrphanIds, p.id]);
+                                      } else {
+                                        setSelectedOrphanIds(selectedOrphanIds.filter(id => id !== p.id));
+                                      }
+                                    }}
+                                    className="w-3.5 h-3.5 text-rose-600 rounded"
+                                  />
+                                  Chọn để xóa khỏi máy
+                                </label>
+                              </div>
+                            </div>
                           ))}
                         </div>
 
@@ -3497,7 +3576,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                             className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[11px] font-bold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40 shadow-xs"
                           >
                             {isCleaningOrphans ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
-                            <span>Xóa vĩnh viễn ({selectedOrphanIds.length})</span>
+                            <span>Xóa khỏi máy ({selectedOrphanIds.length})</span>
                           </button>
                         </div>
                       </div>

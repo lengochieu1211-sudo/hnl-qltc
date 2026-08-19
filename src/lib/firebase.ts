@@ -176,15 +176,22 @@ export function subscribeCurrentUserProjectsRealtime(onUpdate: (projects: CloudP
   const email = normalizeEmail(user.email);
   let userProjects: Record<string, any> = {};
   let invitationProjects: Record<string, any> = {};
+  let ownerUidProjects: Record<string, any> = {};
+  let ownerEmailProjects: Record<string, any> = {};
   let cancelled = false;
   let refreshSeq = 0;
 
   const emit = async () => {
     const seq = ++refreshSeq;
-    const ids = new Set<string>([...Object.keys(userProjects), ...Object.keys(invitationProjects)]);
+    const ids = new Set<string>([
+      ...Object.keys(userProjects),
+      ...Object.keys(invitationProjects),
+      ...Object.keys(ownerUidProjects),
+      ...Object.keys(ownerEmailProjects),
+    ]);
     const result: CloudProjectSummary[] = [];
     for (const id of ids) {
-      const hint = userProjects[id] || invitationProjects[id] || {};
+      const hint = userProjects[id] || invitationProjects[id] || ownerUidProjects[id] || ownerEmailProjects[id] || {};
       try {
         const snap = await getDoc(doc(db, 'projects', id));
         if (!snap.exists() || snap.data()?.deleted) continue;
@@ -210,6 +217,37 @@ export function subscribeCurrentUserProjectsRealtime(onUpdate: (projects: CloudP
     snap.docs.forEach((d) => { const x=d.data(); if (x?.projectId) invitationProjects[String(x.projectId)] = { id: String(x.projectId), role: x.role || 'VIEWER', updatedAt: Number(x.updatedAt || x.createdAt || 0) }; });
     emit();
   }, (err) => console.warn('Project invitations realtime error:', err)));
+
+  // Recovery path for legacy projects whose users/{uid}.projects index was never
+  // created or was lost during an old migration. Owner UID/email is authoritative
+  // and lets the same Google account rediscover the project without creating a copy.
+  const ownerUidQ = query(collection(db, 'projects'), where('ownerUid', '==', user.uid));
+  unsubs.push(onSnapshot(ownerUidQ, (snap) => {
+    ownerUidProjects = {};
+    snap.docs.forEach((d) => {
+      const x = d.data();
+      if (!x?.deleted) {
+        const name = String(x?.name || d.id);
+        ownerUidProjects[d.id] = { id: d.id, name, role: 'ADMIN', updatedAt: Number(x?.updatedAt || 0) };
+        registerProjectForCurrentUser(d.id, name, 'ADMIN').catch(() => {});
+      }
+    });
+    emit();
+  }, (err) => console.warn('Owner UID projects realtime recovery warning:', err)));
+
+  const ownerEmailQ = query(collection(db, 'projects'), where('ownerEmail', '==', email));
+  unsubs.push(onSnapshot(ownerEmailQ, (snap) => {
+    ownerEmailProjects = {};
+    snap.docs.forEach((d) => {
+      const x = d.data();
+      if (!x?.deleted) {
+        const name = String(x?.name || d.id);
+        ownerEmailProjects[d.id] = { id: d.id, name, role: 'ADMIN', updatedAt: Number(x?.updatedAt || 0) };
+        registerProjectForCurrentUser(d.id, name, 'ADMIN').catch(() => {});
+      }
+    });
+    emit();
+  }, (err) => console.warn('Owner email projects realtime recovery warning:', err)));
 
   return () => { cancelled = true; unsubs.forEach((u) => u()); };
 }

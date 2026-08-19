@@ -199,65 +199,129 @@ export function computeRoomLabelPositions<T extends { x?: number; y?: number; wi
   rooms: T[],
   existingObstacles: MapObstacle[] = []
 ): RoomMapLabelPos[] {
-  const badgeRadius = 1.85;
-  const placed: Array<{ x: number; y: number; radius: number }> = [];
+  // Room numbers are rendered as compact white pills (no "#" on-map).
+  // One digit is nearly circular; two/three digits gain only enough width for readability.
+  // Collision uses the real pill box instead of the old oversized fixed circle.
+  const placed: Box[] = [];
 
-  return rooms.map((r) => {
-    let cx = (typeof r.x === 'number' ? r.x : 10) + (r.width || 15) / 2;
-    let cy = (typeof r.y === 'number' ? r.y : 10) + (r.height || 15) / 2;
-    let isSmall = !!((r.width && r.width < 5) || (r.height && r.height < 5));
+  return rooms.map((r, index) => {
+    let minX = typeof r.x === 'number' ? r.x : 10;
+    let minY = typeof r.y === 'number' ? r.y : 10;
+    let maxX = minX + (r.width || 15);
+    let maxY = minY + (r.height || 15);
 
     if (r.points && r.points.length > 0) {
-      cx = r.points.reduce((sum, p) => sum + p.x, 0) / r.points.length;
-      cy = r.points.reduce((sum, p) => sum + p.y, 0) / r.points.length;
-      const minX = Math.min(...r.points.map((p) => p.x));
-      const maxX = Math.max(...r.points.map((p) => p.x));
-      const minY = Math.min(...r.points.map((p) => p.y));
-      const maxY = Math.max(...r.points.map((p) => p.y));
-      if ((maxX - minX) < 5 || (maxY - minY) < 5) isSmall = true;
+      minX = Math.min(...r.points.map((p) => p.x));
+      maxX = Math.max(...r.points.map((p) => p.x));
+      minY = Math.min(...r.points.map((p) => p.y));
+      maxY = Math.max(...r.points.map((p) => p.y));
     }
 
-    cx = clamp(cx, 2.2, 97.8);
-    cy = clamp(cy, 2.2, 97.8);
+    const roomWidth = Math.max(0.5, maxX - minX);
+    const roomHeight = Math.max(0.5, maxY - minY);
+    let cx = (minX + maxX) / 2;
+    let cy = (minY + maxY) / 2;
+    cx = clamp(cx, 1.5, 98.5);
+    cy = clamp(cy, 1.5, 98.5);
 
-    const collides = (x: number, y: number) => {
-      if (placed.some((p) => Math.hypot(p.x - x, p.y - y) < p.radius + badgeRadius + 0.7)) return true;
-      if (existingObstacles.some((o) => Math.hypot(o.x - x, o.y - y) < (o.radius ?? 1.3) + badgeRadius + 0.65)) return true;
+    const digits = String(index + 1).length;
+    const labelWidth = digits <= 1 ? 1.75 : digits === 2 ? 2.35 : 2.85;
+    const labelHeight = 1.70;
+    const edgePadX = labelWidth / 2 + 0.55;
+    const edgePadY = labelHeight / 2 + 0.55;
+
+    const collides = (x: number, y: number): boolean => {
+      const box = makeBox(x, y, labelWidth, labelHeight);
+      if (placed.some((p) => boxesOverlap(box, p, 0.48))) return true;
+      // Raw Defect origins are protected with extra clearance so a room pill
+      // never sits on top of the Defect pin/origin.
+      if (existingObstacles.some((o) => circleIntersectsBox(o.x, o.y, o.radius ?? 1.10, box, 0.60))) return true;
       return false;
     };
 
+    // Architectural drawings commonly put text / dimensions near the centre.
+    // Prefer quiet in-room zones first: upper-left, upper-right, lower-left,
+    // lower-right, then edge-midpoints. Centre is deliberately last.
+    const insetX = Math.min(Math.max(roomWidth * 0.22, edgePadX), Math.max(edgePadX, roomWidth / 2));
+    const insetY = Math.min(Math.max(roomHeight * 0.22, edgePadY), Math.max(edgePadY, roomHeight / 2));
+    const inRoomCandidates = [
+      { x: minX + insetX, y: minY + insetY },
+      { x: maxX - insetX, y: minY + insetY },
+      { x: minX + insetX, y: maxY - insetY },
+      { x: maxX - insetX, y: maxY - insetY },
+      { x: minX + roomWidth * 0.50, y: minY + insetY },
+      { x: minX + insetX, y: minY + roomHeight * 0.50 },
+      { x: maxX - insetX, y: minY + roomHeight * 0.50 },
+      { x: minX + roomWidth * 0.50, y: maxY - insetY },
+      { x: cx, y: cy },
+    ].map((p) => ({
+      x: clamp(p.x, edgePadX, 100 - edgePadX),
+      y: clamp(p.y, edgePadY, 100 - edgePadY),
+    }));
+
     let lx = cx;
     let ly = cy;
-    let isOffset = false;
-    let showLabel = true;
+    let showLabel = false;
+    let usedExternalFallback = false;
 
-    if (isSmall || collides(lx, ly)) {
-      let found = false;
-      for (const off of ROOM_CANDIDATES) {
-        const tx = clamp(cx + off.dx, badgeRadius + 0.7, 100 - badgeRadius - 0.7);
-        const ty = clamp(cy + off.dy, badgeRadius + 0.7, 100 - badgeRadius - 0.7);
-        if (!collides(tx, ty)) {
-          lx = tx;
-          ly = ty;
-          isOffset = true;
-          found = true;
+    // For normal-sized rooms, stay inside the highlight whenever possible.
+    const canFitInside = roomWidth >= labelWidth + 1.0 && roomHeight >= labelHeight + 1.0;
+    if (canFitInside) {
+      for (const candidate of inRoomCandidates) {
+        if (!collides(candidate.x, candidate.y)) {
+          lx = candidate.x;
+          ly = candidate.y;
+          showLabel = true;
           break;
         }
       }
-      if (!found && collides(lx, ly)) {
-        // Do not knowingly overlap. Room name remains available in the legend table.
-        showLabel = false;
+    }
+
+    // Dense/small room: fan out around the room centroid while still avoiding
+    // room badges and all Defect origins.
+    if (!showLabel) {
+      for (const off of ROOM_CANDIDATES) {
+        const tx = clamp(cx + off.dx, edgePadX, 100 - edgePadX);
+        const ty = clamp(cy + off.dy, edgePadY, 100 - edgePadY);
+        if (!collides(tx, ty)) {
+          lx = tx;
+          ly = ty;
+          showLabel = true;
+          usedExternalFallback = true;
+          break;
+        }
       }
     }
 
-    if (showLabel) placed.push({ x: lx, y: ly, radius: badgeRadius });
+    // Last-resort angular search. Prefer legend-only over knowingly overlapping
+    // a Defect or another room marker.
+    if (!showLabel) {
+      for (let radius = 4; radius <= 18 && !showLabel; radius += 2) {
+        for (let angle = 0; angle < 360; angle += 30) {
+          const rad = angle * Math.PI / 180;
+          const tx = clamp(cx + Math.cos(rad) * radius, edgePadX, 100 - edgePadX);
+          const ty = clamp(cy + Math.sin(rad) * radius, edgePadY, 100 - edgePadY);
+          if (!collides(tx, ty)) {
+            lx = tx;
+            ly = ty;
+            showLabel = true;
+            usedExternalFallback = true;
+            break;
+          }
+        }
+      }
+    }
+
+    if (showLabel) placed.push(makeBox(lx, ly, labelWidth, labelHeight));
 
     return {
       x: cx,
       y: cy,
       lx,
       ly,
-      isOffset: showLabel && (isOffset || Math.hypot(lx - cx, ly - cy) > 1.8),
+      // Normal in-room corner placement needs no leader line; only collision
+      // fallback outside the room gets a leader to keep the drawing clean.
+      isOffset: showLabel && usedExternalFallback && Math.hypot(lx - cx, ly - cy) > 1.8,
       showLabel,
     };
   });

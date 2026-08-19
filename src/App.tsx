@@ -1106,10 +1106,24 @@ export default function App() {
         };
       });
 
-      // Khi đã đăng nhập, danh sách Cloud là nguồn sự thật.
-      // Không tự ghép project local cũ vào danh sách Cloud vì có thể làm dự án đã xóa/tồn tại cũ xuất hiện lại.
-      // Cache local chỉ phản chiếu các project mà tài khoản hiện tại đang được Firestore cho phép truy cập.
-      const nextCache = cloudBacked;
+      // Cloud remains authoritative for synced projects, but never silently discard
+      // a legacy local project that still has data unless it was explicitly deleted.
+      // Such a project stays visible on this device as a recovery candidate and can be
+      // re-linked to Cloud with the exact same projectId from Project Manager.
+      let deletedProjectIds = new Set<string>();
+      try {
+        const rawDeleted = JSON.parse(localStorage.getItem('construction_deleted_projects') || '[]');
+        if (Array.isArray(rawDeleted)) {
+          deletedProjectIds = new Set(rawDeleted.filter((x: any) => x?.deleted).map((x: any) => String(x.projectId || '')));
+        }
+      } catch (_) {}
+      const recoverableLocal = localProjects.filter((p) =>
+        p.id !== 'default' &&
+        !cloudIds.has(p.id) &&
+        !deletedProjectIds.has(p.id) &&
+        Number(p.updatedAt || 0) > 0
+      );
+      const nextCache = [...cloudBacked, ...recoverableLocal.filter((p) => !cloudBacked.some((c) => c.id === p.id))];
       saveProjectsList(nextCache);
 
       const currentActive = getActiveProjectId();
