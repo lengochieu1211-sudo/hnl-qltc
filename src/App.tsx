@@ -1062,12 +1062,13 @@ export default function App() {
       if (!photoUser || photoUser.isAnonymous || switchingProjectRef.current) return;
       if (photoSyncTimerRef.current) window.clearTimeout(photoSyncTimerRef.current);
       const projectId = activeProjectIdRef.current;
+      const mobilePhotoSyncDelay = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent || '') ? 1800 : 700;
       photoSyncTimerRef.current = window.setTimeout(() => {
         setPhotoCloudStatus({ phase: 'syncing' });
         syncProjectPhotosToCloud(projectId)
           .then(() => setPhotoCloudStatus({ phase: 'synced', pending: 0, lastSyncAt: Date.now() }))
           .catch((err) => setPhotoCloudStatus({ phase: 'error', message: err?.message || String(err) }));
-      }, 700);
+      }, mobilePhotoSyncDelay);
     };
     window.addEventListener('qlct-photo-attachments-changed', handlePhotoAttachmentsChanged);
     return () => {

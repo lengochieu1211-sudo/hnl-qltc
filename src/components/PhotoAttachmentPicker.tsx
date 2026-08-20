@@ -23,6 +23,13 @@ const notifyPhotoAttachmentsChanged = (detail?: Record<string, any>) => {
   }
 };
 
+const revokeBlobUrl = (url?: string) => {
+  if (url && url.startsWith('blob:')) {
+    try { URL.revokeObjectURL(url); } catch {}
+  }
+};
+
+
 export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
   projectId,
   entityType,
@@ -42,14 +49,22 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
   const [photoSortOrder, setPhotoSortOrder] = useState<'asc' | 'desc'>('desc');
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const libraryInputRef = useRef<HTMLInputElement | null>(null);
+  const pickerInstanceIdRef = useRef(`photo-picker-${Math.random().toString(36).slice(2)}-${Date.now()}`);
+  const photoDataUrlsRef = useRef<Record<string, string>>({});
+  const loadSeqRef = useRef(0);
   
   // Image editor state
   const [editingPhoto, setEditingPhoto] = useState<{ id: string; url: string } | null>(null);
 
   const loadPhotos = async () => {
+    const loadSeq = ++loadSeqRef.current;
     if (!projectId || !entityId) {
       setPhotos([]);
-      setPhotoDataUrls({});
+      setPhotoDataUrls((prev) => {
+        Object.values(prev).forEach(revokeBlobUrl);
+        photoDataUrlsRef.current = {};
+        return {};
+      });
       setLoading(false);
       return;
     }
@@ -66,19 +81,43 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
           if (url) urlMap[p.id] = url;
         })
       );
-      setPhotoDataUrls(urlMap);
+      if (loadSeq !== loadSeqRef.current) {
+        Object.values(urlMap).forEach(revokeBlobUrl);
+        return;
+      }
+      setPhotoDataUrls((prev) => {
+        Object.values(prev).forEach(revokeBlobUrl);
+        photoDataUrlsRef.current = urlMap;
+        return urlMap;
+      });
 
       if (onPhotosChanged) onPhotosChanged(items);
     } catch (err) {
       console.error('Error loading photo attachments:', err);
     } finally {
-      setLoading(false);
+      if (loadSeq === loadSeqRef.current) setLoading(false);
     }
   };
 
   useEffect(() => {
     loadPhotos();
-    const handleExternalPhotoChange = () => loadPhotos();
+    const handleExternalPhotoChange = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail || {};
+      if (detail.originId && detail.originId === pickerInstanceIdRef.current) return;
+      if (detail.source === 'cloud' && Array.isArray(detail.entities)) {
+        const relevant = detail.entities.some((item: any) =>
+          item?.entityType === entityType &&
+          item?.entityId === entityId &&
+          (!item?.category || item.category === category)
+        );
+        if (!relevant) return;
+      } else {
+        if (detail.entityType && detail.entityType !== entityType) return;
+        if (detail.entityId && detail.entityId !== entityId) return;
+        if (detail.category && detail.category !== category) return;
+      }
+      loadPhotos().catch(() => {});
+    };
     if (typeof window !== 'undefined') {
       window.addEventListener('qlct-photo-attachments-changed', handleExternalPhotoChange);
     }
@@ -88,6 +127,15 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
       }
     };
   }, [projectId, entityType, entityId, category]);
+
+  useEffect(() => {
+    photoDataUrlsRef.current = photoDataUrls;
+  }, [photoDataUrls]);
+
+  useEffect(() => () => {
+    loadSeqRef.current += 1;
+    Object.values(photoDataUrlsRef.current).forEach(revokeBlobUrl);
+  }, []);
 
   const processSelectedFiles = async (files: FileList | File[] | null) => {
     const selected = files ? Array.from(files) : [];
@@ -143,12 +191,26 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
       // round-trips; this fixes the "saved but image does not appear" behavior on mobile.
       if (savedNow.length > 0) {
         setPhotos((prev) => [...savedNow, ...prev.filter((p) => !savedNow.some((n) => n.id === p.id))]);
-        setPhotoDataUrls((prev) => ({ ...prev, ...optimisticUrls }));
+        setPhotoDataUrls((prev) => {
+          const next = { ...prev, ...optimisticUrls };
+          Object.keys(optimisticUrls).forEach((id) => {
+            if (prev[id] && prev[id] !== optimisticUrls[id]) revokeBlobUrl(prev[id]);
+          });
+          photoDataUrlsRef.current = next;
+          return next;
+        });
       }
 
-      notifyPhotoAttachmentsChanged({ operation: 'add', entityType, entityId, category, count: savedNow.length });
-      // A background reload normalizes metadata after the optimistic render.
-      window.setTimeout(() => { loadPhotos().catch(() => {}); }, 50);
+      notifyPhotoAttachmentsChanged({
+        operation: 'add',
+        entityType,
+        entityId,
+        category,
+        count: savedNow.length,
+        originId: pickerInstanceIdRef.current,
+      });
+      // No immediate self-reload: the optimistic thumbnail is already correct.
+      // Avoiding a second IndexedDB pass materially reduces mobile RAM/CPU spikes.
     } catch (err: any) {
       console.error('Error uploading photo:', err);
       alert(err?.message || 'Có lỗi xảy ra khi xử lý ảnh. Vui lòng thử lại.');
@@ -170,11 +232,16 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
     if (!confirmed) return;
     try {
       await deletePhotoAttachment(projectId, photoId);
-      notifyPhotoAttachmentsChanged({ operation: 'delete', entityType, entityId, category, photoId });
+      notifyPhotoAttachmentsChanged({ operation: 'delete', entityType, entityId, category, photoId, originId: pickerInstanceIdRef.current });
       await loadPhotos();
     } catch (err) {
       console.error('Error deleting photo:', err);
     }
+  };
+
+  const closeEditingPhoto = () => {
+    if (editingPhoto?.url) revokeBlobUrl(editingPhoto.url);
+    setEditingPhoto(null);
   };
 
   const handleStartEditPhoto = async (photo: PhotoAttachment, e: React.MouseEvent) => {
@@ -183,6 +250,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
     try {
       const fullUrl = await getPhotoDataUrl(photo.id, photo.cloudUrl || photo.cloudFileId, false);
       if (fullUrl) {
+        if (editingPhoto?.url) revokeBlobUrl(editingPhoto.url);
         setEditingPhoto({ id: photo.id, url: fullUrl });
       }
     } catch (err) {
@@ -195,8 +263,8 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
     try {
       setUploading(true);
       await updatePhotoAttachmentBlob(projectId, editingPhoto.id, editedFile);
-      setEditingPhoto(null);
-      notifyPhotoAttachmentsChanged({ operation: 'edit', entityType, entityId, category, photoId: editingPhoto.id });
+      closeEditingPhoto();
+      notifyPhotoAttachmentsChanged({ operation: 'edit', entityType, entityId, category, photoId: editingPhoto.id, originId: pickerInstanceIdRef.current });
       await loadPhotos();
     } catch (err) {
       console.error('Error saving edited photo:', err);
@@ -359,7 +427,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
       {editingPhoto && (
         <ImageEditorModal
           isOpen={!!editingPhoto}
-          onClose={() => setEditingPhoto(null)}
+          onClose={closeEditingPhoto}
           imageUrl={editingPhoto.url}
           onSave={handleSaveEditedPhoto}
         />

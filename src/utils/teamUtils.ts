@@ -284,20 +284,22 @@ export function calculateTeamStatistics(params: {
               const allBoardSubs = allSubItemsInCat.filter(s => s.name.toLowerCase().includes('tấm') || s.name.toLowerCase().includes('bắn'));
 
               const totalCatWeight = allSubItemsInCat.reduce((sum, s) => sum + getSubItemGroupWeight(allSubItemsInCat, s), 0);
-              const inspectedCatWeight = subItemsInCat.filter((s) => s.inspectionStatus === 'Đạt nghiệm thu')
+              // Every progress/inspection volume is measured against the SAME category
+              // denominator. This guarantees a team's completed volume can never exceed
+              // the volume actually assigned to that team.
+              const inspectedCatWeight = subItemsInCat
+                .filter((s) => s.status === 'Đã hoàn thành' && s.inspectionStatus === 'Đạt nghiệm thu')
+                .reduce((sum, s) => sum + getSubItemGroupWeight(allSubItemsInCat, s), 0);
+              const doneFrameWeight = frameSubs
+                .filter(s => s.status === 'Đã hoàn thành')
+                .reduce((sum, s) => sum + getSubItemGroupWeight(allSubItemsInCat, s), 0);
+              const doneBoardWeight = boardSubs
+                .filter(s => s.status === 'Đã hoàn thành')
                 .reduce((sum, s) => sum + getSubItemGroupWeight(allSubItemsInCat, s), 0);
 
-              const totalFrameWeight = allFrameSubs.reduce((sum, s) => sum + getSubItemGroupWeight(allFrameSubs, s), 0);
-              const doneFrameWeight = frameSubs.filter(s => s.status === 'Đã hoàn thành' || s.inspectionStatus === 'Đạt nghiệm thu')
-                .reduce((sum, s) => sum + getSubItemGroupWeight(allFrameSubs, s), 0);
-
-              const totalBoardWeight = allBoardSubs.reduce((sum, s) => sum + getSubItemGroupWeight(allBoardSubs, s), 0);
-              const doneBoardWeight = boardSubs.filter(s => s.status === 'Đã hoàn thành' || s.inspectionStatus === 'Đạt nghiệm thu')
-                .reduce((sum, s) => sum + getSubItemGroupWeight(allBoardSubs, s), 0);
-
               catInspectedVol = catTotalVol * (totalCatWeight > 0 ? inspectedCatWeight / totalCatWeight : 0);
-              catFrameVol = catTotalVol * (allFrameSubs.length > 0 ? (totalFrameWeight > 0 ? doneFrameWeight / totalFrameWeight : 0) : (isMain && room.frameStatus === 'Đã hoàn thành' ? 1 : 0));
-              catBoardVol = catTotalVol * (allBoardSubs.length > 0 ? (totalBoardWeight > 0 ? doneBoardWeight / totalBoardWeight : 0) : (isMain && room.boardStatus === 'Đã hoàn thành' ? 1 : 0));
+              catFrameVol = catTotalVol * (totalCatWeight > 0 ? doneFrameWeight / totalCatWeight : 0);
+              catBoardVol = catTotalVol * (totalCatWeight > 0 ? doneBoardWeight / totalCatWeight : 0);
             }
           } else {
             if (isMain) {
@@ -320,6 +322,27 @@ export function calculateTeamStatistics(params: {
           floorGroupMap[fName].categoryDetails[cat].doneBoardVol += catBoardVol;
           floorGroupMap[fName].categoryDetails[cat].doneInspectedVol += catInspectedVol;
 
+          // Derive the row statuses from the exact sub-items assigned to this team,
+          // not from the room-wide legacy status. This keeps UI/Excel consistent when
+          // different teams handle Khung and Tấm in the same Căn / Phòng.
+          const aggregateWorkStatus = (items: RoomSubItem[], fallback: any) => {
+            if (items.length === 0) return fallback;
+            if (items.every(s => s.status === 'Đã hoàn thành')) return 'Đã hoàn thành';
+            if (items.some(s => s.status === 'Đang làm' || s.status === 'Đã hoàn thành')) return 'Đang làm';
+            return 'Chưa làm';
+          };
+          const aggregateInspectionStatus = (items: RoomSubItem[], fallback: any) => {
+            if (items.length === 0) return fallback;
+            if (items.some(s => s.inspectionStatus === 'Chưa đạt (Cần sửa)')) return 'Chưa đạt (Cần sửa)';
+            if (items.every(s => s.status === 'Đã hoàn thành' && s.inspectionStatus === 'Đạt nghiệm thu')) return 'Đạt nghiệm thu';
+            return 'Chưa nghiệm thu';
+          };
+          const teamFrameSubs = subItemsInCat.filter(s => s.name.toLowerCase().includes('khung'));
+          const teamBoardSubs = subItemsInCat.filter(s => s.name.toLowerCase().includes('tấm') || s.name.toLowerCase().includes('bắn'));
+          const derivedFrameStatus = aggregateWorkStatus(teamFrameSubs, room.frameStatus);
+          const derivedBoardStatus = aggregateWorkStatus(teamBoardSubs, room.boardStatus);
+          const derivedInspectionStatus = aggregateInspectionStatus(subItemsInCat, room.inspectionStatus);
+
           // Add to teamRoomDetails for individual room detail sheet (Fix P0-12)
           teamRoomDetails.push({
             roomId: room.id,
@@ -336,9 +359,9 @@ export function calculateTeamStatistics(params: {
             boardVolume: Math.round(catBoardVol * 100) / 100,
             inspectedVolume: Math.round(catInspectedVol * 100) / 100,
             progress: catAssignedVol > 0 ? Math.min(100, Math.round((catInspectedVol / catAssignedVol) * 100)) : (room.inspectionStatus === 'Đạt nghiệm thu' ? 100 : 0),
-            frameStatus: room.frameStatus,
-            boardStatus: room.boardStatus,
-            inspectionStatus: room.inspectionStatus,
+            frameStatus: derivedFrameStatus,
+            boardStatus: derivedBoardStatus,
+            inspectionStatus: derivedInspectionStatus,
             targetDate: room.targetBoardDate || room.targetFrameDate || '',
             notes: room.notes
           });

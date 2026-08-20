@@ -312,7 +312,8 @@ export function subscribeProjectPhotosRealtime(
     try {
       onStatus?.({ phase: 'syncing', pending: snap.docChanges().length });
       const cloudPhotos = snap.docs.map((d) => ({ id: d.id, ...d.data() } as PhotoAttachment));
-      await mergeCloudPhotoMetadata(projectId, cloudPhotos);
+      const changedPhotos = snap.docChanges().map((change) => ({ id: change.doc.id, ...change.doc.data() } as PhotoAttachment));
+      await mergeCloudPhotoMetadata(projectId, cloudPhotos, changedPhotos);
       onStatus?.({ phase: 'synced', pending: 0, lastSyncAt: Date.now() });
 
       if (firstSnapshot) {

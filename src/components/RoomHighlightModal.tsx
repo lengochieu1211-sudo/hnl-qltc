@@ -714,7 +714,21 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
   // Update sub item field
   const handleUpdateSubItem = (id: string, patch: Partial<RoomSubItem>) => {
-    setSubItems(prev => prev.map(item => item.id === id ? { ...item, ...patch } : item));
+    setSubItems(prev => prev.map(item => {
+      if (item.id !== id) return item;
+      const next = { ...item, ...patch };
+      // A work step cannot stay "Đạt nghiệm thu" after its construction status
+      // is moved back to Chưa làm / Đang làm. Keep old data compatible but
+      // prevent creating new contradictory states.
+      if (patch.status && patch.status !== 'Đã hoàn thành' && next.inspectionStatus === 'Đạt nghiệm thu') {
+        next.inspectionStatus = 'Chưa nghiệm thu';
+      }
+      // Passing inspection is only valid after construction is completed.
+      if (patch.inspectionStatus === 'Đạt nghiệm thu' && next.status !== 'Đã hoàn thành') {
+        return item;
+      }
+      return next;
+    }));
   };
 
   // Delete sub item
@@ -1485,8 +1499,12 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                 <button
                                   key={st}
                                   type="button"
+                                  disabled={st === 'Đạt nghiệm thu' && item.status !== 'Đã hoàn thành'}
+                                  title={st === 'Đạt nghiệm thu' && item.status !== 'Đã hoàn thành' ? 'Phải hoàn thành thi công trước khi đạt nghiệm thu' : undefined}
                                   onClick={() => handleUpdateSubItem(item.id, { inspectionStatus: st })}
-                                  className={`py-1.5 px-1 rounded-xl font-bold text-[10px] transition-all border cursor-pointer ${
+                                  className={`py-1.5 px-1 rounded-xl font-bold text-[10px] transition-all border ${
+                                    st === 'Đạt nghiệm thu' && item.status !== 'Đã hoàn thành' ? 'opacity-40 cursor-not-allowed bg-slate-50 text-slate-400 border-slate-200' : 'cursor-pointer'
+                                  } ${
                                     item.inspectionStatus === st
                                       ? st === 'Đạt nghiệm thu'
                                         ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-black'

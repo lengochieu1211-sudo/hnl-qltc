@@ -1,6 +1,6 @@
 import localforage from 'localforage';
 import { getAsyncItem, setAsyncItem, removeAsyncItem } from './asyncStorage';
-import { compressImage } from './imageCompressor';
+import { compressImage, compressImageToBlob } from './imageCompressor';
 import { getImageQualityProfile } from './imageQualitySettings';
 import { apiUrl, hasApiBackend } from './api';
 
@@ -40,6 +40,14 @@ export interface PhotoAttachment {
 const getPhotoListKey = (projectId: string) => `construction_photos_${projectId}`;
 const getPhotoBlobKey = (photoId: string) => `photo_blob_${photoId}`;
 const getPhotoThumbKey = (photoId: string) => `photo_thumb_${photoId}`;
+
+
+const blobToDataUrl = (blob: Blob): Promise<string> => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(String(reader.result || ''));
+  reader.onerror = () => reject(reader.error || new Error('Không đọc được ảnh.'));
+  reader.readAsDataURL(blob);
+});
 
 function dataURItoBlob(dataURI: string): Blob {
   try {
@@ -105,24 +113,22 @@ export async function savePhotoAttachment(
 ): Promise<PhotoAttachment> {
   const photoId = generatePhotoUUID();
   
-  // 1. Separate quality profiles for Defect and Quân số photos.
+  // 1. Compress camera/gallery input directly to a Blob. Never create a large
+  // Base64 copy of the main photo before storing it; this is critical on Android.
   const photoKind = photo.entityType === 'defect' ? 'defect' : 'crew';
   const profile = getImageQualityProfile(photoKind);
-  const compressedDataUrl = await compressImage(imageSource, profile.maxDimension, profile.quality);
-  if (!compressedDataUrl || !compressedDataUrl.startsWith('data:image/')) {
+  const mainBlob = await compressImageToBlob(imageSource, profile.maxDimension, profile.quality);
+  if (!mainBlob || mainBlob.size <= 0) {
     throw new Error('Không đọc được ảnh đã chọn/chụp. Hãy dùng ảnh JPG, PNG hoặc WebP và thử lại.');
   }
-  const mainBlob = dataURItoBlob(compressedDataUrl);
-  if (!mainBlob || mainBlob.size <= 0) {
-    throw new Error('Ảnh sau khi xử lý bị rỗng. Ứng dụng chưa lưu ảnh để tránh tạo tệp lỗi.');
-  }
-  
-  // 2. Compress thumbnail image to max 320px, quality 0.70
+
+  // 2. Build a tiny 320px thumbnail from the already-compressed Blob. This keeps
+  // the immediate React preview small instead of holding a full-resolution data URL.
   let thumbBlob: Blob | null = null;
   let thumbDataUrl = '';
   try {
-    thumbDataUrl = await compressImage(compressedDataUrl, 320, 0.70);
-    thumbBlob = dataURItoBlob(thumbDataUrl);
+    thumbBlob = await compressImageToBlob(mainBlob, 320, 0.70);
+    if (thumbBlob) thumbDataUrl = await blobToDataUrl(thumbBlob);
   } catch (_) {}
 
   const now = Date.now();
@@ -149,7 +155,7 @@ export async function savePhotoAttachment(
     console.warn('Could not store photo blob in localforage:', err);
     // Fallback to data URL if Blob storage fails
     try {
-      await localforage.setItem(getPhotoBlobKey(photoId), compressedDataUrl);
+      await localforage.setItem(getPhotoBlobKey(photoId), mainBlob);
     } catch (_) {}
   }
 
@@ -158,8 +164,8 @@ export async function savePhotoAttachment(
   const updatedList = [newPhotoMetadata, ...existing.filter(p => p.id !== photoId)];
   await saveProjectPhotos(photo.projectId, updatedList);
 
-  // Return with localUri populated for immediate component rendering
-  return { ...newPhotoMetadata, localUri: compressedDataUrl };
+  // Return only the tiny thumbnail for immediate rendering. The full image stays as a Blob in IndexedDB.
+  return { ...newPhotoMetadata, localUri: thumbDataUrl };
 }
 
 
@@ -179,20 +185,12 @@ export async function cachePhotoBlob(photoId: string, blob: Blob, createThumbnai
   await localforage.setItem(getPhotoBlobKey(photoId), blob);
   if (!createThumbnail) return;
   try {
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(String(reader.result || ''));
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(blob);
-    });
-    if (dataUrl) {
-      const thumbDataUrl = await compressImage(dataUrl, 320, 0.70);
-      await localforage.setItem(getPhotoThumbKey(photoId), dataURItoBlob(thumbDataUrl));
-    }
+    const thumbBlob = await compressImageToBlob(blob, 320, 0.70);
+    if (thumbBlob) await localforage.setItem(getPhotoThumbKey(photoId), thumbBlob);
   } catch (_) {}
 }
 
-export async function mergeCloudPhotoMetadata(projectId: string, cloudPhotos: PhotoAttachment[]): Promise<void> {
+export async function mergeCloudPhotoMetadata(projectId: string, cloudPhotos: PhotoAttachment[], changedPhotos: PhotoAttachment[] = cloudPhotos): Promise<void> {
   if (!projectId || !Array.isArray(cloudPhotos)) return;
   const localPhotos = await getProjectPhotos(projectId, true);
   const localMap = new Map(localPhotos.filter(p => p?.id).map(p => [p.id, p]));
@@ -234,7 +232,14 @@ export async function mergeCloudPhotoMetadata(projectId: string, cloudPhotos: Ph
 
   await saveProjectPhotos(projectId, Array.from(merged.values()));
   if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('qlct-photo-attachments-changed', { detail: { source: 'cloud' } }));
+    const entities = (changedPhotos || []).filter((p) => p?.entityId && p?.entityType).map((p) => ({
+      entityType: p.entityType,
+      entityId: p.entityId,
+      category: p.category,
+    }));
+    window.dispatchEvent(new CustomEvent('qlct-photo-attachments-changed', {
+      detail: { source: 'cloud', projectId, entities }
+    }));
   }
 }
 
@@ -453,17 +458,12 @@ export async function updatePhotoAttachmentBlob(
   const existingPhoto = existingPhotos.find((p) => p.id === photoId);
   const photoKind = existingPhoto?.entityType === 'defect' ? 'defect' : 'crew';
   const profile = getImageQualityProfile(photoKind);
-  const compressedDataUrl = await compressImage(imageSource, profile.maxDimension, profile.quality);
-  if (!compressedDataUrl || !compressedDataUrl.startsWith('data:image/')) {
-    throw new Error('Không đọc được ảnh chỉnh sửa.');
-  }
-  const mainBlob = dataURItoBlob(compressedDataUrl);
-  if (!mainBlob || mainBlob.size <= 0) throw new Error('Ảnh chỉnh sửa bị rỗng.');
+  const mainBlob = await compressImageToBlob(imageSource, profile.maxDimension, profile.quality);
+  if (!mainBlob || mainBlob.size <= 0) throw new Error('Không đọc được ảnh chỉnh sửa.');
 
   let thumbBlob: Blob | null = null;
   try {
-    const thumbDataUrl = await compressImage(compressedDataUrl, 320, 0.70);
-    thumbBlob = dataURItoBlob(thumbDataUrl);
+    thumbBlob = await compressImageToBlob(mainBlob, 320, 0.70);
   } catch (_) {}
 
   const now = Date.now();
@@ -480,7 +480,7 @@ export async function updatePhotoAttachmentBlob(
     return p;
   });
   await saveProjectPhotos(projectId, updated);
-  return compressedDataUrl;
+  return thumbBlob ? await blobToDataUrl(thumbBlob) : '';
 }
 
 export async function deleteEntityPhotos(projectId: string, entityType: 'crewRecord' | 'defect' | 'chat', entityId: string): Promise<void> {

@@ -12,6 +12,7 @@ import { computeDefectLabelPositions, computeRoomLabelPositions } from '../utils
 import { canViewFinancials, getCurrentUserRole, UserRole } from '../utils/securityUtils';
 import { apiFetch, hasApiBackend } from '../utils/api';
 import { saveHtmlPdf } from '../utils/fileExport';
+import { calculateStockSummary } from '../utils/inventoryUtils';
 
 const escapeHtml = (value: unknown): string => String(value ?? '')
   .replace(/&/g, '&amp;')
@@ -59,6 +60,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
 }) => {
   const effectiveRole = userRole || getCurrentUserRole();
   const hasFinancialAccess = canViewFinancials(effectiveRole);
+  const stockSummary = calculateStockSummary(inventory, materialNorms);
   const [selectedFloors, setSelectedFloors] = useState<string[]>(['all']);
   useFormatSettings();
   const [copiedText, setCopiedText] = useState(false);
@@ -338,7 +340,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
         <div class="summary-box">
           ${includeWarehouse ? `
             <div class="card">
-              <h3>${inventory.length}</h3>
+              <h3>${stockSummary.length}</h3>
               <p>Mặt hàng kho</p>
             </div>
           ` : ''}
@@ -360,8 +362,8 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
           ` : ''}
           ${includeChecklist ? `
             <div class="card">
-              <h3 style="color: #059669;">${passRate}%</h3>
-              <p>Đạt Checklist</p>
+              <h3 style="color: #059669;">${filteredChecklist.length > 0 ? `${passRate}%` : '—'}</h3>
+              <p>${filteredChecklist.length > 0 ? 'Đạt Checklist' : 'Chưa có Checklist'}</p>
             </div>
           ` : ''}
           ${includeCrew ? `
@@ -372,7 +374,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
           ` : ''}
         </div>
 
-        ${includeWarehouse ? (inventory.length > 0 ? `
+        ${includeWarehouse ? (stockSummary.length > 0 ? `
           <div class="section-title">📦 KHO VẬT TƯ &amp; TỒN KHO CÔNG TRÌNH</div>
           <table>
             <thead>
@@ -386,14 +388,14 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
               </tr>
             </thead>
             <tbody>
-              ${inventory.map((item, idx) => `
+              ${stockSummary.map((item, idx) => `
                 <tr>
                   <td style="text-align: center;">${idx + 1}</td>
-                  <td><strong>${item.materialName || ''}</strong> ${item.id ? `<span style="color: #64748b;">(${item.id})</span>` : ''}</td>
+                  <td><strong>${item.materialName || ''}</strong></td>
                   <td style="text-align: center;">${item.unit || ''}</td>
-                  <td style="text-align: right;"><strong>${formatDecimal(item.quantity)}</strong></td>
-                  <td>${item.location || 'Kho chính'}</td>
-                  <td><span class="badge badge-passed">✅ An Toàn</span></td>
+                  <td style="text-align: right;"><strong>${formatDecimal(item.currentStock)}</strong></td>
+                  <td>Kho tổng</td>
+                  <td><span class="badge ${item.statusSeverity === 'danger' ? 'badge-defect' : item.statusSeverity === 'warning' ? 'badge-pending' : 'badge-passed'}">${item.status}</span></td>
                 </tr>
               `).join('')}
             </tbody>
@@ -1088,7 +1090,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
 📅 *Thời gian:* ${formatDateTime(new Date())}
 
 📊 *TỔNG QUAN:*
-- Kho vật tư: ${inventory.length} mặt hàng
+- Kho vật tư: ${stockSummary.length} mặt hàng
 - Khối lượng thi công: ${workVolumes.length} hạng mục
 - Khu vực / phòng: ${filteredRooms.length} vị trí
 - Defect phát hiện: ${filteredDefects.length} (Cần xử lý: ${openDefectsCount})

@@ -517,6 +517,7 @@ const DefectPhotoStrip: React.FC<DefectPhotoStripProps> = ({
 }) => {
   const [photos, setPhotos] = useState<PhotoAttachment[]>([]);
   const [thumbUrls, setThumbUrls] = useState<string[]>([]);
+  const thumbUrlsRef = useRef<string[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -532,11 +533,16 @@ const DefectPhotoStrip: React.FC<DefectPhotoStripProps> = ({
           visibleItems.map((p) => getPhotoDataUrl(p.id, p.cloudUrl || p.localUri, true))
         );
         if (!cancelled) {
+          const nextThumbs = thumbs.filter(Boolean);
+          thumbUrlsRef.current.forEach((url) => { if (url.startsWith('blob:')) { try { URL.revokeObjectURL(url); } catch {} } });
+          thumbUrlsRef.current = nextThumbs;
           setPhotos(items);
-          setThumbUrls(thumbs.filter(Boolean));
+          setThumbUrls(nextThumbs);
         }
       } catch (err) {
         if (!cancelled) {
+          thumbUrlsRef.current.forEach((url) => { if (url.startsWith('blob:')) { try { URL.revokeObjectURL(url); } catch {} } });
+          thumbUrlsRef.current = [];
           setPhotos([]);
           setThumbUrls([]);
         }
@@ -545,7 +551,20 @@ const DefectPhotoStrip: React.FC<DefectPhotoStripProps> = ({
       }
     };
 
-    const handlePhotosChanged = () => {
+    const handlePhotosChanged = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail || {};
+      if (detail.source === 'cloud' && Array.isArray(detail.entities)) {
+        const relevant = detail.entities.some((item: any) =>
+          item?.entityType === 'defect' &&
+          item?.entityId === defect.id &&
+          (!item?.category || item.category === category)
+        );
+        if (!relevant) return;
+      } else {
+        if (detail.entityType && detail.entityType !== 'defect') return;
+        if (detail.entityId && detail.entityId !== defect.id) return;
+        if (detail.category && detail.category !== category) return;
+      }
       load();
     };
 
@@ -558,6 +577,8 @@ const DefectPhotoStrip: React.FC<DefectPhotoStripProps> = ({
       if (typeof window !== 'undefined') {
         window.removeEventListener('qlct-photo-attachments-changed', handlePhotosChanged);
       }
+      thumbUrlsRef.current.forEach((url) => { if (url.startsWith('blob:')) { try { URL.revokeObjectURL(url); } catch {} } });
+      thumbUrlsRef.current = [];
     };
   }, [projectId, defect.id, category, legacyUrl]);
 
@@ -2186,10 +2207,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         const categorySubs = (room.subItems || []).filter((sub) => (sub.category || room.workCategory) === categoryName);
         if (categorySubs.length > 0) {
           stat.totalSteps += categorySubs.length;
-          stat.doneSteps += categorySubs.filter((sub) => sub.status === 'Đã hoàn thành' || sub.inspectionStatus === 'Đạt nghiệm thu').length;
-          stat.inspectedSteps += categorySubs.filter((sub) => sub.inspectionStatus === 'Đạt nghiệm thu').length;
-          if (categorySubs.every((sub) => sub.status === 'Đã hoàn thành' || sub.inspectionStatus === 'Đạt nghiệm thu')) stat.workDoneCount += 1;
-          if (categorySubs.every((sub) => sub.inspectionStatus === 'Đạt nghiệm thu')) stat.inspectedCount += 1;
+          stat.doneSteps += categorySubs.filter((sub) => sub.status === 'Đã hoàn thành').length;
+          stat.inspectedSteps += categorySubs.filter((sub) => sub.status === 'Đã hoàn thành' && sub.inspectionStatus === 'Đạt nghiệm thu').length;
+          if (categorySubs.every((sub) => sub.status === 'Đã hoàn thành')) stat.workDoneCount += 1;
+          if (categorySubs.every((sub) => sub.status === 'Đã hoàn thành' && sub.inspectionStatus === 'Đạt nghiệm thu')) stat.inspectedCount += 1;
         } else {
           const legacyDone = room.inspectionStatus === 'Đạt nghiệm thu' ||
             (room.frameStatus === 'Đã hoàn thành' && room.boardStatus === 'Đã hoàn thành');
@@ -5361,6 +5382,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     markerY = Math.max(2.5, Math.min(97.5, y + dy));
                   }
                   const pinColor = isResolved ? '#10b981' : isSevere ? '#e11d48' : '#f59e0b';
+                  // Keep Defect markers readable without covering the drawing while zooming.
+                  // The floor-plan container itself grows with zoomScale, so SVG geometry must
+                  // compensate for that growth. Labels use CSS pixels, therefore they only need
+                  // the visual scale. Clamp at 55% so markers never become too tiny on mobile.
+                  const defectVisualScale = Math.max(0.55, Math.min(1, 1 / Math.sqrt(Math.max(1, zoomScale))));
+                  const svgZoomCompensation = defectVisualScale / Math.max(1, zoomScale);
 
                   return (
                     <React.Fragment key={defect.id}>
@@ -5370,9 +5397,24 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         preserveAspectRatio="none"
                         aria-hidden="true"
                       >
-                        <line x1={x} y1={y} x2={markerX} y2={markerY} stroke={pinColor} strokeWidth="0.22" opacity="0.82" />
-                        <circle cx={x} cy={y} r="0.78" fill="white" stroke={pinColor} strokeWidth="0.25" />
-                        <circle cx={x} cy={y} r="0.30" fill={pinColor} />
+                        <line
+                          x1={x}
+                          y1={y}
+                          x2={markerX}
+                          y2={markerY}
+                          stroke={pinColor}
+                          strokeWidth={0.22 * svgZoomCompensation}
+                          opacity="0.82"
+                        />
+                        <circle
+                          cx={x}
+                          cy={y}
+                          r={0.78 * svgZoomCompensation}
+                          fill="white"
+                          stroke={pinColor}
+                          strokeWidth={0.25 * svgZoomCompensation}
+                        />
+                        <circle cx={x} cy={y} r={0.30 * svgZoomCompensation} fill={pinColor} />
                       </svg>
                       <div
                         onClick={(e) => {
@@ -5384,6 +5426,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         title={`${shortDefectCode} · ${defect.category}${defect.description ? ` · ${defect.description}` : ''}`}
                       >
                         <div
+                          style={{
+                            transform: `scale(${defectVisualScale})`,
+                            transformOrigin: 'center',
+                          }}
                           className={`h-6 min-w-7 max-w-20 px-1.5 rounded-full flex items-center justify-center text-white font-black text-[8px] sm:text-[9px] shadow-lg border-2 border-white whitespace-nowrap ${
                             isResolved
                               ? 'bg-emerald-500'
@@ -6802,7 +6848,20 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           }
         };
 
-        const handleStatusChange = (newStatus: DefectStatus) => {
+        const handleStatusChange = async (newStatus: DefectStatus) => {
+          if (newStatus === 'Đã nghiệm thu' && !activeDefectDetail.afterImageUrl) {
+            const projectPhotos = await getProjectPhotos(currentProjectId).catch(() => []);
+            const hasAfterEvidence = projectPhotos.some((photo) =>
+              photo.entityType === 'defect' &&
+              photo.entityId === activeDefectDetail.id &&
+              photo.category === 'defect_after' &&
+              !photo.deleted
+            );
+            if (!hasAfterEvidence) {
+              const ok = await confirmAsync('Defect chưa có ảnh sau sửa/khắc phục. Vẫn chuyển sang Đã nghiệm thu? Chỉ nên tiếp tục khi đã kiểm tra thực tế.');
+              if (!ok) return;
+            }
+          }
           const todayStr = new Date().toISOString().split('T')[0];
           const updated = {
             ...activeDefectDetail,
@@ -6825,7 +6884,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               {/* Header */}
               <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                 <div>
-                  <span className="text-[10px] font-black text-slate-400">[{activeDefectDetail.id}]</span>
+                  <span className="text-[10px] font-black text-slate-400">[{getDefectShortCode(activeDefectDetail.id)}]</span>
                   <h3 className="text-base font-extrabold text-slate-900">{activeDefectDetail.category}</h3>
                 </div>
                 <button onClick={() => setActiveDefectDetail(null)} className="font-bold text-slate-400 hover:text-slate-700">✕</button>
@@ -7503,7 +7562,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       {viewingImageSet && (
         <ImageViewerModal
           isOpen={!!viewingImageSet}
-          onClose={() => setViewingImageSet(null)}
+          onClose={() => {
+            viewingImageSet.images.forEach((url) => {
+              if (url.startsWith('blob:')) { try { URL.revokeObjectURL(url); } catch {} }
+            });
+            setViewingImageSet(null);
+          }}
           images={viewingImageSet.images}
           initialIndex={viewingImageSet.initialIndex}
         />

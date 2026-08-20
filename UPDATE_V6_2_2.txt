@@ -1,0 +1,9 @@
+V6.2.2 - Defect Zoom Marker Scaling
+
+- Mặt bằng Defect: chấm vị trí thật, leader và nhãn 01/DF-01 tự thu nhỏ khi zoom lớn.
+- Không thay đổi x/y thật của Defect.
+- 100%: 100% kích thước.
+- 200%: khoảng 71%.
+- 300%: khoảng 58%.
+- Giới hạn tối thiểu 55% để vẫn thao tác tốt trên điện thoại.
+- Vùng click của marker vẫn giữ nguyên, chỉ phần hiển thị được scale.

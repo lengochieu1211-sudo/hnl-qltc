@@ -1,7 +1,7 @@
 {
   "name": "qlct-an-phu",
   "private": true,
-  "version": "6.2.1",
+  "version": "6.2.6",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -26,7 +26,7 @@
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "multer": "^2.2.0",
-    "pdfjs-dist": "^6.2.108",
+    "pdfjs-dist": "^6.2.208",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "tailwindcss": "^4.1.14",

@@ -131,7 +131,22 @@ service cloud.firestore {
         allow read: if isMember(projectId)
           || (isGoogleAuthed() && memberId == request.auth.uid)
           || (isGoogleAuthed() && memberId == signedInEmail());
-        allow create, update, delete: if isAdmin(projectId);
+
+        // ADMIN manages membership. An invited user may only materialize/update their own
+        // UID member document when an active email-member already exists, and the role
+        // must exactly match that email member. This prevents self role escalation while
+        // making email invitations durable across devices.
+        allow create, update: if isAdmin(projectId) || (
+          isGoogleAuthed()
+          && memberId == request.auth.uid
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.email is string
+          && request.resource.data.email == signedInEmail()
+          && emailMemberActive(projectId)
+          && request.resource.data.role == emailRole(projectId)
+          && request.resource.data.active != false
+        );
+        allow delete: if isAdmin(projectId);
       }
 
       // Append-only, identity-bound audit stream. This path is intentionally
@@ -226,6 +241,25 @@ service cloud.firestore {
     match /app_config/{configId} {
       allow read: if isGoogleAuthed();
       allow create, update, delete: if isGoogleAuthed() && signedInEmail() == 'lengochieu1211@gmail.com';
+    }
+
+    // Durable discovery index. It does NOT grant project access; project reads still
+    // require projects/{projectId}/members or owner checks above. The signed-in user can
+    // only read index rows for their own email; project ADMINs maintain the rows.
+    match /projectAccess/{accessId} {
+      allow read: if isGoogleAuthed() && (
+        (resource.data.email is string && resource.data.email == signedInEmail())
+        || isAdmin(resource.data.projectId)
+      );
+      allow create: if isGoogleAuthed()
+        && request.resource.data.projectId is string
+        && request.resource.data.email is string
+        && isAdmin(request.resource.data.projectId);
+      allow update: if isGoogleAuthed()
+        && resource.data.projectId == request.resource.data.projectId
+        && resource.data.email == request.resource.data.email
+        && isAdmin(resource.data.projectId);
+      allow delete: if isGoogleAuthed() && isAdmin(resource.data.projectId);
     }
 
     match /users/{userId} {

@@ -23,6 +23,8 @@ import type { ProjectChatMessage, ProjectConversationSummary, ChatReplyTo, ChatA
 
 export const GENERAL_CONVERSATION_ID = 'general';
 export const CHAT_PAGE_SIZE = 50;
+export const CHAT_SEND_ERROR_EVENT = 'qlct-chat-send-error';
+const CHAT_LOCAL_QUEUE_ACK_MS = 350;
 
 const messageCollection = (projectId: string, conversationId = GENERAL_CONVERSATION_ID) =>
   collection(db, 'projects', projectId, 'conversations', conversationId, 'messages');
@@ -52,7 +54,9 @@ const mapMessage = (snap: QueryDocumentSnapshot | DocumentSnapshot): ProjectChat
     senderName: String(data?.senderName || data?.senderEmail || 'Thành viên'),
     text: String(data?.text || ''),
     createdAt: data?.createdAt,
-    createdAtMillis: toMillis(data?.createdAt),
+    // serverTimestamp() may be null until the backend acknowledges an offline/local write.
+    // clientCreatedAt is display/order fallback only; server createdAt remains authoritative.
+    createdAtMillis: toMillis(data?.createdAt) || Number(data?.clientCreatedAt || 0),
     clientMessageId: String(data?.clientMessageId || snap.id),
     replyTo: data?.replyTo || null,
     mentions: Array.isArray(data?.mentions) ? data.mentions : [],
@@ -116,10 +120,11 @@ export async function sendProjectMessage(input: SendMessageInput): Promise<strin
   if (!cleanText && attachments.length === 0) throw new Error('Tin nhắn đang trống.');
 
   // Deterministic doc ID makes retries idempotent across offline/reconnect attempts.
+  // IMPORTANT: do NOT do a getDoc() preflight here. On weak mobile networks that extra
+  // server round-trip made the Send button appear to do nothing before Firestore even
+  // queued the local write. Re-sending the same clientMessageId targets the same doc.
   const messageId = `${user.uid}_${input.clientMessageId}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 190);
   const msgRef = doc(messageCollection(input.projectId, conversationId), messageId);
-  const existing = await getDoc(msgRef).catch(() => null);
-  if (existing?.exists()) return existing.id;
 
   const batch = writeBatch(db);
   batch.set(msgRef, {
@@ -131,6 +136,7 @@ export async function sendProjectMessage(input: SendMessageInput): Promise<strin
     senderName: user.displayName || user.email,
     text: cleanText,
     createdAt: serverTimestamp(),
+    clientCreatedAt: Date.now(),
     clientMessageId: input.clientMessageId,
     replyTo: input.replyTo || null,
     mentions: Array.from(new Set((input.mentions || []).filter(Boolean))),
@@ -149,7 +155,29 @@ export async function sendProjectMessage(input: SendMessageInput): Promise<strin
     messageCount: increment(1),
     updatedAt: serverTimestamp(),
   }, { merge: true });
-  await batch.commit();
+  // Firestore applies the batch to the local persistent cache immediately, but the
+  // commit Promise waits for backend acknowledgement and can remain pending while the
+  // phone is offline/weak. Return after a short local-queue window so the composer stays
+  // responsive; the realtime snapshot shows `pending` until the server acknowledges.
+  let returnedAsQueued = false;
+  const commitPromise = batch.commit();
+  commitPromise.catch((err: any) => {
+    if (!returnedAsQueued || typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent(CHAT_SEND_ERROR_EVENT, {
+      detail: {
+        projectId: input.projectId,
+        conversationId,
+        input: { ...input, conversationId },
+        message: err?.message || 'Không gửi được tin nhắn.',
+      },
+    }));
+  });
+
+  const outcome = await Promise.race([
+    commitPromise.then(() => 'committed' as const),
+    new Promise<'queued'>((resolve) => window.setTimeout(() => resolve('queued'), CHAT_LOCAL_QUEUE_ACK_MS)),
+  ]);
+  if (outcome === 'queued') returnedAsQueued = true;
   return messageId;
 }
 

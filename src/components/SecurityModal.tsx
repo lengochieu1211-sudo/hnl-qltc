@@ -37,7 +37,7 @@ import {
   AuditLogEntry
 } from '../utils/securityUtils';
 import { hashPin, verifyPin } from '../utils/cryptoUtils';
-import { signInWithGoogle, getCurrentFirebaseUser, fetchProjectUserRoleFromCloud, claimProjectOwnership, fetchProjectMembersFromCloud, fetchProjectAuditLogsFromCloud, subscribeProjectMembersRealtime, subscribeProjectAuditLogsRealtime } from '../lib/firebase';
+import { signInWithGoogle, getCurrentFirebaseUser, fetchProjectUserRoleFromCloud, claimProjectOwnership, fetchProjectMembersFromCloud, fetchProjectAuditLogsFromCloud, subscribeProjectMembersRealtime, subscribeProjectAuditLogsRealtime, repairProjectAccessIndexForProject } from '../lib/firebase';
 import { saveTextFile } from '../utils/fileExport';
 import { QuickSortBar } from './QuickSortBar';
 
@@ -116,6 +116,11 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
         if (info.allowed && info.role) {
           setRoleState(info.role);
           setCurrentUserRole(info.role);
+          if (info.role === 'ADMIN') {
+            repairProjectAccessIndexForProject(pid).catch((err) =>
+              console.warn('Project access index repair warning:', err)
+            );
+          }
         }
       } else {
         if (requestId === cloudStatusRequestRef.current && selectedPidRef.current === pid) {
@@ -792,7 +797,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 min-[390px]:grid-cols-2 gap-2">
                   <div>
                     <label className="text-[10.5px] font-bold text-slate-600 block mb-1">
                       Mã PIN mới (4-6 số):
@@ -1265,11 +1270,12 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
           {/* TAB 3: AUDIT LOG */}
           {activeTab === 'audit' && (
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-extrabold text-slate-700 uppercase tracking-wider">
-                  Nhật ký hoạt động ({auditLogs.length})
-                </span>
-                <div className="flex items-center gap-1.5">
+              <div className="space-y-2">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                  <span className="text-[11px] font-extrabold text-slate-700 uppercase tracking-wider">
+                    Nhật ký hoạt động ({auditLogs.length})
+                  </span>
+                  <div className="flex flex-wrap items-center gap-1.5">
                   <button
                     type="button"
                     onClick={handleExportLogsSafe}
@@ -1288,8 +1294,9 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                     <Trash2 className="w-3 h-3" />
                     <span>Xóa cache máy</span>
                   </button>
+                  </div>
                 </div>
-                <p className="text-[9.5px] text-slate-400">
+                <p className="text-[9.5px] text-slate-400 leading-relaxed">
                   “Xóa cache máy” chỉ xóa bản nhật ký lưu tạm trên thiết bị này; nhật ký hoạt động trên Firestore không bị xóa.
                 </p>
               </div>

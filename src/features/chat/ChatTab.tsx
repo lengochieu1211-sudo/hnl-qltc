@@ -4,6 +4,7 @@ import type { QueryDocumentSnapshot } from 'firebase/firestore';
 import { getCurrentRealFirebaseUser } from '../../lib/firebase';
 import {
   GENERAL_CONVERSATION_ID,
+  CHAT_SEND_ERROR_EVENT,
   editOwnMessage,
   loadOlderMessages,
   markConversationRead,
@@ -13,6 +14,7 @@ import {
   subscribeConversationSummary,
   subscribeLatestMessages,
   findMentionableMembers,
+  type SendMessageInput,
 } from '../../lib/chatService';
 import { isPresenceConfigured, setTyping, startPresence } from '../../lib/presenceService';
 import { createEntityId } from '../../utils/idUtils';
@@ -71,6 +73,8 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeProjectId, projectName, 
   const [cursor, setCursor] = useState<QueryDocumentSnapshot | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [sendError, setSendError] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const [failedSend, setFailedSend] = useState<SendMessageInput | null>(null);
   const [lastReadAt, setLastReadAt] = useState(0);
   const [lastReadMessageCount, setLastReadMessageCount] = useState(0);
   const [lastMessageAt, setLastMessageAt] = useState(0);
@@ -93,6 +97,17 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeProjectId, projectName, 
     const unsubSummary = subscribeConversationSummary(activeProjectId, (summary) => { setLastMessageAt(summary?.lastMessageAtMillis || 0); setMessageCount(Number(summary?.messageCount || 0)); });
     const unsubRead = subscribeConversationReadState(activeProjectId, (millis, count) => { setLastReadAt(millis); setLastReadMessageCount(Number(count || 0)); });
     return () => { unsubSummary(); unsubRead(); };
+  }, [activeProjectId]);
+
+  useEffect(() => {
+    const handleAsyncSendError = (event: Event) => {
+      const detail = (event as CustomEvent<any>).detail || {};
+      if (String(detail.projectId || '') !== activeProjectId) return;
+      setSendError(detail.message || 'Tin nhắn đã xếp hàng nhưng không gửi được.');
+      if (detail.input) setFailedSend(detail.input as SendMessageInput);
+    };
+    window.addEventListener(CHAT_SEND_ERROR_EVENT, handleAsyncSendError as EventListener);
+    return () => window.removeEventListener(CHAT_SEND_ERROR_EVENT, handleAsyncSendError as EventListener);
   }, [activeProjectId]);
 
   useEffect(() => {
@@ -174,15 +189,18 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeProjectId, projectName, 
   };
 
   const handleSend = async () => {
+    if (isSending || isPreparingAttachment) return;
     const clean = text.trim();
     if (!clean && draftAttachments.length === 0) return;
+    if (!activeProjectId) { setSendError('Chưa chọn dự án để gửi tin nhắn.'); return; }
     setSendError('');
+    setIsSending(true);
     try {
       if (editing) {
         await editOwnMessage(activeProjectId, editing.id, clean);
         setEditing(null);
       } else {
-        await sendProjectMessage({
+        const payload: SendMessageInput = {
           projectId: activeProjectId,
           text: clean,
           clientMessageId: draftClientIdRef.current,
@@ -193,8 +211,12 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeProjectId, projectName, 
             senderName: replyTo.senderName,
             textPreview: replyTo.text.slice(0, 120),
           } : null,
-        });
+        };
+        await sendProjectMessage(payload);
+        setFailedSend(null);
       }
+      // The Firestore write is now either acknowledged or safely queued in its local
+      // persistent cache. Clear the composer immediately instead of waiting for network.
       setText('');
       setReplyTo(null);
       setDraftAttachments([]);
@@ -203,6 +225,32 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeProjectId, projectName, 
       setTyping(`${activeProjectId}:${GENERAL_CONVERSATION_ID}`, false).catch(() => {});
     } catch (err: any) {
       setSendError(err?.message || 'Không gửi được tin nhắn.');
+      if (!editing) {
+        setFailedSend({
+          projectId: activeProjectId,
+          text: clean,
+          clientMessageId: draftClientIdRef.current,
+          attachments: draftAttachments,
+          mentions: selectedMentions,
+          replyTo: replyTo ? { messageId: replyTo.id, senderName: replyTo.senderName, textPreview: replyTo.text.slice(0, 120) } : null,
+        });
+      }
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleRetrySend = async () => {
+    if (!failedSend || isSending) return;
+    setIsSending(true);
+    setSendError('');
+    try {
+      await sendProjectMessage(failedSend);
+      setFailedSend(null);
+    } catch (err: any) {
+      setSendError(err?.message || 'Gửi lại chưa thành công.');
+    } finally {
+      setIsSending(false);
     }
   };
 
@@ -244,7 +292,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeProjectId, projectName, 
         {!isPresenceConfigured && (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 flex gap-2">
             <WifiOff className="w-4 h-4 shrink-0 mt-0.5" />
-            <span>Presence/“đang nhập” đang tắt an toàn vì project chưa cấu hình <code>VITE_FIREBASE_DATABASE_URL</code>. Chat Firestore vẫn hoạt động.</span>
+            <span>Trạng thái Online và “đang nhập…” hiện chưa được bật. Tin nhắn dự án vẫn hoạt động bình thường.</span>
           </div>
         )}
 
@@ -348,7 +396,16 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeProjectId, projectName, 
           ))}
         </div>
       )}
-      {sendError && <div className="shrink-0 px-3 py-1.5 bg-rose-50 text-rose-700 text-[11px] border-t border-rose-100">{sendError}</div>}
+      {sendError && (
+        <div className="shrink-0 px-3 py-2 bg-rose-50 text-rose-700 text-[11px] border-t border-rose-100 flex items-center justify-between gap-2">
+          <span className="min-w-0">{sendError}</span>
+          {failedSend && (
+            <button type="button" onClick={handleRetrySend} disabled={isSending} className="shrink-0 px-2.5 py-1 rounded-lg bg-rose-600 text-white font-bold disabled:opacity-50">
+              {isSending ? 'Đang gửi…' : 'Gửi lại'}
+            </button>
+          )}
+        </div>
+      )}
       <div className="shrink-0 p-2.5 border-t border-slate-200 bg-white flex items-end gap-2">
         <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => handleImageSelected(e.target.files?.[0])} />
         <div className="relative flex-1 flex items-end gap-2">
@@ -365,11 +422,13 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeProjectId, projectName, 
           rows={1}
           value={text}
           onChange={(e) => handleTextChange(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!isSending && !isPreparingAttachment) handleSend(); } }}
           placeholder="Nhập tin nhắn…"
           className="flex-1 max-h-28 resize-none rounded-2xl border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
         />
-        <button onClick={handleSend} disabled={!text.trim() && draftAttachments.length === 0} className="w-10 h-10 rounded-full bg-indigo-600 disabled:bg-slate-300 text-white flex items-center justify-center shadow-sm"><Send className="w-4 h-4" /></button>
+        <button onClick={handleSend} disabled={isSending || isPreparingAttachment || (!text.trim() && draftAttachments.length === 0)} className="w-10 h-10 rounded-full bg-indigo-600 disabled:bg-slate-300 text-white flex items-center justify-center shadow-sm" aria-label={isSending ? 'Đang gửi tin nhắn' : 'Gửi tin nhắn'}>
+          {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+        </button>
         </div>
       </div>
     </div>

@@ -32,6 +32,17 @@ export function parseLegacyTimestamp(ts: any, fallbackTime: number = Date.now())
     const num = Number(trimmed);
     if (!isNaN(num) && num > 0) return num;
 
+    // Legacy app records may be saved as HH:mm:ss DD/M/YYYY. Parse this form
+    // explicitly before Date.parse so 11/8 is never reinterpreted as MM/DD.
+    const timeFirstMatch = trimmed.match(/^(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?\s+(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if (timeFirstMatch) {
+      const [_, h, m, sec, day, month, year] = timeFirstMatch;
+      const hours = Number(h) || 0, mins = Number(m) || 0, secs = Number(sec) || 0;
+      const y = Number(year), mo = Number(month), da = Number(day);
+      const d = new Date(y, mo - 1, da, hours, mins, secs);
+      if (!isNaN(d.getTime()) && d.getFullYear() === y && d.getMonth() === mo - 1 && d.getDate() === da) return d.getTime();
+    }
+
     // Parse DD/MM/YYYY or DD-MM-YYYY FIRST before native Date.parse to prevent MM/DD/YYYY confusion
     const ddmmyyyyMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
     if (ddmmyyyyMatch) {

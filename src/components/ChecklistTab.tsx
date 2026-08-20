@@ -492,7 +492,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
       <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-xs font-bold text-slate-800">Tỷ lệ nghiệm thu - {selectedFloor}</span>
-          <span className="text-xs font-extrabold text-emerald-600">{summary.passRate}% Đạt</span>
+          <span className="text-xs font-extrabold text-emerald-600">{summary.total > 0 ? `${summary.passRate}% Đạt` : 'Chưa có dữ liệu'}</span>
         </div>
 
         <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden flex">
