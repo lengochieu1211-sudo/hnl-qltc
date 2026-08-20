@@ -20,7 +20,7 @@ jobs:
       VITE_FIREBASE_APP_ID: ""
       VITE_FIRESTORE_DATABASE_ID: "(default)"
       VITE_FIREBASE_FIRESTORE_DATABASE_ID: "(default)"
-      VITE_APP_VERSION: "V6.2.8"
+      VITE_APP_VERSION: "V6.2.10"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

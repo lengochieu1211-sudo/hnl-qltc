@@ -1,8 +1,7 @@
 import { initializeApp, getApps } from 'firebase/app';
 import { 
   initializeFirestore, 
-  persistentLocalCache,
-  persistentMultipleTabManager,
+  memoryLocalCache,
   doc, 
   setDoc, 
   getDoc, 
@@ -21,6 +20,8 @@ import {
 } from 'firebase/firestore';
 import { getAuth, signInWithPopup, GoogleAuthProvider, signOut as fbSignOut, onAuthStateChanged, User } from 'firebase/auth';
 import { getDeviceId, getDeviceName } from '../utils/deviceIdentity';
+import { cleanupTransientLocalStorage, estimateLocalStorageBytes } from '../utils/storage';
+import { cleanupTransientLocalStorage, estimateLocalStorageBytes } from '../utils/storage';
 const env = (import.meta as any).env || {};
 const isDev = env.DEV || env.MODE === 'development' || !env.PROD;
 
@@ -80,16 +81,43 @@ export const firebaseApp = !getApps().length ? initializeApp(firebaseConfig) : g
 const app = firebaseApp;
 const dbId = firebaseConfig.firestoreDatabaseId;
 
+// V6.2.9: Firestore multi-tab persistence uses localStorage coordination keys such as
+// `firestore_mutations_*`. When the origin localStorage is close to its browser quota,
+// Firestore 12.x can throw an INTERNAL ASSERTION FAILED / QuotaExceededError before the
+// app has a chance to recover. Multi-device sync does NOT require multi-tab persistence.
+// Use the default single-tab persistent IndexedDB cache instead, which keeps offline data
+// but avoids the WebStorage mutation-coordination path that caused the crash in the video.
+try {
+  const localBytes = estimateLocalStorageBytes();
+  if (localBytes > 3 * 1024 * 1024) {
+    const cleaned = cleanupTransientLocalStorage();
+    if (cleaned.removed > 0) {
+      console.warn('[Storage pressure] Cleared transient cache before Firestore init:', cleaned);
+    }
+  }
+} catch (_) {}
+
+// V6.2.10: Firestore uses memory cache only. QLCT already keeps business data,
+// photos and backup history in its own IndexedDB stores. This avoids Firestore 12.x
+// WebStorage client-state writes (`firestore_clients_*`, `firestore_mutations_*`) from
+// crashing browsers whose localStorage is already near quota. Multi-device realtime
+// sync remains unchanged; only Firestore's page-reload persistent cache is disabled.
+try {
+  const cleaned = cleanupTransientLocalStorage();
+  const remaining = estimateLocalStorageBytes();
+  if (cleaned.removed > 0 || remaining > 2 * 1024 * 1024) {
+    console.info('[Firestore storage preflight]', { ...cleaned, remainingBytesApprox: remaining });
+  }
+} catch (_) {}
+
 let dbInstance: any;
 try {
   dbInstance = initializeFirestore(app, {
-    localCache: persistentLocalCache({
-      tabManager: persistentMultipleTabManager()
-    }),
+    localCache: memoryLocalCache(),
     experimentalForceLongPolling: true,
   }, dbId);
 } catch (e) {
-  console.warn('Firestore persistentLocalCache initialization failed, falling back to long polling only config:', e);
+  console.warn('Firestore memory cache initialization warning, retrying default memory cache:', e);
   dbInstance = initializeFirestore(app, {
     experimentalForceLongPolling: true,
   }, dbId);

@@ -71,6 +71,8 @@ import { ImageEditorModal } from './ImageEditorModal';
 import { RoomHighlightModal } from './RoomHighlightModal';
 import { PhotoAttachmentPicker } from './PhotoAttachmentPicker';
 import { PhotoAttachment, deleteEntityPhotos, getEntityPhotos, getPhotoDataUrl, savePhotoAttachment } from '../utils/photoStorage';
+import { safeSetLocalStorageItem } from '../utils/storage';
+import { getAsyncItem, removeAsyncItem } from '../utils/asyncStorage';
 import { saveWorkbookFile } from '../utils/fileExport';
 import { convertPdfToImage, describePdfError, getPdfDocumentInfo, loadPdfDocument, renderPdfDocumentPageToImage } from '../utils/pdfToImage';
 import { getImageQualityProfile } from '../utils/imageQualitySettings';
@@ -871,34 +873,34 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   // Effects to save draft fields
   React.useEffect(() => {
     if (pinPos) {
-      localStorage.setItem(getDraftKey('construction_defect_draft_pinPos'), JSON.stringify(pinPos));
+      safeSetLocalStorageItem(getDraftKey('construction_defect_draft_pinPos'), JSON.stringify(pinPos));
     } else {
       localStorage.removeItem(getDraftKey('construction_defect_draft_pinPos'));
     }
   }, [pinPos, currentProjectId]);
 
   React.useEffect(() => {
-    localStorage.setItem(getDraftKey('construction_defect_draft_showDefectModal'), String(showDefectModal));
+    safeSetLocalStorageItem(getDraftKey('construction_defect_draft_showDefectModal'), String(showDefectModal));
   }, [showDefectModal, currentProjectId]);
 
   React.useEffect(() => {
-    localStorage.setItem(getDraftKey('construction_defect_draft_category'), category);
+    safeSetLocalStorageItem(getDraftKey('construction_defect_draft_category'), category);
   }, [category, currentProjectId]);
 
   React.useEffect(() => {
-    localStorage.setItem(getDraftKey('construction_defect_draft_description'), description);
+    safeSetLocalStorageItem(getDraftKey('construction_defect_draft_description'), description);
   }, [description, currentProjectId]);
 
   React.useEffect(() => {
-    localStorage.setItem(getDraftKey('construction_defect_draft_severity'), severity);
+    safeSetLocalStorageItem(getDraftKey('construction_defect_draft_severity'), severity);
   }, [severity, currentProjectId]);
 
   React.useEffect(() => {
-    localStorage.setItem(getDraftKey('construction_defect_draft_assignedTo'), assignedTo);
+    safeSetLocalStorageItem(getDraftKey('construction_defect_draft_assignedTo'), assignedTo);
   }, [assignedTo, currentProjectId]);
 
   React.useEffect(() => {
-    localStorage.setItem(getDraftKey('construction_defect_draft_dueDate'), dueDate);
+    safeSetLocalStorageItem(getDraftKey('construction_defect_draft_dueDate'), dueDate);
   }, [dueDate, currentProjectId]);
 
   // Legacy photo auto-migration effect for activeDefectDetail
@@ -960,9 +962,41 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     migrate();
   }, [activeDefectDetail?.id]);
 
+  // V6.2.9: old releases stored the full Base64 camera image in localStorage.
+  // That can consume the entire Web Storage quota and make Firestore crash while it tries
+  // to write its own `firestore_mutations_*` coordination marker. Migrate the one legacy
+  // draft image to IndexedDB PhotoStorage once, then remove the Base64 localStorage copy.
   React.useEffect(() => {
-    localStorage.setItem(getDraftKey('construction_defect_draft_photoUrl'), photoUrl);
-  }, [photoUrl, currentProjectId]);
+    const legacyKey = getDraftKey('construction_defect_draft_photoUrl');
+    let cancelled = false;
+    (async () => {
+      // Bootstrap may already have moved this large Base64 value from localStorage to
+      // ConstructionAppDB before Firebase initialized. Read through asyncStorage so the
+      // unsaved draft photo is preserved instead of being discarded just to free quota.
+      const migratedLegacy = await getAsyncItem<string>(legacyKey, '').catch(() => '');
+      const legacy = photoUrl || localStorage.getItem(legacyKey) || migratedLegacy || '';
+      if (!legacy || !legacy.startsWith('data:image/')) return;
+      try {
+        await savePhotoAttachment(
+          {
+            projectId: currentProjectId,
+            entityType: 'defect',
+            entityId: draftDefectId,
+            category: 'defect_before',
+            fileName: 'ảnh_báo_lỗi_legacy.jpg',
+            mimeType: 'image/jpeg',
+            fileSize: 0,
+          },
+          legacy
+        );
+        await removeAsyncItem(legacyKey).catch(() => {});
+        if (!cancelled) setPhotoUrl('');
+      } catch (err) {
+        console.warn('Không thể chuyển ảnh draft legacy sang PhotoStorage; giữ bản IndexedDB/localStorage để thử lại:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [currentProjectId, draftDefectId]);
 
   const handleCancelDefectModal = async () => {
     if (draftDefectId) {
@@ -971,7 +1005,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       } catch (_) {}
     }
     const nextDraftId = `defect_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    localStorage.setItem(getDraftKey('construction_defect_draft_id'), nextDraftId);
+    safeSetLocalStorageItem(getDraftKey('construction_defect_draft_id'), nextDraftId);
     setDraftDefectId(nextDraftId);
 
     setShowDefectModal(false);
@@ -982,7 +1016,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     
     // Clear draft storage
     localStorage.removeItem(getDraftKey('construction_defect_draft_pinPos'));
-    localStorage.setItem(getDraftKey('construction_defect_draft_showDefectModal'), 'false');
+    safeSetLocalStorageItem(getDraftKey('construction_defect_draft_showDefectModal'), 'false');
     localStorage.removeItem(getDraftKey('construction_defect_draft_category'));
     localStorage.removeItem(getDraftKey('construction_defect_draft_description'));
     localStorage.removeItem(getDraftKey('construction_defect_draft_severity'));
@@ -3275,7 +3309,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     });
 
     const nextDraftId = `defect_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    localStorage.setItem(getDraftKey('construction_defect_draft_id'), nextDraftId);
+    safeSetLocalStorageItem(getDraftKey('construction_defect_draft_id'), nextDraftId);
     setDraftDefectId(nextDraftId);
 
     setShowDefectModal(false);
@@ -3286,7 +3320,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
     // Clear draft storage
     localStorage.removeItem(getDraftKey('construction_defect_draft_pinPos'));
-    localStorage.setItem(getDraftKey('construction_defect_draft_showDefectModal'), 'false');
+    safeSetLocalStorageItem(getDraftKey('construction_defect_draft_showDefectModal'), 'false');
     localStorage.removeItem(getDraftKey('construction_defect_draft_category'));
     localStorage.removeItem(getDraftKey('construction_defect_draft_description'));
     localStorage.removeItem(getDraftKey('construction_defect_draft_severity'));

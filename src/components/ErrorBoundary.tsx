@@ -1,6 +1,7 @@
 import React, { ReactNode, ErrorInfo } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { confirmAsync } from '../utils/confirmAsync';
+import { cleanupTransientLocalStorage, estimateLocalStorageBytes, isQuotaExceededError } from '../utils/storage';
 
 interface Props {
   children: ReactNode;
@@ -36,6 +37,13 @@ export class ErrorBoundary extends React.Component<Props, State> {
     window.location.reload();
   };
 
+  handleStorageCleanupAndReload = async () => {
+    const before = estimateLocalStorageBytes();
+    const cleaned = cleanupTransientLocalStorage();
+    console.warn('[Quota recovery] transient storage cleanup', { before, ...cleaned });
+    window.location.reload();
+  };
+
   handleClearAndReload = async () => {
     if (await confirmAsync('Khôi phục ứng dụng về trạng thái mặc định ban đầu? Tất cả bộ nhớ đệm tạm sẽ được làm sạch.')) {
       try {
@@ -49,6 +57,8 @@ export class ErrorBoundary extends React.Component<Props, State> {
 
   render() {
     if (this.state.hasError) {
+      const quotaError = isQuotaExceededError(this.state.error);
+      const storageMb = estimateLocalStorageBytes() / (1024 * 1024);
       return (
         <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
           <div className="bg-slate-800 border border-slate-700 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-5 text-center">
@@ -59,7 +69,9 @@ export class ErrorBoundary extends React.Component<Props, State> {
             <div className="space-y-2">
               <h1 className="text-lg font-black text-slate-100">Đã xảy ra sự cố không mong muốn</h1>
               <p className="text-xs text-slate-400 leading-relaxed">
-                Ứng dụng gặp lỗi giao diện. Vui lòng thử tải lại trang hoặc khôi phục để tiếp tục sử dụng.
+                {quotaError
+                  ? `Bộ nhớ tạm của trình duyệt đã gần/đạt giới hạn (${storageMb.toFixed(1)} MB localStorage). Đây không phải lỗi mất dữ liệu Cloud và không phải chủ yếu do mạng yếu.`
+                  : 'Ứng dụng gặp lỗi giao diện. Vui lòng thử tải lại trang hoặc khôi phục để tiếp tục sử dụng.'}
               </p>
               {this.state.error && (
                 <div className="bg-slate-950 p-2.5 rounded-xl text-[10px] font-mono text-rose-300 text-left overflow-x-auto max-h-24 border border-rose-900/40">
@@ -69,6 +81,15 @@ export class ErrorBoundary extends React.Component<Props, State> {
             </div>
 
             <div className="flex flex-col gap-2 pt-2">
+              {quotaError && (
+                <button
+                  type="button"
+                  onClick={this.handleStorageCleanupAndReload}
+                  className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black rounded-xl text-xs flex items-center justify-center gap-2 shadow-lg transition-all active:scale-95"
+                >
+                  Dọn cache tạm an toàn & tải lại
+                </button>
+              )}
               <button
                 type="button"
                 onClick={this.handleReload}
@@ -77,13 +98,15 @@ export class ErrorBoundary extends React.Component<Props, State> {
                 <RefreshCw className="w-4 h-4" /> Tải Lại Trang
               </button>
 
-              <button
-                type="button"
-                onClick={this.handleClearAndReload}
-                className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-300 font-bold rounded-xl text-xs transition-all active:scale-95"
-              >
-                Khôi Phục Mặc Định (Reset)
-              </button>
+              {!quotaError && (
+                <button
+                  type="button"
+                  onClick={this.handleClearAndReload}
+                  className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-300 font-bold rounded-xl text-xs transition-all active:scale-95"
+                >
+                  Xóa toàn bộ cài đặt cục bộ (Reset)
+                </button>
+              )}
             </div>
           </div>
         </div>

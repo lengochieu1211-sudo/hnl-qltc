@@ -1,4 +1,4 @@
-const CACHE_NAME = 'thicong-thachcao-cache-v3';
+const CACHE_NAME = 'thicong-thachcao-cache-v4';
 
 // Essential App Shell Resources
 const STATIC_ASSETS = [
@@ -55,7 +55,7 @@ self.addEventListener('fetch', (event) => {
           return new Response(
             JSON.stringify({
               offline: true,
-              message: 'Bạn đang ngoại tuyến. Dữ liệu đã được lưu an toàn tại bộ nhớ thiết bị (localStorage).',
+              message: 'Bạn đang ngoại tuyến. Dữ liệu nghiệp vụ được lưu an toàn trong bộ nhớ ngoại tuyến của ứng dụng (IndexedDB).',
             }),
             {
               status: 200,

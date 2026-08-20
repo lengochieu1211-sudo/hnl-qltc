@@ -19,12 +19,104 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore';
 import { db, getCurrentRealFirebaseUser } from './firebase';
+import { listChatOutbox, putChatOutbox, removeChatOutbox } from '../utils/chatOutbox';
 import type { ProjectChatMessage, ProjectConversationSummary, ChatReplyTo, ChatAttachment } from '../features/chat/types';
 
 export const GENERAL_CONVERSATION_ID = 'general';
 export const CHAT_PAGE_SIZE = 50;
 export const CHAT_SEND_ERROR_EVENT = 'qlct-chat-send-error';
 const CHAT_LOCAL_QUEUE_ACK_MS = 350;
+
+let chatOutboxFlushPromise: Promise<void> | null = null;
+
+function deterministicMessageId(uid: string, clientMessageId: string): string {
+  return `${uid}_${clientMessageId}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 190);
+}
+
+async function commitProjectMessage(input: SendMessageInput, persistOutbox: boolean): Promise<string> {
+  const user = getCurrentRealFirebaseUser();
+  if (!user || !user.email) throw new Error('Bạn cần đăng nhập Google để gửi tin nhắn.');
+  const conversationId = input.conversationId || GENERAL_CONVERSATION_ID;
+  const cleanText = input.text.trim();
+  const attachments = input.attachments || [];
+  if (!cleanText && attachments.length === 0) throw new Error('Tin nhắn đang trống.');
+
+  const messageId = deterministicMessageId(user.uid, input.clientMessageId);
+  const msgRef = doc(messageCollection(input.projectId, conversationId), messageId);
+  if (persistOutbox) {
+    await putChatOutbox({
+      id: messageId,
+      input: { ...input, conversationId },
+      createdAt: Date.now(),
+    }).catch((err) => console.warn('[Chat outbox] Could not persist queued message:', err));
+  }
+
+  const batch = writeBatch(db);
+  batch.set(msgRef, {
+    id: messageId,
+    conversationId,
+    projectId: input.projectId,
+    senderUid: user.uid,
+    senderEmail: user.email.trim().toLowerCase(),
+    senderName: user.displayName || user.email,
+    text: cleanText,
+    createdAt: serverTimestamp(),
+    clientCreatedAt: Date.now(),
+    clientMessageId: input.clientMessageId,
+    replyTo: input.replyTo || null,
+    mentions: Array.from(new Set((input.mentions || []).filter(Boolean))),
+    attachments,
+    editedAt: null,
+    deletedAt: null,
+  });
+  batch.set(conversationRef(input.projectId, conversationId), {
+    id: conversationId,
+    projectId: input.projectId,
+    lastMessageAt: serverTimestamp(),
+    lastMessageText: cleanText.slice(0, 180),
+    lastSenderUid: user.uid,
+    lastSenderName: user.displayName || user.email,
+    lastMentions: Array.from(new Set((input.mentions || []).filter(Boolean))),
+    messageCount: increment(1),
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+
+  await batch.commit();
+  await removeChatOutbox(messageId).catch(() => {});
+  return messageId;
+}
+
+export async function flushChatOutbox(): Promise<void> {
+  if (chatOutboxFlushPromise) return chatOutboxFlushPromise;
+  chatOutboxFlushPromise = (async () => {
+    const user = getCurrentRealFirebaseUser();
+    if (!user || !user.email || (typeof navigator !== 'undefined' && !navigator.onLine)) return;
+    const rows = await listChatOutbox().catch(() => []);
+    for (const row of rows) {
+      const input = row.input;
+      // Outbox entries belong to the account that created their deterministic ID.
+      if (!row.id.startsWith(`${user.uid}_`)) continue;
+      try {
+        const conversationId = input.conversationId || GENERAL_CONVERSATION_ID;
+        const msgRef = doc(messageCollection(input.projectId, conversationId), row.id);
+        const existing = await getDoc(msgRef);
+        if (existing.exists()) {
+          await removeChatOutbox(row.id);
+          continue;
+        }
+        await commitProjectMessage(input, false);
+      } catch (err) {
+        console.warn('[Chat outbox] Retry deferred:', err);
+        // Keep row for the next online/authenticated attempt.
+      }
+    }
+  })().finally(() => { chatOutboxFlushPromise = null; });
+  return chatOutboxFlushPromise;
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => { void flushChatOutbox(); });
+}
 
 const messageCollection = (projectId: string, conversationId = GENERAL_CONVERSATION_ID) =>
   collection(db, 'projects', projectId, 'conversations', conversationId, 'messages');
@@ -75,6 +167,7 @@ export function subscribeLatestMessages(
   onError?: (error: Error) => void,
 ): Unsubscribe {
   if (!projectId) return () => {};
+  void flushChatOutbox();
   const q = query(messageCollection(projectId, conversationId), orderBy('createdAt', 'desc'), limit(CHAT_PAGE_SIZE));
   return onSnapshot(q, { includeMetadataChanges: true }, (snap) => {
     const messages = snap.docs.map(mapMessage).reverse();
@@ -119,55 +212,22 @@ export async function sendProjectMessage(input: SendMessageInput): Promise<strin
   const attachments = input.attachments || [];
   if (!cleanText && attachments.length === 0) throw new Error('Tin nhắn đang trống.');
 
-  // Deterministic doc ID makes retries idempotent across offline/reconnect attempts.
-  // IMPORTANT: do NOT do a getDoc() preflight here. On weak mobile networks that extra
-  // server round-trip made the Send button appear to do nothing before Firestore even
-  // queued the local write. Re-sending the same clientMessageId targets the same doc.
-  const messageId = `${user.uid}_${input.clientMessageId}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 190);
-  const msgRef = doc(messageCollection(input.projectId, conversationId), messageId);
+  const normalizedInput: SendMessageInput = { ...input, conversationId, text: cleanText, attachments };
+  const messageId = deterministicMessageId(user.uid, input.clientMessageId);
 
-  const batch = writeBatch(db);
-  batch.set(msgRef, {
-    id: messageId,
-    conversationId,
-    projectId: input.projectId,
-    senderUid: user.uid,
-    senderEmail: user.email.trim().toLowerCase(),
-    senderName: user.displayName || user.email,
-    text: cleanText,
-    createdAt: serverTimestamp(),
-    clientCreatedAt: Date.now(),
-    clientMessageId: input.clientMessageId,
-    replyTo: input.replyTo || null,
-    mentions: Array.from(new Set((input.mentions || []).filter(Boolean))),
-    attachments,
-    editedAt: null,
-    deletedAt: null,
-  });
-  batch.set(conversationRef(input.projectId, conversationId), {
-    id: conversationId,
-    projectId: input.projectId,
-    lastMessageAt: serverTimestamp(),
-    lastMessageText: cleanText.slice(0, 180),
-    lastSenderUid: user.uid,
-    lastSenderName: user.displayName || user.email,
-    lastMentions: Array.from(new Set((input.mentions || []).filter(Boolean))),
-    messageCount: increment(1),
-    updatedAt: serverTimestamp(),
-  }, { merge: true });
-  // Firestore applies the batch to the local persistent cache immediately, but the
-  // commit Promise waits for backend acknowledgement and can remain pending while the
-  // phone is offline/weak. Return after a short local-queue window so the composer stays
-  // responsive; the realtime snapshot shows `pending` until the server acknowledges.
+  // Persist first so switching to Firestore memory cache does not sacrifice offline chat.
+  await putChatOutbox({ id: messageId, input: normalizedInput, createdAt: Date.now() })
+    .catch((err) => console.warn('[Chat outbox] Could not persist before send:', err));
+
   let returnedAsQueued = false;
-  const commitPromise = batch.commit();
+  const commitPromise = commitProjectMessage(normalizedInput, false);
   commitPromise.catch((err: any) => {
     if (!returnedAsQueued || typeof window === 'undefined') return;
     window.dispatchEvent(new CustomEvent(CHAT_SEND_ERROR_EVENT, {
       detail: {
         projectId: input.projectId,
         conversationId,
-        input: { ...input, conversationId },
+        input: normalizedInput,
         message: err?.message || 'Không gửi được tin nhắn.',
       },
     }));
