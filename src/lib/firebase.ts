@@ -188,6 +188,31 @@ async function writeProjectAccessIndex(
   }, { merge: true });
 }
 
+// Compatibility discovery row supported by the already-deployed V6.2.1 Rules.
+// Keep this invitation until the invited account has written users/{uid}.projects.
+// projectAccess is a newer optimization only; failure to write it must NEVER prevent
+// VIEWER/ENGINEER discovery on projects that were assigned while older Rules are live.
+async function ensureProjectInvitationIndex(
+  projectId: string,
+  email: string,
+  role: string,
+  projectName = ''
+): Promise<void> {
+  const normalizedEmail = normalizeEmail(email);
+  if (!projectId || !normalizedEmail) return;
+  const currentUser = getCurrentRealFirebaseUser();
+  const invId = `${projectId}_${normalizedEmail}`;
+  await setDoc(doc(db, 'projectInvitations', invId), {
+    projectId,
+    projectName: projectName || projectId,
+    email: normalizedEmail,
+    invitedEmail: normalizedEmail,
+    role: String(role || 'VIEWER').toUpperCase(),
+    createdByUid: currentUser?.uid || null,
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+}
+
 export async function repairProjectAccessIndexForProject(projectId: string): Promise<void> {
   if (!projectId || projectAccessRepairInFlight.has(projectId)) return;
   projectAccessRepairInFlight.add(projectId);
@@ -201,15 +226,27 @@ export async function repairProjectAccessIndexForProject(projectId: string): Pro
     const projectName = projectSnap.exists() ? String(projectSnap.data()?.name || projectId) : projectId;
     const membersSnap = await getDocs(collection(db, 'projects', projectId, 'members'));
     const seen = new Set<string>();
-    const writes: Promise<void>[] = [];
+    const writes: Promise<unknown>[] = [];
     membersSnap.forEach((memberSnap) => {
       const data = memberSnap.data();
       const memberEmail = normalizeEmail(data?.email || (memberSnap.id.includes('@') ? memberSnap.id : ''));
       if (!memberEmail || seen.has(memberEmail) || data?.active === false) return;
       seen.add(memberEmail);
-      writes.push(writeProjectAccessIndex(projectId, memberEmail, data?.role || 'VIEWER', projectName, true));
+      const role = data?.role || 'VIEWER';
+
+      // IMPORTANT: invitation is the backward-compatible discovery path and works with
+      // the currently deployed V6.2.1 Rules. Always repair it first. The newer
+      // projectAccess index is best-effort until GitHub's service account receives
+      // Firebase Rules Admin and the matching Rules can be deployed.
+      writes.push(ensureProjectInvitationIndex(projectId, memberEmail, role, projectName));
+      writes.push(writeProjectAccessIndex(projectId, memberEmail, role, projectName, true));
     });
-    await Promise.all(writes);
+    const settled = await Promise.allSettled(writes);
+    settled.forEach((item) => {
+      if (item.status === 'rejected') {
+        console.warn('Project discovery repair partial warning:', item.reason);
+      }
+    });
   } finally {
     projectAccessRepairInFlight.delete(projectId);
   }
@@ -382,6 +419,13 @@ export function subscribeCurrentUserProjectsRealtime(onUpdate: (projects: CloudP
           // asking the ADMIN to remove and invite the user again.
           registerProjectForCurrentUser(id, String(data?.name || hint.name || id), effectiveRole).catch(() => {});
         }
+        // Invitations are a durable compatibility discovery source. Once the project
+        // read succeeds, immediately persist the signed-in user's own index so the project
+        // remains visible even after the invitation is later consumed/deleted on login.
+        if ((invitationProjects[id] || legacyInvitationProjects[id]) && effectiveRole) {
+          registerProjectForCurrentUser(id, String(data?.name || hint.name || id), effectiveRole).catch(() => {});
+        }
+
         if (!createdAt && (effectiveRole === 'ADMIN' || data?.ownerUid === user.uid || normalizeEmail(data?.ownerEmail) === email)) {
           // Fire-and-forget one-time migration. The next realtime emission will pick up
           // the server-generated value. We intentionally do NOT invent a temporary date.
@@ -1769,24 +1813,19 @@ export async function saveProjectMemberToCloud(
     const projectSnap = await getDoc(doc(db, 'projects', projectId));
     const projectName = projectSnap.exists() ? String(projectSnap.data()?.name || projectId) : projectId;
 
-    // Durable access index used only for project discovery. Actual authorization still
-    // comes from projects/{projectId}/members and Firestore Rules.
-    await writeProjectAccessIndex(projectId, normalizedEmail, member.role, projectName, true);
+    // Write the backward-compatible invitation FIRST. The production project currently
+    // still has V6.2.1 Rules because GitHub's service account cannot deploy newer Rules
+    // (HTTP 403 firebaserules.rulesets.test). Under those Rules projectAccess is denied,
+    // but projectInvitations is allowed. Previously the projectAccess failure aborted this
+    // function before the invitation was created, leaving a visible member row in ADMIN
+    // while VIEWER/ENGINEER saw "Danh sách dự án (0)".
+    await ensureProjectInvitationIndex(projectId, normalizedEmail, member.role, projectName);
 
-    // Keep an invitation record until the invited account has materialized its UID member
-    // and users/{uid}.projects index. Do not silently swallow this write: otherwise the
-    // admin UI may claim success while the invitee has no way to discover the project.
-    const invId = `${projectId}_${normalizedEmail}`;
-    await setDoc(doc(db, 'projectInvitations', invId), {
-      projectId,
-      projectName,
-      email: normalizedEmail,
-      invitedEmail: normalizedEmail,
-      role: member.role,
-      createdByUid: getCurrentAppUser()?.uid || null,
-      createdAt: Date.now(),
-      updatedAt: serverTimestamp()
-    }, { merge: true });
+    // Newer discovery index is an optimization only. Do not make membership assignment
+    // fail if its Rules have not been deployed yet.
+    await writeProjectAccessIndex(projectId, normalizedEmail, member.role, projectName, true).catch((err) => {
+      console.warn('projectAccess index unavailable; invitation compatibility path remains active:', err);
+    });
   } catch (err) {
     console.warn('saveProjectMemberToCloud error:', err);
     throw err;

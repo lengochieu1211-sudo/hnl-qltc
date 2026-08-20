@@ -18,7 +18,7 @@ jobs:
       VITE_FIREBASE_APP_ID: ""
       VITE_FIRESTORE_DATABASE_ID: "(default)"
       VITE_FIREBASE_FIRESTORE_DATABASE_ID: "(default)"
-      VITE_APP_VERSION: "V6.2.6"
+      VITE_APP_VERSION: "V6.2.7"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -33,6 +33,8 @@ jobs:
           channelId: live
           projectId: com-example-qlct-61329
       - name: Deploy Firestore rules
+        id: deploy_firestore_rules
+        continue-on-error: true
         shell: bash
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
@@ -40,3 +42,8 @@ jobs:
         run: |
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
           npx --yes firebase-tools@13.35.1 deploy --only firestore:rules --project com-example-qlct-61329 --non-interactive
+      - name: Firestore rules IAM warning
+        if: steps.deploy_firestore_rules.outcome == 'failure'
+        shell: bash
+        run: |
+          echo "::warning::Hosting was deployed, but Firestore Rules were not. Grant the GitHub Actions service account roles/firebaserules.admin (Firebase Rules Admin), then re-run this workflow."

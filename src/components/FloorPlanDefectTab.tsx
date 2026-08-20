@@ -5382,11 +5382,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     markerY = Math.max(2.5, Math.min(97.5, y + dy));
                   }
                   const pinColor = isResolved ? '#10b981' : isSevere ? '#e11d48' : '#f59e0b';
-                  // Keep Defect markers readable without covering the drawing while zooming.
-                  // The floor-plan container itself grows with zoomScale, so SVG geometry must
-                  // compensate for that growth. Labels use CSS pixels, therefore they only need
-                  // the visual scale. Clamp at 55% so markers never become too tiny on mobile.
+                  // Keep the real dot/leader compact as the drawing zooms, but keep the text
+                  // badge close to the Căn / Phòng label size. The old implementation applied
+                  // the same 55% scale to the badge at high zoom, which made DF-xx unreadable
+                  // around 500-700%. SVG geometry still compensates strongly; the label only
+                  // shrinks gently (minimum 92%) because it already uses screen-pixel sizing.
                   const defectVisualScale = Math.max(0.55, Math.min(1, 1 / Math.sqrt(Math.max(1, zoomScale))));
+                  const defectLabelScale = Math.max(0.92, Math.min(1, 1 / Math.pow(Math.max(1, zoomScale), 0.045)));
                   const svgZoomCompensation = defectVisualScale / Math.max(1, zoomScale);
 
                   return (
@@ -5427,10 +5429,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       >
                         <div
                           style={{
-                            transform: `scale(${defectVisualScale})`,
+                            transform: `scale(${defectLabelScale})`,
                             transformOrigin: 'center',
                           }}
-                          className={`h-6 min-w-7 max-w-20 px-1.5 rounded-full flex items-center justify-center text-white font-black text-[8px] sm:text-[9px] shadow-lg border-2 border-white whitespace-nowrap ${
+                          className={`h-6 min-w-8 max-w-[128px] sm:max-w-[180px] px-2 rounded-xl flex items-center justify-center text-white font-extrabold text-[9px] sm:text-[10px] leading-tight shadow-md border border-white/90 whitespace-nowrap ${
                             isResolved
                               ? 'bg-emerald-500'
                               : isSevere
