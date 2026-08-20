@@ -1,3 +1,5 @@
+import localforage from 'localforage';
+import { LEGACY_AUTOSAVE_RAW_KEY } from './migrateStorage';
 export interface BackupVersion {
   id: string;
   timestamp: number;

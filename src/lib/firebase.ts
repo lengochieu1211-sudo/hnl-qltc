@@ -21,7 +21,6 @@ import {
 import { getAuth, signInWithPopup, GoogleAuthProvider, signOut as fbSignOut, onAuthStateChanged, User } from 'firebase/auth';
 import { getDeviceId, getDeviceName } from '../utils/deviceIdentity';
 import { cleanupTransientLocalStorage, estimateLocalStorageBytes } from '../utils/storage';
-import { cleanupTransientLocalStorage, estimateLocalStorageBytes } from '../utils/storage';
 const env = (import.meta as any).env || {};
 const isDev = env.DEV || env.MODE === 'development' || !env.PROD;
 
