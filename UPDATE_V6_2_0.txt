@@ -1,0 +1,9 @@
+V6.2.0 - Project Chat Foundation
+- Thêm Trao đổi theo projectId, phân trang 50 tin, reply, sửa tin của mình, soft delete.
+- Thêm unread/read-state theo conversation messageCount + lastReadMessageCount.
+- Thêm ảnh chat dùng chung photo pipeline, không lưu Base64 trong message.
+- Thêm @mention thành viên dự án; @mọi người chỉ ADMIN và được Rules chặn backend.
+- Nâng Trung tâm thông báo thành Công việc / Tin nhắn / Hệ thống.
+- Thêm in-app toast khi có tin mới từ người khác.
+- Chuẩn bị Presence/Typing RTDB dạng optional; chưa bật vào firebase.json để không phá deploy nếu RTDB chưa được tạo.
+- Siết Firestore member active=false: mất quyền dự án/chat; tương thích member legacy không có field active.

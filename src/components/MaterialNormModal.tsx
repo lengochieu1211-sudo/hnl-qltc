@@ -907,6 +907,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
 
             {/* Quick Sort Materials Controls */}
             <QuickSortBar
+              itemCount={sortedFilteredNorms.length}
               options={[
                 { key: 'materialName', label: 'Tên vật tư', kind: 'alpha' },
                 { key: 'quotaQuantity', label: 'Số định mức', kind: 'number' },
@@ -943,7 +944,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                       }}
                       className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                     />
-                    <span>Chọn Tất Cả ({sortedFilteredNorms.length})</span>
+                    <span>Chọn tất cả ({sortedFilteredNorms.length})</span>
                   </label>
 
                   <div className="flex items-center gap-3 justify-end">

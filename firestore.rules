@@ -39,28 +39,61 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/projects/$(projectId)/members/$(signedInEmail())).data.role;
     }
 
+    function uidMemberActive(projectId) {
+      return hasUidMember(projectId) && (
+        !('active' in get(/databases/$(database)/documents/projects/$(projectId)/members/$(request.auth.uid)).data)
+        || get(/databases/$(database)/documents/projects/$(projectId)/members/$(request.auth.uid)).data.active != false
+      );
+    }
+
+    function emailMemberActive(projectId) {
+      return hasEmailMember(projectId) && (
+        !('active' in get(/databases/$(database)/documents/projects/$(projectId)/members/$(signedInEmail())).data)
+        || get(/databases/$(database)/documents/projects/$(projectId)/members/$(signedInEmail())).data.active != false
+      );
+    }
+
     function isMember(projectId) {
-      return isGoogleAuthed() && (isOwner(projectId) || hasUidMember(projectId) || hasEmailMember(projectId));
+      return isGoogleAuthed() && (isOwner(projectId) || uidMemberActive(projectId) || emailMemberActive(projectId));
     }
 
     function isAdmin(projectId) {
       return isGoogleAuthed() && (
         isOwner(projectId) ||
-        (hasUidMember(projectId) && uidRole(projectId) == 'ADMIN') ||
-        (hasEmailMember(projectId) && emailRole(projectId) == 'ADMIN')
+        (uidMemberActive(projectId) && uidRole(projectId) == 'ADMIN') ||
+        (emailMemberActive(projectId) && emailRole(projectId) == 'ADMIN')
       );
     }
 
     function canEdit(projectId) {
       return isGoogleAuthed() && (
         isAdmin(projectId) ||
-        (hasUidMember(projectId) && uidRole(projectId) == 'ENGINEER') ||
-        (hasEmailMember(projectId) && emailRole(projectId) == 'ENGINEER')
+        (uidMemberActive(projectId) && uidRole(projectId) == 'ENGINEER') ||
+        (emailMemberActive(projectId) && emailRole(projectId) == 'ENGINEER')
       );
     }
 
     function canReadAudit(projectId) {
       return isAdmin(projectId) || canEdit(projectId);
+    }
+
+    function canRecoverOwnerUid(projectId) {
+      return isGoogleAuthed()
+        && projectDoc(projectId).data.ownerEmail is string
+        && projectDoc(projectId).data.ownerEmail.lower() == signedInEmail()
+        && request.resource.data.ownerEmail == resource.data.ownerEmail
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ownerUid', 'updatedAt']);
+    }
+
+    function canClaimOrphanProject(projectId) {
+      return isGoogleAuthed()
+        && (!('ownerUid' in resource.data) || resource.data.ownerUid == null || resource.data.ownerUid == '')
+        && (!('ownerEmail' in resource.data) || resource.data.ownerEmail == null || resource.data.ownerEmail == '')
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.ownerEmail is string
+        && request.resource.data.ownerEmail.lower() == signedInEmail()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ownerUid', 'ownerEmail', 'updatedAt']);
     }
 
     match /projects/{projectId} {
@@ -79,9 +112,13 @@ service cloud.firestore {
 
       // createdAt is immutable after the first Cloud write. Legacy documents that
       // do not have the field may add it exactly once during the V6.1.3 migration.
-      allow update: if isAdmin(projectId)
-        && request.resource.data.ownerUid == resource.data.ownerUid
-        && request.resource.data.ownerEmail == resource.data.ownerEmail
+      allow update: if (
+          (isAdmin(projectId)
+            && request.resource.data.ownerUid == resource.data.ownerUid
+            && request.resource.data.ownerEmail == resource.data.ownerEmail)
+          || canRecoverOwnerUid(projectId)
+          || canClaimOrphanProject(projectId)
+        )
         && (
           (('createdAt' in resource.data) && ('createdAt' in request.resource.data)
             && request.resource.data.createdAt == resource.data.createdAt)
@@ -112,11 +149,69 @@ service cloud.firestore {
         allow update, delete: if false;
       }
 
+      // Project chat is deliberately separated from construction records. VIEWER may chat,
+      // but every message is identity-bound and hard delete is disabled.
+      match /conversations/{conversationId} {
+        allow read: if isMember(projectId);
+        // Conversation summary is written only as part of sending a message. Keep
+        // identity/project fields bound and require messageCount to move forward by
+        // exactly one so a modified client cannot arbitrarily clear/inflate unread state.
+        allow create: if isMember(projectId)
+          && request.resource.data.projectId == projectId
+          && request.resource.data.id == conversationId
+          && request.resource.data.lastSenderUid == request.auth.uid
+          && request.resource.data.lastMessageAt == request.time
+          && request.resource.data.messageCount == 1;
+        allow update: if isMember(projectId)
+          && request.resource.data.projectId == resource.data.projectId
+          && request.resource.data.id == resource.data.id
+          && request.resource.data.lastSenderUid == request.auth.uid
+          && request.resource.data.lastMessageAt == request.time
+          && (
+            (!('messageCount' in resource.data) && request.resource.data.messageCount == 1)
+            || (('messageCount' in resource.data) && request.resource.data.messageCount == resource.data.messageCount + 1)
+          );
+        allow delete: if false;
+
+        match /messages/{messageId} {
+          allow read: if isMember(projectId);
+          allow create: if isMember(projectId)
+            && request.resource.data.projectId == projectId
+            && request.resource.data.conversationId == conversationId
+            && request.resource.data.senderUid == request.auth.uid
+            && request.resource.data.senderEmail is string
+            && request.resource.data.senderEmail.lower() == signedInEmail()
+            && request.resource.data.clientMessageId is string
+            && request.resource.data.createdAt == request.time
+            && (!(request.resource.data.mentions is list) || !('everyone' in request.resource.data.mentions) || isAdmin(projectId));
+          allow update: if isMember(projectId)
+            && resource.data.senderUid == request.auth.uid
+            && request.resource.data.senderUid == resource.data.senderUid
+            && request.resource.data.senderEmail == resource.data.senderEmail
+            && request.resource.data.projectId == resource.data.projectId
+            && request.resource.data.conversationId == resource.data.conversationId
+            && request.resource.data.clientMessageId == resource.data.clientMessageId
+            && request.resource.data.createdAt == resource.data.createdAt
+            && (!(request.resource.data.mentions is list) || !('everyone' in request.resource.data.mentions) || isAdmin(projectId));
+          allow delete: if false;
+        }
+
+        match /members/{uid} {
+          allow read: if isMember(projectId);
+          allow create, update: if isMember(projectId)
+            && uid == request.auth.uid
+            && request.resource.data.uid == request.auth.uid
+            && request.resource.data.projectId == projectId
+            && request.resource.data.conversationId == conversationId;
+          allow delete: if uid == request.auth.uid;
+        }
+      }
+
       // Business records: VIEWER reads only; ENGINEER/ADMIN may create/update/delete.
-      // activityLogs and members have their own stricter rules above.
+      // activityLogs, members and conversations have their own stricter rules above.
       match /{collectionName}/{recordId} {
-        allow read: if collectionName != 'activityLogs' && collectionName != 'members' && isMember(projectId);
-        allow write: if collectionName != 'activityLogs' && collectionName != 'members' && canEdit(projectId);
+        allow read: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'conversations' && isMember(projectId);
+        allow write: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'conversations' && canEdit(projectId);
 
         // Compatibility for photo binary chunks used only when Primary Drive is unavailable.
         match /{nestedCollection}/{nestedId} {

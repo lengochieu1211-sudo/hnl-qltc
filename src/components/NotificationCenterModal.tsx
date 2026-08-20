@@ -9,10 +9,13 @@ import {
   ExternalLink, 
   Filter,
   Calendar,
-  ChevronRight
+  ChevronRight,
+  MessageCircle,
+  Settings2
 } from 'lucide-react';
 import { WorkVolume, ChecklistItem, DefectItem } from '../types';
 import { collectDueDateAlerts, DueDateAlertItem, formatDateVN } from '../utils/dueDateUtils';
+import { QuickSortBar } from './QuickSortBar';
 
 interface NotificationCenterModalProps {
   isOpen: boolean;
@@ -21,6 +24,9 @@ interface NotificationCenterModalProps {
   checklist?: ChecklistItem[];
   defects?: DefectItem[];
   onNavigateToItem?: (alert: DueDateAlertItem) => void;
+  chatUnreadCount?: number;
+  onOpenChat?: () => void;
+  chatMentioned?: boolean;
 }
 
 export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = ({
@@ -30,10 +36,16 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
   checklist = [],
   defects = [],
   onNavigateToItem,
+  chatUnreadCount = 0,
+  onOpenChat,
+  chatMentioned = false,
 }) => {
+  const [section, setSection] = useState<'work' | 'messages' | 'system'>('work');
   const [filterType, setFilterType] = useState<'all' | 'overdue' | 'today' | 'soon'>('all');
   const [contentType, setContentType] = useState<'all' | 'workVolume' | 'checklist' | 'defect'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [alertSortBy, setAlertSortBy] = useState<'dueDate' | 'title' | 'floor' | 'type'>('dueDate');
+  const [alertSortOrder, setAlertSortOrder] = useState<'asc' | 'desc'>('asc');
 
   const allAlerts = useMemo(() => {
     return collectDueDateAlerts(workVolumes, checklist, defects);
@@ -62,6 +74,24 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
     });
   }, [activeAlerts, filterType, contentType, searchQuery]);
 
+  const sortedFilteredAlerts = useMemo(() => {
+    const list = [...filteredAlerts];
+    list.sort((a, b) => {
+      let comparison = 0;
+      if (alertSortBy === 'title') {
+        comparison = a.title.localeCompare(b.title, 'vi', { numeric: true, sensitivity: 'base' });
+      } else if (alertSortBy === 'floor') {
+        comparison = a.floor.localeCompare(b.floor, 'vi', { numeric: true, sensitivity: 'base' });
+      } else if (alertSortBy === 'type') {
+        comparison = a.type.localeCompare(b.type, 'vi', { sensitivity: 'base' });
+      } else {
+        comparison = a.dueDate.localeCompare(b.dueDate);
+      }
+      return alertSortOrder === 'asc' ? comparison : -comparison;
+    });
+    return list;
+  }, [filteredAlerts, alertSortBy, alertSortOrder]);
+
   const counts = useMemo(() => {
     const overdue = activeAlerts.filter(a => a.isOverdue).length;
     const today = activeAlerts.filter(a => a.isToday).length;
@@ -89,7 +119,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
             </div>
             <div>
               <h3 className="text-base font-extrabold flex items-center gap-2">
-                Trung tâm thông báo tiến độ & Defect
+                Trung tâm thông báo
                 {counts.all > 0 && (
                   <span className="text-xs bg-rose-600 text-white px-2 py-0.5 rounded-full font-bold">
                     {counts.all}
@@ -97,7 +127,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                 )}
               </h3>
               <p className="text-[11px] text-slate-300">
-                Theo dõi tiến độ, checklist &amp; defect đến hạn theo đúng dự án đang mở
+                Công việc · Tin nhắn · Hệ thống theo đúng dự án đang mở
               </p>
             </div>
           </div>
@@ -110,6 +140,15 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
           </button>
         </div>
 
+        <div className="px-3 pt-3 bg-white border-b border-slate-100 shrink-0">
+          <div className="grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-xl">
+            <button onClick={() => setSection('work')} className={`px-2 py-2 rounded-lg text-[11px] font-extrabold ${section === 'work' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>Công việc</button>
+            <button onClick={() => setSection('messages')} className={`px-2 py-2 rounded-lg text-[11px] font-extrabold flex items-center justify-center gap-1 ${section === 'messages' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>Tin nhắn {chatUnreadCount > 0 && <span className="bg-rose-600 text-white rounded-full px-1.5 text-[9px]">{chatUnreadCount > 9 ? '9+' : chatUnreadCount}</span>}</button>
+            <button onClick={() => setSection('system')} className={`px-2 py-2 rounded-lg text-[11px] font-extrabold ${section === 'system' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>Hệ thống</button>
+          </div>
+        </div>
+
+        {section === 'work' ? <>
         {/* Filters & Search Toolbar */}
         <div className="p-3 bg-slate-50 border-b border-slate-200 space-y-2 shrink-0">
           <div className="relative">
@@ -192,6 +231,21 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
 
         {/* Notifications List Body */}
         <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
+          <QuickSortBar
+            itemCount={filteredAlerts.length}
+            options={[
+              { key: 'dueDate', label: 'Thời hạn', kind: 'deadline', defaultOrder: 'asc' },
+              { key: 'title', label: 'Nội dung', kind: 'alpha' },
+              { key: 'floor', label: 'Tầng', kind: 'floor' },
+              { key: 'type', label: 'Nhóm', kind: 'alpha' },
+            ]}
+            activeKey={alertSortBy}
+            order={alertSortOrder}
+            onChange={(key, order) => { setAlertSortBy(key); setAlertSortOrder(order); }}
+            onReset={() => { setAlertSortBy('dueDate'); setAlertSortOrder('asc'); }}
+            summary={`${filteredAlerts.length} thông báo`}
+          />
+
           {filteredAlerts.length === 0 ? (
             <div className="text-center py-12 px-4 space-y-2 text-slate-400">
               <CheckCircle2 className="w-12 h-12 mx-auto text-emerald-400 opacity-60" />
@@ -199,7 +253,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
               <p className="text-xs">Không có tiến độ, checklist hoặc defect nào thuộc bộ lọc hiện tại cần cảnh báo.</p>
             </div>
           ) : (
-            filteredAlerts.map((alert) => {
+            sortedFilteredAlerts.map((alert) => {
               const typeLabel = alert.type === 'workVolume' ? 'Khối lượng' :
                                 alert.type === 'checklist' ? 'Checklist' : 'Defect';
 
@@ -274,6 +328,29 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
             })
           )}
         </div>
+
+        </> : section === 'messages' ? (
+          <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="font-extrabold text-sm text-slate-900 flex items-center gap-2"><MessageCircle className="w-4 h-4 text-indigo-600" /> Trao đổi dự án</div>
+                  <p className="text-xs text-slate-500 mt-1">{chatMentioned ? 'Bạn được nhắc tới trong tin nhắn mới.' : chatUnreadCount > 0 ? 'Có tin nhắn mới chưa đọc trong dự án hiện tại.' : 'Không có tin nhắn mới trong dự án hiện tại.'}</p>
+                </div>
+                {chatUnreadCount > 0 && <span className="rounded-full bg-rose-600 text-white text-[10px] font-extrabold px-2 py-1">{chatUnreadCount > 9 ? '9+' : chatUnreadCount}</span>}
+              </div>
+              <button type="button" onClick={onOpenChat} className="mt-3 w-full rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white py-2 text-xs font-extrabold">Mở Trao đổi</button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 text-center">
+              <Settings2 className="w-8 h-8 mx-auto text-slate-400" />
+              <div className="mt-2 text-sm font-extrabold text-slate-800">Hệ thống</div>
+              <p className="mt-1 text-xs text-slate-500">Các sự kiện như mời dự án, đổi quyền, lỗi đồng bộ và backup sẽ được đưa vào đây khi có nguồn sự kiện tương ứng. Không tạo thông báo giả.</p>
+            </div>
+          </div>
+        )}
 
         {/* Modal Footer */}
         <div className="p-3 bg-slate-100 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500 shrink-0">

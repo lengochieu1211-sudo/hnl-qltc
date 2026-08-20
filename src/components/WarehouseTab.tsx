@@ -1033,6 +1033,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         </div>
 
         <QuickSortBar
+          itemCount={filteredInventory.length}
           options={[
             { key: 'date', label: 'Ngày', kind: 'date', defaultOrder: 'desc' },
             { key: 'material', label: 'Vật tư', kind: 'alpha' },

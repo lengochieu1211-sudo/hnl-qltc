@@ -31,6 +31,7 @@ import {
 import type { User as FirebaseUser } from 'firebase/auth';
 import { ConflictMergeModal } from './ConflictMergeModal';
 import { PrimaryDriveStatusCard } from './PrimaryDriveStatusCard';
+import { QuickSortBar } from './QuickSortBar';
 import { confirmAsync } from '../utils/confirmAsync';
 import { 
   normalizeImportedData, 
@@ -117,6 +118,12 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   const [projects, setProjects] = useState<ProjectInfo[]>(getProjectsList);
   const [activeId, setActiveId] = useState<string>(() => activeProjectId || getActiveProjectId());
   const [searchQuery, setSearchQuery] = useState('');
+  const [projectSortBy, setProjectSortBy] = useState<'name' | 'createdAt' | 'updatedAt'>('name');
+  const [projectSortOrder, setProjectSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [autosaveSortBy, setAutosaveSortBy] = useState<'date' | 'project' | 'type'>('date');
+  const [autosaveSortOrder, setAutosaveSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [cloudBackupSortBy, setCloudBackupSortBy] = useState<'date' | 'name' | 'projects'>('date');
+  const [cloudBackupSortOrder, setCloudBackupSortOrder] = useState<'asc' | 'desc'>('desc');
 
   useEffect(() => {
     if (!isOpen) return;
@@ -1970,7 +1977,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       const cloudPayload = getCloudPayload(rec) as any;
       if (cloudPayload) {
         const pid = rec.id;
-        const pName = cloudPayload.projectName || rec.name || 'Dự Án Mới';
+        const pName = cloudPayload.projectName || rec.name || 'Dự án mới';
         const pContractor = cloudPayload.contractorName || '';
         const pInspector = cloudPayload.inspectorName || '';
         let fallbackUpdatedAt = 0;
@@ -2432,9 +2439,44 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
   if (!isOpen) return null;
 
-  const filteredProjects = projects.filter(p => {
+  const applyOrder = (value: number) => projectSortOrder === 'asc' ? value : -value;
+  const sortedProjectsAll = [...projects].sort((a, b) => {
+    if (projectSortBy === 'name') {
+      const cmp = (a.name || '').localeCompare(b.name || '', 'vi', { numeric: true, sensitivity: 'base' });
+      return applyOrder(cmp);
+    }
+    const av = parseLegacyTimestamp(projectSortBy === 'createdAt' ? a.createdAt : a.updatedAt, 0);
+    const bv = parseLegacyTimestamp(projectSortBy === 'createdAt' ? b.createdAt : b.updatedAt, 0);
+    return applyOrder(av - bv);
+  });
+
+  const filteredProjects = sortedProjectsAll.filter(p => {
     const q = searchQuery.trim().toLowerCase();
     return !q || p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q) || shortProjectId(p.id).toLowerCase().includes(q);
+  });
+
+  const sortedAutosaveVersions = [...autosaveVersions].sort((a, b) => {
+    let comparison = 0;
+    if (autosaveSortBy === 'project') {
+      comparison = String(a?.projectName || '').localeCompare(String(b?.projectName || ''), 'vi', { numeric: true, sensitivity: 'base' });
+    } else if (autosaveSortBy === 'type') {
+      comparison = String(a?.typeLabel || a?.type || '').localeCompare(String(b?.typeLabel || b?.type || ''), 'vi', { sensitivity: 'base' });
+    } else {
+      comparison = parseLegacyTimestamp(a?.timestamp, 0) - parseLegacyTimestamp(b?.timestamp, 0);
+    }
+    return autosaveSortOrder === 'asc' ? comparison : -comparison;
+  });
+
+  const sortedCloudBackups = [...cloudBackups].sort((a, b) => {
+    let comparison = 0;
+    if (cloudBackupSortBy === 'name') {
+      comparison = (a.backupName || '').localeCompare(b.backupName || '', 'vi', { numeric: true, sensitivity: 'base' });
+    } else if (cloudBackupSortBy === 'projects') {
+      comparison = (Number(a.projectCount) || 0) - (Number(b.projectCount) || 0);
+    } else {
+      comparison = parseLegacyTimestamp(a.createdAt, 0) - parseLegacyTimestamp(b.createdAt, 0);
+    }
+    return cloudBackupSortOrder === 'asc' ? comparison : -comparison;
   });
 
   return (
@@ -2547,7 +2589,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                         : 'text-slate-600 hover:bg-slate-50'
                     }`}
                   >
-                    <span>1 Dự Án Hiện Tại</span>
+                    <span>1 dự án hiện tại</span>
                   </button>
 
                   <button
@@ -2559,7 +2601,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                         : 'text-slate-600 hover:bg-slate-50'
                     }`}
                   >
-                    <span>Nhiều Dự Án ({selectedProjectIds.length})</span>
+                    <span>Nhiều dự án ({selectedProjectIds.length})</span>
                   </button>
 
                   <button
@@ -2571,7 +2613,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                         : 'text-slate-600 hover:bg-slate-50'
                     }`}
                   >
-                    <span>Tất Cả Dự Án ({projects.length})</span>
+                    <span>Tất cả dự án ({projects.length})</span>
                   </button>
                 </div>
 
@@ -2585,8 +2627,22 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                 {saveScope === 'selected' && (
                   <div className="bg-white p-2.5 rounded-xl border border-slate-200 space-y-1.5">
                     <p className="text-[10.5px] font-bold text-slate-700">Tích chọn danh sách dự án cần thao tác:</p>
+                    <QuickSortBar
+                      itemCount={projects.length}
+                      options={[
+                        { key: 'name', label: 'Tên dự án', kind: 'alpha' },
+                        { key: 'createdAt', label: 'Ngày khởi tạo', kind: 'date', defaultOrder: 'desc' },
+                        { key: 'updatedAt', label: 'Ngày cập nhật', kind: 'date', defaultOrder: 'desc' },
+                      ]}
+                      activeKey={projectSortBy}
+                      order={projectSortOrder}
+                      onChange={(key, order) => { setProjectSortBy(key); setProjectSortOrder(order); }}
+                      onReset={() => { setProjectSortBy('name'); setProjectSortOrder('asc'); }}
+                      summary={`${projects.length} dự án`}
+                    />
+
                     <div className="max-h-28 overflow-y-auto space-y-1 pr-1">
-                      {projects.map(p => {
+                      {sortedProjectsAll.map(p => {
                         const isChecked = selectedProjectIds.includes(p.id);
                         return (
                           <label key={p.id} className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-slate-50 cursor-pointer text-xs">
@@ -2979,7 +3035,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-bold text-slate-800 flex items-center gap-1.5">
                       <History className="w-3.5 h-3.5 text-indigo-600" />
-                      Lịch sử Sao Lưu & Khôi Phục Phiên Bản
+                      Lịch sử sao lưu & khôi phục phiên bản
                     </span>
                     <span className="text-[9px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono">
                       Tối đa: {localStorage.getItem('construction_max_autosave_versions') || '15'} bản
@@ -3008,13 +3064,27 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     </select>
                   </div>
 
+                  <QuickSortBar
+                    itemCount={autosaveVersions.length}
+                    options={[
+                      { key: 'date', label: 'Ngày sao lưu', kind: 'date', defaultOrder: 'desc' },
+                      { key: 'project', label: 'Dự án', kind: 'alpha' },
+                      { key: 'type', label: 'Loại bản sao', kind: 'alpha' },
+                    ]}
+                    activeKey={autosaveSortBy}
+                    order={autosaveSortOrder}
+                    onChange={(key, order) => { setAutosaveSortBy(key); setAutosaveSortOrder(order); }}
+                    onReset={() => { setAutosaveSortBy('date'); setAutosaveSortOrder('desc'); }}
+                    summary={`${autosaveVersions.length} phiên bản`}
+                  />
+
                   {autosaveVersions.length === 0 ? (
                     <div className="text-center py-4 text-slate-400 text-[10px] bg-slate-50 rounded-xl border border-dashed border-slate-200">
                       Chưa có phiên bản sao lưu nào. Hệ thống sẽ tự động sao lưu khi phát sinh thay đổi dữ liệu.
                     </div>
                   ) : (
                     <div className="space-y-1.5 max-h-[180px] overflow-y-auto pr-1 bg-slate-50 p-1.5 rounded-xl border border-slate-100">
-                      {autosaveVersions.map((ver) => {
+                      {sortedAutosaveVersions.map((ver) => {
                         const dateStr = formatDateTime(ver.timestamp);
                         return (
                           <div
@@ -3050,7 +3120,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                                 onClick={() => onRestoreAutoSaveVersion && onRestoreAutoSaveVersion(ver.data)}
                                 className="px-1.5 py-0.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded transition-colors cursor-pointer text-[9.5px]"
                               >
-                                Phục Hồi
+                                Phục hồi
                               </button>
                               <button
                                 type="button"
@@ -3272,6 +3342,20 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     </button>
                   </div>
 
+                  <QuickSortBar
+                    itemCount={cloudBackups.length}
+                    options={[
+                      { key: 'date', label: 'Ngày sao lưu', kind: 'date', defaultOrder: 'desc' },
+                      { key: 'name', label: 'Tên bản sao', kind: 'alpha' },
+                      { key: 'projects', label: 'Số dự án', kind: 'number' },
+                    ]}
+                    activeKey={cloudBackupSortBy}
+                    order={cloudBackupSortOrder}
+                    onChange={(key, order) => { setCloudBackupSortBy(key); setCloudBackupSortOrder(order); }}
+                    onReset={() => { setCloudBackupSortBy('date'); setCloudBackupSortOrder('desc'); }}
+                    summary={`${cloudBackups.length} bản sao`}
+                  />
+
                   {isLoadingCloudBackups ? (
                     <div className="py-2 text-center text-slate-400 text-[10.5px] flex items-center justify-center gap-1">
                       <RefreshCw className="w-3 h-3 animate-spin text-indigo-600" /> Đang tải lịch sử...
@@ -3280,7 +3364,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     <p className="text-[10.5px] text-slate-400 italic py-1">Chưa có bản sao lưu nào trên đám mây.</p>
                   ) : (
                     <div className="max-h-36 overflow-y-auto space-y-1.5 pr-1">
-                      {cloudBackups.map((b) => (
+                      {sortedCloudBackups.map((b) => (
                         <div key={b.id} className="p-2 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-[10.5px]">
                           <div>
                             <p className="font-bold text-slate-800">{b.backupName}</p>
@@ -3408,6 +3492,20 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   />
                 </div>
               )}
+
+              <QuickSortBar
+                itemCount={filteredProjects.length}
+                options={[
+                  { key: 'name', label: 'Tên dự án', kind: 'alpha' },
+                  { key: 'createdAt', label: 'Ngày khởi tạo', kind: 'date', defaultOrder: 'desc' },
+                  { key: 'updatedAt', label: 'Ngày cập nhật', kind: 'date', defaultOrder: 'desc' },
+                ]}
+                activeKey={projectSortBy}
+                order={projectSortOrder}
+                onChange={(key, order) => { setProjectSortBy(key); setProjectSortOrder(order); }}
+                onReset={() => { setProjectSortBy('name'); setProjectSortOrder('asc'); }}
+                summary={`${filteredProjects.length} dự án`}
+              />
 
               {/* Confirm Delete Alert */}
               {confirmDeleteId && (
@@ -3825,7 +3923,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                 </div>
                 <div>
                   <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
-                    Đồng Bộ &amp; Nhập Dự Án
+                    Đồng bộ &amp; nhập dự án
                     <span className="px-2 py-0.5 text-xs font-bold bg-indigo-100 text-indigo-700 rounded-full">
                       {multiProjectSyncState.items.length} dự án
                     </span>
@@ -4115,7 +4213,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     </>
                   ) : (
                     <>
-                      <Sparkles className="w-4 h-4" /> Tiến Hành Đồng Bộ &amp; Nhập
+                      <Sparkles className="w-4 h-4" /> Tiến hành đồng bộ &amp; nhập
                     </>
                   )}
                 </button>
@@ -4133,7 +4231,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
               <Trash2 className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-900">Xóa Bản Sao Lưu đám mây</h3>
+              <h3 className="text-base font-bold text-slate-900">Xóa bản sao lưu đám mây</h3>
               <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
                 Bạn có chắc chắn muốn xóa bản sao lưu đám mây <strong className="text-slate-800 font-bold">"{deletingCloudBackupTarget.name}"</strong> không?
               </p>
@@ -4420,7 +4518,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
               </div>
               <div className="min-w-0 flex-1">
                 <h3 className="font-extrabold text-slate-800 text-sm">
-                  Tệp Sao Lưu Đã Được Mã Hóa (AES-256)
+                  Tệp sao lưu đã được mã hóa (AES-256)
                 </h3>
                 <p className="text-slate-500 text-xs truncate">
                   {pendingImportFileInfo?.name || 'Bản sao lưu bảo mật'}

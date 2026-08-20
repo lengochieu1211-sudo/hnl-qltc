@@ -4,10 +4,11 @@ import { PhotoAttachment, getEntityPhotos, savePhotoAttachment, deletePhotoAttac
 import { ImageViewerModal } from './ImageViewerModal';
 import { ImageEditorModal } from './ImageEditorModal';
 import { confirmAsync } from '../utils/confirmAsync';
+import { QuickSortBar } from './QuickSortBar';
 
 interface PhotoAttachmentPickerProps {
   projectId: string;
-  entityType: 'crewRecord' | 'defect';
+  entityType: 'crewRecord' | 'defect' | 'chat';
   entityId: string;
   category?: 'crew_progress' | 'defect_before' | 'defect_after';
   label?: string;
@@ -37,6 +38,8 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [viewingIndex, setViewingIndex] = useState<number | null>(null);
+  const [photoSortBy, setPhotoSortBy] = useState<'date' | 'name' | 'size'>('date');
+  const [photoSortOrder, setPhotoSortOrder] = useState<'asc' | 'desc'>('desc');
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const libraryInputRef = useRef<HTMLInputElement | null>(null);
   
@@ -203,7 +206,18 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
     }
   };
 
-  const photoImageUrls = photos.map(p => photoDataUrls[p.id] || p.localUri || p.cloudUrl || '');
+  const sortedPhotos = [...photos].sort((a, b) => {
+    let comparison = 0;
+    if (photoSortBy === 'name') {
+      comparison = (a.fileName || '').localeCompare(b.fileName || '', 'vi', { numeric: true, sensitivity: 'base' });
+    } else if (photoSortBy === 'size') {
+      comparison = (Number(a.fileSize) || 0) - (Number(b.fileSize) || 0);
+    } else {
+      comparison = (Number(a.takenAt || a.createdAt) || 0) - (Number(b.takenAt || b.createdAt) || 0);
+    }
+    return photoSortOrder === 'asc' ? comparison : -comparison;
+  });
+  const photoImageUrls = sortedPhotos.map(p => photoDataUrls[p.id] || p.localUri || p.cloudUrl || '');
   const imageUrls = photoImageUrls.filter(Boolean);
 
   return (
@@ -248,6 +262,20 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
         )}
       </div>
 
+      <QuickSortBar
+        itemCount={photos.length}
+        options={[
+          { key: 'date', label: 'Ngày ảnh', kind: 'date', defaultOrder: 'desc' },
+          { key: 'name', label: 'Tên tệp', kind: 'alpha' },
+          { key: 'size', label: 'Dung lượng', kind: 'number' },
+        ]}
+        activeKey={photoSortBy}
+        order={photoSortOrder}
+        onChange={(key, order) => { setPhotoSortBy(key); setPhotoSortOrder(order); }}
+        onReset={() => { setPhotoSortBy('date'); setPhotoSortOrder('desc'); }}
+        summary={`${photos.length} ảnh`}
+      />
+
       {loading ? (
         <div className="flex items-center justify-center p-4 bg-slate-50 border border-slate-200 rounded-lg text-slate-400 text-xs">
           <Loader2 className="w-4 h-4 animate-spin mr-2" /> Đang tải hình ảnh...
@@ -260,7 +288,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
         </div>
       ) : (
         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-          {photos.map((photo, index) => {
+          {sortedPhotos.map((photo, index) => {
             const url = photoDataUrls[photo.id] || photo.localUri || photo.cloudUrl;
             return (
               <div

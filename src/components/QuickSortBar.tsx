@@ -1,6 +1,8 @@
 import React from 'react';
 import { ArrowUpDown, RotateCcw } from 'lucide-react';
 
+export const DEFAULT_QUICK_SORT_MIN_ITEMS = 6;
+
 export type UnifiedSortOrder = 'asc' | 'desc';
 export type UnifiedSortKind = 'date' | 'deadline' | 'alpha' | 'number' | 'floor' | 'status' | 'generic';
 
@@ -22,6 +24,10 @@ interface QuickSortBarProps<K extends string = string> {
   resetLabel?: string;
   summary?: React.ReactNode;
   className?: string;
+  /** Hide the bar while the current list is still short. */
+  itemCount?: number;
+  /** Default: 6 items. Set 0 to always show. */
+  minItems?: number;
 }
 
 const getDirectionLabel = (kind: UnifiedSortKind, order: UnifiedSortOrder) => {
@@ -53,7 +59,10 @@ export function QuickSortBar<K extends string>({
   resetLabel = 'Mặc định',
   summary,
   className = '',
+  itemCount,
+  minItems = DEFAULT_QUICK_SORT_MIN_ITEMS,
 }: QuickSortBarProps<K>) {
+  if (typeof itemCount === 'number' && itemCount < minItems) return null;
   const activeOption = options.find((option) => option.key === activeKey) || null;
   const toggleDirection = () => {
     if (!activeOption) return;
@@ -67,7 +76,7 @@ export function QuickSortBar<K extends string>({
   return (
     <div className={`bg-indigo-50/60 border border-indigo-100 rounded-xl px-3 py-2 text-xs text-slate-700 ${className}`}>
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="inline-flex items-center gap-1 font-bold text-[11px] text-indigo-800 shrink-0">
+        <span className="w-full sm:w-auto inline-flex items-center gap-1 font-bold text-[11px] text-indigo-800 shrink-0 mb-0.5 sm:mb-0">
           <ArrowUpDown className="w-3.5 h-3.5 text-indigo-500" />
           Sắp xếp nhanh:
         </span>
@@ -116,7 +125,7 @@ export function QuickSortBar<K extends string>({
         )}
 
         {summary && (
-          <span className="text-[11px] text-slate-500 font-semibold sm:ml-auto">
+          <span className="w-full sm:w-auto text-[11px] text-slate-500 font-semibold sm:ml-auto pt-0.5 sm:pt-0">
             {summary}
           </span>
         )}

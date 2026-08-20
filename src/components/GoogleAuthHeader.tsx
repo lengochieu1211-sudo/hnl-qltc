@@ -264,7 +264,7 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
                   title="Quản lý danh sách dự án"
                 >
                   <Folder className="w-4 h-4 text-indigo-300 shrink-0" />
-                  <span className="hidden sm:inline">Dự Án</span>
+                  <span className="hidden sm:inline">Dự án</span>
                 </button>
               )}
 

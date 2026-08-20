@@ -1,0 +1,5 @@
+V6.1.6.1 - Conditional quick sort and unified list controls
+- 0–5 mục: ẩn Sắp xếp nhanh.
+- 6+ mục: hiện Sắp xếp nhanh.
+- Chuẩn hóa icon/câu chữ sort, di chuyển, kéo thứ tự, thu gọn/mở rộng trên toàn app.
+- Bổ sung Sắp xếp nhanh có điều kiện cho các danh sách dài còn thiếu.

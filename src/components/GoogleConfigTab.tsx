@@ -1,5 +1,6 @@
 import { downloadOrShareFile } from '../utils/downloadUtils';
 import React, { useState, useEffect } from 'react';
+import { APP_VERSION_LABEL } from '../config/appVersion';
 import { 
   Cloud, 
   FileSpreadsheet, 
@@ -316,7 +317,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
         <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-2.5 text-[11px] text-indigo-800 space-y-1.5 shadow-sm">
           <div className="flex items-center gap-1.5 font-medium">
             <Info className="w-3.5 h-3.5 text-indigo-500" />
-            <span>{t('version')}: {(import.meta as any).env?.VITE_APP_VERSION || 'V6.1.5.8'} (Cập nhật: {__BUILD_TIME__})</span>
+            <span>{t('version')}: {APP_VERSION_LABEL} (Cập nhật: {__BUILD_TIME__})</span>
           </div>
         </div>
       </div>

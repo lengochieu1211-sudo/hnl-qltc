@@ -18,6 +18,7 @@ import {
   Box
 } from 'lucide-react';
 import { formatDecimal } from '../utils/numberUtils';
+import { QuickSortBar } from './QuickSortBar';
 
 interface ConflictMergeModalProps {
   localData: any;
@@ -40,6 +41,8 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
   
   // Search query to filter items
   const [searchQuery, setSearchQuery] = useState('');
+  const [conflictSortBy, setConflictSortBy] = useState<'name' | 'type'>('type');
+  const [conflictSortOrder, setConflictSortOrder] = useState<'asc' | 'desc'>('asc');
 
   // For manual resolution choices: store mapping of uniqueKey (e.g. 'room-123') -> 'local' | 'import'
   const [manualChoices, setManualChoices] = useState<Record<string, 'local' | 'import'>>({});
@@ -354,6 +357,13 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
     return matchesTab && matchesSearch;
   });
 
+  const sortedFilteredConflicts = [...filteredConflicts].sort((a, b) => {
+    const comparison = conflictSortBy === 'name'
+      ? a.name.localeCompare(b.name, 'vi', { numeric: true, sensitivity: 'base' })
+      : a.typeName.localeCompare(b.typeName, 'vi', { sensitivity: 'base' });
+    return conflictSortOrder === 'asc' ? comparison : -comparison;
+  });
+
   // Calculate user's resolved progress in "manual" mode
   const manualResolvedCount = Object.keys(manualChoices).filter(k => 
     allConflicts.some(c => c.uniqueKey === k)
@@ -653,6 +663,19 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
                 </div>
               </div>
 
+              <QuickSortBar
+                itemCount={filteredConflicts.length}
+                options={[
+                  { key: 'type', label: 'Phân hệ', kind: 'alpha' },
+                  { key: 'name', label: 'Tên mục', kind: 'alpha' },
+                ]}
+                activeKey={conflictSortBy}
+                order={conflictSortOrder}
+                onChange={(key, order) => { setConflictSortBy(key); setConflictSortOrder(order); }}
+                onReset={() => { setConflictSortBy('type'); setConflictSortOrder('asc'); }}
+                summary={`${filteredConflicts.length} xung đột`}
+              />
+
               {/* Main Table rendering conflicts comparison */}
               <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
                 <div className="overflow-x-auto max-h-[380px] lg:max-h-[440px]">
@@ -676,7 +699,7 @@ export const ConflictMergeModal: React.FC<ConflictMergeModalProps> = ({
                           </td>
                         </tr>
                       ) : (
-                        filteredConflicts.map((c) => {
+                        sortedFilteredConflicts.map((c) => {
                           const selection = getSelectedSide(c);
                           const localSideSelected = selection === 'local';
                           const importSideSelected = selection === 'import';

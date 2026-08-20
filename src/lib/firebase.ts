@@ -76,7 +76,8 @@ if (!isDev && !isFirebaseConfigured) {
   console.error('⚠️ THIẾU CẤU HÌNH FIREBASE TRONG MÔI TRƯỜNG PRODUCTION! Ứng dụng sẽ hoạt động ở chế độ Offline/Local Storage. Vui lòng khai báo đầy đủ các biến VITE_FIREBASE_* trước khi build APK/Web App.');
 }
 
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApps()[0];
+export const firebaseApp = !getApps().length ? initializeApp(firebaseConfig) : getApps()[0];
+const app = firebaseApp;
 const dbId = firebaseConfig.firestoreDatabaseId;
 
 let dbInstance: any;
@@ -280,7 +281,13 @@ export function subscribeCurrentUserProjectsRealtime(onUpdate: (projects: CloudP
           createdAtSource: createdAt ? 'cloud' : 'migrating',
           updatedAt,
         });
-      } catch (_) {
+      } catch (err: any) {
+        // A stale users/{uid}.projects entry must never keep an unauthorized project
+        // visible after the member was removed/disabled. Only use the hint when the
+        // project read failed for a transient/offline reason; permission-denied is
+        // authoritative and the project is omitted from the authorized Cloud list.
+        const code = String(err?.code || '');
+        if (code.includes('permission-denied')) continue;
         result.push({
           id,
           name: String(hint.name || id),
@@ -606,7 +613,8 @@ export async function claimProjectOwnership(
         name: projectName || projectId,
         ownerUid: user.uid,
         ownerEmail: userEmail,
-        updatedAt: Date.now()
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
       }, { merge: true });
       return { success: true, message: 'Đã khởi tạo quyền Chủ Sở Hữu (ADMIN) thành công!' };
     }
@@ -1540,13 +1548,22 @@ export async function saveUserProfileToCloud(user: { uid: string; email: string;
         const data = invDoc.data();
         const inviteEmail = normalizeEmail(data?.invitedEmail || data?.email);
         if (data && inviteEmail === normalizedEmail && data.projectId) {
+          const acceptedRole = data.role || 'ENGINEER';
           await writeProjectMemberDocs(data.projectId, {
             uid: user.uid,
             email: normalizedEmail,
             displayName: user.displayName || '',
-            role: data.role || 'ENGINEER',
+            role: acceptedRole,
             active: true
           }).catch((err) => console.warn('Could not materialize invitation as member:', err));
+          // The invited user is the only principal allowed to update users/{uid}.
+          // Persist the project index before deleting the invitation so the project
+          // remains discoverable immediately on every device after acceptance.
+          await registerProjectForCurrentUser(
+            String(data.projectId),
+            String(data.projectName || data.name || data.projectId),
+            acceptedRole,
+          ).catch((err) => console.warn('Could not register accepted project for current user:', err));
           await deleteDoc(doc(db, 'projectInvitations', invDoc.id)).catch(() => {});
         }
       }

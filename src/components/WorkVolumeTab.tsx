@@ -601,6 +601,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
 
       {/* Quick Sort Work Volumes */}
       <QuickSortBar
+        itemCount={sortedFilteredVolumes.length}
         options={[
           { key: 'title', label: 'Tên hạng mục', kind: 'alpha' },
           { key: 'planned', label: 'Khối lượng', kind: 'number' },
@@ -630,7 +631,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                 }}
                 className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
               />
-              <span>Chọn Tất Cả Trên Trang ({sortedFilteredVolumes.length})</span>
+              <span>Chọn tất cả trên trang ({sortedFilteredVolumes.length})</span>
             </label>
 
             <div className="flex items-center gap-3 justify-end">

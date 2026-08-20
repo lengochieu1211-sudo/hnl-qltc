@@ -180,10 +180,14 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     return raw;
   };
 
-  const getDefectMapCode = (defect: DefectItem & { markerCode?: string; displayCode?: string }) =>
-    pdfDefectCodeStyle === 'df'
-      ? (defect.displayCode || `DF-${defect.markerCode || ''}`)
-      : (defect.markerCode || '');
+  const getDefectMapCode = (defect: DefectItem & { markerNumber?: number }) => {
+    // PDF marker style must follow the user's selected display mode, not the raw Defect ID.
+    // Keep the real Defect ID only in data; the map/legend uses a short stable sequence.
+    const markerNumber = Math.max(1, Number(defect.markerNumber) || 1);
+    const digits = defectsWithDisplayCode.length >= 100 ? 3 : 2;
+    const shortNumber = String(markerNumber).padStart(digits, '0');
+    return pdfDefectCodeStyle === 'df' ? `DF-${shortNumber}` : shortNumber;
+  };
 
   const filteredDefects = defects.filter((d) => {
     if (d.archivedAt) return false;
@@ -439,7 +443,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
         `) : ''}
 
         ${includeFloorPlan && targetFloorPlans.length > 0 ? `
-          <div class="section-title">🖼️ MẶT BẰNG HIGHLIGHT KHU VỰC / PHÒNG &amp; SƠ ĐỒ DEFECT</div>
+          <div class="section-title">🖼️ MẶT BẰNG CĂN / PHÒNG &amp; SƠ ĐỒ DEFECT</div>
           ${targetFloorPlans.map(fp => {
             const fpRooms = roomProgressList.filter(r => r.floorId === fp.id);
             const fpDefects = defectsWithDisplayCode.filter(d => d.floorName === fp.floorName || d.floorId === fp.id);
@@ -568,7 +572,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                                 ])).filter(Boolean);
                                 const volumeEntries = Object.entries(r.categoryVolumes || {}) as Array<[string, number]>;
                                 const volumeText = volumeEntries.length > 0
-                                  ? volumeEntries.map(([name, value]) => `${h(name)}: ${formatDecimal(value)} ${h(r.volumeUnit || 'm²')}`).join('<br/>')
+                                  ? volumeEntries.map(([name, value]) => `${h(name)}: ${formatDecimal(value)} ${h(r.categoryVolumeUnits?.[name] || r.volumeUnit || 'm²')}`).join('<br/>')
                                   : (typeof r.workVolume === 'number' && r.workVolume > 0 ? `${formatDecimal(r.workVolume)} ${r.volumeUnit || 'm²'}` : '—');
                                 const assignedTeams = Array.from(new Set([
                                   r.assignedTeam,
@@ -668,8 +672,8 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                                   <td class="wrap-cell">${h(formatFloorName(d.floorName))}</td>
                                   <td class="wrap-cell" style="font-weight: 700;">${h(roomName)}</td>
                                   <td class="wrap-cell" style="font-weight: 700; color: #9f1239;">${h(d.category)}</td>
-                                  <td class="wrap-cell">${d.description || '—'}</td>
-                                  <td class="wrap-cell"><strong>${d.assignedTo || '—'}</strong></td>
+                                  <td class="wrap-cell">${h(d.description || '—')}</td>
+                                  <td class="wrap-cell"><strong>${h(d.assignedTo || '—')}</strong></td>
                                   <td class="status-cell"><span class="badge ${d.status === 'Đã nghiệm thu' || d.status === 'Đã khắc phục' ? 'badge-passed' : d.status === 'Đang sửa' ? 'badge-pending' : 'badge-defect'}">${d.status}</span></td>
                                   <td class="status-cell">${d.dueDate ? formatDateDDMMYYYY(d.dueDate) : '—'}</td>
                                 </tr>
@@ -712,7 +716,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                 ])).filter(Boolean);
                 const volumeEntries = Object.entries(r.categoryVolumes || {}) as Array<[string, number]>;
                 const volumeText = volumeEntries.length > 0
-                  ? volumeEntries.map(([name, value]) => `${h(name)}: ${formatDecimal(value)} ${h(r.volumeUnit || 'm²')}`).join('<br/>')
+                  ? volumeEntries.map(([name, value]) => `${h(name)}: ${formatDecimal(value)} ${h(r.categoryVolumeUnits?.[name] || r.volumeUnit || 'm²')}`).join('<br/>')
                   : (typeof r.workVolume === 'number' && r.workVolume > 0 ? `${formatDecimal(r.workVolume)} ${r.volumeUnit || 'm²'}` : '—');
                 const roomWorkStatus = hasSubs
                   ? ((r.subItems || []).every((sub) => sub.status === 'Đã hoàn thành') ? 'Đã hoàn thành' : (r.subItems || []).some((sub) => sub.status === 'Đang làm' || sub.status === 'Đã hoàn thành') ? 'Đang làm' : 'Chưa làm')
@@ -769,14 +773,14 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                 const locationText = matchedRoom ? `${formatFloorName(d.floorName)} - ${matchedRoom.roomName}` : formatFloorName(d.floorName);
                 return `
                 <tr>
-                  <td style="text-align: center;"><strong>${d.displayCode}</strong></td>
+                  <td style="text-align: center;"><strong>${getDefectMapCode(d)}</strong></td>
                   <td style="word-break: normal; overflow-wrap: break-word;">${h(locationText)}</td>
                   <td><strong style="color: #9f1239; word-break: normal; overflow-wrap: break-word;">${h(d.category)}</strong></td>
                   <td style="word-break: normal; overflow-wrap: break-word;">${h(d.description)}</td>
                   <td style="font-size: 9px;">
                     <div>Tạo: <strong>${h(d.createdBy || 'QC')}</strong></div>
                     ${d.dueDate ? `<div style="color: #e11d48; font-weight: bold;">Hạn: ${formatDateDDMMYYYY(d.dueDate)}</div>` : ''}
-                    ${d.completedAt ? `<div style="color: #166534; font-size: 8px;">Xong: ${d.completedAt}</div>` : ''}
+                    ${d.completedAt ? `<div style="color: #166534; font-size: 8px;">Xong: ${formatDateDDMMYYYY(d.completedAt)}</div>` : ''}
                   </td>
                   <td style="word-break: normal; overflow-wrap: break-word;"><strong>${h(d.assignedTo)}</strong></td>
                   <td class="status-cell">
@@ -1515,7 +1519,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                     <span className="block text-[10px] font-bold text-slate-600">Ký hiệu Defect</span>
                     <select value={pdfDefectCodeStyle} onChange={(e) => setPdfDefectCodeStyle(e.target.value as 'number' | 'df')} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
                       <option value="number">Số ngắn: 01, 02</option>
-                      <option value="df">Mã đầy đủ: DF-001</option>
+                      <option value="df">Mã ngắn: DF-01, DF-02</option>
                     </select>
                   </label>
                 </div>
@@ -1530,15 +1534,40 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[10px] font-extrabold text-slate-700">Xem trước nhanh ký hiệu PDF</span>
-                    <span className="text-[9px] text-slate-400">Minh họa tỷ lệ, độ mờ, viền & đường dẫn</span>
+                    <span className="text-[9px] text-slate-400">Vùng tím = Căn / Phòng · Chấm đỏ = vị trí Defect thật · Nhãn = ký hiệu in</span>
                   </div>
                   <div className="relative h-24 overflow-hidden rounded-lg border border-slate-200 bg-white">
-                    <div className="absolute inset-0 opacity-25" style={{ backgroundImage: 'linear-gradient(#cbd5e1 1px, transparent 1px), linear-gradient(90deg, #cbd5e1 1px, transparent 1px)', backgroundSize: '16px 16px' }} />
-                    <div className="absolute left-[10%] top-[18%] w-[38%] h-[48%] rounded-md" style={{ backgroundColor: `rgba(79,70,229,${pdfHighlightOpacity / 100})`, border: `${Math.max(1, pdfHighlightBorderWidth * 4)}px solid rgba(79,70,229,.75)` }} />
-                    {pdfShowLeaderLines && <div className="absolute left-[41%] top-[39%] w-[22%] border-t border-dashed border-indigo-500 origin-left rotate-[-12deg]" />}
-                    {pdfShowRoomMarkers && <div className="absolute left-[59%] top-[28%] -translate-x-1/2 rounded-full bg-white text-indigo-700 font-black flex items-center justify-center" style={{ width: `${32 * pdfRoomMarkerSizeScale}px`, height: `${22 * pdfRoomMarkerSizeScale}px`, fontSize: `${10 * pdfMarkerFontScale}px`, opacity: pdfMarkerOpacity / 100, border: pdfShowMarkerOutline ? '2px solid #4f46e5' : 'none' }}>{pdfRoomCodeStyle === 'hash' ? '#1' : pdfRoomCodeStyle === 'room' ? 'C1' : '1'}</div>}
-                    {pdfShowLeaderLines && <div className="absolute left-[65%] top-[67%] w-[17%] border-t border-dashed border-rose-500 origin-left rotate-[15deg]" />}
-                    {pdfShowDefectMarkers && <div className="absolute left-[78%] top-[63%] -translate-x-1/2 rounded-full bg-rose-600 text-white font-black flex items-center justify-center" style={{ width: `${34 * pdfDefectMarkerSizeScale}px`, height: `${22 * pdfDefectMarkerSizeScale}px`, fontSize: `${9 * pdfMarkerFontScale}px`, opacity: pdfMarkerOpacity / 100, border: pdfShowMarkerOutline ? '2px solid white' : 'none' }}>{pdfDefectCodeStyle === 'df' ? 'DF-01' : '01'}</div>}
+                    <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'linear-gradient(#cbd5e1 1px, transparent 1px), linear-gradient(90deg, #cbd5e1 1px, transparent 1px)', backgroundSize: '16px 16px' }} />
+                    {/* One simple room + one simple defect: preview must mirror exactly what will be printed. */}
+                    <div className="absolute left-[9%] top-[22%] w-[38%] h-[52%] rounded-md" style={{ backgroundColor: `rgba(79,70,229,${pdfHighlightOpacity / 100})`, border: `${Math.max(1, pdfHighlightBorderWidth * 4)}px solid rgba(79,70,229,.75)` }} />
+                    {pdfShowRoomMarkers && (
+                      <div
+                        className="absolute left-[28%] top-[48%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white text-indigo-700 font-black flex items-center justify-center"
+                        style={{ minWidth: `${28 * pdfRoomMarkerSizeScale}px`, height: `${22 * pdfRoomMarkerSizeScale}px`, paddingInline: `${5 * pdfRoomMarkerSizeScale}px`, fontSize: `${10 * pdfMarkerFontScale}px`, opacity: pdfMarkerOpacity / 100, border: pdfShowMarkerOutline ? '2px solid #4f46e5' : 'none' }}
+                      >
+                        {pdfRoomCodeStyle === 'hash' ? '#1' : pdfRoomCodeStyle === 'room' ? 'C1' : '1'}
+                      </div>
+                    )}
+                    {pdfShowDefectMarkers && (
+                      <>
+                        {/* Dot is always the real defect location. */}
+                        <div
+                          className="absolute left-[67%] top-[56%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white z-10"
+                          style={{ width: `${11 * pdfDefectMarkerSizeScale}px`, height: `${11 * pdfDefectMarkerSizeScale}px`, opacity: pdfMarkerOpacity / 100, border: pdfShowMarkerOutline ? '2px solid #e11d48' : '1px solid #e11d48' }}
+                        >
+                          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-rose-600" style={{ width: `${4 * pdfDefectMarkerSizeScale}px`, height: `${4 * pdfDefectMarkerSizeScale}px` }} />
+                        </div>
+                        {pdfShowLeaderLines && (
+                          <div className="absolute left-[68%] top-[55.6%] w-[7.5%] border-t-2 border-rose-400 origin-left" />
+                        )}
+                        <div
+                          className="absolute left-[79%] top-[56%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-rose-600 text-white font-black flex items-center justify-center z-20"
+                          style={{ minWidth: `${34 * pdfDefectMarkerSizeScale}px`, height: `${22 * pdfDefectMarkerSizeScale}px`, paddingInline: `${5 * pdfDefectMarkerSizeScale}px`, fontSize: `${9 * pdfMarkerFontScale}px`, opacity: pdfMarkerOpacity / 100, border: pdfShowMarkerOutline ? '2px solid white' : 'none' }}
+                        >
+                          {pdfDefectCodeStyle === 'df' ? 'DF-01' : '01'}
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
 

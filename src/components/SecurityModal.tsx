@@ -39,6 +39,7 @@ import {
 import { hashPin, verifyPin } from '../utils/cryptoUtils';
 import { signInWithGoogle, getCurrentFirebaseUser, fetchProjectUserRoleFromCloud, claimProjectOwnership, fetchProjectMembersFromCloud, fetchProjectAuditLogsFromCloud, subscribeProjectMembersRealtime, subscribeProjectAuditLogsRealtime } from '../lib/firebase';
 import { saveTextFile } from '../utils/fileExport';
+import { QuickSortBar } from './QuickSortBar';
 
 interface SecurityModalProps {
   isOpen: boolean;
@@ -89,6 +90,10 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
 
   // Audit state
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+  const [memberSortBy, setMemberSortBy] = useState<'email' | 'role' | 'assignedAt'>('email');
+  const [memberSortOrder, setMemberSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [auditSortBy, setAuditSortBy] = useState<'date' | 'action' | 'user'>('date');
+  const [auditSortOrder, setAuditSortOrder] = useState<'asc' | 'desc'>('desc');
 
   useEffect(() => {
     selectedPidRef.current = selectedPid;
@@ -603,6 +608,30 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
   const handleExportLogs = () => {
     void handleExportLogsSafe();
   };
+
+  const sortedProjectMembers = [...projectMembers].sort((a, b) => {
+    let comparison = 0;
+    if (memberSortBy === 'role') {
+      comparison = String(a?.role || '').localeCompare(String(b?.role || ''), 'vi', { sensitivity: 'base' });
+    } else if (memberSortBy === 'assignedAt') {
+      comparison = new Date(a?.assignedAt || 0).getTime() - new Date(b?.assignedAt || 0).getTime();
+    } else {
+      comparison = String(a?.email || '').localeCompare(String(b?.email || ''), 'vi', { numeric: true, sensitivity: 'base' });
+    }
+    return memberSortOrder === 'asc' ? comparison : -comparison;
+  });
+
+  const sortedAuditLogs = [...auditLogs].sort((a, b) => {
+    let comparison = 0;
+    if (auditSortBy === 'action') {
+      comparison = String(a.action || '').localeCompare(String(b.action || ''), 'vi', { sensitivity: 'base' });
+    } else if (auditSortBy === 'user') {
+      comparison = String(a.actorEmail || '').localeCompare(String(b.actorEmail || ''), 'vi', { sensitivity: 'base' });
+    } else {
+      comparison = Number(a.timestamp || 0) - Number(b.timestamp || 0);
+    }
+    return auditSortOrder === 'asc' ? comparison : -comparison;
+  });
 
   return (
     <div className="fixed inset-0 bg-slate-900/65 backdrop-blur-xs z-[200] flex items-center justify-center p-3 md:p-4 animate-in fade-in duration-200">
@@ -1177,13 +1206,27 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                   </div>
                 )}
 
+                <QuickSortBar
+                  itemCount={projectMembers.length}
+                  options={[
+                    { key: 'email', label: 'Tài khoản', kind: 'alpha' },
+                    { key: 'role', label: 'Vai trò', kind: 'alpha' },
+                    { key: 'assignedAt', label: 'Ngày phân quyền', kind: 'date', defaultOrder: 'desc' },
+                  ]}
+                  activeKey={memberSortBy}
+                  order={memberSortOrder}
+                  onChange={(key, order) => { setMemberSortBy(key); setMemberSortOrder(order); }}
+                  onReset={() => { setMemberSortBy('email'); setMemberSortOrder('asc'); }}
+                  summary={`${projectMembers.length} thành viên`}
+                />
+
                 <div className="space-y-1 pt-1 max-h-36 overflow-y-auto">
                   {projectMembers.length === 0 ? (
                     <p className="text-[10px] text-slate-400 italic py-2 text-center">
                       Chưa có thành viên riêng cho dự án này (Áp dụng quyền chung của thiết bị).
                     </p>
                   ) : (
-                    projectMembers.map(m => (
+                    sortedProjectMembers.map(m => (
                       <div
                         key={m.email}
                         className="flex items-center justify-between p-2 bg-slate-50 rounded-xl border border-slate-100 text-xs"
@@ -1256,6 +1299,20 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                 Nhật ký được đồng bộ realtime theo đúng dự án đang mở.
               </div>
 
+              <QuickSortBar
+                itemCount={auditLogs.length}
+                options={[
+                  { key: 'date', label: 'Thời gian', kind: 'date', defaultOrder: 'desc' },
+                  { key: 'action', label: 'Thao tác', kind: 'alpha' },
+                  { key: 'user', label: 'Tài khoản', kind: 'alpha' },
+                ]}
+                activeKey={auditSortBy}
+                order={auditSortOrder}
+                onChange={(key, order) => { setAuditSortBy(key); setAuditSortOrder(order); }}
+                onReset={() => { setAuditSortBy('date'); setAuditSortOrder('desc'); }}
+                summary={`${auditLogs.length} bản ghi`}
+              />
+
               {auditLogs.length === 0 ? (
                 <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 text-center text-slate-400 space-y-1">
                   <FileText className="w-8 h-8 mx-auto opacity-30 mb-1" />
@@ -1264,7 +1321,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                 </div>
               ) : (
                 <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
-                  {auditLogs.map(log => (
+                  {sortedAuditLogs.map(log => (
                     <details
                       key={log.id}
                       className="group p-2.5 bg-white border border-slate-200 rounded-xl text-xs hover:bg-slate-50/50 transition-colors"

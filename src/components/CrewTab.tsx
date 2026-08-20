@@ -170,6 +170,10 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [teamLogDateSortOrder, setTeamLogDateSortOrder] = useState<TeamSortOrder>('desc');
   const [teamLogFloorSortOrder, setTeamLogFloorSortOrder] = useState<TeamSortOrder>('asc');
   const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
+  const [dailyRecordSortBy, setDailyRecordSortBy] = useState<'team' | 'floor' | 'workers'>('team');
+  const [dailyRecordSortOrder, setDailyRecordSortOrder] = useState<TeamSortOrder>('asc');
+  const [teamListSortBy, setTeamListSortBy] = useState<'name' | 'leader' | 'count'>('name');
+  const [teamListSortOrder, setTeamListSortOrder] = useState<TeamSortOrder>('asc');
 
   // Sync state if prop changes
   useEffect(() => {
@@ -528,6 +532,38 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const filteredRecords = useMemo(() => {
     return crewRecords.filter((record) => record.date === selectedDate);
   }, [crewRecords, selectedDate]);
+
+  const sortedFilteredRecords = useMemo(() => {
+    const list = [...filteredRecords];
+    list.sort((a, b) => {
+      let comparison = 0;
+      if (dailyRecordSortBy === 'team') {
+        comparison = (a.teamName || '').localeCompare(b.teamName || '', 'vi', { numeric: true, sensitivity: 'base' });
+      } else if (dailyRecordSortBy === 'floor') {
+        comparison = compareFloorValues(getCrewLogPrimaryFloor(a, floorPlans), getCrewLogPrimaryFloor(b, floorPlans));
+      } else {
+        comparison = (Number(a.workerCount) || 0) - (Number(b.workerCount) || 0);
+      }
+      return dailyRecordSortOrder === 'asc' ? comparison : -comparison;
+    });
+    return list;
+  }, [filteredRecords, dailyRecordSortBy, dailyRecordSortOrder]);
+
+  const sortedTeams = useMemo(() => {
+    const list = [...teams];
+    list.sort((a, b) => {
+      let comparison = 0;
+      if (teamListSortBy === 'name') {
+        comparison = (a.name || '').localeCompare(b.name || '', 'vi', { numeric: true, sensitivity: 'base' });
+      } else if (teamListSortBy === 'leader') {
+        comparison = (a.leader || '').localeCompare(b.leader || '', 'vi', { numeric: true, sensitivity: 'base' });
+      } else {
+        comparison = (Number(a.defaultCount) || 0) - (Number(b.defaultCount) || 0);
+      }
+      return teamListSortOrder === 'asc' ? comparison : -comparison;
+    });
+    return list;
+  }, [teams, teamListSortBy, teamListSortOrder]);
 
   // Statistics for the selected date
   const stats = useMemo(() => {
@@ -1053,6 +1089,20 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               <Clipboard className="w-3.5 h-3.5 text-indigo-500" /> Nhật ký làm việc ({formatDateDDMMYYYY(selectedDate)})
             </h2>
 
+            <QuickSortBar
+              itemCount={filteredRecords.length}
+              options={[
+                { key: 'team', label: 'Đội thi công', kind: 'alpha' },
+                { key: 'floor', label: 'Tầng', kind: 'floor' },
+                { key: 'workers', label: 'Quân số', kind: 'number' },
+              ]}
+              activeKey={dailyRecordSortBy}
+              order={dailyRecordSortOrder}
+              onChange={(key, order) => { setDailyRecordSortBy(key); setDailyRecordSortOrder(order); }}
+              onReset={() => { setDailyRecordSortBy('team'); setDailyRecordSortOrder('asc'); }}
+              summary={`${filteredRecords.length} ghi nhận`}
+            />
+
             {filteredRecords.length > 0 && (
               <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs gap-2">
                 <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer select-none">
@@ -1068,7 +1118,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     }}
                     className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                   />
-                  <span>Chọn Tất Cả Quân Số Ngày Này ({filteredRecords.length})</span>
+                  <span>Chọn tất cả quân số ngày này ({filteredRecords.length})</span>
                 </label>
 
                 <div className="flex items-center gap-3 justify-end">
@@ -1120,7 +1170,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                 <p className="text-[10px] text-slate-400 mt-1">Ấn nút "Ghi nhận quân số" hoặc "Sao chép hôm qua" để điền nhanh.</p>
               </div>
             ) : (
-              filteredRecords.map((record) => (
+              sortedFilteredRecords.map((record) => (
                 <div 
                   key={record.id}
                   className={`bg-white border rounded-xl p-4 transition-all duration-150 relative hover:border-slate-300 ${
@@ -1303,6 +1353,20 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               <Users className="w-3.5 h-3.5 text-indigo-500" /> Danh sách ({teams.length} đội thi công)
             </h2>
 
+            <QuickSortBar
+              itemCount={teams.length}
+              options={[
+                { key: 'name', label: 'Tên đội', kind: 'alpha' },
+                { key: 'leader', label: 'Đội trưởng', kind: 'alpha' },
+                { key: 'count', label: 'Quân số định biên', kind: 'number' },
+              ]}
+              activeKey={teamListSortBy}
+              order={teamListSortOrder}
+              onChange={(key, order) => { setTeamListSortBy(key); setTeamListSortOrder(order); }}
+              onReset={() => { setTeamListSortBy('name'); setTeamListSortOrder('asc'); }}
+              summary={`${teams.length} đội thi công`}
+            />
+
             {teams.length > 0 && (
               <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs gap-2">
                 <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer select-none">
@@ -1318,7 +1382,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     }}
                     className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                   />
-                  <span>Chọn Tất Cả Đội ({teams.length})</span>
+                  <span>Chọn tất cả đội ({teams.length})</span>
                 </label>
 
                 <div className="flex items-center gap-3 justify-end">
@@ -1348,7 +1412,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                 <p className="text-[10px] text-slate-400 mt-1">Vui lòng bấm nút phía trên để bắt đầu thêm mới.</p>
               </div>
             ) : (
-              teams.map((team) => {
+              sortedTeams.map((team) => {
                 const stat = allTeamStatsMap[team.id];
                 if (!stat) return null;
                 const {
@@ -2454,11 +2518,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                           <span>Thống kê chi tiết theo tầng đang thi công</span>
                           <div className="flex items-center gap-2 flex-wrap">
                             <QuickSortBar
+                              itemCount={floorStatList.length}
                               options={[{ key: 'floor', label: 'Tầng', kind: 'floor' }]}
                               activeKey="floor"
                               order={teamFloorSortOrder}
                               onChange={(_key, order) => setTeamFloorSortOrder(order)}
                               onToggleOrder={() => setTeamFloorSortOrder((order) => order === 'asc' ? 'desc' : 'asc')}
+                              onReset={() => setTeamFloorSortOrder('asc')}
                               summary={`${floorStatList.length} tầng · ${teamRooms.length} Căn / Phòng`}
                             />
                           </div>
@@ -2775,11 +2841,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
                     <div className="flex justify-end px-1">
                       <QuickSortBar
+                        itemCount={teamDefects.length}
                         options={[{ key: 'floor', label: 'Tầng', kind: 'floor' }]}
                         activeKey="floor"
                         order={teamDefectFloorSortOrder}
                         onChange={(_key, order) => setTeamDefectFloorSortOrder(order)}
                         onToggleOrder={() => setTeamDefectFloorSortOrder((order) => order === 'asc' ? 'desc' : 'asc')}
+                        onReset={() => setTeamDefectFloorSortOrder('asc')}
                       />
                     </div>
 
@@ -2788,8 +2856,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                         <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
                         <h4 className="text-sm font-bold text-emerald-900">
                           {defectFilter === 'open' 
-                            ? 'Không có lỗi defect nào cần khắc phục!' 
-                            : 'Không tìm thấy defect nào theo bộ lọc'}
+                            ? 'Không có Defect nào cần khắc phục!' 
+                            : 'Không tìm thấy Defect nào theo bộ lọc'}
                         </h4>
                         <p className="text-xs text-emerald-700 mt-1">
                           Đội <strong className="text-emerald-900">{team.name}</strong> đang duy trì chất lượng thi công tốt.
@@ -2878,6 +2946,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                         </div>
                         <div className="flex justify-end px-1">
                           <QuickSortBar
+                            itemCount={teamLogs.length}
                             options={[
                               { key: 'date', label: 'Ngày', kind: 'date', defaultOrder: 'desc' },
                               { key: 'floor', label: 'Tầng', kind: 'floor' },
@@ -2892,6 +2961,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                             onToggleOrder={() => {
                               if (teamLogSortMode === 'date') setTeamLogDateSortOrder((order) => order === 'asc' ? 'desc' : 'asc');
                               else setTeamLogFloorSortOrder((order) => order === 'asc' ? 'desc' : 'asc');
+                            }}
+                            onReset={() => {
+                              setTeamLogSortMode('date');
+                              setTeamLogDateSortOrder('desc');
+                              setTeamLogFloorSortOrder('asc');
                             }}
                           />
                         </div>

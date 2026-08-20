@@ -1,0 +1,6 @@
+V6.1.5.9 - Fix PDF marker preview and Defect short-code behavior.
+
+- "Số ngắn" now prints sequential 01, 02, 03... on the PDF map and legend.
+- "Mã ngắn" prints DF-01, DF-02...; it no longer exposes the long/raw Defect ID on the PDF marker.
+- The real Defect ID remains unchanged in project data.
+- PDF quick preview now shows the room marker inside the highlighted room and a visible Defect origin dot connected to its label.

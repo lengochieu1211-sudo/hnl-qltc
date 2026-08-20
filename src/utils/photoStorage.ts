@@ -7,12 +7,12 @@ import { apiUrl, hasApiBackend } from './api';
 export interface PhotoAttachment {
   id: string; // UUID photo ID
   projectId: string;
-  entityType: 'crewRecord' | 'defect';
+  entityType: 'crewRecord' | 'defect' | 'chat';
   entityId: string;
   teamId?: string;
   floorId?: string;
   roomId?: string;
-  category?: 'crew_progress' | 'defect_before' | 'defect_after';
+  category?: 'crew_progress' | 'defect_before' | 'defect_after' | 'chat_attachment' | 'chat_attachment';
   fileName: string;
   mimeType: string;
   localBlobKey?: string;
@@ -91,9 +91,9 @@ export async function saveProjectPhotos(projectId: string, photos: PhotoAttachme
 
 export async function getEntityPhotos(
   projectId: string,
-  entityType: 'crewRecord' | 'defect',
+  entityType: 'crewRecord' | 'defect' | 'chat',
   entityId: string,
-  category?: 'crew_progress' | 'defect_before' | 'defect_after'
+  category?: 'crew_progress' | 'defect_before' | 'defect_after' | 'chat_attachment'
 ): Promise<PhotoAttachment[]> {
   const photos = await getProjectPhotos(projectId);
   return photos.filter(p => p.entityType === entityType && p.entityId === entityId && (!category || p.category === category));
@@ -483,7 +483,7 @@ export async function updatePhotoAttachmentBlob(
   return compressedDataUrl;
 }
 
-export async function deleteEntityPhotos(projectId: string, entityType: 'crewRecord' | 'defect', entityId: string): Promise<void> {
+export async function deleteEntityPhotos(projectId: string, entityType: 'crewRecord' | 'defect' | 'chat', entityId: string): Promise<void> {
   if (!projectId || !entityId) return;
   const photos = await getProjectPhotos(projectId, true);
   const now = Date.now();

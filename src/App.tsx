@@ -97,6 +97,7 @@ import {
 import { getProjectPhotos, getProjectPhotosWithBinary, restorePhotosFromBackup } from './utils/photoStorage';
 import { subscribeProjectPhotosRealtime, syncProjectPhotosToCloud, PhotoCloudSyncStatus } from './lib/photoCloudSync';
 import { isPrimaryDriveReady, PRIMARY_DRIVE_OWNER_EMAIL, uploadProjectBackupToPrimaryDrive } from './lib/primaryDriveBridge';
+import { subscribeConversationReadState, subscribeConversationSummary } from './lib/chatService';
 import { floorPlanNeedsCloudUpload, isDisplayableFloorPlanUrl, loadFloorPlanImageFromCloud, syncFloorPlanImageToCloud, deleteFloorPlanImageFromCloud } from './lib/floorPlanImageSync';
 
 // Heavy screens are code-split so Android does not parse XLSX/PDF-heavy modules at startup.
@@ -106,6 +107,7 @@ const FloorPlanDefectTab = React.lazy(() => import('./components/FloorPlanDefect
 const ChecklistTab = React.lazy(() => import('./components/ChecklistTab').then(m => ({ default: m.ChecklistTab })));
 const CrewTab = React.lazy(() => import('./components/CrewTab').then(m => ({ default: m.CrewTab })));
 const GoogleConfigTab = React.lazy(() => import('./components/GoogleConfigTab').then(m => ({ default: m.GoogleConfigTab })));
+const ChatTab = React.lazy(() => import('./features/chat/ChatTab').then(m => ({ default: m.ChatTab })));
 
 interface AppData {
   materialNorms: MaterialNorm[];
@@ -1026,6 +1028,9 @@ export default function App() {
   const [cloudInitialReady, setCloudInitialReady] = useState<boolean>(false);
   const receivedInitialSubcollectionsRef = useRef<Set<string>>(new Set());
   const [cloudUserKey, setCloudUserKey] = useState<string>('');
+  // Chat must only list projects currently authorized by Firestore. Local recovery
+  // projects remain available in Project Manager, but are never treated as chat access.
+  const [authorizedChatProjects, setAuthorizedChatProjects] = useState<Array<{ id: string; name: string }>>([]);
   const [cloudBootstrapVersion, setCloudBootstrapVersion] = useState<number>(0);
   const cloudBootstrapAttemptsRef = useRef<Set<string>>(new Set());
 
@@ -1174,12 +1179,16 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!cloudUserKey) return;
+    if (!cloudUserKey) {
+      setAuthorizedChatProjects([]);
+      return;
+    }
 
     // Firestore/invitations are the source of truth for the cross-device project index.
     // construction_projects_list remains only a local cache for fast/offline startup.
     let firstCloudEmission = true;
     const unsubscribe = subscribeCurrentUserProjectsRealtime((remoteProjects) => {
+      setAuthorizedChatProjects(remoteProjects.map((project) => ({ id: project.id, name: project.name })));
       const localProjects = getProjectsList();
       const localById = new Map(localProjects.map((p) => [p.id, p]));
       const cloudIds = new Set(remoteProjects.map((p) => p.id));
@@ -1214,7 +1223,8 @@ export default function App() {
         p.id !== 'default' &&
         !cloudIds.has(p.id) &&
         !deletedProjectIds.has(p.id) &&
-        Number(p.updatedAt || 0) > 0
+        Number(p.updatedAt || 0) > 0 &&
+        p.createdAtSource !== 'cloud'
       );
       const nextCache = [
         ...cloudBacked,
@@ -4322,6 +4332,48 @@ export default function App() {
   const unhandledDefectsCount = defects.filter((d) => !d.archivedAt && d.status !== 'Đã nghiệm thu').length;
 
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
+  const [chatLastMessageAt, setChatLastMessageAt] = useState(0);
+  const [chatLastReadAt, setChatLastReadAt] = useState(0);
+  const [chatMessageCount, setChatMessageCount] = useState(0);
+  const [chatLastReadMessageCount, setChatLastReadMessageCount] = useState(0);
+  const [chatLastMentions, setChatLastMentions] = useState<string[]>([]);
+  const [chatLastSenderUid, setChatLastSenderUid] = useState('');
+  const [chatToast, setChatToast] = useState<{ sender: string; text: string } | null>(null);
+  const lastChatToastTimestampRef = useRef(0);
+  const chatUnreadCount = Math.max(0, chatMessageCount - chatLastReadMessageCount) || (chatLastMessageAt > chatLastReadAt ? 1 : 0);
+  const currentChatUid = getCurrentRealFirebaseUser()?.uid || '';
+  const chatMentioned = chatUnreadCount > 0 && chatLastSenderUid !== currentChatUid && (chatLastMentions.includes(currentChatUid) || chatLastMentions.includes('everyone'));
+
+  useEffect(() => {
+    if (!activeProjectId || !getCurrentRealFirebaseUser()) {
+      setChatLastMessageAt(0);
+      setChatLastReadAt(0);
+      setChatMessageCount(0);
+      setChatLastReadMessageCount(0);
+      setChatLastMentions([]);
+      setChatLastSenderUid('');
+      return;
+    }
+    let initialSummary = true;
+    const unsubSummary = subscribeConversationSummary(activeProjectId, (summary) => {
+      const timestamp = summary?.lastMessageAtMillis || 0;
+      setChatLastMessageAt(timestamp);
+      setChatMessageCount(Number(summary?.messageCount || 0));
+      setChatLastMentions(summary?.lastMentions || []);
+      setChatLastSenderUid(summary?.lastSenderUid || '');
+      const me = getCurrentRealFirebaseUser();
+      if (initialSummary) {
+        initialSummary = false;
+        lastChatToastTimestampRef.current = timestamp;
+      } else if (timestamp > lastChatToastTimestampRef.current && summary?.lastSenderUid && summary.lastSenderUid !== me?.uid) {
+        lastChatToastTimestampRef.current = timestamp;
+        setChatToast({ sender: summary.lastSenderName || 'Thành viên', text: summary.lastMessageText || 'Đã gửi một tin nhắn' });
+        window.setTimeout(() => setChatToast(null), 5000);
+      }
+    });
+    const unsubRead = subscribeConversationReadState(activeProjectId, (millis, count) => { setChatLastReadAt(millis); setChatLastReadMessageCount(Number(count || 0)); });
+    return () => { unsubSummary(); unsubRead(); };
+  }, [activeProjectId, cloudUserKey]);
 
   const dueDateAlerts = useMemo(() => {
     return collectDueDateAlerts(workVolumes, checklist, defects);
@@ -4662,6 +4714,18 @@ export default function App() {
             />
           )}
 
+
+          {activeTab === 'chat' && (
+            <ChatTab
+              activeProjectId={activeProjectId}
+              projectName={projectName}
+              projects={authorizedChatProjects}
+              onSwitchProject={switchProject}
+              onOpenNotificationCenter={() => setIsNotificationCenterOpen(true)}
+              userRole={currentUserRole}
+            />
+          )}
+
           {activeTab === 'config' && (
             <GoogleConfigTab
               projectName={projectName}
@@ -4763,13 +4827,28 @@ export default function App() {
           checklist={activeChecklist}
           defects={activeDefects}
           onNavigateToItem={handleNavigateFromAlert}
+          chatUnreadCount={chatUnreadCount}
+          chatMentioned={chatMentioned}
+          onOpenChat={() => { setIsNotificationCenterOpen(false); setActiveTab('chat'); }}
         />
+
+        {chatToast && activeTab !== 'chat' && (
+          <button
+            type="button"
+            onClick={() => { setChatToast(null); setActiveTab('chat'); }}
+            className="fixed z-50 right-3 left-3 sm:left-auto sm:w-80 bottom-20 sm:bottom-20 rounded-2xl border border-indigo-200 bg-white p-3 shadow-2xl text-left animate-in slide-in-from-bottom-2"
+          >
+            <div className="text-[11px] font-extrabold text-indigo-700">{chatToast.sender}</div>
+            <div className="mt-0.5 text-xs text-slate-700 line-clamp-2">“{chatToast.text}”</div>
+          </button>
+        )}
 
         {/* Fixed Mobile Bottom Navigation Bar */}
         <BottomNav
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           defectBadgeCount={unhandledDefectsCount}
+          chatBadgeCount={chatUnreadCount}
         />
 
         {/* Security & Access Control Modal */}

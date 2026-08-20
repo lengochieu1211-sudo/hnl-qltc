@@ -20,7 +20,7 @@ export const MoveOrderControls: React.FC<MoveOrderControlsProps> = ({
   showDragHandle = false,
   compact = true,
   className = '',
-  label = 'Sắp thứ tự',
+  label = 'Sắp xếp thứ tự',
 }) => (
   <div
     className={`inline-flex items-center rounded-lg border border-slate-200 bg-slate-50/90 shadow-3xs overflow-hidden ${className}`}
@@ -29,7 +29,7 @@ export const MoveOrderControls: React.FC<MoveOrderControlsProps> = ({
     {showDragHandle && (
       <span
         className={`${compact ? 'px-1.5' : 'px-2'} text-slate-400 inline-flex items-center justify-center border-r border-slate-200 cursor-grab active:cursor-grabbing`}
-        title="Kéo để đổi thứ tự"
+        title="Kéo để sắp xếp"
       >
         <GripVertical className={compact ? 'w-3.5 h-3.5' : 'w-4 h-4'} />
       </span>

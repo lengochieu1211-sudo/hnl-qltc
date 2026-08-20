@@ -538,10 +538,11 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
 
       {/* Quick Sort Checklist Items */}
       <QuickSortBar
+        itemCount={sortedFilteredChecklist.length}
         options={[
           { key: 'title', label: 'Nội dung', kind: 'alpha' },
           { key: 'status', label: 'Trạng thái', kind: 'status' },
-          { key: 'dueDate', label: 'Thời hạn', kind: 'date', defaultOrder: 'asc' },
+          { key: 'dueDate', label: 'Thời hạn', kind: 'deadline', defaultOrder: 'asc' },
         ]}
         activeKey={checklistSortBy === 'none' ? null : checklistSortBy}
         order={checklistSortOrder}
@@ -566,7 +567,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
               }}
               className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
             />
-            <span>Chọn Tất Cả Trên Trang ({sortedFilteredChecklist.length})</span>
+            <span>Chọn tất cả trên trang ({sortedFilteredChecklist.length})</span>
           </label>
 
           <div className="flex items-center gap-3 justify-end">

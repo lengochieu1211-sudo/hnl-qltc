@@ -1,0 +1,14 @@
+V6.2.1 - Chat Permission Hardening
+
+1. Chat project list now uses only projects currently authorized by Firestore realtime membership.
+2. Removed/disabled users no longer keep stale cloud projects visible in Chat because of users/{uid}.projects cache.
+3. Synced Cloud projects are no longer re-added as local recovery projects after permission is revoked.
+4. Invitation acceptance now writes the accepted project into the invited user's own users/{uid}.projects index before deleting the invitation.
+5. Inactive members are excluded from @mention suggestions.
+6. Conversation summary rules now bind sender identity, server timestamp and messageCount increment.
+7. Owner recovery fixed: correct owner Gmail may recover a changed Firebase UID without opening unrelated project fields.
+8. Orphan-project ownership claim is restricted to owner fields only.
+9. New project ownership bootstrap now includes server createdAt and updatedAt.
+10. Removed duplicate Export PDF state setter.
+
+Presence/typing remains optional and is not enabled in firebase.json because secure cross-user RTDB authorization cannot be derived directly from Firestore project membership with client-only RTDB Rules.

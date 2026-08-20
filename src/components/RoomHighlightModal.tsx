@@ -1060,7 +1060,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                   className="px-3 py-2 bg-white hover:bg-indigo-100 text-indigo-900 border border-indigo-300 font-extrabold rounded-xl text-xs active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1 shrink-0"
                   title="Thay thế toàn bộ danh sách hạng mục hiện tại bằng mẫu này"
                 >
-                  <span>⚡ Nạp Thay Thế (Xóa Cũ)</span>
+                  <span>⚡ Nạp thay thế (xóa cũ)</span>
                 </button>
               </div>
             </div>
@@ -1721,10 +1721,10 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
                 {/* 2 Free Points Coordinate Inputs */}
                 <div className="bg-white p-3 rounded-xl border border-amber-200/80 space-y-2 text-[11px] min-w-0 overflow-hidden">
-                  <p className="font-extrabold text-slate-800 text-[11px] leading-snug break-words">📍 Tọa Độ 2 Điểm Khung (% trên mặt bằng, hỗ trợ số thập phân):</p>
+                  <p className="font-extrabold text-slate-800 text-[11px] leading-snug break-words">📍 Tọa độ 2 điểm khung (% trên mặt bằng, hỗ trợ số thập phân):</p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-slate-700">
                     <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 space-y-1.5 min-w-0">
-                      <span className="font-extrabold text-indigo-700 block text-[10.5px] leading-tight truncate">• Điểm Góc 1 (Trái - Trên):</span>
+                      <span className="font-extrabold text-indigo-700 block text-[10.5px] leading-tight truncate">• Điểm góc 1 (trái - trên):</span>
                       <div className="grid grid-cols-2 gap-1.5 items-center">
                         <div className="flex items-center gap-1 min-w-0">
                           <label className="font-bold text-slate-500 shrink-0 text-[10px]">X1:</label>
@@ -1760,7 +1760,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                     </div>
 
                     <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 space-y-1.5 min-w-0">
-                      <span className="font-extrabold text-indigo-700 block text-[10.5px] leading-tight truncate">• Điểm Góc 2 (Phải - Dưới):</span>
+                      <span className="font-extrabold text-indigo-700 block text-[10.5px] leading-tight truncate">• Điểm góc 2 (phải - dưới):</span>
                       <div className="grid grid-cols-2 gap-1.5 items-center">
                         <div className="flex items-center gap-1 min-w-0">
                           <label className="font-bold text-slate-500 shrink-0 text-[10px]">X2:</label>

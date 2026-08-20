@@ -17,22 +17,14 @@ export interface DefectOverdueInfo {
  */
 export function getDefectShortCode(id?: string): string {
   const raw = String(id || '').trim();
-  const numericMatch = raw.match(/^DEF-(\d+)(?:-([A-Z0-9]+))?/i);
+  const numericMatch = raw.match(/^DEF-(\d+)/i);
   if (numericMatch) {
     const numericPart = numericMatch[1];
-    const suffix = String(numericMatch[2] || '').slice(0, 4).toUpperCase();
-
-    // New sequential IDs stay readable (e.g. DEF-101-ABC -> DF-101-ABC).
-    // Legacy IDs often embedded Date.now() (13+ digits); never render that full
-    // timestamp on the floor plan because it covers the drawing on mobile.
-    if (numericPart.length <= 6) {
-      return suffix ? `DF-${numericPart}-${suffix}` : `DF-${numericPart}`;
-    }
-
-    const legacyTail = numericPart.slice(-5);
-    return suffix ? `DF-${legacyTail}-${suffix}` : `DF-${legacyTail}`;
+    // Display code only: keep the stored ID untouched, but never paint a long
+    // timestamp/suffix over the floor plan on mobile.
+    return numericPart.length <= 6 ? `DF-${numericPart}` : `DF-${numericPart.slice(-5)}`;
   }
-  const compact = raw.replace(/[^a-zA-Z0-9]/g, '').slice(-6).toUpperCase();
+  const compact = raw.replace(/[^a-zA-Z0-9]/g, '').slice(-4).toUpperCase();
   return compact ? `DF-${compact}` : 'DF';
 }
 

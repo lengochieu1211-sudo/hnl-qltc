@@ -6,22 +6,25 @@ import {
   ClipboardCheck, 
   Users,
   Settings,
-  MoreHorizontal
+  MoreHorizontal,
+  MessageCircle
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 
-export type TabType = 'warehouse' | 'volume' | 'floorplan' | 'checklist' | 'crew' | 'config';
+export type TabType = 'warehouse' | 'volume' | 'floorplan' | 'checklist' | 'crew' | 'chat' | 'config';
 
 interface BottomNavProps {
   activeTab: TabType;
   setActiveTab: (tab: TabType) => void;
   defectBadgeCount: number;
+  chatBadgeCount?: number;
 }
 
 export const BottomNav: React.FC<BottomNavProps> = ({
   activeTab,
   setActiveTab,
   defectBadgeCount,
+  chatBadgeCount = 0,
 }) => {
   const { t } = useLanguage();
   
@@ -68,7 +71,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
         <button
           onClick={() => setShowMore(v => !v)}
           className={`relative flex flex-col items-center justify-center transition-all ${
-            activeTab === 'checklist' || activeTab === 'config' || showMore
+            activeTab === 'checklist' || activeTab === 'chat' || activeTab === 'config' || showMore
               ? 'text-blue-600 font-bold'
               : 'text-slate-500 font-medium'
           }`}
@@ -88,6 +91,13 @@ export const BottomNav: React.FC<BottomNavProps> = ({
             >
               <ClipboardCheck className="w-4 h-4 text-indigo-600" />
               Checklist
+            </button>
+            <button
+              onClick={() => { setShowMore(false); setActiveTab('chat'); }}
+              className="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              <span className="flex items-center gap-2"><MessageCircle className="w-4 h-4 text-violet-600" /> Trao đổi</span>
+              {chatBadgeCount > 0 && <span className="min-w-5 h-5 px-1.5 rounded-full bg-rose-600 text-white text-[10px] font-extrabold flex items-center justify-center">{chatBadgeCount > 9 ? '9+' : chatBadgeCount}</span>}
             </button>
             <button
               onClick={() => { setShowMore(false); setActiveTab('config'); }}

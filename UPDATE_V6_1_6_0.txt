@@ -1,0 +1,10 @@
+V6.1.6.0 - Unified interaction language, clean PDF marker preview and true Defect anchor points.
+
+- One QuickSortBar visual pattern on mobile/PC.
+- One MoveOrderControls language: drag, move up/down; Chevron remains collapse/expand only.
+- PDF preview simplified: one room, one real Defect dot, one short leader, one label.
+- PDF Defect code selector now also controls the main Defect table marker code.
+- Direct floor-plan Defects always show a real anchor dot at the saved x/y; labels are offset and connected by leader lines.
+- Compact display Defect codes never expose long timestamp IDs on the drawing.
+- PDF room legend uses per-category units when available.
+- VITE_APP_VERSION V6.1.6.0.
