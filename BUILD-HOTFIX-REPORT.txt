@@ -1,0 +1,13 @@
+V6.2.6 BUILD HOTFIX
+
+Nguyên nhân GitHub Actions fail:
+- package.json: pdfjs-dist ^6.2.208
+- package-lock.json: pdfjs-dist ^6.2.108 / package 6.2.108
+- npm ci yêu cầu package.json và package-lock.json đồng bộ nên dừng ngay.
+
+Đã sửa:
+1. package.json -> pdfjs-dist ^6.2.108 để khớp package-lock hiện tại.
+2. firebase-hosting-merge.yml: VITE_APP_VERSION V6.2.5 -> V6.2.6.
+3. firebase-hosting-pull-request.yml: VITE_APP_VERSION V6.2.5 -> V6.2.6.
+
+Không thay đổi source logic, Firebase project, Firestore rules hay dữ liệu.
