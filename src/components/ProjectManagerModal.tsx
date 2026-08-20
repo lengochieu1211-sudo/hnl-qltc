@@ -25,6 +25,7 @@ import {
   subscribeProjectSharedSettings,
   saveProjectSharedSettings,
   subscribeCurrentUserProjectsRealtime,
+  refreshCurrentUserProjectDiscovery,
   saveProjectMetadataToCloud,
   deleteCloudProject
 } from '../lib/firebase';
@@ -125,24 +126,48 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   const [cloudBackupSortBy, setCloudBackupSortBy] = useState<'date' | 'name' | 'projects'>('date');
   const [cloudBackupSortOrder, setCloudBackupSortOrder] = useState<'asc' | 'desc'>('desc');
 
+  // Google Auth state is declared before the Cloud project subscription so that
+  // the subscription can restart whenever Firebase restores/switches accounts.
+  const [googleUser, setGoogleUser] = useState<FirebaseUser | null>(null);
+  const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
+
   useEffect(() => {
-    if (!isOpen) return;
-    return subscribeCurrentUserProjectsRealtime((cloudProjects) => {
-      if (cloudProjects.length === 0) return;
-      const cached = new Map(getProjectsList().map((p) => [p.id, p]));
-      const next = cloudProjects.map((p) => ({
-        id: p.id,
-        name: p.name || cached.get(p.id)?.name || p.id,
-        // createdAt must come from projects/{projectId}.createdAt in Firestore.
-        // Missing legacy values stay visibly "migrating"; never fake them with cache/updatedAt/Date.now().
-        createdAt: Number(p.createdAt || 0),
-        createdAtSource: p.createdAt ? 'cloud' as const : 'migrating' as const,
-        updatedAt: Number(p.updatedAt || cached.get(p.id)?.updatedAt || 0),
-      }));
-      saveProjectsList(next); // local cache only
-      setProjects(next);
-    });
-  }, [isOpen]);
+    if (!isOpen || !googleUser?.uid || !googleUser?.email) return;
+    let cancelled = false;
+    let unsubscribe = () => {};
+
+    const start = async () => {
+      // Force a compatibility discovery pass every time this modal opens or the Google
+      // account changes. This materializes pending invitations into users/{uid}.projects
+      // before relying on realtime listeners, fixing "member has role but list = 0".
+      await refreshCurrentUserProjectDiscovery().catch((err) =>
+        console.warn('Project Manager discovery refresh warning:', err)
+      );
+      if (cancelled) return;
+
+      unsubscribe = subscribeCurrentUserProjectsRealtime((cloudProjects) => {
+        if (cancelled) return;
+        const cached = new Map(getProjectsList().map((p) => [p.id, p]));
+        const next = cloudProjects.map((p) => ({
+          id: p.id,
+          name: p.name || cached.get(p.id)?.name || p.id,
+          // createdAt must come from projects/{projectId}.createdAt in Firestore.
+          // Missing legacy values stay visibly "migrating"; never fake them with cache/updatedAt/Date.now().
+          createdAt: Number(p.createdAt || 0),
+          createdAtSource: p.createdAt ? 'cloud' as const : 'migrating' as const,
+          updatedAt: Number(p.updatedAt || cached.get(p.id)?.updatedAt || 0),
+        }));
+        saveProjectsList(next); // local cache only
+        setProjects(next);
+      });
+    };
+
+    start();
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [isOpen, googleUser?.uid, googleUser?.email]);
   
   // Scope selection: 'active' (1 dự án), 'selected' (chọn nhiều), 'all' (tất cả)
   const [saveScope, setSaveScope] = useState<ScopeType>('active');
@@ -258,10 +283,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   const [pendingImportChoice, setPendingImportChoice] = useState<{ parsedData: any; normalized: any; fileName?: string; fileSize?: number } | null>(null);
   const [selectedDumpProjectId, setSelectedDumpProjectId] = useState<string>('default');
 
-  // Google Auth User state
-  const [googleUser, setGoogleUser] = useState<FirebaseUser | null>(null);
-  const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
-
+  // Google Auth listener
   useEffect(() => {
     const unsub = onAuthUserChanged((user) => {
       setGoogleUser(user);

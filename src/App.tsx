@@ -44,7 +44,7 @@ function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
   }
   return merged;
 }
-import { subscribeToProjectRealtime, saveProjectDiffsToCloud, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, subscribeProjectUserRoleRealtime, fetchCurrentUserProjectsFromCloud, subscribeCurrentUserProjectsRealtime, subscribeProjectSharedSettings, saveProjectSharedSettings, saveProjectAuditLog } from './lib/firebase';
+import { subscribeToProjectRealtime, saveProjectDiffsToCloud, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, subscribeProjectUserRoleRealtime, fetchCurrentUserProjectsFromCloud, subscribeCurrentUserProjectsRealtime, refreshCurrentUserProjectDiscovery, subscribeProjectSharedSettings, saveProjectSharedSettings, saveProjectAuditLog } from './lib/firebase';
 import { 
   InventoryItem, 
   WorkVolume, 
@@ -1187,6 +1187,12 @@ export default function App() {
 
     // Firestore/invitations are the source of truth for the cross-device project index.
     // construction_projects_list remains only a local cache for fast/offline startup.
+    // Proactively consume/repair pending invitations when Auth is restored so Chat and
+    // the global project cache do not depend on the Project Manager modal being opened.
+    refreshCurrentUserProjectDiscovery().catch((err) =>
+      console.warn('Global project discovery refresh warning:', err)
+    );
+
     let firstCloudEmission = true;
     const unsubscribe = subscribeCurrentUserProjectsRealtime((remoteProjects) => {
       setAuthorizedChatProjects(remoteProjects.map((project) => ({ id: project.id, name: project.name })));

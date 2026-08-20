@@ -6852,13 +6852,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
         const handleStatusChange = async (newStatus: DefectStatus) => {
           if (newStatus === 'Đã nghiệm thu' && !activeDefectDetail.afterImageUrl) {
-            const projectPhotos = await getProjectPhotos(currentProjectId).catch(() => []);
-            const hasAfterEvidence = projectPhotos.some((photo) =>
-              photo.entityType === 'defect' &&
-              photo.entityId === activeDefectDetail.id &&
-              photo.category === 'defect_after' &&
-              !photo.deleted
-            );
+            const afterPhotos = await getEntityPhotos(
+              currentProjectId,
+              'defect',
+              activeDefectDetail.id,
+              'defect_after'
+            ).catch(() => []);
+            const hasAfterEvidence = afterPhotos.some((photo) => !photo.deleted);
             if (!hasAfterEvidence) {
               const ok = await confirmAsync('Defect chưa có ảnh sau sửa/khắc phục. Vẫn chuyển sang Đã nghiệm thu? Chỉ nên tiếp tục khi đã kiểm tra thực tế.');
               if (!ok) return;

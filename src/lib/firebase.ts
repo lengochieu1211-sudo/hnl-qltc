@@ -226,27 +226,30 @@ export async function repairProjectAccessIndexForProject(projectId: string): Pro
     const projectName = projectSnap.exists() ? String(projectSnap.data()?.name || projectId) : projectId;
     const membersSnap = await getDocs(collection(db, 'projects', projectId, 'members'));
     const seen = new Set<string>();
-    const writes: Promise<unknown>[] = [];
+    const members: Array<{ email: string; role: string }> = [];
     membersSnap.forEach((memberSnap) => {
       const data = memberSnap.data();
       const memberEmail = normalizeEmail(data?.email || (memberSnap.id.includes('@') ? memberSnap.id : ''));
       if (!memberEmail || seen.has(memberEmail) || data?.active === false) return;
       seen.add(memberEmail);
-      const role = data?.role || 'VIEWER';
+      members.push({ email: memberEmail, role: String(data?.role || 'VIEWER').toUpperCase() });
+    });
 
-      // IMPORTANT: invitation is the backward-compatible discovery path and works with
-      // the currently deployed V6.2.1 Rules. Always repair it first. The newer
-      // projectAccess index is best-effort until GitHub's service account receives
-      // Firebase Rules Admin and the matching Rules can be deployed.
-      writes.push(ensureProjectInvitationIndex(projectId, memberEmail, role, projectName));
-      writes.push(writeProjectAccessIndex(projectId, memberEmail, role, projectName, true));
-    });
-    const settled = await Promise.allSettled(writes);
-    settled.forEach((item) => {
-      if (item.status === 'rejected') {
-        console.warn('Project discovery repair partial warning:', item.reason);
+    // Do not run the compatibility invitation and the newer projectAccess write in one
+    // Promise.all. On projects still using older production Rules, projectAccess is
+    // expected to fail. We want a deterministic guarantee that every active member gets
+    // the backward-compatible invitation first.
+    for (const member of members) {
+      try {
+        await ensureProjectInvitationIndex(projectId, member.email, member.role, projectName);
+      } catch (err) {
+        console.warn(`Project invitation repair warning (${member.email}):`, err);
+        continue;
       }
-    });
+      await writeProjectAccessIndex(projectId, member.email, member.role, projectName, true).catch((err) => {
+        console.warn(`projectAccess optional repair warning (${member.email}):`, err);
+      });
+    }
   } finally {
     projectAccessRepairInFlight.delete(projectId);
   }
@@ -354,6 +357,73 @@ export async function fetchCurrentUserProjectsFromCloud(): Promise<CloudProjectS
     console.warn('fetchCurrentUserProjectsFromCloud warning:', err);
     return [];
   }
+}
+
+
+/**
+ * Proactively materialize the signed-in user's project index from pending invitations.
+ *
+ * Why this exists:
+ * - Invitation listeners are realtime, but a modal can be opened before Firebase Auth has
+ *   finished restoring the Google session.
+ * - Older builds may have a valid projectInvitations row while users/{uid}.projects is empty.
+ * - Production can temporarily run older Firestore Rules, so projectInvitations remains the
+ *   compatibility discovery path.
+ *
+ * This function never grants access from the invitation alone: it verifies the actual
+ * project/member permission first, then writes only the signed-in user's own users/{uid}
+ * index (which existing Rules allow).
+ */
+export async function refreshCurrentUserProjectDiscovery(): Promise<number> {
+  const user = getCurrentRealFirebaseUser();
+  if (!user?.uid || !user.email) return 0;
+  const email = normalizeEmail(user.email);
+  const invitationQueries = [
+    query(collection(db, 'projectInvitations'), where('invitedEmail', '==', email)),
+    query(collection(db, 'projectInvitations'), where('email', '==', email)),
+  ];
+  const handled = new Set<string>();
+  let repaired = 0;
+
+  for (const invQuery of invitationQueries) {
+    const invSnap = await getDocs(invQuery).catch((err) => {
+      console.warn('Project discovery refresh invitation query warning:', err);
+      return null;
+    });
+    if (!invSnap) continue;
+
+    for (const invDoc of invSnap.docs) {
+      if (handled.has(invDoc.id)) continue;
+      handled.add(invDoc.id);
+      const data = invDoc.data();
+      const inviteEmail = normalizeEmail(data?.invitedEmail || data?.email);
+      const projectId = String(data?.projectId || '').trim();
+      if (!projectId || inviteEmail !== email) continue;
+
+      const roleInfo = await fetchProjectUserRoleFromCloud(projectId, user).catch(() => ({
+        allowed: false,
+        role: 'VIEWER' as const,
+        isCloudSynced: false,
+      }));
+      if (!roleInfo.allowed) continue;
+
+      let projectName = String(data?.projectName || data?.name || projectId);
+      try {
+        const projectSnap = await getDocFromServer(doc(db, 'projects', projectId));
+        if (projectSnap.exists() && !projectSnap.data()?.deleted) {
+          projectName = String(projectSnap.data()?.name || projectName);
+        }
+      } catch (_) {
+        // Permission was already proven above. Cached/offline name from the invitation is fine.
+      }
+
+      await registerProjectForCurrentUser(projectId, projectName, roleInfo.role).catch((err) => {
+        console.warn('Project discovery refresh user-index warning:', err);
+      });
+      repaired += 1;
+    }
+  }
+  return repaired;
 }
 
 export function subscribeCurrentUserProjectsRealtime(onUpdate: (projects: CloudProjectSummary[]) => void): () => void {

@@ -116,11 +116,13 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
         if (info.allowed && info.role) {
           setRoleState(info.role);
           setCurrentUserRole(info.role);
-          if (info.role === 'ADMIN') {
-            repairProjectAccessIndexForProject(pid).catch((err) =>
-              console.warn('Project access index repair warning:', err)
-            );
-          }
+          // Attempt discovery repair for any authenticated member. Firestore Rules are the
+          // final authority: only a real ADMIN/Owner can create invitations. This avoids
+          // skipping repair because of a temporarily stale role read while keeping backend
+          // security unchanged.
+          repairProjectAccessIndexForProject(pid).catch((err) =>
+            console.warn('Project access index repair warning:', err)
+          );
         }
       } else {
         if (requestId === cloudStatusRequestRef.current && selectedPidRef.current === pid) {
