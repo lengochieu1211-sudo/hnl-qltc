@@ -518,41 +518,22 @@ const DefectPhotoStrip: React.FC<DefectPhotoStripProps> = ({
   onOpen,
 }) => {
   const [photos, setPhotos] = useState<PhotoAttachment[]>([]);
-  const [thumbUrls, setThumbUrls] = useState<string[]>([]);
-  const thumbUrlsRef = useRef<string[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-
-    const load = async () => {
+    const loadCount = async () => {
       if (!projectId || !defect.id) return;
       setLoading(true);
       try {
         const items = await getEntityPhotos(projectId, 'defect', defect.id, category);
-        const visibleItems = items.slice(0, 3);
-        const thumbs = await Promise.all(
-          visibleItems.map((p) => getPhotoDataUrl(p.id, p.cloudUrl || p.localUri, true))
-        );
-        if (!cancelled) {
-          const nextThumbs = thumbs.filter(Boolean);
-          thumbUrlsRef.current.forEach((url) => { if (url.startsWith('blob:')) { try { URL.revokeObjectURL(url); } catch {} } });
-          thumbUrlsRef.current = nextThumbs;
-          setPhotos(items);
-          setThumbUrls(nextThumbs);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          thumbUrlsRef.current.forEach((url) => { if (url.startsWith('blob:')) { try { URL.revokeObjectURL(url); } catch {} } });
-          thumbUrlsRef.current = [];
-          setPhotos([]);
-          setThumbUrls([]);
-        }
+        if (!cancelled) setPhotos(items);
+      } catch (_) {
+        if (!cancelled) setPhotos([]);
       } finally {
         if (!cancelled) setLoading(false);
       }
     };
-
     const handlePhotosChanged = (event: Event) => {
       const detail = (event as CustomEvent)?.detail || {};
       if (detail.source === 'cloud' && Array.isArray(detail.entities)) {
@@ -567,102 +548,53 @@ const DefectPhotoStrip: React.FC<DefectPhotoStripProps> = ({
         if (detail.entityId && detail.entityId !== defect.id) return;
         if (detail.category && detail.category !== category) return;
       }
-      load();
+      void loadCount();
     };
-
-    load();
-    if (typeof window !== 'undefined') {
-      window.addEventListener('qlct-photo-attachments-changed', handlePhotosChanged);
-    }
+    void loadCount();
+    window.addEventListener('qlct-photo-attachments-changed', handlePhotosChanged);
     return () => {
       cancelled = true;
-      if (typeof window !== 'undefined') {
-        window.removeEventListener('qlct-photo-attachments-changed', handlePhotosChanged);
-      }
-      thumbUrlsRef.current.forEach((url) => { if (url.startsWith('blob:')) { try { URL.revokeObjectURL(url); } catch {} } });
-      thumbUrlsRef.current = [];
+      window.removeEventListener('qlct-photo-attachments-changed', handlePhotosChanged);
     };
   }, [projectId, defect.id, category, legacyUrl]);
 
   const legacyImages = legacyUrl ? [legacyUrl] : [];
   const totalCount = legacyImages.length + photos.length;
-  const shownLegacy = legacyImages.slice(0, 3);
-  const remainingThumbSlots = Math.max(0, 3 - shownLegacy.length);
-  const shownThumbUrls = thumbUrls.slice(0, remainingThumbSlots);
-  const overflowCount = Math.max(0, totalCount - shownLegacy.length - shownThumbUrls.length);
   const labelClass = tone === 'emerald' ? 'text-emerald-700' : 'text-slate-700';
   const chipClass = tone === 'emerald' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-50 border-slate-200 text-slate-600';
 
-  const openGallery = async (initialIndex: number) => {
+  const openGallery = async () => {
+    if (totalCount <= 0) return;
     const fullStoredImages = await Promise.all(
-      photos.map((p) => getPhotoDataUrl(p.id, p.cloudUrl || p.localUri, false))
+      photos.map((photo) => getPhotoDataUrl(photo.id, photo.cloudUrl || photo.localUri, false))
     );
     const images = [...legacyImages, ...fullStoredImages.filter(Boolean)];
-    if (images.length > 0) {
-      onOpen(images, Math.min(Math.max(initialIndex, 0), images.length - 1));
-    }
+    if (images.length > 0) onOpen(images, 0);
   };
 
   return (
     <div className="min-w-0">
       <div className={`flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wide ${labelClass}`}>
         <Images className="w-3.5 h-3.5 shrink-0" />
-        <span>{label} ({totalCount})</span>
+        <span>{label}</span>
       </div>
-
       {totalCount === 0 ? (
         <div className={`mt-1 inline-flex items-center px-2 py-1 rounded-lg border text-[10px] font-bold ${chipClass}`}>
-          {loading ? 'Đang tải ảnh...' : emptyText}
+          {loading ? 'Đang kiểm tra ảnh...' : emptyText}
         </div>
       ) : (
-        <div className="mt-1 flex items-center gap-1.5 overflow-hidden">
-          {shownLegacy.map((url, index) => (
-            <button
-              key={`legacy-${index}`}
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                openGallery(index);
-              }}
-              className="w-12 h-12 sm:w-14 sm:h-14 rounded-lg overflow-hidden border border-slate-200 bg-slate-50 shadow-2xs shrink-0"
-              title="Mở ảnh"
-            >
-              <img src={url} alt={label} className="w-full h-full object-cover" />
-            </button>
-          ))}
-
-          {shownThumbUrls.map((url, index) => {
-            const fullIndex = shownLegacy.length + index;
-            return (
-              <button
-                key={`${category}-${photos[index]?.id || index}`}
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  openGallery(fullIndex);
-                }}
-                className="w-12 h-12 sm:w-14 sm:h-14 rounded-lg overflow-hidden border border-slate-200 bg-slate-50 shadow-2xs shrink-0"
-                title="Mở ảnh"
-              >
-                <img src={url} alt={label} className="w-full h-full object-cover" />
-              </button>
-            );
-          })}
-
-          {overflowCount > 0 && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                openGallery(shownLegacy.length + shownThumbUrls.length);
-              }}
-              className="w-12 h-12 sm:w-14 sm:h-14 rounded-lg border border-slate-200 bg-slate-900/90 text-white text-xs font-black shadow-2xs shrink-0"
-              title="Mở thêm ảnh"
-            >
-              +{overflowCount}
-            </button>
-          )}
-        </div>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            void openGallery();
+          }}
+          className={`mt-1 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[10px] font-extrabold hover:brightness-95 transition ${chipClass}`}
+          title="Mở thư viện ảnh"
+        >
+          <Images className="w-3.5 h-3.5" />
+          {totalCount} ảnh · Bấm để xem
+        </button>
       )}
     </div>
   );
@@ -707,7 +639,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   canRedo,
 }) => {
   const { t } = useLanguage();
-  const currentProjectId = projectId || (typeof localStorage !== 'undefined' ? localStorage.getItem('active_project_id') : '') || 'default';
+  const currentProjectId = projectId || (typeof window !== 'undefined' ? sessionStorage.getItem('active_project_id') || localStorage.getItem('active_project_id') : '') || 'default';
   const getDraftKey = (base: string) => (currentProjectId === 'default' ? base : `${base}_${currentProjectId}`);
 
   const [selectedFloorId, setSelectedFloorId] = useState<string>(() => {

@@ -38,10 +38,77 @@ import { isTeamMatch, getTeamCategoriesForRoom, calculateTeamStatistics, isTeamW
 import { SortOrder, applySortOrder, compareDateValues, compareFloorValues, naturalCompare } from '../utils/sortUtils';
 import { PhotoAttachmentPicker } from './PhotoAttachmentPicker';
 import { MathNumberInput } from './MathNumberInput';
-import { deleteEntityPhotos } from '../utils/photoStorage';
+import { deleteEntityPhotos, getEntityPhotos } from '../utils/photoStorage';
 import { saveWorkbookFile } from '../utils/fileExport';
 import { createEntityId } from '../utils/idUtils';
 import { QuickSortBar } from './QuickSortBar';
+
+const CrewPhotoCount: React.FC<{ projectId?: string; recordId: string }> = ({ projectId, recordId }) => {
+  const [count, setCount] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      if (!projectId || !recordId) return;
+      setLoading(true);
+      try {
+        const photos = await getEntityPhotos(projectId, 'crewRecord', recordId, 'crew_progress');
+        if (!cancelled) setCount(photos.length);
+      } catch (_) {
+        if (!cancelled) setCount(0);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    const onPhotosChanged = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail || {};
+      if (detail.source === 'cloud' && Array.isArray(detail.entities)) {
+        const relevant = detail.entities.some((item: any) =>
+          item?.entityType === 'crewRecord' && item?.entityId === recordId && (!item?.category || item.category === 'crew_progress')
+        );
+        if (!relevant) return;
+      } else {
+        if (detail.entityType && detail.entityType !== 'crewRecord') return;
+        if (detail.entityId && detail.entityId !== recordId) return;
+        if (detail.category && detail.category !== 'crew_progress') return;
+      }
+      void load();
+    };
+    void load();
+    window.addEventListener('qlct-photo-attachments-changed', onPhotosChanged);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('qlct-photo-attachments-changed', onPhotosChanged);
+    };
+  }, [projectId, recordId]);
+
+  return (
+    <div className="mt-2.5 pt-2 border-t border-slate-100">
+      <button
+        type="button"
+        onClick={() => count > 0 && setExpanded((value) => !value)}
+        className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[10px] font-extrabold ${count > 0 ? 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100' : 'bg-slate-50 border-slate-200 text-slate-500'}`}
+      >
+        <FileText className="w-3.5 h-3.5" />
+        {loading ? 'Đang kiểm tra ảnh...' : count > 0 ? `${count} ảnh hiện trường · ${expanded ? 'Ẩn' : 'Xem'}` : 'Chưa có ảnh hiện trường'}
+      </button>
+      {expanded && count > 0 && projectId && (
+        <div className="mt-2">
+          <PhotoAttachmentPicker
+            projectId={projectId}
+            entityType="crewRecord"
+            entityId={recordId}
+            category="crew_progress"
+            label="HÌNH ẢNH HIỆN TRƯỜNG"
+            readOnly
+          />
+        </div>
+      )}
+    </div>
+  );
+};
 
 interface CrewTabProps {
   projectId?: string;
@@ -1248,17 +1315,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                         </div>
                       )}
 
-                      {/* Attached photos for this crew record */}
-                      <div className="mt-2.5 pt-2 border-t border-slate-100">
-                        <PhotoAttachmentPicker
-                          projectId={projectId}
-                          entityType="crewRecord"
-                          entityId={record.id}
-                          category="crew_progress"
-                          label="HÌNH ẢNH HIỆN TRƯỜNG"
-                          readOnly
-                        />
-                      </div>
+                      {/* Lightweight list mode: count only; thumbnails load on demand. */}
+                      <CrewPhotoCount projectId={projectId} recordId={record.id} />
 
                       {/* Actions buttons */}
                       <div className="flex items-center justify-end gap-3 mt-3 pt-2 border-t border-slate-100">

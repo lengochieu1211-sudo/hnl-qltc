@@ -163,7 +163,7 @@ export function normalizeImportedData(rawInput: any, activeProjectId?: string, s
   if (typeof obj !== 'object' || obj === null) return {};
 
   const structure = detectBackupStructure(obj);
-  const effectiveProjectId = sourceProjectId || structure.projectId || activeProjectId || (typeof window !== 'undefined' ? localStorage.getItem('active_project_id') || undefined : undefined);
+  const effectiveProjectId = sourceProjectId || structure.projectId || activeProjectId || (typeof window !== 'undefined' ? sessionStorage.getItem('active_project_id') || localStorage.getItem('active_project_id') || undefined : undefined);
 
   // Unwrap nested structures like { data: { ... } }, { backup: { ... } }, { payload: { ... } }
   let targetObj = { ...obj };
@@ -483,7 +483,7 @@ export function extractProjectsFromImportData(rawInput: any): ProjectImportCandi
   }
 
   // Case 3: Untyped or Legacy Single Project
-  const fallbackId = obj.projectId || (typeof window !== 'undefined' ? localStorage.getItem('active_project_id') || 'default' : 'default');
+  const fallbackId = obj.projectId || (typeof window !== 'undefined' ? sessionStorage.getItem('active_project_id') || localStorage.getItem('active_project_id') || 'default' : 'default');
   const normalized = normalizeImportedData(obj, fallbackId, fallbackId);
   const projName = normalized.projectName || obj.name || 'Dự án sao lưu';
   const updatedAt = parseLegacyTimestamp(obj.updatedAt || normalized.updatedAt, Date.now());

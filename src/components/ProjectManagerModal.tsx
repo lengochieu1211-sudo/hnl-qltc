@@ -27,7 +27,11 @@ import {
   subscribeCurrentUserProjectsRealtime,
   refreshCurrentUserProjectDiscovery,
   saveProjectMetadataToCloud,
-  deleteCloudProject
+  deleteCloudProject,
+  fetchProjectUserRoleFromCloud,
+  getCurrentRealFirebaseUser,
+  transferProjectMembersToCanonical,
+  markProjectMergedIntoCloud
 } from '../lib/firebase';
 import type { User as FirebaseUser } from 'firebase/auth';
 import { ConflictMergeModal } from './ConflictMergeModal';
@@ -156,6 +160,8 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           createdAt: Number(p.createdAt || 0),
           createdAtSource: p.createdAt ? 'cloud' as const : 'migrating' as const,
           updatedAt: Number(p.updatedAt || cached.get(p.id)?.updatedAt || 0),
+          canonicalProjectId: p.canonicalProjectId,
+          aliases: p.aliases,
         }));
         saveProjectsList(next); // local cache only
         setProjects(next);
@@ -169,9 +175,11 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     };
   }, [isOpen, googleUser?.uid, googleUser?.email]);
   
-  // Scope selection: 'active' (1 dự án), 'selected' (chọn nhiều), 'all' (tất cả)
+  // JSON export scope only. This is intentionally hidden from the main sync UI so
+  // users do not confuse backup-file scope with Firebase realtime/Drive sync scope.
   const [saveScope, setSaveScope] = useState<ScopeType>('active');
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([getActiveProjectId()]);
+  const [showJsonScopePicker, setShowJsonScopePicker] = useState(false);
 
   // Main navigation tab within the modal
   const [modalTab, setModalTab] = useState<'sync' | 'projects'>('sync');
@@ -1873,22 +1881,18 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     }
   };
 
-  // 3. Create Cloud Backup based on chosen scope
+  // 3. Cloud backup is always scoped to the active project. Multi-project scope is
+  // intentionally reserved for explicit JSON export so it cannot be confused with
+  // Firebase realtime/Drive behavior.
   const handleCreateCloudBackup = async () => {
     try {
       setIsSavingCloudBackup(true);
       setCloudStatusMsg(null);
-      
-      const scopeData = await getStorageDataForScope(saveScope);
-      const items = Object.keys(scopeData).map(k => ({ key: k, value: scopeData[k] }));
 
-      let scopeLabel = 'Toàn bộ hệ thống';
-      if (saveScope === 'active') {
-        const curName = projects.find(p => p.id === activeId)?.name || 'Dự án hiện tại';
-        scopeLabel = `Dự án "${curName}"`;
-      } else if (saveScope === 'selected') {
-        scopeLabel = `${selectedProjectIds.length} dự án được chọn`;
-      }
+      const scopeData = await getStorageDataForScope('active');
+      const items = Object.keys(scopeData).map(k => ({ key: k, value: scopeData[k] }));
+      const curName = projects.find(p => p.id === activeId)?.name || 'Dự án hiện tại';
+      const scopeLabel = `Dự án "${curName}"`;
 
       const defaultName = cloudBackupName.trim() || `Sao lưu ${scopeLabel} (${new Date().toLocaleDateString('vi-VN')} ${new Date().toLocaleTimeString('vi-VN')})`;
       await saveCloudBackup(defaultName, items);
@@ -2163,9 +2167,19 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       if (onFlushCurrentProject) {
         await onFlushCurrentProject();
       }
-      const newProjectId = createProjectId();
       const now = Date.now();
       const trimmedName = newProjectName.trim();
+      const duplicateNameProject = projects.find((project) =>
+        normalizeProjectNameForDuplicate(project.name) === normalizeProjectNameForDuplicate(trimmedName)
+      );
+      if (duplicateNameProject) {
+        setErrorMessage(
+          `Đã có dự án “${duplicateNameProject.name}” với ID ${shortProjectId(duplicateNameProject.id)}. ` +
+          `Không tạo thêm projectId mới cùng tên. Hãy mở dự án hiện có hoặc dùng công cụ So sánh & hợp nhất nếu đây là dữ liệu bị tách.`
+        );
+        return;
+      }
+      const newProjectId = createProjectId();
       const newProject: ProjectInfo = {
         id: newProjectId,
         name: trimmedName,
@@ -2393,27 +2407,57 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
     setMergingDuplicateTargetId(target.id);
     try {
-      const records = await Promise.all(group.map(async (project) => ({
-        project,
-        record: await fetchProjectFromCloud(project.id),
-      })));
+      const currentUser = getCurrentRealFirebaseUser();
+      if (!currentUser) throw new Error('Cần đăng nhập Google để hợp nhất projectId.');
+
+      const [records, roleChecks] = await Promise.all([
+        Promise.all(group.map(async (project) => ({
+          project,
+          record: await fetchProjectFromCloud(project.id),
+        }))),
+        Promise.all(group.map(async (project) => ({
+          project,
+          role: await fetchProjectUserRoleFromCloud(project.id, currentUser),
+        }))),
+      ]);
+
       const missing = records.filter((item) => !item.record);
       if (missing.length > 0) {
         throw new Error(`Không đọc được dữ liệu Cloud của: ${missing.map((item) => shortProjectId(item.project.id)).join(', ')}`);
+      }
+
+      const targetRole = roleChecks.find((item) => item.project.id === target.id)?.role;
+      if (!targetRole?.allowed || !['ADMIN', 'ENGINEER'].includes(targetRole.role)) {
+        throw new Error('Cần quyền ADMIN hoặc KỸ SƯ trên dự án chính để hợp nhất dữ liệu.');
+      }
+
+      const sourceWithoutAdmin = roleChecks.filter((item) =>
+        item.project.id !== target.id && (!item.role.allowed || item.role.role !== 'ADMIN')
+      );
+      if (sourceWithoutAdmin.length > 0) {
+        throw new Error(
+          `Muốn kết thúc tình trạng cùng tên nhưng khác ID, tài khoản hiện tại phải là ADMIN trên ID nguồn: ` +
+          sourceWithoutAdmin.map((item) => shortProjectId(item.project.id)).join(', ') +
+          `. Hãy mở ID nguồn bằng tài khoản sở hữu nó, sau đó hợp nhất vào ID dự án chính.`
+        );
       }
 
       const comparisonLines = records.map(({ project, record }) => {
         const payload = getCloudPayload(record as any) || {};
         const created = formatProjectCreatedAt(project);
         const updated = project.updatedAt ? new Date(Number(project.updatedAt)).toLocaleString('vi-VN') : 'Chưa rõ';
-        const marker = project.id === target.id ? 'GIỮ LÀM DỰ ÁN CHÍNH' : 'Nguồn hợp nhất';
+        const marker = project.id === target.id ? 'GIỮ LÀM DỰ ÁN CHÍNH' : 'ID nguồn sẽ chuyển hướng';
         return `• ${project.name} ${shortProjectId(project.id)} [${marker}]\n  Khởi tạo: ${created} | Cập nhật: ${updated}\n  ${summarizeCloudPayload(payload)}`;
       });
 
       const accepted = await confirmAsync(
         `Phát hiện ${group.length} dự án cùng tên nhưng projectId khác nhau.\n\n${comparisonLines.join('\n\n')}\n\n` +
-        `Hợp nhất dữ liệu vào ${shortProjectId(target.id)}?\n` +
-        `Nguồn còn lại SẼ ĐƯỢC GIỮ NGUYÊN, không xóa tự động. Sau khi kiểm tra dữ liệu đã đủ trên PC và điện thoại, bạn mới quyết định xóa bản dư.`
+        `Hợp nhất dữ liệu vào ${shortProjectId(target.id)} và dùng ID này làm dự án chính?\n\n` +
+        `• Dữ liệu nghiệp vụ được gộp vào ID chính.\n` +
+        `• ID nguồn KHÔNG bị xóa; được giữ làm bản lưu/đối chiếu.\n` +
+        `• Thành viên được chuyển sang ID chính khi tài khoản này có quyền ADMIN trên ID chính.\n` +
+        `• Chat cũ của ID nguồn vẫn được giữ nguyên ở bản nguồn; chat mới sẽ dùng ID chính.\n` +
+        `• Sau khi hợp nhất, các tài khoản có quyền trên ID chính sẽ chỉ thấy ID chính trong danh sách.`
       );
       if (!accepted) return;
 
@@ -2424,6 +2468,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         mergedPayload = smartMergeProjectData(mergedPayload, getCloudPayload(sourceRecord) || {});
       }
 
+      // 1) Write business data into the selected canonical target.
       await saveProjectToCloud({
         id: target.id,
         name: target.name,
@@ -2432,13 +2477,41 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         payload: mergedPayload,
       });
 
+      // 2) If the current account is ADMIN on the target, copy active members so
+      // other accounts can immediately discover and use the same canonical ID.
+      let transferredMembers = 0;
+      let adminRolesCapped = 0;
+      if (targetRole.role === 'ADMIN') {
+        for (const source of sources) {
+          const transfer = await transferProjectMembersToCanonical(source.id, target.id);
+          transferredMembers += transfer.transferred;
+          adminRolesCapped += transfer.adminDowngradedToEngineer;
+        }
+      }
+
+      // 3) Mark every source as a non-destructive redirect. New builds collapse it
+      // from Project List/Chat when the canonical target is accessible.
+      for (const source of sources) {
+        await markProjectMergedIntoCloud(source.id, target.id);
+      }
+
       if (target.id === activeId && onRestoreData) {
         await onRestoreData(mergedPayload, target.id);
       }
 
+      // Force a fresh discovery pass so the current account immediately collapses
+      // source IDs and refreshes users/{uid}.projects / invitation compatibility.
+      await refreshCurrentUserProjectDiscovery().catch(() => {});
+
+      const memberNote = targetRole.role === 'ADMIN'
+        ? `Đã chuyển/đồng bộ ${transferredMembers} quyền thành viên sang ID chính.` +
+          (adminRolesCapped > 0 ? ` ${adminRolesCapped} ADMIN chỉ có ở bản nguồn được chuyển an toàn thành KỸ SƯ.` : '')
+        : `Tài khoản hiện tại không phải ADMIN của ID chính nên chưa chuyển danh sách thành viên. ADMIN của ID chính cần bổ sung các thành viên còn thiếu.`;
+
       alert(
-        `Đã hợp nhất dữ liệu vào ${target.name} ${shortProjectId(target.id)}.\n\n` +
-        `Các projectId nguồn vẫn được giữ nguyên để đối chiếu; hệ thống KHÔNG tự xóa dự án trùng.`
+        `Đã hợp nhất ${target.name} vào projectId chính ${shortProjectId(target.id)}.\n\n` +
+        `${memberNote}\n\n` +
+        `ID nguồn vẫn được giữ nguyên trên Cloud để đối chiếu, không xóa dữ liệu/ảnh/chat cũ.`
       );
     } catch (err) {
       console.error('Duplicate project merge error:', err);
@@ -2452,12 +2525,16 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
-        onClose();
+        if (showJsonScopePicker) {
+          setShowJsonScopePicker(false);
+        } else {
+          onClose();
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, showJsonScopePicker]);
 
   if (!isOpen) return null;
 
@@ -2579,291 +2656,14 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           {modalTab === 'sync' && (
             <div className="space-y-4">
               
-              {/* 🎯 SECTION 1: SCOPE SELECTOR */}
-              <details className="group bg-slate-50 rounded-2xl border border-slate-200/80">
-                <summary className="cursor-pointer select-none p-3 flex items-center justify-between text-[11px] font-extrabold text-slate-700">
-                  <span className="flex items-center gap-1.5"><Layers3 className="w-4 h-4 text-indigo-600" /> Phạm vi sao lưu: {saveScope === 'active' ? 'Dự án hiện tại' : saveScope === 'selected' ? `Nhiều dự án (${selectedProjectIds.length})` : `Tất cả dự án (${projects.length})`}</span>
-                  <ChevronDown className="w-4 h-4 text-slate-400 group-open:rotate-180 transition-transform" />
-                </summary>
-                <div className="px-3 pb-3 space-y-2 border-t border-slate-200/70 pt-2">
-                <div className="flex items-center justify-end">
-                  <span className="text-[11px] font-extrabold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                    <Layers3 className="w-4 h-4 text-indigo-600" />
-                    Phạm vi sao lưu
-                  </span>
-                  {saveScope === 'selected' && (
-                    <button
-                      onClick={selectAllProjects}
-                      className="text-[10px] font-bold text-indigo-600 hover:underline"
-                    >
-                      Chọn tất cả ({projects.length})
-                    </button>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-3 gap-1.5 bg-white p-1 rounded-xl border border-slate-200">
-                  <button
-                    type="button"
-                    onClick={() => setSaveScope('active')}
-                    className={`py-2 px-1 rounded-lg text-[11px] font-extrabold transition-all flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
-                      saveScope === 'active' 
-                        ? 'bg-indigo-600 text-white shadow-xs' 
-                        : 'text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    <span>1 dự án hiện tại</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setSaveScope('selected')}
-                    className={`py-2 px-1 rounded-lg text-[11px] font-extrabold transition-all flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
-                      saveScope === 'selected' 
-                        ? 'bg-indigo-600 text-white shadow-xs' 
-                        : 'text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    <span>Nhiều dự án ({selectedProjectIds.length})</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setSaveScope('all')}
-                    className={`py-2 px-1 rounded-lg text-[11px] font-extrabold transition-all flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
-                      saveScope === 'all' 
-                        ? 'bg-indigo-600 text-white shadow-xs' 
-                        : 'text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    <span>Tất cả dự án ({projects.length})</span>
-                  </button>
-                </div>
-
-                {/* Scope Description / Multi-Selector */}
-                {saveScope === 'active' && (
-                  <p className="text-[10.5px] text-slate-500 italic pl-1">
-                    📍 Thao tác sẽ chỉ áp dụng cho dự án đang mở: <strong className="text-indigo-900">{projects.find(p => p.id === activeId)?.name}</strong>
-                  </p>
-                )}
-
-                {saveScope === 'selected' && (
-                  <div className="bg-white p-2.5 rounded-xl border border-slate-200 space-y-1.5">
-                    <p className="text-[10.5px] font-bold text-slate-700">Tích chọn danh sách dự án cần thao tác:</p>
-                    <QuickSortBar
-                      itemCount={projects.length}
-                      options={[
-                        { key: 'name', label: 'Tên dự án', kind: 'alpha' },
-                        { key: 'createdAt', label: 'Ngày khởi tạo', kind: 'date', defaultOrder: 'desc' },
-                        { key: 'updatedAt', label: 'Ngày cập nhật', kind: 'date', defaultOrder: 'desc' },
-                      ]}
-                      activeKey={projectSortBy}
-                      order={projectSortOrder}
-                      onChange={(key, order) => { setProjectSortBy(key); setProjectSortOrder(order); }}
-                      onReset={() => { setProjectSortBy('name'); setProjectSortOrder('asc'); }}
-                      summary={`${projects.length} dự án`}
-                    />
-
-                    <div className="max-h-28 overflow-y-auto space-y-1 pr-1">
-                      {sortedProjectsAll.map(p => {
-                        const isChecked = selectedProjectIds.includes(p.id);
-                        return (
-                          <label key={p.id} className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-slate-50 cursor-pointer text-xs">
-                            <input 
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={() => toggleSelectProject(p.id)}
-                              className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
-                            />
-                            <span className={`font-semibold ${isChecked ? 'text-indigo-900' : 'text-slate-600'}`}>
-                              {p.name} {p.id === activeId ? '(Đang mở)' : ''}
-                            </span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {saveScope === 'all' && (
-                  <p className="text-[10.5px] text-slate-500 italic pl-1">
-                    🌐 Thao tác sẽ lưu / đồng bộ <strong>toàn bộ {projects.length} dự án</strong> và cấu hình cài đặt hệ thống.
-                  </p>
-                )}
-                </div>
-              </details>
-
-              {/* 🤖 AUTOMATIC BACKUP CONFIGURATION & CATEGORY STATUS */}
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden transition-all duration-200">
-                {/* Header Row */}
-                <div 
-                  onClick={() => setIsAutoBackupConfigExpanded(!isAutoBackupConfigExpanded)}
-                  className="flex items-center justify-between p-4 cursor-pointer hover:bg-slate-50/50 select-none transition-colors"
-                >
-                  <span className="font-extrabold text-slate-800 text-xs flex items-center gap-1.5">
-                    <Database className="w-4 h-4 text-emerald-600 animate-pulse" />
-                    Tự động sao lưu
-                  </span>
-                  
-                  <div className="flex items-center gap-2.5" onClick={(e) => e.stopPropagation()}>
-                    {hasDriveBackend && (
-                      <label className="relative inline-flex items-center cursor-pointer select-none">
-                        <input 
-                          type="checkbox" 
-                          checked={autoSyncEnabled} 
-                          onChange={(e) => setAutoSyncEnabled && setAutoSyncEnabled(e.target.checked)}
-                          className="sr-only peer"
-                        />
-                        <div className="w-9 h-5 bg-slate-200 rounded-full peer peer-focus:ring-2 peer-focus:ring-emerald-500/20 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
-                        <span className="ml-1.5 text-[10.5px] font-bold text-slate-700">
-                          {autoSyncEnabled ? 'BẬT' : 'TẮT'}
-                        </span>
-                      </label>
-                    )}
-
-                    {/* Collapse Button */}
-                    <button 
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setIsAutoBackupConfigExpanded(!isAutoBackupConfigExpanded);
-                      }}
-                      className="p-1 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors"
-                      title={isAutoBackupConfigExpanded ? 'Thu gọn' : 'Mở rộng'}
-                    >
-                      {isAutoBackupConfigExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Collapsible Content */}
-                {isAutoBackupConfigExpanded && (
-                  <div className="p-4 pt-0 border-t border-slate-100 space-y-3.5 bg-slate-50/20 animate-in fade-in slide-in-from-top-1 duration-200">
-                    <p className="text-slate-500 text-[10px] leading-relaxed pt-3">
-                      {hasDriveBackend
-                        ? 'Tự động lưu và đồng bộ dữ liệu lên Đám mây Firebase & Google Drive khi có thay đổi. Tích chọn các danh mục muốn đưa vào bản sao lưu:'
-                        : 'Dữ liệu được lưu cục bộ và đồng bộ qua Đám mây Firebase miễn phí. Google Drive trực tiếp cần backend server nên đang được ẩn trên Firebase Hosting tĩnh.'}
-                    </p>
-
-                    {/* Categories & Timestamps Grid */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {[
-                        { 
-                          key: 'norms', 
-                          label: 'Định mức vật tư', 
-                          icon: Layers3, 
-                          checked: syncNorms, 
-                          setter: setSyncNorms, 
-                          time: localStorage.getItem(getKey('construction_last_backup_norms')) 
-                        },
-                        { 
-                          key: 'inventory', 
-                          label: 'Kho & Phân phối', 
-                          icon: HardDrive, 
-                          checked: syncInventory, 
-                          setter: setSyncInventory, 
-                          time: localStorage.getItem(getKey('construction_last_backup_inventory')) 
-                        },
-                        { 
-                          key: 'workVolumes', 
-                          label: 'Khối lượng hoàn thành', 
-                          icon: FileSpreadsheet, 
-                          checked: syncWorkVolumes, 
-                          setter: setSyncWorkVolumes, 
-                          time: localStorage.getItem(getKey('construction_last_backup_workVolumes')) 
-                        },
-                        { 
-                          key: 'floorPlans', 
-                          label: 'Mặt bằng & Bản vẽ', 
-                          icon: Building2, 
-                          checked: syncFloorPlans, 
-                          setter: setSyncFloorPlans, 
-                          time: localStorage.getItem(getKey('construction_last_backup_floorPlans')) 
-                        },
-                        { 
-                          key: 'defects', 
-                          label: 'Nhật ký lỗi Defect', 
-                          icon: AlertTriangle, 
-                          checked: syncDefects, 
-                          setter: setSyncDefects, 
-                          time: localStorage.getItem(getKey('construction_last_backup_defects')) 
-                        },
-                        { 
-                          key: 'roomProgress', 
-                          label: 'Tiến độ tầng', 
-                          icon: CheckCircle, 
-                          checked: syncRoomProgress, 
-                          setter: setSyncRoomProgress, 
-                          time: localStorage.getItem(getKey('construction_last_backup_roomProgress')) 
-                        },
-                        { 
-                          key: 'checklist', 
-                          label: 'Danh mục kiểm tra', 
-                          icon: CheckSquare, 
-                          checked: syncChecklist, 
-                          setter: setSyncChecklist, 
-                          time: localStorage.getItem(getKey('construction_last_backup_checklist')) 
-                        },
-                        { 
-                          key: 'crew', 
-                          label: 'Nhân công & Đội thợ', 
-                          icon: History, 
-                          checked: syncCrew, 
-                          setter: setSyncCrew, 
-                          time: localStorage.getItem(getKey('construction_last_backup_crew')) 
-                        },
-                      ].map((cat) => {
-                        const CatIcon = cat.icon;
-                        return (
-                          <div 
-                            key={cat.key} 
-                            className={`p-2 rounded-xl border transition-all flex flex-col justify-between min-h-[56px] ${
-                              cat.checked 
-                                ? 'bg-emerald-50/20 border-emerald-100 hover:border-emerald-200' 
-                                : 'bg-slate-50/50 border-slate-200/50 opacity-60'
-                            }`}
-                          >
-                            <div className="flex items-center gap-1.5">
-                              <input 
-                                type="checkbox" 
-                                checked={cat.checked} 
-                                onChange={(e) => cat.setter(e.target.checked)}
-                                className="rounded text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5 cursor-pointer shrink-0"
-                              />
-                              <span className="font-extrabold text-slate-700 text-[10px] leading-tight flex items-center gap-1">
-                                <CatIcon className={`w-3.5 h-3.5 ${cat.checked ? 'text-emerald-600' : 'text-slate-400'}`} />
-                                {cat.label}
-                              </span>
-                            </div>
-                            <div className="mt-1 pl-5 flex items-center">
-                              {cat.time ? (
-                                <span className="text-[8.5px] bg-emerald-50 text-emerald-700 font-extrabold px-1.5 py-0.5 rounded border border-emerald-100/60 shadow-3xs">
-                                  🕒 {cat.time}
-                                </span>
-                              ) : (
-                                <span className="text-[8.5px] bg-slate-100 text-slate-400 font-bold px-1.5 py-0.5 rounded border border-slate-200/30 italic">
-                                  Chưa sao lưu
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-
-
-              
-              
+              {/* JSON backup scope is selected only when the user presses Export JSON. */}
 
               {/* 💾 SECTION 2: LOCAL SAVE & RESTORE (JSON FILE) */}
               <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-2.5 shadow-xs">
                 <div className="flex items-center justify-between">
                   <span className="font-extrabold text-slate-800 text-xs flex items-center gap-1.5">
                     <HardDrive className="w-4 h-4 text-emerald-600" />
-                    Sao lưu & Khôi phục
+                    Nhập / Xuất dữ liệu
                   </span>
                   <span className="text-[9px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full font-bold border border-emerald-200">
                     Nhanh &amp; An toàn
@@ -2873,18 +2673,47 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
-                    onClick={handleExportJsonForScope}
+                    onClick={() => {
+                      const currentId = activeId || activeProjectId || getActiveProjectId();
+                      setSaveScope('active');
+                      if (currentId && !selectedProjectIds.includes(currentId)) {
+                        setSelectedProjectIds([currentId]);
+                      }
+                      setShowJsonScopePicker(true);
+                    }}
                     className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center justify-center gap-1.5 text-xs transition-colors cursor-pointer shadow-xs active:scale-95"
                   >
-                    <Download className="w-3.5 h-3.5" /> Xuất File JSON {exportEncrypt ? '🔒' : ''}
+                    <Download className="w-3.5 h-3.5" /> Xuất bản sao JSON {exportEncrypt ? '🔒' : ''}
                   </button>
 
                   <label className="w-full py-2 bg-slate-50 hover:bg-slate-100 border border-slate-300 text-slate-700 rounded-xl font-bold flex items-center justify-center gap-1.5 text-xs transition-colors cursor-pointer active:scale-95">
-                    <Upload className="w-3.5 h-3.5 text-slate-600" /> Đọc File JSON
+                    <Upload className="w-3.5 h-3.5 text-slate-600" /> Khôi phục từ JSON
                     <input type="file" accept=".json" className="hidden" onChange={handleImportJsonForScope} />
                   </label>
                 </div>
 
+                <details className="group pt-2 border-t border-slate-100">
+                  <summary className="cursor-pointer select-none flex items-center justify-between text-[11px] font-bold text-slate-700">
+                    <span>Cài đặt sao lưu nâng cao</span>
+                    <ChevronDown className="w-3.5 h-3.5 group-open:rotate-180 transition-transform" />
+                  </summary>
+                  <div className="pt-2 space-y-2.5">
+
+                    <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5">
+                      <label className="text-[10.5px] font-bold text-slate-700">Tần suất tạo bản sao nền</label>
+                      <select
+                        defaultValue={localStorage.getItem('construction_backup_interval_ms') || '3600000'}
+                        onChange={(e) => localStorage.setItem('construction_backup_interval_ms', e.target.value)}
+                        className="w-full py-1.5 px-2 bg-white border border-slate-300 rounded-lg text-[10.5px] font-bold"
+                      >
+                        <option value="0">Tắt</option>
+                        <option value="1800000">30 phút</option>
+                        <option value="3600000">1 giờ</option>
+                        <option value="10800000">3 giờ</option>
+                        <option value="86400000">Hàng ngày</option>
+                      </select>
+                      <p className="text-[9.5px] text-slate-500">Chỉ tạo bản sao khi ứng dụng đang hiển thị, dự án không chuyển đổi và dữ liệu đã thay đổi.</p>
+                    </div>
                 {/* AES-GCM Encryption options for exported JSON backup */}
                 <div className="pt-1">
                   <div className="flex items-center justify-between">
@@ -3052,13 +2881,17 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   </div>
                 )}
 
+                  </div>
+                </details>
+
                 {/* Multi-Version Backup & Restore system (Lịch sử Bản Sao Lưu) */}
                 <div className="pt-2 border-t border-slate-100 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-bold text-slate-800 flex items-center gap-1.5">
                       <History className="w-3.5 h-3.5 text-indigo-600" />
-                      Lịch sử sao lưu & khôi phục phiên bản
+                      Bản sao gần đây trên thiết bị
                     </span>
+                    <span className="hidden sm:inline text-[9px] text-slate-400">Chỉ lưu trên thiết bị này</span>
                     <span className="text-[9px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono">
                       Tối đa: {localStorage.getItem('construction_max_autosave_versions') || '15'} bản
                     </span>
@@ -3086,6 +2919,8 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     </select>
                   </div>
 
+                  <p className="text-[9.5px] text-slate-500 leading-relaxed">Lưu cục bộ trên điện thoại/máy tính này. Không phải dữ liệu Firebase realtime và không tự xuất hiện trên thiết bị khác.</p>
+
                   <QuickSortBar
                     itemCount={autosaveVersions.length}
                     options={[
@@ -3102,7 +2937,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
                   {autosaveVersions.length === 0 ? (
                     <div className="text-center py-4 text-slate-400 text-[10px] bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                      Chưa có phiên bản sao lưu nào. Hệ thống sẽ tự động sao lưu khi phát sinh thay đổi dữ liệu.
+                      Chưa có bản sao trên thiết bị.
                     </div>
                   ) : (
                     <div className="space-y-1.5 max-h-[180px] overflow-y-auto pr-1 bg-slate-50 p-1.5 rounded-xl border border-slate-100">
@@ -3142,7 +2977,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                                 onClick={() => onRestoreAutoSaveVersion && onRestoreAutoSaveVersion(ver.data)}
                                 className="px-1.5 py-0.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded transition-colors cursor-pointer text-[9.5px]"
                               >
-                                Phục hồi
+                                Khôi phục bản này
                               </button>
                               <button
                                 type="button"
@@ -3179,7 +3014,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                 <div className="flex items-center justify-between">
                   <span className="font-extrabold text-indigo-900 text-xs flex items-center gap-1.5">
                     <Cloud className="w-4 h-4 text-indigo-600" />
-                    Đồng bộ dự án
+                    Đồng bộ dữ liệu
                   </span>
                   <span className="text-[9px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-bold border border-indigo-200 flex items-center gap-1">
                     <Smartphone className="w-2.5 h-2.5" /> <Monitor className="w-2.5 h-2.5" /> Nhiều thiết bị
@@ -3274,7 +3109,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                         <Share2 className="w-3.5 h-3.5 text-indigo-600" /> Đồng bộ tự động theo tài khoản
                       </p>
                       <p className="text-[9.5px] text-indigo-800/80 mt-1 leading-relaxed">
-                        Cùng tài khoản Google sẽ nhận đúng dự án và tự đồng bộ dữ liệu, phân quyền, defect, quân số và toàn bộ ảnh đính kèm giữa điện thoại &amp; máy tính.
+                        Dữ liệu dự án được tự động đồng bộ giữa các thiết bị bằng Firebase.
                       </p>
                     </div>
                     <span className={`shrink-0 text-[9px] px-2 py-1 rounded-full font-bold border ${
@@ -3350,19 +3185,14 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   floorPlans={fullAppData?.floorPlans || []}
                 />
 
-                {/* Cloud History list - collapsed by default on mobile */}
+                {/* Cloud versions only appear when at least one version exists. */}
+                {cloudBackups.length > 0 && (
                 <details className="group pt-2 border-t border-slate-100">
                   <summary className="cursor-pointer select-none flex items-center justify-between mb-1.5 text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">
-                    <span>Khôi phục phiên bản đám mây ({cloudBackups.length})</span>
+                    <span>Phiên bản đám mây ({cloudBackups.length})</span>
                     <ChevronDown className="w-3.5 h-3.5 group-open:rotate-180 transition-transform" />
                   </summary>
                   <div>
-                  <div className="flex items-center justify-end mb-1.5">
-                    <span className="hidden">Lịch sử</span>
-                    <button onClick={fetchCloudBackups} className="text-[10px] text-indigo-600 font-bold hover:underline flex items-center gap-0.5">
-                      <RefreshCw className={`w-3 h-3 ${isLoadingCloudBackups ? 'animate-spin' : ''}`} /> Tải lại
-                    </button>
-                  </div>
 
                   <QuickSortBar
                     itemCount={cloudBackups.length}
@@ -3425,6 +3255,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   )}
                   </div>
                 </details>
+                )}
               </div>
 
               {/* 📁 SECTION 4: GOOGLE DRIVE SYNC */}
@@ -3635,6 +3466,14 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                                 {isDuplicate && (
                                   <span className="shrink-0 text-[9px] font-extrabold bg-amber-100 text-amber-800 border border-amber-200 px-1.5 py-0.5 rounded-full">
                                     Trùng tên · ID khác
+                                  </span>
+                                )}
+                                {proj.canonicalProjectId && proj.canonicalProjectId !== proj.id && (
+                                  <span
+                                    className="shrink-0 text-[9px] font-extrabold bg-sky-50 text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded-full"
+                                    title={`Dự án này đã được hợp nhất vào ${proj.canonicalProjectId}. Tài khoản hiện tại chưa đọc được ID chính nên bản nguồn vẫn được hiển thị.`}
+                                  >
+                                    Đã hợp nhất → {shortProjectId(proj.canonicalProjectId)}
                                   </span>
                                 )}
                               </div>
@@ -4279,6 +4118,125 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       )}
 
       {/* 📥 SUCCESSFUL MANUAL EXPORT SUMMARY OVERLAY */}
+      {/* JSON export scope picker: shown only on explicit JSON export. */}
+      {showJsonScopePicker && (
+        <div className="fixed inset-0 z-100 flex items-center justify-center p-3 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl p-4 w-full max-w-md shadow-2xl border border-slate-200 space-y-3 max-h-[86vh] overflow-y-auto">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-2.5 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shrink-0">
+                  <Layers3 className="w-4.5 h-4.5" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-extrabold text-slate-900">Chọn phạm vi xuất bản sao JSON</h3>
+                  <p className="text-[10.5px] text-slate-500 mt-0.5 leading-relaxed">
+                    Chỉ áp dụng cho file JSON sắp xuất. Không thay đổi Firebase realtime, Drive hoặc quyền truy cập dự án.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowJsonScopePicker(false)}
+                className="p-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 shrink-0"
+                title="Đóng"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => setSaveScope('active')}
+                className={`p-3 rounded-xl border text-left transition-all ${saveScope === 'active' ? 'border-indigo-500 bg-indigo-50 ring-1 ring-indigo-200' : 'border-slate-200 hover:bg-slate-50'}`}
+              >
+                <div className="text-xs font-extrabold text-slate-800">Dự án hiện tại</div>
+                <div className="text-[9.5px] text-slate-500 mt-1 line-clamp-2">
+                  {projects.find(p => p.id === activeId)?.name || 'Dự án đang mở'}
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSaveScope('selected')}
+                className={`p-3 rounded-xl border text-left transition-all ${saveScope === 'selected' ? 'border-indigo-500 bg-indigo-50 ring-1 ring-indigo-200' : 'border-slate-200 hover:bg-slate-50'}`}
+              >
+                <div className="text-xs font-extrabold text-slate-800">Chọn nhiều dự án</div>
+                <div className="text-[9.5px] text-slate-500 mt-1">Đã chọn {selectedProjectIds.length}/{projects.length}</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSaveScope('all')}
+                className={`p-3 rounded-xl border text-left transition-all ${saveScope === 'all' ? 'border-indigo-500 bg-indigo-50 ring-1 ring-indigo-200' : 'border-slate-200 hover:bg-slate-50'}`}
+              >
+                <div className="text-xs font-extrabold text-slate-800">Tất cả dự án</div>
+                <div className="text-[9.5px] text-slate-500 mt-1">{projects.length} dự án hiện có</div>
+              </button>
+            </div>
+
+            {saveScope === 'selected' && (
+              <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10.5px] font-bold text-slate-700">Chọn dự án cần đưa vào file JSON</span>
+                  <button
+                    type="button"
+                    onClick={selectAllProjects}
+                    className="text-[10px] font-bold text-indigo-600 hover:underline shrink-0"
+                  >
+                    Chọn tất cả
+                  </button>
+                </div>
+                <div className="max-h-44 overflow-y-auto space-y-1 pr-1">
+                  {sortedProjectsAll.map(p => {
+                    const checked = selectedProjectIds.includes(p.id);
+                    return (
+                      <label key={p.id} className="flex items-center gap-2 p-2 rounded-lg bg-white border border-slate-200/80 hover:border-indigo-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleSelectProject(p.id)}
+                          className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 shrink-0"
+                        />
+                        <span className={`text-[10.5px] font-bold min-w-0 truncate ${checked ? 'text-indigo-900' : 'text-slate-600'}`}>
+                          {p.name}{p.id === activeId ? ' · Đang mở' : ''}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-[10px] text-amber-900 leading-relaxed">
+              File JSON có thể chứa ảnh nên dung lượng có thể lớn. Chọn “Dự án hiện tại” nếu chỉ cần sao lưu công trình đang làm để nhẹ và nhanh hơn.
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowJsonScopePicker(false)}
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (saveScope === 'selected' && selectedProjectIds.length === 0) return;
+                  setShowJsonScopePicker(false);
+                  await handleExportJsonForScope();
+                }}
+                disabled={saveScope === 'selected' && selectedProjectIds.length === 0}
+                className="flex-[1.4] py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-xs"
+              >
+                <Download className="w-3.5 h-3.5" /> Xuất JSON
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {exportedFileInfo && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[270] flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-5 max-w-sm w-full space-y-4 border border-emerald-100 shadow-2xl relative">

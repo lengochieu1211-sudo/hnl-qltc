@@ -1,2 +1,2 @@
-export const APP_VERSION = '6.2.10';
-export const APP_VERSION_LABEL = `V${APP_VERSION} – Firestore Memory Cache & Storage Recovery`;
+export const APP_VERSION = '6.2.11';
+export const APP_VERSION_LABEL = `V${APP_VERSION} – Realtime Performance & Project Identity Hardening`;

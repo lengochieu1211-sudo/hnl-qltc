@@ -41,6 +41,8 @@ const getPhotoListKey = (projectId: string) => `construction_photos_${projectId}
 const getPhotoBlobKey = (photoId: string) => `photo_blob_${photoId}`;
 const getPhotoThumbKey = (photoId: string) => `photo_thumb_${photoId}`;
 
+const projectPhotoListMemoryCache = new Map<string, PhotoAttachment[]>();
+
 
 const blobToDataUrl = (blob: Blob): Promise<string> => new Promise((resolve, reject) => {
   const reader = new FileReader();
@@ -75,9 +77,13 @@ export function generatePhotoUUID(): string {
 export async function getProjectPhotos(projectId: string, includeDeleted = false): Promise<PhotoAttachment[]> {
   if (!projectId) return [];
   try {
-    const list = await getAsyncItem<PhotoAttachment[]>(getPhotoListKey(projectId), []);
-    if (!Array.isArray(list)) return [];
-    if (includeDeleted) return list;
+    let list = projectPhotoListMemoryCache.get(projectId);
+    if (!list) {
+      const stored = await getAsyncItem<PhotoAttachment[]>(getPhotoListKey(projectId), []);
+      list = Array.isArray(stored) ? stored : [];
+      projectPhotoListMemoryCache.set(projectId, list);
+    }
+    if (includeDeleted) return list.slice();
     return list.filter(p => !p.deleted);
   } catch (err) {
     console.error('Error reading project photos:', err);
@@ -94,6 +100,7 @@ export async function saveProjectPhotos(projectId: string, photos: PhotoAttachme
     }
     return p;
   });
+  projectPhotoListMemoryCache.set(projectId, cleanPhotos);
   await setAsyncItem(getPhotoListKey(projectId), cleanPhotos);
 }
 

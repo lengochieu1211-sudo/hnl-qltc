@@ -234,19 +234,23 @@ export async function syncProjectPhotosToCloud(projectId: string): Promise<{ upl
   let skipped = 0;
   let migratedToDrive = 0;
 
+  // Read cloud photo metadata once. The old loop did one getDoc() network round-trip
+  // per local photo, which made project switching and first sync increasingly slow.
+  const cloudSnapshot = await getDocs(collection(db, 'projects', projectId, 'photos')).catch(() => null);
+  const cloudById = new Map<string, any>();
+  cloudSnapshot?.docs.forEach((item) => cloudById.set(item.id, item.data()));
+
   for (const photo of photos) {
     try {
-      const ref = doc(db, 'projects', projectId, 'photos', photo.id);
-      const snap = await getDoc(ref).catch(() => null);
-      const cloudUpdatedAt = snap?.exists() ? Number(snap.data()?.updatedAt || 0) : 0;
+      const cloudData = cloudById.get(photo.id) || null;
+      const cloudUpdatedAt = cloudData ? Number(cloudData?.updatedAt || 0) : 0;
       const localUpdatedAt = Number(photo.updatedAt || photo.createdAt || 0);
-      const cloudData = snap?.exists() ? snap.data() : null;
       const driveBacked = isDriveCloudValue(cloudData?.cloudFileId) || cloudData?.storageProvider === 'google-drive-primary';
       const firestoreBacked = Number(cloudData?.chunkCount || 0) > 0;
       const cloudHasBinary = Boolean(cloudData?.deleted) || driveBacked || firestoreBacked;
       const needsDriveMigration = Boolean(driveReady && !photo.deleted && cloudData && !driveBacked && firestoreBacked);
 
-      if (!needsDriveMigration && snap?.exists() && cloudUpdatedAt >= localUpdatedAt && Boolean(cloudData?.deleted) === Boolean(photo.deleted) && cloudHasBinary) {
+      if (!needsDriveMigration && Boolean(cloudData) && cloudUpdatedAt >= localUpdatedAt && Boolean(cloudData?.deleted) === Boolean(photo.deleted) && cloudHasBinary) {
         skipped++;
         continue;
       }
@@ -300,6 +304,12 @@ export async function downloadPhotoBlobFromCloud(projectId: string, photoId: str
   return downloadPhotoBlobFromFirestoreChunks(projectId, photoId, data?.mimeType || mimeType);
 }
 
+
+const projectInitialPhotoSyncScheduled = new Set<string>();
+const projectLastPhotoSyncAt = new Map<string, number>();
+const PHOTO_INITIAL_SYNC_DELAY_MS = 8000;
+const PHOTO_INITIAL_SYNC_MIN_INTERVAL_MS = 5 * 60 * 1000;
+
 export function subscribeProjectPhotosRealtime(
   projectId: string,
   onStatus?: (status: PhotoCloudSyncStatus) => void,
@@ -307,18 +317,90 @@ export function subscribeProjectPhotosRealtime(
   if (!projectId) return () => {};
   const ref = collection(db, 'projects', projectId, 'photos');
   let firstSnapshot = true;
+  let cancelled = false;
+  let initialUploadNeeded = false;
+  let delayedSyncTimer: ReturnType<typeof setTimeout> | null = null;
+  let retrySyncTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const scheduleInitialUpload = () => {
+    if (cancelled || !initialUploadNeeded || projectInitialPhotoSyncScheduled.has(projectId)) return;
+    const lastSyncAt = projectLastPhotoSyncAt.get(projectId) || 0;
+    if (Date.now() - lastSyncAt < PHOTO_INITIAL_SYNC_MIN_INTERVAL_MS) {
+      initialUploadNeeded = false;
+      return;
+    }
+    projectInitialPhotoSyncScheduled.add(projectId);
+
+    const run = () => {
+      delayedSyncTimer = null;
+      if (cancelled) {
+        projectInitialPhotoSyncScheduled.delete(projectId);
+        return;
+      }
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+        // Keep initialUploadNeeded=true. visibilitychange below schedules a fresh idle
+        // attempt when the user returns instead of silently losing photo upload sync.
+        projectInitialPhotoSyncScheduled.delete(projectId);
+        return;
+      }
+      const start = Date.now();
+      syncProjectPhotosToCloud(projectId)
+        .then((result) => {
+          initialUploadNeeded = false;
+          projectLastPhotoSyncAt.set(projectId, Date.now());
+          console.debug('[photo initial sync]', projectId, result, 'duration=', Date.now() - start);
+        })
+        .catch((err) => {
+          console.warn('[Photo Cloud] delayed initial upload/migration warning:', err);
+          if (!cancelled) {
+            retrySyncTimer = setTimeout(() => {
+              retrySyncTimer = null;
+              scheduleInitialUpload();
+            }, 30000);
+          }
+        })
+        .finally(() => projectInitialPhotoSyncScheduled.delete(projectId));
+    };
+
+    delayedSyncTimer = setTimeout(() => {
+      if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+        (window as any).requestIdleCallback(run, { timeout: 3000 });
+      } else {
+        run();
+      }
+    }, PHOTO_INITIAL_SYNC_DELAY_MS);
+  };
+
+  const handleVisibilityChange = () => {
+    if (!cancelled && typeof document !== 'undefined' && document.visibilityState === 'visible' && initialUploadNeeded) {
+      scheduleInitialUpload();
+    }
+  };
+  if (typeof document !== 'undefined') document.addEventListener('visibilitychange', handleVisibilityChange);
 
   const unsubscribe = onSnapshot(ref, async (snap) => {
     try {
-      onStatus?.({ phase: 'syncing', pending: snap.docChanges().length });
-      const cloudPhotos = snap.docs.map((d) => ({ id: d.id, ...d.data() } as PhotoAttachment));
-      const changedPhotos = snap.docChanges().map((change) => ({ id: change.doc.id, ...change.doc.data() } as PhotoAttachment));
+      const changes = snap.docChanges();
+      onStatus?.({ phase: 'syncing', pending: changes.length });
+      const changedPhotos = changes.map((change) => ({
+        id: change.doc.id,
+        ...change.doc.data(),
+        ...(change.type === 'removed' ? { deleted: true, updatedAt: Date.now() } : {}),
+      } as PhotoAttachment));
+
+      // First snapshot hydrates the local metadata cache once. Later snapshots merge
+      // only docChanges() instead of remapping/writing the complete project photo list.
+      const cloudPhotos = firstSnapshot
+        ? snap.docs.map((d) => ({ id: d.id, ...d.data() } as PhotoAttachment))
+        : changedPhotos;
       await mergeCloudPhotoMetadata(projectId, cloudPhotos, changedPhotos);
+      console.debug('[photo snapshot]', projectId, 'docs=', snap.size, 'changes=', changes.length, 'initial=', firstSnapshot);
       onStatus?.({ phase: 'synced', pending: 0, lastSyncAt: Date.now() });
 
       if (firstSnapshot) {
         firstSnapshot = false;
-        syncProjectPhotosToCloud(projectId).catch((err) => console.warn('[Photo Cloud] initial upload/migration warning:', err));
+        initialUploadNeeded = true;
+        scheduleInitialUpload();
       }
     } catch (err: any) {
       onStatus?.({ phase: 'error', message: err?.message || String(err) });
@@ -327,5 +409,12 @@ export function subscribeProjectPhotosRealtime(
     onStatus?.({ phase: 'error', message: err?.message || String(err) });
   });
 
-  return unsubscribe;
+  return () => {
+    cancelled = true;
+    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', handleVisibilityChange);
+    if (delayedSyncTimer) clearTimeout(delayedSyncTimer);
+    if (retrySyncTimer) clearTimeout(retrySyncTimer);
+    projectInitialPhotoSyncScheduled.delete(projectId);
+    unsubscribe();
+  };
 }

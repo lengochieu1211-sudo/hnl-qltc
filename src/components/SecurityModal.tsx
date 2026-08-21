@@ -120,7 +120,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
           // final authority: only a real ADMIN/Owner can create invitations. This avoids
           // skipping repair because of a temporarily stale role read while keeping backend
           // security unchanged.
-          repairProjectAccessIndexForProject(pid).catch((err) =>
+          repairProjectAccessIndexForProject(pid, true).catch((err) =>
             console.warn('Project access index repair warning:', err)
           );
         }

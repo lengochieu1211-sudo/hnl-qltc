@@ -1,4 +1,4 @@
-const CACHE_NAME = 'thicong-thachcao-cache-v4';
+const CACHE_NAME = 'thicong-thachcao-cache-v6';
 
 // Essential App Shell Resources
 const STATIC_ASSETS = [

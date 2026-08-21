@@ -133,7 +133,10 @@ const isAndroidAutoSaveHandle = (handle: any) => Boolean(handle && handle[ANDROI
 
 export const getActiveProjectId = () => {
   if (typeof window !== 'undefined') {
-    return localStorage.getItem('active_project_id') || 'default';
+    // Per-tab active project prevents two tabs/accounts on the same origin from
+    // overwriting each other's current project. localStorage is retained only as
+    // the legacy/next-tab fallback.
+    return sessionStorage.getItem('active_project_id') || localStorage.getItem('active_project_id') || 'default';
   }
   return 'default';
 };
@@ -156,6 +159,8 @@ export interface ProjectInfo {
   createdAt: string | number;
   updatedAt?: number;
   createdAtSource?: 'cloud' | 'local' | 'migrating';
+  canonicalProjectId?: string;
+  aliases?: string[];
 }
 
 export const getProjectsList = (): ProjectInfo[] => {
@@ -169,11 +174,20 @@ export const getProjectsList = (): ProjectInfo[] => {
 };
 
 export const setActiveProject = (id: string) => {
+  if (typeof window !== 'undefined') {
+    try { sessionStorage.setItem('active_project_id', id); } catch (_) {}
+  }
+  // Keep the legacy last-used value so a brand-new tab still opens the last project,
+  // but an already-open tab always prefers its own sessionStorage value.
   safeSetLocalStorageItem('active_project_id', id);
 };
 
 export const saveProjectsList = (list: ProjectInfo[]) => {
-  safeSetLocalStorageItem('construction_projects_list', JSON.stringify(list));
+  const next = JSON.stringify(list);
+  try {
+    if (localStorage.getItem('construction_projects_list') === next) return;
+  } catch (_) {}
+  safeSetLocalStorageItem('construction_projects_list', next);
 };
 
 export default function App() {
@@ -536,16 +550,12 @@ export default function App() {
     setPast([]);
     setFuture([]);
 
-    setIsSaving(true);
-    try {
-      await saveCurrentProject(oldId);
-    } catch (e) {
-      console.warn('Save before switch failed:', e);
-      alert('⚠️ Không thể lưu dữ liệu dự án hiện tại trước khi chuyển. Vui lòng thử lại.');
-      setIsSaving(false);
-      switchingProjectRef.current = false;
-      return;
-    }
+    // Save the old project from the frozen render snapshot, but do not block the
+    // project switch on IndexedDB writes. The new project hydrates from local data
+    // immediately; Cloud listeners attach afterwards in the background.
+    void saveCurrentProject(oldId).catch((e) => {
+      console.warn('Background save before switch failed:', e);
+    });
 
     setIsHydrated(false);
     setActiveProject(newProjectId);
@@ -823,6 +833,7 @@ export default function App() {
   const lastSavedLocalSnapshotRef = useRef<string>('');
   const lastSavedLocalAllSnapshotRef = useRef<string>('');
   const lastPrimaryDriveBackupAtRef = useRef<number>(0);
+  const lastLocalVersionBackupAtRef = useRef<number>(0);
 
   const getSafeProjectFileName = () => (projectName || activeProjectId || 'Du_An')
     .replace(/[^a-zA-Z0-9_-]/g, '_')
@@ -950,6 +961,29 @@ export default function App() {
     return allData;
   };
 
+  const buildCurrentProjectVersionBackupObject = async (): Promise<Record<string, string>> => {
+    const currentId = activeProjectIdRef.current || activeProjectId || 'default';
+    const suffix = currentId === 'default' ? '' : `_${currentId}`;
+    const storageData = await getAllStorageData();
+    const scoped: Record<string, string> = {};
+
+    for (const [key, value] of Object.entries(storageData)) {
+      if (!key) continue;
+      const isGlobalProjectIndex = key === 'construction_projects';
+      const isCurrentProjectKey = currentId === 'default'
+        ? key.startsWith('construction_') && !/^construction_.+_[^_]+$/.test(key)
+        : key.startsWith('construction_') && key.endsWith(suffix);
+      if (isGlobalProjectIndex || isCurrentProjectKey) {
+        scoped[key] = typeof value === 'string' ? value : JSON.stringify(value);
+      }
+    }
+
+    const { projectPhotos, projectPhotoData } = await collectProjectPhotoBackup([currentId]);
+    if (Object.keys(projectPhotos).length > 0) scoped.projectPhotos = JSON.stringify(projectPhotos);
+    if (Object.keys(projectPhotoData).length > 0) scoped.projectPhotoData = JSON.stringify(projectPhotoData);
+    return scoped;
+  };
+
   const isLargeConstructionStorageKey = (key: string) => [
     'material_norms',
     'inventory',
@@ -964,10 +998,13 @@ export default function App() {
   ].some(x => key.includes(`construction_${x}`));
 
   const restorePhotoBackupBundle = async (backupData: any) => {
-    const projectPhotos = backupData?.projectPhotos;
+    const rawProjectPhotos = backupData?.projectPhotos;
+    if (!rawProjectPhotos) return;
+    const projectPhotos = typeof rawProjectPhotos === 'string' ? JSON.parse(rawProjectPhotos) : rawProjectPhotos;
     if (!projectPhotos || typeof projectPhotos !== 'object') return;
 
-    const projectPhotoData = backupData?.projectPhotoData || {};
+    const rawProjectPhotoData = backupData?.projectPhotoData || {};
+    const projectPhotoData = typeof rawProjectPhotoData === 'string' ? JSON.parse(rawProjectPhotoData) : rawProjectPhotoData;
     for (const projectId of Object.keys(projectPhotos)) {
       const photos = projectPhotos[projectId];
       if (Array.isArray(photos)) {
@@ -1212,6 +1249,8 @@ export default function App() {
           createdAt: Number(remoteProject.createdAt || 0),
           createdAtSource: remoteProject.createdAt ? 'cloud' : 'migrating',
           updatedAt: Math.max(Number(cached?.updatedAt || 0), Number(remoteProject.updatedAt || 0)),
+          canonicalProjectId: remoteProject.canonicalProjectId,
+          aliases: remoteProject.aliases,
         };
       });
 
@@ -1243,16 +1282,37 @@ export default function App() {
 
       const currentActive = getActiveProjectId();
       const currentIsAuthorized = remoteProjects.some((project) => project.id === currentActive);
+      const canonicalTargetForActive = remoteProjects.find((project) =>
+        Array.isArray(project.aliases) && project.aliases.includes(currentActive)
+      )?.id;
+
+      // If an ADMIN explicitly merged the active projectId into a canonical project,
+      // switch to that exact ID before applying the generic "first accessible project"
+      // fallback. Never do this after the user has edited unsaved local data.
+      const shouldFollowCanonicalRedirect = firstCloudEmission
+        && Boolean(canonicalTargetForActive)
+        && canonicalTargetForActive !== currentActive
+        && !hasUserEditedSinceHydrateRef.current;
+
       const shouldAutoSwitch = firstCloudEmission
+        && !shouldFollowCanonicalRedirect
         && !currentIsAuthorized
         && !hasUserEditedSinceHydrateRef.current
         && remoteProjects[0]?.id
         && (currentActive === 'default' || localProjects.length <= 1);
       firstCloudEmission = false;
 
+      if (shouldFollowCanonicalRedirect && canonicalTargetForActive) {
+        void switchProject(canonicalTargetForActive).catch((err) =>
+          console.warn('Canonical project switch warning:', err)
+        );
+        return;
+      }
+
       if (shouldAutoSwitch) {
-        setActiveProject(remoteProjects[0].id);
-        window.location.reload();
+        void switchProject(remoteProjects[0].id).catch((err) =>
+          console.warn('Authorized project auto-switch warning:', err)
+        );
       }
     });
 
@@ -1948,7 +2008,8 @@ export default function App() {
   // Photo metadata is realtime; binary image chunks are downloaded lazily only when an image is displayed.
   // This keeps multi-device image sync complete without loading every photo into phone RAM at startup.
   useEffect(() => {
-    if (!isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey) {
+    const photoTabActive = activeTab === 'floorplan' || activeTab === 'crew' || activeTab === 'chat';
+    if (!photoTabActive || !isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey) {
       setPhotoCloudStatus({ phase: 'idle', pending: 0 });
       return;
     }
@@ -1957,7 +2018,7 @@ export default function App() {
       if (activeProjectIdRef.current === projectId) setPhotoCloudStatus(status);
     });
     return () => unsubscribePhotos();
-  }, [activeProjectId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing]);
+  }, [activeProjectId, activeTab, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing]);
 
   const handleUpdateProjectName = (val: string) => {
     if (!canEditProjectData(currentUserRole)) return;
@@ -2762,6 +2823,10 @@ export default function App() {
               await saveProjectDiffsToCloud(activeId, projectName, contractorName, inspectorName, {
                 addedOrModified,
                 deletedIds
+              }, {
+                touchProjectMetadata: metadataChanged || !lastSyncedPresentRef.current,
+                rootTouchIntervalMs: 60000,
+                auditDetailLimit: 20,
               });
               // A single FIFO queue prevents an older request finishing after a newer one.
               if (!switchingProjectRef.current && activeProjectIdRef.current === activeId) {
@@ -2774,7 +2839,7 @@ export default function App() {
           console.warn('Cloud auto save exception:', e);
         }
       }
-    }, 2000); // 2 seconds debounce after input changes
+    }, 6000); // V6.2.11: batch rapid edits before background Firestore writes
 
     return () => clearTimeout(timer);
   }, [present, projectName, contractorName, inspectorName, autoSyncEnabled, isHydrated, isLoadingProject, isRestoring, isInitializing, activeProjectId, cloudUserKey, cloudInitialReady]);
@@ -3073,41 +3138,53 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [localAllFileHandle, present, projectName, contractorName, inspectorName, lastUpdatedAt]);
 
-  // General Auto-Save Versioning debounced effect on any data change
+  // Background version backup: gate cheaply BEFORE building any backup object.
   useEffect(() => {
-    if (!isHydrated || isLoadingProject || isRestoring) return;
-    if (syncLockRef.current) return;
-    if (!lastUpdatedAt) return;
+    if (!isHydrated || isLoadingProject || isRestoring || isInitializing) return;
+    if (syncLockRef.current || switchingProjectRef.current) return;
+    if (!lastUpdatedAt || !hasUserEditedSinceHydrateRef.current) return;
 
-    const timer = setTimeout(async () => {
+    const rawInterval = localStorage.getItem('construction_backup_interval_ms') || '3600000';
+    const intervalMs = Number(rawInterval);
+    if (!Number.isFinite(intervalMs) || intervalMs <= 0) return; // 0 = Tắt
+
+    const now = Date.now();
+    if (now - lastLocalVersionBackupAtRef.current < intervalMs) return;
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+
+    const projectIdForBackup = activeProjectIdRef.current;
+    const timer = window.setTimeout(async () => {
+      if (syncLockRef.current || switchingProjectRef.current) return;
+      if (activeProjectIdRef.current !== projectIdForBackup) return;
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+
+      const checkNow = Date.now();
+      if (checkNow - lastLocalVersionBackupAtRef.current < intervalMs) return;
+
       try {
-        const allData = await buildAllProjectsBackupObject();
-        
-        // Save to version history automatically
-        await saveAutoSaveVersion(allData);
+        // Local version history is scoped to the CURRENT project only.
+        // Never serialize every project for a routine background snapshot.
+        const currentProjectData = await buildCurrentProjectVersionBackupObject();
+        await saveAutoSaveVersion(currentProjectData);
+        lastLocalVersionBackupAtRef.current = Date.now();
 
-        // Mirror a lightweight project backup to the centralized primary Drive.
-        // Images are NOT duplicated as Base64 here; their Drive file IDs are kept
-        // in photo metadata, so the rolling JSON stays small and fast on Android.
-        const now = Date.now();
-        if (now - lastPrimaryDriveBackupAtRef.current >= 60_000 && await isPrimaryDriveReady().catch(() => false)) {
+        // Primary Drive is an additional lightweight project backup layer.
+        if (Date.now() - lastPrimaryDriveBackupAtRef.current >= intervalMs && await isPrimaryDriveReady().catch(() => false)) {
           try {
             const driveBackup = await buildPrimaryDriveBackupObject();
-            await uploadProjectBackupToPrimaryDrive(activeProjectIdRef.current, driveBackup, 'auto');
+            await uploadProjectBackupToPrimaryDrive(projectIdForBackup, driveBackup, 'auto');
             lastPrimaryDriveBackupAtRef.current = Date.now();
           } catch (driveErr) {
-            // Drive is an additional backup layer. Firebase/local work must continue
-            // even when the bridge is not configured or Google is temporarily offline.
             console.warn('[Primary Drive] auto backup skipped:', driveErr);
           }
         }
       } catch (err) {
         console.error('Error in background auto-saving version:', err);
       }
-    }, 4000); // 4 seconds debounce for automatic background saving
+    }, 12000);
 
-    return () => clearTimeout(timer);
-  }, [lastUpdatedAt]);
+    return () => window.clearTimeout(timer);
+  }, [lastUpdatedAt, isHydrated, isLoadingProject, isRestoring, isInitializing, activeProjectId]);
 
   // Link local JSON file for auto sync
   const handleLinkLocalFile = async () => {
@@ -4361,26 +4438,91 @@ export default function App() {
       setChatLastSenderUid('');
       return;
     }
+
+    let disposed = false;
+    let unsubSummary: (() => void) | null = null;
+    let unsubRead: (() => void) | null = null;
+    let debounceTimer: number | null = null;
     let initialSummary = true;
-    const unsubSummary = subscribeConversationSummary(activeProjectId, (summary) => {
-      const timestamp = summary?.lastMessageAtMillis || 0;
-      setChatLastMessageAt(timestamp);
-      setChatMessageCount(Number(summary?.messageCount || 0));
-      setChatLastMentions(summary?.lastMentions || []);
-      setChatLastSenderUid(summary?.lastSenderUid || '');
-      const me = getCurrentRealFirebaseUser();
-      if (initialSummary) {
-        initialSummary = false;
-        lastChatToastTimestampRef.current = timestamp;
-      } else if (timestamp > lastChatToastTimestampRef.current && summary?.lastSenderUid && summary.lastSenderUid !== me?.uid) {
-        lastChatToastTimestampRef.current = timestamp;
-        setChatToast({ sender: summary.lastSenderName || 'Thành viên', text: summary.lastMessageText || 'Đã gửi một tin nhắn' });
-        window.setTimeout(() => setChatToast(null), 5000);
+    let pendingSummary: any = null;
+    let pendingRead: { millis: number; count: number } | null = null;
+
+    const flushBadgeState = () => {
+      debounceTimer = null;
+      if (disposed) return;
+      if (pendingSummary) {
+        const summary = pendingSummary;
+        pendingSummary = null;
+        const timestamp = summary?.lastMessageAtMillis || 0;
+        setChatLastMessageAt(timestamp);
+        setChatMessageCount(Number(summary?.messageCount || 0));
+        setChatLastMentions(summary?.lastMentions || []);
+        setChatLastSenderUid(summary?.lastSenderUid || '');
+        const me = getCurrentRealFirebaseUser();
+        if (initialSummary) {
+          initialSummary = false;
+          lastChatToastTimestampRef.current = timestamp;
+        } else if (timestamp > lastChatToastTimestampRef.current && summary?.lastSenderUid && summary.lastSenderUid !== me?.uid) {
+          lastChatToastTimestampRef.current = timestamp;
+          setChatToast({ sender: summary.lastSenderName || 'Thành viên', text: summary.lastMessageText || 'Đã gửi một tin nhắn' });
+          window.setTimeout(() => setChatToast(null), 5000);
+        }
       }
-    });
-    const unsubRead = subscribeConversationReadState(activeProjectId, (millis, count) => { setChatLastReadAt(millis); setChatLastReadMessageCount(Number(count || 0)); });
-    return () => { unsubSummary(); unsubRead(); };
+      if (pendingRead) {
+        setChatLastReadAt(pendingRead.millis);
+        setChatLastReadMessageCount(Number(pendingRead.count || 0));
+        pendingRead = null;
+      }
+    };
+
+    const scheduleFlush = () => {
+      if (debounceTimer !== null) window.clearTimeout(debounceTimer);
+      debounceTimer = window.setTimeout(flushBadgeState, 180);
+    };
+
+    const stopBadgeListeners = (clearPending = false) => {
+      unsubSummary?.();
+      unsubRead?.();
+      unsubSummary = null;
+      unsubRead = null;
+      if (debounceTimer !== null) {
+        window.clearTimeout(debounceTimer);
+        debounceTimer = null;
+      }
+      if (clearPending) {
+        pendingSummary = null;
+        pendingRead = null;
+      }
+    };
+
+    const startBadgeListeners = () => {
+      stopBadgeListeners(true);
+      if (disposed || document.visibilityState !== 'visible') return;
+      initialSummary = true;
+      unsubSummary = subscribeConversationSummary(activeProjectId, (summary) => {
+        pendingSummary = summary;
+        scheduleFlush();
+      });
+      unsubRead = subscribeConversationReadState(activeProjectId, (millis, count) => {
+        pendingRead = { millis, count: Number(count || 0) };
+        scheduleFlush();
+      });
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') startBadgeListeners();
+      else stopBadgeListeners(true);
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    startBadgeListeners();
+    return () => {
+      disposed = true;
+      document.removeEventListener('visibilitychange', handleVisibility);
+      stopBadgeListeners(true);
+    };
   }, [activeProjectId, cloudUserKey]);
+
 
   const dueDateAlerts = useMemo(() => {
     return collectDueDateAlerts(workVolumes, checklist, defects);

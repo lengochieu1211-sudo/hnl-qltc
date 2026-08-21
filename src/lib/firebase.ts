@@ -152,6 +152,16 @@ export interface CloudProjectSummary {
   createdAt?: number;
   updatedAt?: number;
   createdAtSource?: 'cloud' | 'migrating';
+  /**
+   * When this project has been safely merged into another Cloud project, this
+   * points to the canonical projectId. The source project is kept as an archive.
+   */
+  canonicalProjectId?: string;
+  /**
+   * Project IDs that were merged into this canonical project and are hidden from
+   * the normal project/chat list for the current account.
+   */
+  aliases?: string[];
 }
 
 function projectAccessDocId(projectId: string, email: string): string {
@@ -181,7 +191,7 @@ function readLocalProjectDiscoveryCandidates(): Record<string, { id: string; nam
       }
     }
   } catch (_) {}
-  const activeId = String(localStorage.getItem('active_project_id') || '').trim();
+  const activeId = String(sessionStorage.getItem('active_project_id') || localStorage.getItem('active_project_id') || '').trim();
   if (activeId && !result[activeId]) {
     const legacyNameKey = activeId === 'default' ? 'construction_project_name' : `construction_project_name_${activeId}`;
     result[activeId] = { id: activeId, name: localStorage.getItem(legacyNameKey) || activeId, updatedAt: 0 };
@@ -240,8 +250,9 @@ async function ensureProjectInvitationIndex(
   }, { merge: true });
 }
 
-export async function repairProjectAccessIndexForProject(projectId: string): Promise<void> {
+export async function repairProjectAccessIndexForProject(projectId: string, force = false): Promise<void> {
   if (!projectId || projectAccessRepairInFlight.has(projectId)) return;
+  if (!force && projectAccessRepairCompleted.has(projectId)) return;
   projectAccessRepairInFlight.add(projectId);
   try {
     const user = getCurrentRealFirebaseUser();
@@ -266,17 +277,25 @@ export async function repairProjectAccessIndexForProject(projectId: string): Pro
     // Promise.all. On projects still using older production Rules, projectAccess is
     // expected to fail. We want a deterministic guarantee that every active member gets
     // the backward-compatible invitation first.
+    let invitationFailures = 0;
     for (const member of members) {
       try {
         await ensureProjectInvitationIndex(projectId, member.email, member.role, projectName);
       } catch (err) {
+        invitationFailures++;
         console.warn(`Project invitation repair warning (${member.email}):`, err);
         continue;
       }
       await writeProjectAccessIndex(projectId, member.email, member.role, projectName, true).catch((err) => {
+        // projectAccess is an optional newer index while older production Rules may
+        // reject it. Invitation compatibility above is the required discovery path.
         console.warn(`projectAccess optional repair warning (${member.email}):`, err);
       });
     }
+    // Only mark the project repaired for this page-session when every required
+    // compatibility invitation succeeded. A temporary network/rules failure must be
+    // allowed to retry on a later owner snapshot instead of being suppressed forever.
+    if (invitationFailures === 0) projectAccessRepairCompleted.add(projectId);
   } finally {
     projectAccessRepairInFlight.delete(projectId);
   }
@@ -303,6 +322,10 @@ function cloudTimestampToMillis(value: any): number {
 
 const createdAtMigrationInFlight = new Set<string>();
 const projectAccessRepairInFlight = new Set<string>();
+const projectAccessRepairCompleted = new Set<string>();
+const userProjectIndexSignatureCache = new Map<string, string>();
+const discoveryProjectCache = new Map<string, { at: number; summary: CloudProjectSummary | null }>();
+const projectRootMetadataTouchAt = new Map<string, number>();
 
 /**
  * One-time migration for legacy project documents that do not yet have createdAt.
@@ -338,24 +361,55 @@ export async function ensureProjectCreatedAtInCloud(projectId: string): Promise<
   }
 }
 
+function getUserProjectIndexSignature(projectId: string, projectName: string, role: string): string {
+  return `${projectId}|${String(projectName || projectId).trim()}|${String(role || 'VIEWER').toUpperCase()}`;
+}
+
+function primeUserProjectIndexCache(uid: string, projects: Record<string, any>): void {
+  if (!uid || !projects || typeof projects !== 'object') return;
+  Object.entries(projects).forEach(([projectId, item]: [string, any]) => {
+    if (!projectId || !item) return;
+    userProjectIndexSignatureCache.set(
+      `${uid}:${projectId}`,
+      getUserProjectIndexSignature(projectId, String(item?.name || projectId), String(item?.role || 'VIEWER'))
+    );
+  });
+}
+
 async function registerProjectForCurrentUser(projectId: string, projectName: string, role = 'ADMIN'): Promise<void> {
   const user = getCurrentAppUser();
-  if (!user || !user.uid || (user as any).isAnonymous) return;
+  if (!user || !user.uid || (user as any).isAnonymous || !projectId) return;
 
   const normalizedEmail = normalizeEmail(user.email);
+  const normalizedRole = String(role || 'VIEWER').toUpperCase();
+  const normalizedName = String(projectName || projectId).trim() || projectId;
+  const cacheKey = `${user.uid}:${projectId}`;
+  const signature = getUserProjectIndexSignature(projectId, normalizedName, normalizedRole);
+
+  // Idempotent guard: discovery listeners can fire several times for the same project.
+  // Do not rewrite users/{uid} merely to change Date.now(), otherwise that write itself
+  // retriggers the users/{uid} listener and creates a read/write feedback loop.
+  if (userProjectIndexSignatureCache.get(cacheKey) === signature) {
+    console.debug('[user index write]', projectId, 'skipped');
+    return;
+  }
+
+  const now = Date.now();
   await setDoc(doc(db, 'users', user.uid), {
     uid: user.uid,
     email: normalizedEmail,
     projects: {
       [projectId]: {
         id: projectId,
-        name: projectName || projectId,
-        role,
-        updatedAt: Date.now(),
+        name: normalizedName,
+        role: normalizedRole,
+        updatedAt: now,
       }
     },
-    updatedAt: Date.now(),
+    updatedAt: now,
   }, { merge: true });
+  userProjectIndexSignatureCache.set(cacheKey, signature);
+  console.debug('[user index write]', projectId, 'written');
 }
 
 export async function fetchCurrentUserProjectsFromCloud(): Promise<CloudProjectSummary[]> {
@@ -463,13 +517,45 @@ export function subscribeCurrentUserProjectsRealtime(onUpdate: (projects: CloudP
   let accessProjects: Record<string, any> = {};
   let ownerUidProjects: Record<string, any> = {};
   let ownerEmailProjects: Record<string, any> = {};
-  // Candidate IDs from this device. They are included only after a server read proves
-  // that the signed-in Google account is still authorized by Firestore Rules.
   let localCandidateProjects: Record<string, any> = readLocalProjectDiscoveryCandidates();
   let cancelled = false;
   let refreshSeq = 0;
+  let emitTimer: ReturnType<typeof setTimeout> | null = null;
+  const pendingSources = new Set<string>();
+  const cacheKeyFor = (projectId: string) => `${user.uid}:${projectId}`;
+  const invalidateProject = (projectId: string) => discoveryProjectCache.delete(cacheKeyFor(projectId));
 
-  const emit = async () => {
+  const collapseCanonicalProjects = (result: CloudProjectSummary[]): CloudProjectSummary[] => {
+    const byId = new Map(result.map((project) => [project.id, project]));
+    const aliasesByTarget = new Map<string, string[]>();
+    const resolveCanonical = (project: CloudProjectSummary): string | null => {
+      let targetId = project.canonicalProjectId;
+      const seen = new Set<string>([project.id]);
+      while (targetId && !seen.has(targetId)) {
+        const target = byId.get(targetId);
+        if (!target) return null;
+        seen.add(targetId);
+        if (!target.canonicalProjectId || target.canonicalProjectId === target.id) return target.id;
+        targetId = target.canonicalProjectId;
+      }
+      return targetId && byId.has(targetId) ? targetId : null;
+    };
+    result.forEach((project) => {
+      const targetId = resolveCanonical(project);
+      if (!targetId || targetId === project.id) return;
+      aliasesByTarget.set(targetId, [...(aliasesByTarget.get(targetId) || []), project.id]);
+    });
+    return result
+      .filter((project) => {
+        const targetId = resolveCanonical(project);
+        return !targetId || targetId === project.id;
+      })
+      .map((project) => ({ ...project, aliases: aliasesByTarget.get(project.id) || project.aliases }))
+      .sort((a,b) => Number(b.updatedAt||0)-Number(a.updatedAt||0));
+  };
+
+  const emit = async (source: string) => {
+    const startedAt = Date.now();
     const seq = ++refreshSeq;
     const ids = new Set<string>([
       ...Object.keys(userProjects),
@@ -481,27 +567,35 @@ export function subscribeCurrentUserProjectsRealtime(onUpdate: (projects: CloudP
       ...Object.keys(localCandidateProjects),
     ]);
     const result: CloudProjectSummary[] = [];
+
     for (const id of ids) {
+      if (cancelled || seq !== refreshSeq) return;
       const durableHint = userProjects[id] || accessProjects[id] || invitationProjects[id] || legacyInvitationProjects[id] || ownerUidProjects[id] || ownerEmailProjects[id];
       const localHint = localCandidateProjects[id];
       const hint = durableHint || localHint || {};
       const isLocalProbeOnly = Boolean(localHint && !durableHint);
+      const cacheKey = cacheKeyFor(id);
+      const cached = discoveryProjectCache.get(cacheKey);
+      const cacheFresh = Boolean(!isLocalProbeOnly && cached && (Date.now() - cached.at) < 8000);
+      if (cacheFresh) {
+        if (cached!.summary) result.push({ ...cached!.summary, role: String(hint.role || cached!.summary.role || '').toUpperCase() || cached!.summary.role });
+        continue;
+      }
+
       try {
         const projectRef = doc(db, 'projects', id);
-        // A local-only candidate MUST be verified against the server. Falling back to a
-        // persisted cache here could resurrect a project after the member was removed.
-        // Durable Cloud-discovery rows may still use Firestore cache while offline.
         let snap;
         if (isLocalProbeOnly) {
           snap = await getDocFromServer(projectRef);
         } else {
-          try {
-            snap = await getDocFromServer(projectRef);
-          } catch (_) {
-            snap = await getDoc(projectRef);
-          }
+          try { snap = await getDocFromServer(projectRef); }
+          catch (_) { snap = await getDoc(projectRef); }
         }
-        if (!snap.exists() || snap.data()?.deleted) continue;
+        if (cancelled || seq !== refreshSeq) return;
+        if (!snap.exists() || snap.data()?.deleted) {
+          discoveryProjectCache.set(cacheKey, { at: Date.now(), summary: null });
+          continue;
+        }
         const data = snap.data();
         const createdAt = cloudTimestampToMillis(data?.createdAt);
         const updatedAt = cloudTimestampToMillis(data?.updatedAt) || Number(hint.updatedAt || 0);
@@ -509,130 +603,159 @@ export function subscribeCurrentUserProjectsRealtime(onUpdate: (projects: CloudP
         let effectiveRole = String(hint.role || '').toUpperCase();
         if (isLocalProbeOnly || !effectiveRole) {
           const roleInfo = await fetchProjectUserRoleFromCloud(id, user).catch(() => ({ allowed: false, role: 'VIEWER' as const }));
+          if (cancelled || seq !== refreshSeq) return;
           if (!roleInfo.allowed) continue;
           effectiveRole = String(roleInfo.role || 'VIEWER').toUpperCase();
-          // Self-heal the UID index after the server has proven this legacy candidate is
-          // actually accessible. This fixes legacy `default`/Mizuki projects without
-          // asking the ADMIN to remove and invite the user again.
           registerProjectForCurrentUser(id, String(data?.name || hint.name || id), effectiveRole).catch(() => {});
         }
-        // Invitations are a durable compatibility discovery source. Once the project
-        // read succeeds, immediately persist the signed-in user's own index so the project
-        // remains visible even after the invitation is later consumed/deleted on login.
         if ((invitationProjects[id] || legacyInvitationProjects[id]) && effectiveRole) {
           registerProjectForCurrentUser(id, String(data?.name || hint.name || id), effectiveRole).catch(() => {});
         }
-
         if (!createdAt && (effectiveRole === 'ADMIN' || data?.ownerUid === user.uid || normalizeEmail(data?.ownerEmail) === email)) {
-          // Fire-and-forget one-time migration. The next realtime emission will pick up
-          // the server-generated value. We intentionally do NOT invent a temporary date.
           ensureProjectCreatedAtInCloud(id).catch(() => {});
         }
-        result.push({
+        const canonicalProjectIdRaw = String(data?.canonicalProjectId || data?.mergedIntoProjectId || '').trim();
+        const canonicalProjectId = canonicalProjectIdRaw && canonicalProjectIdRaw !== id ? canonicalProjectIdRaw : undefined;
+        const summary: CloudProjectSummary = {
           id,
           name: String(data?.name || hint.name || id),
           role: effectiveRole || hint.role,
           createdAt,
           createdAtSource: createdAt ? 'cloud' : 'migrating',
           updatedAt,
-        });
+          canonicalProjectId,
+        };
+        discoveryProjectCache.set(cacheKey, { at: Date.now(), summary });
+        result.push(summary);
       } catch (err: any) {
-        // A stale users/{uid}.projects entry must never keep an unauthorized project
-        // visible after the member was removed/disabled. Only use the hint when the
-        // project read failed for a transient/offline reason; permission-denied is
-        // authoritative and the project is omitted from the authorized Cloud list.
+        if (cancelled || seq !== refreshSeq) return;
         const code = String(err?.code || '');
-        if (code.includes('permission-denied') || isLocalProbeOnly) continue;
-        result.push({
+        if (code.includes('permission-denied') || isLocalProbeOnly) {
+          discoveryProjectCache.delete(cacheKey);
+          continue;
+        }
+        const fallback: CloudProjectSummary = {
           id,
           name: String(hint.name || id),
           role: hint.role,
           createdAt: 0,
           createdAtSource: 'migrating',
           updatedAt: Number(hint.updatedAt || 0),
-        });
+        };
+        result.push(fallback);
       }
     }
-    if (!cancelled && seq === refreshSeq) onUpdate(result.sort((a,b) => Number(b.updatedAt||0)-Number(a.updatedAt||0)));
+
+    if (!cancelled && seq === refreshSeq) {
+      const collapsed = collapseCanonicalProjects(result);
+      console.debug('[discovery emit]', source, 'ids=', ids.size, 'result=', collapsed.length, 'duration=', Date.now() - startedAt);
+      onUpdate(collapsed);
+    }
+  };
+
+  const scheduleEmit = (source: string) => {
+    if (cancelled) return;
+    pendingSources.add(source);
+    // Invalidate any in-flight emit immediately. It will stop at the next await/loop
+    // boundary instead of continuing to probe every project after a newer snapshot.
+    refreshSeq++;
+    if (emitTimer) clearTimeout(emitTimer);
+    emitTimer = setTimeout(() => {
+      emitTimer = null;
+      const sources = Array.from(pendingSources).join(',');
+      pendingSources.clear();
+      void emit(sources || source);
+    }, 160);
+  };
+
+  const applyQueryChanges = (
+    snap: any,
+    target: Record<string, any>,
+    kind: 'invitation' | 'access' | 'owner',
+    ownerRole = 'ADMIN'
+  ) => {
+    for (const change of snap.docChanges()) {
+      const d = change.doc;
+      const x = d.data();
+      const projectId = kind === 'owner' ? d.id : String(x?.projectId || '');
+      if (!projectId) continue;
+      invalidateProject(projectId);
+      if (change.type === 'removed' || x?.deleted || x?.active === false) {
+        delete target[projectId];
+        continue;
+      }
+      const name = String(x?.projectName || x?.name || projectId);
+      const role = kind === 'owner' ? ownerRole : String(x?.role || 'VIEWER').toUpperCase();
+      target[projectId] = {
+        id: projectId,
+        name,
+        role,
+        updatedAt: cloudTimestampToMillis(x?.updatedAt || x?.createdAt),
+      };
+      if (kind === 'access') registerProjectForCurrentUser(projectId, name, role).catch(() => {});
+      if (kind === 'owner') {
+        registerProjectForCurrentUser(projectId, name, 'ADMIN').catch(() => {});
+        // completed-set makes this effectively once/session after success. If a required
+        // invitation repair failed earlier (network/rules), a later owner doc change may
+        // retry instead of leaving the project unrepaired for the whole session.
+        repairProjectAccessIndexForProject(projectId).catch(() => {});
+      }
+    }
   };
 
   const unsubs: Array<() => void> = [];
   unsubs.push(onSnapshot(doc(db, 'users', user.uid), (snap) => {
     const data = snap.exists() ? snap.data() : {};
-    userProjects = data?.projects && typeof data.projects === 'object' ? data.projects : {};
-    emit();
+    const nextProjects = data?.projects && typeof data.projects === 'object' ? data.projects : {};
+    const allIds = new Set([...Object.keys(userProjects), ...Object.keys(nextProjects)]);
+    for (const id of allIds) {
+      const a = userProjects[id];
+      const b = nextProjects[id];
+      if (JSON.stringify([a?.name, a?.role]) !== JSON.stringify([b?.name, b?.role])) invalidateProject(id);
+    }
+    userProjects = nextProjects;
+    primeUserProjectIndexCache(user.uid, userProjects);
+    scheduleEmit('user-index');
   }, (err) => console.warn('User project index realtime error:', err)));
 
   const invitationQ = query(collection(db, 'projectInvitations'), where('invitedEmail', '==', email));
   unsubs.push(onSnapshot(invitationQ, (snap) => {
-    invitationProjects = {};
-    snap.docs.forEach((d) => { const x=d.data(); if (x?.projectId) invitationProjects[String(x.projectId)] = { id: String(x.projectId), role: x.role || 'VIEWER', updatedAt: cloudTimestampToMillis(x.updatedAt || x.createdAt) }; });
-    emit();
+    applyQueryChanges(snap, invitationProjects, 'invitation');
+    scheduleEmit('invitation');
   }, (err) => console.warn('Project invitations realtime error:', err)));
 
-  // Legacy builds sometimes stored only the `email` field. Keep this listener so an
-  // already signed-in invitee can discover the project without signing out/in again.
   const legacyInvitationQ = query(collection(db, 'projectInvitations'), where('email', '==', email));
   unsubs.push(onSnapshot(legacyInvitationQ, (snap) => {
-    legacyInvitationProjects = {};
-    snap.docs.forEach((d) => { const x=d.data(); if (x?.projectId) legacyInvitationProjects[String(x.projectId)] = { id: String(x.projectId), role: x.role || 'VIEWER', updatedAt: cloudTimestampToMillis(x.updatedAt || x.createdAt) }; });
-    emit();
+    applyQueryChanges(snap, legacyInvitationProjects, 'invitation');
+    scheduleEmit('legacy-invitation');
   }, (err) => console.warn('Legacy project invitations realtime error:', err)));
 
-  // Durable email -> project access index. Invitations may legitimately be deleted after
-  // acceptance, while users/{uid}.projects can fail to write during a transient network
-  // issue. Keeping this small index prevents an authorized VIEWER/ENGINEER from ending up
-  // with an empty project list even though projects/{id}/members/{email} still grants access.
   const accessQ = query(collection(db, 'projectAccess'), where('email', '==', email));
   unsubs.push(onSnapshot(accessQ, (snap) => {
-    accessProjects = {};
-    snap.docs.forEach((d) => {
-      const x = d.data();
-      if (!x?.projectId || x?.active === false) return;
-      const projectId = String(x.projectId);
-      const projectName = String(x.projectName || projectId);
-      const role = String(x.role || 'VIEWER').toUpperCase();
-      accessProjects[projectId] = { id: projectId, name: projectName, role, updatedAt: cloudTimestampToMillis(x.updatedAt) };
-      // Self-heal the per-UID index. Only the signed-in user can write users/{uid}.
-      registerProjectForCurrentUser(projectId, projectName, role).catch(() => {});
-    });
-    emit();
+    applyQueryChanges(snap, accessProjects, 'access');
+    scheduleEmit('project-access');
   }, (err) => console.warn('Project access index realtime error:', err)));
 
-  // Recovery path for legacy projects whose users/{uid}.projects index was never
-  // created or was lost during an old migration. Owner UID/email is authoritative
-  // and lets the same Google account rediscover the project without creating a copy.
   const ownerUidQ = query(collection(db, 'projects'), where('ownerUid', '==', user.uid));
   unsubs.push(onSnapshot(ownerUidQ, (snap) => {
-    ownerUidProjects = {};
-    snap.docs.forEach((d) => {
-      const x = d.data();
-      if (!x?.deleted) {
-        const name = String(x?.name || d.id);
-        ownerUidProjects[d.id] = { id: d.id, name, role: 'ADMIN', updatedAt: Number(x?.updatedAt || 0) };
-        registerProjectForCurrentUser(d.id, name, 'ADMIN').catch(() => {});
-        repairProjectAccessIndexForProject(d.id).catch(() => {});
-      }
-    });
-    emit();
+    console.debug('[owner query] uid changes=', snap.docChanges().length);
+    applyQueryChanges(snap, ownerUidProjects, 'owner');
+    scheduleEmit('owner-uid');
   }, (err) => console.warn('Owner UID projects realtime recovery warning:', err)));
 
   const ownerEmailQ = query(collection(db, 'projects'), where('ownerEmail', '==', email));
   unsubs.push(onSnapshot(ownerEmailQ, (snap) => {
-    ownerEmailProjects = {};
-    snap.docs.forEach((d) => {
-      const x = d.data();
-      if (!x?.deleted) {
-        const name = String(x?.name || d.id);
-        ownerEmailProjects[d.id] = { id: d.id, name, role: 'ADMIN', updatedAt: Number(x?.updatedAt || 0) };
-        registerProjectForCurrentUser(d.id, name, 'ADMIN').catch(() => {});
-        repairProjectAccessIndexForProject(d.id).catch(() => {});
-      }
-    });
-    emit();
+    console.debug('[owner query] email changes=', snap.docChanges().length);
+    applyQueryChanges(snap, ownerEmailProjects, 'owner');
+    scheduleEmit('owner-email');
   }, (err) => console.warn('Owner email projects realtime recovery warning:', err)));
 
-  return () => { cancelled = true; unsubs.forEach((u) => u()); };
+  return () => {
+    cancelled = true;
+    refreshSeq++;
+    if (emitTimer) clearTimeout(emitTimer);
+    unsubs.forEach((u) => u());
+  };
 }
 
 async function writeProjectMemberDocs(
@@ -791,6 +914,159 @@ export async function fetchProjectMembersFromCloud(projectId: string): Promise<a
   }
 }
 
+
+function normalizeProjectRole(role?: string | null): 'ADMIN' | 'ENGINEER' | 'VIEWER' {
+  const value = String(role || 'VIEWER').toUpperCase();
+  if (value === 'ADMIN') return 'ADMIN';
+  if (value === 'ENGINEER' || value === 'EDITOR') return 'ENGINEER';
+  return 'VIEWER';
+}
+
+function strongerProjectRole(a?: string | null, b?: string | null): 'ADMIN' | 'ENGINEER' | 'VIEWER' {
+  const rank: Record<'ADMIN' | 'ENGINEER' | 'VIEWER', number> = { VIEWER: 1, ENGINEER: 2, ADMIN: 3 };
+  const ra = normalizeProjectRole(a);
+  const rb = normalizeProjectRole(b);
+  return rank[ra] >= rank[rb] ? ra : rb;
+}
+
+export interface CanonicalMemberTransferResult {
+  transferred: number;
+  preservedExisting: number;
+  adminDowngradedToEngineer: number;
+  skippedInactive: number;
+}
+
+/**
+ * Copy active member access from a duplicate/source project to the canonical target.
+ *
+ * Security rule:
+ * - Current user must be ADMIN on the canonical target.
+ * - Existing target roles are never downgraded.
+ * - A source-only ADMIN is transferred as ENGINEER unless that email is already ADMIN
+ *   on the target. This prevents an accidental personal duplicate from granting itself
+ *   ADMIN over the organisation's canonical project.
+ *
+ * The source project/member documents are NOT deleted.
+ */
+export async function transferProjectMembersToCanonical(
+  sourceProjectId: string,
+  targetProjectId: string
+): Promise<CanonicalMemberTransferResult> {
+  if (!sourceProjectId || !targetProjectId || sourceProjectId === targetProjectId) {
+    return { transferred: 0, preservedExisting: 0, adminDowngradedToEngineer: 0, skippedInactive: 0 };
+  }
+
+  const user = getCurrentRealFirebaseUser();
+  if (!user) throw new Error('Cần đăng nhập Google để chuyển thành viên.');
+
+  const targetRole = await fetchProjectUserRoleFromCloud(targetProjectId, user);
+  if (!targetRole.allowed || targetRole.role !== 'ADMIN') {
+    throw new Error('Cần quyền ADMIN trên dự án chính để chuyển thành viên.');
+  }
+
+  const [sourceMembers, targetMembers] = await Promise.all([
+    fetchProjectMembersFromCloud(sourceProjectId),
+    fetchProjectMembersFromCloud(targetProjectId),
+  ]);
+
+  const targetByEmail = new Map<string, any>();
+  targetMembers.forEach((member) => {
+    const email = normalizeEmail(member?.email);
+    if (email && member?.active !== false) targetByEmail.set(email, member);
+  });
+
+  const sourceByEmail = new Map<string, any>();
+  sourceMembers.forEach((member) => {
+    const email = normalizeEmail(member?.email);
+    if (!email) return;
+    const existing = sourceByEmail.get(email);
+    if (!existing || Number(member?.updatedAt || 0) >= Number(existing?.updatedAt || 0)) {
+      sourceByEmail.set(email, member);
+    }
+  });
+
+  let transferred = 0;
+  let preservedExisting = 0;
+  let adminDowngradedToEngineer = 0;
+  let skippedInactive = 0;
+
+  for (const [email, member] of sourceByEmail.entries()) {
+    if (member?.active === false) {
+      skippedInactive++;
+      continue;
+    }
+
+    const existingTarget = targetByEmail.get(email);
+    let incomingRole = normalizeProjectRole(member?.role);
+    if (!existingTarget && incomingRole === 'ADMIN') {
+      // A duplicate project's owner/admin must not silently become ADMIN of the
+      // canonical project. The canonical ADMIN can promote them afterwards.
+      incomingRole = 'ENGINEER';
+      adminDowngradedToEngineer++;
+    }
+    const finalRole = existingTarget
+      ? strongerProjectRole(existingTarget?.role, incomingRole)
+      : incomingRole;
+
+    if (existingTarget && normalizeProjectRole(existingTarget?.role) === finalRole) {
+      preservedExisting++;
+    }
+
+    await saveProjectMemberToCloud(targetProjectId, {
+      email,
+      uid: member?.uid,
+      role: finalRole,
+      assignedAt: Number(member?.assignedAt || Date.now()),
+    });
+    transferred++;
+  }
+
+  return { transferred, preservedExisting, adminDowngradedToEngineer, skippedInactive };
+}
+
+/**
+ * Mark a duplicate/source project as an archive that redirects to the canonical ID.
+ * No source data, photos, chat or audit history is deleted.
+ *
+ * The current user must be ADMIN on the source project and must at least have access
+ * to the target project. This supports the common recovery case where a user owns an
+ * accidental duplicate but is only ENGINEER on the organisation's canonical project.
+ */
+export async function markProjectMergedIntoCloud(
+  sourceProjectId: string,
+  targetProjectId: string
+): Promise<void> {
+  if (!sourceProjectId || !targetProjectId || sourceProjectId === targetProjectId) return;
+  const user = getCurrentRealFirebaseUser();
+  if (!user || !user.email) throw new Error('Cần đăng nhập Google để hợp nhất projectId.');
+
+  const [sourceRole, targetRole, sourceSnap, targetSnap] = await Promise.all([
+    fetchProjectUserRoleFromCloud(sourceProjectId, user),
+    fetchProjectUserRoleFromCloud(targetProjectId, user),
+    getDoc(doc(db, 'projects', sourceProjectId)),
+    getDoc(doc(db, 'projects', targetProjectId)),
+  ]);
+
+  if (!sourceRole.allowed || sourceRole.role !== 'ADMIN') {
+    throw new Error('Cần quyền ADMIN trên ID nguồn để đánh dấu dự án đã hợp nhất.');
+  }
+  if (!targetRole.allowed) {
+    throw new Error('Tài khoản hiện tại chưa có quyền truy cập ID dự án chính.');
+  }
+  if (!sourceSnap.exists() || !targetSnap.exists()) {
+    throw new Error('Không tìm thấy một trong hai projectId trên Cloud.');
+  }
+
+  await setDoc(doc(db, 'projects', sourceProjectId), {
+    canonicalProjectId: targetProjectId,
+    mergedIntoProjectId: targetProjectId,
+    mergedAt: serverTimestamp(),
+    mergedByUid: user.uid,
+    mergedByEmail: normalizeEmail(user.email),
+    updatedAt: Date.now(),
+  }, { merge: true });
+}
+
 export function subscribeProjectMembersRealtime(projectId: string, onUpdate: (members: any[]) => void): () => void {
   if (!projectId) return () => {};
   return onSnapshot(collection(db, 'projects', projectId, 'members'), (snap) => {
@@ -873,18 +1149,67 @@ export function subscribeProjectUserRoleRealtime(
   if (!projectId || !user?.uid) return () => {};
   let cancelled = false;
   let seq = 0;
-  const refresh = async () => {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let rootSignature = '';
+  const memberSignatures = new Map<string, string>();
+
+  const refresh = async (reason: string) => {
     const mySeq = ++seq;
+    console.debug('[role refresh]', projectId, reason);
     const info = await fetchProjectUserRoleFromCloud(projectId, user);
     if (!cancelled && mySeq === seq) onUpdate(info);
   };
+  const scheduleRefresh = (reason: string) => {
+    if (cancelled) return;
+    seq++;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      void refresh(reason);
+    }, 140);
+  };
+
   const unsubs: Array<() => void> = [];
-  unsubs.push(onSnapshot(doc(db, 'projects', projectId), refresh, (err) => console.warn('Role project listener warning:', err)));
+  unsubs.push(onSnapshot(doc(db, 'projects', projectId), (snap) => {
+    const data = snap.exists() ? snap.data() : {};
+    // Ignore root changes that only touch updatedAt/sync metadata. Ownership/deleted
+    // are the only root fields that can affect the effective role.
+    const nextSignature = JSON.stringify([
+      snap.exists(),
+      data?.deleted === true,
+      String(data?.ownerUid || ''),
+      normalizeEmail(data?.ownerEmail),
+    ]);
+    if (nextSignature !== rootSignature) {
+      rootSignature = nextSignature;
+      scheduleRefresh('project-owner');
+    }
+  }, (err) => console.warn('Role project listener warning:', err)));
+
   for (const memberId of getMemberDocIdsForUser(user)) {
-    unsubs.push(onSnapshot(doc(db, 'projects', projectId, 'members', memberId), refresh, (err) => console.warn('Role member listener warning:', err)));
+    unsubs.push(onSnapshot(doc(db, 'projects', projectId, 'members', memberId), (snap) => {
+      const data = snap.exists() ? snap.data() : {};
+      const nextSignature = JSON.stringify([
+        snap.exists(),
+        data?.active !== false,
+        String(data?.role || ''),
+        String(data?.uid || ''),
+        normalizeEmail(data?.email),
+      ]);
+      if (memberSignatures.get(memberId) !== nextSignature) {
+        memberSignatures.set(memberId, nextSignature);
+        scheduleRefresh(`member:${memberId}`);
+      }
+    }, (err) => console.warn('Role member listener warning:', err)));
   }
-  refresh();
-  return () => { cancelled = true; unsubs.forEach((u) => u()); };
+
+  scheduleRefresh('initial');
+  return () => {
+    cancelled = true;
+    seq++;
+    if (timer) clearTimeout(timer);
+    unsubs.forEach((u) => u());
+  };
 }
 
 /**
@@ -1100,6 +1425,9 @@ export async function saveProjectMetadataToCloud(projectId: string, name: string
       contractorName: extra.contractorName || '',
       inspectorName: extra.inspectorName || '',
       syncCode: projectId.slice(0, 8).toUpperCase(),
+      // New projects are canonical by definition. Existing legacy projects keep
+      // their current identity until an ADMIN explicitly merges them.
+      canonicalProjectId: projectId,
       schemaVersion: 3,
       createdAt: serverTimestamp(),
       updatedAt: now,
@@ -1161,7 +1489,7 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
 
       await setDoc(metadataRef, {
         id: project.id,
-        ...(!existingData ? { createdAt: serverTimestamp() } : {}),
+        ...(!existingData ? { createdAt: serverTimestamp(), canonicalProjectId: project.id } : {}),
         name: project.name || 'Dự án',
         syncCode,
         updatedAt: Date.now(),
@@ -1339,13 +1667,23 @@ export async function saveProjectDiffsToCloud(
   diffs: {
     addedOrModified: { [subcollection: string]: any[] };
     deletedIds: { [subcollection: string]: string[] };
-  }
+  },
+  options: { touchProjectMetadata?: boolean; rootTouchIntervalMs?: number; auditDetailLimit?: number } = {}
 ): Promise<void> {
   try {
     await ensureAuth();
 
-    // 1. Try updating metadata (only if user has Admin/Owner permissions; ignore error if Engineer)
-    try {
+    const totalChangedRecords =
+      Object.values(diffs.addedOrModified).reduce((sum, items) => sum + (Array.isArray(items) ? items.length : 0), 0) +
+      Object.values(diffs.deletedIds).reduce((sum, ids) => sum + (Array.isArray(ids) ? ids.length : 0), 0);
+    const nowForRoot = Date.now();
+    const rootTouchIntervalMs = Math.max(30000, Number(options.rootTouchIntervalMs || 60000));
+    const lastRootTouch = projectRootMetadataTouchAt.get(projectId) || 0;
+    const shouldTouchRoot = options.touchProjectMetadata === true ||
+      (totalChangedRecords > 0 && nowForRoot - lastRootTouch >= rootTouchIntervalMs);
+
+    // 1. Root project metadata is NOT touched on every autosave.
+    if (shouldTouchRoot) try {
       const metadataRef = doc(db, 'projects', projectId);
       const currentUser = getCurrentAppUser();
       // IMPORTANT: normal autosync never rewrites ownerUid/ownerEmail or grants ADMIN.
@@ -1364,6 +1702,8 @@ export async function saveProjectDiffsToCloud(
         updatedByDeviceName: getDeviceName()
       };
       await setDoc(metadataRef, metaPayload, { merge: true });
+      projectRootMetadataTouchAt.set(projectId, nowForRoot);
+      console.debug('[cloud save] root metadata touched', projectId, 'changes=', totalChangedRecords);
     } catch (metaErr) {
       // Engineer role may not have permissions on root /projects/{projectId} document - this is expected
       console.warn('[Cloud Sync] Project metadata update skipped or disallowed for current role:', metaErr);
@@ -1371,18 +1711,21 @@ export async function saveProjectDiffsToCloud(
 
     let batch = writeBatch(db);
     let operationCount = 0;
+    const AUDIT_DETAIL_LIMIT = Math.max(0, Math.min(30, Number(options.auditDetailLimit ?? 20)));
+    let auditCandidateCount = 0;
     const auditEntries: Array<{ module: string; action: string; recordId: string; description: string; changedFields?: Record<string, { before: any; after: any }>; beforeData?: any; afterData?: any }> = [];
 
     // 2. Process added / modified items in subcollections
     for (const [subName, items] of Object.entries(diffs.addedOrModified)) {
       for (const item of items) {
         if (!item.id) continue;
+        auditCandidateCount++;
         const docRef = doc(db, 'projects', projectId, subName, item.id);
         const sanitized = sanitizePayloadForCloud(item);
-        const beforeSnap = auditEntries.length < 120 ? await getDoc(docRef).catch(() => null) : null;
+        const beforeSnap = auditEntries.length < AUDIT_DETAIL_LIMIT ? await getDoc(docRef).catch(() => null) : null;
         const beforeData = beforeSnap && beforeSnap.exists() ? beforeSnap.data() : null;
         const changedFields = buildAuditChangedFields(beforeData || {}, sanitized);
-        if (Object.keys(changedFields).length > 0 && auditEntries.length < 120) {
+        if (Object.keys(changedFields).length > 0 && auditEntries.length < AUDIT_DETAIL_LIMIT) {
           auditEntries.push({
             module: subName,
             action: beforeData ? 'UPDATE' : 'CREATE',
@@ -1444,10 +1787,11 @@ export async function saveProjectDiffsToCloud(
     const now = Date.now();
     for (const [subName, ids] of Object.entries(diffs.deletedIds)) {
       for (const id of ids) {
+        auditCandidateCount++;
         const docRef = doc(db, 'projects', projectId, subName, id);
-        const beforeSnap = auditEntries.length < 120 ? await getDoc(docRef).catch(() => null) : null;
+        const beforeSnap = auditEntries.length < AUDIT_DETAIL_LIMIT ? await getDoc(docRef).catch(() => null) : null;
         const beforeData = beforeSnap && beforeSnap.exists() ? beforeSnap.data() : null;
-        if (auditEntries.length < 120) {
+        if (auditEntries.length < AUDIT_DETAIL_LIMIT) {
           auditEntries.push({ module: subName, action: 'DELETE', recordId: id, description: `Xóa ${subName} · ${id}`, beforeData: auditSafeValue(beforeData || { id }) });
         }
         const currentUser = getCurrentAppUser();
@@ -1475,10 +1819,22 @@ export async function saveProjectDiffsToCloud(
       await batch.commit();
     }
 
-    // Audit is append-only and written only after the business batch succeeds.
-    // Failures here never roll back field work; they are surfaced for diagnostics.
-    for (const entry of auditEntries) {
-      await saveProjectAuditLog(projectId, {
+    if (auditCandidateCount > auditEntries.length) {
+      auditEntries.push({
+        module: 'autosave',
+        action: 'BATCH_UPDATE',
+        recordId: projectId,
+        description: `Đồng bộ nền ${auditCandidateCount} thay đổi (${auditEntries.length} mục ghi chi tiết)`,
+      });
+    }
+    if (auditEntries.length > 0) {
+      const auditUser = getCurrentRealFirebaseUser();
+      const roleInfo = auditUser
+        ? await fetchProjectUserRoleFromCloud(projectId, auditUser).catch(() => null)
+        : null;
+      const actorRole = roleInfo?.role || 'VIEWER';
+      console.debug('[cloud save]', projectId, 'changes=', totalChangedRecords, 'audit=', auditEntries.length);
+      await Promise.all(auditEntries.map((entry) => saveProjectAuditLog(projectId, {
         module: entry.module,
         action: entry.action,
         recordId: entry.recordId,
@@ -1487,7 +1843,8 @@ export async function saveProjectDiffsToCloud(
         changedFields: entry.changedFields,
         beforeData: entry.beforeData,
         afterData: entry.afterData,
-      }).catch((err) => console.warn('Activity log write warning:', err));
+        actorRole,
+      }).catch((err) => console.warn('Activity log write warning:', err))));
     }
   } catch (err) {
     console.error("Firestore Save Diffs Error:", err);
@@ -1584,6 +1941,7 @@ export function subscribeToProjectRealtime(
     const metaUnsub = onSnapshot(
       doc(db, 'projects', projectId),
       (snap) => {
+        if (isCancelled) return;
         if (snap.exists()) {
           const data = snap.data();
           onMetadataUpdate({
@@ -1619,6 +1977,7 @@ export function subscribeToProjectRealtime(
       const unsub = onSnapshot(
         collection(db, 'projects', projectId, cloudName),
         (snap) => {
+          if (isCancelled) return;
           if (isFirst) {
             const items: any[] = [];
             snap.forEach((docSnap) => {
@@ -1657,7 +2016,8 @@ export function subscribeToProjectRealtime(
 
   return () => {
     isCancelled = true;
-    unsubscribers.forEach((unsub) => unsub());
+    console.debug('[project realtime] unsubscribe', projectId, 'listeners=', unsubscribers.length);
+    unsubscribers.splice(0).forEach((unsub) => unsub());
   };
 }
 
