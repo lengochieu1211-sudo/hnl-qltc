@@ -26,6 +26,24 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci && npm run build
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Ensure Firestore rules deploy permission
+        shell: bash
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
+        run: |
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS" --quiet
+          SERVICE_ACCOUNT_EMAIL="$(node -e "process.stdout.write(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT).client_email || '')")"
+          if [ -z "$SERVICE_ACCOUNT_EMAIL" ]; then
+            echo "::error::Could not read client_email from the Firebase service account secret."
+            exit 1
+          fi
+          gcloud projects add-iam-policy-binding com-example-qlct-61329 \
+            --member="serviceAccount:${SERVICE_ACCOUNT_EMAIL}" \
+            --role="roles/firebaserules.admin" \
+            --quiet
       # Deploy rules BEFORE Hosting so a missing Rules IAM permission cannot leave a
       # misleading partial-success deployment where the web app is newer than its rules.
       - name: Deploy Firestore rules
