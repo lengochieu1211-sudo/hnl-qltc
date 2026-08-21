@@ -770,6 +770,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   });
   const [activeDefectDetail, setActiveDefectDetail] = useState<DefectItem | null>(null);
   const [isDefectPinPlacementMode, setIsDefectPinPlacementMode] = useState(false);
+  const [isRoomPinPlacementMode, setIsRoomPinPlacementMode] = useState(false);
 
   // Choice modal when clicking blueprint in 'all' mode
   const [clickChoicePos, setClickChoicePos] = useState<{ x: number; y: number } | null>(null);
@@ -1261,7 +1262,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         rawX: x,
         rawY: y
       });
-    }, 400); // 0.4s touch-hold delay
+    }, 2000); // 2s deliberate long-press
   };
 
   const handleRoomTouchMove = (e: React.TouchEvent) => {
@@ -1269,7 +1270,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const touch = e.touches[0];
     const dx = touch.clientX - touchStartPosRef.current.clientX;
     const dy = touch.clientY - touchStartPosRef.current.clientY;
-    if (dx * dx + dy * dy > 900) { // 30px wobble tolerance
+    if (dx * dx + dy * dy > 144) { // >12px cancels long-press so pan/zoom wins
       if (touchHoldTimerRef.current) {
         clearTimeout(touchHoldTimerRef.current);
         touchHoldTimerRef.current = null;
@@ -1290,6 +1291,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   };
 
   const handleBgTouchStart = (e: React.TouchEvent) => {
+    // Paste Căn/Phòng by touch belongs only to Căn/Phòng mode.
+    if (viewMode !== 'highlight') return;
     if (drawTool !== 'none' && drawTool !== 'drag') return;
     if (e.touches.length !== 1) return;
 
@@ -1317,7 +1320,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         rawX: x,
         rawY: y
       });
-    }, 400); // 0.4s touch-hold delay
+    }, 2000); // 2s deliberate long-press
   };
 
   const handleBgTouchMove = (e: React.TouchEvent) => {
@@ -1325,7 +1328,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const touch = e.touches[0];
     const dx = touch.clientX - touchStartPosRef.current.clientX;
     const dy = touch.clientY - touchStartPosRef.current.clientY;
-    if (dx * dx + dy * dy > 900) { // 30px wobble tolerance
+    if (dx * dx + dy * dy > 144) { // >12px cancels long-press so pan/zoom wins
       if (touchHoldTimerRef.current) {
         clearTimeout(touchHoldTimerRef.current);
         touchHoldTimerRef.current = null;
@@ -1784,6 +1787,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   }, [isFullscreen, selectedFloorId, activeFloor]);
 
   const activePointersRef = useRef<Set<number>>(new Set());
+  // Floor-plan navigation: touch one-finger pan; desktop middle-mouse or Space+left pan.
+  const panStateRef = useRef<{ active: boolean; pointerId: number | null; startX: number; startY: number; scrollLeft: number; scrollTop: number; moved: boolean }>({ active: false, pointerId: null, startX: 0, startY: 0, scrollLeft: 0, scrollTop: 0, moved: false });
+  const suppressNextCanvasClickRef = useRef(false);
+  const spacePanHeldRef = useRef(false);
 
   const photoInputRef = useRef<HTMLInputElement>(null);
   const imageContainerRef = useRef<HTMLDivElement>(null);
@@ -1809,6 +1816,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 2) {
+        if (touchHoldTimerRef.current) { clearTimeout(touchHoldTimerRef.current); touchHoldTimerRef.current = null; }
+        panStateRef.current.active = false;
+        suppressNextCanvasClickRef.current = true;
         initialDist = Math.hypot(
           e.touches[0].clientX - e.touches[1].clientX,
           e.touches[0].clientY - e.touches[1].clientY
@@ -1840,14 +1850,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     };
 
     const onWheel = (e: WheelEvent) => {
-      // Zoom with wheel when holding Ctrl / Cmd (or standard touchpad pinch which sets ctrlKey = true)
-      if (e.ctrlKey || e.metaKey) {
-        if (e.cancelable) e.preventDefault();
-        const factor = e.deltaY < 0 ? 1.1 : 0.9;
-        let newScale = zoomScaleRef.current * factor;
-        newScale = Math.min(20, Math.max(1, newScale));
-        setZoomScale(Number(newScale.toFixed(2)));
-      }
+      // Desktop wheel and touchpad pinch zoom the plan. Keep the existing 1x..20x limits unchanged.
+      if (e.cancelable) e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.1 : 0.9;
+      let newScale = zoomScaleRef.current * factor;
+      newScale = Math.min(20, Math.max(1, newScale));
+      setZoomScale(Number(newScale.toFixed(2)));
     };
 
     elementsToBind.forEach(container => {
@@ -1902,7 +1910,29 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         }
       }
 
-      // Escape: Cancel/exit drawing commands and clear drawing states
+      // Arrow keys: nudge selected room(s). Shift = larger step. Keep text inputs untouched above.
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+        const roomsToNudge = floorRooms.filter(r => selectedRoomIds.includes(r.id) || r.id === selectedRoomForDragId);
+        if (roomsToNudge.length > 0) {
+          e.preventDefault();
+          const step = e.shiftKey ? 1 : 0.2;
+          const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+          const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+          const moved = roomsToNudge.map(room => {
+            const width = room.width || 0;
+            const height = room.height || 0;
+            const nx = Math.min(100 - width, Math.max(0, Math.round((room.x + dx) * 10) / 10));
+            const ny = Math.min(100 - height, Math.max(0, Math.round((room.y + dy) * 10) / 10));
+            const pdx = nx - room.x, pdy = ny - room.y;
+            return { ...room, x: nx, y: ny, points: room.points?.map(pt => ({ x: Math.min(100, Math.max(0, Math.round((pt.x + pdx) * 10) / 10)), y: Math.min(100, Math.max(0, Math.round((pt.y + pdy) * 10) / 10)) })) };
+          });
+          if (onBatchSaveRooms && moved.length > 1) onBatchSaveRooms(moved); else moved.forEach(onSaveRoomProgress);
+        }
+      }
+
+      if (e.code === 'Space') spacePanHeldRef.current = true;
+
+      // Escape: Cancel/exit drawing/placement commands first; never close the whole floor-plan screen.
       if (e.key === 'Escape') {
         setDrawTool('none');
         setRedrawingRoomTarget(null);
@@ -1915,6 +1945,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         setPendingDraftHighlight(null);
         setPinPos(null);
         setClickChoicePos(null);
+        setIsRoomPinPlacementMode(false);
+        setIsDefectPinPlacementMode(false);
+        setSelectedRoomIds([]);
+        setSelectedRoomForDragId(null);
       }
 
       // Delete / Backspace: Delete selected rooms with confirmation
@@ -1931,8 +1965,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       }
     };
 
+    const handleKeyUp = (e: KeyboardEvent) => { if (e.code === 'Space') spacePanHeldRef.current = false; };
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => { window.removeEventListener('keydown', handleKeyDown); window.removeEventListener('keyup', handleKeyUp); };
   }, [selectedRoomForDragId, selectedRoomIds, floorRooms, copiedRoomsState, activeFloor, onSaveRoomProgress, onDeleteRoomProgress]);
 
   const filteredDefects = React.useMemo(() => {
@@ -2317,6 +2353,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   // Pointer Down on Floor Plan (Freehand start or Polygon or 2-Point)
   const handlePointerDownImage = (e: React.PointerEvent<HTMLDivElement>) => {
     activePointersRef.current.add(e.pointerId);
+
+    // Navigation wins over creation. Mobile: one-finger background drag pans.
+    // Desktop: middle mouse drag or Space + left mouse drag pans.
+    const canPanBackground = drawTool === 'none' && activeDragHandle === null && !isRoomPinPlacementMode && !isDefectPinPlacementMode;
+    const wantsDesktopPan = e.pointerType === 'mouse' && (e.button === 1 || (e.button === 0 && spacePanHeldRef.current));
+    const wantsTouchPan = e.pointerType === 'touch' && canPanBackground;
+    if ((wantsDesktopPan || wantsTouchPan) && parentRef.current) {
+      panStateRef.current = { active: true, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, scrollLeft: parentRef.current.scrollLeft, scrollTop: parentRef.current.scrollTop, moved: false };
+      try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+      if (wantsDesktopPan) e.preventDefault();
+      return;
+    }
     
     if (activePointersRef.current.size > 1) {
       // It's a multi-touch/pinch, so cancel any drawing we just started
@@ -2354,6 +2402,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   // Pointer Move on Floor Plan (Freehand tracking, Drag-and-Resize, or Hover)
   const handlePointerMoveImage = (e: React.PointerEvent<HTMLDivElement>) => {
+    const pan = panStateRef.current;
+    if (pan.active && pan.pointerId === e.pointerId && parentRef.current) {
+      const dx = e.clientX - pan.startX, dy = e.clientY - pan.startY;
+      if (dx * dx + dy * dy > 144) {
+        pan.moved = true;
+        suppressNextCanvasClickRef.current = true;
+        if (touchHoldTimerRef.current) { clearTimeout(touchHoldTimerRef.current); touchHoldTimerRef.current = null; }
+      }
+      parentRef.current.scrollLeft = pan.scrollLeft - dx;
+      parentRef.current.scrollTop = pan.scrollTop - dy;
+      return;
+    }
     if (activePointersRef.current.size > 1) return; // Ignore move if multi-touch
 
     if (!imageContainerRef.current) return;
@@ -2492,6 +2552,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   // Pointer Up on Floor Plan (Complete Freehand drawing or 2-Point drag or finish active drag)
   const handlePointerUpImage = (e: React.PointerEvent<HTMLDivElement>) => {
     activePointersRef.current.delete(e.pointerId);
+
+    if (panStateRef.current.active && panStateRef.current.pointerId === e.pointerId) {
+      try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
+      const moved = panStateRef.current.moved;
+      panStateRef.current = { active: false, pointerId: null, startX: 0, startY: 0, scrollLeft: 0, scrollTop: 0, moved: false };
+      if (moved) window.setTimeout(() => { suppressNextCanvasClickRef.current = false; }, 0);
+      return;
+    }
 
     if (activeDragHandle !== null) {
       try {
@@ -2676,6 +2744,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   // Handle tap on plan image based on current active viewMode & drawTool
   const handleImageClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (suppressNextCanvasClickRef.current) { suppressNextCanvasClickRef.current = false; return; }
     if (!imageContainerRef.current) return;
     const rect = imageContainerRef.current.getBoundingClientRect();
     const { x: rawX, y: rawY } = getMappedCoordinates(e, imageContainerRef.current, rotation);
@@ -2684,9 +2753,22 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
     lastPointerMapPosRef.current = { x, y };
 
+    // Explicit room placement: never invent a default coordinate.
+    if (isRoomPinPlacementMode) {
+      setIsRoomPinPlacementMode(false);
+      setIsDefectPinPlacementMode(false);
+      setSelectedRoomForEdit(null);
+      setNewRoomClickPos({ x, y });
+      setNewRoomRect({ x: Math.max(0, x - 8), y: Math.max(0, y - 6), width: 16, height: 12 });
+      setNewRoomPoints(undefined);
+      setIsRoomModalOpen(true);
+      return;
+    }
+
     // Defect pin placement is explicit: press "+ Defect" first, then tap the exact location.
     // This prevents accidental defect creation while panning/inspecting the drawing.
     if (isDefectPinPlacementMode) {
+      setIsRoomPinPlacementMode(false);
       setIsDefectPinPlacementMode(false);
       openDefectModalForPin(x, y);
       return;
@@ -2759,11 +2841,16 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     }
 
     if (drawTool === 'none') {
-      if (viewMode === 'all') {
-        setClickChoicePos({ x, y });
-      } else {
-        setClickChoicePos(null);
+      if (viewMode === 'highlight') {
+        setSelectedRoomForEdit(null);
+        setNewRoomClickPos({ x, y });
+        setNewRoomRect({ x: Math.max(0, x - 8), y: Math.max(0, y - 6), width: 16, height: 12 });
+        setNewRoomPoints(undefined);
+        setIsRoomModalOpen(true);
+        return;
       }
+      // Tổng hợp/Defect: normal blank tap is inspection only; creation must be explicit.
+      setClickChoicePos(null);
       setSelectedRoomForDragId(null);
       setSelectedRoomIds([]);
       setTouchMenu(null);
@@ -3715,18 +3802,19 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               {(viewMode === 'highlight' || viewMode === 'all') && (
                 <button
                   type="button"
-                  onClick={async () => {
+                  onClick={() => {
                     setIsDefectPinPlacementMode(false);
+                    setDrawTool('none');
                     setSelectedRoomForEdit(null);
-                    setNewRoomClickPos({ x: 25, y: 25 });
-                    setNewRoomRect({ x: 20, y: 20, width: 30, height: 25 });
+                    setNewRoomClickPos(null);
+                    setNewRoomRect(null);
                     setNewRoomPoints(undefined);
-                    setIsRoomModalOpen(true);
+                    setIsRoomPinPlacementMode((active) => !active);
                   }}
                   className="text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-2 sm:py-1.5 rounded-xl flex items-center justify-center gap-1.5 shadow-xs active:scale-95 transition-all min-w-0"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>Thêm Căn / Phòng</span>
+                  <span>{isRoomPinPlacementMode ? 'Chạm vị trí Căn / Phòng…' : 'Thêm Căn / Phòng'}</span>
                 </button>
               )}
 
@@ -3734,6 +3822,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 <button
                   type="button"
                   onClick={() => {
+                    setIsRoomPinPlacementMode(false);
                     setDrawTool('none');
                     setPinPos(null);
                     setIsDefectPinPlacementMode((active) => !active);
@@ -3768,6 +3857,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 <button
                   type="button"
                   onClick={async () => {
+                    setIsRoomPinPlacementMode(false); setIsDefectPinPlacementMode(false);
                     setDrawTool(drawTool === 'freehand' ? 'none' : 'freehand');
                     setDrawStartPos(null);
                     setDrawHoverPos(null);
@@ -3788,6 +3878,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 <button
                   type="button"
                   onClick={async () => {
+                    setIsRoomPinPlacementMode(false); setIsDefectPinPlacementMode(false);
                     setDrawTool(drawTool === 'polygon' ? 'none' : 'polygon');
                     setDrawStartPos(null);
                     setDrawHoverPos(null);
@@ -3808,6 +3899,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 <button
                   type="button"
                   onClick={async () => {
+                    setIsRoomPinPlacementMode(false); setIsDefectPinPlacementMode(false);
                     setDrawTool(drawTool === '2point' ? 'none' : '2point');
                     setDrawStartPos(null);
                     setDrawHoverPos(null);
@@ -4247,17 +4339,19 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         {/* Add Room */}
                         <button
                           type="button"
-                          onClick={async () => {
+                          onClick={() => {
+                            setIsDefectPinPlacementMode(false);
+                            setDrawTool('none');
                             setSelectedRoomForEdit(null);
-                            setNewRoomClickPos({ x: 25, y: 25 });
-                            setNewRoomRect({ x: 20, y: 20, width: 30, height: 25 });
+                            setNewRoomClickPos(null);
+                            setNewRoomRect(null);
                             setNewRoomPoints(undefined);
-                            setIsRoomModalOpen(true);
+                            setIsRoomPinPlacementMode((active) => !active);
                           }}
                           className="text-[11px] bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-2.5 py-1 rounded-xl flex items-center gap-1 shadow-xs shrink-0"
                         >
                           <Plus className="w-3.5 h-3.5" />
-                          <span>Thêm Căn / Phòng</span>
+                          <span>{isRoomPinPlacementMode ? 'Chạm vị trí Căn / Phòng…' : 'Thêm Căn / Phòng'}</span>
                         </button>
                       </div>
                     )}

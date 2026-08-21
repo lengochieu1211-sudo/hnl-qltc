@@ -210,7 +210,8 @@ export default function App() {
       if (roleUnsub) { roleUnsub(); roleUnsub = null; }
       const user = getCurrentRealFirebaseUser();
       if (!user || !activeProjectId) {
-        if (isMounted) setCurrentUserRoleState('VIEWER');
+        // Auth hydration after camera/background resume is not an authoritative role downgrade.
+        // Keep the last verified role until Firebase returns a real role result.
         return;
       }
       roleUnsub = subscribeProjectUserRoleRealtime(activeProjectId, user, (res) => {
@@ -565,6 +566,9 @@ export default function App() {
     lastServerMetadataUpdatedAtRef.current = 0;
     setCloudInitialReady(false);
     receivedInitialSubcollectionsRef.current.clear();
+    priorityCloudSyncRevisionRef.current = 0;
+    flushedPriorityCloudSyncRevisionRef.current = 0;
+    setDataCloudStatus({ phase: 'idle' });
     setActiveProjectId(newProjectId);
   };
 
@@ -1064,6 +1068,9 @@ export default function App() {
 
   const [cloudInitialReady, setCloudInitialReady] = useState<boolean>(false);
   const receivedInitialSubcollectionsRef = useRef<Set<string>>(new Set());
+  const [dataCloudStatus, setDataCloudStatus] = useState<{ phase: 'idle' | 'syncing' | 'synced' | 'error'; lastSyncAt?: number; message?: string }>({ phase: 'idle' });
+  const priorityCloudSyncRevisionRef = useRef(0);
+  const flushedPriorityCloudSyncRevisionRef = useRef(0);
   const [cloudUserKey, setCloudUserKey] = useState<string>('');
   // Chat must only list projects currently authorized by Firestore. Local recovery
   // projects remain available in Project Manager, but are never treated as chat access.
@@ -1518,6 +1525,7 @@ export default function App() {
         const nextList = rawNext[col] || [];
 
         if (prevList !== nextList) {
+          if (col === 'crewRecords') priorityCloudSyncRevisionRef.current += 1;
           const prevMap = new Map<string, any>();
           (prevList as any[]).forEach(item => { if (item?.id) prevMap.set(String(item.id), item); });
           const nextMap = new Map<string, any>();
@@ -2730,6 +2738,13 @@ export default function App() {
     if (!cloudInitialReady) return;
 
     const projectIdForThisSave = activeProjectId;
+    const priorityRevisionAtSchedule = priorityCloudSyncRevisionRef.current;
+    const hasPriorityCrewChange = priorityRevisionAtSchedule > flushedPriorityCloudSyncRevisionRef.current;
+    const cloudSaveDelayMs = hasPriorityCrewChange ? 750 : 6000;
+
+    if (hasPriorityCrewChange) {
+      setDataCloudStatus({ phase: 'syncing', message: 'Đang đồng bộ quân số...' });
+    }
 
     const timer = setTimeout(() => {
       if (!syncLockRef.current && !switchingProjectRef.current && activeProjectIdRef.current === projectIdForThisSave) {
@@ -2832,14 +2847,21 @@ export default function App() {
               if (!switchingProjectRef.current && activeProjectIdRef.current === activeId) {
                 lastSyncedPresentRef.current = snapshotForSave;
                 lastSyncedMetadataRef.current = { projectName, contractorName, inspectorName };
+                flushedPriorityCloudSyncRevisionRef.current = Math.max(flushedPriorityCloudSyncRevisionRef.current, priorityRevisionAtSchedule);
+                setDataCloudStatus({ phase: 'synced', lastSyncAt: Date.now() });
               }
-            }).catch(err => console.warn('Cloud auto save notice:', err));
+            }).catch(err => {
+              console.warn('Cloud auto save notice:', err);
+              if (!switchingProjectRef.current && activeProjectIdRef.current === activeId) {
+                setDataCloudStatus({ phase: 'error', message: err instanceof Error ? err.message : 'Không thể đồng bộ dữ liệu lên Firebase.' });
+              }
+            });
           }
         } catch (e) {
           console.warn('Cloud auto save exception:', e);
         }
       }
-    }, 6000); // V6.2.11: batch rapid edits before background Firestore writes
+    }, cloudSaveDelayMs); // V6.2.13: crew priority flush 750ms; other edits retain the V6.2.11 6s batching.
 
     return () => clearTimeout(timer);
   }, [present, projectName, contractorName, inspectorName, autoSyncEnabled, isHydrated, isLoadingProject, isRestoring, isInitializing, activeProjectId, cloudUserKey, cloudInitialReady]);
@@ -4648,6 +4670,7 @@ export default function App() {
           onRestoreData={handleRestoreData}
           onSwitchProject={switchProject}
           onFlushCurrentProject={async () => await saveCurrentProject(activeProjectId)}
+          dataCloudStatus={dataCloudStatus}
           photoCloudStatus={photoCloudStatus}
         />
 

@@ -1,2 +1,2 @@
-export const APP_VERSION = '6.2.11';
-export const APP_VERSION_LABEL = `V${APP_VERSION} – Realtime Performance & Project Identity Hardening`;
+export const APP_VERSION = '6.2.16';
+export const APP_VERSION_LABEL = `V${APP_VERSION} – Floor Plan Navigation & Gesture Hardening`;
