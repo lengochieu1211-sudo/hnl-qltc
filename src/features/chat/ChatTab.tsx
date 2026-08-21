@@ -116,7 +116,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeProjectId, projectName, 
     setCursor(null);
     const unsub = subscribeLatestMessages(activeProjectId, GENERAL_CONVERSATION_ID, (next, nextCursor) => {
       setMessages((prev) => {
-        const older = prev.filter((item) => !next.some((n) => n.id === item.id));
+        const older = prev.filter((item) => !item.pending && !next.some((n) => n.id === item.id));
         return [...older, ...next].sort((a, b) => (a.createdAtMillis || 0) - (b.createdAtMillis || 0));
       });
       setCursor(nextCursor);
@@ -215,8 +215,8 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeProjectId, projectName, 
         await sendProjectMessage(payload);
         setFailedSend(null);
       }
-      // The Firestore write is now either acknowledged or safely queued in its local
-      // persistent cache. Clear the composer immediately instead of waiting for network.
+      // The message is either acknowledged or safely held in the dedicated outbox.
+      // A permanent Firebase rejection is surfaced by CHAT_SEND_ERROR_EVENT with a retry action.
       setText('');
       setReplyTo(null);
       setDraftAttachments([]);

@@ -39,6 +39,9 @@ function doPost(e) {
         assertAdmin_(access);
         result = getDriveQuota_();
         break;
+      case 'inventoryProject':
+        result = inventoryProject_(payload, access.project);
+        break;
       case 'uploadPhoto':
         assertEditor_(access);
         result = uploadPhoto_(payload, user);
@@ -192,9 +195,111 @@ function getOrCreateFolder_(parent, name) {
   return it.hasNext() ? it.next() : parent.createFolder(safe);
 }
 
+function projectFolderPropertyKey_(projectId) {
+  return 'ANPHU_PROJECT_FOLDER_ID__' + String(projectId || '').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 120);
+}
+
+function findProjectFolderCandidates_(root, projectId) {
+  const suffix = '__' + String(projectId || '').slice(0, 12);
+  const folders = root.getFolders();
+  const out = [];
+  while (folders.hasNext()) {
+    const folder = folders.next();
+    if (String(folder.getName() || '').endsWith(suffix)) out.push(folder);
+  }
+  return out;
+}
+
 function getProjectFolder_(projectId, projectName) {
   const root = getOrCreateRootFolder_();
-  return getOrCreateFolder_(root, sanitizeName_(projectName || 'Du_an') + '__' + String(projectId).slice(0, 12));
+  const props = PropertiesService.getScriptProperties();
+  const key = projectFolderPropertyKey_(projectId);
+  const cachedId = props.getProperty(key);
+  if (cachedId) {
+    try { return DriveApp.getFolderById(cachedId); } catch (_) { props.deleteProperty(key); }
+  }
+
+  // Resolve by immutable projectId suffix, never by project name alone. This safely
+  // distinguishes same-name projects such as two LTIA projects and keeps `default`
+  // as a valid projectId for legacy Mizuki data.
+  const candidates = findProjectFolderCandidates_(root, projectId);
+  if (candidates.length > 0) {
+    props.setProperty(key, candidates[0].getId());
+    return candidates[0];
+  }
+
+  const folder = root.createFolder(sanitizeName_(projectName || 'Du_an') + '__' + String(projectId).slice(0, 12));
+  props.setProperty(key, folder.getId());
+  return folder;
+}
+
+function readFileDescription_(file) {
+  try { return parseJson_(file.getDescription() || '{}'); } catch (_) { return {}; }
+}
+
+function collectFilesRecursive_(folder, projectId, out, depth) {
+  if (!folder || depth > 8 || out.length >= 3000) return;
+  const files = folder.getFiles();
+  while (files.hasNext() && out.length < 3000) {
+    const file = files.next();
+    const desc = readFileDescription_(file);
+    if (String(desc.projectId || '') !== String(projectId || '')) continue;
+    out.push({
+      fileId: file.getId(),
+      fileName: file.getName(),
+      fileSize: Number(file.getSize() || 0),
+      modifiedTime: file.getLastUpdated() ? file.getLastUpdated().toISOString() : '',
+      photoId: String(desc.photoId || ''),
+      floorPlanId: String(desc.floorPlanId || ''),
+      entityType: String(desc.entityType || ''),
+      entityId: String(desc.entityId || ''),
+      projectId: String(desc.projectId || ''),
+      assetType: String(desc.assetType || ''),
+    });
+  }
+  const folders = folder.getFolders();
+  while (folders.hasNext() && out.length < 3000) collectFilesRecursive_(folders.next(), projectId, out, depth + 1);
+}
+
+function inventoryProject_(payload, project) {
+  const root = getOrCreateRootFolder_();
+  const projectFolder = getProjectFolder_(payload.projectId, project.name || payload.projectId);
+  const candidates = findProjectFolderCandidates_(root, payload.projectId).map(function(folder) {
+    return { id: folder.getId(), name: folder.getName() };
+  });
+  const files = [];
+  // If historical code created duplicate folders for the SAME projectId, inventory
+  // all candidates without merging/deleting them. New uploads still use one stable folderId.
+  const candidateFolders = findProjectFolderCandidates_(root, payload.projectId);
+  const seenFolderIds = {};
+  candidateFolders.forEach(function(folder) {
+    if (seenFolderIds[folder.getId()]) return;
+    seenFolderIds[folder.getId()] = true;
+    collectFilesRecursive_(folder, payload.projectId, files, 0);
+  });
+  if (!seenFolderIds[projectFolder.getId()]) collectFilesRecursive_(projectFolder, payload.projectId, files, 0);
+
+  const photoMap = {};
+  const floorMap = {};
+  files.forEach(function(item) {
+    if (item.photoId) {
+      const previous = photoMap[item.photoId];
+      if (!previous || String(item.modifiedTime || '') > String(previous.modifiedTime || '')) photoMap[item.photoId] = item;
+    }
+    if (item.floorPlanId) {
+      const previous = floorMap[item.floorPlanId];
+      if (!previous || String(item.modifiedTime || '') > String(previous.modifiedTime || '')) floorMap[item.floorPlanId] = item;
+    }
+  });
+  return {
+    projectId: String(payload.projectId || ''),
+    projectName: String(project.name || ''),
+    folderId: projectFolder.getId(),
+    folderName: projectFolder.getName(),
+    folderCandidates: candidates,
+    photos: Object.keys(photoMap).map(function(key) { return photoMap[key]; }),
+    floorPlans: Object.keys(floorMap).map(function(key) { return floorMap[key]; }),
+  };
 }
 
 function photoFolder_(payload, project) {

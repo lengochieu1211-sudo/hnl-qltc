@@ -25,3 +25,13 @@ Bridge hiện nhận thêm 3 thao tác bảo mật theo quyền dự án:
 - `deleteFloorPlan`: xóa file mặt bằng khỏi Drive khi chức năng xóa cloud được gọi.
 
 Firebase chỉ giữ metadata (`driveFileId`, `storageProvider`, revision, kích thước...) và có Firestore-chunk fallback nếu Drive chính chưa cấu hình hoặc tạm lỗi.
+
+## V6.2.14 - projectId/folder identity + đối chiếu Drive
+- Mỗi project được khóa vào một folder Drive ổn định bằng `projectId -> folderId` trong Script Properties. App **không tìm/tạo folder chỉ theo tên dự án**.
+- `default` vẫn là projectId hợp lệ; không tự đổi Mizuki `__default` sang ID mới.
+- Hai dự án cùng tên nhưng khác ID (ví dụ hai LTIA Sân Bay) vẫn là hai folder riêng. Không tự gộp/xóa.
+- Thêm action `inventoryProject` để app đối chiếu file thực tế trên Drive theo mô tả `projectId`, `photoId`, `floorPlanId` và hiển thị đúng số đã ở Drive.
+- Nếu lịch sử có nhiều folder cho **cùng một projectId**, bridge chỉ đọc tất cả để đối chiếu; upload mới đi vào folder đã khóa. Không tự di chuyển hoặc xóa dữ liệu cũ.
+
+### Khi cập nhật từ bridge cũ
+GitHub/Firebase Hosting **không tự deploy Apps Script**. Sau khi cập nhật source V6.2.14, mở project Apps Script hiện tại của tài khoản chính, thay `Code.gs` bằng bản mới rồi **Deploy -> Manage deployments -> Edit -> New version -> Deploy**. Giữ nguyên URL `/exec` nếu cập nhật cùng deployment.

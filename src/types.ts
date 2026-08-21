@@ -11,6 +11,7 @@ export interface InventoryItem {
   handler: string;
   date: string;
   notes?: string;
+  updatedAt?: number;
   /** Optional provenance for automatically generated warehouse transactions. */
   sourceType?: 'room-auto' | 'manual' | string;
   sourceRoomId?: string;
@@ -36,6 +37,7 @@ export interface WorkVolume {
   status: 'Chưa thi công' | 'Đang thi công' | 'Đã hoàn thành';
   dueDate?: string; // Hạn định hoàn thành (YYYY-MM-DD)
   subItems?: string[]; // Hạng mục con / công đoạn lấy từ căn hộ
+  updatedAt?: number;
 }
 
 export interface FloorPlan {
@@ -101,6 +103,7 @@ export interface DefectItem {
   completedAt?: string; // Ngày hoàn thành sửa (YYYY-MM-DD)
   imageUrl?: string; // Ảnh trước khi sửa
   afterImageUrl?: string; // Ảnh sau khi sửa
+  updatedAt?: number;
   status: DefectStatus;
   createdAt: string; // Ngày tạo
 }
@@ -123,6 +126,7 @@ export interface ChecklistItem {
   notes?: string;
   inspectedBy?: string;
   inspectedAt?: string;
+  updatedAt?: number;
 }
 
 export interface GoogleAuthStatus {
@@ -148,6 +152,7 @@ export interface MaterialNorm {
   workCategoryNorms?: Record<string, number>; // Định mức riêng theo tên hạng mục
   workCategoryNormsById?: Record<string, number>; // Định mức riêng theo ID hạng mục
   notes?: string;
+  updatedAt?: number;
 }
 
 export type AcceptanceStatus = 'Chưa làm' | 'Đang làm' | 'Đã hoàn thành';
@@ -214,6 +219,7 @@ export interface TeamInfo {
   defaultCount: number;
   phone?: string;
   notes?: string;
+  updatedAt?: number;
 }
 
 export interface CrewFloorCategoryWork {
@@ -242,6 +248,7 @@ export interface CrewRecord {
   taskDescription: string;
   shift?: string;
   notes?: string;
+  updatedAt?: number;
 }
 
 export interface ProjectInfo {

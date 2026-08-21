@@ -13,7 +13,6 @@ import {
   startAfter,
   updateDoc,
   where,
-  writeBatch,
   type DocumentSnapshot,
   type QueryDocumentSnapshot,
   type Unsubscribe,
@@ -25,7 +24,7 @@ import type { ProjectChatMessage, ProjectConversationSummary, ChatReplyTo, ChatA
 export const GENERAL_CONVERSATION_ID = 'general';
 export const CHAT_PAGE_SIZE = 50;
 export const CHAT_SEND_ERROR_EVENT = 'qlct-chat-send-error';
-const CHAT_LOCAL_QUEUE_ACK_MS = 350;
+const CHAT_LOCAL_QUEUE_ACK_MS = 1200;
 
 let chatOutboxFlushPromise: Promise<void> | null = null;
 
@@ -51,8 +50,10 @@ async function commitProjectMessage(input: SendMessageInput, persistOutbox: bool
     }).catch((err) => console.warn('[Chat outbox] Could not persist queued message:', err));
   }
 
-  const batch = writeBatch(db);
-  batch.set(msgRef, {
+  // IMPORTANT: the message itself is committed independently from the conversation
+  // summary. A stale/strict summary rule must never make an otherwise valid message
+  // disappear. The deterministic message ID keeps retries idempotent.
+  await setDoc(msgRef, {
     id: messageId,
     conversationId,
     projectId: input.projectId,
@@ -68,22 +69,41 @@ async function commitProjectMessage(input: SendMessageInput, persistOutbox: bool
     attachments,
     editedAt: null,
     deletedAt: null,
-  });
-  batch.set(conversationRef(input.projectId, conversationId), {
-    id: conversationId,
-    projectId: input.projectId,
-    lastMessageAt: serverTimestamp(),
-    lastMessageText: cleanText.slice(0, 180),
-    lastSenderUid: user.uid,
-    lastSenderName: user.displayName || user.email,
-    lastMentions: Array.from(new Set((input.mentions || []).filter(Boolean))),
-    messageCount: increment(1),
-    updatedAt: serverTimestamp(),
-  }, { merge: true });
+  }, { merge: false });
 
-  await batch.commit();
+  // Once the message exists on Firestore it is safe to remove the outbox item.
   await removeChatOutbox(messageId).catch(() => {});
+
+  // Conversation summary drives unread badges only. Keep it best-effort so a
+  // summary permission/index issue cannot block chat delivery.
+  try {
+    await setDoc(conversationRef(input.projectId, conversationId), {
+      id: conversationId,
+      projectId: input.projectId,
+      lastMessageAt: serverTimestamp(),
+      lastMessageText: cleanText.slice(0, 180),
+      lastSenderUid: user.uid,
+      lastSenderName: user.displayName || user.email,
+      lastMentions: Array.from(new Set((input.mentions || []).filter(Boolean))),
+      messageCount: increment(1),
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+  } catch (summaryErr) {
+    console.warn('[Chat] Message sent but conversation summary update failed:', summaryErr);
+  }
+
   return messageId;
+}
+
+function isPermanentChatSendError(err: any): boolean {
+  const code = String(err?.code || '').toLowerCase();
+  const message = String(err?.message || '').toLowerCase();
+  return code.includes('permission-denied')
+    || code.includes('unauthenticated')
+    || code.includes('invalid-argument')
+    || code.includes('failed-precondition')
+    || message.includes('missing or insufficient permissions')
+    || message.includes('permission denied');
 }
 
 export async function flushChatOutbox(): Promise<void> {
@@ -105,9 +125,24 @@ export async function flushChatOutbox(): Promise<void> {
           continue;
         }
         await commitProjectMessage(input, false);
-      } catch (err) {
-        console.warn('[Chat outbox] Retry deferred:', err);
-        // Keep row for the next online/authenticated attempt.
+      } catch (err: any) {
+        if (isPermanentChatSendError(err)) {
+          await removeChatOutbox(row.id).catch(() => {});
+          console.warn('[Chat outbox] Permanent send failure; removed from retry queue:', err);
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent(CHAT_SEND_ERROR_EVENT, {
+              detail: {
+                projectId: input.projectId,
+                conversationId: input.conversationId || GENERAL_CONVERSATION_ID,
+                input,
+                message: err?.message || 'Tin nhắn bị Firebase từ chối. Hãy kiểm tra quyền rồi bấm Gửi lại.',
+              },
+            }));
+          }
+        } else {
+          console.warn('[Chat outbox] Retry deferred:', err);
+          // Retry only transient network/backend failures on the next online/authenticated attempt.
+        }
       }
     }
   })().finally(() => { chatOutboxFlushPromise = null; });
@@ -222,6 +257,9 @@ export async function sendProjectMessage(input: SendMessageInput): Promise<strin
   let returnedAsQueued = false;
   const commitPromise = commitProjectMessage(normalizedInput, false);
   commitPromise.catch((err: any) => {
+    if (isPermanentChatSendError(err)) {
+      void removeChatOutbox(messageId).catch(() => {});
+    }
     if (!returnedAsQueued || typeof window === 'undefined') return;
     window.dispatchEvent(new CustomEvent(CHAT_SEND_ERROR_EVENT, {
       detail: {

@@ -4,12 +4,14 @@ import { getCurrentRealFirebaseUser, onAuthUserChanged } from '../lib/firebase';
 import {
   getPrimaryDriveConfig,
   getPrimaryDriveQuota,
+  getPrimaryDriveProjectInventory,
   PRIMARY_DRIVE_OWNER_EMAIL,
   savePrimaryDriveConfig,
   subscribePrimaryDriveConfig,
   testPrimaryDriveConnection,
   type PrimaryDriveConfig,
   type PrimaryDriveQuota,
+  type PrimaryDriveProjectInventory,
 } from '../lib/primaryDriveBridge';
 import { syncProjectPhotosToCloud } from '../lib/photoCloudSync';
 import { getProjectPhotos } from '../utils/photoStorage';
@@ -35,13 +37,17 @@ export const PrimaryDriveStatusCard: React.FC<Props> = ({ activeProjectId, userR
   const [config, setConfig] = useState<PrimaryDriveConfig | null>(null);
   const [webAppUrl, setWebAppUrl] = useState('');
   const [quota, setQuota] = useState<PrimaryDriveQuota | null>(null);
-  const [busy, setBusy] = useState<'save' | 'test' | 'quota' | 'migrate' | null>(null);
+  const [busy, setBusy] = useState<'save' | 'test' | 'quota' | 'migrate' | 'reconcile' | null>(null);
   const [message, setMessage] = useState<{ type: 'ok' | 'error' | 'info'; text: string } | null>(null);
   const [photoStats, setPhotoStats] = useState({ total: 0, totalBytes: 0, driveCount: 0, driveBytes: 0, firestoreCount: 0, firestoreBytes: 0 });
   const [currentEmail, setCurrentEmail] = useState(() => String(getCurrentRealFirebaseUser()?.email || '').toLowerCase());
+  const [driveInventory, setDriveInventory] = useState<PrimaryDriveProjectInventory | null>(null);
 
   const isPrimaryOwner = currentEmail === PRIMARY_DRIVE_OWNER_EMAIL;
   const isAdmin = userRole === 'ADMIN';
+
+  const inventoryPhotoIds = useMemo(() => new Set((driveInventory?.photos || []).map((item) => item.photoId).filter(Boolean)), [driveInventory]);
+  const inventoryFloorPlanIds = useMemo(() => new Set((driveInventory?.floorPlans || []).map((item) => item.floorPlanId).filter(Boolean)), [driveInventory]);
 
   const refreshPhotoStats = useCallback(async () => {
     if (!activeProjectId) return;
@@ -55,7 +61,7 @@ export const PrimaryDriveStatusCard: React.FC<Props> = ({ activeProjectId, userR
       const size = Math.max(0, Number(photo.fileSize || 0));
       totalBytes += size;
       const cloudRef = String(photo.cloudFileId || photo.cloudUrl || '');
-      if (cloudRef.startsWith('drive:')) {
+      if (cloudRef.startsWith('drive:') || inventoryPhotoIds.has(photo.id)) {
         driveCount++;
         driveBytes += size;
       } else if (cloudRef.startsWith('firestore:')) {
@@ -64,7 +70,7 @@ export const PrimaryDriveStatusCard: React.FC<Props> = ({ activeProjectId, userR
       }
     });
     setPhotoStats({ total: photos.length, totalBytes, driveCount, driveBytes, firestoreCount, firestoreBytes });
-  }, [activeProjectId]);
+  }, [activeProjectId, inventoryPhotoIds]);
 
   useEffect(() => {
     const unsubAuth = onAuthUserChanged((user) => {
@@ -91,6 +97,21 @@ export const PrimaryDriveStatusCard: React.FC<Props> = ({ activeProjectId, userR
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    if (!activeProjectId || !config?.enabled || !config?.webAppUrl || !currentEmail) {
+      setDriveInventory(null);
+      return () => { cancelled = true; };
+    }
+    getPrimaryDriveProjectInventory(activeProjectId).then((inventory) => {
+      if (!cancelled) setDriveInventory(inventory);
+    }).catch((err) => {
+      console.warn('[Primary Drive] inventory warning:', err);
+      if (!cancelled) setDriveInventory(null);
+    });
+    return () => { cancelled = true; };
+  }, [activeProjectId, config?.enabled, config?.webAppUrl, currentEmail]);
+
+  useEffect(() => {
     refreshPhotoStats().catch(() => {});
     const handler = () => refreshPhotoStats().catch(() => {});
     window.addEventListener('qlct-photo-attachments-changed', handler);
@@ -106,11 +127,11 @@ export const PrimaryDriveStatusCard: React.FC<Props> = ({ activeProjectId, userR
       if (!plan?.imageUrl && !plan?.driveFileId && !plan?.cloudFileId) return;
       total++;
       totalBytes += Math.max(0, Number(plan.imageFileSize || 0));
-      if (plan.storageProvider === 'google-drive-primary' || Boolean(plan.driveFileId) || String(plan.cloudFileId || '').startsWith('drive:')) driveCount++;
+      if (plan.storageProvider === 'google-drive-primary' || Boolean(plan.driveFileId) || String(plan.cloudFileId || '').startsWith('drive:') || inventoryFloorPlanIds.has(plan.id)) driveCount++;
       else if (plan.storageProvider === 'firestore-fallback' || String(plan.cloudFileId || '').startsWith('firestore:')) firestoreCount++;
     });
     return { total, totalBytes, driveCount, firestoreCount };
-  }, [floorPlans]);
+  }, [floorPlans, inventoryFloorPlanIds]);
 
   const quotaPercent = useMemo(() => {
     if (!quota?.limitBytes) return 0;
@@ -137,7 +158,29 @@ export const PrimaryDriveStatusCard: React.FC<Props> = ({ activeProjectId, userR
       setBusy('test');
       setMessage(null);
       const res = await testPrimaryDriveConnection(activeProjectId);
-      setMessage({ type: 'ok', text: res?.message || `Đã kết nối Drive chính ${PRIMARY_DRIVE_OWNER_EMAIL}.` });
+      try {
+        const inventory = await getPrimaryDriveProjectInventory(activeProjectId);
+        setDriveInventory(inventory);
+        setMessage({ type: 'ok', text: `${res?.message || `Đã kết nối Drive chính ${PRIMARY_DRIVE_OWNER_EMAIL}.`} ProjectId: ${activeProjectId}. Folder: ${inventory.folderName || '—'}.` });
+      } catch (inventoryErr: any) {
+        setMessage({ type: 'info', text: `${res?.message || `Đã kết nối Drive chính ${PRIMARY_DRIVE_OWNER_EMAIL}.`} Apps Script hiện chưa hỗ trợ đối chiếu projectId; hãy cập nhật lại Code.gs V6.2.14 rồi triển khai Web App mới. (${inventoryErr?.message || 'inventoryProject chưa có'})` });
+      }
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err?.message || String(err) });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleReconcile = async () => {
+    try {
+      setBusy('reconcile');
+      setMessage({ type: 'info', text: 'Đang đối chiếu file thực tế trên Drive theo projectId. Không xóa hoặc gộp thư mục.' });
+      const inventory = await getPrimaryDriveProjectInventory(activeProjectId);
+      setDriveInventory(inventory);
+      await refreshPhotoStats();
+      const duplicateNote = (inventory.folderCandidates || []).length > 1 ? ` Có ${inventory.folderCandidates!.length} folder cùng projectId; app chỉ đọc đối chiếu, không tự gộp/xóa.` : '';
+      setMessage({ type: 'ok', text: `Đã đối chiếu Drive: ${inventory.photos.length} ảnh, ${inventory.floorPlans.length} mặt bằng. Folder hiện dùng: ${inventory.folderName || '—'}.${duplicateNote}` });
     } catch (err: any) {
       setMessage({ type: 'error', text: err?.message || String(err) });
     } finally {
@@ -194,8 +237,11 @@ export const PrimaryDriveStatusCard: React.FC<Props> = ({ activeProjectId, userR
       </div>
 
       <p className="text-[10.5px] leading-4 text-slate-500 mt-1.5">
-        Ảnh tự lưu Drive; Firebase giữ dữ liệu và liên kết.
+        Ảnh tự lưu Drive; Firebase giữ dữ liệu và liên kết. User chỉ đăng nhập Google/Firebase một lần; Apps Script lưu file vào Drive chính An Phú.
       </p>
+      <div className="mt-1 text-[9.5px] text-slate-400 break-all">
+        ProjectId: <b className="text-slate-600">{activeProjectId || '—'}</b>{driveInventory?.folderName ? <> · Folder: <b className="text-slate-600">{driveInventory.folderName}</b></> : null}
+      </div>
 
       <div className="grid grid-cols-3 gap-1.5 mt-2">
         <div className="rounded-lg bg-white border border-slate-200 px-2 py-1.5">
@@ -247,7 +293,7 @@ export const PrimaryDriveStatusCard: React.FC<Props> = ({ activeProjectId, userR
       {!isPrimaryOwner && !config?.webAppUrl && (
         <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-2.5 text-[11px] text-amber-800 flex gap-2">
           <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-          <span>Drive chính chưa được kích hoạt. Cần đăng nhập tài khoản {PRIMARY_DRIVE_OWNER_EMAIL} một lần để nhập URL Apps Script.</span>
+          <span>Drive chính chưa được ADMIN cấu hình Apps Script. User thường chỉ cần đăng nhập Google/Firebase của chính mình; không cần đăng nhập tài khoản Drive chính.</span>
         </div>
       )}
 
@@ -318,6 +364,14 @@ export const PrimaryDriveStatusCard: React.FC<Props> = ({ activeProjectId, userR
             Xem dung lượng thật
           </button>
         )}
+        <button
+          onClick={handleReconcile}
+          disabled={busy !== null || !config?.webAppUrl}
+          className="rounded-lg border border-cyan-300 bg-white px-3 py-2 text-[11px] font-bold text-cyan-700 disabled:opacity-50 flex items-center gap-1.5"
+        >
+          {busy === 'reconcile' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+          Đối chiếu Drive
+        </button>
         {isAdmin && (photoStats.firestoreCount > 0 || floorPlanStats.firestoreCount > 0 || floorPlanStats.driveCount < floorPlanStats.total) && (
           <button
             onClick={handleMigrate}

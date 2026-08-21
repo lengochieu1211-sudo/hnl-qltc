@@ -91,12 +91,12 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
             </svg>
           </div>
           <h3 className="text-base font-bold text-slate-900">
-            {authStatus.authenticated ? 'Tài Khoản Google Của Bạn' : 'Đăng Ký & Đăng Nhập Google'}
+            {authStatus.authenticated ? 'Tài Khoản Google Của Bạn' : 'Đăng nhập Google/Firebase'}
           </h3>
           <p className="text-xs text-slate-500 max-w-xs mx-auto">
             {authStatus.authenticated
-              ? 'Tai khoan Google da ket noi qua Firebase Auth de dong bo dam may mien phi.'
-              : 'Dang nhap Google bang Firebase Auth mien phi de dong bo du lieu qua Firestore.'}
+              ? 'Tài khoản Google đã kết nối qua Firebase Auth và được dùng chung trong toàn ứng dụng.'
+              : 'Chỉ cần đăng nhập một lần. Firebase dùng tài khoản này; Drive chính An Phú được Apps Script xử lý riêng.'}
           </p>
         </div>
 

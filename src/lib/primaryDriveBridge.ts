@@ -24,6 +24,29 @@ export interface PrimaryDriveUploadResult {
   modifiedTime?: string;
 }
 
+
+export interface PrimaryDriveInventoryFile {
+  fileId: string;
+  fileName?: string;
+  fileSize?: number;
+  modifiedTime?: string;
+  photoId?: string;
+  floorPlanId?: string;
+  entityType?: string;
+  entityId?: string;
+  projectId?: string;
+}
+
+export interface PrimaryDriveProjectInventory {
+  projectId: string;
+  projectName?: string;
+  folderId?: string;
+  folderName?: string;
+  folderCandidates?: Array<{ id: string; name: string }>;
+  photos: PrimaryDriveInventoryFile[];
+  floorPlans: PrimaryDriveInventoryFile[];
+}
+
 export interface PrimaryDriveQuota {
   ownerEmail: string;
   displayName?: string;
@@ -366,6 +389,11 @@ export async function uploadProjectBackupToPrimaryDrive(
     backupData,
     generatedAt: Date.now(),
   }, 120_000);
+}
+
+export async function getPrimaryDriveProjectInventory(projectId: string): Promise<PrimaryDriveProjectInventory> {
+  if (!projectId) throw new Error('Chưa chọn dự án.');
+  return callBridge<PrimaryDriveProjectInventory>('inventoryProject', { projectId }, 90_000);
 }
 
 export async function getPrimaryDriveQuota(projectId: string): Promise<PrimaryDriveQuota> {
