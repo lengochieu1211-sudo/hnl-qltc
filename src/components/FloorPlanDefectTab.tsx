@@ -641,6 +641,15 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const { t } = useLanguage();
   const currentProjectId = projectId || (typeof window !== 'undefined' ? sessionStorage.getItem('active_project_id') || localStorage.getItem('active_project_id') : '') || 'default';
   const getDraftKey = (base: string) => (currentProjectId === 'default' ? base : `${base}_${currentProjectId}`);
+  const readIdSet = (storageKey: string): Set<string> => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return new Set(Array.isArray(parsed) ? parsed.filter((id) => typeof id === 'string') : []);
+    } catch {
+      return new Set<string>();
+    }
+  };
 
   const [selectedFloorId, setSelectedFloorId] = useState<string>(() => {
     const saved = localStorage.getItem(getDraftKey('construction_selected_floor_id'));
@@ -702,6 +711,41 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   React.useEffect(() => {
     localStorage.setItem(getDraftKey('construction_selected_view_mode'), viewMode);
   }, [viewMode, currentProjectId]);
+
+
+  React.useEffect(() => {
+    projectUiSettingsHydratingRef.current = true;
+    try {
+      const raw = localStorage.getItem(getDraftKey('construction_floorplan_layers'));
+      const parsed = raw ? JSON.parse(raw) : {};
+      setMapLayers({
+        roomRegions: parsed.roomRegions !== false,
+        roomLabels: parsed.roomLabels !== false,
+        defects: parsed.defects !== false,
+        resolvedDefects: parsed.resolvedDefects !== false,
+      });
+    } catch {
+      setMapLayers({ roomRegions: true, roomLabels: true, defects: true, resolvedDefects: true });
+    }
+    setLockedRoomIds(readIdSet(getDraftKey('construction_floorplan_locked_rooms')));
+    setLockedDefectIds(readIdSet(getDraftKey('construction_floorplan_locked_defects')));
+    requestAnimationFrame(() => { projectUiSettingsHydratingRef.current = false; });
+  }, [currentProjectId]);
+
+  React.useEffect(() => {
+    if (projectUiSettingsHydratingRef.current) return;
+    localStorage.setItem(getDraftKey('construction_floorplan_layers'), JSON.stringify(mapLayers));
+  }, [mapLayers, currentProjectId]);
+
+  React.useEffect(() => {
+    if (projectUiSettingsHydratingRef.current) return;
+    localStorage.setItem(getDraftKey('construction_floorplan_locked_rooms'), JSON.stringify(Array.from(lockedRoomIds)));
+  }, [lockedRoomIds, currentProjectId]);
+
+  React.useEffect(() => {
+    if (projectUiSettingsHydratingRef.current) return;
+    localStorage.setItem(getDraftKey('construction_floorplan_locked_defects'), JSON.stringify(Array.from(lockedDefectIds)));
+  }, [lockedDefectIds, currentProjectId]);
 
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [defectSortBy, setDefectSortBy] = useState<DefectSortBy>('createdAt');
@@ -973,6 +1017,31 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   // Zoom Scale State (Requirement #2: Zoom in on floor plan image)
   const [zoomScale, setZoomScale] = useState<number>(1);
+
+  // V6.2.18: navigation/display controls are UI-only and never write Firestore.
+  const [showMiniMap, setShowMiniMap] = useState(false);
+  const [showLayerPanel, setShowLayerPanel] = useState(false);
+  const [mapLayers, setMapLayers] = useState(() => {
+    try {
+      const raw = localStorage.getItem(getDraftKey('construction_floorplan_layers'));
+      const parsed = raw ? JSON.parse(raw) : {};
+      return {
+        roomRegions: parsed.roomRegions !== false,
+        roomLabels: parsed.roomLabels !== false,
+        defects: parsed.defects !== false,
+        resolvedDefects: parsed.resolvedDefects !== false,
+      };
+    } catch {
+      return { roomRegions: true, roomLabels: true, defects: true, resolvedDefects: true };
+    }
+  });
+  const [lockedRoomIds, setLockedRoomIds] = useState<Set<string>>(() => readIdSet(getDraftKey('construction_floorplan_locked_rooms')));
+  const [lockedDefectIds, setLockedDefectIds] = useState<Set<string>>(() => readIdSet(getDraftKey('construction_floorplan_locked_defects')));
+  const [viewportInfo, setViewportInfo] = useState({ scrollLeft: 0, scrollTop: 0, clientWidth: 1, clientHeight: 1, scrollWidth: 1, scrollHeight: 1 });
+  const floorViewRestoringRef = useRef(false);
+  const projectUiSettingsHydratingRef = useRef(false);
+  const miniMapDragRef = useRef(false);
+  const pendingFocusRef = useRef<{ floorId: string; x: number; y: number } | null>(null);
 
   // PDF Upload & Convert State (Requirement #3)
   const [isConvertingPdf, setIsConvertingPdf] = useState(false);
@@ -1406,6 +1475,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const [is2PointDragging, setIs2PointDragging] = useState(false);
 
   const handleStartRedraw2Point = (room: RoomProgressItem, tool: 'freehand' | 'polygon' | '2point' = '2point') => {
+    if (lockedRoomIds.has(room.id)) {
+      setCopyNotification('🔒 Căn/Phòng đang khóa vị trí. Mở khóa trước khi vẽ lại vùng.');
+      window.setTimeout(() => setCopyNotification(null), 2200);
+      return;
+    }
     setRedrawingRoomTarget(room);
     setDrawTool(tool);
     setDrawStartPos(null);
@@ -1656,6 +1730,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   const floorDefects = defects.filter((d) => d.floorId === activeFloor?.id);
   const floorRooms = roomProgressList.filter((r) => r.floorId === activeFloor?.id);
+  const mapFloorDefects = floorDefects.filter((d) => mapLayers.resolvedDefects || !(d.status === 'Đã nghiệm thu' || d.status === 'Đã khắc phục'));
 
   // Generate a collision-safe default name for quick room creation.
   const getNextAvailableQuickRoomName = () => {
@@ -1756,10 +1831,94 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   }, [displayedFloorRooms, roomSortBy, roomSortOrder]);
 
   const selectedRoomObject = displayedFloorRooms.find((r) => r.id === selectedRoomForDragId || selectedRoomIds.includes(r.id));
+  const selectedDefectForFocus = floorDefects.find((d) => selectedDefectIds.includes(d.id)) || null;
+  const selectedRoomIdsForAction = selectedRoomIds.length > 0
+    ? selectedRoomIds
+    : selectedRoomObject ? [selectedRoomObject.id] : [];
+  const selectedRoomsAreLocked = selectedRoomIdsForAction.length > 0 && selectedRoomIdsForAction.every((id) => lockedRoomIds.has(id));
+
+  const toggleSelectedRoomLock = () => {
+    if (selectedRoomIdsForAction.length === 0) return;
+    setLockedRoomIds((prev) => {
+      const next = new Set(prev);
+      const shouldUnlock = selectedRoomIdsForAction.every((id) => next.has(id));
+      selectedRoomIdsForAction.forEach((id) => shouldUnlock ? next.delete(id) : next.add(id));
+      return next;
+    });
+  };
+
+  const toggleDefectLock = (defectId: string) => {
+    setLockedDefectIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(defectId)) next.delete(defectId); else next.add(defectId);
+      return next;
+    });
+  };
+
+  const focusCurrentSelection = () => {
+    const selectedRoomsForFocus = displayedFloorRooms.filter((room) => selectedRoomIds.includes(room.id) || room.id === selectedRoomForDragId);
+    if (selectedRoomsForFocus.length > 0) {
+      const centers = selectedRoomsForFocus.map((room) => {
+        if (room.points && room.points.length > 0) {
+          return {
+            x: room.points.reduce((sum, pt) => sum + pt.x, 0) / room.points.length,
+            y: room.points.reduce((sum, pt) => sum + pt.y, 0) / room.points.length,
+          };
+        }
+        return { x: room.x + (room.width || 0) / 2, y: room.y + (room.height || 0) / 2 };
+      });
+      focusPlanPoint(
+        centers.reduce((sum, point) => sum + point.x, 0) / centers.length,
+        centers.reduce((sum, point) => sum + point.y, 0) / centers.length
+      );
+      return;
+    }
+    if (selectedDefectForFocus) focusPlanPoint(selectedDefectForFocus.x, selectedDefectForFocus.y);
+  };
+
+  const getFloorViewStateKey = (floorId: string) => `qlct_floor_view_${currentProjectId}_${floorId}`;
 
   useEffect(() => {
     setRotation(0);
-    setZoomScale(1);
+    floorViewRestoringRef.current = true;
+    let savedZoom = 1;
+    let savedLeft = 0;
+    let savedTop = 0;
+    try {
+      const raw = sessionStorage.getItem(getFloorViewStateKey(selectedFloorId));
+      if (raw) {
+        const saved = JSON.parse(raw);
+        savedZoom = Math.min(20, Math.max(1, Number(saved.zoom) || 1));
+        savedLeft = Math.max(0, Number(saved.scrollLeft) || 0);
+        savedTop = Math.max(0, Number(saved.scrollTop) || 0);
+      }
+    } catch {}
+    setZoomScale(savedZoom);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const parent = parentRef.current;
+      if (parent) {
+        parent.scrollLeft = savedLeft;
+        parent.scrollTop = savedTop;
+        setViewportInfo({
+          scrollLeft: parent.scrollLeft,
+          scrollTop: parent.scrollTop,
+          clientWidth: Math.max(1, parent.clientWidth),
+          clientHeight: Math.max(1, parent.clientHeight),
+          scrollWidth: Math.max(1, parent.scrollWidth),
+          scrollHeight: Math.max(1, parent.scrollHeight),
+        });
+      }
+      floorViewRestoringRef.current = false;
+    }));
+  }, [selectedFloorId, currentProjectId]);
+
+  useEffect(() => {
+    const pending = pendingFocusRef.current;
+    if (!pending || pending.floorId !== selectedFloorId) return;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      focusPlanPoint(pending.x, pending.y);
+      pendingFocusRef.current = null;
+    }));
   }, [selectedFloorId]);
 
   useEffect(() => {
@@ -1786,11 +1945,54 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     return () => obs.disconnect();
   }, [isFullscreen, selectedFloorId, activeFloor]);
 
+
+  useEffect(() => {
+    const el = parentRef.current;
+    if (!el || !selectedFloorId) return;
+    let raf = 0;
+    const update = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const next = {
+          scrollLeft: el.scrollLeft,
+          scrollTop: el.scrollTop,
+          clientWidth: Math.max(1, el.clientWidth),
+          clientHeight: Math.max(1, el.clientHeight),
+          scrollWidth: Math.max(1, el.scrollWidth),
+          scrollHeight: Math.max(1, el.scrollHeight),
+        };
+        setViewportInfo(next);
+        if (!floorViewRestoringRef.current) {
+          try {
+            sessionStorage.setItem(getFloorViewStateKey(selectedFloorId), JSON.stringify({
+              zoom: zoomScaleRef.current,
+              scrollLeft: next.scrollLeft,
+              scrollTop: next.scrollTop,
+            }));
+          } catch {}
+        }
+      });
+    };
+    update();
+    el.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    return () => {
+      cancelAnimationFrame(raf);
+      el.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+    };
+  }, [selectedFloorId, currentProjectId, isFullscreen]);
+
   const activePointersRef = useRef<Set<number>>(new Set());
   // Floor-plan navigation: touch one-finger pan; desktop middle-mouse or Space+left pan.
   const panStateRef = useRef<{ active: boolean; pointerId: number | null; startX: number; startY: number; scrollLeft: number; scrollTop: number; moved: boolean }>({ active: false, pointerId: null, startX: 0, startY: 0, scrollLeft: 0, scrollTop: 0, moved: false });
   const suppressNextCanvasClickRef = useRef(false);
   const spacePanHeldRef = useRef(false);
+  // Distinguish a deliberate tap/click from a drag so polygon/room/defect creation
+  // never fires after the user was navigating the plan.
+  const canvasPressRef = useRef<{ pointerId: number | null; startX: number; startY: number; moved: boolean }>({
+    pointerId: null, startX: 0, startY: 0, moved: false,
+  });
 
   const photoInputRef = useRef<HTMLInputElement>(null);
   const imageContainerRef = useRef<HTMLDivElement>(null);
@@ -1798,26 +2000,141 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   // Keyboard shortcuts: Ctrl+C (copy selected room), Ctrl+V (paste copied room), Delete / Backspace (delete selected room with confirmation)
   const [copiedRoomState, setCopiedRoomState] = useState<RoomProgressItem | null>(null);
 
-  // Native touch handlers for pinch-to-zoom
+  // Native touch handlers for pinch-to-zoom + cursor-anchored desktop wheel zoom.
   const zoomScaleRef = useRef(zoomScale);
   useEffect(() => {
     zoomScaleRef.current = zoomScale;
   }, [zoomScale]);
 
-  useEffect(() => {
-    const parentEl = parentRef.current;
-    const imgEl = imageContainerRef.current;
-    const elementsToBind = [parentEl, imgEl].filter((el): el is HTMLDivElement => el !== null);
 
-    if (elementsToBind.length === 0) return;
-    
+  useEffect(() => {
+    if (floorViewRestoringRef.current || !selectedFloorId) return;
+    const parent = parentRef.current;
+    if (!parent) return;
+    try {
+      sessionStorage.setItem(getFloorViewStateKey(selectedFloorId), JSON.stringify({
+        zoom: zoomScale,
+        scrollLeft: parent.scrollLeft,
+        scrollTop: parent.scrollTop,
+      }));
+    } catch {}
+    requestAnimationFrame(() => {
+      const current = parentRef.current;
+      if (!current) return;
+      setViewportInfo({
+        scrollLeft: current.scrollLeft,
+        scrollTop: current.scrollTop,
+        clientWidth: Math.max(1, current.clientWidth),
+        clientHeight: Math.max(1, current.clientHeight),
+        scrollWidth: Math.max(1, current.scrollWidth),
+        scrollHeight: Math.max(1, current.scrollHeight),
+      });
+    });
+  }, [zoomScale, selectedFloorId, currentProjectId]);
+
+  const toDisplayedPercent = (x: number, y: number) => {
+    if (rotation === 90) return { x: 100 - y, y: x };
+    if (rotation === 180) return { x: 100 - x, y: 100 - y };
+    if (rotation === 270) return { x: y, y: 100 - x };
+    return { x, y };
+  };
+
+  const focusPlanPoint = (x: number, y: number, ensureZoom = true) => {
+    const run = () => {
+      const parent = parentRef.current;
+      const image = imageContainerRef.current;
+      if (!parent || !image) return;
+      const parentRect = parent.getBoundingClientRect();
+      const imageRect = image.getBoundingClientRect();
+      const displayed = toDisplayedPercent(x, y);
+      const contentX = parent.scrollLeft + (imageRect.left - parentRect.left) + (displayed.x / 100) * imageRect.width;
+      const contentY = parent.scrollTop + (imageRect.top - parentRect.top) + (displayed.y / 100) * imageRect.height;
+      parent.scrollTo({
+        left: Math.max(0, contentX - parent.clientWidth / 2),
+        top: Math.max(0, contentY - parent.clientHeight / 2),
+        behavior: 'smooth',
+      });
+    };
+    if (ensureZoom && zoomScaleRef.current < 1.6) {
+      zoomScaleRef.current = 2;
+      setZoomScale(2);
+      requestAnimationFrame(() => requestAnimationFrame(run));
+    } else {
+      run();
+    }
+  };
+
+  const fitFloorPlan = () => {
+    zoomScaleRef.current = 1;
+    setZoomScale(1);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      parentRef.current?.scrollTo({ left: 0, top: 0, behavior: 'smooth' });
+    }));
+  };
+
+  const centerMiniMapAt = (clientX: number, clientY: number, element: HTMLElement) => {
+    const parent = parentRef.current;
+    if (!parent) return;
+    const rect = element.getBoundingClientRect();
+    const rx = Math.min(1, Math.max(0, (clientX - rect.left) / Math.max(1, rect.width)));
+    const ry = Math.min(1, Math.max(0, (clientY - rect.top) / Math.max(1, rect.height)));
+    parent.scrollLeft = Math.max(0, rx * parent.scrollWidth - parent.clientWidth / 2);
+    parent.scrollTop = Math.max(0, ry * parent.scrollHeight - parent.clientHeight / 2);
+  };
+
+  useEffect(() => {
+    // Bind once on the scroll viewport. Binding both viewport + image caused the same
+    // wheel/touch event to be handled twice because the event bubbles.
+    const gestureEl = parentRef.current || imageContainerRef.current;
+    if (!gestureEl) return;
+
     let initialDist = 0;
     let initialZoom = 1;
 
+    const applyAnchoredZoom = (requestedScale: number, clientX: number, clientY: number) => {
+      const parent = parentRef.current;
+      const image = imageContainerRef.current;
+      if (!parent || !image) return;
+
+      const oldScale = zoomScaleRef.current;
+      const nextScale = Math.min(20, Math.max(1, Number(requestedScale.toFixed(2))));
+      if (!Number.isFinite(nextScale) || Math.abs(nextScale - oldScale) < 0.001) return;
+
+      // Remember the exact visual point under the cursor/finger midpoint.
+      const oldRect = image.getBoundingClientRect();
+      if (oldRect.width <= 0 || oldRect.height <= 0) return;
+      const rx = Math.min(1, Math.max(0, (clientX - oldRect.left) / oldRect.width));
+      const ry = Math.min(1, Math.max(0, (clientY - oldRect.top) / oldRect.height));
+
+      suppressNextCanvasClickRef.current = true;
+      zoomScaleRef.current = nextScale;
+      setZoomScale(nextScale);
+
+      // After React lays out the new scaled plan, compensate scroll so the same
+      // drawing point stays under the cursor/finger midpoint.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const currentParent = parentRef.current;
+          const currentImage = imageContainerRef.current;
+          if (!currentParent || !currentImage) return;
+          const newRect = currentImage.getBoundingClientRect();
+          const actualX = newRect.left + rx * newRect.width;
+          const actualY = newRect.top + ry * newRect.height;
+          currentParent.scrollLeft += actualX - clientX;
+          currentParent.scrollTop += actualY - clientY;
+          window.setTimeout(() => { suppressNextCanvasClickRef.current = false; }, 0);
+        });
+      });
+    };
+
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 2) {
-        if (touchHoldTimerRef.current) { clearTimeout(touchHoldTimerRef.current); touchHoldTimerRef.current = null; }
+        if (touchHoldTimerRef.current) {
+          clearTimeout(touchHoldTimerRef.current);
+          touchHoldTimerRef.current = null;
+        }
         panStateRef.current.active = false;
+        canvasPressRef.current.moved = true;
         suppressNextCanvasClickRef.current = true;
         initialDist = Math.hypot(
           e.touches[0].clientX - e.touches[1].clientX,
@@ -1835,47 +2152,40 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           e.touches[0].clientY - e.touches[1].clientY
         );
         if (dist > 0) {
-          const scaleChange = dist / initialDist;
-          let newScale = initialZoom * scaleChange;
-          newScale = Math.min(20, Math.max(1, newScale));
-          setZoomScale(Number(newScale.toFixed(2)));
+          const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+          const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+          applyAnchoredZoom(initialZoom * (dist / initialDist), centerX, centerY);
         }
       }
     };
-    
+
     const onTouchEnd = (e: TouchEvent) => {
-      if (e.touches.length < 2) {
-        initialDist = 0;
-      }
+      if (e.touches.length < 2) initialDist = 0;
     };
 
     const onWheel = (e: WheelEvent) => {
-      // Desktop wheel and touchpad pinch zoom the plan. Keep the existing 1x..20x limits unchanged.
+      // PC: wheel zooms toward the cursor instead of zooming around the viewport origin.
+      // Keep the existing 1x..20x limits unchanged for large floor plans.
       if (e.cancelable) e.preventDefault();
       const factor = e.deltaY < 0 ? 1.1 : 0.9;
-      let newScale = zoomScaleRef.current * factor;
-      newScale = Math.min(20, Math.max(1, newScale));
-      setZoomScale(Number(newScale.toFixed(2)));
+      applyAnchoredZoom(zoomScaleRef.current * factor, e.clientX, e.clientY);
     };
 
-    elementsToBind.forEach(container => {
-      container.addEventListener('touchstart', onTouchStart, { passive: false });
-      container.addEventListener('touchmove', onTouchMove, { passive: false });
-      container.addEventListener('touchend', onTouchEnd);
-      container.addEventListener('touchcancel', onTouchEnd);
-      container.addEventListener('wheel', onWheel, { passive: false });
-    });
+    gestureEl.addEventListener('touchstart', onTouchStart, { passive: false });
+    gestureEl.addEventListener('touchmove', onTouchMove, { passive: false });
+    gestureEl.addEventListener('touchend', onTouchEnd);
+    gestureEl.addEventListener('touchcancel', onTouchEnd);
+    gestureEl.addEventListener('wheel', onWheel, { passive: false });
 
     return () => {
-      elementsToBind.forEach(container => {
-        container.removeEventListener('touchstart', onTouchStart);
-        container.removeEventListener('touchmove', onTouchMove);
-        container.removeEventListener('touchend', onTouchEnd);
-        container.removeEventListener('touchcancel', onTouchEnd);
-        container.removeEventListener('wheel', onWheel);
-      });
+      gestureEl.removeEventListener('touchstart', onTouchStart);
+      gestureEl.removeEventListener('touchmove', onTouchMove);
+      gestureEl.removeEventListener('touchend', onTouchEnd);
+      gestureEl.removeEventListener('touchcancel', onTouchEnd);
+      gestureEl.removeEventListener('wheel', onWheel);
     };
   }, [selectedFloorId, isFullscreen]);
+
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1915,6 +2225,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         const roomsToNudge = floorRooms.filter(r => selectedRoomIds.includes(r.id) || r.id === selectedRoomForDragId);
         if (roomsToNudge.length > 0) {
           e.preventDefault();
+          if (roomsToNudge.some((room) => lockedRoomIds.has(room.id))) {
+            setCopyNotification('🔒 Có Căn/Phòng đang khóa vị trí. Mở khóa trước khi di chuyển.');
+            window.setTimeout(() => setCopyNotification(null), 1800);
+            return;
+          }
           const step = e.shiftKey ? 1 : 0.2;
           const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
           const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
@@ -1969,7 +2284,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     return () => { window.removeEventListener('keydown', handleKeyDown); window.removeEventListener('keyup', handleKeyUp); };
-  }, [selectedRoomForDragId, selectedRoomIds, floorRooms, copiedRoomsState, activeFloor, onSaveRoomProgress, onDeleteRoomProgress]);
+  }, [selectedRoomForDragId, selectedRoomIds, floorRooms, copiedRoomsState, activeFloor, onSaveRoomProgress, onDeleteRoomProgress, lockedRoomIds]);
 
   const filteredDefects = React.useMemo(() => {
     const getRoomLabel = (defect: DefectItem) => {
@@ -2319,6 +2634,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     handle: 'move' | 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'w' | 'e' | number
   ) => {
     e.stopPropagation();
+    const selectedIdsForDrag = selectedRoomIds.includes(room.id) && handle === 'move' ? selectedRoomIds : [room.id];
+    if (selectedIdsForDrag.some((id) => lockedRoomIds.has(id))) {
+      setCopyNotification('🔒 Căn/Phòng đang khóa vị trí. Mở khóa trước khi di chuyển hoặc chỉnh kích thước.');
+      window.setTimeout(() => setCopyNotification(null), 2200);
+      return;
+    }
     if (!imageContainerRef.current) return;
     const rect = imageContainerRef.current.getBoundingClientRect();
     const { x: mouseX, y: mouseY } = getMappedCoordinates(e, imageContainerRef.current, rotation);
@@ -2356,9 +2677,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
     // Navigation wins over creation. Mobile: one-finger background drag pans.
     // Desktop: middle mouse drag or Space + left mouse drag pans.
-    const canPanBackground = drawTool === 'none' && activeDragHandle === null && !isRoomPinPlacementMode && !isDefectPinPlacementMode;
+    const canTouchPan = activeDragHandle === null && drawTool !== 'freehand' && drawTool !== '2point' && drawTool !== 'drag';
     const wantsDesktopPan = e.pointerType === 'mouse' && (e.button === 1 || (e.button === 0 && spacePanHeldRef.current));
-    const wantsTouchPan = e.pointerType === 'touch' && canPanBackground;
+    // A stationary touch still produces the normal click/tap action; movement becomes pan.
+    // This lets users navigate even while Polygon / Add Room / Add Defect mode is armed.
+    const wantsTouchPan = e.pointerType === 'touch' && canTouchPan;
     if ((wantsDesktopPan || wantsTouchPan) && parentRef.current) {
       panStateRef.current = { active: true, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, scrollLeft: parentRef.current.scrollLeft, scrollTop: parentRef.current.scrollTop, moved: false };
       try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
@@ -2366,6 +2689,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       return;
     }
     
+    if (e.button === 0 || e.pointerType === 'touch') {
+      canvasPressRef.current = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, moved: false };
+    }
+
     if (activePointersRef.current.size > 1) {
       // It's a multi-touch/pinch, so cancel any drawing we just started
       setIsFreehandDrawing(false);
@@ -2414,6 +2741,16 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       parentRef.current.scrollTop = pan.scrollTop - dy;
       return;
     }
+    const press = canvasPressRef.current;
+    if (press.pointerId === e.pointerId && !press.moved) {
+      const pressDx = e.clientX - press.startX;
+      const pressDy = e.clientY - press.startY;
+      if (pressDx * pressDx + pressDy * pressDy > 64) { // >8px = navigation/drag, not a click
+        press.moved = true;
+        suppressNextCanvasClickRef.current = true;
+      }
+    }
+
     if (activePointersRef.current.size > 1) return; // Ignore move if multi-touch
 
     if (!imageContainerRef.current) return;
@@ -2552,6 +2889,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   // Pointer Up on Floor Plan (Complete Freehand drawing or 2-Point drag or finish active drag)
   const handlePointerUpImage = (e: React.PointerEvent<HTMLDivElement>) => {
     activePointersRef.current.delete(e.pointerId);
+    if (canvasPressRef.current.pointerId === e.pointerId) {
+      canvasPressRef.current.pointerId = null;
+    }
 
     if (panStateRef.current.active && panStateRef.current.pointerId === e.pointerId) {
       try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
@@ -3990,14 +4330,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         onClick={() => handleCompletePolygon(true)}
                         className="bg-indigo-950 text-indigo-200 text-[10px] font-black px-2.5 py-1 rounded-lg hover:bg-indigo-900 transition-colors shadow-xs cursor-pointer"
                       >
-                        📏 Chốt Đường Thẳng (2 điểm)
+                        📏 Đường
                       </button>
                       <button
                         type="button"
                         onClick={() => handleCompletePolygon(false)}
                         className="bg-emerald-950 text-emerald-300 text-[10px] font-black px-2.5 py-1 rounded-lg hover:bg-emerald-900 transition-colors shadow-xs cursor-pointer"
                       >
-                        📦 Chốt Khung Chữ Nhật
+                        ▭ Chữ nhật
                       </button>
                     </>
                   )}
@@ -4008,14 +4348,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         onClick={() => handleCompletePolygon(true)}
                         className="bg-indigo-950 text-indigo-200 text-[10px] font-black px-2.5 py-1 rounded-lg hover:bg-indigo-900 transition-colors shadow-xs cursor-pointer"
                       >
-                        〰️ Chốt Đường Gấp Khúc ({polygonPoints.length} điểm)
+                        〰️ Gấp khúc
                       </button>
                       <button
                         type="button"
                         onClick={() => handleCompletePolygon(false)}
                         className="bg-emerald-950 text-emerald-300 text-[10px] font-black px-2.5 py-1 rounded-lg hover:bg-emerald-900 transition-colors shadow-xs cursor-pointer"
                       >
-                        🔷 Chốt Đa Giác Diện Tích ({polygonPoints.length} góc)
+                        🔷 Đa giác
                       </button>
                     </>
                   )}
@@ -4024,7 +4364,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     onClick={() => setPolygonPoints((prev) => prev.slice(0, -1))}
                     className="bg-slate-900/80 text-white text-[10px] font-bold px-2 py-1 rounded-lg hover:bg-slate-900 cursor-pointer"
                   >
-                    ↺ Xóa góc cuối
+                    ↺ Điểm cuối
                   </button>
                   <button
                     type="button"
@@ -4073,7 +4413,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <div className="flex items-center gap-2">
                 <Sparkles className="w-3.5 h-3.5 text-slate-950 shrink-0" />
                 <span className="leading-tight">
-                  <strong>Vẽ đa giác Chấm Góc:</strong> Click từng góc Căn / Phòng trên mặt bằng (Đã chấm {polygonPoints.length} góc)
+                  <strong>Đa giác:</strong> {polygonPoints.length} điểm · Click để thêm
                 </span>
               </div>
               <div className="flex flex-wrap items-center gap-1.5 w-full sm:w-auto">
@@ -4084,14 +4424,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       onClick={() => handleCompletePolygon(true)}
                       className="bg-indigo-950 text-indigo-200 text-[10px] font-black px-2.5 py-1 rounded-lg hover:bg-indigo-900 transition-colors shadow-xs cursor-pointer"
                     >
-                      📏 Chốt Đường Thẳng (2 điểm)
+                      📏 Đường
                     </button>
                     <button
                       type="button"
                       onClick={() => handleCompletePolygon(false)}
                       className="bg-emerald-950 text-emerald-300 text-[10px] font-black px-2.5 py-1 rounded-lg hover:bg-emerald-900 transition-colors shadow-xs cursor-pointer"
                     >
-                      📦 Chốt Khung Chữ Nhật
+                      ▭ Chữ nhật
                     </button>
                   </>
                 )}
@@ -4102,14 +4442,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       onClick={() => handleCompletePolygon(true)}
                       className="bg-indigo-950 text-indigo-200 text-[10px] font-black px-2.5 py-1 rounded-lg hover:bg-indigo-900 transition-colors shadow-xs cursor-pointer"
                     >
-                      〰️ Chốt Đường Gấp Khúc ({polygonPoints.length} điểm)
+                      〰️ Gấp khúc
                     </button>
                     <button
                       type="button"
                       onClick={() => handleCompletePolygon(false)}
                       className="bg-emerald-950 text-emerald-300 text-[10px] font-black px-2.5 py-1 rounded-lg hover:bg-emerald-900 transition-colors shadow-xs cursor-pointer"
                     >
-                      🔷 Chốt Đa Giác Diện Tích ({polygonPoints.length} góc)
+                      🔷 Đa giác
                     </button>
                   </>
                 )}
@@ -4119,7 +4459,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     onClick={() => setPolygonPoints((prev) => prev.slice(0, -1))}
                     className="bg-slate-900/80 text-white text-[10px] font-bold px-2 py-1 rounded-lg hover:bg-slate-900"
                   >
-                    ↺ Xóa góc cuối
+                    ↺ Điểm cuối
                   </button>
                 )}
                 <button
@@ -4402,11 +4742,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
                 {/* Floating Active Drawing Action Banner in Fullscreen */}
                 {drawTool === 'polygon' && !redrawingRoomTarget && (
-                  <div className="bg-amber-500 text-slate-950 p-2 rounded-2xl text-xs font-bold flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-2 border-amber-300 shadow-2xl animate-in slide-in-from-top-2 w-full">
+                  <div className="bg-amber-500 text-slate-950 px-2 py-1.5 rounded-xl text-[11px] font-bold flex flex-row flex-wrap items-center justify-between gap-1.5 border border-amber-300 shadow-lg animate-in slide-in-from-top-2 w-full">
                     <div className="flex items-center gap-1.5 w-full sm:w-auto">
                       <Sparkles className="w-4 h-4 text-slate-950 shrink-0" />
                       <span>
-                        <strong>Chấm Góc Đa Giác:</strong> Click từng góc trên bản vẽ (Đã chấm {polygonPoints.length} góc)
+                        <strong>Đa giác:</strong> {polygonPoints.length} điểm · Click để thêm
                       </span>
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5 w-full sm:w-auto sm:ml-auto">
@@ -4417,14 +4757,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                             onClick={() => handleCompletePolygon(true)}
                             className="bg-indigo-950 hover:bg-indigo-900 text-indigo-200 text-xs font-black px-3 py-1.5 rounded-xl transition-all shadow-md active:scale-95 flex items-center gap-1 cursor-pointer"
                           >
-                            📏 Chốt Đường Thẳng (2 điểm)
+                            📏 Đường
                           </button>
                           <button
                             type="button"
                             onClick={() => handleCompletePolygon(false)}
                             className="bg-emerald-950 hover:bg-emerald-900 text-emerald-300 text-xs font-black px-3 py-1.5 rounded-xl transition-all shadow-md active:scale-95 flex items-center gap-1 cursor-pointer"
                           >
-                            📦 Chốt Khung Chữ Nhật
+                            ▭ Chữ nhật
                           </button>
                         </>
                       )}
@@ -4435,14 +4775,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                             onClick={() => handleCompletePolygon(true)}
                             className="bg-indigo-950 hover:bg-indigo-900 text-indigo-200 text-xs font-black px-3 py-1.5 rounded-xl transition-all shadow-md active:scale-95 flex items-center gap-1 cursor-pointer"
                           >
-                            〰️ Chốt Đường Gấp Khúc ({polygonPoints.length} điểm)
+                            〰️ Gấp khúc
                           </button>
                           <button
                             type="button"
                             onClick={() => handleCompletePolygon(false)}
                             className="bg-emerald-950 hover:bg-emerald-900 text-emerald-300 text-xs font-black px-3 py-1.5 rounded-xl transition-all shadow-md active:scale-95 flex items-center gap-1 cursor-pointer"
                           >
-                            🔷 Chốt Đa Giác Diện Tích ({polygonPoints.length} góc)
+                            🔷 Đa giác
                           </button>
                         </>
                       )}
@@ -4452,7 +4792,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           onClick={() => setPolygonPoints((prev) => prev.slice(0, -1))}
                           className="bg-slate-900 text-white text-[11px] font-bold px-2 py-1 rounded-xl hover:bg-slate-800"
                         >
-                          ↺ Xóa góc cuối
+                          ↺ Điểm cuối
                         </button>
                       )}
                       <button
@@ -4608,14 +4948,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                               onClick={() => handleCompletePolygon(true)}
                               className="bg-indigo-950 text-indigo-200 text-[10px] font-black px-2.5 py-1 rounded-lg hover:bg-indigo-900 transition-colors shadow-xs cursor-pointer"
                             >
-                              📏 Chốt Đường Thẳng (2 điểm)
+                              📏 Đường
                             </button>
                             <button
                               type="button"
                               onClick={() => handleCompletePolygon(false)}
                               className="bg-emerald-950 text-emerald-300 text-[10px] font-black px-2.5 py-1 rounded-lg hover:bg-emerald-900 transition-colors shadow-xs cursor-pointer"
                             >
-                              📦 Chốt Khung Chữ Nhật
+                              ▭ Chữ nhật
                             </button>
                           </>
                         )}
@@ -4633,7 +4973,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                               onClick={() => handleCompletePolygon(false)}
                               className="bg-emerald-950 text-emerald-300 text-[10px] font-black px-2.5 py-1 rounded-lg hover:bg-emerald-900 transition-colors shadow-xs cursor-pointer"
                             >
-                              🔷 Chốt Đa Giác Diện Tích ({polygonPoints.length} góc)
+                              🔷 Đa giác
                             </button>
                           </>
                         )}
@@ -4696,6 +5036,25 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         <span>Dán</span>
                       </button>
                     )}
+
+                    <button
+                      type="button"
+                      onClick={focusCurrentSelection}
+                      className="flex items-center gap-1 bg-indigo-900/70 hover:bg-indigo-800 text-indigo-100 text-[11px] font-extrabold px-2 py-1 rounded-lg transition-colors border border-indigo-600 shadow-xs shrink-0"
+                      title="Đưa Căn/Phòng đang chọn vào giữa màn hình"
+                    >
+                      <MapPin className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Focus</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={toggleSelectedRoomLock}
+                      className={`flex items-center gap-1 text-[11px] font-extrabold px-2 py-1 rounded-lg transition-colors border shadow-xs shrink-0 ${selectedRoomsAreLocked ? 'bg-amber-500 text-slate-950 border-amber-300' : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-600'}`}
+                      title={selectedRoomsAreLocked ? 'Mở khóa vị trí Căn/Phòng đang chọn' : 'Khóa vị trí để tránh kéo/resize nhầm'}
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      <span>{selectedRoomsAreLocked ? 'Mở khóa' : 'Khóa'}</span>
+                    </button>
 
                     <button
                       type="button"
@@ -4767,62 +5126,153 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               </div>
             )}
 
-            {/* Floating Zoom Bar (Positioned at Bottom Right to prevent overlap on mobile) */}
-            <div className="absolute bottom-3 right-3 z-40 pointer-events-auto flex items-center gap-1 bg-slate-950/90 backdrop-blur-md px-2.5 py-1.5 rounded-xl border border-slate-700 shadow-2xl text-white text-[11px]">
+            {/* Compact Navigation Bar: zoom + fit + focus + minimap + layers */}
+            <div className="absolute bottom-3 right-3 z-50 pointer-events-auto flex items-center gap-1 bg-slate-950/92 backdrop-blur-md px-2 py-1.5 rounded-xl border border-slate-700 shadow-2xl text-white text-[11px] max-w-[calc(100%-24px)] overflow-x-auto no-scrollbar">
               <button
                 type="button"
                 onClick={() => setZoomScale((prev) => Math.max(1, +(prev - 0.25).toFixed(2)))}
-                className="p-1 hover:bg-slate-800 rounded-lg transition-colors text-slate-200"
-                title="Thu nhỏ bản vẽ (-)"
+                className="p-1 hover:bg-slate-800 rounded-lg transition-colors text-slate-200 shrink-0"
+                title="Thu nhỏ bản vẽ"
               >
                 <ZoomOut className="w-3.5 h-3.5" />
               </button>
-              <span className="font-extrabold px-1 text-amber-300 text-xs min-w-[38px] text-center">
+              <span className="font-extrabold px-1 text-amber-300 text-xs min-w-[42px] text-center shrink-0">
                 {Math.round(zoomScale * 100)}%
               </span>
               <button
                 type="button"
                 onClick={() => setZoomScale((prev) => Math.min(20, +(prev + 0.5).toFixed(2)))}
-                className="p-1 hover:bg-slate-800 rounded-lg transition-colors text-slate-200"
-                title="Phóng to bản vẽ để highlight chi tiết (+)"
+                className="p-1 hover:bg-slate-800 rounded-lg transition-colors text-slate-200 shrink-0"
+                title="Phóng to bản vẽ"
               >
                 <ZoomIn className="w-3.5 h-3.5" />
               </button>
-              {zoomScale > 1 && (
-                <button
-                  type="button"
-                  onClick={() => setZoomScale(1)}
-                  className="px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-[10px] font-bold text-slate-300 transition-colors ml-1 flex items-center justify-center min-w-[24px]"
-                  title="Đặt lại zoom 100%"
-                >
-                  1:1
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={fitFloorPlan}
+                className="px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-[10px] font-black text-slate-200 shrink-0"
+                title="Đưa toàn bộ bản vẽ vừa màn hình"
+              >
+                Fit
+              </button>
+              <button
+                type="button"
+                onClick={focusCurrentSelection}
+                disabled={!selectedRoomObject && !selectedDefectForFocus}
+                className="px-2 py-1 bg-indigo-700 hover:bg-indigo-600 disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed rounded-lg text-[10px] font-black shrink-0"
+                title="Đưa Căn/Defect đang chọn vào giữa màn hình"
+              >
+                🎯 Focus
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowMiniMap((prev) => !prev)}
+                className={`px-2 py-1 rounded-lg text-[10px] font-black shrink-0 ${showMiniMap ? 'bg-emerald-600 text-white' : 'bg-slate-800 hover:bg-slate-700 text-slate-200'}`}
+                title="Bật/tắt bản đồ nhỏ định hướng"
+              >
+                🗺 Mini
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowLayerPanel((prev) => !prev)}
+                className={`px-2 py-1 rounded-lg text-[10px] font-black shrink-0 ${showLayerPanel ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 hover:bg-slate-700 text-slate-200'}`}
+                title="Ẩn/hiện nhanh các lớp trên mặt bằng"
+              >
+                Lớp
+              </button>
               {isFullscreen && (
                 <button
                   type="button"
                   onClick={() => setRotation(r => (r + 90) % 360)}
-                  className="p-1 hover:bg-slate-800 rounded-lg transition-colors text-slate-200 ml-1"
+                  className="p-1 hover:bg-slate-800 rounded-lg transition-colors text-slate-200 shrink-0"
                   title="Xoay mặt bằng 90 độ"
                 >
                   <RotateCw className="w-3.5 h-3.5" />
                 </button>
               )}
-              <div className="w-px h-4 bg-slate-700 mx-1"></div>
+              <div className="w-px h-4 bg-slate-700 mx-0.5 shrink-0"></div>
               <button
                 type="button"
-                onClick={async () => {
-                  if (isFullscreen) {
-                    setRotation(0);
-                  }
+                onClick={() => {
+                  if (isFullscreen) setRotation(0);
                   setIsFullscreen(!isFullscreen);
                 }}
-                className="p-1 hover:bg-slate-800 rounded-lg transition-colors text-slate-200"
-                title={isFullscreen ? 'Thu nhỏ màn hình' : 'Toàn màn hình (Xoay ngang điện thoại để xem dễ hơn)'}
+                className="p-1 hover:bg-slate-800 rounded-lg transition-colors text-slate-200 shrink-0"
+                title={isFullscreen ? 'Thu nhỏ màn hình' : 'Toàn màn hình'}
               >
                 {isFullscreen ? <Minimize2 className="w-3.5 h-3.5 text-amber-400" /> : <Maximize2 className="w-3.5 h-3.5" />}
               </button>
             </div>
+
+            {showLayerPanel && (
+              <div className="absolute bottom-14 right-3 z-50 w-[230px] max-w-[calc(100%-24px)] bg-white/95 backdrop-blur-md rounded-2xl border border-slate-200 shadow-2xl p-2.5 text-[11px] text-slate-800">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-black flex items-center gap-1"><Layers className="w-3.5 h-3.5 text-indigo-600" /> Lớp hiển thị</span>
+                  <button type="button" onClick={() => setShowLayerPanel(false)} className="text-slate-400 hover:text-slate-700 font-black">✕</button>
+                </div>
+                <div className="grid grid-cols-1 gap-1.5">
+                  {([
+                    ['roomRegions', 'Vùng Căn/Phòng'],
+                    ['roomLabels', 'Tên Căn/Phòng'],
+                    ['defects', 'Marker Defect'],
+                    ['resolvedDefects', 'Defect đã hoàn thành'],
+                  ] as const).map(([key, label]) => (
+                    <label key={key} className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg bg-slate-50 border border-slate-100 cursor-pointer">
+                      <span className="font-bold">{label}</span>
+                      <input
+                        type="checkbox"
+                        checked={mapLayers[key]}
+                        onChange={(e) => setMapLayers((prev) => ({ ...prev, [key]: e.target.checked }))}
+                        className="accent-indigo-600"
+                      />
+                    </label>
+                  ))}
+                </div>
+                <p className="mt-2 text-[9px] leading-snug text-slate-500">Chỉ thay đổi hiển thị trên máy này, không xóa dữ liệu và không ghi Firebase.</p>
+              </div>
+            )}
+
+            {showMiniMap && zoomScale > 1.15 && activeFloor?.imageUrl && (
+              <div className="absolute bottom-3 left-3 z-45 pointer-events-auto w-[150px] sm:w-[190px] bg-slate-950/92 rounded-xl border border-slate-600 shadow-2xl p-1.5 select-none">
+                <div className="flex items-center justify-between text-[9px] text-slate-200 font-black mb-1 px-0.5">
+                  <span>🗺 {activeFloor.floorName}</span>
+                  <button type="button" onClick={() => setShowMiniMap(false)} className="text-slate-400 hover:text-white">✕</button>
+                </div>
+                <div
+                  className="relative w-full aspect-[1.45/1] overflow-hidden bg-slate-800 rounded-lg cursor-crosshair touch-none"
+                  onPointerDown={(e) => {
+                    e.currentTarget.setPointerCapture?.(e.pointerId);
+                    miniMapDragRef.current = true;
+                    centerMiniMapAt(e.clientX, e.clientY, e.currentTarget);
+                  }}
+                  onPointerMove={(e) => {
+                    if (miniMapDragRef.current) centerMiniMapAt(e.clientX, e.clientY, e.currentTarget);
+                  }}
+                  onPointerUp={(e) => {
+                    miniMapDragRef.current = false;
+                    try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch {}
+                  }}
+                  onPointerCancel={() => { miniMapDragRef.current = false; }}
+                >
+                  <img
+                    src={activeFloor.imageUrl}
+                    alt="Mini-map"
+                    className="absolute inset-0 w-full h-full object-contain opacity-75 pointer-events-none"
+                    style={{ transform: `rotate(${rotation}deg)` }}
+                  />
+                  <div
+                    className="absolute border-2 border-amber-400 bg-amber-300/20 rounded-sm pointer-events-none shadow"
+                    style={{
+                      left: `${Math.min(100, Math.max(0, (viewportInfo.scrollLeft / Math.max(1, viewportInfo.scrollWidth)) * 100))}%`,
+                      top: `${Math.min(100, Math.max(0, (viewportInfo.scrollTop / Math.max(1, viewportInfo.scrollHeight)) * 100))}%`,
+                      width: `${Math.min(100, Math.max(6, (viewportInfo.clientWidth / Math.max(1, viewportInfo.scrollWidth)) * 100))}%`,
+                      height: `${Math.min(100, Math.max(6, (viewportInfo.clientHeight / Math.max(1, viewportInfo.scrollHeight)) * 100))}%`,
+                    }}
+                  />
+                </div>
+                <p className="text-[8px] text-slate-400 mt-1 px-0.5">Chạm/kéo để nhảy nhanh đến khu vực khác.</p>
+              </div>
+            )}
 
             {/* Scrollable / Zoomable Inner Area */}
             <div ref={parentRef} className={`w-full overflow-auto flex ${zoomScale > 1 ? 'items-start justify-start p-4' : 'items-center justify-center'} ${isFullscreen ? 'flex-1' : 'h-full'}`}>
@@ -4881,7 +5331,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     )}
 
                 {/* SVG OVERLAY FOR HIGHLIGHT SHAPES & LIVE DRAWINGS */}
-                {(viewMode === 'all' || viewMode === 'highlight') && (() => {
+                {mapLayers.roomRegions && (viewMode === 'all' || viewMode === 'highlight') && (() => {
                   const strokeScale = 1 / Math.max(1, zoomScale);
                   return (
                   <svg className="absolute inset-0 w-full h-full pointer-events-none z-10" viewBox="0 0 100 100" preserveAspectRatio="none">
@@ -5094,7 +5544,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 })()}
 
             {/* INTERACTIVE DRAG & RESIZE HANDLES OVERLAY */}
-            {(viewMode === 'all' || viewMode === 'highlight') && (
+            {mapLayers.roomRegions && (viewMode === 'all' || viewMode === 'highlight') && (
               <>
                 {displayedFloorRooms.map((room) => {
                   const isSelectedForDrag = selectedRoomForDragId === room.id || selectedRoomIds.includes(room.id) || (drawTool === 'drag' && hoveredRoomId === room.id);
@@ -5109,6 +5559,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               const cy = ry + rh / 2;
 
               const isPolygon = room.points && room.points.length >= 3;
+              const isLocked = lockedRoomIds.has(room.id);
 
               return (
                 <React.Fragment key={`drag-controls-${room.id}`}>
@@ -5127,6 +5578,15 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     }`}
                   />
 
+                  {isLocked ? (
+                    <div
+                      style={{ left: `${cx}%`, top: `${cy}%` }}
+                      className="absolute -translate-x-1/2 -translate-y-1/2 z-40 pointer-events-none bg-slate-950 text-amber-300 px-2 py-1 rounded-full shadow-xl border border-amber-400 text-[10px] font-black"
+                      title="Căn/Phòng đang khóa vị trí"
+                    >
+                      🔒
+                    </div>
+                  ) : (<>
                   {/* Center Move Handle Badge */}
                   <div
                     style={{ left: `${cx}%`, top: `${cy}%`, touchAction: 'none' }}
@@ -5202,7 +5662,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         {pIdx + 1}
                       </div>
                     ))}
-
+                  </>)}
 
                 </React.Fragment>
               );
@@ -5248,7 +5708,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             )}
 
             {/* MINIMALIST OR FULL TEXT BADGES OVERLAY */}
-            {(viewMode === 'all' || viewMode === 'highlight') && (
+            {mapLayers.roomLabels && (viewMode === 'all' || viewMode === 'highlight') && (
               <>
                 {displayedFloorRooms.map((room) => {
                   const isPassed = room.inspectionStatus === 'Đạt nghiệm thu';
@@ -5291,7 +5751,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                               ? 'bg-emerald-950/90 text-emerald-200 border-emerald-500'
                               : 'bg-slate-950/85 text-slate-100 border-slate-600'
                           }`}>
-                            {room.roomName}
+                            {room.roomName}{lockedRoomIds.has(room.id) ? ' 🔒' : ''}
                             {isPassed && ' 🏆'}
                             {isFailed && ' ⚠️'}
                           </span>
@@ -5373,7 +5833,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     >
                       <div className="flex items-center gap-1">
                         <span className="max-w-[128px] sm:max-w-[180px] whitespace-normal break-words text-center leading-tight font-extrabold text-[9px] sm:text-[10px] bg-black/85 text-white px-2 py-0.5 rounded-md shadow border border-white/20">
-                          {room.roomName}
+                          {room.roomName}{lockedRoomIds.has(room.id) ? ' 🔒' : ''}
                         </span>
                         {isPassed && (
                           <span className="bg-emerald-600 text-white text-[9px] font-extrabold px-1 rounded-full shadow">
@@ -5413,14 +5873,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             )}
 
             {/* MODE 2: DEFECT PIN OVERLAYS */}
-            {(viewMode === 'all' || viewMode === 'defect') && (
+            {mapLayers.defects && (viewMode === 'all' || viewMode === 'defect') && (
               <>
-                {floorDefects.map((defect) => {
+                {mapFloorDefects.map((defect) => {
                   const isResolved = defect.status === 'Đã nghiệm thu' || defect.status === 'Đã khắc phục';
                   const isSevere = defect.severity === 'Nghiêm trọng';
                   const shortDefectCode = getDefectShortCode(defect.id);
                   // Spread markers that are almost on top of each other on mobile.
-                  const nearby = floorDefects
+                  const nearby = mapFloorDefects
                     .filter((other) => Math.hypot(Number(other.x) - Number(defect.x), Number(other.y) - Number(defect.y)) <= 2.2)
                     .sort((a, b) => String(a.id).localeCompare(String(b.id)));
                   const clusterIndex = Math.max(0, nearby.findIndex((item) => item.id === defect.id));
@@ -5448,7 +5908,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   // around 500-700%. SVG geometry still compensates strongly; the label only
                   // shrinks gently (minimum 92%) because it already uses screen-pixel sizing.
                   const defectVisualScale = Math.max(0.55, Math.min(1, 1 / Math.sqrt(Math.max(1, zoomScale))));
-                  const defectLabelScale = Math.max(0.92, Math.min(1, 1 / Math.pow(Math.max(1, zoomScale), 0.045)));
+                  const defectLabelScale = Math.max(0.82, Math.min(1, 1 / Math.pow(Math.max(1, zoomScale), 0.06)));
                   const svgZoomCompensation = defectVisualScale / Math.max(1, zoomScale);
 
                   return (
@@ -5492,7 +5952,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                             transform: `scale(${defectLabelScale})`,
                             transformOrigin: 'center',
                           }}
-                          className={`h-6 min-w-8 max-w-[128px] sm:max-w-[180px] px-2 rounded-xl flex items-center justify-center text-white font-extrabold text-[9px] sm:text-[10px] leading-tight shadow-md border border-white/90 whitespace-nowrap ${
+                          className={`h-5 min-w-6 px-1.5 rounded-lg flex items-center justify-center text-white font-extrabold text-[8px] sm:text-[9px] leading-none shadow border border-white/90 whitespace-nowrap ${
                             isResolved
                               ? 'bg-emerald-500'
                               : isSevere
@@ -5500,7 +5960,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                               : 'bg-amber-500'
                           }`}
                         >
-                          {shortDefectCode}
+                          {shortDefectCode}{lockedDefectIds.has(defect.id) ? ' 🔒' : ''}
                         </div>
                       </div>
                     </React.Fragment>
@@ -6949,7 +7409,17 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   <span className="text-[10px] font-black text-slate-400">[{getDefectShortCode(activeDefectDetail.id)}]</span>
                   <h3 className="text-base font-extrabold text-slate-900">{activeDefectDetail.category}</h3>
                 </div>
-                <button onClick={() => setActiveDefectDetail(null)} className="font-bold text-slate-400 hover:text-slate-700">✕</button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => toggleDefectLock(activeDefectDetail.id)}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-black border ${lockedDefectIds.has(activeDefectDetail.id) ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-slate-50 text-slate-600 border-slate-200'}`}
+                    title="Khóa vị trí Defect để tránh thay đổi tọa độ ngoài ý muốn"
+                  >
+                    {lockedDefectIds.has(activeDefectDetail.id) ? '🔒 Mở khóa vị trí' : '🔓 Khóa vị trí'}
+                  </button>
+                  <button onClick={() => setActiveDefectDetail(null)} className="font-bold text-slate-400 hover:text-slate-700">✕</button>
+                </div>
               </div>
 
               {/* Overdue / Progress Banner */}
@@ -6984,13 +7454,20 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       type="button"
                       onClick={() => {
                         const targetFp = floorPlans.find(f => f.id === activeDefectDetail.floorId || f.floorName === activeDefectDetail.floorName);
-                        if (targetFp) {
-                          setSelectedFloorId(targetFp.id);
-                        }
+                        const floorId = targetFp?.id || activeDefectDetail.floorId || selectedFloorId;
+                        pendingFocusRef.current = { floorId, x: activeDefectDetail.x, y: activeDefectDetail.y };
+                        const switchingFloor = Boolean(targetFp && targetFp.id !== selectedFloorId);
+                        if (switchingFloor && targetFp) setSelectedFloorId(targetFp.id);
                         setSelectedDefectIds([activeDefectDetail.id]);
                         setActiveDefectDetail(null);
-                        if (imageContainerRef.current) {
-                          imageContainerRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        if (!switchingFloor) {
+                          requestAnimationFrame(() => requestAnimationFrame(() => {
+                            const pending = pendingFocusRef.current;
+                            if (pending) {
+                              focusPlanPoint(pending.x, pending.y);
+                              pendingFocusRef.current = null;
+                            }
+                          }));
                         }
                       }}
                       className="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 rounded-lg text-[11px] font-bold transition-all shadow-2xs shrink-0"

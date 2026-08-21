@@ -76,6 +76,10 @@ if (!isDev && !isFirebaseConfigured) {
   console.error('⚠️ THIẾU CẤU HÌNH FIREBASE TRONG MÔI TRƯỜNG PRODUCTION! Ứng dụng sẽ hoạt động ở chế độ Offline/Local Storage. Vui lòng khai báo đầy đủ các biến VITE_FIREBASE_* trước khi build APK/Web App.');
 }
 
+if (!isDev && !firebaseConfig.appId) {
+  console.warn('⚠️ Firebase Web App ID (VITE_FIREBASE_APP_ID) đang trống. Auth/Firestore hiện có thể vẫn chạy, nhưng nên cấu hình App ID thật của đúng Web App trong Firebase Console.');
+}
+
 export const firebaseApp = !getApps().length ? initializeApp(firebaseConfig) : getApps()[0];
 const app = firebaseApp;
 const dbId = firebaseConfig.firestoreDatabaseId;
