@@ -661,6 +661,35 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   useFormatSettings();
   const [selectedDefectIds, setSelectedDefectIds] = useState<string[]>([]);
 
+  // Zoom Scale State (Requirement #2: Zoom in on floor plan image)
+  const [zoomScale, setZoomScale] = useState<number>(1);
+
+  // V6.2.19: navigation/display controls are UI-only and never write Firestore.
+  const [showMiniMap, setShowMiniMap] = useState(false);
+  const [showLayerPanel, setShowLayerPanel] = useState(false);
+  const [mapLayers, setMapLayers] = useState(() => {
+    try {
+      const raw = localStorage.getItem(getDraftKey('construction_floorplan_layers'));
+      const parsed = raw ? JSON.parse(raw) : {};
+      return {
+        roomRegions: parsed.roomRegions !== false,
+        roomLabels: parsed.roomLabels !== false,
+        defects: parsed.defects !== false,
+        resolvedDefects: parsed.resolvedDefects !== false,
+      };
+    } catch {
+      return { roomRegions: true, roomLabels: true, defects: true, resolvedDefects: true };
+    }
+  });
+  const [lockedRoomIds, setLockedRoomIds] = useState<Set<string>>(() => readIdSet(getDraftKey('construction_floorplan_locked_rooms')));
+  const [lockedDefectIds, setLockedDefectIds] = useState<Set<string>>(() => readIdSet(getDraftKey('construction_floorplan_locked_defects')));
+  const [viewportInfo, setViewportInfo] = useState({ scrollLeft: 0, scrollTop: 0, clientWidth: 1, clientHeight: 1, scrollWidth: 1, scrollHeight: 1 });
+  const floorViewRestoringRef = useRef(false);
+  const projectUiSettingsHydratingRef = useRef(false);
+  const miniMapDragRef = useRef(false);
+  const pendingFocusRef = useRef<{ floorId: string; x: number; y: number } | null>(null);
+
+
   // Auto-select newly added or duplicated floor by detecting the new ID
   const prevFloorPlansRef = useRef<FloorPlan[]>(floorPlans);
   const justSetStartPosRef = useRef(false);
@@ -1014,34 +1043,6 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     points?: Point2D[];
     isPolyline?: boolean;
   } | null>(null);
-
-  // Zoom Scale State (Requirement #2: Zoom in on floor plan image)
-  const [zoomScale, setZoomScale] = useState<number>(1);
-
-  // V6.2.18: navigation/display controls are UI-only and never write Firestore.
-  const [showMiniMap, setShowMiniMap] = useState(false);
-  const [showLayerPanel, setShowLayerPanel] = useState(false);
-  const [mapLayers, setMapLayers] = useState(() => {
-    try {
-      const raw = localStorage.getItem(getDraftKey('construction_floorplan_layers'));
-      const parsed = raw ? JSON.parse(raw) : {};
-      return {
-        roomRegions: parsed.roomRegions !== false,
-        roomLabels: parsed.roomLabels !== false,
-        defects: parsed.defects !== false,
-        resolvedDefects: parsed.resolvedDefects !== false,
-      };
-    } catch {
-      return { roomRegions: true, roomLabels: true, defects: true, resolvedDefects: true };
-    }
-  });
-  const [lockedRoomIds, setLockedRoomIds] = useState<Set<string>>(() => readIdSet(getDraftKey('construction_floorplan_locked_rooms')));
-  const [lockedDefectIds, setLockedDefectIds] = useState<Set<string>>(() => readIdSet(getDraftKey('construction_floorplan_locked_defects')));
-  const [viewportInfo, setViewportInfo] = useState({ scrollLeft: 0, scrollTop: 0, clientWidth: 1, clientHeight: 1, scrollWidth: 1, scrollHeight: 1 });
-  const floorViewRestoringRef = useRef(false);
-  const projectUiSettingsHydratingRef = useRef(false);
-  const miniMapDragRef = useRef(false);
-  const pendingFocusRef = useRef<{ floorId: string; x: number; y: number } | null>(null);
 
   // PDF Upload & Convert State (Requirement #3)
   const [isConvertingPdf, setIsConvertingPdf] = useState(false);
