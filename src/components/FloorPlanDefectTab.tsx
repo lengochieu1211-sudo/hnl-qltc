@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import * as XLSX from 'xlsx';
 import { 
@@ -664,7 +664,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   // Zoom Scale State (Requirement #2: Zoom in on floor plan image)
   const [zoomScale, setZoomScale] = useState<number>(1);
 
-  // V6.2.19: navigation/display controls are UI-only and never write Firestore.
+  // V6.2.20: navigation/display controls are UI-only and never write Firestore.
   const [showMiniMap, setShowMiniMap] = useState(false);
   const [showLayerPanel, setShowLayerPanel] = useState(false);
   const [mapLayers, setMapLayers] = useState(() => {
@@ -1923,15 +1923,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   }, [selectedFloorId]);
 
   useEffect(() => {
-    if (isFullscreen || zoomScale > 1) {
-      const imgEl = imageContainerRef.current?.querySelector('img');
-      if (imgEl && imgEl.naturalWidth && imgEl.naturalHeight) {
-        setImgAspect(imgEl.naturalWidth / imgEl.naturalHeight);
-      }
-    } else {
-      setImgAspect(1.414);
+    // Always use the real image ratio once it is available. Resetting to 1.414 at
+    // 100% and switching to the real ratio only after zooming changes both scale
+    // and geometry on the first wheel step, which makes the drawing jump.
+    const imgEl = imageContainerRef.current?.querySelector('img');
+    if (imgEl && imgEl.naturalWidth && imgEl.naturalHeight) {
+      setImgAspect(imgEl.naturalWidth / imgEl.naturalHeight);
     }
-  }, [isFullscreen, zoomScale, selectedFloorId]);
+  }, [activeFloor?.imageUrl, selectedFloorId, isFullscreen]);
 
   useEffect(() => {
     const el = parentRef.current;
@@ -1988,6 +1987,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   // Floor-plan navigation: touch one-finger pan; desktop middle-mouse or Space+left pan.
   const panStateRef = useRef<{ active: boolean; pointerId: number | null; startX: number; startY: number; scrollLeft: number; scrollTop: number; moved: boolean }>({ active: false, pointerId: null, startX: 0, startY: 0, scrollLeft: 0, scrollTop: 0, moved: false });
   const suppressNextCanvasClickRef = useRef(false);
+  const pendingZoomAnchorRef = useRef<{ clientX: number; clientY: number; rx: number; ry: number } | null>(null);
+  const roomInteractionClickResetTimerRef = useRef<number | null>(null);
   const spacePanHeldRef = useRef(false);
   // Distinguish a deliberate tap/click from a drag so polygon/room/defect creation
   // never fires after the user was navigating the plan.
@@ -1999,13 +2000,29 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const imageContainerRef = useRef<HTMLDivElement>(null);
 
   // Keyboard shortcuts: Ctrl+C (copy selected room), Ctrl+V (paste copied room), Delete / Backspace (delete selected room with confirmation)
-  const [copiedRoomState, setCopiedRoomState] = useState<RoomProgressItem | null>(null);
-
   // Native touch handlers for pinch-to-zoom + cursor-anchored desktop wheel zoom.
   const zoomScaleRef = useRef(zoomScale);
-  useEffect(() => {
+  useLayoutEffect(() => {
     zoomScaleRef.current = zoomScale;
-  }, [zoomScale]);
+
+    // Keep the map point under the mouse / pinch midpoint fixed during the exact
+    // layout commit that changes the zoom. This avoids stacked requestAnimationFrame
+    // corrections when wheel events arrive faster than React can paint.
+    const anchor = pendingZoomAnchorRef.current;
+    if (!anchor) return;
+    pendingZoomAnchorRef.current = null;
+
+    const parent = parentRef.current;
+    const image = imageContainerRef.current;
+    if (!parent || !image) return;
+    const nextRect = image.getBoundingClientRect();
+    if (nextRect.width <= 0 || nextRect.height <= 0) return;
+
+    const anchoredClientX = nextRect.left + anchor.rx * nextRect.width;
+    const anchoredClientY = nextRect.top + anchor.ry * nextRect.height;
+    parent.scrollLeft += anchoredClientX - anchor.clientX;
+    parent.scrollTop += anchoredClientY - anchor.clientY;
+  }, [zoomScale, rotation]);
 
 
   useEffect(() => {
@@ -2093,39 +2110,24 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     let initialZoom = 1;
 
     const applyAnchoredZoom = (requestedScale: number, clientX: number, clientY: number) => {
-      const parent = parentRef.current;
       const image = imageContainerRef.current;
-      if (!parent || !image) return;
+      if (!parentRef.current || !image) return;
 
       const oldScale = zoomScaleRef.current;
       const nextScale = Math.min(20, Math.max(1, Number(requestedScale.toFixed(2))));
       if (!Number.isFinite(nextScale) || Math.abs(nextScale - oldScale) < 0.001) return;
 
-      // Remember the exact visual point under the cursor/finger midpoint.
       const oldRect = image.getBoundingClientRect();
       if (oldRect.width <= 0 || oldRect.height <= 0) return;
-      const rx = Math.min(1, Math.max(0, (clientX - oldRect.left) / oldRect.width));
-      const ry = Math.min(1, Math.max(0, (clientY - oldRect.top) / oldRect.height));
+      pendingZoomAnchorRef.current = {
+        clientX,
+        clientY,
+        rx: Math.min(1, Math.max(0, (clientX - oldRect.left) / oldRect.width)),
+        ry: Math.min(1, Math.max(0, (clientY - oldRect.top) / oldRect.height)),
+      };
 
-      suppressNextCanvasClickRef.current = true;
       zoomScaleRef.current = nextScale;
       setZoomScale(nextScale);
-
-      // After React lays out the new scaled plan, compensate scroll so the same
-      // drawing point stays under the cursor/finger midpoint.
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          const currentParent = parentRef.current;
-          const currentImage = imageContainerRef.current;
-          if (!currentParent || !currentImage) return;
-          const newRect = currentImage.getBoundingClientRect();
-          const actualX = newRect.left + rx * newRect.width;
-          const actualY = newRect.top + ry * newRect.height;
-          currentParent.scrollLeft += actualX - clientX;
-          currentParent.scrollTop += actualY - clientY;
-          window.setTimeout(() => { suppressNextCanvasClickRef.current = false; }, 0);
-        });
-      });
     };
 
     const onTouchStart = (e: TouchEvent) => {
@@ -2161,7 +2163,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     };
 
     const onTouchEnd = (e: TouchEvent) => {
-      if (e.touches.length < 2) initialDist = 0;
+      if (e.touches.length < 2) {
+        initialDist = 0;
+        window.setTimeout(() => { suppressNextCanvasClickRef.current = false; }, 80);
+      }
     };
 
     const onWheel = (e: WheelEvent) => {
@@ -2191,7 +2196,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable) return;
 
       // Ctrl+A / Cmd+A: Select all rooms on current floor
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
@@ -2226,6 +2231,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         const roomsToNudge = floorRooms.filter(r => selectedRoomIds.includes(r.id) || r.id === selectedRoomForDragId);
         if (roomsToNudge.length > 0) {
           e.preventDefault();
+          e.stopPropagation();
           if (roomsToNudge.some((room) => lockedRoomIds.has(room.id))) {
             setCopyNotification('🔒 Có Căn/Phòng đang khóa vị trí. Mở khóa trước khi di chuyển.');
             window.setTimeout(() => setCopyNotification(null), 1800);
@@ -2282,9 +2288,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     };
 
     const handleKeyUp = (e: KeyboardEvent) => { if (e.code === 'Space') spacePanHeldRef.current = false; };
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    return () => { window.removeEventListener('keydown', handleKeyDown); window.removeEventListener('keyup', handleKeyUp); };
+    // Capture phase keeps floor-plan shortcuts working even when a focused map
+    // control stops keyboard bubbling. Editable text targets are excluded above.
+    window.addEventListener('keydown', handleKeyDown, true);
+    window.addEventListener('keyup', handleKeyUp, true);
+    return () => { window.removeEventListener('keydown', handleKeyDown, true); window.removeEventListener('keyup', handleKeyUp, true); };
   }, [selectedRoomForDragId, selectedRoomIds, floorRooms, copiedRoomsState, activeFloor, onSaveRoomProgress, onDeleteRoomProgress, lockedRoomIds]);
 
   const filteredDefects = React.useMemo(() => {
@@ -2635,6 +2643,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     handle: 'move' | 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'w' | 'e' | number
   ) => {
     e.stopPropagation();
+    if (e.cancelable) e.preventDefault();
     const selectedIdsForDrag = selectedRoomIds.includes(room.id) && handle === 'move' ? selectedRoomIds : [room.id];
     if (selectedIdsForDrag.some((id) => lockedRoomIds.has(id))) {
       setCopyNotification('🔒 Căn/Phòng đang khóa vị trí. Mở khóa trước khi di chuyển hoặc chỉnh kích thước.');
@@ -2642,6 +2651,17 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       return;
     }
     if (!imageContainerRef.current) return;
+
+    // Moving/resizing a room must never fall through to the canvas click handler.
+    // Highlight mode treats a blank click as Add Room, so a compatibility click
+    // emitted after pointer-up would otherwise create an extra room. Arm this only
+    // after the drag is actually allowed, otherwise a locked-room click could leave
+    // the canvas click suppression stuck on indefinitely.
+    suppressNextCanvasClickRef.current = true;
+    if (roomInteractionClickResetTimerRef.current !== null) {
+      window.clearTimeout(roomInteractionClickResetTimerRef.current);
+      roomInteractionClickResetTimerRef.current = null;
+    }
     const rect = imageContainerRef.current.getBoundingClientRect();
     const { x: mouseX, y: mouseY } = getMappedCoordinates(e, imageContainerRef.current, rotation);
 
@@ -2923,6 +2943,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       setDragStartInfo(null);
       setDraggingRoomsPreview(null);
       draggingRoomsPreviewRef.current = null;
+      roomInteractionClickResetTimerRef.current = window.setTimeout(() => {
+        suppressNextCanvasClickRef.current = false;
+        roomInteractionClickResetTimerRef.current = null;
+      }, 250);
       return;
     }
 
@@ -5276,13 +5300,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             )}
 
             {/* Scrollable / Zoomable Inner Area */}
-            <div ref={parentRef} className={`w-full overflow-auto flex ${zoomScale > 1 ? 'items-start justify-start p-4' : 'items-center justify-center'} ${isFullscreen ? 'flex-1' : 'h-full'}`}>
+            <div ref={parentRef} className={`w-full overflow-auto flex items-start justify-start ${isFullscreen ? 'flex-1' : 'h-full'}`}>
               <div
                 style={{
                    width: containerW,
                    height: containerH,
                 }}
-                className="relative shrink-0"
+                className="relative shrink-0 m-auto"
               >
                   <div
                     ref={imageContainerRef}
@@ -5315,11 +5339,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         src={activeFloor.imageUrl}
                         alt={activeFloor.floorName}
                         onLoad={(e) => {
-                          if (zoomScale > 1 || isFullscreen) {
-                            const w = e.currentTarget.naturalWidth;
-                            const h = e.currentTarget.naturalHeight;
-                            if (h > 0) setImgAspect(w / h);
-                          }
+                          const w = e.currentTarget.naturalWidth;
+                          const h = e.currentTarget.naturalHeight;
+                          if (w > 0 && h > 0) setImgAspect(w / h);
                         }}
                         referrerPolicy="no-referrer"
                         crossOrigin="anonymous"
@@ -5592,6 +5614,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   <div
                     style={{ left: `${cx}%`, top: `${cy}%`, touchAction: 'none' }}
                     onPointerDown={(e) => handleStartDrag(e, room, 'move')}
+                    onClick={(e) => e.stopPropagation()}
                     className="absolute -translate-x-1/2 -translate-y-1/2 z-40 pointer-events-auto cursor-grab active:cursor-grabbing bg-slate-950 text-amber-400 p-1.5 rounded-full shadow-2xl border-2 border-amber-400 flex items-center justify-center hover:scale-125 transition-transform group"
                     title="Nhấn giữ & kéo rê để di chuyển toàn bộ vùng highlight"
                   >
@@ -5602,24 +5625,28 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   <div
                     style={{ left: `${rx}%`, top: `${ry}%`, touchAction: 'none' }}
                     onPointerDown={(e) => handleStartDrag(e, room, 'nw')}
+                    onClick={(e) => e.stopPropagation()}
                     className="absolute -translate-x-1/2 -translate-y-1/2 z-40 pointer-events-auto cursor-nwse-resize w-4 h-4 bg-amber-400 border-2 border-slate-950 rounded-full shadow-lg hover:scale-150 transition-transform"
                     title="Kéo chỉnh góc Trên-Trái"
                   />
                   <div
                     style={{ left: `${rx + rw}%`, top: `${ry}%`, touchAction: 'none' }}
                     onPointerDown={(e) => handleStartDrag(e, room, 'ne')}
+                    onClick={(e) => e.stopPropagation()}
                     className="absolute -translate-x-1/2 -translate-y-1/2 z-40 pointer-events-auto cursor-nesw-resize w-4 h-4 bg-amber-400 border-2 border-slate-950 rounded-full shadow-lg hover:scale-150 transition-transform"
                     title="Kéo chỉnh góc Trên-Phải"
                   />
                   <div
                     style={{ left: `${rx}%`, top: `${ry + rh}%`, touchAction: 'none' }}
                     onPointerDown={(e) => handleStartDrag(e, room, 'sw')}
+                    onClick={(e) => e.stopPropagation()}
                     className="absolute -translate-x-1/2 -translate-y-1/2 z-40 pointer-events-auto cursor-nesw-resize w-4 h-4 bg-amber-400 border-2 border-slate-950 rounded-full shadow-lg hover:scale-150 transition-transform"
                     title="Kéo chỉnh góc Dưới-Trái"
                   />
                   <div
                     style={{ left: `${rx + rw}%`, top: `${ry + rh}%`, touchAction: 'none' }}
                     onPointerDown={(e) => handleStartDrag(e, room, 'se')}
+                    onClick={(e) => e.stopPropagation()}
                     className="absolute -translate-x-1/2 -translate-y-1/2 z-40 pointer-events-auto cursor-nwse-resize w-4 h-4 bg-amber-400 border-2 border-slate-950 rounded-full shadow-lg hover:scale-150 transition-transform"
                     title="Kéo chỉnh góc Dưới-Phải"
                   />
@@ -5628,24 +5655,28 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   <div
                     style={{ left: `${cx}%`, top: `${ry}%`, touchAction: 'none' }}
                     onPointerDown={(e) => handleStartDrag(e, room, 'n')}
+                    onClick={(e) => e.stopPropagation()}
                     className="absolute -translate-x-1/2 -translate-y-1/2 z-40 pointer-events-auto cursor-ns-resize w-3.5 h-3.5 bg-amber-300 border-2 border-slate-900 rounded-sm shadow-md hover:scale-150 transition-transform"
                     title="Kéo chỉnh viền Cạnh Trên"
                   />
                   <div
                     style={{ left: `${cx}%`, top: `${ry + rh}%`, touchAction: 'none' }}
                     onPointerDown={(e) => handleStartDrag(e, room, 's')}
+                    onClick={(e) => e.stopPropagation()}
                     className="absolute -translate-x-1/2 -translate-y-1/2 z-40 pointer-events-auto cursor-ns-resize w-3.5 h-3.5 bg-amber-300 border-2 border-slate-900 rounded-sm shadow-md hover:scale-150 transition-transform"
                     title="Kéo chỉnh viền Cạnh Dưới"
                   />
                   <div
                     style={{ left: `${rx}%`, top: `${cy}%`, touchAction: 'none' }}
                     onPointerDown={(e) => handleStartDrag(e, room, 'w')}
+                    onClick={(e) => e.stopPropagation()}
                     className="absolute -translate-x-1/2 -translate-y-1/2 z-40 pointer-events-auto cursor-ew-resize w-3.5 h-3.5 bg-amber-300 border-2 border-slate-900 rounded-sm shadow-md hover:scale-150 transition-transform"
                     title="Kéo chỉnh viền Cạnh Trái"
                   />
                   <div
                     style={{ left: `${rx + rw}%`, top: `${cy}%`, touchAction: 'none' }}
                     onPointerDown={(e) => handleStartDrag(e, room, 'e')}
+                    onClick={(e) => e.stopPropagation()}
                     className="absolute -translate-x-1/2 -translate-y-1/2 z-40 pointer-events-auto cursor-ew-resize w-3.5 h-3.5 bg-amber-300 border-2 border-slate-900 rounded-sm shadow-md hover:scale-150 transition-transform"
                     title="Kéo chỉnh viền Cạnh Phải"
                   />
@@ -5657,6 +5688,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         key={`poly-handle-${pIdx}`}
                         style={{ left: `${pt.x}%`, top: `${pt.y}%`, touchAction: 'none' }}
                         onPointerDown={(e) => handleStartDrag(e, room, pIdx)}
+                    onClick={(e) => e.stopPropagation()}
                         className="absolute -translate-x-1/2 -translate-y-1/2 z-45 pointer-events-auto cursor-crosshair w-4 h-4 bg-amber-500 border-2 border-slate-950 rounded-full shadow-lg hover:scale-150 transition-transform flex items-center justify-center text-[8px] font-black text-slate-950"
                         title={`Kéo di chuyển Đỉnh Góc #${pIdx + 1}`}
                       >

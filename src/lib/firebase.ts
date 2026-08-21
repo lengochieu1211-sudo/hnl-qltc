@@ -1369,6 +1369,39 @@ export function sanitizePayloadForCloud(obj: any): any {
   return copy;
 }
 
+function sanitizeSubcollectionItemForCloud(subcollection: string, item: any): any {
+  const sanitized = sanitizePayloadForCloud(item);
+
+  // Floor-plan binaries are uploaded by floorPlanImageSync.ts. When a user replaces
+  // an existing drawing, never publish the intermediate local data/blob URL (or an
+  // IMAGE_OMITTED marker) through the generic Firestore merge. Doing so can replace
+  // the valid old cloud pointer before the new binary is actually available, making
+  // another device temporarily show a blank/stale floor plan. Keep the previous cloud
+  // image metadata until the dedicated binary upload atomically publishes the new one.
+  if (subcollection === 'floor_plans') {
+    const rawImageUrl = typeof item?.imageUrl === 'string' ? item.imageUrl.trim() : '';
+    const hasLocalBinary = rawImageUrl.startsWith('data:image/') || rawImageUrl.startsWith('blob:');
+    if (hasLocalBinary && sanitized && typeof sanitized === 'object') {
+      for (const key of [
+        'imageUrl',
+        'driveFileId',
+        'driveUrl',
+        'cloudFileId',
+        'storageProvider',
+        'imageMimeType',
+        'imageFileSize',
+        'imageRevision',
+        'imageCloudRevision',
+        'imageCloudSyncedAt',
+      ]) {
+        delete sanitized[key];
+      }
+    }
+  }
+
+  return sanitized;
+}
+
 export interface ProjectSharedSettings {
   driveAutoSyncEnabled?: boolean;
   syncOptions?: {
@@ -1571,7 +1604,7 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
         for (const item of list) {
           if (!item || !item.id) continue;
           const docRef = doc(db, 'projects', project.id, cloudName, item.id);
-          const sanitized = sanitizePayloadForCloud(item);
+          const sanitized = sanitizeSubcollectionItemForCloud(cloudName, item);
 
           if (cloudName === 'inventory' && sanitized.sourceType === 'room-auto') {
             // Deterministic room-auto records are monotonic. Two devices may calculate
@@ -1725,7 +1758,7 @@ export async function saveProjectDiffsToCloud(
         if (!item.id) continue;
         auditCandidateCount++;
         const docRef = doc(db, 'projects', projectId, subName, item.id);
-        const sanitized = sanitizePayloadForCloud(item);
+        const sanitized = sanitizeSubcollectionItemForCloud(subName, item);
         const beforeSnap = auditEntries.length < AUDIT_DETAIL_LIMIT ? await getDoc(docRef).catch(() => null) : null;
         const beforeData = beforeSnap && beforeSnap.exists() ? beforeSnap.data() : null;
         const changedFields = buildAuditChangedFields(beforeData || {}, sanitized);

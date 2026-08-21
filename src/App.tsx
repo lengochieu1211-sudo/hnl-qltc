@@ -21,13 +21,38 @@ function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
         localImage.startsWith('data:image/') || localImage.startsWith('blob:') || /^https?:\/\//i.test(localImage)
       );
       const cloudImageRevision = Number(cloudItem.imageCloudRevision || cloudItem.imageRevision || 0);
+      const cloudSyncedRevision = Number(cloudItem.imageCloudRevision || 0);
       const localCloudRevision = Number(localItem.imageCloudRevision || 0);
       const localImageRevision = Number(localItem.imageRevision || 0);
       const sameDriveFile = Boolean(cloudItem.driveFileId && localItem.driveFileId && cloudItem.driveFileId === localItem.driveFileId);
-      const sameImageRevision = cloudImageRevision > 0 && (localCloudRevision === cloudImageRevision || localImageRevision === cloudImageRevision);
+      // A local image is safe to retain for a cloud marker only when it is known to
+      // represent that exact uploaded binary. Comparing imageRevision alone is unsafe:
+      // a pending metadata patch can copy the NEW revision onto an OLD hydrated image.
+      const sameSyncedImageRevision = cloudSyncedRevision > 0 && localCloudRevision === cloudSyncedRevision;
       const localHasNewerUnsyncedImage = localImageRevision > cloudImageRevision;
-      if (localImageDisplayable && (key !== 'imageUrl' || !val.startsWith('cloud-floorplan:') || sameDriveFile || sameImageRevision || localHasNewerUnsyncedImage)) {
+      const isFloorPlanCloudMarker = key === 'imageUrl' && val.startsWith('cloud-floorplan:');
+      const isOmittedMarker = val.includes('[IMAGE_OMITTED_FOR_CLOUD_SIZE_LIMIT]');
+      if (localImageDisplayable && (key !== 'imageUrl' || (!isFloorPlanCloudMarker && !isOmittedMarker) || sameDriveFile || sameSyncedImageRevision || localHasNewerUnsyncedImage || isOmittedMarker)) {
         merged[key] = localImage;
+
+        // While another device is still uploading a replacement, Firestore may first
+        // publish an omitted-image metadata record. Keep showing the old local bitmap,
+        // but DO NOT relabel it with the new image revision/cloud revision. Otherwise
+        // the later real Drive/Firestore marker can be mistaken for the same image and
+        // the remote device will stay stuck on the old drawing forever.
+        if (key === 'imageUrl' && (localHasNewerUnsyncedImage || (isOmittedMarker && cloudImageRevision > localImageRevision))) {
+          // Preserve the metadata that belongs to the bitmap we kept. This also
+          // protects a second quick replacement: an older upload may finish later
+          // with a newer updatedAt, but its lower imageRevision must never relabel
+          // or suppress the newer local bitmap waiting to upload.
+          merged.imageRevision = localImageRevision;
+          merged.imageCloudRevision = localCloudRevision;
+          merged.driveFileId = localItem.driveFileId;
+          merged.driveUrl = localItem.driveUrl;
+          merged.cloudFileId = localItem.cloudFileId;
+          merged.storageProvider = localItem.storageProvider;
+          merged.imageCloudSyncedAt = localItem.imageCloudSyncedAt;
+        }
       }
     } else if (Array.isArray(val) && Array.isArray(localItem[key])) {
       merged[key] = val.map((item: any, idx: number) => {
@@ -200,6 +225,8 @@ export default function App() {
   const [projectManagerInitialTab, setProjectManagerInitialTab] = useState<'projects' | 'sync'>('projects');
   const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
   const [currentUserRole, setCurrentUserRoleState] = useState<UserRole>(() => getCurrentUserRole());
+  const [isProjectRoleResolved, setIsProjectRoleResolved] = useState(false);
+  const [cloudDefectIndex, setCloudDefectIndex] = useState<{ projectId: string; ids: Set<string> } | null>(null);
   const googleServerBackendAvailable = hasApiBackend();
 
   useEffect(() => {
@@ -211,14 +238,19 @@ export default function App() {
       const user = getCurrentRealFirebaseUser();
       if (!user || !activeProjectId) {
         // Auth hydration after camera/background resume is not an authoritative role downgrade.
-        // Keep the last verified role until Firebase returns a real role result.
+        // Keep the last verified role until Firebase returns a real role result, but mark
+        // the current project's permission as unresolved so cloud autosave cannot run with
+        // a stale role inherited from another project/device session.
+        setIsProjectRoleResolved(false);
         return;
       }
+      setIsProjectRoleResolved(false);
       roleUnsub = subscribeProjectUserRoleRealtime(activeProjectId, user, (res) => {
         if (!isMounted) return;
         const effectiveRole: UserRole = res.allowed ? res.role : 'VIEWER';
         setCurrentUserRole(effectiveRole);
         setCurrentUserRoleState(effectiveRole);
+        setIsProjectRoleResolved(true);
       });
     };
 
@@ -568,6 +600,11 @@ export default function App() {
     receivedInitialSubcollectionsRef.current.clear();
     priorityCloudSyncRevisionRef.current = 0;
     flushedPriorityCloudSyncRevisionRef.current = 0;
+    cloudDataRetryAttemptRef.current = 0;
+    if (cloudDataRetryTimerRef.current !== null) {
+      window.clearTimeout(cloudDataRetryTimerRef.current);
+      cloudDataRetryTimerRef.current = null;
+    }
     setDataCloudStatus({ phase: 'idle' });
     setActiveProjectId(newProjectId);
   };
@@ -608,7 +645,20 @@ export default function App() {
 
   // Destructure current present state
   const { materialNorms, inventory, workVolumes, floorPlans, defects, roomProgressList, checklist, crewRecords, teams } = present;
-  const activeDefects = useMemo(() => defects.filter((item) => !item.archivedAt), [defects]);
+  const activeDefects = useMemo(() => {
+    const cloudIds = cloudDefectIndex?.projectId === activeProjectId ? cloudDefectIndex.ids : null;
+    return defects.filter((item) => {
+      if (item.archivedAt) return false;
+      // A verified VIEWER must see the shared Firestore truth, not stale/local-only
+      // defects left in this browser from an older/offline session. Keep those records
+      // in local storage (no data loss); if the account later becomes ENGINEER/ADMIN,
+      // they become visible again and the autosave reconciliation can publish them.
+      if (isProjectRoleResolved && currentUserRole === 'VIEWER' && cloudIds) {
+        return cloudIds.has(item.id);
+      }
+      return true;
+    });
+  }, [defects, cloudDefectIndex, activeProjectId, isProjectRoleResolved, currentUserRole]);
   const activeChecklist = useMemo(() => checklist.filter((item) => !item.archivedAt), [checklist]);
 
   // Helper to match floor names or floor IDs (supports multi-floor strings like "Tầng 1, Tầng 2")
@@ -1065,10 +1115,20 @@ export default function App() {
   const photoSyncTimerRef = useRef<number | null>(null);
   const floorPlanImageSyncInFlightRef = useRef<Set<string>>(new Set());
   const floorPlanImageHydrateInFlightRef = useRef<Set<string>>(new Set());
+  const floorPlanImageSyncPendingRef = useRef<Set<string>>(new Set());
+  const floorPlanImageHydratePendingRef = useRef<Set<string>>(new Set());
+  const floorPlanImageSyncRetryCountRef = useRef<Map<string, number>>(new Map());
+  const floorPlanImageHydrateRetryCountRef = useRef<Map<string, number>>(new Map());
+  const floorPlanImageRetryTimersRef = useRef<Set<number>>(new Set());
+  const [floorPlanImageSyncRetryTick, setFloorPlanImageSyncRetryTick] = useState(0);
+  const [floorPlanImageHydrateRetryTick, setFloorPlanImageHydrateRetryTick] = useState(0);
 
   const [cloudInitialReady, setCloudInitialReady] = useState<boolean>(false);
   const receivedInitialSubcollectionsRef = useRef<Set<string>>(new Set());
   const [dataCloudStatus, setDataCloudStatus] = useState<{ phase: 'idle' | 'syncing' | 'synced' | 'error'; lastSyncAt?: number; message?: string }>({ phase: 'idle' });
+  const [cloudDataRetryTick, setCloudDataRetryTick] = useState(0);
+  const cloudDataRetryAttemptRef = useRef(0);
+  const cloudDataRetryTimerRef = useRef<number | null>(null);
   const priorityCloudSyncRevisionRef = useRef(0);
   const flushedPriorityCloudSyncRevisionRef = useRef(0);
   const [cloudUserKey, setCloudUserKey] = useState<string>('');
@@ -1077,6 +1137,25 @@ export default function App() {
   const [authorizedChatProjects, setAuthorizedChatProjects] = useState<Array<{ id: string; name: string }>>([]);
   const [cloudBootstrapVersion, setCloudBootstrapVersion] = useState<number>(0);
   const cloudBootstrapAttemptsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const retryWhenOnline = () => {
+      cloudDataRetryAttemptRef.current = 0;
+      if (cloudDataRetryTimerRef.current !== null) {
+        window.clearTimeout(cloudDataRetryTimerRef.current);
+        cloudDataRetryTimerRef.current = null;
+      }
+      setCloudDataRetryTick((tick) => tick + 1);
+    };
+    window.addEventListener('online', retryWhenOnline);
+    return () => {
+      window.removeEventListener('online', retryWhenOnline);
+      if (cloudDataRetryTimerRef.current !== null) {
+        window.clearTimeout(cloudDataRetryTimerRef.current);
+        cloudDataRetryTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const handlePhotoAttachmentsChanged = (event: Event) => {
@@ -1121,6 +1200,21 @@ export default function App() {
     };
   }, [activeProjectId]);
 
+  useEffect(() => {
+    const retryWhenOnline = () => {
+      floorPlanImageSyncRetryCountRef.current.clear();
+      floorPlanImageHydrateRetryCountRef.current.clear();
+      setFloorPlanImageSyncRetryTick((tick) => tick + 1);
+      setFloorPlanImageHydrateRetryTick((tick) => tick + 1);
+    };
+    window.addEventListener('online', retryWhenOnline);
+    return () => {
+      window.removeEventListener('online', retryWhenOnline);
+      for (const timerId of floorPlanImageRetryTimersRef.current) window.clearTimeout(timerId);
+      floorPlanImageRetryTimersRef.current.clear();
+    };
+  }, []);
+
   // Floor-plan images use the same multi-device principle as Defect/Crew photos:
   // metadata stays in Firestore, while the binary goes to the primary Drive account
   // (Firestore chunks are retained as a safe zero-cost fallback until Drive is configured).
@@ -1136,11 +1230,19 @@ export default function App() {
       // Sequential upload avoids large simultaneous Base64 copies on Android.
       for (const plan of candidates) {
         if (cancelled || activeProjectIdRef.current !== projectId) return;
-        if (floorPlanImageSyncInFlightRef.current.has(plan.id)) continue;
+        if (floorPlanImageSyncInFlightRef.current.has(plan.id)) {
+          // A newer replacement arrived while this floor was already uploading. Mark
+          // it pending so the latest revision is retried immediately after in-flight
+          // work releases the floor ID instead of being silently skipped forever.
+          floorPlanImageSyncPendingRef.current.add(plan.id);
+          continue;
+        }
         floorPlanImageSyncInFlightRef.current.add(plan.id);
+        const uploadRetryKey = `${projectId}:${plan.id}:${Number(plan.imageRevision || plan.updatedAt || 0)}`;
         try {
           const metadata = await syncFloorPlanImageToCloud(projectId, plan);
           if (!metadata || cancelled || activeProjectIdRef.current !== projectId) continue;
+          floorPlanImageSyncRetryCountRef.current.delete(uploadRetryKey);
           setPresent((prev) => {
             const current = prev.floorPlans.find((item) => item.id === plan.id);
             if (!current) return prev;
@@ -1159,8 +1261,21 @@ export default function App() {
           });
         } catch (err) {
           console.warn('[Floor Plan Image] upload warning:', plan.floorName, err);
+          const attempt = (floorPlanImageSyncRetryCountRef.current.get(uploadRetryKey) || 0) + 1;
+          floorPlanImageSyncRetryCountRef.current.set(uploadRetryKey, attempt);
+          if (attempt <= 4 && activeProjectIdRef.current === projectId) {
+            const delay = Math.min(12000, 1500 * Math.pow(2, attempt - 1));
+            const timerId = window.setTimeout(() => {
+              floorPlanImageRetryTimersRef.current.delete(timerId);
+              if (activeProjectIdRef.current === projectId) setFloorPlanImageSyncRetryTick((tick) => tick + 1);
+            }, delay);
+            floorPlanImageRetryTimersRef.current.add(timerId);
+          }
         } finally {
           floorPlanImageSyncInFlightRef.current.delete(plan.id);
+          if (floorPlanImageSyncPendingRef.current.delete(plan.id) && activeProjectIdRef.current === projectId) {
+            setFloorPlanImageSyncRetryTick((tick) => tick + 1);
+          }
         }
       }
     };
@@ -1170,7 +1285,7 @@ export default function App() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [floorPlans, activeProjectId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing]);
+  }, [floorPlans, activeProjectId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, floorPlanImageSyncRetryTick]);
 
   // Hydrate cloud-backed floor-plan binaries on another phone/PC. Run one-by-one so
   // opening a project does not allocate every large plan image in RAM at the same time.
@@ -1187,22 +1302,66 @@ export default function App() {
     const run = async () => {
       for (const plan of candidates) {
         if (cancelled || activeProjectIdRef.current !== projectId) return;
-        if (floorPlanImageHydrateInFlightRef.current.has(plan.id)) continue;
+        if (floorPlanImageHydrateInFlightRef.current.has(plan.id)) {
+          // The cloud marker changed while an older download was in flight. Queue one
+          // retry so the newest revision is fetched as soon as the old request ends.
+          floorPlanImageHydratePendingRef.current.add(plan.id);
+          continue;
+        }
         floorPlanImageHydrateInFlightRef.current.add(plan.id);
+        const expectedCloudIdentity = [
+          plan.storageProvider || '',
+          plan.driveFileId || '',
+          plan.cloudFileId || '',
+          Number(plan.imageCloudRevision || plan.imageRevision || 0),
+        ].join('|');
+        const hydrateRetryKey = `${projectId}:${plan.id}:${expectedCloudIdentity}`;
         try {
           const imageUrl = await loadFloorPlanImageFromCloud(projectId, plan);
-          if (!imageUrl || cancelled || activeProjectIdRef.current !== projectId) continue;
+          if (cancelled || activeProjectIdRef.current !== projectId) continue;
+          if (!imageUrl) throw new Error('Cloud floor-plan image is not available yet.');
+          floorPlanImageHydrateRetryCountRef.current.delete(hydrateRetryKey);
           setPresent((prev) => {
             const current = prev.floorPlans.find((item) => item.id === plan.id);
             if (!current || isDisplayableFloorPlanUrl(current.imageUrl)) return prev;
+
+            const currentCloudIdentity = [
+              current.storageProvider || '',
+              current.driveFileId || '',
+              current.cloudFileId || '',
+              Number(current.imageCloudRevision || current.imageRevision || 0),
+            ].join('|');
+
+            // A replacement may have reached Firestore while an older cloud image was
+            // still downloading. Never install that stale bitmap over the new marker.
+            // Leave the current marker untouched so the retry pass hydrates the latest
+            // revision instead of getting stuck forever on the old drawing.
+            if (currentCloudIdentity !== expectedCloudIdentity) {
+              floorPlanImageHydratePendingRef.current.add(plan.id);
+              return prev;
+            }
+
             const nextPlans = prev.floorPlans.map((item) => item.id === plan.id ? { ...item, imageUrl } : item);
             setAsyncItem(getKey('construction_floor_plans', projectId), nextPlans).catch((err) => console.warn('Floor-plan hydrate cache warning:', err));
             return { ...prev, floorPlans: nextPlans };
           });
         } catch (err) {
           console.warn('[Floor Plan Image] hydrate warning:', plan.floorName, err);
+          const attempt = (floorPlanImageHydrateRetryCountRef.current.get(hydrateRetryKey) || 0) + 1;
+          floorPlanImageHydrateRetryCountRef.current.set(hydrateRetryKey, attempt);
+          if (attempt <= 4 && activeProjectIdRef.current === projectId) {
+            const delay = Math.min(12000, 1200 * Math.pow(2, attempt - 1));
+            const timerId = window.setTimeout(() => {
+              floorPlanImageRetryTimersRef.current.delete(timerId);
+              if (activeProjectIdRef.current === projectId) setFloorPlanImageHydrateRetryTick((tick) => tick + 1);
+            }, delay);
+            floorPlanImageRetryTimersRef.current.add(timerId);
+          }
         } finally {
           floorPlanImageHydrateInFlightRef.current.delete(plan.id);
+          if (floorPlanImageHydratePendingRef.current.delete(plan.id) && activeProjectIdRef.current === projectId) {
+            setFloorPlanImageHydrateRetryTick((tick) => tick + 1);
+          }
         }
         await new Promise((resolve) => window.setTimeout(resolve, 80));
       }
@@ -1212,7 +1371,7 @@ export default function App() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [floorPlans, activeProjectId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing]);
+  }, [floorPlans, activeProjectId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, floorPlanImageHydrateRetryTick]);
 
   useEffect(() => {
     const refreshCloudUser = () => {
@@ -1500,7 +1659,7 @@ export default function App() {
 
   // Helper to push state changes to history (max 30 steps) and stamp item updatedAt
   const updateAppData = (updater: (prev: AppData) => AppData) => {
-    if (!canEditProjectData(currentUserRole)) {
+    if (!isProjectRoleResolved || !canEditProjectData(currentUserRole)) {
       console.warn('[RBAC] Thao tác bị từ chối: Quyền VIEWER (Chỉ xem) không được phép sửa đổi dữ liệu.');
       return;
     }
@@ -1525,7 +1684,7 @@ export default function App() {
         const nextList = rawNext[col] || [];
 
         if (prevList !== nextList) {
-          if (col === 'crewRecords') priorityCloudSyncRevisionRef.current += 1;
+          if (col === 'crewRecords' || col === 'defects') priorityCloudSyncRevisionRef.current += 1;
           const prevMap = new Map<string, any>();
           (prevList as any[]).forEach(item => { if (item?.id) prevMap.set(String(item.id), item); });
           const nextMap = new Map<string, any>();
@@ -1660,7 +1819,7 @@ export default function App() {
   };
 
   const handleUndo = () => {
-    if (!canEditProjectData(currentUserRole)) return;
+    if (!isProjectRoleResolved || !canEditProjectData(currentUserRole)) return;
     if (past.length === 0) return;
     const previous = past[past.length - 1];
     const newPast = past.slice(0, past.length - 1);
@@ -1677,7 +1836,7 @@ export default function App() {
   };
 
   const handleRedo = () => {
-    if (!canEditProjectData(currentUserRole)) return;
+    if (!isProjectRoleResolved || !canEditProjectData(currentUserRole)) return;
     if (future.length === 0) return;
     const next = future[0];
     const newFuture = future.slice(1);
@@ -1803,6 +1962,7 @@ export default function App() {
 
     const subscribedProjectId = activeProjectId;
     setCloudInitialReady(false);
+    setCloudDefectIndex(null);
     receivedInitialSubcollectionsRef.current.clear();
 
     const unsubscribe = subscribeToProjectRealtime(
@@ -1837,6 +1997,28 @@ export default function App() {
       },
       (stateKey, cloudItems, isInitial, isPatch = false) => {
         if (switchingProjectRef.current || activeProjectIdRef.current !== subscribedProjectId) return;
+
+        if (stateKey === 'defects') {
+          setCloudDefectIndex((prevIndex) => {
+            if (!isPatch || !prevIndex || prevIndex.projectId !== subscribedProjectId) {
+              return {
+                projectId: subscribedProjectId,
+                ids: new Set(
+                  cloudItems
+                    .filter((item: any) => item?.id && !item.deleted)
+                    .map((item: any) => String(item.id))
+                )
+              };
+            }
+            const nextIds = new Set(prevIndex.ids);
+            cloudItems.forEach((raw: any) => {
+              if (!raw?.id) return;
+              if (raw.deleted || raw.__firestoreChangeType === 'removed') nextIds.delete(String(raw.id));
+              else nextIds.add(String(raw.id));
+            });
+            return { projectId: subscribedProjectId, ids: nextIds };
+          });
+        }
 
         receivedInitialSubcollectionsRef.current.add(stateKey);
         if (receivedInitialSubcollectionsRef.current.size >= 9) {
@@ -2029,7 +2211,7 @@ export default function App() {
   }, [activeProjectId, activeTab, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing]);
 
   const handleUpdateProjectName = (val: string) => {
-    if (!canEditProjectData(currentUserRole)) return;
+    if (!isProjectRoleResolved || !canEditProjectData(currentUserRole)) return;
     hasUserEditedSinceHydrateRef.current = true;
     hasUnsavedAllBackupChangesRef.current = true;
     setProjectName(val);
@@ -2039,7 +2221,7 @@ export default function App() {
   };
 
   const handleUpdateContractorName = (val: string) => {
-    if (!canEditProjectData(currentUserRole)) return;
+    if (!isProjectRoleResolved || !canEditProjectData(currentUserRole)) return;
     hasUserEditedSinceHydrateRef.current = true;
     hasUnsavedAllBackupChangesRef.current = true;
     setContractorName(val);
@@ -2049,7 +2231,7 @@ export default function App() {
   };
 
   const handleUpdateInspectorName = (val: string) => {
-    if (!canEditProjectData(currentUserRole)) return;
+    if (!isProjectRoleResolved || !canEditProjectData(currentUserRole)) return;
     hasUserEditedSinceHydrateRef.current = true;
     hasUnsavedAllBackupChangesRef.current = true;
     setInspectorName(val);
@@ -2230,7 +2412,7 @@ export default function App() {
 
   // Google Drive Sync Up
   const handleDriveSyncUp = async (customFolderId?: string) => {
-    if (!canEditProjectData(currentUserRole)) return { success: false, error: 'Bạn chỉ có quyền xem dự án.' };
+    if (!isProjectRoleResolved || !canEditProjectData(currentUserRole)) return { success: false, error: 'Quyền dự án chưa sẵn sàng hoặc tài khoản chỉ có quyền xem.' };
     const operationProjectId = activeProjectIdRef.current || activeProjectId;
     if (!googleServerBackendAvailable) {
       setDriveSyncStatus('idle');
@@ -2372,7 +2554,7 @@ export default function App() {
   };
 
   const handleDriveSyncUpAll = async (customFolderId?: string) => {
-    if (!canEditProjectData(currentUserRole)) return { success: false, error: 'Bạn chỉ có quyền xem dự án.' };
+    if (!isProjectRoleResolved || !canEditProjectData(currentUserRole)) return { success: false, error: 'Quyền dự án chưa sẵn sàng hoặc tài khoản chỉ có quyền xem.' };
     if (!googleServerBackendAvailable) {
       return {
         success: false,
@@ -2732,6 +2914,7 @@ export default function App() {
   // Debounced auto-save to Google Drive & Cloud on local changes (using Subcollection Diffs)
   useEffect(() => {
     if (!isHydrated || isLoadingProject || isRestoring || isInitializing) return;
+    if (!isProjectRoleResolved) return;
     if (!canEditProjectData(currentUserRole)) return;
     if (syncLockRef.current || switchingProjectRef.current) return;
     if (!cloudUserKey) return;
@@ -2739,11 +2922,11 @@ export default function App() {
 
     const projectIdForThisSave = activeProjectId;
     const priorityRevisionAtSchedule = priorityCloudSyncRevisionRef.current;
-    const hasPriorityCrewChange = priorityRevisionAtSchedule > flushedPriorityCloudSyncRevisionRef.current;
-    const cloudSaveDelayMs = hasPriorityCrewChange ? 750 : 6000;
+    const hasPriorityRealtimeChange = priorityRevisionAtSchedule > flushedPriorityCloudSyncRevisionRef.current;
+    const cloudSaveDelayMs = hasPriorityRealtimeChange ? 750 : 6000;
 
-    if (hasPriorityCrewChange) {
-      setDataCloudStatus({ phase: 'syncing', message: 'Đang đồng bộ quân số...' });
+    if (hasPriorityRealtimeChange) {
+      setDataCloudStatus({ phase: 'syncing', message: 'Đang đồng bộ thay đổi quan trọng...' });
     }
 
     const timer = setTimeout(() => {
@@ -2848,12 +3031,30 @@ export default function App() {
                 lastSyncedPresentRef.current = snapshotForSave;
                 lastSyncedMetadataRef.current = { projectName, contractorName, inspectorName };
                 flushedPriorityCloudSyncRevisionRef.current = Math.max(flushedPriorityCloudSyncRevisionRef.current, priorityRevisionAtSchedule);
+                cloudDataRetryAttemptRef.current = 0;
+                if (cloudDataRetryTimerRef.current !== null) {
+                  window.clearTimeout(cloudDataRetryTimerRef.current);
+                  cloudDataRetryTimerRef.current = null;
+                }
                 setDataCloudStatus({ phase: 'synced', lastSyncAt: Date.now() });
               }
             }).catch(err => {
               console.warn('Cloud auto save notice:', err);
               if (!switchingProjectRef.current && activeProjectIdRef.current === activeId) {
                 setDataCloudStatus({ phase: 'error', message: err instanceof Error ? err.message : 'Không thể đồng bộ dữ liệu lên Firebase.' });
+                const errorCode = String((err as any)?.code || '');
+                const shouldRetry = typeof navigator === 'undefined' || navigator.onLine;
+                if (shouldRetry && errorCode !== 'permission-denied' && cloudDataRetryTimerRef.current === null) {
+                  const attempt = Math.min(5, cloudDataRetryAttemptRef.current + 1);
+                  cloudDataRetryAttemptRef.current = attempt;
+                  const delay = Math.min(20000, 1500 * Math.pow(2, attempt - 1));
+                  cloudDataRetryTimerRef.current = window.setTimeout(() => {
+                    cloudDataRetryTimerRef.current = null;
+                    if (!switchingProjectRef.current && activeProjectIdRef.current === activeId) {
+                      setCloudDataRetryTick((tick) => tick + 1);
+                    }
+                  }, delay);
+                }
               }
             });
           }
@@ -2864,7 +3065,7 @@ export default function App() {
     }, cloudSaveDelayMs); // V6.2.13: crew priority flush 750ms; other edits retain the V6.2.11 6s batching.
 
     return () => clearTimeout(timer);
-  }, [present, projectName, contractorName, inspectorName, autoSyncEnabled, isHydrated, isLoadingProject, isRestoring, isInitializing, activeProjectId, cloudUserKey, cloudInitialReady]);
+  }, [present, projectName, contractorName, inspectorName, autoSyncEnabled, isHydrated, isLoadingProject, isRestoring, isInitializing, activeProjectId, cloudUserKey, cloudInitialReady, currentUserRole, isProjectRoleResolved, cloudDataRetryTick]);
 
   // Local File Auto-Save Debounced Effect
   useEffect(() => {
@@ -4435,7 +4636,7 @@ export default function App() {
   };
 
   const floorNames = Array.from(new Set(floorPlans.map((fp) => fp.floorName)));
-  const unhandledDefectsCount = defects.filter((d) => !d.archivedAt && d.status !== 'Đã nghiệm thu').length;
+  const unhandledDefectsCount = activeDefects.filter((d) => d.status !== 'Đã nghiệm thu').length;
 
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
   const [chatLastMessageAt, setChatLastMessageAt] = useState(0);
@@ -4547,8 +4748,8 @@ export default function App() {
 
 
   const dueDateAlerts = useMemo(() => {
-    return collectDueDateAlerts(workVolumes, checklist, defects);
-  }, [workVolumes, checklist, defects]);
+    return collectDueDateAlerts(workVolumes, checklist, activeDefects);
+  }, [workVolumes, checklist, activeDefects]);
 
   const handleNavigateFromAlert = (alertItem: DueDateAlertItem) => {
     if (alertItem.type === 'workVolume') {
@@ -4576,6 +4777,7 @@ export default function App() {
         {/* Sticky Top Header */}
         <GoogleAuthHeader
           projectName={projectName}
+          projectId={activeProjectId}
           lastUpdatedAt={lastUpdatedAt}
           setProjectName={handleUpdateProjectName}
           onSyncAll={handleSyncAll}

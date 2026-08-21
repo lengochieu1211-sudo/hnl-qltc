@@ -5,6 +5,7 @@ import {
   getDoc,
   getDocs,
   deleteDoc,
+  deleteField,
   orderBy,
   query,
   setDoc,
@@ -142,7 +143,14 @@ async function uploadFallback(projectId: string, plan: FloorPlan, blob: Blob, re
     updatedAt: Math.max(now, Number((plan as any).updatedAt || 0) + 1),
   };
 
-  await setDoc(doc(db, 'projects', projectId, 'floor_plans', plan.id), metadata, { merge: true });
+  await setDoc(doc(db, 'projects', projectId, 'floor_plans', plan.id), {
+    ...metadata,
+    // If a Drive-backed drawing is replaced while Drive is temporarily unavailable,
+    // remove the stale Drive identity. Otherwise another device can keep attempting
+    // the old Drive file even though this revision now lives in the Firestore fallback.
+    driveFileId: deleteField(),
+    driveUrl: deleteField(),
+  }, { merge: true });
   return metadata;
 }
 
