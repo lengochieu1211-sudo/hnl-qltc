@@ -18,7 +18,7 @@ jobs:
       VITE_FIREBASE_APP_ID: ""
       VITE_FIRESTORE_DATABASE_ID: "(default)"
       VITE_FIREBASE_FIRESTORE_DATABASE_ID: "(default)"
-      VITE_APP_VERSION: "V6.2.11"
+      VITE_APP_VERSION: "V6.2.13"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -26,24 +26,22 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci && npm run build
-      - uses: FirebaseExtended/action-hosting-deploy@v0
-        with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
-          channelId: live
-          projectId: com-example-qlct-61329
+      # Deploy rules BEFORE Hosting so a missing Rules IAM permission cannot leave a
+      # misleading partial-success deployment where the web app is newer than its rules.
       - name: Deploy Firestore rules
-        id: deploy_firestore_rules
-        continue-on-error: true
         shell: bash
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
         run: |
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
-          npx --yes firebase-tools@13.35.1 deploy --only firestore:rules --project com-example-qlct-61329 --non-interactive
-      - name: Firestore rules IAM warning
-        if: steps.deploy_firestore_rules.outcome == 'failure'
-        shell: bash
-        run: |
-          echo "::warning::Hosting was deployed, but Firestore Rules were not. Grant the GitHub Actions service account roles/firebaserules.admin (Firebase Rules Admin), then re-run this workflow."
+          if ! npx --yes firebase-tools@13.35.1 deploy --only firestore:rules --project com-example-qlct-61329 --non-interactive; then
+            echo "::error::Firestore Rules deploy failed. If the log contains HTTP 403 / permission denied, grant the GitHub Actions service account roles/firebaserules.admin (Firebase Rules Admin) in Google Cloud IAM, then re-run this workflow. Hosting has NOT been deployed by this run."
+            exit 1
+          fi
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+          channelId: live
+          projectId: com-example-qlct-61329

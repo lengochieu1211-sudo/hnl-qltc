@@ -82,6 +82,7 @@ interface ProjectManagerModalProps {
   onSwitchProject?: (id: string) => Promise<void>;
   onFlushCurrentProject?: () => Promise<void>;
   userRole?: UserRole;
+  dataCloudStatus?: { phase: 'idle' | 'syncing' | 'synced' | 'error'; lastSyncAt?: number; message?: string };
   photoCloudStatus?: { phase: 'idle' | 'syncing' | 'synced' | 'error'; pending?: number; message?: string; lastSyncAt?: number };
 }
 
@@ -112,6 +113,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   onSwitchProject,
   onFlushCurrentProject,
   userRole,
+  dataCloudStatus,
   photoCloudStatus,
 }) => {
   useFormatSettings();
@@ -3114,13 +3116,15 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     </div>
                     <span className={`shrink-0 text-[9px] px-2 py-1 rounded-full font-bold border ${
                       !googleUser || googleUser.isAnonymous ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                      photoCloudStatus?.phase === 'error' ? 'bg-rose-50 text-rose-700 border-rose-200' :
-                      photoCloudStatus?.phase === 'syncing' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                      typeof navigator !== 'undefined' && !navigator.onLine ? 'bg-slate-100 text-slate-600 border-slate-200' :
+                      dataCloudStatus?.phase === 'error' ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                      dataCloudStatus?.phase === 'syncing' ? 'bg-blue-50 text-blue-700 border-blue-200' :
                       'bg-emerald-50 text-emerald-700 border-emerald-200'
                     }`}>
                       {!googleUser || googleUser.isAnonymous ? 'Cần đăng nhập' :
-                       photoCloudStatus?.phase === 'error' ? '● Lỗi ảnh' :
-                       photoCloudStatus?.phase === 'syncing' ? '● Đang đồng bộ' : '● Đã đồng bộ'}
+                       typeof navigator !== 'undefined' && !navigator.onLine ? '● Offline' :
+                       dataCloudStatus?.phase === 'error' ? '● Chưa đồng bộ' :
+                       dataCloudStatus?.phase === 'syncing' ? '● Đang đồng bộ nền' : '● Đã đồng bộ'}
                     </span>
                   </div>
 
@@ -3135,10 +3139,15 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     </div>
                   </div>
                   {googleUser && !googleUser.isAnonymous && (
-                    <p className="text-[9px] text-slate-500 flex items-center justify-between gap-2">
-                      <span>Ảnh ưu tiên lưu vào Drive chính An Phú; Firebase giữ metadata và chỉ dùng Firestore làm dự phòng khi Drive chưa cấu hình hoặc tạm lỗi.</span>
-                      {photoCloudStatus?.lastSyncAt ? <span className="shrink-0">{new Date(photoCloudStatus.lastSyncAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</span> : null}
-                    </p>
+                    <div className="text-[9px] text-slate-500 space-y-1">
+                      <p className="flex items-center justify-between gap-2">
+                        <span>Dữ liệu nghiệp vụ đồng bộ realtime bằng Firebase; ảnh ưu tiên lưu vào Drive chính An Phú.</span>
+                        {dataCloudStatus?.lastSyncAt ? <span className="shrink-0">Lần cuối {new Date(dataCloudStatus.lastSyncAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</span> : null}
+                      </p>
+                      {dataCloudStatus?.phase === 'error' && dataCloudStatus.message ? (
+                        <p className="text-rose-600 font-semibold">Chưa ghi được lên Firebase: {dataCloudStatus.message}</p>
+                      ) : null}
+                    </div>
                   )}
 
                   <details className="group bg-white/70 border border-indigo-100 rounded-lg">
