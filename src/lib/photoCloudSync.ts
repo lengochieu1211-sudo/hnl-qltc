@@ -19,6 +19,7 @@ import {
 } from '../utils/photoStorage';
 import { getDeviceId, getDeviceName } from '../utils/deviceIdentity';
 import {
+  cleanupPhotoVersionsOnPrimaryDrive,
   deletePhotoFromPrimaryDrive,
   downloadPhotoFromPrimaryDrive,
   isPrimaryDriveReady,
@@ -83,7 +84,23 @@ async function deletePhotoChunks(projectId: string, photoId: string): Promise<vo
   if (count > 0) await batch.commit();
 }
 
+const photoUploadInFlight = new Map<string, Promise<void>>();
+
 export async function uploadPhotoToCloud(projectId: string, photo: PhotoAttachment): Promise<void> {
+  if (!projectId || !photo?.id) return;
+  const revision = Number(photo.updatedAt || photo.createdAt || 0);
+  const key = `${projectId}:${photo.id}:${revision}:${photo.deleted ? 'deleted' : 'active'}`;
+  const existing = photoUploadInFlight.get(key);
+  if (existing) return existing;
+
+  const task = uploadPhotoToCloudOnce(projectId, photo).finally(() => {
+    if (photoUploadInFlight.get(key) === task) photoUploadInFlight.delete(key);
+  });
+  photoUploadInFlight.set(key, task);
+  return task;
+}
+
+async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment): Promise<void> {
   if (!projectId || !photo?.id) return;
   const user = getCurrentRealFirebaseUser();
   if (!user || user.isAnonymous) return;
@@ -158,6 +175,7 @@ export async function uploadPhotoToCloud(projectId: string, photo: PhotoAttachme
           fileSize: Number(drive.fileSize || blob.size || photo.fileSize || 0),
           chunkCount: 0,
           contentVersion,
+          contentHash: drive.contentHash || '',
           storageProvider: 'google-drive-primary',
           driveOwnerEmail: drive.ownerEmail || PRIMARY_DRIVE_OWNER_EMAIL,
           driveFolderPath: drive.folderPath || '',
@@ -169,6 +187,12 @@ export async function uploadPhotoToCloud(projectId: string, photo: PhotoAttachme
           updatedAt: contentVersion,
           cloudSyncedAt: Date.now(),
         }, { merge: true });
+        // Cleanup is deliberately POST-COMMIT. If it fails, leave the stale Drive
+        // version in place rather than failing the sync and retrying the binary.
+        // The Apps Script re-verifies Firestore points at drive.fileId before trashing.
+        await cleanupPhotoVersionsOnPrimaryDrive(projectId, photo.id, drive.fileId, contentVersion).catch((err) => {
+          console.warn('[Photo Cloud] stale Drive cleanup deferred:', photo.id, err);
+        });
         // Only delete old Firestore chunks AFTER the Drive upload + metadata write succeeded.
         await deletePhotoChunks(projectId, photo.id).catch(() => {});
         return;

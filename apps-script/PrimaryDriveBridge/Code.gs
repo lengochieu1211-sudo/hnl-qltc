@@ -49,12 +49,20 @@ function doPost(e) {
       case 'downloadPhoto':
         result = downloadPhoto_(payload);
         break;
+      case 'cleanupPhotoVersions':
+        assertEditor_(access);
+        result = cleanupPhotoVersions_(payload, idToken);
+        break;
       case 'uploadFloorPlan':
         assertEditor_(access);
         result = uploadFloorPlan_(payload, user);
         break;
       case 'downloadFloorPlan':
         result = downloadFloorPlan_(payload);
+        break;
+      case 'cleanupFloorPlanVersions':
+        assertEditor_(access);
+        result = cleanupFloorPlanVersions_(payload, idToken);
         break;
       case 'uploadBackup':
         assertEditor_(access);
@@ -307,7 +315,9 @@ function photoFolder_(payload, project) {
   const images = getOrCreateFolder_(projectFolder, 'HINH ANH');
   const group = payload.entityType === 'crewRecord' ? 'BAO CAO QUAN SO' : 'DEFECT';
   const typeFolder = getOrCreateFolder_(images, group);
-  const date = new Date(Number(payload.updatedAt || Date.now()));
+  // Keep one photo in a stable month folder for its entire lifetime. Editing the
+  // photo later must not move the same media ID into a new month and create ghosts.
+  const date = new Date(Number(payload.createdAt || payload.updatedAt || Date.now()));
   const monthFolder = getOrCreateFolder_(typeFolder, Utilities.formatDate(date, Session.getScriptTimeZone() || 'Asia/Ho_Chi_Minh', 'yyyy-MM'));
   return getOrCreateFolder_(monthFolder, payload.entityId || payload.photoId || 'Khac');
 }
@@ -337,6 +347,15 @@ function withDriveAssetWriteLock_(fn) {
   }
 }
 
+function contentHash_(bytes) {
+  const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, bytes || []);
+  return Utilities.base64EncodeWebSafe(digest).replace(/=+$/g, '');
+}
+
+function driveRef_(projectId, fileId) {
+  return 'drive:' + String(projectId || '') + ':' + String(fileId || '');
+}
+
 function uploadFloorPlan_(payload, user) {
   if (!payload.floorPlanId || !payload.base64) throw new Error('Thiếu dữ liệu ảnh mặt bằng tải lên.');
   const bytes = Utilities.base64Decode(String(payload.base64));
@@ -344,31 +363,31 @@ function uploadFloorPlan_(payload, user) {
   const mimeType = String(payload.mimeType || 'image/jpeg');
   const fileName = sanitizeName_(payload.floorPlanId) + '.' + extensionForMime_(mimeType);
   const incomingUpdatedAt = Number(payload.updatedAt || 0);
+  const incomingHash = contentHash_(bytes);
 
   return withDriveAssetWriteLock_(function() {
     const project = getProjectAccessProjectCached_(payload.projectId, payload);
     const folder = floorPlanFolder_(payload, project);
     const oldFiles = folder.getFilesByName(fileName);
-    const existingFiles = [];
     let reusableFile = null;
 
     while (oldFiles.hasNext()) {
       const oldFile = oldFiles.next();
-      existingFiles.push(oldFile);
       try {
         const desc = parseJson_(oldFile.getDescription() || '{}');
         const sameAsset = String(desc.projectId || '') === String(payload.projectId || '') &&
           String(desc.floorPlanId || '') === String(payload.floorPlanId || '');
-        if (sameAsset && incomingUpdatedAt > 0 && Number(desc.updatedAt || 0) >= incomingUpdatedAt) {
+        const sameBinary = Boolean(incomingHash && String(desc.contentHash || '') === incomingHash);
+        const sameOrNewerRevision = incomingUpdatedAt > 0 && Number(desc.updatedAt || 0) >= incomingUpdatedAt;
+        if (sameAsset && (sameBinary || sameOrNewerRevision)) {
           reusableFile = oldFile;
           break;
         }
       } catch (_) {}
     }
 
-    // V6.2.24: retries of the exact same floor-plan revision are idempotent. The
-    // script lock also closes the race where two browser/device retries arrive before
-    // either request has written its Firestore acknowledgement.
+    // Idempotency is binary-first. If metadata timestamps drift but the actual image
+    // bytes are identical, reuse the existing file and never create/trash another copy.
     if (reusableFile) {
       return {
         fileId: reusableFile.getId(),
@@ -377,21 +396,18 @@ function uploadFloorPlan_(payload, user) {
         fileSize: Number(reusableFile.getSize() || bytes.length || 0),
         folderPath: ROOT_FOLDER_NAME + '/HINH ANH/MAT BANG',
         ownerEmail: PRIMARY_DRIVE_OWNER_EMAIL,
+        contentHash: incomingHash,
         reused: true,
       };
     }
 
-    existingFiles.forEach(function(oldFile) {
-      try { oldFile.setTrashed(true); } catch (_) {}
-    });
-    while (oldFiles.hasNext()) {
-      try { oldFiles.next().setTrashed(true); } catch (_) {}
-    }
-
+    // IMPORTANT: never trash the previous active file during upload. Create the new
+    // candidate first. The browser writes Firestore metadata and only then asks the
+    // cleanup action to remove stale versions after verifying the committed pointer.
     const blob = Utilities.newBlob(bytes, mimeType, fileName);
     const file = folder.createFile(blob);
     file.setDescription(JSON.stringify({
-      app: 'An Phu Tool - QLTC',
+      app: 'HNL QLTC',
       projectId: payload.projectId,
       floorPlanId: payload.floorPlanId,
       floorName: payload.floorName || '',
@@ -399,6 +415,7 @@ function uploadFloorPlan_(payload, user) {
       uploadedByUid: user.uid,
       uploadedByEmail: user.email,
       updatedAt: Number(payload.updatedAt || Date.now()),
+      contentHash: incomingHash,
     }));
 
     return {
@@ -408,6 +425,7 @@ function uploadFloorPlan_(payload, user) {
       fileSize: bytes.length,
       folderPath: ROOT_FOLDER_NAME + '/HINH ANH/MAT BANG',
       ownerEmail: PRIMARY_DRIVE_OWNER_EMAIL,
+      contentHash: incomingHash,
     };
   });
 }
@@ -419,30 +437,30 @@ function uploadPhoto_(payload, user) {
   const mimeType = String(payload.mimeType || 'image/jpeg');
   const fileName = sanitizeName_(payload.photoId) + '.' + extensionForMime_(mimeType);
   const incomingUpdatedAt = Number(payload.updatedAt || 0);
+  const incomingHash = contentHash_(bytes);
 
   return withDriveAssetWriteLock_(function() {
     const folder = photoFolder_(payload, getProjectAccessProjectCached_(payload.projectId, payload));
     const oldFiles = folder.getFilesByName(fileName);
-    const existingFiles = [];
     let reusableFile = null;
 
     while (oldFiles.hasNext()) {
       const oldFile = oldFiles.next();
-      existingFiles.push(oldFile);
       try {
         const desc = parseJson_(oldFile.getDescription() || '{}');
         const sameAsset = String(desc.projectId || '') === String(payload.projectId || '') &&
           String(desc.photoId || '') === String(payload.photoId || '');
-        if (sameAsset && incomingUpdatedAt > 0 && Number(desc.updatedAt || 0) >= incomingUpdatedAt) {
+        const sameBinary = Boolean(incomingHash && String(desc.contentHash || '') === incomingHash);
+        const sameOrNewerRevision = incomingUpdatedAt > 0 && Number(desc.updatedAt || 0) >= incomingUpdatedAt;
+        if (sameAsset && (sameBinary || sameOrNewerRevision)) {
           reusableFile = oldFile;
           break;
         }
       } catch (_) {}
     }
 
-    // V6.2.24: a retry for the same photo revision returns the existing Drive file.
-    // This prevents one unchanged photo from generating repeated upload/edit/trash
-    // activity and avoids filling the Drive trash with duplicate binaries.
+    // Same media ID + same actual binary is always reusable, even if a client
+    // accidentally bumped updatedAt during metadata hydration/retry.
     if (reusableFile) {
       return {
         fileId: reusableFile.getId(),
@@ -451,21 +469,17 @@ function uploadPhoto_(payload, user) {
         fileSize: Number(reusableFile.getSize() || bytes.length || 0),
         folderPath: ROOT_FOLDER_NAME + '/' + (payload.entityType === 'crewRecord' ? 'BAO CAO QUAN SO' : 'DEFECT'),
         ownerEmail: PRIMARY_DRIVE_OWNER_EMAIL,
+        contentHash: incomingHash,
         reused: true,
       };
     }
 
-    existingFiles.forEach(function(oldFile) {
-      try { oldFile.setTrashed(true); } catch (_) {}
-    });
-    while (oldFiles.hasNext()) {
-      try { oldFiles.next().setTrashed(true); } catch (_) {}
-    }
-
+    // Never trash the currently active Drive file here. A failed Firestore write
+    // must leave the old binary valid. Stale cleanup is a separate post-commit step.
     const blob = Utilities.newBlob(bytes, mimeType, fileName);
     const file = folder.createFile(blob);
     file.setDescription(JSON.stringify({
-      app: 'An Phu Tool - QLTC',
+      app: 'HNL QLTC',
       projectId: payload.projectId,
       photoId: payload.photoId,
       entityType: payload.entityType || '',
@@ -474,6 +488,7 @@ function uploadPhoto_(payload, user) {
       uploadedByUid: user.uid,
       uploadedByEmail: user.email,
       updatedAt: Number(payload.updatedAt || Date.now()),
+      contentHash: incomingHash,
     }));
     return {
       fileId: file.getId(),
@@ -482,6 +497,7 @@ function uploadPhoto_(payload, user) {
       fileSize: bytes.length,
       folderPath: ROOT_FOLDER_NAME + '/' + (payload.entityType === 'crewRecord' ? 'BAO CAO QUAN SO' : 'DEFECT'),
       ownerEmail: PRIMARY_DRIVE_OWNER_EMAIL,
+      contentHash: incomingHash,
     };
   });
 }
@@ -491,6 +507,82 @@ function uploadPhoto_(payload, user) {
 let _verifiedProjectForRequest = null;
 function getProjectAccessProjectCached_(projectId, payload) {
   return _verifiedProjectForRequest || { name: projectId };
+}
+
+function cleanupPhotoVersions_(payload, idToken) {
+  if (!payload.photoId || !payload.keepFileId) return { cleaned: 0, skipped: true };
+  const metaDoc = firestoreGet_('projects/' + payload.projectId + '/photos/' + payload.photoId, idToken);
+  if (!metaDoc) return { cleaned: 0, skipped: true, reason: 'metadata-missing' };
+  const meta = firestoreDocToObject_(metaDoc);
+  const expectedRef = driveRef_(payload.projectId, payload.keepFileId);
+  const committedRef = String(meta.cloudFileId || meta.cloudUrl || '');
+  const committedUpdatedAt = Number(meta.updatedAt || 0);
+  const requestedUpdatedAt = Number(payload.committedUpdatedAt || 0);
+  if (meta.deleted || committedRef !== expectedRef || (requestedUpdatedAt > 0 && committedUpdatedAt < requestedUpdatedAt)) {
+    return { cleaned: 0, skipped: true, reason: 'firestore-pointer-not-committed' };
+  }
+
+  return withDriveAssetWriteLock_(function() {
+    const keep = DriveApp.getFileById(String(payload.keepFileId));
+    assertFileBelongsToProject_(keep, payload.projectId, payload.photoId);
+    const parents = keep.getParents();
+    if (!parents.hasNext()) return { cleaned: 0, skipped: true, reason: 'parent-missing' };
+    const folder = parents.next();
+    const candidates = folder.getFilesByName(keep.getName());
+    let cleaned = 0;
+    while (candidates.hasNext()) {
+      const file = candidates.next();
+      if (file.getId() === keep.getId()) continue;
+      try {
+        const desc = parseJson_(file.getDescription() || '{}');
+        const sameAsset = String(desc.projectId || '') === String(payload.projectId || '') &&
+          String(desc.photoId || '') === String(payload.photoId || '');
+        if (!sameAsset) continue;
+        // Firestore already points at keepFileId. It is now safe to retire all other
+        // same-photo candidates, including duplicates of the same revision.
+        file.setTrashed(true);
+        cleaned++;
+      } catch (_) {}
+    }
+    return { cleaned: cleaned, keepFileId: keep.getId() };
+  });
+}
+
+function cleanupFloorPlanVersions_(payload, idToken) {
+  if (!payload.floorPlanId || !payload.keepFileId) return { cleaned: 0, skipped: true };
+  const metaDoc = firestoreGet_('projects/' + payload.projectId + '/floor_plans/' + payload.floorPlanId, idToken);
+  if (!metaDoc) return { cleaned: 0, skipped: true, reason: 'metadata-missing' };
+  const meta = firestoreDocToObject_(metaDoc);
+  const expectedRef = driveRef_(payload.projectId, payload.keepFileId);
+  const committedRef = String(meta.cloudFileId || meta.driveUrl || '');
+  const committedRevision = Number(meta.imageCloudRevision || meta.imageRevision || 0);
+  const requestedRevision = Number(payload.committedRevision || 0);
+  if (committedRef !== expectedRef || (requestedRevision > 0 && committedRevision < requestedRevision)) {
+    return { cleaned: 0, skipped: true, reason: 'firestore-pointer-not-committed' };
+  }
+
+  return withDriveAssetWriteLock_(function() {
+    const keep = DriveApp.getFileById(String(payload.keepFileId));
+    assertFloorPlanFileBelongsToProject_(keep, payload.projectId, payload.floorPlanId);
+    const parents = keep.getParents();
+    if (!parents.hasNext()) return { cleaned: 0, skipped: true, reason: 'parent-missing' };
+    const folder = parents.next();
+    const candidates = folder.getFilesByName(keep.getName());
+    let cleaned = 0;
+    while (candidates.hasNext()) {
+      const file = candidates.next();
+      if (file.getId() === keep.getId()) continue;
+      try {
+        const desc = parseJson_(file.getDescription() || '{}');
+        const sameAsset = String(desc.projectId || '') === String(payload.projectId || '') &&
+          String(desc.floorPlanId || '') === String(payload.floorPlanId || '');
+        if (!sameAsset) continue;
+        file.setTrashed(true);
+        cleaned++;
+      } catch (_) {}
+    }
+    return { cleaned: cleaned, keepFileId: keep.getId() };
+  });
 }
 
 function assertFileBelongsToProject_(file, projectId, photoId) {

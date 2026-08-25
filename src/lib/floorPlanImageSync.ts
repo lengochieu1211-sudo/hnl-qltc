@@ -13,6 +13,7 @@ import {
 import { db, getCurrentRealFirebaseUser } from './firebase';
 import type { FloorPlan } from '../types';
 import {
+  cleanupFloorPlanVersionsOnPrimaryDrive,
   downloadFloorPlanFromPrimaryDrive,
   isPrimaryDriveReady,
   PRIMARY_DRIVE_OWNER_EMAIL,
@@ -117,6 +118,11 @@ export async function syncFloorPlanImageToCloud(projectId: string, plan: FloorPl
           updatedAt: Math.max(now, Number((plan as any).updatedAt || 0) + 1),
         };
         await setDoc(doc(db, 'projects', projectId, 'floor_plans', plan.id), metadata, { merge: true });
+        // Same safety rule as defect/crew photos: cleanup happens only after Firestore
+        // commits the new Drive pointer. Cleanup failure must never trigger re-upload.
+        await cleanupFloorPlanVersionsOnPrimaryDrive(projectId, plan.id, drive.fileId, revision).catch((err) => {
+          console.warn('[Floor Plan Image] stale Drive cleanup deferred:', plan.id, err);
+        });
         await deleteFallbackChunks(projectId, plan.id).catch(() => {});
         return metadata;
       }

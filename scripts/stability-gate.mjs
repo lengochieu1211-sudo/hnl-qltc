@@ -87,6 +87,21 @@ if (!photoSync.includes('binary remains local for retry') || !floorPlanSync.incl
 if (!rules.includes('allow create, update: if false;')) fail('Firestore Rules do not block new legacy nested binary chunks');
 pass('Drive-only binary policy + legacy read/delete compatibility + idempotency');
 
+const primaryDriveBridge = read('src/lib/primaryDriveBridge.ts');
+const driveScript = read('apps-script/PrimaryDriveBridge/Code.gs');
+if (!driveScript.includes('contentHash_(bytes)') || !driveScript.includes('sameBinary')) fail('Drive binary-hash idempotency missing');
+if (!driveScript.includes("case 'cleanupPhotoVersions'") || !driveScript.includes("case 'cleanupFloorPlanVersions'")) fail('post-commit Drive cleanup actions missing');
+if (!driveScript.includes("reason: 'firestore-pointer-not-committed'")) fail('Drive cleanup is not guarded by committed Firestore pointer');
+const uploadPhotoSection = driveScript.slice(driveScript.indexOf('function uploadPhoto_'), driveScript.indexOf('// Project object was already verified'));
+const uploadFloorSection = driveScript.slice(driveScript.indexOf('function uploadFloorPlan_'), driveScript.indexOf('function uploadPhoto_'));
+if (uploadPhotoSection.includes('setTrashed(true)') || uploadFloorSection.includes('setTrashed(true)')) fail('Drive upload still trashes an existing file before Firestore commit');
+if (!photoSync.includes('cleanupPhotoVersionsOnPrimaryDrive') || !photoSync.includes('stale Drive cleanup deferred')) fail('photo cleanup is not post-commit/non-fatal');
+if (!photoSync.includes('photoUploadInFlight') || !photoSync.includes("photoUploadInFlight.get(key)")) fail('same-revision client photo upload in-flight dedup missing');
+if (!floorPlanSync.includes('cleanupFloorPlanVersionsOnPrimaryDrive') || !floorPlanSync.includes('stale Drive cleanup deferred')) fail('floor-plan cleanup is not post-commit/non-fatal');
+if (!primaryDriveBridge.includes("callBridge('cleanupPhotoVersions'") || !primaryDriveBridge.includes("callBridge('cleanupFloorPlanVersions'")) fail('client Drive cleanup bridge missing');
+if (!primaryDriveBridge.includes('createdAt: Number(photo.createdAt') || !driveScript.includes('payload.createdAt || payload.updatedAt')) fail('photo Drive folder is not stable across edits');
+pass('Drive upload/hash idempotency + Firestore-committed cleanup guard');
+
 const packageScripts = pkg.scripts || {};
 for (const script of ['typecheck', 'lint', 'test:rules', 'security:audit']) {
   if (!packageScripts[script]) fail(`missing required package script ${script}`);

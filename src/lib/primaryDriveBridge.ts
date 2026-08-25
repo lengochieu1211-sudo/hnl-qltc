@@ -22,6 +22,8 @@ export interface PrimaryDriveUploadResult {
   folderPath?: string;
   ownerEmail?: string;
   modifiedTime?: string;
+  contentHash?: string;
+  reused?: boolean;
 }
 
 
@@ -308,6 +310,22 @@ export async function uploadFloorPlanToPrimaryDrive(
   }, 120_000);
 }
 
+export async function cleanupFloorPlanVersionsOnPrimaryDrive(
+  projectId: string,
+  floorPlanId: string,
+  keepFileId: string,
+  committedRevision: number,
+): Promise<{ cleaned?: number; skipped?: boolean; reason?: string }> {
+  if (!projectId || !floorPlanId || !keepFileId) return { skipped: true, reason: 'missing-id' };
+  if (!(await isPrimaryDriveReady())) return { skipped: true, reason: 'drive-not-ready' };
+  return callBridge('cleanupFloorPlanVersions', {
+    projectId,
+    floorPlanId,
+    keepFileId,
+    committedRevision: Number(committedRevision || 0),
+  });
+}
+
 export async function downloadFloorPlanFromPrimaryDrive(
   projectId: string,
   floorPlanId: string,
@@ -349,9 +367,26 @@ export async function uploadPhotoToPrimaryDrive(projectId: string, photo: PhotoA
     roomId: photo.roomId || '',
     originalFileName: photo.fileName || `${photo.id}.jpg`,
     mimeType: blob.type || photo.mimeType || 'image/jpeg',
+    createdAt: Number(photo.createdAt || photo.updatedAt || Date.now()),
     updatedAt: Number(photo.updatedAt || photo.createdAt || Date.now()),
     base64,
   }, 120_000);
+}
+
+export async function cleanupPhotoVersionsOnPrimaryDrive(
+  projectId: string,
+  photoId: string,
+  keepFileId: string,
+  committedUpdatedAt: number,
+): Promise<{ cleaned?: number; skipped?: boolean; reason?: string }> {
+  if (!projectId || !photoId || !keepFileId) return { skipped: true, reason: 'missing-id' };
+  if (!(await isPrimaryDriveReady())) return { skipped: true, reason: 'drive-not-ready' };
+  return callBridge('cleanupPhotoVersions', {
+    projectId,
+    photoId,
+    keepFileId,
+    committedUpdatedAt: Number(committedUpdatedAt || 0),
+  });
 }
 
 export async function downloadPhotoFromPrimaryDrive(projectId: string, photoId: string, fileId: string, mimeType = 'image/jpeg'): Promise<Blob | null> {
