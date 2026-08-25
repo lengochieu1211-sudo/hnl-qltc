@@ -21,6 +21,7 @@ import {
 import { getAuth, signInWithPopup, GoogleAuthProvider, signOut as fbSignOut, onAuthStateChanged, User } from 'firebase/auth';
 import { getDeviceId, getDeviceName } from '../utils/deviceIdentity';
 import { cleanupTransientLocalStorage, estimateLocalStorageBytes } from '../utils/storage';
+import { isSuperAdminEmail } from '../config/superAdmin';
 const env = (import.meta as any).env || {};
 const isDev = env.DEV || env.MODE === 'development' || !env.PROD;
 
@@ -422,6 +423,23 @@ export async function fetchCurrentUserProjectsFromCloud(): Promise<CloudProjectS
     const user = getCurrentAppUser();
     if (!user || !user.uid || (user as any).isAnonymous) return [];
 
+    if (isSuperAdminEmail(user.email)) {
+      const snap = await getDocs(collection(db, 'projects'));
+      return snap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as any))
+        .filter((item: any) => item && item.id && item.deleted !== true)
+        .map((item: any) => ({
+          id: String(item.id),
+          name: String(item.name || item.id),
+          role: 'ADMIN',
+          createdAt: cloudTimestampToMillis(item.createdAt),
+          createdAtSource: cloudTimestampToMillis(item.createdAt) ? 'cloud' as const : 'migrating' as const,
+          updatedAt: cloudTimestampToMillis(item.updatedAt),
+          canonicalProjectId: String(item.canonicalProjectId || item.mergedIntoProjectId || '').trim() || undefined,
+        }))
+        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    }
+
     const snap = await getDoc(doc(db, 'users', user.uid));
     if (!snap.exists()) return [];
 
@@ -463,6 +481,9 @@ export async function refreshCurrentUserProjectDiscovery(): Promise<number> {
   const user = getCurrentRealFirebaseUser();
   if (!user?.uid || !user.email) return 0;
   const email = normalizeEmail(user.email);
+  // SUPER ADMIN discovers projects directly from the projects collection; invitation
+  // materialization is unnecessary and would create a redundant per-user index for every project.
+  if (isSuperAdminEmail(email)) return 0;
   const invitationQueries = [
     query(collection(db, 'projectInvitations'), where('invitedEmail', '==', email)),
     query(collection(db, 'projectInvitations'), where('email', '==', email)),
@@ -557,6 +578,40 @@ export function subscribeCurrentUserProjectsRealtime(onUpdate: (projects: CloudP
       .map((project) => ({ ...project, aliases: aliasesByTarget.get(project.id) || project.aliases }))
       .sort((a,b) => Number(b.updatedAt||0)-Number(a.updatedAt||0));
   };
+
+  if (isSuperAdminEmail(email)) {
+    // SUPER ADMIN gets one realtime collection listener instead of N owner/member/index
+    // listeners plus N follow-up project reads. This keeps global project discovery fast
+    // even when the company has many projects.
+    const allProjectsQuery = collection(db, 'projects');
+    const unsubscribe = onSnapshot(allProjectsQuery, (snap) => {
+      const result: CloudProjectSummary[] = snap.docs
+        .map((d) => {
+          const data = d.data();
+          const createdAt = cloudTimestampToMillis(data?.createdAt);
+          const canonicalRaw = String(data?.canonicalProjectId || data?.mergedIntoProjectId || '').trim();
+          return {
+            id: d.id,
+            name: String(data?.name || d.id),
+            role: 'ADMIN',
+            createdAt,
+            createdAtSource: createdAt ? 'cloud' as const : 'migrating' as const,
+            updatedAt: cloudTimestampToMillis(data?.updatedAt),
+            canonicalProjectId: canonicalRaw && canonicalRaw !== d.id ? canonicalRaw : undefined,
+            __deleted: data?.deleted === true,
+          } as CloudProjectSummary & { __deleted?: boolean };
+        })
+        .filter((project) => !(project as any).__deleted)
+        .map(({ __deleted, ...project }: any) => project);
+      onUpdate(collapseCanonicalProjects(result));
+    }, (err) => {
+      console.warn('SUPER ADMIN all-projects realtime error:', err);
+      // If production Rules have not been deployed yet, fail closed instead of showing
+      // projects from stale local cache as if global access were active.
+      onUpdate([]);
+    });
+    return unsubscribe;
+  }
 
   const emit = async (source: string) => {
     const startedAt = Date.now();
@@ -1123,6 +1178,11 @@ export async function fetchProjectUserRoleFromCloud(
       pOwnerEmail = normalizeEmail(pData?.ownerEmail);
 
       if (pData) {
+        // Company SUPER ADMIN may open every existing Cloud project without being added
+        // to projects/{projectId}/members. This does not transfer project ownership.
+        if (isSuperAdminEmail(user.email)) {
+          return { allowed: true, role: 'ADMIN', isCloudSynced: true, ownerUid: pData.ownerUid, ownerEmail: pData.ownerEmail, isOwner: false };
+        }
         // Direct UID match -> Project Owner (ADMIN)
         if (pData.ownerUid && pData.ownerUid === user.uid) {
           return { allowed: true, role: 'ADMIN', isCloudSynced: true, ownerUid: pData.ownerUid, ownerEmail: pData.ownerEmail, isOwner: true };

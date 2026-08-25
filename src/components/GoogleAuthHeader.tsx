@@ -22,6 +22,7 @@ import { useFormatSettings } from '../utils/numberUtils';
 
 import { UserRole } from '../utils/securityUtils';
 import { getFirebaseAuthStatus, subscribeToFirebaseAuthStatus } from '../lib/firebase';
+import { isSuperAdminEmail } from '../config/superAdmin';
 
 interface GoogleAuthHeaderProps {
   projectName: string;
@@ -73,6 +74,7 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
   );
 
   useFormatSettings();
+  const isSuperAdmin = isSuperAdminEmail(authStatus.email);
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -264,7 +266,7 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
                         ? 'bg-blue-950/90 text-blue-300 border border-blue-700/80' 
                         : 'bg-slate-700 text-slate-300 border border-slate-600'
                     }`}>
-                      {userRole === 'ADMIN' ? 'Admin' : userRole === 'ENGINEER' ? 'Kỹ Sư' : 'Chỉ Xem'}
+                      {userRole === 'ADMIN' ? (isSuperAdmin ? 'Super Admin' : 'Admin') : userRole === 'ENGINEER' ? 'Kỹ Sư' : 'Chỉ Xem'}
                     </span>
                   )}
                 </button>

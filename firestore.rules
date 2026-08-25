@@ -12,6 +12,13 @@ service cloud.firestore {
       return request.auth.token.email.lower();
     }
 
+    // Company-wide SUPER ADMIN. This account can discover/read/manage every project
+    // without being materialized into each project's members collection. Project owner
+    // identity remains immutable through the project update rule below.
+    function isSuperAdmin() {
+      return isGoogleAuthed() && signedInEmail() == 'lengochieu1211@gmail.com';
+    }
+
     function projectDoc(projectId) {
       return get(/databases/$(database)/documents/projects/$(projectId));
     }
@@ -54,11 +61,12 @@ service cloud.firestore {
     }
 
     function isMember(projectId) {
-      return isGoogleAuthed() && (isOwner(projectId) || uidMemberActive(projectId) || emailMemberActive(projectId));
+      return isGoogleAuthed() && (isSuperAdmin() || isOwner(projectId) || uidMemberActive(projectId) || emailMemberActive(projectId));
     }
 
     function isAdmin(projectId) {
       return isGoogleAuthed() && (
+        isSuperAdmin() ||
         isOwner(projectId) ||
         (uidMemberActive(projectId) && uidRole(projectId) == 'ADMIN') ||
         (emailMemberActive(projectId) && emailRole(projectId) == 'ADMIN')
