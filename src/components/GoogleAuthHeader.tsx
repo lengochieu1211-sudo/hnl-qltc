@@ -134,8 +134,8 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center overflow-hidden shadow-md shrink-0 border border-slate-200/50 select-none">
                 <img
-                  src="/icon-3d-192.png?v=20260825-hnl-header"
-                  alt="HNL"
+                  src="/icon.png?v=20260825-hnl-master"
+                  alt="HNL Quản Lý Thi Công"
                   className="w-full h-full object-contain"
                   draggable={false}
                 />

@@ -62,7 +62,7 @@ if (!diagnosticsRuntime.includes('sanitizeDiagnosticValue') || !diagnosticsRunti
 pass('runtime diagnostics, safe export and visible sync diagnostics');
 
 const authHeader = read('src/components/GoogleAuthHeader.tsx');
-if (!authHeader.includes('/icon-3d-192.png?v=20260825-hnl-header') || !authHeader.includes('alt="HNL"')) fail('in-app header HNL logo missing');
+if (!authHeader.includes('/icon.png?v=20260825-hnl-master') || !authHeader.includes('alt="HNL Quản Lý Thi Công"')) fail('in-app header HNL logo missing');
 if (authHeader.includes('48,0 0,80 28,80 62,23') || authHeader.includes('67,31 38,80 95,80') || authHeader.includes('#284ba0')) fail('legacy An Phu inline header logo returned');
 pass('in-app HNL header logo invariant');
 
