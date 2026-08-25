@@ -61,6 +61,11 @@ for (const marker of ['Chẩn đoán đồng bộ', 'Dữ liệu chờ:', 'Sync 
 if (!diagnosticsRuntime.includes('sanitizeDiagnosticValue') || !diagnosticsRuntime.includes('[redacted]')) fail('diagnostic secret redaction missing');
 pass('runtime diagnostics, safe export and visible sync diagnostics');
 
+const authHeader = read('src/components/GoogleAuthHeader.tsx');
+if (!authHeader.includes('/icon-3d-192.png?v=20260825-hnl-header') || !authHeader.includes('alt="HNL"')) fail('in-app header HNL logo missing');
+if (authHeader.includes('48,0 0,80 28,80 62,23') || authHeader.includes('67,31 38,80 95,80') || authHeader.includes('#284ba0')) fail('legacy An Phu inline header logo returned');
+pass('in-app HNL header logo invariant');
+
 const app = read('src/App.tsx');
 if (!app.includes('REALTIME_STATE_KEYS') || !app.includes('STATE_KEY_TO_CLOUD_NAME')) fail('autosave is not using centralized realtime mapping');
 if (!app.includes('cloudInitialReady') || !app.includes('receivedInitialSubcollectionsRef')) fail('realtime bootstrap guard missing');

@@ -132,11 +132,13 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
           {/* Top Header Row */}
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2 min-w-0">
-              <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center p-1.5 shadow-md shrink-0 border border-slate-200/50 select-none">
-                <svg viewBox="0 0 95 80" className="w-full h-full">
-                  <polygon points="48,0 0,80 28,80 62,23" fill="#284ba0" />
-                  <polygon points="67,31 38,80 95,80" fill="#284ba0" />
-                </svg>
+              <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center overflow-hidden shadow-md shrink-0 border border-slate-200/50 select-none">
+                <img
+                  src="/icon-3d-192.png?v=20260825-hnl-header"
+                  alt="HNL"
+                  className="w-full h-full object-contain"
+                  draggable={false}
+                />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5 flex-wrap">
