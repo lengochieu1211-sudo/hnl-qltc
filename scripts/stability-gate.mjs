@@ -87,10 +87,10 @@ for (const script of ['typecheck', 'lint', 'test:rules', 'security:audit']) {
   if (!packageScripts[script]) fail(`missing required package script ${script}`);
 }
 for (const workflow of [read('.github/workflows/build.yml'), mergeWorkflow, prWorkflow]) {
-  for (const marker of ['npm run test:stability', 'npm run typecheck', 'npm run lint', 'npm run test:rules', 'npm run security:audit', 'npm run build']) {
+  for (const marker of ['Verify source root', 'cache-dependency-path: package-lock.json', 'npm run test:stability', 'npm run typecheck', 'npm run lint', 'npm run test:rules', 'npm run security:audit', 'npm run build']) {
     if (!workflow.includes(marker)) fail(`workflow stability gate missing ${marker}`);
   }
 }
-pass('CI stability gate includes golden/typecheck/lint/rules/security/build');
+pass('CI source-root/lockfile guard + golden/typecheck/lint/rules/security/build');
 
 console.log('STABILITY GATE PASS');

@@ -23,10 +23,16 @@ jobs:
       VITE_APP_VERSION: "V6.2.27"
     steps:
       - uses: actions/checkout@v4
+      - name: Verify source root
+        shell: bash
+        run: |
+          test -f package.json || { echo "Missing package.json at repository root"; exit 1; }
+          test -f package-lock.json || { echo "Missing package-lock.json at repository root. Copy the CONTENTS of FULL SOURCE into the repo root, not a parent folder."; exit 1; }
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: package-lock.json
       - run: npm ci
       - name: Stability Gate
         run: npm run test:stability

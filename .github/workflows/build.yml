@@ -13,11 +13,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Verify source root
+        shell: bash
+        run: |
+          test -f package.json || { echo "Missing package.json at repository root"; exit 1; }
+          test -f package-lock.json || { echo "Missing package-lock.json at repository root. Copy the CONTENTS of FULL SOURCE into the repo root, not a parent folder."; exit 1; }
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
         run: npm ci

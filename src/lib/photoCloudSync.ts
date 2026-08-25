@@ -57,6 +57,32 @@ function isDriveCloudValue(value?: string | null): boolean {
   return String(value || '').startsWith('drive:');
 }
 
+/**
+ * Legacy cleanup only. V6.2.27 never writes new binary chunks to Firestore, but
+ * old projects can still contain nested `photos/{photoId}/chunks/*` documents.
+ * Delete them only after a Drive upload/metadata write succeeds, or when a photo
+ * is explicitly deleted. Batches stay below Firestore's 500-write limit.
+ */
+async function deletePhotoChunks(projectId: string, photoId: string): Promise<void> {
+  if (!projectId || !photoId) return;
+  const chunksRef = collection(db, 'projects', projectId, 'photos', photoId, 'chunks');
+  const snap = await getDocs(chunksRef);
+  if (snap.empty) return;
+
+  let batch = writeBatch(db);
+  let count = 0;
+  for (const chunkDoc of snap.docs) {
+    batch.delete(chunkDoc.ref);
+    count += 1;
+    if (count >= 400) {
+      await batch.commit();
+      batch = writeBatch(db);
+      count = 0;
+    }
+  }
+  if (count > 0) await batch.commit();
+}
+
 export async function uploadPhotoToCloud(projectId: string, photo: PhotoAttachment): Promise<void> {
   if (!projectId || !photo?.id) return;
   const user = getCurrentRealFirebaseUser();
