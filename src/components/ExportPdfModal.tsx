@@ -13,6 +13,7 @@ import { canViewFinancials, getCurrentUserRole, UserRole } from '../utils/securi
 import { apiFetch, hasApiBackend } from '../utils/api';
 import { saveHtmlPdf } from '../utils/fileExport';
 import { calculateStockSummary } from '../utils/inventoryUtils';
+import { isDisplayableFloorPlanUrl, loadFloorPlanImageFromCloud } from '../lib/floorPlanImageSync';
 
 const escapeHtml = (value: unknown): string => String(value ?? '')
   .replace(/&/g, '&amp;')
@@ -73,6 +74,50 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   const [uploadExcelLink, setUploadExcelLink] = useState<string | null>(null);
   const [uploadPdfLink, setUploadPdfLink] = useState<string | null>(null);
   const [driveUploadError, setDriveUploadError] = useState<string | null>(null);
+  const [resolvedFloorPlans, setResolvedFloorPlans] = useState<FloorPlan[]>(floorPlans);
+  const [isResolvingFloorPlansForExport, setIsResolvingFloorPlansForExport] = useState(false);
+
+  // Normal project navigation hydrates only the floor currently being viewed. When the
+  // report is opened, resolve the selected Cloud floor-plan binaries on demand so PDF
+  // export keeps full fidelity without retaining every drawing in RAM all day.
+  useEffect(() => {
+    let cancelled = false;
+    setResolvedFloorPlans(floorPlans);
+    const needsCloudFloorPlans = isOpen && !!activeProjectId && floorPlans.some((plan) =>
+      !isDisplayableFloorPlanUrl(plan.imageUrl) && !!(plan.driveFileId || plan.cloudFileId || plan.storageProvider)
+    );
+    setIsResolvingFloorPlansForExport(needsCloudFloorPlans);
+    if (!needsCloudFloorPlans) return () => { cancelled = true; };
+
+    const run = async () => {
+      const next = [...floorPlans];
+      let changed = false;
+      try {
+        for (let i = 0; i < next.length; i++) {
+          if (cancelled) return;
+          const plan = next[i];
+          if (isDisplayableFloorPlanUrl(plan.imageUrl)) continue;
+          if (!plan.driveFileId && !plan.cloudFileId && !plan.storageProvider) continue;
+          try {
+            const imageUrl = await loadFloorPlanImageFromCloud(activeProjectId, plan);
+            if (imageUrl && !cancelled) {
+              next[i] = { ...plan, imageUrl };
+              changed = true;
+            }
+          } catch (err) {
+            console.warn('PDF floor-plan hydrate warning:', plan.floorName, err);
+          }
+        }
+        if (!cancelled && changed) setResolvedFloorPlans(next);
+      } finally {
+        if (!cancelled) setIsResolvingFloorPlansForExport(false);
+      }
+    };
+    void run();
+    return () => { cancelled = true; };
+  }, [isOpen, activeProjectId, floorPlans]);
+
+  const effectiveFloorPlans = resolvedFloorPlans.length === floorPlans.length ? resolvedFloorPlans : floorPlans;
 
   // Module checkboxes
   const [includeWarehouse, setIncludeWarehouse] = useState(true);
@@ -150,7 +195,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   if (!isOpen) return null;
 
   // Only take declared floor names (from floorPlans list)
-  const floorNames = Array.from(new Set(floorPlans.map((fp) => fp.floorName)));
+  const floorNames: string[] = Array.from(new Set(effectiveFloorPlans.map((fp) => String(fp.floorName || '')).filter(Boolean)));
   const isAllSelected = selectedFloors.includes('all');
 
   const handleToggleFloor = (floorName: string) => {
@@ -234,7 +279,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   });
 
   const filteredRooms = roomProgressList.filter((r) => {
-    const fp = floorPlans.find(f => f.id === r.floorId);
+    const fp = effectiveFloorPlans.find(f => f.id === r.floorId);
     if (!fp) return false;
     if (isAllSelected) return true;
     return selectedFloors.includes(fp.floorName);
@@ -266,7 +311,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     const areaText = isAllSelected ? 'Toàn bộ công trình' : selectedFloors.join(', ');
 
     // Target floor plans to include
-    const targetFloorPlans = (isAllSelected ? floorPlans : floorPlans.filter(fp => selectedFloors.includes(fp.floorName)))
+    const targetFloorPlans = (isAllSelected ? effectiveFloorPlans : effectiveFloorPlans.filter(fp => selectedFloors.includes(fp.floorName)))
       .filter(fp => {
         if (!skipEmptyFloors) return true;
         const fpRooms = roomProgressList.filter(r => r.floorId === fp.id);
@@ -709,7 +754,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
             </thead>
             <tbody>
               ${filteredRooms.map(r => {
-                const fp = floorPlans.find(f => f.id === r.floorId);
+                const fp = effectiveFloorPlans.find(f => f.id === r.floorId);
                 const hasSubs = Boolean(r.subItems && r.subItems.length > 0);
                 const categoryNames = Array.from(new Set([
                   ...Object.keys(r.categoryVolumes || {}),
@@ -1008,6 +1053,10 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
 
   // Direct HTML report file download for easy offline opening/printing
   const handleDownloadHtmlReport = async () => {
+    if (includeFloorPlan && isResolvingFloorPlansForExport) {
+      alert('Đang tải ảnh mặt bằng từ Cloud để xuất báo cáo. Vui lòng chờ hoàn tất.');
+      return;
+    }
     try {
       const htmlContent = getReportHtml();
       const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
@@ -1022,6 +1071,10 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
 
   // High-fidelity HTML Print / Save as PDF with FULL Unicode Vietnamese support (Có dấu 100%)
   const handlePrintHTML = () => {
+    if (includeFloorPlan && isResolvingFloorPlansForExport) {
+      alert('Đang tải ảnh mặt bằng từ Cloud để xuất PDF. Vui lòng chờ hoàn tất.');
+      return;
+    }
     const htmlContent = getReportHtml();
     const androidSafeProjectName = (projectName || 'Du_An').replace(/[^a-zA-Z0-9_-\s]/g, '').trim().replace(/\s+/g, '_');
     const androidDateStr = new Date().toISOString().slice(0, 10);
@@ -1128,7 +1181,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
       roomProgressList: filteredRooms,
       defects: filteredDefects,
       checklist: filteredChecklist,
-      floorPlans: isAllSelected ? floorPlans : floorPlans.filter(fp => selectedFloors.includes(fp.floorName)),
+      floorPlans: isAllSelected ? effectiveFloorPlans : effectiveFloorPlans.filter(fp => selectedFloors.includes(fp.floorName)),
       crewRecords: filteredCrew,
       canViewFinancials: hasFinancialAccess,
       selectedModules: {
@@ -1157,7 +1210,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
         roomProgressList: filteredRooms,
         defects: filteredDefects,
         checklist: filteredChecklist,
-        floorPlans: isAllSelected ? floorPlans : floorPlans.filter(fp => selectedFloors.includes(fp.floorName)),
+        floorPlans: isAllSelected ? effectiveFloorPlans : effectiveFloorPlans.filter(fp => selectedFloors.includes(fp.floorName)),
         crewRecords: filteredCrew,
         canViewFinancials: hasFinancialAccess,
         selectedModules: {
@@ -1602,6 +1655,11 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
 
           {/* Action Buttons */}
           <div className="space-y-2 pt-2">
+            {includeFloorPlan && isResolvingFloorPlansForExport && (
+              <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-[10px] font-semibold text-sky-700">
+                Đang tải ảnh mặt bằng cần thiết từ Cloud… Xuất PDF/HTML sẽ sẵn sàng ngay sau khi hoàn tất.
+              </div>
+            )}
             <button
               type="button"
               onClick={handlePrintHTML}

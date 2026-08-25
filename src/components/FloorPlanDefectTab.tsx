@@ -393,6 +393,7 @@ interface FloorPlanDefectTabProps {
   onDeleteMultipleRoomProgress?: (ids: string[]) => void;
   onReorderRoomProgressList?: (reorderedList: RoomProgressItem[]) => void;
   onReorderFloorPlans?: (reorderedList: FloorPlan[]) => void;
+  onActiveFloorChange?: (floorId: string) => void;
   onOpenExportPdf?: () => void;
   onExportExcel?: () => void;
   onUndo?: () => void;
@@ -631,6 +632,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   onDeleteMultipleRoomProgress,
   onReorderRoomProgressList,
   onReorderFloorPlans,
+  onActiveFloorChange,
   onOpenExportPdf,
   onExportExcel,
   onUndo,
@@ -726,8 +728,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   React.useEffect(() => {
     if (selectedFloorId) {
       localStorage.setItem(getDraftKey('construction_selected_floor_id'), selectedFloorId);
+      onActiveFloorChange?.(selectedFloorId);
     }
-  }, [selectedFloorId, currentProjectId]);
+  }, [selectedFloorId, currentProjectId, onActiveFloorChange]);
 
   const [viewMode, setViewMode] = useState<'all' | 'highlight' | 'defect'>(() => {
     const saved = localStorage.getItem(getDraftKey('construction_selected_view_mode'));

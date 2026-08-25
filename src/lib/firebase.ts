@@ -117,12 +117,12 @@ let dbInstance: any;
 try {
   dbInstance = initializeFirestore(app, {
     localCache: memoryLocalCache(),
-    experimentalForceLongPolling: true,
+    experimentalAutoDetectLongPolling: true,
   }, dbId);
 } catch (e) {
   console.warn('Firestore memory cache initialization warning, retrying default memory cache:', e);
   dbInstance = initializeFirestore(app, {
-    experimentalForceLongPolling: true,
+    experimentalAutoDetectLongPolling: true,
   }, dbId);
 }
 
@@ -1073,17 +1073,33 @@ export async function markProjectMergedIntoCloud(
 
 export function subscribeProjectMembersRealtime(projectId: string, onUpdate: (members: any[]) => void): () => void {
   if (!projectId) return () => {};
-  return onSnapshot(collection(db, 'projects', projectId, 'members'), (snap) => {
-    const byEmail = new Map<string, any>();
-    snap.docs.forEach((d) => {
-      const data = d.data();
-      const email = normalizeEmail(data?.email || (d.id.includes('@') ? d.id : ''));
-      if (!email) return;
-      const existing = byEmail.get(email);
-      if (!existing || Number(data?.updatedAt || 0) >= Number(existing?.updatedAt || 0)) byEmail.set(email, { id: d.id, ...data, email });
-    });
-    onUpdate(Array.from(byEmail.values()));
-  }, (err) => console.warn('Project members realtime error:', err));
+  let disposed = false;
+  let snapshotUnsub: (() => void) | null = null;
+
+  const attach = (user: User | null) => {
+    snapshotUnsub?.();
+    snapshotUnsub = null;
+    if (disposed || !user) return;
+    snapshotUnsub = onSnapshot(collection(db, 'projects', projectId, 'members'), (snap) => {
+      const byEmail = new Map<string, any>();
+      snap.docs.forEach((d) => {
+        const data = d.data();
+        const email = normalizeEmail(data?.email || (d.id.includes('@') ? d.id : ''));
+        if (!email) return;
+        const existing = byEmail.get(email);
+        if (!existing || Number(data?.updatedAt || 0) >= Number(existing?.updatedAt || 0)) byEmail.set(email, { id: d.id, ...data, email });
+      });
+      if (!disposed) onUpdate(Array.from(byEmail.values()));
+    }, (err) => console.warn('Project members realtime error:', err));
+  };
+
+  attach(getCurrentRealFirebaseUser());
+  const authUnsub = onAuthStateChanged(auth, attach);
+  return () => {
+    disposed = true;
+    snapshotUnsub?.();
+    authUnsub();
+  };
 }
 
 export async function fetchProjectUserRoleFromCloud(
@@ -1417,6 +1433,10 @@ export interface ProjectSharedSettings {
   report?: Record<string, any>;
   workflow?: Record<string, any>;
   photoBackup?: Record<string, any>;
+  trash?: {
+    enabled?: boolean;
+    retentionDays?: number;
+  };
   updatedAt?: number;
   updatedByUid?: string;
   updatedByEmail?: string;
@@ -1438,9 +1458,25 @@ export async function saveProjectSharedSettings(projectId: string, patch: Partia
 
 export function subscribeProjectSharedSettings(projectId: string, onUpdate: (settings: ProjectSharedSettings) => void): () => void {
   if (!projectId) return () => {};
-  return onSnapshot(doc(db, 'projects', projectId, 'settings', 'shared'), (snap) => {
-    if (snap.exists()) onUpdate(snap.data() as ProjectSharedSettings);
-  }, (err) => console.warn('Project shared settings realtime error:', err));
+  let disposed = false;
+  let snapshotUnsub: (() => void) | null = null;
+
+  const attach = (user: User | null) => {
+    snapshotUnsub?.();
+    snapshotUnsub = null;
+    if (disposed || !user) return;
+    snapshotUnsub = onSnapshot(doc(db, 'projects', projectId, 'settings', 'shared'), (snap) => {
+      if (!disposed && snap.exists()) onUpdate(snap.data() as ProjectSharedSettings);
+    }, (err) => console.warn('Project shared settings realtime error:', err));
+  };
+
+  attach(getCurrentRealFirebaseUser());
+  const authUnsub = onAuthStateChanged(auth, attach);
+  return () => {
+    disposed = true;
+    snapshotUnsub?.();
+    authUnsub();
+  };
 }
 
 /**
@@ -1705,7 +1741,7 @@ export async function saveProjectDiffsToCloud(
     addedOrModified: { [subcollection: string]: any[] };
     deletedIds: { [subcollection: string]: string[] };
   },
-  options: { touchProjectMetadata?: boolean; rootTouchIntervalMs?: number; auditDetailLimit?: number } = {}
+  options: { touchProjectMetadata?: boolean; allowRootMetadataWrite?: boolean; rootTouchIntervalMs?: number; auditDetailLimit?: number } = {}
 ): Promise<void> {
   try {
     await ensureAuth();
@@ -1716,8 +1752,10 @@ export async function saveProjectDiffsToCloud(
     const nowForRoot = Date.now();
     const rootTouchIntervalMs = Math.max(30000, Number(options.rootTouchIntervalMs || 60000));
     const lastRootTouch = projectRootMetadataTouchAt.get(projectId) || 0;
-    const shouldTouchRoot = options.touchProjectMetadata === true ||
-      (totalChangedRecords > 0 && nowForRoot - lastRootTouch >= rootTouchIntervalMs);
+    const shouldTouchRoot = options.allowRootMetadataWrite !== false && (
+      options.touchProjectMetadata === true ||
+      (totalChangedRecords > 0 && nowForRoot - lastRootTouch >= rootTouchIntervalMs)
+    );
 
     // 1. Root project metadata is NOT touched on every autosave.
     if (shouldTouchRoot) try {
@@ -1832,6 +1870,10 @@ export async function saveProjectDiffsToCloud(
           auditEntries.push({ module: subName, action: 'DELETE', recordId: id, description: `Xóa ${subName} · ${id}`, beforeData: auditSafeValue(beforeData || { id }) });
         }
         const currentUser = getCurrentAppUser();
+        // V6.2.22: replace the record with a compact tombstone instead of merge:true.
+        // merge:true retained all old business fields, so deleted data kept occupying
+        // Firestore storage even though the UI considered it removed. Recovery data lives
+        // in the lightweight trash entry; this tombstone only prevents stale resurrection.
         batch.set(docRef, {
           id,
           deleted: true,
@@ -1841,7 +1883,7 @@ export async function saveProjectDiffsToCloud(
           updatedByEmail: normalizeEmail(currentUser?.email),
           updatedByDeviceId: getDeviceId(),
           updatedByDeviceName: getDeviceName()
-        }, { merge: true });
+        });
         operationCount++;
 
         if (operationCount >= 400) {
@@ -2144,16 +2186,33 @@ export async function saveProjectAuditLog(projectId: string, entry: Omit<Project
 
 export function subscribeProjectAuditLogsRealtime(projectId: string, onUpdate: (items: ProjectAuditCloudEntry[]) => void, maxItems = 200): () => void {
   if (!projectId) return () => {};
-  const q = query(collection(db, 'projects', projectId, 'activityLogs'), orderBy('clientTimestamp', 'desc'), limit(Math.max(1, Math.min(500, maxItems))));
-  // includeMetadataChanges lets the UI distinguish a locally queued/offline audit write
-  // from a server-acknowledged entry without mutating the append-only log document.
-  return onSnapshot(q, { includeMetadataChanges: true }, (snap) => {
-    onUpdate(snap.docs.map((d) => ({
-      id: d.id,
-      ...d.data(),
-      syncStatus: d.metadata.hasPendingWrites ? 'PENDING' : 'SYNCED',
-    } as ProjectAuditCloudEntry)));
-  }, (err) => console.warn('Project activity log realtime error:', err));
+  let disposed = false;
+  let snapshotUnsub: (() => void) | null = null;
+
+  const attach = (user: User | null) => {
+    snapshotUnsub?.();
+    snapshotUnsub = null;
+    if (disposed || !user) return;
+    const q = query(collection(db, 'projects', projectId, 'activityLogs'), orderBy('clientTimestamp', 'desc'), limit(Math.max(1, Math.min(500, maxItems))));
+    // includeMetadataChanges lets the UI distinguish a locally queued/offline audit write
+    // from a server-acknowledged entry without mutating the append-only log document.
+    snapshotUnsub = onSnapshot(q, { includeMetadataChanges: true }, (snap) => {
+      if (disposed) return;
+      onUpdate(snap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+        syncStatus: d.metadata.hasPendingWrites ? 'PENDING' : 'SYNCED',
+      } as ProjectAuditCloudEntry)));
+    }, (err) => console.warn('Project activity log realtime error:', err));
+  };
+
+  attach(getCurrentRealFirebaseUser());
+  const authUnsub = onAuthStateChanged(auth, attach);
+  return () => {
+    disposed = true;
+    snapshotUnsub?.();
+    authUnsub();
+  };
 }
 
 export async function fetchProjectAuditLogsFromCloud(projectId: string, maxItems = 200): Promise<ProjectAuditCloudEntry[]> {
@@ -2365,19 +2424,40 @@ export async function removeProjectMemberFromCloud(projectId: string, email: str
 /**
  * Delete a project in Cloud and leave cloud tombstone so other devices delete it
  */
-export async function deleteCloudProject(projectId: string): Promise<void> {
+export async function deleteCloudProject(projectId: string, retentionDays = 7): Promise<void> {
   if (!projectId) return;
   try {
     await ensureAuth();
+    const now = Date.now();
+    const safeRetentionDays = [3, 7, 15, 30, 60, 90].includes(Number(retentionDays)) ? Number(retentionDays) : 7;
     await setDoc(doc(db, 'projects', projectId), {
       id: projectId,
       deleted: true,
-      deletedAt: Date.now(),
-      updatedAt: Date.now()
+      deletedAt: now,
+      trashRetentionDays: safeRetentionDays,
+      trashExpiresAt: now + safeRetentionDays * 24 * 60 * 60 * 1000,
+      updatedAt: now
     }, { merge: true });
   } catch (err) {
     console.warn('deleteCloudProject error:', err);
+    throw err;
   }
+}
+
+/** Restore a project that is still inside its trash retention window. Subcollections
+ * are not duplicated/deleted during soft-delete, so restoring the root makes the
+ * existing realtime data visible again without copying photos or business records. */
+export async function restoreCloudProject(projectId: string): Promise<void> {
+  if (!projectId) return;
+  await ensureAuth();
+  const now = Date.now();
+  await setDoc(doc(db, 'projects', projectId), {
+    id: projectId,
+    deleted: false,
+    deletedAt: null,
+    trashExpiresAt: null,
+    updatedAt: now,
+  }, { merge: true });
 }
 
 /**

@@ -92,6 +92,10 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
   };
 
   useEffect(() => {
+    if (userRole !== 'ADMIN' && isEditingProject) setIsEditingProject(false);
+  }, [userRole, isEditingProject]);
+
+  useEffect(() => {
     checkAuthStatus();
 
     const unsubscribe = subscribeToFirebaseAuthStatus((status) => {
@@ -154,12 +158,12 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
                     />
                   ) : (
                     <h1 
-                      onClick={() => setIsEditingProject(true)}
-                      className="text-xs sm:text-sm font-bold text-slate-100 flex items-center gap-1 cursor-pointer hover:text-blue-300 transition-colors truncate"
-                      title="Nhấn để sửa tên dự án"
+                      onClick={() => { if (userRole === 'ADMIN') setIsEditingProject(true); }}
+                      className={`text-xs sm:text-sm font-bold text-slate-100 flex items-center gap-1 transition-colors truncate ${userRole === 'ADMIN' ? 'cursor-pointer hover:text-blue-300' : 'cursor-default'}`}
+                      title={userRole === 'ADMIN' ? 'Nhấn để sửa tên dự án' : 'Chỉ ADMIN được sửa thông tin dự án'}
                     >
                       <span className="truncate">{projectName}</span>
-                      <span className="text-[10px] text-slate-400 font-normal shrink-0">(Sửa)</span>
+                      {userRole === 'ADMIN' && <span className="text-[10px] text-slate-400 font-normal shrink-0">(Sửa)</span>}
                     </h1>
                   )}
                 </div>

@@ -1,5 +1,5 @@
 import { downloadOrShareFile } from '../utils/downloadUtils';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { APP_VERSION_LABEL } from '../config/appVersion';
 import { 
   Cloud, 
@@ -26,7 +26,10 @@ import {
   ArrowDownCircle,
   Sliders,
   Calendar,
-  Hash
+  Hash,
+  Trash2,
+  RotateCcw,
+  Eraser
 } from 'lucide-react';
 import { GoogleAuthStatus, FloorPlan } from '../types';
 import { ConflictMergeModal } from './ConflictMergeModal';
@@ -36,6 +39,8 @@ import { getDateFormatPreset, setDateFormatPreset, DateFormatPreset } from '../u
 import { useLanguage } from '../context/LanguageContext';
 import { apiFetch, hasApiBackend } from '../utils/api';
 import { getImageQualityProfile, getImageQualitySettings, setImageQualitySettings, ImageQualityKind, ImageQualityPreset } from '../utils/imageQualitySettings';
+import type { UserRole } from '../utils/securityUtils';
+import type { TrashOperation, TrashSettings, TrashRetentionDays } from '../lib/trash';
 
 declare const __BUILD_TIME__: string;
 
@@ -69,6 +74,15 @@ interface GoogleConfigTabProps {
   onUnlinkLocalFile?: () => void;
   onRequestLocalFilePermission?: () => void;
   onOpenProjectManager?: () => void;
+
+  // Lightweight project trash (metadata only; no Base64/blob duplication).
+  userRole?: UserRole;
+  trashSettings?: TrashSettings;
+  trashOperations?: TrashOperation[];
+  onTrashSettingsChange?: (settings: TrashSettings) => void;
+  onRestoreTrashOperation?: (operationId: string) => void | Promise<void>;
+  onPurgeTrashOperation?: (operationId: string) => void | Promise<void>;
+  onEmptyTrash?: () => void | Promise<void>;
 }
 
 export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
@@ -100,6 +114,13 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   onUnlinkLocalFile,
   onRequestLocalFilePermission,
   onOpenProjectManager,
+  userRole = 'VIEWER',
+  trashSettings = { enabled: true, retentionDays: 7 },
+  trashOperations = [],
+  onTrashSettingsChange,
+  onRestoreTrashOperation,
+  onPurgeTrashOperation,
+  onEmptyTrash,
 }) => {
   const { t } = useLanguage();
   const [authStatus, setAuthStatus] = useState<GoogleAuthStatus>({ authenticated: false });
@@ -118,6 +139,12 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   const [numberFormatPreset, setNumberFormatPresetState] = useState<NumberFormatPreset>(getNumberFormatPreset());
   const [dateFormatPreset, setDateFormatPresetState] = useState<DateFormatPreset>(getDateFormatPreset());
   const [imageQualitySettings, setImageQualitySettingsState] = useState(getImageQualitySettings());
+  const trashApproxBytes = useMemo(() => trashOperations.reduce((sum, item) => sum + Number(item.approxBytes || 0), 0), [trashOperations]);
+  const formatTrashBytes = (bytes: number) => {
+    if (!Number.isFinite(bytes) || bytes <= 0) return '0 KB';
+    if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
 
   const handleImageQualityChange = (kind: ImageQualityKind, preset: ImageQualityPreset) => {
     const next = { ...imageQualitySettings, [kind]: preset };
@@ -294,6 +321,11 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   // Save Settings Handler
   const handleSaveSettings = (e: React.FormEvent) => {
     e.preventDefault();
+    if (userRole !== 'ADMIN') {
+      setSaveSuccessMsg('Chỉ ADMIN được thay đổi thông tin công trình dùng chung.');
+      setTimeout(() => setSaveSuccessMsg(null), 3500);
+      return;
+    }
     const cleanName = localProjectName.trim() || 'Công Trình Mẫu';
     setProjectName(cleanName);
     setContractorName(localContractorName.trim());
@@ -335,7 +367,8 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
               type="text"
               value={localProjectName}
               onChange={(e) => setLocalProjectName(e.target.value)}
-              className="w-full border border-slate-200 rounded-xl p-2.5 font-bold text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+              disabled={userRole !== 'ADMIN'}
+              className="w-full border border-slate-200 rounded-xl p-2.5 font-bold text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
               placeholder="Ví dụ: LTIA Sân bay Long Thành"
               required
             />
@@ -348,7 +381,8 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
                 type="text"
                 value={localContractorName}
                 onChange={(e) => setLocalContractorName(e.target.value)}
-                className="w-full border border-slate-200 rounded-xl p-2.5 font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                disabled={userRole !== 'ADMIN'}
+                className="w-full border border-slate-200 rounded-xl p-2.5 font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                 placeholder="Tên công ty / đội thợ"
               />
             </div>
@@ -359,7 +393,8 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
                 type="text"
                 value={localInspectorName}
                 onChange={(e) => setLocalInspectorName(e.target.value)}
-                className="w-full border border-slate-200 rounded-xl p-2.5 font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                disabled={userRole !== 'ADMIN'}
+                className="w-full border border-slate-200 rounded-xl p-2.5 font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                 placeholder="Họ tên người duyệt"
               />
             </div>
@@ -367,12 +402,17 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
 
           <button
             type="submit"
-            className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-md active:scale-98 transition-all flex items-center justify-center gap-2 text-xs cursor-pointer"
+            disabled={userRole !== 'ADMIN'}
+            className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-md active:scale-98 transition-all flex items-center justify-center gap-2 text-xs cursor-pointer disabled:bg-slate-300 disabled:shadow-none disabled:cursor-not-allowed"
           >
             <Save className="w-4 h-4" />
             {t('save_settings')}
           </button>
         </form>
+
+        {userRole !== 'ADMIN' && (
+          <p className="text-[10px] text-slate-500">Thông tin công trình là dữ liệu dùng chung. ENGINEER/VIEWER chỉ xem; ADMIN mới được sửa để tránh lệch tên giữa các thiết bị.</p>
+        )}
 
         {saveSuccessMsg && (
           <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-bold flex items-center gap-2 animate-in fade-in">
@@ -512,6 +552,124 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       </div>
 
 
+
+      {/* LIGHTWEIGHT TRASH / RECOVERY CARD */}
+      <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3.5">
+        <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-2">
+          <div>
+            <h3 className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
+              <Trash2 className="w-4 h-4 text-rose-600" /> Thùng rác dữ liệu
+            </h3>
+            <p className="text-[10px] text-slate-500 mt-1">
+              Chỉ lưu metadata cần khôi phục, không nhân đôi Base64/blob/ảnh nhị phân. Mặc định giữ 7 ngày.
+            </p>
+          </div>
+          <span className={`text-[10px] font-bold rounded-lg px-2 py-1 border shrink-0 ${trashSettings.enabled ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-100 border-slate-200 text-slate-600'}`}>
+            {trashSettings.enabled ? 'Đang bật' : 'Đang tắt'}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <label className="rounded-xl border border-slate-200 bg-slate-50 p-3 flex items-center justify-between gap-3">
+            <div>
+              <div className="text-[11px] font-extrabold text-slate-800">Bật Thùng rác</div>
+              <div className="text-[10px] text-slate-500">Tắt = xóa không tạo bản khôi phục mới.</div>
+            </div>
+            <input
+              type="checkbox"
+              checked={trashSettings.enabled}
+              disabled={userRole !== 'ADMIN'}
+              onChange={(e) => onTrashSettingsChange?.({ ...trashSettings, enabled: e.target.checked })}
+              className="w-4 h-4 accent-indigo-600 disabled:opacity-50"
+            />
+          </label>
+
+          <label className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-1">
+            <div className="text-[11px] font-extrabold text-slate-800">Tự dọn sau</div>
+            <select
+              value={trashSettings.retentionDays}
+              disabled={userRole !== 'ADMIN' || !trashSettings.enabled}
+              onChange={(e) => onTrashSettingsChange?.({ ...trashSettings, retentionDays: Number(e.target.value) as TrashRetentionDays })}
+              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-[11px] font-bold disabled:opacity-50"
+            >
+              {[3, 7, 15, 30, 60, 90].map((days) => <option key={days} value={days}>{days} ngày</option>)}
+            </select>
+          </label>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-50 border border-slate-200 p-2.5 text-[10px]">
+          <div className="text-slate-600">
+            <b className="text-slate-900">{trashOperations.length}</b> lần xóa · metadata ước tính <b className="text-slate-900">{formatTrashBytes(trashApproxBytes)}</b>
+          </div>
+          {userRole === 'ADMIN' && trashOperations.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm('Dọn sạch toàn bộ Thùng rác? Dữ liệu này sẽ không thể khôi phục.')) void onEmptyTrash?.();
+              }}
+              className="px-2.5 py-1.5 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 font-bold flex items-center gap-1 hover:bg-rose-100"
+            >
+              <Eraser className="w-3.5 h-3.5" /> Dọn sạch
+            </button>
+          )}
+        </div>
+
+        {!trashSettings.enabled && (
+          <div className="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-2.5">
+            Thùng rác đang tắt. Các lần xóa mới sẽ không có bản khôi phục; tombstone kỹ thuật nhỏ vẫn được giữ để chống dữ liệu cũ tự sống lại khi realtime đồng bộ.
+          </div>
+        )}
+
+        {trashOperations.length === 0 ? (
+          <div className="text-center text-[11px] text-slate-500 italic py-3">Thùng rác đang trống.</div>
+        ) : (
+          <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+            {trashOperations.map((operation) => {
+              const remainingMs = Math.max(0, Number(operation.expiresAt || 0) - Date.now());
+              const remainingDays = Math.max(0, Math.ceil(remainingMs / (24 * 60 * 60 * 1000)));
+              const names = (operation.deletedItems || []).slice(0, 3).map((item) => item.label);
+              return (
+                <div key={operation.id} className="rounded-xl border border-slate-200 bg-white p-3 space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-extrabold text-slate-800 truncate">{names.join(' · ') || 'Dữ liệu đã xóa'}</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">
+                        {new Date(operation.deletedAt).toLocaleString('vi-VN')} · {operation.deletedItems?.length || 0} mục · còn {remainingDays} ngày
+                      </div>
+                      {operation.deletedByEmail && <div className="text-[9px] text-slate-400 truncate">Xóa bởi: {operation.deletedByEmail}</div>}
+                    </div>
+                    <span className="text-[9px] font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-md shrink-0">{formatTrashBytes(Number(operation.approxBytes || 0))}</span>
+                  </div>
+                  {userRole === 'ADMIN' && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void onRestoreTrashOperation?.(operation.id)}
+                        className="flex-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-bold flex items-center justify-center gap-1 hover:bg-emerald-700"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" /> Khôi phục
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (window.confirm('Xóa vĩnh viễn mục này khỏi Thùng rác?')) void onPurgeTrashOperation?.(operation.id);
+                        }}
+                        className="flex-1 px-2.5 py-1.5 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-[10px] font-bold flex items-center justify-center gap-1 hover:bg-rose-100"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" /> Xóa vĩnh viễn
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {userRole !== 'ADMIN' && (
+          <p className="text-[10px] text-slate-500">Chỉ ADMIN được đổi thời gian lưu, khôi phục hoặc xóa vĩnh viễn.</p>
+        )}
+      </div>
 
       {/* Floor Plan Target Dates Configuration */}
       <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">

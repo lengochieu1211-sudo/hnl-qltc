@@ -119,11 +119,12 @@ import {
   pickAndroidAutoSaveFolder,
   saveTextFileToAndroidAutoFolder
 } from './utils/fileExport';
-import { getProjectPhotos, getProjectPhotosWithBinary, restorePhotosFromBackup } from './utils/photoStorage';
+import { deleteEntityPhotos, getProjectPhotos, getProjectPhotosWithBinary, restorePhotosFromBackup } from './utils/photoStorage';
 import { subscribeProjectPhotosRealtime, syncProjectPhotosToCloud, PhotoCloudSyncStatus } from './lib/photoCloudSync';
 import { isPrimaryDriveReady, PRIMARY_DRIVE_OWNER_EMAIL, uploadProjectBackupToPrimaryDrive } from './lib/primaryDriveBridge';
 import { subscribeConversationReadState, subscribeConversationSummary } from './lib/chatService';
 import { floorPlanNeedsCloudUpload, isDisplayableFloorPlanUrl, loadFloorPlanImageFromCloud, syncFloorPlanImageToCloud, deleteFloorPlanImageFromCloud } from './lib/floorPlanImageSync';
+import { DEFAULT_TRASH_SETTINGS, TrashOperation, TrashSettings, TrashCollectionKey, deleteTrashOperationFromCloud, estimateTrashBytes, getTrashCollectionLabel, normalizeTrashSettings, sanitizeTrashSnapshot, saveTrashOperationToCloud, subscribeProjectTrash } from './lib/trash';
 
 // Heavy screens are code-split so Android does not parse XLSX/PDF-heavy modules at startup.
 const WarehouseTab = React.lazy(() => import('./components/WarehouseTab').then(m => ({ default: m.WarehouseTab })));
@@ -227,6 +228,11 @@ export default function App() {
   const [currentUserRole, setCurrentUserRoleState] = useState<UserRole>(() => getCurrentUserRole());
   const [isProjectRoleResolved, setIsProjectRoleResolved] = useState(false);
   const [cloudDefectIndex, setCloudDefectIndex] = useState<{ projectId: string; ids: Set<string> } | null>(null);
+  const [trashSettings, setTrashSettings] = useState<TrashSettings>(DEFAULT_TRASH_SETTINGS);
+  const trashSettingsRef = useRef<TrashSettings>(DEFAULT_TRASH_SETTINGS);
+  const [trashOperations, setTrashOperations] = useState<TrashOperation[]>([]);
+  const trashOperationsRef = useRef<TrashOperation[]>([]);
+  const trashCaptureSuppressedRef = useRef(false);
   const googleServerBackendAvailable = hasApiBackend();
 
   useEffect(() => {
@@ -332,6 +338,31 @@ export default function App() {
   const hasUserEditedSinceHydrateRef = React.useRef<boolean>(false);
   const hasUnsavedAllBackupChangesRef = React.useRef<boolean>(false);
   const localTombstonesRef = React.useRef<Record<string, number>>({});
+
+  // V6.2.22: Persist only collections that the user actually changed. Rewriting all
+  // nine large arrays on every small edit caused avoidable IndexedDB serialization
+  // and mobile UI stalls. Revision counters avoid clearing a newer dirty mark while
+  // an older async save is still in flight.
+  const localDirtyRevisionRef = React.useRef<Partial<Record<keyof AppData, number>>>({});
+  const localMetadataDirtyRevisionRef = React.useRef(0);
+  const editorLocalRecoveryKeyRef = React.useRef('');
+  const localCollectionStorageKey: Record<keyof AppData, string> = {
+    materialNorms: 'construction_material_norms',
+    inventory: 'construction_inventory',
+    workVolumes: 'construction_work_volumes',
+    floorPlans: 'construction_floor_plans',
+    defects: 'construction_defects',
+    roomProgressList: 'construction_room_progress',
+    checklist: 'construction_checklist',
+    crewRecords: 'construction_crew_records',
+    teams: 'construction_teams',
+  };
+  const markLocalCollectionDirty = (key: keyof AppData) => {
+    localDirtyRevisionRef.current[key] = Number(localDirtyRevisionRef.current[key] || 0) + 1;
+  };
+  const markAllLocalCollectionsDirty = () => {
+    (Object.keys(localCollectionStorageKey) as (keyof AppData)[]).forEach(markLocalCollectionDirty);
+  };
 
   const persistLocalTombstones = (projectId: string) => {
     const snapshot = { ...localTombstonesRef.current };
@@ -540,27 +571,37 @@ export default function App() {
     if (!canEditProjectData(currentUserRole)) return;
     const frozenProjectId = targetProjectId || activeProjectIdRef.current || activeProjectId;
     if (!frozenProjectId) return;
+
+    const dirtyEntries = (Object.entries(localDirtyRevisionRef.current) as Array<[keyof AppData, number]>)
+      .filter(([, revision]) => Number(revision || 0) > 0);
+    const metadataRevision = localMetadataDirtyRevisionRef.current;
+    if (dirtyEntries.length === 0 && metadataRevision <= 0) return;
+
     setIsSaving(true);
-    console.log('[SAVE START]', frozenProjectId);
+    console.log('[SAVE START]', frozenProjectId, 'collections=', dirtyEntries.map(([key]) => key));
 
     try {
       await queueSave(async () => {
-        await Promise.all([
-          setAsyncItem(getKey('construction_material_norms', frozenProjectId), materialNorms),
-          setAsyncItem(getKey('construction_inventory', frozenProjectId), inventory),
-          setAsyncItem(getKey('construction_work_volumes', frozenProjectId), workVolumes),
-          setAsyncItem(getKey('construction_floor_plans', frozenProjectId), floorPlans),
-          setAsyncItem(getKey('construction_defects', frozenProjectId), defects),
-          setAsyncItem(getKey('construction_room_progress', frozenProjectId), roomProgressList),
-          setAsyncItem(getKey('construction_checklist', frozenProjectId), checklist),
-          setAsyncItem(getKey('construction_crew_records', frozenProjectId), crewRecords),
-          setAsyncItem(getKey('construction_teams', frozenProjectId), teams),
-          setAsyncItem(getKey('construction_tombstones', frozenProjectId), localTombstonesRef.current),
-        ]);
-        safeSetLocalStorageItem(getKey('construction_project_name', frozenProjectId), projectName);
-        safeSetLocalStorageItem(getKey('construction_contractor', frozenProjectId), contractorName);
-        safeSetLocalStorageItem(getKey('construction_inspector', frozenProjectId), inspectorName);
+        const frozenPresent = present;
+        await Promise.all(dirtyEntries.map(([key]) =>
+          setAsyncItem(getKey(localCollectionStorageKey[key], frozenProjectId), frozenPresent[key])
+        ));
+
+        if (metadataRevision > 0) {
+          safeSetLocalStorageItem(getKey('construction_project_name', frozenProjectId), projectName);
+          safeSetLocalStorageItem(getKey('construction_contractor', frozenProjectId), contractorName);
+          safeSetLocalStorageItem(getKey('construction_inspector', frozenProjectId), inspectorName);
+        }
         safeSetLocalStorageItem(getKey('construction_updated_at', frozenProjectId), String(lastUpdatedAt));
+
+        dirtyEntries.forEach(([key, savedRevision]) => {
+          if (Number(localDirtyRevisionRef.current[key] || 0) === Number(savedRevision)) {
+            delete localDirtyRevisionRef.current[key];
+          }
+        });
+        if (metadataRevision > 0 && localMetadataDirtyRevisionRef.current === metadataRevision) {
+          localMetadataDirtyRevisionRef.current = 0;
+        }
       });
       console.log('[SAVE DONE]', frozenProjectId);
     } catch (err) {
@@ -589,6 +630,11 @@ export default function App() {
     void saveCurrentProject(oldId).catch((e) => {
       console.warn('Background save before switch failed:', e);
     });
+    // Dirty revisions are project-scoped. The old save captured its own snapshot above;
+    // do not let a failed/slow old-project write make the next project persist all tables.
+    localDirtyRevisionRef.current = {};
+    localMetadataDirtyRevisionRef.current = 0;
+    editorLocalRecoveryKeyRef.current = '';
 
     setIsHydrated(false);
     setActiveProject(newProjectId);
@@ -606,6 +652,7 @@ export default function App() {
       cloudDataRetryTimerRef.current = null;
     }
     setDataCloudStatus({ phase: 'idle' });
+    setActiveFloorViewId('');
     setActiveProjectId(newProjectId);
   };
 
@@ -660,6 +707,7 @@ export default function App() {
     });
   }, [defects, cloudDefectIndex, activeProjectId, isProjectRoleResolved, currentUserRole]);
   const activeChecklist = useMemo(() => checklist.filter((item) => !item.archivedAt), [checklist]);
+
 
   // Helper to match floor names or floor IDs (supports multi-floor strings like "Tầng 1, Tầng 2")
   const isFloorMatch = (volFloor: string, roomFloorName: string, volFloorIds?: string[], roomFloorId?: string) => {
@@ -862,15 +910,30 @@ export default function App() {
     const saved = localStorage.getItem(getKey('construction_drive_auto_sync_enabled', activeProjectId));
     setAutoSyncEnabled(saved === 'true');
 
+    const savedTrashRaw = localStorage.getItem(getKey('construction_trash_settings', activeProjectId));
+    let initialTrash = DEFAULT_TRASH_SETTINGS;
+    if (savedTrashRaw) {
+      try { initialTrash = normalizeTrashSettings(JSON.parse(savedTrashRaw)); } catch (_) {}
+    }
+    trashSettingsRef.current = initialTrash;
+    setTrashSettings(initialTrash);
+
     // Project-level setting follows the project across PC/Web/APK. LocalStorage is only the offline cache.
     const unsubscribe = subscribeProjectSharedSettings(activeProjectId, (settings) => {
       if (typeof settings.driveAutoSyncEnabled === 'boolean') {
         setAutoSyncEnabled(settings.driveAutoSyncEnabled);
         localStorage.setItem(getKey('construction_drive_auto_sync_enabled', activeProjectId), String(settings.driveAutoSyncEnabled));
       }
+      if (settings.trash) {
+        const nextTrash = normalizeTrashSettings(settings.trash);
+        trashSettingsRef.current = nextTrash;
+        setTrashSettings(nextTrash);
+        localStorage.setItem(getKey('construction_trash_settings', activeProjectId), JSON.stringify(nextTrash));
+      }
     });
     return unsubscribe;
   }, [activeProjectId]);
+
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
 
   // Local File Sync States
@@ -1122,6 +1185,7 @@ export default function App() {
   const floorPlanImageRetryTimersRef = useRef<Set<number>>(new Set());
   const [floorPlanImageSyncRetryTick, setFloorPlanImageSyncRetryTick] = useState(0);
   const [floorPlanImageHydrateRetryTick, setFloorPlanImageHydrateRetryTick] = useState(0);
+  const [activeFloorViewId, setActiveFloorViewId] = useState<string>('');
 
   const [cloudInitialReady, setCloudInitialReady] = useState<boolean>(false);
   const receivedInitialSubcollectionsRef = useRef<Set<string>>(new Set());
@@ -1132,6 +1196,136 @@ export default function App() {
   const priorityCloudSyncRevisionRef = useRef(0);
   const flushedPriorityCloudSyncRevisionRef = useRef(0);
   const [cloudUserKey, setCloudUserKey] = useState<string>('');
+
+  // V6.2.22: VIEWER renders Firestore truth only, but its older IndexedDB cache is not
+  // destroyed. If the same account later gains edit rights, reconcile any genuinely
+  // newer/local-only records once and let the normal diff uploader publish them.
+  useEffect(() => {
+    if (!isHydrated || isLoadingProject || isRestoring || !isProjectRoleResolved || !cloudInitialReady || !canEditProjectData(currentUserRole)) return;
+    const recoveryKey = `${activeProjectId}:${cloudUserKey}:${currentUserRole}`;
+    if (!cloudUserKey || editorLocalRecoveryKeyRef.current === recoveryKey) return;
+    editorLocalRecoveryKeyRef.current = recoveryKey;
+    let cancelled = false;
+
+    const recover = async () => {
+      const cachedByKey: Partial<Record<keyof AppData, any[]>> = {};
+      for (const key of Object.keys(localCollectionStorageKey) as (keyof AppData)[]) {
+        cachedByKey[key] = await getAsyncItem<any[]>(getKey(localCollectionStorageKey[key], activeProjectId), []);
+      }
+      if (cancelled || activeProjectIdRef.current !== activeProjectId) return;
+
+      setPresent((prev) => {
+        let next = prev;
+        const recoveredKeys = new Set<keyof AppData>();
+        for (const key of Object.keys(localCollectionStorageKey) as (keyof AppData)[]) {
+          const cached = Array.isArray(cachedByKey[key]) ? cachedByKey[key]! : [];
+          if (cached.length === 0) continue;
+          const currentList = (next[key] || []) as any[];
+          const currentMap = new Map<string, any>();
+          currentList.forEach((item) => { if (item?.id) currentMap.set(String(item.id), item); });
+          let merged = currentList;
+          let changed = false;
+
+          for (const localItem of cached) {
+            if (!localItem?.id) continue;
+            const id = String(localItem.id);
+            const localTime = parseLegacyTimestamp(localItem.updatedAt, 0);
+            const tombTime = Number(localTombstonesRef.current[`${String(key)}_${id}`] || 0);
+            if (tombTime > 0 && tombTime >= localTime) continue;
+            const current = currentMap.get(id);
+            const currentTime = parseLegacyTimestamp(current?.updatedAt, 0);
+            if (!current || localTime > currentTime) {
+              if (!changed) merged = [...currentList];
+              const idx = merged.findIndex((item: any) => String(item?.id || '') === id);
+              if (idx >= 0) merged[idx] = localItem;
+              else merged.push(localItem);
+              currentMap.set(id, localItem);
+              changed = true;
+            }
+          }
+
+          if (changed) {
+            if (next === prev) next = { ...prev };
+            (next as any)[key] = key === 'floorPlans'
+              ? [...merged].sort((a: any, b: any) => Number(a?.order || 0) - Number(b?.order || 0))
+              : merged;
+            recoveredKeys.add(key);
+          }
+        }
+
+        if (recoveredKeys.size > 0) {
+          window.setTimeout(() => {
+            recoveredKeys.forEach((key) => markLocalCollectionDirty(key));
+            if (recoveredKeys.has('defects') || recoveredKeys.has('crewRecords')) priorityCloudSyncRevisionRef.current += 1;
+            hasUserEditedSinceHydrateRef.current = true;
+            hasUnsavedAllBackupChangesRef.current = true;
+            setLastUpdatedAt(Date.now());
+          }, 0);
+        }
+        return next;
+      });
+    };
+
+    void recover().catch((err) => console.warn('Editor local recovery warning:', err));
+    return () => { cancelled = true; };
+  }, [activeProjectId, cloudUserKey, cloudInitialReady, currentUserRole, isProjectRoleResolved, isHydrated, isLoadingProject, isRestoring]);
+
+  useEffect(() => {
+    let disposed = false;
+    let unsubscribeCloud: (() => void) | null = null;
+
+    const persistTrashLocal = async (items: TrashOperation[]) => {
+      trashOperationsRef.current = items;
+      setTrashOperations(items);
+      await setAsyncItem(getKey('construction_trash', activeProjectId), items).catch((err) =>
+        console.warn('Trash local cache save warning:', err)
+      );
+    };
+
+    getAsyncItem<TrashOperation[]>(getKey('construction_trash', activeProjectId), []).then((localItems) => {
+      if (disposed) return;
+      const now = Date.now();
+      const valid = (Array.isArray(localItems) ? localItems : [])
+        .filter((item) => item?.id && Number(item.expiresAt || 0) > now)
+        .sort((a, b) => Number(b.deletedAt || 0) - Number(a.deletedAt || 0));
+      trashOperationsRef.current = valid;
+      setTrashOperations(valid);
+    }).catch(() => {});
+
+    unsubscribeCloud = subscribeProjectTrash(activeProjectId, (cloudItems) => {
+      if (disposed) return;
+      const now = Date.now();
+      const valid = cloudItems.filter((item) => Number(item.expiresAt || 0) > now);
+      const expired = cloudItems.filter((item) => Number(item.expiresAt || 0) > 0 && Number(item.expiresAt || 0) <= now);
+      void persistTrashLocal(valid);
+
+      // Purge only when an ADMIN is online. This avoids a timer/Cloud Function cost while
+      // still enforcing the selected retention period in normal app use. Floor-plan
+      // binaries are deleted at this point; ordinary business tombstones stay tiny to
+      // protect against stale offline resurrection.
+      if (currentUserRole === 'ADMIN' && expired.length > 0) {
+        expired.forEach((operation) => {
+          void (async () => {
+            for (const item of operation.deletedItems || []) {
+              if (item.collection === 'floorPlans') {
+                await deleteFloorPlanImageFromCloud(operation.projectId, item.snapshot as FloorPlan).catch(() => {});
+              } else if (item.collection === 'defects') {
+                await deleteEntityPhotos(operation.projectId, 'defect', item.entityId).catch(() => {});
+              } else if (item.collection === 'crewRecords') {
+                await deleteEntityPhotos(operation.projectId, 'crewRecord', item.entityId).catch(() => {});
+              }
+            }
+            await deleteTrashOperationFromCloud(operation.projectId, operation.id).catch(() => {});
+          })();
+        });
+      }
+    });
+
+    return () => {
+      disposed = true;
+      unsubscribeCloud?.();
+    };
+  }, [activeProjectId, cloudUserKey, currentUserRole]);
   // Chat must only list projects currently authorized by Firestore. Local recovery
   // projects remain available in Project Manager, but are never treated as chat access.
   const [authorizedChatProjects, setAuthorizedChatProjects] = useState<Array<{ id: string; name: string }>>([]);
@@ -1293,10 +1487,17 @@ export default function App() {
     if (!isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || switchingProjectRef.current) return;
     const projectId = activeProjectId;
     let cancelled = false;
-    const candidates = floorPlans.filter((plan) => (
-      !isDisplayableFloorPlanUrl(plan.imageUrl) &&
-      Boolean(plan.driveFileId || plan.cloudFileId || plan.storageProvider)
-    ));
+    // V6.2.22: hydrate only the floor currently being viewed. Previously every
+    // cloud-backed drawing was converted to a data URL at project startup, which could
+    // retain many large images in phone RAM. Export resolves its selected floor images
+    // on demand, so normal navigation stays lightweight.
+    if (activeTab !== 'floorplan') return;
+    const preferredFloorId = activeFloorViewId || floorPlans[0]?.id || '';
+    const selectedPlan = floorPlans.find((plan) => plan.id === preferredFloorId);
+    const candidates = selectedPlan && !isDisplayableFloorPlanUrl(selectedPlan.imageUrl) &&
+      Boolean(selectedPlan.driveFileId || selectedPlan.cloudFileId || selectedPlan.storageProvider)
+      ? [selectedPlan]
+      : [];
     if (candidates.length === 0) return;
 
     const run = async () => {
@@ -1371,7 +1572,7 @@ export default function App() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [floorPlans, activeProjectId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, floorPlanImageHydrateRetryTick]);
+  }, [floorPlans, activeProjectId, activeTab, activeFloorViewId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, floorPlanImageHydrateRetryTick]);
 
   useEffect(() => {
     const refreshCloudUser = () => {
@@ -1654,6 +1855,126 @@ export default function App() {
     };
   }, [activeProjectId]);
 
+  const persistTrashOperations = (items: TrashOperation[], projectId = activeProjectIdRef.current || activeProjectId) => {
+    const sorted = [...items].sort((a, b) => Number(b.deletedAt || 0) - Number(a.deletedAt || 0));
+    trashOperationsRef.current = sorted;
+    setTrashOperations(sorted);
+    void setAsyncItem(getKey('construction_trash', projectId), sorted).catch((err) =>
+      console.warn('Trash local persist warning:', err)
+    );
+  };
+
+  const appendTrashOperation = (operation: TrashOperation) => {
+    const next = [operation, ...trashOperationsRef.current.filter((item) => item.id !== operation.id)];
+    persistTrashOperations(next, operation.projectId);
+    void saveTrashOperationToCloud(operation).catch((err) =>
+      console.warn('Trash cloud save warning:', err)
+    );
+  };
+
+  const handleTrashSettingsChange = (nextInput: TrashSettings) => {
+    if (currentUserRole !== 'ADMIN') {
+      alert('Chỉ ADMIN được thay đổi cài đặt Thùng rác.');
+      return;
+    }
+    const next = normalizeTrashSettings(nextInput);
+    trashSettingsRef.current = next;
+    setTrashSettings(next);
+    localStorage.setItem(getKey('construction_trash_settings', activeProjectIdRef.current), JSON.stringify(next));
+    void saveProjectSharedSettings(activeProjectIdRef.current, { trash: next }).catch((err) =>
+      console.warn('Trash shared settings save warning:', err)
+    );
+  };
+
+  const restoreTrashOperation = async (operationId: string) => {
+    if (currentUserRole !== 'ADMIN') {
+      alert('Chỉ ADMIN được khôi phục dữ liệu từ Thùng rác.');
+      return;
+    }
+    const operation = trashOperationsRef.current.find((item) => item.id === operationId);
+    if (!operation) return;
+    trashCaptureSuppressedRef.current = true;
+    try {
+      updateAppData((prev) => {
+        const next: AppData = { ...prev };
+        const opTime = Number(operation.deletedAt || 0);
+
+        for (const deleted of operation.deletedItems || []) {
+          const key = deleted.collection as keyof AppData;
+          const list = [...((next[key] || []) as any[])];
+          if (list.some((item) => String(item?.id || '') === deleted.entityId)) continue;
+          let restored = sanitizeTrashSnapshot(deleted.snapshot);
+          if (key === 'floorPlans' && restored && !restored.imageUrl) {
+            restored = { ...restored, imageUrl: `cloud-floorplan:${restored.id}` };
+          }
+          list.push({ ...restored, updatedAt: Date.now() });
+          if (key === 'floorPlans') list.sort((a, b) => Number(a?.order || 0) - Number(b?.order || 0));
+          (next as any)[key] = list;
+        }
+
+        for (const [rawKey, snapshots] of Object.entries(operation.relatedBefore || {})) {
+          const key = rawKey as keyof AppData;
+          if (!Array.isArray(snapshots) || snapshots.length === 0) continue;
+          const beforeById = new Map<string, any>(snapshots.map((item: any) => [String(item?.id || ''), item]));
+          (next as any)[key] = ((next[key] || []) as any[]).map((current: any) => {
+            const before = beforeById.get(String(current?.id || ''));
+            if (!before) return current;
+            // Never overwrite a record another user edited after this delete operation.
+            if (Number(current?.updatedAt || 0) > opTime) return current;
+            return { ...sanitizeTrashSnapshot(before), updatedAt: Date.now() };
+          });
+        }
+
+        return next;
+      });
+
+      const remaining = trashOperationsRef.current.filter((item) => item.id !== operationId);
+      persistTrashOperations(remaining, operation.projectId);
+      await deleteTrashOperationFromCloud(operation.projectId, operationId).catch((err) =>
+        console.warn('Trash cloud restore cleanup warning:', err)
+      );
+    } finally {
+      window.setTimeout(() => { trashCaptureSuppressedRef.current = false; }, 250);
+    }
+  };
+
+  const purgeTrashOperation = async (operationId: string) => {
+    if (currentUserRole !== 'ADMIN') {
+      alert('Chỉ ADMIN được xóa vĩnh viễn dữ liệu trong Thùng rác.');
+      return;
+    }
+    const operation = trashOperationsRef.current.find((item) => item.id === operationId);
+    if (!operation) return;
+    // Floor-plan binaries are intentionally retained while recoverable. Only purge them
+    // when the trash entry is permanently removed/expired. Other business tombstones stay
+    // tiny in Firestore to prevent stale offline clients from resurrecting old records.
+    for (const item of operation.deletedItems || []) {
+      if (item.collection === 'floorPlans') {
+        await deleteFloorPlanImageFromCloud(operation.projectId, item.snapshot as FloorPlan).catch((err) =>
+          console.warn('Permanent floor-plan image cleanup warning:', err)
+        );
+      } else if (item.collection === 'defects') {
+        await deleteEntityPhotos(operation.projectId, 'defect', item.entityId).catch(() => {});
+      } else if (item.collection === 'crewRecords') {
+        await deleteEntityPhotos(operation.projectId, 'crewRecord', item.entityId).catch(() => {});
+      }
+    }
+    const remaining = trashOperationsRef.current.filter((item) => item.id !== operationId);
+    persistTrashOperations(remaining, operation.projectId);
+    await deleteTrashOperationFromCloud(operation.projectId, operationId).catch((err) =>
+      console.warn('Trash cloud permanent delete warning:', err)
+    );
+  };
+
+  const emptyTrash = async () => {
+    if (currentUserRole !== 'ADMIN') {
+      alert('Chỉ ADMIN được dọn sạch Thùng rác.');
+      return;
+    }
+    const ids = trashOperationsRef.current.map((item) => item.id);
+    for (const id of ids) await purgeTrashOperation(id);
+  };
+
   // Sync Lock Ref to avoid circular loops
   const syncLockRef = React.useRef(false);
 
@@ -1678,12 +1999,15 @@ export default function App() {
       let stampedNext = rawNext;
       let hasStamped = false;
       const changedSummaries: string[] = [];
+      const trashDeletedItems: TrashOperation['deletedItems'] = [];
+      const trashRelatedBefore: Partial<Record<TrashCollectionKey, any[]>> = {};
 
       collections.forEach((col) => {
         const prevList = prev[col] || [];
         const nextList = rawNext[col] || [];
 
         if (prevList !== nextList) {
+          markLocalCollectionDirty(col);
           if (col === 'crewRecords' || col === 'defects') priorityCloudSyncRevisionRef.current += 1;
           const prevMap = new Map<string, any>();
           (prevList as any[]).forEach(item => { if (item?.id) prevMap.set(String(item.id), item); });
@@ -1692,18 +2016,36 @@ export default function App() {
 
           const addedIds = Array.from(nextMap.keys()).filter((id) => !prevMap.has(id));
           const deletedIds = Array.from(prevMap.keys()).filter((id) => !nextMap.has(id));
-          deletedIds.forEach((id) => recordLocalTombstone(col, id, now));
+          deletedIds.forEach((id) => {
+            recordLocalTombstone(col, id, now);
+            if (trashSettingsRef.current.enabled && !trashCaptureSuppressedRef.current) {
+              const snapshot = prevMap.get(id);
+              if (snapshot) {
+                const label = String(snapshot.roomName || snapshot.floorName || snapshot.description || snapshot.title || snapshot.materialName || snapshot.teamName || snapshot.name || snapshot.date || id);
+                trashDeletedItems.push({
+                  collection: col as TrashCollectionKey,
+                  entityId: id,
+                  label: `${getTrashCollectionLabel(col as TrashCollectionKey)}: ${label}`,
+                  snapshot: sanitizeTrashSnapshot(snapshot),
+                });
+              }
+            }
+          });
           addedIds.forEach((id) => clearLocalTombstone(col, id));
           const modifiedDetails: string[] = [];
+          const relatedSnapshots: any[] = [];
           for (const [id, nextItem] of nextMap.entries()) {
             const prevItem = prevMap.get(id);
             if (!prevItem || prevItem === nextItem) continue;
             const changedFields = Array.from(new Set([...Object.keys(prevItem), ...Object.keys(nextItem)]))
               .filter((key) => key !== 'updatedAt' && prevItem[key] !== nextItem[key])
               .slice(0, 6);
-            modifiedDetails.push(`${id}${changedFields.length ? ` [${changedFields.join(', ')}]` : ''}`);
-            if (modifiedDetails.length >= 3) break;
+            if (modifiedDetails.length < 3) modifiedDetails.push(`${id}${changedFields.length ? ` [${changedFields.join(', ')}]` : ''}`);
+            if (trashSettingsRef.current.enabled && !trashCaptureSuppressedRef.current) relatedSnapshots.push(sanitizeTrashSnapshot(prevItem));
           }
+          // Capture side-effect changes so restoring a deleted room/floor can safely
+          // reconnect untouched Defect/Checklist/work links without storing any binary.
+          if (relatedSnapshots.length > 0) trashRelatedBefore[col as TrashCollectionKey] = relatedSnapshots;
           const auditParts: string[] = [];
           if (addedIds.length) auditParts.push(`thêm ${addedIds.slice(0, 3).join(', ')}${addedIds.length > 3 ? ` +${addedIds.length - 3}` : ''}`);
           if (deletedIds.length) auditParts.push(`xóa ${deletedIds.slice(0, 3).join(', ')}${deletedIds.length > 3 ? ` +${deletedIds.length - 3}` : ''}`);
@@ -1731,8 +2073,28 @@ export default function App() {
 
       const next = stampedNext;
 
+      let trashOperationToAppend: TrashOperation | null = null;
+      if (trashDeletedItems.length > 0 && trashSettingsRef.current.enabled && !trashCaptureSuppressedRef.current) {
+        const user = getCurrentRealFirebaseUser();
+        const retentionDays = trashSettingsRef.current.retentionDays || 7;
+        const operationBase: TrashOperation = {
+          id: createEntityId('TRASH'),
+          projectId: activeProjectIdRef.current || activeProjectId,
+          deletedAt: now,
+          expiresAt: now + retentionDays * 24 * 60 * 60 * 1000,
+          retentionDays,
+          deletedByUid: user?.uid,
+          deletedByEmail: user?.email || undefined,
+          deletedByName: user?.displayName || undefined,
+          deletedItems: trashDeletedItems,
+          relatedBefore: trashRelatedBefore,
+        };
+        trashOperationToAppend = { ...operationBase, approxBytes: estimateTrashBytes(operationBase) };
+      }
+
       // Safe asynchronous scheduling to prevent React from warning about nested state updates during rendering
       setTimeout(() => {
+        if (trashOperationToAppend) appendTrashOperation(trashOperationToAppend);
         setPast((p) => { const limit = typeof window !== 'undefined' && window.innerWidth < 768 ? 6 : 15; return [...p.slice(-(limit - 1)), prev]; });
         setFuture([]);
 
@@ -1829,6 +2191,7 @@ export default function App() {
     setPast(newPast);
     setFuture((f) => [present, ...f]);
     setPresent(stampedPrevious);
+    markAllLocalCollectionsDirty();
 
     // Update modified timestamp
     setLastUpdatedAt(now);
@@ -1845,6 +2208,7 @@ export default function App() {
 
     setPast((p) => [...p, present]);
     setPresent(stampedNext);
+    markAllLocalCollectionsDirty();
     setFuture(newFuture);
 
     // Update modified timestamp
@@ -1954,7 +2318,7 @@ export default function App() {
 
   // Firebase Realtime Subcollection-Based Multi-Device Sync Listener
   useEffect(() => {
-    if (!isHydrated || isLoadingProject || isRestoring || isInitializing) return;
+    if (!isHydrated || isLoadingProject || isRestoring || isInitializing || !isProjectRoleResolved) return;
     if (!cloudUserKey) {
       setCloudInitialReady(false);
       return;
@@ -2030,6 +2394,7 @@ export default function App() {
           if (switchingProjectRef.current || activeProjectIdRef.current !== subscribedProjectId) return prev;
 
           const localList = prev[stateKey as keyof AppData] || [];
+          const viewerCloudTruth = isProjectRoleResolved && currentUserRole === 'VIEWER';
           const tombstoneKeyFor = (id: string) => `${String(stateKey)}_${id}`;
           const getLocalTombstoneTime = (id: string) => Number(localTombstonesRef.current[tombstoneKeyFor(id)] || 0);
 
@@ -2096,7 +2461,13 @@ export default function App() {
             lastSyncedPresentRef.current[stateKey as keyof AppData] = Array.from(syncedMap.values());
 
             const dbKey = getKey(`construction_${stateKey === 'roomProgressList' ? 'room_progress' : stateKey.replace(/([A-Z])/g, '_$1').toLowerCase()}`, subscribedProjectId);
-            setAsyncItem(dbKey, mergedPatchList).catch(err => console.warn('Patch sync save IndexedDB warning:', err));
+            // For a verified VIEWER, present state follows Firestore exactly, but do not
+            // overwrite the editor's older local cache. If that account later becomes an
+            // ENGINEER/ADMIN, V6.2.22 can reconcile any unsent local-only records instead
+            // of silently losing them.
+            if (!viewerCloudTruth) {
+              setAsyncItem(dbKey, mergedPatchList).catch(err => console.warn('Patch sync save IndexedDB warning:', err));
+            }
             return { ...prev, [stateKey]: mergedPatchList };
           }
           
@@ -2165,6 +2536,12 @@ export default function App() {
               listHasChanges = true;
               return;
             }
+            if (viewerCloudTruth) {
+              // A VIEWER must not see browser-only rows as shared project data. Keep the
+              // original IndexedDB cache untouched for lossless future editor recovery.
+              listHasChanges = true;
+              return;
+            }
             mergedList.push(localItem);
           });
 
@@ -2183,7 +2560,9 @@ export default function App() {
 
           // Persist the specific table to IndexedDB asynchronously
           const dbKey = getKey(`construction_${stateKey === 'roomProgressList' ? 'room_progress' : stateKey.replace(/([A-Z])/g, '_$1').toLowerCase()}`, subscribedProjectId);
-          setAsyncItem(dbKey, mergedList).catch(err => console.warn('Sync save IndexedDB warning:', err));
+          if (!viewerCloudTruth) {
+            setAsyncItem(dbKey, mergedList).catch(err => console.warn('Sync save IndexedDB warning:', err));
+          }
 
           return updatedState;
         });
@@ -2193,7 +2572,7 @@ export default function App() {
     return () => {
       if (unsubscribe) unsubscribe();
     };
-  }, [activeProjectId, cloudUserKey, cloudBootstrapVersion, isHydrated, isLoadingProject, isRestoring, isInitializing]);
+  }, [activeProjectId, cloudUserKey, cloudBootstrapVersion, isHydrated, isLoadingProject, isRestoring, isInitializing, isProjectRoleResolved, currentUserRole]);
 
   // Photo metadata is realtime; binary image chunks are downloaded lazily only when an image is displayed.
   // This keeps multi-device image sync complete without loading every photo into phone RAM at startup.
@@ -2211,9 +2590,10 @@ export default function App() {
   }, [activeProjectId, activeTab, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing]);
 
   const handleUpdateProjectName = (val: string) => {
-    if (!isProjectRoleResolved || !canEditProjectData(currentUserRole)) return;
+    if (!isProjectRoleResolved || currentUserRole !== 'ADMIN') return;
     hasUserEditedSinceHydrateRef.current = true;
     hasUnsavedAllBackupChangesRef.current = true;
+    localMetadataDirtyRevisionRef.current += 1;
     setProjectName(val);
     const now = Date.now();
     setLastUpdatedAt(now);
@@ -2221,9 +2601,10 @@ export default function App() {
   };
 
   const handleUpdateContractorName = (val: string) => {
-    if (!isProjectRoleResolved || !canEditProjectData(currentUserRole)) return;
+    if (!isProjectRoleResolved || currentUserRole !== 'ADMIN') return;
     hasUserEditedSinceHydrateRef.current = true;
     hasUnsavedAllBackupChangesRef.current = true;
+    localMetadataDirtyRevisionRef.current += 1;
     setContractorName(val);
     const now = Date.now();
     setLastUpdatedAt(now);
@@ -2231,9 +2612,10 @@ export default function App() {
   };
 
   const handleUpdateInspectorName = (val: string) => {
-    if (!isProjectRoleResolved || !canEditProjectData(currentUserRole)) return;
+    if (!isProjectRoleResolved || currentUserRole !== 'ADMIN') return;
     hasUserEditedSinceHydrateRef.current = true;
     hasUnsavedAllBackupChangesRef.current = true;
+    localMetadataDirtyRevisionRef.current += 1;
     setInspectorName(val);
     const now = Date.now();
     setLastUpdatedAt(now);
@@ -3022,7 +3404,8 @@ export default function App() {
                 addedOrModified,
                 deletedIds
               }, {
-                touchProjectMetadata: metadataChanged || !lastSyncedPresentRef.current,
+                touchProjectMetadata: currentUserRole === 'ADMIN' && (metadataChanged || !lastSyncedPresentRef.current),
+                allowRootMetadataWrite: currentUserRole === 'ADMIN',
                 rootTouchIntervalMs: 60000,
                 auditDetailLimit: 20,
               });
@@ -4162,9 +4545,17 @@ export default function App() {
     });
 
     if (targetPlan) {
-      void deleteFloorPlanImageFromCloud(activeProjectIdRef.current, targetPlan).catch((err) =>
-        console.warn('Delete floor-plan cloud image warning:', err)
-      );
+      if (trashSettingsRef.current.enabled && floorPlanNeedsCloudUpload(targetPlan)) {
+        // Trash does not duplicate Base64/blob data. Ensure a pending local drawing gets a
+        // recoverable cloud binary before its active floor record disappears.
+        void syncFloorPlanImageToCloud(activeProjectIdRef.current, targetPlan).catch((err) =>
+          console.warn('Trash pre-delete floor-plan upload warning:', err)
+        );
+      } else if (!trashSettingsRef.current.enabled) {
+        void deleteFloorPlanImageFromCloud(activeProjectIdRef.current, targetPlan).catch((err) =>
+          console.warn('Delete floor-plan cloud image warning:', err)
+        );
+      }
     }
   };
 
@@ -4241,9 +4632,15 @@ export default function App() {
     });
 
     cloudPlansToDelete.forEach((plan) => {
-      void deleteFloorPlanImageFromCloud(activeProjectIdRef.current, plan).catch((err) =>
-        console.warn('Delete floor-plan cloud image warning:', err)
-      );
+      if (trashSettingsRef.current.enabled && floorPlanNeedsCloudUpload(plan)) {
+        void syncFloorPlanImageToCloud(activeProjectIdRef.current, plan).catch((err) =>
+          console.warn('Trash pre-delete floor-plan upload warning:', err)
+        );
+      } else if (!trashSettingsRef.current.enabled) {
+        void deleteFloorPlanImageFromCloud(activeProjectIdRef.current, plan).catch((err) =>
+          console.warn('Delete floor-plan cloud image warning:', err)
+        );
+      }
     });
   };
 
@@ -4418,6 +4815,9 @@ export default function App() {
       ...prev,
       defects: prev.defects.filter((d) => d.id !== id),
     }));
+    if (!trashSettingsRef.current.enabled) {
+      void deleteEntityPhotos(activeProjectIdRef.current, 'defect', id).catch(() => {});
+    }
   };
 
   const handleDeleteMultipleDefects = (ids: string[]) => {
@@ -4425,6 +4825,9 @@ export default function App() {
       ...prev,
       defects: prev.defects.filter((d) => !ids.includes(d.id)),
     }));
+    if (!trashSettingsRef.current.enabled) {
+      ids.forEach((id) => void deleteEntityPhotos(activeProjectIdRef.current, 'defect', id).catch(() => {}));
+    }
   };
 
   // Handlers for Room Progress / Acceptance
@@ -4958,6 +5361,7 @@ export default function App() {
               onDeleteMultipleRoomProgress={handleDeleteMultipleRoomProgress}
               onReorderRoomProgressList={handleReorderRoomProgressList}
               onReorderFloorPlans={handleReorderFloorPlans}
+              onActiveFloorChange={setActiveFloorViewId}
               onOpenExportPdf={() => setIsExportPdfOpen(true)}
               onExportExcel={handleExportExcel}
               onUndo={handleUndo}
@@ -5128,6 +5532,13 @@ export default function App() {
               onUnlinkLocalFile={handleUnlinkLocalFile}
               onRequestLocalFilePermission={handleRequestLocalFilePermission}
               onOpenProjectManager={() => handleOpenProjectManager('sync')}
+              userRole={currentUserRole}
+              trashSettings={trashSettings}
+              trashOperations={trashOperations}
+              onTrashSettingsChange={handleTrashSettingsChange}
+              onRestoreTrashOperation={restoreTrashOperation}
+              onPurgeTrashOperation={purgeTrashOperation}
+              onEmptyTrash={emptyTrash}
               fullAppData={{
                 projectName,
                 contractorName,

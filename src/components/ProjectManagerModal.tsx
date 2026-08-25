@@ -28,6 +28,7 @@ import {
   refreshCurrentUserProjectDiscovery,
   saveProjectMetadataToCloud,
   deleteCloudProject,
+  restoreCloudProject,
   fetchProjectUserRoleFromCloud,
   getCurrentRealFirebaseUser,
   transferProjectMembersToCanonical,
@@ -197,10 +198,77 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
   // Delete confirm state
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletedProjects, setDeletedProjects] = useState<Array<{ projectId: string; name?: string; deletedAt: number; expiresAt: number; retentionDays: number }>>([]);
   const [deletingCloudBackupTarget, setDeletingCloudBackupTarget] = useState<{ id: string; name: string } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [switchingProjectId, setSwitchingProjectId] = useState<string | null>(null);
   const [mergingDuplicateTargetId, setMergingDuplicateTargetId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    try {
+      const raw = JSON.parse(localStorage.getItem('construction_deleted_projects') || '[]');
+      const now = Date.now();
+      const rows = Array.isArray(raw) ? raw : [];
+      const valid = rows.filter((item: any) => item?.deleted && item?.projectId && Number(item.expiresAt || 0) > now);
+      const expired = rows.filter((item: any) => item?.deleted && item?.projectId && Number(item.expiresAt || 0) > 0 && Number(item.expiresAt || 0) <= now);
+      setDeletedProjects(valid);
+      localStorage.setItem('construction_deleted_projects', JSON.stringify(valid));
+      void setAsyncItem('construction_deleted_projects', valid);
+      if (canManage && expired.length > 0) {
+        void (async () => {
+          for (const entry of expired) {
+            const keysToRemove = await getProjectStorageKeys(entry.projectId);
+            for (const key of keysToRemove) {
+              localStorage.removeItem(key);
+              await removeAsyncItem(key);
+            }
+            await deleteProjectPhotos(entry.projectId);
+          }
+        })();
+      }
+    } catch (_) {
+      setDeletedProjects([]);
+    }
+  }, [isOpen]);
+
+  const restoreDeletedProject = async (entry: { projectId: string; name?: string; deletedAt: number; expiresAt: number; retentionDays: number }) => {
+    if (!canManage) return;
+    try {
+      await restoreCloudProject(entry.projectId);
+      const restoredProject: ProjectInfo = {
+        id: entry.projectId,
+        name: entry.name || `Dự án ${entry.projectId.slice(0, 8)}`,
+        createdAt: entry.deletedAt || Date.now(),
+        updatedAt: Date.now(),
+      };
+      const nextProjects = projects.some((p) => p.id === entry.projectId) ? projects : [...projects, restoredProject];
+      saveProjectsList(nextProjects);
+      setProjects(nextProjects);
+      const nextDeleted = deletedProjects.filter((item) => item.projectId !== entry.projectId);
+      setDeletedProjects(nextDeleted);
+      localStorage.setItem('construction_deleted_projects', JSON.stringify(nextDeleted));
+      await setAsyncItem('construction_deleted_projects', nextDeleted);
+      logAuditAction('PROJECT_RECOVER_LOCAL', `Khôi phục dự án từ Thùng rác: ${entry.projectId}`, entry.projectId);
+    } catch (err) {
+      setErrorMessage('Không thể khôi phục dự án: ' + (err instanceof Error ? err.message : String(err)));
+    }
+  };
+
+  const purgeDeletedProjectLocal = async (entry: { projectId: string; name?: string; deletedAt: number; expiresAt: number; retentionDays: number }) => {
+    if (!canManage) return;
+    if (!window.confirm(`Xóa vĩnh viễn dữ liệu cục bộ của "${entry.name || entry.projectId}"? Dự án Cloud vẫn giữ tombstone để chống tự sống lại.`)) return;
+    const keysToRemove = await getProjectStorageKeys(entry.projectId);
+    for (const key of keysToRemove) {
+      localStorage.removeItem(key);
+      await removeAsyncItem(key);
+    }
+    await deleteProjectPhotos(entry.projectId);
+    const nextDeleted = deletedProjects.filter((item) => item.projectId !== entry.projectId);
+    setDeletedProjects(nextDeleted);
+    localStorage.setItem('construction_deleted_projects', JSON.stringify(nextDeleted));
+    await setAsyncItem('construction_deleted_projects', nextDeleted);
+  };
 
   // Cloud Backup & Multi-device Sync State
   const [cloudBackups, setCloudBackups] = useState<CloudBackupRecord[]>([]);
@@ -2298,41 +2366,59 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     if (!confirmDeleteId) return;
 
     const targetDeleteId = confirmDeleteId;
+    const targetProject = projects.find((p) => p.id === targetDeleteId);
     setConfirmDeleteId(null);
 
+    let retentionDays = 7;
+    let trashEnabled = true;
+    try {
+      const raw = JSON.parse(localStorage.getItem(getKey('construction_trash_settings', targetDeleteId)) || '{}');
+      trashEnabled = raw?.enabled !== false;
+      if ([3, 7, 15, 30, 60, 90].includes(Number(raw?.retentionDays))) retentionDays = Number(raw.retentionDays);
+    } catch (_) {}
+
+    try {
+      // Cloud soft-delete FIRST. If this fails, keep the project fully visible/local so
+      // we never lose the only recoverable copy because of a temporary network issue.
+      await deleteCloudProject(targetDeleteId, retentionDays);
+    } catch (err) {
+      setErrorMessage('Không thể chuyển dự án vào Thùng rác trên Firebase. Dự án chưa bị xóa khỏi máy.');
+      return;
+    }
+
+    const now = Date.now();
+    const expiresAt = now + retentionDays * 24 * 60 * 60 * 1000;
     const updated = projects.filter(p => p.id !== targetDeleteId);
     saveProjectsList(updated);
     setProjects(updated);
-    
-    // 1. Dynamic storage cleanup across all storage layers
-    const keysToRemove = await getProjectStorageKeys(targetDeleteId);
-    for (const k of keysToRemove) {
-      localStorage.removeItem(k);
-      await removeAsyncItem(k);
-    }
-    await deleteProjectPhotos(targetDeleteId);
-    await deleteCloudProject(targetDeleteId).catch((err) => console.warn('Delete project cloud warning:', err));
 
-    // 2. Write project deletion tombstone to prevent resurrection during sync
-    try {
-      const deletedListRaw = localStorage.getItem('construction_deleted_projects') || '[]';
-      let deletedList: any[] = [];
-      try { deletedList = JSON.parse(deletedListRaw); } catch (_) {}
-      if (!deletedList.some((d: any) => d.projectId === targetDeleteId)) {
-        deletedList.push({
-          projectId: targetDeleteId,
-          deleted: true,
-          deletedAt: Date.now(),
-          updatedAt: Date.now()
-        });
-        localStorage.setItem('construction_deleted_projects', JSON.stringify(deletedList));
-        await setAsyncItem('construction_deleted_projects', deletedList);
+    if (trashEnabled) {
+      // Do not duplicate or immediately erase local project data/photos. Keeping the
+      // original keys in-place costs no extra storage and allows an offline/local restore.
+      // They are cleaned only on permanent purge/expiry.
+      const entry = {
+        projectId: targetDeleteId,
+        name: targetProject?.name,
+        deleted: true,
+        deletedAt: now,
+        expiresAt,
+        retentionDays,
+        updatedAt: now,
+      };
+      const nextDeleted = [...deletedProjects.filter((d) => d.projectId !== targetDeleteId), entry];
+      setDeletedProjects(nextDeleted);
+      localStorage.setItem('construction_deleted_projects', JSON.stringify(nextDeleted));
+      await setAsyncItem('construction_deleted_projects', nextDeleted);
+      logAuditAction('PROJECT_DELETE', `Chuyển dự án vào Thùng rác ${retentionDays} ngày: ${targetDeleteId}`, targetDeleteId);
+    } else {
+      const keysToRemove = await getProjectStorageKeys(targetDeleteId);
+      for (const key of keysToRemove) {
+        localStorage.removeItem(key);
+        await removeAsyncItem(key);
       }
-    } catch (e) {
-      console.warn('Error recording project deletion tombstone:', e);
+      await deleteProjectPhotos(targetDeleteId);
+      logAuditAction('PROJECT_DELETE', `Xóa dự án khi Thùng rác đang tắt: ${targetDeleteId}`, targetDeleteId);
     }
-
-    logAuditAction('PROJECT_DELETE', `Đã xóa dự án ID: ${targetDeleteId}`, targetDeleteId);
 
     if (targetDeleteId === activeId) {
       const nextId = updated[0]?.id || 'default';
@@ -3373,7 +3459,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
               {confirmDeleteId && (
                 <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl space-y-2.5">
                   <p className="text-xs font-bold text-rose-900">
-                    Bạn có chắc chắn muốn xóa dự án này? Toàn bộ dữ liệu của dự án trên máy sẽ bị xóa vĩnh viễn.
+                    Chuyển dự án này vào Thùng rác? Mặc định có thể khôi phục trong 7 ngày; dữ liệu không bị sao chép nhân đôi.
                   </p>
                   <div className="flex gap-2">
                     <button
@@ -3388,7 +3474,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                       onClick={confirmDelete}
                       className="flex-1 py-1.5 font-bold text-white bg-rose-600 rounded-lg text-xs hover:bg-rose-700 transition-colors shadow-xs"
                     >
-                      Xác nhận xóa
+                      Chuyển vào Thùng rác
                     </button>
                   </div>
                 </div>
@@ -3560,6 +3646,36 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   })
                 )}
               </div>
+
+              {deletedProjects.length > 0 && (
+                <div className="bg-rose-50/60 border border-rose-200 rounded-2xl p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 text-xs font-extrabold text-rose-800">
+                      <Trash2 className="w-4 h-4" /> Dự án trong Thùng rác ({deletedProjects.length})
+                    </div>
+                    <span className="text-[9px] text-rose-600 font-bold">Mặc định 7 ngày</span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {deletedProjects.map((entry) => {
+                      const daysLeft = Math.max(0, Math.ceil((entry.expiresAt - Date.now()) / (24 * 60 * 60 * 1000)));
+                      return (
+                        <div key={entry.projectId} className="bg-white border border-rose-100 rounded-xl p-2.5 flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="text-[11px] font-bold text-slate-800 truncate">{entry.name || entry.projectId}</div>
+                            <div className="text-[9px] text-slate-500">ID {shortProjectId(entry.projectId)} · còn {daysLeft} ngày</div>
+                          </div>
+                          {canManage && (
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button type="button" onClick={() => void restoreDeletedProject(entry)} className="px-2 py-1 rounded-lg bg-emerald-600 text-white text-[9px] font-bold hover:bg-emerald-700">Khôi phục</button>
+                              <button type="button" onClick={() => void purgeDeletedProjectLocal(entry)} className="px-2 py-1 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-[9px] font-bold hover:bg-rose-100">Xóa hẳn</button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Create New Project Section */}
               {isCreating ? (

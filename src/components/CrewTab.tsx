@@ -846,9 +846,17 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const executeDeleteRecord = async () => {
     if (deletingRecordTarget) {
       if (projectId) {
+        let trashEnabled = true;
         try {
-          await deleteEntityPhotos(projectId, 'crewRecord', deletingRecordTarget.id);
+          const settingsKey = projectId === 'default' ? 'construction_trash_settings' : `construction_trash_settings_${projectId}`;
+          const settings = JSON.parse(localStorage.getItem(settingsKey) || '{}');
+          trashEnabled = settings?.enabled !== false;
         } catch (_) {}
+        if (!trashEnabled) {
+          try {
+            await deleteEntityPhotos(projectId, 'crewRecord', deletingRecordTarget.id);
+          } catch (_) {}
+        }
       }
       onDeleteCrewRecord(deletingRecordTarget.id);
       setDeletingRecordTarget(null);
