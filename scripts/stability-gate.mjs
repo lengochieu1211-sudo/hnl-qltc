@@ -86,6 +86,12 @@ const packageScripts = pkg.scripts || {};
 for (const script of ['typecheck', 'lint', 'test:rules', 'security:audit']) {
   if (!packageScripts[script]) fail(`missing required package script ${script}`);
 }
+if (packageScripts['test:rules'].includes('node -e')) fail('test:rules must not use shell-escaped node -e');
+if (!packageScripts['test:rules'].includes('scripts/firestore-rules-check.mjs')) fail('test:rules must use the cross-platform Firestore Rules runner');
+const rulesRunner = read('scripts/firestore-rules-check.mjs');
+const rulesSmoke = read('scripts/firestore-rules-smoke.mjs');
+if (!rulesRunner.includes('spawnSync') || !rulesRunner.includes('shell: false')) fail('Firestore Rules runner must avoid shell quoting');
+if (!rulesSmoke.includes('Firestore Rules compile PASS')) fail('Firestore Rules smoke script missing');
 for (const workflow of [read('.github/workflows/build.yml'), mergeWorkflow, prWorkflow]) {
   for (const marker of ['Verify source root', 'cache-dependency-path: package-lock.json', 'npm run test:stability', 'npm run typecheck', 'npm run lint', 'npm run test:rules', 'npm run security:audit', 'npm run build']) {
     if (!workflow.includes(marker)) fail(`workflow stability gate missing ${marker}`);

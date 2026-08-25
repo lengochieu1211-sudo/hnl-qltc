@@ -10,7 +10,7 @@
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
-    "test:rules": "npx --yes firebase-tools@13.35.1 emulators:exec --only firestore --project com-example-qlct-61329 \"node -e \\\"console.log(\\'Firestore Rules compile PASS\\')\\\"\"",
+    "test:rules": "node scripts/firestore-rules-check.mjs",
     "security:audit": "npm audit --omit=dev --audit-level=critical",
     "test:stability": "node scripts/stability-gate.mjs",
     "verify": "npm run test:stability && npm run typecheck && npm run lint && npm run test:rules && npm run security:audit && npm run build"
