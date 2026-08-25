@@ -70,6 +70,8 @@ function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
   return merged;
 }
 import { subscribeToProjectRealtime, saveProjectDiffsToCloud, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, subscribeProjectUserRoleRealtime, fetchCurrentUserProjectsFromCloud, subscribeCurrentUserProjectsRealtime, refreshCurrentUserProjectDiscovery, subscribeProjectSharedSettings, saveProjectSharedSettings, saveProjectAuditLog } from './lib/firebase';
+import { REALTIME_STATE_KEYS, STATE_KEY_TO_CLOUD_NAME } from './config/realtimeCollections';
+import { CURRENT_DATA_SCHEMA_VERSION } from './config/dataSchema';
 import { 
   InventoryItem, 
   WorkVolume, 
@@ -1176,6 +1178,7 @@ export default function App() {
 
   const [photoCloudStatus, setPhotoCloudStatus] = useState<PhotoCloudSyncStatus>({ phase: 'idle', pending: 0 });
   const photoSyncTimerRef = useRef<number | null>(null);
+  const startupPhotoSyncKeyRef = useRef<string>('');
   const floorPlanImageSyncInFlightRef = useRef<Set<string>>(new Set());
   const floorPlanImageHydrateInFlightRef = useRef<Set<string>>(new Set());
   const floorPlanImageSyncPendingRef = useRef<Set<string>>(new Set());
@@ -1190,6 +1193,29 @@ export default function App() {
   const [cloudInitialReady, setCloudInitialReady] = useState<boolean>(false);
   const receivedInitialSubcollectionsRef = useRef<Set<string>>(new Set());
   const [dataCloudStatus, setDataCloudStatus] = useState<{ phase: 'idle' | 'syncing' | 'synced' | 'error'; lastSyncAt?: number; message?: string }>({ phase: 'idle' });
+  const syncDiagnosticPendingData = useMemo(() => {
+    const synced = lastSyncedPresentRef.current;
+    if (!cloudInitialReady || !synced) return 0;
+    let pending = 0;
+    for (const key of REALTIME_STATE_KEYS as (keyof AppData)[]) {
+      const currentList = (present[key] || []) as any[];
+      const syncedList = (synced[key] || []) as any[];
+      const syncedById = new Map<string, any>();
+      syncedList.forEach((item) => { if (item?.id) syncedById.set(String(item.id), item); });
+      const currentIds = new Set<string>();
+      currentList.forEach((item) => {
+        if (!item?.id) return;
+        const id = String(item.id);
+        currentIds.add(id);
+        const previous = syncedById.get(id);
+        if (!previous || Number(previous.updatedAt || 0) !== Number(item.updatedAt || 0)) pending++;
+      });
+      syncedList.forEach((item) => {
+        if (item?.id && !currentIds.has(String(item.id))) pending++;
+      });
+    }
+    return pending;
+  }, [present, cloudInitialReady, dataCloudStatus.phase]);
   const [cloudDataRetryTick, setCloudDataRetryTick] = useState(0);
   const cloudDataRetryAttemptRef = useRef(0);
   const cloudDataRetryTimerRef = useRef<number | null>(null);
@@ -1383,7 +1409,13 @@ export default function App() {
       photoSyncTimerRef.current = window.setTimeout(() => {
         setPhotoCloudStatus({ phase: 'syncing' });
         syncProjectPhotosToCloud(projectId)
-          .then(() => setPhotoCloudStatus({ phase: 'synced', pending: 0, lastSyncAt: Date.now() }))
+          .then((result) => {
+            if (Number(result.failed || 0) > 0) {
+              setPhotoCloudStatus({ phase: 'error', pending: Number(result.failed || 0), message: `${result.failed} ảnh chưa lên Cloud; ứng dụng sẽ thử lại.` });
+            } else {
+              setPhotoCloudStatus({ phase: 'synced', pending: 0, lastSyncAt: Date.now() });
+            }
+          })
           .catch((err) => setPhotoCloudStatus({ phase: 'error', message: err?.message || String(err) }));
       }, mobilePhotoSyncDelay);
     };
@@ -1394,8 +1426,67 @@ export default function App() {
     };
   }, [activeProjectId]);
 
+  // V6.2.25: retry locally pending photos once whenever an authenticated project is
+  // opened, even if the user never opens the Crew/Defect/Chat tab. This closes the
+  // common mobile gap where a photo was stored in IndexedDB and the app was closed
+  // before the old debounced uploader had a chance to run.
+  useEffect(() => {
+    if (!isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || switchingProjectRef.current) return;
+    const projectId = activeProjectId;
+    const syncKey = `${projectId}:${cloudUserKey}`;
+    if (!projectId || startupPhotoSyncKeyRef.current === syncKey) return;
+    startupPhotoSyncKeyRef.current = syncKey;
+    let cancelled = false;
+    let retryTimer: number | null = null;
+    const run = async (attempt: number) => {
+      try {
+        const result = await syncProjectPhotosToCloud(projectId);
+        if (cancelled || activeProjectIdRef.current !== projectId) return;
+        const failed = Number(result.failed || 0);
+        if (failed > 0) {
+          setPhotoCloudStatus({ phase: 'error', pending: failed, message: `${failed} ảnh đang chờ Drive; ứng dụng sẽ tự retry.` });
+          if (attempt < 4) {
+            const delay = Math.min(20000, 2500 * Math.pow(2, attempt - 1));
+            retryTimer = window.setTimeout(() => void run(attempt + 1), delay);
+          } else {
+            startupPhotoSyncKeyRef.current = '';
+          }
+        } else {
+          setPhotoCloudStatus({ phase: 'synced', pending: 0, lastSyncAt: Date.now() });
+        }
+      } catch (err: any) {
+        if (cancelled || activeProjectIdRef.current !== projectId) return;
+        setPhotoCloudStatus({ phase: 'error', message: err?.message || String(err) });
+        if (attempt < 4) {
+          const delay = Math.min(20000, 2500 * Math.pow(2, attempt - 1));
+          retryTimer = window.setTimeout(() => void run(attempt + 1), delay);
+        } else {
+          startupPhotoSyncKeyRef.current = '';
+        }
+      }
+    };
+    const timer = window.setTimeout(() => void run(1), 1200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      if (retryTimer !== null) window.clearTimeout(retryTimer);
+    };
+  }, [activeProjectId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing]);
+
   useEffect(() => {
     const retryWhenOnline = () => {
+      startupPhotoSyncKeyRef.current = '';
+      const photoProjectId = activeProjectIdRef.current;
+      if (photoProjectId && getCurrentRealFirebaseUser()) {
+        setPhotoCloudStatus({ phase: 'syncing' });
+        void syncProjectPhotosToCloud(photoProjectId)
+          .then((result) => {
+            const failed = Number(result.failed || 0);
+            if (failed > 0) setPhotoCloudStatus({ phase: 'error', pending: failed, message: `${failed} ảnh vẫn đang chờ Drive.` });
+            else setPhotoCloudStatus({ phase: 'synced', pending: 0, lastSyncAt: Date.now() });
+          })
+          .catch((err) => setPhotoCloudStatus({ phase: 'error', message: err?.message || String(err) }));
+      }
       floorPlanImageSyncRetryCountRef.current.clear();
       floorPlanImageHydrateRetryCountRef.current.clear();
       setFloorPlanImageSyncRetryTick((tick) => tick + 1);
@@ -1411,7 +1502,7 @@ export default function App() {
 
   // Floor-plan images use the same multi-device principle as Defect/Crew photos:
   // metadata stays in Firestore, while the binary goes to the primary Drive account
-  // (Firestore chunks are retained as a safe zero-cost fallback until Drive is configured).
+  // Legacy Firestore chunks remain read-only for migration; new binaries wait locally for Drive retry.
   useEffect(() => {
     if (!isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || switchingProjectRef.current) return;
     const projectId = activeProjectId;
@@ -3305,7 +3396,7 @@ export default function App() {
     const projectIdForThisSave = activeProjectId;
     const priorityRevisionAtSchedule = priorityCloudSyncRevisionRef.current;
     const hasPriorityRealtimeChange = priorityRevisionAtSchedule > flushedPriorityCloudSyncRevisionRef.current;
-    const cloudSaveDelayMs = hasPriorityRealtimeChange ? 750 : 6000;
+    const cloudSaveDelayMs = hasPriorityRealtimeChange ? 300 : 6000;
 
     if (hasPriorityRealtimeChange) {
       setDataCloudStatus({ phase: 'syncing', message: 'Đang đồng bộ thay đổi quan trọng...' });
@@ -3327,22 +3418,7 @@ export default function App() {
             defects: [], roomProgressList: [], checklist: [], crewRecords: [], teams: []
           };
           
-          const keys: (keyof AppData)[] = [
-            'materialNorms', 'inventory', 'workVolumes', 'floorPlans',
-            'defects', 'roomProgressList', 'checklist', 'crewRecords', 'teams'
-          ];
-
-          const stateKeyToCloudName: Record<keyof AppData, string> = {
-            roomProgressList: 'rooms',
-            inventory: 'inventory',
-            defects: 'defects',
-            workVolumes: 'work_volumes',
-            floorPlans: 'floor_plans',
-            checklist: 'checklist',
-            crewRecords: 'crew_records',
-            teams: 'teams',
-            materialNorms: 'material_norms'
-          };
+          const keys = REALTIME_STATE_KEYS as (keyof AppData)[];
 
           const addedOrModified: Record<string, any[]> = {};
           const deletedIds: Record<string, string[]> = {};
@@ -3351,7 +3427,7 @@ export default function App() {
           for (const k of keys) {
             const prevList = prev[k] || [];
             const nextList = present[k] || [];
-            const cloudName = stateKeyToCloudName[k];
+            const cloudName = STATE_KEY_TO_CLOUD_NAME[k as keyof typeof STATE_KEY_TO_CLOUD_NAME];
 
             const prevMap = new Map<string, any>();
             prevList.forEach((item: any) => {
@@ -3445,7 +3521,7 @@ export default function App() {
           console.warn('Cloud auto save exception:', e);
         }
       }
-    }, cloudSaveDelayMs); // V6.2.13: crew priority flush 750ms; other edits retain the V6.2.11 6s batching.
+    }, cloudSaveDelayMs); // V6.2.25: Defect/crew priority flush 300ms; other edits retain 6s batching.
 
     return () => clearTimeout(timer);
   }, [present, projectName, contractorName, inspectorName, autoSyncEnabled, isHydrated, isLoadingProject, isRestoring, isInitializing, activeProjectId, cloudUserKey, cloudInitialReady, currentUserRole, isProjectRoleResolved, cloudDataRetryTick]);
@@ -5539,6 +5615,34 @@ export default function App() {
               onRestoreTrashOperation={restoreTrashOperation}
               onPurgeTrashOperation={purgeTrashOperation}
               onEmptyTrash={emptyTrash}
+              syncDiagnostics={{
+                cloudInitialReady,
+                snapshotReadyCount: receivedInitialSubcollectionsRef.current.size,
+                roleResolved: isProjectRoleResolved,
+                dataCloudPhase: dataCloudStatus.phase,
+                pendingData: syncDiagnosticPendingData,
+                photoPending: Number(photoCloudStatus.pending || 0),
+                photoPhase: String(photoCloudStatus.phase || 'idle'),
+                pendingDriveUploads: Number(photoCloudStatus.pending || 0) + floorPlanImageSyncPendingRef.current.size + floorPlanImageSyncInFlightRef.current.size,
+                lastSyncAt: Math.max(Number(dataCloudStatus.lastSyncAt || 0), Number(photoCloudStatus.lastSyncAt || 0)),
+                lastSyncError: dataCloudStatus.phase === 'error' ? String(dataCloudStatus.message || 'Lỗi đồng bộ dữ liệu') : photoCloudStatus.phase === 'error' ? String(photoCloudStatus.message || 'Lỗi đồng bộ ảnh') : '',
+                dataSchemaVersion: CURRENT_DATA_SCHEMA_VERSION,
+                firebaseUserEmail: getCurrentRealFirebaseUser()?.email || undefined,
+                duplicateProjectIds: authorizedChatProjects
+                  .filter((project) => project.id !== activeProjectId && String(project.name || '').trim().toLocaleLowerCase('vi-VN') === String(projectName || '').trim().toLocaleLowerCase('vi-VN'))
+                  .map((project) => project.id),
+                recordCounts: {
+                  rooms: roomProgressList.length,
+                  inventory: inventory.length,
+                  defects: defects.length,
+                  workVolumes: workVolumes.length,
+                  floorPlans: floorPlans.length,
+                  checklist: checklist.length,
+                  crewRecords: crewRecords.length,
+                  teams: teams.length,
+                  materialNorms: materialNorms.length,
+                },
+              }}
               fullAppData={{
                 projectName,
                 contractorName,

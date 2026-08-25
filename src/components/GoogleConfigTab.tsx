@@ -41,6 +41,7 @@ import { apiFetch, hasApiBackend } from '../utils/api';
 import { getImageQualityProfile, getImageQualitySettings, setImageQualitySettings, ImageQualityKind, ImageQualityPreset } from '../utils/imageQualitySettings';
 import type { UserRole } from '../utils/securityUtils';
 import type { TrashOperation, TrashSettings, TrashRetentionDays } from '../lib/trash';
+import { buildDiagnosticBundle } from '../lib/runtimeDiagnostics';
 
 declare const __BUILD_TIME__: string;
 
@@ -83,6 +84,22 @@ interface GoogleConfigTabProps {
   onRestoreTrashOperation?: (operationId: string) => void | Promise<void>;
   onPurgeTrashOperation?: (operationId: string) => void | Promise<void>;
   onEmptyTrash?: () => void | Promise<void>;
+  syncDiagnostics?: {
+    cloudInitialReady: boolean;
+    snapshotReadyCount: number;
+    roleResolved: boolean;
+    dataCloudPhase: string;
+    pendingData: number;
+    photoPending: number;
+    photoPhase: string;
+    pendingDriveUploads: number;
+    lastSyncAt: number;
+    lastSyncError?: string;
+    dataSchemaVersion: number;
+    firebaseUserEmail?: string;
+    duplicateProjectIds: string[];
+    recordCounts: Record<string, number>;
+  };
 }
 
 export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
@@ -121,6 +138,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   onRestoreTrashOperation,
   onPurgeTrashOperation,
   onEmptyTrash,
+  syncDiagnostics,
 }) => {
   const { t } = useLanguage();
   const [authStatus, setAuthStatus] = useState<GoogleAuthStatus>({ authenticated: false });
@@ -353,6 +371,88 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           </div>
         </div>
       </div>
+
+      {/* V6.2.27 STABILITY DIAGNOSTICS */}
+      {syncDiagnostics && (
+        <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
+          <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-2">
+            <div>
+              <h3 className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
+                <ShieldCheck className="w-4 h-4 text-emerald-600" /> Chẩn đoán đồng bộ
+              </h3>
+              <p className="text-[10px] text-slate-500 mt-1">Dùng khi các thiết bị nhìn dữ liệu khác nhau. Project ID phải giống hệt nhau.</p>
+            </div>
+            <span className={`text-[10px] font-bold rounded-lg px-2 py-1 border ${syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && syncDiagnostics.pendingDriveUploads === 0 && syncDiagnostics.photoPending === 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+              {syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && syncDiagnostics.pendingDriveUploads === 0 && syncDiagnostics.photoPending === 0 ? 'Cloud sẵn sàng' : 'Đang kiểm tra'}
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px]">
+            <div className="rounded-xl bg-slate-50 border border-slate-200 p-2.5 space-y-1">
+              <div><b>App:</b> {APP_VERSION_LABEL}</div>
+              <div><b>Project ID:</b> <span className="font-mono break-all">{activeProjectId || 'default'}</span></div>
+              <div><b>User:</b> {syncDiagnostics.firebaseUserEmail || 'Chưa xác thực Firebase'}</div>
+              <div><b>Role:</b> {userRole} · {syncDiagnostics.roleResolved ? 'đã xác minh' : 'chưa xác minh'}</div>
+              <div><b>Data schema:</b> v{syncDiagnostics.dataSchemaVersion}</div>
+            </div>
+            <div className="rounded-xl bg-slate-50 border border-slate-200 p-2.5 space-y-1">
+              <div><b>Firestore:</b> {syncDiagnostics.dataCloudPhase}</div>
+              <div><b>Realtime bootstrap:</b> {syncDiagnostics.snapshotReadyCount}/9 {syncDiagnostics.cloudInitialReady ? '· sẵn sàng' : '· đang chờ'}</div>
+              <div><b>Dữ liệu chờ:</b> {syncDiagnostics.pendingData}</div>
+              <div><b>Ảnh chờ Cloud:</b> {syncDiagnostics.photoPending} · {syncDiagnostics.photoPhase}</div>
+              <div><b>Drive:</b> {driveSyncStatus} · pending {syncDiagnostics.pendingDriveUploads}</div>
+              <div><b>Sync cuối:</b> {syncDiagnostics.lastSyncAt > 0 ? new Date(syncDiagnostics.lastSyncAt).toLocaleString('vi-VN') : 'Chưa có'}</div>
+              <div><b>Mạng:</b> {typeof navigator !== 'undefined' && navigator.onLine ? 'Online' : 'Offline'}</div>
+            </div>
+          </div>
+          {syncDiagnostics.lastSyncError && (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 p-2.5 text-[10px] text-rose-800 break-words">
+              <b>Lỗi sync gần nhất:</b> {syncDiagnostics.lastSyncError}
+            </div>
+          )}
+          {syncDiagnostics.duplicateProjectIds.length > 0 && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-2.5 text-[10px] text-amber-900">
+              <b>Cảnh báo project trùng tên:</b> đang có {syncDiagnostics.duplicateProjectIds.length + 1} project cùng tên nhưng khác ID. Không tự gộp. ID khác: {syncDiagnostics.duplicateProjectIds.map((id) => id.slice(0, 8)).join(', ')}.
+            </div>
+          )}
+          <div className="flex flex-wrap gap-1.5">
+            {Object.entries(syncDiagnostics.recordCounts).map(([name, count]) => (
+              <span key={name} className="px-2 py-1 rounded-lg bg-slate-100 border border-slate-200 text-[9px] font-bold text-slate-600">{name}: {count}</span>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={async () => {
+              const bundle = buildDiagnosticBundle({
+                projectId: activeProjectId || 'default',
+                firebaseUserEmail: syncDiagnostics.firebaseUserEmail || '',
+                role: userRole,
+                roleResolved: syncDiagnostics.roleResolved,
+                cloudInitialReady: syncDiagnostics.cloudInitialReady,
+                snapshotReadyCount: syncDiagnostics.snapshotReadyCount,
+                dataCloudPhase: syncDiagnostics.dataCloudPhase,
+                pendingData: syncDiagnostics.pendingData,
+                pendingDriveUploads: syncDiagnostics.pendingDriveUploads,
+                lastSyncAt: syncDiagnostics.lastSyncAt,
+                lastSyncError: syncDiagnostics.lastSyncError || '',
+                duplicateProjectIds: syncDiagnostics.duplicateProjectIds,
+                photoPending: syncDiagnostics.photoPending,
+                photoPhase: syncDiagnostics.photoPhase,
+                driveSyncStatus,
+                recordCounts: syncDiagnostics.recordCounts,
+              });
+              try {
+                await navigator.clipboard.writeText(JSON.stringify(bundle, null, 2));
+                setSyncMsg('Đã copy chẩn đoán đồng bộ.');
+              } catch (_) {
+                setSyncMsg('Không copy tự động được; hãy dùng trình duyệt hỗ trợ clipboard.');
+              }
+            }}
+            className="px-3 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-bold flex items-center gap-1.5"
+          >
+            <Copy className="w-3.5 h-3.5" /> Copy chẩn đoán
+          </button>
+        </div>
+      )}
 
       {/* PROJECT SETTINGS FORM CARD */}
       <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">

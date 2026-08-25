@@ -327,41 +327,89 @@ function floorPlanFolder_(payload, project) {
   return getOrCreateFolder_(typeFolder, payload.floorPlanId || 'Khac');
 }
 
+function withDriveAssetWriteLock_(fn) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    return fn();
+  } finally {
+    try { lock.releaseLock(); } catch (_) {}
+  }
+}
+
 function uploadFloorPlan_(payload, user) {
   if (!payload.floorPlanId || !payload.base64) throw new Error('Thiếu dữ liệu ảnh mặt bằng tải lên.');
   const bytes = Utilities.base64Decode(String(payload.base64));
   if (!bytes || !bytes.length) throw new Error('Ảnh mặt bằng tải lên bị rỗng.');
   const mimeType = String(payload.mimeType || 'image/jpeg');
   const fileName = sanitizeName_(payload.floorPlanId) + '.' + extensionForMime_(mimeType);
-  const project = getProjectAccessProjectCached_(payload.projectId, payload);
-  const folder = floorPlanFolder_(payload, project);
+  const incomingUpdatedAt = Number(payload.updatedAt || 0);
 
-  const oldFiles = folder.getFilesByName(fileName);
-  while (oldFiles.hasNext()) {
-    try { oldFiles.next().setTrashed(true); } catch (_) {}
-  }
+  return withDriveAssetWriteLock_(function() {
+    const project = getProjectAccessProjectCached_(payload.projectId, payload);
+    const folder = floorPlanFolder_(payload, project);
+    const oldFiles = folder.getFilesByName(fileName);
+    const existingFiles = [];
+    let reusableFile = null;
 
-  const blob = Utilities.newBlob(bytes, mimeType, fileName);
-  const file = folder.createFile(blob);
-  file.setDescription(JSON.stringify({
-    app: 'An Phu Tool - QLTC',
-    projectId: payload.projectId,
-    floorPlanId: payload.floorPlanId,
-    floorName: payload.floorName || '',
-    assetType: 'floor-plan',
-    uploadedByUid: user.uid,
-    uploadedByEmail: user.email,
-    updatedAt: Number(payload.updatedAt || Date.now()),
-  }));
+    while (oldFiles.hasNext()) {
+      const oldFile = oldFiles.next();
+      existingFiles.push(oldFile);
+      try {
+        const desc = parseJson_(oldFile.getDescription() || '{}');
+        const sameAsset = String(desc.projectId || '') === String(payload.projectId || '') &&
+          String(desc.floorPlanId || '') === String(payload.floorPlanId || '');
+        if (sameAsset && incomingUpdatedAt > 0 && Number(desc.updatedAt || 0) >= incomingUpdatedAt) {
+          reusableFile = oldFile;
+          break;
+        }
+      } catch (_) {}
+    }
 
-  return {
-    fileId: file.getId(),
-    fileName: file.getName(),
-    mimeType: file.getMimeType(),
-    fileSize: bytes.length,
-    folderPath: ROOT_FOLDER_NAME + '/HINH ANH/MAT BANG',
-    ownerEmail: PRIMARY_DRIVE_OWNER_EMAIL,
-  };
+    // V6.2.24: retries of the exact same floor-plan revision are idempotent. The
+    // script lock also closes the race where two browser/device retries arrive before
+    // either request has written its Firestore acknowledgement.
+    if (reusableFile) {
+      return {
+        fileId: reusableFile.getId(),
+        fileName: reusableFile.getName(),
+        mimeType: reusableFile.getMimeType(),
+        fileSize: Number(reusableFile.getSize() || bytes.length || 0),
+        folderPath: ROOT_FOLDER_NAME + '/HINH ANH/MAT BANG',
+        ownerEmail: PRIMARY_DRIVE_OWNER_EMAIL,
+        reused: true,
+      };
+    }
+
+    existingFiles.forEach(function(oldFile) {
+      try { oldFile.setTrashed(true); } catch (_) {}
+    });
+    while (oldFiles.hasNext()) {
+      try { oldFiles.next().setTrashed(true); } catch (_) {}
+    }
+
+    const blob = Utilities.newBlob(bytes, mimeType, fileName);
+    const file = folder.createFile(blob);
+    file.setDescription(JSON.stringify({
+      app: 'An Phu Tool - QLTC',
+      projectId: payload.projectId,
+      floorPlanId: payload.floorPlanId,
+      floorName: payload.floorName || '',
+      assetType: 'floor-plan',
+      uploadedByUid: user.uid,
+      uploadedByEmail: user.email,
+      updatedAt: Number(payload.updatedAt || Date.now()),
+    }));
+
+    return {
+      fileId: file.getId(),
+      fileName: file.getName(),
+      mimeType: file.getMimeType(),
+      fileSize: bytes.length,
+      folderPath: ROOT_FOLDER_NAME + '/HINH ANH/MAT BANG',
+      ownerEmail: PRIMARY_DRIVE_OWNER_EMAIL,
+    };
+  });
 }
 
 function uploadPhoto_(payload, user) {
@@ -370,33 +418,72 @@ function uploadPhoto_(payload, user) {
   if (!bytes || !bytes.length) throw new Error('Ảnh tải lên bị rỗng.');
   const mimeType = String(payload.mimeType || 'image/jpeg');
   const fileName = sanitizeName_(payload.photoId) + '.' + extensionForMime_(mimeType);
-  const folder = photoFolder_(payload, getProjectAccessProjectCached_(payload.projectId, payload));
+  const incomingUpdatedAt = Number(payload.updatedAt || 0);
 
-  const oldFiles = folder.getFilesByName(fileName);
-  while (oldFiles.hasNext()) {
-    try { oldFiles.next().setTrashed(true); } catch (_) {}
-  }
-  const blob = Utilities.newBlob(bytes, mimeType, fileName);
-  const file = folder.createFile(blob);
-  file.setDescription(JSON.stringify({
-    app: 'An Phu Tool - QLTC',
-    projectId: payload.projectId,
-    photoId: payload.photoId,
-    entityType: payload.entityType || '',
-    entityId: payload.entityId || '',
-    category: payload.category || '',
-    uploadedByUid: user.uid,
-    uploadedByEmail: user.email,
-    updatedAt: Number(payload.updatedAt || Date.now()),
-  }));
-  return {
-    fileId: file.getId(),
-    fileName: file.getName(),
-    mimeType: file.getMimeType(),
-    fileSize: bytes.length,
-    folderPath: ROOT_FOLDER_NAME + '/' + (payload.entityType === 'crewRecord' ? 'BAO CAO QUAN SO' : 'DEFECT'),
-    ownerEmail: PRIMARY_DRIVE_OWNER_EMAIL,
-  };
+  return withDriveAssetWriteLock_(function() {
+    const folder = photoFolder_(payload, getProjectAccessProjectCached_(payload.projectId, payload));
+    const oldFiles = folder.getFilesByName(fileName);
+    const existingFiles = [];
+    let reusableFile = null;
+
+    while (oldFiles.hasNext()) {
+      const oldFile = oldFiles.next();
+      existingFiles.push(oldFile);
+      try {
+        const desc = parseJson_(oldFile.getDescription() || '{}');
+        const sameAsset = String(desc.projectId || '') === String(payload.projectId || '') &&
+          String(desc.photoId || '') === String(payload.photoId || '');
+        if (sameAsset && incomingUpdatedAt > 0 && Number(desc.updatedAt || 0) >= incomingUpdatedAt) {
+          reusableFile = oldFile;
+          break;
+        }
+      } catch (_) {}
+    }
+
+    // V6.2.24: a retry for the same photo revision returns the existing Drive file.
+    // This prevents one unchanged photo from generating repeated upload/edit/trash
+    // activity and avoids filling the Drive trash with duplicate binaries.
+    if (reusableFile) {
+      return {
+        fileId: reusableFile.getId(),
+        fileName: reusableFile.getName(),
+        mimeType: reusableFile.getMimeType(),
+        fileSize: Number(reusableFile.getSize() || bytes.length || 0),
+        folderPath: ROOT_FOLDER_NAME + '/' + (payload.entityType === 'crewRecord' ? 'BAO CAO QUAN SO' : 'DEFECT'),
+        ownerEmail: PRIMARY_DRIVE_OWNER_EMAIL,
+        reused: true,
+      };
+    }
+
+    existingFiles.forEach(function(oldFile) {
+      try { oldFile.setTrashed(true); } catch (_) {}
+    });
+    while (oldFiles.hasNext()) {
+      try { oldFiles.next().setTrashed(true); } catch (_) {}
+    }
+
+    const blob = Utilities.newBlob(bytes, mimeType, fileName);
+    const file = folder.createFile(blob);
+    file.setDescription(JSON.stringify({
+      app: 'An Phu Tool - QLTC',
+      projectId: payload.projectId,
+      photoId: payload.photoId,
+      entityType: payload.entityType || '',
+      entityId: payload.entityId || '',
+      category: payload.category || '',
+      uploadedByUid: user.uid,
+      uploadedByEmail: user.email,
+      updatedAt: Number(payload.updatedAt || Date.now()),
+    }));
+    return {
+      fileId: file.getId(),
+      fileName: file.getName(),
+      mimeType: file.getMimeType(),
+      fileSize: bytes.length,
+      folderPath: ROOT_FOLDER_NAME + '/' + (payload.entityType === 'crewRecord' ? 'BAO CAO QUAN SO' : 'DEFECT'),
+      ownerEmail: PRIMARY_DRIVE_OWNER_EMAIL,
+    };
+  });
 }
 
 // Project object was already verified in getProjectAccess_(). Keep a tiny per-execution cache

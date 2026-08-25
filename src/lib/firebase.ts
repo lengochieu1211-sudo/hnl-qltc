@@ -22,6 +22,8 @@ import { getAuth, signInWithPopup, GoogleAuthProvider, signOut as fbSignOut, onA
 import { getDeviceId, getDeviceName } from '../utils/deviceIdentity';
 import { cleanupTransientLocalStorage, estimateLocalStorageBytes } from '../utils/storage';
 import { isSuperAdminEmail } from '../config/superAdmin';
+import { REALTIME_COLLECTIONS } from '../config/realtimeCollections';
+import { CURRENT_DATA_SCHEMA_VERSION, getPendingDataSchemaMigrations, readDataSchemaVersion } from '../config/dataSchema';
 const env = (import.meta as any).env || {};
 const isDev = env.DEV || env.MODE === 'development' || !env.PROD;
 
@@ -325,7 +327,7 @@ function cloudTimestampToMillis(value: any): number {
   return 0;
 }
 
-const createdAtMigrationInFlight = new Set<string>();
+const projectMigrationInFlight = new Set<string>();
 const projectAccessRepairInFlight = new Set<string>();
 const projectAccessRepairCompleted = new Set<string>();
 const userProjectIndexSignatureCache = new Map<string, string>();
@@ -333,37 +335,60 @@ const discoveryProjectCache = new Map<string, { at: number; summary: CloudProjec
 const projectRootMetadataTouchAt = new Map<string, number>();
 
 /**
- * One-time migration for legacy project documents that do not yet have createdAt.
- * IMPORTANT: the value comes from Firestore serverTimestamp(), never from local cache,
- * updatedAt or Date.now(). Once written, firestore.rules prevents it from changing.
+ * Centralized, idempotent project-root migration runner.
+ *
+ * - Never changes projectId, name, ownerUid or ownerEmail.
+ * - Adds legacy createdAt only once using Firestore server time.
+ * - Advances dataSchemaVersion only forward to CURRENT_DATA_SCHEMA_VERSION.
+ * - ENGINEER/VIEWER may be denied by Rules; a later ADMIN/SUPER ADMIN open retries it.
+ *
+ * Business screens must not add new ad-hoc legacy project-root migrations. Add future
+ * versions to dataSchema.ts and implement their non-destructive root migration here.
  */
-export async function ensureProjectCreatedAtInCloud(projectId: string): Promise<void> {
-  if (!projectId || createdAtMigrationInFlight.has(projectId)) return;
+export async function ensureProjectMigrationsInCloud(projectId: string): Promise<void> {
+  if (!projectId || projectMigrationInFlight.has(projectId)) return;
   const user = getCurrentRealFirebaseUser();
   if (!user || !user.email) return;
 
-  createdAtMigrationInFlight.add(projectId);
+  projectMigrationInFlight.add(projectId);
   try {
     const ref = doc(db, 'projects', projectId);
     await runTransaction(db, async (transaction) => {
       const snap = await transaction.get(ref);
       if (!snap.exists()) return;
       const data = snap.data();
-      if (data?.createdAt) return;
-      transaction.update(ref, {
-        createdAt: serverTimestamp(),
-        createdAtMigrated: true,
-        createdAtMigrationVersion: 1,
-        createdAtMigrationAt: serverTimestamp(),
-      });
+      const currentDataSchema = readDataSchemaVersion(data?.dataSchemaVersion);
+      const pending = getPendingDataSchemaMigrations(currentDataSchema);
+      const needsCreatedAt = !data?.createdAt;
+      if (!needsCreatedAt && pending.length === 0) return;
+
+      const patch: Record<string, any> = {};
+      if (needsCreatedAt) {
+        patch.createdAt = serverTimestamp();
+        patch.createdAtMigrated = true;
+        patch.createdAtMigrationVersion = 1;
+        patch.createdAtMigrationAt = serverTimestamp();
+      }
+      if (pending.length > 0) {
+        patch.dataSchemaVersion = CURRENT_DATA_SCHEMA_VERSION;
+        patch.dataSchemaMigratedFrom = currentDataSchema;
+        patch.dataSchemaMigrationAt = serverTimestamp();
+        patch.dataSchemaMigrationNames = pending.map((step) => step.name);
+      }
+      transaction.update(ref, patch);
     });
   } catch (err) {
-    // VIEWER/ENGINEER may not be allowed to update project metadata. In that case
-    // we keep the UI in "migrating" state until an ADMIN opens the project.
-    console.warn(`[Project createdAt migration] ${projectId}:`, err);
+    // Permission errors are expected for non-admin roles. The migration stays pending
+    // and is retried later; no local value is promoted as authoritative Cloud metadata.
+    console.warn(`[Project migration] ${projectId}:`, err);
   } finally {
-    createdAtMigrationInFlight.delete(projectId);
+    projectMigrationInFlight.delete(projectId);
   }
+}
+
+/** Backward-compatible alias retained for older callers/tests. */
+export async function ensureProjectCreatedAtInCloud(projectId: string): Promise<void> {
+  return ensureProjectMigrationsInCloud(projectId);
 }
 
 function getUserProjectIndexSignature(projectId: string, projectName: string, role: string): string {
@@ -671,7 +696,7 @@ export function subscribeCurrentUserProjectsRealtime(onUpdate: (projects: CloudP
           registerProjectForCurrentUser(id, String(data?.name || hint.name || id), effectiveRole).catch(() => {});
         }
         if (!createdAt && (effectiveRole === 'ADMIN' || data?.ownerUid === user.uid || normalizeEmail(data?.ownerEmail) === email)) {
-          ensureProjectCreatedAtInCloud(id).catch(() => {});
+          ensureProjectMigrationsInCloud(id).catch(() => {});
         }
         const canonicalProjectIdRaw = String(data?.canonicalProjectId || data?.mergedIntoProjectId || '').trim();
         const canonicalProjectId = canonicalProjectIdRaw && canonicalProjectIdRaw !== id ? canonicalProjectIdRaw : undefined;
@@ -1562,6 +1587,7 @@ export async function saveProjectMetadataToCloud(projectId: string, name: string
       // their current identity until an ADMIN explicitly merges them.
       canonicalProjectId: projectId,
       schemaVersion: 3,
+      dataSchemaVersion: CURRENT_DATA_SCHEMA_VERSION,
       createdAt: serverTimestamp(),
       updatedAt: now,
       updatedByUid: user.uid,
@@ -1574,7 +1600,7 @@ export async function saveProjectMetadataToCloud(projectId: string, name: string
     return;
   }
   if (!snap.data()?.createdAt) {
-    await ensureProjectCreatedAtInCloud(projectId).catch(() => {});
+    await ensureProjectMigrationsInCloud(projectId).catch(() => {});
   }
   await setDoc(ref, {
     name: name.trim(),
@@ -1617,7 +1643,7 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
       const finalOwnerUid = existingData?.ownerUid || (currentUser ? currentUser.uid : null);
       const finalOwnerEmail = existingData?.ownerEmail || normalizeEmail(currentUser?.email);
       if (existingData && !existingData.createdAt) {
-        await ensureProjectCreatedAtInCloud(project.id).catch(() => {});
+        await ensureProjectMigrationsInCloud(project.id).catch(() => {});
       }
 
       await setDoc(metadataRef, {
@@ -1626,7 +1652,8 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
         name: project.name || 'Dự án',
         syncCode,
         updatedAt: Date.now(),
-        schemaVersion: 2, // New subcollection schema
+        schemaVersion: 3, // Legacy storage-format marker; data schema is tracked separately below
+        dataSchemaVersion: CURRENT_DATA_SCHEMA_VERSION,
         updatedBy: typeof window !== 'undefined' ? window.navigator.userAgent : 'device',
         contractorName: project.contractorName || '',
         inspectorName: project.inspectorName || '',
@@ -1643,17 +1670,7 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
     }
 
     // Extract subcollections and write them
-    const subNames = [
-      { cloudName: 'rooms', stateKey: 'roomProgressList' },
-      { cloudName: 'inventory', stateKey: 'inventory' },
-      { cloudName: 'defects', stateKey: 'defects' },
-      { cloudName: 'work_volumes', stateKey: 'workVolumes' },
-      { cloudName: 'floor_plans', stateKey: 'floorPlans' },
-      { cloudName: 'checklist', stateKey: 'checklist' },
-      { cloudName: 'crew_records', stateKey: 'crewRecords' },
-      { cloudName: 'teams', stateKey: 'teams' },
-      { cloudName: 'material_norms', stateKey: 'materialNorms' }
-    ];
+    const subNames = REALTIME_COLLECTIONS;
 
     let batch = writeBatch(db);
     let operationCount = 0;
@@ -1830,6 +1847,7 @@ export async function saveProjectDiffsToCloud(
         inspectorName,
         updatedAt: Date.now(),
         schemaVersion: 3,
+        dataSchemaVersion: CURRENT_DATA_SCHEMA_VERSION,
         syncCode: projectId.slice(0, 8).toUpperCase(),
         updatedByUid: currentUser?.uid || '',
         updatedByEmail: normalizeEmail(currentUser?.email),
@@ -2011,17 +2029,7 @@ export async function fetchProjectFromCloud(projectId: string): Promise<CloudPro
         updatedAt: meta.updatedAt || 0,
       };
 
-      const subNames = [
-        { cloudName: 'rooms', stateKey: 'roomProgressList' },
-        { cloudName: 'inventory', stateKey: 'inventory' },
-        { cloudName: 'defects', stateKey: 'defects' },
-        { cloudName: 'work_volumes', stateKey: 'workVolumes' },
-        { cloudName: 'floor_plans', stateKey: 'floorPlans' },
-        { cloudName: 'checklist', stateKey: 'checklist' },
-        { cloudName: 'crew_records', stateKey: 'crewRecords' },
-        { cloudName: 'teams', stateKey: 'teams' },
-        { cloudName: 'material_norms', stateKey: 'materialNorms' }
-      ];
+      const subNames = REALTIME_COLLECTIONS;
 
       for (const { cloudName, stateKey } of subNames) {
         const querySnap = await getDocs(collection(db, 'projects', projectId, cloudName));
@@ -2099,17 +2107,7 @@ export function subscribeToProjectRealtime(
     unsubscribers.push(metaUnsub);
 
     // 2. Listen for each subcollection changes
-    const subNames = [
-      { cloudName: 'rooms', stateKey: 'roomProgressList' },
-      { cloudName: 'inventory', stateKey: 'inventory' },
-      { cloudName: 'defects', stateKey: 'defects' },
-      { cloudName: 'work_volumes', stateKey: 'workVolumes' },
-      { cloudName: 'floor_plans', stateKey: 'floorPlans' },
-      { cloudName: 'checklist', stateKey: 'checklist' },
-      { cloudName: 'crew_records', stateKey: 'crewRecords' },
-      { cloudName: 'teams', stateKey: 'teams' },
-      { cloudName: 'material_norms', stateKey: 'materialNorms' }
-    ];
+    const subNames = REALTIME_COLLECTIONS;
 
     subNames.forEach(({ cloudName, stateKey }) => {
       let isFirst = true;

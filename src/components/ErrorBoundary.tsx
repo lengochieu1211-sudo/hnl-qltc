@@ -1,7 +1,9 @@
 import React, { ReactNode, ErrorInfo } from 'react';
-import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { AlertTriangle, RefreshCw, Copy, Download } from 'lucide-react';
 import { confirmAsync } from '../utils/confirmAsync';
 import { cleanupTransientLocalStorage, estimateLocalStorageBytes, isQuotaExceededError } from '../utils/storage';
+import { appendRuntimeDiagnostic, buildDiagnosticBundle } from '../lib/runtimeDiagnostics';
+import { APP_VERSION_LABEL } from '../config/appVersion';
 
 interface Props {
   children: ReactNode;
@@ -31,7 +33,42 @@ export class ErrorBoundary extends React.Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('Uncaught error in React Component Tree:', error, errorInfo);
+    appendRuntimeDiagnostic({
+      level: 'error',
+      area: 'react-error-boundary',
+      message: `${error?.name || 'Error'}: ${error?.message || String(error)} | ${errorInfo.componentStack || ''}`,
+    });
   }
+
+  getDiagnosticText = () => JSON.stringify(buildDiagnosticBundle({
+    screen: 'error-boundary',
+    errorName: this.state.error?.name || 'Error',
+    errorMessage: this.state.error?.message || '',
+  }), null, 2);
+
+  handleCopyDiagnostics = async () => {
+    try {
+      await navigator.clipboard.writeText(this.getDiagnosticText());
+    } catch (err) {
+      console.warn('Copy diagnostics failed:', err);
+    }
+  };
+
+  handleDownloadDiagnostics = () => {
+    try {
+      const blob = new Blob([this.getDiagnosticText()], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `QLCT-${APP_VERSION_LABEL.replace(/[^0-9A-Za-z._-]+/g, '-')}-diagnostics.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.warn('Download diagnostics failed:', err);
+    }
+  };
 
   handleReload = () => {
     window.location.reload();
@@ -68,6 +105,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
             
             <div className="space-y-2">
               <h1 className="text-lg font-black text-slate-100">Đã xảy ra sự cố không mong muốn</h1>
+              <div className="text-[10px] font-mono text-slate-500">{APP_VERSION_LABEL}</div>
               <p className="text-xs text-slate-400 leading-relaxed">
                 {quotaError
                   ? `Bộ nhớ tạm của trình duyệt đã gần/đạt giới hạn (${storageMb.toFixed(1)} MB localStorage). Đây không phải lỗi mất dữ liệu Cloud và không phải chủ yếu do mạng yếu.`
@@ -90,6 +128,22 @@ export class ErrorBoundary extends React.Component<Props, State> {
                   Dọn cache tạm an toàn & tải lại
                 </button>
               )}
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={this.handleCopyDiagnostics}
+                  className="py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5"
+                >
+                  <Copy className="w-3.5 h-3.5" /> Copy log
+                </button>
+                <button
+                  type="button"
+                  onClick={this.handleDownloadDiagnostics}
+                  className="py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5"
+                >
+                  <Download className="w-3.5 h-3.5" /> Tải log
+                </button>
+              </div>
               <button
                 type="button"
                 onClick={this.handleReload}

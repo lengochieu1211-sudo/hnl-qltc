@@ -6,6 +6,7 @@ import './index.css';
 import { registerServiceWorker } from './serviceWorkerRegistration';
 import { cleanupTransientLocalStorage, estimateLocalStorageBytes } from './utils/storage';
 import { migrateAndCleanLocalStorage } from './utils/migrateStorage';
+import { appendRuntimeDiagnostic } from './lib/runtimeDiagnostics';
 
 async function bootstrap() {
   // IMPORTANT: run storage cleanup/migration before importing App. App imports Firebase.
@@ -48,6 +49,7 @@ async function bootstrap() {
 
 bootstrap().catch((err) => {
   console.error('Application bootstrap failed:', err);
+  appendRuntimeDiagnostic({ level: 'error', area: 'bootstrap', message: err instanceof Error ? `${err.name}: ${err.message}` : String(err) });
   const root = document.getElementById('root');
   if (root) {
     root.innerHTML = '<div style="padding:24px;font-family:system-ui;color:#991b1b">Không thể khởi động ứng dụng. Hãy tải lại trang.</div>';

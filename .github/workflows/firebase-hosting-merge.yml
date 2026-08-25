@@ -18,14 +18,26 @@ jobs:
       VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
       VITE_FIRESTORE_DATABASE_ID: "(default)"
       VITE_FIREBASE_FIRESTORE_DATABASE_ID: "(default)"
-      VITE_APP_VERSION: "V6.2.23"
+      VITE_APP_VERSION: "V6.2.27"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-      - run: npm ci && npm run build
+      - run: npm ci
+      - name: Stability Gate
+        run: npm run test:stability
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Firestore Rules compile check
+        run: npm run test:rules
+      - name: Security audit (production, critical)
+        run: npm run security:audit
+      - name: Build
+        run: npm run build
       - name: Deploy Firestore rules
         shell: bash
         env:

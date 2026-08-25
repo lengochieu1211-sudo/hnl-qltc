@@ -96,7 +96,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
           <p className="text-xs text-slate-500 max-w-xs mx-auto">
             {authStatus.authenticated
               ? 'Tài khoản Google đã kết nối qua Firebase Auth và được dùng chung trong toàn ứng dụng.'
-              : 'Chỉ cần đăng nhập một lần. Firebase dùng tài khoản này; Drive chính An Phú được Apps Script xử lý riêng.'}
+              : 'Chỉ cần đăng nhập một lần. Firebase dùng tài khoản này; Drive chính HNL được Apps Script xử lý riêng.'}
           </p>
         </div>
 

@@ -46,7 +46,7 @@ $compiled = Join-Path $build 'compiled-res.zip'
 $unsignedApk = Join-Path $build 'qlct-unsigned.apk'
 $alignedApk = Join-Path $build 'qlct-aligned.apk'
 $keystore = Join-Path $root 'qlct-debug.keystore'
-$finalApk = Join-Path $projectRoot 'QLTC An Phu.apk'
+$finalApk = Join-Path $projectRoot 'HNL Quản Lý Thi Công.apk'
 $stringsXml = Join-Path $root 'res\values\strings.xml'
 $webUrlFile = Join-Path $root 'web-url.txt'
 
@@ -171,7 +171,7 @@ if (-not (Test-Path -LiteralPath $keystore)) {
         '-keyalg', 'RSA',
         '-keysize', '2048',
         '-validity', '10000',
-        '-dname', 'CN=QLCT,O=Codex,C=VN'
+        '-dname', 'CN=HNL,O=Codex,C=VN'
     )
 }
 

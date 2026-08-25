@@ -1,14 +1,19 @@
 {
   "name": "qlct-an-phu",
   "private": true,
-  "version": "6.2.23",
+  "version": "6.2.27",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build && esbuild ./server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "test:rules": "npx --yes firebase-tools@13.35.1 emulators:exec --only firestore --project com-example-qlct-61329 \"node -e \\\"console.log(\\'Firestore Rules compile PASS\\')\\\"\"",
+    "security:audit": "npm audit --omit=dev --audit-level=critical",
+    "test:stability": "node scripts/stability-gate.mjs",
+    "verify": "npm run test:stability && npm run typecheck && npm run lint && npm run test:rules && npm run security:audit && npm run build"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

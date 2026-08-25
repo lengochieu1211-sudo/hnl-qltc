@@ -225,7 +225,7 @@ export const PrimaryDriveStatusCard: React.FC<Props> = ({ activeProjectId, userR
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-extrabold text-slate-800">
             <HardDrive className="w-4 h-4 text-emerald-600 shrink-0" />
-            Drive chính An Phú
+            Drive chính HNL
           </div>
           <div className="text-[11px] text-slate-500 mt-1 break-all">
             Tài khoản lưu file: <span className="font-bold text-emerald-700">{PRIMARY_DRIVE_OWNER_EMAIL}</span>
@@ -237,7 +237,7 @@ export const PrimaryDriveStatusCard: React.FC<Props> = ({ activeProjectId, userR
       </div>
 
       <p className="text-[10.5px] leading-4 text-slate-500 mt-1.5">
-        Ảnh tự lưu Drive; Firebase giữ dữ liệu và liên kết. User chỉ đăng nhập Google/Firebase một lần; Apps Script lưu file vào Drive chính An Phú.
+        Ảnh tự lưu Drive; Firebase giữ dữ liệu và liên kết. User chỉ đăng nhập Google/Firebase một lần; Apps Script lưu file vào Drive chính HNL.
       </p>
       <div className="mt-1 text-[9.5px] text-slate-400 break-all">
         ProjectId: <b className="text-slate-600">{activeProjectId || '—'}</b>{driveInventory?.folderName ? <> · Folder: <b className="text-slate-600">{driveInventory.folderName}</b></> : null}

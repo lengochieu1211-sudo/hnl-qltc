@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Camera, Image as ImageIcon, Images, Eye, Loader2, X, Pencil } from 'lucide-react';
-import { PhotoAttachment, getEntityPhotos, savePhotoAttachment, deletePhotoAttachment, getPhotoDataUrl, updatePhotoAttachmentBlob } from '../utils/photoStorage';
+import { PhotoAttachment, getEntityPhotos, getProjectPhotos, savePhotoAttachment, deletePhotoAttachment, getPhotoDataUrl, updatePhotoAttachmentBlob } from '../utils/photoStorage';
+import { uploadPhotoToCloud } from '../lib/photoCloudSync';
 import { ImageViewerModal } from './ImageViewerModal';
 import { ImageEditorModal } from './ImageEditorModal';
 import { confirmAsync } from '../utils/confirmAsync';
@@ -185,6 +186,12 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
         );
         savedNow.push(saved);
         if (saved.localUri) optimisticUrls[saved.id] = saved.localUri;
+        // V6.2.25: start the binary upload immediately after IndexedDB commit.
+        // The old 1.8s mobile debounce could be cancelled when the user locked the
+        // phone/closed the app, leaving the photo visible only on the capture device.
+        void uploadPhotoToCloud(projectId, saved).catch((err) =>
+          console.warn('[Photo Picker] immediate cloud upload pending retry:', saved.id, err)
+        );
       }
 
       // Render immediately from the just-compressed data URL. Do not wait for IndexedDB/cloud
@@ -232,6 +239,12 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
     if (!confirmed) return;
     try {
       await deletePhotoAttachment(projectId, photoId);
+      const deletedPhoto = (await getProjectPhotos(projectId, true)).find((p) => p.id === photoId);
+      if (deletedPhoto) {
+        void uploadPhotoToCloud(projectId, deletedPhoto).catch((err) =>
+          console.warn('[Photo Picker] immediate cloud delete pending retry:', photoId, err)
+        );
+      }
       notifyPhotoAttachmentsChanged({ operation: 'delete', entityType, entityId, category, photoId, originId: pickerInstanceIdRef.current });
       await loadPhotos();
     } catch (err) {
@@ -263,6 +276,12 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
     try {
       setUploading(true);
       await updatePhotoAttachmentBlob(projectId, editingPhoto.id, editedFile);
+      const editedPhotoMeta = (await getProjectPhotos(projectId, true)).find((p) => p.id === editingPhoto.id);
+      if (editedPhotoMeta) {
+        void uploadPhotoToCloud(projectId, editedPhotoMeta).catch((err) =>
+          console.warn('[Photo Picker] immediate edited-photo upload pending retry:', editingPhoto.id, err)
+        );
+      }
       closeEditingPhoto();
       notifyPhotoAttachmentsChanged({ operation: 'edit', entityType, entityId, category, photoId: editingPhoto.id, originId: pickerInstanceIdRef.current });
       await loadPhotos();

@@ -22,8 +22,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Stability Gate
+        run: npm run test:stability
+
       - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
         run: npm run lint
+
+      - name: Firestore Rules compile check
+        run: npm run test:rules
+
+      - name: Security audit (production, critical)
+        run: npm run security:audit
 
       - name: Build
         run: npm run build

@@ -3153,7 +3153,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   <p className="text-[9.5px] text-slate-500 italic">
                     {googleUser && !googleUser.isAnonymous 
                       ? '🔒 Đã xác thực. Dự án được nhận diện theo tài khoản và đồng bộ tự động giữa các thiết bị.' 
-                      : 'ℹ️ Chỉ cần đăng nhập Google/Firebase một lần. Các màn hình khác dùng chung phiên này; Drive chính được Apps Script lưu bằng tài khoản An Phú.'}
+                      : 'ℹ️ Chỉ cần đăng nhập Google/Firebase một lần. Các màn hình khác dùng chung phiên này; Drive chính được Apps Script lưu bằng tài khoản HNL.'}
                   </p>
                 </div>
 
@@ -3227,7 +3227,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   {googleUser && !googleUser.isAnonymous && (
                     <div className="text-[9px] text-slate-500 space-y-1">
                       <p className="flex items-center justify-between gap-2">
-                        <span>Dữ liệu nghiệp vụ đồng bộ realtime bằng Firebase; ảnh ưu tiên lưu vào Drive chính An Phú.</span>
+                        <span>Dữ liệu nghiệp vụ đồng bộ realtime bằng Firebase; ảnh ưu tiên lưu vào Drive chính HNL.</span>
                         {dataCloudStatus?.lastSyncAt ? <span className="shrink-0">Lần cuối {new Date(dataCloudStatus.lastSyncAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</span> : null}
                       </p>
                       {dataCloudStatus?.phase === 'error' && dataCloudStatus.message ? (
@@ -3489,7 +3489,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                         Phát hiện {duplicateGroups.reduce((sum, group) => sum + group.length, 0)} dự án có tên trùng nhưng projectId khác nhau
                       </p>
                       <p className="text-[10.5px] text-amber-800 leading-relaxed">
-                        Không xóa theo ngày “Khởi tạo”. Hãy đối chiếu ID và dữ liệu, sau đó chọn đúng dự án chính để hợp nhất. Bản nguồn luôn được giữ lại sau khi hợp nhất.
+                        Cùng tên KHÔNG có nghĩa là cùng dữ liệu Firestore. Nếu các máy thấy số Defect khác nhau, hãy kiểm projectId trên từng máy trước. Chỉ hợp nhất khi đã đối chiếu đúng ID và dữ liệu; bản nguồn luôn được giữ lại.
                       </p>
                     </div>
                   </div>

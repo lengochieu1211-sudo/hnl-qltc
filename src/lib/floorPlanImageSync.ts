@@ -1,5 +1,4 @@
 import {
-  Bytes,
   collection,
   doc,
   getDoc,
@@ -20,8 +19,6 @@ import {
   uploadFloorPlanToPrimaryDrive,
   deleteFloorPlanFromPrimaryDrive,
 } from './primaryDriveBridge';
-
-const CHUNK_BYTES = 560 * 1024;
 
 export function isDisplayableFloorPlanUrl(value?: string | null): boolean {
   const url = String(value || '').trim();
@@ -72,14 +69,6 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   });
 }
 
-function splitBytes(bytes: Uint8Array): Uint8Array[] {
-  const chunks: Uint8Array[] = [];
-  for (let offset = 0; offset < bytes.length; offset += CHUNK_BYTES) {
-    chunks.push(bytes.slice(offset, Math.min(bytes.length, offset + CHUNK_BYTES)));
-  }
-  return chunks;
-}
-
 async function deleteFallbackChunks(projectId: string, floorPlanId: string): Promise<void> {
   const chunksRef = collection(db, 'projects', projectId, 'floor_plan_images', floorPlanId, 'chunks');
   const snap = await getDocs(chunksRef);
@@ -96,62 +85,6 @@ async function deleteFallbackChunks(projectId: string, floorPlanId: string): Pro
     }
   }
   if (count > 0) await batch.commit();
-}
-
-async function uploadFallback(projectId: string, plan: FloorPlan, blob: Blob, revision: number): Promise<Partial<FloorPlan>> {
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  const chunks = splitBytes(bytes);
-  await deleteFallbackChunks(projectId, plan.id).catch(() => {});
-
-  let batch = writeBatch(db);
-  let count = 0;
-  chunks.forEach((chunk, index) => {
-    const chunkRef = doc(db, 'projects', projectId, 'floor_plan_images', plan.id, 'chunks', String(index).padStart(5, '0'));
-    batch.set(chunkRef, {
-      index,
-      data: Bytes.fromUint8Array(chunk),
-      byteLength: chunk.byteLength,
-      revision,
-      updatedAt: Date.now(),
-    });
-    count++;
-  });
-  if (count > 0) await batch.commit();
-
-  const now = Date.now();
-  await setDoc(doc(db, 'projects', projectId, 'floor_plan_images', plan.id), {
-    id: plan.id,
-    floorName: plan.floorName || '',
-    mimeType: blob.type || 'image/jpeg',
-    fileSize: blob.size,
-    chunkCount: chunks.length,
-    revision,
-    storageProvider: 'firestore-fallback',
-    updatedAt: now,
-    deleted: false,
-  }, { merge: true });
-
-  const metadata: Partial<FloorPlan> = {
-    imageUrl: `cloud-floorplan:firestore:${projectId}:${plan.id}`,
-    storageProvider: 'firestore-fallback',
-    cloudFileId: `firestore:${projectId}:${plan.id}`,
-    imageMimeType: blob.type || 'image/jpeg',
-    imageFileSize: blob.size,
-    imageRevision: revision,
-    imageCloudRevision: revision,
-    imageCloudSyncedAt: now,
-    updatedAt: Math.max(now, Number((plan as any).updatedAt || 0) + 1),
-  };
-
-  await setDoc(doc(db, 'projects', projectId, 'floor_plans', plan.id), {
-    ...metadata,
-    // If a Drive-backed drawing is replaced while Drive is temporarily unavailable,
-    // remove the stale Drive identity. Otherwise another device can keep attempting
-    // the old Drive file even though this revision now lives in the Firestore fallback.
-    driveFileId: deleteField(),
-    driveUrl: deleteField(),
-  }, { merge: true });
-  return metadata;
 }
 
 export async function syncFloorPlanImageToCloud(projectId: string, plan: FloorPlan): Promise<Partial<FloorPlan> | null> {
@@ -189,10 +122,11 @@ export async function syncFloorPlanImageToCloud(projectId: string, plan: FloorPl
       }
     }
   } catch (err) {
-    console.warn('[Floor Plan Image] Primary Drive unavailable, using Firestore fallback:', err);
+    console.warn('[Floor Plan Image] Primary Drive upload unavailable; binary remains local for retry:', err);
+    throw err;
   }
 
-  return uploadFallback(projectId, plan, blob, revision);
+  throw new Error(`Drive chính chưa sẵn sàng cho mặt bằng ${plan.floorName || plan.id}; binary vẫn local và sẽ retry.`);
 }
 
 async function downloadFallback(projectId: string, plan: FloorPlan): Promise<Blob | null> {

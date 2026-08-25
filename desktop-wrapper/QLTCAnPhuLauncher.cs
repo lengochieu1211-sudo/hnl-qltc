@@ -7,7 +7,7 @@ namespace QLTCAnPhu
 {
     internal static class Program
     {
-        private const string AppUrl = "https://com-example-qlct-61329.web.app/?app=desktop&v=20260816-sort-perms";
+        private const string AppUrl = "https://com-example-qlct-61329.web.app/?app=desktop&v=6.2.27";
 
         [STAThread]
         private static void Main()
@@ -45,8 +45,8 @@ namespace QLTCAnPhu
             catch (Exception ex)
             {
                 MessageBox.Show(
-                    "Cannot open QLTC An Phu.\n\n" + ex.Message,
-                    "QLTC An Phu",
+                    "Cannot open HNL Quản Lý Thi Công.\n\n" + ex.Message,
+                    "HNL Quản Lý Thi Công",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error
                 );

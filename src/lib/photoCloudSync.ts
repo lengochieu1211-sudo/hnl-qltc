@@ -1,5 +1,4 @@
 import {
-  Bytes,
   collection,
   doc,
   getDoc,
@@ -27,10 +26,8 @@ import {
   uploadPhotoToPrimaryDrive,
 } from './primaryDriveBridge';
 
-// Firestore binary chunks remain as a fallback only when the primary Drive bridge
-// has not been configured or temporarily fails. This keeps the app usable during
-// rollout while allowing images to migrate away from the 1 GiB Firestore quota.
-const CHUNK_BYTES = 560 * 1024;
+// V6.2.27 stability baseline: Firestore photo chunks are read-only legacy data.
+// New/changed binary files must stay local pending until the primary Drive accepts them.
 
 export interface PhotoCloudSyncStatus {
   phase: 'idle' | 'syncing' | 'synced' | 'error';
@@ -60,75 +57,6 @@ function isDriveCloudValue(value?: string | null): boolean {
   return String(value || '').startsWith('drive:');
 }
 
-async function blobToUint8Array(blob: Blob): Promise<Uint8Array> {
-  return new Uint8Array(await blob.arrayBuffer());
-}
-
-function splitBytes(bytes: Uint8Array): Uint8Array[] {
-  const chunks: Uint8Array[] = [];
-  for (let offset = 0; offset < bytes.length; offset += CHUNK_BYTES) {
-    chunks.push(bytes.slice(offset, Math.min(bytes.length, offset + CHUNK_BYTES)));
-  }
-  return chunks;
-}
-
-async function deletePhotoChunks(projectId: string, photoId: string): Promise<void> {
-  const chunksRef = collection(db, 'projects', projectId, 'photos', photoId, 'chunks');
-  const snap = await getDocs(chunksRef);
-  if (snap.empty) return;
-  let batch = writeBatch(db);
-  let count = 0;
-  for (const chunkDoc of snap.docs) {
-    batch.delete(chunkDoc.ref);
-    count++;
-    if (count >= 400) {
-      await batch.commit();
-      batch = writeBatch(db);
-      count = 0;
-    }
-  }
-  if (count > 0) await batch.commit();
-}
-
-async function uploadPhotoToFirestoreFallback(projectId: string, photo: PhotoAttachment, baseMeta: Record<string, any>, blob: Blob): Promise<void> {
-  const bytes = await blobToUint8Array(blob);
-  const chunks = splitBytes(bytes);
-  const contentVersion = Number(photo.updatedAt || photo.createdAt || Date.now());
-
-  await deletePhotoChunks(projectId, photo.id).catch(() => {});
-
-  let batch = writeBatch(db);
-  let count = 0;
-  chunks.forEach((chunk, index) => {
-    const chunkRef = doc(db, 'projects', projectId, 'photos', photo.id, 'chunks', String(index).padStart(5, '0'));
-    batch.set(chunkRef, {
-      index,
-      data: Bytes.fromUint8Array(chunk),
-      byteLength: chunk.byteLength,
-      contentVersion,
-      updatedAt: Date.now(),
-    });
-    count++;
-  });
-  if (count > 0) await batch.commit();
-
-  await setDoc(doc(db, 'projects', projectId, 'photos', photo.id), {
-    ...baseMeta,
-    mimeType: blob.type || photo.mimeType || 'image/jpeg',
-    fileSize: blob.size,
-    chunkCount: chunks.length,
-    contentVersion,
-    storageProvider: 'firestore-fallback',
-    cloudFileId: `firestore:${projectId}:${photo.id}`,
-    cloudUrl: `firestore:${projectId}:${photo.id}`,
-    binaryMissingOnUploader: false,
-    deleted: false,
-    deletedAt: null,
-    updatedAt: contentVersion,
-    cloudSyncedAt: Date.now(),
-  }, { merge: true });
-}
-
 export async function uploadPhotoToCloud(projectId: string, photo: PhotoAttachment): Promise<void> {
   if (!projectId || !photo?.id) return;
   const user = getCurrentRealFirebaseUser();
@@ -139,8 +67,16 @@ export async function uploadPhotoToCloud(projectId: string, photo: PhotoAttachme
   const cloudData = cloudSnap?.exists() ? cloudSnap.data() : null;
   const localUpdatedAt = Number(photo.updatedAt || photo.createdAt || 0);
   const cloudUpdatedAt = Number(cloudData?.updatedAt || 0);
+  const cloudDriveBacked = isDriveCloudValue(cloudData?.cloudFileId) || cloudData?.storageProvider === 'google-drive-primary';
+  const cloudFirestoreBacked = Number(cloudData?.chunkCount || 0) > 0;
+  const cloudHasResolvedBinaryState = Boolean(cloudData?.deleted) || cloudDriveBacked || cloudFirestoreBacked;
+  const cloudDeleteStateMatches = Boolean(cloudData?.deleted) === Boolean(photo.deleted);
 
-  if (cloudData && cloudUpdatedAt > localUpdatedAt) return;
+  // V6.2.24: direct upload callers are idempotent too. Bulk sync already skips the
+  // same/newer cloud revision, but a second direct call could resend an unchanged
+  // binary before. That made Apps Script create a replacement Drive file and trash
+  // the previous one even though the photo revision had not changed.
+  if (cloudData && cloudUpdatedAt >= localUpdatedAt && cloudDeleteStateMatches && cloudHasResolvedBinaryState) return;
 
   const baseMeta = {
     ...cleanPhotoMetadata(photo),
@@ -179,14 +115,7 @@ export async function uploadPhotoToCloud(projectId: string, photo: PhotoAttachme
   }
 
   if (!blob) {
-    await setDoc(metaRef, {
-      ...baseMeta,
-      deleted: false,
-      updatedAt: localUpdatedAt || Date.now(),
-      binaryMissingOnUploader: true,
-      cloudSyncedAt: Date.now(),
-    }, { merge: true });
-    return;
+    throw new Error(`Ảnh ${photo.id} chưa có binary local/legacy để tải lên Drive; giữ trạng thái pending.`);
   }
 
   // Preferred path: every authorized user's image is written by the Apps Script
@@ -220,19 +149,20 @@ export async function uploadPhotoToCloud(projectId: string, photo: PhotoAttachme
       }
     }
   } catch (err) {
-    console.warn('[Photo Cloud] Primary Drive unavailable, using Firestore fallback:', err);
+    console.warn('[Photo Cloud] Primary Drive upload unavailable; binary remains local for retry:', err);
+    throw err;
   }
 
-  // Safe fallback: keep old Firestore-chunk behavior so field work never loses a photo.
-  await uploadPhotoToFirestoreFallback(projectId, photo, baseMeta, blob);
+  throw new Error(`Drive chính chưa sẵn sàng cho ảnh ${photo.id}; binary vẫn ở IndexedDB và sẽ retry.`);
 }
 
-export async function syncProjectPhotosToCloud(projectId: string): Promise<{ uploaded: number; skipped: number; migratedToDrive?: number }> {
+export async function syncProjectPhotosToCloud(projectId: string): Promise<{ uploaded: number; skipped: number; migratedToDrive?: number; failed?: number }> {
   const photos = await getProjectPhotos(projectId, true);
   const driveReady = await isPrimaryDriveReady().catch(() => false);
   let uploaded = 0;
   let skipped = 0;
   let migratedToDrive = 0;
+  let failed = 0;
 
   // Read cloud photo metadata once. The old loop did one getDoc() network round-trip
   // per local photo, which made project switching and first sync increasingly slow.
@@ -259,10 +189,11 @@ export async function syncProjectPhotosToCloud(projectId: string): Promise<{ upl
       uploaded++;
       if (needsDriveMigration) migratedToDrive++;
     } catch (err) {
+      failed++;
       console.warn('[Photo Cloud] upload warning:', photo.id, err);
     }
   }
-  return { uploaded, skipped, migratedToDrive };
+  return { uploaded, skipped, migratedToDrive, failed };
 }
 
 async function downloadPhotoBlobFromFirestoreChunks(projectId: string, photoId: string, mimeType = 'image/jpeg'): Promise<Blob | null> {
@@ -300,7 +231,7 @@ export async function downloadPhotoBlobFromCloud(projectId: string, photoId: str
     }
   }
 
-  // Compatibility/fallback for images uploaded before the Drive bridge was enabled.
+  // Read-only compatibility for images uploaded before the Drive-only binary policy.
   return downloadPhotoBlobFromFirestoreChunks(projectId, photoId, data?.mimeType || mimeType);
 }
 
