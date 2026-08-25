@@ -520,19 +520,24 @@ const DefectPhotoStrip: React.FC<DefectPhotoStripProps> = ({
 }) => {
   const [photos, setPhotos] = useState<PhotoAttachment[]>([]);
   const [loading, setLoading] = useState(false);
+  // Realtime photo metadata can arrive while the initial IndexedDB read is still
+  // pending. Only the newest read is allowed to update this strip; otherwise an
+  // older empty read can finish last and make one device show "Chưa có ảnh".
+  const photoLoadSeqRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
     const loadCount = async () => {
       if (!projectId || !defect.id) return;
+      const loadSeq = ++photoLoadSeqRef.current;
       setLoading(true);
       try {
         const items = await getEntityPhotos(projectId, 'defect', defect.id, category);
-        if (!cancelled) setPhotos(items);
+        if (!cancelled && loadSeq === photoLoadSeqRef.current) setPhotos(items);
       } catch (_) {
-        if (!cancelled) setPhotos([]);
+        if (!cancelled && loadSeq === photoLoadSeqRef.current) setPhotos([]);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && loadSeq === photoLoadSeqRef.current) setLoading(false);
       }
     };
     const handlePhotosChanged = (event: Event) => {
@@ -555,6 +560,7 @@ const DefectPhotoStrip: React.FC<DefectPhotoStripProps> = ({
     window.addEventListener('qlct-photo-attachments-changed', handlePhotosChanged);
     return () => {
       cancelled = true;
+      photoLoadSeqRef.current += 1;
       window.removeEventListener('qlct-photo-attachments-changed', handlePhotosChanged);
     };
   }, [projectId, defect.id, category, legacyUrl]);

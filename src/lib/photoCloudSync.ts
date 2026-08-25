@@ -300,6 +300,10 @@ export function subscribeProjectPhotosRealtime(
   let firstSnapshot = true;
   let cancelled = false;
   let initialUploadNeeded = false;
+  // Firestore may emit another snapshot while the previous IndexedDB metadata merge
+  // is still awaiting. Serialize merges so an older snapshot can never finish after
+  // a newer one and overwrite the local photo index.
+  let photoSnapshotMergeQueue: Promise<void> = Promise.resolve();
   let delayedSyncTimer: ReturnType<typeof setTimeout> | null = null;
   let retrySyncTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -359,36 +363,42 @@ export function subscribeProjectPhotosRealtime(
   };
   if (typeof document !== 'undefined') document.addEventListener('visibilitychange', handleVisibilityChange);
 
-  const unsubscribe = onSnapshot(ref, async (snap) => {
-    try {
-      const changes = snap.docChanges();
-      onStatus?.({ phase: 'syncing', pending: changes.length });
-      const changedPhotos = changes.map((change) => ({
-        id: change.doc.id,
-        ...change.doc.data(),
-        ...(change.type === 'removed' ? { deleted: true, updatedAt: Date.now() } : {}),
-      } as PhotoAttachment));
+  const unsubscribe = onSnapshot(ref, (snap) => {
+    const snapshotIsInitial = firstSnapshot;
+    // Flip this synchronously before any async merge. Without this, a second
+    // Firestore emission can also enter the "first snapshot" path and race it.
+    firstSnapshot = false;
+    const changes = snap.docChanges();
+    onStatus?.({ phase: 'syncing', pending: changes.length });
+    const changedPhotos = changes.map((change) => ({
+      id: change.doc.id,
+      ...change.doc.data(),
+      ...(change.type === 'removed' ? { deleted: true, updatedAt: Date.now() } : {}),
+    } as PhotoAttachment));
+    const cloudPhotos = snapshotIsInitial
+      ? snap.docs.map((d) => ({ id: d.id, ...d.data() } as PhotoAttachment))
+      : changedPhotos;
 
-      // First snapshot hydrates the local metadata cache once. Later snapshots merge
-      // only docChanges() instead of remapping/writing the complete project photo list.
-      const cloudPhotos = firstSnapshot
-        ? snap.docs.map((d) => ({ id: d.id, ...d.data() } as PhotoAttachment))
-        : changedPhotos;
-      await mergeCloudPhotoMetadata(projectId, cloudPhotos, changedPhotos);
-      console.debug('[photo snapshot]', projectId, 'docs=', snap.size, 'changes=', changes.length, 'initial=', firstSnapshot);
-      onStatus?.({ phase: 'synced', pending: 0, lastSyncAt: Date.now() });
+    photoSnapshotMergeQueue = photoSnapshotMergeQueue
+      .then(async () => {
+        if (cancelled) return;
+        await mergeCloudPhotoMetadata(projectId, cloudPhotos, changedPhotos);
+        if (cancelled) return;
+        console.debug('[photo snapshot]', projectId, 'docs=', snap.size, 'changes=', changes.length, 'initial=', snapshotIsInitial);
+        onStatus?.({ phase: 'synced', pending: 0, lastSyncAt: Date.now() });
 
-      if (firstSnapshot) {
-        firstSnapshot = false;
-        initialUploadNeeded = true;
-        scheduleInitialUpload();
-      }
-    } catch (err: any) {
-      onStatus?.({ phase: 'error', message: err?.message || String(err) });
-    }
+        if (snapshotIsInitial) {
+          initialUploadNeeded = true;
+          scheduleInitialUpload();
+        }
+      })
+      .catch((err: any) => {
+        if (!cancelled) onStatus?.({ phase: 'error', message: err?.message || String(err) });
+      });
   }, (err) => {
     onStatus?.({ phase: 'error', message: err?.message || String(err) });
   });
+
 
   return () => {
     cancelled = true;

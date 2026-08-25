@@ -87,6 +87,11 @@ if (!photoSync.includes('binary remains local for retry') || !floorPlanSync.incl
 if (!rules.includes('allow create, update: if false;')) fail('Firestore Rules do not block new legacy nested binary chunks');
 pass('Drive-only binary policy + legacy read/delete compatibility + idempotency');
 
+if (!photoSync.includes('photoSnapshotMergeQueue') || !photoSync.includes('snapshotIsInitial = firstSnapshot') || !photoSync.includes('firstSnapshot = false')) fail('photo realtime snapshot serialization guard missing');
+const floorPlanDefect = read('src/components/FloorPlanDefectTab.tsx');
+if (!floorPlanDefect.includes('photoLoadSeqRef') || !floorPlanDefect.includes('loadSeq === photoLoadSeqRef.current')) fail('Defect photo strip stale-read guard missing');
+pass('multi-device photo metadata race guards');
+
 const primaryDriveBridge = read('src/lib/primaryDriveBridge.ts');
 const driveScript = read('apps-script/PrimaryDriveBridge/Code.gs');
 if (!driveScript.includes('contentHash_(bytes)') || !driveScript.includes('sameBinary')) fail('Drive binary-hash idempotency missing');
