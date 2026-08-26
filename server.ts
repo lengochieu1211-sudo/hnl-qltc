@@ -103,6 +103,22 @@ function getAuthenticatedAuthClient(req?: express.Request) {
   return oauth2Client;
 }
 
+// Firebase-only production does not expose Drive as a runtime backend. Legacy Drive
+// endpoints remain in source solely for a controlled migration tool and are disabled
+// unless an operator explicitly starts the server with ENABLE_LEGACY_DRIVE_MIGRATION=true.
+const ENABLE_LEGACY_DRIVE_MIGRATION = String(process.env.ENABLE_LEGACY_DRIVE_MIGRATION || 'false').toLowerCase() === 'true';
+app.use((req, res, next) => {
+  const legacyDriveRoute = req.path.startsWith('/api/drive/') || req.path === '/api/auth/url' || req.path === '/api/auth/callback';
+  if (legacyDriveRoute && !ENABLE_LEGACY_DRIVE_MIGRATION) {
+    return res.status(410).json({
+      disabled: true,
+      code: 'LEGACY_DRIVE_MIGRATION_DISABLED',
+      message: 'Google Drive runtime đã tắt. Chỉ bật tạm thời trong phiên migration có kiểm soát.',
+    });
+  }
+  next();
+});
+
 // ==========================================
 // AUTH ROUTES
 // ==========================================

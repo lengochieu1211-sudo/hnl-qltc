@@ -1,7 +1,12 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import fs from 'node:fs';
 import {defineConfig} from 'vite';
+
+
+const packageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf8')) as { version?: string };
+const canonicalAppVersion = String(packageJson.version || '0.0.0-dev');
 
 const firebaseWebConfig = (() => {
   try {
@@ -43,11 +48,19 @@ export default defineConfig(() => {
   const min = String(vnDate.getMinutes()).padStart(2, '0');
   const buildTimeStr = `${dd}/${mm}/${yyyy} ${hh}:${min}`;
 
+  const buildId = String(process.env.VITE_BUILD_ID || process.env.GITHUB_RUN_ID || `local-${Date.now()}`);
+  const gitCommit = String(process.env.VITE_GIT_COMMIT || process.env.GITHUB_SHA || 'local');
+  const appEnv = String(process.env.VITE_APP_ENV || (process.env.NODE_ENV === 'production' ? 'PROD' : 'DEV')).toUpperCase() === 'PROD' ? 'PROD' : 'DEV';
+
   return {
     plugins: [react(), tailwindcss()],
     define: {
       ...firebaseEnvDefine,
+      __APP_VERSION__: JSON.stringify(canonicalAppVersion),
       __BUILD_TIME__: JSON.stringify(buildTimeStr),
+      __BUILD_ID__: JSON.stringify(buildId),
+      __GIT_COMMIT__: JSON.stringify(gitCommit.slice(0, 40)),
+      __APP_ENV__: JSON.stringify(appEnv),
     },
     resolve: {
       alias: {

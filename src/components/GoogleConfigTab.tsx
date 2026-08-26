@@ -88,6 +88,8 @@ interface GoogleConfigTabProps {
     cloudInitialReady: boolean;
     snapshotReadyCount: number;
     roleResolved: boolean;
+    roleSource?: 'cloud' | 'offline-cache' | 'unresolved';
+    online?: boolean;
     dataCloudPhase: string;
     pendingData: number;
     photoPending: number;
@@ -391,7 +393,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
               <div><b>App:</b> {APP_VERSION_LABEL}</div>
               <div><b>Project ID:</b> <span className="font-mono break-all">{activeProjectId || 'default'}</span></div>
               <div><b>User:</b> {syncDiagnostics.firebaseUserEmail || 'Chưa xác thực Firebase'}</div>
-              <div><b>Role:</b> {userRole} · {syncDiagnostics.roleResolved ? 'đã xác minh' : 'chưa xác minh'}</div>
+              <div><b>Role:</b> {userRole} · {syncDiagnostics.roleResolved ? (syncDiagnostics.roleSource === 'offline-cache' ? 'cache đã xác minh trước đó' : 'đã xác minh Cloud') : 'chưa xác minh'}</div>
               <div><b>Data schema:</b> v{syncDiagnostics.dataSchemaVersion}</div>
             </div>
             <div className="rounded-xl bg-slate-50 border border-slate-200 p-2.5 space-y-1">
@@ -401,7 +403,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
               <div><b>Ảnh chờ Cloud:</b> {syncDiagnostics.photoPending} · {syncDiagnostics.photoPhase}</div>
               <div><b>Drive:</b> {driveSyncStatus} · pending {syncDiagnostics.pendingDriveUploads}</div>
               <div><b>Sync cuối:</b> {syncDiagnostics.lastSyncAt > 0 ? new Date(syncDiagnostics.lastSyncAt).toLocaleString('vi-VN') : 'Chưa có'}</div>
-              <div><b>Mạng:</b> {typeof navigator !== 'undefined' && navigator.onLine ? 'Online' : 'Offline'}</div>
+              <div><b>Mạng:</b> {syncDiagnostics.online === false ? 'Offline' : 'Online'}</div>
             </div>
           </div>
           {syncDiagnostics.lastSyncError && (
@@ -511,7 +513,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
         </form>
 
         {userRole !== 'ADMIN' && (
-          <p className="text-[10px] text-slate-500">Thông tin công trình là dữ liệu dùng chung. ENGINEER/VIEWER chỉ xem; ADMIN mới được sửa để tránh lệch tên giữa các thiết bị.</p>
+          <p className="text-[10px] text-slate-500">Thông tin công trình là dữ liệu dùng chung. EDITOR/VIEWER chỉ xem; ADMIN mới được sửa để tránh lệch tên giữa các thiết bị.</p>
         )}
 
         {saveSuccessMsg && (

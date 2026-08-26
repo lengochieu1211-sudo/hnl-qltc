@@ -1,4 +1,5 @@
-const CACHE_NAME = 'hnl-thi-cong-cache-v15';
+const SW_VERSION = new URL(self.location.href).searchParams.get('v') || 'dev';
+const CACHE_NAME = `hnl-thi-cong-cache-${SW_VERSION}`;
 
 // Essential App Shell Resources
 const STATIC_ASSETS = [
@@ -55,7 +56,7 @@ self.addEventListener('fetch', (event) => {
           return new Response(
             JSON.stringify({
               offline: true,
-              message: 'Bạn đang ngoại tuyến. Dữ liệu nghiệp vụ được lưu an toàn trong bộ nhớ ngoại tuyến của ứng dụng (IndexedDB).',
+              message: 'Bạn đang ngoại tuyến. Dữ liệu nghiệp vụ dùng bộ nhớ ngoại tuyến chính thức của Firestore; ảnh chờ tải lên được giữ trong hàng đợi cục bộ.',
             }),
             {
               status: 200,

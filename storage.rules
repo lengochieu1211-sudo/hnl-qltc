@@ -1,0 +1,139 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null && request.auth.token.email is string;
+    }
+
+    function email() {
+      return request.auth.token.email.lower();
+    }
+
+    function isSuperAdmin() {
+      return signedIn() && email() == 'lengochieu1211@gmail.com';
+    }
+
+    function project(projectId) {
+      return firestore.get(/databases/(default)/documents/projects/$(projectId));
+    }
+
+    function isOwner(projectId) {
+      return signedIn() && (
+        project(projectId).data.ownerUid == request.auth.uid ||
+        (project(projectId).data.ownerEmail is string && project(projectId).data.ownerEmail.lower() == email())
+      );
+    }
+
+    function uidMember(projectId) {
+      return firestore.get(/databases/(default)/documents/projects/$(projectId)/members/$(request.auth.uid));
+    }
+
+    function emailMember(projectId) {
+      return firestore.get(/databases/(default)/documents/projects/$(projectId)/members/$(email()));
+    }
+
+    function uidMemberExists(projectId) {
+      return firestore.exists(/databases/(default)/documents/projects/$(projectId)/members/$(request.auth.uid));
+    }
+
+    function emailMemberExists(projectId) {
+      return firestore.exists(/databases/(default)/documents/projects/$(projectId)/members/$(email()));
+    }
+
+    function uidMemberActive(projectId) {
+      return uidMemberExists(projectId) && (!('active' in uidMember(projectId).data) || uidMember(projectId).data.active != false);
+    }
+
+    function emailMemberActive(projectId) {
+      return emailMemberExists(projectId) && (!('active' in emailMember(projectId).data) || emailMember(projectId).data.active != false);
+    }
+
+    function isMember(projectId) {
+      return signedIn() && (isSuperAdmin() || isOwner(projectId) || uidMemberActive(projectId) || emailMemberActive(projectId));
+    }
+
+    function roleCanEdit(role) {
+      return role == 'ADMIN' || role == 'EDITOR' || role == 'ENGINEER';
+    }
+
+    function isAdmin(projectId) {
+      return signedIn() && (
+        isSuperAdmin() ||
+        isOwner(projectId) ||
+        (uidMemberActive(projectId) && uidMember(projectId).data.role == 'ADMIN') ||
+        (emailMemberActive(projectId) && emailMember(projectId).data.role == 'ADMIN')
+      );
+    }
+
+    function canEdit(projectId) {
+      return signedIn() && (
+        isAdmin(projectId) ||
+        (uidMemberActive(projectId) && roleCanEdit(uidMember(projectId).data.role)) ||
+        (emailMemberActive(projectId) && roleCanEdit(emailMember(projectId).data.role))
+      );
+    }
+
+    function validSize(fileName) {
+      // Thumbnails stay small; originals/PDF attachments use a defensive 25 MiB cap.
+      return request.resource.size > 0
+        && (fileName.matches('thumb\\..*') ? request.resource.size < 3 * 1024 * 1024 : request.resource.size < 25 * 1024 * 1024);
+    }
+
+    function validContentType() {
+      return request.resource.contentType.matches('image/.*') || request.resource.contentType == 'application/pdf';
+    }
+
+    function identityMetadata(projectId, entityType, entityId, assetId) {
+      return request.resource.metadata.projectId == projectId
+        && request.resource.metadata.entityType == entityType
+        && request.resource.metadata.entityId == entityId
+        && request.resource.metadata.assetId == assetId
+        && request.resource.metadata.createdByUid == request.auth.uid;
+    }
+
+    function updateKeepsIdentity(projectId, entityType, entityId, assetId) {
+      return resource != null
+        && request.resource.metadata.projectId == resource.metadata.projectId
+        && request.resource.metadata.entityType == resource.metadata.entityType
+        && request.resource.metadata.entityId == resource.metadata.entityId
+        && request.resource.metadata.assetId == resource.metadata.assetId
+        && request.resource.metadata.createdByUid == resource.metadata.createdByUid
+        && request.resource.metadata.projectId == projectId
+        && request.resource.metadata.entityType == entityType
+        && request.resource.metadata.entityId == entityId
+        && request.resource.metadata.assetId == assetId;
+    }
+
+    match /projects/{projectId}/media/{entityType}/{entityId}/{assetId}/{fileName} {
+      allow read: if isMember(projectId);
+      allow create: if canEdit(projectId)
+        && identityMetadata(projectId, entityType, entityId, assetId)
+        && validSize(fileName)
+        && validContentType();
+      allow update: if canEdit(projectId)
+        && updateKeepsIdentity(projectId, entityType, entityId, assetId)
+        && validSize(fileName)
+        && validContentType();
+      // Normal delete is Firestore soft-delete. Binary purge is ADMIN-only after retention.
+      allow delete: if isAdmin(projectId);
+    }
+
+    match /projects/{projectId}/floor-plans/{floorPlanId}/{fileName} {
+      allow read: if isMember(projectId);
+      allow create: if canEdit(projectId)
+        && identityMetadata(projectId, 'floorPlan', floorPlanId, floorPlanId)
+        && validSize(fileName)
+        && validContentType();
+      allow update: if canEdit(projectId)
+        && updateKeepsIdentity(projectId, 'floorPlan', floorPlanId, floorPlanId)
+        && validSize(fileName)
+        && validContentType();
+      allow delete: if isAdmin(projectId);
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

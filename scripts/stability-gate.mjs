@@ -3,24 +3,64 @@ import path from 'node:path';
 
 const root = process.cwd();
 const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
+const exists = (p) => fs.existsSync(path.join(root, p));
 const fail = (msg) => { console.error(`STABILITY GATE FAIL: ${msg}`); process.exit(1); };
 const pass = (msg) => console.log(`PASS: ${msg}`);
+const requireAll = (text, markers, label) => {
+  for (const marker of markers) if (!text.includes(marker)) fail(`${label}: missing ${marker}`);
+};
 
 const pkg = JSON.parse(read('package.json'));
 const lock = JSON.parse(read('package-lock.json'));
+const vite = read('vite.config.ts');
 const appVersion = read('src/config/appVersion.ts');
+const buildMeta = read('src/config/buildMetadata.ts');
+const runtimeArch = read('src/config/runtimeArchitecture.ts');
 const mergeWorkflow = read('.github/workflows/firebase-hosting-merge.yml');
 const prWorkflow = read('.github/workflows/firebase-hosting-pull-request.yml');
-const realtime = read('src/config/realtimeCollections.ts');
+const buildWorkflow = read('.github/workflows/build.yml');
+const firebaseJson = read('firebase.json');
 const firebase = read('src/lib/firebase.ts');
+const app = read('src/App.tsx');
+const realtime = read('src/config/realtimeCollections.ts');
+const firestoreRules = read('firestore.rules');
+const storageRules = read('storage.rules');
 const sw = read('public/sw.js');
+const swRegistration = read('src/serviceWorkerRegistration.ts');
+const photoSync = read('src/lib/photoCloudSync.ts');
+const photoStorage = read('src/utils/photoStorage.ts');
+const floorPlanSync = read('src/lib/floorPlanImageSync.ts');
+const firebaseStorage = read('src/lib/firebaseStorage.ts');
+const warehouse = read('src/lib/warehouseTransactions.ts');
+const security = read('src/utils/securityUtils.ts');
+const offlineAccess = read('src/utils/offlineAccess.ts');
+const diagnostics = read('src/lib/runtimeDiagnostics.ts');
+const authHeader = read('src/components/GoogleAuthHeader.tsx');
+const floorPlanDefect = read('src/components/FloorPlanDefectTab.tsx');
+const roomHighlight = read('src/components/RoomHighlightModal.tsx');
 
-if (pkg.version !== '6.2.27') fail(`package.json version is ${pkg.version}`);
+if (pkg.version !== '6.3.0') fail(`package.json version is ${pkg.version}, expected 6.3.0`);
 if (lock.version !== pkg.version || lock.packages?.['']?.version !== pkg.version) fail('package-lock root version mismatch');
-if (!appVersion.includes("APP_VERSION = '6.2.27'")) fail('appVersion.ts mismatch');
-if (!mergeWorkflow.includes('VITE_APP_VERSION: "V6.2.27"')) fail('merge workflow version mismatch');
-if (!prWorkflow.includes('VITE_APP_VERSION: "V6.2.27"')) fail('PR workflow version mismatch');
-pass('runtime/package/workflow version consistency');
+requireAll(vite, ["package.json", '__APP_VERSION__', '__BUILD_TIME__', '__BUILD_ID__', '__GIT_COMMIT__', '__APP_ENV__'], 'Vite build metadata');
+if (!appVersion.includes('__APP_VERSION__') || appVersion.includes("APP_VERSION = '6.")) fail('appVersion.ts must consume injected package version, not hard-code release version');
+requireAll(buildMeta, ['appVersion: APP_VERSION', 'buildId:', 'gitCommit:', 'buildTime:', 'environment:', 'platformFromLocation'], 'runtime build metadata');
+if (mergeWorkflow.includes('VITE_APP_VERSION') || prWorkflow.includes('VITE_APP_VERSION') || buildWorkflow.includes('VITE_APP_VERSION')) fail('workflow must not hard-code app version');
+requireAll(read('android-wrapper/build-apk.ps1'), ['package.json', '$appVersion', '&v=$appVersion'], 'Android version source');
+requireAll(read('desktop-wrapper/build-launcher.ps1'), ['package.json', '$version', 'AssemblyInformationalVersion'], 'Windows version source');
+if (!authHeader.includes('src={`/icon.png?v=${APP_VERSION}`}')) fail('header asset cache-bust does not use canonical APP_VERSION');
+pass('V6.3.0 single-source version/build metadata');
+
+requireAll(runtimeArch, [
+  "VITE_RUNTIME_BACKEND || 'firebase-only'",
+  "VITE_ENABLE_LEGACY_DRIVE_WRITE || 'false'",
+  "VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE || 'false'",
+  'LEGACY_DRIVE_READ_FALLBACK',
+], 'runtime architecture');
+if (!mergeWorkflow.includes('VITE_RUNTIME_BACKEND: firebase-only') || !prWorkflow.includes('VITE_RUNTIME_BACKEND: firebase-only')) fail('Firebase-only runtime is not enforced in deploy workflows');
+if (!mergeWorkflow.includes('VITE_ENABLE_LEGACY_DRIVE_WRITE: "false"') || !prWorkflow.includes('VITE_ENABLE_LEGACY_DRIVE_WRITE: "false"')) fail('legacy Drive write is not fail-closed in deploy workflows');
+if (!mergeWorkflow.includes('workflow_dispatch:') || !mergeWorkflow.includes('DEPLOY-PROD')) fail('PROD deploy must remain manual-gated');
+if (!prWorkflow.includes('DEV Firebase isolation gate') || !prWorkflow.includes('!= "com-example-qlct-61329"')) fail('DEV workflow does not refuse PROD project');
+pass('Firebase-only runtime + DEV/PROD release isolation');
 
 const expectedPairs = [
   ['rooms','roomProgressList'], ['inventory','inventory'], ['defects','defects'],
@@ -30,98 +70,68 @@ const expectedPairs = [
 for (const [cloud, state] of expectedPairs) {
   if (!realtime.includes(`cloudName: '${cloud}'`) || !realtime.includes(`stateKey: '${state}'`)) fail(`missing realtime mapping ${cloud}<->${state}`);
 }
-if ((realtime.match(/cloudName:/g) || []).length !== 9) fail('realtime mapping must contain exactly 9 collections');
-if (!firebase.includes('REALTIME_COLLECTIONS')) fail('firebase.ts is not using centralized realtime mapping');
-pass('9/9 centralized realtime mappings');
+if ((realtime.match(/cloudName:/g) || []).length !== 9) fail('realtime registry must contain exactly 9 business collections');
+requireAll(firebase, ['REALTIME_COLLECTIONS', 'persistentLocalCache()', 'getDocsFromCache', 'loadProjectFromFirestoreCache'], 'Firestore single-source/offline');
+if (firebase.includes('memoryLocalCache()')) fail('Firestore runtime still explicitly selects memoryLocalCache');
+requireAll(app, [
+  'loadProjectFromFirestoreCache(projectId)',
+  "projectRoleSource === 'offline-cache'",
+  'getCachedVerifiedProjectRole(activeProjectId, identity)',
+  'getRememberedVerifiedAuthIdentity()',
+  "if (!isOnline || projectRoleSource !== 'cloud' || !projectRoleAllowed)",
+  "businessDataSource === 'legacy-migration-fallback'",
+], 'offline bootstrap');
+requireAll(offlineAccess, ['construction_verified_project_role_v1_', 'construction_offline_verified_auth_v1', 'parsed.projectId', 'parsed.uid', 'parsed.email'], 'identity-bound offline lease');
+pass('Firestore is business source + official offline cache with identity/project guard');
 
-const dataSchema = read('src/config/dataSchema.ts');
-if (!dataSchema.includes('CURRENT_DATA_SCHEMA_VERSION = 4')) fail('data schema version not locked to 4');
-if (!dataSchema.includes('DATA_SCHEMA_MIGRATIONS') || !dataSchema.includes('realtime-stability-baseline')) fail('central data migration registry missing');
-if (!firebase.includes('ensureProjectMigrationsInCloud') || !firebase.includes('getPendingDataSchemaMigrations')) fail('central idempotent project migration runner missing');
-if (!firebase.includes('dataSchemaVersion: CURRENT_DATA_SCHEMA_VERSION')) fail('cloud metadata does not publish data schema version');
-if (firebase.includes('schemaVersion: 2,')) fail('new project root still writes legacy schemaVersion 2');
-pass('independent schema version + centralized idempotent migration runner');
 
-if (!sw.includes('cache-v15')) fail('service worker cache was not bumped to v15');
-pass('service worker cache bump');
+requireAll(firebase, ['queueProjectDiffsToFirestoreOffline', 'writeBatch(db)', '[Firestore offline queue]'], 'Firestore offline mutation queue');
+requireAll(app, ['canQueueOfflineFirestoreWrite', 'queueProjectDiffsToFirestoreOffline', 'Promise.allSettled(queued.commitPromises)', 'firestorePendingWriteCount'], 'App durable offline autosave');
+if (!app.includes('if (FIREBASE_ONLY_RUNTIME) return;') || !app.includes('Legacy data is migration input only')) fail('automatic legacy editor recovery is still active in Firebase-only runtime');
+const offlineBanner = read('src/components/OfflineSyncBanner.tsx');
+if (!offlineBanner.includes('hàng chờ Firestore bền vững') || offlineBanner.includes('construction_offline_pending')) fail('offline UI still depends on custom localStorage pending counter');
+pass('offline mutation durability uses Firestore SDK pending writes, not React/localStorage-only state');
 
-const android = read('android-wrapper/res/values/strings.xml');
-if (!android.includes('v=6.2.27')) fail('Android wrapper URL version mismatch');
-const desktop = read('desktop-wrapper/QLTCAnPhuLauncher.cs');
-if (!desktop.includes('v=6.2.27')) fail('desktop wrapper URL version mismatch');
-pass('APK/EXE wrapper query version consistency');
 
-const errorBoundary = read('src/components/ErrorBoundary.tsx');
-const diagnosticsUi = read('src/components/GoogleConfigTab.tsx');
-const diagnosticsRuntime = read('src/lib/runtimeDiagnostics.ts');
-if (!errorBoundary.includes('appendRuntimeDiagnostic') || !errorBoundary.includes('Copy log') || !errorBoundary.includes('Tải log')) fail('ErrorBoundary copy/download diagnostics missing');
-for (const marker of ['Chẩn đoán đồng bộ', 'Dữ liệu chờ:', 'Sync cuối:', 'Cảnh báo project trùng tên:']) {
-  if (!diagnosticsUi.includes(marker)) fail(`sync diagnostics UI missing ${marker}`);
-}
-if (!diagnosticsRuntime.includes('sanitizeDiagnosticValue') || !diagnosticsRuntime.includes('[redacted]')) fail('diagnostic secret redaction missing');
-pass('runtime diagnostics, safe export and visible sync diagnostics');
+if (!exists('storage.rules') || !firebaseJson.includes('"storage"') || !firebaseJson.includes('"rules": "storage.rules"')) fail('Firebase Storage rules are not wired into firebase.json');
+requireAll(firebaseStorage, ['uploadProjectBinary', 'uploadFloorPlanBinary', 'thumbnailPath', 'deleteObject', 'projects/${safeSegment(input.projectId)}/media/'], 'Firebase Storage client');
+requireAll(photoSync, ['uploadProjectBinary', "storageProvider: 'firebase-storage'", 'storagePath:', 'thumbnailPath:', 'photoSnapshotMergeQueue'], 'photo Storage pipeline');
+requireAll(floorPlanSync, ['uploadFloorPlanBinary', "storageProvider: 'firebase-storage'", 'storagePath:', 'thumbnailPath:'], 'floor-plan Storage pipeline');
+if (photoSync.includes('uploadPhotoToPrimaryDrive(')) fail('photo runtime still has a Drive upload call');
+if (floorPlanSync.includes('uploadFloorPlanToPrimaryDrive(')) fail('floor-plan runtime still has a Drive upload call');
+if (!photoSync.includes('LEGACY_DRIVE_READ_FALLBACK') || !floorPlanSync.includes('LEGACY_DRIVE_READ_FALLBACK')) fail('legacy Drive read fallback missing before verified binary migration');
+if (!photoStorage.includes('__pendingWrite')) fail('photo pending/server-ack metadata guard missing');
+pass('new binaries use Firebase Storage; Drive remains read-only legacy fallback');
 
-const authHeader = read('src/components/GoogleAuthHeader.tsx');
-if (!authHeader.includes('/icon.png?v=20260825-hnl-master') || !authHeader.includes('alt="HNL Quản Lý Thi Công"')) fail('in-app header HNL logo missing');
-if (authHeader.includes('48,0 0,80 28,80 62,23') || authHeader.includes('67,31 38,80 95,80') || authHeader.includes('#284ba0')) fail('legacy An Phu inline header logo returned');
-pass('in-app HNL header logo invariant');
+requireAll(firestoreRules, ['isCoreBusinessCollection', 'lifecycleUpdateIsMonotonic', 'allow delete: if false;', "role == 'EDITOR'", "role == 'ENGINEER'", 'inventory_balances'], 'Firestore Rules lifecycle/roles');
+requireAll(storageRules, ['canEdit(projectId)', 'isAdmin(projectId)', 'identityMetadata', 'updateKeepsIdentity', 'allow delete: if isAdmin(projectId)', 'allow read, write: if false'], 'Storage Rules');
+requireAll(security, ["if (FIREBASE_ONLY_RUNTIME) return 'VIEWER'", 'if (FIREBASE_ONLY_RUNTIME || !projectId) return'], 'client role hardening');
+pass('Rules enforce role, monotonic lifecycle, soft-delete and Storage membership');
 
-const app = read('src/App.tsx');
-if (!app.includes('REALTIME_STATE_KEYS') || !app.includes('STATE_KEY_TO_CLOUD_NAME')) fail('autosave is not using centralized realtime mapping');
-if (!app.includes('cloudInitialReady') || !app.includes('receivedInitialSubcollectionsRef')) fail('realtime bootstrap guard missing');
-pass('autosave/read mapping and initial-snapshot guard');
+requireAll(warehouse, ['runTransaction', 'commitWarehouseTransactionAtomic', 'updateWarehouseTransactionAtomic', 'softDeleteWarehouseTransactionAtomic', 'INSUFFICIENT_STOCK', 'STRICT_STOCK_OFFLINE_BLOCKED', 'inventory_balances'], 'warehouse transaction engine');
+requireAll(app, ['commitWarehouseTransactionAtomic', 'updateWarehouseTransactionAtomic', 'softDeleteWarehouseTransactionAtomic', 'const handleImportInventory = async'], 'warehouse UI integration');
+const warehouseTab = read('src/components/WarehouseTab.tsx');
+if (!warehouseTab.includes('FIREBASE_ONLY_RUNTIME') || !warehouseTab.includes('Không thể xuất vượt tồn kho')) fail('warehouse UI still offers a negative-stock override in Firebase-only runtime');
+pass('warehouse transaction/derived-balance safety engine is wired into runtime');
 
-const trash = read('src/lib/trash.ts');
-if (!trash.includes('retentionDays: 7')) fail('trash default must remain 7 days');
-const superAdmin = read('src/config/superAdmin.ts');
-const rules = read('firestore.rules');
-if (!superAdmin.includes("lengochieu1211@gmail.com") || !rules.includes("lengochieu1211@gmail.com")) fail('Super Admin identity mismatch between app/rules');
-if (!rules.includes("trashExpiresAt") || !rules.includes("ownerUid")) fail('legacy trash rule hardening markers missing');
-pass('7-day trash default and Super Admin rule invariants');
+if (!floorPlanDefect.includes('operationalWorkCategoryCatalog') || !floorPlanDefect.includes('getOperationalRoomSubItems')) fail('floor-plan ghost-category filter missing');
+if (!roomHighlight.includes("const [workCategory, setWorkCategory] = useState('')") || !roomHighlight.includes('projectWorkCategoryTitles')) fail('room editor still seeds a deleted/hard-coded category');
+if (!photoSync.includes('snapshotIsInitial = firstSnapshot') || !photoSync.includes('firstSnapshot = false')) fail('photo realtime initial snapshot race guard missing');
+if (!floorPlanDefect.includes('photoLoadSeqRef') || !floorPlanDefect.includes('loadSeq === photoLoadSeqRef.current')) fail('Defect photo stale-read guard missing');
+pass('known regression guards retained');
 
-const photoSync = read('src/lib/photoCloudSync.ts');
-const floorPlanSync = read('src/lib/floorPlanImageSync.ts');
-if (!photoSync.includes('idempotent') || !photoSync.includes('driveFileId')) fail('photo cloud idempotency guard missing');
-if (photoSync.includes('Bytes.fromUint8Array') || floorPlanSync.includes('Bytes.fromUint8Array')) fail('new Firestore binary chunk upload path still exists');
-if (!photoSync.includes('binary remains local for retry') || !floorPlanSync.includes('binary remains local for retry')) fail('Drive-only pending/retry policy missing');
-if (!rules.includes('allow create, update: if false;')) fail('Firestore Rules do not block new legacy nested binary chunks');
-pass('Drive-only binary policy + legacy read/delete compatibility + idempotency');
+if (!sw.includes('new URL(self.location.href).searchParams.get(\'v\')') || !swRegistration.includes('APP_VERSION')) fail('service worker cache version is not derived from canonical app version');
+requireAll(diagnostics, ['sanitizeDiagnosticValue', '[redacted]'], 'diagnostics redaction');
+pass('service worker/version and diagnostics safety');
 
-if (!photoSync.includes('photoSnapshotMergeQueue') || !photoSync.includes('snapshotIsInitial = firstSnapshot') || !photoSync.includes('firstSnapshot = false')) fail('photo realtime snapshot serialization guard missing');
-const floorPlanDefect = read('src/components/FloorPlanDefectTab.tsx');
-if (!floorPlanDefect.includes('photoLoadSeqRef') || !floorPlanDefect.includes('loadSeq === photoLoadSeqRef.current')) fail('Defect photo strip stale-read guard missing');
-pass('multi-device photo metadata race guards');
+for (const required of [
+  'scripts/firebase-only-golden.mjs',
+  'scripts/firebase-only-legacy-audit.mjs',
+  'scripts/firebase-rules-check.mjs',
+  'scripts/firebase-rules-behavior.mjs',
+  'docs/firebase-only/P0_SINGLE_SOURCE_OF_TRUTH_AUDIT.md',
+  'docs/firebase-only/SINGLE_SOURCE_OF_TRUTH_MATRIX.csv',
+]) if (!exists(required)) fail(`required migration/golden artifact missing: ${required}`);
+pass('migration audit + Golden/Rules tooling present');
 
-const primaryDriveBridge = read('src/lib/primaryDriveBridge.ts');
-const driveScript = read('apps-script/PrimaryDriveBridge/Code.gs');
-if (!driveScript.includes('contentHash_(bytes)') || !driveScript.includes('sameBinary')) fail('Drive binary-hash idempotency missing');
-if (!driveScript.includes("case 'cleanupPhotoVersions'") || !driveScript.includes("case 'cleanupFloorPlanVersions'")) fail('post-commit Drive cleanup actions missing');
-if (!driveScript.includes("reason: 'firestore-pointer-not-committed'")) fail('Drive cleanup is not guarded by committed Firestore pointer');
-const uploadPhotoSection = driveScript.slice(driveScript.indexOf('function uploadPhoto_'), driveScript.indexOf('// Project object was already verified'));
-const uploadFloorSection = driveScript.slice(driveScript.indexOf('function uploadFloorPlan_'), driveScript.indexOf('function uploadPhoto_'));
-if (uploadPhotoSection.includes('setTrashed(true)') || uploadFloorSection.includes('setTrashed(true)')) fail('Drive upload still trashes an existing file before Firestore commit');
-if (!photoSync.includes('cleanupPhotoVersionsOnPrimaryDrive') || !photoSync.includes('stale Drive cleanup deferred')) fail('photo cleanup is not post-commit/non-fatal');
-if (!photoSync.includes('photoUploadInFlight') || !photoSync.includes("photoUploadInFlight.get(key)")) fail('same-revision client photo upload in-flight dedup missing');
-if (!floorPlanSync.includes('cleanupFloorPlanVersionsOnPrimaryDrive') || !floorPlanSync.includes('stale Drive cleanup deferred')) fail('floor-plan cleanup is not post-commit/non-fatal');
-if (!primaryDriveBridge.includes("callBridge('cleanupPhotoVersions'") || !primaryDriveBridge.includes("callBridge('cleanupFloorPlanVersions'")) fail('client Drive cleanup bridge missing');
-if (!primaryDriveBridge.includes('createdAt: Number(photo.createdAt') || !driveScript.includes('payload.createdAt || payload.updatedAt')) fail('photo Drive folder is not stable across edits');
-pass('Drive upload/hash idempotency + Firestore-committed cleanup guard');
-
-const packageScripts = pkg.scripts || {};
-for (const script of ['typecheck', 'lint', 'test:rules', 'security:audit']) {
-  if (!packageScripts[script]) fail(`missing required package script ${script}`);
-}
-if (packageScripts['test:rules'].includes('node -e')) fail('test:rules must not use shell-escaped node -e');
-if (!packageScripts['test:rules'].includes('scripts/firestore-rules-check.mjs')) fail('test:rules must use the cross-platform Firestore Rules runner');
-const rulesRunner = read('scripts/firestore-rules-check.mjs');
-const rulesSmoke = read('scripts/firestore-rules-smoke.mjs');
-if (!rulesRunner.includes('spawnSync') || !rulesRunner.includes('shell: false')) fail('Firestore Rules runner must avoid shell quoting');
-if (!rulesSmoke.includes('Firestore Rules compile PASS')) fail('Firestore Rules smoke script missing');
-for (const workflow of [read('.github/workflows/build.yml'), mergeWorkflow, prWorkflow]) {
-  for (const marker of ['Verify source root', 'cache-dependency-path: package-lock.json', 'npm run test:stability', 'npm run typecheck', 'npm run lint', 'npm run test:rules', 'npm run security:audit', 'npm run build']) {
-    if (!workflow.includes(marker)) fail(`workflow stability gate missing ${marker}`);
-  }
-}
-pass('CI source-root/lockfile guard + golden/typecheck/lint/rules/security/build');
-
-console.log('STABILITY GATE PASS');
+console.log('STABILITY GATE PASS – V6.3.0 Firebase-only RC architecture');

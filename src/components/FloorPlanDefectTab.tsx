@@ -2492,8 +2492,37 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     };
   }, [floorRooms]);
 
-  // Dynamic summary by the real work categories configured in each Căn / Phòng.
-  // Legacy Khung/Tấm fields remain only as fallback for old records without category/sub-item data.
+  // Operational category catalog. WorkVolume is the project source of truth for
+  // active categories. Historical room metadata is intentionally preserved for audit/
+  // recovery, but deleted categories must not reappear in the Mặt bằng dashboard.
+  const operationalWorkCategoryCatalog = React.useMemo(() => {
+    const byId = new Map<string, string>();
+    const byName = new Map<string, string>();
+    workVolumes.forEach((item) => {
+      const title = String(item.title || '').trim();
+      if (!title) return;
+      byName.set(title.toLocaleLowerCase('vi-VN'), title);
+      [item.id, item.workCategoryId].filter(Boolean).forEach((id) => byId.set(String(id), title));
+    });
+    return { byId, byName, hasCatalog: byName.size > 0 };
+  }, [workVolumes]);
+
+  const resolveOperationalCategoryName = React.useCallback((rawName?: string | null, rawId?: string | null): string | null => {
+    const id = String(rawId || '').trim();
+    if (id && operationalWorkCategoryCatalog.byId.has(id)) return operationalWorkCategoryCatalog.byId.get(id)!;
+    const raw = String(rawName || '').trim();
+    if (!raw) return null;
+    if (!operationalWorkCategoryCatalog.hasCatalog) return raw; // legacy project without a master catalog
+    if (operationalWorkCategoryCatalog.byId.has(raw)) return operationalWorkCategoryCatalog.byId.get(raw)!;
+    return operationalWorkCategoryCatalog.byName.get(raw.toLocaleLowerCase('vi-VN')) || null;
+  }, [operationalWorkCategoryCatalog]);
+
+  const getOperationalRoomSubItems = React.useCallback((room: RoomProgressItem): RoomSubItem[] => {
+    return (room.subItems || []).filter((sub) => Boolean(resolveOperationalCategoryName(sub.category || room.workCategory, sub.workCategoryId)));
+  }, [resolveOperationalCategoryName]);
+
+  // Dynamic summary by active work categories configured in Khối lượng. Deleted
+  // categories can remain in old room records for history but are excluded here.
   const floorCategorySummary = React.useMemo(() => {
     type CategoryStat = {
       name: string;
@@ -2508,14 +2537,19 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const map = new Map<string, CategoryStat>();
 
     floorRooms.forEach((room) => {
-      const categoryNames = new Set<string>([
-        ...Object.keys(room.categoryVolumes || {}),
-        ...(room.subItems || []).map((sub) => sub.category || room.workCategory || '').filter(Boolean),
-        ...(room.workCategory ? [room.workCategory] : []),
-      ]);
+      const categoryNames = new Set<string>();
+      Object.keys(room.categoryVolumes || {}).forEach((rawKey) => {
+        const resolved = resolveOperationalCategoryName(rawKey);
+        if (resolved) categoryNames.add(resolved);
+      });
+      (room.subItems || []).forEach((sub) => {
+        const resolved = resolveOperationalCategoryName(sub.category || room.workCategory, sub.workCategoryId);
+        if (resolved) categoryNames.add(resolved);
+      });
+      const primaryResolved = resolveOperationalCategoryName(room.workCategory, room.workCategoryId);
+      if (primaryResolved) categoryNames.add(primaryResolved);
 
       categoryNames.forEach((categoryName) => {
-        if (!categoryName) return;
         if (!map.has(categoryName)) {
           map.set(categoryName, {
             name: categoryName,
@@ -2531,15 +2565,25 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         const stat = map.get(categoryName)!;
         stat.roomCount += 1;
 
-        const categoryVolume = room.categoryVolumes?.[categoryName] ??
-          (room.workCategory === categoryName ? (room.workVolume || 0) : 0);
+        let categoryVolume = 0;
+        let categoryVolumeUnit = room.volumeUnit || 'm²';
+        Object.entries(room.categoryVolumes || {}).forEach(([rawKey, rawValue]) => {
+          if (resolveOperationalCategoryName(rawKey) !== categoryName) return;
+          // Same legacy category can exist under both ID and title. Use the largest
+          // value instead of double-counting the same room quantity.
+          categoryVolume = Math.max(categoryVolume, Number(rawValue) || 0);
+          categoryVolumeUnit = room.categoryVolumeUnits?.[rawKey] || categoryVolumeUnit;
+        });
+        if (categoryVolume <= 0 && primaryResolved === categoryName) categoryVolume = Number(room.workVolume || 0);
         if (categoryVolume > 0) {
-          const unit = normalizeUnit(room.volumeUnit || 'm²') || 'm²';
+          const unit = normalizeUnit(categoryVolumeUnit || 'm²') || 'm²';
           const uKey = unitKey(unit) || unit;
           stat.volumeByUnit[uKey] = (stat.volumeByUnit[uKey] || 0) + categoryVolume;
         }
 
-        const categorySubs = (room.subItems || []).filter((sub) => (sub.category || room.workCategory) === categoryName);
+        const categorySubs = (room.subItems || []).filter((sub) =>
+          resolveOperationalCategoryName(sub.category || room.workCategory, sub.workCategoryId) === categoryName
+        );
         if (categorySubs.length > 0) {
           stat.totalSteps += categorySubs.length;
           stat.doneSteps += categorySubs.filter((sub) => sub.status === 'Đã hoàn thành').length;
@@ -2556,7 +2600,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     });
 
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'vi', { numeric: true, sensitivity: 'base' }));
-  }, [floorRooms]);
+  }, [floorRooms, resolveOperationalCategoryName]);
 
   const choosePdfPageNumber = async (file: File): Promise<number | null> => {
     const info = await getPdfDocumentInfo(file);
@@ -6305,19 +6349,34 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
                 {sortedFloorRooms.map((room, index) => {
                   const roomExpanded = expandedRoomIds.has(room.id);
-                  const roomSubItemCount = room.subItems?.length || 0;
+                  const operationalSubItems = getOperationalRoomSubItems(room);
+                  const roomSubItemCount = operationalSubItems.length;
                   const roomCategoryNames = new Set<string>();
-                  Object.keys(room.categoryVolumes || {}).forEach((name) => roomCategoryNames.add(name));
-                  (room.subItems || []).forEach((sub) => roomCategoryNames.add(sub.category || room.workCategory || 'Chưa phân nhóm'));
-                  if (room.workCategory) roomCategoryNames.add(room.workCategory);
-                  const roomCategoryCount = Math.max(1, roomCategoryNames.size);
+                  Object.keys(room.categoryVolumes || {}).forEach((rawName) => {
+                    const resolved = resolveOperationalCategoryName(rawName);
+                    if (resolved) roomCategoryNames.add(resolved);
+                  });
+                  operationalSubItems.forEach((sub) => {
+                    const resolved = resolveOperationalCategoryName(sub.category || room.workCategory, sub.workCategoryId);
+                    if (resolved) roomCategoryNames.add(resolved);
+                  });
+                  const primaryResolvedCategory = resolveOperationalCategoryName(room.workCategory, room.workCategoryId);
+                  if (primaryResolvedCategory) roomCategoryNames.add(primaryResolvedCategory);
+                  const roomCategoryCount = roomCategoryNames.size;
                   const roomVolumeByUnit: Record<string, number> = {};
-                  if (room.categoryVolumes && Object.keys(room.categoryVolumes).length > 0) {
-                    Object.entries(room.categoryVolumes).forEach(([categoryName, value]) => {
-                      const unit = room.categoryVolumeUnits?.[categoryName] || room.volumeUnit || 'm²';
-                      roomVolumeByUnit[unit] = (roomVolumeByUnit[unit] || 0) + (Number(value) || 0);
-                    });
-                  } else if (Number(room.workVolume || 0) > 0) {
+                  const categoryUnitMax = new Map<string, { value: number; unit: string }>();
+                  Object.entries(room.categoryVolumes || {}).forEach(([rawCategoryName, value]) => {
+                    const resolved = resolveOperationalCategoryName(rawCategoryName);
+                    if (!resolved) return;
+                    const unit = room.categoryVolumeUnits?.[rawCategoryName] || room.volumeUnit || 'm²';
+                    const previous = categoryUnitMax.get(resolved);
+                    const nextValue = Number(value) || 0;
+                    if (!previous || nextValue > previous.value) categoryUnitMax.set(resolved, { value: nextValue, unit });
+                  });
+                  categoryUnitMax.forEach(({ value, unit }) => {
+                    roomVolumeByUnit[unit] = (roomVolumeByUnit[unit] || 0) + value;
+                  });
+                  if (categoryUnitMax.size === 0 && primaryResolvedCategory && Number(room.workVolume || 0) > 0) {
                     roomVolumeByUnit[room.volumeUnit || 'm²'] = Number(room.workVolume || 0);
                   }
                   const roomVolumeSummary = Object.entries(roomVolumeByUnit)
@@ -6456,14 +6515,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     {roomExpanded ? (
                       <>
                     {/* Sub-Items or Dual Grid */}
-                    {room.subItems && room.subItems.length > 0 ? (
+                    {operationalSubItems.length > 0 ? (
                       <div className="space-y-3">
                         {Object.entries(
-                          (room.subItems || []).reduce((acc: Record<string, RoomSubItem[]>, sub) => {
-                            const catName = sub.category || room.workCategory || 'Chưa phân nhóm';
-                            if (!acc[catName]) {
-                              acc[catName] = [];
-                            }
+                          operationalSubItems.reduce((acc: Record<string, RoomSubItem[]>, sub) => {
+                            const catName = resolveOperationalCategoryName(sub.category || room.workCategory, sub.workCategoryId);
+                            if (!catName) return acc;
+                            if (!acc[catName]) acc[catName] = [];
                             acc[catName].push(sub);
                             return acc;
                           }, {} as Record<string, RoomSubItem[]>)
@@ -6534,6 +6592,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                             </div>
                           );
                         })}
+                      </div>
+                    ) : operationalWorkCategoryCatalog.hasCatalog && roomCategoryCount === 0 ? (
+                      <div className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-medium">
+                        Căn / Phòng này chưa được gán hạng mục đang hoạt động. Dữ liệu hạng mục đã xóa (nếu có) vẫn được giữ trong cache/lịch sử nhưng không hiển thị như hạng mục thi công hiện hành.
                       </div>
                     ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">

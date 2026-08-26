@@ -4,8 +4,9 @@
  */
 
 import { PinLockConfig, hashPin, verifyPin } from './cryptoUtils';
+import { FIREBASE_ONLY_RUNTIME, LEGACY_LOCAL_IMPORT_ENABLED } from '../config/runtimeArchitecture';
 
-export type UserRole = 'ADMIN' | 'ENGINEER' | 'VIEWER';
+export type UserRole = 'ADMIN' | 'EDITOR' | 'VIEWER';
 
 export interface AppUser {
   uid: string;
@@ -63,18 +64,24 @@ export function savePinLockConfig(config: PinLockConfig): void {
   localStorage.setItem(PIN_LOCK_STORAGE_KEY, JSON.stringify(config));
 }
 
+/**
+ * UI compatibility cache only. In Firebase-only runtime this value MUST NEVER grant
+ * project access. App.tsx resolves authorization from Firebase Auth + a project-scoped
+ * verified role lease before rendering business data or enabling mutations.
+ */
 export function getCurrentUserRole(): UserRole {
+  if (FIREBASE_ONLY_RUNTIME) return 'VIEWER';
   try {
     const role = localStorage.getItem(CURRENT_USER_ROLE_KEY) as UserRole;
-    if (role === 'ADMIN' || role === 'ENGINEER' || role === 'VIEWER') {
-      return role;
-    }
+    if (role === 'ADMIN' || role === 'EDITOR' || role === 'VIEWER') return role;
   } catch (_) {}
-  return 'VIEWER'; // Safe default role (VIEWER)
+  return 'VIEWER';
 }
 
 export function setCurrentUserRole(role: UserRole): void {
-  localStorage.setItem(CURRENT_USER_ROLE_KEY, role);
+  // Retained only for legacy wrappers/components during migration. No Firebase-only
+  // permission decision is allowed to read this global, cross-project cache.
+  if (!FIREBASE_ONLY_RUNTIME) localStorage.setItem(CURRENT_USER_ROLE_KEY, role);
 }
 
 export function canEditFinancials(role: UserRole): boolean {
@@ -122,7 +129,7 @@ export function canRestoreData(role: UserRole): boolean {
 }
 
 export function canEditProjectData(role: UserRole): boolean {
-  return role === 'ADMIN' || role === 'ENGINEER';
+  return role === 'ADMIN' || role === 'EDITOR';
 }
 
 export function canDeleteCategory(role: UserRole): boolean {
@@ -130,23 +137,25 @@ export function canDeleteCategory(role: UserRole): boolean {
 }
 
 export function canEditDefectData(role: UserRole): boolean {
-  return role === 'ADMIN' || role === 'ENGINEER';
+  return role === 'ADMIN' || role === 'EDITOR';
 }
 
 export function canEditChecklistData(role: UserRole): boolean {
-  return role === 'ADMIN' || role === 'ENGINEER';
+  return role === 'ADMIN' || role === 'EDITOR';
 }
 
 export function canEditCrewData(role: UserRole): boolean {
-  return role === 'ADMIN' || role === 'ENGINEER';
+  return role === 'ADMIN' || role === 'EDITOR';
 }
 
 export function canEditWarehouseData(role: UserRole): boolean {
-  return role === 'ADMIN' || role === 'ENGINEER';
+  return role === 'ADMIN' || role === 'EDITOR';
 }
 
 // Project Members Whitelist
 export function getProjectMembers(projectId: string): ProjectMember[] {
+  // Legacy migration reader only. Firestore /projects/{projectId}/members is authoritative.
+  if (FIREBASE_ONLY_RUNTIME && !LEGACY_LOCAL_IMPORT_ENABLED) return [];
   if (!projectId) return [];
   try {
     const raw = localStorage.getItem(`${PROJECT_MEMBERS_PREFIX}${projectId}`);
@@ -159,7 +168,8 @@ export function getProjectMembers(projectId: string): ProjectMember[] {
 }
 
 export function saveProjectMembers(projectId: string, members: ProjectMember[]): void {
-  if (!projectId) return;
+  // Never create a second permission database in Firebase-only runtime.
+  if (FIREBASE_ONLY_RUNTIME || !projectId) return;
   localStorage.setItem(`${PROJECT_MEMBERS_PREFIX}${projectId}`, JSON.stringify(members));
 }
 
@@ -185,6 +195,8 @@ export function checkUserProjectAccess(
   userEmail?: string,
   globalRole: UserRole = getCurrentUserRole()
 ): { allowed: boolean; role: UserRole } {
+  // Firebase-only authorization must be resolved by firebase.ts/offlineAccess.ts.
+  if (FIREBASE_ONLY_RUNTIME) return { allowed: false, role: 'VIEWER' };
   // Global admin always has full access
   if (globalRole === 'ADMIN') {
     return { allowed: true, role: 'ADMIN' };

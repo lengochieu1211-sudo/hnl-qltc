@@ -29,7 +29,7 @@ interface ChatTabProps {
   projects: Array<{ id: string; name: string }>;
   onSwitchProject: (id: string) => Promise<void> | void;
   onOpenNotificationCenter: () => void;
-  userRole: 'ADMIN' | 'ENGINEER' | 'VIEWER';
+  userRole: 'ADMIN' | 'EDITOR' | 'VIEWER';
 }
 
 const ChatImage: React.FC<{ projectId: string; attachment: ChatAttachment }> = ({ projectId, attachment }) => {

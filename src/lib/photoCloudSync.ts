@@ -18,17 +18,13 @@ import {
   mergeCloudPhotoMetadata,
 } from '../utils/photoStorage';
 import { getDeviceId, getDeviceName } from '../utils/deviceIdentity';
-import {
-  cleanupPhotoVersionsOnPrimaryDrive,
-  deletePhotoFromPrimaryDrive,
-  downloadPhotoFromPrimaryDrive,
-  isPrimaryDriveReady,
-  PRIMARY_DRIVE_OWNER_EMAIL,
-  uploadPhotoToPrimaryDrive,
-} from './primaryDriveBridge';
+import { downloadPhotoFromPrimaryDrive } from './primaryDriveBridge';
+import { LEGACY_DRIVE_READ_FALLBACK } from '../config/runtimeArchitecture';
+import { downloadStorageBlob, uploadProjectBinary } from './firebaseStorage';
 
-// V6.2.27 stability baseline: Firestore photo chunks are read-only legacy data.
-// New/changed binary files must stay local pending until the primary Drive accepts them.
+// V6.3.0 Firebase-only runtime: new/changed binaries are written only to Firebase
+// Storage. Drive and Firestore chunks are read-only legacy migration fallbacks until
+// production migration count/reference/checksum verification is complete.
 
 export interface PhotoCloudSyncStatus {
   phase: 'idle' | 'syncing' | 'synced' | 'error';
@@ -58,6 +54,15 @@ function isDriveCloudValue(value?: string | null): boolean {
   return String(value || '').startsWith('drive:');
 }
 
+function isStorageCloudValue(value?: string | null): boolean {
+  return String(value || '').startsWith('storage:');
+}
+
+function parseStoragePath(value?: string | null): string {
+  const raw = String(value || '').trim();
+  return raw.startsWith('storage:') ? raw.slice('storage:'.length) : raw;
+}
+
 /**
  * Legacy cleanup only. V6.2.27 never writes new binary chunks to Firestore, but
  * old projects can still contain nested `photos/{photoId}/chunks/*` documents.
@@ -82,6 +87,39 @@ async function deletePhotoChunks(projectId: string, photoId: string): Promise<vo
     }
   }
   if (count > 0) await batch.commit();
+}
+
+/**
+ * Stage photo metadata in Firestore immediately. setDoc participates in Firestore's
+ * official offline write queue, while the actual binary remains in the dedicated local
+ * media outbox until Firebase Storage is reachable.
+ */
+export async function stagePhotoMetadataForCloud(projectId: string, photo: PhotoAttachment): Promise<void> {
+  if (!projectId || !photo?.id) return;
+  const user = getCurrentRealFirebaseUser();
+  if (!user || user.isAnonymous) throw new Error('PHOTO_AUTH_UNAVAILABLE');
+  const now = Date.now();
+  const updatedAt = Number(photo.updatedAt || photo.createdAt || now);
+  const revision = Math.max(Number(photo.revision || 0), 1);
+  const deleted = Boolean(photo.deleted || photo.deletedAt);
+  await setDoc(doc(db, 'projects', projectId, 'photos', photo.id), {
+    ...cleanPhotoMetadata(photo),
+    id: photo.id,
+    projectId,
+    revision,
+    deleted,
+    deletedAt: deleted ? Number(photo.deletedAt || updatedAt) : null,
+    deletedByUid: deleted ? (photo.deletedByUid || user.uid) : null,
+    deletedBy: deleted ? (photo.deletedBy || photo.deletedByUid || user.uid) : null,
+    binaryUploadState: deleted ? 'deleted' : (photo.storagePath ? 'ready' : 'pending'),
+    updatedAt,
+    updatedByUid: user.uid,
+    updatedByEmail: user.email || '',
+    updatedByDeviceId: getDeviceId(),
+    updatedByDeviceName: getDeviceName(),
+    ...(!photo.createdByUid ? { createdByUid: user.uid } : {}),
+    createdAt: Number(photo.createdAt || updatedAt),
+  }, { merge: true });
 }
 
 const photoUploadInFlight = new Map<string, Promise<void>>();
@@ -110,20 +148,36 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
   const cloudData = cloudSnap?.exists() ? cloudSnap.data() : null;
   const localUpdatedAt = Number(photo.updatedAt || photo.createdAt || 0);
   const cloudUpdatedAt = Number(cloudData?.updatedAt || 0);
+  const cloudStorageBacked = Boolean(cloudData?.storagePath) || isStorageCloudValue(cloudData?.cloudFileId) || cloudData?.storageProvider === 'firebase-storage';
   const cloudDriveBacked = isDriveCloudValue(cloudData?.cloudFileId) || cloudData?.storageProvider === 'google-drive-primary';
   const cloudFirestoreBacked = Number(cloudData?.chunkCount || 0) > 0;
-  const cloudHasResolvedBinaryState = Boolean(cloudData?.deleted) || cloudDriveBacked || cloudFirestoreBacked;
+  const cloudHasResolvedBinaryState = Boolean(cloudData?.deleted) || cloudStorageBacked || cloudDriveBacked || cloudFirestoreBacked;
   const cloudDeleteStateMatches = Boolean(cloudData?.deleted) === Boolean(photo.deleted);
+  const cloudRevision = Number(cloudData?.revision || 0);
+  const localRevision = Number(photo.revision || 0);
+  const legacyMigrationMode = Boolean(cloudData && !photo.deleted && !cloudStorageBacked && (cloudDriveBacked || cloudFirestoreBacked));
+  const localIsStale = Boolean(cloudData) && (
+    (cloudRevision > 0 && localRevision > 0 && localRevision <= cloudRevision) ||
+    (cloudRevision <= 0 && cloudUpdatedAt > 0 && localUpdatedAt > 0 && localUpdatedAt < cloudUpdatedAt)
+  );
 
-  // V6.2.24: direct upload callers are idempotent too. Bulk sync already skips the
-  // same/newer cloud revision, but a second direct call could resend an unchanged
-  // binary before. That made Apps Script create a replacement Drive file and trash
-  // the previous one even though the photo revision had not changed.
-  if (cloudData && cloudUpdatedAt >= localUpdatedAt && cloudDeleteStateMatches && cloudHasResolvedBinaryState) return;
+  if (cloudData && cloudUpdatedAt >= localUpdatedAt && cloudDeleteStateMatches && cloudHasResolvedBinaryState && (photo.deleted || cloudStorageBacked)) return;
+  if (localIsStale && !legacyMigrationMode) {
+    throw new Error(`PHOTO_CONFLICT:${photo.id}: Cloud revision mới hơn; giữ Cloud và chờ realtime hòa giải.`);
+  }
+  if (cloudData && !cloudDeleteStateMatches && cloudUpdatedAt >= localUpdatedAt) {
+    throw new Error(`PHOTO_CONFLICT:${photo.id}: trạng thái xóa trên Cloud mới hơn local.`);
+  }
 
+  const now = Date.now();
+  const nextRevision = legacyMigrationMode
+    ? Math.max(cloudRevision + 1, 1)
+    : Math.max(localRevision, 1);
+  const logicalMeta = legacyMigrationMode ? { ...cloudData } : cleanPhotoMetadata(photo);
   const baseMeta = {
-    ...cleanPhotoMetadata(photo),
+    ...logicalMeta,
     projectId,
+    revision: nextRevision,
     updatedByUid: user.uid,
     updatedByEmail: user.email || '',
     updatedByDeviceId: getDeviceId(),
@@ -131,91 +185,91 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
   };
 
   if (photo.deleted) {
-    const driveFileId = parseDriveFileId(cloudData?.cloudFileId || cloudData?.cloudUrl);
-    if (driveFileId) {
-      await deletePhotoFromPrimaryDrive(projectId, photo.id, driveFileId).catch((err) => {
-        console.warn('[Photo Cloud] Drive delete warning:', err);
-      });
-    }
+    // Soft delete only. Do NOT delete Firebase Storage/Drive/chunks here. Physical
+    // purge happens after the configured retention window and migration verification.
     await setDoc(metaRef, {
       ...baseMeta,
       deleted: true,
-      deletedAt: photo.deletedAt || Date.now(),
-      updatedAt: localUpdatedAt || Date.now(),
-      chunkCount: 0,
-      cloudSyncedAt: Date.now(),
+      deletedAt: photo.deletedAt || now,
+      deletedByUid: photo.deletedByUid || user.uid,
+      deletedBy: photo.deletedBy || photo.deletedByUid || user.uid,
+      updatedAt: localUpdatedAt || now,
+      binaryUploadState: 'deleted',
+      cloudSyncedAt: now,
     }, { merge: true });
-    await deletePhotoChunks(projectId, photo.id).catch(() => {});
     return;
   }
 
   let blob = await getPhotoBlob(photo.id, false);
 
-  // During migration a second device may have only Firestore metadata/chunks. Pull
-  // the old binary once, then immediately re-upload it to the primary Drive.
+  // Migration source #1: old Firestore chunk binary.
   if (!blob && cloudData && Number(cloudData?.chunkCount || 0) > 0) {
     blob = await downloadPhotoBlobFromFirestoreChunks(projectId, photo.id, photo.mimeType || 'image/jpeg').catch(() => null);
   }
 
-  if (!blob) {
-    throw new Error(`Ảnh ${photo.id} chưa có binary local/legacy để tải lên Drive; giữ trạng thái pending.`);
-  }
-
-  // Preferred path: every authorized user's image is written by the Apps Script
-  // that runs as lengochieu1211@gmail.com, so the file lands in the main Drive.
-  try {
-    if (await isPrimaryDriveReady()) {
-      const drive = await uploadPhotoToPrimaryDrive(projectId, { ...photo, mimeType: blob.type || photo.mimeType });
-      if (drive?.fileId) {
-        const driveRef = `drive:${projectId}:${drive.fileId}`;
-        const contentVersion = localUpdatedAt || Date.now();
-        await setDoc(metaRef, {
-          ...baseMeta,
-          mimeType: drive.mimeType || blob.type || photo.mimeType || 'image/jpeg',
-          fileSize: Number(drive.fileSize || blob.size || photo.fileSize || 0),
-          chunkCount: 0,
-          contentVersion,
-          contentHash: drive.contentHash || '',
-          storageProvider: 'google-drive-primary',
-          driveOwnerEmail: drive.ownerEmail || PRIMARY_DRIVE_OWNER_EMAIL,
-          driveFolderPath: drive.folderPath || '',
-          cloudFileId: driveRef,
-          cloudUrl: driveRef,
-          binaryMissingOnUploader: false,
-          deleted: false,
-          deletedAt: null,
-          updatedAt: contentVersion,
-          cloudSyncedAt: Date.now(),
-        }, { merge: true });
-        // Cleanup is deliberately POST-COMMIT. If it fails, leave the stale Drive
-        // version in place rather than failing the sync and retrying the binary.
-        // The Apps Script re-verifies Firestore points at drive.fileId before trashing.
-        await cleanupPhotoVersionsOnPrimaryDrive(projectId, photo.id, drive.fileId, contentVersion).catch((err) => {
-          console.warn('[Photo Cloud] stale Drive cleanup deferred:', photo.id, err);
-        });
-        // Only delete old Firestore chunks AFTER the Drive upload + metadata write succeeded.
-        await deletePhotoChunks(projectId, photo.id).catch(() => {});
-        return;
-      }
+  // Migration source #2: old Drive binary. Read-only fallback is deliberately gated.
+  if (!blob && LEGACY_DRIVE_READ_FALLBACK && cloudDriveBacked) {
+    const driveFileId = parseDriveFileId(cloudData?.cloudFileId || cloudData?.cloudUrl);
+    if (driveFileId) {
+      blob = await downloadPhotoFromPrimaryDrive(projectId, photo.id, driveFileId, cloudData?.mimeType || photo.mimeType || 'image/jpeg').catch(() => null);
     }
-  } catch (err) {
-    console.warn('[Photo Cloud] Primary Drive upload unavailable; binary remains local for retry:', err);
-    throw err;
   }
 
-  throw new Error(`Drive chính chưa sẵn sàng cho ảnh ${photo.id}; binary vẫn ở IndexedDB và sẽ retry.`);
+  if (!blob) {
+    throw new Error(`Ảnh ${photo.id} chưa có binary local/legacy để migrate lên Firebase Storage; giữ trạng thái pending.`);
+  }
+
+  const thumbnailBlob = await getPhotoBlob(photo.id, true).catch(() => null);
+  const contentVersion = legacyMigrationMode
+    ? Math.max(cloudUpdatedAt + 1, now)
+    : (localUpdatedAt || now);
+  const uploaded = await uploadProjectBinary({
+    projectId,
+    entityType: photo.entityType || 'photo',
+    entityId: photo.entityId || photo.id,
+    assetId: photo.id,
+    blob,
+    thumbnailBlob,
+    mimeType: blob.type || photo.mimeType || 'image/jpeg',
+    createdByUid: photo.createdByUid || user.uid,
+    createdAt: Number(photo.createdAt || now),
+  });
+
+  await setDoc(metaRef, {
+    ...baseMeta,
+    mimeType: uploaded.mimeType || blob.type || photo.mimeType || 'image/jpeg',
+    fileSize: Number(uploaded.size || blob.size || photo.fileSize || 0),
+    chunkCount: 0,
+    contentVersion,
+    contentHash: uploaded.md5Hash || photo.storageMd5Hash || '',
+    storageProvider: 'firebase-storage',
+    storagePath: uploaded.storagePath,
+    thumbnailPath: uploaded.thumbnailPath || '',
+    storageMd5Hash: uploaded.md5Hash || '',
+    storageGeneration: uploaded.generation || '',
+    cloudFileId: `storage:${uploaded.storagePath}`,
+    cloudUrl: `storage:${uploaded.storagePath}`,
+    binaryMissingOnUploader: false,
+    binaryUploadState: 'ready',
+    deleted: false,
+    deletedAt: null,
+    deletedByUid: null,
+          deletedBy: null,
+    updatedAt: contentVersion,
+    cloudSyncedAt: now,
+  }, { merge: true });
+
+  // Legacy binary is intentionally NOT deleted here. A separate migration/purge job
+  // may clean Drive/chunks only after count + checksum + reference verification.
 }
 
-export async function syncProjectPhotosToCloud(projectId: string): Promise<{ uploaded: number; skipped: number; migratedToDrive?: number; failed?: number }> {
+export async function syncProjectPhotosToCloud(projectId: string): Promise<{ uploaded: number; skipped: number; migratedToStorage?: number; failed?: number }> {
   const photos = await getProjectPhotos(projectId, true);
-  const driveReady = await isPrimaryDriveReady().catch(() => false);
   let uploaded = 0;
   let skipped = 0;
-  let migratedToDrive = 0;
+  let migratedToStorage = 0;
   let failed = 0;
 
-  // Read cloud photo metadata once. The old loop did one getDoc() network round-trip
-  // per local photo, which made project switching and first sync increasingly slow.
   const cloudSnapshot = await getDocs(collection(db, 'projects', projectId, 'photos')).catch(() => null);
   const cloudById = new Map<string, any>();
   cloudSnapshot?.docs.forEach((item) => cloudById.set(item.id, item.data()));
@@ -225,25 +279,24 @@ export async function syncProjectPhotosToCloud(projectId: string): Promise<{ upl
       const cloudData = cloudById.get(photo.id) || null;
       const cloudUpdatedAt = cloudData ? Number(cloudData?.updatedAt || 0) : 0;
       const localUpdatedAt = Number(photo.updatedAt || photo.createdAt || 0);
-      const driveBacked = isDriveCloudValue(cloudData?.cloudFileId) || cloudData?.storageProvider === 'google-drive-primary';
-      const firestoreBacked = Number(cloudData?.chunkCount || 0) > 0;
-      const cloudHasBinary = Boolean(cloudData?.deleted) || driveBacked || firestoreBacked;
-      const needsDriveMigration = Boolean(driveReady && !photo.deleted && cloudData && !driveBacked && firestoreBacked);
+      const storageBacked = Boolean(cloudData?.storagePath) || isStorageCloudValue(cloudData?.cloudFileId) || cloudData?.storageProvider === 'firebase-storage';
+      const legacyBacked = isDriveCloudValue(cloudData?.cloudFileId) || cloudData?.storageProvider === 'google-drive-primary' || Number(cloudData?.chunkCount || 0) > 0;
+      const needsStorageMigration = Boolean(!photo.deleted && cloudData && !storageBacked && legacyBacked);
 
-      if (!needsDriveMigration && Boolean(cloudData) && cloudUpdatedAt >= localUpdatedAt && Boolean(cloudData?.deleted) === Boolean(photo.deleted) && cloudHasBinary) {
+      if (!needsStorageMigration && Boolean(cloudData) && cloudUpdatedAt >= localUpdatedAt && Boolean(cloudData?.deleted) === Boolean(photo.deleted) && (Boolean(cloudData?.deleted) || storageBacked)) {
         skipped++;
         continue;
       }
 
       await uploadPhotoToCloud(projectId, photo);
       uploaded++;
-      if (needsDriveMigration) migratedToDrive++;
+      if (needsStorageMigration) migratedToStorage++;
     } catch (err) {
       failed++;
-      console.warn('[Photo Cloud] upload warning:', photo.id, err);
+      console.warn('[Photo Cloud] Firebase Storage sync warning:', photo.id, err);
     }
   }
-  return { uploaded, skipped, migratedToDrive, failed };
+  return { uploaded, skipped, migratedToStorage, failed };
 }
 
 async function downloadPhotoBlobFromFirestoreChunks(projectId: string, photoId: string, mimeType = 'image/jpeg'): Promise<Blob | null> {
@@ -271,17 +324,28 @@ export async function downloadPhotoBlobFromCloud(projectId: string, photoId: str
   if (!metaSnap.exists() || metaSnap.data()?.deleted) return null;
   const data = metaSnap.data();
 
-  const driveFileId = parseDriveFileId(data?.cloudFileId || data?.cloudUrl);
-  if (driveFileId) {
-    try {
-      const driveBlob = await downloadPhotoFromPrimaryDrive(projectId, photoId, driveFileId, data?.mimeType || mimeType);
-      if (driveBlob) return driveBlob;
-    } catch (err) {
-      console.warn('[Photo Cloud] Drive download warning:', err);
+  const storagePath = String(data?.storagePath || parseStoragePath(data?.cloudFileId || data?.cloudUrl) || '');
+  if (data?.storageProvider === 'firebase-storage' || data?.storagePath || isStorageCloudValue(data?.cloudFileId)) {
+    const storageBlob = await downloadStorageBlob(storagePath);
+    if (storageBlob) {
+      await cachePhotoBlob(photoId, storageBlob, true).catch(() => {});
+      return storageBlob;
     }
   }
 
-  // Read-only compatibility for images uploaded before the Drive-only binary policy.
+  if (LEGACY_DRIVE_READ_FALLBACK) {
+    const driveFileId = parseDriveFileId(data?.cloudFileId || data?.cloudUrl);
+    if (driveFileId) {
+      try {
+        const driveBlob = await downloadPhotoFromPrimaryDrive(projectId, photoId, driveFileId, data?.mimeType || mimeType);
+        if (driveBlob) return driveBlob;
+      } catch (err) {
+        console.warn('[Photo Cloud] legacy Drive read warning:', err);
+      }
+    }
+  }
+
+  // Read-only compatibility for images uploaded before Firebase Storage migration.
   return downloadPhotoBlobFromFirestoreChunks(projectId, photoId, data?.mimeType || mimeType);
 }
 
@@ -373,10 +437,11 @@ export function subscribeProjectPhotosRealtime(
     const changedPhotos = changes.map((change) => ({
       id: change.doc.id,
       ...change.doc.data(),
+      __pendingWrite: change.doc.metadata.hasPendingWrites,
       ...(change.type === 'removed' ? { deleted: true, updatedAt: Date.now() } : {}),
-    } as PhotoAttachment));
+    } as PhotoAttachment & { __pendingWrite?: boolean }));
     const cloudPhotos = snapshotIsInitial
-      ? snap.docs.map((d) => ({ id: d.id, ...d.data() } as PhotoAttachment))
+      ? snap.docs.map((d) => ({ id: d.id, ...d.data(), __pendingWrite: d.metadata.hasPendingWrites } as PhotoAttachment & { __pendingWrite?: boolean }))
       : changedPhotos;
 
     photoSnapshotMergeQueue = photoSnapshotMergeQueue

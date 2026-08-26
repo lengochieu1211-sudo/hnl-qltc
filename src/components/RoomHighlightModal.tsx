@@ -52,7 +52,7 @@ interface RoomHighlightModalProps {
   workVolumes?: WorkVolume[];
   existingRoomNames?: string[];
   defaultInspectorName?: string;
-  onAddInventory?: (item: Omit<InventoryItem, 'id'> & { id?: string }) => void;
+  onAddInventory?: (item: Omit<InventoryItem, 'id'> & { id?: string }) => void | Promise<void>;
   onSaveRoom: (room: Omit<RoomProgressItem, 'id' | 'updatedAt'> & { id?: string }) => void;
   onDeleteRoom?: (id: string) => void;
   onStartRedraw2Point?: (room: RoomProgressItem, tool: 'freehand' | 'polygon' | '2point') => void;
@@ -129,8 +129,11 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   const activeDefaultInspector = defaultInspectorName || '';
 
   const [roomName, setRoomName] = useState('');
-  const [workCategory, setWorkCategory] = useState('Trần Thạch Cao Khung Chìm Tấm Tiêu Chuẩn');
-  const [presetSelection, setPresetSelection] = useState('Trần Thạch Cao Khung Chìm Tấm Tiêu Chuẩn');
+  // Never seed a room with a hard-coded category. The project WorkVolume catalog is
+  // the operational source of truth; deleted categories may remain in historical room
+  // metadata but must not be silently resurrected into a new Căn / Phòng.
+  const [workCategory, setWorkCategory] = useState('');
+  const [presetSelection, setPresetSelection] = useState('');
   const [subItems, setSubItems] = useState<RoomSubItem[]>([]);
   const [categoryVolumes, setCategoryVolumes] = useState<Record<string, number>>({});
   const [volumeStrings, setVolumeStrings] = useState<Record<string, string>>({});
@@ -218,9 +221,12 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     setSelectedSubItemIds([]);
     if (roomItem) {
       setRoomName(roomItem.roomName);
-      const cat = roomItem.workCategory || 'Trần Thạch Cao Khung Chìm Tấm Tiêu Chuẩn';
+      const projectDefaultCategory = workVolumes.find((item) => item.title?.trim())?.title?.trim() || '';
+      const cat = roomItem.workCategory || projectDefaultCategory;
       setWorkCategory(cat);
-      setPresetSelection(cat);
+      // Preset actions should default to an ACTIVE catalog item, not a historical
+      // category that may have been deleted long ago from Khối lượng.
+      setPresetSelection(projectDefaultCategory || cat);
       setX(roomItem.x);
       setY(roomItem.y);
       setWidth(roomItem.width || 30);
@@ -268,13 +274,14 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
         setVolumeStrings(initialStrings);
       } else {
         const initialMap: Record<string, number> = {};
-        const cat = roomItem.workCategory || 'Trần Thạch Cao Khung Chìm Tấm Tiêu Chuẩn';
-        if (roomItem.workVolume !== undefined && roomItem.workVolume !== null) {
+        const projectDefaultCategory = workVolumes.find((item) => item.title?.trim())?.title?.trim() || '';
+        const cat = roomItem.workCategory || projectDefaultCategory;
+        if (cat && roomItem.workVolume !== undefined && roomItem.workVolume !== null) {
           initialMap[cat] = Number(roomItem.workVolume);
         }
         setCategoryVolumes(initialMap);
         const initialStrings: Record<string, string> = {};
-        if (roomItem.workVolume !== undefined && roomItem.workVolume !== null) {
+        if (cat && roomItem.workVolume !== undefined && roomItem.workVolume !== null) {
           initialStrings[cat] = formatDecimal(roomItem.workVolume);
         }
         setVolumeStrings(initialStrings);
@@ -283,12 +290,11 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       setVolumeStrings({});
       setCategoryVolumes({});
       setRoomName('Căn ' + Math.floor(100 + Math.random() * 800));
-      const defaultCat = (workVolumes && workVolumes.length > 0 && workVolumes[0].title) 
-        ? workVolumes[0].title 
-        : 'Trần Thạch Cao Khung Chìm Tấm Tiêu Chuẩn';
+      const defaultCat = workVolumes.find((item) => item.title?.trim())?.title?.trim() || '';
       setWorkCategory(defaultCat);
+      setPresetSelection(defaultCat);
       
-      const names = getSubItemsForCategory(defaultCat);
+      const names = defaultCat ? getSubItemsForCategory(defaultCat) : [];
 
       setSubItems(
         names.map((name, idx) => {
@@ -303,7 +309,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
           };
         })
       );
-      setCategoryVolumes({ [defaultCat]: 0 });
+      setCategoryVolumes(defaultCat ? { [defaultCat]: 0 } : {});
 
       setPoints(initialPoints);
       if (initialRect) {
@@ -333,6 +339,9 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
   // Handler to change work category preset (mode: 'append' to add more categories to the room, 'replace' to reset)
   const handleApplyPreset = (catName: string, mode: 'replace' | 'append' = 'append') => {
+    const normalizedCategory = String(catName || '').trim();
+    if (!normalizedCategory) return;
+    catName = normalizedCategory;
     setWorkCategory(catName);
     
     // Find all material norms matching this category
@@ -384,9 +393,57 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     }
   };
 
-  // Get unique work categories from work volumes, fallback to material norms & presets
+  const projectWorkCategoryTitles = React.useMemo(() => {
+    const seen = new Set<string>();
+    const titles: string[] = [];
+    workVolumes.forEach((item) => {
+      const title = String(item.title || '').trim();
+      const key = title.toLocaleLowerCase('vi-VN');
+      if (!title || seen.has(key)) return;
+      seen.add(key);
+      titles.push(title);
+    });
+    return titles;
+  }, [workVolumes]);
+
+  // Active WorkVolume rows are authoritative for presets. Historical/deleted category
+  // names may still live inside old room records for audit/history, but must not be
+  // offered as a normal preset and accidentally become active again.
+  const presetWorkCategories = React.useMemo(() => {
+    // Do not synthesize an operational category from generic presets/material norms.
+    // A category must first exist in Khối lượng (WorkVolume); otherwise a deleted
+    // category could be recreated just by opening this modal.
+    return projectWorkCategoryTitles;
+  }, [projectWorkCategoryTitles]);
+
+  React.useEffect(() => {
+    if (!isOpen || roomItem || presetSelection || presetWorkCategories.length === 0) return;
+    const defaultCat = presetWorkCategories[0];
+    setPresetSelection(defaultCat);
+    if (!workCategory) {
+      setWorkCategory(defaultCat);
+      const names = getSubItemsForCategory(defaultCat);
+      setSubItems(names.map((name, idx) => ({
+        id: createEntityId(`sub-init-late-${idx}`),
+        name: name.toLowerCase().startsWith('thi công') || name.toLowerCase().startsWith('sơn') || name.toLowerCase().startsWith('bả') ? name : `Thi công ${name}`,
+        category: defaultCat,
+        status: 'Chưa làm',
+        inspectionStatus: 'Chưa nghiệm thu',
+        targetDate: '',
+      })));
+      setCategoryVolumes({ [defaultCat]: 0 });
+    }
+  }, [isOpen, roomItem, presetSelection, presetWorkCategories, workCategory]);
+
+  // Get unique work categories used by the room editor. If a current room still carries
+  // historical values, keep them visible here only so the user can inspect/remap them.
+  // They are not returned by presetWorkCategories and are not shown in floor summaries.
   const availableWorkCategories = React.useMemo(() => {
     const list = new Set<string>();
+
+    // Keep active project categories first. Current stale values are added afterwards
+    // only for an already-existing room, so they can be remapped instead of resurrected.
+    projectWorkCategoryTitles.forEach((title) => list.add(title));
 
     // 1. Add current room's workCategory (state)
     if (workCategory && workCategory.trim()) {
@@ -432,16 +489,13 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       }
     }
 
-    // 5. Add categories from project work volumes
-    if (workVolumes && workVolumes.length > 0) {
-      workVolumes.forEach((v) => {
-        if (v.title && v.title.trim()) {
-          list.add(v.title.trim());
-        }
-      });
+    // 5. Active project categories were inserted first above. For new rooms, do not
+    // let stale local state manufacture extra choices when the project catalog exists.
+    if (!roomItem) {
+      return projectWorkCategoryTitles;
     }
 
-    // If we have items from our explicit sources, return them
+    // Existing rooms may include historical values for inspection/remapping.
     if (list.size > 0) {
       return Array.from(list);
     }
@@ -463,7 +517,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
     // Fallback to keys of WORK_CATEGORY_PRESETS
     return Object.keys(WORK_CATEGORY_PRESETS);
-  }, [workVolumes, materialNorms, workCategory, subItems, categoryVolumes, roomItem]);
+  }, [projectWorkCategoryTitles, materialNorms, workCategory, subItems, categoryVolumes, roomItem]);
 
   const materialAliasMap = React.useMemo(() => buildMaterialAliasMap(materialNorms), [materialNorms]);
 
@@ -657,18 +711,18 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     const catDetailsStr = validCategories.map(cat => `${cat} (${formatDecimal(getCategoryVolume(cat))} ${getCategorySourceUnit(cat)})`).join(', ');
 
     try {
-      needsIssue.forEach((item: any) => {
+      for (const item of needsIssue as any[]) {
         if (item.stockQty + 1e-9 < item.remainingQty) {
           insufficient.push(`${item.materialName}: cần ${formatDecimal(item.remainingQty)} ${item.unit}, tồn ${formatDecimal(item.stockQty)} ${item.unit}`);
-          return;
+          continue;
         }
         const sourceIssueKey = `${roomItem.id}|${item.materialKey}`;
         const deterministicId = createDeterministicId('AUTO-XK', sourceIssueKey);
         // The deterministic record stores only the cumulative quantity created by
-        // the current auto-issue engine. Legacy auto issues remain separate and
-        // are included in alreadyIssued above.
+        // the current auto-issue engine. Firebase-only routes this through the same
+        // atomic warehouse transaction service as manual stock issues.
         const cumulativeStableQty = Math.ceil((Number(item.stableRecordQty || 0) + Number(item.remainingQty || 0)) * 100) / 100;
-        onAddInventory({
+        await onAddInventory({
           id: deterministicId,
           type: 'out',
           materialId: item.materialId,
@@ -686,7 +740,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
           sourceIssueKey,
         });
         issuedCount++;
-      });
+      }
 
       const messages: string[] = [];
       if (issuedCount > 0) messages.push(`Đã cập nhật ${issuedCount} phiếu xuất tự động theo phần vật tư còn thiếu cho [${roomName || 'Căn / Phòng'}].`);
@@ -831,11 +885,13 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     const matchingTeam = displayTeams.find(t => t.name.trim().toLowerCase() === assignedTeam.trim().toLowerCase());
     const finalTeamId = matchingTeam?.id || undefined;
 
-    const matchingVolume = workVolumes.find(v => v.title.trim().toLowerCase() === workCategory.trim().toLowerCase());
+    const activeDefaultCategory = projectWorkCategoryTitles[0] || '';
+    const effectiveWorkCategory = workCategory.trim() || activeDefaultCategory;
+    const matchingVolume = workVolumes.find(v => v.title.trim().toLowerCase() === effectiveWorkCategory.toLowerCase());
     const finalWorkCategoryId = matchingVolume?.workCategoryId || matchingVolume?.id || undefined;
 
     const finalSubItems = subItems.map(s => {
-      const sCat = s.category || workCategory || '';
+      const sCat = s.category || effectiveWorkCategory || '';
       const matchingSubVol = workVolumes.find(v => v.title.trim().toLowerCase() === sCat.trim().toLowerCase());
       const subWorkCategoryId = matchingSubVol?.workCategoryId || matchingSubVol?.id || undefined;
 
@@ -867,7 +923,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       id: roomItem?.id,
       floorId,
       roomName: roomName.trim(),
-      workCategory,
+      workCategory: effectiveWorkCategory,
       workCategoryId: finalWorkCategoryId,
       categoryVolumes,
       categoryVolumeUnits,
@@ -1046,17 +1102,23 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                 onChange={(e) => setPresetSelection(e.target.value)}
                 className="w-full min-w-0 border border-indigo-200 rounded-xl p-2.5 text-xs font-bold text-slate-800 bg-white focus:ring-2 focus:ring-indigo-500 shadow-2xs truncate"
               >
-                {availableWorkCategories.map((catName) => (
+                {presetWorkCategories.map((catName) => (
                   <option key={catName} value={catName}>
                     {catName}
                   </option>
                 ))}
               </select>
+              {presetWorkCategories.length === 0 && (
+                <p className="text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
+                  Chưa có hạng mục đang hoạt động. Hãy tạo hạng mục ở tab Khối lượng trước; ứng dụng không tự phục hồi hạng mục đã xóa.
+                </p>
+              )}
 
               <div className="flex flex-col sm:flex-row gap-2 pt-0.5">
                 <button
                   type="button"
-                  onClick={() => handleApplyPreset(presetSelection, 'append')}
+                  onClick={() => presetSelection && handleApplyPreset(presetSelection, 'append')}
+                  disabled={!presetSelection}
                   className="flex-1 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-xl text-xs shadow-2xs active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1.5"
                 >
                   <PlusCircle className="w-3.5 h-3.5" />
@@ -1065,6 +1127,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                 <button
                   type="button"
                   onClick={async () => {
+                    if (!presetSelection) return;
                     if (subItems.length > 0) {
                       setShowConfirmReplaceModal(true);
                     } else {

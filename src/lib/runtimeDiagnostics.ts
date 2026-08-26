@@ -1,5 +1,6 @@
 import { APP_VERSION } from '../config/appVersion';
 import { CURRENT_DATA_SCHEMA_VERSION } from '../config/dataSchema';
+import { getRuntimeBuildMetadata } from '../config/buildMetadata';
 
 const LOG_KEY = 'qlct_runtime_diagnostics_v1';
 const MAX_ENTRIES = 80;
@@ -68,6 +69,7 @@ export function getRuntimeDiagnostics(): RuntimeDiagnosticEntry[] {
 export function buildDiagnosticBundle(extra: Record<string, unknown> = {}) {
   return {
     appVersion: APP_VERSION,
+    ...getRuntimeBuildMetadata(),
     dataSchemaVersion: CURRENT_DATA_SCHEMA_VERSION,
     generatedAt: new Date().toISOString(),
     online: typeof navigator !== 'undefined' ? navigator.onLine : undefined,

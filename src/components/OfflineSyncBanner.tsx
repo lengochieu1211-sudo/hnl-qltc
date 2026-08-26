@@ -1,20 +1,29 @@
 import React, { useState, useEffect } from 'react';
-import { WifiOff, Wifi, RefreshCw, CheckCircle2, Database, Zap } from 'lucide-react';
+import { WifiOff, Wifi, RefreshCw, Database } from 'lucide-react';
 
 interface OfflineSyncBannerProps {
   onAutoSync?: () => Promise<{ success: boolean; message?: string }>;
   isSyncing?: boolean;
+  userRole?: 'ADMIN' | 'EDITOR' | 'VIEWER';
+  roleResolved?: boolean;
+  roleSource?: 'cloud' | 'offline-cache' | 'unresolved';
+  firestorePendingWriteCount?: number;
+  firebaseOnly?: boolean;
 }
 
 export const OfflineSyncBanner: React.FC<OfflineSyncBannerProps> = ({
   onAutoSync,
   isSyncing = false,
+  userRole = 'VIEWER',
+  roleResolved = false,
+  roleSource = 'unresolved',
+  firestorePendingWriteCount = 0,
+  firebaseOnly = false,
 }) => {
   const [isOnline, setIsOnline] = useState<boolean>(
     typeof navigator !== 'undefined' ? navigator.onLine : true
   );
   const [justReconnected, setJustReconnected] = useState(false);
-  const [offlineChangeCount, setOfflineChangeCount] = useState<number>(0);
   const [syncStatusMsg, setSyncStatusMsg] = useState<string | null>(null);
   const [retryNeeded, setRetryNeeded] = useState(false);
 
@@ -24,7 +33,7 @@ export const OfflineSyncBanner: React.FC<OfflineSyncBannerProps> = ({
       setIsOnline(true);
       setJustReconnected(true);
       setRetryNeeded(false);
-      setSyncStatusMsg('Đã có kết nối. Đang tự đồng bộ...');
+      setSyncStatusMsg(firebaseOnly ? 'Đã có kết nối. Firebase đang gửi các thay đổi chờ...' : 'Đã có kết nối. Đang tự đồng bộ...');
 
       // Auto trigger sync if provided
       if (onAutoSync) {
@@ -32,8 +41,6 @@ export const OfflineSyncBanner: React.FC<OfflineSyncBannerProps> = ({
           const res = await onAutoSync();
           if (res.success) {
             setSyncStatusMsg('Đã đồng bộ dữ liệu ngoại tuyến.');
-            localStorage.removeItem('construction_offline_pending');
-            setOfflineChangeCount(0);
           } else {
             setRetryNeeded(true);
             setSyncStatusMsg('Đồng bộ chưa hoàn tất. Bạn có thể thử lại.');
@@ -61,23 +68,11 @@ export const OfflineSyncBanner: React.FC<OfflineSyncBannerProps> = ({
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    // Track changes saved to localStorage while offline
-    const handleStorageChange = () => {
-      if (!navigator.onLine) {
-        const currentCount = parseInt(localStorage.getItem('construction_offline_pending') || '0', 10);
-        localStorage.setItem('construction_offline_pending', String(currentCount + 1));
-        setOfflineChangeCount(currentCount + 1);
-      }
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
-      window.removeEventListener('storage', handleStorageChange);
     };
-  }, [onAutoSync]);
+  }, [onAutoSync, firebaseOnly]);
 
   if (isOnline && !justReconnected && !syncStatusMsg) {
     return null;
@@ -93,14 +88,20 @@ export const OfflineSyncBanner: React.FC<OfflineSyncBannerProps> = ({
             <div className="truncate">
               <span className="font-extrabold text-white mr-1">Đang làm việc ngoại tuyến:</span>
               <span className="text-amber-300">
-                Dữ liệu được lưu tạm trên thiết bị và sẽ tự đồng bộ khi có mạng lại.
+                {roleResolved
+                  ? (userRole === 'VIEWER'
+                    ? 'Đang dùng dữ liệu cache đã xác minh; tài khoản VIEWER chỉ được xem offline.'
+                    : firebaseOnly
+                      ? `Quyền ${userRole} đã xác minh trước đó; chỉnh sửa được đưa vào hàng chờ Firestore bền vững và tự gửi khi có mạng lại.`
+                      : `Quyền ${userRole} đã xác minh trước đó; chỉnh sửa sẽ lưu trên thiết bị và đồng bộ khi có mạng lại.`)
+                  : 'Chưa có quyền offline đã xác minh cho đúng tài khoản + project; ứng dụng tạm thời chỉ cho xem an toàn.'}
               </span>
             </div>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
             <span className="bg-amber-900/90 text-amber-300 font-mono text-[10px] px-2 py-0.5 rounded-full border border-amber-700/60 flex items-center gap-1">
               <Database className="w-3 h-3 text-amber-400" />
-              <span>Đã lưu máy</span>
+              <span>{firebaseOnly ? `Firestore${firestorePendingWriteCount > 0 ? ` · ${firestorePendingWriteCount} chờ` : ''}` : (roleSource === 'offline-cache' ? 'Offline cache' : 'Đã lưu máy')}</span>
             </span>
           </div>
         </div>

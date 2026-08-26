@@ -3,6 +3,7 @@ import { getAsyncItem, setAsyncItem, removeAsyncItem } from './asyncStorage';
 import { compressImage, compressImageToBlob } from './imageCompressor';
 import { getImageQualityProfile } from './imageQualitySettings';
 import { apiUrl, hasApiBackend } from './api';
+import { FIREBASE_ONLY_RUNTIME, LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED, LEGACY_LOCAL_IMPORT_ENABLED } from '../config/runtimeArchitecture';
 
 export interface PhotoAttachment {
   id: string; // UUID photo ID
@@ -21,7 +22,11 @@ export interface PhotoAttachment {
   dataUrl?: string;
   cloudFileId?: string;
   cloudUrl?: string;
-  storageProvider?: 'google-drive-primary' | 'firestore-fallback' | string;
+  storageProvider?: 'firebase-storage' | 'google-drive-primary' | 'firestore-fallback' | string;
+  storagePath?: string;
+  thumbnailPath?: string;
+  storageMd5Hash?: string;
+  storageGeneration?: string;
   driveOwnerEmail?: string;
   driveFolderPath?: string;
   chunkCount?: number;
@@ -33,13 +38,18 @@ export interface PhotoAttachment {
   createdAt: number;
   updatedAt: number;
   createdByUid?: string;
+  updatedByUid?: string;
+  revision?: number;
   deleted?: boolean;
-  deletedAt?: number;
+  deletedAt?: number | null;
+  deletedByUid?: string | null;
+  deletedBy?: string | null;
 }
 
 const getPhotoListKey = (projectId: string) => `construction_photos_${projectId}`;
 const getPhotoBlobKey = (photoId: string) => `photo_blob_${photoId}`;
 const getPhotoThumbKey = (photoId: string) => `photo_thumb_${photoId}`;
+const getPhotoPendingMetaKey = (photoId: string) => `photo_pending_meta_${photoId}`;
 
 const projectPhotoListMemoryCache = new Map<string, PhotoAttachment[]>();
 
@@ -74,17 +84,56 @@ export function generatePhotoUUID(): string {
   return `photo_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 }
 
+async function getPendingPhotoMetadata(projectId: string): Promise<PhotoAttachment[]> {
+  if (!projectId) return [];
+  try {
+    const keys = await localforage.keys();
+    const pending: PhotoAttachment[] = [];
+    for (const key of keys) {
+      if (!key.startsWith('photo_pending_meta_')) continue;
+      const item = await localforage.getItem<PhotoAttachment>(key);
+      if (item?.id && item.projectId === projectId) pending.push(item);
+    }
+    return pending;
+  } catch (_) {
+    return [];
+  }
+}
+
+async function savePendingPhotoMetadata(photo: PhotoAttachment): Promise<void> {
+  if (!photo?.id || !photo?.projectId) return;
+  const clean: PhotoAttachment = { ...photo, localUri: '', base64: undefined, dataUrl: undefined };
+  await localforage.setItem(getPhotoPendingMetaKey(photo.id), clean);
+}
+
+export async function clearPendingPhotoMetadata(photoId: string): Promise<void> {
+  if (!photoId) return;
+  await localforage.removeItem(getPhotoPendingMetaKey(photoId)).catch(() => {});
+}
+
 export async function getProjectPhotos(projectId: string, includeDeleted = false): Promise<PhotoAttachment[]> {
   if (!projectId) return [];
   try {
     let list = projectPhotoListMemoryCache.get(projectId);
     if (!list) {
-      const stored = await getAsyncItem<PhotoAttachment[]>(getPhotoListKey(projectId), []);
-      list = Array.isArray(stored) ? stored : [];
+      // Firebase-only keeps synchronized metadata in Firestore. The old project photo
+      // list is read only during the migration window; new pending media uses a small
+      // dedicated outbox record next to its local Blob, not a second business database.
+      const legacy = FIREBASE_ONLY_RUNTIME && !LEGACY_LOCAL_IMPORT_ENABLED
+        ? []
+        : await getAsyncItem<PhotoAttachment[]>(getPhotoListKey(projectId), []);
+      const pending = FIREBASE_ONLY_RUNTIME ? await getPendingPhotoMetadata(projectId) : [];
+      const merged = new Map<string, PhotoAttachment>();
+      for (const item of Array.isArray(legacy) ? legacy : []) if (item?.id) merged.set(item.id, item);
+      for (const item of pending) {
+        const previous = merged.get(item.id);
+        if (!previous || Number(item.updatedAt || 0) >= Number(previous.updatedAt || 0)) merged.set(item.id, item);
+      }
+      list = Array.from(merged.values());
       projectPhotoListMemoryCache.set(projectId, list);
     }
     if (includeDeleted) return list.slice();
-    return list.filter(p => !p.deleted);
+    return list.filter(p => !p.deleted && !p.deletedAt);
   } catch (err) {
     console.error('Error reading project photos:', err);
     return [];
@@ -93,15 +142,14 @@ export async function getProjectPhotos(projectId: string, includeDeleted = false
 
 export async function saveProjectPhotos(projectId: string, photos: PhotoAttachment[]): Promise<void> {
   if (!projectId) return;
-  // Ensure metadata stored in JSON list does not contain full base64 strings
   const cleanPhotos = photos.map(p => {
-    if (p.localUri && p.localUri.startsWith('data:image/')) {
-      return { ...p, localUri: '' };
-    }
+    if (p.localUri && p.localUri.startsWith('data:image/')) return { ...p, localUri: '' };
     return p;
   });
   projectPhotoListMemoryCache.set(projectId, cleanPhotos);
-  await setAsyncItem(getPhotoListKey(projectId), cleanPhotos);
+  if (!FIREBASE_ONLY_RUNTIME || LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED) {
+    await setAsyncItem(getPhotoListKey(projectId), cleanPhotos);
+  }
 }
 
 export async function getEntityPhotos(
@@ -170,6 +218,16 @@ export async function savePhotoAttachment(
   const existing = await getProjectPhotos(photo.projectId, true);
   const updatedList = [newPhotoMetadata, ...existing.filter(p => p.id !== photoId)];
   await saveProjectPhotos(photo.projectId, updatedList);
+  if (FIREBASE_ONLY_RUNTIME) {
+    await savePendingPhotoMetadata(newPhotoMetadata);
+    // setDoc uses Firestore's official offline queue when the authenticated user is
+    // offline. The binary itself remains in the media outbox until Storage succeeds.
+    import('../lib/photoCloudSync').then(({ stagePhotoMetadataForCloud }) =>
+      stagePhotoMetadataForCloud(photo.projectId, newPhotoMetadata).catch((err) =>
+        console.warn('[Photo outbox] metadata will retry after auth/network recovery:', err)
+      )
+    ).catch(() => {});
+  }
 
   // Return only the tiny thumbnail for immediate rendering. The full image stays as a Blob in IndexedDB.
   return { ...newPhotoMetadata, localUri: thumbDataUrl };
@@ -230,9 +288,14 @@ export async function mergeCloudPhotoMetadata(projectId: string, cloudPhotos: Ph
         dataUrl: undefined,
       };
       merged.set(cloud.id, cleanCloud);
-      if (cloud.deleted) {
+      if (cloud.deleted || cloud.deletedAt) {
         await localforage.removeItem(getPhotoBlobKey(cloud.id)).catch(() => {});
         await localforage.removeItem(getPhotoThumbKey(cloud.id)).catch(() => {});
+      }
+      const pending = await localforage.getItem<PhotoAttachment>(getPhotoPendingMetaKey(cloud.id)).catch(() => null);
+      const serverAcknowledged = !(cloud as any).__pendingWrite;
+      if (serverAcknowledged && pending && cloudTime >= Number(pending.updatedAt || pending.createdAt || 0) && (cloud.deleted || cloud.deletedAt || cloud.storagePath || cloud.storageProvider === 'firebase-storage')) {
+        await clearPendingPhotoMetadata(cloud.id);
       }
     }
   }
@@ -365,7 +428,7 @@ export async function getProjectPhotosWithBinary(projectId: string): Promise<Pho
   for (const p of photos) {
     let base64 = await getPhotoBase64(p.id);
 
-    if (!base64 && (p.cloudFileId?.startsWith('firestore:') || p.cloudUrl?.startsWith('firestore:') || p.cloudFileId?.startsWith('drive:') || p.cloudUrl?.startsWith('drive:'))) {
+    if (!base64 && (p.storagePath || p.storageProvider === 'firebase-storage' || p.cloudFileId?.startsWith('storage:') || p.cloudUrl?.startsWith('storage:') || p.cloudFileId?.startsWith('firestore:') || p.cloudUrl?.startsWith('firestore:') || p.cloudFileId?.startsWith('drive:') || p.cloudUrl?.startsWith('drive:'))) {
       try {
         const { downloadPhotoBlobFromCloud } = await import('../lib/photoCloudSync');
         const cloudBlob = await downloadPhotoBlobFromCloud(projectId, p.id, p.mimeType || 'image/jpeg');
@@ -435,6 +498,7 @@ export async function restorePhotosFromBackup(
   const existingMap = new Map(existing.map(e => [e.id, e]));
   for (const cp of cleanPhotos) {
     existingMap.set(cp.id, cp);
+    if (FIREBASE_ONLY_RUNTIME) await savePendingPhotoMetadata({ ...cp, projectId });
   }
   await saveProjectPhotos(projectId, Array.from(existingMap.values()));
   return { restoredCount, missingCount };
@@ -445,11 +509,18 @@ export async function deletePhotoAttachment(projectId: string, photoId: string):
   const now = Date.now();
   const updated = photos.map(p => {
     if (p.id === photoId) {
-      return { ...p, deleted: true, deletedAt: now, updatedAt: now };
+      return { ...p, deleted: true, deletedAt: now, updatedAt: now, revision: Math.max(Number(p.revision || 0) + 1, 1) };
     }
     return p;
   });
   await saveProjectPhotos(projectId, updated);
+  const tombstone = updated.find((p) => p.id === photoId);
+  if (FIREBASE_ONLY_RUNTIME && tombstone) {
+    await savePendingPhotoMetadata(tombstone);
+    import('../lib/photoCloudSync').then(({ stagePhotoMetadataForCloud }) =>
+      stagePhotoMetadataForCloud(projectId, tombstone).catch(() => {})
+    ).catch(() => {});
+  }
   try {
     await localforage.removeItem(getPhotoBlobKey(photoId));
     await localforage.removeItem(getPhotoThumbKey(photoId));
@@ -482,11 +553,18 @@ export async function updatePhotoAttachmentBlob(
   const photos = existingPhotos;
   const updated = photos.map(p => {
     if (p.id === photoId) {
-      return { ...p, updatedAt: now, fileSize: mainBlob.size };
+      return { ...p, updatedAt: now, revision: Math.max(Number(p.revision || 0) + 1, 1), fileSize: mainBlob.size };
     }
     return p;
   });
   await saveProjectPhotos(projectId, updated);
+  const pending = updated.find((p) => p.id === photoId);
+  if (FIREBASE_ONLY_RUNTIME && pending) {
+    await savePendingPhotoMetadata(pending);
+    import('../lib/photoCloudSync').then(({ stagePhotoMetadataForCloud }) =>
+      stagePhotoMetadataForCloud(projectId, pending).catch(() => {})
+    ).catch(() => {});
+  }
   return thumbBlob ? await blobToDataUrl(thumbBlob) : '';
 }
 
@@ -505,11 +583,19 @@ export async function deleteEntityPhotos(projectId: string, entityType: 'crewRec
 
   const updated = photos.map(p => {
     if (p.entityType === entityType && p.entityId === entityId) {
-      return { ...p, deleted: true, deletedAt: now, updatedAt: now };
+      return { ...p, deleted: true, deletedAt: now, updatedAt: now, revision: Math.max(Number(p.revision || 0) + 1, 1) };
     }
     return p;
   });
   await saveProjectPhotos(projectId, updated);
+  if (FIREBASE_ONLY_RUNTIME) {
+    for (const p of updated.filter((item) => item.entityType === entityType && item.entityId === entityId)) {
+      await savePendingPhotoMetadata(p);
+      import('../lib/photoCloudSync').then(({ stagePhotoMetadataForCloud }) =>
+        stagePhotoMetadataForCloud(projectId, p).catch(() => {})
+      ).catch(() => {});
+    }
+  }
 }
 
 export async function deleteProjectPhotos(projectId: string): Promise<void> {
@@ -523,6 +609,13 @@ export async function deleteProjectPhotos(projectId: string): Promise<void> {
       } catch (_) {}
     }
     await removeAsyncItem(getPhotoListKey(projectId));
+    const keys = await localforage.keys().catch(() => [] as string[]);
+    for (const key of keys) {
+      if (!key.startsWith('photo_pending_meta_')) continue;
+      const item = await localforage.getItem<PhotoAttachment>(key).catch(() => null);
+      if (item?.projectId === projectId) await localforage.removeItem(key).catch(() => {});
+    }
+    projectPhotoListMemoryCache.delete(projectId);
     try {
       localStorage.removeItem(getPhotoListKey(projectId));
     } catch (_) {}

@@ -7,17 +7,20 @@ namespace QLTCAnPhu
 {
     internal static class Program
     {
-        private const string AppUrl = "https://com-example-qlct-61329.web.app/?app=desktop&v=6.2.27";
+        private const string AppBaseUrl = "https://com-example-qlct-61329.web.app/?app=desktop";
 
         [STAThread]
         private static void Main()
         {
             try
             {
+                var version = typeof(Program).Assembly.GetName().Version;
+                var versionText = version != null ? version.ToString(3) : "0.0.0";
+                var appUrl = AppBaseUrl + "&v=" + Uri.EscapeDataString(versionText);
                 var edgePath = FindEdge();
                 if (string.IsNullOrEmpty(edgePath))
                 {
-                    Process.Start(AppUrl);
+                    Process.Start(appUrl);
                     return;
                 }
 
@@ -30,7 +33,7 @@ namespace QLTCAnPhu
                 ClearWebCaches(profileDir);
 
                 var args =
-                    "--app=" + AppUrl +
+                    "--app=" + appUrl +
                     " --user-data-dir=\"" + profileDir + "\"" +
                     " --no-first-run";
 

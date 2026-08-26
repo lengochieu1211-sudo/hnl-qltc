@@ -1,5 +1,17 @@
 export type TransactionType = 'in' | 'out';
 
+/** Canonical Firestore lifecycle fields for Firebase-only records.
+ * Legacy rows may omit them; migration/normalization must treat missing deletedAt as active. */
+export interface CloudRecordLifecycle {
+  revision?: number;
+  createdByUid?: string;
+  updatedByUid?: string;
+  deletedAt?: number | null;
+  deletedByUid?: string | null;
+  deletedBy?: string | null;
+}
+
+
 export interface InventoryItem {
   id: string;
   type: TransactionType; // 'in': Nhập kho, 'out': Xuất kho
@@ -18,6 +30,13 @@ export interface InventoryItem {
   sourceFloorId?: string;
   sourceNormId?: string;
   sourceIssueKey?: string;
+  revision?: number;
+  createdAt?: number;
+  createdByUid?: string;
+  updatedByUid?: string;
+  deletedAt?: number | null;
+  deletedByUid?: string | null;
+  deletedBy?: string | null;
 }
 
 export type CategoryType = string;
@@ -38,6 +57,13 @@ export interface WorkVolume {
   dueDate?: string; // Hạn định hoàn thành (YYYY-MM-DD)
   subItems?: string[]; // Hạng mục con / công đoạn lấy từ căn hộ
   updatedAt?: number;
+  revision?: number;
+  createdAt?: number;
+  createdByUid?: string;
+  updatedByUid?: string;
+  deletedAt?: number | null;
+  deletedByUid?: string | null;
+  deletedBy?: string | null;
 }
 
 export interface FloorPlan {
@@ -48,14 +74,24 @@ export interface FloorPlan {
   order?: number;
   driveFileId?: string;
   driveUrl?: string;
-  storageProvider?: 'google-drive-primary' | 'firestore-fallback' | string;
+  storageProvider?: 'firebase-storage' | 'google-drive-primary' | 'firestore-fallback' | string;
   cloudFileId?: string;
   imageMimeType?: string;
   imageFileSize?: number;
   imageRevision?: number;
   imageCloudRevision?: number;
   imageCloudSyncedAt?: number;
+  storagePath?: string;
+  thumbnailPath?: string;
+  storageMd5Hash?: string;
   updatedAt?: number;
+  revision?: number;
+  createdAt?: number;
+  createdByUid?: string;
+  updatedByUid?: string;
+  deletedAt?: number | null;
+  deletedByUid?: string | null;
+  deletedBy?: string | null;
   targetFrameDate?: string; // YYYY-MM-DD
   targetBoardDate?: string; // YYYY-MM-DD
 }
@@ -106,6 +142,12 @@ export interface DefectItem {
   updatedAt?: number;
   status: DefectStatus;
   createdAt: string; // Ngày tạo
+  revision?: number;
+  createdByUid?: string;
+  updatedByUid?: string;
+  deletedAt?: number | null;
+  deletedByUid?: string | null;
+  deletedBy?: string | null;
 }
 
 export type ChecklistStatus = 'passed' | 'pending' | 'defect';
@@ -127,6 +169,13 @@ export interface ChecklistItem {
   inspectedBy?: string;
   inspectedAt?: string;
   updatedAt?: number;
+  revision?: number;
+  createdAt?: number;
+  createdByUid?: string;
+  updatedByUid?: string;
+  deletedAt?: number | null;
+  deletedByUid?: string | null;
+  deletedBy?: string | null;
 }
 
 export interface GoogleAuthStatus {
@@ -153,6 +202,13 @@ export interface MaterialNorm {
   workCategoryNormsById?: Record<string, number>; // Định mức riêng theo ID hạng mục
   notes?: string;
   updatedAt?: number;
+  revision?: number;
+  createdAt?: number;
+  createdByUid?: string;
+  updatedByUid?: string;
+  deletedAt?: number | null;
+  deletedByUid?: string | null;
+  deletedBy?: string | null;
 }
 
 export type AcceptanceStatus = 'Chưa làm' | 'Đang làm' | 'Đã hoàn thành';
@@ -210,6 +266,12 @@ export interface RoomProgressItem {
   color?: string; // Mã màu hex hoặc tên màu chọn riêng cho căn
   createdAt?: number; // Ngày tạo Căn / Phòng, cố định sau lần tạo đầu tiên
   updatedAt: number;
+  revision?: number;
+  createdByUid?: string;
+  updatedByUid?: string;
+  deletedAt?: number | null;
+  deletedByUid?: string | null;
+  deletedBy?: string | null;
 }
 
 export interface TeamInfo {
@@ -220,6 +282,13 @@ export interface TeamInfo {
   phone?: string;
   notes?: string;
   updatedAt?: number;
+  revision?: number;
+  createdAt?: number;
+  createdByUid?: string;
+  updatedByUid?: string;
+  deletedAt?: number | null;
+  deletedByUid?: string | null;
+  deletedBy?: string | null;
 }
 
 export interface CrewFloorCategoryWork {
@@ -249,6 +318,13 @@ export interface CrewRecord {
   shift?: string;
   notes?: string;
   updatedAt?: number;
+  revision?: number;
+  createdAt?: number;
+  createdByUid?: string;
+  updatedByUid?: string;
+  deletedAt?: number | null;
+  deletedByUid?: string | null;
+  deletedBy?: string | null;
 }
 
 export interface ProjectInfo {

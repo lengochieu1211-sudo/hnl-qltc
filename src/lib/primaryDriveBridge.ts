@@ -1,6 +1,7 @@
 import { doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db, getCurrentRealFirebaseUser } from './firebase';
 import { cachePhotoBlob, getPhotoBlob, type PhotoAttachment } from '../utils/photoStorage';
+import { LEGACY_DRIVE_READ_FALLBACK, LEGACY_DRIVE_WRITE_ENABLED } from '../config/runtimeArchitecture';
 
 export const PRIMARY_DRIVE_OWNER_EMAIL = 'lengochieu1211@gmail.com';
 export const PRIMARY_DRIVE_CONFIG_PATH = 'app_config/drive_primary';
@@ -295,6 +296,7 @@ export async function uploadFloorPlanToPrimaryDrive(
   projectId: string,
   plan: { id: string; floorName?: string; imageUrl: string; imageRevision?: number; updatedAt?: number },
 ): Promise<PrimaryDriveUploadResult | null> {
+  if (!LEGACY_DRIVE_WRITE_ENABLED) return null;
   if (!projectId || !plan?.id || !plan.imageUrl) return null;
   if (!(await isPrimaryDriveReady())) return null;
   const blob = await imageSourceToBlob(plan.imageUrl);
@@ -316,6 +318,7 @@ export async function cleanupFloorPlanVersionsOnPrimaryDrive(
   keepFileId: string,
   committedRevision: number,
 ): Promise<{ cleaned?: number; skipped?: boolean; reason?: string }> {
+  if (!LEGACY_DRIVE_WRITE_ENABLED) return { skipped: true, reason: 'legacy-drive-write-disabled' };
   if (!projectId || !floorPlanId || !keepFileId) return { skipped: true, reason: 'missing-id' };
   if (!(await isPrimaryDriveReady())) return { skipped: true, reason: 'drive-not-ready' };
   return callBridge('cleanupFloorPlanVersions', {
@@ -332,6 +335,7 @@ export async function downloadFloorPlanFromPrimaryDrive(
   fileId: string,
   mimeType = 'image/jpeg',
 ): Promise<Blob | null> {
+  if (!LEGACY_DRIVE_READ_FALLBACK) return null;
   if (!projectId || !floorPlanId || !fileId) return null;
   if (!(await isPrimaryDriveReady())) return null;
   const result = await callBridge<{ base64: string; mimeType?: string; fileSize?: number }>('downloadFloorPlan', {
@@ -345,12 +349,14 @@ export async function downloadFloorPlanFromPrimaryDrive(
 }
 
 export async function deleteFloorPlanFromPrimaryDrive(projectId: string, floorPlanId: string, fileId: string): Promise<void> {
+  if (!LEGACY_DRIVE_WRITE_ENABLED) return;
   if (!projectId || !floorPlanId || !fileId) return;
   if (!(await isPrimaryDriveReady())) return;
   await callBridge('deleteFloorPlan', { projectId, floorPlanId, fileId });
 }
 
 export async function uploadPhotoToPrimaryDrive(projectId: string, photo: PhotoAttachment): Promise<PrimaryDriveUploadResult | null> {
+  if (!LEGACY_DRIVE_WRITE_ENABLED) return null;
   if (!projectId || !photo?.id || photo.deleted) return null;
   if (!(await isPrimaryDriveReady())) return null;
   const blob = await getPhotoBlob(photo.id, false);
@@ -379,6 +385,7 @@ export async function cleanupPhotoVersionsOnPrimaryDrive(
   keepFileId: string,
   committedUpdatedAt: number,
 ): Promise<{ cleaned?: number; skipped?: boolean; reason?: string }> {
+  if (!LEGACY_DRIVE_WRITE_ENABLED) return { skipped: true, reason: 'legacy-drive-write-disabled' };
   if (!projectId || !photoId || !keepFileId) return { skipped: true, reason: 'missing-id' };
   if (!(await isPrimaryDriveReady())) return { skipped: true, reason: 'drive-not-ready' };
   return callBridge('cleanupPhotoVersions', {
@@ -390,6 +397,7 @@ export async function cleanupPhotoVersionsOnPrimaryDrive(
 }
 
 export async function downloadPhotoFromPrimaryDrive(projectId: string, photoId: string, fileId: string, mimeType = 'image/jpeg'): Promise<Blob | null> {
+  if (!LEGACY_DRIVE_READ_FALLBACK) return null;
   if (!projectId || !photoId || !fileId) return null;
   if (!(await isPrimaryDriveReady())) return null;
   const result = await callBridge<{ base64: string; mimeType?: string; fileSize?: number }>('downloadPhoto', {
@@ -405,6 +413,7 @@ export async function downloadPhotoFromPrimaryDrive(projectId: string, photoId: 
 }
 
 export async function deletePhotoFromPrimaryDrive(projectId: string, photoId: string, fileId: string): Promise<void> {
+  if (!LEGACY_DRIVE_WRITE_ENABLED) return;
   if (!projectId || !photoId || !fileId) return;
   if (!(await isPrimaryDriveReady())) return;
   await callBridge('deletePhoto', { projectId, photoId, fileId });
@@ -416,6 +425,7 @@ export async function uploadProjectBackupToPrimaryDrive(
   backupData: Record<string, any>,
   kind: 'auto' | 'manual' = 'auto',
 ): Promise<{ fileId: string; fileName: string; fileSize?: number; ownerEmail?: string }> {
+  if (!LEGACY_DRIVE_WRITE_ENABLED) throw new Error('Drive write đã tắt trong Firebase-only runtime; chỉ dùng migration có chủ đích.');
   if (!projectId) throw new Error('Chưa chọn dự án.');
   if (!(await isPrimaryDriveReady())) throw new Error('Drive chính chưa được cấu hình.');
   return callBridge('uploadBackup', {

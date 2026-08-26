@@ -6,6 +6,7 @@ import { parseLegacyTimestamp } from './utils/dateFormatter';
 import { AppLockOverlay } from './components/AppLockOverlay';
 import { SecurityModal } from './components/SecurityModal';
 import { getStoredPinLockConfig, logAuditAction, getCurrentUserRole, setCurrentUserRole, UserRole, canEditProjectData, canManageProjects } from './utils/securityUtils';
+import { cacheVerifiedProjectRole, getCachedVerifiedProjectRole, getRememberedVerifiedAuthIdentity, rememberVerifiedAuthIdentity } from './utils/offlineAccess';
 
 function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
   if (!cloudItem || !localItem) return cloudItem;
@@ -69,8 +70,9 @@ function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
   }
   return merged;
 }
-import { subscribeToProjectRealtime, saveProjectDiffsToCloud, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, subscribeProjectUserRoleRealtime, fetchCurrentUserProjectsFromCloud, subscribeCurrentUserProjectsRealtime, refreshCurrentUserProjectDiscovery, subscribeProjectSharedSettings, saveProjectSharedSettings, saveProjectAuditLog } from './lib/firebase';
+import { subscribeToProjectRealtime, saveProjectDiffsToCloud, queueProjectDiffsToFirestoreOffline, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, subscribeProjectUserRoleRealtime, fetchCurrentUserProjectsFromCloud, subscribeCurrentUserProjectsRealtime, refreshCurrentUserProjectDiscovery, subscribeProjectSharedSettings, saveProjectSharedSettings, saveProjectAuditLog, loadProjectFromFirestoreCache } from './lib/firebase';
 import { REALTIME_STATE_KEYS, STATE_KEY_TO_CLOUD_NAME } from './config/realtimeCollections';
+import { FIREBASE_ONLY_RUNTIME, LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED, LEGACY_LOCAL_IMPORT_ENABLED } from './config/runtimeArchitecture';
 import { CURRENT_DATA_SCHEMA_VERSION } from './config/dataSchema';
 import { 
   InventoryItem, 
@@ -127,6 +129,7 @@ import { isPrimaryDriveReady, PRIMARY_DRIVE_OWNER_EMAIL, uploadProjectBackupToPr
 import { subscribeConversationReadState, subscribeConversationSummary } from './lib/chatService';
 import { floorPlanNeedsCloudUpload, isDisplayableFloorPlanUrl, loadFloorPlanImageFromCloud, syncFloorPlanImageToCloud, deleteFloorPlanImageFromCloud } from './lib/floorPlanImageSync';
 import { DEFAULT_TRASH_SETTINGS, TrashOperation, TrashSettings, TrashCollectionKey, deleteTrashOperationFromCloud, estimateTrashBytes, getTrashCollectionLabel, normalizeTrashSettings, sanitizeTrashSnapshot, saveTrashOperationToCloud, subscribeProjectTrash } from './lib/trash';
+import { commitWarehouseTransactionAtomic, updateWarehouseTransactionAtomic, softDeleteWarehouseTransactionAtomic } from './lib/warehouseTransactions';
 
 // Heavy screens are code-split so Android does not parse XLSX/PDF-heavy modules at startup.
 const WarehouseTab = React.lazy(() => import('./components/WarehouseTab').then(m => ({ default: m.WarehouseTab })));
@@ -222,6 +225,10 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('floorplan');
   const [activeProjectId, setActiveProjectId] = useState<string>(() => getActiveProjectId());
   const activeProjectIdRef = useRef<string>(activeProjectId);
+  // Firebase-only business data must come from Firestore/its official cache. Legacy
+  // localforage may be displayed only as a migration candidate and is read-only until
+  // an explicit online Import writes it through the Firestore validation path.
+  const [businessDataSource, setBusinessDataSource] = useState<'cloud' | 'firestore-cache' | 'legacy-migration-fallback' | 'empty'>('empty');
   const [isExportPdfOpen, setIsExportPdfOpen] = useState(false);
   const [isMaterialNormOpen, setIsMaterialNormOpen] = useState(false);
   const [isProjectManagerOpen, setIsProjectManagerOpen] = useState(false);
@@ -229,6 +236,9 @@ export default function App() {
   const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
   const [currentUserRole, setCurrentUserRoleState] = useState<UserRole>(() => getCurrentUserRole());
   const [isProjectRoleResolved, setIsProjectRoleResolved] = useState(false);
+  const [projectRoleSource, setProjectRoleSource] = useState<'cloud' | 'offline-cache' | 'unresolved'>('unresolved');
+  const [projectRoleAllowed, setProjectRoleAllowed] = useState(false);
+  const [isOnline, setIsOnline] = useState<boolean>(() => typeof navigator === 'undefined' ? true : navigator.onLine);
   const [cloudDefectIndex, setCloudDefectIndex] = useState<{ projectId: string; ids: Set<string> } | null>(null);
   const [trashSettings, setTrashSettings] = useState<TrashSettings>(DEFAULT_TRASH_SETTINGS);
   const trashSettingsRef = useRef<TrashSettings>(DEFAULT_TRASH_SETTINGS);
@@ -238,27 +248,87 @@ export default function App() {
   const googleServerBackendAvailable = hasApiBackend();
 
   useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  useEffect(() => {
     let isMounted = true;
     let roleUnsub: (() => void) | null = null;
 
     const attachRoleListener = () => {
       if (roleUnsub) { roleUnsub(); roleUnsub = null; }
-      const user = getCurrentRealFirebaseUser();
-      if (!user || !activeProjectId) {
-        // Auth hydration after camera/background resume is not an authoritative role downgrade.
-        // Keep the last verified role until Firebase returns a real role result, but mark
-        // the current project's permission as unresolved so cloud autosave cannot run with
-        // a stale role inherited from another project/device session.
+      const realUser = getCurrentRealFirebaseUser();
+      const rememberedIdentity = !realUser && !isOnline ? getRememberedVerifiedAuthIdentity() : null;
+      const identity = realUser
+        ? { uid: realUser.uid, email: realUser.email || '', displayName: realUser.displayName || '' }
+        : rememberedIdentity;
+
+      if (!identity || !activeProjectId) {
+        // Never inherit a role from another account/project. Without a matching real
+        // or remembered identity + project-scoped verified lease, fail closed.
+        setCurrentUserRoleState('VIEWER');
+        setCurrentUserRole('VIEWER');
         setIsProjectRoleResolved(false);
+        setProjectRoleSource('unresolved');
+        setProjectRoleAllowed(false);
         return;
       }
-      setIsProjectRoleResolved(false);
-      roleUnsub = subscribeProjectUserRoleRealtime(activeProjectId, user, (res) => {
+
+      const cachedRole = getCachedVerifiedProjectRole(activeProjectId, identity);
+      if (cachedRole) {
+        // Offline startup resumes the last role that was authoritatively verified for
+        // this exact uid/email + projectId. VIEWER stays read-only; EDITOR/ADMIN may
+        // keep editing the local IndexedDB cache while Cloud is unavailable.
+        setCurrentUserRole(cachedRole.role);
+        setCurrentUserRoleState(cachedRole.role);
+        setIsProjectRoleResolved(true);
+        setProjectRoleSource('offline-cache');
+        setProjectRoleAllowed(cachedRole.allowed);
+      } else {
+        setCurrentUserRoleState('VIEWER');
+        setCurrentUserRole('VIEWER');
+        setIsProjectRoleResolved(false);
+        setProjectRoleSource('unresolved');
+        setProjectRoleAllowed(false);
+      }
+
+      if (!realUser || !isOnline) return;
+      rememberVerifiedAuthIdentity(realUser);
+      roleUnsub = subscribeProjectUserRoleRealtime(activeProjectId, realUser, (res) => {
         if (!isMounted) return;
+        if (res.verification !== 'verified') {
+          // Network/backend failure is not an authorization change. Re-read the lease
+          // because a previous successful realtime refresh in this same subscription may
+          // already have updated it after `attachRoleListener` captured `cachedRole`.
+          const fallbackRole = getCachedVerifiedProjectRole(activeProjectId, realUser);
+          if (fallbackRole) {
+            setCurrentUserRole(fallbackRole.role);
+            setCurrentUserRoleState(fallbackRole.role);
+            setIsProjectRoleResolved(true);
+            setProjectRoleSource('offline-cache');
+            setProjectRoleAllowed(fallbackRole.allowed);
+          } else {
+            setIsProjectRoleResolved(false);
+            setProjectRoleSource('unresolved');
+            setProjectRoleAllowed(false);
+          }
+          return;
+        }
         const effectiveRole: UserRole = res.allowed ? res.role : 'VIEWER';
+        cacheVerifiedProjectRole(activeProjectId, realUser, effectiveRole, res.allowed);
+        rememberVerifiedAuthIdentity(realUser);
         setCurrentUserRole(effectiveRole);
         setCurrentUserRoleState(effectiveRole);
         setIsProjectRoleResolved(true);
+        setProjectRoleSource('cloud');
+        setProjectRoleAllowed(res.allowed);
       });
     };
 
@@ -270,7 +340,7 @@ export default function App() {
       if (roleUnsub) roleUnsub();
       authUnsub();
     };
-  }, [activeProjectId]);
+  }, [activeProjectId, isOnline]);
   const [isAppLocked, setIsAppLocked] = useState<boolean>(() => {
     const pinCfg = getStoredPinLockConfig();
     return !!(pinCfg.enabled && pinCfg.pinHash);
@@ -367,9 +437,10 @@ export default function App() {
   };
 
   const persistLocalTombstones = (projectId: string) => {
+    if (FIREBASE_ONLY_RUNTIME && !LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED) return;
     const snapshot = { ...localTombstonesRef.current };
     setAsyncItem(getKey('construction_tombstones', projectId), snapshot).catch((err) =>
-      console.warn('Tombstone cache save warning:', err)
+      console.warn('Legacy tombstone cache save warning:', err)
     );
   };
 
@@ -404,13 +475,9 @@ export default function App() {
     const currentGeneration = ++loadGenerationRef.current;
     setIsLoadingProject(true);
     setIsHydrated(false);
-    console.log('[LOAD PROJECT]', projectId, 'gen:', currentGeneration);
+    console.log('[LOAD PROJECT]', projectId, 'gen:', currentGeneration, 'backend=', FIREBASE_ONLY_RUNTIME ? 'firestore-cache' : 'legacy');
     try {
       await migrateAndCleanLocalStorage();
-      
-      const parseSaved = async <T,>(key: string, fallback: T): Promise<T> => {
-        return await getAsyncItem(getKey(key, projectId), fallback);
-      };
 
       const deduplicateById = (list: any[], prefix: string) => {
         const seen = new Set<string>();
@@ -427,33 +494,78 @@ export default function App() {
         });
       };
 
-      const isDefault = projectId === 'default';
-      const [
-        rawFloorPlans,
-        rawRooms,
-        rawDefects,
-        rawChecklist,
-        rawCrew,
-        rawMaterialNorms,
-        rawInventory,
-        rawWorkVolumes,
-        rawTeams,
-      ] = await Promise.all([
-        parseSaved('construction_floor_plans', []),
-        parseSaved('construction_room_progress', []),
-        parseSaved('construction_defects', []),
-        parseSaved('construction_checklist', []),
-        parseSaved('construction_crew_records', []),
-        parseSaved('construction_material_norms', []),
-        parseSaved('construction_inventory', []),
-        parseSaved('construction_work_volumes', []),
-        parseSaved('construction_teams', []),
-      ]);
+      // Firebase-only runtime hydrates business records from Firestore's official
+      // persistent cache. The old localforage arrays are consulted only as a read-only
+      // migration fallback when this browser has never cached this project in Firestore.
+      const firestoreCached = FIREBASE_ONLY_RUNTIME
+        ? await loadProjectFromFirestoreCache(projectId).catch((err) => {
+            console.warn('[Firestore cache hydrate] unavailable:', err);
+            return null;
+          })
+        : null;
+      const shouldReadLegacy = !FIREBASE_ONLY_RUNTIME || Boolean(!firestoreCached?.found && LEGACY_LOCAL_IMPORT_ENABLED);
+      const parseSaved = async <T,>(key: string, fallback: T): Promise<T> => {
+        if (!shouldReadLegacy) return fallback;
+        return await getAsyncItem(getKey(key, projectId), fallback);
+      };
 
-      const rawTombstones = await parseSaved<Record<string, number>>('construction_tombstones', {});
+      let rawFloorPlans: any[] = [];
+      let rawRooms: any[] = [];
+      let rawDefects: any[] = [];
+      let rawChecklist: any[] = [];
+      let rawCrew: any[] = [];
+      let rawMaterialNorms: any[] = [];
+      let rawInventory: any[] = [];
+      let rawWorkVolumes: any[] = [];
+      let rawTeams: any[] = [];
+      let rawTombstones: Record<string, number> = {};
+
+      if (firestoreCached?.found) {
+        setBusinessDataSource('firestore-cache');
+        rawFloorPlans = firestoreCached.data.floorPlans || [];
+        rawRooms = firestoreCached.data.roomProgressList || [];
+        rawDefects = firestoreCached.data.defects || [];
+        rawChecklist = firestoreCached.data.checklist || [];
+        rawCrew = firestoreCached.data.crewRecords || [];
+        rawMaterialNorms = firestoreCached.data.materialNorms || [];
+        rawInventory = firestoreCached.data.inventory || [];
+        rawWorkVolumes = firestoreCached.data.workVolumes || [];
+        rawTeams = firestoreCached.data.teams || [];
+      } else if (shouldReadLegacy) {
+        setBusinessDataSource(FIREBASE_ONLY_RUNTIME ? 'legacy-migration-fallback' : 'empty');
+        [
+          rawFloorPlans,
+          rawRooms,
+          rawDefects,
+          rawChecklist,
+          rawCrew,
+          rawMaterialNorms,
+          rawInventory,
+          rawWorkVolumes,
+          rawTeams,
+        ] = await Promise.all([
+          parseSaved('construction_floor_plans', []),
+          parseSaved('construction_room_progress', []),
+          parseSaved('construction_defects', []),
+          parseSaved('construction_checklist', []),
+          parseSaved('construction_crew_records', []),
+          parseSaved('construction_material_norms', []),
+          parseSaved('construction_inventory', []),
+          parseSaved('construction_work_volumes', []),
+          parseSaved('construction_teams', []),
+        ]);
+        rawTombstones = await parseSaved<Record<string, number>>('construction_tombstones', {});
+        if (FIREBASE_ONLY_RUNTIME) {
+          console.warn('[LEGACY MIGRATION FALLBACK] Firestore cache is empty; displaying read-only legacy business cache candidate for project', projectId);
+        }
+      }
+
+      if (!firestoreCached?.found && !shouldReadLegacy) setBusinessDataSource('empty');
+
       const tombstoneMap = (rawTombstones && typeof rawTombstones === 'object' && !Array.isArray(rawTombstones)) ? rawTombstones : {};
-      const filterTombstoned = <T extends { id?: string; updatedAt?: any }>(stateKey: keyof AppData, list: T[] | undefined | null): T[] =>
+      const filterTombstoned = <T extends { id?: string; updatedAt?: any; deleted?: boolean; deletedAt?: any }>(stateKey: keyof AppData, list: T[] | undefined | null): T[] =>
         (list || []).filter((item) => {
+          if (item?.deleted === true || item?.deletedAt) return false;
           if (!item?.id) return true;
           const tombTime = Number(tombstoneMap[`${String(stateKey)}_${item.id}`] || 0);
           const itemTime = parseLegacyTimestamp(item.updatedAt, 0);
@@ -477,8 +589,6 @@ export default function App() {
         const normalizedUnit = normalizeUnit(norm.unit) || norm.unit;
         const materialKey = `${normalizeMaterialNameKey(norm.materialName)}|${normalizedUnit}`;
         const materialId = norm.materialId || materialIdByNameUnit.get(materialKey) || `MAT-${norm.id}`;
-        // Only fill missing legacy identities. Explicit IDs remain authoritative, while
-        // following legacy rows with the same physical name + unit can reuse the first ID.
         if (materialKey && !materialIdByNameUnit.has(materialKey)) materialIdByNameUnit.set(materialKey, materialId);
         return {
           ...norm,
@@ -509,16 +619,16 @@ export default function App() {
       const workVolumes = deduplicateById(filterTombstoned('workVolumes', rawWorkVolumes), 'VOL');
       const teams = deduplicateById(filterTombstoned('teams', rawTeams), 'TEAM');
 
-      const loadedProjectName = localStorage.getItem(getKey('construction_project_name', projectId)) || (isDefault ? 'Dự án chưa đặt tên' : `Dự án ${projectId}`);
-      const loadedContractor = localStorage.getItem(getKey('construction_contractor', projectId)) || '';
-      const loadedInspector = localStorage.getItem(getKey('construction_inspector', projectId)) || '';
-      const loadedUpdatedAt = Number(localStorage.getItem(getKey('construction_updated_at', projectId))) || 0;
+      const isDefault = projectId === 'default';
+      const loadedProjectName = firestoreCached?.metadata.projectName || localStorage.getItem(getKey('construction_project_name', projectId)) || (isDefault ? 'Dự án chưa đặt tên' : `Dự án ${projectId}`);
+      const loadedContractor = firestoreCached?.metadata.contractorName || localStorage.getItem(getKey('construction_contractor', projectId)) || '';
+      const loadedInspector = firestoreCached?.metadata.inspectorName || localStorage.getItem(getKey('construction_inspector', projectId)) || '';
+      const loadedUpdatedAt = Number(firestoreCached?.metadata.updatedAt || localStorage.getItem(getKey('construction_updated_at', projectId)) || 0);
 
       setProjectName(loadedProjectName);
       setContractorName(loadedContractor);
       setInspectorName(loadedInspector);
-      setLastUpdatedAt(Number(loadedUpdatedAt) || 0);
-
+      setLastUpdatedAt(loadedUpdatedAt);
       localTombstonesRef.current = { ...tombstoneMap };
 
       const initialState = {
@@ -538,9 +648,12 @@ export default function App() {
         contractorName: loadedContractor,
         inspectorName: loadedInspector
       };
+      // Only a real Firestore cache snapshot is eligible as the synchronized baseline.
+      // Legacy migration fallback must not be silently uploaded as if Cloud had approved it.
+      lastSyncedPresentRef.current = firestoreCached?.found ? initialState : null;
       hasUserEditedSinceHydrateRef.current = false;
       setIsHydrated(true);
-      console.log('[HYDRATED SUCCESS]', projectId);
+      console.log('[HYDRATED SUCCESS]', projectId, firestoreCached?.found ? 'firestore-cache' : shouldReadLegacy ? 'legacy-migration-fallback' : 'empty');
     } catch (err) {
       console.error(`Error loading project ${projectId}:`, err);
     } finally {
@@ -585,10 +698,14 @@ export default function App() {
     try {
       await queueSave(async () => {
         const frozenPresent = present;
-        await Promise.all(dirtyEntries.map(([key]) =>
-          setAsyncItem(getKey(localCollectionStorageKey[key], frozenProjectId), frozenPresent[key])
-        ));
+        if (!FIREBASE_ONLY_RUNTIME || LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED) {
+          await Promise.all(dirtyEntries.map(([key]) =>
+            setAsyncItem(getKey(localCollectionStorageKey[key], frozenProjectId), frozenPresent[key])
+          ));
+        }
 
+        // Project name/active ID are only discovery/UI cache in Firebase-only mode, not
+        // an authoritative business database. Firestore remains the source of truth.
         if (metadataRevision > 0) {
           safeSetLocalStorageItem(getKey('construction_project_name', frozenProjectId), projectName);
           safeSetLocalStorageItem(getKey('construction_contractor', frozenProjectId), contractorName);
@@ -659,8 +776,24 @@ export default function App() {
   };
 
   useEffect(() => {
-    loadProject(activeProjectId);
-  }, [activeProjectId]);
+    if (FIREBASE_ONLY_RUNTIME) {
+      // Firestore cache is origin-wide. Never render it before a project-scoped role
+      // has been resolved for the current/remembered identity.
+      if (!isProjectRoleResolved) {
+        setIsHydrated(false);
+        setIsLoadingProject(true);
+        return;
+      }
+      if (!projectRoleAllowed) {
+        setPresent({ materialNorms: [], inventory: [], workVolumes: [], floorPlans: [], defects: [], roomProgressList: [], checklist: [], crewRecords: [], teams: [] });
+        setIsHydrated(true);
+        setIsLoadingProject(false);
+        setIsInitializing(false);
+        return;
+      }
+    }
+    void loadProject(activeProjectId);
+  }, [activeProjectId, isProjectRoleResolved, projectRoleAllowed]);
 
   useEffect(() => {
     if (!isHydrated || isRestoring || isLoadingProject || !activeProjectIdRef.current) return;
@@ -700,7 +833,7 @@ export default function App() {
       if (item.archivedAt) return false;
       // A verified VIEWER must see the shared Firestore truth, not stale/local-only
       // defects left in this browser from an older/offline session. Keep those records
-      // in local storage (no data loss); if the account later becomes ENGINEER/ADMIN,
+      // in local storage (no data loss); if the account later becomes EDITOR/ADMIN,
       // they become visible again and the autosave reconciliation can publish them.
       if (isProjectRoleResolved && currentUserRole === 'VIEWER' && cloudIds) {
         return cloudIds.has(item.id);
@@ -1080,11 +1213,18 @@ export default function App() {
     return allData;
   };
 
-  const buildCurrentProjectVersionBackupObject = async (): Promise<Record<string, string>> => {
+  const buildCurrentProjectVersionBackupObject = async (): Promise<Record<string, any>> => {
+    // Firebase-only version history is a disaster-recovery snapshot of the current
+    // canonical app state, not a dump of the deprecated IndexedDB business mirror.
+    // This keeps local backup useful without turning it into a second runtime database.
+    if (FIREBASE_ONLY_RUNTIME) {
+      return await buildSingleProjectBackupObject(true) as Record<string, any>;
+    }
+
     const currentId = activeProjectIdRef.current || activeProjectId || 'default';
     const suffix = currentId === 'default' ? '' : `_${currentId}`;
     const storageData = await getAllStorageData();
-    const scoped: Record<string, string> = {};
+    const scoped: Record<string, any> = {};
 
     for (const [key, value] of Object.entries(storageData)) {
       if (!key) continue;
@@ -1133,6 +1273,9 @@ export default function App() {
   };
 
   const restoreAllProjectsBackupObject = async (backupData: any) => {
+    if (FIREBASE_ONLY_RUNTIME) {
+      throw new Error('Legacy IndexedDB restore bị khóa trong Firebase-only. Hãy khôi phục qua Firestore/Storage.');
+    }
     if (!backupData || typeof backupData !== 'object') return;
     await restorePhotoBackupBundle(backupData);
 
@@ -1192,7 +1335,16 @@ export default function App() {
 
   const [cloudInitialReady, setCloudInitialReady] = useState<boolean>(false);
   const receivedInitialSubcollectionsRef = useRef<Set<string>>(new Set());
-  const [dataCloudStatus, setDataCloudStatus] = useState<{ phase: 'idle' | 'syncing' | 'synced' | 'error'; lastSyncAt?: number; message?: string }>({ phase: 'idle' });
+  const [dataCloudStatus, setDataCloudStatus] = useState<{ phase: 'idle' | 'syncing' | 'synced' | 'error' | 'conflict'; lastSyncAt?: number; message?: string }>({ phase: 'idle' });
+  // Firestore SDK owns offline pending writes. This counter is UI-only telemetry; it is
+  // never used as a second persistence queue and is decremented only when the SDK's
+  // commit Promises settle after reconnect/server validation.
+  const [firestorePendingWriteCount, setFirestorePendingWriteCount] = useState(0);
+  const firestorePendingWriteCountRef = useRef(0);
+  const adjustFirestorePendingWriteCount = (delta: number) => {
+    firestorePendingWriteCountRef.current = Math.max(0, firestorePendingWriteCountRef.current + delta);
+    setFirestorePendingWriteCount(firestorePendingWriteCountRef.current);
+  };
   const syncDiagnosticPendingData = useMemo(() => {
     const synced = lastSyncedPresentRef.current;
     if (!cloudInitialReady || !synced) return 0;
@@ -1227,6 +1379,10 @@ export default function App() {
   // destroyed. If the same account later gains edit rights, reconcile any genuinely
   // newer/local-only records once and let the normal diff uploader publish them.
   useEffect(() => {
+    // Firebase-only never auto-promotes legacy IndexedDB business rows back into live
+    // state. Legacy data is migration input only and must pass explicit online Import/
+    // validation; otherwise a stale browser could silently resurrect deleted records.
+    if (FIREBASE_ONLY_RUNTIME) return;
     if (!isHydrated || isLoadingProject || isRestoring || !isProjectRoleResolved || !cloudInitialReady || !canEditProjectData(currentUserRole)) return;
     const recoveryKey = `${activeProjectId}:${cloudUserKey}:${currentUserRole}`;
     if (!cloudUserKey || editorLocalRecoveryKeyRef.current === recoveryKey) return;
@@ -1402,7 +1558,7 @@ export default function App() {
       }).catch((err) => console.warn('Photo audit log warning:', err));
 
       const photoUser = getCurrentRealFirebaseUser();
-      if (!photoUser || photoUser.isAnonymous || switchingProjectRef.current) return;
+      if (!photoUser || photoUser.isAnonymous || switchingProjectRef.current || !navigator.onLine) return;
       if (photoSyncTimerRef.current) window.clearTimeout(photoSyncTimerRef.current);
       const projectId = activeProjectIdRef.current;
       const mobilePhotoSyncDelay = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent || '') ? 1800 : 700;
@@ -1431,7 +1587,7 @@ export default function App() {
   // common mobile gap where a photo was stored in IndexedDB and the app was closed
   // before the old debounced uploader had a chance to run.
   useEffect(() => {
-    if (!isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || switchingProjectRef.current) return;
+    if (!isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || !isOnline || projectRoleSource !== 'cloud' || !projectRoleAllowed || switchingProjectRef.current) return;
     const projectId = activeProjectId;
     const syncKey = `${projectId}:${cloudUserKey}`;
     if (!projectId || startupPhotoSyncKeyRef.current === syncKey) return;
@@ -1471,7 +1627,7 @@ export default function App() {
       window.clearTimeout(timer);
       if (retryTimer !== null) window.clearTimeout(retryTimer);
     };
-  }, [activeProjectId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing]);
+  }, [activeProjectId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, isOnline, projectRoleSource, projectRoleAllowed]);
 
   useEffect(() => {
     const retryWhenOnline = () => {
@@ -1501,10 +1657,10 @@ export default function App() {
   }, []);
 
   // Floor-plan images use the same multi-device principle as Defect/Crew photos:
-  // metadata stays in Firestore, while the binary goes to the primary Drive account
-  // Legacy Firestore chunks remain read-only for migration; new binaries wait locally for Drive retry.
+  // metadata stays in Firestore, while the binary goes to Firebase Storage.
+  // Legacy Drive/Firestore chunks remain read-only migration fallbacks; new binaries never write to Drive.
   useEffect(() => {
-    if (!isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || switchingProjectRef.current) return;
+    if (!isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || !isOnline || projectRoleSource !== 'cloud' || !projectRoleAllowed || switchingProjectRef.current) return;
     const projectId = activeProjectId;
     let cancelled = false;
 
@@ -1541,7 +1697,9 @@ export default function App() {
               // Keep the local binary visible on the uploader; other devices lazily hydrate it.
               imageUrl: isDisplayableFloorPlanUrl(item.imageUrl) ? item.imageUrl : (metadata.imageUrl || item.imageUrl),
             } : item);
-            setAsyncItem(getKey('construction_floor_plans', projectId), nextPlans).catch((err) => console.warn('Floor-plan sync cache warning:', err));
+            if (!FIREBASE_ONLY_RUNTIME || LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED) {
+              setAsyncItem(getKey('construction_floor_plans', projectId), nextPlans).catch((err) => console.warn('Legacy floor-plan sync cache warning:', err));
+            }
             return { ...prev, floorPlans: nextPlans };
           });
         } catch (err) {
@@ -1570,12 +1728,12 @@ export default function App() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [floorPlans, activeProjectId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, floorPlanImageSyncRetryTick]);
+  }, [floorPlans, activeProjectId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, floorPlanImageSyncRetryTick, isOnline, projectRoleSource, projectRoleAllowed]);
 
   // Hydrate cloud-backed floor-plan binaries on another phone/PC. Run one-by-one so
   // opening a project does not allocate every large plan image in RAM at the same time.
   useEffect(() => {
-    if (!isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || switchingProjectRef.current) return;
+    if (!isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || !isOnline || projectRoleSource !== 'cloud' || !projectRoleAllowed || switchingProjectRef.current) return;
     const projectId = activeProjectId;
     let cancelled = false;
     // V6.2.22: hydrate only the floor currently being viewed. Previously every
@@ -1634,7 +1792,9 @@ export default function App() {
             }
 
             const nextPlans = prev.floorPlans.map((item) => item.id === plan.id ? { ...item, imageUrl } : item);
-            setAsyncItem(getKey('construction_floor_plans', projectId), nextPlans).catch((err) => console.warn('Floor-plan hydrate cache warning:', err));
+            if (!FIREBASE_ONLY_RUNTIME || LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED) {
+              setAsyncItem(getKey('construction_floor_plans', projectId), nextPlans).catch((err) => console.warn('Legacy floor-plan hydrate cache warning:', err));
+            }
             return { ...prev, floorPlans: nextPlans };
           });
         } catch (err) {
@@ -1663,7 +1823,7 @@ export default function App() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [floorPlans, activeProjectId, activeTab, activeFloorViewId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, floorPlanImageHydrateRetryTick]);
+  }, [floorPlans, activeProjectId, activeTab, activeFloorViewId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, floorPlanImageHydrateRetryTick, isOnline, projectRoleSource, projectRoleAllowed]);
 
   useEffect(() => {
     const refreshCloudUser = () => {
@@ -1675,6 +1835,14 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!isOnline) {
+      const identity = getCurrentRealFirebaseUser() || getRememberedVerifiedAuthIdentity();
+      const cachedProjects = identity
+        ? getProjectsList().filter((project) => getCachedVerifiedProjectRole(project.id, identity)?.allowed === true)
+        : [];
+      setAuthorizedChatProjects(cachedProjects.map((project) => ({ id: project.id, name: project.name })));
+      return;
+    }
     if (!cloudUserKey) {
       setAuthorizedChatProjects([]);
       return;
@@ -1775,7 +1943,7 @@ export default function App() {
     });
 
     return unsubscribe;
-  }, [cloudUserKey]);
+  }, [cloudUserKey, isOnline]);
 
   const [autosaveVersions, setAutosaveVersions] = useState<BackupVersion[]>([]);
 
@@ -2071,10 +2239,16 @@ export default function App() {
 
   // Helper to push state changes to history (max 30 steps) and stamp item updatedAt
   const updateAppData = (updater: (prev: AppData) => AppData) => {
+    if (FIREBASE_ONLY_RUNTIME && businessDataSource === 'legacy-migration-fallback') {
+      console.warn('[Firebase-only] Legacy local cache is read-only. Import/validate it online before editing.');
+      alert('Dữ liệu đang hiển thị từ bộ nhớ legacy chỉ để cứu dữ liệu. Hãy kết nối mạng và Import/Khôi phục vào Firestore trước khi chỉnh sửa.');
+      return;
+    }
     if (!isProjectRoleResolved || !canEditProjectData(currentUserRole)) {
       console.warn('[RBAC] Thao tác bị từ chối: Quyền VIEWER (Chỉ xem) không được phép sửa đổi dữ liệu.');
       return;
     }
+    const mutationActor = getCurrentRealFirebaseUser();
     hasUserEditedSinceHydrateRef.current = true;
     hasUnsavedAllBackupChangesRef.current = true;
     setPresent((prev) => {
@@ -2149,7 +2323,19 @@ export default function App() {
             // App updates are immutable: unchanged records preserve object identity. Avoid
             // JSON.stringify on every record because it causes noticeable mobile input lag.
             if (!prevItem || prevItem !== item) {
-              return { ...item, updatedAt: now };
+              const previousRevision = Number(prevItem?.revision || 0);
+              const incomingRevision = Number((item as any)?.revision || 0);
+              return {
+                ...item,
+                updatedAt: now,
+                revision: Math.max(previousRevision, incomingRevision, 0) + 1,
+                ...(mutationActor?.uid ? { updatedByUid: mutationActor.uid } : {}),
+                ...(!prevItem && mutationActor?.uid ? { createdByUid: mutationActor.uid } : {}),
+                deleted: false,
+                deletedAt: null,
+                deletedByUid: null,
+                deletedBy: null,
+              };
             }
             return item;
           });
@@ -2209,6 +2395,7 @@ export default function App() {
   };
 
   const stampStateChanges = (targetState: AppData, currentState: AppData, now: number): AppData => {
+    const mutationActor = getCurrentRealFirebaseUser();
     const collections: (keyof AppData)[] = [
       'roomProgressList', 'inventory', 'workVolumes', 'floorPlans',
       'defects', 'checklist', 'crewRecords', 'teams', 'materialNorms'
@@ -2249,14 +2436,38 @@ export default function App() {
               imageCloudSyncedAt: undefined,
               imageRevision: now,
               updatedAt: now,
+              revision: Math.max(Number((item as any).revision || 0), 0) + 1,
+              ...(mutationActor?.uid ? { updatedByUid: mutationActor.uid, createdByUid: mutationActor.uid } : {}),
+              deleted: false,
+              deletedAt: null,
+              deletedByUid: null,
+                deletedBy: null,
             };
           }
-          return { ...item, updatedAt: now };
+          return {
+            ...item,
+            updatedAt: now,
+            revision: Math.max(Number((item as any).revision || 0), 0) + 1,
+            ...(mutationActor?.uid ? { updatedByUid: mutationActor.uid, createdByUid: mutationActor.uid } : {}),
+            deleted: false,
+            deletedAt: null,
+            deletedByUid: null,
+                deletedBy: null,
+          };
         } else {
           const { updatedAt: _cu, ...curRest } = curItem;
           const { updatedAt: _tu, ...targetRest } = item;
           if (JSON.stringify(curRest) !== JSON.stringify(targetRest)) {
-            return { ...item, updatedAt: now };
+            return {
+              ...item,
+              updatedAt: now,
+              revision: Math.max(Number(curItem.revision || 0), Number((item as any).revision || 0), 0) + 1,
+              ...(mutationActor?.uid ? { updatedByUid: mutationActor.uid } : {}),
+              deleted: false,
+              deletedAt: null,
+              deletedByUid: null,
+                deletedBy: null,
+            };
           }
         }
         return item;
@@ -2338,6 +2549,7 @@ export default function App() {
   // before the first Firestore write is ever allowed.
   useEffect(() => {
     if (!isHydrated || isLoadingProject || isRestoring || isInitializing) return;
+    if (!isOnline || projectRoleSource === 'offline-cache') return;
     if (switchingProjectRef.current || !cloudUserKey || cloudInitialReady) return;
 
     const user = getCurrentRealFirebaseUser();
@@ -2355,6 +2567,7 @@ export default function App() {
       try {
         const roleInfo = await fetchProjectUserRoleFromCloud(projectId, user);
         if (cancelled || activeProjectIdRef.current !== projectId) return;
+        if (roleInfo.verification !== 'verified') return;
 
         if (roleInfo.allowed || roleInfo.isCloudSynced) {
           if (roleInfo.role) {
@@ -2404,12 +2617,19 @@ export default function App() {
     contractorName,
     inspectorName,
     present,
-    lastUpdatedAt
+    lastUpdatedAt,
+    isOnline,
+    projectRoleSource
   ]);
 
   // Firebase Realtime Subcollection-Based Multi-Device Sync Listener
   useEffect(() => {
     if (!isHydrated || isLoadingProject || isRestoring || isInitializing || !isProjectRoleResolved) return;
+    if (!isOnline || projectRoleSource !== 'cloud' || !projectRoleAllowed) {
+      setCloudInitialReady(false);
+      setCloudDefectIndex(null);
+      return;
+    }
     if (!cloudUserKey) {
       setCloudInitialReady(false);
       return;
@@ -2478,6 +2698,7 @@ export default function App() {
         receivedInitialSubcollectionsRef.current.add(stateKey);
         if (receivedInitialSubcollectionsRef.current.size >= 9) {
           setCloudInitialReady(true);
+          setBusinessDataSource('cloud');
         }
 
         // 2. Perform distributed reconciliation to resolve conflicts and sync cleanly
@@ -2554,10 +2775,12 @@ export default function App() {
             const dbKey = getKey(`construction_${stateKey === 'roomProgressList' ? 'room_progress' : stateKey.replace(/([A-Z])/g, '_$1').toLowerCase()}`, subscribedProjectId);
             // For a verified VIEWER, present state follows Firestore exactly, but do not
             // overwrite the editor's older local cache. If that account later becomes an
-            // ENGINEER/ADMIN, V6.2.22 can reconcile any unsent local-only records instead
+            // EDITOR/ADMIN, V6.2.22 can reconcile any unsent local-only records instead
             // of silently losing them.
             if (!viewerCloudTruth) {
-              setAsyncItem(dbKey, mergedPatchList).catch(err => console.warn('Patch sync save IndexedDB warning:', err));
+              if (!FIREBASE_ONLY_RUNTIME || LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED) {
+                setAsyncItem(dbKey, mergedPatchList).catch(err => console.warn('Legacy patch cache write warning:', err));
+              }
             }
             return { ...prev, [stateKey]: mergedPatchList };
           }
@@ -2652,7 +2875,9 @@ export default function App() {
           // Persist the specific table to IndexedDB asynchronously
           const dbKey = getKey(`construction_${stateKey === 'roomProgressList' ? 'room_progress' : stateKey.replace(/([A-Z])/g, '_$1').toLowerCase()}`, subscribedProjectId);
           if (!viewerCloudTruth) {
-            setAsyncItem(dbKey, mergedList).catch(err => console.warn('Sync save IndexedDB warning:', err));
+            if (!FIREBASE_ONLY_RUNTIME || LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED) {
+              setAsyncItem(dbKey, mergedList).catch(err => console.warn('Legacy sync cache write warning:', err));
+            }
           }
 
           return updatedState;
@@ -2663,13 +2888,13 @@ export default function App() {
     return () => {
       if (unsubscribe) unsubscribe();
     };
-  }, [activeProjectId, cloudUserKey, cloudBootstrapVersion, isHydrated, isLoadingProject, isRestoring, isInitializing, isProjectRoleResolved, currentUserRole]);
+  }, [activeProjectId, cloudUserKey, cloudBootstrapVersion, isHydrated, isLoadingProject, isRestoring, isInitializing, isProjectRoleResolved, currentUserRole, isOnline, projectRoleSource, projectRoleAllowed]);
 
   // Photo metadata is realtime; binary image chunks are downloaded lazily only when an image is displayed.
   // This keeps multi-device image sync complete without loading every photo into phone RAM at startup.
   useEffect(() => {
     const photoTabActive = activeTab === 'floorplan' || activeTab === 'crew' || activeTab === 'chat';
-    if (!photoTabActive || !isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey) {
+    if (!photoTabActive || !isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || !isOnline || projectRoleSource !== 'cloud' || !projectRoleAllowed) {
       setPhotoCloudStatus({ phase: 'idle', pending: 0 });
       return;
     }
@@ -2678,7 +2903,7 @@ export default function App() {
       if (activeProjectIdRef.current === projectId) setPhotoCloudStatus(status);
     });
     return () => unsubscribePhotos();
-  }, [activeProjectId, activeTab, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing]);
+  }, [activeProjectId, activeTab, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, isOnline, projectRoleSource, projectRoleAllowed]);
 
   const handleUpdateProjectName = (val: string) => {
     if (!isProjectRoleResolved || currentUserRole !== 'ADMIN') return;
@@ -2767,17 +2992,17 @@ export default function App() {
       const pid = operationProjectId;
       if (data.projectName) {
         if (isCurrentActive) setProjectName(data.projectName);
-        await setAsyncItem(getKey('construction_project_name', pid), data.projectName);
+        if (!FIREBASE_ONLY_RUNTIME || LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED) await setAsyncItem(getKey('construction_project_name', pid), data.projectName);
         safeSetLocalStorageItem(getKey('construction_project_name', pid), data.projectName);
       }
       if (data.contractorName !== undefined) {
         if (isCurrentActive) setContractorName(data.contractorName || '');
-        await setAsyncItem(getKey('construction_contractor', pid), data.contractorName || '');
+        if (!FIREBASE_ONLY_RUNTIME || LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED) await setAsyncItem(getKey('construction_contractor', pid), data.contractorName || '');
         safeSetLocalStorageItem(getKey('construction_contractor', pid), data.contractorName || '');
       }
       if (data.inspectorName !== undefined) {
         if (isCurrentActive) setInspectorName(data.inspectorName || '');
-        await setAsyncItem(getKey('construction_inspector', pid), data.inspectorName || '');
+        if (!FIREBASE_ONLY_RUNTIME || LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED) await setAsyncItem(getKey('construction_inspector', pid), data.inspectorName || '');
         safeSetLocalStorageItem(getKey('construction_inspector', pid), data.inspectorName || '');
       }
       const nextState = {
@@ -2797,17 +3022,33 @@ export default function App() {
         setPresent(nextState);
       }
 
-      await Promise.all([
-        setAsyncItem(getKey('construction_material_norms', pid), nextState.materialNorms),
-        setAsyncItem(getKey('construction_inventory', pid), nextState.inventory),
-        setAsyncItem(getKey('construction_work_volumes', pid), nextState.workVolumes),
-        setAsyncItem(getKey('construction_floor_plans', pid), nextState.floorPlans),
-        setAsyncItem(getKey('construction_defects', pid), nextState.defects),
-        setAsyncItem(getKey('construction_room_progress', pid), nextState.roomProgressList),
-        setAsyncItem(getKey('construction_checklist', pid), nextState.checklist),
-        setAsyncItem(getKey('construction_crew_records', pid), nextState.crewRecords),
-        setAsyncItem(getKey('construction_teams', pid), nextState.teams),
-      ]);
+      if (!FIREBASE_ONLY_RUNTIME || LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED) {
+        await Promise.all([
+          setAsyncItem(getKey('construction_material_norms', pid), nextState.materialNorms),
+          setAsyncItem(getKey('construction_inventory', pid), nextState.inventory),
+          setAsyncItem(getKey('construction_work_volumes', pid), nextState.workVolumes),
+          setAsyncItem(getKey('construction_floor_plans', pid), nextState.floorPlans),
+          setAsyncItem(getKey('construction_defects', pid), nextState.defects),
+          setAsyncItem(getKey('construction_room_progress', pid), nextState.roomProgressList),
+          setAsyncItem(getKey('construction_checklist', pid), nextState.checklist),
+          setAsyncItem(getKey('construction_crew_records', pid), nextState.crewRecords),
+          setAsyncItem(getKey('construction_teams', pid), nextState.teams),
+        ]);
+      }
+
+      if (FIREBASE_ONLY_RUNTIME) {
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          throw new Error('Import Firebase-only cần có mạng để kiểm tra revision và ghi an toàn vào Firestore. Tệp chưa bị xóa; hãy thử lại khi online.');
+        }
+        await saveProjectToCloud({
+          id: pid,
+          name: data.projectName || projectName || `Dự án ${pid}`,
+          contractorName: data.contractorName || '',
+          inspectorName: data.inspectorName || '',
+          syncCode: pid.slice(0, 8).toUpperCase(),
+          payload: nextState,
+        });
+      }
 
       const parsedSourceTime = parseLegacyTimestamp(data.updatedAt, 0);
       let updatedTime = parsedSourceTime > 0 ? parsedSourceTime : 0;
@@ -2837,7 +3078,7 @@ export default function App() {
       }
 
       if (isCurrentActive) setLastUpdatedAt(updatedTime);
-      await setAsyncItem(getKey('construction_updated_at', pid), String(updatedTime));
+      if (!FIREBASE_ONLY_RUNTIME || LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED) await setAsyncItem(getKey('construction_updated_at', pid), String(updatedTime));
       safeSetLocalStorageItem(getKey('construction_updated_at', pid), String(updatedTime));
 
       console.log('[RESTORE SUCCESS]', pid);
@@ -2857,6 +3098,10 @@ export default function App() {
 
   const handleRestoreAllStorageData = async (parsedData: any) => {
     if (!parsedData) return;
+    if (FIREBASE_ONLY_RUNTIME) {
+      alert('Firebase-only không phục hồi database bằng cách ghi đè localStorage/IndexedDB. Hãy dùng Import Backup theo từng dự án để dữ liệu được kiểm tra ID/revision và ghi vào Firestore.');
+      return;
+    }
     try {
       syncLockRef.current = true;
       for (const key in parsedData) {
@@ -2885,6 +3130,7 @@ export default function App() {
 
   // Google Drive Sync Up
   const handleDriveSyncUp = async (customFolderId?: string) => {
+    if (FIREBASE_ONLY_RUNTIME) return { success: false, error: 'Google Drive runtime đã tắt trong Firebase-only. Drive chỉ còn dùng để đọc/migrate dữ liệu legacy.' };
     if (!isProjectRoleResolved || !canEditProjectData(currentUserRole)) return { success: false, error: 'Quyền dự án chưa sẵn sàng hoặc tài khoản chỉ có quyền xem.' };
     const operationProjectId = activeProjectIdRef.current || activeProjectId;
     if (!googleServerBackendAvailable) {
@@ -3027,6 +3273,7 @@ export default function App() {
   };
 
   const handleDriveSyncUpAll = async (customFolderId?: string) => {
+    if (FIREBASE_ONLY_RUNTIME) return { success: false, error: 'Google Drive runtime đã tắt trong Firebase-only. Chỉ migration legacy được phép đọc Drive.' };
     if (!isProjectRoleResolved || !canEditProjectData(currentUserRole)) return { success: false, error: 'Quyền dự án chưa sẵn sàng hoặc tài khoản chỉ có quyền xem.' };
     if (!googleServerBackendAvailable) {
       return {
@@ -3065,6 +3312,7 @@ export default function App() {
   };
 
   const handleDriveSyncDownAll = async (customFolderId?: string) => {
+    if (FIREBASE_ONLY_RUNTIME) return { success: false, error: 'Drive restore/sync hai chiều đã tắt. Dùng Import Backup thủ công hoặc migration legacy có kiểm chứng.' };
     if (!googleServerBackendAvailable) {
       return {
         success: false,
@@ -3215,6 +3463,7 @@ export default function App() {
 
   // Google Drive Sync Down
   const handleDriveSyncDown = async (customFolderId?: string, forceOverwrite = false) => {
+    if (FIREBASE_ONLY_RUNTIME) return { success: false, error: 'Drive sync-down runtime đã tắt trong Firebase-only. Drive legacy không còn là nguồn realtime.' };
     if (syncLockRef.current || switchingProjectRef.current) return { success: false, message: 'Hệ thống đang đồng bộ dữ liệu.' };
     if (!googleServerBackendAvailable) {
       setDriveSyncStatus('idle');
@@ -3372,7 +3621,7 @@ export default function App() {
           const authData = await res.json();
           if (authData.authenticated) {
             setIsAuthenticated(true);
-            if (autoSyncEnabled) {
+            if (!FIREBASE_ONLY_RUNTIME && autoSyncEnabled) {
               await handleDriveSyncDown(undefined, false);
             }
           }
@@ -3388,15 +3637,27 @@ export default function App() {
   useEffect(() => {
     if (!isHydrated || isLoadingProject || isRestoring || isInitializing) return;
     if (!isProjectRoleResolved) return;
+    if (!projectRoleAllowed) return;
+    if (projectRoleSource !== 'cloud' && projectRoleSource !== 'offline-cache') return;
     if (!canEditProjectData(currentUserRole)) return;
     if (syncLockRef.current || switchingProjectRef.current) return;
     if (!cloudUserKey) return;
-    if (!cloudInitialReady) return;
+
+    // Online writes wait for the full 9-dataset bootstrap. Offline writes are different:
+    // once the project was hydrated from Firestore cache and the exact user+project role
+    // lease is verified, mutations must be queued immediately into Firestore persistence.
+    // Otherwise an offline edit could exist only in React RAM and disappear on reload.
+    const canQueueOfflineFirestoreWrite = FIREBASE_ONLY_RUNTIME
+      && !isOnline
+      && (projectRoleSource === 'offline-cache' || projectRoleSource === 'cloud')
+      && (businessDataSource === 'firestore-cache' || businessDataSource === 'cloud');
+    const canWriteOnline = isOnline && projectRoleSource === 'cloud' && cloudInitialReady;
+    if (!canWriteOnline && !canQueueOfflineFirestoreWrite) return;
 
     const projectIdForThisSave = activeProjectId;
     const priorityRevisionAtSchedule = priorityCloudSyncRevisionRef.current;
     const hasPriorityRealtimeChange = priorityRevisionAtSchedule > flushedPriorityCloudSyncRevisionRef.current;
-    const cloudSaveDelayMs = hasPriorityRealtimeChange ? 300 : 6000;
+    const cloudSaveDelayMs = canQueueOfflineFirestoreWrite ? 0 : (hasPriorityRealtimeChange ? 300 : 6000);
 
     if (hasPriorityRealtimeChange) {
       setDataCloudStatus({ phase: 'syncing', message: 'Đang đồng bộ thay đổi quan trọng...' });
@@ -3404,7 +3665,7 @@ export default function App() {
 
     const timer = setTimeout(() => {
       if (!syncLockRef.current && !switchingProjectRef.current && activeProjectIdRef.current === projectIdForThisSave) {
-        if (autoSyncEnabled && googleServerBackendAvailable) {
+        if (!FIREBASE_ONLY_RUNTIME && autoSyncEnabled && googleServerBackendAvailable) {
           handleDriveSyncUp().catch(err => console.warn('Auto drive sync warning:', err));
         }
         
@@ -3421,7 +3682,7 @@ export default function App() {
           const keys = REALTIME_STATE_KEYS as (keyof AppData)[];
 
           const addedOrModified: Record<string, any[]> = {};
-          const deletedIds: Record<string, string[]> = {};
+          const deletedIds: Record<string, Array<{ id: string; deletedAt: number; revision: number }>> = {};
           let hasChanges = false;
 
           for (const k of keys) {
@@ -3450,10 +3711,18 @@ export default function App() {
               }
             });
 
-            const deleted: string[] = [];
+            const deleted: Array<{ id: string; deletedAt: number; revision: number }> = [];
             prevList.forEach((item: any) => {
               if (item && item.id && !nextMap.has(item.id)) {
-                deleted.push(item.id);
+                // Preserve the timestamp of the actual user delete. Reconnect time must
+                // never become the tombstone time, otherwise an old offline device can
+                // make a stale deletion appear newer than a legitimate Cloud edit.
+                const deletedAt = Number(localTombstonesRef.current[`${String(k)}_${String(item.id)}`] || item.deletedAt || item.updatedAt || Date.now());
+                deleted.push({
+                  id: String(item.id),
+                  deletedAt,
+                  revision: Math.max(Number(item.revision || 0) + 1, 1),
+                });
               }
             });
 
@@ -3475,6 +3744,53 @@ export default function App() {
           if (hasChanges || metadataChanged || !lastSyncedPresentRef.current) {
             // Save metadata and only changed records
             const snapshotForSave = present;
+
+            if (canQueueOfflineFirestoreWrite) {
+              const queued = queueProjectDiffsToFirestoreOffline(activeId, projectName, contractorName, inspectorName, {
+                addedOrModified,
+                deletedIds
+              }, {
+                touchProjectMetadata: currentUserRole === 'ADMIN' && (metadataChanged || !lastSyncedPresentRef.current),
+              });
+
+              if (queued.queuedRecords > 0 || metadataChanged) {
+                // Advance the local diff baseline after the SDK accepts the mutations into
+                // its persistence layer. This prevents repeatedly enqueuing the same local
+                // revision while offline; server rejection is reconciled by realtime later.
+                lastSyncedPresentRef.current = snapshotForSave;
+                lastSyncedMetadataRef.current = { projectName, contractorName, inspectorName };
+                flushedPriorityCloudSyncRevisionRef.current = Math.max(flushedPriorityCloudSyncRevisionRef.current, priorityRevisionAtSchedule);
+                if (queued.queuedRecords > 0) adjustFirestorePendingWriteCount(queued.queuedRecords);
+                setDataCloudStatus({
+                  phase: 'syncing',
+                  message: queued.queuedRecords > 0
+                    ? `Offline · ${queued.queuedRecords} thay đổi đã vào hàng chờ Firestore.`
+                    : 'Offline · thay đổi cấu hình đã vào hàng chờ Firestore.',
+                });
+
+                if (queued.commitPromises.length > 0) {
+                  void Promise.allSettled(queued.commitPromises).then((results) => {
+                    adjustFirestorePendingWriteCount(-queued.queuedRecords);
+                    if (switchingProjectRef.current || activeProjectIdRef.current !== activeId) return;
+                    const rejected = results.filter((result) => result.status === 'rejected');
+                    if (rejected.length > 0) {
+                      const firstReason: any = (rejected[0] as PromiseRejectedResult).reason;
+                      const code = String(firstReason?.code || '');
+                      setDataCloudStatus({
+                        phase: code === 'permission-denied' ? 'conflict' : 'error',
+                        message: code === 'permission-denied'
+                          ? 'Pending offline bị Rules/revision từ chối. Dữ liệu Cloud mới hơn sẽ được realtime hòa giải; không tự ghi đè.'
+                          : `Có pending offline không gửi được: ${firstReason?.message || String(firstReason)}`,
+                      });
+                    } else if (firestorePendingWriteCountRef.current === 0) {
+                      setDataCloudStatus({ phase: 'synced', lastSyncAt: Date.now(), message: 'Các thay đổi offline đã được Firebase xác nhận.' });
+                    }
+                  });
+                }
+              }
+              return;
+            }
+
             queueCloudSave(async () => {
               await saveProjectDiffsToCloud(activeId, projectName, contractorName, inspectorName, {
                 addedOrModified,
@@ -3500,8 +3816,15 @@ export default function App() {
             }).catch(err => {
               console.warn('Cloud auto save notice:', err);
               if (!switchingProjectRef.current && activeProjectIdRef.current === activeId) {
-                setDataCloudStatus({ phase: 'error', message: err instanceof Error ? err.message : 'Không thể đồng bộ dữ liệu lên Firebase.' });
                 const errorCode = String((err as any)?.code || '');
+                const errorMessage = err instanceof Error ? err.message : 'Không thể đồng bộ dữ liệu lên Firebase.';
+                const looksLikeConflict = errorCode === 'permission-denied' && canEditProjectData(currentUserRole);
+                setDataCloudStatus({
+                  phase: looksLikeConflict ? 'conflict' : 'error',
+                  message: looksLikeConflict
+                    ? 'Có xung đột revision hoặc Rules từ chối bản ghi cũ. Ứng dụng giữ dữ liệu Cloud mới hơn và chờ realtime hòa giải.'
+                    : errorMessage
+                });
                 const shouldRetry = typeof navigator === 'undefined' || navigator.onLine;
                 if (shouldRetry && errorCode !== 'permission-denied' && cloudDataRetryTimerRef.current === null) {
                   const attempt = Math.min(5, cloudDataRetryAttemptRef.current + 1);
@@ -3524,7 +3847,7 @@ export default function App() {
     }, cloudSaveDelayMs); // V6.2.25: Defect/crew priority flush 300ms; other edits retain 6s batching.
 
     return () => clearTimeout(timer);
-  }, [present, projectName, contractorName, inspectorName, autoSyncEnabled, isHydrated, isLoadingProject, isRestoring, isInitializing, activeProjectId, cloudUserKey, cloudInitialReady, currentUserRole, isProjectRoleResolved, cloudDataRetryTick]);
+  }, [present, projectName, contractorName, inspectorName, autoSyncEnabled, isHydrated, isLoadingProject, isRestoring, isInitializing, activeProjectId, cloudUserKey, cloudInitialReady, currentUserRole, isProjectRoleResolved, cloudDataRetryTick, isOnline, projectRoleSource, projectRoleAllowed, businessDataSource]);
 
   // Local File Auto-Save Debounced Effect
   useEffect(() => {
@@ -3712,12 +4035,14 @@ export default function App() {
       const updated = await saveBackupVersion(newVersion, maxVersions);
       setAutosaveVersions(updated);
 
-      try {
-        const driveBackup = await buildPrimaryDriveBackupObject();
-        await uploadProjectBackupToPrimaryDrive(activeProjectIdRef.current, driveBackup, 'manual');
-        lastPrimaryDriveBackupAtRef.current = Date.now();
-      } catch (driveErr) {
-        console.warn('[Primary Drive] manual backup mirror skipped:', driveErr);
+      if (!FIREBASE_ONLY_RUNTIME) {
+        try {
+          const driveBackup = await buildPrimaryDriveBackupObject();
+          await uploadProjectBackupToPrimaryDrive(activeProjectIdRef.current, driveBackup, 'manual');
+          lastPrimaryDriveBackupAtRef.current = Date.now();
+        } catch (driveErr) {
+          console.warn('[Primary Drive] legacy manual backup mirror skipped:', driveErr);
+        }
       }
       alert('Đã tạo điểm phục hồi dự án thành công!');
     } catch (e) {
@@ -3740,15 +4065,29 @@ export default function App() {
       return;
     }
     
-    if (await confirmAsync('⚠️ Chú ý: Việc phục hồi phiên bản này sẽ ghi đè toàn bộ dữ liệu hiện tại của bạn. Bạn có muốn tiếp tục?')) {
+    if (await confirmAsync('⚠️ Chú ý: Việc phục hồi phiên bản này sẽ ghi dữ liệu sao lưu trở lại dự án hiện tại. Bạn có muốn tiếp tục?')) {
       syncLockRef.current = true;
       try {
-        await restoreAllProjectsBackupObject(versionData);
+        if (FIREBASE_ONLY_RUNTIME) {
+          if (typeof navigator !== 'undefined' && !navigator.onLine) {
+            throw new Error('Khôi phục backup Firebase-only cần online để kiểm tra revision và ghi Firestore/Storage an toàn.');
+          }
+          const projectId = activeProjectIdRef.current || activeProjectId;
+          const normalized = normalizeImportedData(versionData, projectId, projectId);
+          await handleRestoreData(normalized, projectId);
+          await restorePhotoBackupBundle(versionData);
+          const photoResult = await syncProjectPhotosToCloud(projectId);
+          if (Number(photoResult.failed || 0) > 0) {
+            throw new Error(`Còn ${photoResult.failed} ảnh backup chưa tải lên Firebase Storage.`);
+          }
+        } else {
+          await restoreAllProjectsBackupObject(versionData);
+        }
         alert('🎉 Phục hồi phiên bản sao lưu thành công!');
         window.location.reload();
       } catch (err) {
         console.error('Restore version error:', err);
-        alert('Có lỗi xảy ra khi phục hồi phiên bản.');
+        alert(err instanceof Error ? err.message : 'Có lỗi xảy ra khi phục hồi phiên bản.');
         syncLockRef.current = false;
       }
     }
@@ -3756,6 +4095,7 @@ export default function App() {
 
   // Local All File Auto-Save Debounced Effect
   useEffect(() => {
+    if (FIREBASE_ONLY_RUNTIME) return; // JSON is manual Backup/Export/Import only.
     if (!isHydrated || isLoadingProject || isRestoring) return;
     if (!localAllFileHandle) return;
     if (syncLockRef.current) return;
@@ -3850,8 +4190,9 @@ export default function App() {
         await saveAutoSaveVersion(currentProjectData);
         lastLocalVersionBackupAtRef.current = Date.now();
 
-        // Primary Drive is an additional lightweight project backup layer.
-        if (Date.now() - lastPrimaryDriveBackupAtRef.current >= intervalMs && await isPrimaryDriveReady().catch(() => false)) {
+        // Drive backup is legacy-only. Firebase-only runtime never writes runtime/backup
+        // data to Drive; existing Drive data remains read-only until migration verification.
+        if (!FIREBASE_ONLY_RUNTIME && Date.now() - lastPrimaryDriveBackupAtRef.current >= intervalMs && await isPrimaryDriveReady().catch(() => false)) {
           try {
             const driveBackup = await buildPrimaryDriveBackupObject();
             await uploadProjectBackupToPrimaryDrive(projectIdForBackup, driveBackup, 'auto');
@@ -3870,6 +4211,10 @@ export default function App() {
 
   // Link local JSON file for auto sync
   const handleLinkLocalFile = async () => {
+    if (FIREBASE_ONLY_RUNTIME) {
+      alert('Firebase-only: tự đồng bộ JSON đã tắt. JSON chỉ dùng Backup / Export / Import thủ công.');
+      return;
+    }
     try {
       if (isAndroidAutoSaveAvailable()) {
         if (!hasAndroidAutoSaveFolder()) {
@@ -4042,6 +4387,9 @@ export default function App() {
 
   // Sync to Google Sheets API
   const handleSyncAll = async () => {
+    if (FIREBASE_ONLY_RUNTIME) {
+      return { success: false, message: 'Đồng bộ Google Sheets/Drive hai chiều đã tắt trong Firebase-only. Firestore là nguồn dữ liệu duy nhất; dùng Export Excel/JSON thủ công khi cần.' };
+    }
     if (!googleServerBackendAvailable) {
       return {
         success: false,
@@ -4123,7 +4471,6 @@ export default function App() {
   const handleUpdateNorm = (id: string, updated: Omit<MaterialNorm, 'id'>) => {
     updateAppData((prev) => {
       const oldNorm = prev.materialNorms.find((n) => n.id === id);
-      const oldName = oldNorm?.materialName;
       const stableMaterialId = oldNorm?.materialId || `MAT-${id}`;
       const normalizedUpdated = {
         ...updated,
@@ -4131,28 +4478,16 @@ export default function App() {
         unit: normalizeUnit(updated.unit) || updated.unit,
         normBasisUnit: updated.normBasisUnit ? (normalizeUnit(updated.normBasisUnit) || updated.normBasisUnit) : undefined,
       };
-      const newName = normalizedUpdated.materialName;
-
       const newNorms = prev.materialNorms.map((norm) =>
         norm.id === id ? { ...norm, ...normalizedUpdated, id: norm.id } : norm
       );
 
-      let newInventory = prev.inventory;
-      if (oldName && oldName.trim().toLocaleLowerCase('vi-VN') !== newName.trim().toLocaleLowerCase('vi-VN')) {
-        const oldKey = oldName.trim().toLocaleLowerCase('vi-VN');
-        newInventory = prev.inventory.map((inv) => {
-          const isMatch = (inv.materialId && (inv.materialId === id || inv.materialId === stableMaterialId || (oldNorm && inv.materialId === oldNorm.materialId)))
-            || (inv.materialName && inv.materialName.trim().toLocaleLowerCase('vi-VN') === oldKey);
-          return isMatch
-            ? { ...inv, materialId: stableMaterialId, materialName: newName, unit: normalizedUpdated.unit }
-            : inv;
-        });
-      }
-
+      // Inventory is an immutable transaction ledger in Firebase-only. Renaming a
+      // material master must not rewrite historical stock transactions or their balance
+      // effect. Screens resolve the current material label by materialId where needed.
       return {
         ...prev,
         materialNorms: newNorms,
-        inventory: newInventory,
       };
     });
   };
@@ -4199,16 +4534,37 @@ export default function App() {
     });
   };
 
-  // Handlers for Inventory
-  const handleAddInventory = (item: Omit<InventoryItem, 'id'> & { id?: string }) => {
+  // Handlers for Inventory. In Firebase-only runtime the inventory collection is an
+  // immutable ledger and every manual/room-auto mutation must pass through the atomic
+  // Firestore transaction service that updates inventory_balances in the same commit.
+  // React state is then refreshed by the normal Firestore realtime listener; this avoids
+  // a second local write path racing the server transaction.
+  const handleAddInventory = async (item: Omit<InventoryItem, 'id'> & { id?: string }) => {
     const newId = item.id || createEntityId(item.type === 'in' ? 'NK' : 'XK');
+    const normalized = { ...item, unit: normalizeUnit(item.unit) || item.unit, id: newId } as InventoryItem;
+
+    if (FIREBASE_ONLY_RUNTIME) {
+      const existing = present.inventory.find((inv) => inv.id === newId);
+      if (existing) {
+        await updateWarehouseTransactionAtomic(activeProjectIdRef.current, newId, {
+          ...existing,
+          ...normalized,
+          id: newId,
+          // room-auto IDs are deterministic and represent one cumulative ledger row.
+          quantity: normalized.sourceType === 'room-auto'
+            ? Math.max(Number(existing.quantity || 0), Number(normalized.quantity || 0))
+            : Number(normalized.quantity || 0),
+        });
+      } else {
+        await commitWarehouseTransactionAtomic(activeProjectIdRef.current, normalized);
+      }
+      return;
+    }
+
     updateAppData((prev) => {
-      const normalized = { ...item, unit: normalizeUnit(item.unit) || item.unit, id: newId } as InventoryItem;
       const existingIndex = prev.inventory.findIndex((inv) => inv.id === newId);
       if (existingIndex >= 0) {
         const existing = prev.inventory[existingIndex];
-        // One deterministic room-auto record per room/material. Never let a stale
-        // device lower the cumulative quantity already recorded.
         const merged = normalized.sourceType === 'room-auto'
           ? { ...existing, ...normalized, quantity: Math.max(Number(existing.quantity || 0), Number(normalized.quantity || 0)) }
           : { ...existing, ...normalized };
@@ -4218,32 +4574,55 @@ export default function App() {
     });
   };
 
-  const handleUpdateInventory = (id: string, item: Omit<InventoryItem, 'id'>) => {
+  const handleUpdateInventory = async (id: string, item: Omit<InventoryItem, 'id'>) => {
+    if (FIREBASE_ONLY_RUNTIME) {
+      const current = present.inventory.find((inv) => inv.id === id);
+      if (!current) throw new Error('Không tìm thấy giao dịch kho hiện tại. Hãy chờ đồng bộ Firestore rồi thử lại.');
+      await updateWarehouseTransactionAtomic(activeProjectIdRef.current, id, {
+        ...current,
+        ...item,
+        unit: normalizeUnit(item.unit) || item.unit,
+        id,
+      });
+      return;
+    }
     updateAppData((prev) => ({
       ...prev,
       inventory: prev.inventory.map((existing) => existing.id === id ? { ...existing, ...item, unit: normalizeUnit(item.unit) || item.unit, id } : existing),
     }));
   };
 
-  const handleDeleteInventory = (id: string) => {
-    updateAppData((prev) => ({
-      ...prev,
-      inventory: prev.inventory.filter((i) => i.id !== id),
-    }));
+  const handleDeleteInventory = async (id: string) => {
+    if (FIREBASE_ONLY_RUNTIME) {
+      await softDeleteWarehouseTransactionAtomic(activeProjectIdRef.current, id);
+      return;
+    }
+    updateAppData((prev) => ({ ...prev, inventory: prev.inventory.filter((i) => i.id !== id) }));
   };
 
-  const handleDeleteMultipleInventory = (ids: string[]) => {
-    updateAppData((prev) => ({
-      ...prev,
-      inventory: prev.inventory.filter((i) => !ids.includes(i.id)),
-    }));
+  const handleDeleteMultipleInventory = async (ids: string[]) => {
+    if (FIREBASE_ONLY_RUNTIME) {
+      for (const id of ids) await softDeleteWarehouseTransactionAtomic(activeProjectIdRef.current, id);
+      return;
+    }
+    updateAppData((prev) => ({ ...prev, inventory: prev.inventory.filter((i) => !ids.includes(i.id)) }));
   };
 
-  const handleImportInventory = (importedInventory: InventoryItem[]) => {
-    updateAppData((prev) => ({
-      ...prev,
-      inventory: importedInventory.map((item) => ({ ...item, unit: normalizeUnit(item.unit) || item.unit })),
-    }));
+  const handleImportInventory = async (importedInventory: InventoryItem[]) => {
+    const normalizedItems = importedInventory.map((item) => ({ ...item, unit: normalizeUnit(item.unit) || item.unit }));
+    if (FIREBASE_ONLY_RUNTIME) {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        throw new Error('Import kho cần online để cập nhật ledger + tồn kho bằng Firestore transaction an toàn.');
+      }
+      const existingIds = new Set(present.inventory.map((item) => item.id));
+      // UPSERT only: an import never infers deletion merely because a row is absent.
+      for (const item of normalizedItems) {
+        if (existingIds.has(item.id)) await updateWarehouseTransactionAtomic(activeProjectIdRef.current, item.id, item);
+        else await commitWarehouseTransactionAtomic(activeProjectIdRef.current, item);
+      }
+      return;
+    }
+    updateAppData((prev) => ({ ...prev, inventory: normalizedItems }));
   };
 
   // Handlers for Work Volume
@@ -5319,10 +5698,11 @@ export default function App() {
           onClose={() => setIsProjectManagerOpen(false)} 
           activeProjectId={activeProjectId}
           initialTab={projectManagerInitialTab}
+          userRole={currentUserRole}
           autoSyncEnabled={autoSyncEnabled}
           setAutoSyncEnabled={setAutoSyncEnabled}
-          onDriveSyncUpAll={googleServerBackendAvailable ? handleDriveSyncUpAll : undefined}
-          onDriveSyncDownAll={googleServerBackendAvailable ? handleDriveSyncDownAll : undefined}
+          onDriveSyncUpAll={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleDriveSyncUpAll : undefined}
+          onDriveSyncDownAll={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleDriveSyncDownAll : undefined}
           localAllSyncStatus={localAllSyncStatus}
           localAllFileName={localAllFileName}
           localAllFileHandle={localAllFileHandle}
@@ -5356,7 +5736,7 @@ export default function App() {
         />
 
         {/* Offline & Sync Status Banner */}
-        <OfflineSyncBanner onAutoSync={googleServerBackendAvailable ? handleSyncAll : undefined} isSyncing={isSyncing} />
+        <OfflineSyncBanner onAutoSync={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleSyncAll : undefined} isSyncing={isSyncing} userRole={currentUserRole} roleResolved={isProjectRoleResolved} roleSource={projectRoleSource} firestorePendingWriteCount={firestorePendingWriteCount} firebaseOnly={FIREBASE_ONLY_RUNTIME} />
 
         {/* Tab Content */}
         <main className="animate-in fade-in duration-150">
@@ -5368,7 +5748,7 @@ export default function App() {
               onUpdateInventory={handleUpdateInventory}
               onDeleteInventory={handleDeleteInventory}
               onDeleteMultipleInventory={handleDeleteMultipleInventory}
-              onSyncSheets={googleServerBackendAvailable ? handleSyncAll : undefined}
+              onSyncSheets={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleSyncAll : undefined}
               materialNorms={computedMaterialNorms}
               onOpenNormModal={() => setIsMaterialNormOpen(true)}
               onOpenExportPdf={() => setIsExportPdfOpen(true)}
@@ -5597,8 +5977,8 @@ export default function App() {
               driveLastSyncTime={driveLastSyncTime}
               autoSyncEnabled={autoSyncEnabled}
               setAutoSyncEnabled={setAutoSyncEnabled}
-              onDriveSyncUp={handleDriveSyncUp}
-              onDriveSyncDown={handleDriveSyncDown}
+              onDriveSyncUp={!FIREBASE_ONLY_RUNTIME ? handleDriveSyncUp : undefined}
+              onDriveSyncDown={!FIREBASE_ONLY_RUNTIME ? handleDriveSyncDown : undefined}
               activeProjectId={activeProjectId}
               localFileHandle={localFileHandle}
               localSyncStatus={localSyncStatus}
@@ -5619,15 +5999,17 @@ export default function App() {
                 cloudInitialReady,
                 snapshotReadyCount: receivedInitialSubcollectionsRef.current.size,
                 roleResolved: isProjectRoleResolved,
+                roleSource: projectRoleSource,
+                online: isOnline,
                 dataCloudPhase: dataCloudStatus.phase,
                 pendingData: syncDiagnosticPendingData,
                 photoPending: Number(photoCloudStatus.pending || 0),
                 photoPhase: String(photoCloudStatus.phase || 'idle'),
                 pendingDriveUploads: Number(photoCloudStatus.pending || 0) + floorPlanImageSyncPendingRef.current.size + floorPlanImageSyncInFlightRef.current.size,
                 lastSyncAt: Math.max(Number(dataCloudStatus.lastSyncAt || 0), Number(photoCloudStatus.lastSyncAt || 0)),
-                lastSyncError: dataCloudStatus.phase === 'error' ? String(dataCloudStatus.message || 'Lỗi đồng bộ dữ liệu') : photoCloudStatus.phase === 'error' ? String(photoCloudStatus.message || 'Lỗi đồng bộ ảnh') : '',
+                lastSyncError: (dataCloudStatus.phase === 'error' || dataCloudStatus.phase === 'conflict') ? String(dataCloudStatus.message || 'Lỗi/xung đột đồng bộ dữ liệu') : photoCloudStatus.phase === 'error' ? String(photoCloudStatus.message || 'Lỗi đồng bộ ảnh') : '',
                 dataSchemaVersion: CURRENT_DATA_SCHEMA_VERSION,
-                firebaseUserEmail: getCurrentRealFirebaseUser()?.email || undefined,
+                firebaseUserEmail: getCurrentRealFirebaseUser()?.email || (!isOnline ? getRememberedVerifiedAuthIdentity()?.email : undefined),
                 duplicateProjectIds: authorizedChatProjects
                   .filter((project) => project.id !== activeProjectId && String(project.name || '').trim().toLocaleLowerCase('vi-VN') === String(projectName || '').trim().toLocaleLowerCase('vi-VN'))
                   .map((project) => project.id),

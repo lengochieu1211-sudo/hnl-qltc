@@ -1,7 +1,7 @@
 {
   "name": "qlct-an-phu",
   "private": true,
-  "version": "6.2.27",
+  "version": "6.3.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -9,11 +9,15 @@
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
-    "lint": "tsc --noEmit",
-    "test:rules": "node scripts/firestore-rules-check.mjs",
+    "lint": "node scripts/source-lint.mjs",
+    "test:rules": "node scripts/firebase-rules-check.mjs",
     "security:audit": "npm audit --omit=dev --audit-level=critical",
-    "test:stability": "node scripts/stability-gate.mjs",
-    "verify": "npm run test:stability && npm run typecheck && npm run lint && npm run test:rules && npm run security:audit && npm run build"
+    "test:stability": "node scripts/stability-gate.mjs && node scripts/offline-golden.mjs && node scripts/category-golden.mjs && node scripts/firebase-only-golden.mjs && node scripts/firebase-only-legacy-audit.mjs --self-test",
+    "verify": "npm run test:stability && npm run typecheck && npm run lint && npm run test:rules && npm run security:audit && npm run build",
+    "test:offline": "node scripts/offline-golden.mjs",
+    "test:category": "node scripts/category-golden.mjs",
+    "test:firebase-only": "node scripts/firebase-only-golden.mjs",
+    "test:migration-audit": "node scripts/firebase-only-legacy-audit.mjs --self-test"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

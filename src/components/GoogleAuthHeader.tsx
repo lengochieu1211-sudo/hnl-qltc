@@ -14,6 +14,7 @@ import {
   Bell,
   Shield
 } from 'lucide-react';
+import { APP_VERSION } from '../config/appVersion';
 import { UndoRedoControls } from './UndoRedoControls';
 import { GoogleAuthStatus } from '../types';
 import { GoogleAuthModal } from './GoogleAuthModal';
@@ -134,7 +135,7 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center overflow-hidden shadow-md shrink-0 border border-slate-200/50 select-none">
                 <img
-                  src="/icon.png?v=20260825-hnl-master"
+                  src={`/icon.png?v=${APP_VERSION}`}
                   alt="HNL Quản Lý Thi Công"
                   className="w-full h-full object-contain"
                   draggable={false}
@@ -264,11 +265,11 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
                     <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${
                       userRole === 'ADMIN' 
                         ? 'bg-rose-950/90 text-rose-300 border border-rose-700/80' 
-                        : userRole === 'ENGINEER' 
+                        : userRole === 'EDITOR' 
                         ? 'bg-blue-950/90 text-blue-300 border border-blue-700/80' 
                         : 'bg-slate-700 text-slate-300 border border-slate-600'
                     }`}>
-                      {userRole === 'ADMIN' ? (isSuperAdmin ? 'Super Admin' : 'Admin') : userRole === 'ENGINEER' ? 'Kỹ Sư' : 'Chỉ Xem'}
+                      {userRole === 'ADMIN' ? (isSuperAdmin ? 'Super Admin' : 'Admin') : userRole === 'EDITOR' ? 'Kỹ Sư' : 'Chỉ Xem'}
                     </span>
                   )}
                 </button>

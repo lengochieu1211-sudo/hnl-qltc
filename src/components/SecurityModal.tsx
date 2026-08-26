@@ -28,10 +28,6 @@ import {
   getAuditLogs,
   clearAuditLogs,
   logAuditAction,
-  getProjectMembers,
-  saveProjectMembers,
-  addProjectMember,
-  removeProjectMember,
   ProjectMember,
   UserRole,
   AuditLogEntry
@@ -82,7 +78,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
   const [selectedPid, setSelectedPid] = useState<string>(activeProjectId);
   const [projectMembers, setProjectMembers] = useState<any[]>([]);
   const [newMemberEmail, setNewMemberEmail] = useState('');
-  const [newMemberRole, setNewMemberRole] = useState<UserRole>('ENGINEER');
+  const [newMemberRole, setNewMemberRole] = useState<UserRole>('EDITOR');
   const [isSavingMember, setIsSavingMember] = useState(false);
   const [memberMsg, setMemberMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const selectedPidRef = useRef(selectedPid);
@@ -161,7 +157,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
   useEffect(() => {
     if (!selectedPid) return;
     let cancelled = false;
-    setProjectMembers(getProjectMembers(selectedPid));
+    setProjectMembers([]);
     setMemberMsg(null);
     refreshCloudStatus(selectedPid);
 
@@ -175,7 +171,6 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
           role: (m.role || 'VIEWER') as UserRole,
           assignedAt: Number(m.assignedAt || m.updatedAt || Date.now()),
         }));
-      saveProjectMembers(selectedPid, normalized); // local cache only
       setProjectMembers(normalized);
       refreshCloudStatus(selectedPid);
     });
@@ -422,46 +417,6 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
     alert('Mã PIN hợp lệ!');
   };
 
-  const handleAddMember = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newMemberEmail.trim()) {
-      alert('Vui lòng nhập email thành viên!');
-      return;
-    }
-    const email = newMemberEmail.trim().toLowerCase();
-    const assignedAt = Date.now();
-    addProjectMember(selectedPid, {
-      email,
-      role: newMemberRole,
-      assignedAt
-    });
-    
-    // Sync to cloud
-    try {
-      const { saveProjectMemberToCloud } = await import('../lib/firebase');
-      await saveProjectMemberToCloud(selectedPid, { email, role: newMemberRole, assignedAt });
-    } catch (_) {}
-
-    setProjectMembers(getProjectMembers(selectedPid));
-    setNewMemberEmail('');
-    logAuditAction('ROLE_CHANGE', `Đã gán quyền ${newMemberRole} cho email ${email} ở dự án ${selectedPid}`, selectedPid);
-  };
-
-  const handleRemoveMember = async (email: string) => {
-    if (confirm(`Xác nhận thu hồi quyền truy cập của ${email}?`)) {
-      removeProjectMember(selectedPid, email);
-
-      // Sync removal to cloud
-      try {
-        const { removeProjectMemberFromCloud } = await import('../lib/firebase');
-        await removeProjectMemberFromCloud(selectedPid, email);
-      } catch (_) {}
-
-      setProjectMembers(getProjectMembers(selectedPid));
-      logAuditAction('ROLE_CHANGE', `Đã xóa quyền thành viên của ${email} ở dự án ${selectedPid}`, selectedPid);
-    }
-  };
-
   const countAdmins = (members: ProjectMember[]) => members.filter(m => m.role === 'ADMIN').length;
 
   const getSelectedProjectName = (projectId: string) =>
@@ -512,8 +467,8 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
       return;
     }
 
-    const existingMembers = getProjectMembers(pidAtSubmit);
-    const existingMember = existingMembers.find(m => m.email.toLowerCase() === email);
+    const existingMembers = (await fetchProjectMembersFromCloud(pidAtSubmit)).filter((m: any) => m?.email && m?.active !== false);
+    const existingMember = existingMembers.find((m: any) => String(m.email).toLowerCase() === email);
     if (existingMember?.role === 'ADMIN' && newMemberRole !== 'ADMIN' && countAdmins(existingMembers) <= 1) {
       setMemberMsg({ type: 'error', text: 'Khong the ha quyen ADMIN cuoi cung cua du an. Hay them/chuyen mot ADMIN khac truoc.' });
       return;
@@ -524,18 +479,13 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
     setMemberMsg(null);
 
     try {
-      addProjectMember(pidAtSubmit, { email, role: newMemberRole, assignedAt });
-      if (selectedPidRef.current === pidAtSubmit) {
-        setProjectMembers(getProjectMembers(pidAtSubmit));
-      }
-
       await ensureCloudAdminForMemberWrite(pidAtSubmit);
 
       const { saveProjectMemberToCloud } = await import('../lib/firebase');
       await saveProjectMemberToCloud(pidAtSubmit, { email, role: newMemberRole, assignedAt });
 
       if (selectedPidRef.current === pidAtSubmit) {
-        setProjectMembers(getProjectMembers(pidAtSubmit));
+        setProjectMembers((await fetchProjectMembersFromCloud(pidAtSubmit)).filter((m: any) => m?.email && m?.active !== false));
         setNewMemberEmail('');
         setMemberMsg({ type: 'success', text: `Da luu quyen ${newMemberRole} cho ${email}.` });
         await refreshCloudStatus(pidAtSubmit);
@@ -543,10 +493,9 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
       logAuditAction('ROLE_CHANGE', `Da gan quyen ${newMemberRole} cho email ${email} o du an ${pidAtSubmit}`, pidAtSubmit);
     } catch (err: any) {
       if (selectedPidRef.current === pidAtSubmit) {
-        setProjectMembers(getProjectMembers(pidAtSubmit));
         setMemberMsg({
           type: 'error',
-          text: `Da luu offline cho ${email}, nhung chua dong bo Cloud: ${err?.message || err}`
+          text: `Chua thay doi quyen tren Cloud: ${err?.message || err}`
         });
       }
     } finally {
@@ -558,8 +507,8 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
 
   const handleRemoveMemberSafe = async (email: string) => {
     const pidAtSubmit = selectedPid;
-    const existingMembers = getProjectMembers(pidAtSubmit);
-    const targetMember = existingMembers.find(m => m.email.toLowerCase() === email.toLowerCase());
+    const existingMembers = (await fetchProjectMembersFromCloud(pidAtSubmit)).filter((m: any) => m?.email && m?.active !== false);
+    const targetMember = existingMembers.find((m: any) => String(m.email).toLowerCase() === email.toLowerCase());
     if (targetMember?.role === 'ADMIN' && countAdmins(existingMembers) <= 1) {
       setMemberMsg({ type: 'error', text: 'Khong the xoa ADMIN cuoi cung cua du an. Hay them/chuyen mot ADMIN khac truoc.' });
       return;
@@ -569,26 +518,21 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
       setIsSavingMember(true);
       setMemberMsg(null);
       try {
-        removeProjectMember(pidAtSubmit, email);
-        if (selectedPidRef.current === pidAtSubmit) {
-          setProjectMembers(getProjectMembers(pidAtSubmit));
-        }
-
+        await ensureCloudAdminForMemberWrite(pidAtSubmit);
         const { removeProjectMemberFromCloud } = await import('../lib/firebase');
         await removeProjectMemberFromCloud(pidAtSubmit, email);
 
         if (selectedPidRef.current === pidAtSubmit) {
-          setProjectMembers(getProjectMembers(pidAtSubmit));
+          setProjectMembers((await fetchProjectMembersFromCloud(pidAtSubmit)).filter((m: any) => m?.email && m?.active !== false));
           setMemberMsg({ type: 'success', text: `Da xoa quyen cua ${email}.` });
           await refreshCloudStatus(pidAtSubmit);
         }
         logAuditAction('ROLE_CHANGE', `Da xoa quyen thanh vien cua ${email} o du an ${pidAtSubmit}`, pidAtSubmit);
       } catch (err: any) {
         if (selectedPidRef.current === pidAtSubmit) {
-          setProjectMembers(getProjectMembers(pidAtSubmit));
           setMemberMsg({
             type: 'error',
-            text: `Da xoa offline, nhung chua dong bo Cloud: ${err?.message || err}`
+            text: `Chua thu hoi quyen tren Cloud: ${err?.message || err}`
           });
         }
       } finally {
@@ -1021,10 +965,10 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                           <Crown className="w-3 h-3 text-emerald-600" />
                           ADMIN (Chỉ Huy Trưởng)
                         </span>
-                      ) : currentRole === 'ENGINEER' ? (
+                      ) : currentRole === 'EDITOR' ? (
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10.5px] font-extrabold bg-indigo-100 text-indigo-800 border border-indigo-300">
                           <Users className="w-3 h-3 text-indigo-600" />
-                          ENGINEER (Kỹ sư Giám Sát)
+                          EDITOR (Kỹ sư Giám Sát)
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10.5px] font-extrabold bg-slate-100 text-slate-700 border border-slate-300">
@@ -1135,7 +1079,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                   <div className="p-3 bg-white rounded-xl border border-indigo-200 space-y-1">
                     <div className="font-bold text-indigo-800 flex items-center gap-1">
                       <Users className="w-3.5 h-3.5 text-indigo-600" />
-                      ENGINEER (Kỹ sư Thi Công)
+                      EDITOR (Kỹ sư Thi Công)
                     </div>
                     <p className="text-slate-500 leading-relaxed">
                       Cập nhật tiến độ phòng, khối lượng, defect, chấm công, ảnh hiện trường. Không xem đơn giá và không thể xóa/quản lý dự án.
@@ -1189,7 +1133,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                       disabled={isSavingMember}
                       className="flex-1 sm:flex-initial px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700"
                     >
-                      <option value="ENGINEER">Kỹ sư</option>
+                      <option value="EDITOR">Kỹ sư</option>
                       <option value="VIEWER">Chỉ xem</option>
                       <option value="ADMIN">Admin</option>
                     </select>
@@ -1246,11 +1190,11 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                           <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-extrabold uppercase ${
                             m.role === 'ADMIN'
                               ? 'bg-rose-100 text-rose-700'
-                              : m.role === 'ENGINEER'
+                              : m.role === 'EDITOR'
                               ? 'bg-blue-100 text-blue-700'
                               : 'bg-slate-200 text-slate-700'
                           }`}>
-                            {m.role === 'ADMIN' ? 'Admin' : m.role === 'ENGINEER' ? 'Kỹ sư' : 'Chỉ xem'}
+                            {m.role === 'ADMIN' ? 'Admin' : m.role === 'EDITOR' ? 'Kỹ sư' : 'Chỉ xem'}
                           </span>
                         </div>
                         <button

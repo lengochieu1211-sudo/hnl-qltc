@@ -31,8 +31,13 @@ async function bootstrap() {
     console.warn('[Bootstrap storage preflight] Continuing with partial cleanup:', err);
   }
 
-  // Dynamic import intentionally happens after preflight.
-  const { default: App } = await import('./App.tsx');
+  // Dynamic imports intentionally happen after preflight. App Check is optional
+  // until DEV/PROD site keys are provisioned; missing key is a deliberate no-op.
+  const [{ default: App }, { initializeOptionalAppCheck }] = await Promise.all([
+    import('./App.tsx'),
+    import('./lib/appCheck'),
+  ]);
+  initializeOptionalAppCheck();
 
   createRoot(document.getElementById('root')!).render(
     <StrictMode>

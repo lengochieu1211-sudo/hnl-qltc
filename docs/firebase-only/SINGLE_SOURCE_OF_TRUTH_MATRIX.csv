@@ -1,0 +1,19 @@
+Module,Current RC1 Runtime Source,Write Path,Read Path,Legacy Dependency/Risk,Target,Status
+Project root,Firestore,Firestore projects/{projectId},Firestore + cached discovery,local project list only for startup/discovery,Firestore,VERIFIED_SOURCE
+Members/Roles,Firestore Auth+members,ADMIN/member Firestore writes,server verification + identity/project lease offline,legacy ENGINEER accepted temporarily,Firestore/Auth,VERIFIED_SOURCE
+Rooms,Firestore,Firestore diff/offline pending,Firestore realtime/cache,legacy localforage read-only migration candidate,Firestore,VERIFIED_SOURCE
+Inventory ledger,Firestore,transaction service + Firestore,Firestore realtime/cache,legacy balance backfill required,Firestore transaction ledger,REVIEW
+WorkVolumes/Categories,Firestore,Firestore diff/offline pending,Firestore realtime/cache,legacy text references remain for migration,Firestore ID relationships,VERIFIED_SOURCE
+FloorPlans,Firestore metadata + Firebase Storage,new binary Storage + metadata Firestore,Storage/Firestore + legacy Drive read fallback,Drive migration not checksum verified,Storage+Firestore,BLOCKED_BINARY_MIGRATION
+Defects,Firestore,Firestore diff/offline pending,Firestore realtime/cache,legacy localforage read-only candidate,Firestore,VERIFIED_SOURCE
+Checklist,Firestore,Firestore diff/offline pending,Firestore realtime/cache,legacy localforage read-only candidate,Firestore,VERIFIED_SOURCE
+Crew records,Firestore,Firestore diff/offline pending,Firestore realtime/cache,legacy photos may remain Drive,Firestore+Storage,REVIEW_BINARY_LEGACY
+Teams,Firestore,Firestore diff/offline pending,Firestore realtime/cache,legacy localforage read-only candidate,Firestore,VERIFIED_SOURCE
+Material norms,Firestore,Firestore diff/offline pending,Firestore realtime/cache,legacy name links may remain,Firestore ID relationships,REVIEW_RELATIONSHIP_MIGRATION
+Photos,Firestore metadata + Firebase Storage,Storage upload -> Firestore metadata,Firestore metadata + Storage lazy download + Drive fallback,Drive binaries not fully migrated,Storage+Firestore,BLOCKED_BINARY_MIGRATION
+Trash/soft delete,Firestore tombstones/trash docs,soft-delete metadata,Firestore,legacy local trash cache for compatibility,Firestore,REVIEW_RETENTION_PURGE
+Audit logs,Firestore,append-only Firestore,Firestore,none material,Firestore,VERIFIED_SOURCE
+Project settings,Firestore + device prefs,Firestore shared settings / local device prefs,Firestore + local UI prefs,need continue separating project vs device settings,Firestore shared + local device only,REVIEW
+JSON backup,Manual DR only,export/import explicit,manual restore only,legacy Drive backup paths retained but runtime disabled,DR artifact only,VERIFIED_SOURCE
+Drive/Apps Script,Legacy read/migration only,WRITE DISABLED in Firebase-only,legacy read fallback only,must keep until parity verified,Remove after migration,BLOCKED_BINARY_MIGRATION
+GitHub,Source/build/deploy only,Git operations,CI/CD,none,Source/build only,VERIFIED_SOURCE

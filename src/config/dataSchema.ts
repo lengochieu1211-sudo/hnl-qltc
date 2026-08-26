@@ -1,8 +1,8 @@
 /**
  * App version and data schema version intentionally evolve independently.
- * V4 is the first release with an explicit, centralized, idempotent Cloud migration runner.
+ * V5 marks the non-destructive Firebase-only lifecycle/storage migration baseline.
  */
-export const CURRENT_DATA_SCHEMA_VERSION = 4;
+export const CURRENT_DATA_SCHEMA_VERSION = 5;
 
 export interface DataSchemaMigrationStep {
   version: number;
@@ -19,6 +19,7 @@ export const DATA_SCHEMA_MIGRATIONS: readonly DataSchemaMigrationStep[] = Object
   { version: 2, name: 'firestore-subcollections' },
   { version: 3, name: 'cloud-project-identity-hardening' },
   { version: 4, name: 'realtime-stability-baseline' },
+  { version: 5, name: 'firebase-only-lifecycle-storage-migration' },
 ]);
 
 export function readDataSchemaVersion(value: unknown): number {

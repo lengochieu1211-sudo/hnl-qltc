@@ -1,7 +1,7 @@
 import { initializeApp, getApps } from 'firebase/app';
 import { 
   initializeFirestore, 
-  memoryLocalCache,
+  persistentLocalCache,
   doc, 
   setDoc, 
   getDoc, 
@@ -10,6 +10,8 @@ import {
   collection, 
   onSnapshot, 
   getDocFromServer,
+  getDocFromCache,
+  getDocsFromCache,
   query,
   where,
   orderBy,
@@ -24,8 +26,10 @@ import { cleanupTransientLocalStorage, estimateLocalStorageBytes } from '../util
 import { isSuperAdminEmail } from '../config/superAdmin';
 import { REALTIME_COLLECTIONS } from '../config/realtimeCollections';
 import { CURRENT_DATA_SCHEMA_VERSION, getPendingDataSchemaMigrations, readDataSchemaVersion } from '../config/dataSchema';
+import { clearRememberedVerifiedAuthIdentity } from '../utils/offlineAccess';
 const env = (import.meta as any).env || {};
-const isDev = env.DEV || env.MODE === 'development' || !env.PROD;
+export const APP_ENVIRONMENT: 'DEV' | 'PROD' = String(env.VITE_APP_ENV || (env.DEV || env.MODE === 'development' ? 'DEV' : 'PROD')).toUpperCase() === 'PROD' ? 'PROD' : 'DEV';
+const isDev = APP_ENVIRONMENT === 'DEV';
 
 const hostedFirebaseConfig = {
   apiKey: 'AIzaSyAShhTKSnmLMOEm4dST--1_X7fjJUE4znY',
@@ -37,10 +41,11 @@ const hostedFirebaseConfig = {
   firestoreDatabaseId: '(default)'
 };
 
-// Use the real Firebase project as the fallback in every client build.
-// Development must not silently switch to a different/mock project because that
-// makes the same Google account see different project lists on PC vs Web/APK.
-const defaultFirebaseConfig = hostedFirebaseConfig;
+// PROD preserves the existing Firebase project as its compatibility fallback.
+// DEV MUST be explicit and may never silently point at production data. Missing DEV
+// configuration fails closed instead of using com-example-qlct-61329.
+const blankFirebaseConfig = { apiKey: '', authDomain: '', projectId: '', storageBucket: '', messagingSenderId: '', appId: '', firestoreDatabaseId: '(default)' };
+const defaultFirebaseConfig = APP_ENVIRONMENT === 'PROD' ? hostedFirebaseConfig : blankFirebaseConfig;
 
 const sanitizeConfigValue = (val: string | undefined, fallback: string): string => {
   if (!val) return fallback;
@@ -75,8 +80,8 @@ export const isFirebaseConfigured = Boolean(
   !firebaseConfig.projectId.includes('mock')
 );
 
-if (!isDev && !isFirebaseConfigured) {
-  console.error('⚠️ THIẾU CẤU HÌNH FIREBASE TRONG MÔI TRƯỜNG PRODUCTION! Ứng dụng sẽ hoạt động ở chế độ Offline/Local Storage. Vui lòng khai báo đầy đủ các biến VITE_FIREBASE_* trước khi build APK/Web App.');
+if (!isFirebaseConfigured) {
+  console.error(`⚠️ THIẾU CẤU HÌNH FIREBASE ${APP_ENVIRONMENT}. DEV không bao giờ fallback sang Firebase PROD; hãy khai báo đúng VITE_FIREBASE_* trước khi test.`);
 }
 
 if (!isDev && !firebaseConfig.appId) {
@@ -103,11 +108,10 @@ try {
   }
 } catch (_) {}
 
-// V6.2.10: Firestore uses memory cache only. QLCT already keeps business data,
-// photos and backup history in its own IndexedDB stores. This avoids Firestore 12.x
-// WebStorage client-state writes (`firestore_clients_*`, `firestore_mutations_*`) from
-// crashing browsers whose localStorage is already near quota. Multi-device realtime
-// sync remains unchanged; only Firestore's page-reload persistent cache is disabled.
+// V6.3.0 Firebase-only migration: Firestore's official persistent IndexedDB cache
+// becomes the runtime offline database. The custom localforage business arrays remain
+// read-only migration compatibility until Golden verification proves they can be
+// removed. Using persistentLocalCache() avoids creating a second authoritative DB.
 try {
   const cleaned = cleanupTransientLocalStorage();
   const remaining = estimateLocalStorageBytes();
@@ -119,11 +123,14 @@ try {
 let dbInstance: any;
 try {
   dbInstance = initializeFirestore(app, {
-    localCache: memoryLocalCache(),
+    localCache: persistentLocalCache(),
     experimentalAutoDetectLongPolling: true,
   }, dbId);
 } catch (e) {
-  console.warn('Firestore memory cache initialization warning, retrying default memory cache:', e);
+  // A browser that cannot open IndexedDB must still start. This fallback is deliberately
+  // memory-only and is surfaced in diagnostics; it must not silently re-enable the
+  // custom business database as a second source of truth.
+  console.warn('Firestore persistent cache initialization warning; falling back to memory cache:', e);
   dbInstance = initializeFirestore(app, {
     experimentalAutoDetectLongPolling: true,
   }, dbId);
@@ -235,7 +242,7 @@ async function writeProjectAccessIndex(
 // Compatibility discovery row supported by the already-deployed V6.2.1 Rules.
 // Keep this invitation until the invited account has written users/{uid}.projects.
 // projectAccess is a newer optimization only; failure to write it must NEVER prevent
-// VIEWER/ENGINEER discovery on projects that were assigned while older Rules are live.
+// VIEWER/EDITOR discovery on projects that were assigned while older Rules are live.
 async function ensureProjectInvitationIndex(
   projectId: string,
   email: string,
@@ -340,7 +347,7 @@ const projectRootMetadataTouchAt = new Map<string, number>();
  * - Never changes projectId, name, ownerUid or ownerEmail.
  * - Adds legacy createdAt only once using Firestore server time.
  * - Advances dataSchemaVersion only forward to CURRENT_DATA_SCHEMA_VERSION.
- * - ENGINEER/VIEWER may be denied by Rules; a later ADMIN/SUPER ADMIN open retries it.
+ * - EDITOR/VIEWER may be denied by Rules; a later ADMIN/SUPER ADMIN open retries it.
  *
  * Business screens must not add new ad-hoc legacy project-root migrations. Add future
  * versions to dataSchema.ts and implement their non-destructive root migration here.
@@ -866,7 +873,7 @@ async function writeProjectMemberDocs(
     && normalizeEmail(currentUser?.email) === normalizedEmail
   );
 
-  // An invited VIEWER/ENGINEER is allowed by Firestore Rules to materialize only
+  // An invited VIEWER/EDITOR is allowed by Firestore Rules to materialize only
   // their UID document from the already-authorized email document. Do not make them
   // rewrite the email document first, because that write is ADMIN-only.
   const ids = isSelfMaterialization
@@ -927,6 +934,10 @@ export async function signOutGoogle(): Promise<void> {
   } catch (err: any) {
     console.warn('Google Sign-Out Error:', err);
   } finally {
+    // Explicit sign-out revokes the local offline identity lease. Cached project-role
+    // records may stay for future signed-in recovery, but they cannot be used without
+    // a matching remembered/real Firebase identity.
+    clearRememberedVerifiedAuthIdentity();
     notifyAuthListeners(null);
   }
 }
@@ -999,15 +1010,15 @@ export async function fetchProjectMembersFromCloud(projectId: string): Promise<a
 }
 
 
-function normalizeProjectRole(role?: string | null): 'ADMIN' | 'ENGINEER' | 'VIEWER' {
+function normalizeProjectRole(role?: string | null): 'ADMIN' | 'EDITOR' | 'VIEWER' {
   const value = String(role || 'VIEWER').toUpperCase();
   if (value === 'ADMIN') return 'ADMIN';
-  if (value === 'ENGINEER' || value === 'EDITOR') return 'ENGINEER';
+  if (value === 'EDITOR' || value === 'ENGINEER') return 'EDITOR';
   return 'VIEWER';
 }
 
-function strongerProjectRole(a?: string | null, b?: string | null): 'ADMIN' | 'ENGINEER' | 'VIEWER' {
-  const rank: Record<'ADMIN' | 'ENGINEER' | 'VIEWER', number> = { VIEWER: 1, ENGINEER: 2, ADMIN: 3 };
+function strongerProjectRole(a?: string | null, b?: string | null): 'ADMIN' | 'EDITOR' | 'VIEWER' {
+  const rank: Record<'ADMIN' | 'EDITOR' | 'VIEWER', number> = { VIEWER: 1, EDITOR: 2, ADMIN: 3 };
   const ra = normalizeProjectRole(a);
   const rb = normalizeProjectRole(b);
   return rank[ra] >= rank[rb] ? ra : rb;
@@ -1026,7 +1037,7 @@ export interface CanonicalMemberTransferResult {
  * Security rule:
  * - Current user must be ADMIN on the canonical target.
  * - Existing target roles are never downgraded.
- * - A source-only ADMIN is transferred as ENGINEER unless that email is already ADMIN
+ * - A source-only ADMIN is transferred as EDITOR unless that email is already ADMIN
  *   on the target. This prevents an accidental personal duplicate from granting itself
  *   ADMIN over the organisation's canonical project.
  *
@@ -1085,7 +1096,7 @@ export async function transferProjectMembersToCanonical(
     if (!existingTarget && incomingRole === 'ADMIN') {
       // A duplicate project's owner/admin must not silently become ADMIN of the
       // canonical project. The canonical ADMIN can promote them afterwards.
-      incomingRole = 'ENGINEER';
+      incomingRole = 'EDITOR';
       adminDowngradedToEngineer++;
     }
     const finalRole = existingTarget
@@ -1114,7 +1125,7 @@ export async function transferProjectMembersToCanonical(
  *
  * The current user must be ADMIN on the source project and must at least have access
  * to the target project. This supports the common recovery case where a user owns an
- * accidental duplicate but is only ENGINEER on the organisation's canonical project.
+ * accidental duplicate but is only EDITOR on the organisation's canonical project.
  */
 export async function markProjectMergedIntoCloud(
   sourceProjectId: string,
@@ -1182,18 +1193,31 @@ export function subscribeProjectMembersRealtime(projectId: string, onUpdate: (me
   };
 }
 
+export interface ProjectRoleInfo {
+  allowed: boolean;
+  role: 'ADMIN' | 'EDITOR' | 'VIEWER';
+  isCloudSynced: boolean;
+  ownerUid?: string;
+  ownerEmail?: string;
+  isOwner?: boolean;
+  // `verified` means Firestore answered authoritatively, including an authoritative
+  // VIEWER/deny result. `unavailable` means the network/backend could not verify the
+  // role and MUST NOT downgrade a previously verified offline lease.
+  verification: 'verified' | 'unavailable';
+}
+
 export async function fetchProjectUserRoleFromCloud(
   projectId: string,
   user: User | null
-): Promise<{ allowed: boolean; role: 'ADMIN' | 'ENGINEER' | 'VIEWER'; isCloudSynced: boolean; ownerUid?: string; ownerEmail?: string; isOwner?: boolean }> {
+): Promise<ProjectRoleInfo> {
   if (!projectId || !user) {
-    return { allowed: false, role: 'VIEWER', isCloudSynced: false };
+    return { allowed: false, role: 'VIEWER', isCloudSynced: false, verification: 'unavailable' };
   }
 
   try {
     // 1. Fetch project document to check ownerUid and ownerEmail.
     // Firestore rules now allow the stored ownerEmail to recover ADMIN even if UID changed.
-    const projectSnap = await getDoc(doc(db, 'projects', projectId));
+    const projectSnap = await getDocFromServer(doc(db, 'projects', projectId));
     let pOwnerUid: string | undefined;
     let pOwnerEmail: string | undefined;
 
@@ -1206,15 +1230,15 @@ export async function fetchProjectUserRoleFromCloud(
         // Company SUPER ADMIN may open every existing Cloud project without being added
         // to projects/{projectId}/members. This does not transfer project ownership.
         if (isSuperAdminEmail(user.email)) {
-          return { allowed: true, role: 'ADMIN', isCloudSynced: true, ownerUid: pData.ownerUid, ownerEmail: pData.ownerEmail, isOwner: false };
+          return { allowed: true, role: 'ADMIN', isCloudSynced: true, ownerUid: pData.ownerUid, ownerEmail: pData.ownerEmail, isOwner: false, verification: 'verified' };
         }
         // Direct UID match -> Project Owner (ADMIN)
         if (pData.ownerUid && pData.ownerUid === user.uid) {
-          return { allowed: true, role: 'ADMIN', isCloudSynced: true, ownerUid: pData.ownerUid, ownerEmail: pData.ownerEmail, isOwner: true };
+          return { allowed: true, role: 'ADMIN', isCloudSynced: true, ownerUid: pData.ownerUid, ownerEmail: pData.ownerEmail, isOwner: true, verification: 'verified' };
         }
         // Direct Email match -> Project Owner (ADMIN)
         if (pOwnerEmail && normalizeEmail(user.email) && pOwnerEmail === normalizeEmail(user.email)) {
-          return { allowed: true, role: 'ADMIN', isCloudSynced: true, ownerUid: pData.ownerUid || user.uid, ownerEmail: pData.ownerEmail, isOwner: true };
+          return { allowed: true, role: 'ADMIN', isCloudSynced: true, ownerUid: pData.ownerUid || user.uid, ownerEmail: pData.ownerEmail, isOwner: true, verification: 'verified' };
         }
       }
     }
@@ -1222,34 +1246,34 @@ export async function fetchProjectUserRoleFromCloud(
     // 2. Fetch direct member documents by UID and normalized email.
     // Avoid collection-wide reads because Firestore rules cannot authorize a broad members scan.
     for (const memberDocId of getMemberDocIdsForUser(user)) {
-      const memberSnap = await getDoc(doc(db, 'projects', projectId, 'members', memberDocId));
+      const memberSnap = await getDocFromServer(doc(db, 'projects', projectId, 'members', memberDocId));
       if (memberSnap.exists()) {
         const mData = memberSnap.data();
         if (mData && mData.active === false) {
-          return { allowed: false, role: 'VIEWER', isCloudSynced: true, ownerUid: pOwnerUid, ownerEmail: pOwnerEmail, isOwner: false };
+          return { allowed: false, role: 'VIEWER', isCloudSynced: true, ownerUid: pOwnerUid, ownerEmail: pOwnerEmail, isOwner: false, verification: 'verified' };
         }
-        const role = (mData?.role as 'ADMIN' | 'ENGINEER' | 'VIEWER') || 'VIEWER';
-        return { allowed: true, role, isCloudSynced: true, ownerUid: pOwnerUid, ownerEmail: pOwnerEmail, isOwner: role === 'ADMIN' };
+        const role = normalizeProjectRole(mData?.role);
+        return { allowed: true, role, isCloudSynced: true, ownerUid: pOwnerUid, ownerEmail: pOwnerEmail, isOwner: role === 'ADMIN', verification: 'verified' };
       }
     }
 
     // If project exists on Cloud with an ownerUid or members, but user is not listed -> VIEWER
     if (projectSnap.exists() && (projectSnap.data()?.ownerUid || projectSnap.data()?.ownerEmail)) {
-      return { allowed: false, role: 'VIEWER', isCloudSynced: true, ownerUid: pOwnerUid, ownerEmail: pOwnerEmail, isOwner: false };
+      return { allowed: false, role: 'VIEWER', isCloudSynced: true, ownerUid: pOwnerUid, ownerEmail: pOwnerEmail, isOwner: false, verification: 'verified' };
     }
 
-    // Default safe role: VIEWER (never fail-open to ENGINEER)
-    return { allowed: false, role: 'VIEWER', isCloudSynced: false, ownerUid: pOwnerUid, ownerEmail: pOwnerEmail, isOwner: false };
+    // Default safe role: VIEWER (never fail-open to EDITOR)
+    return { allowed: false, role: 'VIEWER', isCloudSynced: false, ownerUid: pOwnerUid, ownerEmail: pOwnerEmail, isOwner: false, verification: 'verified' };
   } catch (err) {
-    console.warn('Error fetching project user role from cloud, defaulting to VIEWER (fail-secure):', err);
-    return { allowed: false, role: 'VIEWER', isCloudSynced: false };
+    console.warn('Error fetching project user role from cloud; role verification unavailable, preserving any matching offline lease:', err);
+    return { allowed: false, role: 'VIEWER', isCloudSynced: false, verification: 'unavailable' };
   }
 }
 
 export function subscribeProjectUserRoleRealtime(
   projectId: string,
   user: User,
-  onUpdate: (info: { allowed: boolean; role: 'ADMIN' | 'ENGINEER' | 'VIEWER'; isCloudSynced: boolean; ownerUid?: string; ownerEmail?: string; isOwner?: boolean }) => void
+  onUpdate: (info: ProjectRoleInfo) => void
 ): () => void {
   if (!projectId || !user?.uid) return () => {};
   let cancelled = false;
@@ -1409,6 +1433,74 @@ export interface CloudProjectRecord {
   updatedAt: number;
   updatedBy?: string;
   data: any;
+}
+
+export interface FirestoreCachedProjectSnapshot {
+  projectId: string;
+  found: boolean;
+  metadata: {
+    projectName: string;
+    contractorName: string;
+    inspectorName: string;
+    updatedAt: number;
+  };
+  data: Record<string, any[]>;
+  recordCount: number;
+}
+
+/**
+ * Hydrate the UI from Firestore's official persistent cache only.
+ *
+ * Security note: the caller MUST resolve an identity-bound project role/lease before
+ * rendering this snapshot, because Firestore's on-device cache is shared by the web
+ * app origin. This function never consults localStorage/localforage business arrays.
+ */
+export async function loadProjectFromFirestoreCache(projectId: string): Promise<FirestoreCachedProjectSnapshot> {
+  const emptyData: Record<string, any[]> = Object.fromEntries(REALTIME_COLLECTIONS.map(({ stateKey }) => [stateKey, []]));
+  if (!projectId) {
+    return {
+      projectId,
+      found: false,
+      metadata: { projectName: '', contractorName: '', inspectorName: '', updatedAt: 0 },
+      data: emptyData,
+      recordCount: 0,
+    };
+  }
+
+  let meta: any = null;
+  try {
+    const metaSnap = await getDocFromCache(doc(db, 'projects', projectId));
+    if (metaSnap.exists()) meta = metaSnap.data();
+  } catch (_) {}
+
+  let recordCount = 0;
+  const data: Record<string, any[]> = { ...emptyData };
+  await Promise.all(REALTIME_COLLECTIONS.map(async ({ cloudName, stateKey }) => {
+    try {
+      const snap = await getDocsFromCache(collection(db, 'projects', projectId, cloudName));
+      const list = snap.docs
+        .map((item) => ({ id: item.id, ...item.data() }))
+        .filter((item: any) => item?.deleted !== true && !item?.deletedAt);
+      if (stateKey === 'floorPlans') list.sort((a: any, b: any) => Number(a.order || 0) - Number(b.order || 0));
+      data[stateKey] = list;
+      recordCount += list.length;
+    } catch (_) {
+      data[stateKey] = [];
+    }
+  }));
+
+  return {
+    projectId,
+    found: Boolean(meta) || recordCount > 0,
+    metadata: {
+      projectName: String(meta?.name || ''),
+      contractorName: String(meta?.contractorName || ''),
+      inspectorName: String(meta?.inspectorName || ''),
+      updatedAt: cloudTimestampToMillis(meta?.updatedAt),
+    },
+    data,
+    recordCount,
+  };
 }
 
 export interface CloudBackupRecord {
@@ -1678,46 +1770,32 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
 
     for (const { cloudName, stateKey } of subNames) {
       const list = payloadData[stateKey];
-      const localIds = new Set<string>();
-      if (Array.isArray(list)) {
-        for (const item of list) {
-          if (item && item.id) localIds.add(item.id);
-        }
-      }
-
-      // 1. Tombstone any Cloud records no longer present locally
+      const cloudById = new Map<string, any>();
       try {
         const existingSnap = await getDocs(collection(db, 'projects', project.id, cloudName));
-        for (const docSnap of existingSnap.docs) {
-          if (!localIds.has(docSnap.id)) {
-            const docData = docSnap.data();
-            if (!docData.deleted) {
-              const docRef = doc(db, 'projects', project.id, cloudName, docSnap.id);
-              batch.set(docRef, {
-                id: docSnap.id,
-                deleted: true,
-                deletedAt: now,
-                updatedAt: now
-              }, { merge: true });
-              operationCount++;
-              if (operationCount >= 400) {
-                await batch.commit();
-                batch = writeBatch(db);
-                operationCount = 0;
-              }
-            }
-          }
-        }
+        existingSnap.docs.forEach((row) => cloudById.set(row.id, row.data()));
       } catch (err) {
-        console.warn(`Reconcile stale cloud docs warning for ${cloudName}:`, err);
+        console.warn(`[Cloud Sync] Could not read current ${cloudName} revisions before full UPSERT:`, err);
       }
 
-      // 2. Upload active local records
+      // Firebase-only rule: a missing item in a local snapshot is NOT proof of deletion.
+      // A device may have an incomplete/offline cache. Deletions travel only as explicit
+      // tombstones via saveProjectDiffsToCloud(), so a partial local cache can never wipe
+      // valid Cloud records during a full/manual save.
+
+      // Upload active local records (UPSERT-only)
       if (Array.isArray(list)) {
         for (const item of list) {
           if (!item || !item.id) continue;
           const docRef = doc(db, 'projects', project.id, cloudName, item.id);
           const sanitized = sanitizeSubcollectionItemForCloud(cloudName, item);
+          const currentCloud = cloudById.get(String(item.id));
+          const localUpdatedAt = Number(item.updatedAt || 0);
+          const cloudUpdatedAt = Number(currentCloud?.updatedAt || 0);
+          // A full/import snapshot is never allowed to overwrite a newer Cloud record.
+          // Missing/legacy timestamps are accepted only when the Cloud record is also legacy.
+          if (currentCloud && cloudUpdatedAt > 0 && localUpdatedAt <= cloudUpdatedAt) continue;
+          const nextRevision = Math.max(Number(item.revision || 0), Number(currentCloud?.revision || 0) + 1, 1);
 
           if (cloudName === 'inventory' && sanitized.sourceType === 'room-auto') {
             // Deterministic room-auto records are monotonic. Two devices may calculate
@@ -1737,7 +1815,10 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
                 quantity,
                 deleted: false,
                 deletedAt: null,
-                updatedAt: Math.max(Number(current?.updatedAt || 0), Number(item.updatedAt || now)),
+                deletedByUid: null,
+          deletedBy: null,
+                revision: Math.max(nextRevision, Number(current?.revision || 0) + 1),
+                updatedAt: Math.max(Number(current?.updatedAt || 0) + 1, Number(item.updatedAt || now)),
               }, { merge: true });
             });
             continue;
@@ -1747,7 +1828,10 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
             ...sanitized,
             deleted: false,
             deletedAt: null,
-            updatedAt: item.updatedAt || now
+            deletedByUid: null,
+          deletedBy: null,
+            revision: nextRevision,
+            updatedAt: Number(item.updatedAt || now)
           }, { merge: true });
           operationCount++;
 
@@ -1771,7 +1855,7 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
 
 /**
  * Save only incremental changesets (diffs) to Firestore subcollections
- * Decouples project root metadata write from subcollection writes for ENGINEER role support
+ * Decouples project root metadata write from subcollection writes for EDITOR role support
  */
 function auditSafeValue(value: any): any {
   if (typeof value === 'string') {
@@ -1809,6 +1893,115 @@ function buildAuditChangedFields(before: any, after: any): Record<string, { befo
   return result;
 }
 
+
+/**
+ * Queue business mutations into Firestore's official persistent write queue while the
+ * browser is offline. This function deliberately performs no server reads and does not
+ * await acknowledgement: writeBatch.commit() immediately enters the SDK mutation queue
+ * and its Promise settles only after reconnect/server validation.
+ *
+ * This is NOT a second database/outbox. Firestore persistence owns the pending writes.
+ * Rules still validate role/revision when connectivity returns; stale writes are rejected
+ * and the realtime/cache listener reconciles the authoritative server state.
+ */
+export function queueProjectDiffsToFirestoreOffline(
+  projectId: string,
+  projectName: string,
+  contractorName: string,
+  inspectorName: string,
+  diffs: {
+    addedOrModified: { [subcollection: string]: any[] };
+    deletedIds: { [subcollection: string]: Array<string | { id: string; deletedAt?: number; revision?: number }> };
+  },
+  options: { touchProjectMetadata?: boolean } = {},
+): { queuedRecords: number; commitPromises: Promise<void>[] } {
+  if (!projectId) return { queuedRecords: 0, commitPromises: [] };
+  const currentUser = getCurrentAppUser();
+  let batch = writeBatch(db);
+  let operationCount = 0;
+  let queuedRecords = 0;
+  const commitPromises: Promise<void>[] = [];
+
+  const flush = () => {
+    if (operationCount <= 0) return;
+    const pending = batch.commit();
+    // Keep the rejection observable in the current session without blocking offline UI.
+    pending.catch((err) => console.warn('[Firestore offline queue] server rejected pending batch after reconnect:', err));
+    commitPromises.push(pending);
+    batch = writeBatch(db);
+    operationCount = 0;
+  };
+
+  if (options.touchProjectMetadata) {
+    batch.set(doc(db, 'projects', projectId), {
+      id: projectId,
+      name: projectName,
+      contractorName,
+      inspectorName,
+      updatedAt: Date.now(),
+      dataSchemaVersion: CURRENT_DATA_SCHEMA_VERSION,
+      updatedByUid: currentUser?.uid || '',
+      updatedByEmail: normalizeEmail(currentUser?.email),
+      updatedByDeviceId: getDeviceId(),
+      updatedByDeviceName: getDeviceName(),
+    }, { merge: true });
+    operationCount++;
+  }
+
+  for (const [subName, items] of Object.entries(diffs.addedOrModified || {})) {
+    for (const item of items || []) {
+      if (!item?.id) continue;
+      const docRef = doc(db, 'projects', projectId, subName, String(item.id));
+      const sanitized = sanitizeSubcollectionItemForCloud(subName, item);
+      batch.set(docRef, {
+        ...sanitized,
+        id: String(item.id),
+        deleted: false,
+        deletedAt: null,
+        deletedByUid: null,
+        deletedBy: null,
+        revision: Math.max(Number(item.revision || 0), 1),
+        updatedAt: Number(item.updatedAt || Date.now()),
+        updatedByUid: currentUser?.uid || '',
+        updatedByEmail: normalizeEmail(currentUser?.email),
+        updatedByDeviceId: getDeviceId(),
+        updatedByDeviceName: getDeviceName(),
+      }, { merge: true });
+      operationCount++;
+      queuedRecords++;
+      if (operationCount >= 400) flush();
+    }
+  }
+
+  for (const [subName, ids] of Object.entries(diffs.deletedIds || {})) {
+    for (const deleteEntry of ids || []) {
+      const id = typeof deleteEntry === 'string' ? deleteEntry : String(deleteEntry?.id || '');
+      if (!id) continue;
+      const deletedAt = typeof deleteEntry === 'string' ? Date.now() : Number(deleteEntry.deletedAt || Date.now());
+      const revision = typeof deleteEntry === 'string' ? 1 : Math.max(Number(deleteEntry.revision || 0), 1);
+      batch.set(doc(db, 'projects', projectId, subName, id), {
+        id,
+        deleted: true,
+        deletedAt,
+        deletedByUid: currentUser?.uid || '',
+        deletedBy: currentUser?.uid || '',
+        revision,
+        updatedAt: deletedAt,
+        updatedByUid: currentUser?.uid || '',
+        updatedByEmail: normalizeEmail(currentUser?.email),
+        updatedByDeviceId: getDeviceId(),
+        updatedByDeviceName: getDeviceName(),
+      }, { merge: true });
+      operationCount++;
+      queuedRecords++;
+      if (operationCount >= 400) flush();
+    }
+  }
+
+  flush();
+  return { queuedRecords, commitPromises };
+}
+
 export async function saveProjectDiffsToCloud(
   projectId: string,
   projectName: string,
@@ -1816,7 +2009,7 @@ export async function saveProjectDiffsToCloud(
   inspectorName: string,
   diffs: {
     addedOrModified: { [subcollection: string]: any[] };
-    deletedIds: { [subcollection: string]: string[] };
+    deletedIds: { [subcollection: string]: Array<string | { id: string; deletedAt?: number; revision?: number }> };
   },
   options: { touchProjectMetadata?: boolean; allowRootMetadataWrite?: boolean; rootTouchIntervalMs?: number; auditDetailLimit?: number } = {}
 ): Promise<void> {
@@ -1892,35 +2085,49 @@ export async function saveProjectDiffsToCloud(
         
         const currentUser = getCurrentAppUser();
         if (subName === 'inventory' && sanitized.sourceType === 'room-auto') {
-          if (operationCount > 0) {
-            await batch.commit();
-            batch = writeBatch(db);
-            operationCount = 0;
+          const browserOnline = typeof navigator === 'undefined' || navigator.onLine;
+          if (browserOnline) {
+            if (operationCount > 0) {
+              await batch.commit();
+              batch = writeBatch(db);
+              operationCount = 0;
+            }
+            await runTransaction(db, async (transaction) => {
+              const snap = await transaction.get(docRef);
+              const current = snap.exists() ? snap.data() : {};
+              const quantity = Math.max(Number(current?.quantity || 0), Number(sanitized.quantity || 0));
+              transaction.set(docRef, {
+                ...sanitized,
+                quantity,
+                deleted: false,
+                deletedAt: null,
+                deletedByUid: null,
+          deletedBy: null,
+                revision: Math.max(Number(current?.revision || 0) + 1, Number(item.revision || 0), 1),
+                updatedAt: Math.max(Number(current?.updatedAt || 0) + 1, Number(item.updatedAt || Date.now())),
+                updatedByUid: currentUser?.uid || '',
+                updatedByEmail: normalizeEmail(currentUser?.email),
+                updatedByDeviceId: getDeviceId(),
+                updatedByDeviceName: getDeviceName(),
+              }, { merge: true });
+            });
+            continue;
           }
-          await runTransaction(db, async (transaction) => {
-            const snap = await transaction.get(docRef);
-            const current = snap.exists() ? snap.data() : {};
-            const quantity = Math.max(Number(current?.quantity || 0), Number(sanitized.quantity || 0));
-            transaction.set(docRef, {
-              ...sanitized,
-              quantity,
-              deleted: false,
-              deletedAt: null,
-              updatedAt: Math.max(Number(current?.updatedAt || 0), Number(item.updatedAt || Date.now())),
-              updatedByUid: currentUser?.uid || '',
-              updatedByEmail: normalizeEmail(currentUser?.email),
-              updatedByDeviceId: getDeviceId(),
-              updatedByDeviceName: getDeviceName(),
-            }, { merge: true });
-          });
-          continue;
+          // Firestore transactions require a server connection. While offline, queue
+          // the deterministic ledger row through the official persistent write queue;
+          // Rules/revision guards reconcile it on reconnect instead of losing the edit.
         }
 
+        const incomingRevision = Math.max(Number(item.revision || 0), 1);
         batch.set(docRef, {
           ...sanitized,
           deleted: false,
           deletedAt: null,
-          updatedAt: item.updatedAt || Date.now(),
+          deletedByUid: null,
+          deletedBy: null,
+          revision: incomingRevision,
+          ...(!beforeData && currentUser?.uid ? { createdByUid: currentUser.uid } : {}),
+          updatedAt: Number(item.updatedAt || Date.now()),
           updatedByUid: currentUser?.uid || '',
           updatedByEmail: normalizeEmail(currentUser?.email),
           updatedByDeviceId: getDeviceId(),
@@ -1937,31 +2144,36 @@ export async function saveProjectDiffsToCloud(
     }
 
     // 3. Process deleted items as soft-delete tombstones so other devices learn about deletions
-    const now = Date.now();
     for (const [subName, ids] of Object.entries(diffs.deletedIds)) {
-      for (const id of ids) {
+      for (const deleteEntry of ids) {
+        const id = typeof deleteEntry === 'string' ? deleteEntry : String(deleteEntry?.id || '');
+        if (!id) continue;
         auditCandidateCount++;
         const docRef = doc(db, 'projects', projectId, subName, id);
         const beforeSnap = auditEntries.length < AUDIT_DETAIL_LIMIT ? await getDoc(docRef).catch(() => null) : null;
         const beforeData = beforeSnap && beforeSnap.exists() ? beforeSnap.data() : null;
+        const requestedDeletedAt = typeof deleteEntry === 'string' ? Date.now() : Number(deleteEntry.deletedAt || Date.now());
+        const requestedRevision = typeof deleteEntry === 'string' ? 0 : Number(deleteEntry.revision || 0);
+        const tombstoneRevision = Math.max(requestedRevision, 1);
         if (auditEntries.length < AUDIT_DETAIL_LIMIT) {
           auditEntries.push({ module: subName, action: 'DELETE', recordId: id, description: `Xóa ${subName} · ${id}`, beforeData: auditSafeValue(beforeData || { id }) });
         }
         const currentUser = getCurrentAppUser();
-        // V6.2.22: replace the record with a compact tombstone instead of merge:true.
-        // merge:true retained all old business fields, so deleted data kept occupying
-        // Firestore storage even though the UI considered it removed. Recovery data lives
-        // in the lightweight trash entry; this tombstone only prevents stale resurrection.
+        // Preserve the actual user delete time across offline/reconnect. A stale offline
+        // deletion must not become artificially newest merely because connectivity returned.
         batch.set(docRef, {
           id,
           deleted: true,
-          deletedAt: now,
-          updatedAt: now,
+          deletedAt: requestedDeletedAt,
+          deletedByUid: currentUser?.uid || '',
+          deletedBy: currentUser?.uid || '',
+          revision: tombstoneRevision,
+          updatedAt: requestedDeletedAt,
           updatedByUid: currentUser?.uid || '',
           updatedByEmail: normalizeEmail(currentUser?.email),
           updatedByDeviceId: getDeviceId(),
           updatedByDeviceName: getDeviceName()
-        });
+        }, { merge: true });
         operationCount++;
 
         if (operationCount >= 400) {
@@ -2359,7 +2571,7 @@ export async function saveUserProfileToCloud(user: { uid: string; email: string;
         const data = invDoc.data();
         const inviteEmail = normalizeEmail(data?.invitedEmail || data?.email);
         if (data && inviteEmail === normalizedEmail && data.projectId) {
-          const acceptedRole = data.role || 'ENGINEER';
+          const acceptedRole = data.role || 'EDITOR';
           let memberMaterialized = false;
           let userIndexPersisted = false;
           try {
@@ -2429,7 +2641,7 @@ export async function saveProjectMemberToCloud(
     // (HTTP 403 firebaserules.rulesets.test). Under those Rules projectAccess is denied,
     // but projectInvitations is allowed. Previously the projectAccess failure aborted this
     // function before the invitation was created, leaving a visible member row in ADMIN
-    // while VIEWER/ENGINEER saw "Danh sách dự án (0)".
+    // while VIEWER/EDITOR saw "Danh sách dự án (0)".
     await ensureProjectInvitationIndex(projectId, normalizedEmail, member.role, projectName);
 
     // Newer discovery index is an optimization only. Do not make membership assignment

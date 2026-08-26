@@ -34,13 +34,14 @@ import { compareDateValues, naturalCompare } from '../utils/sortUtils';
 import { createEntityId } from '../utils/idUtils';
 import { normalizeUnit } from '../utils/unitUtils';
 import { QuickSortBar } from './QuickSortBar';
+import { FIREBASE_ONLY_RUNTIME } from '../config/runtimeArchitecture';
 
 interface WarehouseTabProps {
   inventory: InventoryItem[];
-  onAddInventory: (item: Omit<InventoryItem, 'id'> & { id?: string }) => void;
-  onUpdateInventory?: (id: string, item: Omit<InventoryItem, 'id'>) => void;
-  onDeleteInventory: (id: string) => void;
-  onDeleteMultipleInventory?: (ids: string[]) => void;
+  onAddInventory: (item: Omit<InventoryItem, 'id'> & { id?: string }) => void | Promise<void>;
+  onUpdateInventory?: (id: string, item: Omit<InventoryItem, 'id'>) => void | Promise<void>;
+  onDeleteInventory: (id: string) => void | Promise<void>;
+  onDeleteMultipleInventory?: (ids: string[]) => void | Promise<void>;
   onSyncSheets?: () => void;
   materialNorms: MaterialNorm[];
   onOpenNormModal: () => void;
@@ -51,7 +52,7 @@ interface WarehouseTabProps {
   canUndo?: boolean;
   canRedo?: boolean;
   workVolumes?: WorkVolume[];
-  onImportInventory?: (inventory: InventoryItem[]) => void;
+  onImportInventory?: (inventory: InventoryItem[]) => void | Promise<void>;
   onImportNorms?: (norms: MaterialNorm[]) => void;
   onImportWorkVolumes?: (volumes: WorkVolume[]) => void;
 }
@@ -396,7 +397,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         const confirmUpdate = await confirmAsync(confirmMsg);
         if (confirmUpdate) {
           if (onImportInventory && (inCount > 0 || outCount > 0)) {
-            onImportInventory(newInventory);
+            await onImportInventory(newInventory);
           }
           if (onImportNorms && (normsUpdatedCount > 0 || normsAddedCount > 0)) {
             onImportNorms(newNorms);
@@ -712,6 +713,20 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       const currentStock = matchedStockSummary?.currentStock || 0;
       if (finalQuantity > currentStock) {
         const excess = finalQuantity - currentStock;
+        if (FIREBASE_ONLY_RUNTIME) {
+          // V6.3.0 Firebase-only: stock is transaction-ledger based. Never offer a
+          // client-side override that could create a negative derived balance; the
+          // Firestore transaction service enforces the same invariant server-side.
+          window.alert(
+            `Không thể xuất vượt tồn kho.\n` +
+            `- Vật tư: ${finalMaterialName}\n` +
+            `- Tồn kho hiện tại: ${formatDecimal(currentStock)} ${unit}\n` +
+            `- Số lượng yêu cầu: ${formatDecimal(finalQuantity)} ${unit}\n` +
+            `- Vượt tồn kho: ${formatDecimal(excess)} ${unit}`
+          );
+          return;
+        }
+
         const confirmIssue = window.confirm(
           `⚠️ CẢNH BÁO XUẤT VƯỢT TỒN KHO:\n` +
           `- Vật tư: ${finalMaterialName}\n` +
@@ -743,17 +758,21 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       notes,
     };
 
-    if (editingInventory && onUpdateInventory) {
-      onUpdateInventory(editingInventory.id, payload);
-    } else {
-      onAddInventory(payload);
-    }
+    try {
+      if (editingInventory && onUpdateInventory) {
+        await onUpdateInventory(editingInventory.id, payload);
+      } else {
+        await onAddInventory(payload);
+      }
 
-    setShowAddForm(false);
-    setEditingInventory(null);
-    setCustomMaterial('');
-    setNotes('');
-    alert(editingInventory ? 'Đã cập nhật phiếu kho thành công!' : `Đã thêm phiếu ${type === 'in' ? 'NHẬP KHO' : 'XUẤT KHO'} thành công!`);
+      setShowAddForm(false);
+      setEditingInventory(null);
+      setCustomMaterial('');
+      setNotes('');
+      alert(editingInventory ? 'Đã cập nhật phiếu kho thành công!' : `Đã thêm phiếu ${type === 'in' ? 'NHẬP KHO' : 'XUẤT KHO'} thành công!`);
+    } catch (err: any) {
+      alert(`Không thể ghi giao dịch kho: ${err?.message || String(err)}`);
+    }
   };
 
   return (
@@ -1081,12 +1100,16 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   onClick={async () => {
                     const idsToDelete = selectedItemIds.filter(id => filteredInventory.some(item => item.id === id));
                     if (await confirmAsync(`Bạn có chắc muốn xóa ${idsToDelete.length} phiếu kho đã chọn?`)) {
-                      if (onDeleteMultipleInventory) {
-                        onDeleteMultipleInventory(idsToDelete);
-                      } else {
-                        idsToDelete.forEach(id => onDeleteInventory(id));
+                      try {
+                        if (onDeleteMultipleInventory) {
+                          await onDeleteMultipleInventory(idsToDelete);
+                        } else {
+                          for (const id of idsToDelete) await onDeleteInventory(id);
+                        }
+                        setSelectedItemIds(prev => prev.filter(id => !idsToDelete.includes(id)));
+                      } catch (err: any) {
+                        alert(`Không thể xóa giao dịch kho: ${err?.message || String(err)}`);
                       }
-                      setSelectedItemIds(prev => prev.filter(id => !idsToDelete.includes(id)));
                     }
                   }}
                   className="text-rose-600 hover:text-rose-700 font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
@@ -1235,9 +1258,13 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  onDeleteInventory(deletingInventoryTarget.id);
-                  setDeletingInventoryTarget(null);
+                onClick={async () => {
+                  try {
+                    await onDeleteInventory(deletingInventoryTarget.id);
+                    setDeletingInventoryTarget(null);
+                  } catch (err: any) {
+                    alert(`Không thể xóa giao dịch kho: ${err?.message || String(err)}`);
+                  }
                 }}
                 className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-xs shadow"
               >

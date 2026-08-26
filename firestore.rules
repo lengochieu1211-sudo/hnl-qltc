@@ -3,9 +3,10 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function isGoogleAuthed() {
-      return request.auth != null
-        && request.auth.token.firebase.sign_in_provider == 'google.com'
-        && request.auth.token.email is string;
+      // Firebase Auth is the identity source. Production currently enables Google sign-in;
+      // rules intentionally bind authorization to verified Firebase identity + membership,
+      // not to a browser/provider-specific UI path. This also makes emulator rules tests real.
+      return request.auth != null && request.auth.token.email is string;
     }
 
     function signedInEmail() {
@@ -76,13 +77,54 @@ service cloud.firestore {
     function canEdit(projectId) {
       return isGoogleAuthed() && (
         isAdmin(projectId) ||
-        (uidMemberActive(projectId) && uidRole(projectId) == 'ENGINEER') ||
-        (emailMemberActive(projectId) && emailRole(projectId) == 'ENGINEER')
+        (uidMemberActive(projectId) && (uidRole(projectId) == 'EDITOR' || uidRole(projectId) == 'ENGINEER')) ||
+        (emailMemberActive(projectId) && (emailRole(projectId) == 'EDITOR' || emailRole(projectId) == 'ENGINEER'))
       );
     }
 
     function canReadAudit(projectId) {
       return isAdmin(projectId) || canEdit(projectId);
+    }
+
+
+    function isCanonicalMemberRole(role) {
+      return role == 'ADMIN' || role == 'EDITOR' || role == 'VIEWER';
+    }
+
+    function isLegacyCompatibleMemberRole(role) {
+      return isCanonicalMemberRole(role) || role == 'ENGINEER';
+    }
+
+    function coreCreateLifecycleIsValid(recordId) {
+      return request.resource.data.id == recordId
+        && (!('revision' in request.resource.data) || request.resource.data.revision >= 1)
+        && (!('deleted' in request.resource.data) || request.resource.data.deleted != true
+          || (('deletedAt' in request.resource.data) && request.resource.data.deletedAt != null))
+        && (!('deletedAt' in request.resource.data) || request.resource.data.deletedAt == null
+          || (('deleted' in request.resource.data) && request.resource.data.deleted == true));
+    }
+
+    function isCoreBusinessCollection(name) {
+      return name == 'rooms'
+        || name == 'inventory'
+        || name == 'defects'
+        || name == 'work_volumes'
+        || name == 'floor_plans'
+        || name == 'checklist'
+        || name == 'crew_records'
+        || name == 'teams'
+        || name == 'material_norms'
+        || name == 'photos';
+    }
+
+    function lifecycleUpdateIsMonotonic() {
+      // Once a record participates in lifecycle/revision control, clients may not
+      // escape the guard by omitting those fields. Legacy records without revision
+      // are allowed one migration update that introduces revision >= 1.
+      return (!('updatedAt' in resource.data) || (('updatedAt' in request.resource.data) && request.resource.data.updatedAt >= resource.data.updatedAt))
+        && (!('revision' in resource.data) || (('revision' in request.resource.data) && request.resource.data.revision > resource.data.revision))
+        && (!('revision' in request.resource.data) || request.resource.data.revision >= 1)
+        && (!('deleted' in request.resource.data) || request.resource.data.deleted != true || (('deletedAt' in request.resource.data) && request.resource.data.deletedAt != null));
     }
 
     function canRecoverOwnerUid(projectId) {
@@ -166,7 +208,9 @@ service cloud.firestore {
         || canSuperAdminTrashLegacyProject(projectId)
       );
 
-      allow delete: if isOwner(projectId);
+      // Firebase-only project deletion is soft-delete only; physical purge is an explicit
+      // administrative migration/retention operation, never a normal client action.
+      allow delete: if false;
 
       match /members/{memberId} {
         allow read: if isMember(projectId)
@@ -177,7 +221,11 @@ service cloud.firestore {
         // UID member document when an active email-member already exists, and the role
         // must exactly match that email member. This prevents self role escalation while
         // making email invitations durable across devices.
-        allow create, update: if isAdmin(projectId) || (
+        allow create, update: if (
+          isAdmin(projectId)
+          && request.resource.data.role is string
+          && isCanonicalMemberRole(request.resource.data.role)
+        ) || (
           isGoogleAuthed()
           && memberId == request.auth.uid
           && request.resource.data.uid == request.auth.uid
@@ -185,6 +233,7 @@ service cloud.firestore {
           && request.resource.data.email == signedInEmail()
           && emailMemberActive(projectId)
           && request.resource.data.role == emailRole(projectId)
+          && isLegacyCompatibleMemberRole(request.resource.data.role)
           && request.resource.data.active != false
         );
         allow delete: if isAdmin(projectId);
@@ -263,17 +312,49 @@ service cloud.firestore {
         }
       }
 
-      // Business records: VIEWER reads only; ENGINEER/ADMIN may create/update/delete.
-      // activityLogs, members and conversations have their own stricter rules above.
-      match /{collectionName}/{recordId} {
-        allow read: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'conversations' && isMember(projectId);
-        allow write: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'conversations' && canEdit(projectId);
+      // Derived warehouse balances. Inventory transaction rows remain the ledger/source;
+      // this aggregate exists only for online atomic stock validation and fast reads.
+      // Clients may read it, but normal generic autosave cannot hard-delete it.
+      match /inventory_balances/{balanceId} {
+        allow read: if isMember(projectId);
+        allow create: if canEdit(projectId)
+          && request.resource.data.id == balanceId
+          && request.resource.data.projectId == projectId
+          && request.resource.data.onHand is number
+          && request.resource.data.onHand >= 0
+          && request.resource.data.revision >= 1;
+        allow update: if canEdit(projectId)
+          && request.resource.data.id == resource.data.id
+          && request.resource.data.projectId == resource.data.projectId
+          && request.resource.data.onHand is number
+          && request.resource.data.onHand >= 0
+          && request.resource.data.revision > resource.data.revision
+          && request.resource.data.updatedAt >= resource.data.updatedAt;
+        allow delete: if false;
+      }
 
-        // V6.2.27 Drive-only binary policy: nested Firestore chunks are legacy read/delete
-        // compatibility only. New binary chunks may not be created or updated anymore.
+      // V6.3.0 Firebase-only business lifecycle. VIEWER reads only; EDITOR/ADMIN edit.
+      // ENGINEER remains accepted as a temporary legacy alias for deployed member docs.
+      // Core business records are soft-delete only and reject stale revision/updatedAt
+      // overwrites. Non-core project docs (settings/trash helpers) retain legacy behavior
+      // until their dedicated migration pass.
+      match /{collectionName}/{recordId} {
+        allow read: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'conversations' && collectionName != 'inventory_balances' && isMember(projectId);
+        allow create: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'conversations' && collectionName != 'inventory_balances'
+          && canEdit(projectId)
+          && (!isCoreBusinessCollection(collectionName) || coreCreateLifecycleIsValid(recordId));
+        allow update: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'conversations' && collectionName != 'inventory_balances'
+          && canEdit(projectId)
+          && (!isCoreBusinessCollection(collectionName) || lifecycleUpdateIsMonotonic());
+        allow delete: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'conversations' && collectionName != 'inventory_balances'
+          && canEdit(projectId)
+          && !isCoreBusinessCollection(collectionName);
+
+        // Legacy Firestore binary chunks are read-only during Storage migration. Physical
+        // cleanup is ADMIN-only after migration verification; no new chunks may be written.
         match /{nestedCollection}/{nestedId} {
           allow read: if isMember(projectId);
-          allow delete: if canEdit(projectId);
+          allow delete: if isAdmin(projectId);
           allow create, update: if false;
         }
       }

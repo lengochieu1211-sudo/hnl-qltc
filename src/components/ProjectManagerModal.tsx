@@ -55,6 +55,9 @@ import { isStorageKeyOwnedByProject, getProjectStorageKeys } from '../utils/proj
 import { deleteProjectPhotos, getProjectPhotos, saveProjectPhotos, getProjectPhotosWithBinary, restorePhotosFromBackup } from '../utils/photoStorage';
 import { logAuditAction, UserRole, getCurrentUserRole, canManageProjects, canEditProjectData } from '../utils/securityUtils';
 import { encryptBackupData, decryptBackupData, isEncryptedBackup, EncryptedBackupContainer } from '../utils/cryptoUtils';
+import { FIREBASE_ONLY_RUNTIME } from '../config/runtimeArchitecture';
+import { syncProjectPhotosToCloud } from '../lib/photoCloudSync';
+import { floorPlanNeedsCloudUpload, syncFloorPlanImageToCloud } from '../lib/floorPlanImageSync';
 
 interface ProjectManagerModalProps {
   isOpen: boolean;
@@ -83,7 +86,7 @@ interface ProjectManagerModalProps {
   onSwitchProject?: (id: string) => Promise<void>;
   onFlushCurrentProject?: () => Promise<void>;
   userRole?: UserRole;
-  dataCloudStatus?: { phase: 'idle' | 'syncing' | 'synced' | 'error'; lastSyncAt?: number; message?: string };
+  dataCloudStatus?: { phase: 'idle' | 'syncing' | 'synced' | 'error' | 'conflict'; lastSyncAt?: number; message?: string };
   photoCloudStatus?: { phase: 'idle' | 'syncing' | 'synced' | 'error'; pending?: number; message?: string; lastSyncAt?: number };
 }
 
@@ -121,7 +124,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   const effectiveRole = userRole || getCurrentUserRole();
   const canManage = canManageProjects(effectiveRole);
   const canEdit = canEditProjectData(effectiveRole);
-  const hasDriveBackend = Boolean(onDriveSyncUpAll && onDriveSyncDownAll);
+  const hasDriveBackend = !FIREBASE_ONLY_RUNTIME && Boolean(onDriveSyncUpAll && onDriveSyncDownAll);
 
   const [projects, setProjects] = useState<ProjectInfo[]>(getProjectsList);
   const [activeId, setActiveId] = useState<string>(() => activeProjectId || getActiveProjectId());
@@ -1504,6 +1507,97 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         await onFlushCurrentProject();
       }
 
+      // Firebase-only import is a manual disaster-recovery operation, never a second
+      // realtime database. Business records are written through the same Firestore
+      // validation/UPSERT path as normal project restore. Legacy IndexedDB is not used
+      // as an intermediate source of truth. Binary photo/floor-plan data is migrated to
+      // Firebase Storage before the import is considered successful.
+      if (FIREBASE_ONLY_RUNTIME) {
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          throw new Error('Import Firebase-only cần online để kiểm tra quyền/revision và tải ảnh lên Firebase Storage.');
+        }
+        if (!onRestoreData) throw new Error('Thiếu Firestore restore handler cho Firebase-only import.');
+
+        let firebaseList = getProjectsList();
+        let createdCount = 0;
+        let updatedCount = 0;
+        let skippedCount = 0;
+        let firstImportedId: string | null = null;
+
+        for (const item of multiProjectSyncState.items) {
+          const { candidate, action } = item;
+          if (action === 'SKIP' || action === 'KEEP_LOCAL') {
+            skippedCount++;
+            continue;
+          }
+
+          const candData = candidate.normalizedData || {};
+          let targetId = candidate.id;
+          let payload: any = candData;
+          let displayName = candData.projectName || candidate.name || 'Dự án nhập';
+
+          if (action === 'IMPORT_AS_NEW_COPY') {
+            targetId = createProjectId();
+            displayName = `${displayName} (Bản sao nhập)`;
+            payload = { ...candData, projectName: displayName, updatedAt: Date.now() };
+          } else if (action === 'SMART_MERGE') {
+            const existingCloud = await fetchProjectFromCloud(targetId).catch(() => null);
+            const existingPayload = existingCloud ? (getCloudPayload(existingCloud) || {}) : {};
+            payload = smartMergeProjectData(existingPayload, candData);
+            displayName = payload.projectName || displayName;
+          } else {
+            payload = { ...candData, projectName: displayName };
+          }
+
+          await onRestoreData(payload, targetId);
+
+          const candidatePhotos = candData.photos
+            || (multiProjectSyncState.rawData?.projectPhotos && multiProjectSyncState.rawData.projectPhotos[candidate.id]);
+          const candidatePhotoData = candData.photoData || candData.photoDataMap || candidate.photoData
+            || (multiProjectSyncState.rawData?.projectPhotoData && multiProjectSyncState.rawData.projectPhotoData[candidate.id]);
+          if (Array.isArray(candidatePhotos) && candidatePhotos.length > 0) {
+            await restorePhotosFromBackup(targetId, candidatePhotos, candidatePhotoData);
+            const photoResult = await syncProjectPhotosToCloud(targetId);
+            if (Number(photoResult.failed || 0) > 0) {
+              throw new Error(`Import ảnh dự án ${targetId} còn ${photoResult.failed} ảnh chưa tải lên Firebase Storage.`);
+            }
+          }
+
+          for (const floorPlan of Array.isArray(payload.floorPlans) ? payload.floorPlans : []) {
+            if (!floorPlan?.id || !floorPlanNeedsCloudUpload(floorPlan)) continue;
+            await syncFloorPlanImageToCloud(targetId, floorPlan);
+          }
+
+          const existingIndex = firebaseList.findIndex((project) => project.id === targetId);
+          const info: ProjectInfo = {
+            id: targetId,
+            name: displayName,
+            createdAt: existingIndex >= 0 ? firebaseList[existingIndex].createdAt : 0,
+            createdAtSource: existingIndex >= 0 ? firebaseList[existingIndex].createdAtSource : 'migrating',
+            updatedAt: Number(payload.updatedAt || candidate.updatedAt || Date.now()),
+          };
+          if (existingIndex >= 0) {
+            firebaseList = firebaseList.map((project, index) => index === existingIndex ? { ...project, ...info } : project);
+            updatedCount++;
+          } else {
+            firebaseList.push(info);
+            createdCount++;
+          }
+          if (!firstImportedId) firstImportedId = targetId;
+        }
+
+        saveProjectsList(firebaseList);
+        setProjects(firebaseList);
+        setMultiProjectSyncState(null);
+        logAuditAction('BACKUP_IMPORT_FIREBASE_ONLY', `Import Firestore/Storage: mới ${createdCount}, cập nhật ${updatedCount}, bỏ qua ${skippedCount}`);
+        alert(`🎉 Import Firebase-only hoàn tất!\n• Mới: ${createdCount}\n• Cập nhật/merge: ${updatedCount}\n• Bỏ qua: ${skippedCount}`);
+        if (firstImportedId && onSwitchProject && firstImportedId !== activeId) {
+          await onSwitchProject(firstImportedId);
+          setActiveId(firstImportedId);
+        }
+        return;
+      }
+
       let curList = getProjectsList();
       let createdCount = 0;
       let updatedCount = 0;
@@ -1746,6 +1840,10 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
   const executeFullReplaceRestore = async () => {
     if (!multiProjectSyncState) return;
+    if (FIREBASE_ONLY_RUNTIME) {
+      alert('Firebase-only không cho phép FULL REPLACE kiểu xóa database cục bộ. Hãy dùng Import/SMART MERGE; dữ liệu Cloud chỉ được soft-delete hoặc migrate bằng quy trình backup + dry-run + verify riêng.');
+      return;
+    }
     const candidates = multiProjectSyncState.items.map(it => it.candidate);
     const count = candidates.length;
 
@@ -2515,7 +2613,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       }
 
       const targetRole = roleChecks.find((item) => item.project.id === target.id)?.role;
-      if (!targetRole?.allowed || !['ADMIN', 'ENGINEER'].includes(targetRole.role)) {
+      if (!targetRole?.allowed || !['ADMIN', 'EDITOR'].includes(targetRole.role)) {
         throw new Error('Cần quyền ADMIN hoặc KỸ SƯ trên dự án chính để hợp nhất dữ liệu.');
       }
 
@@ -2682,7 +2780,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
               </h2>
               <p className="text-[11px] text-slate-500 font-medium">
                 {modalTab === 'sync' 
-                  ? (hasDriveBackend ? 'Lưu trữ cục bộ, Đám mây Firebase, Google Drive & Google Sheets' : 'Lưu trữ cục bộ và Đám mây Firebase miễn phí')
+                  ? (FIREBASE_ONLY_RUNTIME ? 'Firebase Auth + Firestore + Storage · JSON chỉ dùng backup thủ công' : (hasDriveBackend ? 'Lưu trữ cục bộ, Đám mây Firebase, Google Drive & Google Sheets' : 'Lưu trữ cục bộ và Đám mây Firebase miễn phí'))
                   : 'Tạo mới, chuyển đổi, tìm kiếm và quản lý danh sách dự án công trình'}
               </p>
             </div>
@@ -3153,7 +3251,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   <p className="text-[9.5px] text-slate-500 italic">
                     {googleUser && !googleUser.isAnonymous 
                       ? '🔒 Đã xác thực. Dự án được nhận diện theo tài khoản và đồng bộ tự động giữa các thiết bị.' 
-                      : 'ℹ️ Chỉ cần đăng nhập Google/Firebase một lần. Các màn hình khác dùng chung phiên này; Drive chính được Apps Script lưu bằng tài khoản HNL.'}
+                      : 'ℹ️ Đăng nhập Firebase một lần. Firestore là dữ liệu nghiệp vụ duy nhất; Firebase Storage là nguồn ảnh/file mới duy nhất.'}
                   </p>
                 </div>
 
@@ -3203,13 +3301,15 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     <span className={`shrink-0 text-[9px] px-2 py-1 rounded-full font-bold border ${
                       !googleUser || googleUser.isAnonymous ? 'bg-amber-50 text-amber-700 border-amber-200' :
                       typeof navigator !== 'undefined' && !navigator.onLine ? 'bg-slate-100 text-slate-600 border-slate-200' :
+                      dataCloudStatus?.phase === 'conflict' ? 'bg-amber-50 text-amber-800 border-amber-200' :
                       dataCloudStatus?.phase === 'error' ? 'bg-rose-50 text-rose-700 border-rose-200' :
                       dataCloudStatus?.phase === 'syncing' ? 'bg-blue-50 text-blue-700 border-blue-200' :
                       'bg-emerald-50 text-emerald-700 border-emerald-200'
                     }`}>
                       {!googleUser || googleUser.isAnonymous ? 'Cần đăng nhập' :
                        typeof navigator !== 'undefined' && !navigator.onLine ? '● Offline' :
-                       dataCloudStatus?.phase === 'error' ? '● Chưa đồng bộ' :
+                       dataCloudStatus?.phase === 'conflict' ? '● Có xung đột' :
+                       dataCloudStatus?.phase === 'error' ? '● Có lỗi đồng bộ' :
                        dataCloudStatus?.phase === 'syncing' ? '● Đang đồng bộ nền' : '● Đã đồng bộ'}
                     </span>
                   </div>
@@ -3227,10 +3327,10 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   {googleUser && !googleUser.isAnonymous && (
                     <div className="text-[9px] text-slate-500 space-y-1">
                       <p className="flex items-center justify-between gap-2">
-                        <span>Dữ liệu nghiệp vụ đồng bộ realtime bằng Firebase; ảnh ưu tiên lưu vào Drive chính HNL.</span>
+                        <span>Dữ liệu nghiệp vụ đồng bộ realtime bằng Firestore; ảnh/file mới lưu duy nhất trong Firebase Storage.</span>
                         {dataCloudStatus?.lastSyncAt ? <span className="shrink-0">Lần cuối {new Date(dataCloudStatus.lastSyncAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</span> : null}
                       </p>
-                      {dataCloudStatus?.phase === 'error' && dataCloudStatus.message ? (
+                      {(dataCloudStatus?.phase === 'error' || dataCloudStatus?.phase === 'conflict') && dataCloudStatus.message ? (
                         <p className="text-rose-600 font-semibold">Chưa ghi được lên Firebase: {dataCloudStatus.message}</p>
                       ) : null}
                     </div>
@@ -3274,11 +3374,13 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   </details>
                 </div>
 
-                <PrimaryDriveStatusCard
-                  activeProjectId={activeProjectId || activeId}
-                  userRole={effectiveRole}
-                  floorPlans={fullAppData?.floorPlans || []}
-                />
+                {!FIREBASE_ONLY_RUNTIME && (
+                  <PrimaryDriveStatusCard
+                    activeProjectId={activeProjectId || activeId}
+                    userRole={effectiveRole}
+                    floorPlans={fullAppData?.floorPlans || []}
+                  />
+                )}
 
                 {/* Cloud versions only appear when at least one version exists. */}
                 {cloudBackups.length > 0 && (

@@ -9,6 +9,11 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      VITE_GIT_COMMIT: ${{ github.sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -38,7 +43,7 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Firestore Rules compile check
+      - name: Firebase Rules compile check
         run: npm run test:rules
 
       - name: Security audit (production, critical)

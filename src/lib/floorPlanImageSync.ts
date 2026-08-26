@@ -3,8 +3,6 @@ import {
   doc,
   getDoc,
   getDocs,
-  deleteDoc,
-  deleteField,
   orderBy,
   query,
   setDoc,
@@ -12,14 +10,10 @@ import {
 } from 'firebase/firestore';
 import { db, getCurrentRealFirebaseUser } from './firebase';
 import type { FloorPlan } from '../types';
-import {
-  cleanupFloorPlanVersionsOnPrimaryDrive,
-  downloadFloorPlanFromPrimaryDrive,
-  isPrimaryDriveReady,
-  PRIMARY_DRIVE_OWNER_EMAIL,
-  uploadFloorPlanToPrimaryDrive,
-  deleteFloorPlanFromPrimaryDrive,
-} from './primaryDriveBridge';
+import { downloadFloorPlanFromPrimaryDrive } from './primaryDriveBridge';
+import { LEGACY_DRIVE_READ_FALLBACK } from '../config/runtimeArchitecture';
+import { downloadStorageBlob, uploadFloorPlanBinary } from './firebaseStorage';
+import { compressImageToBlob } from '../utils/imageCompressor';
 
 export function isDisplayableFloorPlanUrl(value?: string | null): boolean {
   const url = String(value || '').trim();
@@ -94,45 +88,47 @@ export async function syncFloorPlanImageToCloud(projectId: string, plan: FloorPl
   if (!user || user.isAnonymous) return null;
 
   const revision = Number(plan.imageRevision || (plan as any).updatedAt || Date.now());
-  if (Number(plan.imageCloudRevision || 0) >= revision && (plan.driveFileId || plan.cloudFileId || plan.storageProvider)) return null;
+  if (Number(plan.imageCloudRevision || 0) >= revision && plan.storageProvider === 'firebase-storage' && plan.storagePath) return null;
 
   const blob = await sourceToBlob(plan.imageUrl);
   if (!blob || blob.size <= 0) throw new Error(`Không đọc được ảnh mặt bằng ${plan.floorName || plan.id}.`);
 
-  try {
-    if (await isPrimaryDriveReady()) {
-      const drive = await uploadFloorPlanToPrimaryDrive(projectId, { ...plan, imageRevision: revision });
-      if (drive?.fileId) {
-        const now = Date.now();
-        const metadata: Partial<FloorPlan> = {
-          imageUrl: `cloud-floorplan:drive:${projectId}:${drive.fileId}`,
-          driveFileId: drive.fileId,
-          driveUrl: `drive:${projectId}:${drive.fileId}`,
-          cloudFileId: `drive:${projectId}:${drive.fileId}`,
-          storageProvider: 'google-drive-primary',
-          imageMimeType: drive.mimeType || blob.type || 'image/jpeg',
-          imageFileSize: Number(drive.fileSize || blob.size || 0),
-          imageRevision: revision,
-          imageCloudRevision: revision,
-          imageCloudSyncedAt: now,
-          updatedAt: Math.max(now, Number((plan as any).updatedAt || 0) + 1),
-        };
-        await setDoc(doc(db, 'projects', projectId, 'floor_plans', plan.id), metadata, { merge: true });
-        // Same safety rule as defect/crew photos: cleanup happens only after Firestore
-        // commits the new Drive pointer. Cleanup failure must never trigger re-upload.
-        await cleanupFloorPlanVersionsOnPrimaryDrive(projectId, plan.id, drive.fileId, revision).catch((err) => {
-          console.warn('[Floor Plan Image] stale Drive cleanup deferred:', plan.id, err);
-        });
-        await deleteFallbackChunks(projectId, plan.id).catch(() => {});
-        return metadata;
-      }
-    }
-  } catch (err) {
-    console.warn('[Floor Plan Image] Primary Drive upload unavailable; binary remains local for retry:', err);
-    throw err;
-  }
+  let thumbnailBlob: Blob | null = null;
+  try { thumbnailBlob = await compressImageToBlob(blob, 480, 0.72); } catch (_) {}
+  const uploaded = await uploadFloorPlanBinary({
+    projectId,
+    floorPlanId: plan.id,
+    blob,
+    thumbnailBlob,
+    createdByUid: user.uid,
+    createdAt: Number((plan as any).createdAt || Date.now()),
+  });
 
-  throw new Error(`Drive chính chưa sẵn sàng cho mặt bằng ${plan.floorName || plan.id}; binary vẫn local và sẽ retry.`);
+  const now = Date.now();
+  const metadata: Partial<FloorPlan> = {
+    imageUrl: `cloud-floorplan:storage:${uploaded.storagePath}`,
+    cloudFileId: `storage:${uploaded.storagePath}`,
+    storageProvider: 'firebase-storage',
+    storagePath: uploaded.storagePath,
+    thumbnailPath: uploaded.thumbnailPath || '',
+    storageMd5Hash: uploaded.md5Hash || '',
+    imageMimeType: uploaded.mimeType || blob.type || 'image/jpeg',
+    imageFileSize: Number(uploaded.size || blob.size || 0),
+    imageRevision: revision,
+    imageCloudRevision: revision,
+    imageCloudSyncedAt: now,
+    revision: Math.max(Number((plan as any).revision || 0), 0) + 1,
+    updatedByUid: user.uid,
+    deletedAt: null,
+    deletedByUid: null,
+    deletedBy: null,
+    updatedAt: Math.max(now, Number((plan as any).updatedAt || 0) + 1),
+  };
+  await setDoc(doc(db, 'projects', projectId, 'floor_plans', plan.id), metadata, { merge: true });
+
+  // Do not delete Drive/chunk legacy binary yet. Migration cleanup is a separate,
+  // verified purge pass after count + checksum + Firestore-reference parity.
+  return metadata;
 }
 
 async function downloadFallback(projectId: string, plan: FloorPlan): Promise<Blob | null> {
@@ -158,24 +154,38 @@ function parseDriveFileId(plan: FloorPlan): string {
   return parts.length >= 3 ? parts.slice(2).join(':') : parts[1] || '';
 }
 
+function parseStoragePath(plan: FloorPlan): string {
+  if (plan.storagePath) return String(plan.storagePath);
+  const raw = String(plan.cloudFileId || '');
+  return raw.startsWith('storage:') ? raw.slice('storage:'.length) : '';
+}
+
 export async function loadFloorPlanImageFromCloud(projectId: string, plan: FloorPlan): Promise<string | null> {
   if (!projectId || !plan?.id) return null;
   if (isDisplayableFloorPlanUrl(plan.imageUrl) && !String(plan.imageUrl).includes('[IMAGE_OMITTED')) return plan.imageUrl;
 
   let blob: Blob | null = null;
-  const driveFileId = parseDriveFileId(plan);
-  if (driveFileId && (plan.storageProvider === 'google-drive-primary' || plan.driveFileId || String(plan.cloudFileId || '').startsWith('drive:'))) {
-    try {
-      blob = await downloadFloorPlanFromPrimaryDrive(projectId, plan.id, driveFileId, plan.imageMimeType || 'image/jpeg');
-    } catch (err) {
-      console.warn('[Floor Plan Image] Drive download warning:', err);
+  const storagePath = parseStoragePath(plan);
+  if (storagePath && (plan.storageProvider === 'firebase-storage' || String(plan.cloudFileId || '').startsWith('storage:'))) {
+    blob = await downloadStorageBlob(storagePath);
+  }
+
+  if (!blob && LEGACY_DRIVE_READ_FALLBACK) {
+    const driveFileId = parseDriveFileId(plan);
+    if (driveFileId && (plan.storageProvider === 'google-drive-primary' || plan.driveFileId || String(plan.cloudFileId || '').startsWith('drive:'))) {
+      try {
+        blob = await downloadFloorPlanFromPrimaryDrive(projectId, plan.id, driveFileId, plan.imageMimeType || 'image/jpeg');
+      } catch (err) {
+        console.warn('[Floor Plan Image] legacy Drive read warning:', err);
+      }
     }
   }
+
   if (!blob) {
     try {
       blob = await downloadFallback(projectId, plan);
     } catch (err) {
-      console.warn('[Floor Plan Image] Firestore fallback download warning:', err);
+      console.warn('[Floor Plan Image] legacy Firestore chunk read warning:', err);
     }
   }
   if (!blob || blob.size <= 0) return null;
@@ -185,7 +195,7 @@ export async function loadFloorPlanImageFromCloud(projectId: string, plan: Floor
 export function floorPlanNeedsCloudUpload(plan: FloorPlan): boolean {
   if (!plan?.id || !isLocalFloorPlanBinaryUrl(plan.imageUrl)) return false;
   const revision = Number(plan.imageRevision || (plan as any).updatedAt || 0);
-  return !plan.imageCloudRevision || Number(plan.imageCloudRevision) < revision || (!plan.driveFileId && !plan.cloudFileId && !plan.storageProvider);
+  return !plan.imageCloudRevision || Number(plan.imageCloudRevision) < revision || plan.storageProvider !== 'firebase-storage' || !plan.storagePath;
 }
 
 export async function syncFloorPlanImagesToCloud(projectId: string, floorPlans: FloorPlan[]): Promise<{ uploaded: number; skipped: number; failed: number }> {
@@ -213,14 +223,9 @@ export async function syncFloorPlanImagesToCloud(projectId: string, floorPlans: 
  * floor record has been deleted. Failures are non-fatal and can be retried later. */
 export async function deleteFloorPlanImageFromCloud(projectId: string, plan: FloorPlan): Promise<void> {
   if (!projectId || !plan?.id) return;
-  const driveFileId = parseDriveFileId(plan);
-  if (driveFileId) {
-    await deleteFloorPlanFromPrimaryDrive(projectId, plan.id, driveFileId).catch((err) => {
-      console.warn('[Floor Plan Image] Drive delete warning:', err);
-    });
-  }
-  await deleteFallbackChunks(projectId, plan.id).catch((err) => {
-    console.warn('[Floor Plan Image] fallback chunk delete warning:', err);
-  });
-  await deleteDoc(doc(db, 'projects', projectId, 'floor_plan_images', plan.id)).catch(() => {});
+  // Firebase-only soft delete: the business floor-plan document is tombstoned by the
+  // normal Firestore write path. Binary objects stay in Storage (and legacy Drive)
+  // until retention purge after migration verification. Never hard-delete on UI delete.
+  console.debug('[Floor Plan Image] soft-delete retains binary for recovery', projectId, plan.id);
 }
+

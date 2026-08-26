@@ -1,3 +1,4 @@
+import { APP_VERSION } from './config/appVersion';
 /**
  * Basic Service Worker registration helper for Hệ Thống Quản Lý Thi Công.
  * Enables full PWA caching and offline execution support.
@@ -23,7 +24,7 @@ export function registerServiceWorker() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker
-        .register('/sw.js')
+        .register(`/sw.js?v=${encodeURIComponent(APP_VERSION)}`)
         .then((registration) => {
           console.log('[SW] ServiceWorker registered with scope:', registration.scope);
         })

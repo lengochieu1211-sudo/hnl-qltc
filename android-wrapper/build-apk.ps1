@@ -50,15 +50,31 @@ $finalApk = Join-Path $projectRoot 'HNL Quản Lý Thi Công.apk'
 $stringsXml = Join-Path $root 'res\values\strings.xml'
 $webUrlFile = Join-Path $root 'web-url.txt'
 
+$packageJsonPath = Join-Path $projectRoot 'package.json'
+if (-not (Test-Path -LiteralPath $packageJsonPath)) { throw "Missing package.json: $packageJsonPath" }
+$packageInfo = Get-Content -Raw -LiteralPath $packageJsonPath | ConvertFrom-Json
+$appVersion = [string]$packageInfo.version
+if (-not $appVersion) { throw "package.json version is empty" }
+
 $webUrl = $env:QLCT_WEB_URL
 if (-not $webUrl -and (Test-Path -LiteralPath $webUrlFile)) {
     $webUrl = (Get-Content -Raw -LiteralPath $webUrlFile).Trim()
+}
+
+if (-not $webUrl) {
+    $webUrl = 'https://com-example-qlct-61329.web.app/?app=android'
 }
 
 if ($webUrl) {
     if ($webUrl -notmatch '^https?://') {
         throw "QLCT_WEB_URL must start with http:// or https://"
     }
+    $webUrl = $webUrl -replace '([?&])v=[^&]*', '$1'
+    $webUrl = $webUrl.TrimEnd('?','&')
+    if ($webUrl -notmatch '([?&])app=') {
+        $webUrl += $(if ($webUrl.Contains('?')) { '&app=android' } else { '?app=android' })
+    }
+    $webUrl += "&v=$appVersion"
     $escapedWebUrl = [System.Security.SecurityElement]::Escape($webUrl)
     $strings = Get-Content -Raw -LiteralPath $stringsXml
     $strings = $strings -replace '<string name="web_url">.*?</string>', "<string name=`"web_url`">$escapedWebUrl</string>"
