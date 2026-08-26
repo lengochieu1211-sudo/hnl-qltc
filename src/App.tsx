@@ -5,7 +5,7 @@ import { safeSetLocalStorageItem } from './utils/storage';
 import { parseLegacyTimestamp } from './utils/dateFormatter';
 import { AppLockOverlay } from './components/AppLockOverlay';
 import { SecurityModal } from './components/SecurityModal';
-import { getStoredPinLockConfig, logAuditAction, getCurrentUserRole, setCurrentUserRole, UserRole, canEditProjectData, canManageProjects } from './utils/securityUtils';
+import { getStoredPinLockConfig, logAuditAction, getCurrentUserRole, setCurrentUserRole, UserRole, canEditProjectData, canManageProjects, canManageWorkVolumeStructure } from './utils/securityUtils';
 import { cacheVerifiedProjectRole, getCachedVerifiedProjectRole, getRememberedVerifiedAuthIdentity, rememberVerifiedAuthIdentity } from './utils/offlineAccess';
 
 function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
@@ -4730,6 +4730,10 @@ export default function App() {
 
   // Handlers for Work Volume
   const handleAddWorkVolume = (item: Omit<WorkVolume, 'id'>) => {
+    if (!isProjectRoleResolved || !canManageWorkVolumeStructure(currentUserRole)) {
+      console.warn('[RBAC] Chỉ ADMIN được tạo hạng mục khối lượng.');
+      return;
+    }
     const newId = createEntityId('HM');
     updateAppData((prev) => ({
       ...prev,
@@ -4738,6 +4742,10 @@ export default function App() {
   };
 
   const handleSaveWorkVolume = (item: Omit<WorkVolume, 'id'> & { id?: string }) => {
+    if (!isProjectRoleResolved || !canManageWorkVolumeStructure(currentUserRole)) {
+      console.warn('[RBAC] Chỉ ADMIN được sửa định nghĩa hạng mục khối lượng.');
+      return;
+    }
     updateAppData((prev) => {
       if (item.id) {
         const oldItem = prev.workVolumes.find((w) => w.id === item.id);
@@ -4809,6 +4817,10 @@ export default function App() {
   };
 
   const handleUpdateActualVolume = (id: string, newActual: number) => {
+    if (!isProjectRoleResolved || !canManageWorkVolumeStructure(currentUserRole)) {
+      console.warn('[RBAC] Không ghi trực tiếp actual vào hạng mục master; Kỹ sư cập nhật tiến độ tại Mặt bằng.');
+      return;
+    }
     updateAppData((prev) => ({
       ...prev,
       workVolumes: prev.workVolumes.map((item) => {
@@ -4826,6 +4838,10 @@ export default function App() {
   };
 
   const handleDeleteWorkVolume = (id: string) => {
+    if (!isProjectRoleResolved || !canManageWorkVolumeStructure(currentUserRole)) {
+      console.warn('[RBAC] Chỉ ADMIN được xóa hạng mục khối lượng.');
+      return;
+    }
     updateAppData((prev) => {
       const targetVolume = prev.workVolumes.find((item) => item.id === id);
       const remainingVolumes = prev.workVolumes.filter((item) => item.id !== id);
@@ -4883,6 +4899,10 @@ export default function App() {
   };
 
   const handleDeleteMultipleWorkVolumes = (ids: string[]) => {
+    if (!isProjectRoleResolved || !canManageWorkVolumeStructure(currentUserRole)) {
+      console.warn('[RBAC] Chỉ ADMIN được xóa nhiều hạng mục khối lượng.');
+      return;
+    }
     updateAppData((prev) => {
       const deleteIdSet = new Set(ids);
       const targetVolumes = prev.workVolumes.filter((item) => deleteIdSet.has(item.id));
@@ -5863,7 +5883,13 @@ export default function App() {
               workVolumes={computedWorkVolumes}
               onImportInventory={handleImportInventory}
               onImportNorms={handleImportNorms}
-              onImportWorkVolumes={(importedVolumes) => updateAppData((prev) => ({ ...prev, workVolumes: importedVolumes.map((item) => ({ ...item, unit: normalizeUnit(item.unit) || item.unit })) }))}
+              onImportWorkVolumes={(importedVolumes) => {
+                if (!isProjectRoleResolved || !canManageWorkVolumeStructure(currentUserRole)) {
+                  console.warn('[RBAC] Chỉ ADMIN được nhập thay đổi cấu trúc hạng mục khối lượng.');
+                  return;
+                }
+                updateAppData((prev) => ({ ...prev, workVolumes: importedVolumes.map((item) => ({ ...item, unit: normalizeUnit(item.unit) || item.unit })) }));
+              }}
             />
           )}
 

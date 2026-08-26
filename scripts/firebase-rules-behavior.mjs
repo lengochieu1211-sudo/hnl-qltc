@@ -110,8 +110,39 @@ try {
     email: `bad-${nonce}@example.test`, role: 'SUPERROOT', active: true,
   }));
 
+  const workVolumeRef = doc(db, 'projects', pid, 'work_volumes', 'WV-RULE-1');
+  await expectAllowed('ADMIN creates work-volume master definition', () => setDoc(workVolumeRef, {
+    id: 'WV-RULE-1', title: 'Trần chìm', floor: 'Tầng 1', category: 'Trần', unit: 'm²',
+    planned: 350, actual: 0, unitPrice: 110000, status: 'Chưa thi công',
+    revision: 1, createdAt: Date.now(), updatedAt: Date.now(), deleted: false, deletedAt: null,
+  }));
+
   await signIn(editorEmail);
   const editorUid = auth.currentUser.uid;
+
+  await expectAllowed('EDITOR reads work-volume master definition', () => getDoc(workVolumeRef));
+  await expectDenied('EDITOR cannot create work-volume master definition', () => setDoc(doc(db, 'projects', pid, 'work_volumes', 'WV-RULE-EDITOR'), {
+    id: 'WV-RULE-EDITOR', title: 'Editor created', floor: 'Tầng 1', category: 'Trần', unit: 'm²',
+    planned: 100, actual: 0, unitPrice: 0, status: 'Chưa thi công', revision: 1, updatedAt: Date.now(), deleted: false, deletedAt: null,
+  }));
+  await expectDenied('EDITOR cannot change work-volume structure', () => updateDoc(workVolumeRef, {
+    title: 'Editor renamed', revision: 2, updatedAt: Date.now() + 10,
+  }));
+  await expectDenied('EDITOR cannot write master actual directly', () => updateDoc(workVolumeRef, {
+    actual: 25, status: 'Đang thi công', revision: 2, updatedAt: Date.now() + 20,
+  }));
+
+  const roomRef = doc(db, 'projects', pid, 'rooms', 'ROOM-RULE-1');
+  await expectAllowed('EDITOR can create field-progress room record', () => setDoc(roomRef, {
+    id: 'ROOM-RULE-1', roomName: 'Căn 01', floorName: 'Tầng 1', workCategory: 'Trần chìm',
+    workVolume: 50, inspectionStatus: 'Chưa nghiệm thu', revision: 1, updatedAt: Date.now(), deleted: false, deletedAt: null,
+  }));
+  const roomSnap = await getDoc(roomRef);
+  const roomUpdatedAt = Number(roomSnap.data()?.updatedAt || 0);
+  await expectAllowed('EDITOR can update field progress used to derive work-volume actual', () => updateDoc(roomRef, {
+    inspectionStatus: 'Đạt nghiệm thu', revision: 2, updatedAt: roomUpdatedAt + 10,
+  }));
+
   const recordRef = doc(db, 'projects', pid, 'defects', 'DF-RULE-1');
   await expectAllowed('EDITOR creates core record', () => setDoc(recordRef, {
     id: 'DF-RULE-1', description: 'test', status: 'Mới phát hiện', revision: 1,

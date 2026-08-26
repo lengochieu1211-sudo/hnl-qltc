@@ -360,11 +360,15 @@ service cloud.firestore {
       // until their dedicated migration pass.
       match /{collectionName}/{recordId} {
         allow read: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'conversations' && collectionName != 'inventory_balances' && isMember(projectId);
+        // Work-volume documents are master project structure. EDITOR updates field progress
+        // through room/floor-plan records; WorkVolume.actual/status are derived in the app.
+        // Therefore only ADMIN may create/update work_volumes directly. Other business
+        // collections retain EDITOR/ADMIN edit access subject to lifecycle guards.
         allow create: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'conversations' && collectionName != 'inventory_balances'
-          && canEdit(projectId)
+          && ((collectionName == 'work_volumes' && isAdmin(projectId)) || (collectionName != 'work_volumes' && canEdit(projectId)))
           && (!isCoreBusinessCollection(collectionName) || coreCreateLifecycleIsValid(recordId));
         allow update: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'conversations' && collectionName != 'inventory_balances'
-          && canEdit(projectId)
+          && ((collectionName == 'work_volumes' && isAdmin(projectId)) || (collectionName != 'work_volumes' && canEdit(projectId)))
           && (!isCoreBusinessCollection(collectionName) || lifecycleUpdateIsMonotonic());
         allow delete: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'conversations' && collectionName != 'inventory_balances'
           && canEdit(projectId)

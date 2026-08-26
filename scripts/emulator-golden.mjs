@@ -8,6 +8,9 @@ const firebase = read('src/lib/firebase.ts');
 const storage = read('src/lib/firebaseStorage.ts');
 const appCheck = read('src/lib/appCheck.ts');
 const authModal = read('src/components/GoogleAuthModal.tsx');
+const workVolumeTab = read('src/components/WorkVolumeTab.tsx');
+const securityUtils = read('src/utils/securityUtils.ts');
+const app = read('src/App.tsx');
 const firebaseJson = JSON.parse(read('firebase.json'));
 const pkg = JSON.parse(read('package.json'));
 const vite = read('vite.config.ts');
@@ -23,13 +26,35 @@ includesAll(appCheck, ['FIREBASE_EMULATOR_ENABLED', 'if (FIREBASE_EMULATOR_ENABL
 includesAll(authModal, ['DEV Emulator Golden', 'signInWithEmulatorTestAccount', "['ADMIN', 'EDITOR', 'VIEWER']"], 'Deterministic DEV users');
 pass('Auth/Firestore/Storage and deterministic multi-user test identities are wired');
 
+
+includesAll(securityUtils, [
+  'canManageWorkVolumeStructure',
+  "return role === 'ADMIN';",
+], 'Work-volume structure permission helper');
+includesAll(workVolumeTab, [
+  'hasStructureManageAccess',
+  "{hasStructureManageAccess && (",
+  "Chỉ ADMIN được nhập Excel để thay đổi cấu trúc hạng mục khối lượng",
+  "hasStructureManageAccess && (showAddForm || editingVolume !== null)",
+], 'Work-volume ADMIN-only structure UI');
+if (workVolumeTab.includes('const hasEditAccess = canEditProjectData')) fail('Regression: EDITOR can still inherit structural WorkVolume controls from generic edit permission');
+includesAll(app, [
+  "Chỉ ADMIN được tạo hạng mục khối lượng",
+  "Chỉ ADMIN được sửa định nghĩa hạng mục khối lượng",
+  "Chỉ ADMIN được xóa hạng mục khối lượng",
+  "Chỉ ADMIN được nhập thay đổi cấu trúc hạng mục khối lượng",
+], 'Work-volume App handler RBAC defense');
+pass('Work-volume structure is ADMIN-only in UI and App handlers while EDITOR progress remains field-driven');
+
 const rules = read('firestore.rules');
 includesAll(rules, [
   'function projectExists(projectId)',
   "('ownerUid' in projectDoc(projectId).data)",
   "('ownerEmail' in projectDoc(projectId).data)",
   'isGoogleAuthed() && !projectExists(projectId)',
-], 'Firestore missing-project owner-claim guard');
+  "collectionName == 'work_volumes' && isAdmin(projectId)",
+  "collectionName != 'work_volumes' && canEdit(projectId)",
+], 'Firestore missing-project owner-claim + work-volume structure guard');
 const rulesBehavior = read('scripts/firebase-rules-behavior.mjs');
 if (!rulesBehavior.includes('authenticated owner can probe missing project root before first claim')) {
   fail('Missing runtime regression for a fresh Emulator project root owner claim');
@@ -37,7 +62,12 @@ if (!rulesBehavior.includes('authenticated owner can probe missing project root 
 if (!rulesBehavior.includes('unlisted authenticated user cannot read an existing project root')) {
   fail('Missing runtime regression proving existing project roots remain access-controlled');
 }
-pass('Fresh Emulator project roots can be probed/claimed without null dereference while existing roots remain guarded');
+if (!rulesBehavior.includes('EDITOR cannot create work-volume master definition')
+  || !rulesBehavior.includes('EDITOR cannot change work-volume structure')
+  || !rulesBehavior.includes('EDITOR can update field progress used to derive work-volume actual')) {
+  fail('Missing runtime regression for EDITOR work-volume structure denial + field progress allow');
+}
+pass('Fresh roots remain safe; WorkVolume structure is ADMIN-only while EDITOR field progress stays allowed');
 
 for (const [name, port] of [['auth', 9099], ['firestore', 8080], ['storage', 9199], ['hosting', 5000]]) {
   const cfg = firebaseJson.emulators?.[name];

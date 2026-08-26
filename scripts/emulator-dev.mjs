@@ -54,7 +54,7 @@ function run(name, args) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
-console.log('=== HNL QLTC RC2.2.2 DEV Emulator ===');
+console.log('=== HNL QLTC RC2.2.4 DEV Emulator ===');
 console.log(`Project: ${projectId} (demo-* only; never PROD)`);
 console.log('Building DEV Emulator bundle...');
 run('npm', ['run', 'build']);
