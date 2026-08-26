@@ -27,15 +27,21 @@ const emulatorEnv = {
   VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false',
 };
 
-function executable(name) {
-  if (process.platform !== 'win32') return name;
-  if (name === 'npm') return 'npm.cmd';
-  if (name === 'npx') return 'npx.cmd';
-  return name;
+function quoteCmdArg(value) {
+  // This launcher only passes controlled arguments. Quoting every token keeps
+  // cmd.exe safe for spaces and avoids Node 24 directly spawning .cmd files.
+  return `"${String(value).replace(/"/g, '""')}"`;
 }
 
 function run(name, args) {
-  const result = spawnSync(executable(name), args, {
+  const isWindows = process.platform === 'win32';
+  const commandName = isWindows && (name === 'npm' || name === 'npx') ? `${name}.cmd` : name;
+  const executable = isWindows ? (process.env.ComSpec || 'cmd.exe') : commandName;
+  const executableArgs = isWindows
+    ? ['/d', '/s', '/c', [commandName, ...args.map(quoteCmdArg)].join(' ')]
+    : args;
+
+  const result = spawnSync(executable, executableArgs, {
     cwd: process.cwd(),
     env: emulatorEnv,
     stdio: 'inherit',
@@ -45,7 +51,7 @@ function run(name, args) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
-console.log('=== HNL QLTC RC2.2 DEV Emulator ===');
+console.log('=== HNL QLTC RC2.2.1 DEV Emulator ===');
 console.log(`Project: ${projectId} (demo-* only; never PROD)`);
 console.log('Building DEV Emulator bundle...');
 run('npm', ['run', 'build']);

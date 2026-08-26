@@ -36,6 +36,11 @@ if (pkg.scripts?.['build:emulator'] !== 'node scripts/emulator-dev.mjs build') f
 if (!String(pkg.scripts?.['test:stability'] || '').includes('emulator-golden.mjs')) fail('emulator golden is not part of stability gate');
 pass('Cross-platform emulator launch/build scripts are wired into CI stability');
 
+const launcher = read('scripts/emulator-dev.mjs');
+includesAll(launcher, ["process.env.ComSpec || 'cmd.exe'", "['/d', '/s', '/c'", "`${name}.cmd`", "shell: false"], 'Windows npm/npx launcher');
+if (launcher.includes('spawnSync(executable(name)')) fail('Regression: Windows launcher directly spawns npm.cmd/npx.cmd and can hit EINVAL on Node 24');
+pass('Windows npm/npx launcher uses cmd.exe and avoids direct .cmd spawn EINVAL');
+
 if (!workflow.includes("vars.HNL_QLTC_DEV_PROJECT_ID != ''")) fail('Optional Cloud DEV preview must skip when no separate DEV project is configured');
 if (!workflow.includes('DEV Firebase isolation gate') || !workflow.includes('!= "com-example-qlct-61329"')) fail('Cloud DEV workflow no longer blocks PROD');
 pass('Cloud DEV preview is optional while its PROD isolation gate remains intact');
