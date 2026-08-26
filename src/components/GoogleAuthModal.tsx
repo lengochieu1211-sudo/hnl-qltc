@@ -12,7 +12,13 @@ import {
   Info
 } from 'lucide-react';
 import { GoogleAuthStatus } from '../types';
-import { signInWithGoogleAccount, signOutFirebaseAccount } from '../lib/firebase';
+import {
+  FIREBASE_EMULATOR_ENABLED,
+  signInWithEmulatorTestAccount,
+  signInWithGoogleAccount,
+  signOutFirebaseAccount,
+  type EmulatorTestAccountKind,
+} from '../lib/firebase';
 
 interface GoogleAuthModalProps {
   isOpen: boolean;
@@ -52,6 +58,19 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
       onRefreshAuth();
     } catch (err) {
       console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEmulatorLogin = async (kind: EmulatorTestAccountKind) => {
+    try {
+      setLoading(true);
+      setErrorMsg(null);
+      await signInWithEmulatorTestAccount(kind);
+      onRefreshAuth();
+    } catch (err: any) {
+      setErrorMsg('Không thể đăng nhập tài khoản DEV Emulator: ' + (err?.message || err));
     } finally {
       setLoading(false);
     }
@@ -153,6 +172,28 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
               <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs flex items-start gap-2">
                 <Info className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                 <span>{errorMsg}</span>
+              </div>
+            )}
+
+            {FIREBASE_EMULATOR_ENABLED && (
+              <div className="rounded-2xl border border-amber-300 bg-amber-50 p-3 space-y-2">
+                <div>
+                  <p className="text-[11px] font-bold text-amber-900">DEV Emulator Golden</p>
+                  <p className="text-[10px] text-amber-800">Tài khoản giả lập chỉ tồn tại trong Firebase Emulator; không thể đăng nhập vào PROD.</p>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['ADMIN', 'EDITOR', 'VIEWER'] as EmulatorTestAccountKind[]).map((kind) => (
+                    <button
+                      key={kind}
+                      type="button"
+                      disabled={loading}
+                      onClick={() => handleEmulatorLogin(kind)}
+                      className="rounded-lg border border-amber-300 bg-white px-2 py-2 text-[10px] font-bold text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+                    >
+                      {kind}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 

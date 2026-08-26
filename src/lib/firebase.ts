@@ -2,6 +2,7 @@ import { initializeApp, getApps } from 'firebase/app';
 import { 
   initializeFirestore, 
   persistentLocalCache,
+  connectFirestoreEmulator,
   doc, 
   setDoc, 
   getDoc, 
@@ -21,7 +22,18 @@ import {
   serverTimestamp,
   runTransaction
 } from 'firebase/firestore';
-import { getAuth, signInWithPopup, GoogleAuthProvider, signOut as fbSignOut, onAuthStateChanged, User } from 'firebase/auth';
+import {
+  getAuth,
+  connectAuthEmulator,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
+  signOut as fbSignOut,
+  onAuthStateChanged,
+  updateProfile,
+  User,
+} from 'firebase/auth';
 import { getDeviceId, getDeviceName } from '../utils/deviceIdentity';
 import { cleanupTransientLocalStorage, estimateLocalStorageBytes } from '../utils/storage';
 import { isSuperAdminEmail } from '../config/superAdmin';
@@ -31,6 +43,42 @@ import { clearRememberedVerifiedAuthIdentity } from '../utils/offlineAccess';
 const env = (import.meta as any).env || {};
 export const APP_ENVIRONMENT: 'DEV' | 'PROD' = String(env.VITE_APP_ENV || (env.DEV || env.MODE === 'development' ? 'DEV' : 'PROD')).toUpperCase() === 'PROD' ? 'PROD' : 'DEV';
 const isDev = APP_ENVIRONMENT === 'DEV';
+const PROD_FIREBASE_PROJECT_ID = 'com-example-qlct-61329';
+const emulatorRequested = String(env.VITE_USE_FIREBASE_EMULATORS || 'false').toLowerCase() === 'true';
+
+if (emulatorRequested && APP_ENVIRONMENT === 'PROD') {
+  throw new Error('REFUSING: Firebase Emulator mode may only run with VITE_APP_ENV=DEV.');
+}
+
+function normalizeEmulatorHost(value: unknown): string {
+  const raw = String(value || 'auto').trim();
+  if (!raw || raw.toLowerCase() === 'auto') {
+    if (typeof window !== 'undefined' && window.location?.hostname) return window.location.hostname;
+    return '127.0.0.1';
+  }
+  return raw.replace(/^https?:\/\//i, '').replace(/\/$/, '').split(':')[0] || '127.0.0.1';
+}
+
+function normalizeEmulatorPort(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 && parsed <= 65535 ? parsed : fallback;
+}
+
+export const FIREBASE_EMULATOR_ENABLED = emulatorRequested && isDev;
+export const FIREBASE_EMULATOR_HOST = normalizeEmulatorHost(env.VITE_FIREBASE_EMULATOR_HOST);
+export const FIREBASE_AUTH_EMULATOR_PORT = normalizeEmulatorPort(env.VITE_FIREBASE_AUTH_EMULATOR_PORT, 9099);
+export const FIRESTORE_EMULATOR_PORT = normalizeEmulatorPort(env.VITE_FIRESTORE_EMULATOR_PORT, 8080);
+export const FIREBASE_STORAGE_EMULATOR_PORT = normalizeEmulatorPort(env.VITE_FIREBASE_STORAGE_EMULATOR_PORT, 9199);
+export const FIREBASE_EMULATOR_PROJECT_ID = String(env.VITE_FIREBASE_EMULATOR_PROJECT_ID || 'demo-hnl-qltc-dev').trim();
+
+if (FIREBASE_EMULATOR_ENABLED) {
+  if (FIREBASE_EMULATOR_PROJECT_ID === PROD_FIREBASE_PROJECT_ID) {
+    throw new Error('REFUSING: Firebase Emulator projectId must never equal the production projectId.');
+  }
+  if (!FIREBASE_EMULATOR_PROJECT_ID.startsWith('demo-')) {
+    throw new Error('REFUSING: Local Emulator projectId must use the demo-* prefix so SDK fallbacks cannot reach live Firebase resources.');
+  }
+}
 
 const hostedFirebaseConfig = {
   apiKey: 'AIzaSyAShhTKSnmLMOEm4dST--1_X7fjJUE4znY',
@@ -42,11 +90,25 @@ const hostedFirebaseConfig = {
   firestoreDatabaseId: '(default)'
 };
 
+const emulatorFirebaseConfig = {
+  apiKey: 'demo-hnl-qltc-key',
+  authDomain: `${FIREBASE_EMULATOR_PROJECT_ID}.firebaseapp.com`,
+  projectId: FIREBASE_EMULATOR_PROJECT_ID,
+  storageBucket: `${FIREBASE_EMULATOR_PROJECT_ID}.firebasestorage.app`,
+  messagingSenderId: '000000000000',
+  appId: '1:000000000000:web:hnlqltcemulatordev',
+  firestoreDatabaseId: '(default)'
+};
+
 // PROD preserves the existing Firebase project as its compatibility fallback.
 // DEV MUST be explicit and may never silently point at production data. Missing DEV
 // configuration fails closed instead of using com-example-qlct-61329.
 const blankFirebaseConfig = { apiKey: '', authDomain: '', projectId: '', storageBucket: '', messagingSenderId: '', appId: '', firestoreDatabaseId: '(default)' };
-const defaultFirebaseConfig = APP_ENVIRONMENT === 'PROD' ? hostedFirebaseConfig : blankFirebaseConfig;
+const defaultFirebaseConfig = FIREBASE_EMULATOR_ENABLED
+  ? emulatorFirebaseConfig
+  : APP_ENVIRONMENT === 'PROD'
+    ? hostedFirebaseConfig
+    : blankFirebaseConfig;
 
 const sanitizeConfigValue = (val: string | undefined, fallback: string): string => {
   if (!val) return fallback;
@@ -63,15 +125,17 @@ const sanitizeConfigValue = (val: string | undefined, fallback: string): string 
   return trimmed;
 };
 
-const firebaseConfig = {
-  apiKey: sanitizeConfigValue(env.VITE_FIREBASE_API_KEY, defaultFirebaseConfig.apiKey),
-  authDomain: sanitizeConfigValue(env.VITE_FIREBASE_AUTH_DOMAIN, defaultFirebaseConfig.authDomain),
-  projectId: sanitizeConfigValue(env.VITE_FIREBASE_PROJECT_ID, defaultFirebaseConfig.projectId),
-  storageBucket: sanitizeConfigValue(env.VITE_FIREBASE_STORAGE_BUCKET, defaultFirebaseConfig.storageBucket),
-  messagingSenderId: sanitizeConfigValue(env.VITE_FIREBASE_MESSAGING_SENDER_ID, defaultFirebaseConfig.messagingSenderId),
-  appId: sanitizeConfigValue(env.VITE_FIREBASE_APP_ID, defaultFirebaseConfig.appId),
-  firestoreDatabaseId: env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || env.VITE_FIRESTORE_DATABASE_ID || defaultFirebaseConfig.firestoreDatabaseId
-};
+const firebaseConfig = FIREBASE_EMULATOR_ENABLED
+  ? emulatorFirebaseConfig
+  : {
+      apiKey: sanitizeConfigValue(env.VITE_FIREBASE_API_KEY, defaultFirebaseConfig.apiKey),
+      authDomain: sanitizeConfigValue(env.VITE_FIREBASE_AUTH_DOMAIN, defaultFirebaseConfig.authDomain),
+      projectId: sanitizeConfigValue(env.VITE_FIREBASE_PROJECT_ID, defaultFirebaseConfig.projectId),
+      storageBucket: sanitizeConfigValue(env.VITE_FIREBASE_STORAGE_BUCKET, defaultFirebaseConfig.storageBucket),
+      messagingSenderId: sanitizeConfigValue(env.VITE_FIREBASE_MESSAGING_SENDER_ID, defaultFirebaseConfig.messagingSenderId),
+      appId: sanitizeConfigValue(env.VITE_FIREBASE_APP_ID, defaultFirebaseConfig.appId),
+      firestoreDatabaseId: env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || env.VITE_FIRESTORE_DATABASE_ID || defaultFirebaseConfig.firestoreDatabaseId
+    };
 
 export const isFirebaseConfigured = Boolean(
   firebaseConfig.apiKey &&
@@ -139,7 +203,27 @@ try {
 
 export const db = dbInstance;
 
+if (FIREBASE_EMULATOR_ENABLED) {
+  connectFirestoreEmulator(db, FIREBASE_EMULATOR_HOST, FIRESTORE_EMULATOR_PORT);
+  console.info('[Firebase DEV Emulator] Firestore connected', {
+    host: FIREBASE_EMULATOR_HOST,
+    port: FIRESTORE_EMULATOR_PORT,
+    projectId: FIREBASE_EMULATOR_PROJECT_ID,
+  });
+}
+
 export const auth = getAuth(app);
+
+if (FIREBASE_EMULATOR_ENABLED) {
+  const authHostForUrl = FIREBASE_EMULATOR_HOST.includes(':')
+    ? `[${FIREBASE_EMULATOR_HOST}]`
+    : FIREBASE_EMULATOR_HOST;
+  connectAuthEmulator(auth, `http://${authHostForUrl}:${FIREBASE_AUTH_EMULATOR_PORT}`, { disableWarnings: true });
+  console.info('[Firebase DEV Emulator] Auth connected', {
+    host: FIREBASE_EMULATOR_HOST,
+    port: FIREBASE_AUTH_EMULATOR_PORT,
+  });
+}
 
 const authListeners: Array<(user: User | null) => void> = [];
 
@@ -897,6 +981,41 @@ export async function ensureAuth(): Promise<void> {
   return;
 }
 
+export type EmulatorTestAccountKind = 'ADMIN' | 'EDITOR' | 'VIEWER';
+
+const emulatorTestAccounts: Record<EmulatorTestAccountKind, { email: string; password: string; displayName: string }> = {
+  ADMIN: { email: 'admin@hnl.test', password: 'HNL-Emulator-123!', displayName: 'DEV Admin' },
+  EDITOR: { email: 'editor@hnl.test', password: 'HNL-Emulator-123!', displayName: 'DEV Editor' },
+  VIEWER: { email: 'viewer@hnl.test', password: 'HNL-Emulator-123!', displayName: 'DEV Viewer' },
+};
+
+/** DEV Emulator-only deterministic accounts. Never enabled against live Firebase. */
+export async function signInWithEmulatorTestAccount(kind: EmulatorTestAccountKind): Promise<User> {
+  if (!FIREBASE_EMULATOR_ENABLED || APP_ENVIRONMENT !== 'DEV') {
+    throw new Error('DEV Emulator test accounts are disabled outside Firebase Emulator mode.');
+  }
+  const account = emulatorTestAccounts[kind];
+  if (!account) throw new Error(`Unknown DEV Emulator test account: ${kind}`);
+
+  await fbSignOut(auth).catch(() => {});
+  let user: User;
+  try {
+    user = (await signInWithEmailAndPassword(auth, account.email, account.password)).user;
+  } catch (err: any) {
+    const code = String(err?.code || '');
+    if (code !== 'auth/user-not-found' && code !== 'auth/invalid-credential') throw err;
+    user = (await createUserWithEmailAndPassword(auth, account.email, account.password)).user;
+  }
+  if (user.displayName !== account.displayName) {
+    await updateProfile(user, { displayName: account.displayName }).catch(() => {});
+  }
+  await saveUserProfileToCloud(user).catch((profileErr) => {
+    console.warn('[Firebase DEV Emulator] Could not save test profile:', profileErr);
+  });
+  notifyAuthListeners(user);
+  return user;
+}
+
 export async function signInWithGoogle(): Promise<User | null> {
   // If Firebase is configured with real credentials, attempt popup sign-in
   if (isFirebaseConfigured) {
@@ -970,6 +1089,7 @@ export function getCurrentFirebaseUser(): User | null {
 export function getCurrentRealFirebaseUser(): User | null {
   const user = auth.currentUser;
   if (!user || user.isAnonymous || !user.email) return null;
+  if (FIREBASE_EMULATOR_ENABLED && APP_ENVIRONMENT === 'DEV') return user;
   const hasGoogleProvider = user.providerData?.some((provider) => provider.providerId === 'google.com');
   return hasGoogleProvider ? user : null;
 }

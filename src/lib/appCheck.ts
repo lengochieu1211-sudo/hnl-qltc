@@ -1,5 +1,5 @@
 import { initializeAppCheck, ReCaptchaV3Provider, type AppCheck } from 'firebase/app-check';
-import { firebaseApp } from './firebase';
+import { firebaseApp, FIREBASE_EMULATOR_ENABLED } from './firebase';
 
 let appCheckInstance: AppCheck | null = null;
 
@@ -9,6 +9,7 @@ let appCheckInstance: AppCheck | null = null;
  */
 export function initializeOptionalAppCheck(): AppCheck | null {
   if (appCheckInstance || typeof window === 'undefined') return appCheckInstance;
+  if (FIREBASE_EMULATOR_ENABLED) return null;
   const key = String((import.meta as any).env?.VITE_FIREBASE_APP_CHECK_SITE_KEY || '').trim();
   if (!key || key.startsWith('YOUR_')) return null;
   try {
