@@ -77,7 +77,16 @@ async function signIn(email) {
 try {
   const ownerCred = await createUserWithEmailAndPassword(auth, ownerEmail, password);
   const ownerUid = ownerCred.user.uid;
-  await expectAllowed('owner creates project', () => setDoc(doc(db, 'projects', pid), {
+
+  // RC2.2.3 regression: a fresh/disposable Emulator has no project root yet.
+  // The signed-in owner must be able to probe that missing root without Rules
+  // evaluating projectDoc(...).data on null and throwing an evaluation error.
+  await expectAllowed('authenticated owner can probe missing project root before first claim', async () => {
+    const missing = await getDoc(doc(db, 'projects', pid));
+    if (missing.exists()) throw new Error('fresh rules-test project unexpectedly already exists');
+  });
+
+  await expectAllowed('owner creates project after missing-root probe', () => setDoc(doc(db, 'projects', pid), {
     id: pid,
     name: 'Rules Project',
     ownerUid,
@@ -88,6 +97,7 @@ try {
 
   await createUserWithEmailAndPassword(auth, editorEmail, password);
   await createUserWithEmailAndPassword(auth, viewerEmail, password);
+  await expectDenied('unlisted authenticated user cannot read an existing project root', () => getDoc(doc(db, 'projects', pid)));
   await signIn(ownerEmail);
 
   await expectAllowed('admin/owner adds canonical EDITOR member', () => setDoc(doc(db, 'projects', pid, 'members', editorEmail), {

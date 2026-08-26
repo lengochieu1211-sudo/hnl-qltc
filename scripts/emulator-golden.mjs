@@ -23,6 +23,22 @@ includesAll(appCheck, ['FIREBASE_EMULATOR_ENABLED', 'if (FIREBASE_EMULATOR_ENABL
 includesAll(authModal, ['DEV Emulator Golden', 'signInWithEmulatorTestAccount', "['ADMIN', 'EDITOR', 'VIEWER']"], 'Deterministic DEV users');
 pass('Auth/Firestore/Storage and deterministic multi-user test identities are wired');
 
+const rules = read('firestore.rules');
+includesAll(rules, [
+  'function projectExists(projectId)',
+  "('ownerUid' in projectDoc(projectId).data)",
+  "('ownerEmail' in projectDoc(projectId).data)",
+  'isGoogleAuthed() && !projectExists(projectId)',
+], 'Firestore missing-project owner-claim guard');
+const rulesBehavior = read('scripts/firebase-rules-behavior.mjs');
+if (!rulesBehavior.includes('authenticated owner can probe missing project root before first claim')) {
+  fail('Missing runtime regression for a fresh Emulator project root owner claim');
+}
+if (!rulesBehavior.includes('unlisted authenticated user cannot read an existing project root')) {
+  fail('Missing runtime regression proving existing project roots remain access-controlled');
+}
+pass('Fresh Emulator project roots can be probed/claimed without null dereference while existing roots remain guarded');
+
 for (const [name, port] of [['auth', 9099], ['firestore', 8080], ['storage', 9199], ['hosting', 5000]]) {
   const cfg = firebaseJson.emulators?.[name];
   if (!cfg || cfg.port !== port || cfg.host !== '0.0.0.0') fail(`${name} emulator must bind 0.0.0.0:${port}`);

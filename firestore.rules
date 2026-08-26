@@ -20,15 +20,26 @@ service cloud.firestore {
       return isGoogleAuthed() && signedInEmail() == 'lengochieu1211@gmail.com';
     }
 
+    function projectExists(projectId) {
+      return exists(/databases/$(database)/documents/projects/$(projectId));
+    }
+
     function projectDoc(projectId) {
       return get(/databases/$(database)/documents/projects/$(projectId));
     }
 
+    // Never dereference projectDoc(...).data for a missing project root. A fresh
+    // Firebase-only/Emulator project is intentionally allowed to be absent until
+    // its first authenticated owner claim creates the root document.
     function isOwner(projectId) {
-      return isGoogleAuthed() && (
-        projectDoc(projectId).data.ownerUid == request.auth.uid ||
-        (projectDoc(projectId).data.ownerEmail is string && projectDoc(projectId).data.ownerEmail.lower() == signedInEmail())
-      );
+      return isGoogleAuthed()
+        && projectExists(projectId)
+        && (
+          (('ownerUid' in projectDoc(projectId).data) && projectDoc(projectId).data.ownerUid == request.auth.uid) ||
+          (('ownerEmail' in projectDoc(projectId).data)
+            && projectDoc(projectId).data.ownerEmail is string
+            && projectDoc(projectId).data.ownerEmail.lower() == signedInEmail())
+        );
     }
 
     function hasUidMember(projectId) {
@@ -129,6 +140,8 @@ service cloud.firestore {
 
     function canRecoverOwnerUid(projectId) {
       return isGoogleAuthed()
+        && projectExists(projectId)
+        && ('ownerEmail' in projectDoc(projectId).data)
         && projectDoc(projectId).data.ownerEmail is string
         && projectDoc(projectId).data.ownerEmail.lower() == signedInEmail()
         && request.resource.data.ownerEmail == resource.data.ownerEmail
@@ -168,8 +181,15 @@ service cloud.firestore {
 
 
     match /projects/{projectId} {
-      allow read: if isMember(projectId) || (
-        isGoogleAuthed() && resource.data.ownerUid == request.auth.uid
+      // A signed-in client may probe a missing root so claimProjectOwnership() can
+      // distinguish "not created yet" from "permission denied" and then use the
+      // strict create rule below. Existing project data remains membership/owner gated.
+      allow read: if (
+        isGoogleAuthed() && !projectExists(projectId)
+      ) || isMember(projectId) || (
+        isGoogleAuthed()
+        && ('ownerUid' in resource.data)
+        && resource.data.ownerUid == request.auth.uid
       );
 
       allow create: if isGoogleAuthed()
