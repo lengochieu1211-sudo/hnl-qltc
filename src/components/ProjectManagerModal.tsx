@@ -670,7 +670,9 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       : scope === 'selected'
         ? selectedProjectIds
         : [activeId || getActiveProjectId()];
-    const uniqueIds = Array.from(new Set(targetIds.filter(Boolean)));
+    const uniqueIds: string[] = Array.from(
+      new Set<string>(targetIds.filter((id): id is string => typeof id === 'string' && id.length > 0))
+    );
     const selectedProjects = projects.filter((project) => uniqueIds.includes(project.id));
     data.construction_projects_list = JSON.stringify(selectedProjects.length > 0 ? selectedProjects : uniqueIds.map((id) => ({ id, name: id })));
     if (scope === 'active' || uniqueIds.length === 1) data.active_project_id = uniqueIds[0] || activeId || getActiveProjectId();
