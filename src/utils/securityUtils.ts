@@ -32,7 +32,7 @@ export interface AuditLogEntry {
   timestamp: number;
   actorEmail: string;
   actorRole: UserRole;
-  action: 'PROJECT_DELETE' | 'PROJECT_CREATE' | 'PROJECT_RECOVER_LOCAL' | 'FULL_RESTORE' | 'FULL_RESTORE_REPLACE' | 'ORPHAN_CLEANUP' | 'ROLE_CHANGE' | 'CATEGORY_DELETE' | 'BACKUP_EXPORT' | 'SECURITY_CONFIG_CHANGE' | 'DATA_CHANGE' | 'PHOTO_CHANGE';
+  action: 'PROJECT_DELETE' | 'PROJECT_CREATE' | 'PROJECT_RECOVER_LOCAL' | 'FULL_RESTORE' | 'FULL_RESTORE_REPLACE' | 'ORPHAN_CLEANUP' | 'ROLE_CHANGE' | 'CATEGORY_DELETE' | 'BACKUP_EXPORT' | 'BACKUP_IMPORT_FIREBASE_ONLY' | 'SECURITY_CONFIG_CHANGE' | 'DATA_CHANGE' | 'PHOTO_CHANGE';
   details: string;
   projectId?: string;
   actorUid?: string;
@@ -130,6 +130,14 @@ export function canRestoreData(role: UserRole): boolean {
 
 export function canEditProjectData(role: UserRole): boolean {
   return role === 'ADMIN' || role === 'EDITOR';
+}
+
+// RC2.2.4.1: keep the WorkVolume structural permission as a shared, explicit RBAC helper.
+// Work-volume master data defines project structure (title/floor/category/unit/planned/price).
+// Only ADMIN may create/import/rename/delete those definitions. EDITOR updates field progress
+// through room/floor-plan workflows; computed work-volume actual/status then follow automatically.
+export function canManageWorkVolumeStructure(role: UserRole): boolean {
+  return role === 'ADMIN';
 }
 
 export function canDeleteCategory(role: UserRole): boolean {
