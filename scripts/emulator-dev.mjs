@@ -27,10 +27,13 @@ const emulatorEnv = {
   VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false',
 };
 
-function quoteCmdArg(value) {
-  // This launcher only passes controlled arguments. Quoting every token keeps
-  // cmd.exe safe for spaces and avoids Node 24 directly spawning .cmd files.
-  return `"${String(value).replace(/"/g, '""')}"`;
+function quoteCmdToken(value) {
+  // Keep simple controlled tokens unquoted. npm on Windows treats literal
+  // quotes around command names (for example "run") as part of the token.
+  // Quote only when cmd.exe actually needs it.
+  const token = String(value);
+  if (!/[\s&()<>^|]/.test(token)) return token;
+  return `"${token.replace(/"/g, '\\"')}"`;
 }
 
 function run(name, args) {
@@ -38,7 +41,7 @@ function run(name, args) {
   const commandName = isWindows && (name === 'npm' || name === 'npx') ? `${name}.cmd` : name;
   const executable = isWindows ? (process.env.ComSpec || 'cmd.exe') : commandName;
   const executableArgs = isWindows
-    ? ['/d', '/s', '/c', [commandName, ...args.map(quoteCmdArg)].join(' ')]
+    ? ['/d', '/s', '/c', [commandName, ...args].map(quoteCmdToken).join(' ')]
     : args;
 
   const result = spawnSync(executable, executableArgs, {
@@ -51,7 +54,7 @@ function run(name, args) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
-console.log('=== HNL QLTC RC2.2.1 DEV Emulator ===');
+console.log('=== HNL QLTC RC2.2.2 DEV Emulator ===');
 console.log(`Project: ${projectId} (demo-* only; never PROD)`);
 console.log('Building DEV Emulator bundle...');
 run('npm', ['run', 'build']);

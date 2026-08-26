@@ -37,9 +37,11 @@ if (!String(pkg.scripts?.['test:stability'] || '').includes('emulator-golden.mjs
 pass('Cross-platform emulator launch/build scripts are wired into CI stability');
 
 const launcher = read('scripts/emulator-dev.mjs');
-includesAll(launcher, ["process.env.ComSpec || 'cmd.exe'", "['/d', '/s', '/c'", "`${name}.cmd`", "shell: false"], 'Windows npm/npx launcher');
+includesAll(launcher, ["process.env.ComSpec || 'cmd.exe'", "['/d', '/s', '/c'", "`${name}.cmd`", 'quoteCmdToken', "shell: false"], 'Windows npm/npx launcher');
 if (launcher.includes('spawnSync(executable(name)')) fail('Regression: Windows launcher directly spawns npm.cmd/npx.cmd and can hit EINVAL on Node 24');
-pass('Windows npm/npx launcher uses cmd.exe and avoids direct .cmd spawn EINVAL');
+if (launcher.includes('args.map(quoteCmdArg)')) fail('Regression: quoting every npm token makes Windows npm receive literal "run" and fail with Unknown command');
+if (!launcher.includes('[commandName, ...args].map(quoteCmdToken)')) fail('Windows launcher must quote only cmd-sensitive tokens');
+pass('Windows npm/npx launcher uses cmd.exe without turning npm subcommands into quoted literals');
 
 if (!workflow.includes("vars.HNL_QLTC_DEV_PROJECT_ID != ''")) fail('Optional Cloud DEV preview must skip when no separate DEV project is configured');
 if (!workflow.includes('DEV Firebase isolation gate') || !workflow.includes('!= "com-example-qlct-61329"')) fail('Cloud DEV workflow no longer blocks PROD');

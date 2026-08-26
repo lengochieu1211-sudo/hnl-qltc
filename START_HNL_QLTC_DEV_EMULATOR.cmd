@@ -2,7 +2,7 @@
 setlocal
 cd /d "%~dp0"
 echo ==============================================
-echo      HNL QLTC RC2.2.1 - DEV EMULATOR GOLDEN
+echo      HNL QLTC RC2.2.2 - DEV EMULATOR GOLDEN
 echo ==============================================
 where node >nul 2>nul || (echo [ERROR] Chua cai Node.js 22+ & pause & exit /b 1)
 where npm >nul 2>nul || (echo [ERROR] Khong tim thay npm & pause & exit /b 1)
