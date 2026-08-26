@@ -3,6 +3,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  getDocsFromServer,
   onSnapshot,
   orderBy,
   query,
@@ -261,6 +262,31 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
 
   // Legacy binary is intentionally NOT deleted here. A separate migration/purge job
   // may clean Drive/chunks only after count + checksum + reference verification.
+}
+
+/**
+ * One-shot metadata hydration for backup/export paths. This verifies the photo index
+ * against the Firestore server (not only local cache); binary objects remain lazy and are downloaded by
+ * getProjectPhotosWithBinary() when a self-contained backup is requested.
+ *
+ * Returning `verified=false` lets backup callers fail closed instead of silently
+ * creating an incomplete archive when the project photo index cannot be read.
+ */
+export async function refreshProjectPhotoMetadataFromCloud(projectId: string): Promise<{ verified: boolean; count: number }> {
+  if (!projectId) return { verified: false, count: 0 };
+  try {
+    const snap = await getDocsFromServer(collection(db, 'projects', projectId, 'photos'));
+    const cloudPhotos = snap.docs.map((item) => ({
+      id: item.id,
+      ...item.data(),
+      __pendingWrite: item.metadata.hasPendingWrites,
+    } as PhotoAttachment & { __pendingWrite?: boolean }));
+    await mergeCloudPhotoMetadata(projectId, cloudPhotos, cloudPhotos);
+    return { verified: true, count: cloudPhotos.filter((photo) => !photo.deleted && !photo.deletedAt).length };
+  } catch (err) {
+    console.warn('[Photo Backup] could not verify Firestore photo metadata:', projectId, err);
+    return { verified: false, count: 0 };
+  }
 }
 
 export async function syncProjectPhotosToCloud(projectId: string): Promise<{ uploaded: number; skipped: number; migratedToStorage?: number; failed?: number }> {

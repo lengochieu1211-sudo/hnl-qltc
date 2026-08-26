@@ -56,8 +56,8 @@ import { deleteProjectPhotos, getProjectPhotos, saveProjectPhotos, getProjectPho
 import { logAuditAction, UserRole, getCurrentUserRole, canManageProjects, canEditProjectData } from '../utils/securityUtils';
 import { encryptBackupData, decryptBackupData, isEncryptedBackup, EncryptedBackupContainer } from '../utils/cryptoUtils';
 import { FIREBASE_ONLY_RUNTIME } from '../config/runtimeArchitecture';
-import { syncProjectPhotosToCloud } from '../lib/photoCloudSync';
-import { floorPlanNeedsCloudUpload, syncFloorPlanImageToCloud } from '../lib/floorPlanImageSync';
+import { refreshProjectPhotoMetadataFromCloud, syncProjectPhotosToCloud } from '../lib/photoCloudSync';
+import { floorPlanNeedsCloudUpload, loadFloorPlanImageFromCloud, syncFloorPlanImageToCloud } from '../lib/floorPlanImageSync';
 
 interface ProjectManagerModalProps {
   isOpen: boolean;
@@ -615,8 +615,109 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     setSelectedProjectIds(projects.map(p => p.id));
   };
 
-  // Helper: Collect storage items for selected scope (Asynchronous to support IndexedDB/localforage)
+  const blobToBackupDataUrl = async (blob: Blob): Promise<string> => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('Không chuyển được ảnh mặt bằng sang Data URL.'));
+    reader.readAsDataURL(blob);
+  });
+
+  const hydrateFloorPlansForBackup = async (projectId: string, plans: any[]): Promise<any[]> => {
+    const result: any[] = [];
+    for (const rawPlan of Array.isArray(plans) ? plans : []) {
+      const plan = { ...rawPlan };
+      const currentUrl = String(plan.imageUrl || '').trim();
+      if (currentUrl.startsWith('data:image/')) {
+        result.push(plan);
+        continue;
+      }
+
+      let resolved = '';
+      if (currentUrl.startsWith('blob:')) {
+        try {
+          const response = await fetch(currentUrl);
+          if (response.ok) resolved = await blobToBackupDataUrl(await response.blob());
+        } catch (_) {}
+      }
+
+      const hasCloudPointer = Boolean(
+        plan.storagePath || plan.driveFileId || plan.cloudFileId || plan.storageProvider ||
+        String(plan.driveUrl || '').startsWith('drive:')
+      );
+      if (!resolved && hasCloudPointer) {
+        resolved = String(await loadFloorPlanImageFromCloud(projectId, plan).catch(() => '') || '');
+      }
+
+      if (!resolved && /^https?:\/\//i.test(currentUrl)) {
+        try {
+          const response = await fetch(currentUrl);
+          if (response.ok) resolved = await blobToBackupDataUrl(await response.blob());
+        } catch (_) {}
+      }
+
+      if ((currentUrl || hasCloudPointer) && !resolved.startsWith('data:image/')) {
+        throw new Error(`Không thể đóng gói ảnh mặt bằng ${plan.floorName || plan.id || ''} của dự án ${projectId}. Từ chối tạo backup thiếu ảnh.`);
+      }
+      result.push({ ...plan, imageUrl: resolved || '' });
+    }
+    return result;
+  };
+
+  const toFirebaseOnlyBackupDump = async (scope: ScopeType): Promise<Record<string, string>> => {
+    const data: Record<string, string> = {};
+    const targetIds = scope === 'all'
+      ? projects.map((project) => project.id)
+      : scope === 'selected'
+        ? selectedProjectIds
+        : [activeId || getActiveProjectId()];
+    const uniqueIds = Array.from(new Set(targetIds.filter(Boolean)));
+    const selectedProjects = projects.filter((project) => uniqueIds.includes(project.id));
+    data.construction_projects_list = JSON.stringify(selectedProjects.length > 0 ? selectedProjects : uniqueIds.map((id) => ({ id, name: id })));
+    if (scope === 'active' || uniqueIds.length === 1) data.active_project_id = uniqueIds[0] || activeId || getActiveProjectId();
+
+    for (const projectId of uniqueIds) {
+      let payload: any = null;
+      const projectInfo = projects.find((project) => project.id === projectId);
+      if (projectId === activeId && fullAppData) {
+        payload = normalizeImportedData({
+          ...fullAppData,
+          projectName: fullAppData.projectName || projectInfo?.name || projectId,
+        }, projectId);
+      } else {
+        const cloudRecord = await fetchProjectFromCloud(projectId, { serverOnly: true });
+        payload = cloudRecord ? getCloudPayload(cloudRecord) : null;
+      }
+      if (!payload) {
+        throw new Error(`Không đọc được dữ liệu Firestore của dự án ${projectInfo?.name || projectId}; từ chối tạo backup không đầy đủ.`);
+      }
+
+      const floorPlansForBackup = await hydrateFloorPlansForBackup(projectId, payload.floorPlans || []);
+      const projectName = payload.projectName || projectInfo?.name || projectId;
+      data[getKey('construction_project_name', projectId)] = projectName;
+      data[getKey('construction_contractor', projectId)] = payload.contractorName || '';
+      data[getKey('construction_inspector', projectId)] = payload.inspectorName || '';
+      data[getKey('construction_material_norms', projectId)] = JSON.stringify(payload.materialNorms || []);
+      data[getKey('construction_inventory', projectId)] = JSON.stringify(payload.inventory || []);
+      data[getKey('construction_work_volumes', projectId)] = JSON.stringify(payload.workVolumes || []);
+      data[getKey('construction_floor_plans', projectId)] = JSON.stringify(floorPlansForBackup);
+      data[getKey('construction_defects', projectId)] = JSON.stringify(payload.defects || []);
+      data[getKey('construction_room_progress', projectId)] = JSON.stringify(payload.roomProgressList || []);
+      data[getKey('construction_checklist', projectId)] = JSON.stringify(payload.checklist || []);
+      data[getKey('construction_crew_records', projectId)] = JSON.stringify(payload.crewRecords || []);
+      data[getKey('construction_teams', projectId)] = JSON.stringify(payload.teams || []);
+      data[getKey('construction_updated_at', projectId)] = String(payload.updatedAt || projectInfo?.updatedAt || Date.now());
+    }
+    return data;
+  };
+
+  // Helper: collect backup data. Firebase-only reads Firestore/live state; legacy mode
+  // keeps the old storage-dump compatibility path. Backup is not a runtime source.
   const getStorageDataForScope = async (scope: ScopeType): Promise<Record<string, string>> => {
+    if (FIREBASE_ONLY_RUNTIME) {
+      // FIREBASE_ONLY_BACKUP_CLOUD_SOURCE
+      return toFirebaseOnlyBackupDump(scope);
+    }
+
     const data: Record<string, string> = {};
     const allStorage = await getAllStorageData();
     const allKeys = Object.keys(allStorage);
@@ -1255,7 +1356,14 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         filename = `Backup_${safeName}_${Date.now()}.json`;
 
         const normalized = normalizeImportedData(data, activeId);
-        const photosWithBinary = await getProjectPhotosWithBinary(activeId);
+        if (FIREBASE_ONLY_RUNTIME) {
+          const verifiedPhotoMeta = await refreshProjectPhotoMetadataFromCloud(activeId);
+          if (!verifiedPhotoMeta.verified) {
+            throw new Error('Không xác minh được metadata ảnh từ Firestore; từ chối xuất backup có nguy cơ thiếu ảnh.');
+          }
+        }
+        normalized.floorPlans = await hydrateFloorPlansForBackup(activeId, normalized.floorPlans || []);
+        const photosWithBinary = await getProjectPhotosWithBinary(activeId, true);
         const photoDataMap: Record<string, string> = {};
         photosWithBinary.forEach(p => {
           if (p.id && (p.base64 || p.localUri)) {
@@ -1303,7 +1411,13 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         const allProjectPhotoData: Record<string, Record<string, string>> = {};
 
         for (const pId of targetPids) {
-          const pPhotos = await getProjectPhotosWithBinary(pId);
+          if (FIREBASE_ONLY_RUNTIME) {
+            const verifiedPhotoMeta = await refreshProjectPhotoMetadataFromCloud(pId);
+            if (!verifiedPhotoMeta.verified) {
+              throw new Error(`Không xác minh được metadata ảnh Firestore của dự án ${pId}; từ chối xuất backup thiếu ảnh.`);
+            }
+          }
+          const pPhotos = await getProjectPhotosWithBinary(pId, true);
           if (pPhotos.length > 0) {
             allProjectPhotos[pId] = pPhotos.map((photo) => {
               const { base64, localUri, dataUrl, ...metadataOnly } = photo as any;
@@ -2128,9 +2242,31 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       setCloudStatusMsg(null);
       const curId = getActiveProjectId();
       const currentProj = projects.find(p => p.id === curId) || { id: curId, name: 'Dự án hiện tại' };
-      
-      const projData = await getStorageDataForScope('active');
-      const normalized = normalizeImportedData(projData, curId);
+
+      if (onFlushCurrentProject) await onFlushCurrentProject();
+
+      // FIREBASE_ONLY_PROJECT_MANAGER_CLOUD_FIRST:
+      // Manual sync must never rebuild Cloud from the legacy localforage business dump.
+      // The active React state is already hydrated/reconciled by Firestore realtime/cache,
+      // so use it directly. Legacy mode keeps the old backup-storage path.
+      let normalized: any;
+      let statsSource: any;
+      if (FIREBASE_ONLY_RUNTIME) {
+        if (!fullAppData) throw new Error('Thiếu live Firestore-derived state; từ chối đồng bộ từ cache legacy.');
+        normalized = normalizeImportedData({
+          ...fullAppData,
+          projectName: fullAppData.projectName || currentProj.name,
+        }, curId);
+        statsSource = {
+          schemaVersion: 3,
+          project: { id: curId, name: normalized.projectName || currentProj.name },
+          data: normalized,
+        };
+      } else {
+        const projData = await getStorageDataForScope('active');
+        normalized = normalizeImportedData(projData, curId);
+        statsSource = projData;
+      }
 
       await saveProjectToCloud({
         id: curId,
@@ -2142,7 +2278,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       });
 
       const jsonString = JSON.stringify(normalized);
-      const stats = analyzeExportData('active', projData, jsonString);
+      const stats = analyzeExportData('active', statsSource, jsonString);
       setCloudStatusMsg({ 
         type: 'success', 
         text: `✅ Đã đẩy dự án "${normalized.projectName || currentProj.name}" lên Cloud! Mã Sync: ${curId}`,
@@ -2196,28 +2332,32 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
         const pUpdatedAt = String(cloudPayload.updatedAt || fallbackUpdatedAt);
 
-        // Write metadata
+        // Metadata is only a lightweight UI/index cache. In Firebase-only, business
+        // collections must hydrate from Firestore persistent cache/realtime after switch.
         localStorage.setItem(getKey('construction_project_name', pid), pName);
         localStorage.setItem(getKey('construction_contractor', pid), pContractor);
         localStorage.setItem(getKey('construction_inspector', pid), pInspector);
         localStorage.setItem(getKey('construction_updated_at', pid), pUpdatedAt);
 
-        // Write domain collections to IndexedDB with correct project-scoped keys
-        await Promise.all([
-          setAsyncItem(getKey('construction_project_name', pid), pName),
-          setAsyncItem(getKey('construction_contractor', pid), pContractor),
-          setAsyncItem(getKey('construction_inspector', pid), pInspector),
-          setAsyncItem(getKey('construction_material_norms', pid), cloudPayload.materialNorms || []),
-          setAsyncItem(getKey('construction_inventory', pid), cloudPayload.inventory || []),
-          setAsyncItem(getKey('construction_work_volumes', pid), cloudPayload.workVolumes || []),
-          setAsyncItem(getKey('construction_floor_plans', pid), cloudPayload.floorPlans || []),
-          setAsyncItem(getKey('construction_defects', pid), cloudPayload.defects || []),
-          setAsyncItem(getKey('construction_room_progress', pid), cloudPayload.roomProgressList || []),
-          setAsyncItem(getKey('construction_checklist', pid), cloudPayload.checklist || []),
-          setAsyncItem(getKey('construction_crew_records', pid), cloudPayload.crewRecords || []),
-          setAsyncItem(getKey('construction_teams', pid), cloudPayload.teams || []),
-          setAsyncItem(getKey('construction_updated_at', pid), pUpdatedAt),
-        ]);
+        // FIREBASE_ONLY_PULL_METADATA_ONLY: never materialize Cloud business arrays into
+        // localforage/IndexedDB because that would recreate a second business database.
+        if (!FIREBASE_ONLY_RUNTIME) {
+          await Promise.all([
+            setAsyncItem(getKey('construction_project_name', pid), pName),
+            setAsyncItem(getKey('construction_contractor', pid), pContractor),
+            setAsyncItem(getKey('construction_inspector', pid), pInspector),
+            setAsyncItem(getKey('construction_material_norms', pid), cloudPayload.materialNorms || []),
+            setAsyncItem(getKey('construction_inventory', pid), cloudPayload.inventory || []),
+            setAsyncItem(getKey('construction_work_volumes', pid), cloudPayload.workVolumes || []),
+            setAsyncItem(getKey('construction_floor_plans', pid), cloudPayload.floorPlans || []),
+            setAsyncItem(getKey('construction_defects', pid), cloudPayload.defects || []),
+            setAsyncItem(getKey('construction_room_progress', pid), cloudPayload.roomProgressList || []),
+            setAsyncItem(getKey('construction_checklist', pid), cloudPayload.checklist || []),
+            setAsyncItem(getKey('construction_crew_records', pid), cloudPayload.crewRecords || []),
+            setAsyncItem(getKey('construction_teams', pid), cloudPayload.teams || []),
+            setAsyncItem(getKey('construction_updated_at', pid), pUpdatedAt),
+          ]);
+        }
         
         const curList = getProjectsList();
         if (!curList.some(p => p.id === pid)) {
@@ -2357,85 +2497,180 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         createdAtSource: 'migrating',
         updatedAt: now,
       };
-      
+
+      const sourceContractor = duplicateFromCurrent ? String(fullAppData?.contractorName || '') : '';
+      const sourceInspector = duplicateFromCurrent ? String(fullAppData?.inspectorName || '') : '';
       let hadQuotaIssue = false;
 
-      if (duplicateFromCurrent) {
-        const activeSuffix = activeId === 'default' ? '' : `_${activeId}`;
-        const newSuffix = `_${newProjectId}`;
-        const keysToCopy: string[] = [];
-        
-        // Fetch keys from both localStorage and localforage
-        const allKeys = await getStorageKeys();
-        const allStorage = await getAllStorageData();
-
-        allKeys.forEach(k => {
-          if (k && k.startsWith('construction_') && k !== 'construction_projects_list') {
-            if (activeId === 'default') {
-              if (!k.includes('_proj_')) {
-                keysToCopy.push(k);
-              }
-            } else {
-              if (k.endsWith(activeSuffix)) {
-                keysToCopy.push(k);
-              }
-            }
-          }
-        });
-        
-        for (const k of keysToCopy) {
-          const val = allStorage[k];
-          let newKey = activeId === 'default' ? `${k}${newSuffix}` : k.replace(activeSuffix, newSuffix);
-          if (newKey && val !== null && val !== undefined) {
-            const isLargeKey = [
-              'material_norms', 'inventory', 'work_volumes', 'floor_plans',
-              'defects', 'room_progress', 'checklist', 'crew_records', 'teams'
-            ].some(b => newKey.includes(`construction_${b}`));
-
-            if (isLargeKey) {
-              await setAsyncItem(newKey, val);
-            } else {
-              const saved = safeSetLocalStorageItem(newKey, val);
-              if (!saved) hadQuotaIssue = true;
-            }
-          }
+      if (FIREBASE_ONLY_RUNTIME) {
+        // FIREBASE_ONLY_TEMPLATE_CLONE_CLOUD_FIRST:
+        // New projects are created in Firestore first. The optional copy is a TEMPLATE
+        // copy only, matching the UI text: norms + room list + checklist. Operational
+        // stock/transactions, volumes, floor plans, defects, manpower and media are NOT
+        // cloned accidentally, and no business array is written to localforage.
+        if (duplicateFromCurrent) {
+          if (!fullAppData) throw new Error('Thiếu dữ liệu dự án đang mở để sao chép mẫu.');
+          const resetLifecycle = (item: any) => ({
+            ...item,
+            revision: 1,
+            createdAt: now,
+            updatedAt: now,
+            deleted: false,
+            deletedAt: null,
+            deletedByUid: null,
+            deletedBy: null,
+          });
+          const templateFloorPlans = (Array.isArray(fullAppData.floorPlans) ? fullAppData.floorPlans : []).map((plan: any) => ({
+            id: plan.id,
+            floorName: plan.floorName,
+            order: plan.order,
+            imageUrl: '',
+            uploadedAt: '',
+            revision: 1,
+            createdAt: now,
+            updatedAt: now,
+            deleted: false,
+            deletedAt: null,
+            deletedByUid: null,
+            deletedBy: null,
+          }));
+          const templateRooms = (Array.isArray(fullAppData.roomProgressList) ? fullAppData.roomProgressList : []).map((room: any) => resetLifecycle({
+            ...room,
+            frameStatus: 'Chưa làm',
+            boardStatus: 'Chưa làm',
+            frameInspectionStatus: 'Chưa nghiệm thu',
+            boardInspectionStatus: 'Chưa nghiệm thu',
+            inspectionStatus: 'Chưa nghiệm thu',
+            inspectorName: '',
+            notes: '',
+            assignedTeam: '',
+            teamId: '',
+            targetFrameDate: undefined,
+            targetBoardDate: undefined,
+            subItems: Array.isArray(room.subItems) ? room.subItems.map((sub: any) => ({
+              ...sub,
+              status: 'Chưa làm',
+              inspectionStatus: 'Chưa nghiệm thu',
+              targetDate: undefined,
+              assignedTeam: '',
+              teamId: '',
+            })) : [],
+          }));
+          const templateChecklist = (Array.isArray(fullAppData.checklist) ? fullAppData.checklist : []).map((item: any) => resetLifecycle({
+            ...item,
+            status: 'pending',
+            dueDate: undefined,
+            notes: '',
+            inspectedBy: '',
+            inspectedAt: undefined,
+            teamId: '',
+          }));
+          const templatePayload = {
+            projectName: trimmedName,
+            contractorName: sourceContractor,
+            inspectorName: sourceInspector,
+            materialNorms: (Array.isArray(fullAppData.materialNorms) ? fullAppData.materialNorms : []).map(resetLifecycle),
+            inventory: [],
+            workVolumes: [],
+            // Preserve floor IDs/names so copied room references remain valid, but do
+            // not copy any floor-plan binary/Storage/Drive pointer into the new project.
+            floorPlans: templateFloorPlans,
+            defects: [],
+            roomProgressList: templateRooms,
+            checklist: templateChecklist,
+            crewRecords: [],
+            teams: [],
+            updatedAt: now,
+          };
+          await saveProjectToCloud({
+            id: newProjectId,
+            name: trimmedName,
+            contractorName: sourceContractor,
+            inspectorName: sourceInspector,
+            syncCode: newProjectId.slice(0, 8).toUpperCase(),
+            payload: templatePayload,
+          });
+        } else {
+          await saveProjectMetadataToCloud(newProjectId, trimmedName, {
+            contractorName: '',
+            inspectorName: '',
+          });
         }
       } else {
-        // Explicitly initialize empty collections for the new project so it has a completely clean slate
-        await Promise.all([
-          setAsyncItem(getKey('construction_material_norms', newProjectId), []),
-          setAsyncItem(getKey('construction_inventory', newProjectId), []),
-          setAsyncItem(getKey('construction_work_volumes', newProjectId), []),
-          setAsyncItem(getKey('construction_floor_plans', newProjectId), []),
-          setAsyncItem(getKey('construction_defects', newProjectId), []),
-          setAsyncItem(getKey('construction_room_progress', newProjectId), []),
-          setAsyncItem(getKey('construction_checklist', newProjectId), []),
-          setAsyncItem(getKey('construction_crew_records', newProjectId), []),
-          setAsyncItem(getKey('construction_teams', newProjectId), []),
-          setAsyncItem(getKey('construction_project_name', newProjectId), trimmedName),
-          setAsyncItem(getKey('construction_contractor', newProjectId), ''),
-          setAsyncItem(getKey('construction_inspector', newProjectId), ''),
-          setAsyncItem(getKey('construction_updated_at', newProjectId), String(now)),
-        ]);
+        if (duplicateFromCurrent) {
+          const activeSuffix = activeId === 'default' ? '' : `_${activeId}`;
+          const newSuffix = `_${newProjectId}`;
+          const keysToCopy: string[] = [];
+
+          // Legacy-only compatibility: copy from localStorage/localforage.
+          const allKeys = await getStorageKeys();
+          const allStorage = await getAllStorageData();
+
+          allKeys.forEach(k => {
+            if (k && k.startsWith('construction_') && k !== 'construction_projects_list') {
+              if (activeId === 'default') {
+                if (!k.includes('_proj_')) keysToCopy.push(k);
+              } else if (k.endsWith(activeSuffix)) {
+                keysToCopy.push(k);
+              }
+            }
+          });
+
+          for (const k of keysToCopy) {
+            const val = allStorage[k];
+            const newKey = activeId === 'default' ? `${k}${newSuffix}` : k.replace(activeSuffix, newSuffix);
+            if (newKey && val !== null && val !== undefined) {
+              const isLargeKey = [
+                'material_norms', 'inventory', 'work_volumes', 'floor_plans',
+                'defects', 'room_progress', 'checklist', 'crew_records', 'teams'
+              ].some(b => newKey.includes(`construction_${b}`));
+
+              if (isLargeKey) {
+                await setAsyncItem(newKey, val);
+              } else {
+                const saved = safeSetLocalStorageItem(newKey, val);
+                if (!saved) hadQuotaIssue = true;
+              }
+            }
+          }
+        } else {
+          await Promise.all([
+            setAsyncItem(getKey('construction_material_norms', newProjectId), []),
+            setAsyncItem(getKey('construction_inventory', newProjectId), []),
+            setAsyncItem(getKey('construction_work_volumes', newProjectId), []),
+            setAsyncItem(getKey('construction_floor_plans', newProjectId), []),
+            setAsyncItem(getKey('construction_defects', newProjectId), []),
+            setAsyncItem(getKey('construction_room_progress', newProjectId), []),
+            setAsyncItem(getKey('construction_checklist', newProjectId), []),
+            setAsyncItem(getKey('construction_crew_records', newProjectId), []),
+            setAsyncItem(getKey('construction_teams', newProjectId), []),
+            setAsyncItem(getKey('construction_project_name', newProjectId), trimmedName),
+            setAsyncItem(getKey('construction_contractor', newProjectId), ''),
+            setAsyncItem(getKey('construction_inspector', newProjectId), ''),
+            setAsyncItem(getKey('construction_updated_at', newProjectId), String(now)),
+          ]);
+        }
+
+        await saveProjectMetadataToCloud(newProjectId, trimmedName, {
+          contractorName: duplicateFromCurrent ? (localStorage.getItem(getKey('construction_contractor', activeId)) || '') : '',
+          inspectorName: duplicateFromCurrent ? (localStorage.getItem(getKey('construction_inspector', activeId)) || '') : '',
+        });
       }
-      
+
+      // Lightweight UI metadata cache only; never business collections/permission authority.
       safeSetLocalStorageItem(getKey('construction_project_name', newProjectId), trimmedName);
-      safeSetLocalStorageItem(getKey('construction_contractor', newProjectId), duplicateFromCurrent ? (localStorage.getItem(getKey('construction_contractor', activeId)) || '') : '');
-      safeSetLocalStorageItem(getKey('construction_inspector', newProjectId), duplicateFromCurrent ? (localStorage.getItem(getKey('construction_inspector', activeId)) || '') : '');
+      safeSetLocalStorageItem(getKey('construction_contractor', newProjectId), FIREBASE_ONLY_RUNTIME ? sourceContractor : (duplicateFromCurrent ? (localStorage.getItem(getKey('construction_contractor', activeId)) || '') : ''));
+      safeSetLocalStorageItem(getKey('construction_inspector', newProjectId), FIREBASE_ONLY_RUNTIME ? sourceInspector : (duplicateFromCurrent ? (localStorage.getItem(getKey('construction_inspector', activeId)) || '') : ''));
       safeSetLocalStorageItem(getKey('construction_updated_at', newProjectId), String(now));
 
       const updated = [...projects, newProject];
       saveProjectsList(updated);
       setProjects(updated);
-      await saveProjectMetadataToCloud(newProjectId, trimmedName, {
-        contractorName: duplicateFromCurrent ? (localStorage.getItem(getKey('construction_contractor', activeId)) || '') : '',
-        inspectorName: duplicateFromCurrent ? (localStorage.getItem(getKey('construction_inspector', activeId)) || '') : '',
-      });
       setNewProjectName('');
       setIsCreating(false);
 
       if (hadQuotaIssue) {
-        alert('Tạo dự án mới thành công! Do bộ nhớ đầy, một số hình ảnh lớn từ dự án cũ đã được bỏ qua.');
+        alert('Tạo dự án mới thành công! Do bộ nhớ đầy, một số dữ liệu cache legacy lớn đã được bỏ qua.');
       }
 
       if (onSwitchProject) {
@@ -3810,9 +4045,9 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                       className="w-4 h-4 mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
                     />
                     <div>
-                      <span className="font-bold text-slate-800">Sao chép dữ liệu từ dự án hiện tại</span>
+                      <span className="font-bold text-slate-800">Sao chép mẫu từ dự án hiện tại</span>
                       <p className="text-[10px] text-slate-500 font-normal mt-0.5">
-                        Giữ lại danh mục vật tư, định mức, danh sách phòng và mẫu kiểm tra
+                        Giữ định mức + cấu trúc tầng/phòng + mẫu kiểm tra; đặt lại tiến độ. Không sao chép tồn kho, defect, quân số hoặc ảnh.
                       </p>
                     </div>
                   </label>

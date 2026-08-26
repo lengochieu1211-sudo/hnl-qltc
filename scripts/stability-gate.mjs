@@ -38,6 +38,7 @@ const diagnostics = read('src/lib/runtimeDiagnostics.ts');
 const authHeader = read('src/components/GoogleAuthHeader.tsx');
 const floorPlanDefect = read('src/components/FloorPlanDefectTab.tsx');
 const roomHighlight = read('src/components/RoomHighlightModal.tsx');
+const projectManager = read('src/components/ProjectManagerModal.tsx');
 
 if (pkg.version !== '6.3.0') fail(`package.json version is ${pkg.version}, expected 6.3.0`);
 if (lock.version !== pkg.version || lock.packages?.['']?.version !== pkg.version) fail('package-lock root version mismatch');
@@ -119,6 +120,42 @@ if (!roomHighlight.includes("const [workCategory, setWorkCategory] = useState(''
 if (!photoSync.includes('snapshotIsInitial = firstSnapshot') || !photoSync.includes('firstSnapshot = false')) fail('photo realtime initial snapshot race guard missing');
 if (!floorPlanDefect.includes('photoLoadSeqRef') || !floorPlanDefect.includes('loadSeq === photoLoadSeqRef.current')) fail('Defect photo stale-read guard missing');
 pass('known regression guards retained');
+
+requireAll(projectManager, [
+  'FIREBASE_ONLY_PROJECT_MANAGER_CLOUD_FIRST',
+  'FIREBASE_ONLY_PULL_METADATA_ONLY',
+  'FIREBASE_ONLY_TEMPLATE_CLONE_CLOUD_FIRST',
+  "if (FIREBASE_ONLY_RUNTIME) {",
+  "if (!FIREBASE_ONLY_RUNTIME) {",
+], 'Project Manager Firebase-only source-of-truth guards');
+if (!projectManager.includes('inventory: []') || !projectManager.includes('floorPlans: templateFloorPlans') || !projectManager.includes("imageUrl: ''") || !projectManager.includes('defects: []') || !projectManager.includes('crewRecords: []') || !projectManager.includes('teams: []')) {
+  fail('Firebase-only template clone may copy operational/transaction/media datasets');
+}
+pass('Project Manager cloud-first sync/pull/create guards retained');
+
+requireAll(projectManager, [
+  'FIREBASE_ONLY_BACKUP_CLOUD_SOURCE',
+  'hydrateFloorPlansForBackup',
+  'refreshProjectPhotoMetadataFromCloud',
+], 'Project Manager Firebase-only backup source/media verification');
+requireAll(app, [
+  'FIREBASE_ONLY_ALL_BACKUP_CLOUD_SOURCE',
+  'hydrateFloorPlansForBackup',
+  'refreshProjectPhotoMetadataFromCloud',
+], 'App Firebase-only all-project backup source/media verification');
+requireAll(photoSync, ['refreshProjectPhotoMetadataFromCloud', 'getDocsFromServer(', 'mergeCloudPhotoMetadata'], 'photo metadata backup server verification');
+requireAll(firebase, ['fetchProjectFromCloud(projectId: string, options?: { serverOnly?: boolean })', 'options?.serverOnly', 'getDocsFromServer('], 'server-only project backup read support');
+if (!app.includes('fetchProjectFromCloud(projectId, { serverOnly: true })') || !projectManager.includes('fetchProjectFromCloud(projectId, { serverOnly: true })')) fail('non-active Firebase-only backup projects are not server-verified');
+requireAll(photoStorage, ['getProjectPhotosWithBinary(projectId: string, requireBinary = false)', 'requireBinary &&', 'từ chối tạo backup không đầy đủ'], 'photo backup binary completeness guard');
+if (!app.includes('getProjectPhotosWithBinary(projectId, true)') || !projectManager.includes('getProjectPhotosWithBinary(activeId, true)') || !projectManager.includes('getProjectPhotosWithBinary(pId, true)')) fail('self-contained backup callers do not require every photo binary');
+if (app.includes("FIREBASE_ONLY_ALL_BACKUP_CLOUD_SOURCE") && app.includes("const allStorageData = await getAllStorageData();")) {
+  const markerIndex = app.indexOf('FIREBASE_ONLY_ALL_BACKUP_CLOUD_SOURCE');
+  const legacyIndex = app.indexOf('const allStorageData = await getAllStorageData();', markerIndex);
+  const firebaseBranchEnd = app.indexOf('const allStorageData = await getAllStorageData();', markerIndex + 1);
+  if (legacyIndex >= 0 && firebaseBranchEnd === legacyIndex && legacyIndex - markerIndex < 4500) fail('Firebase-only all-project backup may still source business data from localforage');
+}
+pass('Firebase-only JSON backup is Cloud/live-state sourced and media-complete/fail-closed');
+
 
 if (!sw.includes('new URL(self.location.href).searchParams.get(\'v\')') || !swRegistration.includes('APP_VERSION')) fail('service worker cache version is not derived from canonical app version');
 requireAll(diagnostics, ['sanitizeDiagnosticValue', '[redacted]'], 'diagnostics redaction');

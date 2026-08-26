@@ -70,7 +70,7 @@ function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
   }
   return merged;
 }
-import { subscribeToProjectRealtime, saveProjectDiffsToCloud, queueProjectDiffsToFirestoreOffline, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, subscribeProjectUserRoleRealtime, fetchCurrentUserProjectsFromCloud, subscribeCurrentUserProjectsRealtime, refreshCurrentUserProjectDiscovery, subscribeProjectSharedSettings, saveProjectSharedSettings, saveProjectAuditLog, loadProjectFromFirestoreCache } from './lib/firebase';
+import { subscribeToProjectRealtime, saveProjectDiffsToCloud, queueProjectDiffsToFirestoreOffline, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, subscribeProjectUserRoleRealtime, fetchCurrentUserProjectsFromCloud, subscribeCurrentUserProjectsRealtime, refreshCurrentUserProjectDiscovery, subscribeProjectSharedSettings, saveProjectSharedSettings, saveProjectAuditLog, loadProjectFromFirestoreCache, fetchProjectFromCloud } from './lib/firebase';
 import { REALTIME_STATE_KEYS, STATE_KEY_TO_CLOUD_NAME } from './config/realtimeCollections';
 import { FIREBASE_ONLY_RUNTIME, LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED, LEGACY_LOCAL_IMPORT_ENABLED } from './config/runtimeArchitecture';
 import { CURRENT_DATA_SCHEMA_VERSION } from './config/dataSchema';
@@ -124,7 +124,7 @@ import {
   saveTextFileToAndroidAutoFolder
 } from './utils/fileExport';
 import { deleteEntityPhotos, getProjectPhotos, getProjectPhotosWithBinary, restorePhotosFromBackup } from './utils/photoStorage';
-import { subscribeProjectPhotosRealtime, syncProjectPhotosToCloud, PhotoCloudSyncStatus } from './lib/photoCloudSync';
+import { refreshProjectPhotoMetadataFromCloud, subscribeProjectPhotosRealtime, syncProjectPhotosToCloud, PhotoCloudSyncStatus } from './lib/photoCloudSync';
 import { isPrimaryDriveReady, PRIMARY_DRIVE_OWNER_EMAIL, uploadProjectBackupToPrimaryDrive } from './lib/primaryDriveBridge';
 import { subscribeConversationReadState, subscribeConversationSummary } from './lib/chatService';
 import { floorPlanNeedsCloudUpload, isDisplayableFloorPlanUrl, loadFloorPlanImageFromCloud, syncFloorPlanImageToCloud, deleteFloorPlanImageFromCloud } from './lib/floorPlanImageSync';
@@ -1093,12 +1093,60 @@ export default function App() {
   const getSingleAutoSaveFileName = () => `[Auto_Sync_Backup]_${getSafeProjectFileName()}.json`;
   const getAllAutoSaveFileName = () => '[Toan_Bo_Du_An]_Backup.json';
 
+  const blobToBackupDataUrl = async (blob: Blob): Promise<string> => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('Không chuyển được ảnh backup sang Data URL.'));
+    reader.readAsDataURL(blob);
+  });
+
+  const hydrateFloorPlansForBackup = async (projectId: string, sourcePlans: FloorPlan[]): Promise<FloorPlan[]> => {
+    const result: FloorPlan[] = [];
+    for (const rawPlan of sourcePlans || []) {
+      const plan = { ...rawPlan };
+      const currentUrl = String(plan.imageUrl || '').trim();
+      if (currentUrl.startsWith('data:image/')) {
+        result.push(plan);
+        continue;
+      }
+
+      let resolved = '';
+      if (currentUrl.startsWith('blob:')) {
+        try {
+          const response = await fetch(currentUrl);
+          if (response.ok) resolved = await blobToBackupDataUrl(await response.blob());
+        } catch (_) {}
+      }
+      const hasCloudPointer = Boolean(plan.storagePath || plan.driveFileId || plan.cloudFileId || plan.storageProvider || String(plan.driveUrl || '').startsWith('drive:'));
+      if (!resolved && hasCloudPointer) {
+        resolved = String(await loadFloorPlanImageFromCloud(projectId, plan).catch(() => '') || '');
+      }
+      if (!resolved && /^https?:\/\//i.test(currentUrl)) {
+        try {
+          const response = await fetch(currentUrl);
+          if (response.ok) resolved = await blobToBackupDataUrl(await response.blob());
+        } catch (_) {}
+      }
+      if ((currentUrl || hasCloudPointer) && !resolved.startsWith('data:image/')) {
+        throw new Error(`Không thể đóng gói ảnh mặt bằng ${plan.floorName || plan.id} của dự án ${projectId}; từ chối tạo backup thiếu ảnh.`);
+      }
+      result.push({ ...plan, imageUrl: resolved || '' });
+    }
+    return result;
+  };
+
   const collectProjectPhotoBackup = async (projectIds: string[]) => {
     const projectPhotos: Record<string, any[]> = {};
     const projectPhotoData: Record<string, Record<string, string>> = {};
 
     for (const projectId of projectIds) {
-      const photos = await getProjectPhotosWithBinary(projectId);
+      if (FIREBASE_ONLY_RUNTIME) {
+        const photoMeta = await refreshProjectPhotoMetadataFromCloud(projectId);
+        if (!photoMeta.verified) {
+          throw new Error(`Không xác minh được metadata ảnh Firestore của dự án ${projectId}; từ chối tạo backup có nguy cơ thiếu ảnh.`);
+        }
+      }
+      const photos = await getProjectPhotosWithBinary(projectId, true);
       if (photos.length === 0) continue;
 
       const photoData: Record<string, string> = {};
@@ -1141,6 +1189,19 @@ export default function App() {
       });
     }
 
+    const floorPlansForBackup = includePhotoBinary
+      ? await hydrateFloorPlansForBackup(activeProjectId, floorPlans)
+      : floorPlans.map((plan) => ({
+          ...plan,
+          imageUrl: plan.driveFileId
+            ? `cloud-floorplan:drive:${activeProjectId}:${plan.driveFileId}`
+            : (plan.storageProvider === 'firestore-fallback' || String(plan.cloudFileId || '').startsWith('firestore:'))
+              ? `cloud-floorplan:firestore:${activeProjectId}:${plan.id}`
+              : (String(plan.imageUrl || '').startsWith('data:image/') || String(plan.imageUrl || '').startsWith('blob:'))
+                ? '[FLOOR_PLAN_IMAGE_BINARY_STORED_SEPARATELY]'
+                : plan.imageUrl,
+        }));
+
     return {
       schemaVersion: 3,
       backupType: 'single-project',
@@ -1158,16 +1219,7 @@ export default function App() {
         materialNorms,
         inventory,
         workVolumes,
-        floorPlans: includePhotoBinary ? floorPlans : floorPlans.map((plan) => ({
-          ...plan,
-          imageUrl: plan.driveFileId
-            ? `cloud-floorplan:drive:${activeProjectId}:${plan.driveFileId}`
-            : (plan.storageProvider === 'firestore-fallback' || String(plan.cloudFileId || '').startsWith('firestore:'))
-              ? `cloud-floorplan:firestore:${activeProjectId}:${plan.id}`
-              : (String(plan.imageUrl || '').startsWith('data:image/') || String(plan.imageUrl || '').startsWith('blob:'))
-                ? '[FLOOR_PLAN_IMAGE_BINARY_STORED_SEPARATELY]'
-                : plan.imageUrl,
-        })),
+        floorPlans: floorPlansForBackup,
         defects,
         roomProgressList,
         checklist,
@@ -1195,6 +1247,59 @@ export default function App() {
   });
 
   const buildAllProjectsBackupObject = async () => {
+    const projectList = getProjectsList();
+    const projectIds = projectList.length > 0 ? projectList.map((project) => project.id) : [activeProjectId || 'default'];
+
+    if (FIREBASE_ONLY_RUNTIME) {
+      // FIREBASE_ONLY_ALL_BACKUP_CLOUD_SOURCE: never build a DR backup from the
+      // deprecated localforage business mirror. Active project uses live reconciled
+      // React state; other projects are read from Firestore.
+      const allData: Record<string, any> = {
+        construction_projects_list: JSON.stringify(projectList),
+        active_project_id: activeProjectId || projectIds[0] || 'default',
+      };
+
+      for (const projectId of projectIds) {
+        const projectInfo = projectList.find((project) => project.id === projectId);
+        let payload: any;
+        if (projectId === activeProjectIdRef.current) {
+          payload = {
+            projectName, contractorName, inspectorName,
+            materialNorms, inventory, workVolumes, floorPlans, defects,
+            roomProgressList, checklist, crewRecords, teams, updatedAt: lastUpdatedAt,
+          };
+        } else {
+          const cloudRecord = await fetchProjectFromCloud(projectId, { serverOnly: true });
+          payload = cloudRecord ? getCloudPayload(cloudRecord) : null;
+        }
+        if (!payload) {
+          throw new Error(`Không đọc được Firestore của dự án ${projectInfo?.name || projectId}; từ chối tạo backup toàn bộ không đầy đủ.`);
+        }
+
+        const backupFloorPlans = await hydrateFloorPlansForBackup(projectId, Array.isArray(payload.floorPlans) ? payload.floorPlans : []);
+        allData[getKey('construction_project_name', projectId)] = payload.projectName || projectInfo?.name || projectId;
+        allData[getKey('construction_contractor', projectId)] = payload.contractorName || '';
+        allData[getKey('construction_inspector', projectId)] = payload.inspectorName || '';
+        allData[getKey('construction_material_norms', projectId)] = JSON.stringify(payload.materialNorms || []);
+        allData[getKey('construction_inventory', projectId)] = JSON.stringify(payload.inventory || []);
+        allData[getKey('construction_work_volumes', projectId)] = JSON.stringify(payload.workVolumes || []);
+        allData[getKey('construction_floor_plans', projectId)] = JSON.stringify(backupFloorPlans);
+        allData[getKey('construction_defects', projectId)] = JSON.stringify(payload.defects || []);
+        allData[getKey('construction_room_progress', projectId)] = JSON.stringify(payload.roomProgressList || []);
+        allData[getKey('construction_checklist', projectId)] = JSON.stringify(payload.checklist || []);
+        allData[getKey('construction_crew_records', projectId)] = JSON.stringify(payload.crewRecords || []);
+        allData[getKey('construction_teams', projectId)] = JSON.stringify(payload.teams || []);
+        allData[getKey('construction_updated_at', projectId)] = String(payload.updatedAt || projectInfo?.updatedAt || Date.now());
+      }
+
+      const { projectPhotos, projectPhotoData } = await collectProjectPhotoBackup(projectIds);
+      if (Object.keys(projectPhotos).length > 0) {
+        allData.projectPhotos = projectPhotos;
+        allData.projectPhotoData = projectPhotoData;
+      }
+      return allData;
+    }
+
     const allData: Record<string, any> = {};
     const storageData = await getAllStorageData();
     for (const key in storageData) {
@@ -1203,8 +1308,6 @@ export default function App() {
       }
     }
 
-    const projectList = getProjectsList();
-    const projectIds = projectList.length > 0 ? projectList.map((project) => project.id) : [activeProjectId || 'default'];
     const { projectPhotos, projectPhotoData } = await collectProjectPhotoBackup(projectIds);
     if (Object.keys(projectPhotos).length > 0) {
       allData.projectPhotos = projectPhotos;

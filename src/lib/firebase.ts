@@ -6,6 +6,7 @@ import {
   setDoc, 
   getDoc, 
   getDocs, 
+  getDocsFromServer,
   deleteDoc, 
   collection, 
   onSnapshot, 
@@ -2224,10 +2225,12 @@ export async function saveProjectDiffsToCloud(
 /**
  * Fetch a single project from Cloud by ID
  */
-export async function fetchProjectFromCloud(projectId: string): Promise<CloudProjectRecord | null> {
+export async function fetchProjectFromCloud(projectId: string, options?: { serverOnly?: boolean }): Promise<CloudProjectRecord | null> {
   try {
     await ensureAuth();
-    const snap = await getDoc(doc(db, 'projects', projectId));
+    const snap = options?.serverOnly
+      ? await getDocFromServer(doc(db, 'projects', projectId))
+      : await getDoc(doc(db, 'projects', projectId));
     if (!snap.exists()) return null;
 
     const meta = snap.data();
@@ -2244,7 +2247,9 @@ export async function fetchProjectFromCloud(projectId: string): Promise<CloudPro
       const subNames = REALTIME_COLLECTIONS;
 
       for (const { cloudName, stateKey } of subNames) {
-        const querySnap = await getDocs(collection(db, 'projects', projectId, cloudName));
+        const querySnap = options?.serverOnly
+          ? await getDocsFromServer(collection(db, 'projects', projectId, cloudName))
+          : await getDocs(collection(db, 'projects', projectId, cloudName));
         const list: any[] = [];
         querySnap.forEach((docSnap) => {
           const data = docSnap.data();

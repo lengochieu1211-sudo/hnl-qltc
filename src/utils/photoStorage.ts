@@ -417,7 +417,7 @@ export async function getPhotoBase64(photoId: string): Promise<string> {
   return '';
 }
 
-export async function getProjectPhotosWithBinary(projectId: string): Promise<PhotoAttachment[]> {
+export async function getProjectPhotosWithBinary(projectId: string, requireBinary = false): Promise<PhotoAttachment[]> {
   const photos = await getProjectPhotos(projectId, false);
 
   // A backup must be self-contained. On a second phone/PC the photo metadata may
@@ -443,6 +443,10 @@ export async function getProjectPhotosWithBinary(projectId: string): Promise<Pho
       } catch (err) {
         console.warn('[Backup] Could not download cloud photo binary:', p.id, err);
       }
+    }
+
+    if (requireBinary && !String(base64 || '').startsWith('data:image/')) {
+      throw new Error(`Không lấy được binary ảnh ${p.id} của dự án ${projectId}; từ chối tạo backup không đầy đủ.`);
     }
 
     results.push({
