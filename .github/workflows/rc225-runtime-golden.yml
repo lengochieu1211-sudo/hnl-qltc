@@ -60,7 +60,7 @@ jobs:
       - name: Runtime browser golden
         shell: bash
         run: |
-          cat > /tmp/runtime-golden.mjs <<'EOF'
+          cat > runtime-golden.mjs <<'EOF'
           import fs from 'node:fs';
           import { chromium } from 'playwright-core';
           import { initializeApp } from 'firebase/app';
@@ -132,7 +132,6 @@ jobs:
           const editor = await openRole('EDITOR',{width:1280,height:800});
           const viewer = await openRole('VIEWER',{width:390,height:844});
 
-          // ADMIN project management surface must exist; EDITOR/VIEWER must not inherit it.
           await admin.page.locator('button[title="Quản lý danh sách dự án"]').click();
           await admin.page.getByText('Thêm dự án mới',{exact:true}).waitFor({timeout:10000});
           await admin.page.locator('button[title="Đóng"]').first().click();
@@ -143,7 +142,6 @@ jobs:
             await obj.page.locator('button[title="Đóng"]').first().click();
           }
 
-          // Security member management must be ADMIN-only.
           await admin.sec.click();
           await admin.page.locator('input[placeholder="email.nhanvien@gmail.com"]').waitFor({timeout:10000});
           await admin.page.locator('button[title="Đóng"]').first().click().catch(()=>admin.page.keyboard.press('Escape'));
@@ -153,19 +151,16 @@ jobs:
             await obj.page.keyboard.press('Escape');
           }
 
-          // Realtime project metadata: ADMIN cloud change must reach two live clients.
           await updateDoc(doc(db,'projects',PID), {name:'Runtime Golden Realtime', updatedAt:Date.now()});
           await admin.page.getByText('Runtime Golden Realtime',{exact:true}).first().waitFor({timeout:15000});
           await editor.page.getByText('Runtime Golden Realtime',{exact:true}).first().waitFor({timeout:15000});
 
-          // Offline -> cached view -> reconnect on EDITOR.
           await editor.ctx.setOffline(true);
           await editor.page.locator('[title^="Chế độ Ngoại Tuyến"]').waitFor({timeout:10000});
           await editor.page.getByText('Runtime Golden Realtime',{exact:true}).first().waitFor({timeout:5000});
           await editor.ctx.setOffline(false);
           await editor.page.locator('[title^="Mạng Trực Tuyến"]').waitFor({timeout:10000});
 
-          // Mobile bottom navigation remains reachable.
           await viewer.page.getByText('Thêm',{exact:true}).last().waitFor({timeout:5000});
           await viewer.page.getByText('Mặt bằng',{exact:true}).last().waitFor({timeout:5000});
 
@@ -174,7 +169,7 @@ jobs:
           console.log('RUNTIME GOLDEN PASS: desktop/mobile + ADMIN/EDITOR/VIEWER + realtime + offline/reconnect');
           await browser.close();
           EOF
-          node /tmp/runtime-golden.mjs
+          node ./runtime-golden.mjs
       - name: Upload runtime screenshots
         if: always()
         uses: actions/upload-artifact@v4
