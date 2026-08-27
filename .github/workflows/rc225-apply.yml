@@ -111,8 +111,21 @@ jobs:
           if old not in s:
               raise SystemExit('Emulator RBAC guard anchor missing')
           p.write_text(s.replace(old, new, 1))
+
+          p = Path('firestore.rules')
+          s = p.read_text()
+          old = """    function canEdit(projectId) {\n      return isGoogleAuthed() && (\n        isAdmin(projectId) ||\n        (uidMemberActive(projectId) && (uidRole(projectId) == 'EDITOR' || uidRole(projectId) == 'ENGINEER')) ||\n        (emailMemberActive(projectId) && (emailRole(projectId) == 'EDITOR' || emailRole(projectId) == 'ENGINEER'))\n      );\n    }\n"""
+          new = """    function isEditor(projectId) {\n      return isGoogleAuthed() && (\n        (uidMemberActive(projectId) && (uidRole(projectId) == 'EDITOR' || uidRole(projectId) == 'ENGINEER')) ||\n        (emailMemberActive(projectId) && (emailRole(projectId) == 'EDITOR' || emailRole(projectId) == 'ENGINEER'))\n      );\n    }\n\n    function canEdit(projectId) {\n      return isAdmin(projectId) || isEditor(projectId);\n    }\n"""
+          if old not in s:
+              raise SystemExit('Firestore canEdit anchor missing')
+          s = s.replace(old, new, 1)
+          needle = "|| (canEdit(projectId) && !isAdmin(projectId) && ("
+          if s.count(needle) != 2:
+              raise SystemExit(f'Firestore generic editor branch count unexpected: {s.count(needle)}')
+          s = s.replace(needle, "|| (isEditor(projectId) && (", 2)
+          p.write_text(s)
           PY
-          git add scripts/emulator-golden.mjs src/components/FloorPlanDefectTab.tsx src/components/SecurityModal.tsx
+          git add firestore.rules scripts/emulator-golden.mjs src/components/FloorPlanDefectTab.tsx src/components/SecurityModal.tsx
 
       - name: Verify exact fixed 19-file candidate
         shell: bash
@@ -123,7 +136,7 @@ jobs:
           diff -u /tmp/expected-files.txt /tmp/actual-files.txt
           cat > /tmp/sha256-manifest.txt <<'EOF'
           c3a1f35ea41359632ebd7dedbb4bffdd7e961adc5fd13c239acd203c95a43161  HNL-QLTC-V6.3.0-RC2.2.5-MASTER-RBAC-REPORT.md
-          f3c3dade8602b5c06964bfc45c4e8be12d6c624f096fb0d1e4337c8487aeeaa3  firestore.rules
+          d77432bf8d4ea4f4999eedb1b9ab5d0b823dd148c70739f49d39c51a5d5bb7e4  firestore.rules
           74cf4ed3d65b23450d3538c79eaebf91a38fb86602a038086024e21771506d3d  package.json
           08c173ed0db96c5bcf5167dc0f8ad0db4ce7e65f6d77d61ce366d4d02de35ba7  scripts/emulator-golden.mjs
           7bfdbeab5319390d998cc578169bc39b8bc90771a627eff6710262298e371733  scripts/firebase-rules-behavior.mjs
