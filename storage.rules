@@ -121,11 +121,12 @@ service firebase.storage {
 
     match /projects/{projectId}/floor-plans/{floorPlanId}/{fileName} {
       allow read: if isMember(projectId);
-      allow create: if canEdit(projectId)
+      // Floor-plan drawing binaries are project structure: ADMIN-only.
+      allow create: if isAdmin(projectId)
         && identityMetadata(projectId, 'floorPlan', floorPlanId, floorPlanId)
         && validSize(fileName)
         && validContentType();
-      allow update: if canEdit(projectId)
+      allow update: if isAdmin(projectId)
         && updateKeepsIdentity(projectId, 'floorPlan', floorPlanId, floorPlanId)
         && validSize(fileName)
         && validContentType();

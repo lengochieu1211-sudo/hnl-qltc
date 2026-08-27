@@ -139,6 +139,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
   }, []);
 
   const processSelectedFiles = async (files: FileList | File[] | null) => {
+    if (readOnly) return;
     const selected = files ? Array.from(files) : [];
     if (selected.length === 0 || !projectId || !entityId) return;
 
@@ -233,6 +234,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
   };
 
   const handleDeletePhoto = async (photoId: string, e: React.MouseEvent) => {
+    if (readOnly) return;
     e.preventDefault();
     e.stopPropagation();
     const confirmed = await confirmAsync('Xóa ảnh này?\n\nBạn có chắc muốn xóa ảnh này không?');
@@ -258,6 +260,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
   };
 
   const handleStartEditPhoto = async (photo: PhotoAttachment, e: React.MouseEvent) => {
+    if (readOnly) return;
     e.preventDefault();
     e.stopPropagation();
     try {
@@ -272,7 +275,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
   };
 
   const handleSaveEditedPhoto = async (editedFile: File) => {
-    if (!editingPhoto || !projectId) return;
+    if (readOnly || !editingPhoto || !projectId) return;
     try {
       setUploading(true);
       await updatePhotoAttachmentBlob(projectId, editingPhoto.id, editedFile);

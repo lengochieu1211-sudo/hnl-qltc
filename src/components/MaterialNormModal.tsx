@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   X, 
   Plus, 
@@ -28,11 +28,14 @@ import { formatDecimal, evaluateMathExpression, useFormatSettings, parseExcelNum
 import { getResolvedNormWorkCategories } from '../utils/projectReconciliation';
 import { normalizeUnit, unitKey, areSameUnit } from '../utils/unitUtils';
 import { createEntityId } from '../utils/idUtils';
+import { UserRole, canManageMaterialNorms, canImportData } from '../utils/securityUtils';
 
 import { QuickSortBar } from './QuickSortBar';
 
 interface MaterialNormModalProps {
   isOpen: boolean;
+  userRole: UserRole;
+  roleResolved: boolean;
   onClose: () => void;
   materialNorms: MaterialNorm[];
   onAddNorm: (norm: Omit<MaterialNorm, 'id'>) => void;
@@ -70,6 +73,8 @@ export const WORK_CATEGORIES_LIST = [
 
 export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   isOpen,
+  userRole,
+  roleResolved,
   onClose,
   materialNorms,
   onAddNorm,
@@ -82,6 +87,8 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   onImportWorkVolumes,
   onImportInventory,
 }) => {
+  const hasManageAccess = roleResolved && canManageMaterialNorms(userRole);
+  const hasImportAccess = roleResolved && canImportData(userRole);
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
   const [normSortBy, setNormSortBy] = useState<'none' | 'materialName' | 'quotaQuantity' | 'stock'>('none');
   const [normSortOrder, setNormSortOrder] = useState<'asc' | 'desc'>('asc');
@@ -112,12 +119,22 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deletingNormTarget, setDeletingNormTarget] = useState<MaterialNorm | null>(null);
 
+  useEffect(() => {
+    if (!hasManageAccess) {
+      setMode('list');
+      setEditingId(null);
+      setDeletingNormTarget(null);
+      setSelectedNormIds([]);
+    }
+  }, [hasManageAccess]);
+
   // Form states
   const [category, setCategory] = useState<string>(COMMON_CATEGORIES[0]);
   const [customCategory, setCustomCategory] = useState<string>('');
   const [materialName, setMaterialName] = useState<string>('');
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!hasImportAccess) { e.target.value = ''; return; }
     const file = e.target.files?.[0];
     if (!file) return;
     processExcelFile(file);
@@ -135,6 +152,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    if (!hasImportAccess) { setIsDragging(false); return; }
     setIsDragging(false);
     const file = e.dataTransfer.files?.[0];
     if (file) {
@@ -143,6 +161,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   };
 
   const processExcelFile = async (file: File) => {
+    if (!hasImportAccess) { alert('Chỉ ADMIN được nhập dữ liệu hàng loạt từ Excel.'); return; }
     const reader = new FileReader();
     reader.onload = async (e) => {
       try {
@@ -705,6 +724,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!hasManageAccess) return;
     const finalCategory = category === 'khac' ? customCategory.trim() : category;
     const finalUnit = unit === 'khac' ? customUnit.trim() : unit;
 
@@ -840,7 +860,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             </div>
             <div>
               <h3 className="text-base font-bold text-slate-900">Định mức &amp; chủng loại vật tư</h3>
-              <p className="text-xs text-slate-500">Quản lý tiêu chuẩn &amp; định mức công trình</p>
+              <p className="text-xs text-slate-500">{hasManageAccess ? 'Quản lý tiêu chuẩn & định mức công trình' : 'Xem định mức công trình · chỉ ADMIN được chỉnh sửa'}</p>
             </div>
           </div>
           <button
@@ -867,13 +887,15 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                   className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
-              <button
-                onClick={handleOpenAdd}
-                className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold shadow transition-all shrink-0 active:scale-95"
-              >
-                <Plus className="w-4 h-4" />
-                Thêm định mức
-              </button>
+              {hasManageAccess && (
+                <button
+                  onClick={handleOpenAdd}
+                  className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold shadow transition-all shrink-0 active:scale-95"
+                >
+                  <Plus className="w-4 h-4" />
+                  Thêm định mức
+                </button>
+              )}
             </div>
 
 
@@ -925,12 +947,12 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               <div className="text-center py-8 text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200 p-4">
                 <BookOpen className="w-8 h-8 mx-auto mb-2 opacity-50" />
                 <p className="text-xs font-semibold text-slate-600">Chưa có định mức vật tư nào trong danh mục</p>
-                <p className="text-[11px] text-slate-400 mt-1">Bấm "Thêm định mức" để thiết lập tiêu chuẩn chủng loại &amp; ĐVT công trình.</p>
+                <p className="text-[11px] text-slate-400 mt-1">{hasManageAccess ? 'Bấm "Thêm định mức" để thiết lập tiêu chuẩn chủng loại & ĐVT công trình.' : 'Chưa có định mức vật tư.'}</p>
               </div>
             ) : (
               <div className="space-y-2.5">
                 {/* Bulk actions toolbar */}
-                <div className="flex items-center justify-between bg-slate-100 border border-slate-200 rounded-xl px-3 py-2 text-xs gap-2">
+                {hasManageAccess && <div className="flex items-center justify-between bg-slate-100 border border-slate-200 rounded-xl px-3 py-2 text-xs gap-2">
                   <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer select-none">
                     <input
                       type="checkbox"
@@ -968,7 +990,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                       </button>
                     )}
                   </div>
-                </div>
+                </div>}
 
                 {sortedFilteredNorms.map((norm) => {
                   const stockKey = norm.materialName.trim().toLowerCase();
@@ -983,7 +1005,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex items-start gap-2.5 min-w-0">
-                          <input
+                          {hasManageAccess && <input
                             type="checkbox"
                             checked={selectedNormIds.includes(norm.id)}
                             onChange={(e) => {
@@ -994,7 +1016,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                               }
                             }}
                             className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer mt-1 shrink-0"
-                          />
+                          />}
                           <div>
                             <div className="flex flex-wrap gap-1 mb-1">
                               <span className="inline-block px-2 py-0.5 bg-indigo-100 text-indigo-700 text-[10px] font-bold rounded-md uppercase">
@@ -1012,22 +1034,10 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                             <h4 className="text-xs font-bold text-slate-900 leading-snug">{norm.materialName}</h4>
                           </div>
                         </div>
-                        <div className="flex items-center gap-1 shrink-0 justify-end">
-                          <button
-                            onClick={() => handleOpenEdit(norm)}
-                            className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                            title="Sửa định mức"
-                          >
-                            <Edit3 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => setDeletingNormTarget(norm)}
-                            className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                            title="Xóa định mức"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
+                        {hasManageAccess && <div className="flex items-center gap-1 shrink-0 justify-end">
+                          <button onClick={() => handleOpenEdit(norm)} className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Sửa định mức"><Edit3 className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => setDeletingNormTarget(norm)} className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors" title="Xóa định mức"><Trash2 className="w-3.5 h-3.5" /></button>
+                        </div>}
                       </div>
 
                       {/* Norm details grid */}
@@ -1394,7 +1404,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
       </div>
 
       {/* Delete Confirmation Modal Overlay */}
-      {deletingNormTarget && (
+      {hasManageAccess && deletingNormTarget && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-60 flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-5 max-w-xs w-full space-y-4 border border-slate-100 shadow-2xl text-center">
             <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto">

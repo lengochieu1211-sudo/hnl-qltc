@@ -5,7 +5,7 @@ import { safeSetLocalStorageItem } from './utils/storage';
 import { parseLegacyTimestamp } from './utils/dateFormatter';
 import { AppLockOverlay } from './components/AppLockOverlay';
 import { SecurityModal } from './components/SecurityModal';
-import { getStoredPinLockConfig, logAuditAction, getCurrentUserRole, setCurrentUserRole, UserRole, canEditProjectData, canManageProjects, canManageWorkVolumeStructure } from './utils/securityUtils';
+import { getStoredPinLockConfig, logAuditAction, getCurrentUserRole, setCurrentUserRole, UserRole, canEditProjectData, canManageProjects, canManageWorkVolumeStructure, canManageFloorPlanStructure, canManageMaterialNorms, canManageTeams, canManageChecklistStructure, canDeleteBusinessData, canManageBackups, canUseGlobalUndoRedo, canEditWarehouseData, canEditDefectData, canEditChecklistData, canEditCrewData, canImportData } from './utils/securityUtils';
 import { cacheVerifiedProjectRole, getCachedVerifiedProjectRole, getRememberedVerifiedAuthIdentity, rememberVerifiedAuthIdentity } from './utils/offlineAccess';
 
 function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
@@ -683,7 +683,7 @@ export default function App() {
 
   const saveCurrentProject = async (targetProjectId?: string) => {
     if (!isHydrated || isRestoring || isLoadingProject) return;
-    if (!canEditProjectData(currentUserRole)) return;
+    if (!isProjectRoleResolved || !canEditProjectData(currentUserRole)) return;
     const frozenProjectId = targetProjectId || activeProjectIdRef.current || activeProjectId;
     if (!frozenProjectId) return;
 
@@ -1588,7 +1588,7 @@ export default function App() {
       // still enforcing the selected retention period in normal app use. Floor-plan
       // binaries are deleted at this point; ordinary business tombstones stay tiny to
       // protect against stale offline resurrection.
-      if (currentUserRole === 'ADMIN' && expired.length > 0) {
+      if (isProjectRoleResolved && currentUserRole === 'ADMIN' && expired.length > 0) {
         expired.forEach((operation) => {
           void (async () => {
             for (const item of operation.deletedItems || []) {
@@ -1610,7 +1610,7 @@ export default function App() {
       disposed = true;
       unsubscribeCloud?.();
     };
-  }, [activeProjectId, cloudUserKey, currentUserRole]);
+  }, [activeProjectId, cloudUserKey, currentUserRole, isProjectRoleResolved]);
   // Chat must only list projects currently authorized by Firestore. Local recovery
   // projects remain available in Project Manager, but are never treated as chat access.
   const [authorizedChatProjects, setAuthorizedChatProjects] = useState<Array<{ id: string; name: string }>>([]);
@@ -2235,7 +2235,7 @@ export default function App() {
   };
 
   const handleTrashSettingsChange = (nextInput: TrashSettings) => {
-    if (currentUserRole !== 'ADMIN') {
+    if (!isProjectRoleResolved || currentUserRole !== 'ADMIN') {
       alert('Chỉ ADMIN được thay đổi cài đặt Thùng rác.');
       return;
     }
@@ -2249,7 +2249,7 @@ export default function App() {
   };
 
   const restoreTrashOperation = async (operationId: string) => {
-    if (currentUserRole !== 'ADMIN') {
+    if (!isProjectRoleResolved || currentUserRole !== 'ADMIN') {
       alert('Chỉ ADMIN được khôi phục dữ liệu từ Thùng rác.');
       return;
     }
@@ -2301,7 +2301,7 @@ export default function App() {
   };
 
   const purgeTrashOperation = async (operationId: string) => {
-    if (currentUserRole !== 'ADMIN') {
+    if (!isProjectRoleResolved || currentUserRole !== 'ADMIN') {
       alert('Chỉ ADMIN được xóa vĩnh viễn dữ liệu trong Thùng rác.');
       return;
     }
@@ -2329,7 +2329,7 @@ export default function App() {
   };
 
   const emptyTrash = async () => {
-    if (currentUserRole !== 'ADMIN') {
+    if (!isProjectRoleResolved || currentUserRole !== 'ADMIN') {
       alert('Chỉ ADMIN được dọn sạch Thùng rác.');
       return;
     }
@@ -2586,7 +2586,7 @@ export default function App() {
   };
 
   const handleUndo = () => {
-    if (!isProjectRoleResolved || !canEditProjectData(currentUserRole)) return;
+    if (!isProjectRoleResolved || !canUseGlobalUndoRedo(currentUserRole)) return;
     if (past.length === 0) return;
     const previous = past[past.length - 1];
     const newPast = past.slice(0, past.length - 1);
@@ -2604,7 +2604,7 @@ export default function App() {
   };
 
   const handleRedo = () => {
-    if (!isProjectRoleResolved || !canEditProjectData(currentUserRole)) return;
+    if (!isProjectRoleResolved || !canUseGlobalUndoRedo(currentUserRole)) return;
     if (future.length === 0) return;
     const next = future[0];
     const newFuture = future.slice(1);
@@ -3069,14 +3069,18 @@ export default function App() {
   useEffect(() => {
     if (!isHydrated || isLoadingProject) return;
     localStorage.setItem(getKey('construction_drive_auto_sync_enabled', activeProjectId), String(autoSyncEnabled));
-    if (getCurrentRealFirebaseUser()) {
+    if (isProjectRoleResolved && currentUserRole === 'ADMIN' && getCurrentRealFirebaseUser()) {
       saveProjectSharedSettings(activeProjectId, { driveAutoSyncEnabled: autoSyncEnabled })
         .catch((err) => console.warn('Project setting sync warning:', err));
     }
-  }, [autoSyncEnabled, activeProjectId, isHydrated, isLoadingProject]);
+  }, [autoSyncEnabled, activeProjectId, isHydrated, isLoadingProject, isProjectRoleResolved, currentUserRole]);
 
   const handleRestoreData = async (rawData: any, targetProjectId?: string) => {
     if (!rawData) return;
+    if (!isProjectRoleResolved || !canManageBackups(currentUserRole)) {
+      alert('Chỉ ADMIN được khôi phục/ghi đè dữ liệu dự án từ bản sao lưu.');
+      return;
+    }
     const operationProjectId = targetProjectId || activeProjectIdRef.current || getActiveProjectId();
 
     if (switchingProjectRef.current) {
@@ -3201,6 +3205,10 @@ export default function App() {
 
   const handleRestoreAllStorageData = async (parsedData: any) => {
     if (!parsedData) return;
+    if (!isProjectRoleResolved || !canManageBackups(currentUserRole)) {
+      alert('Chỉ ADMIN được khôi phục toàn bộ dữ liệu hệ thống.');
+      return;
+    }
     if (FIREBASE_ONLY_RUNTIME) {
       alert('Firebase-only không phục hồi database bằng cách ghi đè localStorage/IndexedDB. Hãy dùng Import Backup theo từng dự án để dữ liệu được kiểm tra ID/revision và ghi vào Firestore.');
       return;
@@ -3234,7 +3242,7 @@ export default function App() {
   // Google Drive Sync Up
   const handleDriveSyncUp = async (customFolderId?: string) => {
     if (FIREBASE_ONLY_RUNTIME) return { success: false, error: 'Google Drive runtime đã tắt trong Firebase-only. Drive chỉ còn dùng để đọc/migrate dữ liệu legacy.' };
-    if (!isProjectRoleResolved || !canEditProjectData(currentUserRole)) return { success: false, error: 'Quyền dự án chưa sẵn sàng hoặc tài khoản chỉ có quyền xem.' };
+    if (!isProjectRoleResolved || !canManageBackups(currentUserRole)) return { success: false, error: 'Chỉ ADMIN được đồng bộ/sao lưu dữ liệu dự án lên Drive.' };
     const operationProjectId = activeProjectIdRef.current || activeProjectId;
     if (!googleServerBackendAvailable) {
       setDriveSyncStatus('idle');
@@ -3377,7 +3385,7 @@ export default function App() {
 
   const handleDriveSyncUpAll = async (customFolderId?: string) => {
     if (FIREBASE_ONLY_RUNTIME) return { success: false, error: 'Google Drive runtime đã tắt trong Firebase-only. Chỉ migration legacy được phép đọc Drive.' };
-    if (!isProjectRoleResolved || !canEditProjectData(currentUserRole)) return { success: false, error: 'Quyền dự án chưa sẵn sàng hoặc tài khoản chỉ có quyền xem.' };
+    if (!isProjectRoleResolved || !canManageBackups(currentUserRole)) return { success: false, error: 'Chỉ ADMIN được sao lưu toàn bộ dự án lên Drive.' };
     if (!googleServerBackendAvailable) {
       return {
         success: false,
@@ -3416,6 +3424,7 @@ export default function App() {
 
   const handleDriveSyncDownAll = async (customFolderId?: string) => {
     if (FIREBASE_ONLY_RUNTIME) return { success: false, error: 'Drive restore/sync hai chiều đã tắt. Dùng Import Backup thủ công hoặc migration legacy có kiểm chứng.' };
+    if (!isProjectRoleResolved || !canManageBackups(currentUserRole)) return { success: false, error: 'Chỉ ADMIN được phục hồi toàn bộ dự án từ Drive.' };
     if (!googleServerBackendAvailable) {
       return {
         success: false,
@@ -3455,6 +3464,7 @@ export default function App() {
 
   // Local All File Link
   const handleLinkLocalAllFile = async () => {
+    if (!isProjectRoleResolved || !canManageBackups(currentUserRole)) { alert('Chỉ ADMIN được liên kết tệp backup toàn bộ dự án.'); return; }
     try {
       if (isAndroidAutoSaveAvailable()) {
         if (!hasAndroidAutoSaveFolder()) {
@@ -3516,6 +3526,7 @@ export default function App() {
   };
 
   const handleUnlinkLocalAllFile = async () => {
+    if (!isProjectRoleResolved || !canManageBackups(currentUserRole)) return;
     if (isAndroidAutoSaveHandle(localAllFileHandle)) {
       localStorage.removeItem(ANDROID_ALL_AUTOSAVE_ENABLED_KEY);
       setLocalAllFileHandle(null);
@@ -3532,6 +3543,7 @@ export default function App() {
   };
 
   const handleRequestLocalAllFilePermission = async () => {
+    if (!isProjectRoleResolved || !canManageBackups(currentUserRole)) return;
     if (!localAllFileHandle) return;
     try {
       if (isAndroidAutoSaveHandle(localAllFileHandle)) {
@@ -3567,6 +3579,7 @@ export default function App() {
   // Google Drive Sync Down
   const handleDriveSyncDown = async (customFolderId?: string, forceOverwrite = false) => {
     if (FIREBASE_ONLY_RUNTIME) return { success: false, error: 'Drive sync-down runtime đã tắt trong Firebase-only. Drive legacy không còn là nguồn realtime.' };
+    if (!isProjectRoleResolved || !canManageBackups(currentUserRole)) return { success: false, error: 'Chỉ ADMIN được phục hồi dữ liệu dự án từ Drive.' };
     if (syncLockRef.current || switchingProjectRef.current) return { success: false, message: 'Hệ thống đang đồng bộ dữ liệu.' };
     if (!googleServerBackendAvailable) {
       setDriveSyncStatus('idle');
@@ -4103,6 +4116,7 @@ export default function App() {
   };
 
   const handleCreateManualBackup = async () => {
+    if (!isProjectRoleResolved || !canManageBackups(currentUserRole)) { alert('Chỉ ADMIN được tạo điểm backup thủ công.'); return; }
     const allData = await buildAllProjectsBackupObject();
 
     try {
@@ -4154,6 +4168,7 @@ export default function App() {
   };
 
   const handleDeleteAutoSaveVersion = async (id: string) => {
+    if (!isProjectRoleResolved || !canManageBackups(currentUserRole)) return;
     try {
       const updated = await deleteBackupVersion(id);
       setAutosaveVersions(updated);
@@ -4163,6 +4178,7 @@ export default function App() {
   };
 
   const handleRestoreAutoSaveVersion = async (versionData: any) => {
+    if (!isProjectRoleResolved || !canManageBackups(currentUserRole)) { alert('Chỉ ADMIN được phục hồi phiên bản backup.'); return; }
     if (!versionData || typeof versionData !== 'object') {
       alert('Dữ liệu bản sao lưu không hợp lệ!');
       return;
@@ -4200,6 +4216,7 @@ export default function App() {
   useEffect(() => {
     if (FIREBASE_ONLY_RUNTIME) return; // JSON is manual Backup/Export/Import only.
     if (!isHydrated || isLoadingProject || isRestoring) return;
+    if (!isProjectRoleResolved || !canManageBackups(currentUserRole)) return;
     if (!localAllFileHandle) return;
     if (syncLockRef.current) return;
     if (!hasUnsavedAllBackupChangesRef.current) return;
@@ -4261,7 +4278,7 @@ export default function App() {
     }, 2000); // 2 seconds debounce
 
     return () => clearTimeout(timer);
-  }, [localAllFileHandle, present, projectName, contractorName, inspectorName, lastUpdatedAt]);
+  }, [localAllFileHandle, present, projectName, contractorName, inspectorName, lastUpdatedAt, isProjectRoleResolved, currentUserRole]);
 
   // Background version backup: gate cheaply BEFORE building any backup object.
   useEffect(() => {
@@ -4493,6 +4510,9 @@ export default function App() {
     if (FIREBASE_ONLY_RUNTIME) {
       return { success: false, message: 'Đồng bộ Google Sheets/Drive hai chiều đã tắt trong Firebase-only. Firestore là nguồn dữ liệu duy nhất; dùng Export Excel/JSON thủ công khi cần.' };
     }
+    if (!isProjectRoleResolved || !canManageBackups(currentUserRole)) {
+      return { success: false, message: 'Chỉ ADMIN được đồng bộ dữ liệu sang Google Sheets/Drive.' };
+    }
     if (!googleServerBackendAvailable) {
       return {
         success: false,
@@ -4550,6 +4570,7 @@ export default function App() {
 
   // Handlers for Material Norms (Auto updates material names in inventory if norm is renamed)
   const handleAddNorm = (normData: Omit<MaterialNorm, 'id'>) => {
+    if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được thêm định mức vật tư.'); return; }
     const newId = createEntityId('NORM');
     updateAppData((prev) => {
       const normalizedUnit = normalizeUnit(normData.unit) || normData.unit;
@@ -4572,6 +4593,7 @@ export default function App() {
   };
 
   const handleUpdateNorm = (id: string, updated: Omit<MaterialNorm, 'id'>) => {
+    if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được sửa định mức vật tư.'); return; }
     updateAppData((prev) => {
       const oldNorm = prev.materialNorms.find((n) => n.id === id);
       const stableMaterialId = oldNorm?.materialId || `MAT-${id}`;
@@ -4596,6 +4618,7 @@ export default function App() {
   };
 
   const handleDeleteNorm = (id: string) => {
+    if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được xóa định mức vật tư.'); return; }
     updateAppData((prev) => ({
       ...prev,
       materialNorms: prev.materialNorms.filter((norm) => norm.id !== id),
@@ -4603,6 +4626,7 @@ export default function App() {
   };
 
   const handleDeleteMultipleNorms = (ids: string[]) => {
+    if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được xóa định mức vật tư.'); return; }
     updateAppData((prev) => ({
       ...prev,
       materialNorms: prev.materialNorms.filter((norm) => !ids.includes(norm.id)),
@@ -4610,6 +4634,7 @@ export default function App() {
   };
 
   const handleImportNorms = (importedNorms: MaterialNorm[]) => {
+    if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được nhập định mức vật tư.'); return; }
     updateAppData((prev) => {
       const materialIdByNameUnit = new Map<string, string>();
       // Reuse current material identities first so importing norms cannot split one physical
@@ -4643,6 +4668,7 @@ export default function App() {
   // React state is then refreshed by the normal Firestore realtime listener; this avoids
   // a second local write path racing the server transaction.
   const handleAddInventory = async (item: Omit<InventoryItem, 'id'> & { id?: string }) => {
+    if (!isProjectRoleResolved || !canEditWarehouseData(currentUserRole)) throw new Error('Tài khoản không có quyền tạo giao dịch kho.');
     const newId = item.id || createEntityId(item.type === 'in' ? 'NK' : 'XK');
     const normalized = { ...item, unit: normalizeUnit(item.unit) || item.unit, id: newId } as InventoryItem;
 
@@ -4678,6 +4704,7 @@ export default function App() {
   };
 
   const handleUpdateInventory = async (id: string, item: Omit<InventoryItem, 'id'>) => {
+    if (!isProjectRoleResolved || !canEditWarehouseData(currentUserRole)) throw new Error('Tài khoản không có quyền sửa giao dịch kho.');
     if (FIREBASE_ONLY_RUNTIME) {
       const current = present.inventory.find((inv) => inv.id === id);
       if (!current) throw new Error('Không tìm thấy giao dịch kho hiện tại. Hãy chờ đồng bộ Firestore rồi thử lại.');
@@ -4696,6 +4723,7 @@ export default function App() {
   };
 
   const handleDeleteInventory = async (id: string) => {
+    if (!isProjectRoleResolved || !canDeleteBusinessData(currentUserRole)) throw new Error('Chỉ ADMIN được xóa giao dịch kho.');
     if (FIREBASE_ONLY_RUNTIME) {
       await softDeleteWarehouseTransactionAtomic(activeProjectIdRef.current, id);
       return;
@@ -4704,6 +4732,7 @@ export default function App() {
   };
 
   const handleDeleteMultipleInventory = async (ids: string[]) => {
+    if (!isProjectRoleResolved || !canDeleteBusinessData(currentUserRole)) throw new Error('Chỉ ADMIN được xóa giao dịch kho.');
     if (FIREBASE_ONLY_RUNTIME) {
       for (const id of ids) await softDeleteWarehouseTransactionAtomic(activeProjectIdRef.current, id);
       return;
@@ -4712,6 +4741,7 @@ export default function App() {
   };
 
   const handleImportInventory = async (importedInventory: InventoryItem[]) => {
+    if (!isProjectRoleResolved || !canImportData(currentUserRole)) throw new Error('Chỉ ADMIN được nhập dữ liệu kho hàng loạt.');
     const normalizedItems = importedInventory.map((item) => ({ ...item, unit: normalizeUnit(item.unit) || item.unit }));
     if (FIREBASE_ONLY_RUNTIME) {
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
@@ -4972,6 +5002,7 @@ export default function App() {
 
   // Handlers for Floor Plans & Defects
   const handleAddFloorPlan = (plan: Omit<FloorPlan, 'id'> & { id?: string }) => {
+    if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
     const newId = plan.id || createEntityId('fp');
     const imageRevision = Number(plan.imageRevision || Date.now());
     updateAppData((prev) => {
@@ -4984,6 +5015,7 @@ export default function App() {
   };
 
   const handleUpdateFloorPlan = (id: string, updates: Partial<FloorPlan>) => {
+    if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
     updateAppData((prev) => ({
       ...prev,
       floorPlans: prev.floorPlans.map((fp) => (fp.id === id ? { ...fp, ...updates } : fp)),
@@ -4991,6 +5023,7 @@ export default function App() {
   };
 
   const handleUpdateFloorPlanImage = (id: string, imageUrl: string) => {
+    if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
     const imageRevision = Date.now();
     updateAppData((prev) => ({
       ...prev,
@@ -5008,6 +5041,7 @@ export default function App() {
   };
 
   const handleRenameFloorPlan = (id: string, newName: string) => {
+    if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
     const trimmed = newName.trim();
     if (!trimmed) return;
     const targetPlan = floorPlans.find((fp) => fp.id === id);
@@ -5057,6 +5091,7 @@ export default function App() {
   };
 
   const handleDeleteFloorPlan = (id: string) => {
+    if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
     if (floorPlans.length <= 1) {
       alert('Dự án cần duy trì ít nhất 1 mặt bằng tầng!');
       return;
@@ -5138,6 +5173,7 @@ export default function App() {
   };
 
   const handleDeleteMultipleFloorPlans = (ids: string[]) => {
+    if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
     const requestedIdsOuter = new Set(ids);
     let cloudPlansToDelete = floorPlans.filter((fp) => requestedIdsOuter.has(fp.id));
     if (cloudPlansToDelete.length >= floorPlans.length && floorPlans.length > 0) {
@@ -5223,6 +5259,7 @@ export default function App() {
   };
 
   const handleDuplicateFloorPlan = (id: string, customName?: string) => {
+    if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
     updateAppData((prev) => {
       const sourcePlan = prev.floorPlans.find((fp) => fp.id === id);
       if (!sourcePlan) return prev;
@@ -5316,6 +5353,7 @@ export default function App() {
   };
 
   const handleMoveFloorPlan = (id: string, direction: 'left' | 'right') => {
+    if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
     updateAppData((prev) => {
       const index = prev.floorPlans.findIndex((fp) => fp.id === id);
       if (index < 0) return prev;
@@ -5333,6 +5371,7 @@ export default function App() {
   };
 
   const handleAddDefect = (defect: Omit<DefectItem, 'id' | 'createdAt'> & { id?: string }) => {
+    if (!isProjectRoleResolved || !canEditDefectData(currentUserRole)) { console.warn('[RBAC] Tài khoản không có quyền tạo Defect.'); return; }
     updateAppData((prev) => {
       // Find the highest numeric ID in current defects to increment sequentially
       let nextNum = 101;
@@ -5364,6 +5403,7 @@ export default function App() {
   };
 
   const handleUpdateDefectStatus = (id: string, status: DefectStatus) => {
+    if (!isProjectRoleResolved || !canEditDefectData(currentUserRole)) { console.warn('[RBAC] Tài khoản không có quyền cập nhật Defect.'); return; }
     const todayStr = new Date().toISOString().split('T')[0];
     updateAppData((prev) => ({
       ...prev,
@@ -5382,6 +5422,7 @@ export default function App() {
   };
 
   const handleUpdateDefect = (updatedDefect: DefectItem) => {
+    if (!isProjectRoleResolved || !canEditDefectData(currentUserRole)) { console.warn('[RBAC] Tài khoản không có quyền cập nhật Defect.'); return; }
     updateAppData((prev) => ({
       ...prev,
       defects: prev.defects.map((d) => (d.id === updatedDefect.id ? updatedDefect : d)),
@@ -5389,6 +5430,7 @@ export default function App() {
   };
 
   const handleDeleteDefect = (id: string) => {
+    if (!isProjectRoleResolved || !canDeleteBusinessData(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được xóa Defect.'); return; }
     updateAppData((prev) => ({
       ...prev,
       defects: prev.defects.filter((d) => d.id !== id),
@@ -5399,6 +5441,7 @@ export default function App() {
   };
 
   const handleDeleteMultipleDefects = (ids: string[]) => {
+    if (!isProjectRoleResolved || !canDeleteBusinessData(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được xóa Defect.'); return; }
     updateAppData((prev) => ({
       ...prev,
       defects: prev.defects.filter((d) => !ids.includes(d.id)),
@@ -5409,26 +5452,43 @@ export default function App() {
   };
 
   // Handlers for Room Progress / Acceptance
+  // RC2.2.5: EDITOR can update operational field progress on an existing room but
+  // cannot mutate the room/floor structural identity or geometry. Firestore Rules
+  // enforce the same boundary server-side; this sanitizer keeps the client fail-safe.
+  const applyEditorRoomOperationalUpdate = (existing: RoomProgressItem, incoming: Partial<RoomProgressItem>): RoomProgressItem => {
+    const operationalKeys: (keyof RoomProgressItem)[] = [
+      'frameStatus', 'boardStatus', 'frameInspectionStatus', 'boardInspectionStatus',
+      'inspectionStatus', 'inspectorName', 'notes', 'assignedTeam', 'teamId',
+      'targetFrameDate', 'targetBoardDate', 'subItems'
+    ];
+    const next: RoomProgressItem = { ...existing };
+    for (const key of operationalKeys) {
+      if (Object.prototype.hasOwnProperty.call(incoming, key)) (next as any)[key] = (incoming as any)[key];
+    }
+    return next;
+  };
+
   const handleSaveRoomProgress = (
     room: Omit<RoomProgressItem, 'id' | 'updatedAt'> & { id?: string }
   ) => {
     const updatedAt = Date.now();
     updateAppData((prev) => {
-      const exists = room.id ? prev.roomProgressList.some((r) => r.id === room.id) : false;
-      if (room.id && exists) {
+      const existing = room.id ? prev.roomProgressList.find((r) => r.id === room.id) : undefined;
+      if (existing) {
+        const nextRoom = canManageFloorPlanStructure(currentUserRole)
+          ? { ...existing, ...room, id: existing.id, createdAt: existing.createdAt || updatedAt, updatedAt }
+          : { ...applyEditorRoomOperationalUpdate(existing, room), updatedAt };
         return {
           ...prev,
-          roomProgressList: prev.roomProgressList.map((r) => (r.id === room.id
-            ? { ...r, ...room, id: room.id, createdAt: r.createdAt || updatedAt, updatedAt }
-            : r)),
-        };
-      } else {
-        const newId = room.id || createEntityId('ROOM');
-        return {
-          ...prev,
-          roomProgressList: [{ ...room, id: newId, createdAt: updatedAt, updatedAt }, ...prev.roomProgressList],
+          roomProgressList: prev.roomProgressList.map((r) => (r.id === existing.id ? nextRoom : r)),
         };
       }
+      if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return prev;
+      const newId = room.id || createEntityId('ROOM');
+      return {
+        ...prev,
+        roomProgressList: [{ ...room, id: newId, createdAt: updatedAt, updatedAt }, ...prev.roomProgressList],
+      };
     });
   };
 
@@ -5440,12 +5500,16 @@ export default function App() {
       ...prev,
       roomProgressList: prev.roomProgressList.map((r) => {
         const updated = roomMap.get(r.id);
-        return updated ? { ...r, ...updated, updatedAt } : r;
+        if (!updated) return r;
+        return canManageFloorPlanStructure(currentUserRole)
+          ? { ...r, ...updated, updatedAt }
+          : { ...applyEditorRoomOperationalUpdate(r, updated), updatedAt };
       }),
     }));
   };
 
   const handleCreateMultipleRoomProgress = (rooms: RoomProgressItem[]) => {
+    if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
     if (!rooms || rooms.length === 0) return;
     const now = Date.now();
     updateAppData((prev) => {
@@ -5459,6 +5523,7 @@ export default function App() {
   };
 
   const handleDeleteRoomProgress = (id: string) => {
+    if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
     updateAppData((prev) => {
       const deletedRoom = prev.roomProgressList.find((r) => r.id === id);
       const deletedLabel = deletedRoom?.roomName || id;
@@ -5477,6 +5542,7 @@ export default function App() {
   };
 
   const handleDeleteMultipleRoomProgress = (ids: string[]) => {
+    if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
     updateAppData((prev) => {
       const deleteSet = new Set(ids);
       const roomNameById = new Map(
@@ -5496,6 +5562,7 @@ export default function App() {
   };
 
   const handleReorderRoomProgressList = (reorderedList: RoomProgressItem[]) => {
+    if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
     if (reorderedList.length === 0) return;
     const activeFloorId = reorderedList[0].floorId;
     updateAppData((prev) => {
@@ -5508,6 +5575,7 @@ export default function App() {
   };
 
   const handleReorderFloorPlans = (reorderedList: FloorPlan[]) => {
+    if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
     updateAppData((prev) => ({
       ...prev,
       floorPlans: reorderedList.map((fp, idx) => ({ ...fp, order: idx })),
@@ -5521,6 +5589,7 @@ export default function App() {
     notes?: string,
     inspectedBy?: string
   ) => {
+    if (!isProjectRoleResolved || !canEditChecklistData(currentUserRole)) { console.warn('[RBAC] Tài khoản không có quyền cập nhật nghiệm thu Checklist.'); return; }
     updateAppData((prev) => ({
       ...prev,
       checklist: prev.checklist.map((item) => {
@@ -5539,6 +5608,7 @@ export default function App() {
   };
 
   const handleAddChecklistItem = (item: Omit<ChecklistItem, 'id'>) => {
+    if (!isProjectRoleResolved || !canManageChecklistStructure(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được thêm tiêu chí Checklist.'); return; }
     const newId = createEntityId('CHK');
     updateAppData((prev) => ({
       ...prev,
@@ -5547,6 +5617,7 @@ export default function App() {
   };
 
   const handleUpdateChecklistItem = (updatedItem: ChecklistItem) => {
+    if (!isProjectRoleResolved || !canManageChecklistStructure(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được sửa định nghĩa Checklist.'); return; }
     const normalizedItem: ChecklistItem = updatedItem.status === 'pending'
       ? { ...updatedItem, inspectedBy: undefined, inspectedAt: undefined }
       : updatedItem;
@@ -5557,6 +5628,7 @@ export default function App() {
   };
 
   const handleDeleteChecklistItem = (id: string) => {
+    if (!isProjectRoleResolved || !canDeleteBusinessData(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được xóa Checklist.'); return; }
     updateAppData((prev) => ({
       ...prev,
       checklist: prev.checklist.filter((item) => item.id !== id),
@@ -5564,6 +5636,7 @@ export default function App() {
   };
 
   const handleDeleteMultipleChecklistItems = (ids: string[]) => {
+    if (!isProjectRoleResolved || !canDeleteBusinessData(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được xóa Checklist.'); return; }
     updateAppData((prev) => ({
       ...prev,
       checklist: prev.checklist.filter((item) => !ids.includes(item.id)),
@@ -5572,6 +5645,7 @@ export default function App() {
 
   // Handlers for Crew/Quân số
   const handleAddCrewRecord = (record: Omit<CrewRecord, 'id'> & { id?: string }) => {
+    if (!isProjectRoleResolved || !canEditCrewData(currentUserRole)) { console.warn('[RBAC] Tài khoản không có quyền chấm công/quân số.'); return; }
     const newId = record.id || createEntityId('crew');
     updateAppData((prev) => ({
       ...prev,
@@ -5580,6 +5654,7 @@ export default function App() {
   };
 
   const handleUpdateCrewRecord = (id: string, record: Partial<CrewRecord>) => {
+    if (!isProjectRoleResolved || !canEditCrewData(currentUserRole)) { console.warn('[RBAC] Tài khoản không có quyền sửa chấm công/quân số.'); return; }
     updateAppData((prev) => ({
       ...prev,
       crewRecords: prev.crewRecords.map((r) => (r.id === id ? { ...r, ...record } : r)),
@@ -5587,6 +5662,7 @@ export default function App() {
   };
 
   const handleDeleteCrewRecord = (id: string) => {
+    if (!isProjectRoleResolved || !canDeleteBusinessData(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được xóa nhật ký quân số.'); return; }
     updateAppData((prev) => ({
       ...prev,
       crewRecords: prev.crewRecords.filter((r) => r.id !== id),
@@ -5594,6 +5670,7 @@ export default function App() {
   };
 
   const handleDeleteMultipleCrewRecords = (ids: string[]) => {
+    if (!isProjectRoleResolved || !canDeleteBusinessData(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được xóa nhật ký quân số.'); return; }
     updateAppData((prev) => ({
       ...prev,
       crewRecords: prev.crewRecords.filter((r) => !ids.includes(r.id)),
@@ -5601,6 +5678,7 @@ export default function App() {
   };
 
   const handleCopyCrewRecordsFromDate = (sourceDate: string, targetDate: string) => {
+    if (!isProjectRoleResolved || !canEditCrewData(currentUserRole)) { console.warn('[RBAC] Tài khoản không có quyền sao chép nhật ký quân số.'); return; }
     updateAppData((prev) => {
       const sourceRecords = prev.crewRecords.filter((r) => r.date === sourceDate);
       const keptRecords = prev.crewRecords.filter((r) => r.date !== targetDate);
@@ -5766,8 +5844,8 @@ export default function App() {
           onOpenExportPdf={() => setIsExportPdfOpen(true)}
           onUndo={handleUndo}
           onRedo={handleRedo}
-          canUndo={past.length > 0}
-          canRedo={future.length > 0}
+          canUndo={isProjectRoleResolved && canUseGlobalUndoRedo(currentUserRole) && past.length > 0}
+          canRedo={isProjectRoleResolved && canUseGlobalUndoRedo(currentUserRole) && future.length > 0}
           onOpenProjectManager={handleOpenProjectManager}
           onOpenSecurity={() => setIsSecurityModalOpen(true)}
           dueDateAlertCount={dueDateAlerts.length}
@@ -5867,6 +5945,8 @@ export default function App() {
           {activeTab === 'warehouse' && (
             <WarehouseTab
               inventory={inventory}
+              userRole={currentUserRole}
+              roleResolved={isProjectRoleResolved}
               onAddInventory={handleAddInventory}
               onUpdateInventory={handleUpdateInventory}
               onDeleteInventory={handleDeleteInventory}
@@ -5878,8 +5958,8 @@ export default function App() {
               onExportExcel={handleExportExcel}
               onUndo={handleUndo}
               onRedo={handleRedo}
-              canUndo={past.length > 0}
-              canRedo={future.length > 0}
+              canUndo={isProjectRoleResolved && canUseGlobalUndoRedo(currentUserRole) && past.length > 0}
+              canRedo={isProjectRoleResolved && canUseGlobalUndoRedo(currentUserRole) && future.length > 0}
               workVolumes={computedWorkVolumes}
               onImportInventory={handleImportInventory}
               onImportNorms={handleImportNorms}
@@ -5909,8 +5989,8 @@ export default function App() {
               onExportExcel={handleExportExcel}
               onUndo={handleUndo}
               onRedo={handleRedo}
-              canUndo={past.length > 0}
-              canRedo={future.length > 0}
+              canUndo={isProjectRoleResolved && canUseGlobalUndoRedo(currentUserRole) && past.length > 0}
+              canRedo={isProjectRoleResolved && canUseGlobalUndoRedo(currentUserRole) && future.length > 0}
             />
           )}
 
@@ -5925,6 +6005,8 @@ export default function App() {
               materialNorms={computedMaterialNorms}
               inventory={inventory}
               workVolumes={computedWorkVolumes}
+              userRole={currentUserRole}
+              roleResolved={isProjectRoleResolved}
               inspectorName={inspectorName}
               onAddInventory={handleAddInventory}
               onAddFloorPlan={handleAddFloorPlan}
@@ -5951,14 +6033,16 @@ export default function App() {
               onExportExcel={handleExportExcel}
               onUndo={handleUndo}
               onRedo={handleRedo}
-              canUndo={past.length > 0}
-              canRedo={future.length > 0}
+              canUndo={isProjectRoleResolved && canUseGlobalUndoRedo(currentUserRole) && past.length > 0}
+              canRedo={isProjectRoleResolved && canUseGlobalUndoRedo(currentUserRole) && future.length > 0}
             />
           )}
 
           {activeTab === 'checklist' && (
             <ChecklistTab
               checklist={activeChecklist}
+              userRole={currentUserRole}
+              roleResolved={isProjectRoleResolved}
               floors={floorNames}
               floorPlans={floorPlans}
               inspectorName={inspectorName}
@@ -5972,14 +6056,16 @@ export default function App() {
               onExportExcel={handleExportExcel}
               onUndo={handleUndo}
               onRedo={handleRedo}
-              canUndo={past.length > 0}
-              canRedo={future.length > 0}
+              canUndo={isProjectRoleResolved && canUseGlobalUndoRedo(currentUserRole) && past.length > 0}
+              canRedo={isProjectRoleResolved && canUseGlobalUndoRedo(currentUserRole) && future.length > 0}
             />
           )}
 
           {activeTab === 'crew' && (
             <CrewTab
               projectId={activeProjectId}
+              userRole={currentUserRole}
+              roleResolved={isProjectRoleResolved}
               projectName={projectName}
               crewRecords={crewRecords}
               floorPlans={floorPlans}
@@ -5994,6 +6080,10 @@ export default function App() {
               onExportExcel={handleExportExcel}
               teams={teams}
               onUpdateTeams={(newTeams) => {
+                if (!isProjectRoleResolved || !canManageTeams(currentUserRole)) {
+                  console.warn('[RBAC] Chỉ ADMIN được quản lý danh sách đội thi công.');
+                  return;
+                }
                 updateAppData((prev) => {
                   const currentTeams = prev.teams || [];
                   const deletedTeamNames = currentTeams
@@ -6197,6 +6287,8 @@ export default function App() {
         {/* Material Norms Modal */}
         <MaterialNormModal
           isOpen={isMaterialNormOpen}
+          userRole={currentUserRole}
+          roleResolved={isProjectRoleResolved}
           onClose={() => setIsMaterialNormOpen(false)}
           materialNorms={computedMaterialNorms}
           onAddNorm={handleAddNorm}
@@ -6207,7 +6299,13 @@ export default function App() {
           inventory={inventory}
           workVolumes={computedWorkVolumes}
           onImportInventory={handleImportInventory}
-          onImportWorkVolumes={(importedVolumes) => updateAppData((prev) => ({ ...prev, workVolumes: importedVolumes }))}
+          onImportWorkVolumes={(importedVolumes) => {
+            if (!isProjectRoleResolved || !canImportData(currentUserRole) || !canManageWorkVolumeStructure(currentUserRole)) {
+              console.warn('[RBAC] Chỉ ADMIN được nhập cấu trúc hạng mục khối lượng.');
+              return;
+            }
+            updateAppData((prev) => ({ ...prev, workVolumes: importedVolumes }));
+          }}
         />
 
         {/* Floating Due Date Toast Notification */}

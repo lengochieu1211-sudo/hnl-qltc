@@ -140,6 +140,43 @@ export function canManageWorkVolumeStructure(role: UserRole): boolean {
   return role === 'ADMIN';
 }
 
+// RC2.2.5: floor-plan/room geometry is project structure. Only ADMIN may create,
+// rename, replace drawings, duplicate/reorder floors, or create/delete/move/resize rooms.
+// EDITOR remains allowed to update field progress/inspection/assignment on existing rooms.
+export function canManageFloorPlanStructure(role: UserRole): boolean {
+  return role === 'ADMIN';
+}
+
+// RC2.2.5 MASTER RBAC: these collections define reusable project structure or
+// perform broad/destructive operations. Keep their policy explicit so every UI,
+// handler and Firebase rule can use the same ADMIN-only boundary.
+export function canManageMaterialNorms(role: UserRole): boolean {
+  return role === 'ADMIN';
+}
+
+export function canManageTeams(role: UserRole): boolean {
+  return role === 'ADMIN';
+}
+
+export function canManageChecklistStructure(role: UserRole): boolean {
+  return role === 'ADMIN';
+}
+
+export function canDeleteBusinessData(role: UserRole): boolean {
+  return role === 'ADMIN';
+}
+
+export function canManageBackups(role: UserRole): boolean {
+  return role === 'ADMIN';
+}
+
+// Undo/Redo stores whole AppData snapshots. Restrict it to ADMIN until it is
+// replaced by operation-scoped undo, otherwise a role switch could replay an old
+// structural snapshot through an EDITOR session.
+export function canUseGlobalUndoRedo(role: UserRole): boolean {
+  return role === 'ADMIN';
+}
+
 export function canDeleteCategory(role: UserRole): boolean {
   return role === 'ADMIN';
 }

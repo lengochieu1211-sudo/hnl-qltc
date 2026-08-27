@@ -85,16 +85,90 @@ service cloud.firestore {
       );
     }
 
-    function canEdit(projectId) {
+    function isEditor(projectId) {
       return isGoogleAuthed() && (
-        isAdmin(projectId) ||
         (uidMemberActive(projectId) && (uidRole(projectId) == 'EDITOR' || uidRole(projectId) == 'ENGINEER')) ||
         (emailMemberActive(projectId) && (emailRole(projectId) == 'EDITOR' || emailRole(projectId) == 'ENGINEER'))
       );
     }
 
+    function canEdit(projectId) {
+      return isAdmin(projectId) || isEditor(projectId);
+    }
+
     function canReadAudit(projectId) {
       return isAdmin(projectId) || canEdit(projectId);
+    }
+
+    // RC2.2.5 Master RBAC: EDITOR writes are operational-only and may never
+    // create/restore/delete structural business records through lifecycle fields.
+    function editorCreatesActiveOnly() {
+      return (!('deleted' in request.resource.data) || request.resource.data.deleted != true)
+        && (!('deletedAt' in request.resource.data) || request.resource.data.deletedAt == null)
+        && (!('deletedByUid' in request.resource.data) || request.resource.data.deletedByUid == null || request.resource.data.deletedByUid == '')
+        && (!('deletedBy' in request.resource.data) || request.resource.data.deletedBy == null || request.resource.data.deletedBy == '');
+    }
+
+    function editorKeepsActiveLifecycle() {
+      return (!('deleted' in resource.data) || resource.data.deleted != true)
+        && (!('deletedAt' in resource.data) || resource.data.deletedAt == null)
+        && (!('deleted' in request.resource.data) || request.resource.data.deleted != true)
+        && (!('deletedAt' in request.resource.data) || request.resource.data.deletedAt == null)
+        && (!('deletedByUid' in request.resource.data) || request.resource.data.deletedByUid == null || request.resource.data.deletedByUid == '')
+        && (!('deletedBy' in request.resource.data) || request.resource.data.deletedBy == null || request.resource.data.deletedBy == '');
+    }
+
+    // Room geometry/identity is ADMIN-owned project structure. EDITOR may update
+    // field progress, assignment, inspection and due-date data on an existing room.
+    function editorRoomOperationalUpdateOnly() {
+      return editorKeepsActiveLifecycle()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'frameStatus', 'boardStatus', 'frameInspectionStatus', 'boardInspectionStatus',
+          'inspectionStatus', 'inspectorName', 'notes', 'assignedTeam', 'teamId',
+          'targetFrameDate', 'targetBoardDate', 'subItems',
+          'deleted', 'deletedAt', 'deletedByUid', 'deletedBy',
+          'updatedAt', 'updatedByUid', 'updatedByEmail', 'updatedByDeviceId',
+          'updatedByDeviceName', 'revision'
+        ]);
+    }
+
+    // Checklist definition (floor/category/title/due-date/room binding) belongs to
+    // ADMIN. EDITOR can record only inspection outcome, note and inspector.
+    function editorChecklistOperationalUpdateOnly() {
+      return editorKeepsActiveLifecycle()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'notes', 'inspectedBy', 'inspectedAt',
+          'deleted', 'deletedAt', 'deletedByUid', 'deletedBy',
+          'updatedAt', 'updatedByUid', 'updatedByEmail', 'updatedByDeviceId',
+          'updatedByDeviceName', 'revision'
+        ]);
+    }
+
+    function isAdminOwnedStructureCollection(name) {
+      return name == 'work_volumes'
+        || name == 'floor_plans'
+        || name == 'rooms'
+        || name == 'material_norms'
+        || name == 'teams'
+        || name == 'checklist'
+        || name == 'settings'
+        || name == 'trash';
+    }
+
+    // Legacy Firestore floor-plan image metadata/chunks are migration fallback only.
+    // New binaries belong in Firebase Storage; no client may recreate or mutate the
+    // old metadata path. ADMIN may purge it after migration parity is verified.
+    function isLegacyReadOnlyCollection(name) {
+      return name == 'floor_plan_images';
+    }
+
+    // Fail closed for EDITOR: only explicitly known field-operation collections may
+    // be created/updated generically. Any future project subcollection starts ADMIN-only
+    // until it receives an intentional RBAC classification and regression test.
+    function isEditorOperationalCollection(name) {
+      return name == 'inventory'
+        || name == 'defects'
+        || name == 'crew_records';
     }
 
 
@@ -126,6 +200,11 @@ service cloud.firestore {
         || name == 'teams'
         || name == 'material_norms'
         || name == 'photos';
+    }
+
+    function coreIdentityUpdateIsValid(recordId) {
+      return request.resource.data.id == recordId
+        && (!('id' in resource.data) || resource.data.id == recordId);
     }
 
     function lifecycleUpdateIsMonotonic() {
@@ -356,22 +435,37 @@ service cloud.firestore {
       // V6.3.0 Firebase-only business lifecycle. VIEWER reads only; EDITOR/ADMIN edit.
       // ENGINEER remains accepted as a temporary legacy alias for deployed member docs.
       // Core business records are soft-delete only and reject stale revision/updatedAt
-      // overwrites. Non-core project docs (settings/trash helpers) retain legacy behavior
-      // until their dedicated migration pass.
+      // overwrites. Shared settings/trash metadata are ADMIN-owned structure; legacy
+      // floor_plan_images Firestore fallback is read-only until verified purge.
       match /{collectionName}/{recordId} {
         allow read: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'conversations' && collectionName != 'inventory_balances' && isMember(projectId);
-        // Work-volume documents are master project structure. EDITOR updates field progress
-        // through room/floor-plan records; WorkVolume.actual/status are derived in the app.
-        // Therefore only ADMIN may create/update work_volumes directly. Other business
-        // collections retain EDITOR/ADMIN edit access subject to lifecycle guards.
+        // Master project structure is ADMIN-only. EDITOR may create operational records
+        // (defect, warehouse transaction, crew log, photo metadata) and may update only
+        // explicitly allowed operational fields on rooms/checklist. VIEWER remains read-only.
         allow create: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'conversations' && collectionName != 'inventory_balances'
-          && ((collectionName == 'work_volumes' && isAdmin(projectId)) || (collectionName != 'work_volumes' && canEdit(projectId)))
+          && !isLegacyReadOnlyCollection(collectionName)
+          && (
+            isAdmin(projectId)
+            || (isEditor(projectId) && (
+              (collectionName == 'photos' && editorCreatesActiveOnly())
+              || (isEditorOperationalCollection(collectionName) && editorCreatesActiveOnly())
+            ))
+          )
           && (!isCoreBusinessCollection(collectionName) || coreCreateLifecycleIsValid(recordId));
         allow update: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'conversations' && collectionName != 'inventory_balances'
-          && ((collectionName == 'work_volumes' && isAdmin(projectId)) || (collectionName != 'work_volumes' && canEdit(projectId)))
-          && (!isCoreBusinessCollection(collectionName) || lifecycleUpdateIsMonotonic());
+          && !isLegacyReadOnlyCollection(collectionName)
+          && (
+            isAdmin(projectId)
+            || (isEditor(projectId) && (
+              (collectionName == 'rooms' && editorRoomOperationalUpdateOnly())
+              || (collectionName == 'checklist' && editorChecklistOperationalUpdateOnly())
+              || collectionName == 'photos'
+              || (isEditorOperationalCollection(collectionName) && editorKeepsActiveLifecycle())
+            ))
+          )
+          && (!isCoreBusinessCollection(collectionName) || (coreIdentityUpdateIsValid(recordId) && lifecycleUpdateIsMonotonic()));
         allow delete: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'conversations' && collectionName != 'inventory_balances'
-          && canEdit(projectId)
+          && isAdmin(projectId)
           && !isCoreBusinessCollection(collectionName);
 
         // Legacy Firestore binary chunks are read-only during Storage migration. Physical

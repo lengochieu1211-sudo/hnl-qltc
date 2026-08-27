@@ -42,6 +42,7 @@ import { deleteEntityPhotos, getEntityPhotos } from '../utils/photoStorage';
 import { saveWorkbookFile } from '../utils/fileExport';
 import { createEntityId } from '../utils/idUtils';
 import { QuickSortBar } from './QuickSortBar';
+import { UserRole, canEditCrewData, canDeleteBusinessData, canManageTeams, canImportData } from '../utils/securityUtils';
 
 const CrewPhotoCount: React.FC<{ projectId?: string; recordId: string }> = ({ projectId, recordId }) => {
   const [count, setCount] = useState(0);
@@ -112,6 +113,8 @@ const CrewPhotoCount: React.FC<{ projectId?: string; recordId: string }> = ({ pr
 
 interface CrewTabProps {
   projectId?: string;
+  userRole: UserRole;
+  roleResolved: boolean;
   projectName?: string;
   crewRecords: CrewRecord[];
   floorPlans: FloorPlan[];
@@ -203,6 +206,8 @@ const getCrewLogFloorLabel = (log: CrewRecord, floorPlans: FloorPlan[]) => {
 
 export const CrewTab: React.FC<CrewTabProps> = ({
   projectId = 'default-project',
+  userRole,
+  roleResolved,
   projectName,
   crewRecords,
   floorPlans,
@@ -219,6 +224,10 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   onUpdateTeams,
 }) => {
   const { t } = useLanguage();
+  const canOperate = roleResolved && canEditCrewData(userRole);
+  const canDelete = roleResolved && canDeleteBusinessData(userRole);
+  const canManageTeamDirectory = roleResolved && canManageTeams(userRole);
+  const canImportTeams = roleResolved && canImportData(userRole) && canManageTeams(userRole);
   // Navigation Tabs: 'logs' (Daily logs) or 'teams' (Manage team directory)
   const [activeSubTab, setActiveSubTab] = useState<'logs' | 'teams'>('logs');
   useFormatSettings();
@@ -251,6 +260,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
   // Call onUpdateTeams when teams change
   const updateTeamsAndParent = (nextTeams: TeamInfo[]) => {
+    if (!canManageTeamDirectory) return;
     setTeams(nextTeams);
     if (onUpdateTeams) {
       onUpdateTeams(nextTeams);
@@ -281,6 +291,24 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [deletingTeamTarget, setDeletingTeamTarget] = useState<TeamInfo | null>(null);
   const [showCopyConfirm, setShowCopyConfirm] = useState(false);
   const [copySourceDate, setCopySourceDate] = useState('');
+
+  useEffect(() => {
+    if (!canOperate) {
+      setShowAddLogModal(false);
+      setEditingRecord(null);
+      setShowCopyConfirm(false);
+    }
+    if (!canDelete) {
+      setDeletingRecordTarget(null);
+      setSelectedRecordIds([]);
+    }
+    if (!canManageTeamDirectory) {
+      setShowTeamModal(false);
+      setEditingTeam(null);
+      setDeletingTeamTarget(null);
+      setSelectedTeamIds([]);
+    }
+  }, [canOperate, canDelete, canManageTeamDirectory]);
 
   // Daily Log Form State
   const [teamName, setTeamName] = useState('');
@@ -683,6 +711,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   // Handle Daily Log Submission
   const handleLogSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canOperate) return;
     if (!teamName.trim()) {
       alert('Vui lòng chọn hoặc nhập tên đội thi công!');
       return;
@@ -776,6 +805,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   // Handle Team Directory Submission
   const handleTeamSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canManageTeamDirectory) return;
     if (!tName.trim()) {
       alert('Vui lòng nhập tên đội thi công!');
       return;
@@ -814,6 +844,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
   // Handle Copy Trigger from Yesterday
   const handleCopyFromYesterdayClick = () => {
+    if (!canOperate) return;
     const d = new Date(selectedDate);
     d.setDate(d.getDate() - 1);
     const year = d.getFullYear();
@@ -839,11 +870,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   };
 
   const confirmCopy = () => {
+    if (!canOperate) return;
     onCopyCrewRecordsFromDate(copySourceDate, selectedDate);
     setShowCopyConfirm(false);
   };
 
   const executeDeleteRecord = async () => {
+    if (!canDelete) return;
     if (deletingRecordTarget) {
       if (projectId) {
         let trashEnabled = true;
@@ -864,6 +897,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   };
 
   const executeDeleteTeam = () => {
+    if (!canManageTeamDirectory) return;
     if (deletingTeamTarget) {
       const nextTeams = teams.filter((t) => t.id !== deletingTeamTarget.id);
       setTeams(nextTeams);
@@ -926,6 +960,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   };
 
   const handleImportExcelTeams = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canImportTeams) { e.target.value = ''; return; }
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -999,7 +1034,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           }
         });
 
-        setTeams(newTeams);
+        updateTeamsAndParent(newTeams);
         alert(
           `🎉 Nhập Đội Thi Công từ Excel thành công!\n\n` +
           `• Đã cập nhật/chỉnh sửa: ${updatedCount} đội\n` +
@@ -1138,25 +1173,27 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           )}
 
           {/* Functional Actions */}
-          <div className="flex items-center gap-2 mb-4">
-            <button
-              onClick={async () => {
-                setEditingRecord(null);
-                setShowAddLogModal(true);
-              }}
-              className="flex-1 flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-4 rounded-xl shadow-sm transition text-xs"
-            >
-              <Plus className="w-4 h-4" /> Ghi nhận quân số
-            </button>
+          {canOperate && (
+            <div className="flex items-center gap-2 mb-4">
+              <button
+                onClick={async () => {
+                  setEditingRecord(null);
+                  setShowAddLogModal(true);
+                }}
+                className="flex-1 flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-4 rounded-xl shadow-sm transition text-xs"
+              >
+                <Plus className="w-4 h-4" /> Ghi nhận quân số
+              </button>
 
-            <button
-              onClick={handleCopyFromYesterdayClick}
-              className="flex-1 flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold py-2.5 px-4 rounded-xl shadow-sm transition text-xs"
-              title="Sao chép toàn bộ danh sách đội của ngày hôm trước"
-            >
-              <Copy className="w-3.5 h-3.5" /> Sao chép hôm qua
-            </button>
-          </div>
+              <button
+                onClick={handleCopyFromYesterdayClick}
+                className="flex-1 flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold py-2.5 px-4 rounded-xl shadow-sm transition text-xs"
+                title="Sao chép toàn bộ danh sách đội của ngày hôm trước"
+              >
+                <Copy className="w-3.5 h-3.5" /> Sao chép hôm qua
+              </button>
+            </div>
+          )}
 
           {/* Daily Records List */}
           <div className="space-y-3">
@@ -1178,7 +1215,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               summary={`${filteredRecords.length} ghi nhận`}
             />
 
-            {filteredRecords.length > 0 && (
+            {canDelete && filteredRecords.length > 0 && (
               <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs gap-2">
                 <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer select-none">
                   <input
@@ -1255,7 +1292,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   }`}
                 >
                   <div className="flex items-start gap-2.5">
-                    <input
+                    {canDelete && <input
                       type="checkbox"
                       checked={selectedRecordIds.includes(record.id)}
                       onChange={(e) => {
@@ -1266,7 +1303,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                         }
                       }}
                       className="mt-1 w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0"
-                    />
+                    />}
 
                     <div className="flex-1 min-w-0">
                       <div className="flex justify-between items-start gap-4 mb-2">
@@ -1327,8 +1364,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                       <CrewPhotoCount projectId={projectId} recordId={record.id} />
 
                       {/* Actions buttons */}
-                      <div className="flex items-center justify-end gap-3 mt-3 pt-2 border-t border-slate-100">
-                        <button
+                      {(canOperate || canDelete) && <div className="flex items-center justify-end gap-3 mt-3 pt-2 border-t border-slate-100">
+                        {canOperate && <button
                           onClick={async () => {
                             setEditingRecord(record);
                             setShowAddLogModal(true);
@@ -1337,8 +1374,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                           title="Sửa bản ghi"
                         >
                           <Edit2 className="w-3.5 h-3.5" /> <span>Sửa</span>
-                        </button>
-                        <button
+                        </button>}
+                        {canDelete && <button
                           onClick={async () => {
                             setDeletingRecordTarget(record);
                           }}
@@ -1346,8 +1383,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                           title="Xóa bản ghi"
                         >
                           <Trash2 className="w-3.5 h-3.5" /> <span className="text-rose-500 font-semibold">Xóa</span>
-                        </button>
-                      </div>
+                        </button>}
+                      </div>}
                     </div>
                   </div>
                 </div>
@@ -1360,7 +1397,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         <div className="space-y-4">
           <div className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm">
             <h3 className="text-xs font-bold text-slate-400 tracking-wider uppercase mb-1.5 flex items-center gap-1.5">
-              <Settings className="w-3.5 h-3.5 text-indigo-500" /> Quản lý danh mục các Đội thi công
+              <Settings className="w-3.5 h-3.5 text-indigo-500" /> {canManageTeamDirectory ? 'Quản lý danh mục các Đội thi công' : 'Danh mục các Đội thi công'}
             </h3>
             <p className="text-xs text-slate-500 leading-relaxed">
               Khai báo thông tin các đội thợ tại đây bao gồm Đội trưởng, Quân số định biên mặc định. Khi ghi nhận nhật ký hằng ngày, chỉ cần chọn tên đội thợ để hệ thống tự động điền các thông tin liên quan, rút ngắn thời gian làm báo cáo hằng ngày.
@@ -1368,7 +1405,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
             <div className="mt-3.5 pt-3 border-t border-slate-100">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                <button
+                {canManageTeamDirectory && <button
                   type="button"
                   onClick={async () => {
                     setEditingTeam(null);
@@ -1378,7 +1415,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                 >
                   <Plus className="w-4 h-4 shrink-0" />
                   <span className="truncate">Thêm đội mới</span>
-                </button>
+                </button>}
 
                 <button
                   type="button"
@@ -1390,7 +1427,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   <span className="truncate">Xuất báo cáo Excel</span>
                 </button>
 
-                <button
+                {canManageTeamDirectory && <button
                   type="button"
                   onClick={handleExportTeamsTemplate}
                   className="h-10 px-3 flex items-center justify-center gap-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold rounded-xl border border-slate-200 text-xs shadow-2xs transition-all active:scale-95"
@@ -1398,9 +1435,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                 >
                   <FileSpreadsheet className="w-4 h-4 text-slate-500 shrink-0" />
                   <span className="truncate">Tải Excel để chỉnh sửa</span>
-                </button>
+                </button>}
 
-                <label className="h-10 px-3 flex items-center justify-center gap-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold rounded-xl border border-slate-200 text-xs shadow-2xs cursor-pointer transition-all active:scale-95">
+                {canImportTeams && <label className="h-10 px-3 flex items-center justify-center gap-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold rounded-xl border border-slate-200 text-xs shadow-2xs cursor-pointer transition-all active:scale-95">
                   <Upload className="w-4 h-4 text-slate-500 shrink-0" />
                   <span className="truncate">Nhập lại từ Excel</span>
                   <input
@@ -1409,7 +1446,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     onChange={handleImportExcelTeams}
                     className="hidden"
                   />
-                </label>
+                </label>}
               </div>
             </div>
           </div>
@@ -1433,7 +1470,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               summary={`${teams.length} đội thi công`}
             />
 
-            {teams.length > 0 && (
+            {canManageTeamDirectory && teams.length > 0 && (
               <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs gap-2">
                 <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer select-none">
                   <input
@@ -1458,7 +1495,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                       onClick={async () => {
                         const idsToDelete = selectedTeamIds.filter(id => teams.some(item => item.id === id));
                         if (await confirmAsync(`Bạn có chắc muốn xóa ${idsToDelete.length} đội thi công đã chọn?`)) {
-                          setTeams((prev) => prev.filter((t) => !idsToDelete.includes(t.id)));
+                          const nextTeams = teams.filter((t) => !idsToDelete.includes(t.id));
+                          updateTeamsAndParent(nextTeams);
                           setSelectedTeamIds(prev => prev.filter(id => !idsToDelete.includes(id)));
                         }
                       }}
@@ -1475,7 +1513,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               <div className="bg-white border border-dashed border-slate-300 rounded-xl p-8 text-center flex flex-col items-center justify-center shadow-sm">
                 <Users className="w-8 h-8 text-slate-300 mb-2" />
                 <p className="text-xs text-slate-400 font-medium">Chưa có đội thi công nào được thêm.</p>
-                <p className="text-[10px] text-slate-400 mt-1">Vui lòng bấm nút phía trên để bắt đầu thêm mới.</p>
+                <p className="text-[10px] text-slate-400 mt-1">{canManageTeamDirectory ? 'Bấm Thêm đội để bắt đầu.' : 'Chỉ ADMIN được quản lý danh mục đội thi công.'}</p>
               </div>
             ) : (
               sortedTeams.map((team) => {
@@ -1499,18 +1537,20 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   >
                     <div className="flex justify-between items-start gap-4 mb-2">
                       <div className="flex items-start gap-2.5 min-w-0">
-                        <input
-                          type="checkbox"
-                          checked={selectedTeamIds.includes(team.id)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedTeamIds(prev => [...prev, team.id]);
-                            } else {
-                              setSelectedTeamIds(prev => prev.filter(id => id !== team.id));
-                            }
-                          }}
-                          className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer mt-0.5 shrink-0"
-                        />
+                        {canManageTeamDirectory && (
+                          <input
+                            type="checkbox"
+                            checked={selectedTeamIds.includes(team.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedTeamIds(prev => [...prev, team.id]);
+                              } else {
+                                setSelectedTeamIds(prev => prev.filter(id => id !== team.id));
+                              }
+                            }}
+                            className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer mt-0.5 shrink-0"
+                          />
+                        )}
                         <div>
                           <h4 
                             onClick={async () => {
@@ -1676,7 +1716,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     </button>
 
                     {/* Team edit / delete actions */}
-                    <div className="flex items-center justify-end gap-3 mt-2.5 pt-2 border-t border-slate-100">
+                    {canManageTeamDirectory && <div className="flex items-center justify-end gap-3 mt-2.5 pt-2 border-t border-slate-100">
                       <button
                         onClick={async () => {
                           setEditingTeam(team);
@@ -1696,7 +1736,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                       >
                         <Trash2 className="w-3.5 h-3.5" /> <span className="text-rose-500 font-semibold">Xóa</span>
                       </button>
-                    </div>
+                    </div>}
                   </div>
                 );
               })
@@ -1708,7 +1748,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       {/* ========================================= MODALS ========================================= */}
 
       {/* Ghi nhận quân số Modal */}
-      {showAddLogModal && (
+      {canOperate && showAddLogModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
           <div 
             className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200"
@@ -2054,7 +2094,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       )}
 
       {/* Thêm / Sửa thông tin Đội thi công Modal */}
-      {showTeamModal && (
+      {canManageTeamDirectory && showTeamModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
           <div 
             className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200"
@@ -2197,7 +2237,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       )}
 
       {/* CONFIRM DELETE DAILY LOG RECORD MODAL */}
-      {deletingRecordTarget && (
+      {canDelete && deletingRecordTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <div className="p-5 text-center">
@@ -2228,7 +2268,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       )}
 
       {/* CONFIRM DELETE TEAM FROM DIRECTORY MODAL */}
-      {deletingTeamTarget && (
+      {canManageTeamDirectory && deletingTeamTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <div className="p-5 text-center">
@@ -2259,7 +2299,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       )}
 
       {/* CONFIRM OVERWRITE COPY MODAL */}
-      {showCopyConfirm && (
+      {canOperate && showCopyConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <div className="p-5 text-center">

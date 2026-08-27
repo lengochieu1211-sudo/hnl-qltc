@@ -79,6 +79,7 @@ import { getImageQualityProfile } from '../utils/imageQualitySettings';
 import { detectPdfRoomCandidatesFromDocument, DEFAULT_PDF_ROOM_NAME_PATTERN, PdfRoomCandidate } from '../utils/pdfRoomDetection';
 import { QuickSortBar } from './QuickSortBar';
 import { MoveOrderControls } from './MoveOrderControls';
+import { UserRole, canManageFloorPlanStructure, canEditDefectData, canDeleteBusinessData } from '../utils/securityUtils';
 
 const getMappedCoordinates = (e: React.PointerEvent | React.MouseEvent | Touch, element: HTMLElement, currentRotation: number) => {
   const rect = element.getBoundingClientRect();
@@ -373,6 +374,8 @@ interface FloorPlanDefectTabProps {
   inventory?: InventoryItem[];
   workVolumes?: WorkVolume[];
   inspectorName?: string;
+  userRole?: UserRole;
+  roleResolved?: boolean;
   onAddInventory?: (item: Omit<InventoryItem, 'id'> & { id?: string }) => void;
   onAddFloorPlan: (plan: Omit<FloorPlan, 'id'> & { id?: string }) => void;
   onUpdateFloorPlanImage?: (id: string, imageUrl: string) => void;
@@ -618,6 +621,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   inventory = [],
   workVolumes = [],
   inspectorName,
+  userRole = 'VIEWER',
+  roleResolved = false,
   onAddInventory,
   onAddFloorPlan,
   onUpdateFloorPlanImage,
@@ -648,6 +653,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 }) => {
   const { t } = useLanguage();
   const currentProjectId = projectId || (typeof window !== 'undefined' ? sessionStorage.getItem('active_project_id') || localStorage.getItem('active_project_id') : '') || 'default';
+  const normalizedUserRole: UserRole = userRole === 'ADMIN' || userRole === 'EDITOR' ? userRole : 'VIEWER';
+  const canManageStructure = roleResolved && canManageFloorPlanStructure(normalizedUserRole);
+  const canEditDefects = roleResolved && canEditDefectData(normalizedUserRole);
+  const canDeleteDefects = roleResolved && canDeleteBusinessData(normalizedUserRole);
   const getDraftKey = (base: string) => (currentProjectId === 'default' ? base : `${base}_${currentProjectId}`);
   const readIdSet = (storageKey: string): Set<string> => {
     try {
@@ -851,6 +860,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     return saved;
   });
   const [activeDefectDetail, setActiveDefectDetail] = useState<DefectItem | null>(null);
+
+  useEffect(() => {
+    if (!canEditDefects) {
+      setShowDefectModal(false);
+      setIsDefectPinPlacementMode(false);
+      setPinPos(null);
+    }
+    if (!canDeleteDefects) {
+      setSelectedDefectIds([]);
+      setDeletingDefectTarget(null);
+    }
+  }, [canEditDefects, canDeleteDefects]);
   const [isDefectPinPlacementMode, setIsDefectPinPlacementMode] = useState(false);
   const [isRoomPinPlacementMode, setIsRoomPinPlacementMode] = useState(false);
 
@@ -1098,6 +1119,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const handleContextMenuOnRoom = (e: React.MouseEvent, room: RoomProgressItem) => {
     e.preventDefault();
     e.stopPropagation();
+    if (!canManageStructure) {
+      setTouchMenu(null);
+      return;
+    }
     if (!imageContainerRef.current) return;
     const { x: rawX, y: rawY } = getMappedCoordinates(e, imageContainerRef.current, rotation);
     const x = Math.min(100, Math.max(0, Math.round(rawX * 10) / 10));
@@ -1113,6 +1138,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   const handleContextMenuOnBg = (e: React.MouseEvent) => {
     e.preventDefault();
+    if (!canManageStructure) {
+      setTouchMenu(null);
+      return;
+    }
     if (!imageContainerRef.current) return;
     const { x: rawX, y: rawY } = getMappedCoordinates(e, imageContainerRef.current, rotation);
     const x = Math.min(100, Math.max(0, Math.round(rawX * 10) / 10));
@@ -1127,6 +1156,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   };
 
   const handleCopyRoom = async (room: RoomProgressItem) => {
+    if (!canManageStructure) return;
     let selectedToCopy: RoomProgressItem[] = [room];
     if (selectedRoomIds.includes(room.id) && selectedRoomIds.length > 1) {
       selectedToCopy = roomProgressList.filter(r => selectedRoomIds.includes(r.id));
@@ -1165,11 +1195,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   }, [roomProgressList, floorPlans]);
 
   const handleDeleteAllOrphanedRooms = async () => {
-    if (orphanedRooms.length === 0) return;
+    if (!canManageStructure || orphanedRooms.length === 0) return;
     setConfirmDeleteOrphanedModal(true);
   };
 
   const handleConfirmDeleteAllOrphaned = () => {
+    if (!canManageStructure) return;
     if (onDeleteMultipleRoomProgress) {
       onDeleteMultipleRoomProgress(orphanedRooms.map(r => r.id));
     } else {
@@ -1183,7 +1214,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   };
 
   const handlePasteRoom = (targetX: number, targetY: number, overwrite = false) => {
-    if (copiedRoomsState.length === 0 || !activeFloor) return;
+    if (!canManageStructure || copiedRoomsState.length === 0 || !activeFloor) return;
     
     // Find bounding box center of all copied rooms
     let minX = 100, minY = 100, maxX = 0, maxY = 0;
@@ -1309,13 +1340,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   };
 
   const handleDeleteRoom = (room: RoomProgressItem) => {
+    if (!canManageStructure) return;
     setDeletingRoomTarget({ id: room.id, name: room.roomName });
     setTouchMenu(null);
   };
 
   const handleRoomTouchStart = (e: React.TouchEvent, room: RoomProgressItem) => {
     e.stopPropagation();
-    if (e.touches.length !== 1) return;
+    if (!canManageStructure || e.touches.length !== 1) return;
     
     const touch = e.touches[0];
     const clientX = touch.clientX;
@@ -1482,6 +1514,36 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   // Redraw existing room highlight using 2 points state
   const [redrawingRoomTarget, setRedrawingRoomTarget] = useState<RoomProgressItem | null>(null);
+
+  // RC2.2.5: fail closed on role downgrade/switch. Structural state can be left armed
+  // by an ADMIN session; EDITOR/VIEWER must never inherit those destructive controls.
+  React.useEffect(() => {
+    if (canManageStructure) return;
+    setIsRoomPinPlacementMode(false);
+    setDrawTool('none');
+    setDrawStartPos(null);
+    setDrawHoverPos(null);
+    setPolygonPoints([]);
+    setFreehandPoints([]);
+    setPendingDraftHighlight(null);
+    setRedrawingRoomTarget(null);
+    setSelectedRoomForDragId(null);
+    setSelectedRoomIds([]);
+    setSelectedApartmentIds([]);
+    setCopiedRoomsState([]);
+    setClickChoicePos(null);
+    setTouchMenu(null);
+    setShowManageFloorsModal(false);
+    setShowQuickAddFloorModal(false);
+    setShowAddFloorModal(false);
+    setEditingFloorId(null);
+    setInlineEditingFloorId(null);
+    setDuplicatingFloorTarget(null);
+    setDeletingFloorTarget(null);
+    setDeletingRoomTarget(null);
+    setConfirmDeleteOrphanedModal(false);
+    setPendingSmartPdfImport(null);
+  }, [canManageStructure]);
   const [is2PointDragging, setIs2PointDragging] = useState(false);
 
   const handleStartRedraw2Point = (room: RoomProgressItem, tool: 'freehand' | 'polygon' | '2point' = '2point') => {
@@ -1530,6 +1592,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   // Handle uploaded excel to import Room Highlights
   const handleImportExcelHighlights = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canManageStructure) {
+      e.currentTarget.value = '';
+      return;
+    }
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -1858,6 +1924,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   };
 
   const toggleDefectLock = (defectId: string) => {
+    if (!canEditDefects) return;
     setLockedDefectIds((prev) => {
       const next = new Set(prev);
       if (next.has(defectId)) next.delete(defectId); else next.add(defectId);
@@ -2207,6 +2274,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       const target = e.target as HTMLElement;
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable) return;
 
+      // Structural keyboard shortcuts are ADMIN-only. Navigation/escape remain available.
+      if (!canManageStructure) {
+        if (e.code === 'Space') spacePanHeldRef.current = true;
+        if (e.key === 'Escape') {
+          setDrawTool('none');
+          setIsRoomPinPlacementMode(false);
+          setSelectedRoomIds([]);
+          setSelectedRoomForDragId(null);
+        }
+        return;
+      }
+
       // Ctrl+A / Cmd+A: Select all rooms on current floor
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
         e.preventDefault();
@@ -2302,7 +2381,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     window.addEventListener('keydown', handleKeyDown, true);
     window.addEventListener('keyup', handleKeyUp, true);
     return () => { window.removeEventListener('keydown', handleKeyDown, true); window.removeEventListener('keyup', handleKeyUp, true); };
-  }, [selectedRoomForDragId, selectedRoomIds, floorRooms, copiedRoomsState, activeFloor, onSaveRoomProgress, onDeleteRoomProgress, lockedRoomIds]);
+  }, [selectedRoomForDragId, selectedRoomIds, floorRooms, copiedRoomsState, activeFloor, onSaveRoomProgress, onDeleteRoomProgress, lockedRoomIds, canManageStructure]);
 
   const filteredDefects = React.useMemo(() => {
     const getRoomLabel = (defect: DefectItem) => {
@@ -2667,6 +2746,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   // Handle PDF/Image file upload to update an existing floor plan drawing
   const handleUpdatePlanFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canManageStructure) { if (e.target) e.target.value = ''; return; }
     const file = e.target.files?.[0];
     if (!file || !updatingFloorPlanId) return;
 
@@ -2695,6 +2775,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     room: RoomProgressItem,
     handle: 'move' | 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'w' | 'e' | number
   ) => {
+    if (!canManageStructure) return;
     e.stopPropagation();
     if (e.cancelable) e.preventDefault();
     const selectedIdsForDrag = selectedRoomIds.includes(room.id) && handle === 'move' ? selectedRoomIds : [room.id];
@@ -2748,6 +2829,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   // Pointer Down on Floor Plan (Freehand start or Polygon or 2-Point)
   const handlePointerDownImage = (e: React.PointerEvent<HTMLDivElement>) => {
     activePointersRef.current.add(e.pointerId);
+    if (!canManageStructure && drawTool !== 'none') setDrawTool('none');
 
     // Navigation wins over creation. Mobile: one-finger background drag pans.
     // Desktop: middle mouse drag or Space + left mouse drag pans.
@@ -3086,7 +3168,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   // Finish Polygon / Line Drawing (2 or more points) and show preview highlight BEFORE modal
   const handleCompletePolygon = (asPolylineMode?: boolean) => {
-    if (polygonPoints.length < 2) return;
+    if (!canManageStructure || polygonPoints.length < 2) return;
     let finalPoints = [...polygonPoints];
     let isPolyline = !!asPolylineMode;
 
@@ -3141,6 +3223,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   };
 
   const openDefectModalForPin = (x: number, y: number) => {
+    if (!canEditDefects) return;
     setPinPos({ x, y });
     const { roomAtPosTeam, currentFloorTeams, declaredTeamNames } = getCandidateTeamsForDefect(
       { x, y },
@@ -3170,6 +3253,27 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const y = Math.min(100, Math.max(0, Math.round(rawY * 10) / 10));
 
     lastPointerMapPosRef.current = { x, y };
+
+    // RC2.2.5: EDITOR may place defects but must never enter any floor/room structural
+    // creation flow, including stale draw/pin state left over from an ADMIN session.
+    if (!canManageStructure) {
+      setIsRoomPinPlacementMode(false);
+      setDrawTool('none');
+      setDrawStartPos(null);
+      setDrawHoverPos(null);
+      setPolygonPoints([]);
+      setPendingDraftHighlight(null);
+      setSelectedRoomForDragId(null);
+      setSelectedRoomIds([]);
+      setClickChoicePos(null);
+      setTouchMenu(null);
+      setHoveredRoomId(null);
+      if (canEditDefects && isDefectPinPlacementMode) {
+        setIsDefectPinPlacementMode(false);
+        openDefectModalForPin(x, y);
+      }
+      return;
+    }
 
     // Explicit room placement: never invent a default coordinate.
     if (isRoomPinPlacementMode) {
@@ -3536,6 +3640,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   // Select Defect Photo
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canEditDefects) { e.target.value = ''; return; }
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -3558,6 +3663,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   };
 
   const handleSaveEditedPhoto = async (editedFile: File) => {
+    if (!canEditDefects) return;
     setIsImageEditorOpen(false);
     setEditingPhotoUrl(null);
     try {
@@ -3594,6 +3700,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   };
 
   const handleAfterPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>, forModal: boolean = false) => {
+    if (!canEditDefects) { e.target.value = ''; return; }
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -3640,6 +3747,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   };
 
   const handleModalBeforePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canEditDefects) { e.target.value = ''; return; }
     const file = e.target.files?.[0];
     if (!file || !activeDefectDetail) return;
 
@@ -3680,6 +3788,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   };
 
   const handleClearModalBeforePhoto = () => {
+    if (!canEditDefects) return;
     if (!activeDefectDetail) return;
     const updated = { ...activeDefectDetail, imageUrl: undefined };
     setActiveDefectDetail(updated);
@@ -3689,6 +3798,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   };
 
   const handleClearModalAfterPhoto = () => {
+    if (!canEditDefects) return;
     if (!activeDefectDetail) return;
     const updated = { ...activeDefectDetail, afterImageUrl: undefined };
     setActiveDefectDetail(updated);
@@ -3701,6 +3811,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   const handleCreateDefect = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canEditDefects) return;
     if (!pinPos || !activeFloor) return;
 
     const isPointInRoom = (px: number, py: number, r: any) => {
@@ -3824,7 +3935,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           </p>
         </div>
         <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
-          <button
+          {canManageStructure && <button
             type="button"
             onClick={() => setShowManageFloorsModal(true)}
             className="flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-2.5 py-2 rounded-xl text-xs font-bold active:scale-95 transition-all shadow-xs"
@@ -3832,7 +3943,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           >
             <Settings className="w-3.5 h-3.5" />
             Tùy chỉnh tầng
-          </button>
+          </button>}
           <input
             type="file"
             ref={updatePlanInputRef}
@@ -3855,13 +3966,15 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={handleDeleteAllOrphanedRooms}
-            className="w-full py-2 bg-rose-600 hover:bg-rose-700 text-white font-extrabold rounded-xl text-[11px] shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1.5"
-          >
-            <Trash2 className="w-3.5 h-3.5" /> XÓA SẠCH {orphanedRooms.length} PHÒNG ẨN NGAY
-          </button>
+          {canManageStructure && (
+            <button
+              type="button"
+              onClick={handleDeleteAllOrphanedRooms}
+              className="w-full py-2 bg-rose-600 hover:bg-rose-700 text-white font-extrabold rounded-xl text-[11px] shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1.5"
+            >
+              <Trash2 className="w-3.5 h-3.5" /> XÓA SẠCH {orphanedRooms.length} PHÒNG ẨN NGAY
+            </button>
+          )}
         </div>
       )}
 
@@ -4032,6 +4145,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 ) : (
                   <span
                     onDoubleClick={(e) => {
+                      if (!canManageStructure) return;
                       e.stopPropagation();
                       setInlineEditingFloorId(fp.id);
                       setInlineEditingName(fp.floorName);
@@ -4056,7 +4170,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 )}
 
                 {/* Direct Action Quick Buttons on Tab */}
-                {!isEditingInline && (
+                {canManageStructure && !isEditingInline && (
                   <div className="hidden sm:flex items-center gap-0.5 ml-1 opacity-80 group-hover:opacity-100 transition-opacity">
                     {/* Pencil Edit Icon */}
                     <button
@@ -4204,7 +4318,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             </div>
 
             <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:items-center">
-              <button
+              {canManageStructure && <button
                 type="button"
                 onClick={async () => {
                   setUpdatingFloorPlanId(activeFloor.id);
@@ -4215,9 +4329,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               >
                 <Upload className="w-3.5 h-3.5 text-slate-600" />
                 <span>Cập nhật bản vẽ</span>
-              </button>
+              </button>}
 
-              {(viewMode === 'highlight' || viewMode === 'all') && (
+              {canManageStructure && (viewMode === 'highlight' || viewMode === 'all') && (
                 <button
                   type="button"
                   onClick={() => {
@@ -4236,7 +4350,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 </button>
               )}
 
-              {(viewMode === 'defect' || viewMode === 'all') && (
+              {canEditDefects && (viewMode === 'defect' || viewMode === 'all') && (
                 <button
                   type="button"
                   onClick={() => {
@@ -4260,7 +4374,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           </div>
 
           {/* Dedicated Drawing & View Controls Toolbar */}
-          {(viewMode === 'highlight' || viewMode === 'all') && (
+          {canManageStructure && (viewMode === 'highlight' || viewMode === 'all') && (
             <details className="group bg-slate-50/90 rounded-xl border border-slate-200/80">
               <summary className="cursor-pointer select-none px-3 py-2 text-[11px] font-bold text-slate-700 flex items-center justify-between">
                 <span>Công cụ vẽ vùng Căn / Phòng</span>
@@ -4369,6 +4483,33 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               </div>
               </div>
             </details>
+          )}
+
+          {!canManageStructure && (viewMode === 'highlight' || viewMode === 'all') && (
+            <div className="flex flex-wrap items-center gap-1.5 bg-slate-50/90 rounded-xl border border-slate-200/80 px-2.5 py-2">
+              <button
+                type="button"
+                onClick={() => setRoomColorMode(roomColorMode === 'palette' ? 'status' : 'palette')}
+                className={`text-xs font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all ${
+                  roomColorMode === 'palette' ? 'bg-indigo-600 text-white' : 'bg-amber-500 text-slate-950'
+                }`}
+                title="Đổi cách hiển thị màu Căn / Phòng"
+              >
+                <Palette className="w-3.5 h-3.5" />
+                <span>{roomColorMode === 'palette' ? 'Mỗi Căn / Phòng 1 màu' : 'Theo trạng thái'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowTextOverlay(!showTextOverlay)}
+                className={`text-xs font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all ${
+                  !showTextOverlay ? 'bg-emerald-600 text-white' : 'bg-white text-slate-700 border border-slate-200'
+                }`}
+                title="Bật/Tắt nhãn tên Căn / Phòng"
+              >
+                {!showTextOverlay ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                <span>{!showTextOverlay ? 'Chỉ hiện màu' : 'Hiện tên Căn / Phòng'}</span>
+              </button>
+            </div>
           )}
 
           {/* Active Drawing Tool Info Banner */}
@@ -4577,7 +4718,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           ) : null}
 
           {/* Pending Draft Highlight Confirmation Banner */}
-          {pendingDraftHighlight && (
+          {canManageStructure && pendingDraftHighlight && (
             <div className="bg-amber-500 text-slate-950 p-3 rounded-2xl shadow-lg border-2 border-amber-300 flex flex-col sm:flex-row items-center justify-between gap-2.5 animate-in zoom-in-95">
               <div className="flex items-center gap-2">
                 <Sparkles className="w-5 h-5 text-slate-950 shrink-0 animate-spin" />
@@ -4663,7 +4804,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       <span className="truncate max-w-[100px] sm:max-w-none">{activeFloor?.floorName || 'Toàn Màn Hình'}</span>
                     </span>
 
-                    {(viewMode === 'highlight' || viewMode === 'all') && (
+                    {canManageStructure && (viewMode === 'highlight' || viewMode === 'all') && (
                       <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
                         {/* Tool 1: Freehand Drawing */}
                         <button
@@ -4774,7 +4915,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       </div>
                     )}
 
-                    {(viewMode === 'defect' || viewMode === 'all') && (
+                    {canEditDefects && (viewMode === 'defect' || viewMode === 'all') && (
                       <button
                         type="button"
                         onClick={() => {
@@ -4819,7 +4960,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 </div>
 
                 {/* Floating Active Drawing Action Banner in Fullscreen */}
-                {drawTool === 'polygon' && !redrawingRoomTarget && (
+                {canManageStructure && drawTool === 'polygon' && !redrawingRoomTarget && (
                   <div className="bg-amber-500 text-slate-950 px-2 py-1.5 rounded-xl text-[11px] font-bold flex flex-row flex-wrap items-center justify-between gap-1.5 border border-amber-300 shadow-lg animate-in slide-in-from-top-2 w-full">
                     <div className="flex items-center gap-1.5 w-full sm:w-auto">
                       <Sparkles className="w-4 h-4 text-slate-950 shrink-0" />
@@ -4887,7 +5028,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   </div>
                 )}
 
-                {pendingDraftHighlight && (
+                {canManageStructure && pendingDraftHighlight && (
                   <div className="bg-amber-500 text-slate-950 p-2 rounded-2xl shadow-2xl border-2 border-amber-300 flex flex-wrap items-center justify-between gap-2 animate-in zoom-in-95">
                     <div className="flex items-center gap-1.5 w-full sm:w-auto">
                       <Sparkles className="w-4 h-4 text-slate-950 shrink-0 animate-spin" />
@@ -5077,7 +5218,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             )}
 
             {/* Quick Floating Room Operations Bar (Top Left) */}
-            {(selectedRoomObject || copiedRoomsState.length > 0) && (
+            {canManageStructure && (selectedRoomObject || copiedRoomsState.length > 0) && (
               <div className={`absolute ${isFullscreen ? 'top-20 sm:top-16' : 'top-2'} left-2 z-40 pointer-events-auto flex items-center gap-1.5 bg-slate-900/95 backdrop-blur-md px-2.5 py-1.5 rounded-xl border border-slate-700 shadow-2xl text-white animate-in fade-in slide-in-from-top-2 overflow-x-auto max-w-[calc(100%-16px)] sm:max-w-none no-scrollbar shrink`}>
                 {selectedRoomObject ? (
                   <>
@@ -5620,7 +5761,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 })()}
 
             {/* INTERACTIVE DRAG & RESIZE HANDLES OVERLAY */}
-            {mapLayers.roomRegions && (viewMode === 'all' || viewMode === 'highlight') && (
+            {canManageStructure && mapLayers.roomRegions && (viewMode === 'all' || viewMode === 'highlight') && (
               <>
                 {displayedFloorRooms.map((room) => {
                   const isSelectedForDrag = selectedRoomForDragId === room.id || selectedRoomIds.includes(room.id) || (drawTool === 'drag' && hoveredRoomId === room.id);
@@ -6066,7 +6207,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 )}
 
                 {/* Compact Floating Paste & Position Action Target Popover */}
-                {clickChoicePos && (
+                {canManageStructure && clickChoicePos && (
                   <div
                     style={{
                       left: `clamp(105px, ${clickChoicePos.x}%, calc(100% - 105px))`,
@@ -6236,26 +6377,30 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 >
                   <Download className="w-3.5 h-3.5" /> Mẫu Excel
                 </button>
-                <label className="text-[11px] font-extrabold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1.5 rounded-xl flex items-center gap-1 border border-emerald-200 cursor-pointer transition-all active:scale-95 shadow-2xs">
-                  <Upload className="w-3.5 h-3.5" /> Nhập Excel
-                  <input
-                    type="file"
-                    accept=".xlsx, .xls"
-                    onChange={handleImportExcelHighlights}
-                    className="hidden"
-                  />
-                </label>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    setSelectedRoomForEdit(null);
-                    setNewRoomClickPos({ x: 30, y: 30 });
-                    setIsRoomModalOpen(true);
-                  }}
-                  className="text-xs font-extrabold text-indigo-600 hover:text-indigo-800 bg-indigo-50 px-2.5 py-1 rounded-lg flex items-center gap-1 border border-indigo-200 transition-all active:scale-95 cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" /> Thêm Căn / Phòng
-                </button>
+                {canManageStructure && (
+                  <>
+                    <label className="text-[11px] font-extrabold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1.5 rounded-xl flex items-center gap-1 border border-emerald-200 cursor-pointer transition-all active:scale-95 shadow-2xs">
+                      <Upload className="w-3.5 h-3.5" /> Nhập Excel
+                      <input
+                        type="file"
+                        accept=".xlsx, .xls"
+                        onChange={handleImportExcelHighlights}
+                        className="hidden"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setSelectedRoomForEdit(null);
+                        setNewRoomClickPos({ x: 30, y: 30 });
+                        setIsRoomModalOpen(true);
+                      }}
+                      className="text-xs font-extrabold text-indigo-600 hover:text-indigo-800 bg-indigo-50 px-2.5 py-1 rounded-lg flex items-center gap-1 border border-indigo-200 transition-all active:scale-95 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Thêm Căn / Phòng
+                    </button>
+                  </>
+                )}
               </div>
             </div>
 
@@ -6306,7 +6451,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   </span>
                 </div>
 
-                {/* Bulk actions toolbar for rooms */}
+                {/* Bulk structural actions are ADMIN-only. */}
+                {canManageStructure && (
                 <div className="flex items-center justify-between bg-slate-100 border border-slate-200 rounded-xl px-3 py-2 text-xs gap-2 mb-2">
                   <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer select-none">
                     <input
@@ -6346,6 +6492,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     )}
                   </div>
                 </div>
+                )}
 
                 {sortedFloorRooms.map((room, index) => {
                   const roomExpanded = expandedRoomIds.has(room.id);
@@ -6387,7 +6534,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   return (
                   <div
                     key={room.id}
-                    draggable={roomSortBy === 'manual'}
+                    draggable={canManageStructure && roomSortBy === 'manual'}
                     onDragStart={(e) => {
                       if (roomSortBy !== 'manual') return;
                       e.dataTransfer.setData('text/plain', room.id);
@@ -6425,19 +6572,21 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     {/* Card Header: Room Name + Badges */}
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-2.5 mb-2.5">
                       <div className="flex items-start sm:items-center gap-2.5 min-w-0 w-full sm:flex-1">
-                        <input
-                          type="checkbox"
-                          checked={selectedApartmentIds.includes(room.id)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedApartmentIds(prev => [...prev, room.id]);
-                            } else {
-                              setSelectedApartmentIds(prev => prev.filter(id => id !== room.id));
-                            }
-                          }}
-                          className="w-4 h-4 mt-1 sm:mt-0 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0 transition-colors"
-                          aria-label={`Chọn ${room.roomName}`}
-                        />
+                        {canManageStructure && (
+                          <input
+                            type="checkbox"
+                            checked={selectedApartmentIds.includes(room.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedApartmentIds(prev => [...prev, room.id]);
+                              } else {
+                                setSelectedApartmentIds(prev => prev.filter(id => id !== room.id));
+                              }
+                            }}
+                            className="w-4 h-4 mt-1 sm:mt-0 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0 transition-colors"
+                            aria-label={`Chọn ${room.roomName}`}
+                          />
+                        )}
                         <div className="min-w-0 flex-1">
                           <span className="block font-bold text-sm text-slate-800 whitespace-normal break-words leading-snug" title={room.roomName}>
                             {room.roomName}
@@ -6458,7 +6607,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       </div>
 
                       <div className="flex flex-wrap items-center gap-1.5 w-full sm:w-auto justify-between sm:justify-end shrink-0">
-                        {roomSortBy === 'manual' && (
+                        {canManageStructure && roomSortBy === 'manual' && (
                           <MoveOrderControls
                             showDragHandle
                             disableUp={index === 0}
@@ -6491,21 +6640,23 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                               setIsRoomModalOpen(true);
                             }}
                             className="text-[11px] font-semibold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100/80 px-2.5 py-1.5 rounded-lg border border-indigo-200/60 transition-all flex items-center gap-1 cursor-pointer shadow-3xs active:scale-95"
-                            title="Chỉnh sửa Căn / Phòng và hạng mục thi công"
+                            title={canManageStructure ? 'Chỉnh sửa Căn / Phòng và hạng mục thi công' : 'Cập nhật tiến độ, nghiệm thu và ghi chú hiện trường'}
                           >
                             <Pencil className="w-3.5 h-3.5 text-indigo-500" />
-                            <span>Chỉnh sửa</span>
+                            <span>{canManageStructure ? 'Chỉnh sửa' : 'Cập nhật'}</span>
                           </button>
 
-                          <button
-                            type="button"
-                            onClick={() => setDeletingRoomTarget({ id: room.id, name: room.roomName })}
-                            className="text-[11px] font-semibold text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100/80 px-2.5 py-1.5 rounded-lg border border-rose-200/60 transition-all flex items-center gap-1 cursor-pointer shadow-3xs active:scale-95"
-                            title="Xóa Căn / Phòng / vùng highlight này"
-                          >
-                            <Trash2 className="w-3.5 h-3.5 text-rose-500" />
-                            <span>Xóa</span>
-                          </button>
+                          {canManageStructure && (
+                            <button
+                              type="button"
+                              onClick={() => setDeletingRoomTarget({ id: room.id, name: room.roomName })}
+                              className="text-[11px] font-semibold text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100/80 px-2.5 py-1.5 rounded-lg border border-rose-200/60 transition-all flex items-center gap-1 cursor-pointer shadow-3xs active:scale-95"
+                              title="Xóa Căn / Phòng / vùng highlight này"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                              <span>Xóa</span>
+                            </button>
+                          )}
                         </div>
 
                         {/* Deleted redundant overall inspection status badge */}
@@ -6758,7 +6909,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             </div>
           </div>
 
-          {filteredDefects.length > 0 && (
+          {canDeleteDefects && filteredDefects.length > 0 && (
             <div className="flex flex-wrap items-center justify-between bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs gap-2">
               <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer select-none">
                 <input
@@ -6818,7 +6969,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   }`}
                 >
                   <div className="flex items-start gap-2.5">
-                    <input
+                    {canDeleteDefects && <input
                       type="checkbox"
                       checked={selectedDefectIds.includes(defect.id)}
                       onClick={(e) => e.stopPropagation()}
@@ -6830,7 +6981,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         }
                       }}
                       className="mt-1 w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0"
-                    />
+                    />}
 
                     <div className="flex-1 min-w-0 space-y-2.5">
                       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -6937,8 +7088,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         floorName={activeFloor?.floorName || 'Tầng 1'}
         checklistItems={checklistItems}
         onSaveRoom={onSaveRoomProgress}
-        onDeleteRoom={onDeleteRoomProgress}
-        onStartRedraw2Point={handleStartRedraw2Point}
+        structureReadOnly={!canManageStructure}
+        onDeleteRoom={canManageStructure ? onDeleteRoomProgress : undefined}
+        onStartRedraw2Point={canManageStructure ? handleStartRedraw2Point : undefined}
         teams={teams}
         materialNorms={materialNorms}
         inventory={inventory}
@@ -6949,7 +7101,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       />
 
       {/* Add New Floor Plan Modal */}
-      {showAddFloorModal && (
+      {canManageStructure && showAddFloorModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
@@ -7323,7 +7475,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       })()}
 
       {/* New Defect Form Modal */}
-      {showDefectModal && pinPos && (
+      {canEditDefects && showDefectModal && pinPos && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
@@ -7463,6 +7615,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       {activeDefectDetail && (() => {
         const overdueInfo = getDefectOverdueInfo(activeDefectDetail);
         const handleDetailFieldChange = (field: keyof DefectItem, value: any) => {
+          if (!canEditDefects) return;
           let updated = { ...activeDefectDetail, [field]: value };
           if (field === 'assignedTo') {
             const matchingTeam = teams.find(t => t.name.trim().toLowerCase() === String(value).trim().toLowerCase());
@@ -7475,6 +7628,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         };
 
         const handleStatusChange = async (newStatus: DefectStatus) => {
+          if (!canEditDefects) return;
           if (newStatus === 'Đã nghiệm thu' && !activeDefectDetail.afterImageUrl) {
             const afterPhotos = await getEntityPhotos(
               currentProjectId,
@@ -7514,14 +7668,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   <h3 className="text-base font-extrabold text-slate-900">{activeDefectDetail.category}</h3>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <button
+                  {canEditDefects && <button
                     type="button"
                     onClick={() => toggleDefectLock(activeDefectDetail.id)}
                     className={`px-2 py-1 rounded-lg text-[10px] font-black border ${lockedDefectIds.has(activeDefectDetail.id) ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-slate-50 text-slate-600 border-slate-200'}`}
                     title="Khóa vị trí Defect để tránh thay đổi tọa độ ngoài ý muốn"
                   >
                     {lockedDefectIds.has(activeDefectDetail.id) ? '🔒 Mở khóa vị trí' : '🔓 Khóa vị trí'}
-                  </button>
+                  </button>}
                   <button onClick={() => setActiveDefectDetail(null)} className="font-bold text-slate-400 hover:text-slate-700">✕</button>
                 </div>
               </div>
@@ -7548,6 +7702,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   <label className="block text-slate-700 font-bold mb-1">Mô tả lỗi</label>
                   <textarea
                     value={activeDefectDetail.description}
+                    readOnly={!canEditDefects}
                     onChange={(e) => handleDetailFieldChange('description', e.target.value)}
                     rows={2}
                     className="w-full border border-slate-200 rounded-xl p-2.5 font-medium text-slate-800"
@@ -7589,6 +7744,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     <input
                       type="text"
                       value={activeDefectDetail.createdBy || ''}
+                      readOnly={!canEditDefects}
                       onChange={(e) => handleDetailFieldChange('createdBy', e.target.value)}
                       placeholder="Nhập tên người tạo..."
                       className="w-full border border-slate-200 bg-white rounded-xl p-2 font-semibold"
@@ -7600,21 +7756,28 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     <input
                       type="date"
                       value={activeDefectDetail.dueDate || ''}
+                      disabled={!canEditDefects}
                       onChange={(e) => handleDetailFieldChange('dueDate', e.target.value)}
                       className="w-full border border-slate-200 bg-white rounded-xl p-2 font-semibold"
                     />
                   </div>
 
                   <div className="sm:col-span-2">
-                    <TeamSelectorInput
-                      value={activeDefectDetail.assignedTo || ''}
-                      onChange={(val) => handleDetailFieldChange('assignedTo', val)}
-                      pinPos={{ x: activeDefectDetail.x, y: activeDefectDetail.y }}
-                      activeFloorRooms={floorRooms}
-                      allRooms={roomProgressList}
-                      declaredTeams={teams}
-                      listId="defect-team-datalist-detail"
-                    />
+                    {canEditDefects ? (
+                      <TeamSelectorInput
+                        value={activeDefectDetail.assignedTo || ''}
+                        onChange={(val) => handleDetailFieldChange('assignedTo', val)}
+                        pinPos={{ x: activeDefectDetail.x, y: activeDefectDetail.y }}
+                        activeFloorRooms={floorRooms}
+                        allRooms={roomProgressList}
+                        declaredTeams={teams}
+                        listId="defect-team-datalist-detail"
+                      />
+                    ) : (
+                      <div className="rounded-xl border border-slate-200 bg-white p-2 text-[11px] text-slate-700">
+                        <span className="font-bold">Đội phụ trách:</span> {activeDefectDetail.assignedTo || 'Chưa gán'}
+                      </div>
+                    )}
                   </div>
 
                   <div>
@@ -7622,6 +7785,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     <input
                       type="date"
                       value={activeDefectDetail.completedAt || ''}
+                      disabled={!canEditDefects}
                       onChange={(e) => handleDetailFieldChange('completedAt', e.target.value)}
                       className="w-full border border-slate-200 bg-white rounded-xl p-2 font-semibold"
                     />
@@ -7636,6 +7800,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     entityId={activeDefectDetail.id}
                     category="defect_before"
                     label="📷 Ảnh Báo Lỗi Ban Đầu (Trước Sửa)"
+                    readOnly={!canEditDefects}
                   />
                   <PhotoAttachmentPicker
                     projectId={currentProjectId}
@@ -7643,11 +7808,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     entityId={activeDefectDetail.id}
                     category="defect_after"
                     label="🛠️ Ảnh Bằng Chứng Sau Khi Sửa (Tùy Chọn)"
+                    readOnly={!canEditDefects}
                   />
                 </div>
 
                 {/* Status Update Action Grid */}
-                <div>
+                {canEditDefects && <div>
                   <label className="block text-slate-700 font-bold mb-1.5">Cập nhật trạng thái kiểm soát</label>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                     <button
@@ -7686,11 +7852,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       ✅ Nghiệm thu
                     </button>
                   </div>
-                </div>
+                </div>}
 
                 {/* Footer buttons */}
                 <div className="flex justify-between items-center pt-2 border-t border-slate-100">
-                  <button
+                  {canDeleteDefects && <button
                     onClick={async () => {
                       setDeletingDefectTarget(activeDefectDetail);
                       setActiveDefectDetail(null);
@@ -7698,7 +7864,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     className="text-rose-600 font-bold text-xs hover:underline"
                   >
                     Xóa Lỗi
-                  </button>
+                  </button>}
                   <button
                     onClick={() => setActiveDefectDetail(null)}
                     className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold"
@@ -7715,7 +7881,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
 
       {/* MANAGE FLOORS MODAL (Tùy Chỉnh, Đổi Tên, Nhân bản, Xóa tầng) */}
-      {showManageFloorsModal && (
+      {canManageStructure && showManageFloorsModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
           <div className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[85vh] overflow-y-auto shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -7930,7 +8096,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       )}
 
       {/* QUICK ADD FLOOR MODAL (Thêm Tầng Nhanh) */}
-      {showQuickAddFloorModal && (
+      {canManageStructure && showQuickAddFloorModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[200] flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl border border-slate-100">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
@@ -8109,7 +8275,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       )}
 
       {/* CONFIRM DELETE DEFECT PIN MODAL */}
-      {deletingDefectTarget && (
+      {canDeleteDefects && deletingDefectTarget && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[200] flex items-center justify-center p-4 animate-in fade-in duration-150">
           <div className="bg-white w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl border border-rose-100 text-center">
             <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 mx-auto flex items-center justify-center">
@@ -8133,6 +8299,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <button
                 type="button"
                 onClick={async () => {
+                  if (!canDeleteDefects) return;
                   onDeleteDefect(deletingDefectTarget.id);
                   setDeletingDefectTarget(null);
                 }}
@@ -8147,7 +8314,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       )}
 
       {/* CONFIRM DELETE ORPHANED ROOMS MODAL */}
-      {confirmDeleteOrphanedModal && (
+      {canManageStructure && confirmDeleteOrphanedModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[200] flex items-center justify-center p-4 animate-in fade-in duration-150">
           <div className="bg-white w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl border border-rose-100 text-center">
             <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 mx-auto flex items-center justify-center">
@@ -8217,7 +8384,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       )}
 
       {/* MOBILE LONG PRESS TOUCH CONTEXT MENU */}
-      {touchMenu && (
+      {canManageStructure && touchMenu && (
         <div 
           className="fixed inset-0 z-50 bg-black/20 backdrop-blur-[1px]" 
           onClick={(e) => {

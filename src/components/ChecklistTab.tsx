@@ -25,11 +25,14 @@ import { ChecklistItem, ChecklistStatus, WorkVolume, FloorPlan } from '../types'
 import { confirmAsync } from '../utils/confirmAsync';
 import { getTodayDateString, addDaysToDateString, formatDateVN, calculateDiffDays } from '../utils/dueDateUtils';
 import { saveWorkbookFile } from '../utils/fileExport';
+import { UserRole, canEditChecklistData, canManageChecklistStructure, canDeleteBusinessData, canImportData } from '../utils/securityUtils';
 
 import { QuickSortBar } from './QuickSortBar';
 
 interface ChecklistTabProps {
   checklist: ChecklistItem[];
+  userRole: UserRole;
+  roleResolved: boolean;
   floors: string[];
   floorPlans?: FloorPlan[];
   inspectorName?: string;
@@ -49,6 +52,8 @@ interface ChecklistTabProps {
 
 export const ChecklistTab: React.FC<ChecklistTabProps> = ({
   checklist,
+  userRole,
+  roleResolved,
   floors,
   floorPlans,
   inspectorName = '',
@@ -66,6 +71,10 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
   canRedo,
 }) => {
   const { t } = useLanguage();
+  const canOperate = roleResolved && canEditChecklistData(userRole);
+  const canManageStructure = roleResolved && canManageChecklistStructure(userRole);
+  const canDelete = roleResolved && canDeleteBusinessData(userRole);
+  const canImport = roleResolved && canImportData(userRole);
   const activeChecklist = useMemo(() => checklist.filter((item) => !item.archivedAt), [checklist]);
   const [selectedFloor, setSelectedFloor] = useState<string>(floors[0] || 'Tầng 1');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -83,6 +92,17 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
   const [editingChecklistItem, setEditingChecklistItem] = useState<ChecklistItem | null>(null);
   const [deletingChecklistTarget, setDeletingChecklistTarget] = useState<ChecklistItem | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!canManageStructure) {
+      setShowAddForm(false);
+      setEditingChecklistItem(null);
+    }
+    if (!canDelete) {
+      setDeletingChecklistTarget(null);
+      setSelectedItemIds([]);
+    }
+  }, [canManageStructure, canDelete]);
 
   // New Item State (pulling inspectorName as default)
   const [category, setCategory] = useState<string>('');
@@ -201,6 +221,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
 
   const handleAddSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canManageStructure) return;
     if (!title.trim()) {
       alert('Vui lòng nhập nội dung tiêu chuẩn kiểm tra!');
       return;
@@ -227,6 +248,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
 
   const handleEditSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canManageStructure) return;
     if (!editingChecklistItem || !onUpdateChecklistItem) return;
     if (!editingChecklistItem.title.trim()) {
       alert('Vui lòng nhập nội dung tiêu chuẩn kiểm tra!');
@@ -284,6 +306,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
   };
 
   const handleImportExcelChecklist = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canImport || !canManageStructure) { e.target.value = ''; return; }
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -439,13 +462,15 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
           <p className="text-xs text-slate-500">Tiêu chuẩn thi công &amp; Kỹ sư giám sát: <span className="font-semibold text-indigo-700">{inspectorName}</span></p>
         </div>
         <div className="flex items-center gap-1.5 flex-wrap justify-end">
-          <button
-            onClick={() => setShowAddForm(true)}
-            className="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl text-xs font-bold shadow active:scale-95 transition-all cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            Thêm Tiêu Chí
-          </button>
+          {canManageStructure && (
+            <button
+              onClick={() => setShowAddForm(true)}
+              className="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl text-xs font-bold shadow active:scale-95 transition-all cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              Thêm Tiêu Chí
+            </button>
+          )}
         </div>
       </div>
 
@@ -459,15 +484,16 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
         >
           <Download className="w-4 h-4 text-indigo-600" /> Tải Excel để chỉnh sửa
         </button>
-        <label className="flex items-center justify-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 font-extrabold py-2.5 px-3 rounded-xl shadow-xs cursor-pointer transition-all text-xs">
-          <Upload className="w-4 h-4 text-emerald-600" /> Nhập lại từ Excel
-          <input
-            type="file"
-            accept=".xlsx, .xls"
-            onChange={handleImportExcelChecklist}
-            className="hidden"
-          />
-        </label>
+        {canImport && canManageStructure ? (
+          <label className="flex items-center justify-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 font-extrabold py-2.5 px-3 rounded-xl shadow-xs cursor-pointer transition-all text-xs">
+            <Upload className="w-4 h-4 text-emerald-600" /> Nhập lại từ Excel
+            <input type="file" accept=".xlsx, .xls" onChange={handleImportExcelChecklist} className="hidden" />
+          </label>
+        ) : (
+          <div className="flex items-center justify-center gap-1.5 bg-slate-50 border border-slate-200 text-slate-400 font-extrabold py-2.5 px-3 rounded-xl text-xs" title="Chỉ ADMIN được nhập Checklist từ Excel">
+            <Upload className="w-4 h-4" /> Chỉ ADMIN được nhập
+          </div>
+        )}
       </div>
 
       {/* Floor Chips */}
@@ -552,7 +578,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
       />
 
       {/* Select and Bulk Actions Bar */}
-      {sortedFilteredChecklist.length > 0 && (
+      {canDelete && sortedFilteredChecklist.length > 0 && (
         <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs gap-2">
           <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer select-none">
             <input
@@ -598,7 +624,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
       <div className="space-y-3">
         {sortedFilteredChecklist.length === 0 ? (
           <div className="text-center py-8 text-slate-400 text-xs bg-white rounded-2xl border border-dashed border-slate-200">
-            Chưa có tiêu chí checklist nào cho {selectedFloor}. Bấm "Thêm Tiêu Chí" hoặc "Nhập Excel" để bắt đầu.
+            Chưa có tiêu chí checklist nào cho {selectedFloor}.{canManageStructure ? ' Bấm “Thêm Tiêu Chí” hoặc “Nhập Excel” để bắt đầu.' : ''}
           </div>
         ) : (
           sortedFilteredChecklist.map((item) => (
@@ -609,7 +635,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
               }`}
             >
               <div className="flex items-start gap-2.5">
-                <input
+                {canDelete && <input
                   type="checkbox"
                   checked={selectedItemIds.includes(item.id)}
                   onChange={(e) => {
@@ -620,7 +646,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
                     }
                   }}
                   className="mt-1 w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0"
-                />
+                />}
                 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2">
@@ -706,7 +732,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
               )}
 
               {/* Quick Status Toggle Actions */}
-              <div className="grid grid-cols-3 gap-1.5 pt-2 border-t border-slate-100 text-[11px]">
+              {canOperate && <div className="grid grid-cols-3 gap-1.5 pt-2 border-t border-slate-100 text-[11px]">
                 <button
                   onClick={() => onUpdateChecklistStatus(item.id, 'passed')}
                   className={`py-1.5 rounded-xl font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
@@ -737,23 +763,21 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
                 >
                   🟡 Chờ
                 </button>
-              </div>
+              </div>}
 
               <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-100">
                 <span className="truncate max-w-[200px]">👤 GS: <strong className="text-slate-700">{item.inspectedBy || inspectorName}</strong></span>
                 <div className="flex items-center gap-2">
-                  <button 
-                    onClick={() => setEditingChecklistItem(item)} 
-                    className="text-indigo-600 hover:underline font-bold flex items-center gap-0.5 cursor-pointer"
-                  >
-                    <Edit className="w-3 h-3" /> Sửa
-                  </button>
-                  <button 
-                    onClick={() => setDeletingChecklistTarget(item)} 
-                    className="text-rose-500 hover:underline font-bold flex items-center gap-0.5 cursor-pointer"
-                  >
-                    <Trash2 className="w-3 h-3" /> Xóa
-                  </button>
+                  {canManageStructure && (
+                    <button onClick={() => setEditingChecklistItem(item)} className="text-indigo-600 hover:underline font-bold flex items-center gap-0.5 cursor-pointer">
+                      <Edit className="w-3 h-3" /> Sửa cấu trúc
+                    </button>
+                  )}
+                  {canDelete && (
+                    <button onClick={() => setDeletingChecklistTarget(item)} className="text-rose-500 hover:underline font-bold flex items-center gap-0.5 cursor-pointer">
+                      <Trash2 className="w-3 h-3" /> Xóa
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -762,7 +786,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
       </div>
 
       {/* Add Checklist Modal */}
-      {showAddForm && (
+      {canManageStructure && showAddForm && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
           <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
@@ -900,7 +924,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
       )}
 
       {/* Edit Checklist Modal (Cho phép chỉnh sửa checklist đã tạo) */}
-      {editingChecklistItem && (
+      {canManageStructure && editingChecklistItem && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
           <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
@@ -1061,7 +1085,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
       )}
 
       {/* Delete Checklist Confirmation Modal */}
-      {deletingChecklistTarget && (
+      {canDelete && deletingChecklistTarget && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-5 max-w-xs w-full space-y-4 border border-slate-100 shadow-2xl text-center">
             <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto">

@@ -52,8 +52,12 @@ includesAll(rules, [
   "('ownerUid' in projectDoc(projectId).data)",
   "('ownerEmail' in projectDoc(projectId).data)",
   'isGoogleAuthed() && !projectExists(projectId)',
-  "collectionName == 'work_volumes' && isAdmin(projectId)",
-  "collectionName != 'work_volumes' && canEdit(projectId)",
+  "function isAdminOwnedStructureCollection",
+  "name == 'work_volumes'",
+  "name == 'floor_plans'",
+  "name == 'rooms'",
+  "function isEditorOperationalCollection",
+  "editorRoomOperationalUpdateOnly",
 ], 'Firestore missing-project owner-claim + work-volume structure guard');
 const rulesBehavior = read('scripts/firebase-rules-behavior.mjs');
 if (!rulesBehavior.includes('authenticated owner can probe missing project root before first claim')) {
@@ -64,10 +68,41 @@ if (!rulesBehavior.includes('unlisted authenticated user cannot read an existing
 }
 if (!rulesBehavior.includes('EDITOR cannot create work-volume master definition')
   || !rulesBehavior.includes('EDITOR cannot change work-volume structure')
-  || !rulesBehavior.includes('EDITOR can update field progress used to derive work-volume actual')) {
+  || !rulesBehavior.includes('EDITOR can update existing room field progress')) {
   fail('Missing runtime regression for EDITOR work-volume structure denial + field progress allow');
 }
 pass('Fresh roots remain safe; WorkVolume structure is ADMIN-only while EDITOR field progress stays allowed');
+
+includesAll(securityUtils, [
+  'canManageFloorPlanStructure',
+  "return role === 'ADMIN';",
+], 'Floor-plan structure permission helper');
+const floorPlanTab = read('src/components/FloorPlanDefectTab.tsx');
+const roomHighlightModal = read('src/components/RoomHighlightModal.tsx');
+includesAll(floorPlanTab, [
+  "const normalizedUserRole: UserRole = userRole === 'ADMIN' || userRole === 'EDITOR' ? userRole : 'VIEWER';",
+  'const canManageStructure = roleResolved && canManageFloorPlanStructure(normalizedUserRole)',
+  'structureReadOnly={!canManageStructure}',
+  'canManageStructure && (viewMode',
+  'canManageStructure && mapLayers.roomRegions',
+  'canManageStructure && clickChoicePos',
+  "canManageStructure && roomSortBy === 'manual'",
+  'canManageStructure && touchMenu',
+  'if (!canManageStructure || copiedRoomsState.length === 0 || !activeFloor) return;',
+  'fail closed on role downgrade/switch',
+], 'Floor-plan EDITOR structure UI + stale-state gates');
+includesAll(roomHighlightModal, [
+  'structureReadOnly?: boolean',
+  'Kỹ sư chỉ cập nhật tiến độ',
+  '!structureReadOnly && roomItem && onDeleteRoom',
+], 'Room modal structural read-only mode');
+if (!rulesBehavior.includes('EDITOR cannot create floor-plan structure')
+  || !rulesBehavior.includes('EDITOR cannot create room geometry')
+  || !rulesBehavior.includes('EDITOR cannot rename/move/resize room structure')
+  || !rulesBehavior.includes('EDITOR can update existing room field progress')) {
+  fail('Missing runtime regression for FloorPlan/Room EDITOR structural denial + operational allow');
+}
+pass('FloorPlan/Room structure is ADMIN-only while EDITOR existing-room field progress remains allowed');
 
 for (const [name, port] of [['auth', 9099], ['firestore', 8080], ['storage', 9199], ['hosting', 5000]]) {
   const cfg = firebaseJson.emulators?.[name];

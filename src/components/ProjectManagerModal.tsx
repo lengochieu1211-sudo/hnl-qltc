@@ -53,7 +53,7 @@ import { useFormatSettings } from '../utils/numberUtils';
 import { detectOrphanProjectData, cleanupOrphanProjectData, OrphanScanResult, OrphanProjectInfo } from '../utils/projectReconciliation';
 import { isStorageKeyOwnedByProject, getProjectStorageKeys } from '../utils/projectStorageUtils';
 import { deleteProjectPhotos, getProjectPhotos, saveProjectPhotos, getProjectPhotosWithBinary, restorePhotosFromBackup } from '../utils/photoStorage';
-import { logAuditAction, UserRole, getCurrentUserRole, canManageProjects, canEditProjectData } from '../utils/securityUtils';
+import { logAuditAction, UserRole, getCurrentUserRole, canManageProjects, canEditProjectData, canManageBackups } from '../utils/securityUtils';
 import { encryptBackupData, decryptBackupData, isEncryptedBackup, EncryptedBackupContainer } from '../utils/cryptoUtils';
 import { FIREBASE_ONLY_RUNTIME } from '../config/runtimeArchitecture';
 import { refreshProjectPhotoMetadataFromCloud, syncProjectPhotosToCloud } from '../lib/photoCloudSync';
@@ -124,6 +124,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   const effectiveRole = userRole || getCurrentUserRole();
   const canManage = canManageProjects(effectiveRole);
   const canEdit = canEditProjectData(effectiveRole);
+  const canBackup = canManageBackups(effectiveRole);
   const hasDriveBackend = !FIREBASE_ONLY_RUNTIME && Boolean(onDriveSyncUpAll && onDriveSyncDownAll);
 
   const [projects, setProjects] = useState<ProjectInfo[]>(getProjectsList);
@@ -278,6 +279,33 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   const [isSavingCloudBackup, setIsSavingCloudBackup] = useState(false);
   const [isLoadingCloudBackups, setIsLoadingCloudBackups] = useState(false);
   const [cloudBackupName, setCloudBackupName] = useState('');
+
+  useEffect(() => {
+    if (!canBackup) {
+      setShowJsonScopePicker(false);
+      setShowPasteArea(false);
+      setPendingEncryptedPayload(null);
+      setDeletingCloudBackupTarget(null);
+      setShowConflictModal(false);
+      setPendingImportData(null);
+      setCloudBackups([]);
+    }
+  }, [canBackup]);
+
+  // Fail closed on live role downgrade/account switch: clear every ADMIN-only project
+  // management state so a modal opened as ADMIN cannot remain actionable as EDITOR/VIEWER.
+  useEffect(() => {
+    if (!canManage) {
+      setIsCreating(false);
+      setEditingProjectId(null);
+      setEditingProjectName('');
+      setConfirmDeleteId(null);
+      setOrphanScanResult(null);
+      setSelectedOrphanIds([]);
+      setRecoveringOrphanId(null);
+      setMergingDuplicateTargetId(null);
+    }
+  }, [canManage]);
   const [cloudSyncCodeInput, setCloudSyncCodeInput] = useState('');
   const [isSyncingCurrentProject, setIsSyncingCurrentProject] = useState(false);
 
@@ -421,6 +449,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   const [recoveringOrphanId, setRecoveringOrphanId] = useState<string | null>(null);
 
   const handleScanOrphans = async () => {
+    if (!canManage) return;
     try {
       setIsScanningOrphans(true);
       const allStorage = await getAllStorageData();
@@ -437,7 +466,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   };
 
   const handleCleanupOrphans = async () => {
-    if (!orphanScanResult || selectedOrphanIds.length === 0) return;
+    if (!canManage || !orphanScanResult || selectedOrphanIds.length === 0) return;
     const count = selectedOrphanIds.length;
     const confirm = await confirmAsync(
       `⚠️ CẢNH BÁO DỌN DẸP BỘ NHỚ:\n\n` +
@@ -481,7 +510,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   };
 
   const handleExportOrphansBackup = async () => {
-    if (!orphanScanResult || selectedOrphanIds.length === 0) return;
+    if (!canManage || !orphanScanResult || selectedOrphanIds.length === 0) return;
     try {
       const allStorage = await getAllStorageData();
       const exportData: Record<string, string> = {};
@@ -500,7 +529,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
 
   const handleRecoverLocalProject = async (orphan: OrphanProjectInfo) => {
-    if (!orphan?.id || recoveringOrphanId) return;
+    if (!canManage || !orphan?.id || recoveringOrphanId) return;
     try {
       setRecoveringOrphanId(orphan.id);
       setErrorMessage(null);
@@ -573,6 +602,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   };
 
   const fetchCloudBackups = async () => {
+    if (!canBackup) { setCloudBackups([]); return; }
     try {
       setIsLoadingCloudBackups(true);
       const list = await listCloudBackups();
@@ -597,9 +627,9 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       if (!selectedProjectIds.includes(curActive)) {
         setSelectedProjectIds([curActive]);
       }
-      fetchCloudBackups();
+      if (canBackup) fetchCloudBackups(); else setCloudBackups([]);
     }
-  }, [isOpen, initialTab, activeProjectId]);
+  }, [isOpen, initialTab, activeProjectId, canBackup]);
 
   // Toggle project selection for 'selected' scope
   const toggleSelectProject = async (id: string) => {
@@ -670,7 +700,9 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       : scope === 'selected'
         ? selectedProjectIds
         : [activeId || getActiveProjectId()];
-    const uniqueIds = Array.from(new Set(targetIds.filter(Boolean)));
+    const uniqueIds: string[] = Array.from(
+      new Set<string>(targetIds.filter((id): id is string => typeof id === 'string' && id.length > 0))
+    );
     const selectedProjects = projects.filter((project) => uniqueIds.includes(project.id));
     data.construction_projects_list = JSON.stringify(selectedProjects.length > 0 ? selectedProjects : uniqueIds.map((id) => ({ id, name: id })));
     if (scope === 'active' || uniqueIds.length === 1) data.active_project_id = uniqueIds[0] || activeId || getActiveProjectId();
@@ -1340,6 +1372,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
   // 1. Export JSON based on chosen scope
   const handleExportJsonForScope = async () => {
+    if (!canBackup) { alert('Chỉ ADMIN được xuất bản sao dữ liệu dự án.'); return; }
     try {
       if (exportEncrypt && (!exportPassword || exportPassword.length < 4)) {
         alert('Vui lòng nhập mật khẩu mã hóa từ 4 ký tự trở lên để bảo vệ tệp sao lưu.');
@@ -1478,7 +1511,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
   // Handler for decrypting encrypted backup payloads
   const handlePerformDecryption = async () => {
-    if (!pendingEncryptedPayload) return;
+    if (!canBackup || !pendingEncryptedPayload) return;
     if (!decryptPassword) {
       setDecryptError('Vui lòng nhập mật khẩu giải mã.');
       return;
@@ -1504,7 +1537,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
   // Handler for changing backup password (decrypt with old key -> re-encrypt with new key)
   const handleReencryptBackupPayload = async () => {
-    if (!pendingEncryptedPayload) return;
+    if (!canBackup || !pendingEncryptedPayload) return;
     if (!decryptPassword) {
       setDecryptError('Vui lòng nhập mật khẩu hiện tại để giải mã.');
       return;
@@ -1549,6 +1582,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
   // 2. Process Imported JSON Data (File or Pasted Text)
   const processImportedJsonData = async (parsedData: any, fileName?: string, fileSize?: number) => {
+    if (!canBackup) { alert('Chỉ ADMIN được khôi phục/nhập bản sao dữ liệu dự án.'); return; }
     try {
       const candidates = extractProjectsFromImportData(parsedData);
       if (!candidates || candidates.length === 0) {
@@ -2098,6 +2132,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   };
 
   const handleImportJsonForScope = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canBackup) { e.target.value = ''; return; }
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
@@ -2132,6 +2167,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   };
 
   const handleRestoreFromPastedJson = async () => {
+    if (!canBackup) return;
     if (!pasteValue.trim()) return;
     try {
       let resultString = pasteValue.trim();
@@ -2167,6 +2203,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   // intentionally reserved for explicit JSON export so it cannot be confused with
   // Firebase realtime/Drive behavior.
   const handleCreateCloudBackup = async () => {
+    if (!canBackup) return;
     try {
       setIsSavingCloudBackup(true);
       setCloudStatusMsg(null);
@@ -2192,6 +2229,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   // Restore Cloud Backup
   
   const handleViewCloudBackupStats = (b: any) => {
+    if (!canBackup) return;
     const payload = getCloudPayload(b);
     if (!payload) {
       alert('Không thể đọc dữ liệu chi tiết của bản lưu này.');
@@ -2210,6 +2248,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   };
 
   const handleRestoreCloudBackup = async (backup: CloudBackupRecord) => {
+    if (!canBackup) return;
     const payload = getCloudPayload(backup);
     if (!payload) {
       alert('Không thể đọc dữ liệu từ bản sao lưu đám mây này.');
@@ -2220,10 +2259,12 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
   // Delete Cloud Backup
   const handleDeleteCloudBackup = async (b: { id: string; name: string }) => {
+    if (!canBackup) return;
     setDeletingCloudBackupTarget(b);
   };
 
   const executeDeleteCloudBackup = async () => {
+    if (!canBackup) return;
     if (!deletingCloudBackupTarget) return;
     try {
       await deleteCloudBackup(deletingCloudBackupTarget.id);
@@ -2237,6 +2278,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
   // Upload Active Project to Cloud (Sync Code)
   const handleUploadActiveProjectToCloud = async () => {
+    if (!canManage) { setCloudStatusMsg({ type: 'error', text: 'Chỉ ADMIN được chạy đồng bộ thủ công toàn dự án.' }); return; }
     try {
       setIsSyncingCurrentProject(true);
       setCloudStatusMsg(null);
@@ -2293,6 +2335,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
   // Pull Project from Cloud via Sync Code
   const handlePullProjectFromCloud = async () => {
+    if (!canManage) return;
     if (!cloudSyncCodeInput.trim()) return;
     const targetId = cloudSyncCodeInput.trim();
     try {
@@ -2384,7 +2427,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
   // Google Drive Sync Up
   const handleDriveSyncUpAction = async () => {
-    if (!onDriveSyncUpAll) return;
+    if (!canManage || !onDriveSyncUpAll) return;
     try {
       setIsDriveSyncing(true);
       const res = await onDriveSyncUpAll();
@@ -2402,7 +2445,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
   // Google Drive Sync Down
   const handleDriveSyncDownAction = async () => {
-    if (!onDriveSyncDownAll) return;
+    if (!canManage || !onDriveSyncDownAll) return;
     try {
       setIsDriveSyncing(true);
       const res = await onDriveSyncDownAll();
@@ -2438,12 +2481,13 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
   const handleStartRename = (proj: ProjectInfo, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!canManage) return;
     setEditingProjectId(proj.id);
     setEditingProjectName(proj.name);
   };
 
   const handleSaveRename = async (id: string) => {
-    if (!editingProjectName.trim()) return;
+    if (!canManage || !editingProjectName.trim()) return;
     const trimmed = editingProjectName.trim();
     const now = Date.now();
     const updated = projects.map(p => p.id === id ? { ...p, name: trimmed, updatedAt: now } : p);
@@ -2470,7 +2514,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   };
 
   const handleCreateProject = async () => {
-    if (!newProjectName.trim()) return;
+    if (!canManage || !newProjectName.trim()) return;
     try {
       if (onFlushCurrentProject) {
         await onFlushCurrentProject();
@@ -2688,6 +2732,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   };
 
   const handleDeleteProject = (id: string) => {
+    if (!canManage) return;
     if (projects.length === 1) {
       setErrorMessage('Không thể xóa dự án duy nhất!');
       return;
@@ -2696,7 +2741,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   };
 
   const confirmDelete = async () => {
-    if (!confirmDeleteId) return;
+    if (!canManage || !confirmDeleteId) return;
 
     const targetDeleteId = confirmDeleteId;
     const targetProject = projects.find((p) => p.id === targetDeleteId);
@@ -2821,6 +2866,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
    * rollback possible before the user decides which duplicate ID should eventually be removed.
    */
   const handleMergeDuplicateInto = async (target: ProjectInfo) => {
+    if (!canManage) return;
     const key = normalizeProjectNameForDuplicate(target.name);
     const group = duplicateGroups.find((items) => normalizeProjectNameForDuplicate(items[0]?.name || '') === key) || [];
     const sources = group.filter((project) => project.id !== target.id);
@@ -3080,6 +3126,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
               {/* JSON backup scope is selected only when the user presses Export JSON. */}
 
               {/* 💾 SECTION 2: LOCAL SAVE & RESTORE (JSON FILE) */}
+              {canBackup ? (
               <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-2.5 shadow-xs">
                 <div className="flex items-center justify-between">
                   <span className="font-extrabold text-slate-800 text-xs flex items-center gap-1.5">
@@ -3429,6 +3476,11 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   )}
                 </div>
               </div>
+              ) : (
+                <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 text-[10.5px] text-slate-600">
+                  <span className="font-bold">Sao lưu/khôi phục dữ liệu:</span> chỉ ADMIN được xuất, nhập hoặc phục hồi bản sao dự án. Đồng bộ realtime Firebase vẫn hoạt động theo quyền hiện tại.
+                </div>
+              )}
 
               {/* ☁️ SECTION 3: CLOUD SYNC & SNAPSHOTS (FIREBASE) */}
               <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-3 shadow-xs">
@@ -3571,7 +3623,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     </div>
                   )}
 
-                  <details className="group bg-white/70 border border-indigo-100 rounded-lg">
+                  {canManage && <details className="group bg-white/70 border border-indigo-100 rounded-lg">
                     <summary className="cursor-pointer select-none px-2.5 py-2 text-[10px] font-bold text-indigo-700 flex items-center justify-between">
                       <span>Công cụ đồng bộ nâng cao</span>
                       <ChevronDown className="w-3.5 h-3.5 group-open:rotate-180 transition-transform" />
@@ -3606,7 +3658,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                         Bình thường không cần nhập mã dự án. ID chỉ giữ lại để xử lý dự án cũ hoặc sự cố đặc biệt.
                       </p>
                     </div>
-                  </details>
+                  </details>}
                 </div>
 
                 {!FIREBASE_ONLY_RUNTIME && (
@@ -3618,7 +3670,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                 )}
 
                 {/* Cloud versions only appear when at least one version exists. */}
-                {cloudBackups.length > 0 && (
+                {canBackup && cloudBackups.length > 0 && (
                 <details className="group pt-2 border-t border-slate-100">
                   <summary className="cursor-pointer select-none flex items-center justify-between mb-1.5 text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">
                     <span>Phiên bản đám mây ({cloudBackups.length})</span>
@@ -3691,7 +3743,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
               </div>
 
               {/* 📁 SECTION 4: GOOGLE DRIVE SYNC */}
-              {hasDriveBackend && (
+              {hasDriveBackend && canManage && (
                 <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-2.5 shadow-xs">
                   <div className="flex items-center justify-between">
                     <span className="font-extrabold text-slate-800 text-xs flex items-center gap-1.5">
@@ -3934,16 +3986,18 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                                 </button>
                               )}
                               
-                              <button
-                                type="button"
-                                onClick={(e) => handleStartRename(proj, e)}
-                                className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
-                                title="Đổi tên dự án"
-                              >
-                                <Edit3 className="w-3.5 h-3.5" />
-                              </button>
+                              {canManage && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleStartRename(proj, e)}
+                                  className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
+                                  title="Đổi tên dự án"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
 
-                              {!isActive && (
+                              {canManage && !isActive && (
                                 <button
                                   type="button"
                                   onClick={() => handleDeleteProject(proj.id)}
@@ -3984,7 +4038,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                 )}
               </div>
 
-              {deletedProjects.length > 0 && (
+              {canManage && deletedProjects.length > 0 && (
                 <div className="bg-rose-50/60 border border-rose-200 rounded-2xl p-3 space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 text-xs font-extrabold text-rose-800">
@@ -4014,7 +4068,8 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                 </div>
               )}
 
-              {/* Create New Project Section */}
+              {/* Create New Project Section + local orphan maintenance are ADMIN-only. */}
+              {canManage && <>
               {isCreating ? (
                 <form 
                   onSubmit={(e) => {
@@ -4202,6 +4257,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   </div>
                 )}
               </div>
+              </>}
 
             </div>
           )}
@@ -4547,7 +4603,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       )}
 
       {/* CONFIRM DELETE CLOUD BACKUP MODAL */}
-      {deletingCloudBackupTarget && (
+      {canBackup && deletingCloudBackupTarget && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[250] flex items-center justify-center p-4 animate-in fade-in duration-150">
           <div className="bg-white rounded-2xl p-5 max-w-xs w-full space-y-4 border border-rose-100 shadow-2xl text-center">
             <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto">
