@@ -1,0 +1,94 @@
+name: RC2.2.5 Runtime Golden V6
+
+on:
+  push:
+    branches: [rc225-apply-staging]
+    paths: ['.rc225/RUNTIME_READY_V6']
+
+permissions:
+  contents: read
+
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_USE_FIREBASE_EMULATORS: 'true'
+      VITE_FIREBASE_EMULATOR_PROJECT_ID: demo-hnl-qltc-dev
+      VITE_FIREBASE_EMULATOR_HOST: 127.0.0.1
+      VITE_FIREBASE_AUTH_EMULATOR_PORT: '9099'
+      VITE_FIRESTORE_EMULATOR_PORT: '8080'
+      VITE_FIREBASE_STORAGE_EMULATOR_PORT: '9199'
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: e899dead5ce76dabb404e6d02d6c1f16e9e1a9f4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install and build exact release
+        run: |
+          npm ci
+          npm install --no-save --package-lock=false playwright-core@1.55.0
+          npm run build:emulator
+      - name: Start DEV emulators
+        run: |
+          npx --yes firebase-tools@13.35.1 emulators:start --project demo-hnl-qltc-dev --only auth,firestore,storage,hosting > /tmp/firebase.log 2>&1 &
+          for i in $(seq 1 90); do curl -fsS http://127.0.0.1:5000 >/dev/null 2>&1 && exit 0; sleep 1; done
+          cat /tmp/firebase.log; exit 1
+      - name: Reconnect and mobile runtime gates
+        shell: bash
+        run: |
+          cat > runtime-v6.mjs <<'EOF'
+          import fs from 'node:fs';
+          import { chromium } from 'playwright-core';
+          import { initializeApp } from 'firebase/app';
+          import { getAuth, connectAuthEmulator, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
+          import { getFirestore, connectFirestoreEmulator, doc, setDoc, updateDoc } from 'firebase/firestore';
+          const BASE='http://127.0.0.1:5000',PID='runtime-golden-rc225',PNAME='Runtime Golden RC225',PW='HNL-Emulator-123!';
+          const emails={ADMIN:'admin@hnl.test',EDITOR:'editor@hnl.test',VIEWER:'viewer@hnl.test'};
+          const seed=initializeApp({apiKey:'demo-hnl-qltc-key',authDomain:'demo-hnl-qltc-dev.firebaseapp.com',projectId:'demo-hnl-qltc-dev',storageBucket:'demo-hnl-qltc-dev.firebasestorage.app'},'v6seed');
+          const auth=getAuth(seed);connectAuthEmulator(auth,'http://127.0.0.1:9099',{disableWarnings:true});
+          const db=getFirestore(seed);connectFirestoreEmulator(db,'127.0.0.1',8080);
+          async function ensure(email){try{return(await signInWithEmailAndPassword(auth,email,PW)).user}catch{return(await createUserWithEmailAndPassword(auth,email,PW)).user}}
+          const users={};for(const r of Object.keys(emails)){users[r]=await ensure(emails[r]);await signOut(auth)}
+          await signInWithEmailAndPassword(auth,emails.ADMIN,PW);const now=Date.now();
+          await setDoc(doc(db,'projects',PID),{id:PID,name:PNAME,ownerUid:users.ADMIN.uid,ownerEmail:emails.ADMIN,createdAt:now,updatedAt:now});
+          for(const r of Object.keys(emails)){const email=emails[r],p={uid:users[r].uid,email,displayName:`DEV ${r}`,role:r,active:true,assignedAt:now,updatedAt:now};await setDoc(doc(db,'projects',PID,'members',email),p);await setDoc(doc(db,'projects',PID,'members',users[r].uid),p);await setDoc(doc(db,'projectInvitations',`${PID}_${email}`),{projectId:PID,projectName:PNAME,email,invitedEmail:email,role:r,createdByUid:users.ADMIN.uid,updatedAt:now});await setDoc(doc(db,'projectAccess',`${PID}__${encodeURIComponent(email)}`),{projectId:PID,email,role:r,projectName:PNAME,active:true,updatedAt:now});}
+          const chrome=['/usr/bin/google-chrome','/usr/bin/chromium','/usr/bin/chromium-browser'].find(fs.existsSync);if(!chrome)throw new Error('Chrome missing');
+          const browser=await chromium.launch({executablePath:chrome,headless:true,args:['--no-sandbox']});const shots='/tmp/runtime-v6';fs.mkdirSync(shots,{recursive:true});
+          async function login(role,width){const ctx=await browser.newContext({viewport:{width,height:width<500?844:800}});await ctx.addInitScript(({pid,pname})=>{localStorage.setItem('active_project_id',pid);sessionStorage.setItem('active_project_id',pid);localStorage.setItem('construction_projects_list',JSON.stringify([{id:pid,name:pname,createdAt:Date.now(),updatedAt:Date.now()}]));},{pid:PID,pname:PNAME});const page=await ctx.newPage();await page.goto(BASE,{waitUntil:'domcontentloaded'});await page.locator('button[title*="dang nhap Google"]').click();await page.getByText('DEV Emulator Golden',{exact:true}).waitFor();await page.getByRole('button',{name:role,exact:true}).click();await page.locator(`button[title*="${emails[role]}"]`).waitFor({timeout:20000});const expected=role==='ADMIN'?'Admin':role==='EDITOR'?'Kỹ Sư':'Chỉ Xem';await page.waitForFunction(({expected})=>{const e=document.querySelector('button[title="Trung tâm bảo mật, khóa mã PIN & phân quyền"]');return!!e&&(e.textContent||'').includes(expected);},{expected},{timeout:20000});const close=page.getByRole('button',{name:'Đóng',exact:true});if(await close.count())await close.last().click();return{ctx,page};}
+          const editor=await login('EDITOR',1280),viewer=await login('VIEWER',390);
+          await editor.ctx.setOffline(true);
+          await editor.page.getByText('Đang làm việc ngoại tuyến:',{exact:true}).waitFor({timeout:10000});
+          await editor.page.getByText(PNAME,{exact:true}).first().waitFor({timeout:5000});
+          console.log('OFFLINE CACHE VIEW PASS');
+          await editor.ctx.setOffline(false);
+          await editor.page.waitForFunction(()=>navigator.onLine===true,{timeout:10000});
+          await editor.page.getByText('Đang làm việc ngoại tuyến:',{exact:true}).waitFor({state:'hidden',timeout:12000});
+          await updateDoc(doc(db,'projects',PID),{name:'Runtime Reconnect Verified',updatedAt:Date.now()});
+          await editor.page.getByText('Runtime Reconnect Verified',{exact:true}).first().waitFor({timeout:15000});
+          console.log('OFFLINE RECONNECT FUNCTIONAL PASS');
+          await viewer.page.getByText('Mặt bằng',{exact:true}).last().waitFor({timeout:5000});
+          const metrics=await viewer.page.evaluate(()=>({w:innerWidth,sw:document.documentElement.scrollWidth,bw:document.body.scrollWidth}));
+          if(metrics.sw>metrics.w+2||metrics.bw>metrics.w+2)throw new Error(`mobile horizontal overflow ${JSON.stringify(metrics)}`);
+          await viewer.page.screenshot({path:`${shots}/viewer-mobile-final.png`,fullPage:true});
+          console.log('MOBILE NAV/RESPONSIVE PASS');
+          await browser.close();console.log('RUNTIME GOLDEN V6 PASS');
+          EOF
+          node ./runtime-v6.mjs
+      - name: Upload runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc225-runtime-golden-v6-evidence
+          path: /tmp/runtime-v6
+          if-no-files-found: ignore
+      - name: Emulator log on failure
+        if: failure()
+        run: tail -n 200 /tmp/firebase.log || true
