@@ -40,8 +40,7 @@ jobs:
           EXPECTED_BASE="8375ff69450dc8ba4b014612045318e48ea34fc3"
           test "$ACTUAL_BASE" = "$EXPECTED_BASE" || { echo "Target baseline changed: $ACTUAL_BASE"; exit 1; }
           git checkout -B rc225-candidate-tested origin/rc2-2-emulator-dev-golden
-          git apply --check /tmp/rc225.patch
-          git apply --index --whitespace=nowarn /tmp/rc225.patch
+          git apply --3way --index --whitespace=nowarn /tmp/rc225.patch
 
       - name: Verify exact 19-file candidate
         shell: bash
