@@ -24,7 +24,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Reconstruct and verify RC2.2.5 payload
+      - name: Reconstruct and verify RC2.2.5 patch
         shell: bash
         run: |
           set -euo pipefail
@@ -33,12 +33,7 @@ jobs:
           gzip -dc /tmp/rc225.patch.gz > /tmp/rc225.patch
           echo "5333f0a7e6c893ca38d3ec605966283df60372a2eb19d4b85d80882945ad5871  /tmp/rc225.patch" | sha256sum -c -
 
-          cat .rc225/pm.part*.b64 | base64 -d | gzip -dc > /tmp/ProjectManagerModal.tsx
-          cat .rc225/warehouse.part*.b64 | base64 -d | gzip -dc > /tmp/WarehouseTab.tsx
-          echo "bb6fd1f031a6bd33a0d55eded35e4dc719e959cf4a5d0e3d3218de3c59e7f0cd  /tmp/ProjectManagerModal.tsx" | sha256sum -c -
-          echo "ba8f3b05fefe82583dd9a645a9a4cd189609061182c0b31b090786917de5b4cc  /tmp/WarehouseTab.tsx" | sha256sum -c -
-
-      - name: Apply exact RC2.2.5 candidate to locked baseline
+      - name: Rebuild exact post-image from patch ancestor
         shell: bash
         run: |
           set -euo pipefail
@@ -46,16 +41,16 @@ jobs:
           ACTUAL_BASE="$(git rev-parse origin/rc2-2-emulator-dev-golden)"
           EXPECTED_BASE="8375ff69450dc8ba4b014612045318e48ea34fc3"
           test "$ACTUAL_BASE" = "$EXPECTED_BASE" || { echo "Target baseline changed: $ACTUAL_BASE"; exit 1; }
-          git checkout -B rc225-candidate-tested origin/rc2-2-emulator-dev-golden
-          git apply --3way --index --whitespace=nowarn /tmp/rc225.patch
-          cp /tmp/ProjectManagerModal.tsx src/components/ProjectManagerModal.tsx
-          cp /tmp/WarehouseTab.tsx src/components/WarehouseTab.tsx
-          git add src/components/ProjectManagerModal.tsx src/components/WarehouseTab.tsx
 
-      - name: Verify exact 19-file candidate
-        shell: bash
-        run: |
-          set -euo pipefail
+          rm -rf /tmp/rc225-exact /tmp/rc225-ancestor.index
+          mkdir -p /tmp/rc225-exact
+          git apply --build-fake-ancestor=/tmp/rc225-ancestor.index /tmp/rc225.patch
+          GIT_INDEX_FILE=/tmp/rc225-ancestor.index git checkout-index --all --prefix=/tmp/rc225-exact/
+          (
+            cd /tmp/rc225-exact
+            git --git-dir="$GITHUB_WORKSPACE/.git" apply --whitespace=nowarn /tmp/rc225.patch
+          )
+
           cat > /tmp/expected-files.txt <<'EOF'
           HNL-QLTC-V6.3.0-RC2.2.5-MASTER-RBAC-REPORT.md
           firestore.rules
@@ -78,10 +73,21 @@ jobs:
           storage.rules
           EOF
           sed -i 's/^          //' /tmp/expected-files.txt
+
+          git checkout -B rc225-candidate-tested origin/rc2-2-emulator-dev-golden
+          while IFS= read -r file; do
+            mkdir -p "$(dirname "$file")"
+            cp "/tmp/rc225-exact/$file" "$file"
+          done < /tmp/expected-files.txt
+          git add --pathspec-from-file=/tmp/expected-files.txt
+
+      - name: Verify exact 19-file candidate
+        shell: bash
+        run: |
+          set -euo pipefail
           sort -o /tmp/expected-files.txt /tmp/expected-files.txt
           git diff --cached --name-only | sort > /tmp/actual-files.txt
           diff -u /tmp/expected-files.txt /tmp/actual-files.txt
-
           cat > /tmp/sha256-manifest.txt <<'EOF'
           c3a1f35ea41359632ebd7dedbb4bffdd7e961adc5fd13c239acd203c95a43161  HNL-QLTC-V6.3.0-RC2.2.5-MASTER-RBAC-REPORT.md
           f3c3dade8602b5c06964bfc45c4e8be12d6c624f096fb0d1e4337c8487aeeaa3  firestore.rules
@@ -112,28 +118,20 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: package-lock.json
-
       - name: Install dependencies
         run: npm ci
-
       - name: Stability and RBAC gates
         run: npm run test:stability
-
       - name: Typecheck
         run: npm run typecheck
-
       - name: Lint
         run: npm run lint
-
       - name: Firebase Rules emulator behavior
         run: npm run test:rules
-
       - name: Security audit production critical
         run: npm run security:audit
-
       - name: Production build
         run: npm run build
-
       - name: Commit tested candidate branch only
         shell: bash
         run: |
