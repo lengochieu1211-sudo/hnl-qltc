@@ -1,0 +1,136 @@
+name: RC2.2.5 Candidate Gate
+
+on:
+  push:
+    branches:
+      - rc225-apply-staging
+
+permissions:
+  contents: write
+
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    env:
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BUILD_ID: rc225-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+      VITE_GIT_COMMIT: ${{ github.sha }}
+    steps:
+      - name: Checkout staging payload
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reconstruct and verify RC2.2.5 patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .rc225/part*.b64 | base64 -d > /tmp/rc225.patch.gz
+          echo "d357bd38ec77860318d719aa1bbfc99e0c1483cd1a83732a0e24452dfd9c4913  /tmp/rc225.patch.gz" | sha256sum -c -
+          gzip -dc /tmp/rc225.patch.gz > /tmp/rc225.patch
+          echo "5333f0a7e6c893ca38d3ec605966283df60372a2eb19d4b85d80882945ad5871  /tmp/rc225.patch" | sha256sum -c -
+
+      - name: Apply patch to locked RC2.2.4.1 baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin rc2-2-emulator-dev-golden
+          ACTUAL_BASE="$(git rev-parse origin/rc2-2-emulator-dev-golden)"
+          EXPECTED_BASE="8375ff69450dc8ba4b014612045318e48ea34fc3"
+          test "$ACTUAL_BASE" = "$EXPECTED_BASE" || { echo "Target baseline changed: $ACTUAL_BASE"; exit 1; }
+          git checkout -B rc225-candidate-tested origin/rc2-2-emulator-dev-golden
+          git apply --check /tmp/rc225.patch
+          git apply --index --whitespace=nowarn /tmp/rc225.patch
+
+      - name: Verify exact 19-file candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/expected-files.txt <<'EOF'
+          HNL-QLTC-V6.3.0-RC2.2.5-MASTER-RBAC-REPORT.md
+          firestore.rules
+          package.json
+          scripts/emulator-golden.mjs
+          scripts/firebase-rules-behavior.mjs
+          scripts/rbac-matrix.mjs
+          src/App.tsx
+          src/components/ChecklistTab.tsx
+          src/components/CrewTab.tsx
+          src/components/FloorPlanDefectTab.tsx
+          src/components/GoogleConfigTab.tsx
+          src/components/MaterialNormModal.tsx
+          src/components/PhotoAttachmentPicker.tsx
+          src/components/ProjectManagerModal.tsx
+          src/components/RoomHighlightModal.tsx
+          src/components/SecurityModal.tsx
+          src/components/WarehouseTab.tsx
+          src/utils/securityUtils.ts
+          storage.rules
+          EOF
+          sed -i 's/^          //' /tmp/expected-files.txt
+          sort -o /tmp/expected-files.txt /tmp/expected-files.txt
+          git diff --cached --name-only | sort > /tmp/actual-files.txt
+          diff -u /tmp/expected-files.txt /tmp/actual-files.txt
+
+          cat > /tmp/sha256-manifest.txt <<'EOF'
+          c3a1f35ea41359632ebd7dedbb4bffdd7e961adc5fd13c239acd203c95a43161  HNL-QLTC-V6.3.0-RC2.2.5-MASTER-RBAC-REPORT.md
+          f3c3dade8602b5c06964bfc45c4e8be12d6c624f096fb0d1e4337c8487aeeaa3  firestore.rules
+          74cf4ed3d65b23450d3538c79eaebf91a38fb86602a038086024e21771506d3d  package.json
+          14333625a110cad1a7c9ab3f3b2a306087502e985bf23cd7f7f5baeac49e22d4  scripts/emulator-golden.mjs
+          7bfdbeab5319390d998cc578169bc39b8bc90771a627eff6710262298e371733  scripts/firebase-rules-behavior.mjs
+          3c9560917db526725d25522c428d116f8f1512472ebf075a106550e2ff4d29da  scripts/rbac-matrix.mjs
+          7fa8e9dcb94d0515f7b382e6d5f42e393ad1a3ff033e06d7bc71382073cfca51  src/App.tsx
+          0596bc1986d0a8447cc0bea68c2d63ab1aa0270292228ff0def70a5f348d5a77  src/components/ChecklistTab.tsx
+          ca8f3f9cba6071549d9c37a8ca7a65d9c81769ce97af1d3b2c61453f62af6b9e  src/components/CrewTab.tsx
+          e933103160b7449d0bc8e5ef63181b1390313b8c0c2e3aad30f9eb24a174c74e  src/components/FloorPlanDefectTab.tsx
+          75815c5acfa10c76933e93bdd69063b3d8a776785ace64a7c92435f096079979  src/components/GoogleConfigTab.tsx
+          256d5df9dc035b04f6030ec1e5e6789addae3c3dc94d59d904183835f19496fa  src/components/MaterialNormModal.tsx
+          d5754cdb84a2d0e615a60844826977992b6cf5cc454a30dbd17401fa0ae85f9a  src/components/PhotoAttachmentPicker.tsx
+          bb6fd1f031a6bd33a0d55eded35e4dc719e959cf4a5d0e3d3218de3c59e7f0cd  src/components/ProjectManagerModal.tsx
+          40f763b951149700d26d33fe40298aa7ec4f43611d87e5d5bf43c473d8368a7c  src/components/RoomHighlightModal.tsx
+          54dedc3fea17c8ff72c0f9183045f4b5c3bb84405e01414cf174d271a9180231  src/components/SecurityModal.tsx
+          ba8f3b05fefe82583dd9a645a9a4cd189609061182c0b31b090786917de5b4cc  src/components/WarehouseTab.tsx
+          e7d91b5c06e542f96d565c2814013bbd5756f189c53a012feabc431bd5bf4950  src/utils/securityUtils.ts
+          49b287a522b9ff49b706eab06bb9791e881bfec80a768b9c144481311cd6b916  storage.rules
+          EOF
+          sed -i 's/^          //' /tmp/sha256-manifest.txt
+          sha256sum -c /tmp/sha256-manifest.txt
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Stability and RBAC gates
+        run: npm run test:stability
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Firebase Rules emulator behavior
+        run: npm run test:rules
+
+      - name: Security audit production critical
+        run: npm run security:audit
+
+      - name: Production build
+        run: npm run build
+
+      - name: Commit tested candidate branch only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "V6.3.0 RC2.2.5 – Master RBAC & FloorPlan Permission Hardening"
+          git push origin HEAD:refs/heads/rc225-candidate-tested --force-with-lease
+          echo "Candidate SHA: $(git rev-parse HEAD)"
