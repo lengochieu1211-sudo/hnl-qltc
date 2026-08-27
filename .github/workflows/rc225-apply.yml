@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - rc225-apply-staging
+    paths:
+      - '.rc225/READY'
 
 permissions:
   contents: write
@@ -22,7 +24,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Reconstruct and verify RC2.2.5 patch
+      - name: Reconstruct and verify RC2.2.5 payload
         shell: bash
         run: |
           set -euo pipefail
@@ -31,7 +33,12 @@ jobs:
           gzip -dc /tmp/rc225.patch.gz > /tmp/rc225.patch
           echo "5333f0a7e6c893ca38d3ec605966283df60372a2eb19d4b85d80882945ad5871  /tmp/rc225.patch" | sha256sum -c -
 
-      - name: Rebuild exact RC2.2.5 post-image from patch ancestor
+          cat .rc225/pm.part*.b64 | base64 -d | gzip -dc > /tmp/ProjectManagerModal.tsx
+          cat .rc225/warehouse.part*.b64 | base64 -d | gzip -dc > /tmp/WarehouseTab.tsx
+          echo "bb6fd1f031a6bd33a0d55eded35e4dc719e959cf4a5d0e3d3218de3c59e7f0cd  /tmp/ProjectManagerModal.tsx" | sha256sum -c -
+          echo "ba8f3b05fefe82583dd9a645a9a4cd189609061182c0b31b090786917de5b4cc  /tmp/WarehouseTab.tsx" | sha256sum -c -
+
+      - name: Apply exact RC2.2.5 candidate to locked baseline
         shell: bash
         run: |
           set -euo pipefail
@@ -39,14 +46,16 @@ jobs:
           ACTUAL_BASE="$(git rev-parse origin/rc2-2-emulator-dev-golden)"
           EXPECTED_BASE="8375ff69450dc8ba4b014612045318e48ea34fc3"
           test "$ACTUAL_BASE" = "$EXPECTED_BASE" || { echo "Target baseline changed: $ACTUAL_BASE"; exit 1; }
-
-          rm -rf /tmp/rc225-exact /tmp/rc225-ancestor.index
-          mkdir -p /tmp/rc225-exact
-          git apply --build-fake-ancestor=/tmp/rc225-ancestor.index /tmp/rc225.patch
-          GIT_INDEX_FILE=/tmp/rc225-ancestor.index git checkout-index --all --prefix=/tmp/rc225-exact/
-          git --git-dir="$GITHUB_WORKSPACE/.git" --work-tree=/tmp/rc225-exact apply --whitespace=nowarn /tmp/rc225.patch
-
           git checkout -B rc225-candidate-tested origin/rc2-2-emulator-dev-golden
+          git apply --3way --index --whitespace=nowarn /tmp/rc225.patch
+          cp /tmp/ProjectManagerModal.tsx src/components/ProjectManagerModal.tsx
+          cp /tmp/WarehouseTab.tsx src/components/WarehouseTab.tsx
+          git add src/components/ProjectManagerModal.tsx src/components/WarehouseTab.tsx
+
+      - name: Verify exact 19-file candidate
+        shell: bash
+        run: |
+          set -euo pipefail
           cat > /tmp/expected-files.txt <<'EOF'
           HNL-QLTC-V6.3.0-RC2.2.5-MASTER-RBAC-REPORT.md
           firestore.rules
@@ -69,16 +78,6 @@ jobs:
           storage.rules
           EOF
           sed -i 's/^          //' /tmp/expected-files.txt
-          while IFS= read -r file; do
-            mkdir -p "$(dirname "$file")"
-            cp "/tmp/rc225-exact/$file" "$file"
-          done < /tmp/expected-files.txt
-          git add --pathspec-from-file=/tmp/expected-files.txt
-
-      - name: Verify exact 19-file candidate
-        shell: bash
-        run: |
-          set -euo pipefail
           sort -o /tmp/expected-files.txt /tmp/expected-files.txt
           git diff --cached --name-only | sort > /tmp/actual-files.txt
           diff -u /tmp/expected-files.txt /tmp/actual-files.txt
