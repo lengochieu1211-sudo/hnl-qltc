@@ -33,11 +33,11 @@ The recurring-cost target is 0 VND/month. Do not enable Firebase Blaze, App Host
 
 ## Android APK
 
-The APK wrapper loads the deployed web app when `QLCT_WEB_URL` or `android-wrapper/web-url.txt` is set. If no URL is set, it uses bundled fallback assets.
+The APK wrapper loads the deployed web app when `QLTC_WEB_URL` or `android-wrapper/web-url.txt` is set. If no URL is set, it uses bundled fallback assets.
 
 ```powershell
-$env:QLCT_WEB_URL="https://com-example-qlct-61329.web.app"
+$env:QLTC_WEB_URL="https://com-example-qlct-61329.web.app"
 powershell.exe -ExecutionPolicy Bypass -File .\android-wrapper\build-apk.ps1
 ```
 
-The APK is written to `QLTC An Phu.apk`.
+The APK is written to `HNK Quan Ly Thi Cong.apk`.
