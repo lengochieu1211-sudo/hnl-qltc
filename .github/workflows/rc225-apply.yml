@@ -31,7 +31,7 @@ jobs:
           gzip -dc /tmp/rc225.patch.gz > /tmp/rc225.patch
           echo "5333f0a7e6c893ca38d3ec605966283df60372a2eb19d4b85d80882945ad5871  /tmp/rc225.patch" | sha256sum -c -
 
-      - name: Apply patch to locked RC2.2.4.1 baseline
+      - name: Rebuild exact RC2.2.5 post-image from patch ancestor
         shell: bash
         run: |
           set -euo pipefail
@@ -39,13 +39,14 @@ jobs:
           ACTUAL_BASE="$(git rev-parse origin/rc2-2-emulator-dev-golden)"
           EXPECTED_BASE="8375ff69450dc8ba4b014612045318e48ea34fc3"
           test "$ACTUAL_BASE" = "$EXPECTED_BASE" || { echo "Target baseline changed: $ACTUAL_BASE"; exit 1; }
-          git checkout -B rc225-candidate-tested origin/rc2-2-emulator-dev-golden
-          git apply --3way --index --whitespace=nowarn /tmp/rc225.patch
 
-      - name: Verify exact 19-file candidate
-        shell: bash
-        run: |
-          set -euo pipefail
+          rm -rf /tmp/rc225-exact /tmp/rc225-ancestor.index
+          mkdir -p /tmp/rc225-exact
+          git apply --build-fake-ancestor=/tmp/rc225-ancestor.index /tmp/rc225.patch
+          GIT_INDEX_FILE=/tmp/rc225-ancestor.index git checkout-index --all --prefix=/tmp/rc225-exact/
+          git --git-dir="$GITHUB_WORKSPACE/.git" --work-tree=/tmp/rc225-exact apply --whitespace=nowarn /tmp/rc225.patch
+
+          git checkout -B rc225-candidate-tested origin/rc2-2-emulator-dev-golden
           cat > /tmp/expected-files.txt <<'EOF'
           HNL-QLTC-V6.3.0-RC2.2.5-MASTER-RBAC-REPORT.md
           firestore.rules
@@ -68,6 +69,16 @@ jobs:
           storage.rules
           EOF
           sed -i 's/^          //' /tmp/expected-files.txt
+          while IFS= read -r file; do
+            mkdir -p "$(dirname "$file")"
+            cp "/tmp/rc225-exact/$file" "$file"
+          done < /tmp/expected-files.txt
+          git add --pathspec-from-file=/tmp/expected-files.txt
+
+      - name: Verify exact 19-file candidate
+        shell: bash
+        run: |
+          set -euo pipefail
           sort -o /tmp/expected-files.txt /tmp/expected-files.txt
           git diff --cached --name-only | sort > /tmp/actual-files.txt
           diff -u /tmp/expected-files.txt /tmp/actual-files.txt
