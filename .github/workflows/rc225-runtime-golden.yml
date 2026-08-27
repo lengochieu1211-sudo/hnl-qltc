@@ -1,0 +1,187 @@
+name: RC2.2.5 Runtime Golden
+
+on:
+  push:
+    branches:
+      - rc225-apply-staging
+    paths:
+      - '.rc225/RUNTIME_READY'
+
+permissions:
+  contents: read
+
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_USE_FIREBASE_EMULATORS: 'true'
+      VITE_FIREBASE_EMULATOR_PROJECT_ID: demo-hnl-qltc-dev
+      VITE_FIREBASE_EMULATOR_HOST: 127.0.0.1
+      VITE_FIREBASE_AUTH_EMULATOR_PORT: '9099'
+      VITE_FIRESTORE_EMULATOR_PORT: '8080'
+      VITE_FIREBASE_STORAGE_EMULATOR_PORT: '9199'
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+    steps:
+      - name: Checkout exact RC2.2.5
+        uses: actions/checkout@v4
+        with:
+          ref: e899dead5ce76dabb404e6d02d6c1f16e9e1a9f4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install source and browser driver
+        run: |
+          npm ci
+          npm install --no-save --package-lock=false playwright-core@1.55.0
+          which google-chrome || which chromium || true
+      - name: Build emulator bundle
+        run: npm run build:emulator
+      - name: Start Firebase Emulator Suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes firebase-tools@13.35.1 emulators:start --project demo-hnl-qltc-dev --only auth,firestore,storage,hosting > /tmp/firebase-emulator.log 2>&1 &
+          echo $! > /tmp/firebase-emulator.pid
+          for i in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:5000 >/dev/null 2>&1; then
+              echo 'Firebase Hosting emulator ready'
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/firebase-emulator.log
+          exit 1
+      - name: Runtime browser golden
+        shell: bash
+        run: |
+          cat > /tmp/runtime-golden.mjs <<'EOF'
+          import fs from 'node:fs';
+          import { chromium } from 'playwright-core';
+          import { initializeApp } from 'firebase/app';
+          import { getAuth, connectAuthEmulator, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
+          import { getFirestore, connectFirestoreEmulator, doc, setDoc, updateDoc } from 'firebase/firestore';
+
+          const BASE = 'http://127.0.0.1:5000';
+          const PID = 'runtime-golden-rc225';
+          const PNAME = 'Runtime Golden RC225';
+          const accounts = {
+            ADMIN: ['admin@hnl.test', 'HNL-Emulator-123!'],
+            EDITOR: ['editor@hnl.test', 'HNL-Emulator-123!'],
+            VIEWER: ['viewer@hnl.test', 'HNL-Emulator-123!'],
+          };
+          const fb = initializeApp({ apiKey:'demo-hnl-qltc-key', authDomain:'demo-hnl-qltc-dev.firebaseapp.com', projectId:'demo-hnl-qltc-dev', storageBucket:'demo-hnl-qltc-dev.appspot.com' }, 'runtime-golden');
+          const auth = getAuth(fb); connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings:true });
+          const db = getFirestore(fb); connectFirestoreEmulator(db, '127.0.0.1', 8080);
+          async function ensureUser(email, password) {
+            try { return (await signInWithEmailAndPassword(auth,email,password)).user; }
+            catch { return (await createUserWithEmailAndPassword(auth,email,password)).user; }
+          }
+          const users = {};
+          for (const role of ['ADMIN','EDITOR','VIEWER']) { users[role] = await ensureUser(...accounts[role]); await signOut(auth); }
+          await signInWithEmailAndPassword(auth, ...accounts.ADMIN);
+          const now = Date.now();
+          await setDoc(doc(db,'projects',PID), { id:PID, name:PNAME, ownerUid:users.ADMIN.uid, ownerEmail:accounts.ADMIN[0], createdAt:now, updatedAt:now });
+          for (const role of ['ADMIN','EDITOR','VIEWER']) {
+            const [email] = accounts[role];
+            const payload = { uid:users[role].uid, email, displayName:`DEV ${role}`, role, active:true, assignedAt:now, updatedAt:now };
+            await setDoc(doc(db,'projects',PID,'members',email), payload);
+            await setDoc(doc(db,'projects',PID,'members',users[role].uid), payload);
+            await setDoc(doc(db,'projectInvitations',`${PID}_${email}`), { projectId:PID, projectName:PNAME, email, invitedEmail:email, role, createdByUid:users.ADMIN.uid, updatedAt:now });
+            await setDoc(doc(db,'projectAccess',`${PID}__${encodeURIComponent(email)}`), { projectId:PID, email, role, projectName:PNAME, active:true, updatedAt:now });
+          }
+
+          const chromePath = ['/usr/bin/google-chrome','/usr/bin/chromium','/usr/bin/chromium-browser'].find(fs.existsSync);
+          if (!chromePath) throw new Error('Chrome/Chromium not found on runner');
+          const browser = await chromium.launch({ executablePath: chromePath, headless:true, args:['--no-sandbox'] });
+          const consoleErrors = [];
+          const shots = '/tmp/runtime-shots'; fs.mkdirSync(shots,{recursive:true});
+          const openRole = async (role, viewport) => {
+            const ctx = await browser.newContext({ viewport });
+            await ctx.addInitScript(({pid,pname}) => {
+              localStorage.setItem('active_project_id', pid);
+              sessionStorage.setItem('active_project_id', pid);
+              localStorage.setItem('construction_projects_list', JSON.stringify([{id:pid,name:pname,createdAt:Date.now(),updatedAt:Date.now()}]));
+            }, {pid:PID,pname:PNAME});
+            const page = await ctx.newPage();
+            page.on('console', m => { if (m.type()==='error') consoleErrors.push(`${role}: ${m.text()}`); });
+            page.on('pageerror', e => consoleErrors.push(`${role}: PAGEERROR ${e.message}`));
+            await page.goto(BASE, {waitUntil:'domcontentloaded'});
+            await page.locator('button[title*="dang nhap Google"]').click();
+            await page.getByText('DEV Emulator Golden', {exact:true}).waitFor({timeout:15000});
+            await page.getByRole('button',{name:role, exact:true}).click();
+            await page.locator(`button[title*="${accounts[role][0]}"]`).waitFor({timeout:20000});
+            const sec = page.locator('button[title="Trung tâm bảo mật, khóa mã PIN & phân quyền"]');
+            await sec.waitFor({timeout:20000});
+            const expected = role==='ADMIN' ? 'Admin' : role==='EDITOR' ? 'Kỹ Sư' : 'Chỉ Xem';
+            const secText = (await sec.innerText()).trim();
+            if (!secText.includes(expected)) throw new Error(`${role} header badge mismatch: ${secText}`);
+            await page.getByText(PNAME,{exact:true}).first().waitFor({timeout:20000});
+            const metrics = await page.evaluate(() => ({w:innerWidth, sw:document.documentElement.scrollWidth, body:document.body.scrollWidth}));
+            if (metrics.sw > metrics.w + 2 || metrics.body > metrics.w + 2) throw new Error(`${role} horizontal overflow ${JSON.stringify(metrics)}`);
+            await page.screenshot({path:`${shots}/${role.toLowerCase()}-${viewport.width}.png`, fullPage:true});
+            return {ctx,page,sec};
+          };
+
+          const admin = await openRole('ADMIN',{width:1440,height:900});
+          const editor = await openRole('EDITOR',{width:1280,height:800});
+          const viewer = await openRole('VIEWER',{width:390,height:844});
+
+          // ADMIN project management surface must exist; EDITOR/VIEWER must not inherit it.
+          await admin.page.locator('button[title="Quản lý danh sách dự án"]').click();
+          await admin.page.getByText('Thêm dự án mới',{exact:true}).waitFor({timeout:10000});
+          await admin.page.locator('button[title="Đóng"]').first().click();
+          for (const obj of [editor,viewer]) {
+            await obj.page.locator('button[title="Quản lý danh sách dự án"]').click();
+            await obj.page.waitForTimeout(500);
+            if (await obj.page.getByText('Thêm dự án mới',{exact:true}).count()) throw new Error('Non-admin inherited create-project UI');
+            await obj.page.locator('button[title="Đóng"]').first().click();
+          }
+
+          // Security member management must be ADMIN-only.
+          await admin.sec.click();
+          await admin.page.locator('input[placeholder="email.nhanvien@gmail.com"]').waitFor({timeout:10000});
+          await admin.page.locator('button[title="Đóng"]').first().click().catch(()=>admin.page.keyboard.press('Escape'));
+          for (const obj of [editor,viewer]) {
+            await obj.sec.click();
+            await obj.page.getByText('Chỉ ADMIN/Owner được thêm, đổi vai trò hoặc thu hồi thành viên.',{exact:true}).waitFor({timeout:10000});
+            await obj.page.keyboard.press('Escape');
+          }
+
+          // Realtime project metadata: ADMIN cloud change must reach two live clients.
+          await updateDoc(doc(db,'projects',PID), {name:'Runtime Golden Realtime', updatedAt:Date.now()});
+          await admin.page.getByText('Runtime Golden Realtime',{exact:true}).first().waitFor({timeout:15000});
+          await editor.page.getByText('Runtime Golden Realtime',{exact:true}).first().waitFor({timeout:15000});
+
+          // Offline -> cached view -> reconnect on EDITOR.
+          await editor.ctx.setOffline(true);
+          await editor.page.locator('[title^="Chế độ Ngoại Tuyến"]').waitFor({timeout:10000});
+          await editor.page.getByText('Runtime Golden Realtime',{exact:true}).first().waitFor({timeout:5000});
+          await editor.ctx.setOffline(false);
+          await editor.page.locator('[title^="Mạng Trực Tuyến"]').waitFor({timeout:10000});
+
+          // Mobile bottom navigation remains reachable.
+          await viewer.page.getByText('Thêm',{exact:true}).last().waitFor({timeout:5000});
+          await viewer.page.getByText('Mặt bằng',{exact:true}).last().waitFor({timeout:5000});
+
+          const severe = consoleErrors.filter(x => !/favicon|ResizeObserver|permission-denied/i.test(x));
+          if (severe.length) throw new Error(`Browser console errors:\n${severe.slice(0,20).join('\n')}`);
+          console.log('RUNTIME GOLDEN PASS: desktop/mobile + ADMIN/EDITOR/VIEWER + realtime + offline/reconnect');
+          await browser.close();
+          EOF
+          node /tmp/runtime-golden.mjs
+      - name: Upload runtime screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc225-runtime-golden-screenshots
+          path: /tmp/runtime-shots
+          if-no-files-found: ignore
+      - name: Emulator log on failure
+        if: failure()
+        run: tail -n 300 /tmp/firebase-emulator.log || true
