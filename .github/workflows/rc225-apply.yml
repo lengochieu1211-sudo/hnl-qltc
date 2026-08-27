@@ -81,7 +81,40 @@ jobs:
           done < /tmp/expected-files.txt
           git add --pathspec-from-file=/tmp/expected-files.txt
 
-      - name: Verify exact 19-file candidate
+      - name: Apply CI root fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('src/components/FloorPlanDefectTab.tsx')
+          s = p.read_text()
+          old = """  const canManageStructure = roleResolved && canManageFloorPlanStructure(userRole);\n  const canEditDefects = roleResolved && canEditDefectData(userRole);\n  const canDeleteDefects = roleResolved && canDeleteBusinessData(userRole);\n"""
+          new = """  const normalizedUserRole: UserRole = userRole === 'ADMIN' || userRole === 'EDITOR' ? userRole : 'VIEWER';\n  const canManageStructure = roleResolved && canManageFloorPlanStructure(normalizedUserRole);\n  const canEditDefects = roleResolved && canEditDefectData(normalizedUserRole);\n  const canDeleteDefects = roleResolved && canDeleteBusinessData(normalizedUserRole);\n"""
+          if old not in s:
+              raise SystemExit('FloorPlan role typing anchor missing')
+          p.write_text(s.replace(old, new, 1))
+
+          p = Path('src/components/SecurityModal.tsx')
+          s = p.read_text()
+          old = "  Shield,\n  Lock,\n"
+          new = "  Shield,\n  ShieldCheck,\n  Lock,\n"
+          if old not in s:
+              raise SystemExit('Security ShieldCheck import anchor missing')
+          p.write_text(s.replace(old, new, 1))
+
+          p = Path('scripts/emulator-golden.mjs')
+          s = p.read_text()
+          old = "  'const canManageStructure = roleResolved && canManageFloorPlanStructure(userRole)',\n"
+          new = "  \"const normalizedUserRole: UserRole = userRole === 'ADMIN' || userRole === 'EDITOR' ? userRole : 'VIEWER';\",\n  'const canManageStructure = roleResolved && canManageFloorPlanStructure(normalizedUserRole)',\n"
+          if old not in s:
+              raise SystemExit('Emulator RBAC guard anchor missing')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          git add scripts/emulator-golden.mjs src/components/FloorPlanDefectTab.tsx src/components/SecurityModal.tsx
+
+      - name: Verify exact fixed 19-file candidate
         shell: bash
         run: |
           set -euo pipefail
@@ -92,19 +125,19 @@ jobs:
           c3a1f35ea41359632ebd7dedbb4bffdd7e961adc5fd13c239acd203c95a43161  HNL-QLTC-V6.3.0-RC2.2.5-MASTER-RBAC-REPORT.md
           f3c3dade8602b5c06964bfc45c4e8be12d6c624f096fb0d1e4337c8487aeeaa3  firestore.rules
           74cf4ed3d65b23450d3538c79eaebf91a38fb86602a038086024e21771506d3d  package.json
-          14333625a110cad1a7c9ab3f3b2a306087502e985bf23cd7f7f5baeac49e22d4  scripts/emulator-golden.mjs
+          08c173ed0db96c5bcf5167dc0f8ad0db4ce7e65f6d77d61ce366d4d02de35ba7  scripts/emulator-golden.mjs
           7bfdbeab5319390d998cc578169bc39b8bc90771a627eff6710262298e371733  scripts/firebase-rules-behavior.mjs
           3c9560917db526725d25522c428d116f8f1512472ebf075a106550e2ff4d29da  scripts/rbac-matrix.mjs
           7fa8e9dcb94d0515f7b382e6d5f42e393ad1a3ff033e06d7bc71382073cfca51  src/App.tsx
           0596bc1986d0a8447cc0bea68c2d63ab1aa0270292228ff0def70a5f348d5a77  src/components/ChecklistTab.tsx
           ca8f3f9cba6071549d9c37a8ca7a65d9c81769ce97af1d3b2c61453f62af6b9e  src/components/CrewTab.tsx
-          e933103160b7449d0bc8e5ef63181b1390313b8c0c2e3aad30f9eb24a174c74e  src/components/FloorPlanDefectTab.tsx
+          d7ace8815afc147c6de1c68fe5ed45922d7409a5514c9a97a2f46b38ae331f39  src/components/FloorPlanDefectTab.tsx
           75815c5acfa10c76933e93bdd69063b3d8a776785ace64a7c92435f096079979  src/components/GoogleConfigTab.tsx
           256d5df9dc035b04f6030ec1e5e6789addae3c3dc94d59d904183835f19496fa  src/components/MaterialNormModal.tsx
           d5754cdb84a2d0e615a60844826977992b6cf5cc454a30dbd17401fa0ae85f9a  src/components/PhotoAttachmentPicker.tsx
           bb6fd1f031a6bd33a0d55eded35e4dc719e959cf4a5d0e3d3218de3c59e7f0cd  src/components/ProjectManagerModal.tsx
           40f763b951149700d26d33fe40298aa7ec4f43611d87e5d5bf43c473d8368a7c  src/components/RoomHighlightModal.tsx
-          54dedc3fea17c8ff72c0f9183045f4b5c3bb84405e01414cf174d271a9180231  src/components/SecurityModal.tsx
+          ebae63a58ab7d0161165a175595398f2412c4449559e29241f609cecb6abeb92  src/components/SecurityModal.tsx
           ba8f3b05fefe82583dd9a645a9a4cd189609061182c0b31b090786917de5b4cc  src/components/WarehouseTab.tsx
           e7d91b5c06e542f96d565c2814013bbd5756f189c53a012feabc431bd5bf4950  src/utils/securityUtils.ts
           49b287a522b9ff49b706eab06bb9791e881bfec80a768b9c144481311cd6b916  storage.rules
