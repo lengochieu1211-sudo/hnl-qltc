@@ -1,0 +1,44 @@
+name: RC2.2.5 Exact Release Packaging
+on:
+  push:
+    branches: [rc225-apply-staging]
+    paths: ['.rc225/PACKAGE_READY']
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Package exact tested commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=8375ff69450dc8ba4b014612045318e48ea34fc3
+          HEAD=e899dead5ce76dabb404e6d02d6c1f16e9e1a9f4
+          mkdir -p deliver patch-stage
+          git cat-file -e "$BASE^{commit}"
+          git cat-file -e "$HEAD^{commit}"
+          git archive --format=zip --output=deliver/HNL-QLTC-V6.3.0-RC2.2.5-FULL-SOURCE-FINAL.zip "$HEAD"
+          git diff --name-only "$BASE" "$HEAD" | sed '/^$/d' > deliver/PATCH-FILES.txt
+          test "$(wc -l < deliver/PATCH-FILES.txt)" -eq 19
+          while IFS= read -r f; do mkdir -p "patch-stage/$(dirname "$f")"; git show "$HEAD:$f" > "patch-stage/$f"; done < deliver/PATCH-FILES.txt
+          (cd patch-stage && zip -qr ../deliver/HNL-QLTC-V6.3.0-RC2.2.5-PATCH-FINAL.zip .)
+          unzip -t deliver/HNL-QLTC-V6.3.0-RC2.2.5-FULL-SOURCE-FINAL.zip >/dev/null
+          unzip -t deliver/HNL-QLTC-V6.3.0-RC2.2.5-PATCH-FINAL.zip >/dev/null
+          unzip -Z1 deliver/HNL-QLTC-V6.3.0-RC2.2.5-FULL-SOURCE-FINAL.zip | sed '/\/$/d' | wc -l > deliver/FULL-FILE-COUNT.txt
+          unzip -Z1 deliver/HNL-QLTC-V6.3.0-RC2.2.5-PATCH-FINAL.zip | sed '/\/$/d' | wc -l > deliver/PATCH-FILE-COUNT.txt
+          sha256sum deliver/*.zip > deliver/SHA256SUMS.txt
+          echo "BASE=$BASE" > deliver/RELEASE-COMMIT.txt
+          echo "HEAD=$HEAD" >> deliver/RELEASE-COMMIT.txt
+          echo 'Package verification:'
+          cat deliver/PATCH-FILES.txt
+          cat deliver/FULL-FILE-COUNT.txt deliver/PATCH-FILE-COUNT.txt deliver/SHA256SUMS.txt
+      - name: Upload delivery bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: hnl-qltc-rc225-final-delivery
+          path: deliver
+          if-no-files-found: error
