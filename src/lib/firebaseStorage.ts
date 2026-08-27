@@ -3,13 +3,27 @@ import {
   getBlob,
   getMetadata,
   getStorage,
+  connectStorageEmulator,
   ref,
   uploadBytes,
   type FullMetadata,
 } from 'firebase/storage';
-import { firebaseApp } from './firebase';
+import {
+  firebaseApp,
+  FIREBASE_EMULATOR_ENABLED,
+  FIREBASE_EMULATOR_HOST,
+  FIREBASE_STORAGE_EMULATOR_PORT,
+} from './firebase';
 
 export const firebaseStorage = getStorage(firebaseApp);
+
+if (FIREBASE_EMULATOR_ENABLED) {
+  connectStorageEmulator(firebaseStorage, FIREBASE_EMULATOR_HOST, FIREBASE_STORAGE_EMULATOR_PORT);
+  console.info('[Firebase DEV Emulator] Storage connected', {
+    host: FIREBASE_EMULATOR_HOST,
+    port: FIREBASE_STORAGE_EMULATOR_PORT,
+  });
+}
 
 function safeSegment(value: unknown, fallback = 'unknown'): string {
   const out = String(value || '').trim().replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '');

@@ -809,8 +809,9 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
                       <input 
                         type="date" 
                         value={floor.targetFrameDate || ''}
+                        disabled={userRole !== 'ADMIN'}
                         onChange={(e) => onUpdateFloorPlan && onUpdateFloorPlan(floor.id, { targetFrameDate: e.target.value })}
-                        className={`w-full border rounded-lg px-2 py-1.5 text-[11px] outline-none transition-colors ${
+                        className={`w-full border rounded-lg px-2 py-1.5 text-[11px] outline-none transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
                           isFrameWarning ? 'border-amber-300 bg-amber-50 focus:ring-amber-500 text-amber-900' : 'border-slate-200 focus:ring-indigo-500'
                         }`}
                       />
@@ -824,8 +825,9 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
                       <input 
                         type="date" 
                         value={floor.targetBoardDate || ''}
+                        disabled={userRole !== 'ADMIN'}
                         onChange={(e) => onUpdateFloorPlan && onUpdateFloorPlan(floor.id, { targetBoardDate: e.target.value })}
-                        className={`w-full border rounded-lg px-2 py-1.5 text-[11px] outline-none transition-colors ${
+                        className={`w-full border rounded-lg px-2 py-1.5 text-[11px] outline-none transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
                           isBoardWarning ? 'border-rose-300 bg-rose-50 focus:ring-rose-500 text-rose-900' : 'border-slate-200 focus:ring-indigo-500'
                         }`}
                       />

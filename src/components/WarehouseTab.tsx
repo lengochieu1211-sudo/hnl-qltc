@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import { 
   ArrowDownLeft, 
@@ -35,9 +35,12 @@ import { createEntityId } from '../utils/idUtils';
 import { normalizeUnit } from '../utils/unitUtils';
 import { QuickSortBar } from './QuickSortBar';
 import { FIREBASE_ONLY_RUNTIME } from '../config/runtimeArchitecture';
+import { UserRole, canEditWarehouseData, canDeleteBusinessData, canImportData, canManageMaterialNorms } from '../utils/securityUtils';
 
 interface WarehouseTabProps {
   inventory: InventoryItem[];
+  userRole: UserRole;
+  roleResolved: boolean;
   onAddInventory: (item: Omit<InventoryItem, 'id'> & { id?: string }) => void | Promise<void>;
   onUpdateInventory?: (id: string, item: Omit<InventoryItem, 'id'>) => void | Promise<void>;
   onDeleteInventory: (id: string) => void | Promise<void>;
@@ -59,6 +62,8 @@ interface WarehouseTabProps {
 
 export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   inventory,
+  userRole,
+  roleResolved,
   onAddInventory,
   onUpdateInventory,
   onDeleteInventory,
@@ -78,6 +83,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   onImportWorkVolumes,
 }) => {
   const { t } = useLanguage();
+  const hasEditAccess = roleResolved && canEditWarehouseData(userRole);
+  const hasDeleteAccess = roleResolved && canDeleteBusinessData(userRole);
+  const hasImportAccess = roleResolved && canImportData(userRole);
+  const hasNormManageAccess = roleResolved && canManageMaterialNorms(userRole);
   const [filterType, setFilterType] = useState<'all' | 'in' | 'out'>('all');
   useFormatSettings();
   const [searchTerm, setSearchTerm] = useState('');
@@ -86,6 +95,17 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingInventory, setEditingInventory] = useState<InventoryItem | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!hasEditAccess) {
+      setShowAddForm(false);
+      setEditingInventory(null);
+    }
+    if (!hasDeleteAccess) {
+      setSelectedItemIds([]);
+      setDeletingInventoryTarget(null);
+    }
+  }, [hasEditAccess, hasDeleteAccess]);
 
   // Drag and Drop state for Excel file
   const [isDraggingExcel, setIsDraggingExcel] = useState(false);
@@ -101,6 +121,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
   const handleDropExcel = (e: React.DragEvent) => {
     e.preventDefault();
+    if (!hasImportAccess) { setIsDraggingExcel(false); return; }
     setIsDraggingExcel(false);
     const file = e.dataTransfer.files?.[0];
     if (file) {
@@ -109,6 +130,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   };
 
   const handleFileChangeExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!hasImportAccess) { e.target.value = ''; return; }
     const file = e.target.files?.[0];
     if (!file) return;
     processWarehouseUpdateExcel(file);
@@ -116,6 +138,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   };
 
   const processWarehouseUpdateExcel = async (file: File) => {
+    if (!hasImportAccess) { alert('Chỉ ADMIN được nhập dữ liệu kho/định mức/hạng mục hàng loạt từ Excel.'); return; }
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
@@ -660,6 +683,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   }, [inventory, filterType, searchTerm, inventorySortBy, inventorySortOrder]);
 
   const openCreateInventory = () => {
+    if (!hasEditAccess) return;
     setEditingInventory(null);
     setType('in');
     setCustomMaterial('');
@@ -671,6 +695,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   };
 
   const openEditInventory = (item: InventoryItem) => {
+    if (!hasEditAccess) return;
     setEditingInventory(item);
     setType(item.type);
     const matched = materialNorms.find((m) => (item.materialId && (m.materialId === item.materialId || m.id === item.materialId)) || m.materialName === item.materialName);
@@ -688,6 +713,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!hasEditAccess) return;
     const finalMaterialName = customMaterial.trim() ? customMaterial.trim() : materialName;
     
     let finalQuantity = Number(quantity);
@@ -790,26 +816,28 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           <button
             onClick={onOpenNormModal}
             className="flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-2.5 py-2 rounded-xl text-xs font-bold active:scale-95 transition-all"
-            title="Cập nhật chủng loại vật tư, ĐVT, định mức"
+            title={hasNormManageAccess ? 'Cập nhật chủng loại vật tư, ĐVT, định mức' : 'Xem định mức vật tư (chỉ ADMIN được sửa)'}
           >
             <Sliders className="w-3.5 h-3.5 text-indigo-600" />
-            <span>{t('norms_button')}</span>
+            <span>{hasNormManageAccess ? t('norms_button') : 'Xem định mức'}</span>
           </button>
-          <button
-            onClick={openCreateInventory}
-            className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-xl text-xs font-bold shadow-md active:scale-95 transition-all"
-          >
-            <Plus className="w-4 h-4" />
-            Tạo phiếu
-          </button>
+          {hasEditAccess && (
+            <button
+              onClick={openCreateInventory}
+              className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-xl text-xs font-bold shadow-md active:scale-95 transition-all"
+            >
+              <Plus className="w-4 h-4" />
+              Tạo phiếu
+            </button>
+          )}
         </div>
       </div>
 
       {/* Excel Multi-Sheet Import / Export & Template Card */}
       <div
-        onDragOver={handleDragOverExcel}
-        onDragLeave={handleDragLeaveExcel}
-        onDrop={handleDropExcel}
+        onDragOver={hasImportAccess ? handleDragOverExcel : undefined}
+        onDragLeave={hasImportAccess ? handleDragLeaveExcel : undefined}
+        onDrop={hasImportAccess ? handleDropExcel : undefined}
         className={`bg-white border rounded-2xl p-3.5 space-y-2.5 transition-all shadow-3xs ${
           isDraggingExcel
             ? 'border-emerald-500 bg-emerald-50/50 scale-[1.01]'
@@ -845,16 +873,17 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             <span>Tải Excel để chỉnh sửa</span>
           </button>
 
-          <label className="flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-3 rounded-xl cursor-pointer transition-all shadow-3xs active:scale-95 text-xs text-center">
-            <Upload className="w-4 h-4 text-white shrink-0" />
-            <span>Nhập lại từ Excel</span>
-            <input
-              type="file"
-              accept=".xlsx, .xls"
-              onChange={handleFileChangeExcel}
-              className="hidden"
-            />
-          </label>
+          {hasImportAccess ? (
+            <label className="flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-3 rounded-xl cursor-pointer transition-all shadow-3xs active:scale-95 text-xs text-center">
+              <Upload className="w-4 h-4 text-white shrink-0" />
+              <span>Nhập lại từ Excel</span>
+              <input type="file" accept=".xlsx, .xls" onChange={handleFileChangeExcel} className="hidden" />
+            </label>
+          ) : (
+            <div className="flex items-center justify-center gap-1.5 bg-slate-50 text-slate-400 border border-slate-200 font-bold py-2 px-3 rounded-xl text-xs text-center" title="Chỉ ADMIN được nhập dữ liệu hàng loạt">
+              <Upload className="w-4 h-4 shrink-0" /><span>Chỉ ADMIN được nhập</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1075,7 +1104,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           </h3>
         </div>
 
-        {filteredInventory.length > 0 && (
+        {hasDeleteAccess && filteredInventory.length > 0 && (
           <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs gap-2">
             <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer select-none">
               <input
@@ -1094,7 +1123,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             </label>
 
             <div className="flex items-center gap-3 justify-end">
-              {selectedItemIds.some(id => filteredInventory.some(item => item.id === id)) && (
+              {hasDeleteAccess && selectedItemIds.some(id => filteredInventory.some(item => item.id === id)) && (
                 <button
                   type="button"
                   onClick={async () => {
@@ -1136,7 +1165,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               }`}
             >
               <div className="flex items-start gap-2.5">
-                <input
+                {hasDeleteAccess && <input
                   type="checkbox"
                   checked={selectedItemIds.includes(item.id)}
                   onChange={(e) => {
@@ -1147,7 +1176,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     }
                   }}
                   className="mt-1 w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0"
-                />
+                />}
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2">
@@ -1210,7 +1239,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   </div>
 
                   <div className="flex justify-end gap-3 pt-1">
-                    {onUpdateInventory && (
+                    {hasEditAccess && onUpdateInventory && (
                       <button
                         type="button"
                         onClick={() => openEditInventory(item)}
@@ -1219,13 +1248,15 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                         <Edit2 className="w-3 h-3" /> Chỉnh phiếu
                       </button>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => setDeletingInventoryTarget(item)}
-                      className="text-[11px] text-rose-500 hover:text-rose-700 flex items-center gap-1 font-semibold"
-                    >
-                      <Trash2 className="w-3 h-3" /> Xóa phiếu
-                    </button>
+                    {hasDeleteAccess && (
+                      <button
+                        type="button"
+                        onClick={() => setDeletingInventoryTarget(item)}
+                        className="text-[11px] text-rose-500 hover:text-rose-700 flex items-center gap-1 font-semibold"
+                      >
+                        <Trash2 className="w-3 h-3" /> Xóa phiếu
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1235,7 +1266,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       </div>
 
       {/* Delete Inventory Confirmation Modal */}
-      {deletingInventoryTarget && (
+      {hasDeleteAccess && deletingInventoryTarget && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-5 max-w-xs w-full space-y-4 border border-slate-100 shadow-2xl text-center">
             <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto">
@@ -1276,7 +1307,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       )}
 
       {/* Add Form Modal */}
-      {showAddForm && (
+      {hasEditAccess && showAddForm && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto animate-in slide-in-from-bottom duration-200">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">

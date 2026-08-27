@@ -26,7 +26,7 @@ import { exportWorkVolumesTemplate } from '../utils/excelExport';
 import { confirmAsync } from '../utils/confirmAsync';
 import { formatDecimal, formatVND, evaluateMathExpression, useFormatSettings, parseVietnameseNumber, parseExcelNumber } from '../utils/numberUtils';
 import { getTodayDateString, addDaysToDateString, formatDateVN, calculateDiffDays } from '../utils/dueDateUtils';
-import { getCurrentUserRole, canViewFinancials, canEditProjectData, UserRole } from '../utils/securityUtils';
+import { getCurrentUserRole, canViewFinancials, canManageWorkVolumeStructure, UserRole } from '../utils/securityUtils';
 import { normalizeUnit, unitKey } from '../utils/unitUtils';
 import { createEntityId } from '../utils/idUtils';
 
@@ -72,7 +72,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   const { t } = useLanguage();
   const effectiveRole = userRole || getCurrentUserRole();
   const hasFinancialAccess = canViewFinancials(effectiveRole);
-  const hasEditAccess = canEditProjectData(effectiveRole);
+  const hasStructureManageAccess = canManageWorkVolumeStructure(effectiveRole);
 
   const floorOptions = useMemo(() => {
     if (!floorPlans || floorPlans.length === 0) {
@@ -101,6 +101,18 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [isImportFromRoomsOpen, setIsImportFromRoomsOpen] = useState(false);
   const [selectedRoomIdsForImport, setSelectedRoomIdsForImport] = useState<string[]>([]);
+
+  // Role changes can happen without remounting this tab. Never leave an ADMIN-only
+  // modal/selection open after switching to EDITOR/VIEWER in the same browser session.
+  useEffect(() => {
+    if (hasStructureManageAccess) return;
+    setSelectedItemIds([]);
+    setShowAddForm(false);
+    setEditingVolume(null);
+    setDeletingVolumeTarget(null);
+    setIsImportFromRoomsOpen(false);
+    setSelectedRoomIdsForImport([]);
+  }, [hasStructureManageAccess]);
 
   // New Work Volume Form State
   const [title, setTitle] = useState('');
@@ -229,6 +241,11 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
 
   const handleAddSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!hasStructureManageAccess) {
+      alert('Chỉ ADMIN được tạo hoặc sửa định nghĩa hạng mục khối lượng. Kỹ sư cập nhật tiến độ tại Mặt bằng.');
+      handleCloseModal();
+      return;
+    }
 
     const parsedPlanned = evaluateMathExpression(plannedStr);
     if (plannedStr.trim() && parsedPlanned === null) {
@@ -290,8 +307,8 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   };
 
   const handleImportExcelWorkVolumes = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!hasEditAccess) {
-      alert('⚠️ Bạn đang ở quyền Xem (Viewer), không có quyền chỉnh sửa hoặc nhập dữ liệu.');
+    if (!hasStructureManageAccess) {
+      alert('⚠️ Chỉ ADMIN được nhập Excel để thay đổi cấu trúc hạng mục khối lượng.');
       e.target.value = '';
       return;
     }
@@ -481,11 +498,11 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
             type="button"
             onClick={() => exportWorkVolumesTemplate(workVolumes, projectName, hasFinancialAccess)}
             className="text-xs font-bold text-indigo-700 hover:text-indigo-900 bg-white hover:bg-slate-50 px-2.5 py-1.5 rounded-xl flex items-center gap-1 border border-slate-200 transition-all active:scale-95 shadow-2xs cursor-pointer"
-            title="Tải tệp Excel chứa dữ liệu hiện tại để chỉnh sửa"
+            title={hasStructureManageAccess ? 'Tải tệp Excel chứa dữ liệu hiện tại để chỉnh sửa' : 'Tải tệp Excel dữ liệu hiện tại (không kèm đơn giá)'}
           >
-            <Download className="w-3.5 h-3.5" /> Tải Excel để chỉnh sửa
+            <Download className="w-3.5 h-3.5" /> {hasStructureManageAccess ? 'Tải Excel để chỉnh sửa' : 'Tải Excel'}
           </button>
-          {hasEditAccess && (
+          {hasStructureManageAccess && (
             <>
               <label className="text-xs font-bold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1.5 rounded-xl flex items-center gap-1 border border-emerald-200 cursor-pointer transition-all active:scale-95 shadow-2xs">
                 <Upload className="w-3.5 h-3.5" /> Nhập lại từ Excel
@@ -618,24 +635,28 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       <div className="space-y-3">
         {sortedFilteredVolumes.length > 0 && (
           <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs gap-2">
-            <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={sortedFilteredVolumes.length > 0 && sortedFilteredVolumes.every(item => selectedItemIds.includes(item.id))}
-                onChange={(e) => {
-                  if (e.target.checked) {
-                    setSelectedItemIds(prev => Array.from(new Set([...prev, ...sortedFilteredVolumes.map(item => item.id)])));
-                  } else {
-                    setSelectedItemIds(prev => prev.filter(id => !sortedFilteredVolumes.some(item => item.id === id)));
-                  }
-                }}
-                className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-              />
-              <span>Chọn tất cả trên trang ({sortedFilteredVolumes.length})</span>
-            </label>
+            {hasStructureManageAccess ? (
+              <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={sortedFilteredVolumes.length > 0 && sortedFilteredVolumes.every(item => selectedItemIds.includes(item.id))}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setSelectedItemIds(prev => Array.from(new Set([...prev, ...sortedFilteredVolumes.map(item => item.id)])));
+                    } else {
+                      setSelectedItemIds(prev => prev.filter(id => !sortedFilteredVolumes.some(item => item.id === id)));
+                    }
+                  }}
+                  className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                />
+                <span>Chọn tất cả trên trang ({sortedFilteredVolumes.length})</span>
+              </label>
+            ) : (
+              <span className="font-bold text-slate-500">{sortedFilteredVolumes.length} hạng mục</span>
+            )}
 
             <div className="flex items-center gap-3 justify-end">
-              {hasEditAccess && selectedItemIds.some(id => sortedFilteredVolumes.some(item => item.id === id)) && (
+              {hasStructureManageAccess && selectedItemIds.some(id => sortedFilteredVolumes.some(item => item.id === id)) && (
                 <button
                   type="button"
                   onClick={async () => {
@@ -677,18 +698,20 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                 }`}
               >
                 <div className="flex items-start gap-2.5">
-                  <input
-                    type="checkbox"
-                    checked={selectedItemIds.includes(item.id)}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setSelectedItemIds(prev => [...prev, item.id]);
-                      } else {
-                        setSelectedItemIds(prev => prev.filter(id => id !== item.id));
-                      }
-                    }}
-                    className="mt-1 w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0"
-                  />
+                  {hasStructureManageAccess && (
+                    <input
+                      type="checkbox"
+                      checked={selectedItemIds.includes(item.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedItemIds(prev => [...prev, item.id]);
+                        } else {
+                          setSelectedItemIds(prev => prev.filter(id => id !== item.id));
+                        }
+                      }}
+                      className="mt-1 w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0"
+                    />
+                  )}
 
                   <div className="flex-1 min-w-0 space-y-2.5">
                     <div className="flex items-start justify-between gap-2">
@@ -824,7 +847,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                           Hạng mục: {item.category || 'Chung'}
                         </span>
                       )}
-                      {hasEditAccess && (
+                      {hasStructureManageAccess && (
                         <div className="flex items-center gap-2">
                           <button
                             onClick={async () => {
@@ -864,7 +887,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       </div>
 
       {/* Add / Edit Work Volume Modal */}
-      {(showAddForm || editingVolume !== null) && (
+      {hasStructureManageAccess && (showAddForm || editingVolume !== null) && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
@@ -1128,7 +1151,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       )}
 
       {/* Delete Volume Confirmation Modal */}
-      {deletingVolumeTarget && (
+      {hasStructureManageAccess && deletingVolumeTarget && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-5 max-w-xs w-full space-y-4 border border-slate-100 shadow-2xl text-center">
             <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto">

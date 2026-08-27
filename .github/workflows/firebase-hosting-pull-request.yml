@@ -8,7 +8,11 @@ permissions:
 
 jobs:
   build_and_preview:
-    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    # RC2.2 uses the local Emulator Suite as the primary DEV runtime. Cloud DEV
+    # preview remains optional: when no separate DEV project is configured this
+    # job is skipped instead of making every PR red. If configured, the isolation
+    # gate below still refuses the production project.
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.HNL_QLTC_DEV_PROJECT_ID != '' }}
     runs-on: ubuntu-latest
     env:
       VITE_APP_ENV: DEV

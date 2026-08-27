@@ -56,6 +56,7 @@ interface RoomHighlightModalProps {
   onSaveRoom: (room: Omit<RoomProgressItem, 'id' | 'updatedAt'> & { id?: string }) => void;
   onDeleteRoom?: (id: string) => void;
   onStartRedraw2Point?: (room: RoomProgressItem, tool: 'freehand' | 'polygon' | '2point') => void;
+  structureReadOnly?: boolean;
 }
 
 // Preset mapping for Construction & Acceptance Categories requested by user
@@ -125,6 +126,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   onSaveRoom,
   onDeleteRoom,
   onStartRedraw2Point,
+  structureReadOnly = false,
 }) => {
   const activeDefaultInspector = defaultInspectorName || '';
 
@@ -753,6 +755,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
   // Handler to add custom sub item
   const handleAddSubItem = (catName?: string) => {
+    if (structureReadOnly) return;
     setSubItems(prev => [
       ...prev,
       {
@@ -768,17 +771,21 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
   // Update sub item field
   const handleUpdateSubItem = (id: string, patch: Partial<RoomSubItem>) => {
+    const effectivePatch = structureReadOnly
+      ? Object.fromEntries(Object.entries(patch).filter(([key]) => ['status', 'inspectionStatus', 'targetDate', 'assignedTeam', 'teamId'].includes(key))) as Partial<RoomSubItem>
+      : patch;
+    if (Object.keys(effectivePatch).length === 0) return;
     setSubItems(prev => prev.map(item => {
       if (item.id !== id) return item;
-      const next = { ...item, ...patch };
+      const next = { ...item, ...effectivePatch };
       // A work step cannot stay "Đạt nghiệm thu" after its construction status
       // is moved back to Chưa làm / Đang làm. Keep old data compatible but
       // prevent creating new contradictory states.
-      if (patch.status && patch.status !== 'Đã hoàn thành' && next.inspectionStatus === 'Đạt nghiệm thu') {
+      if (effectivePatch.status && effectivePatch.status !== 'Đã hoàn thành' && next.inspectionStatus === 'Đạt nghiệm thu') {
         next.inspectionStatus = 'Chưa nghiệm thu';
       }
       // Passing inspection is only valid after construction is completed.
-      if (patch.inspectionStatus === 'Đạt nghiệm thu' && next.status !== 'Đã hoàn thành') {
+      if (effectivePatch.inspectionStatus === 'Đạt nghiệm thu' && next.status !== 'Đã hoàn thành') {
         return item;
       }
       return next;
@@ -787,6 +794,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
   // Delete sub item
   const handleDeleteSubItem = async (id: string) => {
+    if (structureReadOnly) return;
     if (subItems.length <= 1) {
       // Avoid using window.alert due to iframe restrictions
       return;
@@ -796,6 +804,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
   // Move category up or down
   const handleMoveCategory = (catName: string, direction: 'up' | 'down') => {
+    if (structureReadOnly) return;
     const currentCats = [...activeCategories];
     const index = currentCats.indexOf(catName);
     if (index === -1) return;
@@ -819,6 +828,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
   // Move sub item up or down within its category
   const handleMoveSubItem = (itemId: string, direction: 'up' | 'down') => {
+    if (structureReadOnly) return;
     const index = subItems.findIndex(item => item.id === itemId);
     if (index === -1) return;
     const item = subItems[index];
@@ -919,7 +929,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       return acc;
     }, {});
 
-    onSaveRoom({
+    const roomData: Omit<RoomProgressItem, 'updatedAt'> = {
       id: roomItem?.id,
       floorId,
       roomName: roomName.trim(),
@@ -948,7 +958,38 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       isPolyline,
       targetFrameDate: firstSub.targetDate || '',
       targetBoardDate: secondSub.targetDate || '',
-    });
+    };
+
+    if (structureReadOnly && roomItem) {
+      onSaveRoom({
+        ...roomItem,
+        frameStatus: roomData.frameStatus,
+        boardStatus: roomData.boardStatus,
+        frameInspectionStatus: roomData.frameInspectionStatus,
+        boardInspectionStatus: roomData.boardInspectionStatus,
+        inspectionStatus: roomData.inspectionStatus,
+        inspectorName: roomData.inspectorName,
+        notes: roomData.notes,
+        assignedTeam: roomData.assignedTeam,
+        teamId: roomData.teamId,
+        targetFrameDate: roomData.targetFrameDate,
+        targetBoardDate: roomData.targetBoardDate,
+        subItems: (roomItem.subItems || []).map((original) => {
+          const edited = roomData.subItems?.find((item) => item.id === original.id);
+          if (!edited) return original;
+          return {
+            ...original,
+            status: edited.status,
+            inspectionStatus: edited.inspectionStatus,
+            targetDate: edited.targetDate,
+            assignedTeam: edited.assignedTeam,
+            teamId: edited.teamId,
+          };
+        }),
+      });
+    } else {
+      onSaveRoom(roomData);
+    }
 
     onClose();
   };
@@ -975,7 +1016,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
             </div>
             <div>
               <h3 className="text-base font-bold text-slate-900">
-                {roomItem ? `Sửa nghiệm thu - ${roomItem.roomName}` : `Tạo vùng Căn / Phòng`}
+                {roomItem ? `${structureReadOnly ? 'Cập nhật hiện trường' : 'Sửa nghiệm thu'} - ${roomItem.roomName}` : `Tạo vùng Căn / Phòng`}
               </h3>
               <p className="text-xs text-slate-500">Mặt bằng: {floorName}</p>
             </div>
@@ -990,6 +1031,11 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto overflow-x-hidden space-y-3.5 pr-1 text-xs">
+          {structureReadOnly && (
+            <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-[11px] font-semibold text-indigo-800">
+              Kỹ sư chỉ cập nhật tiến độ, nghiệm thu, đội thi công, hạn hoàn thành và ghi chú. Tên Căn/Phòng, khối lượng và hình học mặt bằng do Admin quản lý.
+            </div>
+          )}
           
           {/* Room / Apartment Name */}
           <div>
@@ -999,13 +1045,14 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
               placeholder="VD: Căn A101 (Phòng Khách), Phòng WC 2..."
               value={roomName}
               onChange={(e) => setRoomName(e.target.value)}
+              disabled={structureReadOnly}
               className="w-full border border-slate-200 rounded-xl p-2.5 font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500"
               required
             />
           </div>
 
           {/* Custom Highlight Color Option (Collapsible) */}
-          <div className="bg-slate-50/90 rounded-2xl border border-slate-200 overflow-hidden">
+          {!structureReadOnly && <div className="bg-slate-50/90 rounded-2xl border border-slate-200 overflow-hidden">
             <button
               type="button"
               onClick={() => setShowColorPicker(!showColorPicker)}
@@ -1070,14 +1117,14 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                 </p>
               </div>
             )}
-          </div>
+          </div>}
 
 
 
 
 
           {/* CATEGORY PRESETS SECTION */}
-          <div className="bg-indigo-50/80 p-3.5 rounded-2xl border border-indigo-200/90 space-y-3">
+          {!structureReadOnly && <div className="bg-indigo-50/80 p-3.5 rounded-2xl border border-indigo-200/90 space-y-3">
             <div className="flex items-start gap-2 border-b border-indigo-100/80 pb-2">
               <div className="p-1.5 bg-indigo-600 text-white rounded-lg shrink-0 mt-0.5 shadow-2xs">
                 <ListChecks className="w-4 h-4" />
@@ -1141,7 +1188,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                 </button>
               </div>
             </div>
-          </div>
+          </div>}
 
           {/* DYNAMIC SUB-ITEMS LIST SECTION */}
           <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/90 space-y-3">
@@ -1177,7 +1224,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                     <span>Chọn tất cả hạng mục ({subItems.length})</span>
                   </label>
 
-                  {selectedSubItemIds.length > 0 && (
+                  {!structureReadOnly && selectedSubItemIds.length > 0 && (
                     <button
                       type="button"
                       onClick={async () => {
@@ -1304,6 +1351,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                     <div className="flex flex-col gap-2 w-full min-w-0">
                       {/* Select to swap category */}
                       <select
+                        disabled={structureReadOnly}
                         value={catName}
                         onChange={(e) => {
                           const newCat = e.target.value;
@@ -1348,6 +1396,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                           <span className="text-[10px] font-extrabold text-emerald-800">Khối lượng:</span>
                           <input
                             type="text"
+                            disabled={structureReadOnly}
                             placeholder="0"
                             value={volumeStrings[catName] !== undefined ? volumeStrings[catName] : (categoryVolumes[catName] !== undefined ? formatDecimal(categoryVolumes[catName]) : '')}
                             onChange={(e) => {
@@ -1395,7 +1444,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                           />
                           <span className="text-[10px] font-black text-emerald-800">{volumeUnit || 'm²'}</span>
 
-                          {activeCategories.length > 1 && (
+                          {!structureReadOnly && activeCategories.length > 1 && (
                             <MoveOrderControls
                               onMoveUp={() => handleMoveCategory(catName, 'up')}
                               onMoveDown={() => handleMoveCategory(catName, 'down')}
@@ -1409,14 +1458,14 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                   </div>
 
                   {/* "Thêm hạng mục con" button for this category */}
-                  <button
+                  {!structureReadOnly && <button
                     type="button"
                     onClick={() => handleAddSubItem(catName)}
                     className="w-full py-2 bg-white hover:bg-indigo-50 text-indigo-600 border border-indigo-200 border-dashed hover:border-indigo-300 font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-3xs active:scale-98 mb-2"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>Thêm hạng mục con</span>
-                  </button>
+                  </button>}
 
                   <div className="space-y-3">
                     {itemsInCat.map((item) => {
@@ -1440,7 +1489,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                               <span className="font-black text-indigo-700 text-[11px] bg-indigo-50 px-1.5 py-0.5 rounded-md">
                                 #{originalIndex + 1}
                               </span>
-                              {itemsInCat.length > 1 && (
+                              {!structureReadOnly && itemsInCat.length > 1 && (
                                 <MoveOrderControls
                                   onMoveUp={() => handleMoveSubItem(item.id, 'up')}
                                   onMoveDown={() => handleMoveSubItem(item.id, 'down')}
@@ -1452,11 +1501,12 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                             <input
                               type="text"
                               value={item.name}
+                              disabled={structureReadOnly}
                               onChange={(e) => handleUpdateSubItem(item.id, { name: e.target.value })}
                               placeholder="Tên hạng mục thi công..."
                               className="flex-1 font-extrabold text-slate-900 text-xs border border-slate-200 rounded-lg px-2 py-1 focus:ring-1 focus:ring-indigo-500 outline-none min-w-0"
                             />
-                            {deletingSubItemId === item.id ? (
+                            {!structureReadOnly && (deletingSubItemId === item.id ? (
                               <div className="flex items-center gap-1 bg-rose-50 border border-rose-200 px-1.5 py-1 rounded-lg animate-in fade-in shrink-0">
                                 <span className="text-[10px] font-bold text-rose-800">Xóa?</span>
                                 <button
@@ -1486,7 +1536,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
-                            )}
+                            ))}
                           </div>
 
                           {/* Team & Volume per Sub-Item */}
@@ -1732,7 +1782,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
           </div>
 
           {/* Zone Geometry Adjustments & 2-Point Redraw Option (Collapsible) */}
-          <div className="bg-amber-50/80 rounded-2xl border border-amber-200/90 overflow-hidden">
+          {!structureReadOnly && <div className="bg-amber-50/80 rounded-2xl border border-amber-200/90 overflow-hidden">
             <button
               type="button"
               onClick={() => setShowDimensionSettings(!showDimensionSettings)}
@@ -1752,7 +1802,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
             {showDimensionSettings && (
               <div className="p-3.5 pt-0 border-t border-amber-200/70 space-y-3">
-                {roomItem && onStartRedraw2Point && (
+                {!structureReadOnly && roomItem && onStartRedraw2Point && (
                   <div className="mt-2.5 space-y-2">
                     <p className="text-[11px] font-extrabold text-amber-900 flex items-center gap-1.5">
                       🎨 Chọn chế độ để vẽ lại vùng cho căn này:
@@ -1927,11 +1977,11 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                 </div>
               </div>
             )}
-          </div>
+          </div>}
 
           {/* Submit Actions */}
           <div className="pt-2 flex flex-wrap gap-2">
-            {roomItem && onDeleteRoom && (
+            {!structureReadOnly && roomItem && onDeleteRoom && (
               isConfirmingDelete ? (
                 <div className="flex items-center gap-1.5 w-full bg-rose-50 p-2 rounded-xl border border-rose-200">
                   <span className="text-[11px] font-bold text-rose-800 flex-1">Xác nhận xóa highlight?</span>

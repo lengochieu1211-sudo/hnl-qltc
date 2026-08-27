@@ -8,16 +8,20 @@
     "build": "vite build && esbuild ./server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist",
+    "build:emulator": "node scripts/emulator-dev.mjs build",
+    "dev:emulator": "node scripts/emulator-dev.mjs start",
     "typecheck": "tsc --noEmit",
     "lint": "node scripts/source-lint.mjs",
     "test:rules": "node scripts/firebase-rules-check.mjs",
+    "test:emulator-config": "node scripts/emulator-golden.mjs",
     "security:audit": "npm audit --omit=dev --audit-level=critical",
-    "test:stability": "node scripts/stability-gate.mjs && node scripts/offline-golden.mjs && node scripts/category-golden.mjs && node scripts/firebase-only-golden.mjs && node scripts/firebase-only-legacy-audit.mjs --self-test",
+    "test:stability": "node scripts/stability-gate.mjs && node scripts/offline-golden.mjs && node scripts/category-golden.mjs && node scripts/firebase-only-golden.mjs && node scripts/firebase-only-legacy-audit.mjs --self-test && node scripts/emulator-golden.mjs && node scripts/rbac-matrix.mjs",
     "verify": "npm run test:stability && npm run typecheck && npm run lint && npm run test:rules && npm run security:audit && npm run build",
     "test:offline": "node scripts/offline-golden.mjs",
     "test:category": "node scripts/category-golden.mjs",
     "test:firebase-only": "node scripts/firebase-only-golden.mjs",
-    "test:migration-audit": "node scripts/firebase-only-legacy-audit.mjs --self-test"
+    "test:migration-audit": "node scripts/firebase-only-legacy-audit.mjs --self-test",
+    "test:rbac": "node scripts/rbac-matrix.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

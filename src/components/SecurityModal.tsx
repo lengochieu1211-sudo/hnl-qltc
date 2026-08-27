@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Shield,
+  ShieldCheck,
   Lock,
   Unlock,
   Key,
@@ -30,7 +31,9 @@ import {
   logAuditAction,
   ProjectMember,
   UserRole,
-  AuditLogEntry
+  AuditLogEntry,
+  canManageMembers,
+  canManageSecurity
 } from '../utils/securityUtils';
 import { hashPin, verifyPin } from '../utils/cryptoUtils';
 import { signInWithGoogle, getCurrentFirebaseUser, fetchProjectUserRoleFromCloud, claimProjectOwnership, fetchProjectMembersFromCloud, fetchProjectAuditLogsFromCloud, subscribeProjectMembersRealtime, subscribeProjectAuditLogsRealtime, repairProjectAccessIndexForProject } from '../lib/firebase';
@@ -91,9 +94,31 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
   const [auditSortBy, setAuditSortBy] = useState<'date' | 'action' | 'user'>('date');
   const [auditSortOrder, setAuditSortOrder] = useState<'asc' | 'desc'>('desc');
 
+  const canManageProjectMembers = canManageMembers(currentRole);
+  const canManageSecuritySettings = canManageSecurity(currentRole);
+  const canReadAudit = currentRole === 'ADMIN' || currentRole === 'EDITOR';
+  const normalizedCloudEmail = String(cloudUser?.email || '').trim().toLowerCase();
+  const normalizedOwnerEmail = String(cloudRoleInfo?.ownerEmail || '').trim().toLowerCase();
+  const hasDifferentCloudOwner = Boolean((cloudRoleInfo?.ownerUid || normalizedOwnerEmail) && !cloudRoleInfo?.isOwner && normalizedOwnerEmail && normalizedOwnerEmail !== normalizedCloudEmail);
+  const canAttemptOwnerRecovery = Boolean(
+    cloudUser &&
+    !cloudRoleInfo?.isOwner &&
+    !hasDifferentCloudOwner &&
+    (!cloudRoleInfo?.ownerUid || !normalizedOwnerEmail || normalizedOwnerEmail === normalizedCloudEmail)
+  );
+
   useEffect(() => {
     selectedPidRef.current = selectedPid;
   }, [selectedPid]);
+
+  useEffect(() => {
+    if (!canManageProjectMembers) {
+      setNewMemberEmail('');
+      setIsSavingMember(false);
+      setMemberMsg(null);
+    }
+    if (!canReadAudit && activeTab === 'audit') setActiveTab('rbac');
+  }, [canManageProjectMembers, canReadAudit, activeTab]);
 
   const refreshCloudStatus = async (pid: string) => {
     const requestId = ++cloudStatusRequestRef.current;
@@ -454,6 +479,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
 
   const handleAddMemberSafe = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canManageProjectMembers) { setMemberMsg({ type: 'error', text: 'Chỉ ADMIN được quản lý thành viên dự án.' }); return; }
     if (isSavingMember) return;
 
     const pidAtSubmit = selectedPid;
@@ -506,6 +532,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
   };
 
   const handleRemoveMemberSafe = async (email: string) => {
+    if (!canManageProjectMembers) { setMemberMsg({ type: 'error', text: 'Chỉ ADMIN được quản lý thành viên dự án.' }); return; }
     const pidAtSubmit = selectedPid;
     const existingMembers = (await fetchProjectMembersFromCloud(pidAtSubmit)).filter((m: any) => m?.email && m?.active !== false);
     const targetMember = existingMembers.find((m: any) => String(m.email).toLowerCase() === email.toLowerCase());
@@ -549,6 +576,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
   };
 
   const handleClearLogs = () => {
+    if (!canManageSecuritySettings) return;
     if (confirm('Chỉ xóa bộ nhớ đệm nhật ký trên thiết bị này? Nhật ký Cloud của dự án vẫn được giữ nguyên và không thể xóa từ ứng dụng.')) {
       clearAuditLogs();
       // Cloud activityLogs are append-only. Keep the currently rendered realtime list;
@@ -613,7 +641,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
         </div>
 
         {/* Tabs */}
-        <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl mt-2.5 shrink-0">
+        <div className={`grid ${canReadAudit ? 'grid-cols-3' : 'grid-cols-2'} gap-1 p-1 bg-slate-100 rounded-xl mt-2.5 shrink-0`}>
           <button
             type="button"
             onClick={() => setActiveTab('pin')}
@@ -640,18 +668,20 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
             <span className="truncate">Phân Quyền</span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('audit')}
-            className={`py-2 px-1 sm:px-2 rounded-lg font-bold text-[11px] sm:text-xs flex items-center justify-center gap-1 transition-all cursor-pointer ${
-              activeTab === 'audit'
-                ? 'bg-white text-indigo-700 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <FileText className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Nhật ký</span>
-          </button>
+          {canReadAudit && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('audit')}
+              className={`py-2 px-1 sm:px-2 rounded-lg font-bold text-[11px] sm:text-xs flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                activeTab === 'audit'
+                  ? 'bg-white text-indigo-700 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Nhật ký</span>
+            </button>
+          )}
         </div>
 
         {/* Tab Content */}
@@ -1018,7 +1048,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                 </div>
 
                 {/* Claim / Recover Ownership Action */}
-                {(!cloudRoleInfo?.isOwner || currentRole !== 'ADMIN') && (
+                {canAttemptOwnerRecovery && (
                   <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-2">
                     <div className="flex items-start gap-2">
                       <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
@@ -1055,6 +1085,25 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                         {claimMsg.text}
                       </div>
                     )}
+                  </div>
+                )}
+
+                {hasDifferentCloudOwner && (
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                    <div className="flex items-start gap-2 text-[11px] text-slate-700 leading-relaxed">
+                      <ShieldCheck className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-bold">Dự án đã có Chủ sở hữu trên Cloud: </span>
+                        <span className="font-mono">{cloudRoleInfo?.ownerEmail || 'tài khoản khác'}</span>. Tài khoản hiện tại không được tự nhận quyền Owner. Hãy liên hệ ADMIN/Owner để được cấp quyền.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={async () => { const u = await signInWithGoogle(); if (u) refreshCloudStatus(selectedPid); }}
+                      className="px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold cursor-pointer"
+                    >
+                      Đổi tài khoản Google
+                    </button>
                   </div>
                 )}
               </div>
@@ -1117,7 +1166,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                   )}
                 </div>
 
-                <form onSubmit={handleAddMemberSafe} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
+                {canManageProjectMembers && <form onSubmit={handleAddMemberSafe} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
                   <input
                     type="email"
                     value={newMemberEmail}
@@ -1145,7 +1194,13 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                       Thêm
                     </button>
                   </div>
-                </form>
+                </form>}
+
+                {!canManageProjectMembers && (
+                  <div className="p-2.5 rounded-xl text-[10.5px] font-semibold bg-slate-50 text-slate-600 border border-slate-200">
+                    Chỉ ADMIN/Owner được thêm, đổi vai trò hoặc thu hồi thành viên.
+                  </div>
+                )}
 
                 {memberMsg && (
                   <div className={`p-2 rounded-xl text-[10.5px] font-bold border ${
@@ -1197,14 +1252,14 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                             {m.role === 'ADMIN' ? 'Admin' : m.role === 'EDITOR' ? 'Kỹ sư' : 'Chỉ xem'}
                           </span>
                         </div>
-                        <button
+                        {canManageProjectMembers && <button
                           type="button"
                           onClick={() => handleRemoveMemberSafe(m.email)}
                           disabled={isSavingMember}
                           className="text-rose-500 hover:text-rose-700 p-1 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        </button>}
                       </div>
                     ))
                   )}
@@ -1214,7 +1269,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
           )}
 
           {/* TAB 3: AUDIT LOG */}
-          {activeTab === 'audit' && (
+          {canReadAudit && activeTab === 'audit' && (
             <div className="space-y-3">
               <div className="space-y-2">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
@@ -1231,15 +1286,17 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                     <Download className="w-3 h-3" />
                     <span>Xuất JSON</span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={handleClearLogs}
-                    disabled={auditLogs.length === 0}
-                    className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-colors disabled:opacity-40"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                    <span>Xóa cache máy</span>
-                  </button>
+                  {canManageSecuritySettings && (
+                    <button
+                      type="button"
+                      onClick={handleClearLogs}
+                      disabled={auditLogs.length === 0}
+                      className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-colors disabled:opacity-40"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      <span>Xóa cache máy</span>
+                    </button>
+                  )}
                   </div>
                 </div>
                 <p className="text-[9.5px] text-slate-400 leading-relaxed">

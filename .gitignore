@@ -10,6 +10,9 @@ server-local*.log
 verification-*.png
 .env*
 !.env.example
+!.env.dev.example
+!.env.prod.example
+!.env.emulator.example
 firebase-applet-config.json
 .firebase/
 android-wrapper/build/
