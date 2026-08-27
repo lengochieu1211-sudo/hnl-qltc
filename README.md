@@ -1,4 +1,4 @@
-# QLCT - Quan Ly Thi Cong
+# HNL Quan Ly Thi Cong
 
 React/Vite web app with Firebase Auth + Firestore cloud sync. The production deployment is the free Firebase Hosting static output from `dist`. The optional Express server is kept for local development or a future explicitly approved backend, but Google Drive/Sheets server features are gated off on the free Hosting path.
 
