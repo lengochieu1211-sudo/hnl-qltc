@@ -32,7 +32,7 @@ jobs:
       VITE_APP_ENV: PROD
       VITE_RUNTIME_BACKEND: firebase-only
       VITE_BINARY_STORAGE_PROVIDER: r2
-      VITE_R2_GATEWAY_URL: ${{ vars.VITE_R2_GATEWAY_URL }}
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
       VITE_ENABLE_LEGACY_DRIVE_READ: "true"
       VITE_ENABLE_LEGACY_DRIVE_WRITE: "false"
       VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: "false"
