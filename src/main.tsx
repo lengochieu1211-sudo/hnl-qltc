@@ -31,8 +31,16 @@ async function bootstrap() {
     console.warn('[Bootstrap storage preflight] Continuing with partial cleanup:', err);
   }
 
-  // Dynamic imports intentionally happen after preflight. App Check is optional
-  // until DEV/PROD site keys are provisioned; missing key is a deliberate no-op.
+  // Firebase JS 12.17.x can close Auth IndexedDB when a Google popup hides the opener
+  // document, producing "Database is closing/hidden" when the credential returns.
+  // Prepare a non-IndexedDB Auth persistence backend before ANY UI login entry point
+  // becomes clickable. Firestore's persistent IndexedDB cache remains unchanged.
+  const { prepareFirebaseAuthPersistence } = await import('./lib/authPersistence');
+  await prepareFirebaseAuthPersistence();
+
+  // Dynamic imports intentionally happen after both storage and Auth persistence
+  // preflight. App Check is optional until DEV/PROD site keys are provisioned;
+  // missing key is a deliberate no-op.
   const [{ default: App }, { initializeOptionalAppCheck }] = await Promise.all([
     import('./App.tsx'),
     import('./lib/appCheck'),
