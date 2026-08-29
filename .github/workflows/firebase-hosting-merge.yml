@@ -16,7 +16,7 @@ jobs:
       VITE_APP_ENV: PROD
       VITE_RUNTIME_BACKEND: firebase-only
       VITE_BINARY_STORAGE_PROVIDER: r2
-      VITE_R2_GATEWAY_URL: ${{ vars.VITE_R2_GATEWAY_URL }}
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
       VITE_ENABLE_LEGACY_DRIVE_READ: "true"
       VITE_ENABLE_LEGACY_DRIVE_WRITE: "false"
       VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: "false"
@@ -46,7 +46,7 @@ jobs:
         shell: bash
         run: |
           test "$VITE_BINARY_STORAGE_PROVIDER" = "r2" || { echo "REFUSING: PROD binary storage provider must be r2 for this release"; exit 1; }
-          echo "$VITE_R2_GATEWAY_URL" | grep -Eq '^https://[^ ]+$' || { echo "BLOCKED: configure repository variable VITE_R2_GATEWAY_URL with the deployed Cloudflare Worker HTTPS URL"; exit 1; }
+          echo "$VITE_R2_GATEWAY_URL" | grep -Eq '^https://[^ ]+$' || { echo "BLOCKED: invalid Cloudflare R2 Worker HTTPS URL"; exit 1; }
       - uses: actions/setup-node@v4
         with:
           node-version: 22
