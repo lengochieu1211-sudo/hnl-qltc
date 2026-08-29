@@ -85,6 +85,15 @@ jobs:
       - name: Build web bundle
         run: npm run build
 
+      - name: Require fixed release signing on main
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:QLCT_ANDROID_KEYSTORE_BASE64)) { throw 'Missing QLCT_ANDROID_KEYSTORE_BASE64 secret' }
+          if ([string]::IsNullOrWhiteSpace($env:QLCT_ANDROID_KEYSTORE_PASSWORD)) { throw 'Missing QLCT_ANDROID_KEYSTORE_PASSWORD secret' }
+          if ([string]::IsNullOrWhiteSpace($env:QLCT_ANDROID_KEY_PASSWORD)) { throw 'Missing QLCT_ANDROID_KEY_PASSWORD secret' }
+          if ([string]::IsNullOrWhiteSpace($env:QLCT_ANDROID_KEY_ALIAS)) { throw 'Missing QLCT_ANDROID_KEY_ALIAS secret' }
+
       - name: Build signed APK
         shell: pwsh
         run: ./android-wrapper/build-apk.ps1
