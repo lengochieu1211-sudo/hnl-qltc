@@ -14,3 +14,5 @@ export const LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED = String(env.VITE_ENABLE_
 export const LEGACY_LOCAL_IMPORT_ENABLED = String(env.VITE_ENABLE_LEGACY_LOCAL_IMPORT || 'true').toLowerCase() !== 'false';
 
 export const RUNTIME_BACKEND_LABEL = FIREBASE_ONLY_RUNTIME ? 'Firebase-only' : 'Legacy compatibility';
+
+export const BINARY_STORAGE_ARCHITECTURE_LABEL = String(env.VITE_BINARY_STORAGE_PROVIDER || 'r2').toLowerCase() === 'firebase-storage' ? 'Firebase Storage' : 'Cloudflare R2';
