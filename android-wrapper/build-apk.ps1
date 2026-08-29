@@ -4,34 +4,34 @@ $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectRoot = Split-Path -Parent $root
 
 function Resolve-AndroidSdk {
-    $candidates = @(
+    $candidate = @(
         $env:ANDROID_SDK_ROOT,
         $env:ANDROID_HOME,
         "$env:LOCALAPPDATA\Android\Sdk",
         "$env:USERPROFILE\AppData\Local\Android\Sdk"
-    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
-    if (-not $candidates) { throw 'Android SDK not found. Set ANDROID_SDK_ROOT or ANDROID_HOME.' }
-    return (Resolve-Path -LiteralPath $candidates[0]).Path
+    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+    if (-not $candidate) { throw 'Android SDK not found. Set ANDROID_SDK_ROOT or ANDROID_HOME.' }
+    return (Resolve-Path -LiteralPath ([string]$candidate)).Path
 }
 
 function Resolve-JavaHome {
-    $candidates = @(
+    $candidate = @(
         $env:JAVA_HOME,
         'C:\Program Files\Android\Android Studio\jbr',
         'C:\Program Files\Java\jdk-21',
         'C:\Program Files\Java\jdk-17'
-    ) | Where-Object { $_ -and (Test-Path -LiteralPath (Join-Path $_ 'bin\javac.exe')) }
-    if (-not $candidates) { throw 'JDK not found. Set JAVA_HOME to a JDK containing javac.exe.' }
-    return (Resolve-Path -LiteralPath $candidates[0]).Path
+    ) | Where-Object { $_ -and (Test-Path -LiteralPath (Join-Path $_ 'bin\javac.exe')) } | Select-Object -First 1
+    if (-not $candidate) { throw 'JDK not found. Set JAVA_HOME to a JDK containing javac.exe.' }
+    return (Resolve-Path -LiteralPath ([string]$candidate)).Path
 }
 
 function Resolve-LatestVersionDir {
     param([Parameter(Mandatory = $true)][string] $BasePath)
     if (-not (Test-Path -LiteralPath $BasePath)) { throw "Missing directory: $BasePath" }
-    $dirs = Get-ChildItem -LiteralPath $BasePath -Directory | Sort-Object {
+    $dirs = @(Get-ChildItem -LiteralPath $BasePath -Directory | Sort-Object {
         try { [version]($_.Name -replace '[^0-9.]','') } catch { [version]'0.0' }
-    } -Descending
-    if (-not $dirs) { throw "No version directories found under $BasePath" }
+    } -Descending)
+    if (-not $dirs -or $dirs.Count -eq 0) { throw "No version directories found under $BasePath" }
     return $dirs[0].FullName
 }
 
