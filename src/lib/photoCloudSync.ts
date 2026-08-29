@@ -21,11 +21,11 @@ import {
 import { getDeviceId, getDeviceName } from '../utils/deviceIdentity';
 import { downloadPhotoFromPrimaryDrive } from './primaryDriveBridge';
 import { LEGACY_DRIVE_READ_FALLBACK } from '../config/runtimeArchitecture';
-import { downloadStorageBlob, uploadProjectBinary } from './firebaseStorage';
+import { BINARY_STORAGE_PROVIDER, downloadBinaryBlob, uploadProjectBinaryToCloud } from './binaryStorage';
 
-// V6.3.0 Firebase-only runtime: new/changed binaries are written only to Firebase
-// Storage. Drive and Firestore chunks are read-only legacy migration fallbacks until
-// production migration count/reference/checksum verification is complete.
+// RC2.2.6: Firestore remains the realtime source of truth; binary media is routed
+// through a provider adapter. PROD uses private Cloudflare R2 via an authenticated
+// Worker gateway, while Firebase Storage remains a switchable provider/emulator path.
 
 export interface PhotoCloudSyncStatus {
   phase: 'idle' | 'syncing' | 'synced' | 'error';
@@ -56,12 +56,15 @@ function isDriveCloudValue(value?: string | null): boolean {
 }
 
 function isStorageCloudValue(value?: string | null): boolean {
-  return String(value || '').startsWith('storage:');
+  const raw = String(value || '');
+  return raw.startsWith('storage:') || raw.startsWith('r2:');
 }
 
-function parseStoragePath(value?: string | null): string {
+function parseStoragePointer(value?: string | null): { provider: string; path: string } {
   const raw = String(value || '').trim();
-  return raw.startsWith('storage:') ? raw.slice('storage:'.length) : raw;
+  if (raw.startsWith('r2:')) return { provider: 'r2', path: raw.slice(3) };
+  if (raw.startsWith('storage:')) return { provider: 'firebase-storage', path: raw.slice('storage:'.length) };
+  return { provider: '', path: raw };
 }
 
 /**
@@ -93,7 +96,7 @@ async function deletePhotoChunks(projectId: string, photoId: string): Promise<vo
 /**
  * Stage photo metadata in Firestore immediately. setDoc participates in Firestore's
  * official offline write queue, while the actual binary remains in the dedicated local
- * media outbox until Firebase Storage is reachable.
+ * media outbox until the configured object-storage provider is reachable.
  */
 export async function stagePhotoMetadataForCloud(projectId: string, photo: PhotoAttachment): Promise<void> {
   if (!projectId || !photo?.id) return;
@@ -149,20 +152,21 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
   const cloudData = cloudSnap?.exists() ? cloudSnap.data() : null;
   const localUpdatedAt = Number(photo.updatedAt || photo.createdAt || 0);
   const cloudUpdatedAt = Number(cloudData?.updatedAt || 0);
-  const cloudStorageBacked = Boolean(cloudData?.storagePath) || isStorageCloudValue(cloudData?.cloudFileId) || cloudData?.storageProvider === 'firebase-storage';
+  const cloudStorageBacked = Boolean(cloudData?.storagePath) || isStorageCloudValue(cloudData?.cloudFileId) || ['firebase-storage', 'r2'].includes(String(cloudData?.storageProvider || ''));
+  const currentProviderBacked = cloudStorageBacked && String(cloudData?.storageProvider || '') === BINARY_STORAGE_PROVIDER;
   const cloudDriveBacked = isDriveCloudValue(cloudData?.cloudFileId) || cloudData?.storageProvider === 'google-drive-primary';
   const cloudFirestoreBacked = Number(cloudData?.chunkCount || 0) > 0;
   const cloudHasResolvedBinaryState = Boolean(cloudData?.deleted) || cloudStorageBacked || cloudDriveBacked || cloudFirestoreBacked;
   const cloudDeleteStateMatches = Boolean(cloudData?.deleted) === Boolean(photo.deleted);
   const cloudRevision = Number(cloudData?.revision || 0);
   const localRevision = Number(photo.revision || 0);
-  const legacyMigrationMode = Boolean(cloudData && !photo.deleted && !cloudStorageBacked && (cloudDriveBacked || cloudFirestoreBacked));
+  const legacyMigrationMode = Boolean(cloudData && !photo.deleted && (!currentProviderBacked) && (cloudStorageBacked || cloudDriveBacked || cloudFirestoreBacked));
   const localIsStale = Boolean(cloudData) && (
     (cloudRevision > 0 && localRevision > 0 && localRevision <= cloudRevision) ||
     (cloudRevision <= 0 && cloudUpdatedAt > 0 && localUpdatedAt > 0 && localUpdatedAt < cloudUpdatedAt)
   );
 
-  if (cloudData && cloudUpdatedAt >= localUpdatedAt && cloudDeleteStateMatches && cloudHasResolvedBinaryState && (photo.deleted || cloudStorageBacked)) return;
+  if (cloudData && cloudUpdatedAt >= localUpdatedAt && cloudDeleteStateMatches && cloudHasResolvedBinaryState && (photo.deleted || currentProviderBacked)) return;
   if (localIsStale && !legacyMigrationMode) {
     throw new Error(`PHOTO_CONFLICT:${photo.id}: Cloud revision mới hơn; giữ Cloud và chờ realtime hòa giải.`);
   }
@@ -186,7 +190,7 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
   };
 
   if (photo.deleted) {
-    // Soft delete only. Do NOT delete Firebase Storage/Drive/chunks here. Physical
+    // Soft delete only. Do NOT delete R2/Firebase Storage/Drive/chunks here. Physical
     // purge happens after the configured retention window and migration verification.
     await setDoc(metaRef, {
       ...baseMeta,
@@ -203,6 +207,12 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
 
   let blob = await getPhotoBlob(photo.id, false);
 
+  // Migration source #0: another object-storage provider. This makes R2 ↔ Firebase
+  // Storage reversible without changing Firestore metadata shape or UI call sites.
+  if (!blob && cloudData && cloudStorageBacked && cloudData?.storagePath) {
+    blob = await downloadBinaryBlob(String(cloudData.storageProvider || ''), String(cloudData.storagePath)).catch(() => null);
+  }
+
   // Migration source #1: old Firestore chunk binary.
   if (!blob && cloudData && Number(cloudData?.chunkCount || 0) > 0) {
     blob = await downloadPhotoBlobFromFirestoreChunks(projectId, photo.id, photo.mimeType || 'image/jpeg').catch(() => null);
@@ -217,14 +227,14 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
   }
 
   if (!blob) {
-    throw new Error(`Ảnh ${photo.id} chưa có binary local/legacy để migrate lên Firebase Storage; giữ trạng thái pending.`);
+    throw new Error(`Ảnh ${photo.id} chưa có binary local/legacy để migrate lên ${BINARY_STORAGE_PROVIDER}; giữ trạng thái pending.`);
   }
 
   const thumbnailBlob = await getPhotoBlob(photo.id, true).catch(() => null);
   const contentVersion = legacyMigrationMode
     ? Math.max(cloudUpdatedAt + 1, now)
     : (localUpdatedAt || now);
-  const uploaded = await uploadProjectBinary({
+  const uploaded = await uploadProjectBinaryToCloud({
     projectId,
     entityType: photo.entityType || 'photo',
     entityId: photo.entityId || photo.id,
@@ -242,14 +252,15 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
     fileSize: Number(uploaded.size || blob.size || photo.fileSize || 0),
     chunkCount: 0,
     contentVersion,
-    contentHash: uploaded.md5Hash || photo.storageMd5Hash || '',
-    storageProvider: 'firebase-storage',
+    contentHash: uploaded.checksum || photo.storageMd5Hash || '',
+    storageProvider: uploaded.provider,
     storagePath: uploaded.storagePath,
     thumbnailPath: uploaded.thumbnailPath || '',
-    storageMd5Hash: uploaded.md5Hash || '',
+    storageMd5Hash: uploaded.checksum || '',
+    storageEtag: uploaded.etag || '',
     storageGeneration: uploaded.generation || '',
-    cloudFileId: `storage:${uploaded.storagePath}`,
-    cloudUrl: `storage:${uploaded.storagePath}`,
+    cloudFileId: `${uploaded.provider === 'r2' ? 'r2' : 'storage'}:${uploaded.storagePath}`,
+    cloudUrl: `${uploaded.provider === 'r2' ? 'r2' : 'storage'}:${uploaded.storagePath}`,
     binaryMissingOnUploader: false,
     binaryUploadState: 'ready',
     deleted: false,
@@ -305,11 +316,12 @@ export async function syncProjectPhotosToCloud(projectId: string): Promise<{ upl
       const cloudData = cloudById.get(photo.id) || null;
       const cloudUpdatedAt = cloudData ? Number(cloudData?.updatedAt || 0) : 0;
       const localUpdatedAt = Number(photo.updatedAt || photo.createdAt || 0);
-      const storageBacked = Boolean(cloudData?.storagePath) || isStorageCloudValue(cloudData?.cloudFileId) || cloudData?.storageProvider === 'firebase-storage';
+      const storageBacked = Boolean(cloudData?.storagePath) || isStorageCloudValue(cloudData?.cloudFileId) || ['firebase-storage', 'r2'].includes(String(cloudData?.storageProvider || ''));
+      const currentProviderBacked = storageBacked && String(cloudData?.storageProvider || '') === BINARY_STORAGE_PROVIDER;
       const legacyBacked = isDriveCloudValue(cloudData?.cloudFileId) || cloudData?.storageProvider === 'google-drive-primary' || Number(cloudData?.chunkCount || 0) > 0;
-      const needsStorageMigration = Boolean(!photo.deleted && cloudData && !storageBacked && legacyBacked);
+      const needsStorageMigration = Boolean(!photo.deleted && cloudData && !currentProviderBacked && (storageBacked || legacyBacked));
 
-      if (!needsStorageMigration && Boolean(cloudData) && cloudUpdatedAt >= localUpdatedAt && Boolean(cloudData?.deleted) === Boolean(photo.deleted) && (Boolean(cloudData?.deleted) || storageBacked)) {
+      if (!needsStorageMigration && Boolean(cloudData) && cloudUpdatedAt >= localUpdatedAt && Boolean(cloudData?.deleted) === Boolean(photo.deleted) && (Boolean(cloudData?.deleted) || currentProviderBacked)) {
         skipped++;
         continue;
       }
@@ -319,7 +331,7 @@ export async function syncProjectPhotosToCloud(projectId: string): Promise<{ upl
       if (needsStorageMigration) migratedToStorage++;
     } catch (err) {
       failed++;
-      console.warn('[Photo Cloud] Firebase Storage sync warning:', photo.id, err);
+      console.warn(`[Photo Cloud] ${BINARY_STORAGE_PROVIDER} sync warning:`, photo.id, err);
     }
   }
   return { uploaded, skipped, migratedToStorage, failed };
@@ -350,9 +362,11 @@ export async function downloadPhotoBlobFromCloud(projectId: string, photoId: str
   if (!metaSnap.exists() || metaSnap.data()?.deleted) return null;
   const data = metaSnap.data();
 
-  const storagePath = String(data?.storagePath || parseStoragePath(data?.cloudFileId || data?.cloudUrl) || '');
-  if (data?.storageProvider === 'firebase-storage' || data?.storagePath || isStorageCloudValue(data?.cloudFileId)) {
-    const storageBlob = await downloadStorageBlob(storagePath);
+  const pointer = parseStoragePointer(data?.cloudFileId || data?.cloudUrl);
+  const storagePath = String(data?.storagePath || pointer.path || '');
+  const provider = String(data?.storageProvider || pointer.provider || '');
+  if (storagePath && (provider === 'r2' || provider === 'firebase-storage' || isStorageCloudValue(data?.cloudFileId))) {
+    const storageBlob = await downloadBinaryBlob(provider || pointer.provider, storagePath);
     if (storageBlob) {
       await cachePhotoBlob(photoId, storageBlob, true).catch(() => {});
       return storageBlob;

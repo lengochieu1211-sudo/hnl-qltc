@@ -12,7 +12,7 @@ import { db, getCurrentRealFirebaseUser } from './firebase';
 import type { FloorPlan } from '../types';
 import { downloadFloorPlanFromPrimaryDrive } from './primaryDriveBridge';
 import { LEGACY_DRIVE_READ_FALLBACK } from '../config/runtimeArchitecture';
-import { downloadStorageBlob, uploadFloorPlanBinary } from './firebaseStorage';
+import { BINARY_STORAGE_PROVIDER, downloadBinaryBlob, uploadFloorPlanBinaryToCloud } from './binaryStorage';
 import { compressImageToBlob } from '../utils/imageCompressor';
 
 export function isDisplayableFloorPlanUrl(value?: string | null): boolean {
@@ -88,14 +88,14 @@ export async function syncFloorPlanImageToCloud(projectId: string, plan: FloorPl
   if (!user || user.isAnonymous) return null;
 
   const revision = Number(plan.imageRevision || (plan as any).updatedAt || Date.now());
-  if (Number(plan.imageCloudRevision || 0) >= revision && plan.storageProvider === 'firebase-storage' && plan.storagePath) return null;
+  if (Number(plan.imageCloudRevision || 0) >= revision && plan.storageProvider === BINARY_STORAGE_PROVIDER && plan.storagePath) return null;
 
   const blob = await sourceToBlob(plan.imageUrl);
   if (!blob || blob.size <= 0) throw new Error(`Không đọc được ảnh mặt bằng ${plan.floorName || plan.id}.`);
 
   let thumbnailBlob: Blob | null = null;
   try { thumbnailBlob = await compressImageToBlob(blob, 480, 0.72); } catch (_) {}
-  const uploaded = await uploadFloorPlanBinary({
+  const uploaded = await uploadFloorPlanBinaryToCloud({
     projectId,
     floorPlanId: plan.id,
     blob,
@@ -106,12 +106,13 @@ export async function syncFloorPlanImageToCloud(projectId: string, plan: FloorPl
 
   const now = Date.now();
   const metadata: Partial<FloorPlan> = {
-    imageUrl: `cloud-floorplan:storage:${uploaded.storagePath}`,
-    cloudFileId: `storage:${uploaded.storagePath}`,
-    storageProvider: 'firebase-storage',
+    imageUrl: `cloud-floorplan:${uploaded.provider}:${uploaded.storagePath}`,
+    cloudFileId: `${uploaded.provider === 'r2' ? 'r2' : 'storage'}:${uploaded.storagePath}`,
+    storageProvider: uploaded.provider,
     storagePath: uploaded.storagePath,
     thumbnailPath: uploaded.thumbnailPath || '',
-    storageMd5Hash: uploaded.md5Hash || '',
+    storageMd5Hash: uploaded.checksum || '',
+    storageEtag: uploaded.etag || '',
     imageMimeType: uploaded.mimeType || blob.type || 'image/jpeg',
     imageFileSize: Number(uploaded.size || blob.size || 0),
     imageRevision: revision,
@@ -154,10 +155,13 @@ function parseDriveFileId(plan: FloorPlan): string {
   return parts.length >= 3 ? parts.slice(2).join(':') : parts[1] || '';
 }
 
-function parseStoragePath(plan: FloorPlan): string {
-  if (plan.storagePath) return String(plan.storagePath);
+function parseStoragePointer(plan: FloorPlan): { provider: string; path: string } {
   const raw = String(plan.cloudFileId || '');
-  return raw.startsWith('storage:') ? raw.slice('storage:'.length) : '';
+  const inferredProvider = raw.startsWith('r2:') ? 'r2' : raw.startsWith('storage:') ? 'firebase-storage' : '';
+  if (plan.storagePath) return { provider: String(plan.storageProvider || inferredProvider), path: String(plan.storagePath) };
+  if (raw.startsWith('r2:')) return { provider: 'r2', path: raw.slice(3) };
+  if (raw.startsWith('storage:')) return { provider: 'firebase-storage', path: raw.slice('storage:'.length) };
+  return { provider: '', path: '' };
 }
 
 export async function loadFloorPlanImageFromCloud(projectId: string, plan: FloorPlan): Promise<string | null> {
@@ -165,9 +169,9 @@ export async function loadFloorPlanImageFromCloud(projectId: string, plan: Floor
   if (isDisplayableFloorPlanUrl(plan.imageUrl) && !String(plan.imageUrl).includes('[IMAGE_OMITTED')) return plan.imageUrl;
 
   let blob: Blob | null = null;
-  const storagePath = parseStoragePath(plan);
-  if (storagePath && (plan.storageProvider === 'firebase-storage' || String(plan.cloudFileId || '').startsWith('storage:'))) {
-    blob = await downloadStorageBlob(storagePath);
+  const pointer = parseStoragePointer(plan);
+  if (pointer.path && (pointer.provider === 'r2' || pointer.provider === 'firebase-storage')) {
+    blob = await downloadBinaryBlob(pointer.provider, pointer.path);
   }
 
   if (!blob && LEGACY_DRIVE_READ_FALLBACK) {
@@ -195,7 +199,7 @@ export async function loadFloorPlanImageFromCloud(projectId: string, plan: Floor
 export function floorPlanNeedsCloudUpload(plan: FloorPlan): boolean {
   if (!plan?.id || !isLocalFloorPlanBinaryUrl(plan.imageUrl)) return false;
   const revision = Number(plan.imageRevision || (plan as any).updatedAt || 0);
-  return !plan.imageCloudRevision || Number(plan.imageCloudRevision) < revision || plan.storageProvider !== 'firebase-storage' || !plan.storagePath;
+  return !plan.imageCloudRevision || Number(plan.imageCloudRevision) < revision || plan.storageProvider !== BINARY_STORAGE_PROVIDER || !plan.storagePath;
 }
 
 export async function syncFloorPlanImagesToCloud(projectId: string, floorPlans: FloorPlan[]): Promise<{ uploaded: number; skipped: number; failed: number }> {
@@ -228,4 +232,3 @@ export async function deleteFloorPlanImageFromCloud(projectId: string, plan: Flo
   // until retention purge after migration verification. Never hard-delete on UI delete.
   console.debug('[Floor Plan Image] soft-delete retains binary for recovery', projectId, plan.id);
 }
-
