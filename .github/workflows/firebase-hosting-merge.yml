@@ -15,6 +15,8 @@ jobs:
     env:
       VITE_APP_ENV: PROD
       VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
       VITE_ENABLE_LEGACY_DRIVE_READ: "true"
       VITE_ENABLE_LEGACY_DRIVE_WRITE: "false"
       VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: "false"
@@ -40,6 +42,11 @@ jobs:
           test -f package.json || { echo "Missing package.json at repository root"; exit 1; }
           test -f package-lock.json || { echo "Missing package-lock.json at repository root. Copy the CONTENTS of FULL SOURCE into the repo root, not a parent folder."; exit 1; }
           test "$(node -p "require('./package.json').version")" = "$(node -p "require('./package-lock.json').version")" || { echo "package/package-lock version mismatch"; exit 1; }
+      - name: R2 gateway configuration gate
+        shell: bash
+        run: |
+          test "$VITE_BINARY_STORAGE_PROVIDER" = "r2" || { echo "REFUSING: PROD binary storage provider must be r2 for this release"; exit 1; }
+          echo "$VITE_R2_GATEWAY_URL" | grep -Eq '^https://[^ ]+$' || { echo "BLOCKED: invalid Cloudflare R2 Worker HTTPS URL"; exit 1; }
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -58,17 +65,20 @@ jobs:
         run: npm run security:audit
       - name: Build
         run: npm run build
-      - name: Deploy Firestore + Storage rules
+      - name: Deploy Firestore rules
         shell: bash
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
         run: |
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
-          npx --yes firebase-tools@13.35.1 deploy --only firestore:rules,storage --project com-example-qlct-61329 --non-interactive
-      - uses: FirebaseExtended/action-hosting-deploy@v0
-        with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
-          channelId: live
-          projectId: com-example-qlct-61329
+          npx --yes firebase-tools@13.35.1 deploy --only firestore:rules --project com-example-qlct-61329 --non-interactive
+      - name: Deploy Hosting site hnlqltc
+        shell: bash
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
+        run: |
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          npx --yes firebase-tools@13.35.1 deploy --only hosting --config firebase.prod.json --project com-example-qlct-61329 --non-interactive
+          echo "PROD Hosting: https://hnlqltc.web.app"

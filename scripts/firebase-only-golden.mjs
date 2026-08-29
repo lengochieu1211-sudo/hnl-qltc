@@ -29,7 +29,7 @@ verify(6,'Xóa hạng mục không ghost trên mặt bằng', category.includes(
 verify(7,'Restore hạng mục uses explicit lifecycle', rules.includes("request.resource.data.deleted == true") && app.includes('restoreTrashOperation'), 'soft-delete/restore flow');
 verify(8,'Xóa căn soft-delete/tombstone path', rules.includes("isCoreBusinessCollection") && rules.includes('allow delete: if collectionName') && app.includes('trashDeletedItems'), 'core hard delete denied + trash capture');
 verify(9,'Restore căn không overwrite newer edit', app.includes('Never overwrite a record another user edited after this delete operation'), 'restore timestamp guard');
-verify(10,'Thêm defect + ảnh Storage', photo.includes('uploadProjectBinary') && photo.includes('stagePhotoMetadataForCloud'), 'Storage upload + Firestore metadata');
+verify(10,'Thêm defect + ảnh object storage', photo.includes('uploadProjectBinaryToCloud') && photo.includes('stagePhotoMetadataForCloud'), 'provider upload + Firestore metadata');
 verify(11,'PC nhận ảnh điện thoại realtime', photo.includes('photoSnapshotMergeQueue') && photoStorage.includes('__pendingWrite'), 'serialized realtime metadata + server ack outbox');
 verify(12,'Viewer không ghi', rules.includes('canEdit(projectId)') && security.includes("if (FIREBASE_ONLY_RUNTIME) return 'VIEWER'"), 'Rules authoritative, local global role cannot grant');
 verify(13,'Editor không đổi quyền', rules.includes('isCanonicalMemberRole') && rules.includes('allow create, update: if (') && read('src/components/SecurityModal.tsx').includes('saveProjectMemberToCloud'), 'membership admin rules');
@@ -51,8 +51,8 @@ verify(20,'Legacy schema dry-run before migration', fs.existsSync('scripts/fireb
 
 // These require a real isolated Firebase DEV project and physical devices; source checks are
 // not mislabeled as runtime VERIFIED.
-external('E1','Multi-device DEV runtime matrix','REVIEW','requires HNL QLTC DEV project/bucket and PC+Android');
-external('E2','Drive→Storage count/checksum parity','BLOCKED','production Drive inventory/checksum not supplied to migration runner');
+external('E1','Multi-device DEV runtime matrix','REVIEW','requires configured DEV/R2 gateway and PC+Android');
+external('E2','Legacy Drive/Storage → R2 count/checksum parity','BLOCKED','production legacy inventory/checksum not supplied to migration runner');
 external('E3','Full emulator Rules behavior','REVIEW','npm run test:rules must run firebase-tools emulators');
 
 if (process.exitCode) process.exit(process.exitCode);

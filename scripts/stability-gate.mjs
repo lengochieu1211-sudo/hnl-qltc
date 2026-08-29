@@ -31,6 +31,9 @@ const photoSync = read('src/lib/photoCloudSync.ts');
 const photoStorage = read('src/utils/photoStorage.ts');
 const floorPlanSync = read('src/lib/floorPlanImageSync.ts');
 const firebaseStorage = read('src/lib/firebaseStorage.ts');
+const binaryStorage = read('src/lib/binaryStorage.ts');
+const r2Storage = read('src/lib/r2Storage.ts');
+const r2Worker = read('cloudflare/r2-gateway/worker.js');
 const warehouse = read('src/lib/warehouseTransactions.ts');
 const security = read('src/utils/securityUtils.ts');
 const offlineAccess = read('src/utils/offlineAccess.ts');
@@ -46,7 +49,8 @@ requireAll(vite, ["package.json", '__APP_VERSION__', '__BUILD_TIME__', '__BUILD_
 if (!appVersion.includes('__APP_VERSION__') || appVersion.includes("APP_VERSION = '6.")) fail('appVersion.ts must consume injected package version, not hard-code release version');
 requireAll(buildMeta, ['appVersion: APP_VERSION', 'buildId:', 'gitCommit:', 'buildTime:', 'environment:', 'platformFromLocation'], 'runtime build metadata');
 if (mergeWorkflow.includes('VITE_APP_VERSION') || prWorkflow.includes('VITE_APP_VERSION') || buildWorkflow.includes('VITE_APP_VERSION')) fail('workflow must not hard-code app version');
-requireAll(read('android-wrapper/build-apk.ps1'), ['package.json', '$appVersion', '&v=$appVersion'], 'Android version source');
+requireAll(read('android-wrapper/build-apk.ps1'), ['package.json', '$appVersion', '$versionCode', '$releaseTag', 'https://hnlqltc.web.app/?app=android'], 'Android version/source URL');
+requireAll(read('.github/workflows/android-apk.yml'), ['windows-latest', 'actions/upload-artifact@v4', 'QLCT_WEB_URL: https://hnlqltc.web.app/?app=android', 'QLCT_RELEASE_TAG: 6.3.0-rc2.2.7'], 'Android APK CI');
 requireAll(read('desktop-wrapper/build-launcher.ps1'), ['package.json', '$version', 'AssemblyInformationalVersion'], 'Windows version source');
 if (!authHeader.includes('src={`/icon.png?v=${APP_VERSION}`}')) fail('header asset cache-bust does not use canonical APP_VERSION');
 pass('V6.3.0 single-source version/build metadata');
@@ -85,7 +89,6 @@ requireAll(app, [
 requireAll(offlineAccess, ['construction_verified_project_role_v1_', 'construction_offline_verified_auth_v1', 'parsed.projectId', 'parsed.uid', 'parsed.email'], 'identity-bound offline lease');
 pass('Firestore is business source + official offline cache with identity/project guard');
 
-
 requireAll(firebase, ['queueProjectDiffsToFirestoreOffline', 'writeBatch(db)', '[Firestore offline queue]'], 'Firestore offline mutation queue');
 requireAll(app, ['canQueueOfflineFirestoreWrite', 'queueProjectDiffsToFirestoreOffline', 'Promise.allSettled(queued.commitPromises)', 'firestorePendingWriteCount'], 'App durable offline autosave');
 if (!app.includes('if (FIREBASE_ONLY_RUNTIME) return;') || !app.includes('Legacy data is migration input only')) fail('automatic legacy editor recovery is still active in Firebase-only runtime');
@@ -93,21 +96,28 @@ const offlineBanner = read('src/components/OfflineSyncBanner.tsx');
 if (!offlineBanner.includes('hàng chờ Firestore bền vững') || offlineBanner.includes('construction_offline_pending')) fail('offline UI still depends on custom localStorage pending counter');
 pass('offline mutation durability uses Firestore SDK pending writes, not React/localStorage-only state');
 
-
-if (!exists('storage.rules') || !firebaseJson.includes('"storage"') || !firebaseJson.includes('"rules": "storage.rules"')) fail('Firebase Storage rules are not wired into firebase.json');
-requireAll(firebaseStorage, ['uploadProjectBinary', 'uploadFloorPlanBinary', 'thumbnailPath', 'deleteObject', 'projects/${safeSegment(input.projectId)}/media/'], 'Firebase Storage client');
-requireAll(photoSync, ['uploadProjectBinary', "storageProvider: 'firebase-storage'", 'storagePath:', 'thumbnailPath:', 'photoSnapshotMergeQueue'], 'photo Storage pipeline');
-requireAll(floorPlanSync, ['uploadFloorPlanBinary', "storageProvider: 'firebase-storage'", 'storagePath:', 'thumbnailPath:'], 'floor-plan Storage pipeline');
+if (!exists('storage.rules') || !firebaseJson.includes('"storage"') || !firebaseJson.includes('"rules": "storage.rules"')) fail('Firebase Storage fallback rules are not retained in firebase.json');
+requireAll(firebaseStorage, ['uploadProjectBinary', 'uploadFloorPlanBinary', 'thumbnailPath', 'deleteObject'], 'Firebase Storage fallback client');
+requireAll(binaryStorage, ['BINARY_STORAGE_PROVIDER', "'r2'", "'firebase-storage'", 'uploadProjectBinaryToCloud', 'uploadFloorPlanBinaryToCloud', 'downloadBinaryBlob'], 'binary storage provider adapter');
+requireAll(r2Storage, ['VITE_R2_GATEWAY_URL', 'Authorization', 'uploadProjectBinaryToR2', 'uploadFloorPlanBinaryToR2', 'downloadR2Blob'], 'R2 client');
+requireAll(r2Worker, ['HNL_QLTC_MEDIA', 'FIREBASE_PROJECT_ID', 'firestore.googleapis.com', 'canWrite', "area === 'floor-plans'", "role === 'ADMIN'", "role === 'EDITOR'"], 'R2 gateway RBAC');
+requireAll(photoSync, ['uploadProjectBinaryToCloud', 'BINARY_STORAGE_PROVIDER', 'storagePath:', 'thumbnailPath:', 'photoSnapshotMergeQueue'], 'photo object-storage pipeline');
+requireAll(floorPlanSync, ['uploadFloorPlanBinaryToCloud', 'BINARY_STORAGE_PROVIDER', 'storagePath:', 'thumbnailPath:'], 'floor-plan object-storage pipeline');
 if (photoSync.includes('uploadPhotoToPrimaryDrive(')) fail('photo runtime still has a Drive upload call');
 if (floorPlanSync.includes('uploadFloorPlanToPrimaryDrive(')) fail('floor-plan runtime still has a Drive upload call');
 if (!photoSync.includes('LEGACY_DRIVE_READ_FALLBACK') || !floorPlanSync.includes('LEGACY_DRIVE_READ_FALLBACK')) fail('legacy Drive read fallback missing before verified binary migration');
 if (!photoStorage.includes('__pendingWrite')) fail('photo pending/server-ack metadata guard missing');
-pass('new binaries use Firebase Storage; Drive remains read-only legacy fallback');
+const prodR2GatewayConfigured = mergeWorkflow.includes('VITE_R2_GATEWAY_URL: ${{ vars.VITE_R2_GATEWAY_URL }}') || mergeWorkflow.includes('VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev');
+if (!mergeWorkflow.includes('VITE_BINARY_STORAGE_PROVIDER: r2') || !prodR2GatewayConfigured) fail('PROD workflow does not select R2 gateway');
+if (mergeWorkflow.includes('deploy --only firestore:rules,storage')) fail('PROD still hard-depends on Firebase Storage deployment');
+requireAll(mergeWorkflow, ['Deploy Hosting site hnlqltc', '--config firebase.prod.json', 'https://hnlqltc.web.app'], 'PROD short Hosting site');
+requireAll(read('firebase.prod.json'), ['"site": "hnlqltc"', '"public": "dist"'], 'PROD Firebase Hosting config');
+pass('new binaries use provider-based R2 in PROD; Firebase Storage remains reversible fallback; Drive remains read-only legacy fallback');
 
 requireAll(firestoreRules, ['isCoreBusinessCollection', 'lifecycleUpdateIsMonotonic', 'allow delete: if false;', "role == 'EDITOR'", "role == 'ENGINEER'", 'inventory_balances'], 'Firestore Rules lifecycle/roles');
-requireAll(storageRules, ['canEdit(projectId)', 'isAdmin(projectId)', 'identityMetadata', 'updateKeepsIdentity', 'allow delete: if isAdmin(projectId)', 'allow read, write: if false'], 'Storage Rules');
+requireAll(storageRules, ['canEdit(projectId)', 'isAdmin(projectId)', 'identityMetadata', 'updateKeepsIdentity', 'allow delete: if isAdmin(projectId)', 'allow read, write: if false'], 'Firebase Storage fallback Rules');
 requireAll(security, ["if (FIREBASE_ONLY_RUNTIME) return 'VIEWER'", 'if (FIREBASE_ONLY_RUNTIME || !projectId) return'], 'client role hardening');
-pass('Rules enforce role, monotonic lifecycle, soft-delete and Storage membership');
+pass('Firestore RBAC remains authoritative; R2 gateway mirrors member/role access and Firebase Storage fallback rules are retained');
 
 requireAll(warehouse, ['runTransaction', 'commitWarehouseTransactionAtomic', 'updateWarehouseTransactionAtomic', 'softDeleteWarehouseTransactionAtomic', 'INSUFFICIENT_STOCK', 'STRICT_STOCK_OFFLINE_BLOCKED', 'inventory_balances'], 'warehouse transaction engine');
 requireAll(app, ['commitWarehouseTransactionAtomic', 'updateWarehouseTransactionAtomic', 'softDeleteWarehouseTransactionAtomic', 'const handleImportInventory = async'], 'warehouse UI integration');
@@ -155,7 +165,6 @@ if (app.includes("FIREBASE_ONLY_ALL_BACKUP_CLOUD_SOURCE") && app.includes("const
   if (legacyIndex >= 0 && firebaseBranchEnd === legacyIndex && legacyIndex - markerIndex < 4500) fail('Firebase-only all-project backup may still source business data from localforage');
 }
 pass('Firebase-only JSON backup is Cloud/live-state sourced and media-complete/fail-closed');
-
 
 if (!sw.includes('new URL(self.location.href).searchParams.get(\'v\')') || !swRegistration.includes('APP_VERSION')) fail('service worker cache version is not derived from canonical app version');
 requireAll(diagnostics, ['sanitizeDiagnosticValue', '[redacted]'], 'diagnostics redaction');

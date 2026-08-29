@@ -17,6 +17,8 @@ jobs:
     env:
       VITE_APP_ENV: DEV
       VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: ${{ vars.HNL_QLTC_DEV_R2_GATEWAY_URL }}
       VITE_ENABLE_LEGACY_DRIVE_READ: "true"
       VITE_ENABLE_LEGACY_DRIVE_WRITE: "false"
       VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: "false"
@@ -43,7 +45,7 @@ jobs:
         run: |
           test -n "$VITE_FIREBASE_PROJECT_ID" || { echo "BLOCKED: configure HNL_QLTC_DEV_PROJECT_ID in GitHub Variables"; exit 1; }
           test "$VITE_FIREBASE_PROJECT_ID" != "com-example-qlct-61329" || { echo "REFUSING: DEV workflow points to PROD project"; exit 1; }
-          test -n "$VITE_FIREBASE_STORAGE_BUCKET" || { echo "BLOCKED: configure HNL_QLTC_DEV_STORAGE_BUCKET"; exit 1; }
+          echo "$VITE_R2_GATEWAY_URL" | grep -Eq '^https://[^ ]+$' || { echo "BLOCKED: configure HNL_QLTC_DEV_R2_GATEWAY_URL"; exit 1; }
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -62,7 +64,7 @@ jobs:
         run: npm run security:audit
       - name: Build
         run: npm run build
-      - name: Deploy DEV Firestore + Storage rules
+      - name: Deploy DEV Firestore rules
         shell: bash
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV }}
@@ -70,7 +72,7 @@ jobs:
         run: |
           test -n "$FIREBASE_SERVICE_ACCOUNT" || { echo "BLOCKED: configure FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV"; exit 1; }
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
-          npx --yes firebase-tools@13.35.1 deploy --only firestore:rules,storage --project "$VITE_FIREBASE_PROJECT_ID" --non-interactive
+          npx --yes firebase-tools@13.35.1 deploy --only firestore:rules --project "$VITE_FIREBASE_PROJECT_ID" --non-interactive
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}

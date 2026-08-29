@@ -1,0 +1,13 @@
+name = "hnl-qltc-r2-gateway"
+main = "worker.js"
+compatibility_date = "2026-08-01"
+
+[[r2_buckets]]
+binding = "HNL_QLTC_MEDIA"
+bucket_name = "hnl-qltc-media"
+
+[vars]
+FIREBASE_PROJECT_ID = "com-example-qlct-61329"
+SUPER_ADMIN_EMAIL = "lengochieu1211@gmail.com"
+ALLOWED_ORIGINS = "https://hnlqltc.web.app,https://com-example-qlct-61329.web.app,https://com-example-qlct-61329.firebaseapp.com"
+MAX_UPLOAD_BYTES = "26214400"

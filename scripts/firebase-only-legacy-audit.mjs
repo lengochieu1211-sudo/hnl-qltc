@@ -90,8 +90,8 @@ export function auditLegacyProject(input) {
   if (orphanPhotos.length) issues.push({ code:'ORPHAN_PHOTO', collection:'photos', count:orphanPhotos.length, ids:orphanPhotos.slice(0,20).map(x=>x.id) });
 
   const drivePhotos = collections.photos.filter(p => active(p) && (String(p.storageProvider || '').includes('drive') || String(p.cloudFileId || '').startsWith('drive:') || p.driveFileId));
-  const storagePhotos = collections.photos.filter(p => active(p) && (p.storagePath || p.storageProvider === 'firebase-storage'));
-  stats.binaryMigration = { legacyDriveReferences: drivePhotos.length, firebaseStorageReferences: storagePhotos.length };
+  const storagePhotos = collections.photos.filter(p => active(p) && (p.storagePath || ['firebase-storage', 'r2'].includes(String(p.storageProvider || ''))));
+  stats.binaryMigration = { legacyDriveReferences: drivePhotos.length, objectStorageReferences: storagePhotos.length };
   if (drivePhotos.length) issues.push({ code:'DRIVE_BINARY_MIGRATION_REQUIRED', collection:'photos', count:drivePhotos.length, severity:'BLOCKED_UNTIL_CHECKSUM' });
 
   const project = input?.project || input;

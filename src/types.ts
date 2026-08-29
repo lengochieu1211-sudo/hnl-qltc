@@ -74,7 +74,7 @@ export interface FloorPlan {
   order?: number;
   driveFileId?: string;
   driveUrl?: string;
-  storageProvider?: 'firebase-storage' | 'google-drive-primary' | 'firestore-fallback' | string;
+  storageProvider?: 'r2' | 'firebase-storage' | 'google-drive-primary' | 'firestore-fallback' | string;
   cloudFileId?: string;
   imageMimeType?: string;
   imageFileSize?: number;
@@ -84,6 +84,7 @@ export interface FloorPlan {
   storagePath?: string;
   thumbnailPath?: string;
   storageMd5Hash?: string;
+  storageEtag?: string;
   updatedAt?: number;
   revision?: number;
   createdAt?: number;

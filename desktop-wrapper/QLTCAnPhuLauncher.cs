@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.IO;
 using System.Windows.Forms;
@@ -7,66 +7,85 @@ namespace QLTCAnPhu
 {
     internal static class Program
     {
-        private const string AppBaseUrl = "https://com-example-qlct-61329.web.app/?app=desktop";
+        private const string AppBaseUrl = "https://hnlqltc.web.app/?app=desktop";
+        private const string ProductName = "HNL Quản Lý Thi Công";
 
         [STAThread]
         private static void Main()
         {
             try
             {
-                var version = typeof(Program).Assembly.GetName().Version;
-                var versionText = version != null ? version.ToString(3) : "0.0.0";
-                var appUrl = AppBaseUrl + "&v=" + Uri.EscapeDataString(versionText);
-                var edgePath = FindEdge();
-                if (string.IsNullOrEmpty(edgePath))
+                var releaseTag = string.IsNullOrWhiteSpace(BuildInfo.ReleaseTag)
+                    ? GetAssemblyVersion()
+                    : BuildInfo.ReleaseTag;
+                var appUrl = AppBaseUrl + "&v=" + Uri.EscapeDataString(releaseTag);
+
+                BrowserInfo browser = FindBrowser();
+                if (browser == null)
                 {
-                    Process.Start(appUrl);
+                    OpenDefaultBrowser(appUrl);
                     return;
                 }
 
-                var profileDir = Path.Combine(
+                var baseProfileDir = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "QLTCAnPhu",
-                    "EdgeProfile"
+                    "QLTCAnPhu"
                 );
+
+                // Keep the legacy Edge profile path unchanged so existing offline/local data is preserved.
+                var profileDir = Path.Combine(baseProfileDir, browser.ProfileFolder);
                 Directory.CreateDirectory(profileDir);
-                ClearWebCaches(profileDir);
 
                 var args =
-                    "--app=" + appUrl +
+                    "--app=\"" + appUrl + "\"" +
                     " --user-data-dir=\"" + profileDir + "\"" +
-                    " --no-first-run";
+                    " --no-first-run" +
+                    " --start-maximized";
 
                 Process.Start(new ProcessStartInfo
                 {
-                    FileName = edgePath,
+                    FileName = browser.ExecutablePath,
                     Arguments = args,
                     UseShellExecute = false,
-                    WorkingDirectory = Path.GetDirectoryName(edgePath)
+                    WorkingDirectory = Path.GetDirectoryName(browser.ExecutablePath)
                 });
             }
             catch (Exception ex)
             {
                 MessageBox.Show(
-                    "Cannot open HNL Quản Lý Thi Công.\n\n" + ex.Message,
-                    "HNL Quản Lý Thi Công",
+                    "Không thể mở " + ProductName + ".\n\n" + ex.Message,
+                    ProductName,
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error
                 );
             }
         }
 
-        private static string FindEdge()
+        private static string GetAssemblyVersion()
         {
+            var version = typeof(Program).Assembly.GetName().Version;
+            return version != null ? version.ToString(3) : "0.0.0";
+        }
+
+        private static BrowserInfo FindBrowser()
+        {
+            string programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+            string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+
             var candidates = new[]
             {
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Microsoft", "Edge", "Application", "msedge.exe"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Microsoft", "Edge", "Application", "msedge.exe")
+                new BrowserInfo(Path.Combine(programFilesX86, "Microsoft", "Edge", "Application", "msedge.exe"), "EdgeProfile"),
+                new BrowserInfo(Path.Combine(programFiles, "Microsoft", "Edge", "Application", "msedge.exe"), "EdgeProfile"),
+                new BrowserInfo(Path.Combine(localAppData, "Microsoft", "Edge", "Application", "msedge.exe"), "EdgeProfile"),
+                new BrowserInfo(Path.Combine(programFiles, "Google", "Chrome", "Application", "chrome.exe"), "ChromeProfile"),
+                new BrowserInfo(Path.Combine(programFilesX86, "Google", "Chrome", "Application", "chrome.exe"), "ChromeProfile"),
+                new BrowserInfo(Path.Combine(localAppData, "Google", "Chrome", "Application", "chrome.exe"), "ChromeProfile")
             };
 
             foreach (var candidate in candidates)
             {
-                if (File.Exists(candidate))
+                if (!string.IsNullOrEmpty(candidate.ExecutablePath) && File.Exists(candidate.ExecutablePath))
                 {
                     return candidate;
                 }
@@ -75,36 +94,24 @@ namespace QLTCAnPhu
             return null;
         }
 
-        private static void ClearWebCaches(string profileDir)
+        private static void OpenDefaultBrowser(string appUrl)
         {
-            var cacheDirs = new[]
+            Process.Start(new ProcessStartInfo
             {
-                Path.Combine(profileDir, "Default", "Cache"),
-                Path.Combine(profileDir, "Default", "Code Cache"),
-                Path.Combine(profileDir, "Default", "GPUCache"),
-                Path.Combine(profileDir, "Default", "Service Worker", "CacheStorage"),
-                Path.Combine(profileDir, "Default", "Service Worker", "ScriptCache"),
-                Path.Combine(profileDir, "Default", "Storage", "ext"),
-            };
-
-            foreach (var cacheDir in cacheDirs)
-            {
-                TryDeleteDirectory(cacheDir);
-            }
+                FileName = appUrl,
+                UseShellExecute = true
+            });
         }
 
-        private static void TryDeleteDirectory(string path)
+        private sealed class BrowserInfo
         {
-            try
+            public string ExecutablePath { get; private set; }
+            public string ProfileFolder { get; private set; }
+
+            public BrowserInfo(string executablePath, string profileFolder)
             {
-                if (Directory.Exists(path))
-                {
-                    Directory.Delete(path, true);
-                }
-            }
-            catch
-            {
-                // Edge may still be closing; cached files are safe to leave for this launch.
+                ExecutablePath = executablePath;
+                ProfileFolder = profileFolder;
             }
         }
     }

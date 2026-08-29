@@ -27,14 +27,16 @@ walk(root);
 let mergeMarkers = 0;
 let privateKeys = 0;
 let githubTokens = 0;
+let cloudflareSecrets = 0;
 for (const file of files) {
   const text = fs.readFileSync(file, 'utf8');
   if (/^(<<<<<<<|=======|>>>>>>>)/m.test(text)) { console.error('merge marker:', path.relative(root, file)); mergeMarkers++; }
   if (/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/.test(text)) { console.error('private key:', path.relative(root, file)); privateKeys++; }
   if (/(?:ghp|github_pat)_[A-Za-z0-9_]{20,}/.test(text)) { console.error('GitHub token:', path.relative(root, file)); githubTokens++; }
+  if (/(?:R2_SECRET_ACCESS_KEY|R2_ACCESS_KEY_ID|CLOUDFLARE_API_TOKEN)\s*[:=]\s*["']?(?!YOUR_|\$\{\{|<)[A-Za-z0-9_\-]{16,}/.test(text)) { console.error('Cloudflare/R2 credential:', path.relative(root, file)); cloudflareSecrets++; }
 }
 if (mergeMarkers) fail(`${mergeMarkers} unresolved merge-marker file(s)`); else pass('no merge markers');
-if (privateKeys || githubTokens) fail('high-risk secret material found'); else pass('no private keys/GitHub tokens');
+if (privateKeys || githubTokens || cloudflareSecrets) fail('high-risk secret material found'); else pass('no private keys/GitHub tokens/Cloudflare R2 credentials');
 
 const runtime = read('src/config/runtimeArchitecture.ts');
 if (!runtime.includes("VITE_ENABLE_LEGACY_DRIVE_WRITE || 'false'") || !runtime.includes("VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE || 'false'")) fail('legacy write defaults are not fail-closed');
