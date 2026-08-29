@@ -1,1 +1,1 @@
-https://your-deployed-web-url.example.com
+https://hnlqltc.web.app/?app=android
