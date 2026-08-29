@@ -22,10 +22,11 @@ export interface PhotoAttachment {
   dataUrl?: string;
   cloudFileId?: string;
   cloudUrl?: string;
-  storageProvider?: 'firebase-storage' | 'google-drive-primary' | 'firestore-fallback' | string;
+  storageProvider?: 'r2' | 'firebase-storage' | 'google-drive-primary' | 'firestore-fallback' | string;
   storagePath?: string;
   thumbnailPath?: string;
   storageMd5Hash?: string;
+  storageEtag?: string;
   storageGeneration?: string;
   driveOwnerEmail?: string;
   driveFolderPath?: string;
@@ -294,7 +295,7 @@ export async function mergeCloudPhotoMetadata(projectId: string, cloudPhotos: Ph
       }
       const pending = await localforage.getItem<PhotoAttachment>(getPhotoPendingMetaKey(cloud.id)).catch(() => null);
       const serverAcknowledged = !(cloud as any).__pendingWrite;
-      if (serverAcknowledged && pending && cloudTime >= Number(pending.updatedAt || pending.createdAt || 0) && (cloud.deleted || cloud.deletedAt || cloud.storagePath || cloud.storageProvider === 'firebase-storage')) {
+      if (serverAcknowledged && pending && cloudTime >= Number(pending.updatedAt || pending.createdAt || 0) && (cloud.deleted || cloud.deletedAt || cloud.storagePath || ['firebase-storage', 'r2'].includes(String(cloud.storageProvider || '')))) {
         await clearPendingPhotoMetadata(cloud.id);
       }
     }
@@ -428,7 +429,7 @@ export async function getProjectPhotosWithBinary(projectId: string, requireBinar
   for (const p of photos) {
     let base64 = await getPhotoBase64(p.id);
 
-    if (!base64 && (p.storagePath || p.storageProvider === 'firebase-storage' || p.cloudFileId?.startsWith('storage:') || p.cloudUrl?.startsWith('storage:') || p.cloudFileId?.startsWith('firestore:') || p.cloudUrl?.startsWith('firestore:') || p.cloudFileId?.startsWith('drive:') || p.cloudUrl?.startsWith('drive:'))) {
+    if (!base64 && (p.storagePath || ['firebase-storage', 'r2'].includes(String(p.storageProvider || '')) || (p.cloudFileId?.startsWith('storage:') || p.cloudFileId?.startsWith('r2:')) || (p.cloudUrl?.startsWith('storage:') || p.cloudUrl?.startsWith('r2:')) || p.cloudFileId?.startsWith('firestore:') || p.cloudUrl?.startsWith('firestore:') || p.cloudFileId?.startsWith('drive:') || p.cloudUrl?.startsWith('drive:'))) {
       try {
         const { downloadPhotoBlobFromCloud } = await import('../lib/photoCloudSync');
         const cloudBlob = await downloadPhotoBlobFromCloud(projectId, p.id, p.mimeType || 'image/jpeg');

@@ -17,7 +17,7 @@ Gateway này giữ R2 private. Ứng dụng gửi Firebase ID token; Worker dùn
 4. Variables giữ đúng project Firebase hiện tại:
    - `FIREBASE_PROJECT_ID=com-example-qlct-61329`
    - `SUPER_ADMIN_EMAIL=lengochieu1211@gmail.com`
-   - `ALLOWED_ORIGINS=https://com-example-qlct-61329.web.app,https://com-example-qlct-61329.firebaseapp.com`
+   - `ALLOWED_ORIGINS=https://hnlqltc.web.app,https://com-example-qlct-61329.web.app,https://com-example-qlct-61329.firebaseapp.com`
    - `MAX_UPLOAD_BYTES=26214400`
 5. Deploy Worker, lấy URL HTTPS `https://...workers.dev`.
 6. GitHub repo → Settings → Secrets and variables → Actions → Variables → New repository variable:

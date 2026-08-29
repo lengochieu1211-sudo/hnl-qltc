@@ -51,7 +51,7 @@ globalThis.fetch = async (input, init = {}) => {
 const env = {
   FIREBASE_PROJECT_ID: 'com-example-qlct-61329',
   SUPER_ADMIN_EMAIL: 'super@example.com',
-  ALLOWED_ORIGINS: 'https://com-example-qlct-61329.web.app',
+  ALLOWED_ORIGINS: 'https://hnlqltc.web.app,https://com-example-qlct-61329.web.app,https://com-example-qlct-61329.firebaseapp.com',
   MAX_UPLOAD_BYTES: '26214400',
   HNL_QLTC_MEDIA: {
     async put(key, body, options) {
@@ -77,7 +77,7 @@ async function call(identity, method, key, body = null) {
     method,
     headers: {
       Authorization: `Bearer ${token}`,
-      Origin: 'https://com-example-qlct-61329.web.app',
+      Origin: 'https://hnlqltc.web.app',
       ...(body ? { 'Content-Type': 'image/jpeg', 'X-HNL-Metadata': encodeURIComponent(JSON.stringify({ projectId: 'p1' })) } : {}),
     },
     body,
@@ -99,7 +99,7 @@ response = await call(identities.admin, 'PUT', floorKey, new Uint8Array([7, 8]))
 assert(response.status === 200, 'ADMIN/owner may upload floor-plan structure');
 response = await call(identities.viewer, 'GET', mediaKey);
 assert(response.status === 200, 'VIEWER/project member may read media');
-assert(response.headers.get('Access-Control-Allow-Origin') === 'https://com-example-qlct-61329.web.app', 'CORS is restricted to configured origin');
+assert(response.headers.get('Access-Control-Allow-Origin') === 'https://hnlqltc.web.app', 'CORS allows the new hnlqltc Hosting origin');
 response = await call(identities.editor, 'DELETE', mediaKey);
 assert(response.status === 403, 'EDITOR may not purge media');
 response = await call(identities.admin, 'DELETE', mediaKey);
