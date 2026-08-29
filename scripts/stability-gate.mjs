@@ -107,7 +107,8 @@ if (photoSync.includes('uploadPhotoToPrimaryDrive(')) fail('photo runtime still 
 if (floorPlanSync.includes('uploadFloorPlanToPrimaryDrive(')) fail('floor-plan runtime still has a Drive upload call');
 if (!photoSync.includes('LEGACY_DRIVE_READ_FALLBACK') || !floorPlanSync.includes('LEGACY_DRIVE_READ_FALLBACK')) fail('legacy Drive read fallback missing before verified binary migration');
 if (!photoStorage.includes('__pendingWrite')) fail('photo pending/server-ack metadata guard missing');
-if (!mergeWorkflow.includes('VITE_BINARY_STORAGE_PROVIDER: r2') || !mergeWorkflow.includes('VITE_R2_GATEWAY_URL: ${{ vars.VITE_R2_GATEWAY_URL }}')) fail('PROD workflow does not select R2 gateway');
+const prodR2GatewayConfigured = mergeWorkflow.includes('VITE_R2_GATEWAY_URL: ${{ vars.VITE_R2_GATEWAY_URL }}') || mergeWorkflow.includes('VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev');
+if (!mergeWorkflow.includes('VITE_BINARY_STORAGE_PROVIDER: r2') || !prodR2GatewayConfigured) fail('PROD workflow does not select R2 gateway');
 if (mergeWorkflow.includes('deploy --only firestore:rules,storage')) fail('PROD still hard-depends on Firebase Storage deployment');
 requireAll(mergeWorkflow, ['Deploy Hosting site hnlqltc', '--config firebase.prod.json', 'https://hnlqltc.web.app'], 'PROD short Hosting site');
 requireAll(read('firebase.prod.json'), ['"site": "hnlqltc"', '"public": "dist"'], 'PROD Firebase Hosting config');
