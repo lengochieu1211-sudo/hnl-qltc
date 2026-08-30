@@ -1,0 +1,46 @@
+otoSnapshotMergeQueue'], 'photo object-storage pipeline');
++requireAll(photoSync, [
++  'uploadProjectBinaryToCloud',
++  'BINARY_STORAGE_PROVIDER',
++  'storagePath:',
++  'thumbnailPath:',
++  'photoSnapshotMergeQueue',
++  'Math.max(localRevision, cloudData ? cloudRevision + 1 : 1, 1)',
++  'getDocFromServer(metaRef)',
++  'PHOTO_CLOUD_CONFIRMATION_FAILED',
++  'flushPendingPhotoUploadsForCurrentUser',
++], 'photo object-storage pipeline');
+ requireAll(photoStorage, [
+   "raw.startsWith('r2:')",
+   "raw.startsWith('storage:')",
+@@ -120,7 +131,18 @@ requireAll(photoPicker, [
+   'getPhotoDataUrl(p.id, p.cloudUrl || p.cloudFileId, true, projectId)',
+   'getPhotoDataUrl(photo.id, photo.cloudUrl || photo.cloudFileId, false, projectId)',
+   'isDirectPhotoUrl',
++  'await uploadPhotoToCloud(projectId, saved)',
++  'createdByUid: currentUser?.uid',
++  'cloudPending: cloudSyncFailures.length',
+ ], 'PhotoAttachmentPicker authenticated cloud rendering');
++if (photoPicker.includes('void uploadPhotoToCloud(projectId, saved)')) fail('photo picker still fire-and-forgets binary upload before account switch');
++requireAll(firebase, ['flushPendingPhotoUploadsForCurrentUser', 'Pre-signout photo flush blocked account switch'], 'same-phone account-switch photo flush');
++requireAll(crewTab, [
++  'grid grid-cols-[minmax(0,1fr)_auto]',
++  'sm:min-w-[180px]',
++  'min-h-[26px] inline-flex items-center justify-center',
++  'whitespace-nowrap',
++], 'Crew card PC header alignment');
+ requireAll(floorPlanDefect, ['photo.cloudUrl || photo.cloudFileId || photo.localUri', 'false, projectId'], 'Defect gallery cloud rendering');
+ requireAll(exportPdf, ['p.cloudUrl || p.cloudFileId || p.localUri', 'activeProjectId'], 'PDF photo cloud rendering');
+ pass('cross-account/device photo metadata resolves private R2/Storage binary instead of rendering opaque pointers');
+diff --git a/src/components/CrewTab.tsx b/src/components/CrewTab.tsx
+index 853910f..2ae8e6b 100644
+--- a/src/components/CrewTab.tsx
++++ b/src/components/CrewTab.tsx
+@@ -1306,20 +1306,20 @@ export const CrewTab: React.FC<CrewTabProps> = ({
+                     />}
+ 
+                     <div className="flex-1 min-w-0">
+-                      <div className="flex justify-between items-start gap-4 mb-2">
+-                        <div>
+-                          <h4 className="font-bold text-slate-800 text-sm leading-tight">{record.teamName}</h4>
+- 
