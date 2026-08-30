@@ -1,0 +1,36 @@
+ng đổi quyền', rules.includes('isCanonicalMemberRole') && rules.includes('allow create, update: if (') && read('src/components/SecurityModal.tsx').includes('saveProjectMemberToCloud'), 'membership admin rules');
+ verify(14,'Admin thêm user', rules.includes('isAdmin(projectId)') && read('src/lib/firebase.ts').includes('saveProjectMemberToCloud'), 'admin membership write');
+diff --git a/scripts/firebase-rules-behavior.mjs b/scripts/firebase-rules-behavior.mjs
+index 492464f..cc92a41 100644
+--- a/scripts/firebase-rules-behavior.mjs
++++ b/scripts/firebase-rules-behavior.mjs
+@@ -314,8 +314,18 @@ try {
+   }));
+   const photoSnap = await getDoc(photoMetaRef);
+   const photoUpdatedAt = Number(photoSnap.data()?.updatedAt || 0);
++  await expectAllowed('EDITOR advances staged photo metadata to cloud-ready revision', () => updateDoc(photoMetaRef, {
++    storageProvider: 'firebase-storage',
++    storagePath: `projects/${pid}/media/defect/DF-RULE-1/PHOTO-META-RULE-1/original.jpg`,
++    cloudFileId: `storage:projects/${pid}/media/defect/DF-RULE-1/PHOTO-META-RULE-1/original.jpg`,
++    binaryUploadState: 'ready',
++    revision: 2,
++    updatedAt: photoUpdatedAt + 10,
++  }));
++  const readyPhotoSnap = await getDoc(photoMetaRef);
++  const readyPhotoUpdatedAt = Number(readyPhotoSnap.data()?.updatedAt || photoUpdatedAt + 10);
+   await expectAllowed('EDITOR may soft-delete field photo metadata', () => updateDoc(photoMetaRef, {
+-    deleted: true, deletedAt: Date.now(), deletedByUid: editorUid, revision: 2, updatedAt: photoUpdatedAt + 10,
++    deleted: true, deletedAt: Date.now(), deletedByUid: editorUid, revision: 3, updatedAt: readyPhotoUpdatedAt + 10,
+   }));
+   await expectDenied('EDITOR cannot manage membership', () => setDoc(doc(db, 'projects', pid, 'members', `x-${nonce}@example.test`), {
+     email: `x-${nonce}@example.test`, role: 'VIEWER', active: true,
+diff --git a/scripts/stability-gate.mjs b/scripts/stability-gate.mjs
+index f2c1ca6..2d1573c 100644
+--- a/scripts/stability-gate.mjs
++++ b/scripts/stability-gate.mjs
+@@ -44,6 +44,7 @@ const authHeader = read('src/components/GoogleAuthHeader.tsx');
+ const floorPlanDefect = read('src/components/FloorPlanDefectTab.tsx');
+ const roomHighlight = read('src/components/RoomHighlightModal.tsx');
+ const projectManager = read('src/components/ProjectManagerModal.tsx');
++const crewTab = read('src/components/CrewTab.tsx');
+ const P
