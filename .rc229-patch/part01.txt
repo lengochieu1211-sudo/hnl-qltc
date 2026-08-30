@@ -1,0 +1,13 @@
+con.png"), 'EXE icon is generated from the canonical HNL logo source');
+diff --git a/scripts/firebase-only-golden.mjs b/scripts/firebase-only-golden.mjs
+index fc13cd6..8a240f2 100644
+--- a/scripts/firebase-only-golden.mjs
++++ b/scripts/firebase-only-golden.mjs
+@@ -31,7 +31,7 @@ verify(7,'Restore hạng mục uses explicit lifecycle', rules.includes("request
+ verify(8,'Xóa căn soft-delete/tombstone path', rules.includes("isCoreBusinessCollection") && rules.includes('allow delete: if collectionName') && app.includes('trashDeletedItems'), 'core hard delete denied + trash capture');
+ verify(9,'Restore căn không overwrite newer edit', app.includes('Never overwrite a record another user edited after this delete operation'), 'restore timestamp guard');
+ verify(10,'Thêm defect + ảnh object storage', photo.includes('uploadProjectBinaryToCloud') && photo.includes('stagePhotoMetadataForCloud'), 'provider upload + Firestore metadata');
+-verify(11,'PC/tài khoản khác nhận và hiển thị ảnh realtime', photo.includes('photoSnapshotMergeQueue') && photoStorage.includes('__pendingWrite') && photoStorage.includes("raw.startsWith('r2:')") && photoStorage.includes("raw.startsWith('storage:')") && photoStorage.includes('projectIdHint') && photoPicker.includes('getPhotoDataUrl(p.id, p.cloudUrl || p.cloudFileId, true, projectId)'), 'serialized realtime metadata + server ack outbox + authenticated R2/Storage lazy binary resolver');
++verify(11,'Cùng điện thoại đổi tài khoản/PC khác vẫn nhận và hiển thị ảnh realtime', photo.includes('photoSnapshotMergeQueue') && photo.includes('Math.max(localRevision, cloudData ? cloudRevision + 1 : 1, 1)') && photo.includes('getDocFromServer(metaRef)') && photo.includes('flushPendingPhotoUploadsForCurrentUser') && photoStorage.includes('__pendingWrite') && photoStorage.includes("raw.startsWith('r2:')") && photoStorage.includes("raw.startsWith('storage:')") && photoStorage.includes('projectIdHint') && photoPicker.includes('await uploadPhotoToCloud(projectId, saved)'), 'staged revision advances -> R2 binary -> server-confirmed Firestore pointer -> pre-signout flush -> authenticated lazy download');
+ verify(12,'Viewer không ghi', rules.includes('canEdit(projectId)') && security.includes("if (FIREBASE_ONLY_RUNTIME) return 'VIEWER'"), 'Rules authoritative, local global role cannot grant');
+ verify(13,'Editor khô
