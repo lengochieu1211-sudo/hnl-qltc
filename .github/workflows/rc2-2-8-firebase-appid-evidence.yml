@@ -11,9 +11,19 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - name: Read public Firebase Hosting init config
+      - name: Verify public Hosting identity
         shell: bash
         run: |
           set -euo pipefail
           curl -fsS -H 'Cache-Control: no-cache' https://hnlqltc.web.app/__/firebase/init.json -o /tmp/init.json
-          node -e "const fs=require('fs');const x=JSON.parse(fs.readFileSync('/tmp/init.json','utf8')); console.log('projectId='+x.projectId); console.log('appId='+x.appId); console.log('authDomain='+x.authDomain); console.log('storageBucket='+x.storageBucket); if(x.projectId!=='com-example-qlct-61329') process.exit(2); if(!/^1:119152410850:web:/.test(x.appId||'')) process.exit(3);"
+          node -e "const fs=require('fs');const x=JSON.parse(fs.readFileSync('/tmp/init.json','utf8')); console.log('hostingProjectId='+x.projectId); console.log('authDomain='+x.authDomain); console.log('storageBucket='+x.storageBucket); if(x.projectId!=='com-example-qlct-61329') process.exit(2);"
+      - name: Query Firebase Web Apps with deploy identity
+        shell: bash
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
+        run: |
+          set -euo pipefail
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          npx --yes firebase-tools@13.35.1 apps:list WEB --project com-example-qlct-61329 --json > /tmp/apps.json
+          node -e "const fs=require('fs'); const raw=JSON.parse(fs.readFileSync('/tmp/apps.json','utf8')); const arr=raw.result||raw; console.log(JSON.stringify(arr,null,2)); const apps=Array.isArray(arr)?arr:(arr.apps||[]); const web=apps.filter(a=>String(a.platform||'').toUpperCase()==='WEB'||String(a.appId||'').includes(':web:')); if(web.length!==1){console.error('Expected exactly one WEB app, got '+web.length);process.exit(3)} const a=web[0]; console.log('VERIFIED_WEB_APP_ID='+a.appId); if(!/^1:119152410850:web:[0-9a-f]+$/i.test(a.appId||'')) process.exit(4);"
