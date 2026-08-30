@@ -15,7 +15,7 @@ function corsHeaders(request, env) {
     'Access-Control-Allow-Origin': allowOrigin,
     'Vary': 'Origin',
     'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-HNL-Metadata',
-    'Access-Control-Allow-Methods': 'GET, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, HEAD, PUT, DELETE, OPTIONS',
     'Access-Control-Max-Age': '86400',
   } : {};
 }
@@ -104,12 +104,26 @@ export default {
     const access = await getRole(env, token, parsed.projectId);
     if (!access.ok) return json({ error: 'PROJECT_ACCESS_DENIED' }, 403, cors);
 
+    if (request.method === 'HEAD') {
+      const object = await env.HNL_QLTC_MEDIA.head(parsed.key);
+      if (!object) return new Response(null, { status: 404, headers: cors });
+      const headers = new Headers(cors);
+      object.writeHttpMetadata(headers);
+      headers.set('etag', object.httpEtag || '');
+      headers.set('Content-Length', String(Number(object.size || 0)));
+      headers.set('X-HNL-SHA256', String(object.customMetadata?.sha256 || ''));
+      headers.set('Cache-Control', 'no-store');
+      return new Response(null, { status: 200, headers });
+    }
+
     if (request.method === 'GET') {
       const object = await env.HNL_QLTC_MEDIA.get(parsed.key);
       if (!object) return json({ error: 'OBJECT_NOT_FOUND' }, 404, cors);
       const headers = new Headers(cors);
       object.writeHttpMetadata(headers);
       headers.set('etag', object.httpEtag || '');
+      headers.set('Content-Length', String(Number(object.size || 0)));
+      headers.set('X-HNL-SHA256', String(object.customMetadata?.sha256 || ''));
       headers.set('Cache-Control', 'private, max-age=3600');
       return new Response(object.body, { headers });
     }
