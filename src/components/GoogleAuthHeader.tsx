@@ -98,6 +98,13 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
     if (userRole !== 'ADMIN' && isEditingProject) setIsEditingProject(false);
   }, [userRole, isEditingProject]);
 
+  // Keep the edit draft aligned with the project currently shown in the header.
+  // Without this, the component can keep the initial fallback ('Dự án chưa đặt tên')
+  // after switching/hydrating another project and then commit that stale value on blur.
+  useEffect(() => {
+    if (!isEditingProject) setTempProjectName(projectName);
+  }, [projectName, projectId, isEditingProject]);
+
   useEffect(() => {
     checkAuthStatus();
 
@@ -149,12 +156,14 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
                       value={tempProjectName}
                       onChange={(e) => setTempProjectName(e.target.value)}
                       onBlur={() => {
-                        if (tempProjectName.trim()) setProjectName(tempProjectName.trim());
+                        const nextName = tempProjectName.trim();
+                        if (nextName && nextName !== projectName) setProjectName(nextName);
                         setIsEditingProject(false);
                       }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
-                          if (tempProjectName.trim()) setProjectName(tempProjectName.trim());
+                          const nextName = tempProjectName.trim();
+                          if (nextName && nextName !== projectName) setProjectName(nextName);
                           setIsEditingProject(false);
                         }
                       }}
@@ -163,7 +172,13 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
                     />
                   ) : (
                     <h1 
-                      onClick={() => { if (userRole === 'ADMIN') setIsEditingProject(true); }}
+                      onClick={() => {
+                        if (userRole === 'ADMIN') {
+                          // Snapshot the visible/current project name at the exact moment edit starts.
+                          setTempProjectName(projectName);
+                          setIsEditingProject(true);
+                        }
+                      }}
                       className={`text-xs sm:text-sm font-bold text-slate-100 flex items-center gap-1 transition-colors truncate ${userRole === 'ADMIN' ? 'cursor-pointer hover:text-blue-300' : 'cursor-default'}`}
                       title={userRole === 'ADMIN' ? 'Nhấn để sửa tên dự án' : 'Chỉ ADMIN được sửa thông tin dự án'}
                     >
