@@ -15,14 +15,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Verify and apply exact patch
+      - name: Verify and apply exact feature patch
         shell: bash
         run: |
           set -euo pipefail
-          cat .rc229-patch/part*.txt > /tmp/rc229.patch
-          echo '16355ce832021177d69478bb81b612bf9ea4d197605de2d32b3c84b9887ece3c  /tmp/rc229.patch' | sha256sum -c -
-          git apply --check /tmp/rc229.patch
-          git apply /tmp/rc229.patch
+          cat .rc229-feature/part*.txt > /tmp/rc229-feature.patch
+          echo '10d8253aed58f4535448567d3b0e8248333b6cd9ff49e2ab8d71cd8326fd1f78  /tmp/rc229-feature.patch' | sha256sum -c -
+          git apply --check /tmp/rc229-feature.patch
+          git apply /tmp/rc229-feature.patch
           git diff --check
       - name: Source release gates
         shell: bash
@@ -39,12 +39,11 @@ jobs:
           node scripts/desktop-launcher-golden.mjs
           node scripts/auth-popup-golden.mjs
           node scripts/source-lint.mjs
-      - name: Commit source hotfix without workflow mutations
+      - name: Commit source hotfix and remove staging payloads
         shell: bash
         run: |
           set -euo pipefail
-          git checkout HEAD -- .github/workflows/android-apk.yml .github/workflows/windows-exe.yml
-          rm -rf .rc229-patch
+          rm -rf .rc229-patch .rc229-feature
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
@@ -53,5 +52,5 @@ jobs:
             git diff --cached --name-only
             exit 1
           fi
-          git commit -m 'fix: RC2.2.9 same-phone photo sync and PC crew alignment'
+          git commit -m 'fix: RC2.2.9 same-phone photo sync and PC quota alignment'
           git push origin HEAD:rc2-2-9-same-phone-photo-sync-ui
