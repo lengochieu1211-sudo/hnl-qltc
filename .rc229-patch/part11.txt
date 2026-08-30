@@ -1,0 +1,49 @@
+ta?.cloudFileId || data?.cloudUrl);
++  const cachedStoragePath = String(data?.storagePath || cachedPointer.path || '');
++  const cachedProvider = String(data?.storageProvider || cachedPointer.provider || '');
++  const cachedReady = Boolean(cachedStoragePath && (cachedProvider === 'r2' || cachedProvider === 'firebase-storage' || isStorageCloudValue(data?.cloudFileId)));
++  if (!cachedReady && !data?.deleted) {
++    const serverSnap = await getDocFromServer(metaRef).catch(() => null);
++    if (serverSnap?.exists() && !serverSnap.data()?.deleted) {
++      metaSnap = serverSnap;
++      data = serverSnap.data();
++    }
++  }
+ 
+   const pointer = parseStoragePointer(data?.cloudFileId || data?.cloudUrl);
+   const storagePath = String(data?.storagePath || pointer.path || '');
+diff --git a/src/utils/photoStorage.ts b/src/utils/photoStorage.ts
+index b068d89..655f3d9 100644
+--- a/src/utils/photoStorage.ts
++++ b/src/utils/photoStorage.ts
+@@ -85,15 +85,14 @@ export function generatePhotoUUID(): string {
+   return `photo_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+ }
+ 
+-async function getPendingPhotoMetadata(projectId: string): Promise<PhotoAttachment[]> {
+-  if (!projectId) return [];
++export async function getAllPendingPhotoMetadata(): Promise<PhotoAttachment[]> {
+   try {
+     const keys = await localforage.keys();
+     const pending: PhotoAttachment[] = [];
+     for (const key of keys) {
+       if (!key.startsWith('photo_pending_meta_')) continue;
+       const item = await localforage.getItem<PhotoAttachment>(key);
+-      if (item?.id && item.projectId === projectId) pending.push(item);
++      if (item?.id && item.projectId) pending.push(item);
+     }
+     return pending;
+   } catch (_) {
+@@ -101,6 +100,12 @@ async function getPendingPhotoMetadata(projectId: string): Promise<PhotoAttachme
+   }
+ }
+ 
++async function getPendingPhotoMetadata(projectId: string): Promise<PhotoAttachment[]> {
++  if (!projectId) return [];
++  const pending = await getAllPendingPhotoMetadata();
++  return pending.filter((item) => item.projectId === projectId);
++}
++
+ async function savePendingPhotoMetadata(photo: PhotoAttachment): Promise<void> {
+   if (!photo?.id || !photo?.projectId) return;
+   const clean: PhotoAttachment = { ...photo, localUri: '', base64: undefined, dataUrl: undefined };
