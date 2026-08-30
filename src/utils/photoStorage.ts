@@ -4,6 +4,7 @@ import { compressImage, compressImageToBlob } from './imageCompressor';
 import { getImageQualityProfile } from './imageQualitySettings';
 import { apiUrl, hasApiBackend } from './api';
 import { FIREBASE_ONLY_RUNTIME, LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED, LEGACY_LOCAL_IMPORT_ENABLED } from '../config/runtimeArchitecture';
+import { getCurrentRealFirebaseUser } from '../lib/firebase';
 
 export interface PhotoAttachment {
   id: string; // UUID photo ID
@@ -45,6 +46,8 @@ export interface PhotoAttachment {
   deletedAt?: number | null;
   deletedByUid?: string | null;
   deletedBy?: string | null;
+  binaryUploadState?: 'pending' | 'ready' | 'deleted' | string;
+  cloudSyncedAt?: number;
 }
 
 const getPhotoListKey = (projectId: string) => `construction_photos_${projectId}`;
@@ -53,6 +56,20 @@ const getPhotoThumbKey = (photoId: string) => `photo_thumb_${photoId}`;
 const getPhotoPendingMetaKey = (photoId: string) => `photo_pending_meta_${photoId}`;
 
 const projectPhotoListMemoryCache = new Map<string, PhotoAttachment[]>();
+const projectPhotoListMemoryCacheOwner = new Map<string, string>();
+
+function getPhotoRuntimeAuthKey(): string {
+  try {
+    return getCurrentRealFirebaseUser()?.uid || 'signed-out';
+  } catch (_) {
+    return 'signed-out';
+  }
+}
+
+export function resetPhotoRuntimeMemoryCache(): void {
+  projectPhotoListMemoryCache.clear();
+  projectPhotoListMemoryCacheOwner.clear();
+}
 
 
 const blobToDataUrl = (blob: Blob): Promise<string> => new Promise((resolve, reject) => {
@@ -90,10 +107,17 @@ async function getPendingPhotoMetadata(projectId: string): Promise<PhotoAttachme
   try {
     const keys = await localforage.keys();
     const pending: PhotoAttachment[] = [];
+    const activeUid = getCurrentRealFirebaseUser()?.uid || '';
     for (const key of keys) {
       if (!key.startsWith('photo_pending_meta_')) continue;
       const item = await localforage.getItem<PhotoAttachment>(key);
-      if (item?.id && item.projectId === projectId) pending.push(item);
+      if (!item?.id || item.projectId !== projectId) continue;
+      // RC2.2.9: local media outbox belongs to the account that created it. On the
+      // same phone, account B must never inherit account A's pending-only metadata
+      // and render a ghost placeholder before the Cloud binary is ready. Legacy
+      // pending rows without createdByUid remain readable for one-time recovery.
+      if (item.createdByUid && item.createdByUid !== activeUid) continue;
+      pending.push(item);
     }
     return pending;
   } catch (_) {
@@ -115,8 +139,13 @@ export async function clearPendingPhotoMetadata(photoId: string): Promise<void> 
 export async function getProjectPhotos(projectId: string, includeDeleted = false): Promise<PhotoAttachment[]> {
   if (!projectId) return [];
   try {
-    let list = projectPhotoListMemoryCache.get(projectId);
+    const authKey = getPhotoRuntimeAuthKey();
+    let list = projectPhotoListMemoryCacheOwner.get(projectId) === authKey
+      ? projectPhotoListMemoryCache.get(projectId)
+      : undefined;
     if (!list) {
+      projectPhotoListMemoryCache.delete(projectId);
+      projectPhotoListMemoryCacheOwner.delete(projectId);
       // Firebase-only keeps synchronized metadata in Firestore. The old project photo
       // list is read only during the migration window; new pending media uses a small
       // dedicated outbox record next to its local Blob, not a second business database.
@@ -132,6 +161,7 @@ export async function getProjectPhotos(projectId: string, includeDeleted = false
       }
       list = Array.from(merged.values());
       projectPhotoListMemoryCache.set(projectId, list);
+      projectPhotoListMemoryCacheOwner.set(projectId, authKey);
     }
     if (includeDeleted) return list.slice();
     return list.filter(p => !p.deleted && !p.deletedAt);
@@ -148,6 +178,7 @@ export async function saveProjectPhotos(projectId: string, photos: PhotoAttachme
     return p;
   });
   projectPhotoListMemoryCache.set(projectId, cleanPhotos);
+  projectPhotoListMemoryCacheOwner.set(projectId, getPhotoRuntimeAuthKey());
   if (!FIREBASE_ONLY_RUNTIME || LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED) {
     await setAsyncItem(getPhotoListKey(projectId), cleanPhotos);
   }
@@ -221,13 +252,15 @@ export async function savePhotoAttachment(
   await saveProjectPhotos(photo.projectId, updatedList);
   if (FIREBASE_ONLY_RUNTIME) {
     await savePendingPhotoMetadata(newPhotoMetadata);
-    // setDoc uses Firestore's official offline queue when the authenticated user is
-    // offline. The binary itself remains in the media outbox until Storage succeeds.
-    import('../lib/photoCloudSync').then(({ stagePhotoMetadataForCloud }) =>
-      stagePhotoMetadataForCloud(photo.projectId, newPhotoMetadata).catch((err) =>
-        console.warn('[Photo outbox] metadata will retry after auth/network recovery:', err)
-      )
-    ).catch(() => {});
+    // Stage metadata before returning so the immediate binary uploader never races
+    // a still-unstarted Firestore metadata write. Offline setDoc remains queued by
+    // Firestore; failure here does not discard the local Blob/outbox.
+    try {
+      const { stagePhotoMetadataForCloud } = await import('../lib/photoCloudSync');
+      await stagePhotoMetadataForCloud(photo.projectId, newPhotoMetadata);
+    } catch (err) {
+      console.warn('[Photo outbox] metadata will retry after auth/network recovery:', err);
+    }
   }
 
   // Return only the tiny thumbnail for immediate rendering. The full image stays as a Blob in IndexedDB.
@@ -654,6 +687,7 @@ export async function deleteProjectPhotos(projectId: string): Promise<void> {
       if (item?.projectId === projectId) await localforage.removeItem(key).catch(() => {});
     }
     projectPhotoListMemoryCache.delete(projectId);
+    projectPhotoListMemoryCacheOwner.delete(projectId);
     try {
       localStorage.removeItem(getPhotoListKey(projectId));
     } catch (_) {}

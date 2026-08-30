@@ -2,6 +2,7 @@ import {
   collection,
   doc,
   getDoc,
+  getDocFromServer,
   getDocs,
   getDocsFromServer,
   onSnapshot,
@@ -64,7 +65,7 @@ function parseStoragePointer(value?: string | null): { provider: string; path: s
   const raw = String(value || '').trim();
   if (raw.startsWith('r2:')) return { provider: 'r2', path: raw.slice(3) };
   if (raw.startsWith('storage:')) return { provider: 'firebase-storage', path: raw.slice('storage:'.length) };
-  return { provider: '', path: raw };
+  return { provider: '', path: '' };
 }
 
 /**
@@ -145,7 +146,7 @@ export async function uploadPhotoToCloud(projectId: string, photo: PhotoAttachme
 async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment): Promise<void> {
   if (!projectId || !photo?.id) return;
   const user = getCurrentRealFirebaseUser();
-  if (!user || user.isAnonymous) return;
+  if (!user || user.isAnonymous) throw new Error('PHOTO_AUTH_UNAVAILABLE');
 
   const metaRef = doc(db, 'projects', projectId, 'photos', photo.id);
   const cloudSnap = await getDoc(metaRef).catch(() => null);
@@ -358,9 +359,39 @@ async function downloadPhotoBlobFromFirestoreChunks(projectId: string, photoId: 
 
 export async function downloadPhotoBlobFromCloud(projectId: string, photoId: string, mimeType = 'image/jpeg'): Promise<Blob | null> {
   if (!projectId || !photoId) return null;
-  const metaSnap = await getDoc(doc(db, 'projects', projectId, 'photos', photoId));
-  if (!metaSnap.exists() || metaSnap.data()?.deleted) return null;
-  const data = metaSnap.data();
+
+  const photoRef = doc(db, 'projects', projectId, 'photos', photoId);
+  const readPhotoMeta = async (serverOnly = false) => {
+    const snap = serverOnly ? await getDocFromServer(photoRef) : await getDoc(photoRef);
+    if (!snap.exists() || snap.data()?.deleted) return null;
+    return snap.data() as any;
+  };
+
+  let data = await readPhotoMeta(false);
+  if (!data) return null;
+
+  const hasUsableBinaryPointer = (value: any) => Boolean(
+    value?.storagePath
+    || isStorageCloudValue(value?.cloudFileId)
+    || isStorageCloudValue(value?.cloudUrl)
+    || isDriveCloudValue(value?.cloudFileId)
+    || isDriveCloudValue(value?.cloudUrl)
+    || Number(value?.chunkCount || 0) > 0
+  );
+
+  // RC2.2.9 same-phone account switch: persistent Firestore cache can still contain
+  // the initial binaryUploadState=pending document after account A has completed the
+  // R2 upload on the server. Account B must refresh that metadata from the server once
+  // before showing a placeholder. This also repairs a stale cache without clearing all
+  // Firestore offline data.
+  if (!hasUsableBinaryPointer(data) || String(data?.binaryUploadState || '') === 'pending') {
+    try {
+      const serverData = await readPhotoMeta(true);
+      if (serverData) data = serverData;
+    } catch (err) {
+      console.warn('[Photo Cloud] server metadata refresh warning:', photoId, err);
+    }
+  }
 
   const pointer = parseStoragePointer(data?.cloudFileId || data?.cloudUrl);
   const storagePath = String(data?.storagePath || pointer.path || '');
@@ -387,6 +418,25 @@ export async function downloadPhotoBlobFromCloud(projectId: string, photoId: str
 
   // Read-only compatibility for images uploaded before Firebase Storage migration.
   return downloadPhotoBlobFromFirestoreChunks(projectId, photoId, data?.mimeType || mimeType);
+}
+
+
+export async function verifyPhotoBinaryReadyInCloud(projectId: string, photoId: string): Promise<boolean> {
+  if (!projectId || !photoId) return false;
+  try {
+    const snap = await getDocFromServer(doc(db, 'projects', projectId, 'photos', photoId));
+    if (!snap.exists()) return false;
+    const data = snap.data() as any;
+    if (data?.deleted || data?.deletedAt) return false;
+    const pointer = parseStoragePointer(data?.cloudFileId || data?.cloudUrl);
+    const provider = String(data?.storageProvider || pointer.provider || '');
+    const storagePath = String(data?.storagePath || pointer.path || '');
+    return String(data?.binaryUploadState || '') === 'ready'
+      && Boolean(storagePath)
+      && (provider === 'r2' || provider === 'firebase-storage');
+  } catch (_) {
+    return false;
+  }
 }
 
 
