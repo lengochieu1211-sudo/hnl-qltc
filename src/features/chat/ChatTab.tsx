@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, CheckCheck, ImagePlus, Loader2, MessageCircle, MoreVertical, Reply, Send, Trash2, Pencil, WifiOff, X } from 'lucide-react';
+import { ArrowLeft, CheckCheck, ImagePlus, Loader2, MessageCircle, MoreVertical, Reply, Send, Trash2, Pencil, X } from 'lucide-react';
 import type { QueryDocumentSnapshot } from 'firebase/firestore';
 import { getCurrentRealFirebaseUser } from '../../lib/firebase';
 import {
@@ -87,10 +87,27 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeProjectId, projectName, 
   const [isPreparingAttachment, setIsPreparingAttachment] = useState(false);
   const [mentionOptions, setMentionOptions] = useState<Array<{ uid: string; email: string; name: string; role: string }>>([]);
   const [selectedMentions, setSelectedMentions] = useState<string[]>([]);
+  const [visualViewportHeight, setVisualViewportHeight] = useState(() =>
+    typeof window !== 'undefined' ? (window.visualViewport?.height || window.innerHeight) : 720
+  );
   const user = getCurrentRealFirebaseUser();
   const unread = Math.max(0, messageCount - lastReadMessageCount) || (lastMessageAt > lastReadAt ? 1 : 0);
 
   useEffect(() => startPresence(), []);
+
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    const update = () => setVisualViewportHeight(viewport?.height || window.innerHeight);
+    update();
+    viewport?.addEventListener('resize', update);
+    viewport?.addEventListener('scroll', update);
+    window.addEventListener('resize', update);
+    return () => {
+      viewport?.removeEventListener('resize', update);
+      viewport?.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+    };
+  }, []);
 
   useEffect(() => {
     if (!activeProjectId) return;
@@ -289,13 +306,6 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeProjectId, projectName, 
           </div>
         </div>
 
-        {!isPresenceConfigured && (
-          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 flex gap-2">
-            <WifiOff className="w-4 h-4 shrink-0 mt-0.5" />
-            <span>Trạng thái Online và “đang nhập…” hiện chưa được bật. Tin nhắn dự án vẫn hoạt động bình thường.</span>
-          </div>
-        )}
-
         <div className="space-y-2">
           {visibleProjects.map((project) => {
             const isActive = project.id === activeProjectId;
@@ -322,13 +332,16 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeProjectId, projectName, 
   }
 
   return (
-    <div className="max-w-3xl mx-auto h-[calc(100dvh-8rem)] pb-20 flex flex-col bg-white sm:rounded-2xl sm:border sm:border-slate-200 sm:shadow-sm overflow-hidden">
+    <div
+      className="max-w-3xl mx-auto flex flex-col bg-white sm:rounded-2xl sm:border sm:border-slate-200 sm:shadow-sm overflow-hidden"
+      style={{ height: `${Math.max(320, visualViewportHeight - 112)}px` }}
+    >
       <div className="shrink-0 px-3 py-2.5 border-b border-slate-200 flex items-center justify-between gap-2 bg-white">
         <div className="flex items-center gap-2 min-w-0">
           <button onClick={() => setView('projects')} className="w-9 h-9 rounded-xl hover:bg-slate-100 flex items-center justify-center"><ArrowLeft className="w-5 h-5" /></button>
           <div className="min-w-0">
             <div className="text-sm font-extrabold text-slate-900 truncate">{projectName}</div>
-            <div className="text-[10px] text-slate-500">Phòng dự án · {isPresenceConfigured ? 'Presence đã cấu hình' : 'Presence chưa bật'}</div>
+            <div className="text-[10px] text-slate-500">Phòng dự án · {isPresenceConfigured ? 'Trạng thái online hoạt động' : 'Tin nhắn realtime'}</div>
           </div>
         </div>
         <MoreVertical className="w-5 h-5 text-slate-500" />

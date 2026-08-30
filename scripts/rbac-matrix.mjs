@@ -17,6 +17,8 @@ const src = {
   header: read('src/components/GoogleAuthHeader.tsx'),
   config: read('src/components/GoogleConfigTab.tsx'),
   photos: read('src/components/PhotoAttachmentPicker.tsx'),
+  toast: read('src/components/DueDateToastNotifier.tsx'),
+  chat: read('src/features/chat/ChatTab.tsx'),
   firebase: read('src/lib/firebase.ts'),
   r2: read('cloudflare/r2-gateway/worker.js'),
   firestore: read('firestore.rules'),
@@ -76,6 +78,9 @@ check('Member list collapses physical aliases to canonical email', has(src.fireb
 check('Client resolves canonical email before UID fallback', src.firebase.indexOf('if (email) ids.add(email);') < src.firebase.indexOf('if (user.uid) ids.add(user.uid);'));
 check('Notification Defect navigation carries exact identity and floor', has(src.app, 'qlct_pending_defect_navigation', 'defectId: defect.id', 'floorId: defect.floorId'));
 check('FloorPlan consumes Defect deep-link and opens exact detail', has(src.floor, 'qlct_pending_defect_navigation', "setStatusFilter('all')", "setViewMode('defect')", 'setActiveDefectDetail(defect)', 'pendingFocusRef.current'));
+check('Mobile shell owns one soft-keyboard visualViewport gate', has(src.app, 'isSoftKeyboardOpen', 'window.visualViewport', 'obscured > 140', "activeTab !== 'chat' && !isSoftKeyboardOpen", '{!isSoftKeyboardOpen && ('));
+check('Mobile alert badge opens notification center without large overlay', has(src.toast, "window.matchMedia('(max-width: 639px)')", 'if (compact && onOpenNotificationCenter) onOpenNotificationCenter()', 'env(safe-area-inset-bottom)'));
+check('Chat composer follows VisualViewport and no longer reserves BottomNav space', has(src.chat, 'visualViewportHeight', 'window.visualViewport', 'visualViewportHeight - 112') && !src.chat.includes('pb-20 flex flex-col'));
 check('Viewer cannot read audit tab while Editor/Admin can', has(src.securityModal, 'canReadAudit', "currentRole === 'ADMIN' || currentRole === 'EDITOR'"));
 check('Project backup/restore surface is ADMIN-only', has(src.projects, 'canBackup = canManageBackups(effectiveRole)', '{canBackup ? ('));
 check('Project create/rename/delete/orphan maintenance is ADMIN-only in handlers and UI', has(src.projects, 'if (!canManage || !newProjectName.trim()) return;', 'if (!canManage || !editingProjectName.trim()) return;', 'if (!canManage || !confirmDeleteId) return;', 'if (!canManage || !orphan?.id || recoveringOrphanId) return;', 'const handleMergeDuplicateInto = async (target: ProjectInfo) => {\n    if (!canManage) return;', '{canManage && <>', '{canManage && deletedProjects.length > 0 && (', 'Fail closed on live role downgrade/account switch', 'if (!canManage || !onDriveSyncUpAll) return;', 'if (!canManage || !onDriveSyncDownAll) return;', '{hasDriveBackend && canManage && ('));

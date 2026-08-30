@@ -73,9 +73,16 @@ export const DueDateToastNotifier: React.FC<DueDateToastNotifierProps> = ({
   // Minimized Floating Badge Widget
   if (isMinimized) {
     return (
-      <div className="fixed bottom-20 sm:bottom-6 right-2 sm:right-6 z-40 animate-in fade-in slide-in-from-bottom-3 duration-200">
+      <div
+        className="fixed right-2 sm:right-6 z-40 animate-in fade-in slide-in-from-bottom-3 duration-200"
+        style={{ bottom: 'calc(4.5rem + env(safe-area-inset-bottom))' }}
+      >
         <button
-          onClick={() => setIsMinimized(false)}
+          onClick={() => {
+            const compact = typeof window !== 'undefined' && window.matchMedia('(max-width: 639px)').matches;
+            if (compact && onOpenNotificationCenter) onOpenNotificationCenter();
+            else setIsMinimized(false);
+          }}
           className="bg-slate-900/95 hover:bg-slate-800 text-white px-3.5 py-2 rounded-2xl shadow-2xl border border-slate-700/80 flex items-center gap-2 text-xs font-bold transition-all active:scale-95 cursor-pointer backdrop-blur-md group"
         >
           <div className="relative">
@@ -84,7 +91,8 @@ export const DueDateToastNotifier: React.FC<DueDateToastNotifierProps> = ({
               {visibleAlerts.length}
             </span>
           </div>
-          <span>Thông báo tiến độ/defect ({visibleAlerts.length})</span>
+          <span className="sm:hidden">Thông báo ({visibleAlerts.length})</span>
+          <span className="hidden sm:inline">Thông báo tiến độ/defect ({visibleAlerts.length})</span>
           <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
         </button>
       </div>
@@ -115,7 +123,10 @@ export const DueDateToastNotifier: React.FC<DueDateToastNotifierProps> = ({
                     currentAlert.type === 'checklist' ? 'Checklist' : 'Defect';
 
   return (
-    <div className="fixed bottom-20 sm:bottom-6 right-2 sm:right-6 z-40 w-[calc(100vw-1rem)] max-w-[25rem] animate-in fade-in slide-in-from-bottom-5 duration-300">
+    <div
+      className="fixed right-2 sm:right-6 z-40 w-[calc(100vw-1rem)] max-w-[25rem] animate-in fade-in slide-in-from-bottom-5 duration-300"
+      style={{ bottom: 'calc(4.5rem + env(safe-area-inset-bottom))' }}
+    >
       <div className={`rounded-2xl p-3.5 sm:p-4 shadow-2xl border backdrop-blur-md transition-all space-y-3 max-h-[46vh] overflow-y-auto ${cardBg}`}>
         {/* Header Row */}
         <div className="flex items-center justify-between border-b border-white/10 pb-2">

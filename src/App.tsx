@@ -239,6 +239,7 @@ export default function App() {
   const [projectRoleSource, setProjectRoleSource] = useState<'cloud' | 'offline-cache' | 'unresolved'>('unresolved');
   const [projectRoleAllowed, setProjectRoleAllowed] = useState(false);
   const [isOnline, setIsOnline] = useState<boolean>(() => typeof navigator === 'undefined' ? true : navigator.onLine);
+  const [isSoftKeyboardOpen, setIsSoftKeyboardOpen] = useState(false);
   const [cloudDefectIndex, setCloudDefectIndex] = useState<{ projectId: string; ids: Set<string> } | null>(null);
   const [trashSettings, setTrashSettings] = useState<TrashSettings>(DEFAULT_TRASH_SETTINGS);
   const trashSettingsRef = useRef<TrashSettings>(DEFAULT_TRASH_SETTINGS);
@@ -255,6 +256,24 @@ export default function App() {
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const updateKeyboardState = () => {
+      // Android/iOS keyboard normally reduces VisualViewport by >140px. Small browser
+      // chrome changes must not hide the navigation bar.
+      const obscured = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+      setIsSoftKeyboardOpen(obscured > 140);
+    };
+    updateKeyboardState();
+    viewport.addEventListener('resize', updateKeyboardState);
+    viewport.addEventListener('scroll', updateKeyboardState);
+    return () => {
+      viewport.removeEventListener('resize', updateKeyboardState);
+      viewport.removeEventListener('scroll', updateKeyboardState);
     };
   }, []);
 
@@ -5842,7 +5861,7 @@ export default function App() {
       {/* Mobile & Responsive Shell Frame */}
       <div
         className="w-full max-w-lg md:max-w-3xl lg:max-w-5xl mx-auto bg-slate-50 min-h-screen shadow-2xl relative border-x border-slate-200 overflow-x-hidden"
-        style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom))' }}
+        style={{ paddingBottom: isSoftKeyboardOpen ? '0px' : 'calc(5rem + env(safe-area-inset-bottom))' }}
       >
         {/* Sticky Top Header */}
         <GoogleAuthHeader
@@ -6320,14 +6339,16 @@ export default function App() {
           }}
         />
 
-        {/* Floating Due Date Toast Notification */}
-        <DueDateToastNotifier
-          workVolumes={workVolumes}
-          checklist={activeChecklist}
-          defects={activeDefects}
-          onNavigateToItem={handleNavigateFromAlert}
-          onOpenNotificationCenter={() => setIsNotificationCenterOpen(true)}
-        />
+        {/* Floating alerts never compete with the chat composer / soft keyboard. */}
+        {activeTab !== 'chat' && !isSoftKeyboardOpen && (
+          <DueDateToastNotifier
+            workVolumes={workVolumes}
+            checklist={activeChecklist}
+            defects={activeDefects}
+            onNavigateToItem={handleNavigateFromAlert}
+            onOpenNotificationCenter={() => setIsNotificationCenterOpen(true)}
+          />
+        )}
 
         {/* Full Notification Center Modal */}
         <NotificationCenterModal
@@ -6342,7 +6363,7 @@ export default function App() {
           onOpenChat={() => { setIsNotificationCenterOpen(false); setActiveTab('chat'); }}
         />
 
-        {chatToast && activeTab !== 'chat' && (
+        {chatToast && activeTab !== 'chat' && !isSoftKeyboardOpen && (
           <button
             type="button"
             onClick={() => { setChatToast(null); setActiveTab('chat'); }}
@@ -6353,13 +6374,15 @@ export default function App() {
           </button>
         )}
 
-        {/* Fixed Mobile Bottom Navigation Bar */}
-        <BottomNav
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          defectBadgeCount={unhandledDefectsCount}
-          chatBadgeCount={chatUnreadCount}
-        />
+        {/* Fixed navigation is hidden while the OS keyboard owns the visual viewport. */}
+        {!isSoftKeyboardOpen && (
+          <BottomNav
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            defectBadgeCount={unhandledDefectsCount}
+            chatBadgeCount={chatUnreadCount}
+          />
+        )}
 
         {/* Security & Access Control Modal */}
         <SecurityModal

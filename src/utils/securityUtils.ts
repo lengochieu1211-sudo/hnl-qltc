@@ -25,6 +25,8 @@ export interface ProjectMember {
   assignedAt: number;
   uid?: string;
   displayName?: string;
+  active?: boolean;
+  updatedAt?: number;
 }
 
 export interface AuditLogEntry {
