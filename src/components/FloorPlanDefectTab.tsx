@@ -577,7 +577,7 @@ const DefectPhotoStrip: React.FC<DefectPhotoStripProps> = ({
   const openGallery = async () => {
     if (totalCount <= 0) return;
     const fullStoredImages = await Promise.all(
-      photos.map((photo) => getPhotoDataUrl(photo.id, photo.cloudUrl || photo.localUri, false))
+      photos.map((photo) => getPhotoDataUrl(photo.id, photo.cloudUrl || photo.cloudFileId || photo.localUri, false, projectId))
     );
     const images = [...legacyImages, ...fullStoredImages.filter(Boolean)];
     if (images.length > 0) onOpen(images, 0);
@@ -884,11 +884,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       if (!defect) {
         sessionStorage.removeItem('qlct_pending_defect_navigation');
         console.warn('[Defect navigation] Target no longer exists or is archived:', pending?.defectId);
+        alert('Defect này không còn tồn tại hoặc đã được lưu trữ. Không có Defect khác được mở thay thế.');
         return;
       }
       if (!floorPlans.some((floor) => floor.id === defect.floorId)) {
         sessionStorage.removeItem('qlct_pending_defect_navigation');
         console.warn('[Defect navigation] Target floor no longer exists:', defect.floorId);
+        alert('Không thể mở Defect vì mặt bằng/tầng liên quan không còn tồn tại. Không có Defect khác được mở thay thế.');
         return;
       }
 

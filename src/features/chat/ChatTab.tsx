@@ -40,7 +40,7 @@ const ChatImage: React.FC<{ projectId: string; attachment: ChatAttachment }> = (
     let objectUrl = '';
     (async () => {
       if (!photoId) return;
-      const local = await getPhotoDataUrl(photoId, '', true).catch(() => '');
+      const local = await getPhotoDataUrl(photoId, '', true, projectId).catch(() => '');
       if (local) {
         if (!cancelled) setSrc(local);
         return;

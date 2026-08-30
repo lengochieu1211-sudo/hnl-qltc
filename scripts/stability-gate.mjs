@@ -29,6 +29,8 @@ const sw = read('public/sw.js');
 const swRegistration = read('src/serviceWorkerRegistration.ts');
 const photoSync = read('src/lib/photoCloudSync.ts');
 const photoStorage = read('src/utils/photoStorage.ts');
+const photoPicker = read('src/components/PhotoAttachmentPicker.tsx');
+const exportPdf = read('src/components/ExportPdfModal.tsx');
 const floorPlanSync = read('src/lib/floorPlanImageSync.ts');
 const firebaseStorage = read('src/lib/firebaseStorage.ts');
 const binaryStorage = read('src/lib/binaryStorage.ts');
@@ -50,7 +52,7 @@ if (!appVersion.includes('__APP_VERSION__') || appVersion.includes("APP_VERSION 
 requireAll(buildMeta, ['appVersion: APP_VERSION', 'buildId:', 'gitCommit:', 'buildTime:', 'environment:', 'platformFromLocation'], 'runtime build metadata');
 if (mergeWorkflow.includes('VITE_APP_VERSION') || prWorkflow.includes('VITE_APP_VERSION') || buildWorkflow.includes('VITE_APP_VERSION')) fail('workflow must not hard-code app version');
 requireAll(read('android-wrapper/build-apk.ps1'), ['package.json', '$appVersion', '$versionCode', '$releaseTag', 'https://hnlqltc.web.app/?app=android'], 'Android version/source URL');
-requireAll(read('.github/workflows/android-apk.yml'), ['windows-latest', 'actions/upload-artifact@v4', 'QLCT_WEB_URL: https://hnlqltc.web.app/?app=android', 'QLCT_RELEASE_TAG: 6.3.0-rc2.2.7'], 'Android APK CI');
+requireAll(read('.github/workflows/android-apk.yml'), ['windows-latest', 'actions/upload-artifact@v4', 'QLCT_WEB_URL: https://hnlqltc.web.app/?app=android', 'QLCT_RELEASE_TAG: 6.3.0-rc2.2.8'], 'Android APK CI');
 requireAll(read('desktop-wrapper/build-launcher.ps1'), ['package.json', '$version', 'AssemblyInformationalVersion'], 'Windows version source');
 if (!authHeader.includes('src={`/icon.png?v=${APP_VERSION}`}')) fail('header asset cache-bust does not use canonical APP_VERSION');
 pass('V6.3.0 single-source version/build metadata');
@@ -102,6 +104,21 @@ requireAll(binaryStorage, ['BINARY_STORAGE_PROVIDER', "'r2'", "'firebase-storage
 requireAll(r2Storage, ['VITE_R2_GATEWAY_URL', 'Authorization', 'uploadProjectBinaryToR2', 'uploadFloorPlanBinaryToR2', 'downloadR2Blob'], 'R2 client');
 requireAll(r2Worker, ['HNL_QLTC_MEDIA', 'FIREBASE_PROJECT_ID', 'firestore.googleapis.com', 'canWrite', "area === 'floor-plans'", "role === 'ADMIN'", "role === 'EDITOR'"], 'R2 gateway RBAC');
 requireAll(photoSync, ['uploadProjectBinaryToCloud', 'BINARY_STORAGE_PROVIDER', 'storagePath:', 'thumbnailPath:', 'photoSnapshotMergeQueue'], 'photo object-storage pipeline');
+requireAll(photoStorage, [
+  "raw.startsWith('r2:')",
+  "raw.startsWith('storage:')",
+  'projectIdHint',
+  'downloadPhotoBlobFromCloud',
+  'Never hand an opaque `r2:` / `storage:` / `firestore:` reference to <img src>',
+], 'cross-account photo binary resolver');
+requireAll(photoPicker, [
+  'getPhotoDataUrl(p.id, p.cloudUrl || p.cloudFileId, true, projectId)',
+  'getPhotoDataUrl(photo.id, photo.cloudUrl || photo.cloudFileId, false, projectId)',
+  'isDirectPhotoUrl',
+], 'PhotoAttachmentPicker authenticated cloud rendering');
+requireAll(floorPlanDefect, ['photo.cloudUrl || photo.cloudFileId || photo.localUri', 'false, projectId'], 'Defect gallery cloud rendering');
+requireAll(exportPdf, ['p.cloudUrl || p.cloudFileId || p.localUri', 'activeProjectId'], 'PDF photo cloud rendering');
+pass('cross-account/device photo metadata resolves private R2/Storage binary instead of rendering opaque pointers');
 requireAll(floorPlanSync, ['uploadFloorPlanBinaryToCloud', 'BINARY_STORAGE_PROVIDER', 'storagePath:', 'thumbnailPath:'], 'floor-plan object-storage pipeline');
 if (photoSync.includes('uploadPhotoToPrimaryDrive(')) fail('photo runtime still has a Drive upload call');
 if (floorPlanSync.includes('uploadFloorPlanToPrimaryDrive(')) fail('floor-plan runtime still has a Drive upload call');

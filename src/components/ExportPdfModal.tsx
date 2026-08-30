@@ -163,7 +163,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
 
         for (const p of photos) {
           if (!p.id || p.deleted) continue;
-          const url = await getPhotoDataUrl(p.id, p.localUri, false);
+          const url = await getPhotoDataUrl(p.id, p.cloudUrl || p.cloudFileId || p.localUri, false, activeProjectId);
           if (!url) continue;
 
           if (p.entityType === 'crewRecord' && p.entityId) {

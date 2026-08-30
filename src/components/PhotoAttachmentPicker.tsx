@@ -30,6 +30,11 @@ const revokeBlobUrl = (url?: string) => {
   }
 };
 
+const isDirectPhotoUrl = (url?: string) => {
+  const value = String(url || '').trim();
+  return value.startsWith('blob:') || value.startsWith('data:image/') || value.startsWith('http://') || value.startsWith('https://');
+};
+
 
 export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
   projectId,
@@ -78,7 +83,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
       const urlMap: Record<string, string> = {};
       await Promise.all(
         items.map(async (p) => {
-          const url = p.localUri || await getPhotoDataUrl(p.id, p.cloudUrl || p.cloudFileId, true);
+          const url = p.localUri || await getPhotoDataUrl(p.id, p.cloudUrl || p.cloudFileId, true, projectId);
           if (url) urlMap[p.id] = url;
         })
       );
@@ -264,7 +269,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
     e.preventDefault();
     e.stopPropagation();
     try {
-      const fullUrl = await getPhotoDataUrl(photo.id, photo.cloudUrl || photo.cloudFileId, false);
+      const fullUrl = await getPhotoDataUrl(photo.id, photo.cloudUrl || photo.cloudFileId, false, projectId);
       if (fullUrl) {
         if (editingPhoto?.url) revokeBlobUrl(editingPhoto.url);
         setEditingPhoto({ id: photo.id, url: fullUrl });
@@ -307,7 +312,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
     }
     return photoSortOrder === 'asc' ? comparison : -comparison;
   });
-  const photoImageUrls = sortedPhotos.map(p => photoDataUrls[p.id] || p.localUri || p.cloudUrl || '');
+  const photoImageUrls = sortedPhotos.map(p => photoDataUrls[p.id] || p.localUri || (isDirectPhotoUrl(p.cloudUrl) ? p.cloudUrl! : ''));
   const imageUrls = photoImageUrls.filter(Boolean);
 
   return (
@@ -379,7 +384,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
       ) : (
         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
           {sortedPhotos.map((photo, index) => {
-            const url = photoDataUrls[photo.id] || photo.localUri || photo.cloudUrl;
+            const url = photoDataUrls[photo.id] || photo.localUri || (isDirectPhotoUrl(photo.cloudUrl) ? photo.cloudUrl : '');
             return (
               <div
                 key={photo.id}
