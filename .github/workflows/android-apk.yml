@@ -47,7 +47,7 @@ jobs:
       VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
       VITE_GIT_COMMIT: ${{ github.sha }}
       QLCT_WEB_URL: https://hnlqltc.web.app/?app=android
-      QLCT_RELEASE_TAG: 6.3.0-rc2.2.11
+      QLCT_RELEASE_TAG: 6.3.0-rc2.2.12
       QLCT_ANDROID_KEYSTORE_BASE64: ${{ secrets.QLCT_ANDROID_KEYSTORE_BASE64 }}
       QLCT_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.QLCT_ANDROID_KEYSTORE_PASSWORD }}
       # The fixed HNL release keystore is PKCS12. PKCS12 uses one effective
