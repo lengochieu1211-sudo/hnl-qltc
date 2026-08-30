@@ -313,6 +313,60 @@ public class MainActivity extends Activity {
         }
     }
 
+    private long getContentUriSize(Uri uri) {
+        if (uri == null) return -1L;
+        Cursor cursor = null;
+        try {
+            cursor = getContentResolver().query(
+                    uri,
+                    new String[]{MediaStore.MediaColumns.SIZE},
+                    null,
+                    null,
+                    null);
+            if (cursor != null && cursor.moveToFirst()) {
+                int index = cursor.getColumnIndex(MediaStore.MediaColumns.SIZE);
+                if (index >= 0 && !cursor.isNull(index)) {
+                    return cursor.getLong(index);
+                }
+            }
+        } catch (Exception ignored) {
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+        return -1L;
+    }
+
+    private void deliverCameraImageWhenReady(final Uri cameraUri, final int attempt) {
+        if (filePathCallback == null) return;
+
+        long size = getContentUriSize(cameraUri);
+        if (size > 0L) {
+            ValueCallback<Uri[]> callback = filePathCallback;
+            filePathCallback = null;
+            pendingCameraImageUri = null;
+            callback.onReceiveValue(new Uri[]{cameraUri});
+            return;
+        }
+
+        // Some OEM camera apps return RESULT_OK before MediaStore has flushed the
+        // JPEG bytes. Passing the URI immediately makes Android WebView expose a
+        // zero-byte File and the web compressor reports "Khong doc duoc anh".
+        // Wait briefly for MediaStore to publish a non-empty image instead.
+        if (attempt < 10) {
+            new Handler(Looper.getMainLooper()).postDelayed(
+                    () -> deliverCameraImageWhenReady(cameraUri, attempt + 1),
+                    180L);
+            return;
+        }
+
+        ValueCallback<Uri[]> callback = filePathCallback;
+        filePathCallback = null;
+        pendingCameraImageUri = null;
+        try { getContentResolver().delete(cameraUri, null, null); } catch (Exception ignored) {}
+        showToast("Camera chua ghi xong anh. Vui long chup lai.");
+        callback.onReceiveValue(null);
+    }
+
     private void deletePendingCameraImage() {
         if (pendingCameraImageUri != null) {
             try {
@@ -1103,12 +1157,15 @@ public class MainActivity extends Activity {
                     }
                 }
             }
-            if (!usedCameraImage) {
-                deletePendingCameraImage();
-            } else {
-                pendingCameraImageUri = null;
+            if (usedCameraImage && pendingCameraImageUri != null) {
+                // RC2.2.10: wait for OEM Camera/MediaStore to flush a non-empty JPEG
+                // before handing the URI to WebView. This prevents intermittent
+                // zero-byte camera Files on Xiaomi/other Android devices.
+                deliverCameraImageWhenReady(pendingCameraImageUri, 0);
+                return;
             }
 
+            deletePendingCameraImage();
             filePathCallback.onReceiveValue(results);
             filePathCallback = null;
         } else if (requestCode == EXPORT_CREATE_DOCUMENT_REQUEST) {

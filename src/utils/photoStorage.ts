@@ -204,9 +204,12 @@ export async function savePhotoAttachment(
   // Base64 copy of the main photo before storing it; this is critical on Android.
   const photoKind = photo.entityType === 'defect' ? 'defect' : 'crew';
   const profile = getImageQualityProfile(photoKind);
+  if (imageSource instanceof Blob && imageSource.size <= 0) {
+    throw new Error('Ảnh camera chưa ghi xong hoặc tệp ảnh đang rỗng. Hãy chụp/chọn lại ảnh sau 1–2 giây.');
+  }
   const mainBlob = await compressImageToBlob(imageSource, profile.maxDimension, profile.quality);
   if (!mainBlob || mainBlob.size <= 0) {
-    throw new Error('Không đọc được ảnh đã chọn/chụp. Hãy dùng ảnh JPG, PNG hoặc WebP và thử lại.');
+    throw new Error('Không giải mã được ảnh trên Android/WebView. Hãy dùng JPG, PNG hoặc WebP; nếu vừa chụp, chờ 1–2 giây rồi thử lại.');
   }
 
   // 2. Build a tiny 320px thumbnail from the already-compressed Blob. This keeps

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Camera, Image as ImageIcon, Images, Eye, Loader2, X, Pencil } from 'lucide-react';
 import { PhotoAttachment, getEntityPhotos, getProjectPhotos, savePhotoAttachment, deletePhotoAttachment, getPhotoDataUrl, updatePhotoAttachmentBlob, resetPhotoRuntimeMemoryCache } from '../utils/photoStorage';
-import { uploadPhotoToCloud, verifyPhotoBinaryReadyInCloud } from '../lib/photoCloudSync';
+import { refreshProjectPhotoMetadataFromCloud, uploadPhotoToCloud, verifyPhotoBinaryReadyInCloud } from '../lib/photoCloudSync';
 import { getCurrentRealFirebaseUser, onAuthUserChanged } from '../lib/firebase';
 import { ImageViewerModal } from './ImageViewerModal';
 import { ImageEditorModal } from './ImageEditorModal';
@@ -36,6 +36,8 @@ const isDirectPhotoUrl = (url?: string) => {
   return value.startsWith('blob:') || value.startsWith('data:image/') || value.startsWith('http://') || value.startsWith('https://');
 };
 
+
+const photoPickerServerRefreshKeys = new Set<string>();
 
 export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
   projectId,
@@ -78,7 +80,18 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
     }
     setLoading(true);
     try {
-      const items = await getEntityPhotos(projectId, entityType, entityId, category);
+      let items = await getEntityPhotos(projectId, entityType, entityId, category);
+      // If the gallery mounts before this account's initial photo snapshot has merged,
+      // do one server metadata refresh instead of showing a stale 0/10 until another
+      // Firestore event/tab change. The auth UID is part of the key so account switching
+      // on the same phone gets an independent first refresh. Photo binaries remain lazy.
+      const authUid = getCurrentRealFirebaseUser()?.uid || 'signed-out';
+      const refreshKey = `${authUid}:${projectId}:${entityType}:${entityId}:${category}`;
+      if (items.length === 0 && typeof navigator !== 'undefined' && navigator.onLine && !photoPickerServerRefreshKeys.has(refreshKey)) {
+        photoPickerServerRefreshKeys.add(refreshKey);
+        await refreshProjectPhotoMetadataFromCloud(projectId).catch(() => {});
+        items = await getEntityPhotos(projectId, entityType, entityId, category);
+      }
       setPhotos(items);
       
       // Load data URLs / thumbnails asynchronously
@@ -138,15 +151,17 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
 
   useEffect(() => {
     // Same origin + same phone can keep the component mounted while Firebase switches
-    // account. Drop only the in-memory photo metadata cache (never the Blob/outbox) and
-    // reload under the new identity so account B cannot inherit account A's pending view.
-    let first = true;
-    const unsubscribeAuth = onAuthUserChanged(() => {
+    // account. IMPORTANT: Firebase auth listeners emit the current user immediately on
+    // subscription. RC2.2.9 cleared the shared realtime photo-memory cache on that first
+    // emission, so expanding a gallery could temporarily turn an already-synced `3 ảnh`
+    // counter into an empty `0/10` gallery until the next Firestore snapshot arrived.
+    // Only invalidate/reload when the UID actually changes.
+    let lastUid = getCurrentRealFirebaseUser()?.uid || '';
+    const unsubscribeAuth = onAuthUserChanged((user) => {
+      const nextUid = user?.uid || '';
+      if (nextUid === lastUid) return;
+      lastUid = nextUid;
       resetPhotoRuntimeMemoryCache();
-      if (first) {
-        first = false;
-        return;
-      }
       void loadPhotos();
     });
     return () => unsubscribeAuth();

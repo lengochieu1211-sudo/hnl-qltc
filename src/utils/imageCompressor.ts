@@ -201,7 +201,7 @@ export const compressImageToBlob = async (
 
   // Compatibility fallback for older browsers. Uses an object URL (not raw Base64)
   // and releases it immediately. Camera JPEGs on modern Android should use the fast path above.
-  return await new Promise<Blob | null>((resolve) => {
+  const compatibilityResult = await new Promise<Blob | null>((resolve) => {
     let objectUrl = '';
     const img = new Image();
     const cleanup = () => {
@@ -254,6 +254,19 @@ export const compressImageToBlob = async (
       resolve(null);
     }
   });
+
+  if (compatibilityResult && compatibilityResult.size > 0) return compatibilityResult;
+
+  // RC2.2.10 Android/WebView last-resort path: some OEM WebViews can read a valid
+  // camera JPEG/PNG/WebP header but fail canvas/createImageBitmap encoding. For the
+  // main photo only, keep the original supported Blob instead of rejecting the photo
+  // outright. Thumbnail calls (320/480px) intentionally do not use this path.
+  if (dimensions && maxDimension >= 1024 && sourceBlob.size <= 20 * 1024 * 1024) {
+    console.warn('Image decode/encode fallback: preserving original supported Blob for durable upload.');
+    return sourceBlob;
+  }
+
+  return null;
 };
 
 /**
