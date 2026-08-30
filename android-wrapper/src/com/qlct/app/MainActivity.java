@@ -2,6 +2,7 @@ package com.qlct.app;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.ClipData;
 import android.content.ContentValues;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
@@ -15,6 +16,7 @@ import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
+import android.provider.OpenableColumns;
 import android.print.PrintAttributes;
 import android.print.PrintDocumentAdapter;
 import android.print.PrintManager;
@@ -34,11 +36,16 @@ import android.widget.Toast;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.InputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.Map;
 
 import org.json.JSONObject;
@@ -57,6 +64,7 @@ public class MainActivity extends Activity {
     private WebView printWebView;
     private ValueCallback<Uri[]> filePathCallback;
     private Uri pendingCameraImageUri;
+    private boolean fileChooserDirectCamera = false;
     private String startUrl = LOCAL_FALLBACK_URL;
     private boolean loadedFallback = false;
     private PendingExport pendingExport;
@@ -89,14 +97,18 @@ public class MainActivity extends Activity {
                 }
 
                 filePathCallback = callback;
+                fileChooserDirectCamera = false;
+                deletePendingCameraImage();
                 try {
                     Intent intent;
-                    // For <input capture="environment"> open the camera directly.
-                    // Older code always opened a chooser containing Camera, which is unreliable
-                    // in several Android System WebView / Xiaomi builds.
+                    // RC2.2.12: camera and gallery are separate paths. The web UI already has
+                    // separate "Chup anh" / "Thu vien" controls; never inject Camera into
+                    // the gallery chooser because some OEM pickers return an ambiguous result.
                     if (params != null && params.isCaptureEnabled() && acceptsImages(params)) {
                         intent = buildCameraCaptureIntent();
-                        if (intent == null) {
+                        if (intent != null) {
+                            fileChooserDirectCamera = true;
+                        } else {
                             intent = buildFileChooserIntent(params);
                         }
                     } else {
@@ -232,23 +244,118 @@ public class MainActivity extends Activity {
 
     private Intent buildFileChooserIntent(WebChromeClient.FileChooserParams params) {
         boolean imageOnly = acceptsImages(params);
-
-        Intent contentIntent = new Intent(Intent.ACTION_GET_CONTENT);
+        Intent contentIntent = new Intent(Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT
+                ? Intent.ACTION_OPEN_DOCUMENT : Intent.ACTION_GET_CONTENT);
         contentIntent.addCategory(Intent.CATEGORY_OPENABLE);
         contentIntent.setType(imageOnly ? "image/*" : "*/*");
+        contentIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+            contentIntent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
             contentIntent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,
                     params != null && params.getMode() == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE);
         }
+        return Intent.createChooser(contentIntent, imageOnly ? "Chon anh tu Thu vien" : "Chon tep");
+    }
 
-        Intent chooser = Intent.createChooser(contentIntent, imageOnly ? "Chon hoac chup anh" : "Chon tep");
-        if (imageOnly) {
-            Intent cameraIntent = buildCameraCaptureIntent();
-            if (cameraIntent != null) {
-                chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, new Intent[]{cameraIntent});
+    private Uri[] extractGalleryResultUris(Intent data) {
+        if (data == null) return new Uri[0];
+        List<Uri> uris = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        ClipData clip = data.getClipData();
+        if (clip != null) {
+            for (int i = 0; i < clip.getItemCount(); i++) {
+                Uri uri = clip.getItemAt(i).getUri();
+                if (uri != null && seen.add(uri.toString())) uris.add(uri);
             }
         }
-        return chooser;
+        Uri single = data.getData();
+        if (single != null && seen.add(single.toString())) uris.add(single);
+        if (uris.isEmpty()) {
+            Uri[] parsed = WebChromeClient.FileChooserParams.parseResult(RESULT_OK, data);
+            if (parsed != null) for (Uri uri : parsed) if (uri != null && seen.add(uri.toString())) uris.add(uri);
+        }
+        return uris.toArray(new Uri[0]);
+    }
+
+    private String queryDisplayName(Uri uri, int index) {
+        Cursor cursor = null;
+        try {
+            cursor = getContentResolver().query(uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null);
+            if (cursor != null && cursor.moveToFirst()) {
+                int column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                if (column >= 0 && !cursor.isNull(column)) {
+                    String name = sanitizeFileName(cursor.getString(column));
+                    if (name.length() > 0) return name;
+                }
+            }
+        } catch (Exception ignored) {
+        } finally { if (cursor != null) cursor.close(); }
+        return "gallery_" + System.currentTimeMillis() + "_" + index + ".jpg";
+    }
+
+    private String extensionForMime(String mimeType) {
+        String mime = mimeType == null ? "" : mimeType.toLowerCase();
+        if (mime.contains("png")) return ".png";
+        if (mime.contains("webp")) return ".webp";
+        if (mime.contains("gif")) return ".gif";
+        if (mime.contains("heic") || mime.contains("heif")) return ".heic";
+        return ".jpg";
+    }
+
+    private Uri copyGalleryUriToStableCache(Uri sourceUri, int index) throws IOException {
+        if (sourceUri == null) throw new IOException("Gallery URI missing");
+        String mimeType = getContentResolver().getType(sourceUri);
+        String displayName = queryDisplayName(sourceUri, index);
+        if (!displayName.contains(".")) displayName += extensionForMime(mimeType);
+        displayName = "pick_" + System.currentTimeMillis() + "_" + index + "_" + displayName;
+        File dir = new File(getCacheDir(), PickerCacheProvider.CACHE_DIR);
+        if (!dir.exists() && !dir.mkdirs()) throw new IOException("Cannot create picker cache");
+        long cutoff = System.currentTimeMillis() - 24L * 60L * 60L * 1000L;
+        File[] oldFiles = dir.listFiles();
+        if (oldFiles != null) for (File old : oldFiles) if (old.isFile() && old.lastModified() < cutoff) old.delete();
+        File target = new File(dir, displayName);
+        long total = 0L;
+        InputStream input = getContentResolver().openInputStream(sourceUri);
+        if (input == null) throw new IOException("Gallery stream unavailable");
+        FileOutputStream output = new FileOutputStream(target);
+        try {
+            byte[] buffer = new byte[64 * 1024];
+            int read;
+            while ((read = input.read(buffer)) != -1) if (read > 0) { output.write(buffer, 0, read); total += read; }
+            output.flush();
+        } finally {
+            try { input.close(); } catch (Exception ignored) {}
+            try { output.close(); } catch (Exception ignored) {}
+        }
+        if (total <= 0L || target.length() <= 0L) {
+            target.delete();
+            throw new IOException("Gallery returned an empty image");
+        }
+        return new Uri.Builder().scheme("content").authority(PickerCacheProvider.AUTHORITY).appendPath(target.getName()).build();
+    }
+
+    private void deliverGalleryUrisThroughStableCache(final Intent data) {
+        final ValueCallback<Uri[]> callback = filePathCallback;
+        filePathCallback = null;
+        if (callback == null) return;
+        final Uri[] sourceUris = extractGalleryResultUris(data);
+        if (sourceUris.length == 0) { callback.onReceiveValue(null); return; }
+        new Thread(() -> {
+            List<Uri> stableUris = new ArrayList<>();
+            String failure = null;
+            for (int i = 0; i < sourceUris.length; i++) {
+                try { stableUris.add(copyGalleryUriToStableCache(sourceUris[i], i)); }
+                catch (Exception error) { failure = error.getMessage(); break; }
+            }
+            final Uri[] result = failure == null ? stableUris.toArray(new Uri[0]) : null;
+            final String errorMessage = failure;
+            runOnUiThread(() -> {
+                if (errorMessage != null) showToast("Khong doc duoc anh Thu vien: " + errorMessage);
+                callback.onReceiveValue(result);
+            });
+        }, "qlct-gallery-copy").start();
     }
 
     private boolean acceptsImages(WebChromeClient.FileChooserParams params) {
@@ -1140,34 +1247,29 @@ public class MainActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
 
         if (requestCode == FILE_CHOOSER_REQUEST && filePathCallback != null) {
-            Uri[] results = null;
-            if (resultCode == RESULT_OK) {
-                results = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
-                if ((results == null || results.length == 0) && pendingCameraImageUri != null) {
-                    results = new Uri[]{pendingCameraImageUri};
+            if (fileChooserDirectCamera) {
+                fileChooserDirectCamera = false;
+                if (resultCode == RESULT_OK && pendingCameraImageUri != null) {
+                    // Camera-only path keeps the OEM MediaStore flush guard. Gallery can never
+                    // enter this path, so it can no longer show the camera-not-ready toast.
+                    deliverCameraImageWhenReady(pendingCameraImageUri, 0);
+                    return;
                 }
-            }
-
-            boolean usedCameraImage = false;
-            if (results != null && pendingCameraImageUri != null) {
-                for (Uri resultUri : results) {
-                    if (pendingCameraImageUri.equals(resultUri)) {
-                        usedCameraImage = true;
-                        break;
-                    }
-                }
-            }
-            if (usedCameraImage && pendingCameraImageUri != null) {
-                // RC2.2.10: wait for OEM Camera/MediaStore to flush a non-empty JPEG
-                // before handing the URI to WebView. This prevents intermittent
-                // zero-byte camera Files on Xiaomi/other Android devices.
-                deliverCameraImageWhenReady(pendingCameraImageUri, 0);
+                deletePendingCameraImage();
+                ValueCallback<Uri[]> callback = filePathCallback;
+                filePathCallback = null;
+                callback.onReceiveValue(null);
                 return;
             }
 
             deletePendingCameraImage();
-            filePathCallback.onReceiveValue(results);
-            filePathCallback = null;
+            if (resultCode == RESULT_OK && data != null) {
+                deliverGalleryUrisThroughStableCache(data);
+            } else {
+                ValueCallback<Uri[]> callback = filePathCallback;
+                filePathCallback = null;
+                callback.onReceiveValue(null);
+            }
         } else if (requestCode == EXPORT_CREATE_DOCUMENT_REQUEST) {
             PendingExport export;
             synchronized (this) {

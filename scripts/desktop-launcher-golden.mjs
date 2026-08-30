@@ -25,7 +25,7 @@ assert(!launcher.includes('Service Worker') && !launcher.includes('CacheStorage'
 assert(launcher.includes('Google') && launcher.includes('Chrome'), 'Chrome fallback is available when Edge is unavailable');
 assert(build.includes('HNL-QLTC-Windows.exe'), 'build script creates one portable Windows EXE');
 assert(build.includes('release-tag.txt'), 'build script uses release tag for cache/version isolation');
-assert(releaseTag === '6.3.0-rc2.2.11', 'desktop release tag matches RC2.2.11');
+assert(releaseTag === '6.3.0-rc2.2.13', 'desktop release tag matches RC2.2.13');
 
 assert(iconSource.width >= 1024 && iconSource.height >= 1024 && iconSource.bytes > 1_000_000, 'HQ HNL logo source is retained at >=1024px');
 assert(build.includes("public\\icon.png"), 'EXE icon is generated from the canonical HNL logo source');

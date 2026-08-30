@@ -1,6 +1,7 @@
 import { FIREBASE_EMULATOR_ENABLED } from './firebase';
 import {
   downloadStorageBlob,
+  readStorageMetadata,
   uploadFloorPlanBinary,
   uploadProjectBinary,
   type FirebaseBinaryUploadResult,
@@ -9,6 +10,7 @@ import {
 import {
   downloadR2Blob,
   isR2Configured,
+  verifyR2ObjectReady,
   uploadFloorPlanBinaryToR2,
   uploadProjectBinaryToR2,
 } from './r2Storage';
@@ -47,6 +49,9 @@ export function binaryStorageReady(): boolean {
 
 export async function uploadProjectBinaryToCloud(input: ProjectBinaryUploadInput): Promise<BinaryUploadResult> {
   if (BINARY_STORAGE_PROVIDER === 'firebase-storage') return mapFirebase(await uploadProjectBinary(input));
+  // RC2.2.13: PROD media has one write authority only: private Cloudflare R2.
+  // If R2 is unavailable, callers keep the Blob in the account-scoped outbox and
+  // retry R2. Do not silently write new media to a second provider.
   const result = await uploadProjectBinaryToR2(input);
   return {
     provider: 'r2', storagePath: result.storagePath, thumbnailPath: result.thumbnailPath,
@@ -69,4 +74,25 @@ export async function downloadBinaryBlob(provider: string | null | undefined, st
   if (provider === 'firebase-storage') return downloadStorageBlob(storagePath);
   if (String(provider || '').startsWith('r2')) return downloadR2Blob(storagePath);
   return downloadStorageBlob(storagePath);
+}
+
+export async function verifyBinaryObjectReady(
+  provider: string | null | undefined,
+  storagePath?: string | null,
+  expectedSize?: number,
+  expectedChecksum?: string,
+): Promise<boolean> {
+  const path = String(storagePath || '').trim();
+  if (!path) return false;
+  if (provider === 'r2' || String(provider || '').startsWith('r2')) {
+    const verified = await verifyR2ObjectReady(path, expectedSize, expectedChecksum).catch(() => null);
+    return Boolean(verified?.ready);
+  }
+  if (provider === 'firebase-storage') {
+    const meta = await readStorageMetadata(path).catch(() => null);
+    if (!meta) return false;
+    const size = Number(meta.size || 0);
+    return size > 0 && (!expectedSize || size === Number(expectedSize));
+  }
+  return false;
 }

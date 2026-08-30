@@ -232,7 +232,10 @@ export async function savePhotoAttachment(
     localBlobKey: getPhotoBlobKey(photoId),
     localUri: '', // Clean metadata
     fileSize: mainBlob.size,
-    deleted: false
+    deleted: false,
+    // RC2.2.12: active media stays in the account-scoped local outbox until the
+    // binary upload succeeds. Other accounts must never receive placeholder metadata.
+    binaryUploadState: 'pending'
   };
 
   // Save binary blobs to localforage (IndexedDB)
@@ -292,6 +295,27 @@ export async function cachePhotoBlob(photoId: string, blob: Blob, createThumbnai
   } catch (_) {}
 }
 
+function hasSharedCloudBinary(photo: PhotoAttachment): boolean {
+  const provider = String(photo?.storageProvider || '');
+  const cloudRef = String(photo?.cloudFileId || photo?.cloudUrl || '');
+  return Boolean(
+    photo?.storagePath
+    || cloudRef.startsWith('r2:')
+    || cloudRef.startsWith('storage:')
+    || cloudRef.startsWith('drive:')
+    || ['r2', 'firebase-storage', 'google-drive-primary'].includes(provider)
+    || Number(photo?.chunkCount || 0) > 0
+  );
+}
+
+function isSharedCloudPhotoVisible(photo: PhotoAttachment): boolean {
+  if (photo?.deleted || photo?.deletedAt) return true;
+  // Canonical Firestore photo rows are visible cross-account only after a binary
+  // pointer exists. Old RC pending rows are deliberately hidden instead of rendered
+  // as broken placeholders; the creator's local outbox remains visible on that device.
+  return hasSharedCloudBinary(photo) && String(photo?.binaryUploadState || 'ready') !== 'pending';
+}
+
 export async function mergeCloudPhotoMetadata(projectId: string, cloudPhotos: PhotoAttachment[], changedPhotos: PhotoAttachment[] = cloudPhotos): Promise<void> {
   if (!projectId || !Array.isArray(cloudPhotos)) return;
   const localPhotos = await getProjectPhotos(projectId, true);
@@ -304,6 +328,7 @@ export async function mergeCloudPhotoMetadata(projectId: string, cloudPhotos: Ph
 
   for (const cloud of cloudPhotos) {
     if (!cloud?.id) continue;
+    if (!isSharedCloudPhotoVisible(cloud)) continue;
     const local = localMap.get(cloud.id);
     const localTime = Number(local?.updatedAt || local?.createdAt || 0);
     const cloudTime = Number(cloud.updatedAt || cloud.createdAt || 0);
@@ -627,7 +652,22 @@ export async function updatePhotoAttachmentBlob(
   const photos = existingPhotos;
   const updated = photos.map(p => {
     if (p.id === photoId) {
-      return { ...p, updatedAt: now, revision: Math.max(Number(p.revision || 0) + 1, 1), fileSize: mainBlob.size };
+      return {
+        ...p,
+        updatedAt: now,
+        revision: Math.max(Number(p.revision || 0) + 1, 1),
+        fileSize: mainBlob.size,
+        binaryUploadState: 'pending',
+        // Do not let another account observe the OLD binary as if it were the edited one.
+        storagePath: '',
+        thumbnailPath: '',
+        cloudFileId: '',
+        cloudUrl: '',
+        storageMd5Hash: '',
+        storageEtag: '',
+        storageGeneration: '',
+        cloudSyncedAt: 0,
+      };
     }
     return p;
   });

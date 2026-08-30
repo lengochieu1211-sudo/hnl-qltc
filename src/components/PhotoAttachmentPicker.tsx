@@ -235,7 +235,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
         if (typeof navigator !== 'undefined' && navigator.onLine) {
           let cloudReady = false;
           let lastCloudError: any = null;
-          const retryDelays = [0, 350, 900];
+          const retryDelays = [0, 400, 1200, 2500];
           for (let attempt = 0; attempt < retryDelays.length && !cloudReady; attempt += 1) {
             if (retryDelays[attempt] > 0) await new Promise((resolve) => window.setTimeout(resolve, retryDelays[attempt]));
             try {
@@ -248,7 +248,10 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
           }
           if (!cloudReady) {
             console.warn('[Photo Picker] cloud upload pending durable retry:', saved.id, lastCloudError);
-            setSyncNotice('Ảnh đã lưu an toàn trên thiết bị nhưng Cloud chưa xác nhận. Ứng dụng đang tự retry nền; giữ online trước khi đổi tài khoản.');
+            setSyncNotice('Ảnh đang nằm trong hàng đợi riêng trên thiết bị; tài khoản khác sẽ chỉ thấy ảnh sau khi Cloud xác nhận. Ứng dụng đang tự retry.');
+          } else {
+            setSyncNotice('');
+            await refreshProjectPhotoMetadataFromCloud(projectId).catch(() => {});
           }
         } else {
           setSyncNotice('Đang offline: ảnh đã lưu trên thiết bị và sẽ tự đồng bộ Cloud khi có mạng.');
