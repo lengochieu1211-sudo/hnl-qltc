@@ -1,0 +1,70 @@
+name: RC2.2.8 Apply Runtime Finalization + Photo Fix
+
+on:
+  push:
+    branches:
+      - rc2-2-8-data-integrity-master-gate
+    paths:
+      - .github/workflows/rc2-2-8-apply-runtime-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 20
+
+      - name: Verify temp payload only
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="fab7d071520df72885de73295a3f8d5cee2f29d5"
+          git cat-file -e "${BASE}^{commit}"
+          unexpected="$(git diff --name-only "$BASE"..HEAD | grep -Ev '^\.github/rc228-patch/|^\.github/workflows/rc2-2-8-apply-runtime-fix\.yml$' || true)"
+          test -z "$unexpected" || { echo "Unexpected files changed before apply:"; echo "$unexpected"; exit 1; }
+
+      - name: Apply final candidate patch and run source gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/rc228-patch/part*.b64 | base64 -d > /tmp/rc228.patch
+          echo "20d2eeb0997e1dcc5d30ad65788430fd71f185f2c22e1ec56640a6acd662af96  /tmp/rc228.patch" | sha256sum -c -
+          git apply --check /tmp/rc228.patch
+          git apply /tmp/rc228.patch
+          git diff --check
+
+          node scripts/stability-gate.mjs
+          node scripts/offline-golden.mjs
+          node scripts/category-golden.mjs
+          node scripts/firebase-only-golden.mjs
+          node scripts/firebase-only-legacy-audit.mjs --self-test
+          node scripts/emulator-golden.mjs
+          node scripts/rbac-matrix.mjs
+          node scripts/r2-gateway-golden.mjs
+          node scripts/desktop-launcher-golden.mjs
+          node scripts/auth-popup-golden.mjs
+          node scripts/source-lint.mjs
+
+          if git diff --name-only | grep -E '^(package\.json|package-lock\.json|firebase\.json|firebase\.prod\.json|firestore\.rules|storage\.rules|database\.rules\.json)$'; then
+            echo "Unexpected protected config change"
+            exit 1
+          fi
+
+          rm -rf .github/rc228-patch
+          git rm .github/workflows/rc2-2-8-apply-runtime-fix.yml
+
+      - name: Commit to existing PR branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git status --short
+          git commit -m "fix: cross-account cloud photos and RC2.2.8 finalization"
+          git push origin HEAD:rc2-2-8-data-integrity-master-gate
