@@ -378,6 +378,7 @@ interface FloorPlanDefectTabProps {
   roleResolved?: boolean;
   onAddInventory?: (item: Omit<InventoryItem, 'id'> & { id?: string }) => void;
   onAddFloorPlan: (plan: Omit<FloorPlan, 'id'> & { id?: string }) => void;
+  onUpdateFloorPlan?: (id: string, updates: Partial<FloorPlan>) => void;
   onUpdateFloorPlanImage?: (id: string, imageUrl: string) => void;
   onRenameFloorPlan?: (id: string, newName: string) => void;
   onDeleteFloorPlan?: (id: string) => void;
@@ -625,6 +626,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   roleResolved = false,
   onAddInventory,
   onAddFloorPlan,
+  onUpdateFloorPlan,
   onUpdateFloorPlanImage,
   onRenameFloorPlan,
   onDeleteFloorPlan,
@@ -677,6 +679,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   });
   useFormatSettings();
   const [selectedDefectIds, setSelectedDefectIds] = useState<string[]>([]);
+  const [showFloorProgressPanel, setShowFloorProgressPanel] = useState(false);
 
   // Zoom Scale State (Requirement #2: Zoom in on floor plan image)
   const [zoomScale, setZoomScale] = useState<number>(1);
@@ -1846,6 +1849,20 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const [parentSize, setParentSize] = useState({ w: 0, h: 0 });
 
   const activeFloor = floorPlans.find((fp) => fp.id === selectedFloorId) || floorPlans[0];
+
+  const getFloorTargetState = (dateStr?: string) => {
+    if (!dateStr) return { label: 'Chưa đặt hạn', className: 'bg-slate-100 text-slate-600 border-slate-200' };
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const target = new Date(`${dateStr}T00:00:00`);
+    if (Number.isNaN(target.getTime())) return { label: 'Ngày không hợp lệ', className: 'bg-slate-100 text-slate-600 border-slate-200' };
+    const diffDays = Math.round((target.getTime() - today.getTime()) / 86400000);
+    if (diffDays < 0) return { label: `Quá hạn ${Math.abs(diffDays)} ngày`, className: 'bg-rose-50 text-rose-700 border-rose-200' };
+    if (diffDays === 0) return { label: 'Hạn hôm nay', className: 'bg-amber-50 text-amber-800 border-amber-200' };
+    if (diffDays <= 3) return { label: `Còn ${diffDays} ngày`, className: 'bg-amber-50 text-amber-800 border-amber-200' };
+    return { label: `Còn ${diffDays} ngày`, className: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+  };
+
   const openDefectLegacyImageViewer = (defect: DefectItem, requestedUrl?: string) => {
     const images = [defect.imageUrl, defect.afterImageUrl].filter((url): url is string => Boolean(url));
     if (images.length === 0) return;
@@ -4002,6 +4019,99 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           />
         </div>
       </div>
+
+      {/* Operational floor target dates belong with the floor plan, not system Configuration. */}
+      {activeFloor && (
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setShowFloorProgressPanel((value) => !value)}
+            className="w-full p-3 flex items-center justify-between gap-3 text-left hover:bg-slate-50"
+          >
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 text-xs font-extrabold text-slate-900">
+                <Clock className="w-4 h-4 text-indigo-600" /> Kế hoạch tiến độ tầng
+              </div>
+              <div className="text-[10px] text-slate-500 mt-0.5 truncate">
+                {activeFloor.floorName} · Khung: {activeFloor.targetFrameDate || 'chưa đặt'} · Tấm: {activeFloor.targetBoardDate || 'chưa đặt'}
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className={`hidden sm:inline-flex px-2 py-1 rounded-lg border text-[9px] font-bold ${getFloorTargetState(activeFloor.targetFrameDate).className}`}>
+                Khung · {getFloorTargetState(activeFloor.targetFrameDate).label}
+              </span>
+              <span className={`hidden sm:inline-flex px-2 py-1 rounded-lg border text-[9px] font-bold ${getFloorTargetState(activeFloor.targetBoardDate).className}`}>
+                Tấm · {getFloorTargetState(activeFloor.targetBoardDate).label}
+              </span>
+              {showFloorProgressPanel ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
+            </div>
+          </button>
+
+          {showFloorProgressPanel && (
+            <div className="border-t border-slate-100 p-3 space-y-3 bg-slate-50/60">
+              <div className="md:hidden rounded-xl border border-slate-200 bg-white p-3 space-y-2">
+                <div className="font-extrabold text-xs text-slate-800">{activeFloor.floorName}</div>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { key: 'targetFrameDate' as const, label: 'Xong Khung', value: activeFloor.targetFrameDate },
+                    { key: 'targetBoardDate' as const, label: 'Xong Tấm', value: activeFloor.targetBoardDate },
+                  ].map((field) => {
+                    const state = getFloorTargetState(field.value);
+                    return (
+                      <label key={field.key} className="space-y-1">
+                        <span className="text-[10px] font-bold text-slate-600">{field.label}</span>
+                        <input
+                          type="date"
+                          value={field.value || ''}
+                          disabled={!canManageStructure}
+                          onChange={(event) => onUpdateFloorPlan?.(activeFloor.id, { [field.key]: event.target.value })}
+                          className="w-full border border-slate-200 bg-white rounded-lg px-2 py-1.5 text-[11px] font-bold disabled:bg-slate-100 disabled:text-slate-500"
+                        />
+                        <span className={`inline-flex px-1.5 py-0.5 rounded-md border text-[9px] font-bold ${state.className}`}>{state.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-[10px] border-separate border-spacing-y-1">
+                  <thead className="text-slate-500">
+                    <tr><th className="text-left px-2">Tầng</th><th className="text-left px-2">Xong Khung</th><th className="text-left px-2">Xong Tấm</th></tr>
+                  </thead>
+                  <tbody>
+                    {floorPlans.map((floor) => {
+                      const frameState = getFloorTargetState(floor.targetFrameDate);
+                      const boardState = getFloorTargetState(floor.targetBoardDate);
+                      return (
+                        <tr key={floor.id} className={floor.id === activeFloor.id ? 'bg-indigo-50' : 'bg-white'}>
+                          <td className="px-2 py-2 rounded-l-xl font-extrabold text-slate-800">{floor.floorName}</td>
+                          <td className="px-2 py-2">
+                            <div className="flex items-center gap-2">
+                              <input type="date" value={floor.targetFrameDate || ''} disabled={!canManageStructure} onChange={(event) => onUpdateFloorPlan?.(floor.id, { targetFrameDate: event.target.value })} className="border border-slate-200 rounded-lg px-2 py-1 text-[10px] disabled:bg-slate-100" />
+                              <span className={`px-1.5 py-0.5 rounded-md border font-bold ${frameState.className}`}>{frameState.label}</span>
+                            </div>
+                          </td>
+                          <td className="px-2 py-2 rounded-r-xl">
+                            <div className="flex items-center gap-2">
+                              <input type="date" value={floor.targetBoardDate || ''} disabled={!canManageStructure} onChange={(event) => onUpdateFloorPlan?.(floor.id, { targetBoardDate: event.target.value })} className="border border-slate-200 rounded-lg px-2 py-1 text-[10px] disabled:bg-slate-100" />
+                              <span className={`px-1.5 py-0.5 rounded-md border font-bold ${boardState.className}`}>{boardState.label}</span>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {!canManageStructure && (
+                <p className="text-[10px] text-slate-500">Ngày mục tiêu là kế hoạch dùng chung của dự án. Kỹ sư/Viewer được xem cảnh báo; chỉ ADMIN được đổi ngày.</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Orphaned Hidden Rooms Warning & Action */}
       {orphanedRooms.length > 0 && (

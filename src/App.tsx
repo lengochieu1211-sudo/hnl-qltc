@@ -6021,6 +6021,7 @@ export default function App() {
               inspectorName={inspectorName}
               onAddInventory={handleAddInventory}
               onAddFloorPlan={handleAddFloorPlan}
+              onUpdateFloorPlan={handleUpdateFloorPlan}
               onUpdateFloorPlanImage={handleUpdateFloorPlanImage}
               onRenameFloorPlan={handleRenameFloorPlan}
               onDeleteFloorPlan={handleDeleteFloorPlan}
