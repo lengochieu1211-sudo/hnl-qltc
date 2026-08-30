@@ -21,8 +21,8 @@ jobs:
           set -euo pipefail
           cat .rc229-feature/part*.txt > /tmp/rc229-feature.patch
           echo '10d8253aed58f4535448567d3b0e8248333b6cd9ff49e2ab8d71cd8326fd1f78  /tmp/rc229-feature.patch' | sha256sum -c -
-          git apply --check /tmp/rc229-feature.patch
-          git apply /tmp/rc229-feature.patch
+          git apply --check --unidiff-zero /tmp/rc229-feature.patch
+          git apply --unidiff-zero /tmp/rc229-feature.patch
           git diff --check
       - name: Source release gates
         shell: bash
