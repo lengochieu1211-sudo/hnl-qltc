@@ -111,7 +111,9 @@ if (!exists('storage.rules') || !firebaseJson.includes('"storage"') || !firebase
 requireAll(firebaseStorage, ['uploadProjectBinary', 'uploadFloorPlanBinary', 'thumbnailPath', 'deleteObject'], 'Firebase Storage fallback client');
 requireAll(binaryStorage, ['BINARY_STORAGE_PROVIDER', "'r2'", "'firebase-storage'", 'uploadProjectBinaryToCloud', 'uploadFloorPlanBinaryToCloud', 'downloadBinaryBlob'], 'binary storage provider adapter');
 requireAll(r2Storage, ['VITE_R2_GATEWAY_URL', 'Authorization', 'uploadProjectBinaryToR2', 'uploadFloorPlanBinaryToR2', 'downloadR2Blob'], 'R2 client');
+requireAll(r2Storage, ['verifyR2ObjectReady', "method: 'HEAD'", 'X-HNL-SHA256', 'R2_UPLOAD_NOT_DURABLE'], 'R2 durable PUT + authenticated HEAD verification');
 requireAll(r2Worker, ['HNL_QLTC_MEDIA', 'FIREBASE_PROJECT_ID', 'firestore.googleapis.com', 'canWrite', "area === 'floor-plans'", "role === 'ADMIN'", "role === 'EDITOR'"], 'R2 gateway RBAC');
+requireAll(r2Worker, ["request.method === 'HEAD'", 'HNL_QLTC_MEDIA.head', 'X-HNL-SHA256', 'Content-Length'], 'R2 gateway durable object HEAD');
 requireAll(photoSync, ['uploadProjectBinaryToCloud', 'BINARY_STORAGE_PROVIDER', 'storagePath:', 'thumbnailPath:', 'photoSnapshotMergeQueue'], 'photo object-storage pipeline');
 requireAll(photoStorage, [
   "raw.startsWith('r2:')",
@@ -155,17 +157,19 @@ requireAll(imageCompressor, [
 pass('photo gallery no longer clears synced metadata on initial auth emission; camera input waits for non-empty MediaStore bytes');
 requireAll(androidMain, [
   'fileChooserDirectCamera',
-  'Chon anh tu Thu vien',
-  'Gallery-only path',
-  'Never substitute pendingCameraImageUri for a gallery result',
-  'data.getData() != null',
-], 'Android gallery picker isolated from camera flush guard');
-pass('Android APK gallery cannot fall through to pending camera MediaStore handling');
+  'Intent.ACTION_OPEN_DOCUMENT',
+  'deliverGalleryUrisThroughStableCache',
+  'copyGalleryUriToStableCache',
+  'PickerCacheProvider.AUTHORITY',
+], 'Android gallery materializes OEM/Google Photos content into app-owned cache');
+const pickerProvider = read('android-wrapper/src/com/qlct/app/PickerCacheProvider.java');
+requireAll(pickerProvider, ['ParcelFileDescriptor.MODE_READ_ONLY', 'OpenableColumns.DISPLAY_NAME', 'OpenableColumns.SIZE'], 'Android app-owned picker ContentProvider');
+pass('Android Gallery returns stable app-owned binary to WebView instead of ephemeral OEM content URI');
 requireAll(photoStorage, ['binaryUploadState: ' + "'pending'", 'isSharedCloudPhotoVisible', 'if (!isSharedCloudPhotoVisible(cloud)) continue'], 'photo ready-only shared visibility');
 requireAll(photoSync, ['Ready-only publish', 'if (!deleted && (!hasDurableCloudBinaryPointer(photo)', 'cloudIsAuthoritative', 'đang tự retry'], 'photo durable outbox publish ordering');
-requireAll(binaryStorage, ['R2 upload failed; falling back to Firebase Storage', 'return mapFirebase(await uploadProjectBinary(input))'], 'photo R2 to Firebase Storage reliability failover');
+requireAll(binaryStorage, ['one write authority only: private Cloudflare R2', 'uploadProjectBinaryToR2(input)', 'verifyBinaryObjectReady'], 'photo R2-only write authority with durable verification');
 requireAll(app, ['photoOutboxRetryTimerRef', 'photoOutboxRetryAttemptRef', 'Math.min(30000, 750 * Math.pow(2'], 'photo persistent outbox retry scheduler');
-pass('photo metadata is published cross-account only after binary readiness with durable R2/Firebase Storage failover');
+pass('photo metadata is published cross-account only after durable R2 readiness; failed uploads stay in the local outbox');
 
 
 requireAll(photoPicker, ['retryDelays = [0, 400, 1200, 2500]'], 'photo immediate cloud confirmation retry');
@@ -190,12 +194,12 @@ if (!mergeWorkflow.includes('VITE_BINARY_STORAGE_PROVIDER: r2') || !prodR2Gatewa
 if (mergeWorkflow.includes('deploy --only firestore:rules,storage')) fail('PROD still hard-depends on Firebase Storage deployment');
 requireAll(mergeWorkflow, ['Deploy Hosting site hnlqltc', '--config firebase.prod.json', 'https://hnlqltc.web.app'], 'PROD short Hosting site');
 requireAll(read('firebase.prod.json'), ['"site": "hnlqltc"', '"public": "dist"'], 'PROD Firebase Hosting config');
-pass('new binaries use provider-based R2 in PROD; Firebase Storage remains reversible fallback; Drive remains read-only legacy fallback');
+pass('new binaries use private R2 as the single PROD write authority; Firebase Storage/Drive remain read-only legacy compatibility paths');
 
 requireAll(firestoreRules, ['isCoreBusinessCollection', 'lifecycleUpdateIsMonotonic', 'allow delete: if false;', "role == 'EDITOR'", "role == 'ENGINEER'", 'inventory_balances'], 'Firestore Rules lifecycle/roles');
-requireAll(storageRules, ['canEdit(projectId)', 'isAdmin(projectId)', 'identityMetadata', 'updateKeepsIdentity', 'allow delete: if isAdmin(projectId)', 'allow read, write: if false'], 'Firebase Storage fallback Rules');
+requireAll(storageRules, ['canEdit(projectId)', 'isAdmin(projectId)', 'identityMetadata', 'updateKeepsIdentity', 'allow delete: if isAdmin(projectId)', 'allow read, write: if false'], 'Firebase Storage legacy compatibility Rules');
 requireAll(security, ["if (FIREBASE_ONLY_RUNTIME) return 'VIEWER'", 'if (FIREBASE_ONLY_RUNTIME || !projectId) return'], 'client role hardening');
-pass('Firestore RBAC remains authoritative; R2 gateway mirrors member/role access and Firebase Storage fallback rules are retained');
+pass('Firestore RBAC remains authoritative; R2 gateway mirrors member/role access and Firebase Storage legacy rules are retained');
 
 requireAll(warehouse, ['runTransaction', 'commitWarehouseTransactionAtomic', 'updateWarehouseTransactionAtomic', 'softDeleteWarehouseTransactionAtomic', 'INSUFFICIENT_STOCK', 'STRICT_STOCK_OFFLINE_BLOCKED', 'inventory_balances'], 'warehouse transaction engine');
 requireAll(app, ['commitWarehouseTransactionAtomic', 'updateWarehouseTransactionAtomic', 'softDeleteWarehouseTransactionAtomic', 'const handleImportInventory = async'], 'warehouse UI integration');

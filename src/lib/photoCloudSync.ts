@@ -22,7 +22,7 @@ import {
 import { getDeviceId, getDeviceName } from '../utils/deviceIdentity';
 import { downloadPhotoFromPrimaryDrive } from './primaryDriveBridge';
 import { LEGACY_DRIVE_READ_FALLBACK } from '../config/runtimeArchitecture';
-import { BINARY_STORAGE_PROVIDER, downloadBinaryBlob, uploadProjectBinaryToCloud } from './binaryStorage';
+import { BINARY_STORAGE_PROVIDER, downloadBinaryBlob, uploadProjectBinaryToCloud, verifyBinaryObjectReady } from './binaryStorage';
 
 // RC2.2.6: Firestore remains the realtime source of truth; binary media is routed
 // through a provider adapter. PROD uses private Cloudflare R2 via an authenticated
@@ -450,9 +450,9 @@ export async function verifyPhotoBinaryReadyInCloud(projectId: string, photoId: 
     const pointer = parseStoragePointer(data?.cloudFileId || data?.cloudUrl);
     const provider = String(data?.storageProvider || pointer.provider || '');
     const storagePath = String(data?.storagePath || pointer.path || '');
-    return String(data?.binaryUploadState || '') === 'ready'
-      && Boolean(storagePath)
-      && (provider === 'r2' || provider === 'firebase-storage');
+    if (String(data?.binaryUploadState || '') !== 'ready' || !storagePath) return false;
+    if (provider !== 'r2' && provider !== 'firebase-storage') return false;
+    return verifyBinaryObjectReady(provider, storagePath, Number(data?.fileSize || 0) || undefined, String(data?.contentHash || data?.storageMd5Hash || '') || undefined);
   } catch (_) {
     return false;
   }
