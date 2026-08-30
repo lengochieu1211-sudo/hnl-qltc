@@ -30,6 +30,8 @@ const swRegistration = read('src/serviceWorkerRegistration.ts');
 const photoSync = read('src/lib/photoCloudSync.ts');
 const photoStorage = read('src/utils/photoStorage.ts');
 const photoPicker = read('src/components/PhotoAttachmentPicker.tsx');
+const androidMain = read('android-wrapper/src/com/qlct/app/MainActivity.java');
+const imageCompressor = read('src/utils/imageCompressor.ts');
 const materialNormModal = read('src/components/MaterialNormModal.tsx');
 const exportPdf = read('src/components/ExportPdfModal.tsx');
 const floorPlanSync = read('src/lib/floorPlanImageSync.ts');
@@ -54,7 +56,7 @@ if (!appVersion.includes('__APP_VERSION__') || appVersion.includes("APP_VERSION 
 requireAll(buildMeta, ['appVersion: APP_VERSION', 'buildId:', 'gitCommit:', 'buildTime:', 'environment:', 'platformFromLocation'], 'runtime build metadata');
 if (mergeWorkflow.includes('VITE_APP_VERSION') || prWorkflow.includes('VITE_APP_VERSION') || buildWorkflow.includes('VITE_APP_VERSION')) fail('workflow must not hard-code app version');
 requireAll(read('android-wrapper/build-apk.ps1'), ['package.json', '$appVersion', '$versionCode', '$releaseTag', 'https://hnlqltc.web.app/?app=android'], 'Android version/source URL');
-requireAll(read('.github/workflows/android-apk.yml'), ['windows-latest', 'actions/upload-artifact@v4', 'QLCT_WEB_URL: https://hnlqltc.web.app/?app=android', 'QLCT_RELEASE_TAG: 6.3.0-rc2.2.9'], 'Android APK CI');
+requireAll(read('.github/workflows/android-apk.yml'), ['windows-latest', 'actions/upload-artifact@v4', 'QLCT_WEB_URL: https://hnlqltc.web.app/?app=android', 'QLCT_RELEASE_TAG: 6.3.0-rc2.2.10'], 'Android APK CI');
 requireAll(read('desktop-wrapper/build-launcher.ps1'), ['package.json', '$version', 'AssemblyInformationalVersion'], 'Windows version source');
 if (!authHeader.includes('src={`/icon.png?v=${APP_VERSION}`}')) fail('header asset cache-bust does not use canonical APP_VERSION');
 if (!firebase.includes(`appId: '${PROD_FIREBASE_WEB_APP_ID}'`)) fail('PROD Firebase Web App ID fallback is missing or stale');
@@ -134,7 +136,22 @@ requireAll(photoPicker, [
   'verifyPhotoBinaryReadyInCloud(projectId, saved.id)',
   'resetPhotoRuntimeMemoryCache()',
   'onAuthUserChanged',
-], 'PhotoAttachmentPicker authenticated cloud rendering + same-phone account switch');
+  'if (nextUid === lastUid) return',
+  'items.length === 0',
+  'photoPickerServerRefreshKeys.has(refreshKey)',
+  'refreshProjectPhotoMetadataFromCloud(projectId)',
+], 'PhotoAttachmentPicker authenticated cloud rendering + same-phone account switch/realtime race guard');
+requireAll(androidMain, [
+  'deliverCameraImageWhenReady',
+  'MediaStore.MediaColumns.SIZE',
+  'attempt < 10',
+  '180L',
+], 'Android camera MediaStore flush guard');
+requireAll(imageCompressor, [
+  'maxDimension >= 1024',
+  'preserving original supported Blob for durable upload',
+], 'Android WebView image decode/encode fallback');
+pass('photo gallery no longer clears synced metadata on initial auth emission; camera input waits for non-empty MediaStore bytes');
 requireAll(floorPlanDefect, ['photo.cloudUrl || photo.cloudFileId || photo.localUri', 'false, projectId'], 'Defect gallery cloud rendering');
 requireAll(exportPdf, ['p.cloudUrl || p.cloudFileId || p.localUri', 'activeProjectId'], 'PDF photo cloud rendering');
 
