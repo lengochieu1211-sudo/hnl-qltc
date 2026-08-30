@@ -57,6 +57,7 @@ public class MainActivity extends Activity {
     private WebView printWebView;
     private ValueCallback<Uri[]> filePathCallback;
     private Uri pendingCameraImageUri;
+    private boolean fileChooserDirectCamera = false;
     private String startUrl = LOCAL_FALLBACK_URL;
     private boolean loadedFallback = false;
     private PendingExport pendingExport;
@@ -89,14 +90,18 @@ public class MainActivity extends Activity {
                 }
 
                 filePathCallback = callback;
+                fileChooserDirectCamera = false;
+                deletePendingCameraImage();
                 try {
                     Intent intent;
-                    // For <input capture="environment"> open the camera directly.
-                    // Older code always opened a chooser containing Camera, which is unreliable
-                    // in several Android System WebView / Xiaomi builds.
+                    // RC2.2.12: camera and gallery are separate paths. The web UI already has
+                    // separate "Chup anh" / "Thu vien" controls; never inject Camera into
+                    // the gallery chooser because some OEM pickers return an ambiguous result.
                     if (params != null && params.isCaptureEnabled() && acceptsImages(params)) {
                         intent = buildCameraCaptureIntent();
-                        if (intent == null) {
+                        if (intent != null) {
+                            fileChooserDirectCamera = true;
+                        } else {
                             intent = buildFileChooserIntent(params);
                         }
                     } else {
@@ -241,14 +246,8 @@ public class MainActivity extends Activity {
                     params != null && params.getMode() == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE);
         }
 
-        Intent chooser = Intent.createChooser(contentIntent, imageOnly ? "Chon hoac chup anh" : "Chon tep");
-        if (imageOnly) {
-            Intent cameraIntent = buildCameraCaptureIntent();
-            if (cameraIntent != null) {
-                chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, new Intent[]{cameraIntent});
-            }
-        }
-        return chooser;
+        // Gallery-only chooser. Camera capture is handled exclusively by capture-enabled input.
+        return Intent.createChooser(contentIntent, imageOnly ? "Chon anh tu Thu vien" : "Chon tep");
     }
 
     private boolean acceptsImages(WebChromeClient.FileChooserParams params) {
@@ -1140,34 +1139,33 @@ public class MainActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
 
         if (requestCode == FILE_CHOOSER_REQUEST && filePathCallback != null) {
-            Uri[] results = null;
-            if (resultCode == RESULT_OK) {
-                results = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
-                if ((results == null || results.length == 0) && pendingCameraImageUri != null) {
-                    results = new Uri[]{pendingCameraImageUri};
+            if (fileChooserDirectCamera) {
+                fileChooserDirectCamera = false;
+                if (resultCode == RESULT_OK && pendingCameraImageUri != null) {
+                    // Camera-only path keeps the OEM MediaStore flush guard. Gallery can never
+                    // enter this path, so it can no longer show the camera-not-ready toast.
+                    deliverCameraImageWhenReady(pendingCameraImageUri, 0);
+                    return;
                 }
-            }
-
-            boolean usedCameraImage = false;
-            if (results != null && pendingCameraImageUri != null) {
-                for (Uri resultUri : results) {
-                    if (pendingCameraImageUri.equals(resultUri)) {
-                        usedCameraImage = true;
-                        break;
-                    }
-                }
-            }
-            if (usedCameraImage && pendingCameraImageUri != null) {
-                // RC2.2.10: wait for OEM Camera/MediaStore to flush a non-empty JPEG
-                // before handing the URI to WebView. This prevents intermittent
-                // zero-byte camera Files on Xiaomi/other Android devices.
-                deliverCameraImageWhenReady(pendingCameraImageUri, 0);
+                deletePendingCameraImage();
+                ValueCallback<Uri[]> callback = filePathCallback;
+                filePathCallback = null;
+                callback.onReceiveValue(null);
                 return;
             }
 
+            // Gallery-only path. Never substitute pendingCameraImageUri for a gallery result.
+            Uri[] results = resultCode == RESULT_OK
+                    ? WebChromeClient.FileChooserParams.parseResult(resultCode, data)
+                    : null;
+            // Some OEM gallery/document pickers expose only Intent.getData().
+            if ((results == null || results.length == 0) && resultCode == RESULT_OK && data != null && data.getData() != null) {
+                results = new Uri[]{data.getData()};
+            }
             deletePendingCameraImage();
-            filePathCallback.onReceiveValue(results);
+            ValueCallback<Uri[]> callback = filePathCallback;
             filePathCallback = null;
+            callback.onReceiveValue(results);
         } else if (requestCode == EXPORT_CREATE_DOCUMENT_REQUEST) {
             PendingExport export;
             synchronized (this) {
