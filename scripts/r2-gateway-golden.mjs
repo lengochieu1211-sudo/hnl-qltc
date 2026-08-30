@@ -58,11 +58,23 @@ const env = {
       objects.set(key, { body: new Uint8Array(body), options });
       return { httpEtag: '"golden-etag"' };
     },
+    async head(key) {
+      const value = objects.get(key);
+      if (!value) return null;
+      return {
+        size: value.body.byteLength,
+        customMetadata: value.options?.customMetadata || {},
+        httpEtag: '"golden-etag"',
+        writeHttpMetadata(headers) { headers.set('Content-Type', value.options?.httpMetadata?.contentType || 'application/octet-stream'); },
+      };
+    },
     async get(key) {
       const value = objects.get(key);
       if (!value) return null;
       return {
         body: value.body,
+        size: value.body.byteLength,
+        customMetadata: value.options?.customMetadata || {},
         httpEtag: '"golden-etag"',
         writeHttpMetadata(headers) { headers.set('Content-Type', value.options?.httpMetadata?.contentType || 'application/octet-stream'); },
       };
@@ -91,6 +103,10 @@ const floorKey = 'projects/p1/floor-plans/f1/original.jpg';
 
 let response = await call(identities.editor, 'PUT', mediaKey, new Uint8Array([1, 2, 3]));
 assert(response.status === 200, 'EDITOR may upload operational media');
+response = await call(identities.viewer, 'HEAD', mediaKey);
+assert(response.status === 200, 'VIEWER/project member may HEAD media durability');
+assert(Number(response.headers.get('Content-Length')) === 3, 'HEAD exposes durable object size');
+assert(Boolean(response.headers.get('X-HNL-SHA256')), 'HEAD exposes stored SHA-256');
 response = await call(identities.editor, 'PUT', floorKey, new Uint8Array([4, 5]));
 assert(response.status === 403, 'EDITOR may not upload floor-plan structure');
 response = await call(identities.viewer, 'PUT', mediaKey, new Uint8Array([6]));
