@@ -96,7 +96,8 @@ try {
   }));
 
   await createUserWithEmailAndPassword(auth, editorEmail, password);
-  await createUserWithEmailAndPassword(auth, viewerEmail, password);
+  const viewerCred = await createUserWithEmailAndPassword(auth, viewerEmail, password);
+  const viewerUid = viewerCred.user.uid;
   await expectDenied('unlisted authenticated user cannot read an existing project root', () => getDoc(doc(db, 'projects', pid)));
   await signIn(ownerEmail);
 
@@ -330,6 +331,12 @@ try {
   }));
   await expectDenied('EDITOR cannot forge storage project metadata', () => uploadBytes(ref(storage, `projects/${pid}/media/defect/DF-RULE-1/BAD/original.jpg`), new Blob([new Uint8Array([1])], { type: 'image/jpeg' }), {
     contentType: 'image/jpeg', customMetadata: { projectId: 'other-project', entityType: 'defect', entityId: 'DF-RULE-1', assetId: 'BAD', createdByUid: editorUid },
+  }));
+
+  // Regression: a stale UID ADMIN alias must never override canonical email VIEWER.
+  await signIn(ownerEmail);
+  await expectAllowed('ADMIN may create stale UID alias for canonical-precedence regression', () => setDoc(doc(db, 'projects', pid, 'members', viewerUid), {
+    uid: viewerUid, email: viewerEmail, role: 'ADMIN', active: true, assignedAt: Date.now(), updatedAt: Date.now(),
   }));
 
   await signIn(viewerEmail);

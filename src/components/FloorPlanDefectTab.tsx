@@ -861,6 +861,55 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   });
   const [activeDefectDetail, setActiveDefectDetail] = useState<DefectItem | null>(null);
 
+  // RC2.2.8: notification deep-link is identity-based, never just a tab switch.
+  // It selects the exact floor, clears a stale status filter, exposes the Defect layer,
+  // focuses the map pin and opens the same detail modal used by a direct card tap.
+  useEffect(() => {
+    let raw = '';
+    try { raw = sessionStorage.getItem('qlct_pending_defect_navigation') || ''; } catch (_) {}
+    if (!raw) return;
+
+    try {
+      const pending = JSON.parse(raw);
+      if (pending?.projectId && String(pending.projectId) !== currentProjectId) return;
+      const defect = defects.find((item) =>
+        item?.id === pending?.defectId
+        && !item?.archivedAt
+        && !(item as any)?.deleted
+        && !item?.deletedAt
+      );
+      if (!defect) {
+        sessionStorage.removeItem('qlct_pending_defect_navigation');
+        console.warn('[Defect navigation] Target no longer exists or is archived:', pending?.defectId);
+        return;
+      }
+      if (!floorPlans.some((floor) => floor.id === defect.floorId)) {
+        sessionStorage.removeItem('qlct_pending_defect_navigation');
+        console.warn('[Defect navigation] Target floor no longer exists:', defect.floorId);
+        return;
+      }
+
+      sessionStorage.removeItem('qlct_pending_defect_navigation');
+      localStorage.setItem(getDraftKey('construction_selected_floor_id'), defect.floorId);
+      localStorage.setItem(getDraftKey('construction_selected_view_mode'), 'defect');
+      pendingFocusRef.current = { floorId: defect.floorId, x: defect.x, y: defect.y };
+      setStatusFilter('all');
+      setViewMode('defect');
+      setMapLayers((prev) => ({ ...prev, defects: true }));
+      setSelectedDefectIds([defect.id]);
+      setActiveDefectDetail(defect);
+
+      if (selectedFloorId !== defect.floorId) {
+        setSelectedFloorId(defect.floorId);
+      } else {
+        requestAnimationFrame(() => requestAnimationFrame(() => focusPlanPoint(defect.x, defect.y)));
+      }
+    } catch (err) {
+      try { sessionStorage.removeItem('qlct_pending_defect_navigation'); } catch (_) {}
+      console.warn('[Defect navigation] Invalid pending target:', err);
+    }
+  }, [defects, currentProjectId, floorPlans, selectedFloorId]);
+
   useEffect(() => {
     if (!canEditDefects) {
       setShowDefectModal(false);

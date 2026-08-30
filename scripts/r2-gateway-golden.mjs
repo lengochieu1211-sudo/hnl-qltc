@@ -95,6 +95,12 @@ response = await call(identities.editor, 'PUT', floorKey, new Uint8Array([4, 5])
 assert(response.status === 403, 'EDITOR may not upload floor-plan structure');
 response = await call(identities.viewer, 'PUT', mediaKey, new Uint8Array([6]));
 assert(response.status === 403, 'VIEWER may not upload media');
+roles.set('uid-editor', 'ADMIN');
+roles.set('editor@example.com', 'VIEWER');
+response = await call(identities.editor, 'PUT', mediaKey, new Uint8Array([6, 7]));
+assert(response.status === 403, 'canonical email VIEWER overrides stale UID ADMIN');
+roles.set('uid-editor', 'EDITOR');
+roles.set('editor@example.com', 'EDITOR');
 response = await call(identities.admin, 'PUT', floorKey, new Uint8Array([7, 8]));
 assert(response.status === 200, 'ADMIN/owner may upload floor-plan structure');
 response = await call(identities.viewer, 'GET', mediaKey);

@@ -49,8 +49,16 @@ service firebase.storage {
       return emailMemberExists(projectId) && (!('active' in emailMember(projectId).data) || emailMember(projectId).data.active != false);
     }
 
+    function canonicalMemberActive(projectId) {
+      return emailMemberExists(projectId) ? emailMemberActive(projectId) : uidMemberActive(projectId);
+    }
+
+    function canonicalMemberRole(projectId) {
+      return emailMemberExists(projectId) ? emailMember(projectId).data.role : uidMember(projectId).data.role;
+    }
+
     function isMember(projectId) {
-      return signedIn() && (isSuperAdmin() || isOwner(projectId) || uidMemberActive(projectId) || emailMemberActive(projectId));
+      return signedIn() && (isSuperAdmin() || isOwner(projectId) || canonicalMemberActive(projectId));
     }
 
     function roleCanEdit(role) {
@@ -61,16 +69,14 @@ service firebase.storage {
       return signedIn() && (
         isSuperAdmin() ||
         isOwner(projectId) ||
-        (uidMemberActive(projectId) && uidMember(projectId).data.role == 'ADMIN') ||
-        (emailMemberActive(projectId) && emailMember(projectId).data.role == 'ADMIN')
+        (canonicalMemberActive(projectId) && canonicalMemberRole(projectId) == 'ADMIN')
       );
     }
 
     function canEdit(projectId) {
       return signedIn() && (
         isAdmin(projectId) ||
-        (uidMemberActive(projectId) && roleCanEdit(uidMember(projectId).data.role)) ||
-        (emailMemberActive(projectId) && roleCanEdit(emailMember(projectId).data.role))
+        (canonicalMemberActive(projectId) && roleCanEdit(canonicalMemberRole(projectId)))
       );
     }
 

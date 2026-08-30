@@ -5816,6 +5816,17 @@ export default function App() {
     } else if (alertItem.type === 'checklist') {
       setActiveTab('checklist');
     } else if (alertItem.type === 'defect') {
+      const defect = alertItem.originalItem as DefectItem;
+      try {
+        sessionStorage.setItem('qlct_pending_defect_navigation', JSON.stringify({
+          projectId: activeProjectId,
+          defectId: defect.id,
+          floorId: defect.floorId,
+          x: defect.x,
+          y: defect.y,
+          requestedAt: Date.now(),
+        }));
+      } catch (_) {}
       setActiveTab('floorplan');
     }
   };

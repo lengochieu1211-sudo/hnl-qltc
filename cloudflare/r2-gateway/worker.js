@@ -56,13 +56,17 @@ async function getRole(env, token, projectId) {
     return { ok: true, role: 'ADMIN' };
   }
 
-  for (const memberId of [uid, email]) {
+  // Canonical email is authoritative whenever present. UID is legacy fallback only.
+  for (const memberId of [email, uid]) {
+    if (!memberId) continue;
     const response = await firestoreGet(env, token, `projects/${encodeURIComponent(projectId)}/members/${encodeURIComponent(memberId)}`);
     if (!response.ok) continue;
     const member = await response.json();
-    if (!fieldBool(member, 'active', true)) continue;
+    if (!fieldBool(member, 'active', true)) return { ok: false, role: '' };
     const role = fieldString(member, 'role').toUpperCase();
-    if (['ADMIN', 'EDITOR', 'ENGINEER', 'VIEWER'].includes(role)) return { ok: true, role };
+    return ['ADMIN', 'EDITOR', 'ENGINEER', 'VIEWER'].includes(role)
+      ? { ok: true, role }
+      : { ok: false, role: '' };
   }
   return { ok: true, role: 'VIEWER' };
 }

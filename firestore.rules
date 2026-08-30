@@ -72,24 +72,33 @@ service cloud.firestore {
       );
     }
 
+    // Canonical membership invariant: if an email document exists it is the single
+    // authoritative role, including active=false revocation. UID is fallback only for
+    // legacy projects that have not materialized a canonical email document yet.
+    function canonicalMemberActive(projectId) {
+      return hasEmailMember(projectId) ? emailMemberActive(projectId) : uidMemberActive(projectId);
+    }
+
+    function canonicalMemberRole(projectId) {
+      return hasEmailMember(projectId) ? emailRole(projectId) : uidRole(projectId);
+    }
+
     function isMember(projectId) {
-      return isGoogleAuthed() && (isSuperAdmin() || isOwner(projectId) || uidMemberActive(projectId) || emailMemberActive(projectId));
+      return isGoogleAuthed() && (isSuperAdmin() || isOwner(projectId) || canonicalMemberActive(projectId));
     }
 
     function isAdmin(projectId) {
       return isGoogleAuthed() && (
         isSuperAdmin() ||
         isOwner(projectId) ||
-        (uidMemberActive(projectId) && uidRole(projectId) == 'ADMIN') ||
-        (emailMemberActive(projectId) && emailRole(projectId) == 'ADMIN')
+        (canonicalMemberActive(projectId) && canonicalMemberRole(projectId) == 'ADMIN')
       );
     }
 
     function isEditor(projectId) {
-      return isGoogleAuthed() && (
-        (uidMemberActive(projectId) && (uidRole(projectId) == 'EDITOR' || uidRole(projectId) == 'ENGINEER')) ||
-        (emailMemberActive(projectId) && (emailRole(projectId) == 'EDITOR' || emailRole(projectId) == 'ENGINEER'))
-      );
+      return isGoogleAuthed()
+        && canonicalMemberActive(projectId)
+        && (canonicalMemberRole(projectId) == 'EDITOR' || canonicalMemberRole(projectId) == 'ENGINEER');
     }
 
     function canEdit(projectId) {

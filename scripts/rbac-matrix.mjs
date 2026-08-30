@@ -17,6 +17,8 @@ const src = {
   header: read('src/components/GoogleAuthHeader.tsx'),
   config: read('src/components/GoogleConfigTab.tsx'),
   photos: read('src/components/PhotoAttachmentPicker.tsx'),
+  firebase: read('src/lib/firebase.ts'),
+  r2: read('cloudflare/r2-gateway/worker.js'),
   firestore: read('firestore.rules'),
   storage: read('storage.rules'),
 };
@@ -69,6 +71,11 @@ check('Checklist has verified role and separates operational/structure/delete/im
 check('Crew has verified role and separates operations/team/delete/import', has(src.crew, 'roleResolved: boolean', 'canOperate', 'canManageTeamDirectory', 'canDelete', 'canImportTeams'));
 check('Material norms are structurally ADMIN-only', has(src.norms, 'roleResolved: boolean', 'hasManageAccess', 'hasImportAccess'));
 check('Security member mutation is ADMIN-only', has(src.securityModal, 'canManageProjectMembers', 'canManageMembers(currentRole)'));
+check('Last ADMIN guard counts unique logical emails', has(src.securityModal, 'new Set(', "m?.role === 'ADMIN'", "String(m?.email || '').trim().toLowerCase()"));
+check('Member list collapses physical aliases to canonical email', has(src.firebase, 'candidateCanonical', 'existingCanonical', 'byEmail.set(email, candidate)'));
+check('Client resolves canonical email before UID fallback', src.firebase.indexOf('if (email) ids.add(email);') < src.firebase.indexOf('if (user.uid) ids.add(user.uid);'));
+check('Notification Defect navigation carries exact identity and floor', has(src.app, 'qlct_pending_defect_navigation', 'defectId: defect.id', 'floorId: defect.floorId'));
+check('FloorPlan consumes Defect deep-link and opens exact detail', has(src.floor, 'qlct_pending_defect_navigation', "setStatusFilter('all')", "setViewMode('defect')", 'setActiveDefectDetail(defect)', 'pendingFocusRef.current'));
 check('Viewer cannot read audit tab while Editor/Admin can', has(src.securityModal, 'canReadAudit', "currentRole === 'ADMIN' || currentRole === 'EDITOR'"));
 check('Project backup/restore surface is ADMIN-only', has(src.projects, 'canBackup = canManageBackups(effectiveRole)', '{canBackup ? ('));
 check('Project create/rename/delete/orphan maintenance is ADMIN-only in handlers and UI', has(src.projects, 'if (!canManage || !newProjectName.trim()) return;', 'if (!canManage || !editingProjectName.trim()) return;', 'if (!canManage || !confirmDeleteId) return;', 'if (!canManage || !orphan?.id || recoveringOrphanId) return;', 'const handleMergeDuplicateInto = async (target: ProjectInfo) => {\n    if (!canManage) return;', '{canManage && <>', '{canManage && deletedProjects.length > 0 && (', 'Fail closed on live role downgrade/account switch', 'if (!canManage || !onDriveSyncUpAll) return;', 'if (!canManage || !onDriveSyncDownAll) return;', '{hasDriveBackend && canManage && ('));
@@ -85,6 +92,9 @@ check('Firestore Editor checklist update is operational-only', has(src.firestore
 check('Firestore Editor cannot tombstone normal operational records', has(src.firestore, 'function editorCreatesActiveOnly', 'function editorKeepsActiveLifecycle'));
 check('Firestore core identity/revision guard is retained', has(src.firestore, 'coreIdentityUpdateIsValid(recordId)', 'lifecycleUpdateIsMonotonic()'));
 check('Viewer project data remains read-only via isMember/canEdit split', has(src.firestore, 'allow read:', 'isMember(projectId)', 'function canEdit(projectId)'));
+check('Firestore canonical email role overrides UID alias', has(src.firestore, 'function canonicalMemberActive', 'function canonicalMemberRole', 'hasEmailMember(projectId) ? emailMemberActive(projectId) : uidMemberActive(projectId)'));
+check('Storage canonical email role overrides UID alias', has(src.storage, 'function canonicalMemberActive', 'function canonicalMemberRole', 'emailMemberExists(projectId) ? emailMemberActive(projectId) : uidMemberActive(projectId)'));
+check('R2 canonical email role is checked before UID', has(src.r2, 'for (const memberId of [email, uid])', "return { ok: false, role: '' }"));
 check('Viewer chat exception is explicit and identity-bound', has(src.firestore, 'VIEWER may chat', 'allow create: if isMember(projectId)', 'request.resource.data.senderUid == request.auth.uid'));
 
 // Storage enforcement.
@@ -101,6 +111,7 @@ check('Rules behavior test covers operational Editor permissions', has(rulesTest
 check('Rules behavior test covers Admin-only settings/trash and legacy floor image fallback', has(rulesTest, 'EDITOR cannot mutate shared settings', 'EDITOR cannot create trash metadata', 'ADMIN cannot recreate legacy floor-plan Firestore metadata'));
 check('Rules behavior test covers fail-closed future collection denial', has(rulesTest, 'EDITOR cannot create unclassified future project collection'));
 check('Rules behavior test covers Viewer write denial', has(rulesTest, 'VIEWER cannot write core record'));
+check('Rules behavior test covers stale UID ADMIN vs canonical VIEWER', has(rulesTest, 'stale UID alias for canonical-precedence regression', "role: 'ADMIN'", 'viewerUid'));
 
 if (failed) process.exit(1);
 console.log('MASTER RBAC MATRIX PASS – ADMIN / EDITOR / VIEWER');

@@ -442,7 +442,12 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
     alert('Mã PIN hợp lệ!');
   };
 
-  const countAdmins = (members: ProjectMember[]) => members.filter(m => m.role === 'ADMIN').length;
+  const countAdmins = (members: ProjectMember[]) => new Set(
+    members
+      .filter((m) => m?.active !== false && m?.role === 'ADMIN')
+      .map((m) => String(m?.email || '').trim().toLowerCase())
+      .filter(Boolean)
+  ).size;
 
   const getSelectedProjectName = (projectId: string) =>
     projects.find(p => p.id === projectId)?.name || projectId || 'Dự án';

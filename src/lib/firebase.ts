@@ -237,10 +237,12 @@ function getCurrentAppUser(): User | null {
 
 
 function getMemberDocIdsForUser(user: { uid?: string | null; email?: string | null }): string[] {
+  // Canonical email MUST be checked first. A UID document is legacy compatibility only
+  // and may never override an existing email role (including an inactive/revoked email row).
   const ids = new Set<string>();
-  if (user.uid) ids.add(user.uid);
   const email = normalizeEmail(user.email);
   if (email) ids.add(email);
+  if (user.uid) ids.add(user.uid);
   return Array.from(ids);
 }
 
@@ -361,16 +363,12 @@ export async function repairProjectAccessIndexForProject(projectId: string, forc
 
     const projectSnap = await getDoc(doc(db, 'projects', projectId));
     const projectName = projectSnap.exists() ? String(projectSnap.data()?.name || projectId) : projectId;
-    const membersSnap = await getDocs(collection(db, 'projects', projectId, 'members'));
-    const seen = new Set<string>();
-    const members: Array<{ email: string; role: string }> = [];
-    membersSnap.forEach((memberSnap) => {
-      const data = memberSnap.data();
-      const memberEmail = normalizeEmail(data?.email || (memberSnap.id.includes('@') ? memberSnap.id : ''));
-      if (!memberEmail || seen.has(memberEmail) || data?.active === false) return;
-      seen.add(memberEmail);
-      members.push({ email: memberEmail, role: String(data?.role || 'VIEWER').toUpperCase() });
-    });
+    const members: Array<{ email: string; role: string }> = (await fetchProjectMembersFromCloud(projectId))
+      .filter((member) => member?.email && member?.active !== false)
+      .map((member) => ({
+        email: normalizeEmail(member.email),
+        role: String(member?.role || 'VIEWER').toUpperCase(),
+      }));
 
     // Do not run the compatibility invitation and the newer projectAccess write in one
     // Promise.all. On projects still using older production Rules, projectAccess is
@@ -1119,11 +1117,20 @@ export async function fetchProjectMembersFromCloud(projectId: string): Promise<a
   try {
     const colRef = collection(db, 'projects', projectId, 'members');
     const snapshot = await getDocs(colRef);
-    const list: any[] = [];
-    snapshot.forEach(docSnap => {
-      list.push(docSnap.data());
+    const byEmail = new Map<string, any>();
+    snapshot.forEach((docSnap) => {
+      const data = docSnap.data();
+      const email = normalizeEmail(data?.email || (docSnap.id.includes('@') ? docSnap.id : ''));
+      if (!email) return;
+      const candidate = { id: docSnap.id, ...data, email };
+      const existing = byEmail.get(email);
+      const candidateCanonical = docSnap.id.toLowerCase() === email;
+      const existingCanonical = String(existing?.id || '').toLowerCase() === email;
+      if (!existing || candidateCanonical || (!existingCanonical && Number(data?.updatedAt || 0) >= Number(existing?.updatedAt || 0))) {
+        byEmail.set(email, candidate);
+      }
     });
-    return list;
+    return Array.from(byEmail.values());
   } catch (err) {
     console.warn('Error fetching cloud project members:', err);
     return [];
@@ -1298,8 +1305,13 @@ export function subscribeProjectMembersRealtime(projectId: string, onUpdate: (me
         const data = d.data();
         const email = normalizeEmail(data?.email || (d.id.includes('@') ? d.id : ''));
         if (!email) return;
+        const candidate = { id: d.id, ...data, email };
         const existing = byEmail.get(email);
-        if (!existing || Number(data?.updatedAt || 0) >= Number(existing?.updatedAt || 0)) byEmail.set(email, { id: d.id, ...data, email });
+        const candidateCanonical = d.id.toLowerCase() === email;
+        const existingCanonical = String(existing?.id || '').toLowerCase() === email;
+        if (!existing || candidateCanonical || (!existingCanonical && Number(data?.updatedAt || 0) >= Number(existing?.updatedAt || 0))) {
+          byEmail.set(email, candidate);
+        }
       });
       if (!disposed) onUpdate(Array.from(byEmail.values()));
     }, (err) => console.warn('Project members realtime error:', err));
@@ -2758,6 +2770,21 @@ export async function saveProjectMemberToCloud(
       assignedAt: member.assignedAt
     });
 
+    // Converge every legacy UID alias for this email to the canonical role. This is
+    // idempotent and prevents a stale physical row from resurfacing on older clients.
+    const memberRows = await getDocs(collection(db, 'projects', projectId, 'members'));
+    for (const memberRow of memberRows.docs) {
+      const rowData = memberRow.data();
+      const rowEmail = normalizeEmail(rowData?.email || (memberRow.id.includes('@') ? memberRow.id : ''));
+      if (!rowEmail || rowEmail !== normalizedEmail || memberRow.id.toLowerCase() === normalizedEmail) continue;
+      await setDoc(doc(db, 'projects', projectId, 'members', memberRow.id), {
+        email: normalizedEmail,
+        role: member.role,
+        active: true,
+        updatedAt: Date.now(),
+      }, { merge: true });
+    }
+
     const projectSnap = await getDoc(doc(db, 'projects', projectId));
     const projectName = projectSnap.exists() ? String(projectSnap.data()?.name || projectId) : projectId;
 
@@ -2787,22 +2814,18 @@ export async function removeProjectMemberFromCloud(projectId: string, email: str
   if (!projectId || !email) return;
   try {
     const normalizedEmail = normalizeEmail(email);
-    let targetUid = uid;
+    const aliasIds = new Set<string>([normalizedEmail]);
+    if (uid) aliasIds.add(uid);
+    const membersSnap = await getDocs(collection(db, 'projects', projectId, 'members'));
+    membersSnap.forEach((mDoc) => {
+      const mData = mDoc.data();
+      const rowEmail = normalizeEmail(mData?.email || (mDoc.id.includes('@') ? mDoc.id : ''));
+      if (rowEmail === normalizedEmail) aliasIds.add(mDoc.id);
+    });
 
-    if (!targetUid) {
-      const membersSnap = await getDocs(collection(db, 'projects', projectId, 'members'));
-      membersSnap.forEach((mDoc) => {
-        const mData = mDoc.data();
-        if (mData && mData.email === normalizedEmail) {
-          targetUid = mDoc.id;
-        }
-      });
+    for (const memberDocId of aliasIds) {
+      await deleteDoc(doc(db, 'projects', projectId, 'members', memberDocId)).catch(() => {});
     }
-
-    if (targetUid) {
-      await deleteDoc(doc(db, 'projects', projectId, 'members', targetUid));
-    }
-    await deleteDoc(doc(db, 'projects', projectId, 'members', normalizedEmail)).catch(() => {});
 
     await deleteDoc(doc(db, 'projectAccess', projectAccessDocId(projectId, normalizedEmail))).catch(() => {});
 
