@@ -1,0 +1,65 @@
+name: RC2.2.8 App ID Source Finalize Once
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/rc2-2-8-appid-source-finalize-once.yml'
+permissions:
+  contents: write
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Verify parent and apply deterministic App ID patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED_PARENT="2e519f2c95e4c2faff3684beb1f5f3bdf1a02280"
+          APP_ID="1:119152410850:web:c2aee2135428af34ef5ebb"
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_PARENT" || { echo "BLOCKED: unexpected parent"; exit 1; }
+          changed="$(git diff --name-only "$EXPECTED_PARENT"..HEAD)"
+          test "$changed" = ".github/workflows/rc2-2-8-appid-source-finalize-once.yml" || { echo "BLOCKED: unexpected pre-existing changes"; echo "$changed"; exit 1; }
+          python - <<'PY'
+          from pathlib import Path
+          appid='1:119152410850:web:c2aee2135428af34ef5ebb'
+          p=Path('src/lib/firebase.ts')
+          s=p.read_text()
+          old="appId: '',\n  firestoreDatabaseId: '(default)'"
+          new=f"appId: '{appid}',\n  firestoreDatabaseId: '(default)'"
+          if old not in s:
+              raise SystemExit('BLOCKED: expected blank PROD appId marker missing')
+          p.write_text(s.replace(old,new,1))
+          p=Path('scripts/stability-gate.mjs')
+          s=p.read_text()
+          needle="const projectManager = read('src/components/ProjectManagerModal.tsx');\n"
+          if 'PROD_FIREBASE_WEB_APP_ID' not in s:
+              if needle not in s: raise SystemExit('BLOCKED: stability insertion point missing')
+              s=s.replace(needle, needle+f"const PROD_FIREBASE_WEB_APP_ID = '{appid}';\n",1)
+          needle2="if (!authHeader.includes('src={`/icon.png?v=${APP_VERSION}`}')) fail('header asset cache-bust does not use canonical APP_VERSION');\n"
+          guard="if (!firebase.includes(`appId: '${PROD_FIREBASE_WEB_APP_ID}'`)) fail('PROD Firebase Web App ID fallback is missing or stale');\nrequireAll(mergeWorkflow, [`VITE_FIREBASE_APP_ID: ${PROD_FIREBASE_WEB_APP_ID}`], 'PROD Hosting Firebase Web App ID');\nrequireAll(read('.github/workflows/android-apk.yml'), [`VITE_FIREBASE_APP_ID: ${PROD_FIREBASE_WEB_APP_ID}`], 'Android Firebase Web App ID');\nrequireAll(read('.github/workflows/windows-exe.yml'), [`VITE_FIREBASE_APP_ID: ${PROD_FIREBASE_WEB_APP_ID}`], 'Windows Firebase Web App ID');\n"
+          if 'PROD Firebase Web App ID fallback is missing or stale' not in s:
+              if needle2 not in s: raise SystemExit('BLOCKED: stability guard point missing')
+              s=s.replace(needle2, needle2+guard,1)
+          p.write_text(s)
+          PY
+          test "$(git diff --name-only | sort | tr '\n' ' ')" = "scripts/stability-gate.mjs src/lib/firebase.ts " || { git diff --name-only; exit 1; }
+          grep -Fq "appId: '$APP_ID'" src/lib/firebase.ts
+          grep -Fq "PROD_FIREBASE_WEB_APP_ID = '$APP_ID'" scripts/stability-gate.mjs
+          node scripts/stability-gate.mjs
+          node scripts/source-lint.mjs
+          git diff --check
+      - name: Commit only non-workflow source changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/firebase.ts scripts/stability-gate.mjs
+          if git diff --cached --name-only | grep -q '^\.github/workflows/'; then exit 1; fi
+          test "$(git diff --cached --name-only | sort | tr '\n' ' ')" = "scripts/stability-gate.mjs src/lib/firebase.ts "
+          git commit -m "fix: complete verified Firebase Web App configuration"
+          git push origin HEAD:main
