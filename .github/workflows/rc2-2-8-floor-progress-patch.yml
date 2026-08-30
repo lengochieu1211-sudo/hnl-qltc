@@ -1,0 +1,36 @@
+name: RC2.2.8 Floor Progress Patch
+
+on:
+  push:
+    branches:
+      - rc2-2-8-data-integrity-master-gate
+    paths:
+      - scripts/rc2_2_8_floor_progress_patch.py
+      - .github/workflows/rc2-2-8-floor-progress-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: rc2-2-8-data-integrity-master-gate
+          fetch-depth: 0
+      - name: Apply asserted floor progress patch
+        run: python3 scripts/rc2_2_8_floor_progress_patch.py
+      - name: Remove one-shot patch machinery
+        run: |
+          rm -f scripts/rc2_2_8_floor_progress_patch.py
+          rm -f .github/workflows/rc2-2-8-floor-progress-patch.yml
+      - name: Commit WIP patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git diff --cached --stat
+          git commit -m "RC2.2.8: move floor progress planning into Floor Plan [rc2.2.8-floor-progress]"
+          git push origin HEAD:rc2-2-8-data-integrity-master-gate
