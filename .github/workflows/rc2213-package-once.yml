@@ -29,8 +29,7 @@ jobs:
           test "$(cat desktop-wrapper/release-tag.txt | tr -d '\r\n')" = "6.3.0-rc2.2.13"
           python - <<'PY'
           from pathlib import Path
-          import hashlib, json, zipfile, subprocess
-
+          import hashlib, zipfile, subprocess
           root = Path('.')
           out = Path('release-artifacts')
           out.mkdir(exist_ok=True)
@@ -40,96 +39,69 @@ jobs:
           patch_name = 'HNL-QLTC-V6.3.0-RC2.2.13-FINAL-PATCH.zip'
           report_name = 'HNL-QLTC-V6.3.0-RC2.2.13-FINAL-MASTER-REPORT.md'
           sums_name = 'HNL-QLTC-V6.3.0-RC2.2.13-FINAL-SHA256SUMS.txt'
-
-          def excluded(path: str) -> bool:
+          def excluded(path):
               parts = path.split('/')
-              return (
-                  path == temp_workflow
-                  or path.startswith('release-artifacts/')
-                  or '.git' in parts
-                  or 'node_modules' in parts
-                  or 'dist' in parts
-                  or path.endswith('.log')
-                  or path.endswith('.DS_Store')
-              )
-
+              return path == temp_workflow or path.startswith('release-artifacts/') or '.git' in parts or 'node_modules' in parts or 'dist' in parts or path.endswith('.log') or path.endswith('.DS_Store')
           tracked = subprocess.check_output(['git','ls-files'], text=True).splitlines()
           full_files = [p for p in tracked if not excluded(p) and (root/p).is_file()]
           with zipfile.ZipFile(out/full_name, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as z:
-              for p in full_files:
-                  z.write(root/p, p)
-
+              for p in full_files: z.write(root/p, p)
           changed = subprocess.check_output(['git','diff','--name-only',baseline+'..HEAD'], text=True).splitlines()
           changed = [p for p in changed if not excluded(p) and (root/p).is_file()]
           with zipfile.ZipFile(out/patch_name, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as z:
-              for p in changed:
-                  z.write(root/p, p)
-
-          report = f'''# HNL QLTC V6.3.0 RC2.2.13 – FINAL MASTER REPORT
-
-## Release state
-- Application release: `6.3.0-rc2.2.13`
-- Existing repo: `lengochieu1211-sudo/hnl-qltc`
-- Existing Firebase project: `com-example-qlct-61329`
-- Existing Hosting site: `hnlqltc`
-- Production URL: `https://hnlqltc.web.app`
-- PR #11 merged to main: `1a58612e823040a4425c7bf471794bf41feb6a85`
-- Clean main after PROD workflow cleanup: `1277891da2199683c063af6ab0ae35ffd0991911`
-
-## RC2.2.13 changes
-- New media uses private Cloudflare R2 as the single write authority.
-- Upload is not published cross-account until R2 binary existence is verified.
-- Preferred durability path: authenticated PUT -> HEAD, validating size + SHA-256.
-- Compatibility for the currently deployed pre-HEAD Worker: only HTTP 405 falls back to authenticated GET; returned R2 bytes are locally size/SHA-256 verified before Firestore `ready`.
-- Firebase Storage and Drive remain read-only legacy compatibility paths; no new-media automatic Storage fallback.
-- Account-scoped local outbox retries failed/offline R2 uploads.
-- Android Gallery/Google Photos `content://` is materialized into an app-owned cache provider before WebView reads it.
-- Cross-account photo rendering and stale same-phone account cache handling are hardened.
-
-## Final intended changed files
-{chr(10).join('- `'+p+'`' for p in changed)}
-
-## Certification
-- PR final source head `ca703b9c260a6bb9a0aee76f2b09c26e7946908e`:
-  - Build #206: SUCCESS
-  - Windows EXE #91: SUCCESS
-  - Android APK #97: SUCCESS
-- Production deploy run `33339365633`: SUCCESS
-  - Stability / Architecture / Golden: PASS
-  - TypeScript: PASS
-  - Lint: PASS
-  - Firebase Rules compile + emulator behavior: PASS
-  - Production critical security audit: PASS
-  - PROD build: PASS
-  - R2 gateway `/health`: PASS
-  - Firestore Rules deploy: PASS
-  - Hosting deploy to `hnlqltc`: PASS
-  - `https://hnlqltc.web.app` HTTP/root smoke test: PASS
-
-## Firebase / repository safety
-- Firebase project ID was not changed.
-- Hosting site was not changed.
-- GitHub repository was not changed or recreated.
-- Permanent PROD workflow remains manually gated with `DEPLOY-PROD`.
-- Temporary release workflows were removed after use.
-- No Cloudflare API token/account secret was committed. The repository currently does not have Cloudflare deploy secrets, so the live Worker itself was not upgraded; web compatibility remains safe through authenticated GET durability fallback.
-
-## Remaining runtime evidence
-Automated source/CI/Hosting certification is green. A true ADMIN/EDITOR/VIEWER multi-account photo test requires authenticated user sessions/devices and therefore must be physically exercised after this release: upload under account A, verify actual thumbnail/full image under account B, cold restart B, Defect photo, PDF image, and offline/reconnect.
-
-## Packaging
-- FULL SOURCE excludes `.git`, `node_modules`, `dist`, logs and this one-shot packaging workflow.
-- PATCH contains files changed from pre-RC2.2.13 main baseline `{baseline}` that still exist in final source.
-'''
-          (out/report_name).write_text(report, encoding='utf-8')
-
-          # Integrity check every ZIP before upload.
+              for p in changed: z.write(root/p, p)
+          lines = [
+              '# HNL QLTC V6.3.0 RC2.2.13 – FINAL MASTER REPORT', '',
+              '## Release state',
+              '- Application release: `6.3.0-rc2.2.13`',
+              '- Existing repo: `lengochieu1211-sudo/hnl-qltc`',
+              '- Existing Firebase project: `com-example-qlct-61329`',
+              '- Existing Hosting site: `hnlqltc`',
+              '- Production URL: `https://hnlqltc.web.app`',
+              '- PR #11 merged to main: `1a58612e823040a4425c7bf471794bf41feb6a85`',
+              '- Clean main after PROD workflow cleanup: `1277891da2199683c063af6ab0ae35ffd0991911`', '',
+              '## RC2.2.13 changes',
+              '- New media uses private Cloudflare R2 as the single write authority.',
+              '- Cross-account metadata is published only after R2 binary durability is verified.',
+              '- Preferred verification is authenticated PUT -> HEAD with size + SHA-256.',
+              '- Legacy live Worker compatibility: HTTP 405 on HEAD falls back only to authenticated GET; returned R2 bytes are locally size/SHA-256 verified before Firestore `ready`.',
+              '- Firebase Storage and Drive remain read-only legacy compatibility; no new-media automatic Storage fallback.',
+              '- Account-scoped local outbox retries weak/offline R2 uploads.',
+              '- Android Gallery/Google Photos `content://` is materialized into an app-owned cache provider before WebView reads it.', '',
+              '## Final intended changed files',
+          ]
+          lines += [f'- `{p}`' for p in changed]
+          lines += ['', '## Certification',
+              '- PR final source head `ca703b9c260a6bb9a0aee76f2b09c26e7946908e`: Build #206 SUCCESS; Windows #91 SUCCESS; Android #97 SUCCESS.',
+              '- Production deploy run `33339365633`: SUCCESS.',
+              '- Stability / Architecture / Golden: PASS.',
+              '- TypeScript: PASS.',
+              '- Lint: PASS.',
+              '- Firebase Rules compile + emulator behavior: PASS.',
+              '- Production critical security audit: PASS.',
+              '- PROD build: PASS.',
+              '- R2 gateway `/health`: PASS.',
+              '- Firestore Rules deploy: PASS.',
+              '- Hosting deploy to `hnlqltc`: PASS.',
+              '- `https://hnlqltc.web.app` HTTP/root smoke test: PASS.', '',
+              '## Firebase / repository safety',
+              '- Firebase project ID, Hosting site and GitHub repository were not changed.',
+              '- Permanent PROD workflow remains manually gated with `DEPLOY-PROD`.',
+              '- Temporary release workflows are excluded from deliverables and removed after use.',
+              '- No Cloudflare API token/account secret was committed.',
+              '- Live Worker was not upgraded because Cloudflare deploy secrets are absent; current web remains fail-closed and compatible through authenticated GET durability fallback.', '',
+              '## Remaining runtime evidence',
+              '- Automated source/CI/Hosting certification is green.',
+              '- Physical ADMIN/EDITOR/VIEWER multi-account media runtime still requires authenticated user sessions/devices: upload under account A, verify actual thumbnail/full image under B, cold restart B, Defect photo, PDF image, and offline/reconnect.', '',
+              '## Packaging',
+              '- FULL SOURCE excludes `.git`, `node_modules`, `dist`, logs and this one-shot packaging workflow.',
+              f'- PATCH contains files changed from pre-RC2.2.13 main baseline `{baseline}` that still exist in final source.', ''
+          ]
+          (out/report_name).write_text('\n'.join(lines), encoding='utf-8')
           for name in (full_name, patch_name):
               with zipfile.ZipFile(out/name, 'r') as z:
                   bad = z.testzip()
-                  if bad:
-                      raise SystemExit(f'ZIP integrity failure: {name}: {bad}')
-
+                  if bad: raise SystemExit(f'ZIP integrity failure: {name}: {bad}')
           entries = []
           for name in (patch_name, full_name, report_name):
               data = (out/name).read_bytes()
