@@ -1195,11 +1195,11 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             </div>
 
             {/* Quotas Input Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block font-bold text-slate-700">Hao phí định mức *</label>
-                  <div className="flex items-center gap-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:items-start">
+              <div className="flex flex-col">
+                <div className="flex items-start justify-between gap-2 mb-1 sm:min-h-[2.75rem]">
+                  <label className="block font-bold text-slate-700 leading-tight pt-0.5">Hao phí định mức *</label>
+                  <div className="flex items-center gap-1 shrink-0">
                     {evaluateMathExpression(quotaQuantityStr) !== null && /[+\-*/xX×:÷]/.test(quotaQuantityStr) && (
                       <span className="text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded text-[10px] font-extrabold animate-pulse">
                         = {formatDecimal(evaluateMathExpression(quotaQuantityStr))}
@@ -1258,10 +1258,10 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                   <span className="text-[10px] text-slate-400 mt-0.5 block">Tổng số định mức toàn công trình</span>
                 )}
               </div>
-              <div>
-                <div className="flex items-center justify-between mb-1 gap-1">
-                  <label className="block font-bold text-slate-700">Hao phí / đơn vị khối lượng (không bắt buộc)</label>
-                  <div className="flex items-center gap-1">
+              <div className="flex flex-col">
+                <div className="flex items-start justify-between gap-2 mb-1 sm:min-h-[2.75rem]">
+                  <label className="block font-bold text-slate-700 leading-tight pt-0.5">Hao phí / đơn vị khối lượng (không bắt buộc)</label>
+                  <div className="flex items-center gap-1 shrink-0">
                     {evaluateMathExpression(unitNormPerM2Str) !== null && /[+\-*/xX×:÷]/.test(unitNormPerM2Str) && (
                       <span className="text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded text-[10px] font-extrabold">
                         = {formatDecimal(evaluateMathExpression(unitNormPerM2Str))}

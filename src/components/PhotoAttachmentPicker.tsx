@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Camera, Image as ImageIcon, Images, Eye, Loader2, X, Pencil } from 'lucide-react';
-import { PhotoAttachment, getEntityPhotos, getProjectPhotos, savePhotoAttachment, deletePhotoAttachment, getPhotoDataUrl, updatePhotoAttachmentBlob } from '../utils/photoStorage';
-import { uploadPhotoToCloud } from '../lib/photoCloudSync';
+import { PhotoAttachment, getEntityPhotos, getProjectPhotos, savePhotoAttachment, deletePhotoAttachment, getPhotoDataUrl, updatePhotoAttachmentBlob, resetPhotoRuntimeMemoryCache } from '../utils/photoStorage';
+import { uploadPhotoToCloud, verifyPhotoBinaryReadyInCloud } from '../lib/photoCloudSync';
+import { getCurrentRealFirebaseUser, onAuthUserChanged } from '../lib/firebase';
 import { ImageViewerModal } from './ImageViewerModal';
 import { ImageEditorModal } from './ImageEditorModal';
 import { confirmAsync } from '../utils/confirmAsync';
@@ -50,6 +51,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
   const [photoDataUrls, setPhotoDataUrls] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [syncNotice, setSyncNotice] = useState('');
   const [viewingIndex, setViewingIndex] = useState<number | null>(null);
   const [photoSortBy, setPhotoSortBy] = useState<'date' | 'name' | 'size'>('date');
   const [photoSortOrder, setPhotoSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -135,6 +137,22 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
   }, [projectId, entityType, entityId, category]);
 
   useEffect(() => {
+    // Same origin + same phone can keep the component mounted while Firebase switches
+    // account. Drop only the in-memory photo metadata cache (never the Blob/outbox) and
+    // reload under the new identity so account B cannot inherit account A's pending view.
+    let first = true;
+    const unsubscribeAuth = onAuthUserChanged(() => {
+      resetPhotoRuntimeMemoryCache();
+      if (first) {
+        first = false;
+        return;
+      }
+      void loadPhotos();
+    });
+    return () => unsubscribeAuth();
+  }, [projectId, entityType, entityId, category]);
+
+  useEffect(() => {
     photoDataUrlsRef.current = photoDataUrls;
   }, [photoDataUrls]);
 
@@ -165,6 +183,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
     }
 
     setUploading(true);
+    setSyncNotice('');
     try {
       const savedNow: PhotoAttachment[] = [];
       const optimisticUrls: Record<string, string> = {};
@@ -187,17 +206,29 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
             fileName: file.name || `QLCT_${Date.now()}.jpg`,
             mimeType: file.type || 'image/jpeg',
             fileSize: file.size,
+            createdByUid: getCurrentRealFirebaseUser()?.uid || undefined,
           },
           file
         );
         savedNow.push(saved);
         if (saved.localUri) optimisticUrls[saved.id] = saved.localUri;
-        // V6.2.25: start the binary upload immediately after IndexedDB commit.
-        // The old 1.8s mobile debounce could be cancelled when the user locked the
-        // phone/closed the app, leaving the photo visible only on the capture device.
-        void uploadPhotoToCloud(projectId, saved).catch((err) =>
-          console.warn('[Photo Picker] immediate cloud upload pending retry:', saved.id, err)
-        );
+
+        // RC2.2.9: while online, do not report the add operation as finished until the
+        // R2/Storage binary and its Firestore ready metadata are both confirmed. This
+        // closes the same-phone A -> sign-out -> B race where A saw a local Blob while B
+        // received only binaryUploadState=pending metadata and therefore a placeholder.
+        if (typeof navigator !== 'undefined' && navigator.onLine) {
+          try {
+            await uploadPhotoToCloud(projectId, saved);
+            const cloudReady = await verifyPhotoBinaryReadyInCloud(projectId, saved.id);
+            if (!cloudReady) throw new Error('Cloud chưa xác nhận binary ảnh.');
+          } catch (err: any) {
+            console.warn('[Photo Picker] cloud upload pending durable retry:', saved.id, err);
+            setSyncNotice('Ảnh đã lưu an toàn trên thiết bị nhưng Cloud chưa xác nhận. Giữ ứng dụng online để tự đồng bộ trước khi đổi tài khoản.');
+          }
+        } else {
+          setSyncNotice('Đang offline: ảnh đã lưu trên thiết bị và sẽ tự đồng bộ Cloud khi có mạng.');
+        }
       }
 
       // Render immediately from the just-compressed data URL. Do not wait for IndexedDB/cloud
@@ -285,10 +316,10 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
       setUploading(true);
       await updatePhotoAttachmentBlob(projectId, editingPhoto.id, editedFile);
       const editedPhotoMeta = (await getProjectPhotos(projectId, true)).find((p) => p.id === editingPhoto.id);
-      if (editedPhotoMeta) {
-        void uploadPhotoToCloud(projectId, editedPhotoMeta).catch((err) =>
-          console.warn('[Photo Picker] immediate edited-photo upload pending retry:', editingPhoto.id, err)
-        );
+      if (editedPhotoMeta && (typeof navigator === 'undefined' || navigator.onLine)) {
+        await uploadPhotoToCloud(projectId, editedPhotoMeta);
+        const cloudReady = await verifyPhotoBinaryReadyInCloud(projectId, editingPhoto.id);
+        if (!cloudReady) setSyncNotice('Ảnh chỉnh sửa đã lưu trên thiết bị nhưng Cloud chưa xác nhận; ứng dụng sẽ tự retry.');
       }
       closeEditingPhoto();
       notifyPhotoAttachmentsChanged({ operation: 'edit', entityType, entityId, category, photoId: editingPhoto.id, originId: pickerInstanceIdRef.current });
@@ -356,6 +387,12 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
           </div>
         )}
       </div>
+
+      {syncNotice && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] font-semibold text-amber-800">
+          {syncNotice}
+        </div>
+      )}
 
       <QuickSortBar
         itemCount={photos.length}

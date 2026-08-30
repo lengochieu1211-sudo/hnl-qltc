@@ -30,6 +30,7 @@ const swRegistration = read('src/serviceWorkerRegistration.ts');
 const photoSync = read('src/lib/photoCloudSync.ts');
 const photoStorage = read('src/utils/photoStorage.ts');
 const photoPicker = read('src/components/PhotoAttachmentPicker.tsx');
+const materialNormModal = read('src/components/MaterialNormModal.tsx');
 const exportPdf = read('src/components/ExportPdfModal.tsx');
 const floorPlanSync = read('src/lib/floorPlanImageSync.ts');
 const firebaseStorage = read('src/lib/firebaseStorage.ts');
@@ -114,15 +115,31 @@ requireAll(photoStorage, [
   "raw.startsWith('storage:')",
   'projectIdHint',
   'downloadPhotoBlobFromCloud',
+  'projectPhotoListMemoryCacheOwner',
+  'getPhotoRuntimeAuthKey',
+  'item.createdByUid && item.createdByUid !== activeUid',
   'Never hand an opaque `r2:` / `storage:` / `firestore:` reference to <img src>',
-], 'cross-account photo binary resolver');
+], 'cross-account photo binary resolver + same-phone account isolation');
+requireAll(photoSync, [
+  'getDocFromServer',
+  "binaryUploadState || '') === 'pending'",
+  'verifyPhotoBinaryReadyInCloud',
+  "throw new Error('PHOTO_AUTH_UNAVAILABLE')",
+], 'same-phone photo server refresh + upload confirmation');
 requireAll(photoPicker, [
   'getPhotoDataUrl(p.id, p.cloudUrl || p.cloudFileId, true, projectId)',
   'getPhotoDataUrl(photo.id, photo.cloudUrl || photo.cloudFileId, false, projectId)',
   'isDirectPhotoUrl',
-], 'PhotoAttachmentPicker authenticated cloud rendering');
+  'await uploadPhotoToCloud(projectId, saved)',
+  'verifyPhotoBinaryReadyInCloud(projectId, saved.id)',
+  'resetPhotoRuntimeMemoryCache()',
+  'onAuthUserChanged',
+], 'PhotoAttachmentPicker authenticated cloud rendering + same-phone account switch');
 requireAll(floorPlanDefect, ['photo.cloudUrl || photo.cloudFileId || photo.localUri', 'false, projectId'], 'Defect gallery cloud rendering');
 requireAll(exportPdf, ['p.cloudUrl || p.cloudFileId || p.localUri', 'activeProjectId'], 'PDF photo cloud rendering');
+
+requireAll(materialNormModal, ['sm:min-h-[2.75rem]', 'sm:items-start', 'leading-tight pt-0.5'], 'Material norm PC quota-field alignment');
+pass('Material norm quota inputs align on PC while remaining stacked on mobile');
 pass('cross-account/device photo metadata resolves private R2/Storage binary instead of rendering opaque pointers');
 requireAll(floorPlanSync, ['uploadFloorPlanBinaryToCloud', 'BINARY_STORAGE_PROVIDER', 'storagePath:', 'thumbnailPath:'], 'floor-plan object-storage pipeline');
 if (photoSync.includes('uploadPhotoToPrimaryDrive(')) fail('photo runtime still has a Drive upload call');
