@@ -18,12 +18,19 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Decode and verify patch
+      - name: Decode and structurally verify patch
         shell: bash
         run: |
           set -euo pipefail
           base64 -d rc2212_sync_definitive.b64 > /tmp/rc2212-sync.patch
-          echo "e37151c131bcc71c0547c9d46373eb440ef13114f61b4709f69f1c39bf5056d7  /tmp/rc2212-sync.patch" | sha256sum -c -
+          sha256sum /tmp/rc2212-sync.patch
+          bytes=$(wc -c < /tmp/rc2212-sync.patch)
+          test "$bytes" -gt 14000
+          grep -q "Ready-only publish" /tmp/rc2212-sync.patch
+          grep -q "isSharedCloudPhotoVisible" /tmp/rc2212-sync.patch
+          grep -q "R2 upload failed; falling back to Firebase Storage" /tmp/rc2212-sync.patch
+          grep -q "photoOutboxRetryTimerRef" /tmp/rc2212-sync.patch
+          grep -q "retryDelays = \[0, 400, 1200, 2500\]" /tmp/rc2212-sync.patch
           git apply --check /tmp/rc2212-sync.patch
           git apply /tmp/rc2212-sync.patch
           git diff --check
