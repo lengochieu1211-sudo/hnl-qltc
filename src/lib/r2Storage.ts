@@ -27,6 +27,13 @@ export interface R2BinaryUploadResult {
   updated?: string;
 }
 
+export interface R2ObjectVerification {
+  ready: boolean;
+  size: number;
+  sha256?: string;
+  etag?: string;
+}
+
 export interface R2ProjectBinaryUploadInput {
   projectId: string;
   entityType: string;
@@ -67,6 +74,25 @@ function gatewayUrl(path: string, storagePath: string): string {
   return `${R2_GATEWAY_URL}${path}?key=${encodeURIComponent(storagePath)}`;
 }
 
+export async function verifyR2ObjectReady(
+  storagePath: string,
+  expectedSize?: number,
+  expectedSha256?: string,
+): Promise<R2ObjectVerification> {
+  const response = await fetch(gatewayUrl('/v1/object', storagePath), {
+    method: 'HEAD',
+    headers: { Authorization: await authHeader() },
+    cache: 'no-store',
+  });
+  if (!response.ok) return { ready: false, size: 0 };
+  const size = Number(response.headers.get('Content-Length') || 0);
+  const sha256 = String(response.headers.get('X-HNL-SHA256') || '').trim() || undefined;
+  const etag = String(response.headers.get('etag') || '').trim() || undefined;
+  const sizeMatches = !expectedSize || size === Number(expectedSize);
+  const checksumMatches = !expectedSha256 || !sha256 || sha256 === expectedSha256;
+  return { ready: size > 0 && sizeMatches && checksumMatches, size, sha256, etag };
+}
+
 async function putObject(storagePath: string, blob: Blob, metadata: Record<string, string>): Promise<R2BinaryUploadResult> {
   const response = await fetch(gatewayUrl('/v1/object', storagePath), {
     method: 'PUT',
@@ -82,12 +108,21 @@ async function putObject(storagePath: string, blob: Blob, metadata: Record<strin
     throw new Error(`R2_UPLOAD_FAILED:${response.status}:${detail.slice(0, 300)}`);
   }
   const result = await response.json() as any;
+  const returnedSize = Number(result.size || 0);
+  const returnedSha256 = String(result.sha256 || '') || undefined;
+  if (!returnedSize || returnedSize !== blob.size) {
+    throw new Error(`R2_UPLOAD_SIZE_MISMATCH:${storagePath}:${returnedSize}:${blob.size}`);
+  }
+  const verified = await verifyR2ObjectReady(storagePath, blob.size, returnedSha256);
+  if (!verified.ready) {
+    throw new Error(`R2_UPLOAD_NOT_DURABLE:${storagePath}:${verified.size}:${blob.size}`);
+  }
   return {
     storagePath,
     mimeType: String(result.mimeType || blob.type || 'application/octet-stream'),
-    size: Number(result.size || blob.size || 0),
-    sha256: String(result.sha256 || '') || undefined,
-    etag: String(result.etag || '') || undefined,
+    size: returnedSize,
+    sha256: verified.sha256 || returnedSha256,
+    etag: verified.etag || String(result.etag || '') || undefined,
     updated: String(result.updated || '') || undefined,
   };
 }
