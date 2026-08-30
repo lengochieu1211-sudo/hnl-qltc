@@ -1,0 +1,55 @@
+name: RC2.2.8 Drive Backup Artifact
+
+on:
+  push:
+    branches:
+      - rc2-2-8-data-integrity-master-gate
+    paths:
+      - .github/workflows/rc2-2-8-drive-backup.yml
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build immutable RC2.2.8 backup bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET="a11be61da2e1be347fadb506b48c1ec9fb9829a3"
+          BASE="bd9fef1d695bbaebb591980098d5ce61360a77ea"
+          git cat-file -e "${TARGET}^{commit}"
+          git cat-file -e "${BASE}^{commit}"
+          mkdir -p backup
+          git archive --format=zip --output="backup/HNL-QLTC-RC2.2.8-FULL-SOURCE-a11be61.zip" "$TARGET"
+          git diff --binary "$BASE" "$TARGET" > "backup/HNL-QLTC-RC2.2.8-PR7.patch"
+          git diff --name-status "$BASE" "$TARGET" > "backup/HNL-QLTC-RC2.2.8-CHANGED-FILES.txt"
+          cat > "backup/HNL-QLTC-RC2.2.8-BACKUP-MANIFEST.txt" <<EOF
+          Project: HNL QLTC
+          Release: V6.3.0 RC2.2.8
+          Baseline main: $BASE
+          Snapshot commit: $TARGET
+          Branch: rc2-2-8-data-integrity-master-gate
+          PR: #7 (Draft, NOT MERGED)
+          PROD deploy: NOT AUTHORIZED / NOT PERFORMED
+          CI clean snapshot: Build #127 PASS; Android APK #34 PASS; Windows EXE #28 PASS
+          Note: FULL SOURCE is generated with git archive from the immutable snapshot commit and excludes .git, node_modules, build outputs and local secrets.
+          EOF
+          (cd backup && sha256sum HNL-QLTC-RC2.2.8-FULL-SOURCE-a11be61.zip HNL-QLTC-RC2.2.8-PR7.patch HNL-QLTC-RC2.2.8-CHANGED-FILES.txt HNL-QLTC-RC2.2.8-BACKUP-MANIFEST.txt > SHA256SUMS.txt)
+          unzip -t "backup/HNL-QLTC-RC2.2.8-FULL-SOURCE-a11be61.zip"
+
+      - name: Upload source backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-RC2.2.8-FULL-BACKUP-a11be61
+          path: backup/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
