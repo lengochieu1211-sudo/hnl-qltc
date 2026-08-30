@@ -34,6 +34,16 @@ Status: WIP branch only. Do not merge or deploy PROD until every release gate be
 7. Due-date notifications and the new panel must read the same `floor_plans.targetFrameDate/targetBoardDate` fields; never create a second settings copy.
 8. Cấu hình should remain for project metadata, formatting, sync/diagnostics, backup/trash and system preferences.
 
+### Notification deep-link behavior
+
+1. Every actionable notification must identify the underlying business record, not only its screen/tab.
+2. Defect notification → open **Mặt bằng** → select the defect's `floorId` → switch to Defect view → select/focus the exact `defect.id` → open its detail modal.
+3. A notification may never stop at `setActiveTab('floorplan')` and leave the user to find the record manually.
+4. Notification navigation must work even when another floor or a different Defect status filter was previously selected.
+5. The target is resolved from the existing `DueDateAlertItem.originalItem`; do not duplicate Defect data into notification storage.
+6. If the record was removed/archived after the alert was generated, fail clearly and safely instead of opening an unrelated record.
+7. The same deep-link contract must be used by both the floating due-date toast and the full Notification Center.
+
 ## 2. Video findings included in this gate
 
 - P0: duplicate physical member rows for one email can display as two members and can carry conflicting roles.
@@ -41,6 +51,7 @@ Status: WIP branch only. Do not merge or deploy PROD until every release gate be
 - P0: UID-first role lookup can temporarily return a stale role when UID and email documents disagree.
 - P1: permission-change/revoke flow needs an application modal with project + email + old role → new role instead of generic browser confirmation.
 - P1: floor-plan target-date configuration is placed in the wrong operational location.
+- P1: clicking a Defect notification currently only changes to the Floor Plan tab and does not open/focus the referenced Defect.
 - P1: floor-plan mobile viewport needs fit/clamp review.
 - P1: notification overlays and chat keyboard/mobile bottom navigation require responsive hardening.
 - P1: full-screen loading should prefer verified Firestore cache while realtime refresh continues.
@@ -77,10 +88,20 @@ Status: WIP branch only. Do not merge or deploy PROD until every release gate be
 - Due soon/overdue state is identical in floor-plan panel and notification center.
 - Mobile keyboard/bottom navigation does not cover the progress controls.
 
+### Notification navigation
+
+- Defect on current floor → opens exact Defect detail.
+- Defect on another floor → changes floor first, then opens exact Defect detail.
+- Previous status filter hides target → navigation resets/reconciles the filter so the target is visible.
+- Toast notification and Notification Center produce identical navigation results.
+- Deleted/archived target → no unrelated Defect opens; user receives a clear unavailable-state message.
+- WorkVolume/Checklist navigation remains unchanged unless a deeper record-target contract is intentionally added and tested.
+
 ## 4. Release gates before merge
 
 - Stability / Architecture / Golden Gate.
 - Identity/RBAC regression gate.
+- Notification deep-link regression gate.
 - TypeScript.
 - Source lint.
 - Firestore Rules compile + emulator behavior.
@@ -100,5 +121,7 @@ Status: WIP branch only. Do not merge or deploy PROD until every release gate be
 - Reconnect from offline cache after a role downgrade/revoke.
 - Create photo on device A → metadata + R2 binary → device B displays it.
 - Floor target date update on ADMIN device → Editor/Viewer display refresh.
+- Tap a Defect due-date toast for a different floor → exact Defect detail opens.
+- Tap the same Defect from Notification Center after changing status filter → exact Defect still opens.
 
 Do not mark RC2.2.8 releasable until these conditions are verified or explicitly recorded as an external blocker.
