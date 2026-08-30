@@ -1,0 +1,45 @@
++      {syncNotice && (
++        <div className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] font-semibold text-amber-800">
++          {syncNotice}
++        </div>
++      )}
++
+diff --git a/src/lib/photoCloudSync.ts b/src/lib/photoCloudSync.ts
+index 7bc2230..b13c79e 100644
+--- a/src/lib/photoCloudSync.ts
++++ b/src/lib/photoCloudSync.ts
+@@ -4,0 +5 @@ import {
++  getDocFromServer,
+@@ -67 +68 @@ function parseStoragePointer(value?: string | null): { provider: string; path: s
+-  return { provider: '', path: raw };
++  return { provider: '', path: '' };
+@@ -148 +149 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
+-  if (!user || user.isAnonymous) return;
++  if (!user || user.isAnonymous) throw new Error('PHOTO_AUTH_UNAVAILABLE');
+@@ -361,3 +362,33 @@ export async function downloadPhotoBlobFromCloud(projectId: string, photoId: str
+-  const metaSnap = await getDoc(doc(db, 'projects', projectId, 'photos', photoId));
+-  if (!metaSnap.exists() || metaSnap.data()?.deleted) return null;
+-  const data = metaSnap.data();
++
++  const photoRef = doc(db, 'projects', projectId, 'photos', photoId);
++  const readPhotoMeta = async (serverOnly = false) => {
++    const snap = serverOnly ? await getDocFromServer(photoRef) : await getDoc(photoRef);
++    if (!snap.exists() || snap.data()?.deleted) return null;
++    return snap.data() as any;
++  };
++
++  let data = await readPhotoMeta(false);
++  if (!data) return null;
++
++  const hasUsableBinaryPointer = (value: any) => Boolean(
++    value?.storagePath
++    || isStorageCloudValue(value?.cloudFileId)
++    || isStorageCloudValue(value?.cloudUrl)
++    || isDriveCloudValue(value?.cloudFileId)
++    || isDriveCloudValue(value?.cloudUrl)
++    || Number(value?.chunkCount || 0) > 0
++  );
++
++  // RC2.2.9 same-phone account switch: persistent Firestore cache can still contain
++  // the initial binaryUploadState=pending document after account A has completed the
++  // R2 upload on the server. Acc
