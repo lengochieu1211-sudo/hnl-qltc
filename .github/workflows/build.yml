@@ -43,7 +43,7 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Firebase Rules compile check
+      - name: Firebase Rules compile + Auth/Firestore/Storage Emulator behavior
         run: npm run test:rules
 
       - name: Security audit (production, critical)
