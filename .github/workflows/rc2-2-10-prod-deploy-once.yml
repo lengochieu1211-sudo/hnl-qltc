@@ -1,0 +1,86 @@
+name: RC2.2.10 PROD Deploy Once
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/rc2-2-10-prod-deploy-once.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  prod_release:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      VITE_APP_ENV: PROD
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
+      VITE_ENABLE_LEGACY_DRIVE_READ: "true"
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: "false"
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: "false"
+      VITE_FIREBASE_API_KEY: AIzaSyAShhTKSnmLMOEm4dST--1_X7fjJUE4znY
+      VITE_FIREBASE_AUTH_DOMAIN: com-example-qlct-61329.firebaseapp.com
+      VITE_FIREBASE_PROJECT_ID: com-example-qlct-61329
+      VITE_FIREBASE_STORAGE_BUCKET: com-example-qlct-61329.firebasestorage.app
+      VITE_FIREBASE_MESSAGING_SENDER_ID: "119152410850"
+      VITE_FIREBASE_APP_ID: 1:119152410850:web:c2aee2135428af34ef5ebb
+      VITE_FIRESTORE_DATABASE_ID: "(default)"
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: "(default)"
+      VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      VITE_GIT_COMMIT: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Exact-source release guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "b226c8276348c7b3ec8f4d980710f96438b3cb41" || { echo 'REFUSING: PROD parent is not certified RC2.2.10 main commit'; exit 1; }
+          test "$(git diff --name-only HEAD^ HEAD)" = ".github/workflows/rc2-2-10-prod-deploy-once.yml" || { echo 'REFUSING: unexpected source change in deploy trigger commit'; git diff --name-only HEAD^ HEAD; exit 1; }
+          test "$(tr -d '\r\n' < desktop-wrapper/release-tag.txt)" = "6.3.0-rc2.2.10" || { echo 'REFUSING: release tag mismatch'; exit 1; }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - name: Stability Gate
+        run: npm run test:stability
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Firebase Rules compile + behavior
+        run: npm run test:rules
+      - name: Security audit critical
+        run: npm run security:audit
+      - name: Build
+        run: npm run build
+      - name: Deploy Firestore Rules + Hosting hnlqltc
+        shell: bash
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
+        run: |
+          set -euo pipefail
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          npx --yes firebase-tools@13.35.1 deploy --only firestore:rules --project com-example-qlct-61329 --non-interactive
+          npx --yes firebase-tools@13.35.1 deploy --only hosting --config firebase.prod.json --project com-example-qlct-61329 --non-interactive
+      - name: PROD live smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in 1 2 3 4 5; do
+            code="$(curl -L -sS -o /tmp/hnlqltc.html -w '%{http_code}' 'https://hnlqltc.web.app/?release=rc2.2.10')"
+            if [ "$code" = "200" ] && grep -qi '<div id="root"' /tmp/hnlqltc.html; then
+              echo "RC2.2.10_PROD_LIVE_OK HTTP=$code"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo 'PROD live smoke failed'
+          cat /tmp/hnlqltc.html || true
+          exit 1
