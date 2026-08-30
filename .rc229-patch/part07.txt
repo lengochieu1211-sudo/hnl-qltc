@@ -1,0 +1,46 @@
+oCloud(projectId, saved).catch((err) =>
+-          console.warn('[Photo Picker] immediate cloud upload pending retry:', saved.id, err)
+-        );
++        // RC2.2.9: do not fire-and-forget the binary. Keep the picker in uploading
++        // state until R2/Storage + Firestore server confirmation finishes. The creator
++        // still gets the optimistic local thumbnail, but account switching is no longer
++        // allowed to masquerade a local-only image as synchronized.
++        try {
++          await uploadPhotoToCloud(projectId, saved);
++        } catch (err) {
++          cloudSyncFailures.push(saved.fileName || saved.id);
++          console.warn('[Photo Picker] cloud confirmation pending retry:', saved.id, err);
++        }
+       }
+ 
+       // Render immediately from the just-compressed data URL. Do not wait for IndexedDB/cloud
+@@ -220,10 +229,14 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
+         entityId,
+         category,
+         count: savedNow.length,
++        cloudPending: cloudSyncFailures.length,
+         originId: pickerInstanceIdRef.current,
+       });
+-      // No immediate self-reload: the optimistic thumbnail is already correct.
+-      // Avoiding a second IndexedDB pass materially reduces mobile RAM/CPU spikes.
++      if (cloudSyncFailures.length > 0) {
++        alert(`Đã lưu ảnh trên thiết bị nhưng ${cloudSyncFailures.length} ảnh CHƯA xác nhận đồng bộ Cloud. Hãy giữ mạng và không đổi tài khoản cho đến khi trạng thái đồng bộ hoàn tất.`);
++      }
++      // No immediate self-reload: the optimistic thumbnail is already correct and a
++      // confirmed cloud write dispatches its own realtime photo-change event.
+     } catch (err: any) {
+       console.error('Error uploading photo:', err);
+       alert(err?.message || 'Có lỗi xảy ra khi xử lý ảnh. Vui lòng thử lại.');
+diff --git a/src/lib/firebase.ts b/src/lib/firebase.ts
+index 768254b..8c38517 100644
+--- a/src/lib/firebase.ts
++++ b/src/lib/firebase.ts
+@@ -1045,19 +1045,26 @@ export async function signInWithGoogle(): Promise<User | null> {
+ }
+ 
+ export async function signOutGoogle(): Promise<void> {
+-  try {
+-    if (isFirebaseConfigured) {
+-      await fbSignOut(auth).catch(() => {});
++  if (isFirebaseConfigured && auth.currentUser) {
++    // RC2.2.9 same-phone account switch: finish t
