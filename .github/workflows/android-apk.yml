@@ -25,9 +25,6 @@ on:
       - 'vite.config.ts'
       - '.github/workflows/android-apk.yml'
 
-permissions:
-  contents: write
-
 jobs:
   build_apk:
     runs-on: windows-latest
@@ -53,6 +50,10 @@ jobs:
       QLCT_RELEASE_TAG: 6.3.0-rc2.2.13
       QLCT_ANDROID_KEYSTORE_BASE64: ${{ secrets.QLCT_ANDROID_KEYSTORE_BASE64 }}
       QLCT_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.QLCT_ANDROID_KEYSTORE_PASSWORD }}
+      # The fixed HNL release keystore is PKCS12. PKCS12 uses one effective
+      # password for both the store and its private key, so apksigner must receive
+      # the store password as --key-pass. Keep the fourth repository secret as a
+      # release-configuration presence gate for continuity with the signing backup.
       QLCT_ANDROID_KEY_PASSWORD: ${{ secrets.QLCT_ANDROID_KEYSTORE_PASSWORD }}
       QLCT_ANDROID_KEY_PASSWORD_CONFIGURED: ${{ secrets.QLCT_ANDROID_KEY_PASSWORD }}
       QLCT_ANDROID_KEY_ALIAS: ${{ secrets.QLCT_ANDROID_KEY_ALIAS }}
@@ -60,23 +61,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
-          fetch-depth: 0
-
-      - name: RC2.2.13 branch source finalizer
-        if: github.event_name == 'pull_request' && github.head_ref == 'rc2-2-12-android-gallery-picker-hotfix'
-        shell: pwsh
-        run: |
-          python scripts/rc2213-finalize.py
-          git diff --check
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add android-wrapper/src/com/qlct/app/MainActivity.java src/lib/photoCloudSync.ts scripts/stability-gate.mjs scripts/desktop-launcher-golden.mjs
-          if (-not (git diff --cached --quiet)) {
-            git commit -m "fix: finalize RC2.2.13 R2 durable photo pipeline"
-            git push origin HEAD:rc2-2-12-android-gallery-picker-hotfix
-          }
 
       - name: Setup Node
         uses: actions/setup-node@v4
