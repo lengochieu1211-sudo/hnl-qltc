@@ -1,0 +1,57 @@
+name: RC2.2.9 Apply Same-Phone Photo + PC UI Hotfix
+on:
+  push:
+    branches: [rc2-2-9-same-phone-photo-sync-ui]
+    paths:
+      - '.github/workflows/rc2-2-9-apply-hotfix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply_hotfix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify and apply exact patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .rc229-patch/part*.txt > /tmp/rc229.patch
+          echo '16355ce832021177d69478bb81b612bf9ea4d197605de2d32b3c84b9887ece3c  /tmp/rc229.patch' | sha256sum -c -
+          git apply --check /tmp/rc229.patch
+          git apply /tmp/rc229.patch
+          git diff --check
+      - name: Source release gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/stability-gate.mjs
+          node scripts/offline-golden.mjs
+          node scripts/category-golden.mjs
+          node scripts/firebase-only-golden.mjs
+          node scripts/firebase-only-legacy-audit.mjs --self-test
+          node scripts/emulator-golden.mjs
+          node scripts/rbac-matrix.mjs
+          node scripts/r2-gateway-golden.mjs
+          node scripts/desktop-launcher-golden.mjs
+          node scripts/auth-popup-golden.mjs
+          node scripts/source-lint.mjs
+      - name: Commit source hotfix without workflow mutations
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout HEAD -- .github/workflows/android-apk.yml .github/workflows/windows-exe.yml
+          rm -rf .rc229-patch
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if git diff --cached --name-only | grep -q '^.github/workflows/'; then
+            echo 'REFUSING: bot source commit contains workflow mutation'
+            git diff --cached --name-only
+            exit 1
+          fi
+          git commit -m 'fix: RC2.2.9 same-phone photo sync and PC crew alignment'
+          git push origin HEAD:rc2-2-9-same-phone-photo-sync-ui
