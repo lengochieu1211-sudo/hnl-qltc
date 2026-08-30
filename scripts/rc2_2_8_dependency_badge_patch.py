@@ -10,12 +10,8 @@ def replace_once(path: str, old: str, new: str) -> None:
     p.write_text(text.replace(old, new, 1), encoding='utf-8')
     print('PATCHED', path)
 
-replace_once(
-    '.github/workflows/build.yml',
-    '      - name: Firebase Rules compile check\n        run: npm run test:rules',
-    '      - name: Firebase Rules compile + Auth/Firestore/Storage Emulator behavior\n        run: npm run test:rules'
-)
-
+# Do not mutate another workflow from GITHUB_TOKEN: GitHub correctly blocks that.
+# The build-step label is updated separately through the repository connector.
 replace_once(
     'src/components/BottomNav.tsx',
     """    { id: 'floorplan' as TabType, label: t('floorplan'), icon: MapPin, badge: defectBadgeCount },""",
