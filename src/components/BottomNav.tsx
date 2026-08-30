@@ -33,7 +33,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   const mainTabs = [
     { id: 'warehouse' as TabType, label: t('warehouse'), icon: PackageCheck },
     { id: 'volume' as TabType, label: t('volume'), icon: BarChart3 },
-    { id: 'floorplan' as TabType, label: t('floorplan'), icon: MapPin, badge: defectBadgeCount },
+    { id: 'floorplan' as TabType, label: t('floorplan'), icon: MapPin, badge: defectBadgeCount, badgeLabel: 'Defect chưa xử lý' },
     { id: 'crew' as TabType, label: t('crew'), icon: Users },
   ];
 
@@ -50,6 +50,8 @@ export const BottomNav: React.FC<BottomNavProps> = ({
             <button
               key={tab.id}
               onClick={() => { setShowMore(false); setActiveTab(tab.id); }}
+              title={tab.badge !== undefined && tab.badge > 0 ? `${tab.badge} ${tab.badgeLabel || 'thông báo'}` : tab.label}
+              aria-label={tab.badge !== undefined && tab.badge > 0 ? `${tab.label}: ${tab.badge} ${tab.badgeLabel || 'thông báo'}` : tab.label}
               className={`relative flex flex-col items-center justify-center transition-all ${
                 isActive ? 'text-blue-600 font-bold' : 'text-slate-500 font-medium hover:text-slate-800'
               }`}
@@ -57,8 +59,11 @@ export const BottomNav: React.FC<BottomNavProps> = ({
               <div className="relative">
                 <Icon className={`w-5 h-5 ${isActive ? 'scale-110' : ''}`} />
                 {tab.badge !== undefined && tab.badge > 0 && (
-                  <span className="absolute -top-1 -right-2 bg-rose-600 text-white text-[9px] font-extrabold px-1 rounded-full">
-                    {tab.badge}
+                  <span
+                    className="absolute -top-1 -right-2 bg-rose-600 text-white text-[9px] font-extrabold px-1 rounded-full min-w-5 text-center"
+                    title={`${tab.badge} ${tab.badgeLabel || 'thông báo'}`}
+                  >
+                    D{tab.badge}
                   </span>
                 )}
               </div>
