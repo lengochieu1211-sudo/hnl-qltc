@@ -1,0 +1,49 @@
+    sessionStorage.removeItem('qlct_pending_defect_navigation');
+         console.warn('[Defect navigation] Target no longer exists or is archived:', pending?.defectId);
++        alert('Defect này không còn tồn tại hoặc đã được lưu trữ. Không có Defect khác được mở thay thế.');
+         return;
+       }
+       if (!floorPlans.some((floor) => floor.id === defect.floorId)) {
+         sessionStorage.removeItem('qlct_pending_defect_navigation');
+         console.warn('[Defect navigation] Target floor no longer exists:', defect.floorId);
++        alert('Không thể mở Defect vì mặt bằng/tầng liên quan không còn tồn tại. Không có Defect khác được mở thay thế.');
+         return;
+       }
+ 
+diff --git a/src/components/PhotoAttachmentPicker.tsx b/src/components/PhotoAttachmentPicker.tsx
+index 7c153e7..e833567 100644
+--- a/src/components/PhotoAttachmentPicker.tsx
++++ b/src/components/PhotoAttachmentPicker.tsx
+@@ -30,6 +30,11 @@ const revokeBlobUrl = (url?: string) => {
+   }
+ };
+ 
++const isDirectPhotoUrl = (url?: string) => {
++  const value = String(url || '').trim();
++  return value.startsWith('blob:') || value.startsWith('data:image/') || value.startsWith('http://') || value.startsWith('https://');
++};
++
+ 
+ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
+   projectId,
+@@ -78,7 +83,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
+       const urlMap: Record<string, string> = {};
+       await Promise.all(
+         items.map(async (p) => {
+-          const url = p.localUri || await getPhotoDataUrl(p.id, p.cloudUrl || p.cloudFileId, true);
++          const url = p.localUri || await getPhotoDataUrl(p.id, p.cloudUrl || p.cloudFileId, true, projectId);
+           if (url) urlMap[p.id] = url;
+         })
+       );
+@@ -264,7 +269,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
+     e.preventDefault();
+     e.stopPropagation();
+     try {
+-      const fullUrl = await getPhotoDataUrl(photo.id, photo.cloudUrl || photo.cloudFileId, false);
++      const fullUrl = await getPhotoDataUrl(photo.id, photo.cloudUrl || photo.cloudFileId, false, projectId);
+       if (fullUrl) {
+         if (editingPhoto?.url) revokeBlobUrl(editingPhoto.url);
+         setEditingPhoto({ id: photo.id, url: fullUrl });
+@@ -307,7 +312,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
+     }
+     return photoSortOrder ===

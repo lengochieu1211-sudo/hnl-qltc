@@ -1,0 +1,21 @@
+e-only-golden.mjs b/scripts/firebase-only-golden.mjs
+index 62e4a15..fc13cd6 100644
+--- a/scripts/firebase-only-golden.mjs
++++ b/scripts/firebase-only-golden.mjs
+@@ -5,6 +5,7 @@ const app = read('src/App.tsx');
+ const firebase = read('src/lib/firebase.ts');
+ const photo = read('src/lib/photoCloudSync.ts');
+ const photoStorage = read('src/utils/photoStorage.ts');
++const photoPicker = read('src/components/PhotoAttachmentPicker.tsx');
+ const floorImage = read('src/lib/floorPlanImageSync.ts');
+ const rules = read('firestore.rules');
+ const storageRules = read('storage.rules');
+@@ -30,7 +31,7 @@ verify(7,'Restore hạng mục uses explicit lifecycle', rules.includes("request
+ verify(8,'Xóa căn soft-delete/tombstone path', rules.includes("isCoreBusinessCollection") && rules.includes('allow delete: if collectionName') && app.includes('trashDeletedItems'), 'core hard delete denied + trash capture');
+ verify(9,'Restore căn không overwrite newer edit', app.includes('Never overwrite a record another user edited after this delete operation'), 'restore timestamp guard');
+ verify(10,'Thêm defect + ảnh object storage', photo.includes('uploadProjectBinaryToCloud') && photo.includes('stagePhotoMetadataForCloud'), 'provider upload + Firestore metadata');
+-verify(11,'PC nhận ảnh điện thoại realtime', photo.includes('photoSnapshotMergeQueue') && photoStorage.includes('__pendingWrite'), 'serialized realtime metadata + server ack outbox');
++verify(11,'PC/tài khoản khác nhận và hiển thị ảnh realtime', photo.includes('photoSnapshotMergeQueue') && photoStorage.includes('__pendingWrite') && photoStorage.includes("raw.startsWith('r2:')") && photoStorage.includes("raw.startsWith('storage:')") && photoStorage.includes('projectIdHint') && photoPicker.includes('getPhotoDataUrl(p.id, p.cloudUrl || p.cloudFileId, true, projectId)'), 'serialized realtime metadata + server ack outbox + authenticated R2/Storage lazy binary resolver');
+ verify(12,'Viewer không ghi', rules.includes('canEdit(projectId)') && security.includes("if (FIREBASE_ONLY_RUNTIME) return 'VIEWER'"), 'Rules authoritative, local global role cannot grant');
+ verify(13,'Editor không đổi quyền', rules.includes('isCanonicalMemberRole') && rules.includes('allow create, update: if (') && read('src/components/SecurityModal.tsx').includes('saveProjectMemberToCloud'), 'membership admin rules');
+ verify(14,'Admin thêm user', rules.includes('isAdmin(projectId)') && read('src/lib/firebase.ts').include
