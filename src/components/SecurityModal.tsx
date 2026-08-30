@@ -39,6 +39,7 @@ import { hashPin, verifyPin } from '../utils/cryptoUtils';
 import { signInWithGoogle, getCurrentFirebaseUser, fetchProjectUserRoleFromCloud, claimProjectOwnership, fetchProjectMembersFromCloud, fetchProjectAuditLogsFromCloud, subscribeProjectMembersRealtime, subscribeProjectAuditLogsRealtime, repairProjectAccessIndexForProject } from '../lib/firebase';
 import { saveTextFile } from '../utils/fileExport';
 import { QuickSortBar } from './QuickSortBar';
+import { confirmAsync } from '../utils/confirmAsync';
 
 interface SecurityModalProps {
   isOpen: boolean;
@@ -501,8 +502,15 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
     const existingMembers = (await fetchProjectMembersFromCloud(pidAtSubmit)).filter((m: any) => m?.email && m?.active !== false);
     const existingMember = existingMembers.find((m: any) => String(m.email).toLowerCase() === email);
     if (existingMember?.role === 'ADMIN' && newMemberRole !== 'ADMIN' && countAdmins(existingMembers) <= 1) {
-      setMemberMsg({ type: 'error', text: 'Khong the ha quyen ADMIN cuoi cung cua du an. Hay them/chuyen mot ADMIN khac truoc.' });
+      setMemberMsg({ type: 'error', text: 'Không thể hạ quyền ADMIN cuối cùng của dự án. Hãy thêm/chuyển một ADMIN khác trước.' });
       return;
+    }
+
+    if (existingMember && existingMember.role !== newMemberRole) {
+      const confirmed = await confirmAsync(
+        `Xác nhận thay đổi quyền thành viên?\n\nDự án: ${getSelectedProjectName(pidAtSubmit)}\nTài khoản: ${email}\nQuyền cũ: ${existingMember.role}\nQuyền mới: ${newMemberRole}`
+      );
+      if (!confirmed) return;
     }
 
     const assignedAt = Date.now();
@@ -546,7 +554,9 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
       return;
     }
 
-    if (confirm(`XÃ¡c nháº­n thu há»“i quyá»n truy cáº­p cá»§a ${email}?`)) {
+    if (await confirmAsync(
+      `Xác nhận thu hồi quyền truy cập?\n\nDự án: ${getSelectedProjectName(pidAtSubmit)}\nTài khoản: ${email}\nQuyền hiện tại: ${targetMember?.role || 'VIEWER'}\n\nThao tác này sẽ thu hồi mọi UID/email alias của cùng tài khoản.`
+    )) {
       setIsSavingMember(true);
       setMemberMsg(null);
       try {
@@ -998,17 +1008,17 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                       {currentRole === 'ADMIN' ? (
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10.5px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">
                           <Crown className="w-3 h-3 text-emerald-600" />
-                          ADMIN (Chỉ Huy Trưởng)
+                          ADMIN (Quản trị)
                         </span>
                       ) : currentRole === 'EDITOR' ? (
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10.5px] font-extrabold bg-indigo-100 text-indigo-800 border border-indigo-300">
                           <Users className="w-3 h-3 text-indigo-600" />
-                          EDITOR (Kỹ sư Giám Sát)
+                          EDITOR (Kỹ sư)
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10.5px] font-extrabold bg-slate-100 text-slate-700 border border-slate-300">
                           <Eye className="w-3 h-3 text-slate-500" />
-                          VIEWER (Người Xem / Chỉ Đọc)
+                          VIEWER (Chỉ xem)
                         </span>
                       )}
                     </div>
@@ -1124,7 +1134,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                   <div className="p-3 bg-white rounded-xl border border-emerald-200 space-y-1">
                     <div className="font-bold text-emerald-800 flex items-center gap-1">
                       <Crown className="w-3.5 h-3.5 text-emerald-600" />
-                      ADMIN (Chỉ Huy Trưởng)
+                      ADMIN (Quản trị)
                     </div>
                     <p className="text-slate-500 leading-relaxed">
                       Toàn quyền: Tạo/xóa dự án, cấu hình định mức, xem đơn giá, xuất/nhập sao lưu toàn bộ, quản lý thành viên và bảo mật.
@@ -1133,7 +1143,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                   <div className="p-3 bg-white rounded-xl border border-indigo-200 space-y-1">
                     <div className="font-bold text-indigo-800 flex items-center gap-1">
                       <Users className="w-3.5 h-3.5 text-indigo-600" />
-                      EDITOR (Kỹ sư Thi Công)
+                      EDITOR (Kỹ sư)
                     </div>
                     <p className="text-slate-500 leading-relaxed">
                       Cập nhật tiến độ phòng, khối lượng, defect, chấm công, ảnh hiện trường. Không xem đơn giá và không thể xóa/quản lý dự án.

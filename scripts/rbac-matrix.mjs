@@ -67,12 +67,15 @@ check('FloorPlan defect UI separates operational and delete permission', has(src
 check('Room modal supports structural read-only mode', has(src.room, 'structureReadOnly?: boolean', 'disabled={structureReadOnly}', 'const effectivePatch = structureReadOnly', 'subItems: (roomItem.subItems || []).map'));
 check('Room modal hides nested sub-item structure controls for Editor', has(src.room, '!structureReadOnly && selectedSubItemIds.length > 0', '!structureReadOnly && activeCategories.length > 1', '!structureReadOnly && itemsInCat.length > 1', '!structureReadOnly && (deletingSubItemId === item.id'));
 check('Floor target-date editor moved to Mặt bằng and remains ADMIN-only', has(src.floor, 'Kế hoạch tiến độ tầng', 'onUpdateFloorPlan?:', 'targetFrameDate', 'targetBoardDate', 'disabled={!canManageStructure}') && !src.config.includes('Cài đặt Tiến Độ Mục Tiêu Từng Tầng'));
+check('Floor view does not restore stale pan/zoom across incompatible viewport sizes', has(src.floor, 'viewportWidth', 'viewportHeight', 'compatibleViewport', 'widthRatio >= 0.8', 'heightRatio >= 0.8'));
 check('Photo picker read-only mode is enforced in handlers, not UI-only', (src.photos.match(/if \(readOnly\) return;/g) || []).length >= 3 && has(src.photos, 'if (readOnly || !editingPhoto || !projectId) return;'));
 check('Warehouse has verified role, edit/delete/import/norm gates', has(src.warehouse, 'roleResolved: boolean', 'hasEditAccess', 'hasDeleteAccess', 'hasImportAccess', 'hasNormManageAccess'));
 check('Checklist has verified role and separates operational/structure/delete/import', has(src.checklist, 'roleResolved: boolean', 'canOperate', 'canManageStructure', 'canDelete', 'canImport'));
 check('Crew has verified role and separates operations/team/delete/import', has(src.crew, 'roleResolved: boolean', 'canOperate', 'canManageTeamDirectory', 'canDelete', 'canImportTeams'));
 check('Material norms are structurally ADMIN-only', has(src.norms, 'roleResolved: boolean', 'hasManageAccess', 'hasImportAccess'));
 check('Security member mutation is ADMIN-only', has(src.securityModal, 'canManageProjectMembers', 'canManageMembers(currentRole)'));
+check('Security role change/revoke uses app confirmation with identity context', has(src.securityModal, 'confirmAsync(', 'Quyền cũ:', 'Quyền mới:', 'Thao tác này sẽ thu hồi mọi UID/email alias'));
+check('Security role labels are normalized', has(src.securityModal, 'ADMIN (Quản trị)', 'EDITOR (Kỹ sư)', 'VIEWER (Chỉ xem)') && !src.securityModal.includes('Kỹ sư Giám Sát') && !src.securityModal.includes('Kỹ sư Thi Công'));
 check('Last ADMIN guard counts unique logical emails', has(src.securityModal, 'new Set(', "m?.role === 'ADMIN'", "String(m?.email || '').trim().toLowerCase()"));
 check('Member list collapses physical aliases to canonical email', has(src.firebase, 'candidateCanonical', 'existingCanonical', 'byEmail.set(email, candidate)'));
 check('Client resolves canonical email before UID fallback', src.firebase.indexOf('if (email) ids.add(email);') < src.firebase.indexOf('if (user.uid) ids.add(user.uid);'));

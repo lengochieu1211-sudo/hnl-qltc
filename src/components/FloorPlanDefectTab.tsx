@@ -2031,9 +2031,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       const raw = sessionStorage.getItem(getFloorViewStateKey(selectedFloorId));
       if (raw) {
         const saved = JSON.parse(raw);
-        savedZoom = Math.min(20, Math.max(1, Number(saved.zoom) || 1));
-        savedLeft = Math.max(0, Number(saved.scrollLeft) || 0);
-        savedTop = Math.max(0, Number(saved.scrollTop) || 0);
+        const currentWidth = Math.max(0, parentRef.current?.clientWidth || 0);
+        const currentHeight = Math.max(0, parentRef.current?.clientHeight || 0);
+        const savedWidth = Math.max(0, Number(saved.viewportWidth) || 0);
+        const savedHeight = Math.max(0, Number(saved.viewportHeight) || 0);
+        const widthRatio = savedWidth > 0 && currentWidth > 0 ? currentWidth / savedWidth : 0;
+        const heightRatio = savedHeight > 0 && currentHeight > 0 ? currentHeight / savedHeight : 0;
+        const compatibleViewport = widthRatio >= 0.8 && widthRatio <= 1.25 && heightRatio >= 0.8 && heightRatio <= 1.25;
+        if (compatibleViewport) {
+          savedZoom = Math.min(20, Math.max(1, Number(saved.zoom) || 1));
+          savedLeft = Math.max(0, Number(saved.scrollLeft) || 0);
+          savedTop = Math.max(0, Number(saved.scrollTop) || 0);
+        }
       }
     } catch {}
     setZoomScale(savedZoom);
@@ -2110,6 +2119,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               zoom: zoomScaleRef.current,
               scrollLeft: next.scrollLeft,
               scrollTop: next.scrollTop,
+              viewportWidth: next.clientWidth,
+              viewportHeight: next.clientHeight,
             }));
           } catch {}
         }
@@ -2176,6 +2187,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         zoom: zoomScale,
         scrollLeft: parent.scrollLeft,
         scrollTop: parent.scrollTop,
+        viewportWidth: Math.max(1, parent.clientWidth),
+        viewportHeight: Math.max(1, parent.clientHeight),
       }));
     } catch {}
     requestAnimationFrame(() => {
