@@ -1,0 +1,77 @@
+name: RC2.2.11 PROD Deploy Once
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/rc2-2-11-prod-deploy-once.yml'
+
+jobs:
+  prod_release:
+    runs-on: ubuntu-latest
+    env:
+      VITE_APP_ENV: PROD
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
+      VITE_ENABLE_LEGACY_DRIVE_READ: "true"
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: "false"
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: "false"
+      VITE_FIREBASE_API_KEY: AIzaSyAShhTKSnmLMOEm4dST--1_X7fjJUE4znY
+      VITE_FIREBASE_AUTH_DOMAIN: com-example-qlct-61329.firebaseapp.com
+      VITE_FIREBASE_PROJECT_ID: com-example-qlct-61329
+      VITE_FIREBASE_STORAGE_BUCKET: com-example-qlct-61329.firebasestorage.app
+      VITE_FIREBASE_MESSAGING_SENDER_ID: "119152410850"
+      VITE_FIREBASE_APP_ID: 1:119152410850:web:c2aee2135428af34ef5ebb
+      VITE_FIRESTORE_DATABASE_ID: "(default)"
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: "(default)"
+      VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      VITE_GIT_COMMIT: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Exact-source release guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "7fbdefd90349de484d80c1fdfdf59a6e16324f39"
+          changed="$(git diff --name-only HEAD^ HEAD)"
+          test "$changed" = ".github/workflows/rc2-2-11-prod-deploy-once.yml"
+          test "$(node -p "require('./package.json').version")" = "$(node -p "require('./package-lock.json').version")"
+          test "$VITE_BINARY_STORAGE_PROVIDER" = "r2"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - name: Stability Gate
+        run: npm run test:stability
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Firebase Rules compile + behavior
+        run: npm run test:rules
+      - name: Security audit critical
+        run: npm run security:audit
+      - name: Build
+        run: npm run build
+      - name: Deploy Firestore Rules + Hosting hnlqltc
+        shell: bash
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
+        run: |
+          set -euo pipefail
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          npx --yes firebase-tools@13.35.1 deploy --only firestore:rules --project com-example-qlct-61329 --non-interactive
+          npx --yes firebase-tools@13.35.1 deploy --only hosting --config firebase.prod.json --project com-example-qlct-61329 --non-interactive
+      - name: PROD live smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl -L --retry 3 --retry-delay 2 -sS -o /tmp/hnlqltc.html -w '%{http_code}' https://hnlqltc.web.app/)"
+          test "$code" = "200"
+          grep -q 'id="root"' /tmp/hnlqltc.html
+          echo 'RC2.2.11_PROD_LIVE_SMOKE_PASS'
