@@ -5,6 +5,7 @@ declare const __BUILD_ID__: string;
 declare const __GIT_COMMIT__: string;
 declare const __APP_ENV__: string;
 
+// PROD Firebase Web App verified in project com-example-qlct-61329: 1:119152410850:web:c2aee2135428af34ef5ebb
 export type AppEnvironment = 'DEV' | 'PROD';
 export type AppPlatform = 'Web' | 'Android' | 'Windows';
 
