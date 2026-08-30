@@ -17,7 +17,7 @@ jobs:
           set -euo pipefail
           curl -fsS -H 'Cache-Control: no-cache' https://hnlqltc.web.app/__/firebase/init.json -o /tmp/init.json
           node -e "const fs=require('fs');const x=JSON.parse(fs.readFileSync('/tmp/init.json','utf8')); console.log('hostingProjectId='+x.projectId); console.log('authDomain='+x.authDomain); console.log('storageBucket='+x.storageBucket); if(x.projectId!=='com-example-qlct-61329') process.exit(2);"
-      - name: Query Firebase Web Apps with deploy identity
+      - name: Register exactly one Firebase Web App if missing
         shell: bash
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
@@ -25,5 +25,15 @@ jobs:
         run: |
           set -euo pipefail
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          npx --yes firebase-tools@13.35.1 apps:list WEB --project com-example-qlct-61329 --json > /tmp/before.json
+          COUNT="$(node -e "const r=require('/tmp/before.json');const a=r.result||r;const xs=Array.isArray(a)?a:(a.apps||[]);process.stdout.write(String(xs.filter(x=>String(x.platform||'').toUpperCase()==='WEB'||String(x.appId||'').includes(':web:')).length))")"
+          echo "WEB_APP_COUNT_BEFORE=$COUNT"
+          if [ "$COUNT" = "0" ]; then
+            npx --yes firebase-tools@13.35.1 apps:create WEB "HNL QLTC Web" --project com-example-qlct-61329 --json > /tmp/create.json
+            echo "Firebase Web App registered in existing project."
+          elif [ "$COUNT" != "1" ]; then
+            echo "BLOCKED: expected 0 or 1 WEB app, found $COUNT"
+            exit 3
+          fi
           npx --yes firebase-tools@13.35.1 apps:list WEB --project com-example-qlct-61329 --json > /tmp/apps.json
-          node -e "const fs=require('fs'); const raw=JSON.parse(fs.readFileSync('/tmp/apps.json','utf8')); const arr=raw.result||raw; console.log(JSON.stringify(arr,null,2)); const apps=Array.isArray(arr)?arr:(arr.apps||[]); const web=apps.filter(a=>String(a.platform||'').toUpperCase()==='WEB'||String(a.appId||'').includes(':web:')); if(web.length!==1){console.error('Expected exactly one WEB app, got '+web.length);process.exit(3)} const a=web[0]; console.log('VERIFIED_WEB_APP_ID='+a.appId); if(!/^1:119152410850:web:[0-9a-f]+$/i.test(a.appId||'')) process.exit(4);"
+          node -e "const fs=require('fs'); const raw=JSON.parse(fs.readFileSync('/tmp/apps.json','utf8')); const arr=raw.result||raw; const apps=Array.isArray(arr)?arr:(arr.apps||[]); const web=apps.filter(a=>String(a.platform||'').toUpperCase()==='WEB'||String(a.appId||'').includes(':web:')); console.log(JSON.stringify(web,null,2)); if(web.length!==1){console.error('Expected exactly one WEB app, got '+web.length);process.exit(4)} const a=web[0]; console.log('VERIFIED_WEB_APP_ID='+a.appId); if(!/^1:119152410850:web:[0-9a-f]+$/i.test(a.appId||'')) process.exit(5);"
