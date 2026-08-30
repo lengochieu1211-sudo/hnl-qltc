@@ -1,0 +1,40 @@
+.5 rounded-md text-[10px] font-bold bg-indigo-50 text-indigo-800 border border-indigo-200 inline-flex items-center min-h-[24px] whitespace-nowrap">
+                                   Ca làm việc: {parts.join(' • ')}
+                                 </span>
+                               );
+diff --git a/src/components/PhotoAttachmentPicker.tsx b/src/components/PhotoAttachmentPicker.tsx
+index e833567..32626d5 100644
+--- a/src/components/PhotoAttachmentPicker.tsx
++++ b/src/components/PhotoAttachmentPicker.tsx
+@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
+ import { Camera, Image as ImageIcon, Images, Eye, Loader2, X, Pencil } from 'lucide-react';
+ import { PhotoAttachment, getEntityPhotos, getProjectPhotos, savePhotoAttachment, deletePhotoAttachment, getPhotoDataUrl, updatePhotoAttachmentBlob } from '../utils/photoStorage';
+ import { uploadPhotoToCloud } from '../lib/photoCloudSync';
++import { getCurrentRealFirebaseUser } from '../lib/firebase';
+ import { ImageViewerModal } from './ImageViewerModal';
+ import { ImageEditorModal } from './ImageEditorModal';
+ import { confirmAsync } from '../utils/confirmAsync';
+@@ -168,6 +169,8 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
+     try {
+       const savedNow: PhotoAttachment[] = [];
+       const optimisticUrls: Record<string, string> = {};
++      const cloudSyncFailures: string[] = [];
++      const currentUser = getCurrentRealFirebaseUser();
+ 
+       for (const file of selected) {
+         // Some Android galleries return HEIC/HEIF. Browser decoding support differs by device,
+@@ -187,17 +190,23 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
+             fileName: file.name || `QLCT_${Date.now()}.jpg`,
+             mimeType: file.type || 'image/jpeg',
+             fileSize: file.size,
++            createdByUid: currentUser?.uid || undefined,
++            updatedByUid: currentUser?.uid || undefined,
+           },
+           file
+         );
+         savedNow.push(saved);
+         if (saved.localUri) optimisticUrls[saved.id] = saved.localUri;
+-        // V6.2.25: start the binary upload immediately after IndexedDB commit.
+-        // The old 1.8s mobile debounce could be cancelled when the user locked the
+-        // phone/closed the app, leaving the photo visible only on the capture device.
+-        void uploadPhotoT
