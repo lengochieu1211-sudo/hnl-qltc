@@ -1,0 +1,50 @@
+tId: string, photo: PhotoAttachment)
+     deleted: false,
+     deletedAt: null,
+     deletedByUid: null,
+-          deletedBy: null,
++    deletedBy: null,
+     updatedAt: contentVersion,
+     cloudSyncedAt: now,
+   }, { merge: true });
+ 
++  // RC2.2.9 account-switch gate: Firestore setDoc may resolve from its offline queue.
++  // Do not mark the media outbox complete until the *server* confirms the R2/Storage
++  // pointer. This prevents account A from logging out while account B can only see
++  // synchronized metadata with no downloadable binary.
++  const confirmedSnap = await getDocFromServer(metaRef);
++  const confirmed = confirmedSnap.exists() ? confirmedSnap.data() : null;
++  if (!confirmed || confirmed.deleted || String(confirmed.storagePath || '') !== String(uploaded.storagePath || '') || String(confirmed.binaryUploadState || '') !== 'ready') {
++    throw new Error(`PHOTO_CLOUD_CONFIRMATION_FAILED:${photo.id}`);
++  }
++  await clearPendingPhotoMetadata(photo.id);
++  const confirmedPhoto = { id: photo.id, ...confirmed, __pendingWrite: false } as PhotoAttachment & { __pendingWrite?: boolean };
++  await mergeCloudPhotoMetadata(projectId, [confirmedPhoto], [confirmedPhoto]);
++
+   // Legacy binary is intentionally NOT deleted here. A separate migration/purge job
+   // may clean Drive/chunks only after count + checksum + reference verification.
+ }
+@@ -300,6 +316,59 @@ export async function refreshProjectPhotoMetadataFromCloud(projectId: string): P
+   }
+ }
+ 
++export async function flushPendingPhotoUploadsForCurrentUser(): Promise<{ attempted: number; uploaded: number; failed: number; skippedForeign: number; skippedReady: number }> {
++  const user = getCurrentRealFirebaseUser();
++  if (!user || user.isAnonymous) return { attempted: 0, uploaded: 0, failed: 0, skippedForeign: 0, skippedReady: 0 };
++  const pending = await getAllPendingPhotoMetadata();
++  let attempted = 0;
++  let uploaded = 0;
++  let failed = 0;
++  let skippedForeign = 0;
++  let skippedReady = 0;
++
++  for (const photo of pending) {
++    if (!photo?.id || !photo.projectId) continue;
++    let cloudData: any = null;
++    try {
++      const snap = await getDocFromServer(doc(db, 'projects', photo.projectId, 'photos', photo.id));
++      cloudData = snap.exists() ? snap.data() : null;
++    } catch (_) {}
++
++    const cloudOwnerUid = String(cloudData?.createdByUid || '');
++    const localOwnerUid = Str
