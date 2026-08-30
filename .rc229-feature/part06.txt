@@ -1,0 +1,37 @@
+ListMemoryCacheOwner = new Map<string, string>();
++
++function getPhotoRuntimeAuthKey(): string {
++  try {
++    return getCurrentRealFirebaseUser()?.uid || 'signed-out';
++  } catch (_) {
++    return 'signed-out';
++  }
++}
++
++export function resetPhotoRuntimeMemoryCache(): void {
++  projectPhotoListMemoryCache.clear();
++  projectPhotoListMemoryCacheOwner.clear();
++}
+@@ -92,0 +110 @@ async function getPendingPhotoMetadata(projectId: string): Promise<PhotoAttachme
++    const activeUid = getCurrentRealFirebaseUser()?.uid || '';
+@@ -96 +114,7 @@ async function getPendingPhotoMetadata(projectId: string): Promise<PhotoAttachme
+-      if (item?.id && item.projectId === projectId) pending.push(item);
++      if (!item?.id || item.projectId !== projectId) continue;
++      // RC2.2.9: local media outbox belongs to the account that created it. On the
++      // same phone, account B must never inherit account A's pending-only metadata
++      // and render a ghost placeholder before the Cloud binary is ready. Legacy
++      // pending rows without createdByUid remain readable for one-time recovery.
++      if (item.createdByUid && item.createdByUid !== activeUid) continue;
++      pending.push(item);
+@@ -118 +142,4 @@ export async function getProjectPhotos(projectId: string, includeDeleted = false
+-    let list = projectPhotoListMemoryCache.get(projectId);
++    const authKey = getPhotoRuntimeAuthKey();
++    let list = projectPhotoListMemoryCacheOwner.get(projectId) === authKey
++      ? projectPhotoListMemoryCache.get(projectId)
++      : undefined;
+@@ -119,0 +147,2 @@ export async function getProjectPhotos(projectId: string, includeDeleted = false
++      projectPhotoListMemoryCache.delete(projectId);
++      projectPhotoListMemoryCacheOwner.delete(projectId);
+@@ -134,0 +164 @@ export async function getProjectPhotos(projectId: string, includeDeleted = false
++      projectPhotoListMemoryCacheOwner.set(projectId, authKey);
+@@ -150,0 +181 @@ export async function saveProjectPhotos(projectId:
