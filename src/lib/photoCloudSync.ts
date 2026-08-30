@@ -68,6 +68,18 @@ function parseStoragePointer(value?: string | null): { provider: string; path: s
   return { provider: '', path: '' };
 }
 
+function hasDurableCloudBinaryPointer(photo: any): boolean {
+  const pointer = parseStoragePointer(photo?.cloudFileId || photo?.cloudUrl);
+  const provider = String(photo?.storageProvider || pointer.provider || '');
+  return Boolean(
+    photo?.storagePath
+    || pointer.path
+    || isDriveCloudValue(photo?.cloudFileId || photo?.cloudUrl)
+    || Number(photo?.chunkCount || 0) > 0
+    || ['r2', 'firebase-storage', 'google-drive-primary'].includes(provider)
+  );
+}
+
 /**
  * Legacy cleanup only. V6.2.27 never writes new binary chunks to Firestore, but
  * old projects can still contain nested `photos/{photoId}/chunks/*` documents.
@@ -107,6 +119,12 @@ export async function stagePhotoMetadataForCloud(projectId: string, photo: Photo
   const updatedAt = Number(photo.updatedAt || photo.createdAt || now);
   const revision = Math.max(Number(photo.revision || 0), 1);
   const deleted = Boolean(photo.deleted || photo.deletedAt);
+  // Ready-only publish: active metadata is NOT written to the shared Firestore
+  // collection until the object-storage upload has produced a durable pointer.
+  // The account-scoped IndexedDB outbox is the only source for pending active media.
+  if (!deleted && (!hasDurableCloudBinaryPointer(photo) || String(photo.binaryUploadState || '') === 'pending')) {
+    return;
+  }
   await setDoc(doc(db, 'projects', projectId, 'photos', photo.id), {
     ...cleanPhotoMetadata(photo),
     id: photo.id,
@@ -116,7 +134,7 @@ export async function stagePhotoMetadataForCloud(projectId: string, photo: Photo
     deletedAt: deleted ? Number(photo.deletedAt || updatedAt) : null,
     deletedByUid: deleted ? (photo.deletedByUid || user.uid) : null,
     deletedBy: deleted ? (photo.deletedBy || photo.deletedByUid || user.uid) : null,
-    binaryUploadState: deleted ? 'deleted' : (photo.storagePath ? 'ready' : 'pending'),
+    binaryUploadState: deleted ? 'deleted' : 'ready',
     updatedAt,
     updatedByUid: user.uid,
     updatedByEmail: user.email || '',
@@ -162,7 +180,8 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
   const cloudRevision = Number(cloudData?.revision || 0);
   const localRevision = Number(photo.revision || 0);
   const legacyMigrationMode = Boolean(cloudData && !photo.deleted && (!currentProviderBacked) && (cloudStorageBacked || cloudDriveBacked || cloudFirestoreBacked));
-  const localIsStale = Boolean(cloudData) && (
+  const cloudIsAuthoritative = Boolean(cloudData?.deleted) || cloudHasResolvedBinaryState;
+  const localIsStale = Boolean(cloudData) && cloudIsAuthoritative && (
     (cloudRevision > 0 && localRevision > 0 && localRevision <= cloudRevision) ||
     (cloudRevision <= 0 && cloudUpdatedAt > 0 && localUpdatedAt > 0 && localUpdatedAt < cloudUpdatedAt)
   );
@@ -485,9 +504,20 @@ export function subscribeProjectPhotosRealtime(
       const start = Date.now();
       syncProjectPhotosToCloud(projectId)
         .then((result) => {
+          const failed = Number(result.failed || 0);
+          console.debug('[photo initial sync]', projectId, result, 'duration=', Date.now() - start);
+          if (failed > 0) {
+            initialUploadNeeded = true;
+            onStatus?.({ phase: 'error', pending: failed, message: `${failed} ảnh chưa lên Cloud; đang tự retry.` });
+            retrySyncTimer = setTimeout(() => {
+              retrySyncTimer = null;
+              projectInitialPhotoSyncScheduled.delete(projectId);
+              scheduleInitialUpload();
+            }, 2500);
+            return;
+          }
           initialUploadNeeded = false;
           projectLastPhotoSyncAt.set(projectId, Date.now());
-          console.debug('[photo initial sync]', projectId, result, 'duration=', Date.now() - start);
         })
         .catch((err) => {
           console.warn('[Photo Cloud] delayed initial upload/migration warning:', err);

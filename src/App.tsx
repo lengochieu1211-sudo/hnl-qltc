@@ -1443,6 +1443,8 @@ export default function App() {
 
   const [photoCloudStatus, setPhotoCloudStatus] = useState<PhotoCloudSyncStatus>({ phase: 'idle', pending: 0 });
   const photoSyncTimerRef = useRef<number | null>(null);
+  const photoOutboxRetryTimerRef = useRef<number | null>(null);
+  const photoOutboxRetryAttemptRef = useRef(0);
   const startupPhotoSyncKeyRef = useRef<string>('');
   const floorPlanImageSyncInFlightRef = useRef<Set<string>>(new Set());
   const floorPlanImageHydrateInFlightRef = useRef<Set<string>>(new Set());
@@ -1682,25 +1684,39 @@ export default function App() {
       const photoUser = getCurrentRealFirebaseUser();
       if (!photoUser || photoUser.isAnonymous || switchingProjectRef.current || !navigator.onLine) return;
       if (photoSyncTimerRef.current) window.clearTimeout(photoSyncTimerRef.current);
+      if (photoOutboxRetryTimerRef.current) window.clearTimeout(photoOutboxRetryTimerRef.current);
+      photoOutboxRetryAttemptRef.current = 0;
       const projectId = activeProjectIdRef.current;
-      const mobilePhotoSyncDelay = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent || '') ? 350 : 200;
-      photoSyncTimerRef.current = window.setTimeout(() => {
+      const mobilePhotoSyncDelay = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent || '') ? 250 : 150;
+      const drainPhotoOutbox = async () => {
+        if (!navigator.onLine || activeProjectIdRef.current !== projectId || switchingProjectRef.current) return;
         setPhotoCloudStatus({ phase: 'syncing' });
-        syncProjectPhotosToCloud(projectId)
-          .then((result) => {
-            if (Number(result.failed || 0) > 0) {
-              setPhotoCloudStatus({ phase: 'error', pending: Number(result.failed || 0), message: `${result.failed} ảnh chưa lên Cloud; ứng dụng sẽ thử lại.` });
-            } else {
-              setPhotoCloudStatus({ phase: 'synced', pending: 0, lastSyncAt: Date.now() });
-            }
-          })
-          .catch((err) => setPhotoCloudStatus({ phase: 'error', message: err?.message || String(err) }));
-      }, mobilePhotoSyncDelay);
+        try {
+          const result = await syncProjectPhotosToCloud(projectId);
+          const failed = Number(result.failed || 0);
+          if (failed > 0) {
+            const attempt = ++photoOutboxRetryAttemptRef.current;
+            setPhotoCloudStatus({ phase: 'error', pending: failed, message: `${failed} ảnh chưa lên Cloud; đang tự retry.` });
+            const delay = Math.min(30000, 750 * Math.pow(2, Math.min(attempt - 1, 6)));
+            photoOutboxRetryTimerRef.current = window.setTimeout(() => void drainPhotoOutbox(), delay);
+          } else {
+            photoOutboxRetryAttemptRef.current = 0;
+            setPhotoCloudStatus({ phase: 'synced', pending: 0, lastSyncAt: Date.now() });
+          }
+        } catch (err: any) {
+          const attempt = ++photoOutboxRetryAttemptRef.current;
+          setPhotoCloudStatus({ phase: 'error', message: err?.message || String(err) });
+          const delay = Math.min(30000, 750 * Math.pow(2, Math.min(attempt - 1, 6)));
+          photoOutboxRetryTimerRef.current = window.setTimeout(() => void drainPhotoOutbox(), delay);
+        }
+      };
+      photoSyncTimerRef.current = window.setTimeout(() => void drainPhotoOutbox(), mobilePhotoSyncDelay);
     };
     window.addEventListener('qlct-photo-attachments-changed', handlePhotoAttachmentsChanged);
     return () => {
       window.removeEventListener('qlct-photo-attachments-changed', handlePhotoAttachmentsChanged);
       if (photoSyncTimerRef.current) window.clearTimeout(photoSyncTimerRef.current);
+      if (photoOutboxRetryTimerRef.current) window.clearTimeout(photoOutboxRetryTimerRef.current);
     };
   }, [activeProjectId]);
 

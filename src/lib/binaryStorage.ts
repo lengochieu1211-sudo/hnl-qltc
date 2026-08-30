@@ -47,11 +47,19 @@ export function binaryStorageReady(): boolean {
 
 export async function uploadProjectBinaryToCloud(input: ProjectBinaryUploadInput): Promise<BinaryUploadResult> {
   if (BINARY_STORAGE_PROVIDER === 'firebase-storage') return mapFirebase(await uploadProjectBinary(input));
-  const result = await uploadProjectBinaryToR2(input);
-  return {
-    provider: 'r2', storagePath: result.storagePath, thumbnailPath: result.thumbnailPath,
-    mimeType: result.mimeType, size: result.size, checksum: result.sha256, etag: result.etag, updated: result.updated,
-  };
+  try {
+    const result = await uploadProjectBinaryToR2(input);
+    return {
+      provider: 'r2', storagePath: result.storagePath, thumbnailPath: result.thumbnailPath,
+      mimeType: result.mimeType, size: result.size, checksum: result.sha256, etag: result.etag, updated: result.updated,
+    };
+  } catch (r2Error) {
+    // RC2.2.12 reliability failover: Firestore remains the business source of truth.
+    // If the R2 Worker/network path is temporarily unavailable, store this photo in
+    // the existing Firebase Storage fallback instead of leaving the outbox pending.
+    console.warn('[Binary Storage] R2 upload failed; falling back to Firebase Storage for this media object.', r2Error);
+    return mapFirebase(await uploadProjectBinary(input));
+  }
 }
 
 export async function uploadFloorPlanBinaryToCloud(input: Parameters<typeof uploadFloorPlanBinary>[0]): Promise<BinaryUploadResult> {

@@ -161,9 +161,15 @@ requireAll(androidMain, [
   'data.getData() != null',
 ], 'Android gallery picker isolated from camera flush guard');
 pass('Android APK gallery cannot fall through to pending camera MediaStore handling');
+requireAll(photoStorage, ['binaryUploadState: ' + "'pending'", 'isSharedCloudPhotoVisible', 'if (!isSharedCloudPhotoVisible(cloud)) continue'], 'photo ready-only shared visibility');
+requireAll(photoSync, ['Ready-only publish', 'if (!deleted && (!hasDurableCloudBinaryPointer(photo)', 'cloudIsAuthoritative', 'đang tự retry'], 'photo durable outbox publish ordering');
+requireAll(binaryStorage, ['R2 upload failed; falling back to Firebase Storage', 'return mapFirebase(await uploadProjectBinary(input))'], 'photo R2 to Firebase Storage reliability failover');
+requireAll(app, ['photoOutboxRetryTimerRef', 'photoOutboxRetryAttemptRef', 'Math.min(30000, 750 * Math.pow(2'], 'photo persistent outbox retry scheduler');
+pass('photo metadata is published cross-account only after binary readiness with durable R2/Firebase Storage failover');
 
-requireAll(photoPicker, ['retryDelays = [0, 350, 900]'], 'photo immediate cloud confirmation retry');
-requireAll(app, ['? 350 : 200', 'Math.min(10000, 1000 * Math.pow(2, attempt - 1))', 'void run(1), 350'], 'photo near-realtime fallback scheduling');
+
+requireAll(photoPicker, ['retryDelays = [0, 400, 1200, 2500]'], 'photo immediate cloud confirmation retry');
+requireAll(app, ['? 250 : 150', 'Math.min(30000, 750 * Math.pow(2', 'photoOutboxRetryTimerRef'], 'photo near-realtime durable outbox scheduling');
 requireAll(photoSync, ['PHOTO_INITIAL_SYNC_DELAY_MS = 1200', 'requestIdleCallback(run, { timeout: 1000 })', '}, 5000);'], 'photo initial reconciliation latency');
 requireAll(desktopBuild, ['Optimize-HnlSmallIconFrame', '$sizes = @(16, 20, 24, 28, 32, 40, 48, 64, 80, 96, 128, 256)', '<=48px sharpened for taskbar DPI'], 'Windows DPI-aware taskbar icon frames');
 pass('photo pending binary retries sooner and Windows taskbar icon uses sharpened DPI-specific frames');
