@@ -25,7 +25,7 @@ jobs:
       VITE_FIREBASE_PROJECT_ID: com-example-qlct-61329
       VITE_FIREBASE_STORAGE_BUCKET: com-example-qlct-61329.firebasestorage.app
       VITE_FIREBASE_MESSAGING_SENDER_ID: "119152410850"
-      VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
+      VITE_FIREBASE_APP_ID: 1:119152410850:web:c2aee2135428af34ef5ebb
       VITE_FIRESTORE_DATABASE_ID: "(default)"
       VITE_FIREBASE_FIRESTORE_DATABASE_ID: "(default)"
       VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
