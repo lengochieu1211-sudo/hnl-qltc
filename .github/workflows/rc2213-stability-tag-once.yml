@@ -1,0 +1,42 @@
+name: RC2.2.13 Stability Tag Fix Once
+
+on:
+  push:
+    branches:
+      - rc2-2-12-android-gallery-picker-hotfix
+    paths:
+      - '.github/workflows/rc2213-stability-tag-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: rc2-2-12-android-gallery-picker-hotfix
+          fetch-depth: 0
+      - name: Update stale RC2.2.12 stability assertion
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('scripts/stability-gate.mjs')
+          s = p.read_text(encoding='utf-8')
+          old = 'QLCT_RELEASE_TAG: 6.3.0-rc2.2.12'
+          new = 'QLCT_RELEASE_TAG: 6.3.0-rc2.2.13'
+          count = s.count(old)
+          if count != 1:
+              raise SystemExit(f'Expected exactly one stale Android release assertion, found {count}')
+          p.write_text(s.replace(old, new), encoding='utf-8')
+          PY
+          git diff --check
+          grep -F "QLCT_RELEASE_TAG: 6.3.0-rc2.2.13" scripts/stability-gate.mjs
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/stability-gate.mjs
+          git commit -m "test: align stability gate with RC2.2.13"
+          git push origin HEAD:rc2-2-12-android-gallery-picker-hotfix
