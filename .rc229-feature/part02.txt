@@ -1,0 +1,33 @@
+getProjectPhotos, savePhotoAttachment, deletePhotoAttachment, getPhotoDataUrl, updatePhotoAttachmentBlob, resetPhotoRuntimeMemoryCache } from '../utils/photoStorage';
++import { uploadPhotoToCloud, verifyPhotoBinaryReadyInCloud } from '../lib/photoCloudSync';
++import { getCurrentRealFirebaseUser, onAuthUserChanged } from '../lib/firebase';
+@@ -52,0 +54 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
++  const [syncNotice, setSyncNotice] = useState('');
+@@ -136,0 +139,16 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
++  useEffect(() => {
++    // Same origin + same phone can keep the component mounted while Firebase switches
++    // account. Drop only the in-memory photo metadata cache (never the Blob/outbox) and
++    // reload under the new identity so account B cannot inherit account A's pending view.
++    let first = true;
++    const unsubscribeAuth = onAuthUserChanged(() => {
++      resetPhotoRuntimeMemoryCache();
++      if (first) {
++        first = false;
++        return;
++      }
++      void loadPhotos();
++    });
++    return () => unsubscribeAuth();
++  }, [projectId, entityType, entityId, category]);
++
+@@ -167,0 +186 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
++    setSyncNotice('');
+@@ -189,0 +209 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
++            createdByUid: getCurrentRealFirebaseUser()?.uid || undefined,
+@@ -195,6 +215,17 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
+-        // V6.2.25: start the binary upload immediately after IndexedDB commit.
+-        // The old 1.8s mobile debounce could be cancelled when the user locked the
+-        // phone/closed the app, leaving the photo visible only on the capture device.
+-        void uploadPhotoToCloud(projectId, saved).catch((err) =>
+-          console.warn('[Photo Picker] immediate cloud upload pending retry:', saved.id, err)
+-   
