@@ -1,0 +1,75 @@
+diff --git a/.github/workflows/android-apk.yml b/.github/workflows/android-apk.yml
+index f269da3..9d45886 100644
+--- a/.github/workflows/android-apk.yml
++++ b/.github/workflows/android-apk.yml
+@@ -47,7 +47,7 @@ jobs:
+       VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+       VITE_GIT_COMMIT: ${{ github.sha }}
+       QLCT_WEB_URL: https://hnlqltc.web.app/?app=android
+-      QLCT_RELEASE_TAG: 6.3.0-rc2.2.7
++      QLCT_RELEASE_TAG: 6.3.0-rc2.2.8
+       QLCT_ANDROID_KEYSTORE_BASE64: ${{ secrets.QLCT_ANDROID_KEYSTORE_BASE64 }}
+       QLCT_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.QLCT_ANDROID_KEYSTORE_PASSWORD }}
+       # The fixed HNL release keystore is PKCS12. PKCS12 uses one effective
+diff --git a/.github/workflows/windows-exe.yml b/.github/workflows/windows-exe.yml
+index 51e9740..3ee4432 100644
+--- a/.github/workflows/windows-exe.yml
++++ b/.github/workflows/windows-exe.yml
+@@ -48,7 +48,7 @@ jobs:
+       VITE_FIREBASE_FIRESTORE_DATABASE_ID: "(default)"
+       VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+       VITE_GIT_COMMIT: ${{ github.sha }}
+-      QLCT_RELEASE_TAG: 6.3.0-rc2.2.7
++      QLCT_RELEASE_TAG: 6.3.0-rc2.2.8
+ 
+     steps:
+       - name: Checkout
+diff --git a/desktop-wrapper/release-tag.txt b/desktop-wrapper/release-tag.txt
+index 4f46956..932c450 100644
+--- a/desktop-wrapper/release-tag.txt
++++ b/desktop-wrapper/release-tag.txt
+@@ -1 +1 @@
+-6.3.0-rc2.2.7
++6.3.0-rc2.2.8
+diff --git a/scripts/desktop-launcher-golden.mjs b/scripts/desktop-launcher-golden.mjs
+index c372924..8f42eee 100644
+--- a/scripts/desktop-launcher-golden.mjs
++++ b/scripts/desktop-launcher-golden.mjs
+@@ -25,7 +25,7 @@ assert(!launcher.includes('Service Worker') && !launcher.includes('CacheStorage'
+ assert(launcher.includes('Google') && launcher.includes('Chrome'), 'Chrome fallback is available when Edge is unavailable');
+ assert(build.includes('HNL-QLTC-Windows.exe'), 'build script creates one portable Windows EXE');
+ assert(build.includes('release-tag.txt'), 'build script uses release tag for cache/version isolation');
+-assert(releaseTag === '6.3.0-rc2.2.7', 'desktop release tag matches RC2.2.7');
++assert(releaseTag === '6.3.0-rc2.2.8', 'desktop release tag matches RC2.2.8');
+ 
+ assert(iconSource.width >= 1024 && iconSource.height >= 1024 && iconSource.bytes > 1_000_000, 'HQ HNL logo source is retained at >=1024px');
+ assert(build.includes("public\\icon.png"), 'EXE icon is generated from the canonical HNL logo source');
+diff --git a/scripts/firebase-only-golden.mjs b/scripts/firebase-only-golden.mjs
+index 62e4a15..fc13cd6 100644
+--- a/scripts/firebase-only-golden.mjs
++++ b/scripts/firebase-only-golden.mjs
+@@ -5,6 +5,7 @@ const app = read('src/App.tsx');
+ const firebase = read('src/lib/firebase.ts');
+ const photo = read('src/lib/photoCloudSync.ts');
+ const photoStorage = read('src/utils/photoStorage.ts');
++const photoPicker = read('src/components/PhotoAttachmentPicker.tsx');
+ const floorImage = read('src/lib/floorPlanImageSync.ts');
+ const rules = read('firestore.rules');
+ const storageRules = read('storage.rules');
+@@ -30,7 +31,7 @@ verify(7,'Restore hạng mục uses explicit lifecycle', rules.includes("request
+ verify(8,'Xóa căn soft-delete/tombstone path', rules.includes("isCoreBusinessCollection") && rules.includes('allow delete: if collectionName') && app.includes('trashDeletedItems'), 'core hard delete denied + trash capture');
+ verify(9,'Restore căn không overwrite newer edit', app.includes('Never overwrite a record another user edited after this delete operation'), 'restore timestamp guard');
+ verify(10,'Thêm defect + ảnh object storage', photo.includes('uploadProjectBinaryToCloud') && photo.includes('stagePhotoMetadataForCloud'), 'provider upload + Firestore metadata');
+-verify(11,'PC nhận ảnh điện thoại realtime', photo.includes('photoSnapshotMergeQueue') && photoStorage.includes('__pendingWrite'), 'serialized realtime metadata + server ack outbox');
++verify(11,'PC/tài khoản khác nhận và hiển thị ảnh realtime', photo.includes('photoSnapshotMergeQueue') && photoStorage.includes('__pendingWrite') && photoStorage.includes("raw.startsWith('r2:')") && photoStorage.includes("raw.startsWith('storage:')") && photoStorage.includes('projectIdHint') && photoPicker.includes('getPhotoDataUrl(p.id, p.cloudUrl || p.cloudFileId, true, projectId)'), 'serialized realtime metadata + server ack outbox + authenticated R2/Storage lazy binary resolver');
+ verify(12,'Viewer không ghi', rules.includes('canEdit(projectId)') && security.includes("if (FIREBASE_ONLY_RUNTIME) return 'VIEWER'"), 'Rules authoritative, local global role cannot grant');
+ verify(13,'Editor không đổi quyền', rules.includes('isCanonicalMemberRole') && rules.includes('allow create, update: if (') && read('src/components/SecurityModal.tsx').includes('saveProjectMemberToCloud'), 'membership admin rules');
+ verify(14,'Admin thêm user', rules.includes('isAdmin(projectId)') && read('src/lib/firebase.ts').includes('saveProjectMemberToCloud'), 'admin membership write');
+diff --git a/scripts/rbac-matrix.mjs b/scripts/rbac-matrix.mjs
+index ec64d58..a45be4d 100644
+--- a/scripts/rbac-matrix.mjs
++++ b/scripts/rbac-matrix.mjs
+@@ -83,6 +83,7 @@ check('Member list collapses physical aliases to canonical email', has(src.firebase.indexOf('if (email) ids.add(email);') < src.firebase.indexOf('if (user.uid) ids.add(user.uid);'));
+ check('Notification Defect navigation carries exact identity and floor', has(src.app, 'qlct_pending_defect_navigation', 'defectId: defect.id', 'floorId: defect.floorId'));
+ check('FloorPlan consumes Defect deep-link and opens exact detail', has(src.floor, 'qlct_pending_defect_navigation', "setStatusFilter('all')", "setViewMode('defect')", 'setActiveDefectDetail(defect)', 'pendingFocusRef.current'));
++check('Deleted/archived Defect deep-link fails closed with a clear unavailable message', has(src.floor, 'Target

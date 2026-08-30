@@ -1,0 +1,68 @@
+ no longer exists or is archived', 'Defect nÃ y khÃ´ng cÃ²n tá»“n táº¡i hoáº·c Ä‘Ã£ Ä‘Æ°á»£c lÆ°u trá»¯.', 'Target floor no longer exists', 'máº·t báº±ng/táº§ng liÃªn quan khÃ´ng cÃ²n tá»“n táº¡i.', 'KhÃ´ng cÃ³ Defect khÃ¡c Ä‘Æ°á»£c má»Ÿ thay tháº¿.'));
+ check('Mobile shell owns one soft-keyboard visualViewport gate', has(src.app, 'isSoftKeyboardOpen', 'window.visualViewport', 'obscured > 140', "activeTab !== 'chat' && !isSoftKeyboardOpen", '{!isSoftKeyboardOpen && ('));
+ check('Mobile alert badge opens notification center without large overlay', has(src.toast, "window.matchMedia('(max-width: 639px)')", 'if (compact && onOpenNotificationCenter) onOpenNotificationCenter()', 'env(safe-area-inset-bottom)'));
+ check('Badge semantics distinguish Defect count from deadline alerts', has(src.bottomNav, "badgeLabel: 'Defect chÆ°a xá»­ lÃ½'", 'D{tab.badge}') && has(src.authHeader, 'cáº£nh bÃ¡o Ä‘áº¿n háº¡n/quÃ¡ háº¡n', 'aria-label'));
+diff --git a/scripts/stability-gate.mjs b/scripts/stability-gate.mjs
+index 501cdb6..675a37d 100644
+--- a/scripts/stability-gate.mjs
++++ b/scripts/stability-gate.mjs
+@@ -29,6 +29,8 @@ const sw = read('public/sw.js');
+ const swRegistration = read('src/serviceWorkerRegistration.ts');
+ const photoSync = read('src/lib/photoCloudSync.ts');
+ const photoStorage = read('src/utils/photoStorage.ts');
++const photoPicker = read('src/components/PhotoAttachmentPicker.tsx');
++const exportPdf = read('src/components/ExportPdfModal.tsx');
+ const floorPlanSync = read('src/lib/floorPlanImageSync.ts');
+ const firebaseStorage = read('src/lib/firebaseStorage.ts');
+ const binaryStorage = read('src/lib/binaryStorage.ts');
+@@ -50,7 +52,7 @@ if (!appVersion.includes('__APP_VERSION__') || appVersion.includes("APP_VERSION
+ requireAll(buildMeta, ['appVersion: APP_VERSION', 'buildId:', 'gitCommit:', 'buildTime:', 'environment:', 'platformFromLocation'], 'runtime build metadata');
+ if (mergeWorkflow.includes('VITE_APP_VERSION') || prWorkflow.includes('VITE_APP_VERSION') || buildWorkflow.includes('VITE_APP_VERSION')) fail('workflow must not hard-code app version');
+ requireAll(read('android-wrapper/build-apk.ps1'), ['package.json', '$appVersion', '$versionCode', '$releaseTag', 'https://hnlqltc.web.app/?app=android'], 'Android version/source URL');
+-requireAll(read('.github/workflows/android-apk.yml'), ['windows-latest', 'actions/upload-artifact@v4', 'QLCT_WEB_URL: https://hnlqltc.web.app/?app=android', 'QLCT_RELEASE_TAG: 6.3.0-rc2.2.7'], 'Android APK CI');
++requireAll(read('.github/workflows/android-apk.yml'), ['windows-latest', 'actions/upload-artifact@v4', 'QLCT_WEB_URL: htttps://hnlqltc.web.app/?app=android', 'QLCT_RELEASE_TAG: 6.3.0-rc2.2.8'], 'Android APK CI');
+ requireAll(read('desktop-wrapper/build-launcher.ps1'), ['package.json', '$version', 'AssemblyInformationalVersion'], 'Windows version source');
+ if (!authHeader.includes('src={`/icon.png?v=${APP_VERSION}`}')) fail('header asset cache-bust does not use canonical APP_VERSION');
+ pass('V6.3.0 single-source version/build metadata');
+@@ -102,6 +104,21 @@ requireAll(binaryStorage, ['BINARY_STORAGE_PROVIDER', "'r2'", "'firebase-storage'], 'binary storage provider selection');
+ requireAll(r2Storage, ['VITE_R2_GATEWAY_URL', 'Authorization', 'uploadProjectBinaryToR2', 'uploadFloorPlanBinaryToR2', 'downloadR2Blob'], 'R2 client');
+ requireAll(r2Worker, ['HNL_QLTC_MEDIA', 'FIREBASE_PROJECT_ID', 'firestore.googleapis.com', 'canWrite', "area === 'floor-plans'", "role === 'ADMIN'", "role === 'EDITOR'"], 'R2 gateway RBAC');
+ requireAll(photoSync, ['uploadProjectBinaryToCloud', 'BINARY_STORAGE_PROVIDER', 'storagePath:', 'thumbnailPath:', 'photoSnapshotMergeQueue'], 'photo object-storage pipeline');
++requireAll(photoStorage, [
++  "raw.startsWith('r2:')",
++  "raw.startsWith('storage:')",
++  'projectIdHint',
++  'downloadPhotoBlobFromCloud',
++  'Never hand an opaque `r2:` / `storage:` / `firestore:` reference to <img src>',
++], 'cross-account photo binary resolver');
++requireAll(photoPicker, [
++  'getPhotoDataUrl(p.id, p.cloudUrl || p.cloudFileId, true, projectId)',
++  'getPhotoDataUrl(photo.id, photo.cloudUrl || photo.cloudFileId, false, projectId)',
++  'isDirectPhotoUrl',
++], 'PhotoAttachmentPicker authenticated cloud rendering');
++requireAll(floorPlanDefect, ['photo.cloudUrl || photo.cloudFileId || photo.localUri', 'false, projectId'], 'Defect gallery cloud rendering');
++requZ\™P[
+^Ü‹ÉÜ˜ÛİY\›˜ÛİYš[RY›ØØ[\šIË	ØXİ]™T›Ú™XİY	×K	ÔˆİÈÛİY™[™\š[™ÉÊNÂŠÜ\ÜÊ	ØÜ›ÜÜËXXØÛİ[Ù]šXÙHİÈY]Y]H™\ÛÛ™\Èš]˜]HŒ‹ÔİÜ˜YÙHš[˜\H[œİXYÙˆ™[™\š[™ÈÜ\]YHÚ[\œÉÊNÂˆ™\]Z\™P[
+›ÛÜ”[”Ş[˜ËÉİ\ØY›ÛÜ”[š[˜\UĞÛİY	Ë	Ğ’ST–WÔÕÔQÑWÔ“Õ’QT‰Ë	ÜİÜ˜YÙT]‰Ë	İ[X›˜Z[]‰×K	Ù›ÛÜ‹\[ˆØš™Xİ\İÜ˜YÙH\[[™IÊNÂˆYˆ
+İÔŞ[˜Ëš[˜ÛY\Ê	İ\ØYİÕÔš[X\Qš]™J	ÊJH˜Z[
+	ÜİÈ[[YHİ[\ÈHš]™H\ØYØ[	ÊNÂˆYˆ
+›ÛÜ”[”Ş[˜Ëš[˜ÛY\Ê	İ\ØY›ÛÜ”[•Ôš[X\Qš]™J	ÊJH˜Z[
+	Ù›ÛÜ‹\[ˆ[[YHİ[\ÈHš]™H\ØYØ[	ÊNÂ™Y™ˆKYÚ]KÜÜ˜ËØÛÛ\Û™[ËÑ^Ü“[Ù[Ş‹ÜÜ˜ËØÛÛ\Û™[ËÑ^Ü“[Ù[Şš[™^˜LØÍXX‹‹ŒÍŒXM˜˜ˆL‹KKHKÜÜ˜ËØÛÛ\Û™[ËÑ^Ü“[Ù[ŞŠÊÊÈ‹ÜÜ˜ËØÛÛ\Û™[ËÑ^Ü“[Ù[ŞLMŒËÈ
+ÌMŒËÈ^ÜÛÛœİ^Ü“[Ù[ˆ™XXİ‘Ï^Ü“[Ù[›ÜÏˆH
+Âˆˆ›Üˆ
+ÛÛœİÙˆİÜÊHÂˆYˆ
+\šY™[]Y
+HÛÛ[YNÂ‹HÛÛœİ\›H]ØZ]Ù]İÑ]U\›
+šY›ØØ[\šK˜[ÙJNÂŠÈÛÛœİ\›H]ØZ]Ù]İÑ]U\›
+šY˜ÛİY\›˜ÛİYš[RY›ØØ[\šK˜[ÙKXİ]™T›Ú™XİY
+NÂˆYˆ
+]\›
+HÛÛ[YNÂˆˆYˆ
+™[]U\HOOH	ØÜ™]Ô™XÛÜ™	È	‰ˆ™[]RY
+HÂ™Y™ˆKYÚ]KÜÜ˜ËØÛÛ\Û™[ËÑ›ÛÜ”[‘Y™XİX‹Ş‹ÜÜ˜ËØÛÛ\Û™[ËÑ›ÛÜ”[‘Y™XİX‹Şš[™^NMMÙŒ‹˜ÌYMÍÈL‹KKHKÜÜ˜ËØÛÛ\Û™[ËÑ›ÛÜ”[‘Y™XİX‹ŞŠÊÊÈ‹ÜÜ˜ËØÛÛ\Û™[ËÑ›ÛÜ”[‘Y™XİX‹ŞMMÍËÈ
+ÍMÍËÈÛÛœİY™XİİÔİš\ˆ™XXİ‘ÏY™XİİÔİš\›ÜÏˆH
+ÂˆÛÛœİÜ[‘Ø[\HH\Ş[˜È
+
+HOˆÂˆYˆ
+İ[Ûİ[H
+H™]\›ÂˆÛÛœİ[İÜ™Y[XYÙ\

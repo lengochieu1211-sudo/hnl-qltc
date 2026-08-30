@@ -25,16 +25,19 @@ jobs:
           set -euo pipefail
           BASE="fab7d071520df72885de73295a3f8d5cee2f29d5"
           git cat-file -e "${BASE}^{commit}"
-          unexpected="$(git diff --name-only "$BASE"..HEAD | grep -Ev '^\.github/rc228-patch/|^\.github/workflows/rc2-2-8-apply-runtime-fix\.yml$' || true)"
+          unexpected="$(git diff --name-only "$BASE"..HEAD | grep -Ev '^\.github/rc228-patch/|^\.github/rc228-patch-raw/|^\.github/workflows/rc2-2-8-apply-runtime-fix\.yml$' || true)"
           test -z "$unexpected" || { echo "Unexpected files changed before apply:"; echo "$unexpected"; exit 1; }
 
-      - name: Apply final candidate patch and run source gates
+      - name: Apply exact candidate patch and run source gates
         shell: bash
         run: |
           set -euo pipefail
-          cat .github/rc228-patch/part*.b64 | base64 -d > /tmp/rc228.patch
-          echo "Reconstructed patch checksum:"
-          sha256sum /tmp/rc228.patch
+          echo "354a73a34f562a9be4069eb6004cacbbe38a3606ac42623d7b0ba4702feda91c  .github/rc228-patch-raw/part00" | sha256sum -c -
+          echo "e8a78732d64a101c14734d041f56ecdea0edc4ca8bc325ac74419e9e490bd926  .github/rc228-patch-raw/part01" | sha256sum -c -
+          echo "86dcd645b6cffa40898267b7a7f3ebed5dcf7bf3b4ed0edc2385fdaaa7183822  .github/rc228-patch-raw/part02" | sha256sum -c -
+          echo "c38f01789793f155b273b65399bf19efd6b27c20dceea031252e87a3d0d38933  .github/rc228-patch-raw/part03" | sha256sum -c -
+          cat .github/rc228-patch-raw/part00 .github/rc228-patch-raw/part01 .github/rc228-patch-raw/part02 .github/rc228-patch-raw/part03 > /tmp/rc228.patch
+          echo "20d2eeb0997e1dcc5d30ad65788430fd71f185f2c22e1ec56640a6acd662af96  /tmp/rc228.patch" | sha256sum -c -
           git apply --check /tmp/rc228.patch
           git apply /tmp/rc228.patch
           git diff --check
@@ -56,7 +59,7 @@ jobs:
             exit 1
           fi
 
-          rm -rf .github/rc228-patch
+          rm -rf .github/rc228-patch .github/rc228-patch-raw
           git rm .github/workflows/rc2-2-8-apply-runtime-fix.yml
 
       - name: Commit to existing PR branch

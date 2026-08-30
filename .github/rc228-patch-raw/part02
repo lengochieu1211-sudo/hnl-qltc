@@ -1,0 +1,124 @@
+ = await Promise.all(
+-      photos.map((photo) => getPhotoDataUrl(photo.id, photo.cloudUrl || photo.localUri, false))
++      photos.map((photo) => getPhotoDataUrl(photo.id, photo.cloudUrl || photo.cloudFileId || photo.localUri, false, projectId))
+     );
+     const images = [...legacyImages, ...fullStoredImages.filter(Boolean)];
+     if (images.length > 0) onOpen(images, 0);
+@@ -884,11 +884,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
+       if (!defect) {
+         sessionStorage.removeItem('qlct_pending_defect_navigation');
+         console.warn('[Defect navigation] Target no longer exists or is archived:', pending?.defectId);
++        alert('Defect này không còn tồn tại hoặc đã được lưu trữ. Không có Defect khác được mở thay thế.');
+         return;
+       }
+       if (!floorPlans.some((floor) => floor.id === defect.floorId)) {
+         sessionStorage.removeItem('qlct_pending_defect_navigation');
+         console.warn('[Defect navigation] Target floor no longer exists:', defect.floorId);
++        alert('Không thể mở Defect vì mặt bằng/tầng liên quan không còn tồn tại. Không có Defect khác được mở thay thế.');
+         return;
+       }
+ 
+diff --git a/src/components/PhotoAttachmentPicker.tsx b/src/components/PhotoAttachmentPicker.tsx
+index 7c153e7..e833567 100644
+--- a/src/components/PhotoAttachmentPicker.tsx
++++ b/src/components/PhotoAttachmentPicker.tsx
+@@ -30,6 +30,11 @@ const revokeBlobUrl = (url?: string) => {
+   }
+ };
+ 
++const isDirectPhotoUrl = (url?: string) => {
++  const value = String(url || '').trim();
++  return value.startsWith('blob:') || value.startsWith('data:image/') || value.startsWith('http://') || value.startsWith('https://');
++};
++
+ 
+ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
+   projectId,
+@@ -78,7 +83,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
+       const urlMap: Record<string, string> = {};
+       await Promise.all(
+         items.map(async (p) => {
+-          const url = p.localUri || await getPhotoDataUrl(p.id, p.cloudUrl || p.cloudFileId, true);
++          const url = p.localUri || await getPhotoDataUrl(p.id, p.cloudUrl || p.cloudFileId, true, projectId);
+           if (url) urlMap[p.id] = url;
+         })
+       );
+@@ -264,7 +269,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
+     e.preventDefault();
+     e.stopPropagation();
+     try {
+-      const fullUrl = await getPhotoDataUrl(photo.id, photo.cloudUrl || photo.cloudFileId, false);
++      const fullUrl = await getPhotoDataUrl(photo.id, photo.cloudUrl || photo.cloudFileId, false, projectId);
+       if (fullUrl) {
+         if (editingPhoto?.url) revokeBlobUrl(editingPhoto.url);
+         setEditingPhoto({ id: photo.id, url: fullUrl });
+@@ -307,7 +312,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
+     }
+     return photoSortOrder === 'asc' ? comparison : -comparison;
+   });
+-  const photoImageUrls = sortedPhotos.map(p => photoDataUrls[p.id] || p.localUri || p.cloudUrl || '');
++  const photoImageUrls = sortedPhotos.map(p => photoDataUrls[p.id] || p.localUri || (isDirectPhotoUrl(p.cloudUrl) ? p.cloudUrl! : ''));
+   const imageUrls = photoImageUrls.filter(Boolean);
+ 
+   return (
+@@ -379,7 +384,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
+       ) : (
+         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+           {sortedPhotos.map((photo, index) => {
+-            const url = photoDataUrls[photo.id] || photo.localUri || photo.cloudUrl;
++            const url = photoDataUrls[photo.id] || photo.localUri || (isDirectPhotoUrl(photo.cloudUrl) ? photo.cloudUrl : '');
+             return (
+               <div
+                 key={photo.id}
+diff --git a/src/features/chat/ChatTab.tsx b/src/features/chat/ChatTab.tsx
+index 0e2d0a9..5fc138a 100644
+--- a/src/features/chat/ChatTab.tsx
++++ b/src/features/chat/ChatTab.tsx
+@@ -40,7 +40,7 @@ const ChatImage: React.FC<{ projectId: string; attachment: ChatAttachment }> = (
+     let objectUrl = '';
+     (async () => {
+       if (!photoId) return;
+-      const local = await getPhotoDataUrl(photoId, '', true).catch(() => '');
++      const local = await getPhotoDataUrl(photoId, '', true, projectId).catch(() => '');
+       if (local) {
+         if (!cancelled) setSrc(local);
+         return;
+diff --git a/src/utils/photoStorage.ts b/src/utils/photoStorage.ts
+index a22a8ea..b068d89 100644
+--- a/src/utils/photoStorage.ts
++++ b/src/utils/photoStorage.ts
+@@ -314,8 +314,32 @@ export async function mergeCloudPhotoMetadata(projectId: string, cloudPhotos: Ph
+   }
+ }
+ 
+-export async function getPhotoDataUrl(photoId: string, fallbackDataUrl?: string, useThumbnail = false): Promise<string> {
+-  if (!photoId) return fallbackDataUrl || '';
++function isOpaqueCloudPhotoReference(value?: string | null): boolean {
++  const raw = String(value || '').trim().toLowerCase();
++  return raw.startsWith('firestore:') || raw.startsWith('drive:') || raw.startsWith('r2:') || raw.startsWith('storage:');
++}
++
++function isDirectRenderablePhotoUrl(value?: string | null): boolean {
++  const raw = String(value || '').trim();
++  return raw.startsWith('blob:') || raw.startsWith('data:image/') || raw.startsWith('http://') || raw.startsWith('https://');
++}
++
++function projectIdFromCloudPhotoReference(value?: string | null): string {
++  const raw = String(value || '').trim();
++  if (!raw) return '';
++  if (raw.startsWith('firestore:') || raw.startsWith('drive:')) {
++    return raw.split(':')[1] || '';
++  }
++  if (raw.startsWith('r2:') || raw.startsWith('storage:')) {
++    const objectPath = raw.slice(raw.indexOf(':') + 1).replace(/^\/+/, '');
++    const match = objectPath.match(/^projects\/([^/]+)\//);
++    return match?.[1] || '';
++  }
++  return '';
++}
++
++export async function getPhotoDataUrl(photoId: string, fallbackDataUrl?: string, useThumbnail = false, projectIdHint = ''): Promise<string> {
++  if (!photoId) return isDirectRenderablePhotoUrl(fallbackDataUrl) ? String(fallbackDataUrl) : '';
+   try {
+     if (useThumbnail) {
+       const thumbVal = await localforage.getItem<Blob | string>(getPhotoThumbKey(photoId));
