@@ -1683,7 +1683,7 @@ export default function App() {
       if (!photoUser || photoUser.isAnonymous || switchingProjectRef.current || !navigator.onLine) return;
       if (photoSyncTimerRef.current) window.clearTimeout(photoSyncTimerRef.current);
       const projectId = activeProjectIdRef.current;
-      const mobilePhotoSyncDelay = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent || '') ? 1800 : 700;
+      const mobilePhotoSyncDelay = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent || '') ? 350 : 200;
       photoSyncTimerRef.current = window.setTimeout(() => {
         setPhotoCloudStatus({ phase: 'syncing' });
         syncProjectPhotosToCloud(projectId)
@@ -1724,7 +1724,7 @@ export default function App() {
         if (failed > 0) {
           setPhotoCloudStatus({ phase: 'error', pending: failed, message: `${failed} ảnh đang chờ Drive; ứng dụng sẽ tự retry.` });
           if (attempt < 4) {
-            const delay = Math.min(20000, 2500 * Math.pow(2, attempt - 1));
+            const delay = Math.min(10000, 1000 * Math.pow(2, attempt - 1));
             retryTimer = window.setTimeout(() => void run(attempt + 1), delay);
           } else {
             startupPhotoSyncKeyRef.current = '';
@@ -1736,14 +1736,14 @@ export default function App() {
         if (cancelled || activeProjectIdRef.current !== projectId) return;
         setPhotoCloudStatus({ phase: 'error', message: err?.message || String(err) });
         if (attempt < 4) {
-          const delay = Math.min(20000, 2500 * Math.pow(2, attempt - 1));
+          const delay = Math.min(10000, 1000 * Math.pow(2, attempt - 1));
           retryTimer = window.setTimeout(() => void run(attempt + 1), delay);
         } else {
           startupPhotoSyncKeyRef.current = '';
         }
       }
     };
-    const timer = window.setTimeout(() => void run(1), 1200);
+    const timer = window.setTimeout(() => void run(1), 350);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);

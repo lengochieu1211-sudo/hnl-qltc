@@ -73,6 +73,51 @@ function New-HnlPngFrame {
   }
 }
 
+function Optimize-HnlSmallIconFrame {
+  param(
+    [Parameter(Mandatory = $true)] [byte[]] $PngBytes,
+    [Parameter(Mandatory = $true)] [int] $Size
+  )
+
+  if ($Size -gt 48) { return $PngBytes }
+  $input = New-Object System.IO.MemoryStream(,$PngBytes)
+  $source = [System.Drawing.Bitmap]::FromStream($input)
+  $target = New-Object System.Drawing.Bitmap($source.Width, $source.Height, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+  try {
+    # Small taskbar/title-bar icons need stronger edge contrast than the glossy
+    # 1024px marketing artwork. Windows commonly renders 20/24/32/40/48px frames
+    # at 125-200% DPI; sharpen only those frames so the HNL strokes stay crisp.
+    for ($y = 0; $y -lt $source.Height; $y++) {
+      for ($x = 0; $x -lt $source.Width; $x++) {
+        $c = $source.GetPixel($x, $y)
+        if ($c.A -eq 0) { $target.SetPixel($x, $y, $c); continue }
+        $left  = $source.GetPixel([Math]::Max(0, $x - 1), $y)
+        $right = $source.GetPixel([Math]::Min($source.Width - 1, $x + 1), $y)
+        $up    = $source.GetPixel($x, [Math]::Max(0, $y - 1))
+        $down  = $source.GetPixel($x, [Math]::Min($source.Height - 1, $y + 1))
+        $channels = @()
+        foreach ($name in @('R','G','B')) {
+          $v = (5 * [int]$c.$name) - [int]$left.$name - [int]$right.$name - [int]$up.$name - [int]$down.$name
+          # Mild contrast boost after sharpening; avoids the silver L dissolving
+          # into the cream background on a Windows taskbar.
+          $v = [int][Math]::Round((($v - 128) * 1.12) + 128)
+          $channels += [Math]::Max(0, [Math]::Min(255, $v))
+        }
+        $target.SetPixel($x, $y, [System.Drawing.Color]::FromArgb($c.A, $channels[0], $channels[1], $channels[2]))
+      }
+    }
+    $out = New-Object System.IO.MemoryStream
+    try {
+      $target.Save($out, [System.Drawing.Imaging.ImageFormat]::Png)
+      return $out.ToArray()
+    } finally { $out.Dispose() }
+  } finally {
+    $target.Dispose()
+    $source.Dispose()
+    $input.Dispose()
+  }
+}
+
 function Write-HnlIcoFromPng {
   param(
     [Parameter(Mandatory = $true)] [string] $PngPath,
@@ -81,7 +126,7 @@ function Write-HnlIcoFromPng {
 
   # Windows uses a maximum 256x256 icon frame. Explicit smaller frames avoid
   # Explorer/desktop scaling a single tiny image, which caused the old blurry EXE icon.
-  $sizes = @(16, 24, 32, 48, 64, 96, 128, 256)
+  $sizes = @(16, 20, 24, 28, 32, 40, 48, 64, 80, 96, 128, 256)
   $source = [System.Drawing.Image]::FromFile($PngPath)
   try {
     if ($source.Width -lt 1024 -or $source.Height -lt 1024) {
@@ -92,7 +137,7 @@ function Write-HnlIcoFromPng {
     foreach ($size in $sizes) {
       $frames += ,([PSCustomObject]@{
         Size = $size
-        Bytes = [byte[]](New-HnlPngFrame -Source $source -Size $size)
+        Bytes = [byte[]](Optimize-HnlSmallIconFrame -PngBytes ([byte[]](New-HnlPngFrame -Source $source -Size $size)) -Size $size)
       })
     }
 
@@ -164,7 +209,7 @@ try {
   Write-Output "Release tag: $releaseTag"
   Write-Output "Production URL: https://hnlqltc.web.app/?app=desktop&v=$releaseTag"
   Write-Output "Icon source: public/icon.png ($((Get-Item -LiteralPath $logoSource).Length) bytes)"
-  Write-Output "Generated multi-resolution ICO: $iconBytes bytes (16,24,32,48,64,96,128,256)"
+  Write-Output "Generated multi-resolution ICO: $iconBytes bytes (16,20,24,28,32,40,48,64,80,96,128,256; <=48px sharpened for taskbar DPI)"
 } finally {
   Remove-Item -LiteralPath $assemblyInfo -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $releaseInfo -Force -ErrorAction SilentlyContinue
