@@ -233,13 +233,22 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
         // closes the same-phone A -> sign-out -> B race where A saw a local Blob while B
         // received only binaryUploadState=pending metadata and therefore a placeholder.
         if (typeof navigator !== 'undefined' && navigator.onLine) {
-          try {
-            await uploadPhotoToCloud(projectId, saved);
-            const cloudReady = await verifyPhotoBinaryReadyInCloud(projectId, saved.id);
-            if (!cloudReady) throw new Error('Cloud chưa xác nhận binary ảnh.');
-          } catch (err: any) {
-            console.warn('[Photo Picker] cloud upload pending durable retry:', saved.id, err);
-            setSyncNotice('Ảnh đã lưu an toàn trên thiết bị nhưng Cloud chưa xác nhận. Giữ ứng dụng online để tự đồng bộ trước khi đổi tài khoản.');
+          let cloudReady = false;
+          let lastCloudError: any = null;
+          const retryDelays = [0, 350, 900];
+          for (let attempt = 0; attempt < retryDelays.length && !cloudReady; attempt += 1) {
+            if (retryDelays[attempt] > 0) await new Promise((resolve) => window.setTimeout(resolve, retryDelays[attempt]));
+            try {
+              await uploadPhotoToCloud(projectId, saved);
+              cloudReady = await verifyPhotoBinaryReadyInCloud(projectId, saved.id);
+              if (!cloudReady) lastCloudError = new Error('Cloud chưa xác nhận binary ảnh.');
+            } catch (err: any) {
+              lastCloudError = err;
+            }
+          }
+          if (!cloudReady) {
+            console.warn('[Photo Picker] cloud upload pending durable retry:', saved.id, lastCloudError);
+            setSyncNotice('Ảnh đã lưu an toàn trên thiết bị nhưng Cloud chưa xác nhận. Ứng dụng đang tự retry nền; giữ online trước khi đổi tài khoản.');
           }
         } else {
           setSyncNotice('Đang offline: ảnh đã lưu trên thiết bị và sẽ tự đồng bộ Cloud khi có mạng.');

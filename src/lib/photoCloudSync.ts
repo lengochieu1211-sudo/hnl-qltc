@@ -442,7 +442,7 @@ export async function verifyPhotoBinaryReadyInCloud(projectId: string, photoId: 
 
 const projectInitialPhotoSyncScheduled = new Set<string>();
 const projectLastPhotoSyncAt = new Map<string, number>();
-const PHOTO_INITIAL_SYNC_DELAY_MS = 8000;
+const PHOTO_INITIAL_SYNC_DELAY_MS = 1200;
 const PHOTO_INITIAL_SYNC_MIN_INTERVAL_MS = 5 * 60 * 1000;
 
 export function subscribeProjectPhotosRealtime(
@@ -495,7 +495,7 @@ export function subscribeProjectPhotosRealtime(
             retrySyncTimer = setTimeout(() => {
               retrySyncTimer = null;
               scheduleInitialUpload();
-            }, 30000);
+            }, 5000);
           }
         })
         .finally(() => projectInitialPhotoSyncScheduled.delete(projectId));
@@ -503,7 +503,7 @@ export function subscribeProjectPhotosRealtime(
 
     delayedSyncTimer = setTimeout(() => {
       if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
-        (window as any).requestIdleCallback(run, { timeout: 3000 });
+        (window as any).requestIdleCallback(run, { timeout: 1000 });
       } else {
         run();
       }

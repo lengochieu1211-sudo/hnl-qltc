@@ -25,14 +25,15 @@ assert(!launcher.includes('Service Worker') && !launcher.includes('CacheStorage'
 assert(launcher.includes('Google') && launcher.includes('Chrome'), 'Chrome fallback is available when Edge is unavailable');
 assert(build.includes('HNL-QLTC-Windows.exe'), 'build script creates one portable Windows EXE');
 assert(build.includes('release-tag.txt'), 'build script uses release tag for cache/version isolation');
-assert(releaseTag === '6.3.0-rc2.2.10', 'desktop release tag matches RC2.2.10');
+assert(releaseTag === '6.3.0-rc2.2.11', 'desktop release tag matches RC2.2.11');
 
 assert(iconSource.width >= 1024 && iconSource.height >= 1024 && iconSource.bytes > 1_000_000, 'HQ HNL logo source is retained at >=1024px');
 assert(build.includes("public\\icon.png"), 'EXE icon is generated from the canonical HNL logo source');
 assert(build.includes('Write-HnlIcoFromPng'), 'build generates a native multi-resolution ICO from the HNL logo');
-for (const size of [16, 24, 32, 48, 64, 96, 128, 256]) {
+for (const size of [16, 20, 24, 28, 32, 40, 48, 64, 80, 96, 128, 256]) {
   assert(build.includes(String(size)), `ICO generation includes ${size}x${size} frame`);
 }
+assert(build.includes('Optimize-HnlSmallIconFrame'), 'small Windows taskbar frames receive dedicated sharpening/contrast optimization');
 assert(build.includes('Generated multi-resolution ICO'), 'build reports generated HQ ICO evidence');
 assert(!fs.existsSync('desktop-wrapper/QLTCAnPhu.ico'), 'obsolete 854-byte blurry ICO is removed from source');
 
