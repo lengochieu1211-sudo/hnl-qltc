@@ -1,0 +1,276 @@
+diff --git a/.github/workflows/android-apk.yml b/.github/workflows/android-apk.yml
+index b0fd4c9..c115fcf 100644
+--- a/.github/workflows/android-apk.yml
++++ b/.github/workflows/android-apk.yml
+@@ -47,7 +47,7 @@ jobs:
+       VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+       VITE_GIT_COMMIT: ${{ github.sha }}
+       QLCT_WEB_URL: https://hnlqltc.web.app/?app=android
+-      QLCT_RELEASE_TAG: 6.3.0-rc2.2.10
++      QLCT_RELEASE_TAG: 6.3.0-rc2.2.11
+       QLCT_ANDROID_KEYSTORE_BASE64: ${{ secrets.QLCT_ANDROID_KEYSTORE_BASE64 }}
+       QLCT_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.QLCT_ANDROID_KEYSTORE_PASSWORD }}
+       # The fixed HNL release keystore is PKCS12. PKCS12 uses one effective
+diff --git a/.github/workflows/windows-exe.yml b/.github/workflows/windows-exe.yml
+index 48ddc8e..a21397c 100644
+--- a/.github/workflows/windows-exe.yml
++++ b/.github/workflows/windows-exe.yml
+@@ -48,7 +48,7 @@ jobs:
+       VITE_FIREBASE_FIRESTORE_DATABASE_ID: "(default)"
+       VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+       VITE_GIT_COMMIT: ${{ github.sha }}
+-      QLCT_RELEASE_TAG: 6.3.0-rc2.2.10
++      QLCT_RELEASE_TAG: 6.3.0-rc2.2.11
+ 
+     steps:
+       - name: Checkout
+diff --git a/desktop-wrapper/build-launcher.ps1 b/desktop-wrapper/build-launcher.ps1
+index 2cfd4cb..50b13c5 100644
+--- a/desktop-wrapper/build-launcher.ps1
++++ b/desktop-wrapper/build-launcher.ps1
+@@ -73,6 +73,51 @@ function New-HnlPngFrame {
+   }
+ }
+ 
++function Optimize-HnlSmallIconFrame {
++  param(
++    [Parameter(Mandatory = $true)] [byte[]] $PngBytes,
++    [Parameter(Mandatory = $true)] [int] $Size
++  )
++
++  if ($Size -gt 48) { return $PngBytes }
++  $input = New-Object System.IO.MemoryStream(,$PngBytes)
++  $source = [System.Drawing.Bitmap]::FromStream($input)
++  $target = New-Object System.Drawing.Bitmap($source.Width, $source.Height, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
++  try {
++    # Small taskbar/title-bar icons need stronger edge contrast than the glossy
++    # 1024px marketing artwork. Windows commonly renders 20/24/32/40/48px frames
++    # at 125-200% DPI; sharpen only those frames so the HNL strokes stay crisp.
++    for ($y = 0; $y -lt $source.Height; $y++) {
++      for ($x = 0; $x -lt $source.Width; $x++) {
++        $c = $source.GetPixel($x, $y)
++        if ($c.A -eq 0) { $target.SetPixel($x, $y, $c); continue }
++        $left  = $source.GetPixel([Math]::Max(0, $x - 1), $y)
++        $right = $source.GetPixel([Math]::Min($source.Width - 1, $x + 1), $y)
++        $up    = $source.GetPixel($x, [Math]::Max(0, $y - 1))
++        $down  = $source.GetPixel($x, [Math]::Min($source.Height - 1, $y + 1))
++        $channels = @()
++        foreach ($name in @('R','G','B')) {
++          $v = (5 * [int]$c.$name) - [int]$left.$name - [int]$right.$name - [int]$up.$name - [int]$down.$name
++          # Mild contrast boost after sharpening; avoids the silver L dissolving
++          # into the cream background on a Windows taskbar.
++          $v = [int][Math]::Round((($v - 128) * 1.12) + 128)
++          $channels += [Math]::Max(0, [Math]::Min(255, $v))
++        }
++        $target.SetPixel($x, $y, [System.Drawing.Color]::FromArgb($c.A, $channels[0], $channels[1], $channels[2]))
++      }
++    }
++    $out = New-Object System.IO.MemoryStream
++    try {
++      $target.Save($out, [System.Drawing.Imaging.ImageFormat]::Png)
++      return $out.ToArray()
++    } finally { $out.Dispose() }
++  } finally {
++    $target.Dispose()
++    $source.Dispose()
++    $input.Dispose()
++  }
++}
++
+ function Write-HnlIcoFromPng {
+   param(
+     [Parameter(Mandatory = $true)] [string] $PngPath,
+@@ -81,7 +126,7 @@ function Write-HnlIcoFromPng {
+ 
+   # Windows uses a maximum 256x256 icon frame. Explicit smaller frames avoid
+   # Explorer/desktop scaling a single tiny image, which caused the old blurry EXE icon.
+-  $sizes = @(16, 24, 32, 48, 64, 96, 128, 256)
++  $sizes = @(16, 20, 24, 28, 32, 40, 48, 64, 80, 96, 128, 256)
+   $source = [System.Drawing.Image]::FromFile($PngPath)
+   try {
+     if ($source.Width -lt 1024 -or $source.Height -lt 1024) {
+@@ -92,7 +137,7 @@ function Write-HnlIcoFromPng {
+     foreach ($size in $sizes) {
+       $frames += ,([PSCustomObject]@{
+         Size = $size
+-        Bytes = [byte[]](New-HnlPngFrame -Source $source -Size $size)
++        Bytes = [byte[]](Optimize-HnlSmallIconFrame -PngBytes ([byte[]](New-HnlPngFrame -Source $source -Size $size)) -Size $size)
+       })
+     }
+ 
+@@ -164,7 +209,7 @@ try {
+   Write-Output "Release tag: $releaseTag"
+   Write-Output "Production URL: https://hnlqltc.web.app/?app=desktop&v=$releaseTag"
+   Write-Output "Icon source: public/icon.png ($((Get-Item -LiteralPath $logoSource).Length) bytes)"
+-  Write-Output "Generated multi-resolution ICO: $iconBytes bytes (16,24,32,48,64,96,128,256)"
++  Write-Output "Generated multi-resolution ICO: $iconBytes bytes (16,20,24,28,32,40,48,64,80,96,128,256; <=48px sharpened for taskbar DPI)"
+ } finally {
+   Remove-Item -LiteralPath $assemblyInfo -Force -ErrorAction SilentlyContinue
+   Remove-Item -LiteralPath $releaseInfo -Force -ErrorAction SilentlyContinue
+diff --git a/desktop-wrapper/release-tag.txt b/desktop-wrapper/release-tag.txt
+index 35f0882..fe3d1f6 100644
+--- a/desktop-wrapper/release-tag.txt
++++ b/desktop-wrapper/release-tag.txt
+@@ -1 +1 @@
+-6.3.0-rc2.2.10
++6.3.0-rc2.2.11
+diff --git a/scripts/desktop-launcher-golden.mjs b/scripts/desktop-launcher-golden.mjs
+index ce696c6..704f1e8 100644
+--- a/scripts/desktop-launcher-golden.mjs
++++ b/scripts/desktop-launcher-golden.mjs
+@@ -25,14 +25,15 @@ assert(!launcher.includes('Service Worker') && !launcher.includes('CacheStorage'
+ assert(launcher.includes('Google') && launcher.includes('Chrome'), 'Chrome fallback is available when Edge is unavailable');
+ assert(build.includes('HNL-QLTC-Windows.exe'), 'build script creates one portable Windows EXE');
+ assert(build.includes('release-tag.txt'), 'build script uses release tag for cache/version isolation');
+-assert(releaseTag === '6.3.0-rc2.2.10', 'desktop release tag matches RC2.2.10');
++assert(releaseTag === '6.3.0-rc2.2.11', 'desktop release tag matches RC2.2.11');
+ 
+ assert(iconSource.width >= 1024 && iconSource.height >= 1024 && iconSource.bytes > 1_000_000, 'HQ HNL logo source is retained at >=1024px');
+ assert(build.includes("public\\icon.png"), 'EXE icon is generated from the canonical HNL logo source');
+ assert(build.includes('Write-HnlIcoFromPng'), 'build generates a native multi-resolution ICO from the HNL logo');
+-for (const size of [16, 24, 32, 48, 64, 96, 128, 256]) {
++for (const size of [16, 20, 24, 28, 32, 40, 48, 64, 80, 96, 128, 256]) {
+   assert(build.includes(String(size)), `ICO generation includes ${size}x${size} frame`);
+ }
++assert(build.includes('Optimize-HnlSmallIconFrame'), 'small Windows taskbar frames receive dedicated sharpening/contrast optimization');
+ assert(build.includes('Generated multi-resolution ICO'), 'build reports generated HQ ICO evidence');
+ assert(!fs.existsSync('desktop-wrapper/QLTCAnPhu.ico'), 'obsolete 854-byte blurry ICO is removed from source');
+ 
+diff --git a/scripts/stability-gate.mjs b/scripts/stability-gate.mjs
+index f5b92a1..54bd68a 100644
+--- a/scripts/stability-gate.mjs
++++ b/scripts/stability-gate.mjs
+@@ -31,6 +31,7 @@ const photoSync = read('src/lib/photoCloudSync.ts');
+ const photoStorage = read('src/utils/photoStorage.ts');
+ const photoPicker = read('src/components/PhotoAttachmentPicker.tsx');
+ const androidMain = read('android-wrapper/src/com/qlct/app/MainActivity.java');
++const desktopBuild = read('desktop-wrapper/build-launcher.ps1');
+ const imageCompressor = read('src/utils/imageCompressor.ts');
+ const materialNormModal = read('src/components/MaterialNormModal.tsx');
+ const exportPdf = read('src/components/ExportPdfModal.tsx');
+@@ -56,7 +57,7 @@ if (!appVersion.includes('__APP_VERSION__') || appVersion.includes("APP_VERSION
+ requireAll(buildMeta, ['appVersion: APP_VERSION', 'buildId:', 'gitCommit:', 'buildTime:', 'environment:', 'platformFromLocation'], 'runtime build metadata');
+ if (mergeWorkflow.includes('VITE_APP_VERSION') || prWorkflow.includes('VITE_APP_VERSION') || buildWorkflow.includes('VITE_APP_VERSION')) fail('workflow must not hard-code app version');
+ requireAll(read('android-wrapper/build-apk.ps1'), ['package.json', '$appVersion', '$versionCode', '$releaseTag', 'https://hnlqltc.web.app/?app=android'], 'Android version/source URL');
+-requireAll(read('.github/workflows/android-apk.yml'), ['windows-latest', 'actions/upload-artifact@v4', 'QLCT_WEB_URL: https://hnlqltc.web.app/?app=android', 'QLCT_RELEASE_TAG: 6.3.0-rc2.2.10'], 'Android APK CI');
++requireAll(read('.github/workflows/android-apk.yml'), ['windows-latest', 'actions/upload-artifact@v4', 'QLCT_WEB_URL: https://hnlqltc.web.app/?app=android', 'QLCT_RELEASE_TAG: 6.3.0-rc2.2.11'], 'Android APK CI');
+ requireAll(read('desktop-wrapper/build-launcher.ps1'), ['package.json', '$version', 'AssemblyInformationalVersion'], 'Windows version source');
+ if (!authHeader.includes('src={`/icon.png?v=${APP_VERSION}`}')) fail('header asset cache-bust does not use canonical APP_VERSION');
+ if (!firebase.includes(`appId: '${PROD_FIREBASE_WEB_APP_ID}'`)) fail('PROD Firebase Web App ID fallback is missing or stale');
+@@ -152,6 +153,12 @@ requireAll(imageCompressor, [
+   'preserving original supported Blob for durable upload',
+ ], 'Android WebView image decode/encode fallback');
+ pass('photo gallery no longer clears synced metadata on initial auth emission; camera input waits for non-empty MediaStore bytes');
++requireAll(photoPicker, ['retryDelays = [0, 350, 900]'], 'photo immediate cloud confirmation retry');
++requireAll(app, ['? 350 : 200', 'Math.min(10000, 1000 * Math.pow(2, attempt - 1))', 'void run(1), 350'], 'photo near-realtime fallback scheduling');
++requireAll(photoSync, ['PHOTO_INITIAL_SYNC_DELAY_MS = 1200', 'requestIdleCallback(run, { timeout: 1000 })', '}, 5000);'], 'photo initial reconciliation latency');
++requireAll(desktopBuild, ['Optimize-HnlSmallIconFrame', '$sizes = @(16, 20, 24, 28, 32, 40, 48, 64, 80, 96, 128, 256)', '<=48px sharpened for taskbar DPI'], 'Windows DPI-aware taskbar icon frames');
++pass('photo pending binary retries sooner and Windows taskbar icon uses sharpened DPI-specific frames');
++
+ requireAll(floorPlanDefect, ['photo.cloudUrl || photo.cloudFileId || photo.localUri', 'false, projectId'], 'Defect gallery cloud rendering');
+ requireAll(exportPdf, ['p.cloudUrl || p.cloudFileId || p.localUri', 'activeProjectId'], 'PDF photo cloud rendering');
+ 
+diff --git a/src/App.tsx b/src/App.tsx
+index 87364db..0ff280f 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -1683,7 +1683,7 @@ export default function App() {
+       if (!photoUser || photoUser.isAnonymous || switchingProjectRef.current || !navigator.onLine) return;
+       if (photoSyncTimerRef.current) window.clearTimeout(photoSyncTimerRef.current);
+       const projectId = activeProjectIdRef.current;
+-      const mobilePhotoSyncDelay = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent || '') ? 1800 : 700;
++      const mobilePhotoSyncDelay = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent || '') ? 350 : 200;
+       photoSyncTimerRef.current = window.setTimeout(() => {
+         setPhotoCloudStatus({ phase: 'syncing' });
+         syncProjectPhotosToCloud(projectId)
+@@ -1724,7 +1724,7 @@ export default function App() {
+         if (failed > 0) {
+           setPhotoCloudStatus({ phase: 'error', pending: failed, message: `${failed} ảnh đang chờ Drive; ứng dụng sẽ tự retry.` });
+           if (attempt < 4) {
+-            const delay = Math.min(20000, 2500 * Math.pow(2, attempt - 1));
++            const delay = Math.min(10000, 1000 * Math.pow(2, attempt - 1));
+             retryTimer = window.setTimeout(() => void run(attempt + 1), delay);
+           } else {
+             startupPhotoSyncKeyRef.current = '';
+@@ -1736,14 +1736,14 @@ export default function App() {
+         if (cancelled || activeProjectIdRef.current !== projectId) return;
+         setPhotoCloudStatus({ phase: 'error', message: err?.message || String(err) });
+         if (attempt < 4) {
+-          const delay = Math.min(20000, 2500 * Math.pow(2, attempt - 1));
++          const delay = Math.min(10000, 1000 * Math.pow(2, attempt - 1));
+           retryTimer = window.setTimeout(() => void run(attempt + 1), delay);
+         } else {
+           startupPhotoSyncKeyRef.current = '';
+         }
+       }
+     };
+-    const timer = window.setTimeout(() => void run(1), 1200);
++    const timer = window.setTimeout(() => void run(1), 350);
+     return () => {
+       cancelled = true;
+       window.clearTimeout(timer);
+diff --git a/src/components/PhotoAttachmentPicker.tsx b/src/components/PhotoAttachmentPicker.tsx
+index 912daa4..e9dd997 100644
+--- a/src/components/PhotoAttachmentPicker.tsx
++++ b/src/components/PhotoAttachmentPicker.tsx
+@@ -233,13 +233,22 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
+         // closes the same-phone A -> sign-out -> B race where A saw a local Blob while B
+         // received only binaryUploadState=pending metadata and therefore a placeholder.
+         if (typeof navigator !== 'undefined' && navigator.onLine) {
+-          try {
+-            await uploadPhotoToCloud(projectId, saved);
+-            const cloudReady = await verifyPhotoBinaryReadyInCloud(projectId, saved.id);
+-            if (!cloudReady) throw new Error('Cloud chưa xác nhận binary ảnh.');
+-          } catch (err: any) {
+-            console.warn('[Photo Picker] cloud upload pending durable retry:', saved.id, err);
+-            setSyncNotice('Ảnh đã lưu an toàn trên thiết bị nhưng Cloud chưa xác nhận. Giữ ứng dụng online để tự đồng bộ trước khi đổi tài khoản.');
++          let cloudReady = false;
++          let lastCloudError: any = null;
++          const retryDelays = [0, 350, 900];
++          for (let attempt = 0; attempt < retryDelays.length && !cloudReady; attempt += 1) {
++            if (retryDelays[attempt] > 0) await new Promise((resolve) => window.setTimeout(resolve, retryDelays[attempt]));
++            try {
++              await uploadPhotoToCloud(projectId, saved);
++              cloudReady = await verifyPhotoBinaryReadyInCloud(projectId, saved.id);
++              if (!cloudReady) lastCloudError = new Error('Cloud chưa xác nhận binary ảnh.');
++            } catch (err: any) {
++              lastCloudError = err;
++            }
++          }
++          if (!cloudReady) {
++            console.warn('[Photo Picker] cloud upload pending durable retry:', saved.id, lastCloudError);
++            setSyncNotice('Ảnh đã lưu an toàn trên thiết bị nhưng Cloud chưa xác nhận. Ứng dụng đang tự retry nền; giữ online trước khi đổi tài khoản.');
+           }
+         } else {
+           setSyncNotice('Đang offline: ảnh đã lưu trên thiết bị và sẽ tự đồng bộ Cloud khi có mạng.');
+diff --git a/src/lib/photoCloudSync.ts b/src/lib/photoCloudSync.ts
+index b13c79e..eb8c12e 100644
+--- a/src/lib/photoCloudSync.ts
++++ b/src/lib/photoCloudSync.ts
+@@ -442,7 +442,7 @@ export async function verifyPhotoBinaryReadyInCloud(projectId: string, photoId:
+ 
+ const projectInitialPhotoSyncScheduled = new Set<string>();
+ const projectLastPhotoSyncAt = new Map<string, number>();
+-const PHOTO_INITIAL_SYNC_DELAY_MS = 8000;
++const PHOTO_INITIAL_SYNC_DELAY_MS = 1200;
+ const PHOTO_INITIAL_SYNC_MIN_INTERVAL_MS = 5 * 60 * 1000;
+ 
+ export function subscribeProjectPhotosRealtime(
+@@ -495,7 +495,7 @@ export function subscribeProjectPhotosRealtime(
+             retrySyncTimer = setTimeout(() => {
+               retrySyncTimer = null;
+               scheduleInitialUpload();
+-            }, 30000);
++            }, 5000);
+           }
+         })
+         .finally(() => projectInitialPhotoSyncScheduled.delete(projectId));
+@@ -503,7 +503,7 @@ export function subscribeProjectPhotosRealtime(
+ 
+     delayedSyncTimer = setTimeout(() => {
+       if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+-        (window as any).requestIdleCallback(run, { timeout: 3000 });
++        (window as any).requestIdleCallback(run, { timeout: 1000 });
+       } else {
+         run();
+       }
