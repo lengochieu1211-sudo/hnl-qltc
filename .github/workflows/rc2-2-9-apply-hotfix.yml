@@ -1,4 +1,4 @@
-name: RC2.2.9 Apply Same-Phone Photo + PC UI Hotfix
+name: RC2.2.9 Finalize Release Identity
 on:
   push:
     branches: [rc2-2-9-same-phone-photo-sync-ui]
@@ -9,20 +9,28 @@ permissions:
   contents: write
 
 jobs:
-  apply_hotfix:
+  finalize_identity:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Verify and apply exact feature patch
+      - name: Finalize non-workflow RC2.2.9 identity
         shell: bash
         run: |
           set -euo pipefail
-          cat .rc229-feature/part*.txt > /tmp/rc229-feature.patch
-          echo '10d8253aed58f4535448567d3b0e8248333b6cd9ff49e2ab8d71cd8326fd1f78  /tmp/rc229-feature.patch' | sha256sum -c -
-          git apply --check --unidiff-zero /tmp/rc229-feature.patch
-          git apply --unidiff-zero /tmp/rc229-feature.patch
+          printf '6.3.0-rc2.2.9\n' > desktop-wrapper/release-tag.txt
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/desktop-launcher-golden.mjs')
+          s=p.read_text()
+          s=s.replace("releaseTag === '6.3.0-rc2.2.8'", "releaseTag === '6.3.0-rc2.2.9'")
+          s=s.replace('desktop release tag matches RC2.2.8', 'desktop release tag matches RC2.2.9')
+          p.write_text(s)
+          p=Path('scripts/stability-gate.mjs')
+          s=p.read_text().replace('QLCT_RELEASE_TAG: 6.3.0-rc2.2.8', 'QLCT_RELEASE_TAG: 6.3.0-rc2.2.9')
+          p.write_text(s)
+          PY
           git diff --check
       - name: Source release gates
         shell: bash
@@ -39,18 +47,16 @@ jobs:
           node scripts/desktop-launcher-golden.mjs
           node scripts/auth-popup-golden.mjs
           node scripts/source-lint.mjs
-      - name: Commit source hotfix and remove staging payloads
+      - name: Commit release identity only
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf .rc229-patch .rc229-feature
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
+          git add desktop-wrapper/release-tag.txt scripts/desktop-launcher-golden.mjs scripts/stability-gate.mjs
           if git diff --cached --name-only | grep -q '^.github/workflows/'; then
-            echo 'REFUSING: bot source commit contains workflow mutation'
-            git diff --cached --name-only
+            echo 'REFUSING: bot commit contains workflow mutation'
             exit 1
           fi
-          git commit -m 'fix: RC2.2.9 same-phone photo sync and PC quota alignment'
+          git commit -m 'chore: finalize RC2.2.9 release identity'
           git push origin HEAD:rc2-2-9-same-phone-photo-sync-ui
