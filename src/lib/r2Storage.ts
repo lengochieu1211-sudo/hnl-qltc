@@ -74,23 +74,64 @@ function gatewayUrl(path: string, storagePath: string): string {
   return `${R2_GATEWAY_URL}${path}?key=${encodeURIComponent(storagePath)}`;
 }
 
+async function sha256Hex(buffer: ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', buffer);
+  return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, '0')).join('');
+}
+
+function matchesExpected(actualSize: number, actualSha256: string | undefined, expectedSize?: number, expectedSha256?: string) {
+  const sizeMatches = !expectedSize || actualSize === Number(expectedSize);
+  const expectedHash = String(expectedSha256 || '').trim().toLowerCase();
+  const actualHash = String(actualSha256 || '').trim().toLowerCase();
+  const checksumMatches = !expectedHash || (Boolean(actualHash) && actualHash === expectedHash);
+  return actualSize > 0 && sizeMatches && checksumMatches;
+}
+
+/**
+ * Confirm that R2 really contains the uploaded bytes before Firestore metadata becomes
+ * visible to another account. RC2.2.13 prefers the cheap authenticated HEAD route.
+ * The currently deployed legacy Worker may not support HEAD yet; only for HTTP 405 we
+ * fail over to an authenticated GET and locally re-hash the returned R2 bytes. This
+ * keeps durability fail-closed without reverting to Firebase Storage or publishing a
+ * pointer that has not been verified. Once the Worker is upgraded, GET fallback is not used.
+ */
 export async function verifyR2ObjectReady(
   storagePath: string,
   expectedSize?: number,
   expectedSha256?: string,
 ): Promise<R2ObjectVerification> {
-  const response = await fetch(gatewayUrl('/v1/object', storagePath), {
+  const authorization = await authHeader();
+  const url = gatewayUrl('/v1/object', storagePath);
+  const response = await fetch(url, {
     method: 'HEAD',
-    headers: { Authorization: await authHeader() },
+    headers: { Authorization: authorization },
     cache: 'no-store',
   });
-  if (!response.ok) return { ready: false, size: 0 };
-  const size = Number(response.headers.get('Content-Length') || 0);
-  const sha256 = String(response.headers.get('X-HNL-SHA256') || '').trim() || undefined;
-  const etag = String(response.headers.get('etag') || '').trim() || undefined;
-  const sizeMatches = !expectedSize || size === Number(expectedSize);
-  const checksumMatches = !expectedSha256 || !sha256 || sha256 === expectedSha256;
-  return { ready: size > 0 && sizeMatches && checksumMatches, size, sha256, etag };
+
+  if (response.ok) {
+    const size = Number(response.headers.get('Content-Length') || 0);
+    const sha256 = String(response.headers.get('X-HNL-SHA256') || '').trim() || undefined;
+    const etag = String(response.headers.get('etag') || '').trim() || undefined;
+    return { ready: matchesExpected(size, sha256, expectedSize, expectedSha256), size, sha256, etag };
+  }
+
+  // Compatibility bridge for the already-live pre-RC2.2.13 Worker only. Do not use
+  // GET fallback for auth/access/not-found/server failures because those must remain
+  // fail-closed. The old Worker returns 405 specifically because HEAD is unknown.
+  if (response.status !== 405) return { ready: false, size: 0 };
+
+  const fallback = await fetch(url, {
+    method: 'GET',
+    headers: { Authorization: authorization },
+    cache: 'no-store',
+  });
+  if (!fallback.ok) return { ready: false, size: 0 };
+
+  const buffer = await fallback.arrayBuffer();
+  const size = buffer.byteLength;
+  const sha256 = size > 0 ? await sha256Hex(buffer) : undefined;
+  const etag = String(fallback.headers.get('etag') || '').trim() || undefined;
+  return { ready: matchesExpected(size, sha256, expectedSize, expectedSha256), size, sha256, etag };
 }
 
 async function putObject(storagePath: string, blob: Blob, metadata: Record<string, string>): Promise<R2BinaryUploadResult> {
