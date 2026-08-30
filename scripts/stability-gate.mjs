@@ -44,6 +44,7 @@ const authHeader = read('src/components/GoogleAuthHeader.tsx');
 const floorPlanDefect = read('src/components/FloorPlanDefectTab.tsx');
 const roomHighlight = read('src/components/RoomHighlightModal.tsx');
 const projectManager = read('src/components/ProjectManagerModal.tsx');
+const PROD_FIREBASE_WEB_APP_ID = '1:119152410850:web:c2aee2135428af34ef5ebb';
 
 if (pkg.version !== '6.3.0') fail(`package.json version is ${pkg.version}, expected 6.3.0`);
 if (lock.version !== pkg.version || lock.packages?.['']?.version !== pkg.version) fail('package-lock root version mismatch');
@@ -55,6 +56,10 @@ requireAll(read('android-wrapper/build-apk.ps1'), ['package.json', '$appVersion'
 requireAll(read('.github/workflows/android-apk.yml'), ['windows-latest', 'actions/upload-artifact@v4', 'QLCT_WEB_URL: https://hnlqltc.web.app/?app=android', 'QLCT_RELEASE_TAG: 6.3.0-rc2.2.8'], 'Android APK CI');
 requireAll(read('desktop-wrapper/build-launcher.ps1'), ['package.json', '$version', 'AssemblyInformationalVersion'], 'Windows version source');
 if (!authHeader.includes('src={`/icon.png?v=${APP_VERSION}`}')) fail('header asset cache-bust does not use canonical APP_VERSION');
+if (!firebase.includes(`appId: '${PROD_FIREBASE_WEB_APP_ID}'`)) fail('PROD Firebase Web App ID fallback is missing or stale');
+requireAll(mergeWorkflow, [`VITE_FIREBASE_APP_ID: ${PROD_FIREBASE_WEB_APP_ID}`], 'PROD Hosting Firebase Web App ID');
+requireAll(read('.github/workflows/android-apk.yml'), [`VITE_FIREBASE_APP_ID: ${PROD_FIREBASE_WEB_APP_ID}`], 'Android Firebase Web App ID');
+requireAll(read('.github/workflows/windows-exe.yml'), [`VITE_FIREBASE_APP_ID: ${PROD_FIREBASE_WEB_APP_ID}`], 'Windows Firebase Web App ID');
 pass('V6.3.0 single-source version/build metadata');
 
 requireAll(runtimeArch, [

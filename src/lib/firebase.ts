@@ -86,7 +86,7 @@ const hostedFirebaseConfig = {
   projectId: 'com-example-qlct-61329',
   storageBucket: 'com-example-qlct-61329.firebasestorage.app',
   messagingSenderId: '119152410850',
-  appId: '',
+  appId: '1:119152410850:web:c2aee2135428af34ef5ebb',
   firestoreDatabaseId: '(default)'
 };
 
