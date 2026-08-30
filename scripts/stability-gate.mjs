@@ -57,7 +57,7 @@ if (!appVersion.includes('__APP_VERSION__') || appVersion.includes("APP_VERSION 
 requireAll(buildMeta, ['appVersion: APP_VERSION', 'buildId:', 'gitCommit:', 'buildTime:', 'environment:', 'platformFromLocation'], 'runtime build metadata');
 if (mergeWorkflow.includes('VITE_APP_VERSION') || prWorkflow.includes('VITE_APP_VERSION') || buildWorkflow.includes('VITE_APP_VERSION')) fail('workflow must not hard-code app version');
 requireAll(read('android-wrapper/build-apk.ps1'), ['package.json', '$appVersion', '$versionCode', '$releaseTag', 'https://hnlqltc.web.app/?app=android'], 'Android version/source URL');
-requireAll(read('.github/workflows/android-apk.yml'), ['windows-latest', 'actions/upload-artifact@v4', 'QLCT_WEB_URL: https://hnlqltc.web.app/?app=android', 'QLCT_RELEASE_TAG: 6.3.0-rc2.2.12'], 'Android APK CI');
+requireAll(read('.github/workflows/android-apk.yml'), ['windows-latest', 'actions/upload-artifact@v4', 'QLCT_WEB_URL: https://hnlqltc.web.app/?app=android', 'QLCT_RELEASE_TAG: 6.3.0-rc2.2.13'], 'Android APK CI');
 requireAll(read('desktop-wrapper/build-launcher.ps1'), ['package.json', '$version', 'AssemblyInformationalVersion'], 'Windows version source');
 if (!authHeader.includes('src={`/icon.png?v=${APP_VERSION}`}')) fail('header asset cache-bust does not use canonical APP_VERSION');
 if (!firebase.includes(`appId: '${PROD_FIREBASE_WEB_APP_ID}'`)) fail('PROD Firebase Web App ID fallback is missing or stale');
