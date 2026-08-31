@@ -1,0 +1,70 @@
++      level: 'error',
++      area: 'unhandled-rejection',
++      code: 'UNHANDLED_REJECTION',
++      message: reason instanceof Error ? `${reason.name}: ${reason.message}` : String(reason || 'Unknown rejection'),
++    });
++  });
++}
++
+ async function bootstrap() {
+   // IMPORTANT: run storage cleanup/migration before importing App. App imports Firebase.
+   // On affected browsers Firestore can touch WebStorage client-state metadata during
+diff -ruN hnl-qltc-main-f833-local/src/utils/photoStorage.ts hnl-qltc-rc2215-next/src/utils/photoStorage.ts
+--- hnl-qltc-main-f833-local/src/utils/photoStorage.ts	2026-08-31 02:25:16.000000000 +0000
++++ hnl-qltc-rc2215-next/src/utils/photoStorage.ts	2026-08-31 04:17:44.251828904 +0000
+@@ -240,6 +240,55 @@
+   return photos.filter(p => p.entityType === entityType && p.entityId === entityId && (!category || p.category === category));
+ }
+ 
++export async function getProjectPhotoDiagnosticSnapshot(projectId: string) {
++  const photos = await getProjectPhotos(projectId, true);
++  const activeUid = getCurrentRealFirebaseUser()?.uid || '';
++  const rows = await Promise.all(photos.slice(0, 150).map(async (photo) => {
++    const [localBinary, localThumb] = await Promise.all([
++      getPhotoBlob(photo.id, false).catch(() => null),
++      getPhotoBlob(photo.id, true).catch(() => null),
++    ]);
++    const ready = isPhotoSharedCloudReady(photo);
++    return {
++      id: photo.id,
++      entityType: photo.entityType,
++      entityId: photo.entityId,
++      category: photo.category || '',
++      floorId: photo.floorId || '',
++      roomId: photo.roomId || '',
++      binaryUploadState: String(photo.binaryUploadState || (ready ? 'ready' : 'pending')),
++      cloudReady: ready,
++      storageProvider: photo.storageProvider || '',
++      storagePath: photo.storagePath || '',
++      cloudPointer: String(photo.cloudFileId || photo.cloudUrl || '').slice(0, 300),
++      fileSize: Number(photo.fileSize || 0),
++      hasChecksum: Boolean(photo.storageMd5Hash),
++      checksumPrefix: String(photo.storageMd5Hash || '').slice(0, 16),
++      localBinary: Boolean(localBinary && localBinary.size > 0),
++      localBinaryBytes: Number(localBinary?.size || 0),
++      localThumbnail: Boolean(localThumb && localThumb.size > 0),
++      createdByUid: photo.createdByUid || '',
++      belongsToCurrentUploader: !photo.createdByUid || photo.createdByUid === activeUid,
++      createdAt: Number(photo.createdAt || 0),
++      updatedAt: Number(photo.updatedAt || 0),
++      cloudSyncedAt: Number(photo.cloudSyncedAt || 0),
++      deleted: Boolean(photo.deleted || photo.deletedAt),
++    };
++  }));
++  const active = rows.filter((row) => !row.deleted);
++  return {
++    projectId,
++    currentUid: activeUid,
++    totalMetadata: rows.length,
++    active: active.length,
++    ready: active.filter((row) => row.cloudReady).length,
++    pending: active.filter((row) => !row.cloudReady).length,
++    localBinaryCount: active.filter((row) => row.localBinary).length,
++    truncated: photos.length > rows.length,
++    photos: rows,
++  };
++}
++
+ export async function savePhotoAttachment(
+   photo: Omit<PhotoAttachment, 'id' | 'createdAt' | 'updatedAt'>,
+   imageSource: File | Blob | string
