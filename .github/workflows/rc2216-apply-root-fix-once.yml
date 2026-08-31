@@ -27,12 +27,15 @@ jobs:
           node scripts/stability-gate.mjs
           node scripts/r2-gateway-golden.mjs
           git diff --check
-      - name: Commit applied source
+      - name: Commit non-workflow source
         shell: bash
         run: |
           set -euo pipefail
+          # GitHub Actions token may not modify workflow files. They are updated via
+          # the GitHub connector after this source commit succeeds.
+          git restore --source=HEAD -- .github/workflows/r2-worker-deploy.yml .github/workflows/android-apk.yml .github/workflows/windows-exe.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/utils/fileExport.ts src/components/GoogleConfigTab.tsx cloudflare/r2-gateway/worker.js scripts/r2-gateway-golden.mjs .github/workflows/r2-worker-deploy.yml .github/workflows/android-apk.yml .github/workflows/windows-exe.yml desktop-wrapper/release-tag.txt scripts/desktop-launcher-golden.mjs scripts/stability-gate.mjs
+          git add src/utils/fileExport.ts src/components/GoogleConfigTab.tsx cloudflare/r2-gateway/worker.js scripts/r2-gateway-golden.mjs desktop-wrapper/release-tag.txt scripts/desktop-launcher-golden.mjs scripts/stability-gate.mjs
           git commit -m 'fix: RC2.2.16 R2 CORS root cause and Android diagnostics export'
           git push origin HEAD:rc2-2-16-r2-cors-root-fix
