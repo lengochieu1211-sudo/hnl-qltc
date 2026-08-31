@@ -1,7 +1,6 @@
 name: Build HNL QLTC Android APK
 
 # RC2.2.16 final runtime rebuild after cross-account photo reconcile.
-# Final certification rebuild after crew/date UI hotfixes.
 on:
   workflow_dispatch:
   pull_request:
