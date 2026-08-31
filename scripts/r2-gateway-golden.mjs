@@ -103,8 +103,23 @@ let healthResponse = await worker.fetch(new Request('https://gateway.example/hea
 }), env);
 const health = await healthResponse.json();
 assert(healthResponse.status === 200 && health.ok === true, 'gateway health is available');
-assert(health.version === '6.3.0-rc2.2.15', 'gateway health exposes RC2.2.15 runtime version');
+assert(health.version === '6.3.0-rc2.2.16', 'gateway health exposes RC2.2.15 runtime version');
 assert(health.accessPolicy === 'canonical-email-first', 'gateway health exposes canonical email-first RBAC policy');
+
+const envWithoutCorsVar = { ...env, ALLOWED_ORIGINS: '' };
+const preflight = await worker.fetch(new Request('https://gateway.example/v1/object?key=projects/p1/media/diagnostics/probe/original.jpg', {
+  method: 'OPTIONS',
+  headers: {
+    Origin: 'https://hnlqltc.web.app',
+    'Access-Control-Request-Method': 'PUT',
+    'Access-Control-Request-Headers': 'authorization,content-type,x-hnl-metadata',
+  },
+}), envWithoutCorsVar);
+assert(preflight.status === 204, 'PUT browser preflight returns 204');
+assert(preflight.headers.get('Access-Control-Allow-Origin') === 'https://hnlqltc.web.app', 'PROD Hosting origin is allowed even if Worker ALLOWED_ORIGINS variable is missing');
+assert(String(preflight.headers.get('Access-Control-Allow-Methods') || '').includes('PUT'), 'PUT is present in CORS allowed methods');
+assert(String(preflight.headers.get('Access-Control-Allow-Headers') || '').includes('Authorization'), 'Authorization is present in CORS allowed headers');
+assert(String(preflight.headers.get('Access-Control-Allow-Headers') || '').includes('X-HNL-Metadata'), 'X-HNL-Metadata is present in CORS allowed headers');
 
 const mediaKey = 'projects/p1/media/defect/d1/a1/original.jpg';
 const floorKey = 'projects/p1/floor-plans/f1/original.jpg';

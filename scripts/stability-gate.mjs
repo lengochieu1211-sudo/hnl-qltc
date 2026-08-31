@@ -52,6 +52,7 @@ const imageViewer = read('src/components/ImageViewerModal.tsx');
 const configTab = read('src/components/GoogleConfigTab.tsx');
 const bottomNav = read('src/components/BottomNav.tsx');
 const runtimeDiagnostics = read('src/lib/runtimeDiagnostics.ts');
+const fileExport = read('src/utils/fileExport.ts');
 const roomHighlight = read('src/components/RoomHighlightModal.tsx');
 const projectManager = read('src/components/ProjectManagerModal.tsx');
 const PROD_FIREBASE_WEB_APP_ID = '1:119152410850:web:c2aee2135428af34ef5ebb';
@@ -63,7 +64,7 @@ if (!appVersion.includes('__APP_VERSION__') || appVersion.includes("APP_VERSION 
 requireAll(buildMeta, ['appVersion: APP_VERSION', 'buildId:', 'gitCommit:', 'buildTime:', 'environment:', 'platformFromLocation'], 'runtime build metadata');
 if (mergeWorkflow.includes('VITE_APP_VERSION') || prWorkflow.includes('VITE_APP_VERSION') || buildWorkflow.includes('VITE_APP_VERSION')) fail('workflow must not hard-code app version');
 requireAll(read('android-wrapper/build-apk.ps1'), ['package.json', '$appVersion', '$versionCode', '$releaseTag', 'https://hnlqltc.web.app/?app=android'], 'Android version/source URL');
-requireAll(read('.github/workflows/android-apk.yml'), ['windows-latest', 'actions/upload-artifact@v4', 'QLCT_WEB_URL: https://hnlqltc.web.app/?app=android', 'QLCT_RELEASE_TAG: 6.3.0-rc2.2.15'], 'Android APK CI');
+requireAll(read('.github/workflows/android-apk.yml'), ['windows-latest', 'actions/upload-artifact@v4', 'QLCT_WEB_URL: https://hnlqltc.web.app/?app=android', 'QLCT_RELEASE_TAG: 6.3.0-rc2.2.16'], 'Android APK CI');
 requireAll(read('desktop-wrapper/build-launcher.ps1'), ['package.json', '$version', 'AssemblyInformationalVersion'], 'Windows version source');
 if (!authHeader.includes('src={`/icon.png?v=${APP_VERSION}`}')) fail('header asset cache-bust does not use canonical APP_VERSION');
 if (!firebase.includes(`appId: '${PROD_FIREBASE_WEB_APP_ID}'`)) fail('PROD Firebase Web App ID fallback is missing or stale');
@@ -119,8 +120,8 @@ requireAll(binaryStorage, ['BINARY_STORAGE_PROVIDER', "'r2'", "'firebase-storage
 requireAll(r2Storage, ['VITE_R2_GATEWAY_URL', 'Authorization', 'uploadProjectBinaryToR2', 'uploadFloorPlanBinaryToR2', 'downloadR2Blob'], 'R2 client');
 requireAll(r2Storage, ['verifyR2ObjectReady', 'verifyR2ObjectViaAuthenticatedGet', "method: 'HEAD'", "method: 'GET'", 'HEAD durability check unavailable', 'HEAD metadata is incomplete or mismatched', 'X-HNL-SHA256', 'R2_UPLOAD_NOT_DURABLE', 'getIdToken(forceRefresh)', 'response.status === 401 || response.status === 403', 'requestPut', 'PUT bị từ chối; refresh Firebase token và thử lại', "cache: 'no-store'", 'download denied/missing', "area: 'r2-upload'", "area: 'r2-download'"], 'R2 durable PUT + legacy HEAD compatibility + upload/download token recovery + diagnostics');
 requireAll(r2Worker, ['HNL_QLTC_MEDIA', 'FIREBASE_PROJECT_ID', 'firestore.googleapis.com', 'canWrite', "area === 'floor-plans'", "role === 'ADMIN'", "role === 'EDITOR'"], 'R2 gateway RBAC');
-requireAll(r2Worker, ["request.method === 'HEAD'", 'HNL_QLTC_MEDIA.head', 'X-HNL-SHA256', 'Content-Length', "GATEWAY_VERSION = '6.3.0-rc2.2.15'", "accessPolicy: 'canonical-email-first'", "for (const memberId of [email, uid])"], 'R2 gateway durable object HEAD + canonical cross-account RBAC/version');
-requireAll(r2DeployWorkflow, ['workflow_dispatch:', 'DEPLOY-R2', 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID', 'wrangler@4.33.0 deploy', '/health', '"version":"6.3.0-rc2.2.15"', '"accessPolicy":"canonical-email-first"'], 'manual-gated R2 Worker deploy workflow + exact runtime verification');
+requireAll(r2Worker, ["request.method === 'HEAD'", 'HNL_QLTC_MEDIA.head', 'X-HNL-SHA256', 'Content-Length', "GATEWAY_VERSION = '6.3.0-rc2.2.16'", "accessPolicy: 'canonical-email-first'", "for (const memberId of [email, uid])", "'https://hnlqltc.web.app'", 'Access-Control-Allow-Methods'], 'R2 gateway durable object HEAD + canonical cross-account RBAC/version/CORS defaults');
+requireAll(r2DeployWorkflow, ['workflow_dispatch:', 'DEPLOY-R2', 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID', 'wrangler@4.33.0 deploy', '/health', '"version":"6.3.0-rc2.2.16"', '"accessPolicy":"canonical-email-first"', 'Smoke browser PUT CORS preflight', 'Access-Control-Request-Method: PUT'], 'manual-gated R2 Worker deploy workflow + exact runtime/CORS verification');
 if (r2DeployWorkflow.includes('on:\n  push:') || r2DeployWorkflow.includes('on:\n  pull_request:')) fail('R2 Worker deploy workflow must never auto-deploy on push/PR');
 requireAll(photoSync, ['uploadProjectBinaryToCloud', 'BINARY_STORAGE_PROVIDER', 'storagePath:', 'thumbnailPath:', 'photoSnapshotMergeQueue'], 'photo object-storage pipeline');
 requireAll(photoStorage, [
@@ -179,7 +180,8 @@ requireAll(app, ['qlct-defect-navigation-request', "area: 'defect-navigation'", 
 requireAll(floorPlanDefect, ['qlct-defect-navigation-request', "code: 'OPEN_TARGET'", 'requestedFloor=', 'pendingCount', "getEntityPhotos(projectId, 'defect', defect.id)"], 'Defect view consumes same-tab deep-link and opens defect-wide photo gallery with Cloud pending state');
 requireAll(imageViewer, ['swipeStartRef', 'Math.abs(dx) < 48', 'handleNext()', 'handlePrev()'], 'image viewer supports one-finger horizontal gallery swipe while preserving pinch zoom');
 requireAll(chatTab, ['ensureDraftAttachmentsCloudReady', 'verifyPhotoBinaryReadyInCloud', 'Ảnh đang chờ Cloud/R2', 'ImageViewerModal', 'openMessageImageGallery'], 'chat shows Cloud state, blocks message publication until photo is durable, and opens multi-image gallery');
-requireAll(configTab, ['Hệ thống & Chẩn đoán', 'Xuất file chẩn đoán lỗi', 'getProjectPhotoDiagnosticSnapshot', 'clearRuntimeDiagnostics'], 'system diagnostics can export sanitized JSON with photo evidence');
+requireAll(configTab, ['Hệ thống & Chẩn đoán', 'Xuất file chẩn đoán lỗi', 'getProjectPhotoDiagnosticSnapshot', 'clearRuntimeDiagnostics', 'saveTextFileToDownloads', 'Download/QLCT'], 'system diagnostics can export sanitized non-empty Android JSON with photo evidence');
+requireAll(fileExport, ['saveTextFileToDownloads', "'downloads'", 'finishTextFile'], 'Android diagnostics direct Download/QLCT export avoids zero-byte picker provider');
 requireAll(bottomNav, ['Hệ thống & Chẩn đoán'], 'More menu exposes System & Diagnostics entry');
 requireAll(runtimeDiagnostics, ['MAX_ENTRIES = 200', 'clearRuntimeDiagnostics', 'redacted-api-key', 'Bearer [redacted]'], 'runtime diagnostics retains useful history and redacts secrets');
 pass('photo gallery no longer clears synced metadata on initial auth emission; camera input waits for non-empty MediaStore bytes');

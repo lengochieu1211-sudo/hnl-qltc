@@ -1,5 +1,5 @@
 // HNL QLTC R2 Gateway. No Firebase service-account secret is stored here.
-const GATEWAY_VERSION = '6.3.0-rc2.2.15';
+const GATEWAY_VERSION = '6.3.0-rc2.2.16';
 // The browser sends its Firebase ID token; Firestore REST verifies that token and
 // the existing project/member documents are used to enforce VIEWER/EDITOR/ADMIN.
 
@@ -10,8 +10,16 @@ const json = (value, status = 200, extra = {}) => new Response(JSON.stringify(va
 
 function corsHeaders(request, env) {
   const origin = request.headers.get('Origin') || '';
-  const allowed = String(env.ALLOWED_ORIGINS || '').split(',').map(v => v.trim()).filter(Boolean);
-  const allowOrigin = allowed.includes(origin) ? origin : (allowed.includes('*') ? '*' : '');
+  // PROD origins are safe defaults so a missing/stale Worker variable cannot silently
+  // break every browser PUT preflight. Extra origins can still be supplied by Wrangler.
+  const configured = String(env.ALLOWED_ORIGINS || '').split(',').map(v => v.trim()).filter(Boolean);
+  const allowed = new Set([
+    'https://hnlqltc.web.app',
+    'https://com-example-qlct-61329.web.app',
+    'https://com-example-qlct-61329.firebaseapp.com',
+    ...configured,
+  ]);
+  const allowOrigin = allowed.has(origin) ? origin : (allowed.has('*') ? '*' : '');
   return allowOrigin ? {
     'Access-Control-Allow-Origin': allowOrigin,
     'Vary': 'Origin',
