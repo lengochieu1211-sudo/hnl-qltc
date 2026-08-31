@@ -87,39 +87,12 @@ function matchesExpected(actualSize: number, actualSha256: string | undefined, e
   return actualSize > 0 && sizeMatches && checksumMatches;
 }
 
-/**
- * Confirm that R2 really contains the uploaded bytes before Firestore metadata becomes
- * visible to another account. RC2.2.13 prefers the cheap authenticated HEAD route.
- * The currently deployed legacy Worker may not support HEAD yet; only for HTTP 405 we
- * fail over to an authenticated GET and locally re-hash the returned R2 bytes. This
- * keeps durability fail-closed without reverting to Firebase Storage or publishing a
- * pointer that has not been verified. Once the Worker is upgraded, GET fallback is not used.
- */
-export async function verifyR2ObjectReady(
-  storagePath: string,
+async function verifyR2ObjectViaAuthenticatedGet(
+  url: string,
+  authorization: string,
   expectedSize?: number,
   expectedSha256?: string,
 ): Promise<R2ObjectVerification> {
-  const authorization = await authHeader();
-  const url = gatewayUrl('/v1/object', storagePath);
-  const response = await fetch(url, {
-    method: 'HEAD',
-    headers: { Authorization: authorization },
-    cache: 'no-store',
-  });
-
-  if (response.ok) {
-    const size = Number(response.headers.get('Content-Length') || 0);
-    const sha256 = String(response.headers.get('X-HNL-SHA256') || '').trim() || undefined;
-    const etag = String(response.headers.get('etag') || '').trim() || undefined;
-    return { ready: matchesExpected(size, sha256, expectedSize, expectedSha256), size, sha256, etag };
-  }
-
-  // Compatibility bridge for the already-live pre-RC2.2.13 Worker only. Do not use
-  // GET fallback for auth/access/not-found/server failures because those must remain
-  // fail-closed. The old Worker returns 405 specifically because HEAD is unknown.
-  if (response.status !== 405) return { ready: false, size: 0 };
-
   const fallback = await fetch(url, {
     method: 'GET',
     headers: { Authorization: authorization },
@@ -132,6 +105,59 @@ export async function verifyR2ObjectReady(
   const sha256 = size > 0 ? await sha256Hex(buffer) : undefined;
   const etag = String(fallback.headers.get('etag') || '').trim() || undefined;
   return { ready: matchesExpected(size, sha256, expectedSize, expectedSha256), size, sha256, etag };
+}
+
+/**
+ * Confirm that R2 really contains the uploaded bytes before Firestore metadata becomes
+ * visible to another account. RC2.2.14 prefers the cheap authenticated HEAD route.
+ *
+ * Compatibility detail: the live pre-HEAD Worker did not include HEAD in its CORS
+ * allow-methods list. Because Authorization triggers a preflight, browsers can reject
+ * HEAD as a network/CORS error BEFORE JavaScript receives the Worker's HTTP 405. In
+ * that legacy-only situation we retry with authenticated GET and locally SHA-256 the
+ * returned bytes. GET is still fail-closed: the exact size/hash must match before the
+ * Firestore `ready` metadata can be published. Auth/access/not-found HTTP failures do
+ * not fall through to GET. Once the Worker is upgraded, the normal HEAD path is used.
+ */
+export async function verifyR2ObjectReady(
+  storagePath: string,
+  expectedSize?: number,
+  expectedSha256?: string,
+): Promise<R2ObjectVerification> {
+  const authorization = await authHeader();
+  const url = gatewayUrl('/v1/object', storagePath);
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'HEAD',
+      headers: { Authorization: authorization },
+      cache: 'no-store',
+    });
+  } catch (headError) {
+    console.warn('[R2] HEAD durability check unavailable; using authenticated GET compatibility verification.', headError);
+    try {
+      return await verifyR2ObjectViaAuthenticatedGet(url, authorization, expectedSize, expectedSha256);
+    } catch {
+      return { ready: false, size: 0 };
+    }
+  }
+
+  if (response.ok) {
+    const size = Number(response.headers.get('Content-Length') || 0);
+    const sha256 = String(response.headers.get('X-HNL-SHA256') || '').trim() || undefined;
+    const etag = String(response.headers.get('etag') || '').trim() || undefined;
+    return { ready: matchesExpected(size, sha256, expectedSize, expectedSha256), size, sha256, etag };
+  }
+
+  // An actual HTTP response other than legacy 405 is an auth/access/not-found/server
+  // signal and remains fail-closed. Only the legacy unknown-method response retries GET.
+  if (response.status !== 405) return { ready: false, size: 0 };
+
+  try {
+    return await verifyR2ObjectViaAuthenticatedGet(url, authorization, expectedSize, expectedSha256);
+  } catch {
+    return { ready: false, size: 0 };
+  }
 }
 
 async function putObject(storagePath: string, blob: Blob, metadata: Record<string, string>): Promise<R2BinaryUploadResult> {
