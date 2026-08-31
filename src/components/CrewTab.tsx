@@ -311,6 +311,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [deletingTeamTarget, setDeletingTeamTarget] = useState<TeamInfo | null>(null);
   const [showCopyConfirm, setShowCopyConfirm] = useState(false);
   const [copySourceDate, setCopySourceDate] = useState('');
+  const [showCopyDatePicker, setShowCopyDatePicker] = useState(false);
+  const [copyDatePickerValue, setCopyDatePickerValue] = useState('');
 
   useEffect(() => {
     if (!canOperate) {
@@ -894,13 +896,15 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     else onCopyCrewRecordsFromDate(sourceDate, selectedDate);
   };
 
-  const handleCopyFromYesterdayClick = () => {
+  const handleOpenCopyDatePicker = () => {
+    if (!canOperate) return;
     const d = new Date(`${selectedDate}T12:00:00`);
     d.setDate(d.getDate() - 1);
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
-    requestCopyFromDate(`${year}-${month}-${day}`);
+    setCopyDatePickerValue(`${year}-${month}-${day}`);
+    setShowCopyDatePicker((value) => !value);
   };
 
   const confirmCopy = () => {
@@ -1221,13 +1225,40 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </button>
 
               <button
-                onClick={handleCopyFromYesterdayClick}
+                onClick={handleOpenCopyDatePicker}
                 className="flex-1 flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold py-2.5 px-4 rounded-xl shadow-sm transition text-xs"
-                title="Sao chép toàn bộ quân số của ngày liền trước"
+                title="Chọn ngày nguồn để sao chép quân số"
               >
-                <Copy className="w-3.5 h-3.5" /> Sao chép quân số hôm qua
+                <Copy className="w-3.5 h-3.5" /> Sao chép quân số
               </button>
             </div>
+
+            {showCopyDatePicker && (
+              <div className="mb-4 -mt-2 rounded-xl border border-indigo-200 bg-indigo-50/70 p-3">
+                <div className="text-[11px] font-bold text-indigo-800 mb-2">Chọn ngày cần sao chép quân số</div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="date"
+                    max={getTodayString()}
+                    value={copyDatePickerValue}
+                    onChange={(e) => setCopyDatePickerValue(e.target.value)}
+                    className="flex-1 min-w-0 bg-white border border-indigo-200 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-800"
+                    aria-label="Ngày nguồn sao chép quân số"
+                  />
+                  <button
+                    type="button"
+                    disabled={!copyDatePickerValue || copyDatePickerValue === selectedDate}
+                    onClick={() => {
+                      requestCopyFromDate(copyDatePickerValue);
+                      setShowCopyDatePicker(false);
+                    }}
+                    className="shrink-0 rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-bold text-white disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Sao chép
+                  </button>
+                </div>
+              </div>
+            )}
             </>
           )}
 
@@ -1315,7 +1346,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               <div className="bg-white border border-dashed border-slate-300 rounded-xl p-8 text-center flex flex-col items-center justify-center shadow-sm">
                 <Users className="w-8 h-8 text-slate-300 mb-2" />
                 <p className="text-xs text-slate-400 font-medium">Chưa có ghi nhận quân số cho ngày này.</p>
-                <p className="text-[10px] text-slate-400 mt-1">Ấn nút "Ghi nhận quân số" hoặc "Sao chép quân số hôm qua" để điền nhanh.</p>
+                <p className="text-[10px] text-slate-400 mt-1">Ấn nút "Ghi nhận quân số" hoặc "Sao chép quân số" để điền nhanh.</p>
               </div>
             ) : (
               sortedFilteredRecords.map((record) => (
