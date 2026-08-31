@@ -5,7 +5,7 @@ on:
     branches:
       - rc2-2-16-r2-cors-root-fix
     paths:
-      - 'rc2216-root-fix.patch'
+      - 'rc2216-apply.py'
       - '.github/workflows/rc2216-apply-root-fix-once.yml'
 
 permissions:
@@ -19,12 +19,11 @@ jobs:
         with:
           ref: rc2-2-16-r2-cors-root-fix
           fetch-depth: 0
-      - name: Apply exact RC2.2.16 patch
+      - name: Apply exact RC2.2.16 transformations
         shell: bash
         run: |
           set -euo pipefail
-          git apply --check rc2216-root-fix.patch
-          git apply rc2216-root-fix.patch
+          python rc2216-apply.py
           node scripts/stability-gate.mjs
           node scripts/r2-gateway-golden.mjs
           git diff --check
