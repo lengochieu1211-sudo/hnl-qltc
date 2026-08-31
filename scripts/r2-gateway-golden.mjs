@@ -98,6 +98,14 @@ async function call(identity, method, key, body = null) {
 
 function assert(ok, message) { if (!ok) throw new Error(`R2 GOLDEN FAIL: ${message}`); console.log(`PASS R2: ${message}`); }
 
+let healthResponse = await worker.fetch(new Request('https://gateway.example/health', {
+  headers: { Origin: 'https://hnlqltc.web.app' },
+}), env);
+const health = await healthResponse.json();
+assert(healthResponse.status === 200 && health.ok === true, 'gateway health is available');
+assert(health.version === '6.3.0-rc2.2.15', 'gateway health exposes RC2.2.15 runtime version');
+assert(health.accessPolicy === 'canonical-email-first', 'gateway health exposes canonical email-first RBAC policy');
+
 const mediaKey = 'projects/p1/media/defect/d1/a1/original.jpg';
 const floorKey = 'projects/p1/floor-plans/f1/original.jpg';
 

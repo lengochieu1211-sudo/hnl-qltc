@@ -38,14 +38,15 @@ import { isTeamMatch, getTeamCategoriesForRoom, calculateTeamStatistics, isTeamW
 import { SortOrder, applySortOrder, compareDateValues, compareFloorValues, naturalCompare } from '../utils/sortUtils';
 import { PhotoAttachmentPicker } from './PhotoAttachmentPicker';
 import { MathNumberInput } from './MathNumberInput';
-import { deleteEntityPhotos, getEntityPhotos } from '../utils/photoStorage';
+import { deleteEntityPhotos, getEntityPhotos, isPhotoSharedCloudReady } from '../utils/photoStorage';
 import { saveWorkbookFile } from '../utils/fileExport';
 import { createEntityId } from '../utils/idUtils';
 import { QuickSortBar } from './QuickSortBar';
-import { UserRole, canEditCrewData, canDeleteBusinessData, canManageTeams, canImportData } from '../utils/securityUtils';
+import { UserRole, canEditCrewData, canDeleteBusinessData, canDeleteCrewRecord, canManageTeams, canImportData } from '../utils/securityUtils';
 
 const CrewPhotoCount: React.FC<{ projectId?: string; recordId: string }> = ({ projectId, recordId }) => {
   const [count, setCount] = useState(0);
+  const [pendingCount, setPendingCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
@@ -56,9 +57,15 @@ const CrewPhotoCount: React.FC<{ projectId?: string; recordId: string }> = ({ pr
       setLoading(true);
       try {
         const photos = await getEntityPhotos(projectId, 'crewRecord', recordId, 'crew_progress');
-        if (!cancelled) setCount(photos.length);
+        if (!cancelled) {
+          setCount(photos.length);
+          setPendingCount(photos.filter((photo) => !isPhotoSharedCloudReady(photo)).length);
+        }
       } catch (_) {
-        if (!cancelled) setCount(0);
+        if (!cancelled) {
+          setCount(0);
+          setPendingCount(0);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -90,10 +97,14 @@ const CrewPhotoCount: React.FC<{ projectId?: string; recordId: string }> = ({ pr
       <button
         type="button"
         onClick={() => count > 0 && setExpanded((value) => !value)}
-        className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[10px] font-extrabold ${count > 0 ? 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100' : 'bg-slate-50 border-slate-200 text-slate-500'}`}
+        className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[10px] font-extrabold ${pendingCount > 0 ? 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100' : count > 0 ? 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100' : 'bg-slate-50 border-slate-200 text-slate-500'}`}
       >
         <FileText className="w-3.5 h-3.5" />
-        {loading ? 'Đang kiểm tra ảnh...' : count > 0 ? `${count} ảnh hiện trường · ${expanded ? 'Ẩn' : 'Xem'}` : 'Chưa có ảnh hiện trường'}
+        {loading
+          ? 'Đang kiểm tra ảnh...'
+          : count > 0
+            ? `${count} ảnh hiện trường${pendingCount > 0 ? ` · ${pendingCount} chờ Cloud` : ''} · ${expanded ? 'Ẩn' : 'Xem'}`
+            : 'Chưa có ảnh hiện trường'}
       </button>
       {expanded && count > 0 && projectId && (
         <div className="mt-2">
@@ -115,6 +126,7 @@ interface CrewTabProps {
   projectId?: string;
   userRole: UserRole;
   roleResolved: boolean;
+  currentUserUid?: string;
   projectName?: string;
   crewRecords: CrewRecord[];
   floorPlans: FloorPlan[];
@@ -208,6 +220,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   projectId = 'default-project',
   userRole,
   roleResolved,
+  currentUserUid = '',
   projectName,
   crewRecords,
   floorPlans,
@@ -225,7 +238,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 }) => {
   const { t } = useLanguage();
   const canOperate = roleResolved && canEditCrewData(userRole);
+  // Bulk deletion remains ADMIN-only. EDITOR can remove only a record they created,
+  // and that record still goes through the normal Trash / soft-delete sync pipeline.
   const canDelete = roleResolved && canDeleteBusinessData(userRole);
+  const canDeleteRecord = (record: CrewRecord) =>
+    roleResolved && canDeleteCrewRecord(userRole, currentUserUid, record.createdByUid);
   const canManageTeamDirectory = roleResolved && canManageTeams(userRole);
   const canImportTeams = roleResolved && canImportData(userRole) && canManageTeams(userRole);
   // Navigation Tabs: 'logs' (Daily logs) or 'teams' (Manage team directory)
@@ -299,7 +316,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       setShowCopyConfirm(false);
     }
     if (!canDelete) {
-      setDeletingRecordTarget(null);
+      // EDITOR has no bulk-delete selection. A single own-record delete target is
+      // allowed to remain open; any stale/foreign target is closed.
+      setDeletingRecordTarget((target) => target && canDeleteRecord(target) ? target : null);
       setSelectedRecordIds([]);
     }
     if (!canManageTeamDirectory) {
@@ -308,7 +327,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       setDeletingTeamTarget(null);
       setSelectedTeamIds([]);
     }
-  }, [canOperate, canDelete, canManageTeamDirectory]);
+  }, [canOperate, canDelete, canManageTeamDirectory, roleResolved, userRole, currentUserUid]);
 
   // Daily Log Form State
   const [teamName, setTeamName] = useState('');
@@ -876,7 +895,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   };
 
   const executeDeleteRecord = async () => {
-    if (!canDelete) return;
+    if (!deletingRecordTarget || !canDeleteRecord(deletingRecordTarget)) return;
     if (deletingRecordTarget) {
       if (projectId) {
         let trashEnabled = true;
@@ -1364,7 +1383,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                       <CrewPhotoCount projectId={projectId} recordId={record.id} />
 
                       {/* Actions buttons */}
-                      {(canOperate || canDelete) && <div className="flex items-center justify-end gap-3 mt-3 pt-2 border-t border-slate-100">
+                      {(canOperate || canDeleteRecord(record)) && <div className="flex items-center justify-end gap-3 mt-3 pt-2 border-t border-slate-100">
                         {canOperate && <button
                           onClick={async () => {
                             setEditingRecord(record);
@@ -1375,12 +1394,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                         >
                           <Edit2 className="w-3.5 h-3.5" /> <span>Sửa</span>
                         </button>}
-                        {canDelete && <button
-                          onClick={async () => {
+                        {canDeleteRecord(record) && <button
+                          type="button"
+                          onClick={() => {
                             setDeletingRecordTarget(record);
                           }}
                           className="flex items-center gap-1 text-xs text-slate-500 hover:text-rose-600 transition"
-                          title="Xóa bản ghi"
+                          title={canDelete ? 'Xóa bản ghi' : 'Xóa bản ghi do bạn tạo (có thể khôi phục trong Thùng rác)'}
                         >
                           <Trash2 className="w-3.5 h-3.5" /> <span className="text-rose-500 font-semibold">Xóa</span>
                         </button>}
@@ -2237,7 +2257,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       )}
 
       {/* CONFIRM DELETE DAILY LOG RECORD MODAL */}
-      {canDelete && deletingRecordTarget && (
+      {deletingRecordTarget && canDeleteRecord(deletingRecordTarget) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <div className="p-5 text-center">
@@ -2246,7 +2266,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
               <h3 className="font-bold text-slate-900 text-sm mb-1">Xác nhận xóa nhật ký</h3>
               <p className="text-xs text-slate-500 leading-relaxed mb-4">
-                Bạn có chắc chắn muốn xóa bản ghi quân số của <strong className="text-slate-800">{deletingRecordTarget.teamName}</strong> tại <strong className="text-indigo-600">{deletingRecordTarget.floorName}</strong> không? Hành động này không thể hoàn tác.
+                Bạn có chắc chắn muốn xóa bản ghi quân số của <strong className="text-slate-800">{deletingRecordTarget.teamName}</strong> tại <strong className="text-indigo-600">{deletingRecordTarget.floorName}</strong> không? Nếu Thùng rác đang bật, bản ghi có thể được ADMIN khôi phục trong thời hạn lưu.
               </p>
               <div className="flex gap-2.5">
                 <button

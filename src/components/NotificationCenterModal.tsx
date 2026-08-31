@@ -27,6 +27,8 @@ interface NotificationCenterModalProps {
   chatUnreadCount?: number;
   onOpenChat?: () => void;
   chatMentioned?: boolean;
+  floatingAlertsEnabled?: boolean;
+  onFloatingAlertsEnabledChange?: (enabled: boolean) => void;
 }
 
 export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = ({
@@ -39,6 +41,8 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
   chatUnreadCount = 0,
   onOpenChat,
   chatMentioned = false,
+  floatingAlertsEnabled = true,
+  onFloatingAlertsEnabledChange,
 }) => {
   const [section, setSection] = useState<'work' | 'messages' | 'system'>('work');
   const [filterType, setFilterType] = useState<'all' | 'overdue' | 'today' | 'soon'>('all');
@@ -353,14 +357,31 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
         )}
 
         {/* Modal Footer */}
-        <div className="p-3 bg-slate-100 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500 shrink-0">
+        <div className="p-3 bg-slate-100 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-500 shrink-0">
           <span>Đang hiển thị: <strong className="text-slate-800">{filteredAlerts.length}</strong> / {counts.all}</span>
-          <button
-            onClick={onClose}
-            className="px-4 py-1.5 bg-white border border-slate-300 rounded-xl font-bold text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
-          >
-            Đóng
-          </button>
+          <div className="flex items-center gap-2 justify-end">
+            {onFloatingAlertsEnabledChange && (
+              <button
+                type="button"
+                onClick={() => onFloatingAlertsEnabledChange(!floatingAlertsEnabled)}
+                className={`px-3 py-1.5 rounded-xl font-extrabold border transition-colors cursor-pointer ${
+                  floatingAlertsEnabled
+                    ? 'bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100'
+                    : 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
+                }`}
+                title="Chỉ bật/tắt popup/badge nổi; không thay đổi Defect, Checklist hay Tiến độ"
+              >
+                {floatingAlertsEnabled ? 'Tắt thông báo nổi' : 'Bật thông báo nổi'}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-1.5 bg-white border border-slate-300 rounded-xl font-bold text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
+            >
+              Đóng
+            </button>
+          </div>
         </div>
 
       </div>

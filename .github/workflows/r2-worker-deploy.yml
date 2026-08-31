@@ -66,4 +66,7 @@ jobs:
           set -euo pipefail
           curl --fail --silent --show-error --retry 5 --retry-delay 2 \
             https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev/health \
-            | grep -q '"ok":true'
+            | tee /tmp/r2-health.json
+          grep -q '"ok":true' /tmp/r2-health.json
+          grep -q '"version":"6.3.0-rc2.2.15"' /tmp/r2-health.json
+          grep -q '"accessPolicy":"canonical-email-first"' /tmp/r2-health.json
