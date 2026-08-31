@@ -1,0 +1,48 @@
+name: RC2.2.15 P0 Apply Once
+
+on:
+  push:
+    branches:
+      - rc2-2-15-p0-photo-diagnostics-deeplink
+    paths:
+      - '.github/workflows/rc2215-p0-apply-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply_patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: rc2-2-15-p0-photo-diagnostics-deeplink
+          fetch-depth: 0
+
+      - name: Reassemble and apply exact patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .rc2215-p0/part.* > /tmp/rc2215-p0.patch
+          patch --dry-run -p1 < /tmp/rc2215-p0.patch
+          patch -p1 < /tmp/rc2215-p0.patch
+
+      - name: Source regression gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/stability-gate.mjs
+          node scripts/source-lint.mjs
+
+      - name: Commit applied source and remove staging fragments
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm -r .rc2215-p0
+          git add scripts/stability-gate.mjs src/App.tsx src/components/BottomNav.tsx src/components/FloorPlanDefectTab.tsx src/components/GoogleConfigTab.tsx src/components/ImageViewerModal.tsx src/features/chat/ChatTab.tsx src/lib/photoCloudSync.ts src/lib/r2Storage.ts src/lib/runtimeDiagnostics.ts src/main.tsx src/utils/photoStorage.ts
+          git diff --cached --check
+          git commit -m 'fix: close P0 photo outbox diagnostics and defect navigation'
+          git push origin HEAD:rc2-2-15-p0-photo-diagnostics-deeplink
