@@ -1,0 +1,39 @@
+name: RC2.2.16 Package Final Source
+
+on:
+  push:
+    branches: ['automation/rc2216-package-final']
+    paths:
+      - '.github/workflows/rc2216-package-final-source.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 914d40060ebc1cd2d9c5882bca36cbbe5c154999
+          fetch-depth: 1
+      - name: Verify clean main identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "914d40060ebc1cd2d9c5882bca36cbbe5c154999"
+          test ! -e .github/workflows/rc2216-package-final-source.yml
+      - name: Package full source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifact
+          zip -qr artifact/HNL-QLTC-V6.3.0-RC2.2.16-FULL-SOURCE.zip . \
+            -x '.git/*' 'node_modules/*' 'artifact/*'
+          unzip -t artifact/HNL-QLTC-V6.3.0-RC2.2.16-FULL-SOURCE.zip >/dev/null
+          sha256sum artifact/HNL-QLTC-V6.3.0-RC2.2.16-FULL-SOURCE.zip | tee artifact/FULL-SOURCE.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-RC2.2.16-FINAL-SOURCE
+          path: artifact/*
+          if-no-files-found: error
