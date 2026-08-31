@@ -1,0 +1,118 @@
+diff -ruN hnl-qltc-main-f833-local/src/components/GoogleConfigTab.tsx hnl-qltc-rc2215-next/src/components/GoogleConfigTab.tsx
+--- hnl-qltc-main-f833-local/src/components/GoogleConfigTab.tsx	2026-08-30 22:35:38.000000000 +0000
++++ hnl-qltc-rc2215-next/src/components/GoogleConfigTab.tsx	2026-08-31 04:20:42.645276595 +0000
+@@ -41,7 +41,8 @@
+ import { getImageQualityProfile, getImageQualitySettings, setImageQualitySettings, ImageQualityKind, ImageQualityPreset } from '../utils/imageQualitySettings';
+ import type { UserRole } from '../utils/securityUtils';
+ import type { TrashOperation, TrashSettings, TrashRetentionDays } from '../lib/trash';
+-import { buildDiagnosticBundle } from '../lib/runtimeDiagnostics';
++import { buildDiagnosticBundle, clearRuntimeDiagnostics } from '../lib/runtimeDiagnostics';
++import { getProjectPhotoDiagnosticSnapshot } from '../utils/photoStorage';
+ 
+ declare const __BUILD_TIME__: string;
+ 
+@@ -166,6 +167,44 @@
+     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+   };
+ 
++  const buildFullDiagnosticBundle = async () => {
++    const photoDiagnostics = activeProjectId
++      ? await getProjectPhotoDiagnosticSnapshot(activeProjectId).catch((err) => ({ error: err instanceof Error ? err.message : String(err) }))
++      : null;
++    return buildDiagnosticBundle({
++      screen: 'system-diagnostics',
++      projectId: activeProjectId || 'default',
++      firebaseUserEmail: syncDiagnostics?.firebaseUserEmail || '',
++      role: userRole,
++      roleResolved: syncDiagnostics?.roleResolved ?? false,
++      roleSource: syncDiagnostics?.roleSource || 'unresolved',
++      cloudInitialReady: syncDiagnostics?.cloudInitialReady ?? false,
++      snapshotReadyCount: syncDiagnostics?.snapshotReadyCount ?? 0,
++      dataCloudPhase: syncDiagnostics?.dataCloudPhase || 'unknown',
++      pendingData: syncDiagnostics?.pendingData ?? 0,
++      pendingDriveUploads: syncDiagnostics?.pendingDriveUploads ?? 0,
++      lastSyncAt: syncDiagnostics?.lastSyncAt ?? 0,
++      lastSyncError: syncDiagnostics?.lastSyncError || '',
++      duplicateProjectIds: syncDiagnostics?.duplicateProjectIds || [],
++      photoPending: syncDiagnostics?.photoPending ?? 0,
++      photoPhase: syncDiagnostics?.photoPhase || 'idle',
++      driveSyncStatus,
++      recordCounts: syncDiagnostics?.recordCounts || {},
++      photoDiagnostics,
++    });
++  };
++
++  const handleDownloadDiagnostics = async () => {
++    try {
++      const bundle = await buildFullDiagnosticBundle();
++      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
++      await downloadOrShareFile(`HNL-QLTC-DIAGNOSTIC-${stamp}.json`, JSON.stringify(bundle, null, 2), 'application/json;charset=utf-8');
++      setSyncMsg('Đã xuất file chẩn đoán lỗi. Có thể gửi file này để kiểm tra lỗi đồng bộ/ảnh/Defect.');
++    } catch (err: any) {
++      setSyncMsg(`Không xuất được file chẩn đoán: ${err?.message || String(err)}`);
++    }
++  };
++
+   const handleImageQualityChange = (kind: ImageQualityKind, preset: ImageQualityPreset) => {
+     const next = { ...imageQualitySettings, [kind]: preset };
+     setImageQualitySettingsState(next);
+@@ -380,9 +419,9 @@
+           <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-2">
+             <div>
+               <h3 className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
+-                <ShieldCheck className="w-4 h-4 text-emerald-600" /> Chẩn đoán đồng bộ
++                <ShieldCheck className="w-4 h-4 text-emerald-600" /> Hệ thống & Chẩn đoán
+               </h3>
+-              <p className="text-[10px] text-slate-500 mt-1">Dùng khi các thiết bị nhìn dữ liệu khác nhau. Project ID phải giống hệt nhau.</p>
++              <p className="text-[10px] text-slate-500 mt-1">Dùng khi thiết bị/tài khoản nhìn dữ liệu hoặc ảnh khác nhau. File chẩn đoán không chứa mật khẩu, token hay binary ảnh thật.</p>
+             </div>
+             <span className={`text-[10px] font-bold rounded-lg px-2 py-1 border ${syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && syncDiagnostics.pendingDriveUploads === 0 && syncDiagnostics.photoPending === 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+               {syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && syncDiagnostics.pendingDriveUploads === 0 && syncDiagnostics.photoPending === 0 ? 'Cloud sẵn sàng' : 'Đang kiểm tra'}
+@@ -421,38 +460,37 @@
+               <span key={name} className="px-2 py-1 rounded-lg bg-slate-100 border border-slate-200 text-[9px] font-bold text-slate-600">{name}: {count}</span>
+             ))}
+           </div>
+-          <button
+-            type="button"
+-            onClick={async () => {
+-              const bundle = buildDiagnosticBundle({
+-                projectId: activeProjectId || 'default',
+-                firebaseUserEmail: syncDiagnostics.firebaseUserEmail || '',
+-                role: userRole,
+-                roleResolved: syncDiagnostics.roleResolved,
+-                cloudInitialReady: syncDiagnostics.cloudInitialReady,
+-                snapshotReadyCount: syncDiagnostics.snapshotReadyCount,
+-                dataCloudPhase: syncDiagnostics.dataCloudPhase,
+-                pendingData: syncDiagnostics.pendingData,
+-                pendingDriveUploads: syncDiagnostics.pendingDriveUploads,
+-                lastSyncAt: syncDiagnostics.lastSyncAt,
+-                lastSyncError: syncDiagnostics.lastSyncError || '',
+-                duplicateProjectIds: syncDiagnostics.duplicateProjectIds,
+-                photoPending: syncDiagnostics.photoPending,
+-                photoPhase: syncDiagnostics.photoPhase,
+-                driveSyncStatus,
+-                recordCounts: syncDiagnostics.recordCounts,
+-              });
+-              try {
+-                await navigator.clipboard.writeText(JSON.stringify(bundle, null, 2));
+-                setSyncMsg('Đã copy chẩn đoán đồng bộ.');
+-              } catch (_) {
+-                setSyncMsg('Không copy tự động được; hãy dùng trình duyệt hỗ trợ clipboard.');
+-              }
+-            }}
+-            className="px-3 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-bold flex items-center gap-1.5"
+-          >
+-            <Copy className="w-3.5 h-3.5" /> Copy chẩn đoán
+-          </button>
++          <div className="flex flex-wrap gap-2">
++            <button
++              type="button"
++              onClick={async () => {
++                try {
++                  const bundle = await buildFullDiagnosticBundle();
++                  await navigator.clipboard.writeText(JSON.stringify(bundle, null, 2));
++                  setSyncMsg('Đã copy chẩn đoán hệ thống.');
++                } catch (_) {
++                  setSyncMsg('Không copy tự động được; hãy dùng nút Xuất file chẩn đoán.');
++                }
++              }}
