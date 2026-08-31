@@ -1,0 +1,150 @@
++              className="px-3 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-bold flex items-center gap-1.5"
++            >
++              <Copy className="w-3.5 h-3.5" /> Copy chẩn đoán
++            </button>
++            <button
++              type="button"
++              onClick={() => void handleDownloadDiagnostics()}
++              className="px-3 py-2 rounded-xl bg-indigo-600 text-white text-[10px] font-bold flex items-center gap-1.5"
++            >
++              <Download className="w-3.5 h-3.5" /> Xuất file chẩn đoán lỗi
++            </button>
++            <button
++              type="button"
++              onClick={() => { clearRuntimeDiagnostics(); setSyncMsg('Đã xóa log chẩn đoán cũ.'); }}
++              className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 text-[10px] font-bold flex items-center gap-1.5"
++            >
++              <Eraser className="w-3.5 h-3.5" /> Xóa log chẩn đoán
++            </button>
++          </div>
+         </div>
+       )}
+ 
+diff -ruN hnl-qltc-main-f833-local/src/components/ImageViewerModal.tsx hnl-qltc-rc2215-next/src/components/ImageViewerModal.tsx
+--- hnl-qltc-main-f833-local/src/components/ImageViewerModal.tsx	2026-08-30 22:35:38.000000000 +0000
++++ hnl-qltc-rc2215-next/src/components/ImageViewerModal.tsx	2026-08-31 04:23:47.443661611 +0000
+@@ -26,6 +26,7 @@
+   const initialScaleRef = useRef(1);
+   const isDraggingRef = useRef(false);
+   const lastPosRef = useRef({ x: 0, y: 0 });
++  const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
+   const onCloseRef = useRef(onClose);
+   const pushedHistoryRef = useRef(false);
+   const closedFromHistoryRef = useRef(false);
+@@ -107,6 +108,11 @@
+     if (!container || !isOpen) return;
+     
+     const onTouchStart = (e: TouchEvent) => {
++      if (e.touches.length === 1 && scale <= 1) {
++        swipeStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
++      } else {
++        swipeStartRef.current = null;
++      }
+       if (e.touches.length === 2) {
+         e.preventDefault();
+         initialDistRef.current = Math.hypot(
+@@ -120,6 +126,7 @@
+     const onTouchMove = (e: TouchEvent) => {
+       if (e.touches.length === 2 && initialDistRef.current > 0) {
+         e.preventDefault();
++        swipeStartRef.current = null;
+         const dist = Math.hypot(
+           e.touches[0].clientX - e.touches[1].clientX,
+           e.touches[0].clientY - e.touches[1].clientY
+@@ -130,9 +137,16 @@
+     };
+ 
+     const onTouchEnd = (e: TouchEvent) => {
+-      if (e.touches.length < 2) {
+-        initialDistRef.current = 0;
+-      }
++      if (e.touches.length < 2) initialDistRef.current = 0;
++      const start = swipeStartRef.current;
++      swipeStartRef.current = null;
++      if (!start || scale > 1 || e.changedTouches.length === 0) return;
++      const end = e.changedTouches[0];
++      const dx = end.clientX - start.x;
++      const dy = end.clientY - start.y;
++      if (Math.abs(dx) < 48 || Math.abs(dx) <= Math.abs(dy) * 1.15) return;
++      if (dx < 0) handleNext();
++      else handlePrev();
+     };
+ 
+     container.addEventListener('touchstart', onTouchStart, { passive: false });
+@@ -146,7 +160,7 @@
+       container.removeEventListener('touchend', onTouchEnd);
+       container.removeEventListener('touchcancel', onTouchEnd);
+     };
+-  }, [isOpen, scale]);
++  }, [isOpen, scale, currentIndex, allImages.length]);
+ 
+   const handlePointerDown = (e: React.PointerEvent) => {
+     if (scale <= 1) return;
+diff -ruN hnl-qltc-main-f833-local/src/features/chat/ChatTab.tsx hnl-qltc-rc2215-next/src/features/chat/ChatTab.tsx
+--- hnl-qltc-main-f833-local/src/features/chat/ChatTab.tsx	2026-08-30 22:35:38.000000000 +0000
++++ hnl-qltc-rc2215-next/src/features/chat/ChatTab.tsx	2026-08-31 04:20:13.303566285 +0000
+@@ -20,8 +20,9 @@
+ import { createEntityId } from '../../utils/idUtils';
+ import type { ChatAttachment, ProjectChatMessage } from './types';
+ import { UnreadBadge } from './UnreadBadge';
+-import { getPhotoDataUrl, savePhotoAttachment } from '../../utils/photoStorage';
+-import { downloadPhotoBlobFromCloud, uploadPhotoToCloud } from '../../lib/photoCloudSync';
++import { getPhotoDataUrl, getProjectPhotos, isPhotoSharedCloudReady, savePhotoAttachment } from '../../utils/photoStorage';
++import { downloadPhotoBlobFromCloud, uploadPhotoToCloud, verifyPhotoBinaryReadyInCloud } from '../../lib/photoCloudSync';
++import { ImageViewerModal } from '../../components/ImageViewerModal';
+ 
+ interface ChatTabProps {
+   activeProjectId: string;
+@@ -32,31 +33,69 @@
+   userRole: 'ADMIN' | 'EDITOR' | 'VIEWER';
+ }
+ 
+-const ChatImage: React.FC<{ projectId: string; attachment: ChatAttachment }> = ({ projectId, attachment }) => {
++const ChatImage: React.FC<{ projectId: string; attachment: ChatAttachment; onOpen?: () => void }> = ({ projectId, attachment, onOpen }) => {
+   const photoId = attachment.reference?.type === 'photo' ? attachment.reference.entityId : '';
+   const [src, setSrc] = useState('');
++  const [cloudState, setCloudState] = useState<'loading' | 'pending' | 'ready' | 'error'>('loading');
++  const [reloadTick, setReloadTick] = useState(0);
++
+   useEffect(() => {
+     let cancelled = false;
+     let objectUrl = '';
+-    (async () => {
++    const load = async () => {
+       if (!photoId) return;
+-      const local = await getPhotoDataUrl(photoId, '', true, projectId).catch(() => '');
++      setCloudState('loading');
++      const meta = (await getProjectPhotos(projectId, true).catch(() => [])).find((item) => item.id === photoId);
++      const pending = Boolean(meta && !isPhotoSharedCloudReady(meta));
++      const local = await getPhotoDataUrl(photoId, meta?.cloudUrl || meta?.cloudFileId || '', true, projectId).catch(() => '');
+       if (local) {
+-        if (!cancelled) setSrc(local);
++        if (!cancelled) {
++          setSrc(local);
++          setCloudState(pending ? 'pending' : 'ready');
++        }
+         return;
+       }
+       const blob = await downloadPhotoBlobFromCloud(projectId, photoId).catch(() => null);
+       if (blob) {
+         objectUrl = URL.createObjectURL(blob);
+-        if (!cancelled) setSrc(objectUrl);
++        if (!cancelled) { setSrc(objectUrl); setCloudState('ready'); }
++      } else if (!cancelled) {
++        setSrc('');
++        setCloudState(pending ? 'pending' : 'error');
+       }
+-    })();
+-    return () => { cancelled = true; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+-  }, [projectId, photoId]);
++    };
++    void load();
++    const onPhotosChanged = (event: Event) => {
++      const detail = (event as CustomEvent<any>).detail || {};
++      if (detail.projectId && detail.projectId !== projectId) return;
++      setReloadTick((tick) => tick + 1);
++    };
++    window.addEventListener('qlct-photo-attachments-changed', onPhotosChanged);
++    return () => {
++      cancelled = true;
++      if (objectUrl) URL.revokeObjectURL(objectUrl);
