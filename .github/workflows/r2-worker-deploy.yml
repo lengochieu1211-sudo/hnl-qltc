@@ -2,6 +2,11 @@ name: Deploy HNL QLTC R2 Worker
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/r2-deploy-trigger'
 
 permissions:
   contents: read
