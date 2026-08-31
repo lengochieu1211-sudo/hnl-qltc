@@ -1,0 +1,70 @@
+name: RC2.2.16 Crew Copy Picker V2 Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/rc2-2-16-copy-picker-v2-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch_test_commit_deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      VITE_APP_ENV: PROD
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
+      VITE_ENABLE_LEGACY_DRIVE_READ: "true"
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: "false"
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: "false"
+      VITE_FIREBASE_API_KEY: AIzaSyAShhTKSnmLMOEm4dST--1_X7fjJUE4znY
+      VITE_FIREBASE_AUTH_DOMAIN: com-example-qlct-61329.firebaseapp.com
+      VITE_FIREBASE_PROJECT_ID: com-example-qlct-61329
+      VITE_FIREBASE_STORAGE_BUCKET: com-example-qlct-61329.firebasestorage.app
+      VITE_FIREBASE_MESSAGING_SENDER_ID: "119152410850"
+      VITE_FIREBASE_APP_ID: 1:119152410850:web:c2aee2135428af34ef5ebb
+      VITE_FIRESTORE_DATABASE_ID: "(default)"
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: "(default)"
+      VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      VITE_GIT_COMMIT: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Apply exact crew copy picker patch
+        shell: bash
+        run: |
+          echo 'CmZyb20gcGF0aGxpYiBpbXBvcnQgUGF0aAppbXBvcnQgcmUKcCA9IFBhdGgoInNyYy9jb21wb25lbnRzL0NyZXdUYWIudHN4IikKcyA9IHAucmVhZF90ZXh0KGVuY29kaW5nPSJ1dGYtOCIpCgphbmNob3IgPSAiICBjb25zdCBbY29weVNvdXJjZURhdGUsIHNldENvcHlTb3VyY2VEYXRlXSA9IHVzZVN0YXRlKCcnKTtcbiIKaW5zZXJ0ID0gYW5jaG9yICsgIiAgY29uc3QgW3Nob3dDb3B5RGF0ZVBpY2tlciwgc2V0U2hvd0NvcHlEYXRlUGlja2VyXSA9IHVzZVN0YXRlKGZhbHNlKTtcbiAgY29uc3QgW2NvcHlEYXRlUGlja2VyVmFsdWUsIHNldENvcHlEYXRlUGlja2VyVmFsdWVdID0gdXNlU3RhdGUoJycpO1xuIgppZiBhbmNob3Igbm90IGluIHMgb3IgInNob3dDb3B5RGF0ZVBpY2tlciIgaW4gczoKICAgIHJhaXNlIFN5c3RlbUV4aXQoIkNvcHkgcGlja2VyIHN0YXRlIGFuY2hvciBtaXNzaW5nL2FscmVhZHkgcGF0Y2hlZCIpCnMgPSBzLnJlcGxhY2UoYW5jaG9yLCBpbnNlcnQsIDEpCgpwYXR0ZXJuID0gcmUuY29tcGlsZShyIiAgY29uc3QgaGFuZGxlQ29weUZyb21ZZXN0ZXJkYXlDbGljayA9IFwoXCkgPT4gXHsuKj9cbiAgXH07IiwgcmUuUykKcmVwbGFjZW1lbnQgPSAiIiIgIGNvbnN0IGhhbmRsZU9wZW5Db3B5RGF0ZVBpY2tlciA9ICgpID0+IHsKICAgIGlmICghY2FuT3BlcmF0ZSkgcmV0dXJuOwogICAgY29uc3QgZCA9IG5ldyBEYXRlKGAke3NlbGVjdGVkRGF0ZX1UMTI6MDA6MDBgKTsKICAgIGQuc2V0RGF0ZShkLmdldERhdGUoKSAtIDEpOwogICAgY29uc3QgeWVhciA9IGQuZ2V0RnVsbFllYXIoKTsKICAgIGNvbnN0IG1vbnRoID0gU3RyaW5nKGQuZ2V0TW9udGgoKSArIDEpLnBhZFN0YXJ0KDIsICcwJyk7CiAgICBjb25zdCBkYXkgPSBTdHJpbmcoZC5nZXREYXRlKCkpLnBhZFN0YXJ0KDIsICcwJyk7CiAgICBzZXRDb3B5RGF0ZVBpY2tlclZhbHVlKGAke3llYXJ9LSR7bW9udGh9LSR7ZGF5fWApOwogICAgc2V0U2hvd0NvcHlEYXRlUGlja2VyKCh2YWx1ZSkgPT4gIXZhbHVlKTsKICB9OyIiIgpzLCBuID0gcGF0dGVybi5zdWJuKHJlcGxhY2VtZW50LCBzLCBjb3VudD0xKQppZiBuICE9IDE6CiAgICByYWlzZSBTeXN0ZW1FeGl0KGYiQ29weSBoYW5kbGVyIHBhdGNoIGNvdW50PXtufSIpCgpvbGQgPSAiIiIgICAgICAgICAgICAgIDxidXR0b24KICAgICAgICAgICAgICAgIG9uQ2xpY2s9e2hhbmRsZUNvcHlGcm9tWWVzdGVyZGF5Q2xpY2t9CiAgICAgICAgICAgICAgICBjbGFzc05hbWU9ImZsZXgtMSBmbGV4IGl0ZW1zLWNlbnRlciBqdXN0aWZ5LWNlbnRlciBnYXAtMiBiZy13aGl0ZSBib3JkZXIgYm9yZGVyLXNsYXRlLTIwMCBob3ZlcjpiZy1zbGF0ZS01MCB0ZXh0LXNsYXRlLTcwMCBmb250LWJvbGQgcHktMi41IHB4LTQgcm91bmRlZC14bCBzaGFkb3ctc20gdHJhbnNpdGlvbiB0ZXh0LXhzIgogICAgICAgICAgICAgICAgdGl0bGU9IlNhbyBjaMOpcCB0b8OgbiBi4buZIHF1w6JuIHPhu5EgY+G7p2EgbmfDoHkgbGnhu4FuIHRyxrDhu5tjIgogICAgICAgICAgICAgID4KICAgICAgICAgICAgICAgIDxDb3B5IGNsYXNzTmFtZT0idy0zLjUgaC0zLjUiIC8+IFNhbyBjaMOpcCBxdcOibiBz4buRIGjDtG0gcXVhCiAgICAgICAgICAgICAgPC9idXR0b24+CiAgICAgICAgICAgIDwvZGl2PgoiIiIKbmV3ID0gIiIiICAgICAgICAgICAgICA8YnV0dG9uCiAgICAgICAgICAgICAgICBvbkNsaWNrPXtoYW5kbGVPcGVuQ29weURhdGVQaWNrZXJ9CiAgICAgICAgICAgICAgICBjbGFzc05hbWU9ImZsZXgtMSBmbGV4IGl0ZW1zLWNlbnRlciBqdXN0aWZ5LWNlbnRlciBnYXAtMiBiZy13aGl0ZSBib3JkZXIgYm9yZGVyLXNsYXRlLTIwMCBob3ZlcjpiZy1zbGF0ZS01MCB0ZXh0LXNsYXRlLTcwMCBmb250LWJvbGQgcHktMi41IHB4LTQgcm91bmRlZC14bCBzaGFkb3ctc20gdHJhbnNpdGlvbiB0ZXh0LXhzIgogICAgICAgICAgICAgICAgdGl0bGU9IkNo4buNbiBuZ8OgeSBuZ3Xhu5NuIMSR4buDIHNhbyBjaMOpcCBxdcOibiBz4buRIgogICAgICAgICAgICAgID4KICAgICAgICAgICAgICAgIDxDb3B5IGNsYXNzTmFtZT0idy0zLjUgaC0zLjUiIC8+IFNhbyBjaMOpcCBxdcOibiBz4buRCiAgICAgICAgICAgICAgPC9idXR0b24+CiAgICAgICAgICAgIDwvZGl2PgoKICAgICAgICAgICAge3Nob3dDb3B5RGF0ZVBpY2tlciAmJiAoCiAgICAgICAgICAgICAgPGRpdiBjbGFzc05hbWU9Im1iLTQgLW10LTIgcm91bmRlZC14bCBib3JkZXIgYm9yZGVyLWluZGlnby0yMDAgYmctaW5kaWdvLTUwLzcwIHAtMyI+CiAgICAgICAgICAgICAgICA8ZGl2IGNsYXNzTmFtZT0idGV4dC1bMTFweF0gZm9udC1ib2xkIHRleHQtaW5kaWdvLTgwMCBtYi0yIj5DaOG7jW4gbmfDoHkgY+G6p24gc2FvIGNow6lwIHF1w6JuIHPhu5E8L2Rpdj4KICAgICAgICAgICAgICAgIDxkaXYgY2xhc3NOYW1lPSJmbGV4IGl0ZW1zLWNlbnRlciBnYXAtMiI+CiAgICAgICAgICAgICAgICAgIDxpbnB1dAogICAgICAgICAgICAgICAgICAgIHR5cGU9ImRhdGUiCiAgICAgICAgICAgICAgICAgICAgbWF4PXtnZXRUb2RheVN0cmluZygpfQogICAgICAgICAgICAgICAgICAgIHZhbHVlPXtjb3B5RGF0ZVBpY2tlclZhbHVlfQogICAgICAgICAgICAgICAgICAgIG9uQ2hhbmdlPXsoZSkgPT4gc2V0Q29weURhdGVQaWNrZXJWYWx1ZShlLnRhcmdldC52YWx1ZSl9CiAgICAgICAgICAgICAgICAgICAgY2xhc3NOYW1lPSJmbGV4LTEgbWluLXctMCBiZy13aGl0ZSBib3JkZXIgYm9yZGVyLWluZGlnby0yMDAgcm91bmRlZC14bCBweC0zIHB5LTIuNSB0ZXh0LXNtIGZvbnQtYm9sZCB0ZXh0LXNsYXRlLTgwMCIKICAgICAgICAgICAgICAgICAgICBhcmlhLWxhYmVsPSJOZ8OgeSBuZ3Xhu5NuIHNhbyBjaMOpcCBxdcOibiBz4buRIgogICAgICAgICAgICAgICAgICAvPgogICAgICAgICAgICAgICAgICA8YnV0dG9uCiAgICAgICAgICAgICAgICAgICAgdHlwZT0iYnV0dG9uIgogICAgICAgICAgICAgICAgICAgIGRpc2FibGVkPXshY29weURhdGVQaWNrZXJWYWx1ZSB8fCBjb3B5RGF0ZVBpY2tlclZhbHVlID09PSBzZWxlY3RlZERhdGV9CiAgICAgICAgICAgICAgICAgICAgb25DbGljaz17KCkgPT4gewogICAgICAgICAgICAgICAgICAgICAgcmVxdWVzdENvcHlGcm9tRGF0ZShjb3B5RGF0ZVBpY2tlclZhbHVlKTsKICAgICAgICAgICAgICAgICAgICAgIHNldFNob3dDb3B5RGF0ZVBpY2tlcihmYWxzZSk7CiAgICAgICAgICAgICAgICAgICAgfX0KICAgICAgICAgICAgICAgICAgICBjbGFzc05hbWU9InNocmluay0wIHJvdW5kZWQteGwgYmctaW5kaWdvLTYwMCBweC00IHB5LTIuNSB0ZXh0LXhzIGZvbnQtYm9sZCB0ZXh0LXdoaXRlIGRpc2FibGVkOm9wYWNpdHktNDAgZGlzYWJsZWQ6Y3Vyc29yLW5vdC1hbGxvd2VkIgogICAgICAgICAgICAgICAgICA+CiAgICAgICAgICAgICAgICAgICAgU2FvIGNow6lwCiAgICAgICAgICAgICAgICAgIDwvYnV0dG9uPgogICAgICAgICAgICAgICAgPC9kaXY+CiAgICAgICAgICAgICAgPC9kaXY+CiAgICAgICAgICAgICl9CiIiIgppZiBvbGQgbm90IGluIHM6CiAgICByYWlzZSBTeXN0ZW1FeGl0KCJDb3B5IGJ1dHRvbiBVSSB0YXJnZXQgbm90IGZvdW5kIikKcyA9IHMucmVwbGFjZShvbGQsIG5ldywgMSkKcyA9IHMucmVwbGFjZSgn4bqkbiBuw7p0ICJHaGkgbmjhuq1uIHF1w6JuIHPhu5EiIGhv4bq3YyAiU2FvIGNow6lwIHF1w6JuIHPhu5EgaMO0bSBxdWEiIMSR4buDIMSRaeG7gW4gbmhhbmguJywgJ+G6pG4gbsO6dCAiR2hpIG5o4bqtbiBxdcOibiBz4buRIiBob+G6t2MgIlNhbyBjaMOpcCBxdcOibiBz4buRIiDEkeG7gyDEkWnhu4FuIG5oYW5oLicsIDEpCmlmICJoYW5kbGVDb3B5RnJvbVllc3RlcmRheUNsaWNrIiBpbiBzIG9yICJTYW8gY2jDqXAgcXXDom4gc+G7kSBow7RtIHF1YSIgaW4gczoKICAgIHJhaXNlIFN5c3RlbUV4aXQoIk9sZCB5ZXN0ZXJkYXktb25seSBjb3B5IFVJIHJlbWFpbnMiKQpwLndyaXRlX3RleHQocywgZW5jb2Rpbmc9InV0Zi04IikK' | base64 -d > /tmp/crew_copy_patch.py
+          python /tmp/crew_copy_patch.py
+      - run: npm ci
+      - run: npm run test:stability
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test:rules
+      - run: npm run security:audit
+      - run: npm run build
+      - name: Commit certified source patch
+        shell: bash
+        run: |
+          test -n "$(git status --porcelain -- src/components/CrewTab.tsx)" || { echo 'No source diff'; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/components/CrewTab.tsx
+          git commit -m 'fix: choose source date when copying crew records'
+          git push origin HEAD:main
+      - name: Deploy Hosting site hnlqltc
+        shell: bash
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
+        run: |
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          npx --yes firebase-tools@13.35.1 deploy --only hosting --config firebase.prod.json --project com-example-qlct-61329 --non-interactive
+          echo 'PROD Hosting: https://hnlqltc.web.app'
