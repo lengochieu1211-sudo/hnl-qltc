@@ -1,0 +1,89 @@
+name: RC2.2.16 Final Clean Drive Backup
+
+on:
+  push:
+    branches:
+      - backup/rc2-2-16-drive-final-clean
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build FINAL-CLEAN continuation bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          CLEAN_SHA=$(git rev-parse HEAD^)
+          ROOT='HNL-QLTC-RC2.2.16-CONTINUATION-BACKUP-2026-08-31-FINAL-CLEAN'
+          mkdir -p "$ROOT/artifacts" "$ROOT/evidence"
+          git archive --format=zip --output="$ROOT/HNL-QLTC-V6.3.0-RC2.2.16-FULL-SOURCE-LATEST-CLEAN.zip" "$CLEAN_SHA"
+          android_run=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/android-apk.yml/runs?branch=main&status=success&per_page=1" --jq '.workflow_runs[0].id // empty')
+          windows_run=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/windows-exe.yml/runs?branch=main&status=success&per_page=1" --jq '.workflow_runs[0].id // empty')
+          if [ -n "$android_run" ]; then gh run download "$android_run" -D "$ROOT/artifacts/android" || true; fi
+          if [ -n "$windows_run" ]; then gh run download "$windows_run" -D "$ROOT/artifacts/windows" || true; fi
+          cat > "$ROOT/HNL-QLTC-RC2.2.16-CONTINUATION-CHECKPOINT.md" <<EOF
+          # HNL QLTC - Continuation Checkpoint 2026-08-31 - RC2.2.16 FINAL CLEAN
+
+          ## Source nền duy nhất cho chat mới
+          - Repo: lengochieu1211-sudo/hnl-qltc
+          - Branch chuẩn: main
+          - Clean main commit: $CLEAN_SHA
+          - Firebase project: com-example-qlct-61329
+          - Hosting: https://hnlqltc.web.app
+          - R2 Worker: hnl-qltc-r2-gateway.lengochieu1211.workers.dev
+          - R2 bucket: hnl-qltc-media
+          - FULL SOURCE trong gói này được archive trực tiếp từ clean main commit ở trên, không chứa workflow backup tạm.
+
+          ## Đã hoàn thành và có evidence
+          - R2 Worker RC2.2.16 deploy thành công; CORS PUT + Authorization + Content-Type + X-HNL-Metadata PASS.
+          - PROD Hosting final deploy GitHub Actions run 33384196510 SUCCESS.
+          - Full release gate trong run PROD: PASS.
+          - PROD smoke: PASS.
+          - Photo reconcile đa tài khoản đã sửa: Cloud/R2 mới hơn tự hòa giải xuống local.
+          - Metadata pending/legacy -> R2-ready luôn tăng revision/updatedAt đúng lifecycle; không nới Firestore RBAC.
+          - EDITOR không còn retry migrate floor-plan trái quyền.
+          - Android diagnostic export 0 KB đã sửa.
+          - Diagnostics ADMIN trước lượt sửa cuối: pendingDriveUploads=0, photoPending=0, 37 active/37 ready; có ảnh uploader EDITOR phía ADMIN với storageProvider=r2.
+
+          ## Các vấn đề/runtime còn dang dở bắt buộc kiểm trong chat mới
+          1. Android EDITOR: đóng hẳn/mở lại, online 1-2 phút, xuất diagnostics mới.
+          2. Xác nhận hai ảnh Crew legacy/pending trước đây không còn Firestore Missing or insufficient permissions.
+          3. Xác nhận photoDiagnostics Android không còn metadata pending/reconcile stale cũ.
+          4. Tạo ảnh Crew mới bằng EDITOR; ADMIN ở thiết bị khác phải thấy thumbnail và mở binary; cold restart vẫn thấy.
+          5. Lặp lại với Defect before/after và Chat attachment.
+          6. Test cùng điện thoại logout A -> login B và PC <-> Android nếu có thiết bị.
+          7. Test notification Defect deep-link đúng project -> floor -> defect và gallery swipe nhiều ảnh.
+          8. Chỉ sau các bước trên PASS mới gắn nhãn PHOTO CROSS-ACCOUNT PROD CERTIFIED.
+          9. Nếu còn lỗi, sửa tiếp trên FULL SOURCE LATEST-CLEAN này; tuyệt đối không rollback.
+
+          ## Cách mở chat mới
+          Gửi: “Tiếp tục HNL QLTC từ checkpoint Drive HNL-QLTC-RC2.2.16-CONTINUATION-CHECKPOINT. Đọc checkpoint trước. Lấy đúng HNL-QLTC-V6.3.0-RC2.2.16-FULL-SOURCE-LATEST-CLEAN.zip trong cùng gói/thư mục làm nền duy nhất, không rollback. Tiếp tục Runtime Golden ảnh đa tài khoản cho tới khi Web + APK + EXE được chứng nhận hoàn chỉnh.”
+          EOF
+          cat > "$ROOT/RC2.2.16-FINAL-STATUS-REPORT.md" <<EOF
+          # HNL QLTC RC2.2.16 Final Status Report
+          - Backup date/time context: 2026-08-31 end-of-day continuation backup
+          - Clean source commit: $CLEAN_SHA
+          - PROD deploy run 33384196510: SUCCESS
+          - Full release gate: PASS
+          - PROD Hosting smoke: PASS
+          - R2 Worker/CORS: PASS
+          - Final physical cross-account Runtime Golden: still required; see checkpoint.
+          - No Firebase project / Hosting / R2 bucket / GitHub repo identity changed.
+          EOF
+          printf 'clean_main_commit=%s\nandroid_latest_success_run=%s\nwindows_latest_success_run=%s\nprod_deploy_run=33384196510\n' "$CLEAN_SHA" "$android_run" "$windows_run" > "$ROOT/evidence/build-runtime-ids.txt"
+          (cd "$ROOT" && find . -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt)
+          zip -qr "${ROOT}.zip" "$ROOT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-RC2.2.16-CONTINUATION-BACKUP-2026-08-31-FINAL-CLEAN
+          path: HNL-QLTC-RC2.2.16-CONTINUATION-BACKUP-2026-08-31-FINAL-CLEAN.zip
+          if-no-files-found: error
+          retention-days: 30
