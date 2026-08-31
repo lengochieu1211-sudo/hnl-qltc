@@ -127,15 +127,23 @@ export async function verifyR2ObjectReady(
   expectedSize?: number,
   expectedSha256?: string,
 ): Promise<R2ObjectVerification> {
-  const authorization = await authHeader();
+  let authorization = await authHeader();
   const url = gatewayUrl('/v1/object', storagePath);
+  const requestHead = () => fetch(url, {
+    method: 'HEAD',
+    headers: { Authorization: authorization },
+    cache: 'no-store',
+  });
+
   let response: Response;
   try {
-    response = await fetch(url, {
-      method: 'HEAD',
-      headers: { Authorization: authorization },
-      cache: 'no-store',
-    });
+    response = await requestHead();
+    // Long-lived installed PWAs can occasionally reuse an expired Firebase token.
+    // Retry authentication once before treating the R2 durability probe as denied.
+    if (response.status === 401 || response.status === 403) {
+      authorization = await authHeader(true);
+      response = await requestHead();
+    }
   } catch (headError) {
     console.warn('[R2] HEAD durability check unavailable; using authenticated GET compatibility verification.', headError);
     try {
@@ -149,7 +157,24 @@ export async function verifyR2ObjectReady(
     const size = Number(response.headers.get('Content-Length') || 0);
     const sha256 = String(response.headers.get('X-HNL-SHA256') || '').trim() || undefined;
     const etag = String(response.headers.get('etag') || '').trim() || undefined;
-    return { ready: matchesExpected(size, sha256, expectedSize, expectedSha256), size, sha256, etag };
+    if (matchesExpected(size, sha256, expectedSize, expectedSha256)) {
+      return { ready: true, size, sha256, etag };
+    }
+
+    // RC2.2.16 legacy-Worker compatibility: an older live Worker can answer HEAD 200
+    // while not exposing X-HNL-SHA256/ETag through CORS. In that case JavaScript sees
+    // an incomplete HEAD response and would otherwise reject a correctly uploaded R2
+    // object forever. Verify the real bytes with authenticated GET and local SHA-256.
+    // This is also safe for a genuine HEAD mismatch: GET still validates exact bytes
+    // against expected size/hash and therefore remains fail-closed.
+    console.warn('[R2] HEAD metadata is incomplete or mismatched; verifying actual bytes with authenticated GET.', {
+      storagePath, size, hasSha256: Boolean(sha256), expectedSize: Number(expectedSize || 0), hasExpectedSha256: Boolean(expectedSha256),
+    });
+    try {
+      return await verifyR2ObjectViaAuthenticatedGet(url, authorization, expectedSize, expectedSha256);
+    } catch {
+      return { ready: false, size: 0 };
+    }
   }
 
   // An actual HTTP response other than legacy 405 is an auth/access/not-found/server
