@@ -1,0 +1,256 @@
+diff --git a/src/components/CrewTab.tsx b/src/components/CrewTab.tsx
+index 4b911fe..772e08b 100644
+--- a/src/components/CrewTab.tsx
++++ b/src/components/CrewTab.tsx
+@@ -45,0 +46 @@ import { UserRole, canEditCrewData, canDeleteBusinessData, canDeleteCrewRecord,
++import { getCrewShiftCounts } from '../utils/crewUtils';
+@@ -218,0 +220,2 @@ const getCrewLogFloorLabel = (log: CrewRecord, floorPlans: FloorPlan[]) => {
++
++
+@@ -310,0 +314 @@ export const CrewTab: React.FC<CrewTabProps> = ({
++  const [customCopySourceDate, setCustomCopySourceDate] = useState('');
+@@ -336,0 +341,3 @@ export const CrewTab: React.FC<CrewTabProps> = ({
++  const [morningCount, setMorningCount] = useState<number>(5);
++  const [afternoonCount, setAfternoonCount] = useState<number>(5);
++  const [eveningCount, setEveningCount] = useState<number>(0);
+@@ -339 +345,0 @@ export const CrewTab: React.FC<CrewTabProps> = ({
+-  const [selectedShifts, setSelectedShifts] = useState<string[]>(['Sáng', 'Chiều']);
+@@ -460,10 +466,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
+-  const toggleShift = (value: string) => {
+-    setSelectedShifts(prev => {
+-      if (prev.includes(value)) {
+-        const next = prev.filter(s => s !== value);
+-        // Do not allow empty selection (stay on the clicked one if it's the last one)
+-        return next.length === 0 ? [value] : next;
+-      } else {
+-        return [...prev, value];
+-      }
+-    });
++  const syncWorkerCountFromShifts = (morning: number, afternoon: number, evening: number) => {
++    setWorkerCount(Math.max(0, morning || 0, afternoon || 0, evening || 0));
++  };
++
++  const setShiftCount = (shift: 'Sáng' | 'Chiều' | 'Tối', value: number) => {
++    const safe = Math.max(0, Number(value) || 0);
++    const nextMorning = shift === 'Sáng' ? safe : morningCount;
++    const nextAfternoon = shift === 'Chiều' ? safe : afternoonCount;
++    const nextEvening = shift === 'Tối' ? safe : eveningCount;
++    setMorningCount(nextMorning);
++    setAfternoonCount(nextAfternoon);
++    setEveningCount(nextEvening);
++    syncWorkerCountFromShifts(nextMorning, nextAfternoon, nextEvening);
+@@ -471,0 +481,2 @@ export const CrewTab: React.FC<CrewTabProps> = ({
++
++
+@@ -488,0 +500,6 @@ export const CrewTab: React.FC<CrewTabProps> = ({
++      const legacyShiftText = editingRecord.shift || 'Sáng, Chiều';
++      const legacyShifts = legacyShiftText === 'Hành chính' ? ['Sáng', 'Chiều'] : legacyShiftText === 'Tăng ca' ? ['Tối'] : legacyShiftText.split(',').map(v => v.trim());
++      const legacyCount = Math.max(0, Number(editingRecord.workerCount) || 0);
++      setMorningCount(editingRecord.morningCount ?? (legacyShifts.includes('Sáng') ? legacyCount : 0));
++      setAfternoonCount(editingRecord.afternoonCount ?? (legacyShifts.includes('Chiều') ? legacyCount : 0));
++      setEveningCount(editingRecord.eveningCount ?? (legacyShifts.includes('Tối') ? legacyCount : 0));
+@@ -506,9 +522,0 @@ export const CrewTab: React.FC<CrewTabProps> = ({
+-      const sVal = editingRecord.shift || 'Hành chính';
+-      if (sVal === 'Hành chính') {
+-        setSelectedShifts(['Sáng', 'Chiều']);
+-      } else if (sVal === 'Tăng ca') {
+-        setSelectedShifts(['Tối']);
+-      } else {
+-        setSelectedShifts(sVal.split(', ').map(s => s.trim()));
+-      }
+-      
+@@ -523,0 +532,3 @@ export const CrewTab: React.FC<CrewTabProps> = ({
++        setMorningCount(teams[0].defaultCount);
++        setAfternoonCount(teams[0].defaultCount);
++        setEveningCount(0);
+@@ -528,0 +540,3 @@ export const CrewTab: React.FC<CrewTabProps> = ({
++        setMorningCount(5);
++        setAfternoonCount(5);
++        setEveningCount(0);
+@@ -545 +558,0 @@ export const CrewTab: React.FC<CrewTabProps> = ({
+-      setSelectedShifts(['Sáng', 'Chiều']);
+@@ -742,2 +755,2 @@ export const CrewTab: React.FC<CrewTabProps> = ({
+-    if (workerCount <= 0) {
+-      alert('Số lượng quân số phải lớn hơn 0!');
++    if (Math.max(morningCount, afternoonCount, eveningCount) <= 0) {
++      alert('Phải có ít nhất một ca có quân số lớn hơn 0!');
+@@ -796 +809,2 @@ export const CrewTab: React.FC<CrewTabProps> = ({
+-    const shiftValue = selectedShifts.length > 0 ? selectedShifts.join(', ') : 'Nghỉ';
++    const activeShifts = [morningCount > 0 ? 'Sáng' : '', afternoonCount > 0 ? 'Chiều' : '', eveningCount > 0 ? 'Tối' : ''].filter(Boolean);
++    const shiftValue = activeShifts.length > 0 ? activeShifts.join(', ') : 'Nghỉ';
+@@ -806 +820,4 @@ export const CrewTab: React.FC<CrewTabProps> = ({
+-      workerCount: Math.max(0, workerCount),
++      workerCount: Math.max(0, morningCount, afternoonCount, eveningCount),
++      morningCount: Math.max(0, morningCount),
++      afternoonCount: Math.max(0, afternoonCount),
++      eveningCount: Math.max(0, eveningCount),
+@@ -864 +881,17 @@ export const CrewTab: React.FC<CrewTabProps> = ({
+-  // Handle Copy Trigger from Yesterday
++  // Handle Copy from yesterday or any selected source date
++  const requestCopyFromDate = (sourceDate: string) => {
++    if (!canOperate || !sourceDate) return;
++    if (sourceDate === selectedDate) {
++      alert('Ngày nguồn phải khác ngày đang ghi nhận.');
++      return;
++    }
++    const sourceRecords = crewRecords.filter((r) => r.date === sourceDate);
++    if (sourceRecords.length === 0) {
++      alert(`Không tìm thấy dữ liệu quân số của ngày ${formatDateDDMMYYYY(sourceDate)} để sao chép!`);
++      return;
++    }
++    setCopySourceDate(sourceDate);
++    if (filteredRecords.length > 0) setShowCopyConfirm(true);
++    else onCopyCrewRecordsFromDate(sourceDate, selectedDate);
++  };
++
+@@ -866,2 +899 @@ export const CrewTab: React.FC<CrewTabProps> = ({
+-    if (!canOperate) return;
+-    const d = new Date(selectedDate);
++    const d = new Date(`${selectedDate}T12:00:00`);
+@@ -872,17 +904 @@ export const CrewTab: React.FC<CrewTabProps> = ({
+-    const yesterdayStr = `${year}-${month}-${day}`;
+-
+-    const yesterdayRecords = crewRecords.filter((r) => r.date === yesterdayStr);
+-    if (yesterdayRecords.length === 0) {
+-      alert(`Không tìm thấy dữ liệu quân số của ngày hôm trước (${yesterdayStr}) để sao chép!`);
+-      return;
+-    }
+-
+-    setCopySourceDate(yesterdayStr);
+-
+-    if (filteredRecords.length > 0) {
+-      // Trigger confirmation dialog instead of window.confirm
+-      setShowCopyConfirm(true);
+-    } else {
+-      // Copy directly without conflict
+-      onCopyCrewRecordsFromDate(yesterdayStr, selectedDate);
+-    }
++    requestCopyFromDate(`${year}-${month}-${day}`);
+@@ -1195,0 +1212 @@ export const CrewTab: React.FC<CrewTabProps> = ({
++            <>
+@@ -1214,0 +1232,19 @@ export const CrewTab: React.FC<CrewTabProps> = ({
++            <div className="flex items-center gap-2 mb-4 -mt-2">
++              <input
++                type="date"
++                max={getTodayString()}
++                value={customCopySourceDate}
++                onChange={(e) => setCustomCopySourceDate(e.target.value)}
++                className="flex-1 min-w-0 text-xs bg-white border border-slate-200 px-3 py-2 rounded-xl font-semibold text-slate-700"
++                aria-label="Ngày nguồn để sao chép quân số"
++              />
++              <button
++                type="button"
++                disabled={!customCopySourceDate || customCopySourceDate === selectedDate}
++                onClick={() => requestCopyFromDate(customCopySourceDate)}
++                className="shrink-0 flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 text-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed font-bold py-2 px-3 rounded-xl text-xs"
++              >
++                <Copy className="w-3.5 h-3.5" /> Copy ngày chọn
++              </button>
++            </div>
++            </>
+@@ -1343,11 +1379,6 @@ export const CrewTab: React.FC<CrewTabProps> = ({
+-                              const sVal = record.shift || 'Sáng, Chiều';
+-                              let parts: string[] = [];
+-                              if (sVal === 'Hành chính') {
+-                                parts = ['Sáng', 'Chiều'];
+-                              } else if (sVal === 'Tăng ca') {
+-                                parts = ['Tối'];
+-                              } else {
+-                                parts = sVal.split(/[,;•\n]+/).map(s => s.trim()).filter(Boolean);
+-                              }
+-                              if (parts.length === 0) parts = ['Sáng', 'Chiều'];
+-
++                              const counts = getCrewShiftCounts(record);
++                              const parts = [
++                                counts.morning > 0 ? `Sáng ${formatDecimal(counts.morning)}` : '',
++                                counts.afternoon > 0 ? `Chiều ${formatDecimal(counts.afternoon)}` : '',
++                                counts.evening > 0 ? `Tối ${formatDecimal(counts.evening)}` : '',
++                              ].filter(Boolean);
+@@ -1356 +1387 @@ export const CrewTab: React.FC<CrewTabProps> = ({
+-                                  Ca làm việc: {parts.join(' • ')}
++                                  {parts.length > 0 ? parts.join(' • ') : 'Không có quân số'}
+@@ -1805 +1836 @@ export const CrewTab: React.FC<CrewTabProps> = ({
+-                  <span>{selectedDate}</span>
++                  <span>{formatDateDDMMYYYY(selectedDate)}</span>
+@@ -1827,0 +1859,3 @@ export const CrewTab: React.FC<CrewTabProps> = ({
++                          setMorningCount(selectedTeam.defaultCount);
++                          setAfternoonCount(selectedTeam.defaultCount);
++                          setEveningCount(0);
+@@ -1870,14 +1904 @@ export const CrewTab: React.FC<CrewTabProps> = ({
+-              {/* Worker Count */}
+-              <div>
+-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Số thợ</label>
+-                <MathNumberInput
+-                  minValue={0}
+-                  placeholder="Ví dụ: 5 hoặc 3+2"
+-                  value={workerCount}
+-                  onValueChange={(val) => setWorkerCount(Number(val || 0))}
+-                  className="w-full text-xs bg-white border border-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-bold text-indigo-700"
+-                  required
+-                />
+-              </div>
+-
+-              {/* Ca làm việc */}
++              {/* Per-shift Worker Count */}
+@@ -1885,38 +1906,18 @@ export const CrewTab: React.FC<CrewTabProps> = ({
+-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Ca làm việc</label>
+-                <div className="grid grid-cols-3 gap-1.5">
+-                  <button
+-                    type="button"
+-                    onClick={() => toggleShift('Sáng')}
+-                    className={`flex flex-col items-center justify-center p-2 rounded-xl border text-center transition-all ${
+-                      selectedShifts.includes('Sáng')
+-                        ? 'bg-sky-50 border-sky-300 text-sky-900 font-bold shadow-xs'
+-                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+-                    }`}
+-                  >
+-                    <span className="text-[11px] leading-tight font-black">Sáng</span>
+-                    <span className="text-[9px] text-slate-400 font-normal mt-0.5">Sáng</span>
+-                  </button>
+-                  <button
+-                    type="button"
+-                    onClick={() => toggleShift('Chiều')}
+-                    className={`flex flex-col items-center justify-center p-2 rounded-xl border text-center transition-all ${
+-                      selectedShifts.includes('Chiều')
+-                        ? 'bg-indigo-50 border-indigo-300 text-indigo-900 font-bold shadow-xs'
+-                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+-                    }`}
+-                  >
+-                    <span className="text-[11px] leading-tight font-black">Chiều</span>
+-                    <span className="text-[9px] text-slate-400 font-normal mt-0.5">Chiều</span>
+-                  </button>
+-                  <button
+-                    type="button"
+-                    onClick={() => toggleShift('Tối')}
+-                    className={`flex flex-col items-center justify-center p-2 rounded-xl border text-center transition-all ${
+-                      selectedShifts.includes('Tối')
+-                        ? 'bg-amber-50 border-amber-300 text-amber-900 font-bold shadow-xs'
+-                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+-                    }`}
+-                  >
+-                    <span className="text-[11px] leading-tight font-black">Tối</span>
+-                    <span className="text-[9px] text-slate-400 font-normal mt-0.5">Tối</span>
+-                  </button>
++                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Quân số theo ca</label>
++                <div className="grid grid-cols-3 gap-2">
++                  {([
++                    ['Sáng', morningCount, (v: number) => setShiftCount('Sáng', v)],
++                    ['Chiều', afternoonCount, (v: number) => setShiftCount('Chiều', v)],
++                    ['Tối', eveningCount, (v: number) => setShiftCount('Tối', v)],
++                  ] as const).map(([label, value, setter]) => (
++                    <div key={label}>
++                      <div className="text-[10px] font-extrabold text-slate-500 mb-1">{label}</div>
++                      <MathNumberInput
++                        minValue={0}
++                        placeholder="0"
++                        value={value}
++                        onValueChange={(val) => setter(Number(val || 0))}
++                        className="w-full text-xs bg-white border border-slate-200 px-2 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-bold text-indigo-700"
++                      />
++                    </div>
++                  ))}
+@@ -1923,0 +1925 @@ export const CrewTab: React.FC<CrewTabProps> = ({
++                <div className="mt-1.5 text-[10px] text-slate-400">Quân số ngày dùng giá trị lớn nhất giữa các ca: <strong>{formatDecimal(workerCount)}</strong> người.</div>
+@@ -2331 +2333 @@ export const CrewTab: React.FC<CrewTabProps> = ({
+-                Ngày <strong className="text-slate-800">{selectedDate}</strong> hiện đang có {filteredRecords.length} ghi nhận quân số. Bạn có muốn sao chép đè/thêm dữ liệu của ngày hôm trước ({copySourceDate}) sang hôm nay không?
++                Ngày <strong className="text-slate-800">{formatDateDDMMYYYY(selectedDate)}</strong> hiện đang có {filteredRecords.length} ghi nhận quân số. Bạn có muốn sao chép đè/thêm dữ liệu của ngày nguồn ({formatDateDDMMYYYY(copySourceDate)}) sang hôm nay không?
