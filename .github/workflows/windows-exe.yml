@@ -48,7 +48,7 @@ jobs:
       VITE_FIREBASE_FIRESTORE_DATABASE_ID: "(default)"
       VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
       VITE_GIT_COMMIT: ${{ github.sha }}
-      QLCT_RELEASE_TAG: 6.3.0-rc2.2.16
+      QLCT_RELEASE_TAG: 6.3.0-rc2.2.15
 
     steps:
       - name: Checkout
