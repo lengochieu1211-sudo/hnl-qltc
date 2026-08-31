@@ -1,4 +1,5 @@
 import { downloadOrShareFile } from '../utils/downloadUtils';
+import { saveTextFileToDownloads } from '../utils/fileExport';
 import React, { useState, useEffect, useMemo } from 'react';
 import { APP_VERSION_LABEL } from '../config/appVersion';
 import { 
@@ -198,8 +199,12 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
     try {
       const bundle = await buildFullDiagnosticBundle();
       const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-      await downloadOrShareFile(`HNL-QLTC-DIAGNOSTIC-${stamp}.json`, JSON.stringify(bundle, null, 2), 'application/json;charset=utf-8');
-      setSyncMsg('Đã xuất file chẩn đoán lỗi. Có thể gửi file này để kiểm tra lỗi đồng bộ/ảnh/Defect.');
+      const fileName = `HNL-QLTC-DIAGNOSTIC-${stamp}.json`;
+      const jsonText = JSON.stringify(bundle, null, 2);
+      await saveTextFileToDownloads(jsonText, fileName, 'application/json;charset=utf-8');
+      setSyncMsg(typeof window.AndroidExport?.beginTextFile === 'function'
+        ? `Đã lưu ${fileName} vào Download/QLCT.`
+        : 'Đã xuất file chẩn đoán lỗi. Có thể gửi file này để kiểm tra lỗi đồng bộ/ảnh/Defect.');
     } catch (err: any) {
       setSyncMsg(`Không xuất được file chẩn đoán: ${err?.message || String(err)}`);
     }

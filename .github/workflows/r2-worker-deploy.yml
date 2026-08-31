@@ -68,5 +68,21 @@ jobs:
             https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev/health \
             | tee /tmp/r2-health.json
           grep -q '"ok":true' /tmp/r2-health.json
-          grep -q '"version":"6.3.0-rc2.2.15"' /tmp/r2-health.json
+          grep -q '"version":"6.3.0-rc2.2.16"' /tmp/r2-health.json
           grep -q '"accessPolicy":"canonical-email-first"' /tmp/r2-health.json
+
+      - name: Smoke browser PUT CORS preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev'
+          curl --fail --silent --show-error -X OPTIONS -D /tmp/r2-cors.headers -o /tmp/r2-cors.body \
+            -H 'Origin: https://hnlqltc.web.app' \
+            -H 'Access-Control-Request-Method: PUT' \
+            -H 'Access-Control-Request-Headers: authorization,content-type,x-hnl-metadata' \
+            "$BASE/v1/object?key=projects/cors-probe/media/diagnostics/probe/original.jpg"
+          cat /tmp/r2-cors.headers
+          grep -qi '^access-control-allow-origin: https://hnlqltc.web.app' /tmp/r2-cors.headers
+          grep -qi '^access-control-allow-methods:.*PUT' /tmp/r2-cors.headers
+          grep -qi '^access-control-allow-headers:.*Authorization' /tmp/r2-cors.headers
+          grep -qi '^access-control-allow-headers:.*X-HNL-Metadata' /tmp/r2-cors.headers

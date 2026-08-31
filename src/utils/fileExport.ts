@@ -247,6 +247,19 @@ export function saveTextFile(text: string, fileName: string, mimeType = 'applica
   return saveBlob(blob, safeName, mimeType);
 }
 
+// Android WebView: diagnostics/support files must not depend on ACTION_CREATE_DOCUMENT.
+// Some Android document providers create the target entry but leave it at 0 bytes.
+// The native bridge already has a direct Download/QLCT path via finishTextFile().
+export async function saveTextFileToDownloads(text: string, fileName: string, mimeType = 'application/json;charset=utf-8') {
+  const safeName = sanitizeFileName(fileName);
+  if (hasAndroidTextBridge()) {
+    await saveTextChunksToAndroid(chunkText(text), safeName, mimeType, 'downloads');
+    return;
+  }
+  const blob = new Blob([text], { type: mimeType });
+  await saveBlob(blob, safeName, mimeType);
+}
+
 export async function saveJsonRecordFile(data: Record<string, string>, fileName: string) {
   const safeName = sanitizeFileName(fileName);
   const mimeType = 'application/json;charset=utf-8';
