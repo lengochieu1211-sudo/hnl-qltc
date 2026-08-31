@@ -3,7 +3,7 @@ import { CURRENT_DATA_SCHEMA_VERSION } from '../config/dataSchema';
 import { getRuntimeBuildMetadata } from '../config/buildMetadata';
 
 const LOG_KEY = 'qlct_runtime_diagnostics_v1';
-const MAX_ENTRIES = 80;
+const MAX_ENTRIES = 200;
 
 export interface RuntimeDiagnosticEntry {
   at: number;
@@ -64,6 +64,11 @@ export function getRuntimeDiagnostics(): RuntimeDiagnosticEntry[] {
   } catch (_) {
     return [];
   }
+}
+
+export function clearRuntimeDiagnostics(): void {
+  if (typeof window === 'undefined') return;
+  try { localStorage.removeItem(LOG_KEY); } catch (_) {}
 }
 
 export function buildDiagnosticBundle(extra: Record<string, unknown> = {}) {

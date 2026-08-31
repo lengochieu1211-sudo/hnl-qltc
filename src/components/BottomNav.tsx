@@ -87,7 +87,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
 
         {showMore && (
           <div
-            className="absolute right-2 w-44 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-2xl"
+            className="absolute right-2 w-56 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-2xl"
             style={{ bottom: 'calc(68px + env(safe-area-inset-bottom))' }}
           >
             <button
@@ -109,7 +109,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
               className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50"
             >
               <Settings className="w-4 h-4 text-slate-600" />
-              Cấu hình
+              Hệ thống & Chẩn đoán
             </button>
           </div>
         )}

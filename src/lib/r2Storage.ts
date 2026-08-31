@@ -1,4 +1,5 @@
 import { getCurrentRealFirebaseUser } from './firebase';
+import { appendRuntimeDiagnostic } from './runtimeDiagnostics';
 
 const env = (import.meta as any).env || {};
 const R2_GATEWAY_URL = String(env.VITE_R2_GATEWAY_URL || '').trim().replace(/\/+$/, '');
@@ -161,12 +162,9 @@ export async function verifyR2ObjectReady(
       return { ready: true, size, sha256, etag };
     }
 
-    // RC2.2.16 legacy-Worker compatibility: an older live Worker can answer HEAD 200
-    // while not exposing X-HNL-SHA256/ETag through CORS. In that case JavaScript sees
-    // an incomplete HEAD response and would otherwise reject a correctly uploaded R2
-    // object forever. Verify the real bytes with authenticated GET and local SHA-256.
-    // This is also safe for a genuine HEAD mismatch: GET still validates exact bytes
-    // against expected size/hash and therefore remains fail-closed.
+    // Legacy-Worker compatibility: an older live Worker can answer HEAD 200 while
+    // not exposing checksum/ETag through CORS. Verify actual bytes with authenticated
+    // GET and local SHA-256. Genuine mismatches still fail closed.
     console.warn('[R2] HEAD metadata is incomplete or mismatched; verifying actual bytes with authenticated GET.', {
       storagePath, size, hasSha256: Boolean(sha256), expectedSize: Number(expectedSize || 0), hasExpectedSha256: Boolean(expectedSha256),
     });
@@ -189,27 +187,50 @@ export async function verifyR2ObjectReady(
 }
 
 async function putObject(storagePath: string, blob: Blob, metadata: Record<string, string>): Promise<R2BinaryUploadResult> {
-  const response = await fetch(gatewayUrl('/v1/object', storagePath), {
+  const projectId = String(metadata.projectId || '');
+  const url = gatewayUrl('/v1/object', storagePath);
+  let authorization = await authHeader();
+  const requestPut = () => fetch(url, {
     method: 'PUT',
     headers: {
-      Authorization: await authHeader(),
+      Authorization: authorization,
       'Content-Type': blob.type || 'application/octet-stream',
       'X-HNL-Metadata': encodeURIComponent(JSON.stringify(metadata)),
     },
     body: blob,
   });
+
+  let response: Response;
+  try {
+    response = await requestPut();
+    // P0 upload recovery: the old code refreshed tokens only for reads/HEAD. A stale
+    // Firebase token could therefore make every retry use the same 401/403 forever,
+    // leaving local photos permanently at "chờ Cloud". Refresh once and replay PUT.
+    if (response.status === 401 || response.status === 403) {
+      appendRuntimeDiagnostic({ level: 'warn', area: 'r2-upload', projectId, code: `HTTP_${response.status}`, message: `PUT bị từ chối; refresh Firebase token và thử lại: ${storagePath}` });
+      authorization = await authHeader(true);
+      response = await requestPut();
+    }
+  } catch (err) {
+    appendRuntimeDiagnostic({ level: 'error', area: 'r2-upload', projectId, code: 'NETWORK', message: `PUT lỗi mạng/CORS: ${storagePath} | ${err instanceof Error ? err.message : String(err)}` });
+    throw err;
+  }
+
   if (!response.ok) {
     const detail = await response.text().catch(() => '');
+    appendRuntimeDiagnostic({ level: 'error', area: 'r2-upload', projectId, code: `HTTP_${response.status}`, message: `PUT thất bại ${response.status}: ${storagePath} | ${detail.slice(0, 180)}` });
     throw new Error(`R2_UPLOAD_FAILED:${response.status}:${detail.slice(0, 300)}`);
   }
   const result = await response.json() as any;
   const returnedSize = Number(result.size || 0);
   const returnedSha256 = String(result.sha256 || '') || undefined;
   if (!returnedSize || returnedSize !== blob.size) {
+    appendRuntimeDiagnostic({ level: 'error', area: 'r2-upload', projectId, code: 'SIZE_MISMATCH', message: `R2 size mismatch: ${storagePath} server=${returnedSize} local=${blob.size}` });
     throw new Error(`R2_UPLOAD_SIZE_MISMATCH:${storagePath}:${returnedSize}:${blob.size}`);
   }
   const verified = await verifyR2ObjectReady(storagePath, blob.size, returnedSha256);
   if (!verified.ready) {
+    appendRuntimeDiagnostic({ level: 'error', area: 'r2-upload', projectId, code: 'NOT_DURABLE', message: `R2 verify thất bại: ${storagePath} server=${verified.size} local=${blob.size}` });
     throw new Error(`R2_UPLOAD_NOT_DURABLE:${storagePath}:${verified.size}:${blob.size}`);
   }
   return {
@@ -258,6 +279,7 @@ export async function uploadFloorPlanBinaryToR2(input: {
 export async function downloadR2Blob(storagePath?: string | null): Promise<Blob | null> {
   const path = String(storagePath || '').trim();
   if (!path) return null;
+  const projectId = path.match(/^projects\/([^/]+)\//)?.[1] || '';
 
   const requestObject = async (forceRefresh = false) => fetch(gatewayUrl('/v1/object', path), {
     method: 'GET',
@@ -275,16 +297,19 @@ export async function downloadR2Blob(storagePath?: string | null): Promise<Blob 
     }
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
+      appendRuntimeDiagnostic({ level: 'error', area: 'r2-download', projectId, code: `HTTP_${response.status}`, message: `${path} | ${detail.slice(0, 180)}` });
       console.warn('[Cloudflare R2] download denied/missing:', { path, status: response.status, detail: detail.slice(0, 180) });
       return null;
     }
     const blob = await response.blob();
     if (!blob || blob.size <= 0) {
+      appendRuntimeDiagnostic({ level: 'error', area: 'r2-download', projectId, code: 'EMPTY_BINARY', message: path });
       console.warn('[Cloudflare R2] empty binary response:', path);
       return null;
     }
     return blob;
   } catch (err) {
+    appendRuntimeDiagnostic({ level: 'error', area: 'r2-download', projectId, code: 'NETWORK', message: `${path} | ${err instanceof Error ? err.message : String(err)}` });
     console.warn('[Cloudflare R2] download failed:', path, err);
     return null;
   }

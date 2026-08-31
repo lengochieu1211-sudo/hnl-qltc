@@ -8,6 +8,26 @@ import { cleanupTransientLocalStorage, estimateLocalStorageBytes } from './utils
 import { migrateAndCleanLocalStorage } from './utils/migrateStorage';
 import { appendRuntimeDiagnostic } from './lib/runtimeDiagnostics';
 
+if (typeof window !== 'undefined') {
+  window.addEventListener('error', (event) => {
+    appendRuntimeDiagnostic({
+      level: 'error',
+      area: 'window-error',
+      code: 'UNCAUGHT_ERROR',
+      message: `${event.message || 'Unknown error'}${event.filename ? ` | ${event.filename}:${event.lineno || 0}:${event.colno || 0}` : ''}`,
+    });
+  });
+  window.addEventListener('unhandledrejection', (event) => {
+    const reason = event.reason;
+    appendRuntimeDiagnostic({
+      level: 'error',
+      area: 'unhandled-rejection',
+      code: 'UNHANDLED_REJECTION',
+      message: reason instanceof Error ? `${reason.name}: ${reason.message}` : String(reason || 'Unknown rejection'),
+    });
+  });
+}
+
 async function bootstrap() {
   // IMPORTANT: run storage cleanup/migration before importing App. App imports Firebase.
   // On affected browsers Firestore can touch WebStorage client-state metadata during
