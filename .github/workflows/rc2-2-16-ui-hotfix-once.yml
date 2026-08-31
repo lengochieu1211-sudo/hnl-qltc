@@ -1,0 +1,133 @@
+name: RC2.2.16 UI Hotfix Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/rc2-2-16-ui-hotfix-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  hotfix_test_commit_deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      VITE_APP_ENV: PROD
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
+      VITE_ENABLE_LEGACY_DRIVE_READ: "true"
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: "false"
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: "false"
+      VITE_FIREBASE_API_KEY: AIzaSyAShhTKSnmLMOEm4dST--1_X7fjJUE4znY
+      VITE_FIREBASE_AUTH_DOMAIN: com-example-qlct-61329.firebaseapp.com
+      VITE_FIREBASE_PROJECT_ID: com-example-qlct-61329
+      VITE_FIREBASE_STORAGE_BUCKET: com-example-qlct-61329.firebasestorage.app
+      VITE_FIREBASE_MESSAGING_SENDER_ID: "119152410850"
+      VITE_FIREBASE_APP_ID: 1:119152410850:web:c2aee2135428af34ef5ebb
+      VITE_FIRESTORE_DATABASE_ID: "(default)"
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: "(default)"
+      VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      VITE_GIT_COMMIT: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Apply exact UI hotfix
+        shell: python
+        run: |
+          from pathlib import Path
+
+          floor = Path('src/components/FloorPlanDefectTab.tsx')
+          s = floor.read_text(encoding='utf-8')
+          old = "{activeFloor.floorName} · Khung: {activeFloor.targetFrameDate || 'chưa đặt'} · Tấm: {activeFloor.targetBoardDate || 'chưa đặt'}"
+          new = "{activeFloor.floorName} · Khung: {activeFloor.targetFrameDate ? formatDateDDMMYYYY(activeFloor.targetFrameDate) : 'chưa đặt'} · Tấm: {activeFloor.targetBoardDate ? formatDateDDMMYYYY(activeFloor.targetBoardDate) : 'chưa đặt'}"
+          if old not in s:
+              raise SystemExit('Floor progress raw-date target not found; refusing broad patch')
+          floor.write_text(s.replace(old, new, 1), encoding='utf-8')
+
+          crew = Path('src/components/CrewTab.tsx')
+          s = crew.read_text(encoding='utf-8')
+          state = "  const [customCopySourceDate, setCustomCopySourceDate] = useState('');\n"
+          if state not in s:
+              raise SystemExit('Custom copy state target not found; refusing broad patch')
+          s = s.replace(state, '', 1)
+          s = s.replace('  // Handle Copy from yesterday or any selected source date\n', '  // Copy the complete crew log from the immediately previous calendar day.\n', 1)
+          old_block = '''              <button
+                onClick={handleCopyFromYesterdayClick}
+                className="flex-1 flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold py-2.5 px-4 rounded-xl shadow-sm transition text-xs"
+                title="Sao chép toàn bộ danh sách đội của ngày hôm trước"
+              >
+                <Copy className="w-3.5 h-3.5" /> Sao chép hôm qua
+              </button>
+            </div>
+            <div className="flex items-center gap-2 mb-4 -mt-2">
+              <input
+                type="date"
+                max={getTodayString()}
+                value={customCopySourceDate}
+                onChange={(e) => setCustomCopySourceDate(e.target.value)}
+                className="flex-1 min-w-0 text-xs bg-white border border-slate-200 px-3 py-2 rounded-xl font-semibold text-slate-700"
+                aria-label="Ngày nguồn để sao chép quân số"
+              />
+              <button
+                type="button"
+                disabled={!customCopySourceDate || customCopySourceDate === selectedDate}
+                onClick={() => requestCopyFromDate(customCopySourceDate)}
+                className="shrink-0 flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 text-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed font-bold py-2 px-3 rounded-xl text-xs"
+              >
+                <Copy className="w-3.5 h-3.5" /> Copy ngày chọn
+              </button>
+            </div>
+'''
+          new_block = '''              <button
+                onClick={handleCopyFromYesterdayClick}
+                className="flex-1 flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold py-2.5 px-4 rounded-xl shadow-sm transition text-xs"
+                title="Sao chép toàn bộ quân số của ngày liền trước"
+              >
+                <Copy className="w-3.5 h-3.5" /> Sao chép quân số hôm qua
+              </button>
+            </div>
+'''
+          if old_block not in s:
+              raise SystemExit('Crew copy UI target not found; refusing broad patch')
+          s = s.replace(old_block, new_block, 1)
+          s = s.replace('Ấn nút "Ghi nhận quân số" hoặc "Sao chép hôm qua" để điền nhanh.', 'Ấn nút "Ghi nhận quân số" hoặc "Sao chép quân số hôm qua" để điền nhanh.', 1)
+          if 'customCopySourceDate' in s or 'Copy ngày chọn' in s:
+              raise SystemExit('Custom copy UI remains after patch')
+          crew.write_text(s, encoding='utf-8')
+
+      - run: npm ci
+      - run: npm run test:stability
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test:rules
+      - run: npm run security:audit
+      - run: npm run build
+
+      - name: Commit only certified source hotfix
+        shell: bash
+        run: |
+          git diff -- src/components/FloorPlanDefectTab.tsx src/components/CrewTab.tsx
+          test -n "$(git status --porcelain -- src/components/FloorPlanDefectTab.tsx src/components/CrewTab.tsx)" || { echo 'No hotfix diff'; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/components/FloorPlanDefectTab.tsx src/components/CrewTab.tsx
+          git commit -m 'fix: format floor target dates and simplify crew copy'
+          git push origin HEAD:main
+
+      - name: Deploy Hosting site hnlqltc
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
+        shell: bash
+        run: |
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          npx --yes firebase-tools@13.35.1 deploy --only hosting --config firebase.prod.json --project com-example-qlct-61329 --non-interactive
+          echo 'PROD Hosting: https://hnlqltc.web.app'
