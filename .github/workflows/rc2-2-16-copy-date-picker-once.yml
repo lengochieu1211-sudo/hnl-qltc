@@ -39,8 +39,9 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Apply exact crew copy date-picker patch
-        shell: python
+        shell: bash
         run: |
+          python - <<'PY'
           from pathlib import Path
           import re
           p = Path('src/components/CrewTab.tsx')
@@ -54,15 +55,15 @@ jobs:
 
           pattern = re.compile(r"  const handleCopyFromYesterdayClick = \(\) => \{.*?\n  \};", re.S)
           replacement = '''  const handleOpenCopyDatePicker = () => {
-    if (!canOperate) return;
-    const d = new Date(`${selectedDate}T12:00:00`);
-    d.setDate(d.getDate() - 1);
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    setCopyDatePickerValue(`${year}-${month}-${day}`);
-    setShowCopyDatePicker((value) => !value);
-  };'''
+            if (!canOperate) return;
+            const d = new Date(`${selectedDate}T12:00:00`);
+            d.setDate(d.getDate() - 1);
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            setCopyDatePickerValue(`${year}-${month}-${day}`);
+            setShowCopyDatePicker((value) => !value);
+          };'''
           s, n = pattern.subn(replacement, s, count=1)
           if n != 1:
               raise SystemExit(f'Copy handler patch count={n}')
@@ -119,6 +120,7 @@ jobs:
           if 'handleCopyFromYesterdayClick' in s or 'Sao chép quân số hôm qua' in s:
               raise SystemExit('Old yesterday-only copy UI remains')
           p.write_text(s, encoding='utf-8')
+          PY
       - run: npm ci
       - run: npm run test:stability
       - run: npm run typecheck
