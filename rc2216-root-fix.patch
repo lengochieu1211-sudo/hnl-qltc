@@ -1,0 +1,186 @@
+diff --git a/src/utils/fileExport.ts b/src/utils/fileExport.ts
+index b964072..0000000 100644
+--- a/src/utils/fileExport.ts
++++ b/src/utils/fileExport.ts
+@@ -230,6 +230,18 @@ export function saveTextFile(text: string, fileName: string, mimeType = 'applic
+   return saveBlob(blob, safeName, mimeType);
+ }
+ 
++// Android WebView: diagnostics/support files must not depend on ACTION_CREATE_DOCUMENT.
++// Some Android document providers create the target entry but leave it at 0 bytes.
++// The native bridge already has a direct Download/QLCT path via finishTextFile().
++export async function saveTextFileToDownloads(text: string, fileName: string, mimeType = 'application/json;charset=utf-8') {
++  const safeName = sanitizeFileName(fileName);
++  if (hasAndroidTextBridge()) {
++    await saveTextChunksToAndroid(chunkText(text), safeName, mimeType, 'downloads');
++    return;
++  }
++  const blob = new Blob([text], { type: mimeType });
++  await saveBlob(blob, safeName, mimeType);
++}
++
+ export async function saveJsonRecordFile(data: Record<string, string>, fileName: string) {
+   const safeName = sanitizeFileName(fileName);
+   const mimeType = 'application/json;charset=utf-8';
+diff --git a/src/components/GoogleConfigTab.tsx b/src/components/GoogleConfigTab.tsx
+index f2a1c61..0000000 100644
+--- a/src/components/GoogleConfigTab.tsx
++++ b/src/components/GoogleConfigTab.tsx
+@@ -1,4 +1,5 @@
+ import { downloadOrShareFile } from '../utils/downloadUtils';
++import { saveTextFileToDownloads } from '../utils/fileExport';
+ import React, { useState, useEffect, useMemo } from 'react';
+@@ -198,8 +199,11 @@ const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
+     try {
+       const bundle = await buildFullDiagnosticBundle();
+       const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+-      await downloadOrShareFile(`HNL-QLTC-DIAGNOSTIC-${stamp}.json`, JSON.stringify(bundle, null, 2), 'application/json;charset=utf-8');
+-      setSyncMsg('Đã xuất file chẩn đoán lỗi. Có thể gửi file này để kiểm tra lỗi đồng bộ/ảnh/Defect.');
++      const fileName = `HNL-QLTC-DIAGNOSTIC-${stamp}.json`;
++      const jsonText = JSON.stringify(bundle, null, 2);
++      await saveTextFileToDownloads(jsonText, fileName, 'application/json;charset=utf-8');
++      setSyncMsg(typeof window.AndroidExport?.beginTextFile === 'function'
++        ? `Đã lưu ${fileName} vào Download/QLCT.`
++        : 'Đã xuất file chẩn đoán lỗi. Có thể gửi file này để kiểm tra lỗi đồng bộ/ảnh/Defect.');
+     } catch (err: any) {
+       setSyncMsg(`Không xuất được file chẩn đoán: ${err?.message || String(err)}`);
+     }
+diff --git a/cloudflare/r2-gateway/worker.js b/cloudflare/r2-gateway/worker.js
+index 040b4f8..0000000 100644
+--- a/cloudflare/r2-gateway/worker.js
++++ b/cloudflare/r2-gateway/worker.js
+@@ -1,5 +1,5 @@
+ // HNL QLTC R2 Gateway. No Firebase service-account secret is stored here.
+-const GATEWAY_VERSION = '6.3.0-rc2.2.15';
++const GATEWAY_VERSION = '6.3.0-rc2.2.16';
+ // The browser sends its Firebase ID token; Firestore REST verifies that token and
+ // the existing project/member documents are used to enforce VIEWER/EDITOR/ADMIN.
+@@ -9,8 +9,14 @@ const json = (value, status = 200, extra = {}) => new Response(JSON.stringify(v
+ 
+ function corsHeaders(request, env) {
+   const origin = request.headers.get('Origin') || '';
+-  const allowed = String(env.ALLOWED_ORIGINS || '').split(',').map(v => v.trim()).filter(Boolean);
+-  const allowOrigin = allowed.includes(origin) ? origin : (allowed.includes('*') ? '*' : '');
++  // PROD origins are safe defaults so a missing/stale Worker variable cannot silently
++  // break every browser PUT preflight. Extra origins can still be supplied by Wrangler.
++  const configured = String(env.ALLOWED_ORIGINS || '').split(',').map(v => v.trim()).filter(Boolean);
++  const allowed = new Set([
++    'https://hnlqltc.web.app',
++    'https://com-example-qlct-61329.web.app',
++    'https://com-example-qlct-61329.firebaseapp.com',
++    ...configured,
++  ]);
++  const allowOrigin = allowed.has(origin) ? origin : (allowed.has('*') ? '*' : '');
+   return allowOrigin ? {
+     'Access-Control-Allow-Origin': allowOrigin,
+diff --git a/scripts/r2-gateway-golden.mjs b/scripts/r2-gateway-golden.mjs
+index ffb6d05..0000000 100644
+--- a/scripts/r2-gateway-golden.mjs
++++ b/scripts/r2-gateway-golden.mjs
+@@ -87,9 +87,27 @@ let healthResponse = await worker.fetch(new Request('https://gateway.example/he
+ }), env);
+ const health = await healthResponse.json();
+ assert(healthResponse.status === 200 && health.ok === true, 'gateway health is available');
+-assert(health.version === '6.3.0-rc2.2.15', 'gateway health exposes RC2.2.15 runtime version');
++assert(health.version === '6.3.0-rc2.2.16', 'gateway health exposes RC2.2.16 runtime version');
+ assert(health.accessPolicy === 'canonical-email-first', 'gateway health exposes canonical email-first RBAC policy');
+ 
++const envWithoutCorsVar = { ...env, ALLOWED_ORIGINS: '' };
++const preflight = await worker.fetch(new Request('https://gateway.example/v1/object?key=projects/p1/media/diagnostics/probe/original.jpg', {
++  method: 'OPTIONS',
++  headers: {
++    Origin: 'https://hnlqltc.web.app',
++    'Access-Control-Request-Method': 'PUT',
++    'Access-Control-Request-Headers': 'authorization,content-type,x-hnl-metadata',
++  },
++}), envWithoutCorsVar);
++assert(preflight.status === 204, 'PUT browser preflight returns 204');
++assert(preflight.headers.get('Access-Control-Allow-Origin') === 'https://hnlqltc.web.app', 'PROD Hosting origin is allowed even if Worker ALLOWED_ORIGINS variable is missing');
++assert(String(preflight.headers.get('Access-Control-Allow-Methods') || '').includes('PUT'), 'PUT is present in CORS allowed methods');
++assert(String(preflight.headers.get('Access-Control-Allow-Headers') || '').includes('Authorization'), 'Authorization is present in CORS allowed headers');
++assert(String(preflight.headers.get('Access-Control-Allow-Headers') || '').includes('X-HNL-Metadata'), 'X-HNL-Metadata is present in CORS allowed headers');
++
+ const mediaKey = 'projects/p1/media/defect/d1/a1/original.jpg';
+ const floorKey = 'projects/p1/floor-plans/f1/original.jpg';
+diff --git a/.github/workflows/r2-worker-deploy.yml b/.github/workflows/r2-worker-deploy.yml
+index b23db40..0000000 100644
+--- a/.github/workflows/r2-worker-deploy.yml
++++ b/.github/workflows/r2-worker-deploy.yml
+@@ -69,5 +69,22 @@ jobs:
+             | tee /tmp/r2-health.json
+           grep -q '"ok":true' /tmp/r2-health.json
+-          grep -q '"version":"6.3.0-rc2.2.15"' /tmp/r2-health.json
++          grep -q '"version":"6.3.0-rc2.2.16"' /tmp/r2-health.json
+           grep -q '"accessPolicy":"canonical-email-first"' /tmp/r2-health.json
++
++      - name: Smoke browser PUT CORS preflight
++        shell: bash
++        run: |
++          set -euo pipefail
++          BASE='https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev'
++          curl --fail --silent --show-error -X OPTIONS -D /tmp/r2-cors.headers -o /tmp/r2-cors.body \
++            -H 'Origin: https://hnlqltc.web.app' \
++            -H 'Access-Control-Request-Method: PUT' \
++            -H 'Access-Control-Request-Headers: authorization,content-type,x-hnl-metadata' \
++            "$BASE/v1/object?key=projects/cors-probe/media/diagnostics/probe/original.jpg"
++          cat /tmp/r2-cors.headers
++          grep -qi '^access-control-allow-origin: https://hnlqltc.web.app' /tmp/r2-cors.headers
++          grep -qi '^access-control-allow-methods:.*PUT' /tmp/r2-cors.headers
++          grep -qi '^access-control-allow-headers:.*Authorization' /tmp/r2-cors.headers
++          grep -qi '^access-control-allow-headers:.*X-HNL-Metadata' /tmp/r2-cors.headers
+diff --git a/.github/workflows/android-apk.yml b/.github/workflows/android-apk.yml
+index 49695b8..0000000 100644
+--- a/.github/workflows/android-apk.yml
++++ b/.github/workflows/android-apk.yml
+@@ -45,7 +45,7 @@ jobs:
+       VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+       VITE_GIT_COMMIT: ${{ github.sha }}
+       QLCT_WEB_URL: https://hnlqltc.web.app/?app=android
+-      QLCT_RELEASE_TAG: 6.3.0-rc2.2.15
++      QLCT_RELEASE_TAG: 6.3.0-rc2.2.16
+       QLCT_ANDROID_KEYSTORE_BASE64: ${{ secrets.QLCT_ANDROID_KEYSTORE_BASE64 }}
+diff --git a/.github/workflows/windows-exe.yml b/.github/workflows/windows-exe.yml
+index 8efa0bf..0000000 100644
+--- a/.github/workflows/windows-exe.yml
++++ b/.github/workflows/windows-exe.yml
+@@ -47,7 +47,7 @@ jobs:
+       VITE_FIREBASE_FIRESTORE_DATABASE_ID: "(default)"
+       VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+       VITE_GIT_COMMIT: ${{ github.sha }}
+-      QLCT_RELEASE_TAG: 6.3.0-rc2.2.15
++      QLCT_RELEASE_TAG: 6.3.0-rc2.2.16
+ 
+     steps:
+diff --git a/desktop-wrapper/release-tag.txt b/desktop-wrapper/release-tag.txt
+index 0fb0741..0000000 100644
+--- a/desktop-wrapper/release-tag.txt
++++ b/desktop-wrapper/release-tag.txt
+@@ -1 +1 @@
+-6.3.0-rc2.2.15
++6.3.0-rc2.2.16
+diff --git a/scripts/desktop-launcher-golden.mjs b/scripts/desktop-launcher-golden.mjs
+--- a/scripts/desktop-launcher-golden.mjs
++++ b/scripts/desktop-launcher-golden.mjs
+@@ -18,7 +18,7 @@
+-const expectedReleaseTag = '6.3.0-rc2.2.15';
++const expectedReleaseTag = '6.3.0-rc2.2.16';
+diff --git a/scripts/stability-gate.mjs b/scripts/stability-gate.mjs
+--- a/scripts/stability-gate.mjs
++++ b/scripts/stability-gate.mjs
+@@ -41,6 +41,7 @@ const configTab = read('src/components/GoogleConfigTab.tsx');
+ const bottomNav = read('src/components/BottomNav.tsx');
+ const runtimeDiagnostics = read('src/lib/runtimeDiagnostics.ts');
++const fileExport = read('src/utils/fileExport.ts');
+ const roomHighlight = read('src/components/RoomHighlightModal.tsx');
+@@ -54,7 +55,7 @@ if (mergeWorkflow.includes('VITE_APP_VERSION') || prWorkflow.includes('VITE_APP
+-requireAll(read('.github/workflows/android-apk.yml'), ['windows-latest', 'actions/upload-artifact@v4', 'QLCT_WEB_URL: https://hnlqltc.web.app/?app=android', 'QLCT_RELEASE_TAG: 6.3.0-rc2.2.15'], 'Android APK CI');
++requireAll(read('.github/workflows/android-apk.yml'), ['windows-latest', 'actions/upload-artifact@v4', 'QLCT_WEB_URL: https://hnlqltc.web.app/?app=android', 'QLCT_RELEASE_TAG: 6.3.0-rc2.2.16'], 'Android APK CI');
+@@ -147,8 +148,8 @@ requireAll(r2Storage, ['verifyR2ObjectReady', 'verifyR2ObjectViaAuthenticatedGet
+-requireAll(r2Worker, ["request.method === 'HEAD'", 'HNL_QLTC_MEDIA.head', 'X-HNL-SHA256', 'Content-Length', "GATEWAY_VERSION = '6.3.0-rc2.2.15'", "accessPolicy: 'canonical-email-first'", "for (const memberId of [email, uid])"], 'R2 gateway durable object HEAD + canonical cross-account RBAC/version');
+-requireAll(r2DeployWorkflow, ['workflow_dispatch:', 'DEPLOY-R2', 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID', 'wrangler@4.33.0 deploy', '/health', '"version":"6.3.0-rc2.2.15"', '"accessPolicy":"canonical-email-first"'], 'manual-gated R2 Worker deploy workflow + exact runtime verification');
++requireAll(r2Worker, ["request.method === 'HEAD'", 'HNL_QLTC_MEDIA.head', 'X-HNL-SHA256', 'Content-Length', "GATEWAY_VERSION = '6.3.0-rc2.2.16'", "accessPolicy: 'canonical-email-first'", "for (const memberId of [email, uid])", "'https://hnlqltc.web.app'", 'Access-Control-Allow-Methods'], 'R2 gateway durable object HEAD + canonical cross-account RBAC/version/CORS defaults');
++requireAll(r2DeployWorkflow, ['workflow_dispatch:', 'DEPLOY-R2', 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID', 'wrangler@4.33.0 deploy', '/health', '"version":"6.3.0-rc2.2.16"', '"accessPolicy":"canonical-email-first"', 'Smoke browser PUT CORS preflight', 'Access-Control-Request-Method: PUT'], 'manual-gated R2 Worker deploy workflow + exact runtime/CORS verification');
+@@ -183,7 +184,8 @@ requireAll(chatTab, ['ensureDraftAttachmentsCloudReady', 'verifyPhotoBinaryReady
+-requireAll(configTab, ['Hệ thống & Chẩn đoán', 'Xuất file chẩn đoán lỗi', 'getProjectPhotoDiagnosticSnapshot', 'clearRuntimeDiagnostics'], 'system diagnostics can export sanitized JSON with photo evidence');
++requireAll(configTab, ['Hệ thống & Chẩn đoán', 'Xuất file chẩn đoán lỗi', 'getProjectPhotoDiagnosticSnapshot', 'clearRuntimeDiagnostics', 'saveTextFileToDownloads', 'Download/QLCT'], 'system diagnostics can export sanitized non-empty Android JSON with photo evidence');
++requireAll(fileExport, ['saveTextFileToDownloads', "'downloads'", 'finishTextFile'], 'Android diagnostics direct Download/QLCT export avoids zero-byte picker provider');
