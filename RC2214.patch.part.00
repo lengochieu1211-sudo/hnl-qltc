@@ -1,0 +1,147 @@
+diff --git a/.github/workflows/android-apk.yml b/.github/workflows/android-apk.yml
+index 878dfb3..ed74484 100644
+--- a/.github/workflows/android-apk.yml
++++ b/.github/workflows/android-apk.yml
+@@ -47,7 +47,7 @@ jobs:
+       VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+       VITE_GIT_COMMIT: ${{ github.sha }}
+       QLCT_WEB_URL: https://hnlqltc.web.app/?app=android
+-      QLCT_RELEASE_TAG: 6.3.0-rc2.2.13
++      QLCT_RELEASE_TAG: 6.3.0-rc2.2.14
+       QLCT_ANDROID_KEYSTORE_BASE64: ${{ secrets.QLCT_ANDROID_KEYSTORE_BASE64 }}
+       QLCT_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.QLCT_ANDROID_KEYSTORE_PASSWORD }}
+       # The fixed HNL release keystore is PKCS12. PKCS12 uses one effective
+diff --git a/.github/workflows/r2-worker-deploy.yml b/.github/workflows/r2-worker-deploy.yml
+new file mode 100644
+index 0000000..a68f832
+--- /dev/null
++++ b/.github/workflows/r2-worker-deploy.yml
+@@ -0,0 +1,69 @@
++name: Deploy HNL QLTC R2 Worker
++
++on:
++  workflow_dispatch:
++    inputs:
++      confirmation:
++        description: 'Type DEPLOY-R2 to deploy the existing HNL QLTC Worker'
++        required: true
++        type: string
++
++permissions:
++  contents: read
++
++jobs:
++  deploy_r2_worker:
++    runs-on: ubuntu-latest
++    env:
++      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
++      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
++    steps:
++      - name: Require explicit deploy confirmation
++        shell: bash
++        run: |
++          set -euo pipefail
++          test "${{ inputs.confirmation }}" = "DEPLOY-R2" || { echo '::error::CONFIRMATION_MUST_BE_DEPLOY-R2'; exit 1; }
++
++      - uses: actions/checkout@v4
++
++      - uses: actions/setup-node@v4
++        with:
++          node-version: 22
++
++      - name: Require Cloudflare deploy secrets
++        shell: bash
++        run: |
++          set -euo pipefail
++          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo '::error::MISSING_CLOUDFLARE_API_TOKEN'; exit 1; }
++          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo '::error::MISSING_CLOUDFLARE_ACCOUNT_ID'; exit 1; }
++
++      - name: Deploy existing HNL QLTC R2 Worker
++        working-directory: cloudflare/r2-gateway
++        shell: bash
++        run: |
++          set -euo pipefail
++          cat > wrangler.ci.toml <<'WRANGLER_EOF'
++          name = "hnl-qltc-r2-gateway"
++          main = "worker.js"
++          compatibility_date = "2026-08-30"
++
++          [[r2_buckets]]
++          binding = "HNL_QLTC_MEDIA"
++          bucket_name = "hnl-qltc-media"
++
++          [vars]
++          FIREBASE_PROJECT_ID = "com-example-qlct-61329"
++          SUPER_ADMIN_EMAIL = "lengochieu1211@gmail.com"
++          ALLOWED_ORIGINS = "https://hnlqltc.web.app,https://com-example-qlct-61329.web.app,https://com-example-qlct-61329.firebaseapp.com"
++          MAX_UPLOAD_BYTES = "26214400"
++          WRANGLER_EOF
++          trap 'rm -f wrangler.ci.toml' EXIT
++          npx --yes wrangler@4.33.0 deploy --config wrangler.ci.toml
++
++      - name: Smoke Worker health
++        shell: bash
++        run: |
++          set -euo pipefail
++          curl --fail --silent --show-error --retry 5 --retry-delay 2 \
++            https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev/health \
++            | grep -q '"ok":true'
+diff --git a/.github/workflows/rc2214-prod-deploy-once.yml b/.github/workflows/rc2214-prod-deploy-once.yml
+new file mode 100644
+index 0000000..9dc88f9
+--- /dev/null
++++ b/.github/workflows/rc2214-prod-deploy-once.yml
+@@ -0,0 +1,108 @@
++name: RC2.2.14 PROD Deploy Once
++
++on:
++  push:
++    branches:
++      - main
++    paths:
++      - '.github/workflows/rc2214-prod-deploy-once.yml'
++
++permissions:
++  contents: read
++
++jobs:
++  certify_and_deploy:
++    runs-on: ubuntu-latest
++    environment: production
++    env:
++      VITE_APP_ENV: PROD
++      VITE_RUNTIME_BACKEND: firebase-only
++      VITE_BINARY_STORAGE_PROVIDER: r2
++      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
++      VITE_ENABLE_LEGACY_DRIVE_READ: "true"
++      VITE_ENABLE_LEGACY_DRIVE_WRITE: "false"
++      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: "false"
++      VITE_FIREBASE_API_KEY: AIzaSyAShhTKSnmLMOEm4dST--1_X7fjJUE4znY
++      VITE_FIREBASE_AUTH_DOMAIN: com-example-qlct-61329.firebaseapp.com
++      VITE_FIREBASE_PROJECT_ID: com-example-qlct-61329
++      VITE_FIREBASE_STORAGE_BUCKET: com-example-qlct-61329.firebasestorage.app
++      VITE_FIREBASE_MESSAGING_SENDER_ID: "119152410850"
++      VITE_FIREBASE_APP_ID: 1:119152410850:web:c2aee2135428af34ef5ebb
++      VITE_FIRESTORE_DATABASE_ID: "(default)"
++      VITE_FIREBASE_FIRESTORE_DATABASE_ID: "(default)"
++      VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
++      VITE_GIT_COMMIT: ${{ github.sha }}
++    steps:
++      - name: Checkout main
++        uses: actions/checkout@v4
++        with:
++          ref: main
++      - name: Verify exact PROD identity
++        shell: bash
++        run: |
++          set -euo pipefail
++          test "$VITE_FIREBASE_PROJECT_ID" = "com-example-qlct-61329"
++          test "$VITE_BINARY_STORAGE_PROVIDER" = "r2"
++          test "$VITE_R2_GATEWAY_URL" = "https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev"
++          test -f firebase.prod.json
++          grep -F '"site": "hnlqltc"' firebase.prod.json
++          test "$(cat desktop-wrapper/release-tag.txt | tr -d '\r\n')" = "6.3.0-rc2.2.14"
++      - uses: actions/setup-node@v4
++        with:
++          node-version: 22
++          cache: npm
