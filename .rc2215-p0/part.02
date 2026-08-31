@@ -1,0 +1,128 @@
+-    if (images.length > 0) onOpen(images, 0);
++    // Open ONE defect-wide gallery, not one isolated category. This lets a defect with
++    // "trước sửa" + "sau sửa" images swipe through all photos like Crew does.
++    const allStored = await getEntityPhotos(projectId, 'defect', defect.id);
++    const ordered: Array<{ category: 'defect_before' | 'defect_after'; url: string }> = [];
++    if (defect.imageUrl) ordered.push({ category: 'defect_before', url: defect.imageUrl });
++    for (const photo of allStored.filter((item) => item.category === 'defect_before')) {
++      const url = await getPhotoDataUrl(photo.id, photo.cloudUrl || photo.cloudFileId || photo.localUri, false, projectId);
++      if (url) ordered.push({ category: 'defect_before', url });
++    }
++    if (defect.afterImageUrl) ordered.push({ category: 'defect_after', url: defect.afterImageUrl });
++    for (const photo of allStored.filter((item) => item.category === 'defect_after')) {
++      const url = await getPhotoDataUrl(photo.id, photo.cloudUrl || photo.cloudFileId || photo.localUri, false, projectId);
++      if (url) ordered.push({ category: 'defect_after', url });
++    }
++
++    const deduped: typeof ordered = [];
++    const seen = new Set<string>();
++    for (const item of ordered) {
++      if (!item.url || seen.has(item.url)) continue;
++      seen.add(item.url);
++      deduped.push(item);
++    }
++    const initialIndex = Math.max(0, deduped.findIndex((item) => item.category === category));
++    if (deduped.length > 0) onOpen(deduped.map((item) => item.url), initialIndex);
+   };
+ 
+   return (
+@@ -604,7 +629,7 @@
+           title="Mở thư viện ảnh"
+         >
+           <Images className="w-3.5 h-3.5" />
+-          {totalCount} ảnh · Bấm để xem
++          {totalCount} ảnh{pendingCount > 0 ? ` · ${pendingCount} chờ Cloud` : ''} · Bấm để xem
+         </button>
+       )}
+     </div>
+@@ -864,16 +889,12 @@
+   });
+   const [activeDefectDetail, setActiveDefectDetail] = useState<DefectItem | null>(null);
+ 
+-  // RC2.2.8: notification deep-link is identity-based, never just a tab switch.
+-  // It selects the exact floor, clears a stale status filter, exposes the Defect layer,
+-  // focuses the map pin and opens the same detail modal used by a direct card tap.
++  // Notification/deep-link navigation must work both when Mặt bằng is being mounted
++  // and when it is ALREADY open. sessionStorage covers mount/reload; a custom event
++  // covers same-tab navigation, which previously did nothing because no dependency changed.
+   useEffect(() => {
+-    let raw = '';
+-    try { raw = sessionStorage.getItem('qlct_pending_defect_navigation') || ''; } catch (_) {}
+-    if (!raw) return;
+-
+-    try {
+-      const pending = JSON.parse(raw);
++    const consumeNavigation = (pending: any, source: 'storage' | 'event') => {
++      if (!pending) return;
+       if (pending?.projectId && String(pending.projectId) !== currentProjectId) return;
+       const defect = defects.find((item) =>
+         item?.id === pending?.defectId
+@@ -882,19 +903,21 @@
+         && !item?.deletedAt
+       );
+       if (!defect) {
+-        sessionStorage.removeItem('qlct_pending_defect_navigation');
++        try { sessionStorage.removeItem('qlct_pending_defect_navigation'); } catch (_) {}
++        appendRuntimeDiagnostic({ level: 'warn', area: 'defect-navigation', projectId: currentProjectId, code: 'DEFECT_NOT_FOUND', message: `source=${source} requested=${String(pending?.defectId || '')}` });
+         console.warn('[Defect navigation] Target no longer exists or is archived:', pending?.defectId);
+         alert('Defect này không còn tồn tại hoặc đã được lưu trữ. Không có Defect khác được mở thay thế.');
+         return;
+       }
+       if (!floorPlans.some((floor) => floor.id === defect.floorId)) {
+-        sessionStorage.removeItem('qlct_pending_defect_navigation');
++        try { sessionStorage.removeItem('qlct_pending_defect_navigation'); } catch (_) {}
++        appendRuntimeDiagnostic({ level: 'warn', area: 'defect-navigation', projectId: currentProjectId, code: 'FLOOR_NOT_FOUND', message: `defect=${defect.id} requestedFloor=${String(pending?.floorId || '')} actualFloor=${String(defect.floorId || '')}` });
+         console.warn('[Defect navigation] Target floor no longer exists:', defect.floorId);
+         alert('Không thể mở Defect vì mặt bằng/tầng liên quan không còn tồn tại. Không có Defect khác được mở thay thế.');
+         return;
+       }
+ 
+-      sessionStorage.removeItem('qlct_pending_defect_navigation');
++      try { sessionStorage.removeItem('qlct_pending_defect_navigation'); } catch (_) {}
+       localStorage.setItem(getDraftKey('construction_selected_floor_id'), defect.floorId);
+       localStorage.setItem(getDraftKey('construction_selected_view_mode'), 'defect');
+       pendingFocusRef.current = { floorId: defect.floorId, x: defect.x, y: defect.y };
+@@ -903,16 +926,39 @@
+       setMapLayers((prev) => ({ ...prev, defects: true }));
+       setSelectedDefectIds([defect.id]);
+       setActiveDefectDetail(defect);
++      appendRuntimeDiagnostic({
++        level: 'info',
++        area: 'defect-navigation',
++        projectId: currentProjectId,
++        code: 'OPEN_TARGET',
++        message: `source=${source} defect=${defect.id} requestedFloor=${String(pending?.floorId || '')} actualFloor=${defect.floorId} selectedBefore=${selectedFloorId}`,
++      });
+ 
+       if (selectedFloorId !== defect.floorId) {
+         setSelectedFloorId(defect.floorId);
+       } else {
+-        requestAnimationFrame(() => requestAnimationFrame(() => focusPlanPoint(defect.x, defect.y)));
++        requestAnimationFrame(() => requestAnimationFrame(() => {
++          focusPlanPoint(defect.x, defect.y);
++          pendingFocusRef.current = null;
++        }));
++      }
++    };
++
++    let raw = '';
++    try { raw = sessionStorage.getItem('qlct_pending_defect_navigation') || ''; } catch (_) {}
++    if (raw) {
++      try { consumeNavigation(JSON.parse(raw), 'storage'); }
++      catch (err) {
++        try { sessionStorage.removeItem('qlct_pending_defect_navigation'); } catch (_) {}
++        appendRuntimeDiagnostic({ level: 'error', area: 'defect-navigation', projectId: currentProjectId, code: 'INVALID_REQUEST', message: err instanceof Error ? err.message : String(err) });
+       }
+-    } catch (err) {
+-      try { sessionStorage.removeItem('qlct_pending_defect_navigation'); } catch (_) {}
+-      console.warn('[Defect navigation] Invalid pending target:', err);
+     }
++
++    const onNavigationRequest = (event: Event) => {
++      consumeNavigation((event as CustomEvent<any>).detail || null, 'event');
++    };
++    window.addEventListener('qlct-defect-navigation-request', onNavigationRequest as EventListener);
++    return () => window.removeEventListener('qlct-defect-navigation-request', onNavigationRequest as EventListener);
+   }, [defects, currentProjectId, floorPlans, selectedFloorId]);
+ 
+   useEffect(() => {
