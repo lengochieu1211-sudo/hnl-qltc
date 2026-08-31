@@ -125,6 +125,7 @@ import {
 } from './utils/fileExport';
 import { deleteEntityPhotos, getProjectPhotos, getProjectPhotosWithBinary, restorePhotosFromBackup } from './utils/photoStorage';
 import { refreshProjectPhotoMetadataFromCloud, subscribeProjectPhotosRealtime, syncProjectPhotosToCloud, PhotoCloudSyncStatus } from './lib/photoCloudSync';
+import { appendRuntimeDiagnostic } from './lib/runtimeDiagnostics';
 import { isPrimaryDriveReady, PRIMARY_DRIVE_OWNER_EMAIL, uploadProjectBackupToPrimaryDrive } from './lib/primaryDriveBridge';
 import { subscribeConversationReadState, subscribeConversationSummary } from './lib/chatService';
 import { floorPlanNeedsCloudUpload, isDisplayableFloorPlanUrl, loadFloorPlanImageFromCloud, syncFloorPlanImageToCloud, deleteFloorPlanImageFromCloud } from './lib/floorPlanImageSync';
@@ -1696,7 +1697,7 @@ export default function App() {
           const failed = Number(result.failed || 0);
           if (failed > 0) {
             const attempt = ++photoOutboxRetryAttemptRef.current;
-            setPhotoCloudStatus({ phase: 'error', pending: failed, message: `${failed} ảnh chưa lên Cloud; đang tự retry.` });
+            setPhotoCloudStatus({ phase: 'error', pending: failed, message: `${failed} ảnh chưa lên Cloud/R2; đang tự retry.${result.lastError ? ` Lỗi gần nhất: ${result.lastError}` : ''}` });
             const delay = Math.min(30000, 750 * Math.pow(2, Math.min(attempt - 1, 6)));
             photoOutboxRetryTimerRef.current = window.setTimeout(() => void drainPhotoOutbox(), delay);
           } else {
@@ -1738,7 +1739,7 @@ export default function App() {
         if (cancelled || activeProjectIdRef.current !== projectId) return;
         const failed = Number(result.failed || 0);
         if (failed > 0) {
-          setPhotoCloudStatus({ phase: 'error', pending: failed, message: `${failed} ảnh đang chờ Drive; ứng dụng sẽ tự retry.` });
+          setPhotoCloudStatus({ phase: 'error', pending: failed, message: `${failed} ảnh đang chờ Cloud/R2; ứng dụng sẽ tự retry.${result.lastError ? ` Lỗi gần nhất: ${result.lastError}` : ''}` });
           if (attempt < 4) {
             const delay = Math.min(10000, 1000 * Math.pow(2, attempt - 1));
             retryTimer = window.setTimeout(() => void run(attempt + 1), delay);
@@ -1776,7 +1777,7 @@ export default function App() {
         void syncProjectPhotosToCloud(photoProjectId)
           .then((result) => {
             const failed = Number(result.failed || 0);
-            if (failed > 0) setPhotoCloudStatus({ phase: 'error', pending: failed, message: `${failed} ảnh vẫn đang chờ Drive.` });
+            if (failed > 0) setPhotoCloudStatus({ phase: 'error', pending: failed, message: `${failed} ảnh vẫn đang chờ Cloud/R2.${result.lastError ? ` Lỗi gần nhất: ${result.lastError}` : ''}` });
             else setPhotoCloudStatus({ phase: 'synced', pending: 0, lastSyncAt: Date.now() });
           })
           .catch((err) => setPhotoCloudStatus({ phase: 'error', message: err?.message || String(err) }));
@@ -5893,17 +5894,31 @@ export default function App() {
       setActiveTab('checklist');
     } else if (alertItem.type === 'defect') {
       const defect = alertItem.originalItem as DefectItem;
+      const navigationRequest = {
+        projectId: activeProjectId,
+        defectId: defect.id,
+        floorId: defect.floorId,
+        x: defect.x,
+        y: defect.y,
+        requestedAt: Date.now(),
+      };
       try {
-        sessionStorage.setItem('qlct_pending_defect_navigation', JSON.stringify({
-          projectId: activeProjectId,
-          defectId: defect.id,
-          floorId: defect.floorId,
-          x: defect.x,
-          y: defect.y,
-          requestedAt: Date.now(),
-        }));
+        sessionStorage.setItem('qlct_pending_defect_navigation', JSON.stringify(navigationRequest));
       } catch (_) {}
+      appendRuntimeDiagnostic({
+        level: 'info',
+        area: 'defect-navigation',
+        projectId: activeProjectId,
+        code: 'REQUEST',
+        message: `request defect=${defect.id} floor=${defect.floorId || ''} x=${Number(defect.x || 0)} y=${Number(defect.y || 0)}`,
+      });
       setActiveTab('floorplan');
+      // sessionStorage covers the not-yet-mounted FloorPlan tab. The event covers the
+      // important case where the user is ALREADY on Mặt bằng: setActiveTab('floorplan')
+      // does not remount the component, so storage-only navigation previously did nothing.
+      window.setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('qlct-defect-navigation-request', { detail: navigationRequest }));
+      }, 50);
     }
   };
 

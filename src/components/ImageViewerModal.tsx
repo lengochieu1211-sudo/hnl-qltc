@@ -26,6 +26,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
   const initialScaleRef = useRef(1);
   const isDraggingRef = useRef(false);
   const lastPosRef = useRef({ x: 0, y: 0 });
+  const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
   const onCloseRef = useRef(onClose);
   const pushedHistoryRef = useRef(false);
   const closedFromHistoryRef = useRef(false);
@@ -107,6 +108,11 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
     if (!container || !isOpen) return;
     
     const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 1 && scale <= 1) {
+        swipeStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      } else {
+        swipeStartRef.current = null;
+      }
       if (e.touches.length === 2) {
         e.preventDefault();
         initialDistRef.current = Math.hypot(
@@ -120,6 +126,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
     const onTouchMove = (e: TouchEvent) => {
       if (e.touches.length === 2 && initialDistRef.current > 0) {
         e.preventDefault();
+        swipeStartRef.current = null;
         const dist = Math.hypot(
           e.touches[0].clientX - e.touches[1].clientX,
           e.touches[0].clientY - e.touches[1].clientY
@@ -130,9 +137,16 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
     };
 
     const onTouchEnd = (e: TouchEvent) => {
-      if (e.touches.length < 2) {
-        initialDistRef.current = 0;
-      }
+      if (e.touches.length < 2) initialDistRef.current = 0;
+      const start = swipeStartRef.current;
+      swipeStartRef.current = null;
+      if (!start || scale > 1 || e.changedTouches.length === 0) return;
+      const end = e.changedTouches[0];
+      const dx = end.clientX - start.x;
+      const dy = end.clientY - start.y;
+      if (Math.abs(dx) < 48 || Math.abs(dx) <= Math.abs(dy) * 1.15) return;
+      if (dx < 0) handleNext();
+      else handlePrev();
     };
 
     container.addEventListener('touchstart', onTouchStart, { passive: false });
@@ -146,7 +160,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
       container.removeEventListener('touchend', onTouchEnd);
       container.removeEventListener('touchcancel', onTouchEnd);
     };
-  }, [isOpen, scale]);
+  }, [isOpen, scale, currentIndex, allImages.length]);
 
   const handlePointerDown = (e: React.PointerEvent) => {
     if (scale <= 1) return;

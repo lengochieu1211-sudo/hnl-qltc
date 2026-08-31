@@ -17,12 +17,20 @@ import {
   cachePhotoBlob,
   getPhotoBlob,
   getProjectPhotos,
+  isPhotoSharedCloudReady,
   mergeCloudPhotoMetadata,
 } from '../utils/photoStorage';
 import { getDeviceId, getDeviceName } from '../utils/deviceIdentity';
 import { downloadPhotoFromPrimaryDrive } from './primaryDriveBridge';
 import { LEGACY_DRIVE_READ_FALLBACK } from '../config/runtimeArchitecture';
 import { BINARY_STORAGE_PROVIDER, downloadBinaryBlob, uploadProjectBinaryToCloud, verifyBinaryObjectReady } from './binaryStorage';
+import { appendRuntimeDiagnostic } from './runtimeDiagnostics';
+
+const photoSyncErrorCode = (err: unknown): string => {
+  const message = err instanceof Error ? err.message : String(err || '');
+  const match = message.match(/^(R2_[A-Z0-9_]+|PHOTO_[A-Z0-9_]+|[A-Z0-9_]+):?/);
+  return match?.[1] || 'PHOTO_SYNC_FAILED';
+};
 
 // RC2.2.6: Firestore remains the realtime source of truth; binary media is routed
 // through a provider adapter. PROD uses private Cloudflare R2 via an authenticated
@@ -356,12 +364,14 @@ export async function refreshProjectPhotoMetadataFromCloud(projectId: string): P
   }
 }
 
-export async function syncProjectPhotosToCloud(projectId: string): Promise<{ uploaded: number; skipped: number; migratedToStorage?: number; failed?: number }> {
+export async function syncProjectPhotosToCloud(projectId: string): Promise<{ uploaded: number; skipped: number; migratedToStorage?: number; failed?: number; lastError?: string; lastErrorPhotoId?: string }> {
   const photos = await getProjectPhotos(projectId, true);
   let uploaded = 0;
   let skipped = 0;
   let migratedToStorage = 0;
   let failed = 0;
+  let lastError = '';
+  let lastErrorPhotoId = '';
 
   const cloudSnapshot = await getDocs(collection(db, 'projects', projectId, 'photos')).catch(() => null);
   const cloudById = new Map<string, any>();
@@ -388,10 +398,20 @@ export async function syncProjectPhotosToCloud(projectId: string): Promise<{ upl
       if (needsStorageMigration) migratedToStorage++;
     } catch (err) {
       failed++;
+      const message = err instanceof Error ? err.message : String(err);
+      lastError = message;
+      lastErrorPhotoId = photo.id;
+      appendRuntimeDiagnostic({
+        level: 'error',
+        area: 'photo-sync',
+        projectId,
+        code: photoSyncErrorCode(err),
+        message: `${photo.entityType || 'photo'}/${photo.entityId || ''}/${photo.id}: ${message}`,
+      });
       console.warn(`[Photo Cloud] ${BINARY_STORAGE_PROVIDER} sync warning:`, photo.id, err);
     }
   }
-  return { uploaded, skipped, migratedToStorage, failed };
+  return { uploaded, skipped, migratedToStorage, failed, lastError, lastErrorPhotoId };
 }
 
 async function downloadPhotoBlobFromFirestoreChunks(projectId: string, photoId: string, mimeType = 'image/jpeg'): Promise<Blob | null> {
@@ -510,7 +530,8 @@ export async function verifyPhotoBinaryReadyInCloud(projectId: string, photoId: 
     if (String(data?.binaryUploadState || '') !== 'ready' || !storagePath) return false;
     if (provider !== 'r2' && provider !== 'firebase-storage') return false;
     return verifyBinaryObjectReady(provider, storagePath, Number(data?.fileSize || 0) || undefined, String(data?.contentHash || data?.storageMd5Hash || '') || undefined);
-  } catch (_) {
+  } catch (err) {
+    appendRuntimeDiagnostic({ level: 'warn', area: 'photo-verify', projectId, code: photoSyncErrorCode(err), message: `${photoId}: ${err instanceof Error ? err.message : String(err)}` });
     return false;
   }
 }
@@ -565,7 +586,7 @@ export function subscribeProjectPhotosRealtime(
           console.debug('[photo initial sync]', projectId, result, 'duration=', Date.now() - start);
           if (failed > 0) {
             initialUploadNeeded = true;
-            onStatus?.({ phase: 'error', pending: failed, message: `${failed} ảnh chưa lên Cloud; đang tự retry.` });
+            onStatus?.({ phase: 'error', pending: failed, message: `${failed} ảnh chưa lên Cloud/R2; đang tự retry.${result.lastError ? ` Lỗi gần nhất: ${result.lastError}` : ''}` });
             retrySyncTimer = setTimeout(() => {
               retrySyncTimer = null;
               projectInitialPhotoSyncScheduled.delete(projectId);
@@ -627,17 +648,34 @@ export function subscribeProjectPhotosRealtime(
         await mergeCloudPhotoMetadata(projectId, cloudPhotos, changedPhotos);
         if (cancelled) return;
         console.debug('[photo snapshot]', projectId, 'docs=', snap.size, 'changes=', changes.length, 'initial=', snapshotIsInitial);
-        onStatus?.({ phase: 'synced', pending: 0, lastSyncAt: Date.now() });
+        const activeUid = getCurrentRealFirebaseUser()?.uid || '';
+        const localAfterMerge = await getProjectPhotos(projectId, true);
+        const pendingLocal = localAfterMerge.filter((photo) =>
+          !photo.deleted && !photo.deletedAt
+          && !isPhotoSharedCloudReady(photo)
+          && (!photo.createdByUid || photo.createdByUid === activeUid)
+        ).length;
+        if (pendingLocal > 0) {
+          initialUploadNeeded = true;
+          onStatus?.({ phase: 'syncing', pending: pendingLocal, message: `${pendingLocal} ảnh đang chờ Cloud/R2.` });
+          scheduleInitialUpload();
+        } else {
+          onStatus?.({ phase: 'synced', pending: 0, lastSyncAt: Date.now() });
+        }
 
-        if (snapshotIsInitial) {
+        if (snapshotIsInitial && pendingLocal === 0) {
+          // Still run one migration/self-heal pass for legacy pointers even when the
+          // current account has no explicit local pending item.
           initialUploadNeeded = true;
           scheduleInitialUpload();
         }
       })
       .catch((err: any) => {
+        appendRuntimeDiagnostic({ level: 'error', area: 'photo-realtime', projectId, code: photoSyncErrorCode(err), message: err?.message || String(err) });
         if (!cancelled) onStatus?.({ phase: 'error', message: err?.message || String(err) });
       });
   }, (err) => {
+    appendRuntimeDiagnostic({ level: 'error', area: 'photo-realtime', projectId, code: photoSyncErrorCode(err), message: err?.message || String(err) });
     onStatus?.({ phase: 'error', message: err?.message || String(err) });
   });
 
