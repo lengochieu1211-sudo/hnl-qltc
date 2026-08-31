@@ -2,7 +2,7 @@ import { GlobalConfirmModal } from './components/GlobalConfirmModal';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { HardDrive, RefreshCw } from 'lucide-react';
 import { safeSetLocalStorageItem } from './utils/storage';
-import { parseLegacyTimestamp } from './utils/dateFormatter';
+import { parseLegacyTimestamp, formatDateTime } from './utils/dateFormatter';
 import { AppLockOverlay } from './components/AppLockOverlay';
 import { SecurityModal } from './components/SecurityModal';
 import { getStoredPinLockConfig, logAuditAction, getCurrentUserRole, setCurrentUserRole, UserRole, canEditProjectData, canManageProjects, canManageWorkVolumeStructure, canManageFloorPlanStructure, canManageMaterialNorms, canManageTeams, canManageChecklistStructure, canDeleteBusinessData, canDeleteCrewRecord, canManageBackups, canUseGlobalUndoRedo, canEditWarehouseData, canEditDefectData, canEditChecklistData, canEditCrewData, canImportData } from './utils/securityUtils';
@@ -862,6 +862,13 @@ export default function App() {
     });
   }, [defects, cloudDefectIndex, activeProjectId, isProjectRoleResolved, currentUserRole]);
   const activeChecklist = useMemo(() => checklist.filter((item) => !item.archivedAt), [checklist]);
+  const showChecklistModule = activeChecklist.length > 0;
+
+  useEffect(() => {
+    // Checklist is kept in source/data for compatibility but stays out of navigation
+    // until the current project actually has checklist items.
+    if (activeTab === 'checklist' && !showChecklistModule) setActiveTab('crew');
+  }, [activeTab, showChecklistModule]);
 
 
   // Helper to match floor names or floor IDs (supports multi-floor strings like "Tầng 1, Tầng 2")
@@ -3712,7 +3719,7 @@ export default function App() {
             localStorage.setItem(getKey('construction_teams', pid), JSON.stringify(remoteData.teams));
           }
 
-          const timeStr = new Date(remoteUpdatedAt || Date.now()).toLocaleString('vi-VN');
+          const timeStr = formatDateTime(remoteUpdatedAt || Date.now());
           setDriveLastSyncTime(timeStr);
           localStorage.setItem(getKey('construction_drive_last_sync', pid), timeStr);
           localStorage.setItem(getKey('construction_updated_at', pid), String(remoteUpdatedAt));
@@ -5964,7 +5971,7 @@ export default function App() {
               <div>
                 <span className="font-bold text-amber-950">Tệp tự động lưu có dữ liệu mới hơn: </span>
                 <span className="text-amber-800">
-                  "{pendingFileRestorePrompt.handleName}" (Cập nhật: {new Date(pendingFileRestorePrompt.fileUpdatedAt).toLocaleString('vi-VN')})
+                  "{pendingFileRestorePrompt.handleName}" (Cập nhật: {formatDateTime(pendingFileRestorePrompt.fileUpdatedAt)})
                 </span>
               </div>
             </div>
@@ -6457,6 +6464,7 @@ export default function App() {
             setActiveTab={setActiveTab}
             defectBadgeCount={unhandledDefectsCount}
             chatBadgeCount={chatUnreadCount}
+            showChecklist={showChecklistModule}
           />
         )}
 

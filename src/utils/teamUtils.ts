@@ -1,6 +1,6 @@
 import { TeamInfo, RoomProgressItem, DefectItem, CrewRecord, FloorPlan, TeamRoomDetail, RoomSubItem } from '../types';
 import { normalizeUnit } from './unitUtils';
-import { getShiftDayFactor } from './crewUtils';
+import { getCrewShiftCounts } from './crewUtils';
 
 /**
  * Unified helper to get effective weight or volume of a subitem across the whole system.
@@ -413,21 +413,24 @@ export function calculateTeamStatistics(params: {
     const resolvedDefectsCount = teamDefects.filter(d => d.status === 'Đã khắc phục').length;
     const closedDefectsCount = teamDefects.filter(d => d.status === 'Đã nghiệm thu').length;
 
-    // Mandays & Crew statistics (Unified single worker count avoiding double-counting across multiple floor records for same shift)
-    const getWorkerCount = (r: CrewRecord) => r.workerCount || ((r.workersInside || 0) + (r.workersOutside || 0)) || 0;
-
-    // Group by date + shift to avoid double-counting the same team when one shift is
-    // recorded on multiple floors. Convert shifts to equivalent work-days so
-    // Sáng + Chiều = 1 công rather than 2 công.
+    // Mandays & Crew statistics. New records may have different headcount in
+    // morning/afternoon/evening. Group each shift independently so changing
+    // headcount across the day is reflected without double-counting floor rows.
     const dateShiftMaxMap: Record<string, { workerCount: number; factor: number; date: string }> = {};
     teamLogs.forEach(l => {
-      const shiftLabel = l.shift || 'default';
-      const shiftKey = `${l.date}_${shiftLabel}`;
-      const wc = getWorkerCount(l);
-      const existing = dateShiftMaxMap[shiftKey];
-      if (!existing || wc > existing.workerCount) {
-        dateShiftMaxMap[shiftKey] = { workerCount: wc, factor: getShiftDayFactor(shiftLabel), date: l.date };
-      }
+      const counts = getCrewShiftCounts(l);
+      ([
+        ['morning', counts.morning],
+        ['afternoon', counts.afternoon],
+        ['evening', counts.evening],
+      ] as const).forEach(([shiftKeyPart, workerCount]) => {
+        if (workerCount <= 0) return;
+        const shiftKey = `${l.date}_${shiftKeyPart}`;
+        const existing = dateShiftMaxMap[shiftKey];
+        if (!existing || workerCount > existing.workerCount) {
+          dateShiftMaxMap[shiftKey] = { workerCount, factor: 0.5, date: l.date };
+        }
+      });
     });
 
     const dailyMandayMap: Record<string, number> = {};

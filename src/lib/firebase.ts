@@ -38,6 +38,7 @@ import { getDeviceId, getDeviceName } from '../utils/deviceIdentity';
 import { cleanupTransientLocalStorage, estimateLocalStorageBytes } from '../utils/storage';
 import { isSuperAdminEmail } from '../config/superAdmin';
 import { REALTIME_COLLECTIONS } from '../config/realtimeCollections';
+import { formatDateTime } from '../utils/dateFormatter';
 import { CURRENT_DATA_SCHEMA_VERSION, getPendingDataSchemaMigrations, readDataSchemaVersion } from '../config/dataSchema';
 import { clearRememberedVerifiedAuthIdentity } from '../utils/offlineAccess';
 const env = (import.meta as any).env || {};
@@ -2645,7 +2646,7 @@ export async function saveCloudBackup(backupName: string, allProjects: any[]): P
     
     const record: CloudBackupRecord = {
       id: backupId,
-      backupName: backupName || `Bản sao lưu ${new Date().toLocaleString('vi-VN')}`,
+      backupName: backupName || `Bản sao lưu ${formatDateTime(new Date())}`,
       createdAt: new Date().toISOString(),
       projectCount: Array.isArray(sanitizedProjects) ? sanitizedProjects.length : 1,
       projects: sanitizedProjects,

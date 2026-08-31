@@ -40,6 +40,7 @@ import { signInWithGoogle, getCurrentFirebaseUser, fetchProjectUserRoleFromCloud
 import { saveTextFile } from '../utils/fileExport';
 import { QuickSortBar } from './QuickSortBar';
 import { confirmAsync } from '../utils/confirmAsync';
+import { formatDateTime } from '../utils/dateFormatter';
 
 interface SecurityModalProps {
   isOpen: boolean;
@@ -1358,7 +1359,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                             <div className="text-[10px] text-slate-700 mt-0.5 line-clamp-2">{log.details}</div>
                           </div>
                           <span className="text-[9px] text-slate-400 font-mono shrink-0">
-                            {new Date(log.timestamp).toLocaleString('vi-VN')}
+                            {formatDateTime(log.timestamp)}
                           </span>
                         </div>
                       </summary>

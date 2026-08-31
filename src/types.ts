@@ -310,6 +310,10 @@ export interface CrewRecord {
   teamName: string;
   leaderName: string;
   workerCount: number;
+  /** Per-shift headcount. Optional for backward compatibility with legacy records. */
+  morningCount?: number;
+  afternoonCount?: number;
+  eveningCount?: number;
   workersInside?: number;
   workersOutside?: number;
   floorId?: string;

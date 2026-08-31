@@ -3,8 +3,9 @@ import { InventoryItem, WorkVolume, DefectItem, ChecklistItem, FloorPlan, RoomPr
 import { getDefectOverdueInfo } from './defectUtils';
 import { isTeamMatch, calculateTeamStatistics } from './teamUtils';
 import { calculateStockSummary } from './inventoryUtils';
-import { formatDateDDMMYYYY } from './dateFormatter';
+import { formatDateDDMMYYYY, formatDateTime } from './dateFormatter';
 import { saveWorkbookFile } from './fileExport';
+import { getCrewShiftCounts } from './crewUtils';
 
 function autoFitColumns(ws: XLSX.WorkSheet) {
   if (!ws || !ws['!ref']) return;
@@ -34,6 +35,7 @@ function autoFitColumns(ws: XLSX.WorkSheet) {
   ws['!autofilter'] = { ref: ws['!ref'] };
   ws['!views'] = [{ state: 'frozen', ySplit: 1 }];
 }
+
 
 export function exportWarehouseToExcel(inventory: InventoryItem[], materialNorms: MaterialNorm[], projectName: string, workVolumes?: WorkVolume[]) {
   exportWarehouseUpdateTemplate(materialNorms, workVolumes || [], inventory, projectName);
@@ -303,6 +305,9 @@ export function exportAllToExcel(params: {
       'Tên Đội Thi Công': item.teamName,
       'Trưởng Nhóm / Đội Trưởng': item.leaderName,
       'Quân Số (Người)': item.workerCount || ((item.workersInside || 0) + (item.workersOutside || 0)) || 0,
+      'Ca Sáng (Người)': getCrewShiftCounts(item).morning,
+      'Ca Chiều (Người)': getCrewShiftCounts(item).afternoon,
+      'Ca Tối (Người)': getCrewShiftCounts(item).evening,
       'Ca Làm Việc': item.shift === 'Hành chính' ? 'Sáng, Chiều' : item.shift === 'Tăng ca' ? 'Tối (Tăng ca)' : (item.shift || 'Sáng, Chiều'),
       'Vị Trí Làm Việc (Tầng)': item.floorName || '',
       'Nhiệm Vụ / Hạng Mục': item.taskDescription,
@@ -484,6 +489,9 @@ export function exportAllToExcelBase64(params: {
       'Tên Đội Thi Công': item.teamName,
       'Trưởng Nhóm / Đội Trưởng': item.leaderName,
       'Quân Số (Người)': item.workerCount || ((item.workersInside || 0) + (item.workersOutside || 0)) || 0,
+      'Ca Sáng (Người)': getCrewShiftCounts(item).morning,
+      'Ca Chiều (Người)': getCrewShiftCounts(item).afternoon,
+      'Ca Tối (Người)': getCrewShiftCounts(item).evening,
       'Ca Làm Việc': item.shift === 'Hành chính' ? 'Sáng, Chiều' : item.shift === 'Tăng ca' ? 'Tối (Tăng ca)' : (item.shift || 'Sáng, Chiều'),
       'Vị Trí Làm Việc (Tầng)': item.floorName || '',
       'Nhiệm Vụ / Hạng Mục': item.taskDescription,
@@ -520,6 +528,9 @@ export function exportCrewRecordsToExcel(crewRecords: CrewRecord[], teams: TeamI
       'Tên Đội Thi Công': item.teamName,
       'Trưởng Nhóm / Đội Trưởng': item.leaderName,
       'Quân Số (Người)': item.workerCount || ((item.workersInside || 0) + (item.workersOutside || 0)) || 0,
+      'Ca Sáng (Người)': getCrewShiftCounts(item).morning,
+      'Ca Chiều (Người)': getCrewShiftCounts(item).afternoon,
+      'Ca Tối (Người)': getCrewShiftCounts(item).evening,
       'Ca Làm Việc': item.shift === 'Hành chính' ? 'Sáng, Chiều' : item.shift === 'Tăng ca' ? 'Tối (Tăng ca)' : (item.shift || 'Sáng, Chiều'),
       'Vị Trí Làm Việc (Tầng)': item.floorName || '',
       'Nhiệm Vụ / Hạng Mục': item.taskDescription || '',
@@ -629,7 +640,7 @@ export function exportTeamStatisticsToExcel(params: {
       { 'THÔNG TIN BÁO CÁO': 'ĐỘI THI CÔNG', 'GIÁ TRỊ': team.name },
       { 'THÔNG TIN BÁO CÁO': 'ĐỘI TRƯỞNG', 'GIÁ TRỊ': team.leader || '-' },
       { 'THÔNG TIN BÁO CÁO': 'SỐ ĐIỆN THOẠI', 'GIÁ TRỊ': team.phone || '-' },
-      { 'THÔNG TIN BÁO CÁO': 'NGÀY XUẤT', 'GIÁ TRỊ': new Date().toLocaleDateString('vi-VN') },
+      { 'THÔNG TIN BÁO CÁO': 'NGÀY XUẤT', 'GIÁ TRỊ': formatDateDDMMYYYY(new Date().toISOString().slice(0, 10)) },
       { 'THÔNG TIN BÁO CÁO': '', 'GIÁ TRỊ': '' },
       { 'THÔNG TIN BÁO CÁO': 'CHỈ TIÊU THỐNG KÊ', 'GIÁ TRỊ': 'KẾT QUẢ' },
       { 'THÔNG TIN BÁO CÁO': 'Số tầng phụ trách', 'GIÁ TRỊ': Object.keys(stat.floorGroupMap || {}).length },
@@ -741,6 +752,9 @@ export function exportTeamStatisticsToExcel(params: {
       'Ngày': l.date,
       'Tầng/Khu Vực': l.floorName || 'Công trình',
       'Quân Số (Người)': l.workerCount || ((l.workersInside || 0) + (l.workersOutside || 0)) || 0,
+      'Ca Sáng (Người)': getCrewShiftCounts(l).morning,
+      'Ca Chiều (Người)': getCrewShiftCounts(l).afternoon,
+      'Ca Tối (Người)': getCrewShiftCounts(l).evening,
       'Nhiệm Vụ / Công Việc': l.taskDescription,
       'Ghi Chú': l.notes || ''
     }));
