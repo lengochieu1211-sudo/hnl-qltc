@@ -18,6 +18,7 @@ interface DueDateToastNotifierProps {
   defects?: DefectItem[];
   onNavigateToItem?: (alert: DueDateAlertItem) => void;
   onOpenNotificationCenter?: () => void;
+  onDisableFloating?: () => void;
 }
 
 export const DueDateToastNotifier: React.FC<DueDateToastNotifierProps> = ({
@@ -26,6 +27,7 @@ export const DueDateToastNotifier: React.FC<DueDateToastNotifierProps> = ({
   defects = [],
   onNavigateToItem,
   onOpenNotificationCenter,
+  onDisableFloating,
 }) => {
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -70,20 +72,25 @@ export const DueDateToastNotifier: React.FC<DueDateToastNotifierProps> = ({
     }
   };
 
-  // Minimized Floating Badge Widget
+  // Minimized Floating Badge Widget.
+  // Mobile used to expose only the badge, so there was no way to stop the floating
+  // notification without opening the underlying Defect/Checklist. Keep "open" and
+  // "hide floating" as two independent actions.
   if (isMinimized) {
     return (
       <div
-        className="fixed right-2 sm:right-6 z-40 animate-in fade-in slide-in-from-bottom-3 duration-200"
+        className="fixed right-2 sm:right-6 z-40 animate-in fade-in slide-in-from-bottom-3 duration-200 flex items-center gap-1.5"
         style={{ bottom: 'calc(4.5rem + env(safe-area-inset-bottom))' }}
       >
         <button
+          type="button"
           onClick={() => {
             const compact = typeof window !== 'undefined' && window.matchMedia('(max-width: 639px)').matches;
             if (compact && onOpenNotificationCenter) onOpenNotificationCenter();
             else setIsMinimized(false);
           }}
           className="bg-slate-900/95 hover:bg-slate-800 text-white px-3.5 py-2 rounded-2xl shadow-2xl border border-slate-700/80 flex items-center gap-2 text-xs font-bold transition-all active:scale-95 cursor-pointer backdrop-blur-md group"
+          aria-label={`Mở ${visibleAlerts.length} thông báo tiến độ, checklist hoặc defect`}
         >
           <div className="relative">
             <Bell className="w-4 h-4 text-amber-400" />
@@ -95,6 +102,17 @@ export const DueDateToastNotifier: React.FC<DueDateToastNotifierProps> = ({
           <span className="hidden sm:inline">Thông báo tiến độ/defect ({visibleAlerts.length})</span>
           <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
         </button>
+        {onDisableFloating && (
+          <button
+            type="button"
+            onClick={onDisableFloating}
+            className="w-10 h-10 rounded-2xl bg-white/95 hover:bg-white text-slate-600 hover:text-rose-600 border border-slate-200 shadow-xl flex items-center justify-center active:scale-95 transition-all"
+            title="Tắt thông báo nổi"
+            aria-label="Tắt thông báo nổi"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
       </div>
     );
   }
@@ -150,10 +168,21 @@ export const DueDateToastNotifier: React.FC<DueDateToastNotifierProps> = ({
             >
               Thu nhỏ
             </button>
+            {onDisableFloating && (
+              <button
+                type="button"
+                onClick={onDisableFloating}
+                className="p-1 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors cursor-pointer text-[10px] font-bold px-1.5"
+                title="Tắt toàn bộ thông báo nổi; không đổi trạng thái công việc"
+              >
+                Tắt nổi
+              </button>
+            )}
             <button
+              type="button"
               onClick={handleDismissCurrent}
               className="p-1 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors cursor-pointer"
-              title="Đóng thông báo này"
+              title="Đóng thông báo này trong phiên hiện tại"
             >
               <X className="w-4 h-4" />
             </button>

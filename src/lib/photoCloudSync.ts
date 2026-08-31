@@ -80,6 +80,27 @@ function hasDurableCloudBinaryPointer(photo: any): boolean {
   );
 }
 
+function cloudBinaryPointer(photo: any): { provider: string; storagePath: string; expectedSize?: number; expectedChecksum?: string } {
+  const pointer = parseStoragePointer(photo?.cloudFileId || photo?.cloudUrl);
+  return {
+    provider: String(photo?.storageProvider || pointer.provider || ''),
+    storagePath: String(photo?.storagePath || pointer.path || ''),
+    expectedSize: Number(photo?.fileSize || 0) || undefined,
+    expectedChecksum: String(photo?.contentHash || photo?.storageMd5Hash || '') || undefined,
+  };
+}
+
+async function verifyCurrentProviderCloudBinary(photo: any): Promise<boolean> {
+  const pointer = cloudBinaryPointer(photo);
+  if (!pointer.storagePath || pointer.provider !== BINARY_STORAGE_PROVIDER) return false;
+  return verifyBinaryObjectReady(
+    pointer.provider,
+    pointer.storagePath,
+    pointer.expectedSize,
+    pointer.expectedChecksum,
+  ).catch(() => false);
+}
+
 /**
  * Legacy cleanup only. V6.2.27 never writes new binary chunks to Firestore, but
  * old projects can still contain nested `photos/{photoId}/chunks/*` documents.
@@ -180,14 +201,28 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
   const cloudRevision = Number(cloudData?.revision || 0);
   const localRevision = Number(photo.revision || 0);
   const legacyMigrationMode = Boolean(cloudData && !photo.deleted && (!currentProviderBacked) && (cloudStorageBacked || cloudDriveBacked || cloudFirestoreBacked));
+
+  // RC2.2.15 P0 self-heal: older releases could leave a Firestore row that looks R2-ready
+  // while the actual object is missing/denied. If the original uploader device still has
+  // the Blob, verify the object before treating metadata as authoritative. A broken pointer
+  // is repaired from that local Blob instead of being skipped forever on every startup.
+  const localRepairBlob = !photo.deleted && currentProviderBacked
+    ? await getPhotoBlob(photo.id, false).catch(() => null)
+    : null;
+  const currentProviderVerified = localRepairBlob && currentProviderBacked
+    ? await verifyCurrentProviderCloudBinary(cloudData)
+    : true;
+  const currentProviderRepairMode = Boolean(localRepairBlob && currentProviderBacked && !currentProviderVerified);
+  const binaryRepairMode = legacyMigrationMode || currentProviderRepairMode;
+
   const cloudIsAuthoritative = Boolean(cloudData?.deleted) || cloudHasResolvedBinaryState;
   const localIsStale = Boolean(cloudData) && cloudIsAuthoritative && (
     (cloudRevision > 0 && localRevision > 0 && localRevision <= cloudRevision) ||
     (cloudRevision <= 0 && cloudUpdatedAt > 0 && localUpdatedAt > 0 && localUpdatedAt < cloudUpdatedAt)
   );
 
-  if (cloudData && cloudUpdatedAt >= localUpdatedAt && cloudDeleteStateMatches && cloudHasResolvedBinaryState && (photo.deleted || currentProviderBacked)) return;
-  if (localIsStale && !legacyMigrationMode) {
+  if (cloudData && cloudUpdatedAt >= localUpdatedAt && cloudDeleteStateMatches && cloudHasResolvedBinaryState && (photo.deleted || currentProviderBacked) && !currentProviderRepairMode) return;
+  if (localIsStale && !binaryRepairMode) {
     throw new Error(`PHOTO_CONFLICT:${photo.id}: Cloud revision mới hơn; giữ Cloud và chờ realtime hòa giải.`);
   }
   if (cloudData && !cloudDeleteStateMatches && cloudUpdatedAt >= localUpdatedAt) {
@@ -195,10 +230,10 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
   }
 
   const now = Date.now();
-  const nextRevision = legacyMigrationMode
-    ? Math.max(cloudRevision + 1, 1)
+  const nextRevision = binaryRepairMode
+    ? Math.max(cloudRevision + 1, localRevision + 1, 1)
     : Math.max(localRevision, 1);
-  const logicalMeta = legacyMigrationMode ? { ...cloudData } : cleanPhotoMetadata(photo);
+  const logicalMeta = binaryRepairMode ? { ...cloudData } : cleanPhotoMetadata(photo);
   const baseMeta = {
     ...logicalMeta,
     projectId,
@@ -225,7 +260,7 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
     return;
   }
 
-  let blob = await getPhotoBlob(photo.id, false);
+  let blob = localRepairBlob || await getPhotoBlob(photo.id, false);
 
   // Migration source #0: another object-storage provider. This makes R2 ↔ Firebase
   // Storage reversible without changing Firestore metadata shape or UI call sites.
@@ -251,7 +286,7 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
   }
 
   const thumbnailBlob = await getPhotoBlob(photo.id, true).catch(() => null);
-  const contentVersion = legacyMigrationMode
+  const contentVersion = binaryRepairMode
     ? Math.max(cloudUpdatedAt + 1, now)
     : (localUpdatedAt || now);
   const uploaded = await uploadProjectBinaryToCloud({
@@ -282,6 +317,7 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
     cloudFileId: `${uploaded.provider === 'r2' ? 'r2' : 'storage'}:${uploaded.storagePath}`,
     cloudUrl: `${uploaded.provider === 'r2' ? 'r2' : 'storage'}:${uploaded.storagePath}`,
     binaryMissingOnUploader: false,
+    binaryRepairReason: currentProviderRepairMode ? 'r2-object-missing-or-mismatched' : '',
     binaryUploadState: 'ready',
     deleted: false,
     deletedAt: null,
@@ -340,8 +376,9 @@ export async function syncProjectPhotosToCloud(projectId: string): Promise<{ upl
       const currentProviderBacked = storageBacked && String(cloudData?.storageProvider || '') === BINARY_STORAGE_PROVIDER;
       const legacyBacked = isDriveCloudValue(cloudData?.cloudFileId) || cloudData?.storageProvider === 'google-drive-primary' || Number(cloudData?.chunkCount || 0) > 0;
       const needsStorageMigration = Boolean(!photo.deleted && cloudData && !currentProviderBacked && (storageBacked || legacyBacked));
+      const localRepairCandidate = Boolean(!photo.deleted && currentProviderBacked && await getPhotoBlob(photo.id, false).catch(() => null));
 
-      if (!needsStorageMigration && Boolean(cloudData) && cloudUpdatedAt >= localUpdatedAt && Boolean(cloudData?.deleted) === Boolean(photo.deleted) && (Boolean(cloudData?.deleted) || currentProviderBacked)) {
+      if (!needsStorageMigration && !localRepairCandidate && Boolean(cloudData) && cloudUpdatedAt >= localUpdatedAt && Boolean(cloudData?.deleted) === Boolean(photo.deleted) && (Boolean(cloudData?.deleted) || currentProviderBacked)) {
         skipped++;
         continue;
       }
@@ -412,14 +449,34 @@ export async function downloadPhotoBlobFromCloud(projectId: string, photoId: str
     }
   }
 
-  const pointer = parseStoragePointer(data?.cloudFileId || data?.cloudUrl);
-  const storagePath = String(data?.storagePath || pointer.path || '');
-  const provider = String(data?.storageProvider || pointer.provider || '');
-  if (storagePath && (provider === 'r2' || provider === 'firebase-storage' || isStorageCloudValue(data?.cloudFileId))) {
-    const storageBlob = await downloadBinaryBlob(provider || pointer.provider, storagePath);
-    if (storageBlob) {
-      await cachePhotoBlob(photoId, storageBlob, true).catch(() => {});
-      return storageBlob;
+  const tryObjectStorage = async (meta: any): Promise<Blob | null> => {
+    const pointer = parseStoragePointer(meta?.cloudFileId || meta?.cloudUrl);
+    const storagePath = String(meta?.storagePath || pointer.path || '');
+    const provider = String(meta?.storageProvider || pointer.provider || '');
+    if (!storagePath || !['r2', 'firebase-storage'].includes(provider)) return null;
+    const storageBlob = await downloadBinaryBlob(provider, storagePath);
+    if (!storageBlob || storageBlob.size <= 0) return null;
+    await cachePhotoBlob(photoId, storageBlob, true).catch(() => {});
+    return storageBlob;
+  };
+
+  let storageBlob = await tryObjectStorage(data);
+  if (storageBlob) return storageBlob;
+
+  // P0 cross-account recovery (RC2.2.15): a second user may already have a valid-looking
+  // cached Firestore pointer while the server row has since been repaired/migrated. A
+  // failed private-object read must therefore force one server metadata refresh and retry
+  // before the UI gives up. This specifically closes Editor-local -> Admin-broken-image.
+  if (typeof navigator === 'undefined' || navigator.onLine) {
+    try {
+      const serverData = await readPhotoMeta(true);
+      if (serverData) {
+        data = serverData;
+        storageBlob = await tryObjectStorage(serverData);
+        if (storageBlob) return storageBlob;
+      }
+    } catch (err) {
+      console.warn('[Photo Cloud] cross-account server retry warning:', photoId, err);
     }
   }
 

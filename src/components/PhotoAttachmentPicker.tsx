@@ -51,6 +51,8 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
 }) => {
   const [photos, setPhotos] = useState<PhotoAttachment[]>([]);
   const [photoDataUrls, setPhotoDataUrls] = useState<Record<string, string>>({});
+  const [photoLoadErrors, setPhotoLoadErrors] = useState<Record<string, string>>({});
+  const [retryingPhotoIds, setRetryingPhotoIds] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [syncNotice, setSyncNotice] = useState('');
@@ -88,20 +90,40 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
       const authUid = getCurrentRealFirebaseUser()?.uid || 'signed-out';
       const refreshKey = `${authUid}:${projectId}:${entityType}:${entityId}:${category}`;
       if (items.length === 0 && typeof navigator !== 'undefined' && navigator.onLine && !photoPickerServerRefreshKeys.has(refreshKey)) {
-        photoPickerServerRefreshKeys.add(refreshKey);
-        await refreshProjectPhotoMetadataFromCloud(projectId).catch(() => {});
+        const refreshed = await refreshProjectPhotoMetadataFromCloud(projectId).catch(() => ({ verified: false, count: 0 }));
+        // Cache a refresh decision only after a real server read succeeds. A transient
+        // auth/network failure must never permanently turn an existing gallery into 0/10
+        // for the rest of this app session.
+        if (refreshed.verified) photoPickerServerRefreshKeys.add(refreshKey);
         items = await getEntityPhotos(projectId, entityType, entityId, category);
       }
+
+      const resolveUrls = async (sourceItems: PhotoAttachment[]) => {
+        const map: Record<string, string> = {};
+        await Promise.all(sourceItems.map(async (p) => {
+          const url = p.localUri || await getPhotoDataUrl(p.id, p.cloudUrl || p.cloudFileId, true, projectId);
+          if (url) map[p.id] = url;
+        }));
+        return map;
+      };
+
+      // P0 RC2.2.15: metadata can be visible to Admin while its binary pointer/token is
+      // stale on that account. If any thumbnail cannot resolve, force one server metadata
+      // reconciliation and retry before rendering a broken placeholder.
+      let urlMap = await resolveUrls(items);
+      let unresolved = items.filter((p) => !urlMap[p.id]);
+      const binaryRecoveryKey = `${refreshKey}:binary`;
+      if (unresolved.length > 0 && typeof navigator !== 'undefined' && navigator.onLine && !photoPickerServerRefreshKeys.has(binaryRecoveryKey)) {
+        const refreshed = await refreshProjectPhotoMetadataFromCloud(projectId).catch(() => ({ verified: false, count: 0 }));
+        if (refreshed.verified) photoPickerServerRefreshKeys.add(binaryRecoveryKey);
+        items = await getEntityPhotos(projectId, entityType, entityId, category);
+        urlMap = await resolveUrls(items);
+        unresolved = items.filter((p) => !urlMap[p.id]);
+      }
       setPhotos(items);
+      setPhotoLoadErrors(Object.fromEntries(unresolved.map((p) => [p.id, 'Không tải được binary ảnh từ Cloud/R2.'])));
       
       // Load data URLs / thumbnails asynchronously
-      const urlMap: Record<string, string> = {};
-      await Promise.all(
-        items.map(async (p) => {
-          const url = p.localUri || await getPhotoDataUrl(p.id, p.cloudUrl || p.cloudFileId, true, projectId);
-          if (url) urlMap[p.id] = url;
-        })
-      );
       if (loadSeq !== loadSeqRef.current) {
         Object.values(urlMap).forEach(revokeBlobUrl);
         return;
@@ -296,6 +318,32 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
     await processSelectedFiles(e.target.files);
   };
 
+  const handleRetryCloudPhoto = async (photo: PhotoAttachment, e?: React.MouseEvent) => {
+    e?.preventDefault();
+    e?.stopPropagation();
+    if (!projectId || !photo?.id || retryingPhotoIds[photo.id]) return;
+    setRetryingPhotoIds((prev) => ({ ...prev, [photo.id]: true }));
+    setPhotoLoadErrors((prev) => { const next = { ...prev }; delete next[photo.id]; return next; });
+    try {
+      await refreshProjectPhotoMetadataFromCloud(projectId).catch(() => {});
+      const latest = (await getEntityPhotos(projectId, entityType, entityId, category)).find((item) => item.id === photo.id) || photo;
+      const url = latest.localUri || await getPhotoDataUrl(latest.id, latest.cloudUrl || latest.cloudFileId, true, projectId);
+      if (!url) throw new Error('Cloud/R2 chưa trả về binary ảnh cho tài khoản hiện tại.');
+      setPhotoDataUrls((prev) => {
+        if (prev[photo.id] && prev[photo.id] !== url) revokeBlobUrl(prev[photo.id]);
+        const next = { ...prev, [photo.id]: url };
+        photoDataUrlsRef.current = next;
+        return next;
+      });
+    } catch (err: any) {
+      const message = err?.message || 'Không tải được ảnh Cloud/R2.';
+      console.warn('[Photo Picker] cross-account binary retry failed:', photo.id, err);
+      setPhotoLoadErrors((prev) => ({ ...prev, [photo.id]: message }));
+    } finally {
+      setRetryingPhotoIds((prev) => { const next = { ...prev }; delete next[photo.id]; return next; });
+    }
+  };
+
   const handleDeletePhoto = async (photoId: string, e: React.MouseEvent) => {
     if (readOnly) return;
     e.preventDefault();
@@ -453,6 +501,10 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
               <div
                 key={photo.id}
                 onClick={() => {
+                  if (!url) {
+                    void handleRetryCloudPhoto(photo);
+                    return;
+                  }
                   const viewableIndex = photoImageUrls.slice(0, index + 1).filter(Boolean).length - 1;
                   if (viewableIndex >= 0) {
                     setViewingIndex(viewableIndex);
@@ -468,8 +520,21 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
                     referrerPolicy="no-referrer"
                   />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center text-slate-400">
-                    <ImageIcon className="w-6 h-6" />
+                  <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 px-1 text-center text-slate-400">
+                    {retryingPhotoIds[photo.id] ? <Loader2 className="w-5 h-5 animate-spin" /> : <ImageIcon className="w-6 h-6" />}
+                    <span className="text-[9px] font-semibold leading-tight">
+                      {retryingPhotoIds[photo.id] ? 'Đang tải Cloud...' : 'Chưa tải được ảnh'}
+                    </span>
+                    {!retryingPhotoIds[photo.id] && (
+                      <button
+                        type="button"
+                        onClick={(e) => void handleRetryCloudPhoto(photo, e)}
+                        className="rounded-md border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[9px] font-bold text-blue-700 hover:bg-blue-100"
+                        title={photoLoadErrors[photo.id] || 'Tải lại binary ảnh từ Cloud/R2'}
+                      >
+                        Tải lại
+                      </button>
+                    )}
                   </div>
                 )}
                 

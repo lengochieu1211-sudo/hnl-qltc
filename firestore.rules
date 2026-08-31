@@ -127,6 +127,43 @@ service cloud.firestore {
         && (!('deletedBy' in request.resource.data) || request.resource.data.deletedBy == null || request.resource.data.deletedBy == '');
     }
 
+    // RC2.2.15 crew-log correction policy:
+    // - EDITOR-created crew records are identity-bound at create time.
+    // - EDITOR cannot rewrite createdByUid on an active record.
+    // - EDITOR may soft-delete only a crew record they created themselves.
+    // This keeps broad/bulk deletion ADMIN-only while allowing a field engineer to
+    // correct an accidental duplicate/wrong daily log without changing Defect status.
+    function editorCreatesOwnedCrewRecord() {
+      return editorCreatesActiveOnly()
+        && ('createdByUid' in request.resource.data)
+        && request.resource.data.createdByUid == request.auth.uid;
+    }
+
+    function editorUpdatesActiveCrewRecord() {
+      return editorKeepsActiveLifecycle()
+        && (
+          (('createdByUid' in resource.data)
+            && ('createdByUid' in request.resource.data)
+            && request.resource.data.createdByUid == resource.data.createdByUid)
+          || (!('createdByUid' in resource.data) && !('createdByUid' in request.resource.data))
+        );
+    }
+
+    function editorSoftDeletesOwnCrewRecord() {
+      return ('createdByUid' in resource.data)
+        && resource.data.createdByUid == request.auth.uid
+        && ('createdByUid' in request.resource.data)
+        && request.resource.data.createdByUid == resource.data.createdByUid
+        && request.resource.data.deleted == true
+        && request.resource.data.deletedAt != null
+        && request.resource.data.deletedByUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'deleted', 'deletedAt', 'deletedByUid', 'deletedBy',
+          'updatedAt', 'updatedByUid', 'updatedByEmail',
+          'updatedByDeviceId', 'updatedByDeviceName', 'revision'
+        ]);
+    }
+
     // Room geometry/identity is ADMIN-owned project structure. EDITOR may update
     // field progress, assignment, inspection and due-date data on an existing room.
     function editorRoomOperationalUpdateOnly() {
@@ -457,7 +494,8 @@ service cloud.firestore {
             isAdmin(projectId)
             || (isEditor(projectId) && (
               (collectionName == 'photos' && editorCreatesActiveOnly())
-              || (isEditorOperationalCollection(collectionName) && editorCreatesActiveOnly())
+              || (collectionName == 'crew_records' && editorCreatesOwnedCrewRecord())
+              || (collectionName != 'crew_records' && isEditorOperationalCollection(collectionName) && editorCreatesActiveOnly())
             ))
           )
           && (!isCoreBusinessCollection(collectionName) || coreCreateLifecycleIsValid(recordId));
@@ -469,7 +507,8 @@ service cloud.firestore {
               (collectionName == 'rooms' && editorRoomOperationalUpdateOnly())
               || (collectionName == 'checklist' && editorChecklistOperationalUpdateOnly())
               || collectionName == 'photos'
-              || (isEditorOperationalCollection(collectionName) && editorKeepsActiveLifecycle())
+              || (collectionName == 'crew_records' && (editorUpdatesActiveCrewRecord() || editorSoftDeletesOwnCrewRecord()))
+              || (collectionName != 'crew_records' && isEditorOperationalCollection(collectionName) && editorKeepsActiveLifecycle())
             ))
           )
           && (!isCoreBusinessCollection(collectionName) || (coreIdentityUpdateIsValid(recordId) && lifecycleUpdateIsMonotonic()));

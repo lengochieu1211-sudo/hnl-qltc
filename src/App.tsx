@@ -5,7 +5,7 @@ import { safeSetLocalStorageItem } from './utils/storage';
 import { parseLegacyTimestamp } from './utils/dateFormatter';
 import { AppLockOverlay } from './components/AppLockOverlay';
 import { SecurityModal } from './components/SecurityModal';
-import { getStoredPinLockConfig, logAuditAction, getCurrentUserRole, setCurrentUserRole, UserRole, canEditProjectData, canManageProjects, canManageWorkVolumeStructure, canManageFloorPlanStructure, canManageMaterialNorms, canManageTeams, canManageChecklistStructure, canDeleteBusinessData, canManageBackups, canUseGlobalUndoRedo, canEditWarehouseData, canEditDefectData, canEditChecklistData, canEditCrewData, canImportData } from './utils/securityUtils';
+import { getStoredPinLockConfig, logAuditAction, getCurrentUserRole, setCurrentUserRole, UserRole, canEditProjectData, canManageProjects, canManageWorkVolumeStructure, canManageFloorPlanStructure, canManageMaterialNorms, canManageTeams, canManageChecklistStructure, canDeleteBusinessData, canDeleteCrewRecord, canManageBackups, canUseGlobalUndoRedo, canEditWarehouseData, canEditDefectData, canEditChecklistData, canEditCrewData, canImportData } from './utils/securityUtils';
 import { cacheVerifiedProjectRole, getCachedVerifiedProjectRole, getRememberedVerifiedAuthIdentity, rememberVerifiedAuthIdentity } from './utils/offlineAccess';
 
 function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
@@ -5682,9 +5682,15 @@ export default function App() {
   const handleAddCrewRecord = (record: Omit<CrewRecord, 'id'> & { id?: string }) => {
     if (!isProjectRoleResolved || !canEditCrewData(currentUserRole)) { console.warn('[RBAC] Tài khoản không có quyền chấm công/quân số.'); return; }
     const newId = record.id || createEntityId('crew');
+    const actorUid = getCurrentRealFirebaseUser()?.uid || '';
     updateAppData((prev) => ({
       ...prev,
-      crewRecords: [...prev.crewRecords, { ...record, id: newId }],
+      crewRecords: [...prev.crewRecords, {
+        ...record,
+        id: newId,
+        createdAt: Number(record.createdAt || Date.now()),
+        ...(actorUid && !record.createdByUid ? { createdByUid: actorUid } : {}),
+      }],
     }));
   };
 
@@ -5697,7 +5703,12 @@ export default function App() {
   };
 
   const handleDeleteCrewRecord = (id: string) => {
-    if (!isProjectRoleResolved || !canDeleteBusinessData(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được xóa nhật ký quân số.'); return; }
+    const actorUid = getCurrentRealFirebaseUser()?.uid || '';
+    const target = crewRecords.find((r) => r.id === id);
+    if (!isProjectRoleResolved || !target || !canDeleteCrewRecord(currentUserRole, actorUid, target.createdByUid)) {
+      console.warn('[RBAC] Chỉ ADMIN hoặc người tạo nhật ký được xóa bản ghi này.');
+      return;
+    }
     updateAppData((prev) => ({
       ...prev,
       crewRecords: prev.crewRecords.filter((r) => r.id !== id),
@@ -5705,7 +5716,9 @@ export default function App() {
   };
 
   const handleDeleteMultipleCrewRecords = (ids: string[]) => {
-    if (!isProjectRoleResolved || !canDeleteBusinessData(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được xóa nhật ký quân số.'); return; }
+    // Bulk delete remains ADMIN-only to prevent an EDITOR from accidentally removing
+    // another person's daily logs. EDITOR still has per-record delete for own entries.
+    if (!isProjectRoleResolved || !canDeleteBusinessData(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được xóa nhiều nhật ký quân số.'); return; }
     updateAppData((prev) => ({
       ...prev,
       crewRecords: prev.crewRecords.filter((r) => !ids.includes(r.id)),
@@ -5714,6 +5727,8 @@ export default function App() {
 
   const handleCopyCrewRecordsFromDate = (sourceDate: string, targetDate: string) => {
     if (!isProjectRoleResolved || !canEditCrewData(currentUserRole)) { console.warn('[RBAC] Tài khoản không có quyền sao chép nhật ký quân số.'); return; }
+    const actorUid = getCurrentRealFirebaseUser()?.uid || '';
+    const clonedAt = Date.now();
     updateAppData((prev) => {
       const sourceRecords = prev.crewRecords.filter((r) => r.date === sourceDate);
       const keptRecords = prev.crewRecords.filter((r) => r.date !== targetDate);
@@ -5721,6 +5736,10 @@ export default function App() {
         ...r,
         id: createEntityId('crew'),
         date: targetDate,
+        createdAt: clonedAt,
+        ...(actorUid ? { createdByUid: actorUid } : {}),
+        updatedAt: undefined,
+        updatedByUid: undefined,
       }));
       return {
         ...prev,
@@ -5733,6 +5752,28 @@ export default function App() {
   const unhandledDefectsCount = activeDefects.filter((d) => d.status !== 'Đã nghiệm thu').length;
 
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
+  const [floatingAlertsEnabled, setFloatingAlertsEnabled] = useState(true);
+
+  const floatingAlertPreferenceKey = useMemo(() => {
+    const userScope = cloudUserKey || 'signed-out';
+    return `construction_floating_alerts_enabled_${activeProjectId}_${userScope}`;
+  }, [activeProjectId, cloudUserKey]);
+
+  useEffect(() => {
+    try {
+      setFloatingAlertsEnabled(localStorage.getItem(floatingAlertPreferenceKey) !== 'false');
+    } catch (_) {
+      setFloatingAlertsEnabled(true);
+    }
+  }, [floatingAlertPreferenceKey]);
+
+  const updateFloatingAlertsEnabled = (enabled: boolean) => {
+    setFloatingAlertsEnabled(enabled);
+    try {
+      localStorage.setItem(floatingAlertPreferenceKey, enabled ? 'true' : 'false');
+    } catch (_) {}
+  };
+
   const [chatLastMessageAt, setChatLastMessageAt] = useState(0);
   const [chatLastReadAt, setChatLastReadAt] = useState(0);
   const [chatMessageCount, setChatMessageCount] = useState(0);
@@ -6113,6 +6154,7 @@ export default function App() {
               projectId={activeProjectId}
               userRole={currentUserRole}
               roleResolved={isProjectRoleResolved}
+              currentUserUid={getCurrentRealFirebaseUser()?.uid || ''}
               projectName={projectName}
               crewRecords={crewRecords}
               floorPlans={floorPlans}
@@ -6356,13 +6398,14 @@ export default function App() {
         />
 
         {/* Floating alerts never compete with the chat composer / soft keyboard. */}
-        {activeTab !== 'chat' && !isSoftKeyboardOpen && (
+        {floatingAlertsEnabled && activeTab !== 'chat' && !isSoftKeyboardOpen && (
           <DueDateToastNotifier
             workVolumes={workVolumes}
             checklist={activeChecklist}
             defects={activeDefects}
             onNavigateToItem={handleNavigateFromAlert}
             onOpenNotificationCenter={() => setIsNotificationCenterOpen(true)}
+            onDisableFloating={() => updateFloatingAlertsEnabled(false)}
           />
         )}
 
@@ -6377,6 +6420,8 @@ export default function App() {
           chatUnreadCount={chatUnreadCount}
           chatMentioned={chatMentioned}
           onOpenChat={() => { setIsNotificationCenterOpen(false); setActiveTab('chat'); }}
+          floatingAlertsEnabled={floatingAlertsEnabled}
+          onFloatingAlertsEnabledChange={updateFloatingAlertsEnabled}
         />
 
         {chatToast && activeTab !== 'chat' && !isSoftKeyboardOpen && (

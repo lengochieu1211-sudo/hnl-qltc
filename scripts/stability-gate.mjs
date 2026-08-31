@@ -58,7 +58,7 @@ if (!appVersion.includes('__APP_VERSION__') || appVersion.includes("APP_VERSION 
 requireAll(buildMeta, ['appVersion: APP_VERSION', 'buildId:', 'gitCommit:', 'buildTime:', 'environment:', 'platformFromLocation'], 'runtime build metadata');
 if (mergeWorkflow.includes('VITE_APP_VERSION') || prWorkflow.includes('VITE_APP_VERSION') || buildWorkflow.includes('VITE_APP_VERSION')) fail('workflow must not hard-code app version');
 requireAll(read('android-wrapper/build-apk.ps1'), ['package.json', '$appVersion', '$versionCode', '$releaseTag', 'https://hnlqltc.web.app/?app=android'], 'Android version/source URL');
-requireAll(read('.github/workflows/android-apk.yml'), ['windows-latest', 'actions/upload-artifact@v4', 'QLCT_WEB_URL: https://hnlqltc.web.app/?app=android', 'QLCT_RELEASE_TAG: 6.3.0-rc2.2.14'], 'Android APK CI');
+requireAll(read('.github/workflows/android-apk.yml'), ['windows-latest', 'actions/upload-artifact@v4', 'QLCT_WEB_URL: https://hnlqltc.web.app/?app=android', 'QLCT_RELEASE_TAG: 6.3.0-rc2.2.15'], 'Android APK CI');
 requireAll(read('desktop-wrapper/build-launcher.ps1'), ['package.json', '$version', 'AssemblyInformationalVersion'], 'Windows version source');
 if (!authHeader.includes('src={`/icon.png?v=${APP_VERSION}`}')) fail('header asset cache-bust does not use canonical APP_VERSION');
 if (!firebase.includes(`appId: '${PROD_FIREBASE_WEB_APP_ID}'`)) fail('PROD Firebase Web App ID fallback is missing or stale');
@@ -112,10 +112,10 @@ if (!exists('storage.rules') || !firebaseJson.includes('"storage"') || !firebase
 requireAll(firebaseStorage, ['uploadProjectBinary', 'uploadFloorPlanBinary', 'thumbnailPath', 'deleteObject'], 'Firebase Storage fallback client');
 requireAll(binaryStorage, ['BINARY_STORAGE_PROVIDER', "'r2'", "'firebase-storage'", 'uploadProjectBinaryToCloud', 'uploadFloorPlanBinaryToCloud', 'downloadBinaryBlob'], 'binary storage provider adapter');
 requireAll(r2Storage, ['VITE_R2_GATEWAY_URL', 'Authorization', 'uploadProjectBinaryToR2', 'uploadFloorPlanBinaryToR2', 'downloadR2Blob'], 'R2 client');
-requireAll(r2Storage, ['verifyR2ObjectReady', 'verifyR2ObjectViaAuthenticatedGet', "method: 'HEAD'", "method: 'GET'", 'HEAD durability check unavailable', 'X-HNL-SHA256', 'R2_UPLOAD_NOT_DURABLE'], 'R2 durable PUT + HEAD/CORS-safe authenticated GET verification');
+requireAll(r2Storage, ['verifyR2ObjectReady', 'verifyR2ObjectViaAuthenticatedGet', "method: 'HEAD'", "method: 'GET'", 'HEAD durability check unavailable', 'X-HNL-SHA256', 'R2_UPLOAD_NOT_DURABLE', 'getIdToken(forceRefresh)', 'response.status === 401 || response.status === 403', "cache: 'no-store'", 'download denied/missing'], 'R2 durable PUT + HEAD/CORS-safe authenticated GET verification + cross-account token recovery');
 requireAll(r2Worker, ['HNL_QLTC_MEDIA', 'FIREBASE_PROJECT_ID', 'firestore.googleapis.com', 'canWrite', "area === 'floor-plans'", "role === 'ADMIN'", "role === 'EDITOR'"], 'R2 gateway RBAC');
-requireAll(r2Worker, ["request.method === 'HEAD'", 'HNL_QLTC_MEDIA.head', 'X-HNL-SHA256', 'Content-Length'], 'R2 gateway durable object HEAD');
-requireAll(r2DeployWorkflow, ['workflow_dispatch:', 'DEPLOY-R2', 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID', 'wrangler@4.33.0 deploy', '/health'], 'manual-gated R2 Worker deploy workflow');
+requireAll(r2Worker, ["request.method === 'HEAD'", 'HNL_QLTC_MEDIA.head', 'X-HNL-SHA256', 'Content-Length', "GATEWAY_VERSION = '6.3.0-rc2.2.15'", "accessPolicy: 'canonical-email-first'", "for (const memberId of [email, uid])"], 'R2 gateway durable object HEAD + canonical cross-account RBAC/version');
+requireAll(r2DeployWorkflow, ['workflow_dispatch:', 'DEPLOY-R2', 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID', 'wrangler@4.33.0 deploy', '/health', '"version":"6.3.0-rc2.2.15"', '"accessPolicy":"canonical-email-first"'], 'manual-gated R2 Worker deploy workflow + exact runtime verification');
 if (r2DeployWorkflow.includes('on:\n  push:') || r2DeployWorkflow.includes('on:\n  pull_request:')) fail('R2 Worker deploy workflow must never auto-deploy on push/PR');
 requireAll(photoSync, ['uploadProjectBinaryToCloud', 'BINARY_STORAGE_PROVIDER', 'storagePath:', 'thumbnailPath:', 'photoSnapshotMergeQueue'], 'photo object-storage pipeline');
 requireAll(photoStorage, [
@@ -133,7 +133,14 @@ requireAll(photoSync, [
   "binaryUploadState || '') === 'pending'",
   'verifyPhotoBinaryReadyInCloud',
   "throw new Error('PHOTO_AUTH_UNAVAILABLE')",
-], 'same-phone photo server refresh + upload confirmation');
+  'P0 cross-account recovery (RC2.2.15)',
+  'cross-account server retry warning',
+  'storageBlob = await tryObjectStorage(serverData)',
+  'verifyCurrentProviderCloudBinary',
+  'currentProviderRepairMode',
+  'r2-object-missing-or-mismatched',
+  'localRepairCandidate',
+], 'same-phone/cross-account photo server refresh + upload/download confirmation + broken R2 pointer self-heal');
 requireAll(photoPicker, [
   'getPhotoDataUrl(p.id, p.cloudUrl || p.cloudFileId, true, projectId)',
   'getPhotoDataUrl(photo.id, photo.cloudUrl || photo.cloudFileId, false, projectId)',
@@ -146,7 +153,11 @@ requireAll(photoPicker, [
   'items.length === 0',
   'photoPickerServerRefreshKeys.has(refreshKey)',
   'refreshProjectPhotoMetadataFromCloud(projectId)',
-], 'PhotoAttachmentPicker authenticated cloud rendering + same-phone account switch/realtime race guard');
+  'binaryRecoveryKey',
+  'handleRetryCloudPhoto',
+  'Không tải được binary ảnh từ Cloud/R2.',
+  'Tải lại binary ảnh từ Cloud/R2',
+], 'PhotoAttachmentPicker authenticated cloud rendering + same-phone/cross-account binary recovery');
 requireAll(androidMain, [
   'deliverCameraImageWhenReady',
   'MediaStore.MediaColumns.SIZE',
@@ -168,7 +179,7 @@ requireAll(androidMain, [
 const pickerProvider = read('android-wrapper/src/com/qlct/app/PickerCacheProvider.java');
 requireAll(pickerProvider, ['ParcelFileDescriptor.MODE_READ_ONLY', 'OpenableColumns.DISPLAY_NAME', 'OpenableColumns.SIZE'], 'Android app-owned picker ContentProvider');
 pass('Android Gallery returns stable app-owned binary to WebView instead of ephemeral OEM content URI');
-requireAll(photoStorage, ['binaryUploadState: ' + "'pending'", 'isSharedCloudPhotoVisible', 'if (!isSharedCloudPhotoVisible(cloud)) continue'], 'photo ready-only shared visibility');
+requireAll(photoStorage, ['binaryUploadState: ' + "'pending'", 'isPhotoSharedCloudReady', 'if (!isPhotoSharedCloudReady(cloud)) continue', 'getPhotoCloudCacheKey', 'saveDerivedCloudPhotoCache'], 'photo ready-only shared visibility + account-scoped derived Cloud cache');
 requireAll(photoSync, ['Ready-only publish', 'if (!deleted && (!hasDurableCloudBinaryPointer(photo)', 'cloudIsAuthoritative', 'đang tự retry'], 'photo durable outbox publish ordering');
 requireAll(binaryStorage, ['one write authority only: private Cloudflare R2', 'uploadProjectBinaryToR2(input)', 'verifyBinaryObjectReady'], 'photo R2-only write authority with durable verification');
 requireAll(app, ['photoOutboxRetryTimerRef', 'photoOutboxRetryAttemptRef', 'Math.min(30000, 750 * Math.pow(2'], 'photo persistent outbox retry scheduler');

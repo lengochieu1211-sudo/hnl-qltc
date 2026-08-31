@@ -54,6 +54,7 @@ const getPhotoListKey = (projectId: string) => `construction_photos_${projectId}
 const getPhotoBlobKey = (photoId: string) => `photo_blob_${photoId}`;
 const getPhotoThumbKey = (photoId: string) => `photo_thumb_${photoId}`;
 const getPhotoPendingMetaKey = (photoId: string) => `photo_pending_meta_${photoId}`;
+const getPhotoCloudCacheKey = (projectId: string, authKey: string) => `photo_cloud_cache_${authKey}_${projectId}`;
 
 const projectPhotoListMemoryCache = new Map<string, PhotoAttachment[]>();
 const projectPhotoListMemoryCacheOwner = new Map<string, string>();
@@ -136,6 +137,42 @@ export async function clearPendingPhotoMetadata(photoId: string): Promise<void> 
   await localforage.removeItem(getPhotoPendingMetaKey(photoId)).catch(() => {});
 }
 
+function hasSharedCloudBinary(photo: PhotoAttachment): boolean {
+  const provider = String(photo?.storageProvider || '');
+  const cloudRef = String(photo?.cloudFileId || photo?.cloudUrl || '');
+  return Boolean(
+    photo?.storagePath
+    || cloudRef.startsWith('r2:')
+    || cloudRef.startsWith('storage:')
+    || cloudRef.startsWith('drive:')
+    || ['r2', 'firebase-storage', 'google-drive-primary'].includes(provider)
+    || Number(photo?.chunkCount || 0) > 0
+  );
+}
+
+export function isPhotoSharedCloudReady(photo: PhotoAttachment): boolean {
+  if (photo?.deleted || photo?.deletedAt) return true;
+  return hasSharedCloudBinary(photo) && String(photo?.binaryUploadState || 'ready') !== 'pending';
+}
+
+async function getDerivedCloudPhotoCache(projectId: string, authKey: string): Promise<PhotoAttachment[]> {
+  if (!projectId || !authKey || authKey === 'signed-out') return [];
+  try {
+    const cached = await localforage.getItem<PhotoAttachment[]>(getPhotoCloudCacheKey(projectId, authKey));
+    return Array.isArray(cached) ? cached : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+async function saveDerivedCloudPhotoCache(projectId: string, authKey: string, photos: PhotoAttachment[]): Promise<void> {
+  if (!projectId || !authKey || authKey === 'signed-out') return;
+  const derived = photos
+    .filter((photo) => photo?.id && isPhotoSharedCloudReady(photo))
+    .map((photo) => ({ ...photo, localUri: '', base64: undefined, dataUrl: undefined }));
+  await localforage.setItem(getPhotoCloudCacheKey(projectId, authKey), derived).catch(() => {});
+}
+
 export async function getProjectPhotos(projectId: string, includeDeleted = false): Promise<PhotoAttachment[]> {
   if (!projectId) return [];
   try {
@@ -152,9 +189,14 @@ export async function getProjectPhotos(projectId: string, includeDeleted = false
       const legacy = FIREBASE_ONLY_RUNTIME && !LEGACY_LOCAL_IMPORT_ENABLED
         ? []
         : await getAsyncItem<PhotoAttachment[]>(getPhotoListKey(projectId), []);
+      // Derived, account-scoped Firestore photo metadata cache. This is never a write
+      // authority; it only prevents a valid shared gallery from flashing 2 -> 0 while
+      // realtime/server hydration catches up after app resume or auth-token refresh.
+      const cloudCache = FIREBASE_ONLY_RUNTIME ? await getDerivedCloudPhotoCache(projectId, authKey) : [];
       const pending = FIREBASE_ONLY_RUNTIME ? await getPendingPhotoMetadata(projectId) : [];
       const merged = new Map<string, PhotoAttachment>();
       for (const item of Array.isArray(legacy) ? legacy : []) if (item?.id) merged.set(item.id, item);
+      for (const item of cloudCache) if (item?.id) merged.set(item.id, item);
       for (const item of pending) {
         const previous = merged.get(item.id);
         if (!previous || Number(item.updatedAt || 0) >= Number(previous.updatedAt || 0)) merged.set(item.id, item);
@@ -177,8 +219,12 @@ export async function saveProjectPhotos(projectId: string, photos: PhotoAttachme
     if (p.localUri && p.localUri.startsWith('data:image/')) return { ...p, localUri: '' };
     return p;
   });
+  const authKey = getPhotoRuntimeAuthKey();
   projectPhotoListMemoryCache.set(projectId, cleanPhotos);
-  projectPhotoListMemoryCacheOwner.set(projectId, getPhotoRuntimeAuthKey());
+  projectPhotoListMemoryCacheOwner.set(projectId, authKey);
+  if (FIREBASE_ONLY_RUNTIME) {
+    await saveDerivedCloudPhotoCache(projectId, authKey, cleanPhotos);
+  }
   if (!FIREBASE_ONLY_RUNTIME || LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED) {
     await setAsyncItem(getPhotoListKey(projectId), cleanPhotos);
   }
@@ -295,27 +341,6 @@ export async function cachePhotoBlob(photoId: string, blob: Blob, createThumbnai
   } catch (_) {}
 }
 
-function hasSharedCloudBinary(photo: PhotoAttachment): boolean {
-  const provider = String(photo?.storageProvider || '');
-  const cloudRef = String(photo?.cloudFileId || photo?.cloudUrl || '');
-  return Boolean(
-    photo?.storagePath
-    || cloudRef.startsWith('r2:')
-    || cloudRef.startsWith('storage:')
-    || cloudRef.startsWith('drive:')
-    || ['r2', 'firebase-storage', 'google-drive-primary'].includes(provider)
-    || Number(photo?.chunkCount || 0) > 0
-  );
-}
-
-function isSharedCloudPhotoVisible(photo: PhotoAttachment): boolean {
-  if (photo?.deleted || photo?.deletedAt) return true;
-  // Canonical Firestore photo rows are visible cross-account only after a binary
-  // pointer exists. Old RC pending rows are deliberately hidden instead of rendered
-  // as broken placeholders; the creator's local outbox remains visible on that device.
-  return hasSharedCloudBinary(photo) && String(photo?.binaryUploadState || 'ready') !== 'pending';
-}
-
 export async function mergeCloudPhotoMetadata(projectId: string, cloudPhotos: PhotoAttachment[], changedPhotos: PhotoAttachment[] = cloudPhotos): Promise<void> {
   if (!projectId || !Array.isArray(cloudPhotos)) return;
   const localPhotos = await getProjectPhotos(projectId, true);
@@ -328,7 +353,7 @@ export async function mergeCloudPhotoMetadata(projectId: string, cloudPhotos: Ph
 
   for (const cloud of cloudPhotos) {
     if (!cloud?.id) continue;
-    if (!isSharedCloudPhotoVisible(cloud)) continue;
+    if (!isPhotoSharedCloudReady(cloud)) continue;
     const local = localMap.get(cloud.id);
     const localTime = Number(local?.updatedAt || local?.createdAt || 0);
     const cloudTime = Number(cloud.updatedAt || cloud.createdAt || 0);

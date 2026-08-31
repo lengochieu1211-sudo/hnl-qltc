@@ -54,6 +54,8 @@ check('Material norm handlers are ADMIN-only', (src.app.match(/canManageMaterial
 check('Checklist separates operational vs structure permission', has(src.app, 'canEditChecklistData(currentUserRole)', 'canManageChecklistStructure(currentUserRole)'));
 check('Defect operational handlers require EDITOR/ADMIN', has(src.app, 'canEditDefectData(currentUserRole)'));
 check('Crew operational handlers require EDITOR/ADMIN', has(src.app, 'canEditCrewData(currentUserRole)'));
+check('Crew single delete is ADMIN or creator-bound EDITOR', has(src.security, 'export function canDeleteCrewRecord', "role === 'EDITOR'", 'actor === owner') && has(src.app, 'canDeleteCrewRecord(currentUserRole, actorUid, target.createdByUid)', 'Chỉ ADMIN hoặc người tạo nhật ký được xóa bản ghi này.'));
+check('Crew bulk delete remains ADMIN-only', has(src.app, 'Bulk delete remains ADMIN-only', 'canDeleteBusinessData(currentUserRole)'));
 check('Warehouse operational handlers require EDITOR/ADMIN', has(src.app, 'canEditWarehouseData(currentUserRole)'));
 check('Broad deletes use ADMIN-only helper', (src.app.match(/canDeleteBusinessData\(currentUserRole\)/g) || []).length >= 4);
 check('Backup/restore handlers use ADMIN-only helper', (src.app.match(/canManageBackups\(currentUserRole\)/g) || []).length >= 12);
@@ -73,7 +75,7 @@ check('Floor view does not restore stale pan/zoom across incompatible viewport s
 check('Photo picker read-only mode is enforced in handlers, not UI-only', (src.photos.match(/if \(readOnly\) return;/g) || []).length >= 3 && has(src.photos, 'if (readOnly || !editingPhoto || !projectId) return;'));
 check('Warehouse has verified role, edit/delete/import/norm gates', has(src.warehouse, 'roleResolved: boolean', 'hasEditAccess', 'hasDeleteAccess', 'hasImportAccess', 'hasNormManageAccess'));
 check('Checklist has verified role and separates operational/structure/delete/import', has(src.checklist, 'roleResolved: boolean', 'canOperate', 'canManageStructure', 'canDelete', 'canImport'));
-check('Crew has verified role and separates operations/team/delete/import', has(src.crew, 'roleResolved: boolean', 'canOperate', 'canManageTeamDirectory', 'canDelete', 'canImportTeams'));
+check('Crew has verified role and separates operations/team/delete/import', has(src.crew, 'roleResolved: boolean', 'currentUserUid?: string', 'canOperate', 'canManageTeamDirectory', 'canDelete', 'canDeleteRecord', 'canImportTeams'));
 check('Material norms are structurally ADMIN-only', has(src.norms, 'roleResolved: boolean', 'hasManageAccess', 'hasImportAccess'));
 check('Security member mutation is ADMIN-only', has(src.securityModal, 'canManageProjectMembers', 'canManageMembers(currentRole)'));
 check('Security role change/revoke uses app confirmation with identity context', has(src.securityModal, 'confirmAsync(', 'Quyền cũ:', 'Quyền mới:', 'Thao tác này sẽ thu hồi mọi UID/email alias'));
@@ -85,7 +87,7 @@ check('Notification Defect navigation carries exact identity and floor', has(src
 check('FloorPlan consumes Defect deep-link and opens exact detail', has(src.floor, 'qlct_pending_defect_navigation', "setStatusFilter('all')", "setViewMode('defect')", 'setActiveDefectDetail(defect)', 'pendingFocusRef.current'));
 check('Deleted/archived Defect deep-link fails closed with a clear unavailable message', has(src.floor, 'Target no longer exists or is archived', 'Defect này không còn tồn tại hoặc đã được lưu trữ.', 'Target floor no longer exists', 'mặt bằng/tầng liên quan không còn tồn tại.', 'Không có Defect khác được mở thay thế.'));
 check('Mobile shell owns one soft-keyboard visualViewport gate', has(src.app, 'isSoftKeyboardOpen', 'window.visualViewport', 'obscured > 140', "activeTab !== 'chat' && !isSoftKeyboardOpen", '{!isSoftKeyboardOpen && ('));
-check('Mobile alert badge opens notification center without large overlay', has(src.toast, "window.matchMedia('(max-width: 639px)')", 'if (compact && onOpenNotificationCenter) onOpenNotificationCenter()', 'env(safe-area-inset-bottom)'));
+check('Mobile alert badge has independent open and disable-floating controls', has(src.toast, "window.matchMedia('(max-width: 639px)')", 'if (compact && onOpenNotificationCenter) onOpenNotificationCenter()', 'onDisableFloating', 'Tắt thông báo nổi', 'env(safe-area-inset-bottom)') && has(src.app, 'floatingAlertsEnabled', 'construction_floating_alerts_enabled_', 'onDisableFloating={() => updateFloatingAlertsEnabled(false)}') && has(src.header, 'onOpenNotificationCenter'));
 check('Badge semantics distinguish Defect count from deadline alerts', has(src.bottomNav, "badgeLabel: 'Defect chưa xử lý'", 'D{tab.badge}') && has(src.authHeader, 'cảnh báo đến hạn/quá hạn', 'aria-label'));
 check('Chat composer follows VisualViewport and no longer reserves BottomNav space', has(src.chat, 'visualViewportHeight', 'window.visualViewport', 'visualViewportHeight - 112') && !src.chat.includes('pb-20 flex flex-col'));
 check('Viewer cannot read audit tab while Editor/Admin can', has(src.securityModal, 'canReadAudit', "currentRole === 'ADMIN' || currentRole === 'EDITOR'"));
@@ -102,7 +104,8 @@ check('Firestore legacy floor-plan image fallback is read-only', has(src.firesto
 check('Firestore generic physical delete is ADMIN-only', has(src.firestore, "allow delete: if collectionName != 'activityLogs'", '&& isAdmin(projectId)', '&& !isCoreBusinessCollection(collectionName)'));
 check('Firestore Editor room update is operational-only', has(src.firestore, 'function editorRoomOperationalUpdateOnly', 'editorKeepsActiveLifecycle()', "'frameStatus'", "'inspectionStatus'", "'subItems'"));
 check('Firestore Editor checklist update is operational-only', has(src.firestore, 'function editorChecklistOperationalUpdateOnly', "'status'", "'notes'", "'inspectedBy'"));
-check('Firestore Editor cannot tombstone normal operational records', has(src.firestore, 'function editorCreatesActiveOnly', 'function editorKeepsActiveLifecycle'));
+check('Firestore Editor cannot tombstone normal operational records except own crew correction', has(src.firestore, 'function editorCreatesActiveOnly', 'function editorKeepsActiveLifecycle', 'function editorSoftDeletesOwnCrewRecord', "resource.data.createdByUid == request.auth.uid", "collectionName == 'crew_records'"));
+check('Firestore legacy crew ownership is non-claimable by Editor', has(src.firestore, "!('createdByUid' in resource.data) && !('createdByUid' in request.resource.data)", 'editorUpdatesActiveCrewRecord'));
 check('Firestore core identity/revision guard is retained', has(src.firestore, 'coreIdentityUpdateIsValid(recordId)', 'lifecycleUpdateIsMonotonic()'));
 check('Viewer project data remains read-only via isMember/canEdit split', has(src.firestore, 'allow read:', 'isMember(projectId)', 'function canEdit(projectId)'));
 check('Firestore canonical email role overrides UID alias', has(src.firestore, 'function canonicalMemberActive', 'function canonicalMemberRole', 'hasEmailMember(projectId) ? emailMemberActive(projectId) : uidMemberActive(projectId)'));
@@ -121,6 +124,7 @@ check('Rules behavior test includes ADMIN/EDITOR/VIEWER identities', has(rulesTe
 check('Rules behavior test covers WorkVolume and FloorPlan structural denial', has(rulesTest, 'EDITOR cannot create work-volume master definition', 'EDITOR cannot create floor-plan structure', 'EDITOR cannot create room geometry'));
 check('Rules behavior test covers master structure collections', has(rulesTest, 'material norm', 'team directory', 'checklist definition'));
 check('Rules behavior test covers operational Editor permissions', has(rulesTest, 'checklist inspection status', 'defect operational update', 'crew operational record', 'warehouse operational record'));
+check('Rules behavior test covers creator-bound crew correction delete', has(rulesTest, 'EDITOR may soft-delete own crew record', 'EDITOR cannot soft-delete another user crew record', 'EDITOR cannot rewrite crew creator identity', 'EDITOR cannot claim legacy crew creator identity', 'EDITOR cannot soft-delete legacy crew without creator identity'));
 check('Rules behavior test covers Admin-only settings/trash and legacy floor image fallback', has(rulesTest, 'EDITOR cannot mutate shared settings', 'EDITOR cannot create trash metadata', 'ADMIN cannot recreate legacy floor-plan Firestore metadata'));
 check('Rules behavior test covers fail-closed future collection denial', has(rulesTest, 'EDITOR cannot create unclassified future project collection'));
 check('Rules behavior test covers Viewer write denial', has(rulesTest, 'VIEWER cannot write core record'));

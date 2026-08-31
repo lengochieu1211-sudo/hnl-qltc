@@ -168,6 +168,22 @@ export function canDeleteBusinessData(role: UserRole): boolean {
   return role === 'ADMIN';
 }
 
+// RC2.2.15: daily crew logs are operational records. ADMIN may delete any log.
+// EDITOR may delete only a log that was created by the same authenticated user.
+// Deletion still flows through the normal soft-delete/trash pipeline; this helper
+// only answers whether the current actor may request that delete.
+export function canDeleteCrewRecord(
+  role: UserRole,
+  currentUid?: string,
+  recordCreatedByUid?: string,
+): boolean {
+  if (role === 'ADMIN') return true;
+  if (role !== 'EDITOR') return false;
+  const actor = String(currentUid || '').trim();
+  const owner = String(recordCreatedByUid || '').trim();
+  return Boolean(actor && owner && actor === owner);
+}
+
 export function canManageBackups(role: UserRole): boolean {
   return role === 'ADMIN';
 }

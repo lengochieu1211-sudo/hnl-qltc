@@ -294,17 +294,62 @@ try {
   }));
 
   const crewRef = doc(db, 'projects', pid, 'crew_records', 'CREW-RULE-1');
-  await expectAllowed('EDITOR creates crew operational record', () => setDoc(crewRef, {
-    id: 'CREW-RULE-1', date: '2026-08-27', teamName: 'Đội A', workerCount: 5,
+  await expectDenied('EDITOR cannot create crew record without creator identity', () => setDoc(doc(db, 'projects', pid, 'crew_records', 'CREW-NO-OWNER'), {
+    id: 'CREW-NO-OWNER', date: '2026-08-27', teamName: 'Đội A', workerCount: 5,
     revision: 1, createdAt: Date.now(), updatedAt: Date.now(), deleted: false, deletedAt: null,
+  }));
+  await expectAllowed('EDITOR creates crew operational record bound to own uid', () => setDoc(crewRef, {
+    id: 'CREW-RULE-1', date: '2026-08-27', teamName: 'Đội A', workerCount: 5,
+    revision: 1, createdAt: Date.now(), updatedAt: Date.now(), createdByUid: editorUid,
+    deleted: false, deletedAt: null,
   }));
   const crewSnap = await getDoc(crewRef);
   const crewUpdatedAt = Number(crewSnap.data()?.updatedAt || 0);
   await expectAllowed('EDITOR updates crew operational record', () => updateDoc(crewRef, {
     workerCount: 6, notes: 'Tăng ca', revision: 2, updatedAt: crewUpdatedAt + 10,
   }));
-  await expectDenied('EDITOR cannot soft-delete crew business record', () => updateDoc(crewRef, {
-    deleted: true, deletedAt: Date.now(), revision: 3, updatedAt: crewUpdatedAt + 20,
+  await expectDenied('EDITOR cannot rewrite crew creator identity', () => updateDoc(crewRef, {
+    createdByUid: ownerUid, revision: 3, updatedAt: crewUpdatedAt + 20,
+  }));
+  await expectAllowed('EDITOR may soft-delete own crew record', () => updateDoc(crewRef, {
+    deleted: true, deletedAt: Date.now(), deletedByUid: editorUid, deletedBy: editorUid,
+    revision: 3, updatedAt: crewUpdatedAt + 30,
+  }));
+
+  await signIn(ownerEmail);
+  const ownerCrewRef = doc(db, 'projects', pid, 'crew_records', 'CREW-OWNER-RULE-1');
+  await expectAllowed('ADMIN creates crew record owned by admin', () => setDoc(ownerCrewRef, {
+    id: 'CREW-OWNER-RULE-1', date: '2026-08-27', teamName: 'Đội Chủ đầu tư', workerCount: 3,
+    revision: 1, createdAt: Date.now(), updatedAt: Date.now(), createdByUid: ownerUid,
+    deleted: false, deletedAt: null,
+  }));
+  const ownerCrewSnap = await getDoc(ownerCrewRef);
+  const ownerCrewUpdatedAt = Number(ownerCrewSnap.data()?.updatedAt || 0);
+
+  // Legacy crew rows may predate createdByUid. ADMIN can keep those rows, but an
+  // EDITOR must never be able to add their own creator id later and then delete it.
+  const legacyCrewRef = doc(db, 'projects', pid, 'crew_records', 'CREW-LEGACY-RULE-1');
+  await expectAllowed('ADMIN creates legacy crew fixture without creator uid', () => setDoc(legacyCrewRef, {
+    id: 'CREW-LEGACY-RULE-1', date: '2026-08-26', teamName: 'Đội Legacy', workerCount: 2,
+    revision: 1, createdAt: Date.now(), updatedAt: Date.now(), deleted: false, deletedAt: null,
+  }));
+  const legacyCrewSnap = await getDoc(legacyCrewRef);
+  const legacyCrewUpdatedAt = Number(legacyCrewSnap.data()?.updatedAt || 0);
+
+  await signIn(editorEmail);
+  await expectDenied('EDITOR cannot soft-delete another user crew record', () => updateDoc(ownerCrewRef, {
+    deleted: true, deletedAt: Date.now(), deletedByUid: editorUid, deletedBy: editorUid,
+    revision: 2, updatedAt: ownerCrewUpdatedAt + 10,
+  }));
+  await expectAllowed('EDITOR may operationally edit legacy crew without claiming ownership', () => updateDoc(legacyCrewRef, {
+    workerCount: 3, revision: 2, updatedAt: legacyCrewUpdatedAt + 10,
+  }));
+  await expectDenied('EDITOR cannot claim legacy crew creator identity', () => updateDoc(legacyCrewRef, {
+    createdByUid: editorUid, revision: 3, updatedAt: legacyCrewUpdatedAt + 20,
+  }));
+  await expectDenied('EDITOR cannot soft-delete legacy crew without creator identity', () => updateDoc(legacyCrewRef, {
+    deleted: true, deletedAt: Date.now(), deletedByUid: editorUid, deletedBy: editorUid,
+    revision: 3, updatedAt: legacyCrewUpdatedAt + 30,
   }));
 
   const photoMetaRef = doc(db, 'projects', pid, 'photos', 'PHOTO-META-RULE-1');

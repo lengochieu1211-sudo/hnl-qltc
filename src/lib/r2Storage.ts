@@ -62,10 +62,13 @@ export function buildR2FloorPlanPaths(projectId: string, floorPlanId: string, mi
   return { storagePath: `${base}/original.${ext}`, thumbnailPath: `${base}/thumb.${ext}` };
 }
 
-async function authHeader(): Promise<string> {
+async function authHeader(forceRefresh = false): Promise<string> {
   const user = getCurrentRealFirebaseUser();
   if (!user || user.isAnonymous) throw new Error('R2_AUTH_UNAVAILABLE');
-  const token = await user.getIdToken();
+  // Cross-account recovery: after a same-phone Google account switch the browser may
+  // still hold a cached Firebase ID token close to expiry. Normal calls use the cheap
+  // cached token; a 401/403 download retries once with a freshly minted token.
+  const token = await user.getIdToken(forceRefresh);
   return `Bearer ${token}`;
 }
 
@@ -230,10 +233,32 @@ export async function uploadFloorPlanBinaryToR2(input: {
 export async function downloadR2Blob(storagePath?: string | null): Promise<Blob | null> {
   const path = String(storagePath || '').trim();
   if (!path) return null;
+
+  const requestObject = async (forceRefresh = false) => fetch(gatewayUrl('/v1/object', path), {
+    method: 'GET',
+    headers: { Authorization: await authHeader(forceRefresh) },
+    cache: 'no-store',
+  });
+
   try {
-    const response = await fetch(gatewayUrl('/v1/object', path), { headers: { Authorization: await authHeader() } });
-    if (!response.ok) return null;
-    return await response.blob();
+    let response = await requestObject(false);
+    // Same-phone A -> B account switches and long-lived installed PWAs can occasionally
+    // hit the gateway with an expired/stale Firebase token. Retry authentication once
+    // before declaring the shared R2 binary unavailable. Real RBAC denial still fails.
+    if (response.status === 401 || response.status === 403) {
+      response = await requestObject(true);
+    }
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      console.warn('[Cloudflare R2] download denied/missing:', { path, status: response.status, detail: detail.slice(0, 180) });
+      return null;
+    }
+    const blob = await response.blob();
+    if (!blob || blob.size <= 0) {
+      console.warn('[Cloudflare R2] empty binary response:', path);
+      return null;
+    }
+    return blob;
   } catch (err) {
     console.warn('[Cloudflare R2] download failed:', path, err);
     return null;

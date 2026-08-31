@@ -1,4 +1,5 @@
 // HNL QLTC R2 Gateway. No Firebase service-account secret is stored here.
+const GATEWAY_VERSION = '6.3.0-rc2.2.15';
 // The browser sends its Firebase ID token; Firestore REST verifies that token and
 // the existing project/member documents are used to enforce VIEWER/EDITOR/ADMIN.
 
@@ -16,6 +17,8 @@ function corsHeaders(request, env) {
     'Vary': 'Origin',
     'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-HNL-Metadata',
     'Access-Control-Allow-Methods': 'GET, HEAD, PUT, DELETE, OPTIONS',
+    'Access-Control-Expose-Headers': 'Content-Length, ETag, X-HNL-SHA256, X-HNL-R2-Gateway-Version',
+    'X-HNL-R2-Gateway-Version': GATEWAY_VERSION,
     'Access-Control-Max-Age': '86400',
   } : {};
 }
@@ -92,7 +95,7 @@ export default {
     const cors = corsHeaders(request, env);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     const url = new URL(request.url);
-    if (url.pathname === '/health') return json({ ok: true, service: 'hnl-qltc-r2-gateway' }, 200, cors);
+    if (url.pathname === '/health') return json({ ok: true, service: 'hnl-qltc-r2-gateway', version: GATEWAY_VERSION, accessPolicy: 'canonical-email-first' }, 200, cors);
     if (url.pathname !== '/v1/object') return json({ error: 'NOT_FOUND' }, 404, cors);
 
     const auth = request.headers.get('Authorization') || '';
