@@ -1,0 +1,56 @@
+diff -ruN hnl-qltc-main-f833-local/scripts/stability-gate.mjs hnl-qltc-rc2215-next/scripts/stability-gate.mjs
+--- hnl-qltc-main-f833-local/scripts/stability-gate.mjs	2026-08-31 02:26:51.000000000 +0000
++++ hnl-qltc-rc2215-next/scripts/stability-gate.mjs	2026-08-31 04:22:18.194602274 +0000
+@@ -47,6 +47,11 @@
+ const diagnostics = read('src/lib/runtimeDiagnostics.ts');
+ const authHeader = read('src/components/GoogleAuthHeader.tsx');
+ const floorPlanDefect = read('src/components/FloorPlanDefectTab.tsx');
++const chatTab = read('src/features/chat/ChatTab.tsx');
++const imageViewer = read('src/components/ImageViewerModal.tsx');
++const configTab = read('src/components/GoogleConfigTab.tsx');
++const bottomNav = read('src/components/BottomNav.tsx');
++const runtimeDiagnostics = read('src/lib/runtimeDiagnostics.ts');
+ const roomHighlight = read('src/components/RoomHighlightModal.tsx');
+ const projectManager = read('src/components/ProjectManagerModal.tsx');
+ const PROD_FIREBASE_WEB_APP_ID = '1:119152410850:web:c2aee2135428af34ef5ebb';
+@@ -112,7 +117,7 @@
+ requireAll(firebaseStorage, ['uploadProjectBinary', 'uploadFloorPlanBinary', 'thumbnailPath', 'deleteObject'], 'Firebase Storage fallback client');
+ requireAll(binaryStorage, ['BINARY_STORAGE_PROVIDER', "'r2'", "'firebase-storage'", 'uploadProjectBinaryToCloud', 'uploadFloorPlanBinaryToCloud', 'downloadBinaryBlob'], 'binary storage provider adapter');
+ requireAll(r2Storage, ['VITE_R2_GATEWAY_URL', 'Authorization', 'uploadProjectBinaryToR2', 'uploadFloorPlanBinaryToR2', 'downloadR2Blob'], 'R2 client');
+-requireAll(r2Storage, ['verifyR2ObjectReady', 'verifyR2ObjectViaAuthenticatedGet', "method: 'HEAD'", "method: 'GET'", 'HEAD durability check unavailable', 'X-HNL-SHA256', 'R2_UPLOAD_NOT_DURABLE', 'getIdToken(forceRefresh)', 'response.status === 401 || response.status === 403', "cache: 'no-store'", 'download denied/missing'], 'R2 durable PUT + HEAD/CORS-safe authenticated GET verification + cross-account token recovery');
++requireAll(r2Storage, ['verifyR2ObjectReady', 'verifyR2ObjectViaAuthenticatedGet', "method: 'HEAD'", "method: 'GET'", 'HEAD durability check unavailable', 'HEAD metadata is incomplete or mismatched', 'X-HNL-SHA256', 'R2_UPLOAD_NOT_DURABLE', 'getIdToken(forceRefresh)', 'response.status === 401 || response.status === 403', 'requestPut', 'PUT bị từ chối; refresh Firebase token và thử lại', "cache: 'no-store'", 'download denied/missing', "area: 'r2-upload'", "area: 'r2-download'"], 'R2 durable PUT + legacy HEAD compatibility + upload/download token recovery + diagnostics');
+ requireAll(r2Worker, ['HNL_QLTC_MEDIA', 'FIREBASE_PROJECT_ID', 'firestore.googleapis.com', 'canWrite', "area === 'floor-plans'", "role === 'ADMIN'", "role === 'EDITOR'"], 'R2 gateway RBAC');
+ requireAll(r2Worker, ["request.method === 'HEAD'", 'HNL_QLTC_MEDIA.head', 'X-HNL-SHA256', 'Content-Length', "GATEWAY_VERSION = '6.3.0-rc2.2.15'", "accessPolicy: 'canonical-email-first'", "for (const memberId of [email, uid])"], 'R2 gateway durable object HEAD + canonical cross-account RBAC/version');
+ requireAll(r2DeployWorkflow, ['workflow_dispatch:', 'DEPLOY-R2', 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID', 'wrangler@4.33.0 deploy', '/health', '"version":"6.3.0-rc2.2.15"', '"accessPolicy":"canonical-email-first"'], 'manual-gated R2 Worker deploy workflow + exact runtime verification');
+@@ -168,6 +173,15 @@
+   'maxDimension >= 1024',
+   'preserving original supported Blob for durable upload',
+ ], 'Android WebView image decode/encode fallback');
++requireAll(photoSync, ['lastErrorPhotoId', 'photoSyncErrorCode', "area: 'photo-sync'", 'ảnh đang chờ Cloud/R2', 'isPhotoSharedCloudReady(photo)'], 'photo outbox exposes exact R2 failure and preserves pending status through realtime hydration');
++requireAll(photoStorage, ['getProjectPhotoDiagnosticSnapshot', 'localBinaryCount', 'checksumPrefix', 'belongsToCurrentUploader'], 'photo diagnostics export contains metadata/outbox evidence without binary payload');
++requireAll(app, ['qlct-defect-navigation-request', "area: 'defect-navigation'", "code: 'REQUEST'"], 'Defect notification navigation dispatches same-tab event plus storage fallback');
++requireAll(floorPlanDefect, ['qlct-defect-navigation-request', "code: 'OPEN_TARGET'", 'requestedFloor=', 'pendingCount', "getEntityPhotos(projectId, 'defect', defect.id)"], 'Defect view consumes same-tab deep-link and opens defect-wide photo gallery with Cloud pending state');
++requireAll(imageViewer, ['swipeStartRef', 'Math.abs(dx) < 48', 'handleNext()', 'handlePrev()'], 'image viewer supports one-finger horizontal gallery swipe while preserving pinch zoom');
++requireAll(chatTab, ['ensureDraftAttachmentsCloudReady', 'verifyPhotoBinaryReadyInCloud', 'Ảnh đang chờ Cloud/R2', 'ImageViewerModal', 'openMessageImageGallery'], 'chat shows Cloud state, blocks message publication until photo is durable, and opens multi-image gallery');
++requireAll(configTab, ['Hệ thống & Chẩn đoán', 'Xuất file chẩn đoán lỗi', 'getProjectPhotoDiagnosticSnapshot', 'clearRuntimeDiagnostics'], 'system diagnostics can export sanitized JSON with photo evidence');
++requireAll(bottomNav, ['Hệ thống & Chẩn đoán'], 'More menu exposes System & Diagnostics entry');
++requireAll(runtimeDiagnostics, ['MAX_ENTRIES = 200', 'clearRuntimeDiagnostics', 'redacted-api-key', 'Bearer [redacted]'], 'runtime diagnostics retains useful history and redacts secrets');
+ pass('photo gallery no longer clears synced metadata on initial auth emission; camera input waits for non-empty MediaStore bytes');
+ requireAll(androidMain, [
+   'fileChooserDirectCamera',
+diff -ruN hnl-qltc-main-f833-local/src/App.tsx hnl-qltc-rc2215-next/src/App.tsx
+--- hnl-qltc-main-f833-local/src/App.tsx	2026-08-31 02:00:18.000000000 +0000
++++ hnl-qltc-rc2215-next/src/App.tsx	2026-08-31 04:18:17.763150430 +0000
+@@ -125,6 +125,7 @@
+ } from './utils/fileExport';
+ import { deleteEntityPhotos, getProjectPhotos, getProjectPhotosWithBinary, restorePhotosFromBackup } from './utils/photoStorage';
+ import { refreshProjectPhotoMetadataFromCloud, subscribeProjectPhotosRealtime, syncProjectPhotosToCloud, PhotoCloudSyncStatus } from './lib/photoCloudSync';
++import { appendRuntimeDiagnostic } from './lib/runtimeDiagnostics';
+ import { isPrimaryDriveReady, PRIMARY_DRIVE_OWNER_EMAIL, uploadProjectBackupToPrimaryDrive } from './lib/primaryDriveBridge';
+ import { subscribeConversationReadState, subscribeConversationSummary } from './lib/chatService';
+ import { floorPlanNeedsCloudUpload, isDisplayableFloorPlanUrl, loadFloorPlanImageFromCloud, syncFloorPlanImageToCloud, deleteFloorPlanImageFromCloud } from './lib/floorPlanImageSync';
+@@ -1696,7 +1697,7 @@
+           const failed = Number(result.failed || 0);
+           if (failed > 0) {
+             const attempt = ++photoOutboxRetryAttemptRef.current;
+-            setPhotoCloudStatus({ phase: 'error', pending: failed, message: `${failed} ảnh chưa lên Cloud; đang tự retry.` });
