@@ -2213,7 +2213,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       const curName = projects.find(p => p.id === activeId)?.name || 'Dự án hiện tại';
       const scopeLabel = `Dự án "${curName}"`;
 
-      const defaultName = cloudBackupName.trim() || `Sao lưu ${scopeLabel} (${new Date().toLocaleDateString('vi-VN')} ${new Date().toLocaleTimeString('vi-VN')})`;
+      const defaultName = cloudBackupName.trim() || `Sao lưu ${scopeLabel} (${formatDateTime(new Date())})`;
       await saveCloudBackup(defaultName, items);
       
       setCloudBackupName('');
@@ -2840,7 +2840,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     if (project.createdAtSource === 'migrating') return 'Đang chuẩn hóa từ Cloud…';
     if (!timestamp) return project.createdAtSource === 'local' ? 'Chưa có mốc Cloud' : 'Đang chuẩn hóa từ Cloud…';
     const suffix = project.createdAtSource === 'local' ? ' (cục bộ)' : '';
-    return `${new Date(timestamp).toLocaleDateString('vi-VN')}${suffix}`;
+    return `${formatDateTime(timestamp).split(' ')[0]}${suffix}`;
   };
 
   const shortProjectId = (projectId: string): string => `…${projectId.slice(-4)}`;
@@ -2912,7 +2912,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       const comparisonLines = records.map(({ project, record }) => {
         const payload = getCloudPayload(record as any) || {};
         const created = formatProjectCreatedAt(project);
-        const updated = project.updatedAt ? new Date(Number(project.updatedAt)).toLocaleString('vi-VN') : 'Chưa rõ';
+        const updated = project.updatedAt ? formatDateTime(Number(project.updatedAt)) : 'Chưa rõ';
         const marker = project.id === target.id ? 'GIỮ LÀM DỰ ÁN CHÍNH' : 'ID nguồn sẽ chuyển hướng';
         return `• ${project.name} ${shortProjectId(project.id)} [${marker}]\n  Khởi tạo: ${created} | Cập nhật: ${updated}\n  ${summarizeCloudPayload(payload)}`;
       });
@@ -3705,7 +3705,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                           <div>
                             <p className="font-bold text-slate-800">{b.backupName}</p>
                             <p className="text-[9.5px] text-slate-400">
-                              {new Date(b.createdAt).toLocaleString('vi-VN')}
+                              {formatDateTime(b.createdAt)}
                             </p>
                           </div>
                           <div className="flex items-center gap-1 shrink-0">

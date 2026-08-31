@@ -4,6 +4,7 @@ import { FileText, Download, Printer, X, CheckCircle2, Filter, Mail, Package, Ba
 import { InventoryItem, WorkVolume, DefectItem, ChecklistItem, FloorPlan, RoomProgressItem, MaterialNorm, CrewRecord, TeamInfo } from '../types';
 import { exportAllToExcel, exportAllToExcelBase64, exportTeamStatisticsToExcel } from '../utils/excelExport';
 import { formatDateDDMMYYYY, formatDateTime, formatFloorName, parseLegacyTimestamp } from '../utils/dateFormatter';
+import { getCrewShiftCounts } from '../utils/crewUtils';
 import { getRoomColorStyle } from '../utils/colorPalette';
 import { getDefectOverdueInfo, getDefectShortCode } from '../utils/defectUtils';
 import { formatDecimal, useFormatSettings } from '../utils/numberUtils';
@@ -21,6 +22,11 @@ const escapeHtml = (value: unknown): string => String(value ?? '')
   .replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;')
   .replace(/'/g, '&#39;');
+
+const getCrewShiftSummary = (record: CrewRecord): string => {
+  const { morning, afternoon, evening } = getCrewShiftCounts(record);
+  return [morning > 0 ? `Sáng ${morning}` : '', afternoon > 0 ? `Chiều ${afternoon}` : '', evening > 0 ? `Tối ${evening}` : ''].filter(Boolean).join(' · ') || '—';
+};
 
 interface ExportPdfModalProps {
   isOpen: boolean;
@@ -1002,7 +1008,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                   <td><strong>${escapeHtml(c.teamName)}</strong></td>
                   <td>${escapeHtml(c.leaderName)}</td>
                   <td style="text-align: center; font-weight: bold; color: #4f46e5;">${c.workerCount}</td>
-                  <td style="text-align: center;">${escapeHtml(c.shift || 'Hành chính')}</td>
+                  <td style="text-align: center;">${escapeHtml(getCrewShiftSummary(c))}</td>
                   <td>${escapeHtml(c.floorName || '-')}</td>
                   <td>
                     <div><strong>${escapeHtml(c.taskDescription)}</strong></div>
@@ -1451,7 +1457,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 <span className="text-[11px]">Mặt bằng &amp; Defect</span>
               </label>
 
-              <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${includeChecklist ? 'bg-indigo-50/70 border-indigo-300 text-indigo-900 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
+              {checklist.length > 0 && <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${includeChecklist ? 'bg-indigo-50/70 border-indigo-300 text-indigo-900 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
                 <input
                   type="checkbox"
                   checked={includeChecklist}
@@ -1460,7 +1466,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 />
                 <ClipboardCheck className="w-4 h-4 text-emerald-600 shrink-0" />
                 <span className="text-[11px]">Checklist</span>
-              </label>
+              </label>}
 
               <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${includeCrew ? 'bg-indigo-50/70 border-indigo-300 text-indigo-900 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
                 <input

@@ -36,7 +36,7 @@ import { GoogleAuthStatus, FloorPlan } from '../types';
 import { ConflictMergeModal } from './ConflictMergeModal';
 import { normalizeImportedData } from '../utils/dataNormalizer';
 import { getNumberFormatPreset, setNumberFormatPreset, NumberFormatPreset } from '../utils/numberUtils';
-import { getDateFormatPreset, setDateFormatPreset, DateFormatPreset } from '../utils/dateFormatter';
+import { getDateFormatPreset, setDateFormatPreset, DateFormatPreset, formatDateTime } from '../utils/dateFormatter';
 import { useLanguage } from '../context/LanguageContext';
 import { apiFetch, hasApiBackend } from '../utils/api';
 import { getImageQualityProfile, getImageQualitySettings, setImageQualitySettings, ImageQualityKind, ImageQualityPreset } from '../utils/imageQualitySettings';
@@ -276,12 +276,12 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       const result = await res.json();
       const scopedKey = activeProjectId && activeProjectId !== 'default' ? `construction_updated_at_${activeProjectId}` : 'construction_updated_at';
       const localUpdatedAt = parseInt(localStorage.getItem(scopedKey) || localStorage.getItem('construction_updated_at') || '0', 10);
-      const localTimeStr = localUpdatedAt ? new Date(localUpdatedAt).toLocaleString('vi-VN') : 'Chưa lưu lần nào';
+      const localTimeStr = localUpdatedAt ? formatDateTime(localUpdatedAt) : 'Chưa lưu lần nào';
 
       if (result.success && result.found && result.data) {
         const remoteData = result.data;
         const remoteUpdatedAt = remoteData.updatedAt || 0;
-        const cloudTimeStr = remoteUpdatedAt ? new Date(remoteUpdatedAt).toLocaleString('vi-VN') : 'Chưa rõ';
+        const cloudTimeStr = remoteUpdatedAt ? formatDateTime(remoteUpdatedAt) : 'Chưa rõ';
         const cloudProj = remoteData.projectName || 'Công Trình Mẫu';
 
         let status: 'newer' | 'older' | 'equal' = 'equal';
@@ -446,7 +446,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
               <div><b>Dữ liệu chờ:</b> {syncDiagnostics.pendingData}</div>
               <div><b>Ảnh chờ Cloud:</b> {syncDiagnostics.photoPending} · {syncDiagnostics.photoPhase}</div>
               <div><b>Drive:</b> {driveSyncStatus} · pending {syncDiagnostics.pendingDriveUploads}</div>
-              <div><b>Sync cuối:</b> {syncDiagnostics.lastSyncAt > 0 ? new Date(syncDiagnostics.lastSyncAt).toLocaleString('vi-VN') : 'Chưa có'}</div>
+              <div><b>Sync cuối:</b> {syncDiagnostics.lastSyncAt > 0 ? formatDateTime(syncDiagnostics.lastSyncAt) : 'Chưa có'}</div>
               <div><b>Mạng:</b> {syncDiagnostics.online === false ? 'Offline' : 'Online'}</div>
             </div>
           </div>
@@ -779,7 +779,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
                     <div className="min-w-0">
                       <div className="text-[11px] font-extrabold text-slate-800 truncate">{names.join(' · ') || 'Dữ liệu đã xóa'}</div>
                       <div className="text-[10px] text-slate-500 mt-0.5">
-                        {new Date(operation.deletedAt).toLocaleString('vi-VN')} · {operation.deletedItems?.length || 0} mục · còn {remainingDays} ngày
+                        {formatDateTime(operation.deletedAt)} · {operation.deletedItems?.length || 0} mục · còn {remainingDays} ngày
                       </div>
                       {operation.deletedByEmail && <div className="text-[9px] text-slate-400 truncate">Xóa bởi: {operation.deletedByEmail}</div>}
                     </div>

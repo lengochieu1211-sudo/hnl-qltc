@@ -18,6 +18,7 @@ interface BottomNavProps {
   setActiveTab: (tab: TabType) => void;
   defectBadgeCount: number;
   chatBadgeCount?: number;
+  showChecklist?: boolean;
 }
 
 export const BottomNav: React.FC<BottomNavProps> = ({
@@ -25,6 +26,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   setActiveTab,
   defectBadgeCount,
   chatBadgeCount = 0,
+  showChecklist = true,
 }) => {
   const { t } = useLanguage();
   
@@ -90,13 +92,15 @@ export const BottomNav: React.FC<BottomNavProps> = ({
             className="absolute right-2 w-56 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-2xl"
             style={{ bottom: 'calc(68px + env(safe-area-inset-bottom))' }}
           >
-            <button
-              onClick={() => { setShowMore(false); setActiveTab('checklist'); }}
-              className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50"
-            >
-              <ClipboardCheck className="w-4 h-4 text-indigo-600" />
-              Checklist
-            </button>
+            {showChecklist && (
+              <button
+                onClick={() => { setShowMore(false); setActiveTab('checklist'); }}
+                className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                <ClipboardCheck className="w-4 h-4 text-indigo-600" />
+                Checklist
+              </button>
+            )}
             <button
               onClick={() => { setShowMore(false); setActiveTab('chat'); }}
               className="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50"
