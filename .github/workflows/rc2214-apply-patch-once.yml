@@ -1,0 +1,53 @@
+name: RC2.2.14 Apply Source Patch Once
+
+on:
+  push:
+    branches:
+      - rc2-2-14-runtime-golden
+    paths:
+      - '.github/workflows/rc2214-apply-patch-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply_patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout RC2.2.14 branch
+        uses: actions/checkout@v4
+        with:
+          ref: rc2-2-14-runtime-golden
+          fetch-depth: 0
+
+      - name: Verify baseline and apply exact patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=e851d3f2ecd4b6cd323ead063d146c290839c764
+          git diff --quiet "$BASE" -- . \
+            ':(exclude)RC2214.patch.part.*' \
+            ':(exclude).github/workflows/rc2214-apply-patch-once.yml' || {
+              echo 'Unexpected source changes exist before RC2.2.14 patch';
+              git diff --stat "$BASE";
+              exit 1;
+            }
+          cat RC2214.patch.part.00 RC2214.patch.part.01 RC2214.patch.part.02 RC2214.patch.part.03 RC2214.patch.part.04 > /tmp/RC2214-source.patch
+          git apply --check /tmp/RC2214-source.patch
+          git apply /tmp/RC2214-source.patch
+          test "$(tr -d '\r\n' < desktop-wrapper/release-tag.txt)" = '6.3.0-rc2.2.14'
+          node scripts/source-lint.mjs
+          node scripts/stability-gate.mjs
+
+      - name: Commit clean RC2.2.14 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f RC2214.patch.part.00 RC2214.patch.part.01 RC2214.patch.part.02 RC2214.patch.part.03 RC2214.patch.part.04
+          rm -f .github/workflows/rc2214-apply-patch-once.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git status --short
+          git commit -m 'fix: RC2.2.14 runtime golden R2 and PDF hardening'
+          git push origin HEAD:rc2-2-14-runtime-golden
