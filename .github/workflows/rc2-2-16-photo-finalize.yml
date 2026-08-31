@@ -2,14 +2,14 @@ name: RC2.2.16 Photo Finalization
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
 
 permissions:
   contents: write
 
 jobs:
   finalize:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,139 +19,18 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - name: Patch photo reconcile + floor-plan RBAC retry
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          p = Path('src/lib/photoCloudSync.ts')
-          s = p.read_text()
-          old = """  if (cloudData && cloudUpdatedAt >= localUpdatedAt && cloudDeleteStateMatches && cloudHasResolvedBinaryState && (photo.deleted || currentProviderBacked) && !currentProviderRepairMode) return;
-  if (localIsStale && !binaryRepairMode) {
-    throw new Error(`PHOTO_CONFLICT:${photo.id}: Cloud revision mới hơn; giữ Cloud và chờ realtime hòa giải.`);
-  }
-  if (cloudData && !cloudDeleteStateMatches && cloudUpdatedAt >= localUpdatedAt) {
-    throw new Error(`PHOTO_CONFLICT:${photo.id}: trạng thái xóa trên Cloud mới hơn local.`);
-  }
-
-  const now = Date.now();
-  const nextRevision = binaryRepairMode
-    ? Math.max(cloudRevision + 1, localRevision + 1, 1)
-    : Math.max(localRevision, 1);
-"""
-          new = """  const reconcileCloudIntoLocal = async () => {
-    if (!cloudData) return;
-    const cloudPhoto = { id: photo.id, ...cloudData } as PhotoAttachment;
-    await mergeCloudPhotoMetadata(projectId, [cloudPhoto], [cloudPhoto]);
-  };
-
-  if (cloudData && cloudUpdatedAt >= localUpdatedAt && cloudDeleteStateMatches && cloudHasResolvedBinaryState && (photo.deleted || currentProviderBacked) && !currentProviderRepairMode) {
-    await reconcileCloudIntoLocal();
-    return;
-  }
-  if (localIsStale && !binaryRepairMode) {
-    await reconcileCloudIntoLocal();
-    return;
-  }
-  if (cloudData && !cloudDeleteStateMatches && cloudUpdatedAt >= localUpdatedAt) {
-    await reconcileCloudIntoLocal();
-    return;
-  }
-
-  const now = Date.now();
-  // Existing Firestore photo rows must advance revision. Older releases could
-  // leave pending/legacy metadata at the same revision as the local outbox;
-  // reusing it violates lifecycleUpdateIsMonotonic() and strands the binary.
-  const nextRevision = cloudData
-    ? Math.max(cloudRevision + 1, localRevision + 1, 1)
-    : Math.max(localRevision, 1);
-"""
-          if s.count(old) != 1:
-              raise SystemExit(f'photo conflict/revision anchor count={s.count(old)}')
-          s = s.replace(old, new, 1)
-
-          old = "updatedAt: localUpdatedAt || now,"
-          new = "updatedAt: Math.max(localUpdatedAt || 0, cloudData ? cloudUpdatedAt + 1 : 0, now),"
-          if s.count(old) != 1:
-              raise SystemExit(f'photo delete updatedAt anchor count={s.count(old)}')
-          s = s.replace(old, new, 1)
-
-          old = """  const contentVersion = binaryRepairMode
-    ? Math.max(cloudUpdatedAt + 1, now)
-    : (localUpdatedAt || now);
-"""
-          new = """  // updatedAt is lifecycle-controlled too. Always advance an existing
-  // pending/legacy row when replacing it with verified R2 metadata.
-  const contentVersion = Math.max(
-    localUpdatedAt || 0,
-    cloudData ? cloudUpdatedAt + 1 : 0,
-    now,
-  );
-"""
-          if s.count(old) != 1:
-              raise SystemExit(f'photo contentVersion anchor count={s.count(old)}')
-          s = s.replace(old, new, 1)
-          p.write_text(s)
-
-          p = Path('src/lib/floorPlanImageSync.ts')
-          s = p.read_text()
-          old = "import { compressImageToBlob } from '../utils/imageCompressor';\n"
-          new = old + "import { getCurrentUserRole } from '../utils/securityUtils';\n"
-          if s.count(old) != 1:
-              raise SystemExit(f'floor import anchor count={s.count(old)}')
-          s = s.replace(old, new, 1)
-
-          old = """export async function syncFloorPlanImageToCloud(projectId: string, plan: FloorPlan): Promise<Partial<FloorPlan> | null> {
-  if (!projectId || !plan?.id || !isLocalFloorPlanBinaryUrl(plan.imageUrl)) return null;
-"""
-          new = """export async function syncFloorPlanImageToCloud(projectId: string, plan: FloorPlan): Promise<Partial<FloorPlan> | null> {
-  if (!projectId || !plan?.id || !isLocalFloorPlanBinaryUrl(plan.imageUrl)) return null;
-  // Floor-plan structure is ADMIN-owned. EDITOR may read hydrated images but
-  // must not enter an upload/migration retry loop that Rules correctly deny.
-  if (getCurrentUserRole() !== 'ADMIN') return null;
-"""
-          if s.count(old) != 1:
-              raise SystemExit(f'floor sync role anchor count={s.count(old)}')
-          s = s.replace(old, new, 1)
-
-          old = """export function floorPlanNeedsCloudUpload(plan: FloorPlan): boolean {
-  if (!plan?.id || !isLocalFloorPlanBinaryUrl(plan.imageUrl)) return false;
-"""
-          new = """export function floorPlanNeedsCloudUpload(plan: FloorPlan): boolean {
-  if (getCurrentUserRole() !== 'ADMIN') return false;
-  if (!plan?.id || !isLocalFloorPlanBinaryUrl(plan.imageUrl)) return false;
-"""
-          if s.count(old) != 1:
-              raise SystemExit(f'floor needs-upload anchor count={s.count(old)}')
-          s = s.replace(old, new, 1)
-
-          old = """    try {
-      await syncFloorPlanImageToCloud(projectId, plan);
-      uploaded++;
-    } catch (err) {
-"""
-          new = """    try {
-      const result = await syncFloorPlanImageToCloud(projectId, plan);
-      if (result) uploaded++;
-      else skipped++;
-    } catch (err) {
-"""
-          if s.count(old) != 1:
-              raise SystemExit(f'floor count anchor count={s.count(old)}')
-          s = s.replace(old, new, 1)
-          p.write_text(s)
-          PY
-      - name: Install
+      - name: Apply final photo patch
+        run: python scripts/rc2_2_16_photo_finalize.py
+      - name: Install dependencies
         run: npm ci
       - name: Verify full gate
         run: npm run verify
-      - name: Commit finalized source and remove one-shot workflow
-        shell: bash
+      - name: Commit verified source
         run: |
           rm -f .github/workflows/rc2-2-16-photo-finalize.yml
+          rm -f scripts/rc2_2_16_photo_finalize.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/lib/photoCloudSync.ts src/lib/floorPlanImageSync.ts .github/workflows/rc2-2-16-photo-finalize.yml
+          git add src/lib/photoCloudSync.ts src/lib/floorPlanImageSync.ts .github/workflows/rc2-2-16-photo-finalize.yml scripts/rc2_2_16_photo_finalize.py
           git commit -m "fix: finalize cross-account photo reconcile"
           git push origin HEAD:main
