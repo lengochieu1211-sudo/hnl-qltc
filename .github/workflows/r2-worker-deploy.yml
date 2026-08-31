@@ -60,16 +60,24 @@ jobs:
           trap 'rm -f wrangler.ci.toml' EXIT
           npx --yes wrangler@4.33.0 deploy --config wrangler.ci.toml
 
-      - name: Smoke Worker health
+      - name: Smoke Worker health after propagation
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error --retry 5 --retry-delay 2 \
-            https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev/health \
-            | tee /tmp/r2-health.json
-          grep -q '"ok":true' /tmp/r2-health.json
-          grep -q '"version":"6.3.0-rc2.2.16"' /tmp/r2-health.json
-          grep -q '"accessPolicy":"canonical-email-first"' /tmp/r2-health.json
+          URL='https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev/health'
+          ok=0
+          for i in $(seq 1 30); do
+            BODY="$(curl --fail --silent --show-error "${URL}?probe=${GITHUB_RUN_ID}-${i}" || true)"
+            echo "attempt=${i} body=${BODY}"
+            if printf '%s' "$BODY" | grep -q '"ok":true' \
+              && printf '%s' "$BODY" | grep -q '"version":"6.3.0-rc2.2.16"' \
+              && printf '%s' "$BODY" | grep -q '"accessPolicy":"canonical-email-first"'; then
+              ok=1
+              break
+            fi
+            sleep 2
+          done
+          test "$ok" = 1 || { echo '::error::R2_HEALTH_MARKER_NOT_PROPAGATED'; exit 1; }
 
       - name: Smoke browser PUT CORS preflight
         shell: bash
@@ -80,9 +88,10 @@ jobs:
             -H 'Origin: https://hnlqltc.web.app' \
             -H 'Access-Control-Request-Method: PUT' \
             -H 'Access-Control-Request-Headers: authorization,content-type,x-hnl-metadata' \
-            "$BASE/v1/object?key=projects/cors-probe/media/diagnostics/probe/original.jpg"
+            "$BASE/v1/object?key=projects/cors-probe/media/diagnostics/probe/original.jpg&probe=${GITHUB_RUN_ID}"
           cat /tmp/r2-cors.headers
           grep -qi '^access-control-allow-origin: https://hnlqltc.web.app' /tmp/r2-cors.headers
           grep -qi '^access-control-allow-methods:.*PUT' /tmp/r2-cors.headers
           grep -qi '^access-control-allow-headers:.*Authorization' /tmp/r2-cors.headers
           grep -qi '^access-control-allow-headers:.*X-HNL-Metadata' /tmp/r2-cors.headers
+          grep -qi '^x-hnl-r2-gateway-version: 6.3.0-rc2.2.16' /tmp/r2-cors.headers
