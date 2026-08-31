@@ -39,15 +39,18 @@ jobs:
           node scripts/source-lint.mjs
           node scripts/stability-gate.mjs
 
-      - name: Commit clean RC2.2.14 source
+      - name: Commit code-only RC2.2.14 changes
         shell: bash
         run: |
           set -euo pipefail
+          # GitHub Actions GITHUB_TOKEN cannot modify workflow files in this repo.
+          # Restore/omit workflow changes here; the connected GitHub app applies them separately.
+          git restore --source=HEAD -- .github/workflows/android-apk.yml .github/workflows/windows-exe.yml
+          rm -f .github/workflows/r2-worker-deploy.yml .github/workflows/rc2214-prod-deploy-once.yml
           rm -f RC2214.patch.part.00 RC2214.patch.part.01 RC2214.patch.part.02 RC2214.patch.part.03 RC2214.patch.part.04
-          rm -f .github/workflows/rc2214-apply-patch-once.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
+          git add -A -- . ':(exclude).github/workflows/**'
           git status --short
           git commit -m 'fix: RC2.2.14 runtime golden R2 and PDF hardening'
           git push origin HEAD:rc2-2-14-runtime-golden
