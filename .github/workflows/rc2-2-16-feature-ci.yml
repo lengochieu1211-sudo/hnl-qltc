@@ -1,0 +1,109 @@
+name: RC2.2.16 Feature Continuation CI
+
+on:
+  push:
+    branches:
+      - rc2.2.16-feature-ci
+    paths:
+      - '.ci-patches/**'
+      - '.github/workflows/rc2-2-16-feature-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  verify-and-materialize:
+    runs-on: ubuntu-latest
+    env:
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      VITE_GIT_COMMIT: ${{ github.sha }}
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: rc2.2.16-feature-ci
+          fetch-depth: 0
+
+      - name: Detect pending patch bundle
+        id: patches
+        shell: bash
+        run: |
+          if [ -f .ci-patches/rc2.2.16-feature-p1.patch ] && \
+             [ -f .ci-patches/rc2.2.16-feature-crew.patch ] && \
+             [ -f .ci-patches/rc2.2.16-feature-stats.patch ] && \
+             [ -f .ci-patches/rc2.2.16-feature-p3.patch ]; then
+            echo 'present=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'present=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply exact feature patch bundle
+        if: steps.patches.outputs.present == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --check .ci-patches/rc2.2.16-feature-p1.patch
+          git apply .ci-patches/rc2.2.16-feature-p1.patch
+          git apply --unidiff-zero --check .ci-patches/rc2.2.16-feature-crew.patch
+          git apply --unidiff-zero .ci-patches/rc2.2.16-feature-crew.patch
+          git apply --unidiff-zero --check .ci-patches/rc2.2.16-feature-stats.patch
+          git apply --unidiff-zero .ci-patches/rc2.2.16-feature-stats.patch
+          git apply --unidiff-zero --check .ci-patches/rc2.2.16-feature-p3.patch
+          git apply --unidiff-zero .ci-patches/rc2.2.16-feature-p3.patch
+          git diff --check
+
+      - name: Setup Node
+        if: steps.patches.outputs.present == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        if: steps.patches.outputs.present == 'true'
+        run: npm ci
+
+      - name: Stability Gate
+        if: steps.patches.outputs.present == 'true'
+        run: npm run test:stability
+
+      - name: Typecheck
+        if: steps.patches.outputs.present == 'true'
+        run: npm run typecheck
+
+      - name: Lint
+        if: steps.patches.outputs.present == 'true'
+        run: npm run lint
+
+      - name: Firebase Rules compile + emulator behavior
+        if: steps.patches.outputs.present == 'true'
+        run: npm run test:rules
+
+      - name: Security audit production critical
+        if: steps.patches.outputs.present == 'true'
+        run: npm run security:audit
+
+      - name: Build
+        if: steps.patches.outputs.present == 'true'
+        run: npm run build
+
+      - name: Materialize verified source on branch
+        if: steps.patches.outputs.present == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .ci-patches
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src .ci-patches
+          git diff --cached --check
+          git commit -m 'feat: RC2.2.16 crew shifts date format copy day'
+          git push origin HEAD:rc2.2.16-feature-ci
+
+      - name: No pending patches
+        if: steps.patches.outputs.present != 'true'
+        run: echo 'Feature patch bundle already materialized or incomplete; nothing to apply.'
