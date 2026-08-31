@@ -14,6 +14,7 @@ import { downloadFloorPlanFromPrimaryDrive } from './primaryDriveBridge';
 import { LEGACY_DRIVE_READ_FALLBACK } from '../config/runtimeArchitecture';
 import { BINARY_STORAGE_PROVIDER, downloadBinaryBlob, uploadFloorPlanBinaryToCloud } from './binaryStorage';
 import { compressImageToBlob } from '../utils/imageCompressor';
+import { getCurrentUserRole } from '../utils/securityUtils';
 
 export function isDisplayableFloorPlanUrl(value?: string | null): boolean {
   const url = String(value || '').trim();
@@ -84,6 +85,9 @@ async function deleteFallbackChunks(projectId: string, floorPlanId: string): Pro
 
 export async function syncFloorPlanImageToCloud(projectId: string, plan: FloorPlan): Promise<Partial<FloorPlan> | null> {
   if (!projectId || !plan?.id || !isLocalFloorPlanBinaryUrl(plan.imageUrl)) return null;
+  // Floor-plan structure is ADMIN-owned. EDITOR may read hydrated images but
+  // must not enter an upload/migration retry loop that Rules correctly deny.
+  if (getCurrentUserRole() !== 'ADMIN') return null;
   const user = getCurrentRealFirebaseUser();
   if (!user || user.isAnonymous) return null;
 
@@ -197,6 +201,7 @@ export async function loadFloorPlanImageFromCloud(projectId: string, plan: Floor
 }
 
 export function floorPlanNeedsCloudUpload(plan: FloorPlan): boolean {
+  if (getCurrentUserRole() !== 'ADMIN') return false;
   if (!plan?.id || !isLocalFloorPlanBinaryUrl(plan.imageUrl)) return false;
   const revision = Number(plan.imageRevision || (plan as any).updatedAt || 0);
   return !plan.imageCloudRevision || Number(plan.imageCloudRevision) < revision || plan.storageProvider !== BINARY_STORAGE_PROVIDER || !plan.storagePath;
@@ -212,8 +217,9 @@ export async function syncFloorPlanImagesToCloud(projectId: string, floorPlans: 
       continue;
     }
     try {
-      await syncFloorPlanImageToCloud(projectId, plan);
-      uploaded++;
+      const result = await syncFloorPlanImageToCloud(projectId, plan);
+      if (result) uploaded++;
+      else skipped++;
     } catch (err) {
       failed++;
       console.warn('[Floor Plan Image] manual sync warning:', plan.floorName, err);

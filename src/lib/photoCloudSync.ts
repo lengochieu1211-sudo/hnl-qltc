@@ -229,16 +229,30 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
     (cloudRevision <= 0 && cloudUpdatedAt > 0 && localUpdatedAt > 0 && localUpdatedAt < cloudUpdatedAt)
   );
 
-  if (cloudData && cloudUpdatedAt >= localUpdatedAt && cloudDeleteStateMatches && cloudHasResolvedBinaryState && (photo.deleted || currentProviderBacked) && !currentProviderRepairMode) return;
+  const reconcileCloudIntoLocal = async () => {
+    if (!cloudData) return;
+    const cloudPhoto = { id: photo.id, ...cloudData } as PhotoAttachment;
+    await mergeCloudPhotoMetadata(projectId, [cloudPhoto], [cloudPhoto]);
+  };
+
+  if (cloudData && cloudUpdatedAt >= localUpdatedAt && cloudDeleteStateMatches && cloudHasResolvedBinaryState && (photo.deleted || currentProviderBacked) && !currentProviderRepairMode) {
+    await reconcileCloudIntoLocal();
+    return;
+  }
   if (localIsStale && !binaryRepairMode) {
-    throw new Error(`PHOTO_CONFLICT:${photo.id}: Cloud revision mới hơn; giữ Cloud và chờ realtime hòa giải.`);
+    await reconcileCloudIntoLocal();
+    return;
   }
   if (cloudData && !cloudDeleteStateMatches && cloudUpdatedAt >= localUpdatedAt) {
-    throw new Error(`PHOTO_CONFLICT:${photo.id}: trạng thái xóa trên Cloud mới hơn local.`);
+    await reconcileCloudIntoLocal();
+    return;
   }
 
   const now = Date.now();
-  const nextRevision = binaryRepairMode
+  // Existing Firestore photo rows must advance revision. Older releases could
+  // leave pending/legacy metadata at the same revision as the local outbox;
+  // reusing it violates lifecycleUpdateIsMonotonic() and strands the binary.
+  const nextRevision = cloudData
     ? Math.max(cloudRevision + 1, localRevision + 1, 1)
     : Math.max(localRevision, 1);
   const logicalMeta = binaryRepairMode ? { ...cloudData } : cleanPhotoMetadata(photo);
@@ -261,7 +275,7 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
       deletedAt: photo.deletedAt || now,
       deletedByUid: photo.deletedByUid || user.uid,
       deletedBy: photo.deletedBy || photo.deletedByUid || user.uid,
-      updatedAt: localUpdatedAt || now,
+      updatedAt: Math.max(localUpdatedAt || 0, cloudData ? cloudUpdatedAt + 1 : 0, now),
       binaryUploadState: 'deleted',
       cloudSyncedAt: now,
     }, { merge: true });
@@ -294,9 +308,13 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
   }
 
   const thumbnailBlob = await getPhotoBlob(photo.id, true).catch(() => null);
-  const contentVersion = binaryRepairMode
-    ? Math.max(cloudUpdatedAt + 1, now)
-    : (localUpdatedAt || now);
+  // updatedAt is lifecycle-controlled too. Always advance an existing
+  // pending/legacy row when replacing it with verified R2 metadata.
+  const contentVersion = Math.max(
+    localUpdatedAt || 0,
+    cloudData ? cloudUpdatedAt + 1 : 0,
+    now,
+  );
   const uploaded = await uploadProjectBinaryToCloud({
     projectId,
     entityType: photo.entityType || 'photo',
