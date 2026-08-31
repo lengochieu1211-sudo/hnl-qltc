@@ -311,7 +311,6 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [deletingTeamTarget, setDeletingTeamTarget] = useState<TeamInfo | null>(null);
   const [showCopyConfirm, setShowCopyConfirm] = useState(false);
   const [copySourceDate, setCopySourceDate] = useState('');
-  const [customCopySourceDate, setCustomCopySourceDate] = useState('');
 
   useEffect(() => {
     if (!canOperate) {
@@ -878,7 +877,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     setShowTeamModal(false);
   };
 
-  // Handle Copy from yesterday or any selected source date
+  // Copy the complete crew log from the immediately previous calendar day.
   const requestCopyFromDate = (sourceDate: string) => {
     if (!canOperate || !sourceDate) return;
     if (sourceDate === selectedDate) {
@@ -1224,27 +1223,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               <button
                 onClick={handleCopyFromYesterdayClick}
                 className="flex-1 flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold py-2.5 px-4 rounded-xl shadow-sm transition text-xs"
-                title="Sao chép toàn bộ danh sách đội của ngày hôm trước"
+                title="Sao chép toàn bộ quân số của ngày liền trước"
               >
-                <Copy className="w-3.5 h-3.5" /> Sao chép hôm qua
-              </button>
-            </div>
-            <div className="flex items-center gap-2 mb-4 -mt-2">
-              <input
-                type="date"
-                max={getTodayString()}
-                value={customCopySourceDate}
-                onChange={(e) => setCustomCopySourceDate(e.target.value)}
-                className="flex-1 min-w-0 text-xs bg-white border border-slate-200 px-3 py-2 rounded-xl font-semibold text-slate-700"
-                aria-label="Ngày nguồn để sao chép quân số"
-              />
-              <button
-                type="button"
-                disabled={!customCopySourceDate || customCopySourceDate === selectedDate}
-                onClick={() => requestCopyFromDate(customCopySourceDate)}
-                className="shrink-0 flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 text-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed font-bold py-2 px-3 rounded-xl text-xs"
-              >
-                <Copy className="w-3.5 h-3.5" /> Copy ngày chọn
+                <Copy className="w-3.5 h-3.5" /> Sao chép quân số hôm qua
               </button>
             </div>
             </>
@@ -1334,7 +1315,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               <div className="bg-white border border-dashed border-slate-300 rounded-xl p-8 text-center flex flex-col items-center justify-center shadow-sm">
                 <Users className="w-8 h-8 text-slate-300 mb-2" />
                 <p className="text-xs text-slate-400 font-medium">Chưa có ghi nhận quân số cho ngày này.</p>
-                <p className="text-[10px] text-slate-400 mt-1">Ấn nút "Ghi nhận quân số" hoặc "Sao chép hôm qua" để điền nhanh.</p>
+                <p className="text-[10px] text-slate-400 mt-1">Ấn nút "Ghi nhận quân số" hoặc "Sao chép quân số hôm qua" để điền nhanh.</p>
               </div>
             ) : (
               sortedFilteredRecords.map((record) => (

@@ -4094,7 +4094,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 <Clock className="w-4 h-4 text-indigo-600" /> Kế hoạch tiến độ tầng
               </div>
               <div className="text-[10px] text-slate-500 mt-0.5 truncate">
-                {activeFloor.floorName} · Khung: {activeFloor.targetFrameDate || 'chưa đặt'} · Tấm: {activeFloor.targetBoardDate || 'chưa đặt'}
+                {activeFloor.floorName} · Khung: {activeFloor.targetFrameDate ? formatDateDDMMYYYY(activeFloor.targetFrameDate) : 'chưa đặt'} · Tấm: {activeFloor.targetBoardDate ? formatDateDDMMYYYY(activeFloor.targetBoardDate) : 'chưa đặt'}
               </div>
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
