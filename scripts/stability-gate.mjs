@@ -40,6 +40,7 @@ const firebaseStorage = read('src/lib/firebaseStorage.ts');
 const binaryStorage = read('src/lib/binaryStorage.ts');
 const r2Storage = read('src/lib/r2Storage.ts');
 const r2Worker = read('cloudflare/r2-gateway/worker.js');
+const r2DeployWorkflow = read('.github/workflows/r2-worker-deploy.yml');
 const warehouse = read('src/lib/warehouseTransactions.ts');
 const security = read('src/utils/securityUtils.ts');
 const offlineAccess = read('src/utils/offlineAccess.ts');
@@ -57,7 +58,7 @@ if (!appVersion.includes('__APP_VERSION__') || appVersion.includes("APP_VERSION 
 requireAll(buildMeta, ['appVersion: APP_VERSION', 'buildId:', 'gitCommit:', 'buildTime:', 'environment:', 'platformFromLocation'], 'runtime build metadata');
 if (mergeWorkflow.includes('VITE_APP_VERSION') || prWorkflow.includes('VITE_APP_VERSION') || buildWorkflow.includes('VITE_APP_VERSION')) fail('workflow must not hard-code app version');
 requireAll(read('android-wrapper/build-apk.ps1'), ['package.json', '$appVersion', '$versionCode', '$releaseTag', 'https://hnlqltc.web.app/?app=android'], 'Android version/source URL');
-requireAll(read('.github/workflows/android-apk.yml'), ['windows-latest', 'actions/upload-artifact@v4', 'QLCT_WEB_URL: https://hnlqltc.web.app/?app=android', 'QLCT_RELEASE_TAG: 6.3.0-rc2.2.13'], 'Android APK CI');
+requireAll(read('.github/workflows/android-apk.yml'), ['windows-latest', 'actions/upload-artifact@v4', 'QLCT_WEB_URL: https://hnlqltc.web.app/?app=android', 'QLCT_RELEASE_TAG: 6.3.0-rc2.2.14'], 'Android APK CI');
 requireAll(read('desktop-wrapper/build-launcher.ps1'), ['package.json', '$version', 'AssemblyInformationalVersion'], 'Windows version source');
 if (!authHeader.includes('src={`/icon.png?v=${APP_VERSION}`}')) fail('header asset cache-bust does not use canonical APP_VERSION');
 if (!firebase.includes(`appId: '${PROD_FIREBASE_WEB_APP_ID}'`)) fail('PROD Firebase Web App ID fallback is missing or stale');
@@ -111,9 +112,11 @@ if (!exists('storage.rules') || !firebaseJson.includes('"storage"') || !firebase
 requireAll(firebaseStorage, ['uploadProjectBinary', 'uploadFloorPlanBinary', 'thumbnailPath', 'deleteObject'], 'Firebase Storage fallback client');
 requireAll(binaryStorage, ['BINARY_STORAGE_PROVIDER', "'r2'", "'firebase-storage'", 'uploadProjectBinaryToCloud', 'uploadFloorPlanBinaryToCloud', 'downloadBinaryBlob'], 'binary storage provider adapter');
 requireAll(r2Storage, ['VITE_R2_GATEWAY_URL', 'Authorization', 'uploadProjectBinaryToR2', 'uploadFloorPlanBinaryToR2', 'downloadR2Blob'], 'R2 client');
-requireAll(r2Storage, ['verifyR2ObjectReady', "method: 'HEAD'", 'X-HNL-SHA256', 'R2_UPLOAD_NOT_DURABLE'], 'R2 durable PUT + authenticated HEAD verification');
+requireAll(r2Storage, ['verifyR2ObjectReady', 'verifyR2ObjectViaAuthenticatedGet', "method: 'HEAD'", "method: 'GET'", 'HEAD durability check unavailable', 'X-HNL-SHA256', 'R2_UPLOAD_NOT_DURABLE'], 'R2 durable PUT + HEAD/CORS-safe authenticated GET verification');
 requireAll(r2Worker, ['HNL_QLTC_MEDIA', 'FIREBASE_PROJECT_ID', 'firestore.googleapis.com', 'canWrite', "area === 'floor-plans'", "role === 'ADMIN'", "role === 'EDITOR'"], 'R2 gateway RBAC');
 requireAll(r2Worker, ["request.method === 'HEAD'", 'HNL_QLTC_MEDIA.head', 'X-HNL-SHA256', 'Content-Length'], 'R2 gateway durable object HEAD');
+requireAll(r2DeployWorkflow, ['workflow_dispatch:', 'DEPLOY-R2', 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID', 'wrangler@4.33.0 deploy', '/health'], 'manual-gated R2 Worker deploy workflow');
+if (r2DeployWorkflow.includes('on:\n  push:') || r2DeployWorkflow.includes('on:\n  pull_request:')) fail('R2 Worker deploy workflow must never auto-deploy on push/PR');
 requireAll(photoSync, ['uploadProjectBinaryToCloud', 'BINARY_STORAGE_PROVIDER', 'storagePath:', 'thumbnailPath:', 'photoSnapshotMergeQueue'], 'photo object-storage pipeline');
 requireAll(photoStorage, [
   "raw.startsWith('r2:')",
@@ -179,7 +182,7 @@ requireAll(desktopBuild, ['Optimize-HnlSmallIconFrame', '$sizes = @(16, 20, 24, 
 pass('photo pending binary retries sooner and Windows taskbar icon uses sharpened DPI-specific frames');
 
 requireAll(floorPlanDefect, ['photo.cloudUrl || photo.cloudFileId || photo.localUri', 'false, projectId'], 'Defect gallery cloud rendering');
-requireAll(exportPdf, ['p.cloudUrl || p.cloudFileId || p.localUri', 'activeProjectId'], 'PDF photo cloud rendering');
+requireAll(exportPdf, ['getProjectPhotosWithBinary(activeProjectId, true)', "embeddedUrl.startsWith('data:image/')", 'ensureReportPhotosReady', 'isResolvingReportPhotos', 'reportPhotoError'], 'PDF portable photo embedding + R2 readiness gate');
 
 requireAll(materialNormModal, ['sm:min-h-[2.75rem]', 'sm:items-start', 'leading-tight pt-0.5'], 'Material norm PC quota-field alignment');
 pass('Material norm quota inputs align on PC while remaining stacked on mobile');
