@@ -209,7 +209,7 @@ requireAll(desktopBuild, ['Optimize-HnlSmallIconFrame', '$sizes = @(16, 20, 24, 
 pass('photo pending binary retries sooner and Windows taskbar icon uses sharpened DPI-specific frames');
 
 requireAll(floorPlanDefect, ['photo.cloudUrl || photo.cloudFileId || photo.localUri', 'false, projectId'], 'Defect gallery cloud rendering');
-requireAll(exportPdf, ['getProjectPhotosWithBinary(activeProjectId, true)', "embeddedUrl.startsWith('data:image/')", 'ensureReportPhotosReady', 'isResolvingReportPhotos', 'reportPhotoError'], 'PDF portable photo embedding + R2 readiness gate');
+requireAll(exportPdf, ['getProjectPhotosWithBinary(activeProjectId, false)', "embeddedUrl.startsWith('data:image/')", 'ensureReportPhotosReady', 'isResolvingReportPhotos', 'reportPhotoWarning', 'missingReportPhotoIds'], 'PDF portable photo embedding + tolerant R2 warning gate');
 
 requireAll(materialNormModal, ['sm:min-h-[2.75rem]', 'sm:items-start', 'leading-tight pt-0.5'], 'Material norm PC quota-field alignment');
 pass('Material norm quota inputs align on PC while remaining stacked on mobile');
