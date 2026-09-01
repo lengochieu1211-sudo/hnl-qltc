@@ -320,11 +320,14 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
       return String(a.id || '').localeCompare(String(b.id || ''));
     })
     .map((d, index) => {
-      const displayCode = getDefectShortCode(d.id);
-      const markerCode = displayCode.replace(/^DF-/, '');
+      const markerNumber = index + 1;
+      const digits = filteredDefects.length >= 100 ? 3 : 2;
+      const markerCode = String(markerNumber).padStart(digits, '0');
+      // One visible code follows the user's selected PDF marker style everywhere.
+      const displayCode = pdfDefectCodeStyle === 'df' ? `DF-${markerCode}` : markerCode;
       return {
         ...d,
-        markerNumber: index + 1,
+        markerNumber,
         markerCode,
         displayCode,
       };
@@ -785,6 +788,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                       ${fpRooms.length > 0 ? `
                         <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 8px; margin-bottom: 6px;">
                           <p style="margin: 0 0 4px 0; font-size: 9.5px; font-weight: bold; color: #1e1b4b;">Chú giải mã vị trí khu vực / phòng (${h(formatFloorName(fp.floorName))}):</p>
+                          <p style="margin: 0 0 5px 0; font-size: 8.5px; color: #64748b;">🟣 Ký hiệu tím = Căn/Phòng. Mã trên bản vẽ khớp với cột Mã trong bảng chú giải.</p>
                           <table style="width: 100%; border-collapse: collapse; margin-bottom: 0; font-size: 9px; table-layout: fixed;">
                             <thead>
                               <tr style="background: #e2e8f0;">
@@ -882,6 +886,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                         <!-- Legend Table for Defect Map 1:1 -->
                         <div style="background: #fff5f5; border: 1px solid #fecdd3; border-radius: 6px; padding: 6px 8px;">
                           <p style="margin: 0 0 4px 0; font-size: 9.5px; font-weight: bold; color: #9f1239;">Chú giải vị trí Defect trên bản vẽ (${h(formatFloorName(fp.floorName))}):</p>
+                          <p style="margin: 0 0 5px 0; font-size: 8.5px; color: #64748b;">🔴 Ký hiệu đỏ = Defect. Mã trên bản vẽ, danh sách Defect và phụ lục ảnh dùng cùng một mã hiển thị.</p>
                           <table class="map-legend" style="width: 100%; border-collapse: collapse; margin-bottom: 0; font-size: 8.5px; table-layout: fixed;">
                             <thead>
                               <tr style="background: #ffe4e6;">
@@ -1079,7 +1084,8 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                       </div>
 
                       <div style="font-size: 8px; color: #94a3b8; margin: -3px 0 4px;">Mã hệ thống: ${h(d.displayCode)}</div>
-                      <div style="font-size: 9px; color: #334155; margin-bottom: 6px;">Mô tả: ${h(d.description)}</div>
+                      <div style="font-size: 9px; color: #334155; margin-bottom: 2px;">Mô tả: ${h(d.description)}</div>
+                      <div style="font-size: 7.8px; color: #94a3b8; margin-bottom: 6px;">Mã hệ thống: ${h(getDefectShortCode(d.id))}</div>
 
                       <div style="display: flex; gap: 8px;">
                         <!-- Before Photos -->
