@@ -15,7 +15,7 @@
     "test:rules": "node scripts/firebase-rules-check.mjs",
     "test:emulator-config": "node scripts/emulator-golden.mjs",
     "security:audit": "npm audit --omit=dev --audit-level=critical",
-    "test:stability": "node scripts/stability-gate.mjs && node scripts/offline-golden.mjs && node scripts/category-golden.mjs && node scripts/firebase-only-golden.mjs && node scripts/firebase-only-legacy-audit.mjs --self-test && node scripts/emulator-golden.mjs && node scripts/rbac-matrix.mjs && node scripts/r2-gateway-golden.mjs && node scripts/desktop-launcher-golden.mjs && node scripts/auth-popup-golden.mjs",
+    "test:stability": "node scripts/stability-gate.mjs && node scripts/offline-golden.mjs && node scripts/category-golden.mjs && node scripts/firebase-only-golden.mjs && node scripts/firebase-only-legacy-audit.mjs --self-test && node scripts/emulator-golden.mjs && node scripts/rbac-matrix.mjs && node scripts/r2-gateway-golden.mjs && node scripts/desktop-launcher-golden.mjs && node scripts/auth-popup-golden.mjs && npm run test:checklist-floor",
     "verify": "npm run test:stability && npm run typecheck && npm run lint && npm run test:rules && npm run security:audit && npm run build",
     "test:offline": "node scripts/offline-golden.mjs",
     "test:category": "node scripts/category-golden.mjs",
@@ -23,7 +23,8 @@
     "test:migration-audit": "node scripts/firebase-only-legacy-audit.mjs --self-test",
     "test:rbac": "node scripts/rbac-matrix.mjs",
     "build:apk:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File ./android-wrapper/build-apk.ps1",
-    "build:exe:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File ./desktop-wrapper/build-launcher.ps1"
+    "build:exe:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File ./desktop-wrapper/build-launcher.ps1",
+    "test:checklist-floor": "tsx scripts/checklist-floor-golden.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
