@@ -41,6 +41,7 @@ import { saveTextFile } from '../utils/fileExport';
 import { QuickSortBar } from './QuickSortBar';
 import { confirmAsync } from '../utils/confirmAsync';
 import { formatDateTime } from '../utils/dateFormatter';
+import { isSuperAdminEmail } from '../config/superAdmin';
 
 interface SecurityModalProps {
   isOpen: boolean;
@@ -97,6 +98,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
   const [auditSortOrder, setAuditSortOrder] = useState<'asc' | 'desc'>('desc');
 
   const canManageProjectMembers = canManageMembers(currentRole);
+  const isCompanySuperAdmin = isSuperAdminEmail(cloudUser?.email);
   const canManageSecuritySettings = canManageSecurity(currentRole);
   const canReadAudit = currentRole === 'ADMIN' || currentRole === 'EDITOR';
   const normalizedCloudEmail = String(cloudUser?.email || '').trim().toLowerCase();
@@ -197,6 +199,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
           email: String(m.email).trim().toLowerCase(),
           role: (m.role || 'VIEWER') as UserRole,
           assignedAt: Number(m.assignedAt || m.updatedAt || Date.now()),
+          pinResetEpoch: Number(m.pinResetEpoch || 0),
         }));
       setProjectMembers(normalized);
       refreshCloudStatus(selectedPid);
@@ -597,6 +600,22 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
       clearAuditLogs();
       // Cloud activityLogs are append-only. Keep the currently rendered realtime list;
       // the Firestore listener remains the source of truth for the selected project.
+    }
+  };
+
+  const handleRemotePinReset = async (email: string) => {
+    if (!isCompanySuperAdmin) return;
+    const ok = await confirmAsync(`Reset PIN từ xa cho ${email}?
+
+PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nhập Google lại trước khi tiếp tục.`);
+    if (!ok) return;
+    setMemberMsg(null);
+    try {
+      const { requestProjectMemberPinReset } = await import('../lib/firebase');
+      const epoch = await requestProjectMemberPinReset(selectedPid, email);
+      setMemberMsg({ type: 'success', text: `Đã gửi lệnh reset PIN từ xa cho ${email} (${formatDateTime(epoch)}).` });
+    } catch (err: any) {
+      setMemberMsg({ type: 'error', text: `Không reset được PIN: ${err?.message || err}` });
     }
   };
 
@@ -1268,6 +1287,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
                             {m.role === 'ADMIN' ? 'Admin' : m.role === 'EDITOR' ? 'Kỹ sư' : 'Chỉ xem'}
                           </span>
                         </div>
+                        {isCompanySuperAdmin && <button type="button" onClick={() => void handleRemotePinReset(m.email)} className="mr-1 px-2 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 text-[9px] font-extrabold whitespace-nowrap" title="Vô hiệu hóa PIN local của user khi thiết bị online">Reset PIN</button>}
                         {canManageProjectMembers && <button
                           type="button"
                           onClick={() => handleRemoveMemberSafe(m.email)}

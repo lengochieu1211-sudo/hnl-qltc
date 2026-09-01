@@ -5,7 +5,7 @@ import { safeSetLocalStorageItem } from './utils/storage';
 import { parseLegacyTimestamp, formatDateTime } from './utils/dateFormatter';
 import { AppLockOverlay } from './components/AppLockOverlay';
 import { SecurityModal } from './components/SecurityModal';
-import { getStoredPinLockConfig, logAuditAction, getCurrentUserRole, setCurrentUserRole, UserRole, canEditProjectData, canManageProjects, canManageWorkVolumeStructure, canManageFloorPlanStructure, canManageMaterialNorms, canManageTeams, canManageChecklistStructure, canDeleteBusinessData, canDeleteCrewRecord, canManageBackups, canUseGlobalUndoRedo, canEditWarehouseData, canEditDefectData, canEditChecklistData, canEditCrewData, canImportData } from './utils/securityUtils';
+import { getStoredPinLockConfig, applyRemotePinReset, logAuditAction, getCurrentUserRole, setCurrentUserRole, UserRole, canEditProjectData, canManageProjects, canManageWorkVolumeStructure, canManageFloorPlanStructure, canManageMaterialNorms, canManageTeams, canManageChecklistStructure, canDeleteBusinessData, canDeleteCrewRecord, canManageBackups, canUseGlobalUndoRedo, canEditWarehouseData, canEditDefectData, canEditChecklistData, canEditCrewData, canImportData } from './utils/securityUtils';
 import { cacheVerifiedProjectRole, getCachedVerifiedProjectRole, getRememberedVerifiedAuthIdentity, rememberVerifiedAuthIdentity } from './utils/offlineAccess';
 
 function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
@@ -70,7 +70,7 @@ function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
   }
   return merged;
 }
-import { subscribeToProjectRealtime, saveProjectDiffsToCloud, queueProjectDiffsToFirestoreOffline, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, subscribeProjectUserRoleRealtime, fetchCurrentUserProjectsFromCloud, subscribeCurrentUserProjectsRealtime, refreshCurrentUserProjectDiscovery, subscribeProjectSharedSettings, saveProjectSharedSettings, saveProjectAuditLog, loadProjectFromFirestoreCache, fetchProjectFromCloud } from './lib/firebase';
+import { subscribeToProjectRealtime, saveProjectDiffsToCloud, queueProjectDiffsToFirestoreOffline, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, subscribeProjectUserRoleRealtime, subscribeCurrentUserPinResetRealtime, signOutGoogle, fetchCurrentUserProjectsFromCloud, subscribeCurrentUserProjectsRealtime, refreshCurrentUserProjectDiscovery, subscribeProjectSharedSettings, saveProjectSharedSettings, saveProjectAuditLog, loadProjectFromFirestoreCache, fetchProjectFromCloud } from './lib/firebase';
 import { REALTIME_STATE_KEYS, STATE_KEY_TO_CLOUD_NAME } from './config/realtimeCollections';
 import { FIREBASE_ONLY_RUNTIME, LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED, LEGACY_LOCAL_IMPORT_ENABLED } from './config/runtimeArchitecture';
 import { CURRENT_DATA_SCHEMA_VERSION } from './config/dataSchema';
@@ -245,6 +245,7 @@ export default function App() {
   const [isSoftKeyboardOpen, setIsSoftKeyboardOpen] = useState(false);
   const [cloudDefectIndex, setCloudDefectIndex] = useState<{ projectId: string; ids: Set<string> } | null>(null);
   const [trashSettings, setTrashSettings] = useState<TrashSettings>(DEFAULT_TRASH_SETTINGS);
+  const [superAdminUiSettings, setSuperAdminUiSettings] = useState<{ scalePercent: number; checklistVisibility: 'auto' | 'always' }>({ scalePercent: 100, checklistVisibility: 'auto' });
   const trashSettingsRef = useRef<TrashSettings>(DEFAULT_TRASH_SETTINGS);
   const [trashOperations, setTrashOperations] = useState<TrashOperation[]>([]);
   const trashOperationsRef = useRef<TrashOperation[]>([]);
@@ -283,9 +284,11 @@ export default function App() {
   useEffect(() => {
     let isMounted = true;
     let roleUnsub: (() => void) | null = null;
+    let pinResetUnsub: (() => void) | null = null;
 
     const attachRoleListener = () => {
       if (roleUnsub) { roleUnsub(); roleUnsub = null; }
+      if (pinResetUnsub) { pinResetUnsub(); pinResetUnsub = null; }
       const realUser = getCurrentRealFirebaseUser();
       const rememberedIdentity = !realUser && !isOnline ? getRememberedVerifiedAuthIdentity() : null;
       const identity = realUser
@@ -323,6 +326,15 @@ export default function App() {
 
       if (!realUser || !isOnline) return;
       rememberVerifiedAuthIdentity(realUser);
+      pinResetUnsub = subscribeCurrentUserPinResetRealtime(activeProjectId, realUser, (epoch) => {
+        if (!isMounted || !applyRemotePinReset(epoch, realUser.email)) return;
+        setIsAppLocked(false);
+        logAuditAction('SECURITY_CONFIG_CHANGE', `PIN local đã bị SUPER ADMIN reset từ xa (${realUser.email || realUser.uid})`, activeProjectId);
+        window.setTimeout(() => {
+          alert('SUPER ADMIN đã đặt lại mã PIN trên tài khoản này.\n\nPIN cũ đã bị vô hiệu hóa. Vui lòng đăng nhập Google lại và tạo PIN mới trong Bảo mật.');
+          void signOutGoogle();
+        }, 0);
+      });
       roleUnsub = subscribeProjectUserRoleRealtime(activeProjectId, realUser, (res) => {
         if (!isMounted) return;
         if (res.verification !== 'verified') {
@@ -359,6 +371,7 @@ export default function App() {
 
     return () => {
       isMounted = false;
+      if (pinResetUnsub) pinResetUnsub();
       if (roleUnsub) roleUnsub();
       authUnsub();
     };
@@ -864,9 +877,15 @@ export default function App() {
     });
   }, [defects, cloudDefectIndex, activeProjectId, isProjectRoleResolved, currentUserRole]);
   const activeChecklist = useMemo(() => checklist.filter((item) => !item.archivedAt), [checklist]);
-  const showChecklistModule = activeChecklist.length > 0;
+  const showChecklistModule = superAdminUiSettings.checklistVisibility === 'always' || activeChecklist.length > 0;
   const currentIdentityEmail = getCurrentRealFirebaseUser()?.email || (!isOnline ? getRememberedVerifiedAuthIdentity()?.email : undefined);
   const isCurrentSuperAdmin = isSuperAdminEmail(currentIdentityEmail);
+
+  useEffect(() => {
+    const pct = Math.min(120, Math.max(90, Number(superAdminUiSettings.scalePercent) || 100));
+    document.documentElement.style.fontSize = `${pct}%`;
+    return () => { document.documentElement.style.fontSize = ''; };
+  }, [superAdminUiSettings.scalePercent]);
 
   useEffect(() => {
     // Checklist is kept in source/data for compatibility but stays out of navigation
@@ -1101,6 +1120,15 @@ export default function App() {
         trashSettingsRef.current = nextTrash;
         setTrashSettings(nextTrash);
         localStorage.setItem(getKey('construction_trash_settings', activeProjectId), JSON.stringify(nextTrash));
+      }
+      if (settings.superAdminUi && typeof settings.superAdminUi === 'object') {
+        const raw = settings.superAdminUi as any;
+        const nextUi = {
+          scalePercent: [90, 100, 110, 120].includes(Number(raw.scalePercent)) ? Number(raw.scalePercent) : 100,
+          checklistVisibility: raw.checklistVisibility === 'always' ? 'always' as const : 'auto' as const,
+        };
+        setSuperAdminUiSettings(nextUi);
+        localStorage.setItem(getKey('construction_superadmin_ui', activeProjectId), JSON.stringify(nextUi));
       }
     });
     return unsubscribe;
@@ -2285,6 +2313,27 @@ export default function App() {
     void saveTrashOperationToCloud(operation).catch((err) =>
       console.warn('Trash cloud save warning:', err)
     );
+  };
+
+  const previewSuperAdminUiSettings = (next: { scalePercent: number; checklistVisibility: 'auto' | 'always' }) => {
+    if (!isCurrentSuperAdmin) return;
+    setSuperAdminUiSettings(next);
+  };
+
+  const saveSuperAdminUiSettings = async (next: { scalePercent: number; checklistVisibility: 'auto' | 'always' }) => {
+    if (!isCurrentSuperAdmin || !getCurrentRealFirebaseUser()) throw new Error('Chỉ SUPER ADMIN đã xác thực được lưu cấu hình giao diện.');
+    const sanitized = {
+      scalePercent: [90, 100, 110, 120].includes(Number(next.scalePercent)) ? Number(next.scalePercent) : 100,
+      checklistVisibility: next.checklistVisibility === 'always' ? 'always' as const : 'auto' as const,
+    };
+    setSuperAdminUiSettings(sanitized);
+    localStorage.setItem(getKey('construction_superadmin_ui', activeProjectIdRef.current), JSON.stringify(sanitized));
+    await saveProjectSharedSettings(activeProjectIdRef.current, { superAdminUi: sanitized });
+    await saveProjectAuditLog(activeProjectIdRef.current, { action: 'SECURITY_CONFIG_CHANGE', description: `SUPER ADMIN cập nhật giao diện: scale ${sanitized.scalePercent}%, checklist ${sanitized.checklistVisibility}`, module: 'system-ui', syncStatus: 'PENDING' }).catch(() => {});
+  };
+
+  const resetSuperAdminUiSettings = async () => {
+    await saveSuperAdminUiSettings({ scalePercent: 100, checklistVisibility: 'auto' });
   };
 
   const handleTrashSettingsChange = (nextInput: TrashSettings) => {
@@ -6317,6 +6366,10 @@ export default function App() {
               onOpenSecurity={() => setIsSecurityModalOpen(true)}
               onOpenConfig={() => setActiveTab('config')}
               onOpenNotificationCenter={() => setIsNotificationCenterOpen(true)}
+              uiSettings={superAdminUiSettings}
+              onPreviewUiSettings={previewSuperAdminUiSettings}
+              onSaveUiSettings={saveSuperAdminUiSettings}
+              onResetUiSettings={resetSuperAdminUiSettings}
             />
           )}
 

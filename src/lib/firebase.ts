@@ -1346,6 +1346,7 @@ export interface ProjectRoleInfo {
   ownerUid?: string;
   ownerEmail?: string;
   isOwner?: boolean;
+  pinResetEpoch?: number;
   // `verified` means Firestore answered authoritatively, including an authoritative
   // VIEWER/deny result. `unavailable` means the network/backend could not verify the
   // role and MUST NOT downgrade a previously verified offline lease.
@@ -1399,7 +1400,7 @@ export async function fetchProjectUserRoleFromCloud(
           return { allowed: false, role: 'VIEWER', isCloudSynced: true, ownerUid: pOwnerUid, ownerEmail: pOwnerEmail, isOwner: false, verification: 'verified' };
         }
         const role = normalizeProjectRole(mData?.role);
-        return { allowed: true, role, isCloudSynced: true, ownerUid: pOwnerUid, ownerEmail: pOwnerEmail, isOwner: role === 'ADMIN', verification: 'verified' };
+        return { allowed: true, role, isCloudSynced: true, ownerUid: pOwnerUid, ownerEmail: pOwnerEmail, isOwner: role === 'ADMIN', pinResetEpoch: Number(mData?.pinResetEpoch || 0), verification: 'verified' };
       }
     }
 
@@ -1742,6 +1743,10 @@ function sanitizeSubcollectionItemForCloud(subcollection: string, item: any): an
 }
 
 export interface ProjectSharedSettings {
+  superAdminUi?: {
+    scalePercent?: number;
+    checklistVisibility?: 'auto' | 'always';
+  };
   driveAutoSyncEnabled?: boolean;
   syncOptions?: {
     norms?: boolean;
@@ -2761,6 +2766,46 @@ export async function saveUserProfileToCloud(user: { uid: string; email: string;
   } catch (err) {
     console.warn('saveUserProfileToCloud error:', err);
   }
+}
+
+/**
+ * SUPER ADMIN remote PIN invalidation. PIN/hash never leaves the device.
+ */
+export async function requestProjectMemberPinReset(projectId: string, memberEmail: string, reason = 'SUPER ADMIN remote reset'): Promise<number> {
+  const actor = getCurrentRealFirebaseUser();
+  const normalizedEmail = normalizeEmail(memberEmail);
+  if (!actor || !isSuperAdminEmail(actor.email)) throw new Error('Chỉ SUPER ADMIN được reset PIN từ xa.');
+  if (!projectId || !normalizedEmail) throw new Error('Thiếu project hoặc email user cần reset PIN.');
+  const memberRef = doc(db, 'projects', projectId, 'members', normalizedEmail);
+  const memberSnap = await getDocFromServer(memberRef);
+  if (!memberSnap.exists()) throw new Error('User chưa có member record trong dự án này.');
+  const epoch = Date.now();
+  await setDoc(memberRef, {
+    pinResetEpoch: epoch,
+    pinResetByUid: actor.uid,
+    pinResetByEmail: normalizeEmail(actor.email),
+    pinResetReason: String(reason || '').slice(0, 240),
+    updatedAt: epoch,
+  }, { merge: true });
+  await saveProjectAuditLog(projectId, {
+    timestamp: epoch,
+    action: 'SECURITY_CONFIG_CHANGE',
+    description: `SUPER ADMIN yêu cầu reset PIN từ xa cho ${normalizedEmail}`,
+    details: `Remote PIN reset: ${normalizedEmail}`,
+    module: 'security',
+    syncStatus: 'PENDING',
+  }).catch(() => {});
+  return epoch;
+}
+
+export function subscribeCurrentUserPinResetRealtime(projectId: string, user: User, onResetEpoch: (epoch: number) => void): () => void {
+  const email = normalizeEmail(user?.email);
+  if (!projectId || !email) return () => {};
+  return onSnapshot(doc(db, 'projects', projectId, 'members', email), (snap) => {
+    if (!snap.exists()) return;
+    const epoch = Number(snap.data()?.pinResetEpoch || 0);
+    if (Number.isFinite(epoch) && epoch > 0) onResetEpoch(epoch);
+  }, (err) => console.warn('Remote PIN reset subscription warning:', err));
 }
 
 /**
