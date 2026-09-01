@@ -1,16 +1,15 @@
-name: TEMP QLTC Folder + Defect Appendix Gate
+name: TEMP QLTC Folder Defect Appendix Gate
 
 on:
   push:
     branches:
-      - "fix/android-qltc-folder-defect-appendix-label"
+      - fix/android-qltc-folder-defect-appendix-label
 
 permissions:
   contents: write
 
 jobs:
-  patch-and-verify:
-    if: ${{ github.event.head_commit.message != 'fix: QLTC Android folder and Defect appendix label' }}
+  verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,19 +17,22 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: 22
           cache: npm
       - name: Apply patch
         run: python3 scripts/tmp-fix-qltc-folder-defect-label.py
-      - name: Install
+      - name: Install dependencies
         run: npm ci
-      - name: Full verification gate
+      - name: Verify source
         run: npm run verify
-      - name: Commit clean source and remove temporary files
+      - name: Commit source changes when needed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm scripts/tmp-fix-qltc-folder-defect-label.py .github/workflows/tmp-qltc-folder-defect-label.yml
           git add android-wrapper/src/com/qlct/app/MainActivity.java src/components/ExportPdfModal.tsx
-          git commit -m "fix: QLTC Android folder and Defect appendix label"
-          git push
+          if git diff --cached --quiet; then
+            echo "No source changes to commit."
+          else
+            git commit -m "fix: QLTC Android folder and Defect appendix label"
+            git push
+          fi
