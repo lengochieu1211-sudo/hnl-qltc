@@ -3,14 +3,14 @@ name: TEMP QLTC Folder + Defect Appendix Gate
 on:
   push:
     branches:
-      - fix/android-qltc-folder-defect-appendix-label
+      - "fix/android-qltc-folder-defect-appendix-label"
 
 permissions:
   contents: write
 
 jobs:
   patch-and-verify:
-    if: github.event.head_commit.message != 'fix: QLTC Android folder and Defect appendix label'
+    if: ${{ github.event.head_commit.message != 'fix: QLTC Android folder and Defect appendix label' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,7 +18,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: "22"
           cache: npm
       - name: Apply patch
         run: python3 scripts/tmp-fix-qltc-folder-defect-label.py
