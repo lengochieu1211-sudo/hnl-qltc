@@ -37,20 +37,23 @@ if checklist_label not in text:
     raise SystemExit('checklist sort label not found')
 text = text.replace(checklist_label, defect_label + checklist_label, 1)
 
-# Remove only the duplicate Defect sort selector, preserving its filter grid.
-start_token = '{/* Defect list grouping/sorting - display-only; map marker placement is intentionally unchanged. */}'
+# Remove duplicate Defect sort selector by its visible label; keep the filter grid below it.
+label_token = 'Sắp xếp &amp; nhóm danh sách Defect'
 filter_token = '<div className="grid grid-cols-1 sm:grid-cols-3 gap-2">'
-start = text.find(start_token)
-if start < 0:
-    raise SystemExit('old defect sort section start not found')
-line_start = text.rfind('\n', 0, start)
-line_start = 0 if line_start < 0 else line_start
-filter_pos = text.find(filter_token, start)
+label_pos = text.find(label_token)
+if label_pos < 0:
+    raise SystemExit('duplicate Defect sort visible label not found')
+container_pos = text.rfind('<div className="space-y-1.5">', 0, label_pos)
+if container_pos < 0:
+    raise SystemExit('duplicate Defect sort container not found')
+line_start = text.rfind('\n', 0, container_pos)
+line_start = container_pos if line_start < 0 else line_start + 1
+filter_pos = text.find(filter_token, label_pos)
 if filter_pos < 0:
-    raise SystemExit('defect filter grid not found after sort section')
+    raise SystemExit('Defect filter grid not found after duplicate sort label')
 filter_line_start = text.rfind('\n', 0, filter_pos)
 filter_line_start = filter_pos if filter_line_start < 0 else filter_line_start + 1
-replacement_start = '\n          {/* Defect filters; sorting now lives in the common per-section panel above. */}\n          <div className="space-y-1.5">\n            <label className="block text-slate-700 font-bold">Lọc Defect trong báo cáo</label>\n'
+replacement_start = '          {/* Defect filters; sorting now lives in the common per-section panel above. */}\n          <div className="space-y-1.5">\n            <label className="block text-slate-700 font-bold">Lọc Defect trong báo cáo</label>\n'
 text = text[:line_start] + replacement_start + text[filter_line_start:]
 
 pdf.write_text(text, encoding='utf-8')
