@@ -1743,6 +1743,10 @@ function sanitizeSubcollectionItemForCloud(subcollection: string, item: any): an
 }
 
 export interface ProjectSharedSettings {
+  superAdminUi?: {
+    scalePercent?: number;
+    checklistVisibility?: 'auto' | 'always';
+  };
   driveAutoSyncEnabled?: boolean;
   syncOptions?: {
     norms?: boolean;

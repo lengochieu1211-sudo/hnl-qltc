@@ -245,6 +245,7 @@ export default function App() {
   const [isSoftKeyboardOpen, setIsSoftKeyboardOpen] = useState(false);
   const [cloudDefectIndex, setCloudDefectIndex] = useState<{ projectId: string; ids: Set<string> } | null>(null);
   const [trashSettings, setTrashSettings] = useState<TrashSettings>(DEFAULT_TRASH_SETTINGS);
+  const [superAdminUiSettings, setSuperAdminUiSettings] = useState<{ scalePercent: number; checklistVisibility: 'auto' | 'always' }>({ scalePercent: 100, checklistVisibility: 'auto' });
   const trashSettingsRef = useRef<TrashSettings>(DEFAULT_TRASH_SETTINGS);
   const [trashOperations, setTrashOperations] = useState<TrashOperation[]>([]);
   const trashOperationsRef = useRef<TrashOperation[]>([]);
@@ -876,9 +877,15 @@ export default function App() {
     });
   }, [defects, cloudDefectIndex, activeProjectId, isProjectRoleResolved, currentUserRole]);
   const activeChecklist = useMemo(() => checklist.filter((item) => !item.archivedAt), [checklist]);
-  const showChecklistModule = activeChecklist.length > 0;
+  const showChecklistModule = superAdminUiSettings.checklistVisibility === 'always' || activeChecklist.length > 0;
   const currentIdentityEmail = getCurrentRealFirebaseUser()?.email || (!isOnline ? getRememberedVerifiedAuthIdentity()?.email : undefined);
   const isCurrentSuperAdmin = isSuperAdminEmail(currentIdentityEmail);
+
+  useEffect(() => {
+    const pct = Math.min(120, Math.max(90, Number(superAdminUiSettings.scalePercent) || 100));
+    document.documentElement.style.fontSize = `${pct}%`;
+    return () => { document.documentElement.style.fontSize = ''; };
+  }, [superAdminUiSettings.scalePercent]);
 
   useEffect(() => {
     // Checklist is kept in source/data for compatibility but stays out of navigation
@@ -1113,6 +1120,15 @@ export default function App() {
         trashSettingsRef.current = nextTrash;
         setTrashSettings(nextTrash);
         localStorage.setItem(getKey('construction_trash_settings', activeProjectId), JSON.stringify(nextTrash));
+      }
+      if (settings.superAdminUi && typeof settings.superAdminUi === 'object') {
+        const raw = settings.superAdminUi as any;
+        const nextUi = {
+          scalePercent: [90, 100, 110, 120].includes(Number(raw.scalePercent)) ? Number(raw.scalePercent) : 100,
+          checklistVisibility: raw.checklistVisibility === 'always' ? 'always' as const : 'auto' as const,
+        };
+        setSuperAdminUiSettings(nextUi);
+        localStorage.setItem(getKey('construction_superadmin_ui', activeProjectId), JSON.stringify(nextUi));
       }
     });
     return unsubscribe;
@@ -2297,6 +2313,27 @@ export default function App() {
     void saveTrashOperationToCloud(operation).catch((err) =>
       console.warn('Trash cloud save warning:', err)
     );
+  };
+
+  const previewSuperAdminUiSettings = (next: { scalePercent: number; checklistVisibility: 'auto' | 'always' }) => {
+    if (!isCurrentSuperAdmin) return;
+    setSuperAdminUiSettings(next);
+  };
+
+  const saveSuperAdminUiSettings = async (next: { scalePercent: number; checklistVisibility: 'auto' | 'always' }) => {
+    if (!isCurrentSuperAdmin || !getCurrentRealFirebaseUser()) throw new Error('Chỉ SUPER ADMIN đã xác thực được lưu cấu hình giao diện.');
+    const sanitized = {
+      scalePercent: [90, 100, 110, 120].includes(Number(next.scalePercent)) ? Number(next.scalePercent) : 100,
+      checklistVisibility: next.checklistVisibility === 'always' ? 'always' as const : 'auto' as const,
+    };
+    setSuperAdminUiSettings(sanitized);
+    localStorage.setItem(getKey('construction_superadmin_ui', activeProjectIdRef.current), JSON.stringify(sanitized));
+    await saveProjectSharedSettings(activeProjectIdRef.current, { superAdminUi: sanitized });
+    await saveProjectAuditLog(activeProjectIdRef.current, { action: 'SECURITY_CONFIG_CHANGE', description: `SUPER ADMIN cập nhật giao diện: scale ${sanitized.scalePercent}%, checklist ${sanitized.checklistVisibility}`, module: 'system-ui', syncStatus: 'PENDING' }).catch(() => {});
+  };
+
+  const resetSuperAdminUiSettings = async () => {
+    await saveSuperAdminUiSettings({ scalePercent: 100, checklistVisibility: 'auto' });
   };
 
   const handleTrashSettingsChange = (nextInput: TrashSettings) => {
@@ -6329,6 +6366,10 @@ export default function App() {
               onOpenSecurity={() => setIsSecurityModalOpen(true)}
               onOpenConfig={() => setActiveTab('config')}
               onOpenNotificationCenter={() => setIsNotificationCenterOpen(true)}
+              uiSettings={superAdminUiSettings}
+              onPreviewUiSettings={previewSuperAdminUiSettings}
+              onSaveUiSettings={saveSuperAdminUiSettings}
+              onResetUiSettings={resetSuperAdminUiSettings}
             />
           )}
 

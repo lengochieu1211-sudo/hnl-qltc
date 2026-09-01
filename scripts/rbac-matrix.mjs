@@ -131,4 +131,9 @@ check('Rules behavior test covers Viewer write denial', has(rulesTest, 'VIEWER c
 check('Rules behavior test covers stale UID ADMIN vs canonical VIEWER', has(rulesTest, 'stale UID alias for canonical-precedence regression', "role: 'ADMIN'", 'viewerUid'));
 
 if (failed) process.exit(1);
+check('SUPER ADMIN remote PIN reset API is wired', has(src.firebase, 'requestProjectMemberPinReset'));
+check('remote PIN reset is company SUPER ADMIN-bound', has(src.firebase, 'isSuperAdminEmail(actor.email)'));
+check('target account listens for remote PIN reset', has(src.app, 'subscribeCurrentUserPinResetRealtime'));
+check('remote reset clears local PIN through monotonic epoch helper', has(src.security, 'applyRemotePinReset'));
+
 console.log('MASTER RBAC MATRIX PASS – ADMIN / EDITOR / VIEWER');

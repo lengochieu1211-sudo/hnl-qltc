@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ShieldCheck,
   UsersRound,
@@ -25,6 +25,10 @@ interface SuperAdminCenterProps {
   onOpenSecurity: () => void;
   onOpenConfig: () => void;
   onOpenNotificationCenter: () => void;
+  uiSettings: { scalePercent: number; checklistVisibility: 'auto' | 'always'; };
+  onPreviewUiSettings: (settings: { scalePercent: number; checklistVisibility: 'auto' | 'always' }) => void;
+  onSaveUiSettings: (settings: { scalePercent: number; checklistVisibility: 'auto' | 'always' }) => Promise<void>;
+  onResetUiSettings: () => Promise<void>;
 }
 
 export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
@@ -39,7 +43,35 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
   onOpenSecurity,
   onOpenConfig,
   onOpenNotificationCenter,
+  uiSettings,
+  onPreviewUiSettings,
+  onSaveUiSettings,
+  onResetUiSettings,
 }) => {
+  const [showUiSettings, setShowUiSettings] = useState(false);
+  const [draftUi, setDraftUi] = useState(uiSettings);
+  const [savingUi, setSavingUi] = useState(false);
+  const [uiMessage, setUiMessage] = useState('');
+
+  useEffect(() => setDraftUi(uiSettings), [uiSettings.scalePercent, uiSettings.checklistVisibility]);
+
+  const updateDraft = (next: typeof draftUi) => {
+    setDraftUi(next);
+    onPreviewUiSettings(next);
+    setUiMessage('Đang xem trước — chưa lưu lên Cloud.');
+  };
+
+  const saveDraft = async () => {
+    setSavingUi(true);
+    setUiMessage('');
+    try {
+      await onSaveUiSettings(draftUi);
+      setUiMessage('Đã lưu giao diện cho dự án.');
+    } catch (err: any) {
+      setUiMessage(`Không lưu được: ${err?.message || err}`);
+    } finally { setSavingUi(false); }
+  };
+
   const actions = [
     {
       title: 'Người dùng & phân quyền',
@@ -57,7 +89,7 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
       title: 'Giao diện & module',
       description: `Định dạng ngày: ${getDateFormatPreset()} · Checklist: ${showChecklist ? 'đang hiện' : 'tự ẩn khi chưa dùng'}.`,
       icon: Palette,
-      onClick: onOpenConfig,
+      onClick: () => setShowUiSettings(true),
     },
     {
       title: 'Thông báo',
@@ -126,6 +158,42 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
           ))}
         </div>
       </section>
+
+      {showUiSettings && (
+        <section className="rounded-3xl border border-indigo-200 bg-white shadow-sm overflow-hidden">
+          <div className="px-4 py-3 bg-indigo-50 border-b border-indigo-100 flex items-center justify-between gap-3">
+            <div><h3 className="text-sm font-black text-indigo-950">Giao diện & Module</h3><p className="text-[10px] text-indigo-700 mt-0.5">Chỉ thay đổi cách hiển thị, không thay đổi quyền hay dữ liệu.</p></div>
+            <button type="button" onClick={() => { setShowUiSettings(false); onPreviewUiSettings(uiSettings); }} className="text-[11px] font-bold text-slate-500 px-2 py-1 rounded-lg hover:bg-white">Đóng</button>
+          </div>
+          <div className="p-4 space-y-4">
+            <div className="grid sm:grid-cols-2 gap-3">
+              <label className="space-y-1.5">
+                <span className="text-[11px] font-extrabold text-slate-700">Tỷ lệ giao diện toàn ứng dụng</span>
+                <select value={draftUi.scalePercent} onChange={(e) => updateDraft({ ...draftUi, scalePercent: Number(e.target.value) })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold">
+                  <option value={90}>90% · Gọn</option><option value={100}>100% · Tiêu chuẩn</option><option value={110}>110% · Dễ đọc</option><option value={120}>120% · Chữ/nút lớn</option>
+                </select>
+                <p className="text-[10px] text-slate-400">Xem trước áp dụng ngay trên thiết bị hiện tại.</p>
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-[11px] font-extrabold text-slate-700">Hiển thị Checklist</span>
+                <select value={draftUi.checklistVisibility} onChange={(e) => updateDraft({ ...draftUi, checklistVisibility: e.target.value as 'auto' | 'always' })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold">
+                  <option value="auto">Tự ẩn khi chưa có dữ liệu</option><option value="always">Luôn hiện module Checklist</option>
+                </select>
+                <p className="text-[10px] text-slate-400">Không xóa Checklist; chỉ điều khiển menu hiển thị.</p>
+              </label>
+            </div>
+            <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 flex flex-wrap gap-2 items-center justify-between">
+              <div className="text-[10px] text-slate-500">Định dạng ngày vẫn dùng nguồn chuẩn trong Cài đặt → Cấu hình để tránh tạo hai cấu hình khác nhau.</div>
+              <button type="button" onClick={onOpenConfig} className="px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-[10px] font-extrabold text-slate-700">Mở cấu hình ngày</button>
+            </div>
+            {uiMessage && <div className="text-[10px] font-semibold text-slate-600 bg-slate-50 rounded-lg px-3 py-2">{uiMessage}</div>}
+            <div className="flex flex-wrap gap-2 justify-end">
+              <button type="button" disabled={savingUi} onClick={async () => { setSavingUi(true); try { await onResetUiSettings(); setUiMessage('Đã khôi phục mặc định.'); } finally { setSavingUi(false); } }} className="px-3 py-2 rounded-xl border border-slate-300 text-[11px] font-bold text-slate-600 disabled:opacity-50">Khôi phục mặc định</button>
+              <button type="button" disabled={savingUi} onClick={() => void saveDraft()} className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-[11px] font-extrabold shadow-sm disabled:opacity-50">{savingUi ? 'Đang lưu…' : 'Áp dụng & Lưu'}</button>
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
         <div className="flex items-start gap-3">
