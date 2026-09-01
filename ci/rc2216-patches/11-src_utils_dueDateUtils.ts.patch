@@ -29,6 +29,7 @@ index 9f25961..5a10a35 100644
 +  options: { includeActiveDefects?: boolean } = {}
  ): DueDateAlertItem[] {
    const alerts: DueDateAlertItem[] = [];
+ 
 @@ -78,6 +83,8 @@ export function collectDueDateAlerts(
          floor: wv.floor,
          category: wv.category,
@@ -36,6 +37,8 @@ index 9f25961..5a10a35 100644
 +        createdAt: wv.createdAt,
 +        createdAtTs: parseLegacyTimestamp(wv.createdAt, 0),
          statusStr: wv.status,
+         isCompleted: false,
+         diffDays,
 @@ -108,6 +115,8 @@ export function collectDueDateAlerts(
          floor: chk.floorName,
          category: chk.category,
@@ -43,6 +46,8 @@ index 9f25961..5a10a35 100644
 +        createdAt: chk.createdAt,
 +        createdAtTs: parseLegacyTimestamp(chk.createdAt, 0),
          statusStr: chk.status === 'defect' ? 'Có lỗi' : 'Chờ nghiệm thu',
+         isCompleted: false,
+         diffDays,
 @@ -120,24 +129,32 @@ export function collectDueDateAlerts(
    });
  
@@ -70,7 +75,9 @@ index 9f25961..5a10a35 100644
 -    if (isOverdue || isToday || isDueSoon) {
 +    if (options.includeActiveDefects || isOverdue || isToday || isDueSoon) {
        alerts.push({
-@@ -137,7 +154,10 @@ export function collectDueDateAlerts(
+         id: `def_${def.id}`,
+         type: 'defect',
+         title: `Lỗi: ${def.category} - ${def.description}`,
          floor: def.floorName,
          category: def.category,
 -        dueDate: def.dueDate,
@@ -79,11 +86,16 @@ index 9f25961..5a10a35 100644
 +        createdAtTs,
 +        creatorLabel: String(def.createdBy || '').trim() || undefined,
          statusStr: def.status,
-@@ -149,8 +169,9 @@ export function collectDueDateAlerts(
+         isCompleted: false,
+         diffDays,
+@@ -149,8 +166,9 @@ export function collectDueDateAlerts(
      }
    });
  
+-  // Sort by urgency: Overdue first (most negative diffDays), then Today (0), then Due Soon (1, 2, 3)
 -  alerts.sort((a, b) => a.diffDays - b.diffDays);
++  // Default collection order is newest activity first. NotificationCenter may apply
++  // another explicit sort (deadline, floor, title...) without mutating source data.
 +  alerts.sort((a, b) => Number(b.createdAtTs || 0) - Number(a.createdAtTs || 0));
  
    return alerts;
