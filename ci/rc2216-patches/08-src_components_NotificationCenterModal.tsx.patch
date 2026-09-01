@@ -10,6 +10,8 @@ index 331a7e0..0f05284 100644
 +import { collectDueDateAlerts, DueDateAlertItem } from '../utils/dueDateUtils';
 +import { formatDate, formatDateTime } from '../utils/dateFormatter';
  import { QuickSortBar } from './QuickSortBar';
+ 
+ interface NotificationCenterModalProps {
 @@ -48,11 +49,11 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
    const [filterType, setFilterType] = useState<'all' | 'overdue' | 'today' | 'soon'>('all');
    const [contentType, setContentType] = useState<'all' | 'workVolume' | 'checklist' | 'defect'>('all');
@@ -23,6 +25,8 @@ index 331a7e0..0f05284 100644
 -    return collectDueDateAlerts(workVolumes, checklist, defects);
 +    return collectDueDateAlerts(workVolumes, checklist, defects, { includeActiveDefects: true });
    }, [workVolumes, checklist, defects]);
+ 
+   const activeAlerts = allAlerts;
 @@ -82,14 +83,19 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
      const list = [...filteredAlerts];
      list.sort((a, b) => {
@@ -38,10 +42,13 @@ index 331a7e0..0f05284 100644
          comparison = a.type.localeCompare(b.type, 'vi', { sensitivity: 'base' });
        } else {
 -        comparison = a.dueDate.localeCompare(b.dueDate);
++        // Records without a deadline belong after dated items when sorting by deadline.
 +        const aDue = a.dueDate || '9999-12-31';
 +        const bDue = b.dueDate || '9999-12-31';
 +        comparison = aDue.localeCompare(bDue);
        }
+       return alertSortOrder === 'asc' ? comparison : -comparison;
+     });
 @@ -238,6 +244,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
            <QuickSortBar
              itemCount={filteredAlerts.length}
@@ -49,18 +56,29 @@ index 331a7e0..0f05284 100644
 +              { key: 'createdAt', label: 'Mới nhất', kind: 'date', defaultOrder: 'desc' },
                { key: 'dueDate', label: 'Thời hạn', kind: 'deadline', defaultOrder: 'asc' },
                { key: 'title', label: 'Nội dung', kind: 'alpha' },
+               { key: 'floor', label: 'Tầng', kind: 'floor' },
 @@ -246,7 +253,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
              activeKey={alertSortBy}
              order={alertSortOrder}
              onChange={(key, order) => { setAlertSortBy(key); setAlertSortOrder(order); }}
 -            onReset={() => { setAlertSortBy('dueDate'); setAlertSortOrder('asc'); }}
 +            onReset={() => { setAlertSortBy('createdAt'); setAlertSortOrder('desc'); }}
+             summary={`${filteredAlerts.length} thông báo`}
+           />
+ 
 @@ -263,7 +270,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
+ 
                let borderStyle = 'border-slate-200 bg-white hover:border-indigo-300';
                let badgeBg = 'bg-amber-100 text-amber-800 border-amber-200';
 -              let statusTag = `Còn ${alert.diffDays} ngày`;
 +              let statusTag = alert.dueDate ? `Còn ${alert.diffDays} ngày` : (alert.type === 'defect' ? 'Mới phát hiện' : 'Đang theo dõi');
+ 
+               if (alert.isOverdue) {
+                 borderStyle = 'border-rose-200 bg-rose-50/20 hover:border-rose-400';
 @@ -297,14 +304,27 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
+                       {alert.title}
+                     </h4>
+ 
 -                    <div className="flex items-center gap-3 text-[11px] text-slate-500">
 -                      <span className="flex items-center gap-1 font-medium">
 -                        <Calendar className="w-3.5 h-3.5 text-slate-400" />
@@ -74,7 +92,9 @@ index 331a7e0..0f05284 100644
 +                        </span>
 +                      )}
 +                      {alert.type === 'defect' && (
-+                        <span className="font-medium">Người tạo: <strong className="text-slate-800">{alert.creatorLabel || 'Không xác định'}</strong></span>
++                        <span className="font-medium">
++                          Người tạo: <strong className="text-slate-800">{alert.creatorLabel || 'Không xác định'}</strong>
++                        </span>
 +                      )}
 +                      {alert.dueDate && (
 +                        <span className="flex items-center gap-1 font-medium">
@@ -83,7 +103,10 @@ index 331a7e0..0f05284 100644
 +                        </span>
 +                      )}
                        {alert.category && (
--                        <span className="truncate max-w-[150px] text-slate-400">NH: {alert.category}</span>
-+                        <span className="truncate max-w-[180px] text-slate-400">HM: {alert.category}</span>
+-                        <span className="truncate max-w-[150px] text-slate-400">
+-                          NH: {alert.category}
++                        <span className="truncate max-w-[180px] text-slate-400">
++                          HM: {alert.category}
+                         </span>
                        )}
                      </div>
