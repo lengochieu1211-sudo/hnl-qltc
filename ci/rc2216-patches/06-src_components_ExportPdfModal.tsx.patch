@@ -11,6 +11,8 @@ index 59320d9..b845a15 100644
 +  const [defectCategoryFilter, setDefectCategoryFilter] = useState<string>('all');
 +  const [defectCreatorFilter, setDefectCreatorFilter] = useState<string>('all');
  
+   // Report/PDF images must be self-contained. In Android, saveHtmlPdf() renders the
+   // generated HTML in a SECOND WebView, so a blob: URL created by the application
 @@ -269,11 +273,17 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
      return pdfDefectCodeStyle === 'df' ? `DF-${shortNumber}` : shortNumber;
    };
@@ -29,6 +31,8 @@ index 59320d9..b845a15 100644
 +    if (defectCreatorFilter !== 'all' && String(d.createdBy || '').trim() !== defectCreatorFilter) return false;
 +    return true;
    });
+ 
+   // One stable defect sequence is shared by the floor-plan marker, legend and defect table.
 @@ -304,6 +314,39 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
        };
      });
@@ -43,6 +47,7 @@ index 59320d9..b845a15 100644
 +    const floorCmp = compareTextVi(a.floorName, b.floorName);
 +    const roomCmp = compareTextVi(getDefectRoomName(a), getDefectRoomName(b));
 +    const categoryCmp = compareTextVi(a.category, b.category);
++
 +    if (defectReportSortMode === 'room-floor-category') return roomCmp || floorCmp || categoryCmp || compareTextVi(a.id, b.id);
 +    if (defectReportSortMode === 'category-floor-room') return categoryCmp || floorCmp || roomCmp || compareTextVi(a.id, b.id);
 +    if (defectReportSortMode === 'created-desc') {
@@ -65,7 +70,13 @@ index 59320d9..b845a15 100644
 +    return `${formatFloorName(defect.floorName)} · ${getDefectRoomName(defect)}`;
 +  };
 +
+   const filteredChecklist = checklist.filter((c) => {
+     if (c.archivedAt) return false;
+     if (floorNames.length > 0 && !floorNames.includes(c.floorName)) return false;
 @@ -847,11 +890,16 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
+               </tr>
+             </thead>
+             <tbody>
 -              ${defectsWithDisplayCode.map(d => {
 +              ${defectsForReport.map((d, index) => {
                  const overdue = getDefectOverdueInfo(d);
@@ -81,7 +92,13 @@ index 59320d9..b845a15 100644
 +                  : '';
 +                return `${groupHeader}
                  <tr>
+                   <td style="text-align: center;"><strong>${getDefectMapCode(d)}</strong></td>
+                   <td style="word-break: normal; overflow-wrap: break-word;">${h(locationText)}</td>
 @@ -1420,6 +1468,40 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
+             </div>
+           </div>
+ 
++          {/* Defect list grouping/sorting - display-only; map marker placement is intentionally unchanged. */}
 +          <div className="space-y-1.5">
 +            <label className="block text-slate-700 font-bold">Sắp xếp &amp; nhóm danh sách Defect</label>
 +            <select
@@ -115,3 +132,6 @@ index 59320d9..b845a15 100644
 +            <p className="text-[10px] text-slate-400">Bộ lọc chỉ áp dụng cho Defect trong báo cáo. Vị trí marker Defect và tên phòng trên bản vẽ giữ nguyên thuật toán hiện tại.</p>
 +          </div>
 +
+           {/* Report Content Checkboxes */}
+           <div>
+             <label className="block text-slate-700 font-bold mb-1.5">Hạng mục chọn xuất báo cáo</label>
