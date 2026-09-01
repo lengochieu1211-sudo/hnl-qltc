@@ -152,7 +152,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   const [pdfShowDefectMarkers, setPdfShowDefectMarkers] = useState(true);
   const [pdfRoomCodeStyle, setPdfRoomCodeStyle] = useState<'number' | 'hash' | 'room'>('number');
   const [pdfDefectCodeStyle, setPdfDefectCodeStyle] = useState<'number' | 'df'>('number');
-  const [defectReportSortMode, setDefectReportSortMode] = useState<'floor-room-category' | 'room-floor-category' | 'category-floor-room' | 'created-desc' | 'status-due'>('floor-room-category');
+  const [defectReportSortMode, setDefectReportSortMode] = useState<'floor-room-category' | 'room-floor-category' | 'category-floor-room' | 'created-desc' | 'status-due' | 'code-asc' | 'code-desc'>('floor-room-category');
   const [warehouseReportSortMode, setWarehouseReportSortMode] = useState<'material-asc' | 'material-desc' | 'stock-desc' | 'stock-asc' | 'status-material'>('material-asc');
   const [workVolumeReportSortMode, setWorkVolumeReportSortMode] = useState<'category-title' | 'title-asc' | 'planned-desc' | 'actual-desc' | 'progress-desc'>('category-title');
   const [floorPlanReportSortMode, setFloorPlanReportSortMode] = useState<'floor-asc' | 'floor-desc' | 'defect-desc' | 'room-desc'>('floor-asc');
@@ -347,6 +347,8 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
       const createdCmp = parseLegacyTimestamp(b.createdAt, 0) - parseLegacyTimestamp(a.createdAt, 0);
       return createdCmp || floorCmp || roomCmp || compareTextVi(a.id, b.id);
     }
+    if (defectReportSortMode === 'code-asc') return (Number(a.markerNumber) || 0) - (Number(b.markerNumber) || 0);
+    if (defectReportSortMode === 'code-desc') return (Number(b.markerNumber) || 0) - (Number(a.markerNumber) || 0);
     if (defectReportSortMode === 'status-due') {
       const statusCmp = compareTextVi(a.status, b.status);
       const dueCmp = compareTextVi(a.dueDate || '9999-12-31', b.dueDate || '9999-12-31');
@@ -360,6 +362,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     if (defectReportSortMode === 'room-floor-category') return `Phòng/Căn: ${getDefectRoomName(defect)} · ${formatFloorName(defect.floorName)}`;
     if (defectReportSortMode === 'created-desc') return `Ngày tạo: ${formatDateDDMMYYYY(defect.createdAt)}`;
     if (defectReportSortMode === 'status-due') return `Trạng thái: ${defect.status}`;
+    if (defectReportSortMode === 'code-asc' || defectReportSortMode === 'code-desc') return 'Theo mã Defect hiển thị';
     return `${formatFloorName(defect.floorName)} · ${getDefectRoomName(defect)}`;
   };
 
@@ -668,6 +671,12 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
 
         ${includeFloorPlan && targetFloorPlans.length > 0 ? `
           <div class="section-title">🖼️ MẶT BẰNG CĂN / PHÒNG &amp; SƠ ĐỒ DEFECT</div>
+          <div class="page-break-avoid" style="display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin:0 0 10px;padding:7px 9px;border:1px solid #cbd5e1;border-radius:7px;background:#f8fafc;font-size:8.8px;color:#475569;">
+            <span><strong style="color:#4f46e5;">● Căn/Phòng:</strong> ${pdfRoomCodeStyle === 'hash' ? '#1, #2…' : pdfRoomCodeStyle === 'room' ? 'C1, C2…' : '1, 2, 3…'}</span>
+            <span><strong style="color:#e11d48;">● Defect:</strong> ${pdfDefectCodeStyle === 'df' ? 'DF-01, DF-02…' : '01, 02, 03…'}</span>
+            <span>Số/mã trên bản vẽ khớp với bảng chú giải, danh sách Defect và phụ lục ảnh.</span>
+            <span style="color:#64748b;">Mã hệ thống DF-xxxx chỉ dùng để truy vết kỹ thuật.</span>
+          </div>
           ${targetFloorPlans.map(fp => {
             const fpRooms = roomProgressList.filter(r => r.floorId === fp.id);
             const fpDefects = defectsForReport.filter(d => d.floorName === fp.floorName || d.floorId === fp.id);
@@ -1065,10 +1074,11 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                   return `
                     <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px;">
                       <div style="font-weight: 800; font-size: 10px; color: #0f172a; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
-                        <span style="color: #e11d48; font-weight: 900;">${d.displayCode} - ${h(d.category)}</span>
+                        <span style="color: #e11d48; font-weight: 900;">Defect ${getDefectMapCode(d)} - ${h(d.category)}</span>
                         <span style="font-size: 8.5px; background: #f1f5f9; padding: 1px 6px; border-radius: 4px; color: #475569;">${h(formatFloorName(d.floorName))} | Đội: ${h(d.assignedTo)}</span>
                       </div>
 
+                      <div style="font-size: 8px; color: #94a3b8; margin: -3px 0 4px;">Mã hệ thống: ${h(d.displayCode)}</div>
                       <div style="font-size: 9px; color: #334155; margin-bottom: 6px;">Mô tả: ${h(d.description)}</div>
 
                       <div style="display: flex; gap: 8px;">
@@ -1635,24 +1645,25 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   <option value="title-asc">Tiêu chí A → Z</option>
                 </select>
               </label>
+              <label className="space-y-1">
+                <span className="block text-[10px] font-bold text-slate-600">Defect + phụ lục ảnh Defect</span>
+                <select value={defectReportSortMode} onChange={(e) => setDefectReportSortMode(e.target.value as typeof defectReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
+                  <option value="floor-room-category">Tầng → Phòng/Căn → Hạng mục</option>
+                  <option value="room-floor-category">Phòng/Căn → Tầng → Hạng mục</option>
+                  <option value="category-floor-room">Hạng mục → Tầng → Phòng/Căn</option>
+                  <option value="created-desc">Defect mới nhất → cũ nhất</option>
+                  <option value="status-due">Trạng thái → Hạn xử lý → Tầng/Phòng</option>
+                  <option value="code-asc">Mã Defect 01 → 02 → 03</option>
+                  <option value="code-desc">Mã Defect lớn → nhỏ</option>
+                </select>
+              </label>
             </div>
-            <p className="px-3 pb-3 text-[10px] text-slate-500">Phụ lục ảnh Defect đi theo thứ tự Defect bên dưới; phụ lục ảnh nhân công đi theo đúng thứ tự Nhật ký nhân công.</p>
+            <p className="px-3 pb-3 text-[10px] text-slate-500">Phụ lục ảnh Defect đi đúng thứ tự Defect đã chọn; phụ lục ảnh nhân công đi theo đúng thứ tự Nhật ký nhân công.</p>
           </details>
 
-          {/* Defect list grouping/sorting - display-only; map marker placement is intentionally unchanged. */}
+          {/* Defect filters - sorting lives in the shared per-section PDF sorting panel above. */}
           <div className="space-y-1.5">
-            <label className="block text-slate-700 font-bold">Sắp xếp &amp; nhóm danh sách Defect</label>
-            <select
-              value={defectReportSortMode}
-              onChange={(e) => setDefectReportSortMode(e.target.value as typeof defectReportSortMode)}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="floor-room-category">Tầng → Phòng/Căn → Hạng mục</option>
-              <option value="room-floor-category">Phòng/Căn → Tầng → Hạng mục</option>
-              <option value="category-floor-room">Hạng mục → Tầng → Phòng/Căn</option>
-              <option value="created-desc">Defect mới nhất → Tầng → Phòng/Căn</option>
-              <option value="status-due">Trạng thái → Hạn xử lý → Tầng/Phòng</option>
-            </select>
+            <label className="block text-slate-700 font-bold">Bộ lọc Defect</label>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <select value={defectStatusFilter} onChange={(e) => setDefectStatusFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700">
                 <option value="all">Tất cả trạng thái</option>

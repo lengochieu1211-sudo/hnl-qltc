@@ -154,7 +154,6 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
                 />
               </div>
               <div className="min-w-0 flex-1">
-                <div className="text-[8px] sm:text-[9px] font-extrabold uppercase tracking-widest text-indigo-300 truncate">{appDisplayName}</div>
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {isEditingProject ? (
                     <input
