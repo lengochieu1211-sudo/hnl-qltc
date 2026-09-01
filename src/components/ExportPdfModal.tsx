@@ -153,6 +153,12 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   const [pdfRoomCodeStyle, setPdfRoomCodeStyle] = useState<'number' | 'hash' | 'room'>('number');
   const [pdfDefectCodeStyle, setPdfDefectCodeStyle] = useState<'number' | 'df'>('number');
   const [defectReportSortMode, setDefectReportSortMode] = useState<'floor-room-category' | 'room-floor-category' | 'category-floor-room' | 'created-desc' | 'status-due'>('floor-room-category');
+  const [warehouseReportSortMode, setWarehouseReportSortMode] = useState<'material-asc' | 'material-desc' | 'stock-desc' | 'stock-asc' | 'status-material'>('material-asc');
+  const [workVolumeReportSortMode, setWorkVolumeReportSortMode] = useState<'category-title' | 'title-asc' | 'planned-desc' | 'actual-desc' | 'progress-desc'>('category-title');
+  const [floorPlanReportSortMode, setFloorPlanReportSortMode] = useState<'floor-asc' | 'floor-desc' | 'defect-desc' | 'room-desc'>('floor-asc');
+  const [roomReportSortMode, setRoomReportSortMode] = useState<'floor-room' | 'room-floor' | 'category-floor-room' | 'work-status' | 'inspection-status' | 'team-floor-room'>('floor-room');
+  const [crewReportSortMode, setCrewReportSortMode] = useState<'date-desc' | 'date-asc' | 'team-date' | 'floor-date' | 'workers-desc'>('date-desc');
+  const [checklistReportSortMode, setChecklistReportSortMode] = useState<'floor-category' | 'category-floor' | 'status-floor' | 'title-asc'>('floor-category');
   const [defectStatusFilter, setDefectStatusFilter] = useState<string>('all');
   const [defectCategoryFilter, setDefectCategoryFilter] = useState<string>('all');
   const [defectCreatorFilter, setDefectCreatorFilter] = useState<string>('all');
@@ -371,6 +377,70 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     return selectedFloors.includes(fp.floorName);
   });
 
+  const getRoomSortCategory = (room: RoomProgressItem): string => String(
+    Object.keys(room.categoryVolumes || {})[0]
+      || (room.subItems || []).find((sub) => sub.category)?.category
+      || room.workCategory
+      || ''
+  );
+
+  const getRoomSortWorkStatus = (room: RoomProgressItem): string => {
+    const subs = room.subItems || [];
+    if (subs.length > 0) {
+      if (subs.every((sub) => sub.status === 'Đã hoàn thành')) return 'Đã hoàn thành';
+      if (subs.some((sub) => sub.status === 'Đang làm' || sub.status === 'Đã hoàn thành')) return 'Đang làm';
+      return 'Chưa làm';
+    }
+    if (room.frameStatus === 'Đã hoàn thành' && room.boardStatus === 'Đã hoàn thành') return 'Đã hoàn thành';
+    if (room.frameStatus === 'Đang làm' || room.boardStatus === 'Đang làm' || room.frameStatus === 'Đã hoàn thành' || room.boardStatus === 'Đã hoàn thành') return 'Đang làm';
+    return 'Chưa làm';
+  };
+
+  const sortedStockSummary = stockSummary.slice().sort((a, b) => {
+    if (warehouseReportSortMode === 'material-desc') return compareTextVi(b.materialName, a.materialName);
+    if (warehouseReportSortMode === 'stock-desc') return Number(b.currentStock || 0) - Number(a.currentStock || 0) || compareTextVi(a.materialName, b.materialName);
+    if (warehouseReportSortMode === 'stock-asc') return Number(a.currentStock || 0) - Number(b.currentStock || 0) || compareTextVi(a.materialName, b.materialName);
+    if (warehouseReportSortMode === 'status-material') return compareTextVi(a.status, b.status) || compareTextVi(a.materialName, b.materialName);
+    return compareTextVi(a.materialName, b.materialName);
+  });
+
+  const sortedWorkVolumes = workVolumes.slice().sort((a, b) => {
+    const titleCmp = compareTextVi(a.title, b.title);
+    const categoryCmp = compareTextVi(a.category, b.category);
+    if (workVolumeReportSortMode === 'title-asc') return titleCmp || categoryCmp;
+    if (workVolumeReportSortMode === 'planned-desc') return Number(b.planned || 0) - Number(a.planned || 0) || titleCmp;
+    if (workVolumeReportSortMode === 'actual-desc') return Number(b.actual || 0) - Number(a.actual || 0) || titleCmp;
+    if (workVolumeReportSortMode === 'progress-desc') {
+      const aProgress = Number(a.planned || 0) > 0 ? Number(a.actual || 0) / Number(a.planned || 1) : 0;
+      const bProgress = Number(b.planned || 0) > 0 ? Number(b.actual || 0) / Number(b.planned || 1) : 0;
+      return bProgress - aProgress || titleCmp;
+    }
+    return categoryCmp || titleCmp;
+  });
+
+  const sortedRooms = filteredRooms.slice().sort((a, b) => {
+    const aFloor = effectiveFloorPlans.find((f) => f.id === a.floorId)?.floorName || '';
+    const bFloor = effectiveFloorPlans.find((f) => f.id === b.floorId)?.floorName || '';
+    const floorCmp = compareTextVi(aFloor, bFloor);
+    const roomCmp = compareTextVi(a.roomName, b.roomName);
+    const categoryCmp = compareTextVi(getRoomSortCategory(a), getRoomSortCategory(b));
+    if (roomReportSortMode === 'room-floor') return roomCmp || floorCmp || categoryCmp;
+    if (roomReportSortMode === 'category-floor-room') return categoryCmp || floorCmp || roomCmp;
+    if (roomReportSortMode === 'work-status') return compareTextVi(getRoomSortWorkStatus(a), getRoomSortWorkStatus(b)) || floorCmp || roomCmp;
+    if (roomReportSortMode === 'inspection-status') return compareTextVi(a.inspectionStatus, b.inspectionStatus) || floorCmp || roomCmp;
+    if (roomReportSortMode === 'team-floor-room') return compareTextVi(a.assignedTeam, b.assignedTeam) || floorCmp || roomCmp;
+    return floorCmp || roomCmp || categoryCmp;
+  });
+
+  const sortedChecklist = filteredChecklist.slice().sort((a, b) => {
+    const floorCmp = compareTextVi(a.floorName, b.floorName);
+    const categoryCmp = compareTextVi(a.category, b.category);
+    if (checklistReportSortMode === 'category-floor') return categoryCmp || floorCmp || compareTextVi(a.title, b.title);
+    if (checklistReportSortMode === 'status-floor') return compareTextVi(a.status, b.status) || floorCmp || categoryCmp;
+    if (checklistReportSortMode === 'title-asc') return compareTextVi(a.title, b.title) || floorCmp || categoryCmp;
+    return floorCmp || categoryCmp || compareTextVi(a.title, b.title);
+  });
+
   const filteredCrew = crewRecords.filter((c) => {
     if (!c.floorName) return true;
     const cFloors = c.floorName.split(',').map(s => s.trim()).filter(Boolean);
@@ -379,9 +449,15 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     if (isAllSelected) return true;
     return cFloors.some(f => selectedFloors.includes(f));
   }).sort((a, b) => {
-    const dateCompare = a.date.localeCompare(b.date);
-    if (dateCompare !== 0) return dateCompare;
-    return a.teamName.localeCompare(b.teamName);
+    const dateAsc = compareTextVi(a.date, b.date);
+    const dateDesc = compareTextVi(b.date, a.date);
+    const teamCmp = compareTextVi(a.teamName, b.teamName);
+    const floorCmp = compareTextVi(a.floorName, b.floorName);
+    if (crewReportSortMode === 'date-asc') return dateAsc || teamCmp || floorCmp;
+    if (crewReportSortMode === 'team-date') return teamCmp || dateDesc || floorCmp;
+    if (crewReportSortMode === 'floor-date') return floorCmp || dateDesc || teamCmp;
+    if (crewReportSortMode === 'workers-desc') return Number(b.workerCount || 0) - Number(a.workerCount || 0) || dateDesc || teamCmp;
+    return dateDesc || teamCmp || floorCmp;
   });
 
   const passedCount = filteredChecklist.filter((c) => c.status === 'passed').length;
@@ -401,8 +477,23 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
       .filter(fp => {
         if (!skipEmptyFloors) return true;
         const fpRooms = roomProgressList.filter(r => r.floorId === fp.id);
-        const fpDefects = defectsWithDisplayCode.filter(d => d.floorName === fp.floorName || d.floorId === fp.id);
+        const fpDefects = defectsForReport.filter(d => d.floorName === fp.floorName || d.floorId === fp.id);
         return fpRooms.length > 0 || fpDefects.length > 0;
+      })
+      .sort((a, b) => {
+        const floorCmp = compareTextVi(a.floorName, b.floorName);
+        if (floorPlanReportSortMode === 'floor-desc') return -floorCmp;
+        if (floorPlanReportSortMode === 'defect-desc') {
+          const aCount = defectsForReport.filter((d) => d.floorName === a.floorName || d.floorId === a.id).length;
+          const bCount = defectsForReport.filter((d) => d.floorName === b.floorName || d.floorId === b.id).length;
+          return bCount - aCount || floorCmp;
+        }
+        if (floorPlanReportSortMode === 'room-desc') {
+          const aCount = roomProgressList.filter((r) => r.floorId === a.id).length;
+          const bCount = roomProgressList.filter((r) => r.floorId === b.id).length;
+          return bCount - aCount || floorCmp;
+        }
+        return floorCmp;
       });
 
     return `
@@ -519,7 +610,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
               </tr>
             </thead>
             <tbody>
-              ${stockSummary.map((item, idx) => `
+              ${sortedStockSummary.map((item, idx) => `
                 <tr>
                   <td style="text-align: center;">${idx + 1}</td>
                   <td><strong>${item.materialName || ''}</strong></td>
@@ -554,7 +645,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
               </tr>
             </thead>
             <tbody>
-              ${workVolumes.map((wv, idx) => `
+              ${sortedWorkVolumes.map((wv, idx) => `
                 <tr>
                   <td style="text-align: center;">${idx + 1}</td>
                   <td><strong>${wv.title || ''}</strong></td>
@@ -579,7 +670,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
           <div class="section-title">🖼️ MẶT BẰNG CĂN / PHÒNG &amp; SƠ ĐỒ DEFECT</div>
           ${targetFloorPlans.map(fp => {
             const fpRooms = roomProgressList.filter(r => r.floorId === fp.id);
-            const fpDefects = defectsWithDisplayCode.filter(d => d.floorName === fp.floorName || d.floorId === fp.id);
+            const fpDefects = defectsForReport.filter(d => d.floorName === fp.floorName || d.floorId === fp.id);
             const hasRooms = fpRooms.length > 0;
             const hasDefects = fpDefects.length > 0;
 
@@ -839,7 +930,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
               </tr>
             </thead>
             <tbody>
-              ${filteredRooms.map(r => {
+              ${sortedRooms.map(r => {
                 const fp = effectiveFloorPlans.find(f => f.id === r.floorId);
                 const hasSubs = Boolean(r.subItems && r.subItems.length > 0);
                 const categoryNames = Array.from(new Set([
@@ -942,7 +1033,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
 
         <!-- Phụ lục hình ảnh Defect trước & sau khi sửa -->
         ${includeDefectPhotos && defectsWithDisplayCode.length > 0 ? (() => {
-          const defectsWithImages = defectsWithDisplayCode.filter(d => {
+          const defectsWithImages = defectsForReport.filter(d => {
             const hasPropBefore = !!d.imageUrl;
             const hasPropAfter = !!d.afterImageUrl;
             const mapEntry = defectPhotosMap[d.id];
@@ -1029,7 +1120,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
               </tr>
             </thead>
             <tbody>
-              ${filteredChecklist.map(c => `
+              ${sortedChecklist.map(c => `
                 <tr>
                   <td><strong>${h(c.floorName)}</strong></td>
                   <td>${h(c.category)}</td>
@@ -1476,6 +1567,77 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
               )}
             </div>
           </div>
+
+          {/* Sorting for each report section. Photo appendices intentionally inherit their parent table order. */}
+          <details open className="group bg-slate-50 border border-slate-200 rounded-2xl overflow-hidden">
+            <summary className="cursor-pointer select-none px-3 py-2.5 text-[11px] font-extrabold text-slate-800 flex items-center justify-between gap-2">
+              <span>↕️ Sắp xếp từng phần trong PDF</span>
+              <span className="text-[10px] text-slate-400 group-open:hidden">Mở</span>
+              <span className="text-[10px] text-slate-400 hidden group-open:inline">Thu gọn</span>
+            </summary>
+            <div className="border-t border-slate-200 p-3 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <label className="space-y-1">
+                <span className="block text-[10px] font-bold text-slate-600">Kho vật tư</span>
+                <select value={warehouseReportSortMode} onChange={(e) => setWarehouseReportSortMode(e.target.value as typeof warehouseReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
+                  <option value="material-asc">Tên vật tư A → Z</option>
+                  <option value="material-desc">Tên vật tư Z → A</option>
+                  <option value="stock-desc">Tồn kho nhiều → ít</option>
+                  <option value="stock-asc">Tồn kho ít → nhiều</option>
+                  <option value="status-material">Trạng thái → Tên vật tư</option>
+                </select>
+              </label>
+              <label className="space-y-1">
+                <span className="block text-[10px] font-bold text-slate-600">Khối lượng thi công</span>
+                <select value={workVolumeReportSortMode} onChange={(e) => setWorkVolumeReportSortMode(e.target.value as typeof workVolumeReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
+                  <option value="category-title">Phân loại → Hạng mục</option>
+                  <option value="title-asc">Hạng mục A → Z</option>
+                  <option value="planned-desc">KL kế hoạch lớn → nhỏ</option>
+                  <option value="actual-desc">KL thực hiện lớn → nhỏ</option>
+                  <option value="progress-desc">% hoàn thành cao → thấp</option>
+                </select>
+              </label>
+              <label className="space-y-1">
+                <span className="block text-[10px] font-bold text-slate-600">Mặt bằng</span>
+                <select value={floorPlanReportSortMode} onChange={(e) => setFloorPlanReportSortMode(e.target.value as typeof floorPlanReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
+                  <option value="floor-asc">Tầng thấp → cao / A → Z</option>
+                  <option value="floor-desc">Tầng cao → thấp / Z → A</option>
+                  <option value="defect-desc">Tầng nhiều Defect → ít</option>
+                  <option value="room-desc">Tầng nhiều Căn/Phòng → ít</option>
+                </select>
+              </label>
+              <label className="space-y-1">
+                <span className="block text-[10px] font-bold text-slate-600">Tiến độ Căn / Phòng</span>
+                <select value={roomReportSortMode} onChange={(e) => setRoomReportSortMode(e.target.value as typeof roomReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
+                  <option value="floor-room">Tầng → Căn/Phòng</option>
+                  <option value="room-floor">Căn/Phòng → Tầng</option>
+                  <option value="category-floor-room">Hạng mục → Tầng → Căn/Phòng</option>
+                  <option value="work-status">Trạng thái thi công → Tầng/Phòng</option>
+                  <option value="inspection-status">Nghiệm thu → Tầng/Phòng</option>
+                  <option value="team-floor-room">Đội → Tầng → Căn/Phòng</option>
+                </select>
+              </label>
+              <label className="space-y-1">
+                <span className="block text-[10px] font-bold text-slate-600">Nhật ký nhân công + phụ lục ảnh</span>
+                <select value={crewReportSortMode} onChange={(e) => setCrewReportSortMode(e.target.value as typeof crewReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
+                  <option value="date-desc">Ngày mới → cũ</option>
+                  <option value="date-asc">Ngày cũ → mới</option>
+                  <option value="team-date">Đội → Ngày mới nhất</option>
+                  <option value="floor-date">Tầng → Ngày mới nhất</option>
+                  <option value="workers-desc">Quân số nhiều → ít</option>
+                </select>
+              </label>
+              <label className="space-y-1">
+                <span className="block text-[10px] font-bold text-slate-600">Checklist</span>
+                <select value={checklistReportSortMode} onChange={(e) => setChecklistReportSortMode(e.target.value as typeof checklistReportSortMode)} className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold">
+                  <option value="floor-category">Tầng → Hạng mục</option>
+                  <option value="category-floor">Hạng mục → Tầng</option>
+                  <option value="status-floor">Kết quả → Tầng</option>
+                  <option value="title-asc">Tiêu chí A → Z</option>
+                </select>
+              </label>
+            </div>
+            <p className="px-3 pb-3 text-[10px] text-slate-500">Phụ lục ảnh Defect đi theo thứ tự Defect bên dưới; phụ lục ảnh nhân công đi theo đúng thứ tự Nhật ký nhân công.</p>
+          </details>
 
           {/* Defect list grouping/sorting - display-only; map marker placement is intentionally unchanged. */}
           <div className="space-y-1.5">
