@@ -49,7 +49,7 @@ export interface TrashOperation {
 
 const collectionLabels: Record<TrashCollectionKey, string> = {
   materialNorms: 'Định mức vật tư',
-  inventory: 'Nhật ký kho',
+  inventory: 'Phiếu nhập / xuất kho',
   workVolumes: 'Khối lượng',
   floorPlans: 'Mặt bằng tầng',
   defects: 'Defect',

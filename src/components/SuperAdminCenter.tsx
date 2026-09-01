@@ -42,6 +42,7 @@ interface SuperAdminCenterProps {
   onOpenProjectManager: () => void;
   onOpenSecurity: () => void;
   onOpenConfig: () => void;
+  onOpenHiddenHistory: () => void;
   onOpenNotificationCenter: () => void;
   uiSettings: SuperAdminUiSettings;
   onPreviewUiSettings: (settings: SuperAdminUiSettings) => void;
@@ -60,6 +61,7 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
   onOpenProjectManager,
   onOpenSecurity,
   onOpenConfig,
+  onOpenHiddenHistory,
   onOpenNotificationCenter,
   uiSettings,
   onPreviewUiSettings,
@@ -103,6 +105,12 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
       description: 'Quản lý dự án, backup/khôi phục và phạm vi đồng bộ của dự án hiện tại.',
       icon: FolderKanban,
       onClick: onOpenProjectManager,
+    },
+    {
+      title: 'Dữ liệu đã ẩn & lịch sử',
+      description: 'Khôi phục hoặc dọn dữ liệu đã xóa: Căn/Phòng, Hạng mục, Định mức, Phiếu nhập/xuất kho, Mặt bằng, Defect, Checklist, Quân số và Đội thi công.',
+      icon: DatabaseZap,
+      onClick: onOpenHiddenHistory,
     },
     {
       title: 'Giao diện & module',

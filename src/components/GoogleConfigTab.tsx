@@ -203,7 +203,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       const jsonText = JSON.stringify(bundle, null, 2);
       await saveTextFileToDownloads(jsonText, fileName, 'application/json;charset=utf-8');
       setSyncMsg(typeof window.AndroidExport?.beginTextFile === 'function'
-        ? `Đã lưu ${fileName} vào Download/QLCT.`
+        ? `Đã lưu ${fileName} vào Download/QLTC.`
         : 'Đã xuất file chẩn đoán lỗi. Có thể gửi file này để kiểm tra lỗi đồng bộ/ảnh/Defect.');
     } catch (err: any) {
       setSyncMsg(`Không xuất được file chẩn đoán: ${err?.message || String(err)}`);
@@ -699,14 +699,17 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
 
 
       {/* LIGHTWEIGHT TRASH / RECOVERY CARD */}
-      <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3.5">
+      <div id="trash-recovery-card" className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3.5 scroll-mt-24 transition-shadow">
         <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-2">
           <div>
             <h3 className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
-              <Trash2 className="w-4 h-4 text-rose-600" /> Thùng rác dữ liệu
+              <Trash2 className="w-4 h-4 text-rose-600" /> Dữ liệu đã ẩn & lịch sử
             </h3>
             <p className="text-[10px] text-slate-500 mt-1">
               Chỉ lưu metadata cần khôi phục, không nhân đôi Base64/blob/ảnh nhị phân. Mặc định giữ 7 ngày.
+            </p>
+            <p className="text-[10px] text-amber-700 mt-1">
+              Phiếu nhập/xuất kho là lịch sử giao dịch: nếu xóa nhầm hãy ưu tiên Khôi phục rồi Hủy/Điều chỉnh trong Kho; chỉ xóa vĩnh viễn khi chắc chắn không cần đối chiếu.
             </p>
           </div>
           <span className={`text-[10px] font-bold rounded-lg px-2 py-1 border shrink-0 ${trashSettings.enabled ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-100 border-slate-200 text-slate-600'}`}>
