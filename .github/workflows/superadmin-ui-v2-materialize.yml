@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/superadmin-ui-v2-materialize.yml'
       - 'scripts/materialize-superadmin-ui-v2.py'
+      - 'scripts/fix-ui-v2-stability.py'
 
 permissions:
   contents: write
@@ -25,6 +26,8 @@ jobs:
           cache: npm
       - name: Apply Super Admin UI V2 patch
         run: python3 scripts/materialize-superadmin-ui-v2.py
+      - name: Update Stability logo guard
+        run: python3 scripts/fix-ui-v2-stability.py
       - run: npm ci
       - name: Stability
         run: npm run test:stability
@@ -44,7 +47,7 @@ jobs:
           set -euo pipefail
           git config user.name "HNL QLTC CI"
           git config user.email "actions@users.noreply.github.com"
-          rm -f .github/workflows/superadmin-ui-v2-materialize.yml scripts/materialize-superadmin-ui-v2.py
-          git add src/App.tsx src/components/GoogleAuthHeader.tsx src/components/SuperAdminCenter.tsx src/lib/firebase.ts src/index.css .github/workflows/superadmin-ui-v2-materialize.yml scripts/materialize-superadmin-ui-v2.py
+          rm -f .github/workflows/superadmin-ui-v2-materialize.yml scripts/materialize-superadmin-ui-v2.py scripts/fix-ui-v2-stability.py
+          git add src/App.tsx src/components/GoogleAuthHeader.tsx src/components/SuperAdminCenter.tsx src/lib/firebase.ts src/index.css scripts/stability-gate.mjs .github/workflows/superadmin-ui-v2-materialize.yml scripts/materialize-superadmin-ui-v2.py scripts/fix-ui-v2-stability.py
           git commit -m "Add Super Admin UI Settings V2"
           git push origin HEAD:feature/superadmin-ui-v2-20260901
