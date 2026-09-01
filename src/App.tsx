@@ -5,7 +5,7 @@ import { safeSetLocalStorageItem } from './utils/storage';
 import { parseLegacyTimestamp, formatDateTime } from './utils/dateFormatter';
 import { AppLockOverlay } from './components/AppLockOverlay';
 import { SecurityModal } from './components/SecurityModal';
-import { getStoredPinLockConfig, logAuditAction, getCurrentUserRole, setCurrentUserRole, UserRole, canEditProjectData, canManageProjects, canManageWorkVolumeStructure, canManageFloorPlanStructure, canManageMaterialNorms, canManageTeams, canManageChecklistStructure, canDeleteBusinessData, canDeleteCrewRecord, canManageBackups, canUseGlobalUndoRedo, canEditWarehouseData, canEditDefectData, canEditChecklistData, canEditCrewData, canImportData } from './utils/securityUtils';
+import { getStoredPinLockConfig, applyRemotePinReset, logAuditAction, getCurrentUserRole, setCurrentUserRole, UserRole, canEditProjectData, canManageProjects, canManageWorkVolumeStructure, canManageFloorPlanStructure, canManageMaterialNorms, canManageTeams, canManageChecklistStructure, canDeleteBusinessData, canDeleteCrewRecord, canManageBackups, canUseGlobalUndoRedo, canEditWarehouseData, canEditDefectData, canEditChecklistData, canEditCrewData, canImportData } from './utils/securityUtils';
 import { cacheVerifiedProjectRole, getCachedVerifiedProjectRole, getRememberedVerifiedAuthIdentity, rememberVerifiedAuthIdentity } from './utils/offlineAccess';
 
 function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
@@ -70,7 +70,7 @@ function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
   }
   return merged;
 }
-import { subscribeToProjectRealtime, saveProjectDiffsToCloud, queueProjectDiffsToFirestoreOffline, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, subscribeProjectUserRoleRealtime, fetchCurrentUserProjectsFromCloud, subscribeCurrentUserProjectsRealtime, refreshCurrentUserProjectDiscovery, subscribeProjectSharedSettings, saveProjectSharedSettings, saveProjectAuditLog, loadProjectFromFirestoreCache, fetchProjectFromCloud } from './lib/firebase';
+import { subscribeToProjectRealtime, saveProjectDiffsToCloud, queueProjectDiffsToFirestoreOffline, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, subscribeProjectUserRoleRealtime, subscribeCurrentUserPinResetRealtime, signOutGoogle, fetchCurrentUserProjectsFromCloud, subscribeCurrentUserProjectsRealtime, refreshCurrentUserProjectDiscovery, subscribeProjectSharedSettings, saveProjectSharedSettings, saveProjectAuditLog, loadProjectFromFirestoreCache, fetchProjectFromCloud } from './lib/firebase';
 import { REALTIME_STATE_KEYS, STATE_KEY_TO_CLOUD_NAME } from './config/realtimeCollections';
 import { FIREBASE_ONLY_RUNTIME, LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED, LEGACY_LOCAL_IMPORT_ENABLED } from './config/runtimeArchitecture';
 import { CURRENT_DATA_SCHEMA_VERSION } from './config/dataSchema';
@@ -283,9 +283,11 @@ export default function App() {
   useEffect(() => {
     let isMounted = true;
     let roleUnsub: (() => void) | null = null;
+    let pinResetUnsub: (() => void) | null = null;
 
     const attachRoleListener = () => {
       if (roleUnsub) { roleUnsub(); roleUnsub = null; }
+      if (pinResetUnsub) { pinResetUnsub(); pinResetUnsub = null; }
       const realUser = getCurrentRealFirebaseUser();
       const rememberedIdentity = !realUser && !isOnline ? getRememberedVerifiedAuthIdentity() : null;
       const identity = realUser
@@ -323,6 +325,15 @@ export default function App() {
 
       if (!realUser || !isOnline) return;
       rememberVerifiedAuthIdentity(realUser);
+      pinResetUnsub = subscribeCurrentUserPinResetRealtime(activeProjectId, realUser, (epoch) => {
+        if (!isMounted || !applyRemotePinReset(epoch, realUser.email)) return;
+        setIsAppLocked(false);
+        logAuditAction('SECURITY_CONFIG_CHANGE', `PIN local đã bị SUPER ADMIN reset từ xa (${realUser.email || realUser.uid})`, activeProjectId);
+        window.setTimeout(() => {
+          alert('SUPER ADMIN đã đặt lại mã PIN trên tài khoản này.\n\nPIN cũ đã bị vô hiệu hóa. Vui lòng đăng nhập Google lại và tạo PIN mới trong Bảo mật.');
+          void signOutGoogle();
+        }, 0);
+      });
       roleUnsub = subscribeProjectUserRoleRealtime(activeProjectId, realUser, (res) => {
         if (!isMounted) return;
         if (res.verification !== 'verified') {
@@ -359,6 +370,7 @@ export default function App() {
 
     return () => {
       isMounted = false;
+      if (pinResetUnsub) pinResetUnsub();
       if (roleUnsub) roleUnsub();
       authUnsub();
     };

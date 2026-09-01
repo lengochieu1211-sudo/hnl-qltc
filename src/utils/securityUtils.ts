@@ -66,6 +66,21 @@ export function savePinLockConfig(config: PinLockConfig): void {
   localStorage.setItem(PIN_LOCK_STORAGE_KEY, JSON.stringify(config));
 }
 
+const REMOTE_PIN_RESET_PREFIX = 'construction_pin_remote_reset_epoch_';
+
+export function applyRemotePinReset(epoch: number, email?: string | null): boolean {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const nextEpoch = Number(epoch || 0);
+  if (!normalizedEmail || !Number.isFinite(nextEpoch) || nextEpoch <= 0) return false;
+  const key = `${REMOTE_PIN_RESET_PREFIX}${normalizedEmail}`;
+  const applied = Number(localStorage.getItem(key) || 0);
+  if (nextEpoch <= applied) return false;
+  const current = getStoredPinLockConfig();
+  savePinLockConfig({ ...current, enabled: false, pinHash: undefined, pinSalt: undefined, pinOwnerUid: undefined, pinOwnerEmail: undefined });
+  localStorage.setItem(key, String(nextEpoch));
+  return true;
+}
+
 /**
  * UI compatibility cache only. In Firebase-only runtime this value MUST NEVER grant
  * project access. App.tsx resolves authorization from Firebase Auth + a project-scoped
