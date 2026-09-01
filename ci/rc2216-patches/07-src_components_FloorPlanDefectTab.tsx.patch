@@ -21,6 +21,8 @@ index 100989a..3461243 100644
                    />
 +                  <p className="mt-1 text-[10px] text-slate-400">Khi lưu, hệ thống tự ghi đúng tài khoản Firebase đang đăng nhập.</p>
                  </div>
+ 
+                 <div>
 @@ -7964,11 +7964,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                      <input
                        type="text"
@@ -35,3 +37,5 @@ index 100989a..3461243 100644
                      />
 +                    <p className="mt-1 text-[10px] text-slate-400">Người tạo là thông tin audit, được khóa sau khi tạo Defect.</p>
                    </div>
+ 
+                   <div>
