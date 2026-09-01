@@ -6416,6 +6416,22 @@ export default function App() {
               onOpenProjectManager={() => handleOpenProjectManager('sync')}
               onOpenSecurity={() => setIsSecurityModalOpen(true)}
               onOpenConfig={() => setActiveTab('config')}
+              onOpenHiddenHistory={() => {
+                setActiveTab('config');
+                let attempts = 0;
+                const focusTrash = () => {
+                  const target = document.getElementById('trash-recovery-card');
+                  if (target) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    target.classList.add('ring-2', 'ring-indigo-300');
+                    window.setTimeout(() => target.classList.remove('ring-2', 'ring-indigo-300'), 1800);
+                    return;
+                  }
+                  attempts += 1;
+                  if (attempts < 25) window.setTimeout(focusTrash, 100);
+                };
+                window.setTimeout(focusTrash, 0);
+              }}
               onOpenNotificationCenter={() => setIsNotificationCenterOpen(true)}
               uiSettings={superAdminUiSettings}
               onPreviewUiSettings={previewSuperAdminUiSettings}
