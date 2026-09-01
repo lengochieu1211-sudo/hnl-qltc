@@ -1,4 +1,4 @@
-name: Report Photo R2 Tolerant Hotfix
+name: Report Photo R2 + Mobile Auth Hotfix
 
 on:
   push:
@@ -23,127 +23,13 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: package-lock.json
-      - name: Apply report-photo hotfix
+      - name: Apply certified hotfix diff
         shell: bash
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          p = Path('src/components/ExportPdfModal.tsx')
-          s = p.read_text()
-          s = s.replace("  const [reportPhotoError, setReportPhotoError] = useState<string | null>(null);", "  const [reportPhotoWarning, setReportPhotoWarning] = useState<string | null>(null);")
-          s = s.replace("      setReportPhotoError(null);", "      setReportPhotoWarning(null);")
-          s = s.replace("        setReportPhotoError(null);", "        setReportPhotoWarning(null);")
-          old = '''        // requireBinary=true is intentional: never claim a PDF/HTML report is complete
-                  // while shared R2 metadata exists but the authenticated binary cannot be read.
-                  const photos = await getProjectPhotosWithBinary(activeProjectId, true);
-                  const cMap: Record<string, string[]> = {};
-                  const dMap: Record<string, { before: string[]; after: string[] }> = {};
-
-                  for (const p of photos) {
-                    if (!p.id || p.deleted) continue;
-                    const embeddedUrl = String(p.base64 || p.localUri || '');
-                    if (!embeddedUrl.startsWith('data:image/')) {
-                      throw new Error(`Ảnh ${p.id} chưa có binary tự chứa để xuất báo cáo.`);
-                    }
-
-                    if (p.entityType === 'crewRecord' && p.entityId) {
-                      if (!cMap[p.entityId]) cMap[p.entityId] = [];
-                      cMap[p.entityId].push(embeddedUrl);
-                    } else if (p.entityType === 'defect' && p.entityId) {
-                      if (!dMap[p.entityId]) dMap[p.entityId] = { before: [], after: [] };
-                      if (p.category === 'defect_after') {
-                        dMap[p.entityId].after.push(embeddedUrl);
-                      } else {
-                        dMap[p.entityId].before.push(embeddedUrl);
-                      }
-                    }
-                  }
-
-                  if (isMounted) {
-                    setCrewPhotosMap(cMap);
-                    setDefectPhotosMap(dMap);
-                  }
-          '''
-          new = '''        // Reports are best-effort for attachments: unlike a JSON backup, a printable
-                  // report must not become unusable because one stale R2/legacy photo object is
-                  // unavailable. getProjectPhotosWithBinary(..., false) still attempts authenticated
-                  // R2/Storage/Drive/Firestore recovery, but lets us embed every binary that can be
-                  // recovered and explicitly warn about the remainder. Backup remains fail-closed.
-                  const photos = await getProjectPhotosWithBinary(activeProjectId, false);
-                  const cMap: Record<string, string[]> = {};
-                  const dMap: Record<string, { before: string[]; after: string[] }> = {};
-                  const missingReportPhotoIds: string[] = [];
-
-                  for (const p of photos) {
-                    if (!p.id || p.deleted) continue;
-                    const isReportAttachment = p.entityType === 'crewRecord' || p.entityType === 'defect';
-                    if (!isReportAttachment) continue;
-
-                    const embeddedUrl = String(p.base64 || p.localUri || '');
-                    if (!embeddedUrl.startsWith('data:image/')) {
-                      missingReportPhotoIds.push(p.id);
-                      continue;
-                    }
-
-                    if (p.entityType === 'crewRecord' && p.entityId) {
-                      if (!cMap[p.entityId]) cMap[p.entityId] = [];
-                      cMap[p.entityId].push(embeddedUrl);
-                    } else if (p.entityType === 'defect' && p.entityId) {
-                      if (!dMap[p.entityId]) dMap[p.entityId] = { before: [], after: [] };
-                      if (p.category === 'defect_after') {
-                        dMap[p.entityId].after.push(embeddedUrl);
-                      } else {
-                        dMap[p.entityId].before.push(embeddedUrl);
-                      }
-                    }
-                  }
-
-                  if (isMounted) {
-                    setCrewPhotosMap(cMap);
-                    setDefectPhotosMap(dMap);
-                    if (missingReportPhotoIds.length > 0) {
-                      const previewIds = missingReportPhotoIds.slice(0, 3).join(', ');
-                      const more = missingReportPhotoIds.length > 3 ? ` và ${missingReportPhotoIds.length - 3} ảnh khác` : '';
-                      setReportPhotoWarning(`Có ${missingReportPhotoIds.length} ảnh không tải được từ Cloud/R2 (${previewIds}${more}). Báo cáo vẫn có thể xuất, nhưng các ảnh này sẽ được bỏ qua.`);
-                    } else {
-                      setReportPhotoWarning(null);
-                    }
-                  }
-          '''
-          if old not in s:
-              raise SystemExit('Expected report-photo block not found')
-          s = s.replace(old, new)
-          old_catch = '''        if (isMounted) {
-                    setCrewPhotosMap({});
-                    setDefectPhotosMap({});
-                    setReportPhotoError(message);
-                  }
-          '''
-          new_catch = '''        if (isMounted) {
-                    setCrewPhotosMap({});
-                    setDefectPhotosMap({});
-                    setReportPhotoWarning(`Không thể chuẩn bị ảnh báo cáo: ${message}. Bạn vẫn có thể xuất báo cáo không kèm ảnh.`);
-                  }
-          '''
-          if old_catch not in s:
-              raise SystemExit('Expected report-photo catch block not found')
-          s = s.replace(old_catch, new_catch)
-          old_ensure = '''    if (reportPhotoError) {
-                alert(`Không thể xuất báo cáo có ảnh vì chưa tải đủ binary ảnh từ Cloud/R2.\n\n${reportPhotoError}`);
-                return false;
-              }
-              return true;
-          '''
-          new_ensure = '''    if (reportPhotoWarning) {
-                return window.confirm(`${reportPhotoWarning}\n\nBạn có muốn tiếp tục xuất báo cáo với các ảnh hiện có không?`);
-              }
-              return true;
-          '''
-          if old_ensure not in s:
-              raise SystemExit('Expected report-photo ensure block not found')
-          s = s.replace(old_ensure, new_ensure)
-          p.write_text(s)
-          PY
+          echo 'LS0tIGEvc3JjL2xpYi9maXJlYmFzZS50cworKysgYi9zcmMvbGliL2ZpcmViYXNlLnRzCkBAIC0yOCw2ICsyOCw3IEBACiAgIGNyZWF0ZVVzZXJXaXRoRW1haWxBbmRQYXNzd29yZCwKICAgc2lnbkluV2l0aEVtYWlsQW5kUGFzc3dvcmQsCiAgIHNpZ25JbldpdGhQb3B1cCwKKyAgc2lnbkluV2l0aFJlZGlyZWN0LAogICBHb29nbGVBdXRoUHJvdmlkZXIsCiAgIHNpZ25PdXQgYXMgZmJTaWduT3V0LAogICBvbkF1dGhTdGF0ZUNoYW5nZWQsCkBAIC0xMDE2LDEwICsxMDE3LDIxIEBACiB9CiAKIGV4cG9ydCBhc3luYyBmdW5jdGlvbiBzaWduSW5XaXRoR29vZ2xlKCk6IFByb21pc2U8VXNlciB8IG51bGw+IHsKLSAgLy8gSWYgRmlyZWJhc2UgaXMgY29uZmlndXJlZCB3aXRoIHJlYWwgY3JlZGVudGlhbHMsIGF0dGVtcHQgcG9wdXAgc2lnbi1pbgorICAvLyBNb2JpbGUgYnJvd3NlcnMgYXJlIGxlc3MgcmVsaWFibGUgd2l0aCBGaXJlYmFzZSBwb3B1cCBhdXRoOiB0aGUgcG9wdXAgY2FuIG9wZW4KKyAgLy8gYW5kIHJldHVybiBmb2N1cyB3aXRob3V0IHNldHRsaW5nIHRoZSBvcmlnaW5hbCBwcm9taXNlLiBSZWRpcmVjdCBpcyB0aGUgc3RhYmxlCisgIC8vIG1vYmlsZSBwYXRoOyBkZXNrdG9wIGtlZXBzIHBvcHVwIGZvciBmYXN0ZXIgc2lnbi1pbiB3aXRob3V0IHBhZ2UgbmF2aWdhdGlvbi4KICAgaWYgKGlzRmlyZWJhc2VDb25maWd1cmVkKSB7CiAgICAgdHJ5IHsKICAgICAgIGNvbnN0IHByb3ZpZGVyID0gbmV3IEdvb2dsZUF1dGhQcm92aWRlcigpOworICAgICAgY29uc3QgdWEgPSB0eXBlb2YgbmF2aWdhdG9yICE9PSAndW5kZWZpbmVkJyA/IG5hdmlnYXRvci51c2VyQWdlbnQgOiAnJzsKKyAgICAgIGNvbnN0IG1vYmlsZUxpa2UgPSB0eXBlb2YgbmF2aWdhdG9yICE9PSAndW5kZWZpbmVkJyAmJiAoCisgICAgICAgIEJvb2xlYW4oKG5hdmlnYXRvciBhcyBhbnkpLnVzZXJBZ2VudERhdGE/Lm1vYmlsZSkgfHwKKyAgICAgICAgL0FuZHJvaWR8aVBob25lfGlQYWR8aVBvZHxNb2JpbGUvaS50ZXN0KHVhKQorICAgICAgKTsKKyAgICAgIGlmIChtb2JpbGVMaWtlKSB7CisgICAgICAgIGF3YWl0IHNpZ25JbldpdGhSZWRpcmVjdChhdXRoLCBwcm92aWRlcik7CisgICAgICAgIHJldHVybiBudWxsOworICAgICAgfQogICAgICAgcHJvdmlkZXIuc2V0Q3VzdG9tUGFyYW1ldGVycyh7IHByb21wdDogJ3NlbGVjdF9hY2NvdW50JyB9KTsKICAgICAgIGNvbnN0IHJlc3VsdCA9IGF3YWl0IHNpZ25JbldpdGhQb3B1cChhdXRoLCBwcm92aWRlcik7CiAgICAgICBhd2FpdCBzYXZlVXNlclByb2ZpbGVUb0Nsb3VkKHJlc3VsdC51c2VyKS5jYXRjaCgocHJvZmlsZUVycikgPT4gewotLS0gYS9zcmMvY29tcG9uZW50cy9Hb29nbGVBdXRoTW9kYWwudHN4CisrKyBiL3NyYy9jb21wb25lbnRzL0dvb2dsZUF1dGhNb2RhbC50c3gKQEAgLTQyLDggKzQyLDkgQEAKICAgICB0cnkgewogICAgICAgc2V0TG9hZGluZyh0cnVlKTsKICAgICAgIHNldEVycm9yTXNnKG51bGwpOwotICAgICAgYXdhaXQgc2lnbkluV2l0aEdvb2dsZUFjY291bnQoKTsKLSAgICAgIG9uUmVmcmVzaEF1dGgoKTsKKyAgICAgIGNvbnN0IHVzZXIgPSBhd2FpdCBzaWduSW5XaXRoR29vZ2xlQWNjb3VudCgpOworICAgICAgLy8gUmVkaXJlY3Qgc2lnbi1pbiBuYXZpZ2F0ZXMgYXdheSBvbiBtb2JpbGU7IGRlc2t0b3AgcG9wdXAgcmV0dXJucyBhIFVzZXIuCisgICAgICBpZiAodXNlcikgb25SZWZyZXNoQXV0aCgpOwogICAgIH0gY2F0Y2ggKGVycjogYW55KSB7CiAgICAgICBzZXRFcnJvck1zZygnS2hvbmcgdGhlIGRhbmcgbmhhcCBHb29nbGUgYmFuZyBGaXJlYmFzZSBBdXRoOiAnICsgKGVycj8ubWVzc2FnZSB8fCBlcnIpKTsKICAgICB9IGZpbmFsbHkgewpAQCAtMjIwLDcgKzIyMSw3IEBACiAgICAgICAgICAgICAgICAgICBkPSJNMTIgNS4zOGMxLjYyIDAgMy4wNi41NiA0LjIxIDEuNjRsMy4xNS0zLjE1QzE3LjQ1IDIuMDkgMTQuOTcgMSAxMiAxIDcuNyAxIDMuOTkgMy40NyAyLjE4IDcuMDZsMy42NiAyLjg0Yy44Ny0yLjYgMy4zLTQuNTIgNi4xNi00LjUyeiIKICAgICAgICAgICAgICAgICAvPgogICAgICAgICAgICAgICA8L3N2Zz4KLSAgICAgICAgICAgICAgPHNwYW4+VGnhur9wIFThu6VjIFbhu5tpIFTDoGkgS2hv4bqjbiBHb29nbGU8L3NwYW4+CisgICAgICAgICAgICAgIDxzcGFuPntsb2FkaW5nID8gJ8SQYW5nIMSRxINuZyBuaOG6rXAuLi4nIDogJ1Rp4bq/cCBU4bulYyBW4bubaSBUw6BpIEtob+G6o24gR29vZ2xlJ308L3NwYW4+CiAgICAgICAgICAgICA8L2J1dHRvbj4KIAogICAgICAgICAgICAgPGRpdiBjbGFzc05hbWU9ImJnLXNsYXRlLTUwIGJvcmRlciBib3JkZXItc2xhdGUtMjAwIHAtMyByb3VuZGVkLTJ4bCB0ZXh0LVsxMXB4XSB0ZXh0LXNsYXRlLTUwMCBzcGFjZS15LTEiPgotLS0gYS9zcmMvY29tcG9uZW50cy9FeHBvcnRQZGZNb2RhbC50c3gKKysrIGIvc3JjL2NvbXBvbmVudHMvRXhwb3J0UGRmTW9kYWwudHN4CkBAIC0xNjQsMTQgKzE2NCwxNCBAQAogICBjb25zdCBbY3Jld1Bob3Rvc01hcCwgc2V0Q3Jld1Bob3Rvc01hcF0gPSB1c2VTdGF0ZTxSZWNvcmQ8c3RyaW5nLCBzdHJpbmdbXT4+KHt9KTsKICAgY29uc3QgW2RlZmVjdFBob3Rvc01hcCwgc2V0RGVmZWN0UGhvdG9zTWFwXSA9IHVzZVN0YXRlPFJlY29yZDxzdHJpbmcsIHsgYmVmb3JlOiBzdHJpbmdbXTsgYWZ0ZXI6IHN0cmluZ1tdIH0+Pih7fSk7CiAgIGNvbnN0IFtpc1Jlc29sdmluZ1JlcG9ydFBob3Rvcywgc2V0SXNSZXNvbHZpbmdSZXBvcnRQaG90b3NdID0gdXNlU3RhdGUoZmFsc2UpOwotICBjb25zdCBbcmVwb3J0UGhvdG9FcnJvciwgc2V0UmVwb3J0UGhvdG9FcnJvcl0gPSB1c2VTdGF0ZTxzdHJpbmcgfCBudWxsPihudWxsKTsKKyAgY29uc3QgW3JlcG9ydFBob3RvV2FybmluZywgc2V0UmVwb3J0UGhvdG9XYXJuaW5nXSA9IHVzZVN0YXRlPHN0cmluZyB8IG51bGw+KG51bGwpOwogCiAgIHVzZUVmZmVjdCgoKSA9PiB7CiAgICAgaWYgKCFpc09wZW4gfHwgIWFjdGl2ZVByb2plY3RJZCkgewogICAgICAgc2V0Q3Jld1Bob3Rvc01hcCh7fSk7CiAgICAgICBzZXREZWZlY3RQaG90b3NNYXAoe30pOwogICAgICAgc2V0SXNSZXNvbHZpbmdSZXBvcnRQaG90b3MoZmFsc2UpOwotICAgICAgc2V0UmVwb3J0UGhvdG9FcnJvcihudWxsKTsKKyAgICAgIHNldFJlcG9ydFBob3RvV2FybmluZyhudWxsKTsKICAgICAgIHJldHVybjsKICAgICB9CiAgICAgbGV0IGlzTW91bnRlZCA9IHRydWU7CkBAIC0xNzksMjAgKzE3OSwyMyBAQAogICAgIGFzeW5jIGZ1bmN0aW9uIGxvYWRQaG90b3MoKSB7CiAgICAgICBpZiAoaXNNb3VudGVkKSB7CiAgICAgICAgIHNldElzUmVzb2x2aW5nUmVwb3J0UGhvdG9zKHRydWUpOwotICAgICAgICBzZXRSZXBvcnRQaG90b0Vycm9yKG51bGwpOworICAgICAgICBzZXRSZXBvcnRQaG90b1dhcm5pbmcobnVsbCk7CiAgICAgICB9CiAgICAgICB0cnkgewogICAgICAgICAvLyByZXF1aXJlQmluYXJ5PXRydWUgaXMgaW50ZW50aW9uYWw6IG5ldmVyIGNsYWltIGEgUERGL0hUTUwgcmVwb3J0IGlzIGNvbXBsZXRlCiAgICAgICAgIC8vIHdoaWxlIHNoYXJlZCBSMiBtZXRhZGF0YSBleGlzdHMgYnV0IHRoZSBhdXRoZW50aWNhdGVkIGJpbmFyeSBjYW5ub3QgYmUgcmVhZC4KLSAgICAgICAgY29uc3QgcGhvdG9zID0gYXdhaXQgZ2V0UHJvamVjdFBob3Rvc1dpdGhCaW5hcnkoYWN0aXZlUHJvamVjdElkLCB0cnVlKTsKKyAgICAgICAgY29uc3QgcGhvdG9zID0gYXdhaXQgZ2V0UHJvamVjdFBob3Rvc1dpdGhCaW5hcnkoYWN0aXZlUHJvamVjdElkLCBmYWxzZSk7CiAgICAgICAgIGNvbnN0IGNNYXA6IFJlY29yZDxzdHJpbmcsIHN0cmluZ1tdPiA9IHt9OwogICAgICAgICBjb25zdCBkTWFwOiBSZWNvcmQ8c3RyaW5nLCB7IGJlZm9yZTogc3RyaW5nW107IGFmdGVyOiBzdHJpbmdbXSB9PiA9IHt9OworICAgICAgICBjb25zdCBtaXNzaW5nUmVwb3J0UGhvdG9JZHM6IHN0cmluZ1tdID0gW107CiAKICAgICAgICAgZm9yIChjb25zdCBwIG9mIHBob3RvcykgewogICAgICAgICAgIGlmICghcC5pZCB8fCBwLmRlbGV0ZWQpIGNvbnRpbnVlOworICAgICAgICAgIGlmIChwLmVudGl0eVR5cGUgIT09ICdjcmV3UmVjb3JkJyAmJiBwLmVudGl0eVR5cGUgIT09ICdkZWZlY3QnKSBjb250aW51ZTsKICAgICAgICAgICBjb25zdCBlbWJlZGRlZFVybCA9IFN0cmluZyhwLmJhc2U2NCB8fCBwLmxvY2FsVXJpIHx8ICcnKTsKICAgICAgICAgICBpZiAoIWVtYmVkZGVkVXJsLnN0YXJ0c1dpdGgoJ2RhdGE6aW1hZ2UvJykpIHsKLSAgICAgICAgICAgIHRocm93IG5ldyBFcnJvcihg4bqibmggJHtwLmlkfSBjaMawYSBjw7MgYmluYXJ5IHThu7EgY2jhu6lhIMSR4buDIHh14bqldCBiw6FvIGPDoW8uYCk7CisgICAgICAgICAgICBtaXNzaW5nUmVwb3J0UGhvdG9JZHMucHVzaChwLmlkKTsKKyAgICAgICAgICAgIGNvbnRpbnVlOwogICAgICAgICAgIH0KIAogICAgICAgICAgIGlmIChwLmVudGl0eVR5cGUgPT09ICdjcmV3UmVjb3JkJyAmJiBwLmVudGl0eUlkKSB7CkBAIC0yMTEsNiArMjE0LDEzIEBACiAgICAgICAgIGlmIChpc01vdW50ZWQpIHsKICAgICAgICAgICBzZXRDcmV3UGhvdG9zTWFwKGNNYXApOwogICAgICAgICAgIHNldERlZmVjdFBob3Rvc01hcChkTWFwKTsKKyAgICAgICAgICBpZiAobWlzc2luZ1JlcG9ydFBob3RvSWRzLmxlbmd0aCA+IDApIHsKKyAgICAgICAgICAgIGNvbnN0IHByZXZpZXdJZHMgPSBtaXNzaW5nUmVwb3J0UGhvdG9JZHMuc2xpY2UoMCwgMykuam9pbignLCAnKTsKKyAgICAgICAgICAgIGNvbnN0IG1vcmUgPSBtaXNzaW5nUmVwb3J0UGhvdG9JZHMubGVuZ3RoID4gMyA/IGAgdsOgICR7bWlzc2luZ1JlcG9ydFBob3RvSWRzLmxlbmd0aCAtIDN9IOG6o25oIGtow6FjYCA6ICcnOworICAgICAgICAgICAgc2V0UmVwb3J0UGhvdG9XYXJuaW5nKGBDw7MgJHttaXNzaW5nUmVwb3J0UGhvdG9JZHMubGVuZ3RofSDhuqNuaCBraMO0bmcgdOG6o2kgxJHGsOG7o2MgdOG7qyBDbG91ZC9SMiAoJHtwcmV2aWV3SWRzfSR7bW9yZX0pLiBCw6FvIGPDoW8gduG6q24gY8OzIHRo4buDIHh14bqldCwgbmjGsG5nIGPDoWMg4bqjbmggbsOgeSBz4bq9IMSRxrDhu6NjIGLhu48gcXVhLmApOworICAgICAgICAgIH0gZWxzZSB7CisgICAgICAgICAgICBzZXRSZXBvcnRQaG90b1dhcm5pbmcobnVsbCk7CisgICAgICAgICAgfQogICAgICAgICB9CiAgICAgICB9IGNhdGNoIChlcnIpIHsKICAgICAgICAgY29uc3QgbWVzc2FnZSA9IGVyciBpbnN0YW5jZW9mIEVycm9yID8gZXJyLm1lc3NhZ2UgOiBTdHJpbmcoZXJyIHx8ICdLaMO0bmcgdOG6o2kgxJHGsOG7o2Mg4bqjbmggYsOhbyBjw6FvLicpOwpAQCAtMjE4LDcgKzIyOCw3IEBACiAgICAgICAgIGlmIChpc01vdW50ZWQpIHsKICAgICAgICAgICBzZXRDcmV3UGhvdG9zTWFwKHt9KTsKICAgICAgICAgICBzZXREZWZlY3RQaG90b3NNYXAoe30pOwotICAgICAgICAgIHNldFJlcG9ydFBob3RvRXJyb3IobWVzc2FnZSk7CisgICAgICAgICAgc2V0UmVwb3J0UGhvdG9XYXJuaW5nKGBLaMO0bmcgdGjhu4MgY2h14bqpbiBi4buLIOG6o25oIGLDoW8gY8OhbzogJHttZXNzYWdlfS4gQuG6oW4gduG6q24gY8OzIHRo4buDIHh14bqldCBiw6FvIGPDoW8ga2jDtG5nIGvDqG0g4bqjbmguYCk7CiAgICAgICAgIH0KICAgICAgIH0gZmluYWxseSB7CiAgICAgICAgIGlmIChpc01vdW50ZWQpIHNldElzUmVzb2x2aW5nUmVwb3J0UGhvdG9zKGZhbHNlKTsKQEAgLTExMzksOSArMTE0OSw4IEBACiAgICAgICBhbGVydCgnxJBhbmcgdOG6o2kgdsOgIG5ow7puZyDhuqNuaCBSMiB2w6BvIGLDoW8gY8Ohby4gVnVpIGzDsm5nIGNo4budIGhvw6BuIHThuqV0IHLhu5NpIHh14bqldCBs4bqhaS4nKTsKICAgICAgIHJldHVybiBmYWxzZTsKICAgICB9Ci0gICAgaWYgKHJlcG9ydFBob3RvRXJyb3IpIHsKLSAgICAgIGFsZXJ0KGBLaMO0bmcgdGjhu4MgeHXhuqV0IGLDoW8gY8OhbyBjw7Mg4bqjbmggdsOsIGNoxrBhIHThuqNpIMSR4bunIGJpbmFyeSDhuqNuaCB04burIENsb3VkL1IyLlxuXG4ke3JlcG9ydFBob3RvRXJyb3J9YCk7Ci0gICAgICByZXR1cm4gZmFsc2U7CisgICAgaWYgKHJlcG9ydFBob3RvV2FybmluZykgeworICAgICAgcmV0dXJuIHdpbmRvdy5jb25maXJtKGAke3JlcG9ydFBob3RvV2FybmluZ31cblxuQuG6oW4gY8OzIG114buRbiB0aeG6v3AgdOG7pWMgeHXhuqV0IGLDoW8gY8OhbyB24bubaSBjw6FjIOG6o25oIGhp4buHbiBjw7Mga2jDtG5nP2ApOwogICAgIH0KICAgICByZXR1cm4gdHJ1ZTsKICAgfTsKLS0tIGEvc2NyaXB0cy9zdGFiaWxpdHktZ2F0ZS5tanMKKysrIGIvc2NyaXB0cy9zdGFiaWxpdHktZ2F0ZS5tanMKQEAgLTIwOSw3ICsyMDksNyBAQAogcGFzcygncGhvdG8gcGVuZGluZyBiaW5hcnkgcmV0cmllcyBzb29uZXIgYW5kIFdpbmRvd3MgdGFza2JhciBpY29uIHVzZXMgc2hhcnBlbmVkIERQSS1zcGVjaWZpYyBmcmFtZXMnKTsKIAogcmVxdWlyZUFsbChmbG9vclBsYW5EZWZlY3QsIFsncGhvdG8uY2xvdWRVcmwgfHwgcGhvdG8uY2xvdWRGaWxlSWQgfHwgcGhvdG8ubG9jYWxVcmknLCAnZmFsc2UsIHByb2plY3RJZCddLCAnRGVmZWN0IGdhbGxlcnkgY2xvdWQgcmVuZGVyaW5nJyk7Ci1yZXF1aXJlQWxsKGV4cG9ydFBkZiwgWydnZXRQcm9qZWN0UGhvdG9zV2l0aEJpbmFyeShhY3RpdmVQcm9qZWN0SWQsIHRydWUpJywgImVtYmVkZGVkVXJsLnN0YXJ0c1dpdGgoJ2RhdGE6aW1hZ2UvJykiLCAnZW5zdXJlUmVwb3J0UGhvdG9zUmVhZHknLCAnaXNSZXNvbHZpbmdSZXBvcnRQaG90b3MnLCAncmVwb3J0UGhvdG9FcnJvciddLCAnUERGIHBvcnRhYmxlIHBob3RvIGVtYmVkZGluZyArIFIyIHJlYWRpbmVzcyBnYXRlJyk7CityZXF1aXJlQWxsKGV4cG9ydFBkZiwgWydnZXRQcm9qZWN0UGhvdG9zV2l0aEJpbmFyeShhY3RpdmVQcm9qZWN0SWQsIGZhbHNlKScsICJlbWJlZGRlZFVybC5zdGFydHNXaXRoKCdkYXRhOmltYWdlLycpIiwgJ2Vuc3VyZVJlcG9ydFBob3Rvc1JlYWR5JywgJ2lzUmVzb2x2aW5nUmVwb3J0UGhvdG9zJywgJ3JlcG9ydFBob3RvV2FybmluZycsICdtaXNzaW5nUmVwb3J0UGhvdG9JZHMnXSwgJ1BERiBwb3J0YWJsZSBwaG90byBlbWJlZGRpbmcgKyB0b2xlcmFudCBSMiB3YXJuaW5nIGdhdGUnKTsKIAogcmVxdWlyZUFsbChtYXRlcmlhbE5vcm1Nb2RhbCwgWydzbTptaW4taC1bMi43NXJlbV0nLCAnc206aXRlbXMtc3RhcnQnLCAnbGVhZGluZy10aWdodCBwdC0wLjUnXSwgJ01hdGVyaWFsIG5vcm0gUEMgcXVvdGEtZmllbGQgYWxpZ25tZW50Jyk7CiBwYXNzKCdNYXRlcmlhbCBub3JtIHF1b3RhIGlucHV0cyBhbGlnbiBvbiBQQyB3aGlsZSByZW1haW5pbmcgc3RhY2tlZCBvbiBtb2JpbGUnKTsK' | base64 -d > /tmp/hotfix.patch
+          git apply --check /tmp/hotfix.patch
+          git apply /tmp/hotfix.patch
+          grep -q "signInWithRedirect(auth, provider)" src/lib/firebase.ts
           grep -q "getProjectPhotosWithBinary(activeProjectId, false)" src/components/ExportPdfModal.tsx
           grep -q "reportPhotoWarning" src/components/ExportPdfModal.tsx
           grep -q "getProjectPhotosWithBinary(projectId: string, requireBinary = false)" src/utils/photoStorage.ts
@@ -167,6 +53,6 @@ jobs:
           git config user.name 'HNL QLTC CI'
           git config user.email 'actions@users.noreply.github.com'
           git rm .github/workflows/report-photo-r2-tolerant-hotfix.yml
-          git add src/components/ExportPdfModal.tsx
-          git commit -m 'fix: allow reports to export when individual R2 photos are unavailable'
+          git add src/lib/firebase.ts src/components/GoogleAuthModal.tsx src/components/ExportPdfModal.tsx scripts/stability-gate.mjs
+          git commit -m 'fix: stabilize mobile Google auth and tolerate missing report photos'
           git push origin HEAD:hotfix/report-photo-r2-tolerant-20260901
