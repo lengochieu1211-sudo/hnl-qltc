@@ -216,10 +216,22 @@ export function exportAllToExcel(params: {
   // 3. Tien do can ho & defect
   if (mods.floorPlan) {
     if (params.roomProgressList && params.roomProgressList.length > 0) {
+      const activeWorkCategoryNames = new Set(
+        (params.workVolumes || [])
+          .filter((item) => !item.deletedAt)
+          .map((item) => String(item.title || '').trim())
+          .filter(Boolean)
+      );
+      const isActiveCategory = (name: unknown) => {
+        const normalized = String(name || '').trim();
+        if (!normalized) return false;
+        return activeWorkCategoryNames.size === 0 || activeWorkCategoryNames.has(normalized);
+      };
       const roomData = params.roomProgressList.map((r, idx) => {
         const fp = params.floorPlans?.find((f) => f.id === r.floorId);
-        const subItemsSummary = (r.subItems && r.subItems.length > 0)
-          ? r.subItems.map(s => `${s.name || (s as any).title || 'Hạng mục'}: ${s.status || s.inspectionStatus || 'Chưa làm'}`).join('; ')
+        const activeSubItems = (r.subItems || []).filter((s) => isActiveCategory(s.category || r.workCategory || ''));
+        const subItemsSummary = activeSubItems.length > 0
+          ? activeSubItems.map(s => `${s.name || (s as any).title || 'Hạng mục'}: ${s.status || s.inspectionStatus || 'Chưa làm'}`).join('; ')
           : '';
 
         return {
