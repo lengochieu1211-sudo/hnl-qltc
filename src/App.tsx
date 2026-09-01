@@ -94,7 +94,9 @@ import { MaterialNormModal } from './components/MaterialNormModal';
 import { ProjectManagerModal } from './components/ProjectManagerModal';
 import { DueDateToastNotifier } from './components/DueDateToastNotifier';
 import { NotificationCenterModal } from './components/NotificationCenterModal';
+import { SuperAdminCenter } from './components/SuperAdminCenter';
 import { BottomNav, TabType } from './components/BottomNav';
+import { isSuperAdminEmail } from './config/superAdmin';
 import { 
   exportWarehouseToExcel, 
   exportWorkVolumesToExcel, 
@@ -863,12 +865,20 @@ export default function App() {
   }, [defects, cloudDefectIndex, activeProjectId, isProjectRoleResolved, currentUserRole]);
   const activeChecklist = useMemo(() => checklist.filter((item) => !item.archivedAt), [checklist]);
   const showChecklistModule = activeChecklist.length > 0;
+  const currentIdentityEmail = getCurrentRealFirebaseUser()?.email || (!isOnline ? getRememberedVerifiedAuthIdentity()?.email : undefined);
+  const isCurrentSuperAdmin = isSuperAdminEmail(currentIdentityEmail);
 
   useEffect(() => {
     // Checklist is kept in source/data for compatibility but stays out of navigation
     // until the current project actually has checklist items.
     if (activeTab === 'checklist' && !showChecklistModule) setActiveTab('crew');
   }, [activeTab, showChecklistModule]);
+
+  useEffect(() => {
+    // SUPER ADMIN navigation is protected at render level as well as by the existing
+    // Firebase/handler authorization. A stale/deep-linked tab must never expose it.
+    if (activeTab === 'superadmin' && !isCurrentSuperAdmin) setActiveTab('crew');
+  }, [activeTab, isCurrentSuperAdmin]);
 
 
   // Helper to match floor names or floor IDs (supports multi-floor strings like "Tầng 1, Tầng 2")
@@ -5432,10 +5442,14 @@ export default function App() {
       const uniqueDefectSuffix = createShortToken(6);
       const newId = defect.id || `DEF-${nextNum}-${uniqueDefectSuffix}`;
       
+      const actor = getCurrentRealFirebaseUser();
+      const actorLabel = String(actor?.displayName || actor?.email || defect.createdBy || inspectorName || 'Kỹ sư QC').trim();
       const newDefect: DefectItem = {
         ...defect,
         id: newId,
         createdAt: new Date().toISOString(),
+        createdBy: actorLabel,
+        ...(actor?.uid ? { createdByUid: actor.uid } : {}),
       };
 
       return {
@@ -6290,6 +6304,22 @@ export default function App() {
             />
           )}
 
+          {activeTab === 'superadmin' && isCurrentSuperAdmin && (
+            <SuperAdminCenter
+              userEmail={currentIdentityEmail || undefined}
+              userRole={currentUserRole}
+              projectName={projectName}
+              projectId={activeProjectId}
+              defectCount={activeDefects.length}
+              pendingPhotoCount={Number(photoCloudStatus.pending || 0)}
+              showChecklist={showChecklistModule}
+              onOpenProjectManager={() => handleOpenProjectManager('sync')}
+              onOpenSecurity={() => setIsSecurityModalOpen(true)}
+              onOpenConfig={() => setActiveTab('config')}
+              onOpenNotificationCenter={() => setIsNotificationCenterOpen(true)}
+            />
+          )}
+
           {activeTab === 'config' && (
             <GoogleConfigTab
               projectName={projectName}
@@ -6465,6 +6495,7 @@ export default function App() {
             defectBadgeCount={unhandledDefectsCount}
             chatBadgeCount={chatUnreadCount}
             showChecklist={showChecklistModule}
+            showSuperAdmin={isCurrentSuperAdmin}
           />
         )}
 

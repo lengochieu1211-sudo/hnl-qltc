@@ -7745,15 +7745,15 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               {/* 5 Key Control Fields */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-slate-50 p-3 rounded-2xl border border-slate-200/80">
                 <div>
-                  <label className="block text-slate-700 font-bold mb-1">👤 Người Tạo (QC / Giám Sát)</label>
+                  <label className="block text-slate-700 font-bold mb-1">👤 Người Tạo</label>
                   <input
                     type="text"
                     value={createdBy}
-                    onChange={(e) => setCreatedBy(e.target.value)}
-                    placeholder="Tên kỹ sư QC..."
-                    className="w-full border border-slate-200 bg-white rounded-xl p-2 font-semibold"
-                    required
+                    readOnly
+                    placeholder="Tự ghi theo tài khoản đăng nhập"
+                    className="w-full border border-slate-200 bg-slate-100 rounded-xl p-2 font-semibold text-slate-700"
                   />
+                  <p className="mt-1 text-[10px] text-slate-400">Khi lưu, hệ thống tự ghi đúng tài khoản Firebase đang đăng nhập.</p>
                 </div>
 
                 <div>
@@ -7964,11 +7964,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     <input
                       type="text"
                       value={activeDefectDetail.createdBy || ''}
-                      readOnly={!canEditDefects}
-                      onChange={(e) => handleDetailFieldChange('createdBy', e.target.value)}
-                      placeholder="Nhập tên người tạo..."
-                      className="w-full border border-slate-200 bg-white rounded-xl p-2 font-semibold"
+                      readOnly
+                      placeholder="Tự ghi theo tài khoản tạo Defect"
+                      className="w-full border border-slate-200 bg-slate-100 rounded-xl p-2 font-semibold text-slate-700"
                     />
+                    <p className="mt-1 text-[10px] text-slate-400">Người tạo là thông tin audit, được khóa sau khi tạo Defect.</p>
                   </div>
 
                   <div>

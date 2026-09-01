@@ -14,7 +14,8 @@ import {
   Settings2
 } from 'lucide-react';
 import { WorkVolume, ChecklistItem, DefectItem } from '../types';
-import { collectDueDateAlerts, DueDateAlertItem, formatDateVN } from '../utils/dueDateUtils';
+import { collectDueDateAlerts, DueDateAlertItem } from '../utils/dueDateUtils';
+import { formatDate, formatDateTime } from '../utils/dateFormatter';
 import { QuickSortBar } from './QuickSortBar';
 
 interface NotificationCenterModalProps {
@@ -48,11 +49,11 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
   const [filterType, setFilterType] = useState<'all' | 'overdue' | 'today' | 'soon'>('all');
   const [contentType, setContentType] = useState<'all' | 'workVolume' | 'checklist' | 'defect'>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [alertSortBy, setAlertSortBy] = useState<'dueDate' | 'title' | 'floor' | 'type'>('dueDate');
-  const [alertSortOrder, setAlertSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [alertSortBy, setAlertSortBy] = useState<'createdAt' | 'dueDate' | 'title' | 'floor' | 'type'>('createdAt');
+  const [alertSortOrder, setAlertSortOrder] = useState<'asc' | 'desc'>('desc');
 
   const allAlerts = useMemo(() => {
-    return collectDueDateAlerts(workVolumes, checklist, defects);
+    return collectDueDateAlerts(workVolumes, checklist, defects, { includeActiveDefects: true });
   }, [workVolumes, checklist, defects]);
 
   const activeAlerts = allAlerts;
@@ -82,14 +83,19 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
     const list = [...filteredAlerts];
     list.sort((a, b) => {
       let comparison = 0;
-      if (alertSortBy === 'title') {
+      if (alertSortBy === 'createdAt') {
+        comparison = Number(a.createdAtTs || 0) - Number(b.createdAtTs || 0);
+      } else if (alertSortBy === 'title') {
         comparison = a.title.localeCompare(b.title, 'vi', { numeric: true, sensitivity: 'base' });
       } else if (alertSortBy === 'floor') {
         comparison = a.floor.localeCompare(b.floor, 'vi', { numeric: true, sensitivity: 'base' });
       } else if (alertSortBy === 'type') {
         comparison = a.type.localeCompare(b.type, 'vi', { sensitivity: 'base' });
       } else {
-        comparison = a.dueDate.localeCompare(b.dueDate);
+        // Records without a deadline belong after dated items when sorting by deadline.
+        const aDue = a.dueDate || '9999-12-31';
+        const bDue = b.dueDate || '9999-12-31';
+        comparison = aDue.localeCompare(bDue);
       }
       return alertSortOrder === 'asc' ? comparison : -comparison;
     });
@@ -238,6 +244,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
           <QuickSortBar
             itemCount={filteredAlerts.length}
             options={[
+              { key: 'createdAt', label: 'Mới nhất', kind: 'date', defaultOrder: 'desc' },
               { key: 'dueDate', label: 'Thời hạn', kind: 'deadline', defaultOrder: 'asc' },
               { key: 'title', label: 'Nội dung', kind: 'alpha' },
               { key: 'floor', label: 'Tầng', kind: 'floor' },
@@ -246,7 +253,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
             activeKey={alertSortBy}
             order={alertSortOrder}
             onChange={(key, order) => { setAlertSortBy(key); setAlertSortOrder(order); }}
-            onReset={() => { setAlertSortBy('dueDate'); setAlertSortOrder('asc'); }}
+            onReset={() => { setAlertSortBy('createdAt'); setAlertSortOrder('desc'); }}
             summary={`${filteredAlerts.length} thông báo`}
           />
 
@@ -263,7 +270,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
 
               let borderStyle = 'border-slate-200 bg-white hover:border-indigo-300';
               let badgeBg = 'bg-amber-100 text-amber-800 border-amber-200';
-              let statusTag = `Còn ${alert.diffDays} ngày`;
+              let statusTag = alert.dueDate ? `Còn ${alert.diffDays} ngày` : (alert.type === 'defect' ? 'Mới phát hiện' : 'Đang theo dõi');
 
               if (alert.isOverdue) {
                 borderStyle = 'border-rose-200 bg-rose-50/20 hover:border-rose-400';
@@ -297,14 +304,27 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                       {alert.title}
                     </h4>
 
-                    <div className="flex items-center gap-3 text-[11px] text-slate-500">
-                      <span className="flex items-center gap-1 font-medium">
-                        <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                        Hạn: <strong className="text-slate-800">{formatDateVN(alert.dueDate)}</strong>
-                      </span>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+                      {alert.createdAt && (
+                        <span className="flex items-center gap-1 font-medium">
+                          <Clock className="w-3.5 h-3.5 text-slate-400" />
+                          Tạo: <strong className="text-slate-800">{formatDateTime(alert.createdAt)}</strong>
+                        </span>
+                      )}
+                      {alert.type === 'defect' && (
+                        <span className="font-medium">
+                          Người tạo: <strong className="text-slate-800">{alert.creatorLabel || 'Không xác định'}</strong>
+                        </span>
+                      )}
+                      {alert.dueDate && (
+                        <span className="flex items-center gap-1 font-medium">
+                          <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                          Hạn: <strong className="text-slate-800">{formatDate(alert.dueDate)}</strong>
+                        </span>
+                      )}
                       {alert.category && (
-                        <span className="truncate max-w-[150px] text-slate-400">
-                          NH: {alert.category}
+                        <span className="truncate max-w-[180px] text-slate-400">
+                          HM: {alert.category}
                         </span>
                       )}
                     </div>

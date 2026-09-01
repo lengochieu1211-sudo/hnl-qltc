@@ -1,4 +1,5 @@
 import { WorkVolume, ChecklistItem, DefectItem } from '../types';
+import { parseLegacyTimestamp } from './dateFormatter';
 
 export interface DueDateAlertItem {
   id: string;
@@ -6,7 +7,10 @@ export interface DueDateAlertItem {
   title: string;
   floor: string;
   category?: string;
-  dueDate: string; // YYYY-MM-DD
+  dueDate: string; // YYYY-MM-DD; empty when this is an activity notification without a deadline
+  createdAt?: string | number;
+  createdAtTs?: number;
+  creatorLabel?: string;
   statusStr: string;
   isCompleted: boolean;
   diffDays: number; // <0 overdue, 0 today, >0 upcoming
@@ -55,7 +59,8 @@ export function calculateDiffDays(dueDateStr: string): number {
 export function collectDueDateAlerts(
   workVolumes: WorkVolume[] = [],
   checklist: ChecklistItem[] = [],
-  defects: DefectItem[] = []
+  defects: DefectItem[] = [],
+  options: { includeActiveDefects?: boolean } = {}
 ): DueDateAlertItem[] {
   const alerts: DueDateAlertItem[] = [];
 
@@ -78,6 +83,8 @@ export function collectDueDateAlerts(
         floor: wv.floor,
         category: wv.category,
         dueDate: wv.dueDate,
+        createdAt: wv.createdAt,
+        createdAtTs: parseLegacyTimestamp(wv.createdAt, 0),
         statusStr: wv.status,
         isCompleted: false,
         diffDays,
@@ -108,6 +115,8 @@ export function collectDueDateAlerts(
         floor: chk.floorName,
         category: chk.category,
         dueDate: chk.dueDate,
+        createdAt: chk.createdAt,
+        createdAtTs: parseLegacyTimestamp(chk.createdAt, 0),
         statusStr: chk.status === 'defect' ? 'Có lỗi' : 'Chờ nghiệm thu',
         isCompleted: false,
         diffDays,
@@ -120,24 +129,32 @@ export function collectDueDateAlerts(
   });
 
   // 3. Defect items
+  // Notification Center is also the activity feed for Defect creation. Therefore every
+  // active/open Defect belongs in the "Tất cả" view even when it has no deadline yet.
+  // Deadline-specific filters still work because the deadline flags remain false.
   defects.forEach((def) => {
-    if (def.archivedAt || !def.dueDate) return;
+    if (def.archivedAt) return;
     const isCompleted = def.status === 'Đã khắc phục' || def.status === 'Đã nghiệm thu';
     if (isCompleted) return;
 
-    const diffDays = calculateDiffDays(def.dueDate);
-    const isOverdue = diffDays < 0;
-    const isToday = diffDays === 0;
-    const isDueSoon = diffDays > 0 && diffDays <= 3;
+    const hasDueDate = Boolean(def.dueDate);
+    const diffDays = hasDueDate ? calculateDiffDays(String(def.dueDate)) : 999;
+    const isOverdue = hasDueDate && diffDays < 0;
+    const isToday = hasDueDate && diffDays === 0;
+    const isDueSoon = hasDueDate && diffDays > 0 && diffDays <= 3;
+    const createdAtTs = parseLegacyTimestamp(def.createdAt, 0);
 
-    if (isOverdue || isToday || isDueSoon) {
+    if (options.includeActiveDefects || isOverdue || isToday || isDueSoon) {
       alerts.push({
         id: `def_${def.id}`,
         type: 'defect',
         title: `Lỗi: ${def.category} - ${def.description}`,
         floor: def.floorName,
         category: def.category,
-        dueDate: def.dueDate,
+        dueDate: def.dueDate || '',
+        createdAt: def.createdAt,
+        createdAtTs,
+        creatorLabel: String(def.createdBy || '').trim() || undefined,
         statusStr: def.status,
         isCompleted: false,
         diffDays,
@@ -149,8 +166,9 @@ export function collectDueDateAlerts(
     }
   });
 
-  // Sort by urgency: Overdue first (most negative diffDays), then Today (0), then Due Soon (1, 2, 3)
-  alerts.sort((a, b) => a.diffDays - b.diffDays);
+  // Default collection order is newest activity first. NotificationCenter may apply
+  // another explicit sort (deadline, floor, title...) without mutating source data.
+  alerts.sort((a, b) => Number(b.createdAtTs || 0) - Number(a.createdAtTs || 0));
 
   return alerts;
 }
