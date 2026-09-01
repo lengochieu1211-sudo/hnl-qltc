@@ -125,6 +125,34 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
 
   const effectiveFloorPlans = resolvedFloorPlans.length === floorPlans.length ? resolvedFloorPlans : floorPlans;
 
+
+  // Report hygiene: legacy room metadata may retain categories that were removed from
+  // the active Khối lượng catalog. Keep that metadata for history/recovery, but never
+  // resurrect deleted categories in current PDF output.
+  const activeWorkCategoryNames = new Set(
+    workVolumes
+      .filter((item) => !item.deletedAt)
+      .map((item) => String(item.title || '').trim())
+      .filter(Boolean)
+  );
+  const isActiveReportCategory = (name: unknown): boolean => {
+    const normalized = String(name || '').trim();
+    if (!normalized) return false;
+    // Legacy projects without a WorkVolume catalog keep their historical display.
+    if (activeWorkCategoryNames.size === 0) return true;
+    return activeWorkCategoryNames.has(normalized);
+  };
+  const getActiveRoomCategoryNames = (room: RoomProgressItem): string[] => Array.from(new Set([
+    ...Object.keys(room.categoryVolumes || {}),
+    ...(room.subItems || []).map((sub) => sub.category || room.workCategory || '').filter(Boolean),
+    ...(room.workCategory ? [room.workCategory] : []),
+  ].map((name) => String(name || '').trim()).filter(isActiveReportCategory)));
+  const getActiveRoomVolumeEntries = (room: RoomProgressItem): Array<[string, number]> =>
+    (Object.entries(room.categoryVolumes || {}) as Array<[string, number]>)
+      .filter(([name]) => isActiveReportCategory(name));
+  const getActiveRoomSubItems = (room: RoomProgressItem) => (room.subItems || [])
+    .filter((sub) => isActiveReportCategory(sub.category || room.workCategory || ''));
+
   // Module checkboxes
   const [includeWarehouse, setIncludeWarehouse] = useState(true);
   const [includeWorkVolumes, setIncludeWorkVolumes] = useState(true);
@@ -802,12 +830,8 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                             </thead>
                             <tbody>
                               ${fpRooms.map((r, rIdx) => {
-                                const categoryNames = Array.from(new Set([
-                                  ...Object.keys(r.categoryVolumes || {}),
-                                  ...(r.subItems || []).map((sub) => sub.category || r.workCategory || '').filter(Boolean),
-                                  ...(r.workCategory ? [r.workCategory] : []),
-                                ])).filter(Boolean);
-                                const volumeEntries = Object.entries(r.categoryVolumes || {}) as Array<[string, number]>;
+                                const categoryNames = getActiveRoomCategoryNames(r);
+                                const volumeEntries = getActiveRoomVolumeEntries(r);
                                 const volumeText = volumeEntries.length > 0
                                   ? volumeEntries.map(([name, value]) => `${h(name)}: ${formatDecimal(value)} ${h(r.categoryVolumeUnits?.[name] || r.volumeUnit || 'm²')}`).join('<br/>')
                                   : (typeof r.workVolume === 'number' && r.workVolume > 0 ? `${formatDecimal(r.workVolume)} ${r.volumeUnit || 'm²'}` : '—');
@@ -946,13 +970,10 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
             <tbody>
               ${sortedRooms.map(r => {
                 const fp = effectiveFloorPlans.find(f => f.id === r.floorId);
-                const hasSubs = Boolean(r.subItems && r.subItems.length > 0);
-                const categoryNames = Array.from(new Set([
-                  ...Object.keys(r.categoryVolumes || {}),
-                  ...(r.subItems || []).map((sub) => sub.category || r.workCategory || '').filter(Boolean),
-                  ...(r.workCategory ? [r.workCategory] : []),
-                ])).filter(Boolean);
-                const volumeEntries = Object.entries(r.categoryVolumes || {}) as Array<[string, number]>;
+                const reportSubItems = getActiveRoomSubItems(r);
+                const hasSubs = reportSubItems.length > 0;
+                const categoryNames = getActiveRoomCategoryNames(r);
+                const volumeEntries = getActiveRoomVolumeEntries(r);
                 const volumeText = volumeEntries.length > 0
                   ? volumeEntries.map(([name, value]) => `${h(name)}: ${formatDecimal(value)} ${h(r.categoryVolumeUnits?.[name] || r.volumeUnit || 'm²')}`).join('<br/>')
                   : (typeof r.workVolume === 'number' && r.workVolume > 0 ? `${formatDecimal(r.workVolume)} ${r.volumeUnit || 'm²'}` : '—');
@@ -972,7 +993,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                   </tr>
                 `;
 
-                const subRows = hasSubs ? r.subItems!.map(sub => `
+                const subRows = hasSubs ? reportSubItems.map(sub => `
                   <tr style="background-color: #ffffff; font-size: 8.5px;">
                     <td style="padding-left: 16px; color: #334155; word-break: normal; overflow-wrap: break-word;">↳ ${h(sub.name)}</td>
                     <td style="color: #64748b;">${h(formatFloorName(fp?.floorName))}</td>
