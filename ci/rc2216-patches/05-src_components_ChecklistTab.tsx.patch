@@ -1,0 +1,102 @@
+diff --git a/src/components/ChecklistTab.tsx b/src/components/ChecklistTab.tsx
+index 2004cd2..a9520d8 100644
+--- a/src/components/ChecklistTab.tsx
++++ b/src/components/ChecklistTab.tsx
+@@ -28,6 +28,7 @@ import { saveWorkbookFile } from '../utils/fileExport';
+ import { UserRole, canEditChecklistData, canManageChecklistStructure, canDeleteBusinessData, canImportData } from '../utils/securityUtils';
+ 
+ import { QuickSortBar } from './QuickSortBar';
++import { filterChecklistForFloor, isSameChecklistFloor } from '../utils/checklistUtils';
+ 
+ interface ChecklistTabProps {
+   checklist: ChecklistItem[];
+@@ -81,13 +82,20 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
+   const [checklistSortBy, setChecklistSortBy] = useState<'none' | 'title' | 'status' | 'dueDate'>('none');
+   const [checklistSortOrder, setChecklistSortOrder] = useState<'asc' | 'desc'>('asc');
+ 
+-  // Keep selectedFloor in sync with floors
++  // Keep selectedFloor in sync with floors. Reset category whenever the
++  // selected floor changes so a category filter from the previous floor cannot
++  // hide valid checklist items on the new floor.
+   useEffect(() => {
+     if (floors.length > 0 && !floors.includes(selectedFloor)) {
+       setSelectedFloor(floors[0]);
++      setSelectedCategory('all');
+     }
+   }, [floors, selectedFloor]);
+ 
++  useEffect(() => {
++    setSelectedCategory('all');
++  }, [selectedFloor]);
++
+   const [showAddForm, setShowAddForm] = useState(false);
+   const [editingChecklistItem, setEditingChecklistItem] = useState<ChecklistItem | null>(null);
+   const [deletingChecklistTarget, setDeletingChecklistTarget] = useState<ChecklistItem | null>(null);
+@@ -116,7 +124,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
+     const list = new Set<string>();
+     if (workVolumes && workVolumes.length > 0) {
+       workVolumes.forEach((wv) => {
+-        if (wv.floor === selectedFloor && wv.title) {
++        if (isSameChecklistFloor(wv.floor, selectedFloor) && wv.title) {
+           list.add(wv.title.trim());
+         }
+       });
+@@ -162,7 +170,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
+   const categoriesInUseForFloor = useMemo(() => {
+     const list = new Set<string>();
+     activeChecklist
+-      .filter((item) => item.floorName === selectedFloor)
++      .filter((item) => isSameChecklistFloor(item.floorName, selectedFloor))
+       .forEach((item) => {
+         if (item.category && item.category.trim()) {
+           list.add(item.category.trim());
+@@ -171,12 +179,17 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
+     return Array.from(list);
+   }, [activeChecklist, selectedFloor]);
+ 
++  // Defensive guard for realtime/import changes: if the active category no longer
++  // exists on this floor, fall back to showing every checklist item instead of
++  // rendering an apparently incomplete/empty list.
++  useEffect(() => {
++    if (selectedCategory !== 'all' && !categoriesInUseForFloor.includes(selectedCategory)) {
++      setSelectedCategory('all');
++    }
++  }, [categoriesInUseForFloor, selectedCategory]);
++
+   const filteredChecklist = useMemo(() => {
+-    return activeChecklist.filter((item) => {
+-      const matchFloor = item.floorName === selectedFloor;
+-      const matchCategory = selectedCategory === 'all' || item.category === selectedCategory;
+-      return matchFloor && matchCategory;
+-    });
++    return filterChecklistForFloor(activeChecklist, selectedFloor, selectedCategory);
+   }, [activeChecklist, selectedFloor, selectedCategory]);
+ 
+   const sortedFilteredChecklist = useMemo(() => {
+@@ -209,7 +222,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
+   }, [filteredChecklist, checklistSortBy, checklistSortOrder]);
+ 
+   const summary = useMemo(() => {
+-    const floorItems = activeChecklist.filter((item) => item.floorName === selectedFloor);
++    const floorItems = activeChecklist.filter((item) => isSameChecklistFloor(item.floorName, selectedFloor));
+     const total = floorItems.length;
+     const passed = floorItems.filter((i) => i.status === 'passed').length;
+     const defect = floorItems.filter((i) => i.status === 'defect').length;
+@@ -227,7 +240,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
+       return;
+     }
+ 
+-    const matchedFloor = floorPlans?.find(fp => fp.floorName === selectedFloor);
++    const matchedFloor = floorPlans?.find(fp => isSameChecklistFloor(fp.floorName, selectedFloor));
+     onAddChecklistItem({
+       floorId: matchedFloor?.id,
+       floorName: selectedFloor,
+@@ -542,7 +555,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
+ 
+       {/* Category filter */}
+       {categoriesInUseForFloor.length > 0 && (
+-        <div className="flex gap-1 overflow-x-auto text-xs no-scrollbar">
++        <div className="flex flex-wrap gap-1 text-xs">
+           {[{ id: 'all', label: 'Tất Cả' }, ...categoriesInUseForFloor.map((cat, idx) => ({
+             id: cat,
+             label: `${idx + 1}. ${getCategoryLabel(cat)}`
