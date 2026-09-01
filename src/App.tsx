@@ -94,7 +94,7 @@ import { MaterialNormModal } from './components/MaterialNormModal';
 import { ProjectManagerModal } from './components/ProjectManagerModal';
 import { DueDateToastNotifier } from './components/DueDateToastNotifier';
 import { NotificationCenterModal } from './components/NotificationCenterModal';
-import { SuperAdminCenter } from './components/SuperAdminCenter';
+import { SuperAdminCenter, SuperAdminUiSettings } from './components/SuperAdminCenter';
 import { BottomNav, TabType } from './components/BottomNav';
 import { isSuperAdminEmail } from './config/superAdmin';
 import { 
@@ -224,6 +224,43 @@ export const saveProjectsList = (list: ProjectInfo[]) => {
   safeSetLocalStorageItem('construction_projects_list', next);
 };
 
+const DEFAULT_SUPER_ADMIN_UI_SETTINGS: SuperAdminUiSettings = {
+  scalePercent: 100,
+  checklistVisibility: 'auto',
+  theme: 'system',
+  primaryColor: '#4f46e5',
+  secondaryColor: '#059669',
+  buttonSize: 'standard',
+  iconSize: 'standard',
+  density: 'standard',
+  borderRadius: 'soft',
+  appDisplayName: 'HNL QLTC',
+  logoUrl: '',
+};
+
+const normalizeHexColor = (value: unknown, fallback: string): string => {
+  const text = String(value || '').trim();
+  return /^#[0-9a-fA-F]{6}$/.test(text) ? text.toLowerCase() : fallback;
+};
+
+const normalizeSuperAdminUiSettings = (raw: any): SuperAdminUiSettings => {
+  const logoCandidate = String(raw?.logoUrl || '').trim();
+  const safeLogoUrl = !logoCandidate || logoCandidate.startsWith('/') || /^https:\/\//i.test(logoCandidate) ? logoCandidate : '';
+  return {
+    scalePercent: [90, 100, 110, 120].includes(Number(raw?.scalePercent)) ? Number(raw.scalePercent) : 100,
+    checklistVisibility: raw?.checklistVisibility === 'always' ? 'always' : 'auto',
+    theme: ['light', 'dark', 'system'].includes(String(raw?.theme)) ? raw.theme : 'system',
+    primaryColor: normalizeHexColor(raw?.primaryColor, DEFAULT_SUPER_ADMIN_UI_SETTINGS.primaryColor),
+    secondaryColor: normalizeHexColor(raw?.secondaryColor, DEFAULT_SUPER_ADMIN_UI_SETTINGS.secondaryColor),
+    buttonSize: ['compact', 'standard', 'large'].includes(String(raw?.buttonSize)) ? raw.buttonSize : 'standard',
+    iconSize: ['small', 'standard', 'large'].includes(String(raw?.iconSize)) ? raw.iconSize : 'standard',
+    density: ['compact', 'standard', 'comfortable'].includes(String(raw?.density)) ? raw.density : 'standard',
+    borderRadius: ['square', 'soft', 'round'].includes(String(raw?.borderRadius)) ? raw.borderRadius : 'soft',
+    appDisplayName: String(raw?.appDisplayName || 'HNL QLTC').trim().slice(0, 40) || 'HNL QLTC',
+    logoUrl: safeLogoUrl.slice(0, 1000),
+  };
+};
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('floorplan');
   const [activeProjectId, setActiveProjectId] = useState<string>(() => getActiveProjectId());
@@ -245,7 +282,7 @@ export default function App() {
   const [isSoftKeyboardOpen, setIsSoftKeyboardOpen] = useState(false);
   const [cloudDefectIndex, setCloudDefectIndex] = useState<{ projectId: string; ids: Set<string> } | null>(null);
   const [trashSettings, setTrashSettings] = useState<TrashSettings>(DEFAULT_TRASH_SETTINGS);
-  const [superAdminUiSettings, setSuperAdminUiSettings] = useState<{ scalePercent: number; checklistVisibility: 'auto' | 'always' }>({ scalePercent: 100, checklistVisibility: 'auto' });
+  const [superAdminUiSettings, setSuperAdminUiSettings] = useState<SuperAdminUiSettings>(DEFAULT_SUPER_ADMIN_UI_SETTINGS);
   const trashSettingsRef = useRef<TrashSettings>(DEFAULT_TRASH_SETTINGS);
   const [trashOperations, setTrashOperations] = useState<TrashOperation[]>([]);
   const trashOperationsRef = useRef<TrashOperation[]>([]);
@@ -882,10 +919,29 @@ export default function App() {
   const isCurrentSuperAdmin = isSuperAdminEmail(currentIdentityEmail);
 
   useEffect(() => {
+    const root = document.documentElement;
     const pct = Math.min(120, Math.max(90, Number(superAdminUiSettings.scalePercent) || 100));
-    document.documentElement.style.fontSize = `${pct}%`;
-    return () => { document.documentElement.style.fontSize = ''; };
-  }, [superAdminUiSettings.scalePercent]);
+    root.style.fontSize = `${pct}%`;
+    root.style.setProperty('--hnl-primary', superAdminUiSettings.primaryColor);
+    root.style.setProperty('--hnl-secondary', superAdminUiSettings.secondaryColor);
+    root.dataset.hnlButtonSize = superAdminUiSettings.buttonSize;
+    root.dataset.hnlIconSize = superAdminUiSettings.iconSize;
+    root.dataset.hnlDensity = superAdminUiSettings.density;
+    root.dataset.hnlRadius = superAdminUiSettings.borderRadius;
+
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const applyTheme = () => {
+      root.dataset.hnlTheme = superAdminUiSettings.theme === 'system'
+        ? (media.matches ? 'dark' : 'light')
+        : superAdminUiSettings.theme;
+    };
+    applyTheme();
+    if (superAdminUiSettings.theme === 'system') media.addEventListener?.('change', applyTheme);
+
+    return () => {
+      if (superAdminUiSettings.theme === 'system') media.removeEventListener?.('change', applyTheme);
+    };
+  }, [superAdminUiSettings]);
 
   useEffect(() => {
     // Checklist is kept in source/data for compatibility but stays out of navigation
@@ -1122,11 +1178,7 @@ export default function App() {
         localStorage.setItem(getKey('construction_trash_settings', activeProjectId), JSON.stringify(nextTrash));
       }
       if (settings.superAdminUi && typeof settings.superAdminUi === 'object') {
-        const raw = settings.superAdminUi as any;
-        const nextUi = {
-          scalePercent: [90, 100, 110, 120].includes(Number(raw.scalePercent)) ? Number(raw.scalePercent) : 100,
-          checklistVisibility: raw.checklistVisibility === 'always' ? 'always' as const : 'auto' as const,
-        };
+        const nextUi = normalizeSuperAdminUiSettings(settings.superAdminUi);
         setSuperAdminUiSettings(nextUi);
         localStorage.setItem(getKey('construction_superadmin_ui', activeProjectId), JSON.stringify(nextUi));
       }
@@ -2315,25 +2367,22 @@ export default function App() {
     );
   };
 
-  const previewSuperAdminUiSettings = (next: { scalePercent: number; checklistVisibility: 'auto' | 'always' }) => {
+  const previewSuperAdminUiSettings = (next: SuperAdminUiSettings) => {
     if (!isCurrentSuperAdmin) return;
-    setSuperAdminUiSettings(next);
+    setSuperAdminUiSettings(normalizeSuperAdminUiSettings(next));
   };
 
-  const saveSuperAdminUiSettings = async (next: { scalePercent: number; checklistVisibility: 'auto' | 'always' }) => {
+  const saveSuperAdminUiSettings = async (next: SuperAdminUiSettings) => {
     if (!isCurrentSuperAdmin || !getCurrentRealFirebaseUser()) throw new Error('Chỉ SUPER ADMIN đã xác thực được lưu cấu hình giao diện.');
-    const sanitized = {
-      scalePercent: [90, 100, 110, 120].includes(Number(next.scalePercent)) ? Number(next.scalePercent) : 100,
-      checklistVisibility: next.checklistVisibility === 'always' ? 'always' as const : 'auto' as const,
-    };
+    const sanitized = normalizeSuperAdminUiSettings(next);
     setSuperAdminUiSettings(sanitized);
     localStorage.setItem(getKey('construction_superadmin_ui', activeProjectIdRef.current), JSON.stringify(sanitized));
     await saveProjectSharedSettings(activeProjectIdRef.current, { superAdminUi: sanitized });
-    await saveProjectAuditLog(activeProjectIdRef.current, { action: 'SECURITY_CONFIG_CHANGE', description: `SUPER ADMIN cập nhật giao diện: scale ${sanitized.scalePercent}%, checklist ${sanitized.checklistVisibility}`, module: 'system-ui', syncStatus: 'PENDING' }).catch(() => {});
+    await saveProjectAuditLog(activeProjectIdRef.current, { action: 'SECURITY_CONFIG_CHANGE', description: `SUPER ADMIN cập nhật giao diện V2: theme ${sanitized.theme}, scale ${sanitized.scalePercent}%, checklist ${sanitized.checklistVisibility}`, module: 'system-ui', syncStatus: 'PENDING' }).catch(() => {});
   };
 
   const resetSuperAdminUiSettings = async () => {
-    await saveSuperAdminUiSettings({ scalePercent: 100, checklistVisibility: 'auto' });
+    await saveSuperAdminUiSettings(DEFAULT_SUPER_ADMIN_UI_SETTINGS);
   };
 
   const handleTrashSettingsChange = (nextInput: TrashSettings) => {
@@ -6008,6 +6057,8 @@ export default function App() {
         {/* Sticky Top Header */}
         <GoogleAuthHeader
           projectName={projectName}
+              appDisplayName={superAdminUiSettings.appDisplayName}
+              logoUrl={superAdminUiSettings.logoUrl}
           projectId={activeProjectId}
           lastUpdatedAt={lastUpdatedAt}
           setProjectName={handleUpdateProjectName}
