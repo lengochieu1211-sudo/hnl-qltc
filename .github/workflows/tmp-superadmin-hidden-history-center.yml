@@ -1,0 +1,44 @@
+name: TEMP SuperAdmin Hidden History Center
+on:
+  push:
+    paths:
+      - scripts/apply-superadmin-hidden-history-center.py
+      - .github/workflows/tmp-superadmin-hidden-history-center.yml
+permissions:
+  contents: write
+jobs:
+  patch_and_verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/superadmin-hidden-history-center
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: python3 scripts/apply-superadmin-hidden-history-center.py
+      - run: npm ci
+      - name: Stability
+        run: npm run test:stability
+      - name: TypeScript
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Rules
+        run: npm run test:rules
+      - name: Security
+        run: npm run security:audit
+      - name: Build
+        run: npm run build
+      - name: Materialize verified source and remove temp files
+        shell: bash
+        run: |
+          rm -f scripts/apply-superadmin-hidden-history-center.py
+          rm -f .github/workflows/tmp-superadmin-hidden-history-center.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "Add Super Admin hidden data and history center"
+          git push origin HEAD:feat/superadmin-hidden-history-center
