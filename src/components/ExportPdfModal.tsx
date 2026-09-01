@@ -1083,7 +1083,6 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                         <span style="font-size: 8.5px; background: #f1f5f9; padding: 1px 6px; border-radius: 4px; color: #475569;">${h(formatFloorName(d.floorName))} | Đội: ${h(d.assignedTo)}</span>
                       </div>
 
-                      <div style="font-size: 8px; color: #94a3b8; margin: -3px 0 4px;">Mã hệ thống: ${h(d.displayCode)}</div>
                       <div style="font-size: 9px; color: #334155; margin-bottom: 2px;">Mô tả: ${h(d.description)}</div>
                       <div style="font-size: 7.8px; color: #94a3b8; margin-bottom: 6px;">Mã hệ thống: ${h(getDefectShortCode(d.id))}</div>
 

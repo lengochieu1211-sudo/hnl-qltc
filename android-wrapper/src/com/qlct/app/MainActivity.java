@@ -392,7 +392,7 @@ public class MainActivity extends Activity {
         cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, pendingCameraImageUri);
         cameraIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
-            cameraIntent.setClipData(android.content.ClipData.newRawUri("QLCT camera output", pendingCameraImageUri));
+            cameraIntent.setClipData(android.content.ClipData.newRawUri("QLTC camera output", pendingCameraImageUri));
         }
         // Explicitly grant the content URI to every camera activity. Some OEM camera apps
         // ignore only the flag and otherwise return RESULT_OK with an empty/broken image.
@@ -408,10 +408,10 @@ public class MainActivity extends Activity {
     private Uri createCameraImageUri() {
         try {
             ContentValues values = new ContentValues();
-            values.put(MediaStore.Images.Media.DISPLAY_NAME, "QLCT_IMG_" + System.currentTimeMillis() + ".jpg");
+            values.put(MediaStore.Images.Media.DISPLAY_NAME, "QLTC_IMG_" + System.currentTimeMillis() + ".jpg");
             values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/QLCT");
+                values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/QLTC");
             }
             return getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
         } catch (Exception error) {
@@ -515,7 +515,7 @@ public class MainActivity extends Activity {
             try {
                 byte[] bytes = Base64.decode(base64Data, Base64.DEFAULT);
                 saveBytesToDownloads(fileName, mimeType, bytes);
-                showToast("Da luu file vao Download/QLCT: " + fileName);
+                showToast("Da luu file vao Download/QLTC: " + fileName);
             } catch (Exception error) {
                 showToast("Khong the luu file: " + error.getMessage());
             }
@@ -619,7 +619,7 @@ public class MainActivity extends Activity {
             try {
                 export.output.close();
                 saveFileToDownloads(export.fileName, export.mimeType, export.tempFile);
-                showToast("Da luu file vao Download/QLCT: " + export.fileName);
+                showToast("Da luu file vao Download/QLTC: " + export.fileName);
                 return true;
             } catch (Exception error) {
                 showToast("Khong the hoan tat luu file: " + error.getMessage());
@@ -926,7 +926,7 @@ public class MainActivity extends Activity {
             ContentValues values = new ContentValues();
             values.put(MediaStore.MediaColumns.DISPLAY_NAME, safeFileName);
             values.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
-            values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/QLCT");
+            values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/QLTC");
 
             Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
             if (uri == null) {
@@ -945,9 +945,9 @@ public class MainActivity extends Activity {
             return uri;
         }
 
-        File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "QLCT");
+        File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "QLTC");
         if (!dir.exists() && !dir.mkdirs()) {
-            throw new IOException("Cannot create Download/QLCT");
+            throw new IOException("Cannot create Download/QLTC");
         }
 
         File outputFile = getUniqueFile(dir, safeFileName);
@@ -970,7 +970,7 @@ public class MainActivity extends Activity {
             ContentValues values = new ContentValues();
             values.put(MediaStore.MediaColumns.DISPLAY_NAME, safeFileName);
             values.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
-            values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/QLCT");
+            values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/QLTC");
 
             Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
             if (uri == null) {
@@ -989,9 +989,9 @@ public class MainActivity extends Activity {
             return uri;
         }
 
-        File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "QLCT");
+        File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "QLTC");
         if (!dir.exists() && !dir.mkdirs()) {
-            throw new IOException("Cannot create Download/QLCT");
+            throw new IOException("Cannot create Download/QLTC");
         }
 
         File outputFile = getUniqueFile(dir, safeFileName);
@@ -1143,7 +1143,7 @@ public class MainActivity extends Activity {
     private String sanitizeFileName(String fileName) {
         String safe = fileName == null ? "" : fileName.replaceAll("[\\\\/:*?\"<>|]+", "_").trim();
         if (safe.length() == 0) {
-            safe = "QLCT_" + System.currentTimeMillis();
+            safe = "QLTC_" + System.currentTimeMillis();
         }
         return safe;
     }
