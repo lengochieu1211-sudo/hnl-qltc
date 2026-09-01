@@ -164,14 +164,14 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   const [crewPhotosMap, setCrewPhotosMap] = useState<Record<string, string[]>>({});
   const [defectPhotosMap, setDefectPhotosMap] = useState<Record<string, { before: string[]; after: string[] }>>({});
   const [isResolvingReportPhotos, setIsResolvingReportPhotos] = useState(false);
-  const [reportPhotoError, setReportPhotoError] = useState<string | null>(null);
+  const [reportPhotoWarning, setReportPhotoWarning] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen || !activeProjectId) {
       setCrewPhotosMap({});
       setDefectPhotosMap({});
       setIsResolvingReportPhotos(false);
-      setReportPhotoError(null);
+      setReportPhotoWarning(null);
       return;
     }
     let isMounted = true;
@@ -179,20 +179,23 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     async function loadPhotos() {
       if (isMounted) {
         setIsResolvingReportPhotos(true);
-        setReportPhotoError(null);
+        setReportPhotoWarning(null);
       }
       try {
         // requireBinary=true is intentional: never claim a PDF/HTML report is complete
         // while shared R2 metadata exists but the authenticated binary cannot be read.
-        const photos = await getProjectPhotosWithBinary(activeProjectId, true);
+        const photos = await getProjectPhotosWithBinary(activeProjectId, false);
         const cMap: Record<string, string[]> = {};
         const dMap: Record<string, { before: string[]; after: string[] }> = {};
+        const missingReportPhotoIds: string[] = [];
 
         for (const p of photos) {
           if (!p.id || p.deleted) continue;
+          if (p.entityType !== 'crewRecord' && p.entityType !== 'defect') continue;
           const embeddedUrl = String(p.base64 || p.localUri || '');
           if (!embeddedUrl.startsWith('data:image/')) {
-            throw new Error(`Ảnh ${p.id} chưa có binary tự chứa để xuất báo cáo.`);
+            missingReportPhotoIds.push(p.id);
+            continue;
           }
 
           if (p.entityType === 'crewRecord' && p.entityId) {
@@ -211,6 +214,13 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
         if (isMounted) {
           setCrewPhotosMap(cMap);
           setDefectPhotosMap(dMap);
+          if (missingReportPhotoIds.length > 0) {
+            const previewIds = missingReportPhotoIds.slice(0, 3).join(', ');
+            const more = missingReportPhotoIds.length > 3 ? ` và ${missingReportPhotoIds.length - 3} ảnh khác` : '';
+            setReportPhotoWarning(`Có ${missingReportPhotoIds.length} ảnh không tải được từ Cloud/R2 (${previewIds}${more}). Báo cáo vẫn có thể xuất, nhưng các ảnh này sẽ được bỏ qua.`);
+          } else {
+            setReportPhotoWarning(null);
+          }
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err || 'Không tải được ảnh báo cáo.');
@@ -218,7 +228,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
         if (isMounted) {
           setCrewPhotosMap({});
           setDefectPhotosMap({});
-          setReportPhotoError(message);
+          setReportPhotoWarning(`Không thể chuẩn bị ảnh báo cáo: ${message}. Bạn vẫn có thể xuất báo cáo không kèm ảnh.`);
         }
       } finally {
         if (isMounted) setIsResolvingReportPhotos(false);
@@ -1139,9 +1149,8 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
       alert('Đang tải và nhúng ảnh R2 vào báo cáo. Vui lòng chờ hoàn tất rồi xuất lại.');
       return false;
     }
-    if (reportPhotoError) {
-      alert(`Không thể xuất báo cáo có ảnh vì chưa tải đủ binary ảnh từ Cloud/R2.\n\n${reportPhotoError}`);
-      return false;
+    if (reportPhotoWarning) {
+      return window.confirm(`${reportPhotoWarning}\n\nBạn có muốn tiếp tục xuất báo cáo với các ảnh hiện có không?`);
     }
     return true;
   };

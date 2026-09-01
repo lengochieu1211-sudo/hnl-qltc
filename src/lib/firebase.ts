@@ -28,6 +28,7 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
   GoogleAuthProvider,
   signOut as fbSignOut,
   onAuthStateChanged,
@@ -1016,10 +1017,21 @@ export async function signInWithEmulatorTestAccount(kind: EmulatorTestAccountKin
 }
 
 export async function signInWithGoogle(): Promise<User | null> {
-  // If Firebase is configured with real credentials, attempt popup sign-in
+  // Mobile browsers are less reliable with Firebase popup auth: the popup can open
+  // and return focus without settling the original promise. Redirect is the stable
+  // mobile path; desktop keeps popup for faster sign-in without page navigation.
   if (isFirebaseConfigured) {
     try {
       const provider = new GoogleAuthProvider();
+      const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+      const mobileLike = typeof navigator !== 'undefined' && (
+        Boolean((navigator as any).userAgentData?.mobile) ||
+        /Android|iPhone|iPad|iPod|Mobile/i.test(ua)
+      );
+      if (mobileLike) {
+        await signInWithRedirect(auth, provider);
+        return null;
+      }
       provider.setCustomParameters({ prompt: 'select_account' });
       const result = await signInWithPopup(auth, provider);
       await saveUserProfileToCloud(result.user).catch((profileErr) => {
