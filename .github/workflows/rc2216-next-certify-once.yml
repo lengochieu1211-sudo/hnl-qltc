@@ -43,9 +43,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat ci/rc2216-patches/*.patch > /tmp/rc2216-next.patch
-          git apply --check /tmp/rc2216-next.patch
-          git apply /tmp/rc2216-next.patch
+          for patch in ci/rc2216-patches/*.patch; do
+            echo "Checking $patch"
+            git apply --check "$patch"
+            git apply "$patch"
+          done
           git diff --check
 
       - name: Setup Node
