@@ -1,0 +1,36 @@
+name: TEMP QLTC Folder + Defect Appendix Gate
+
+on:
+  push:
+    branches:
+      - fix/android-qltc-folder-defect-appendix-label
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-verify:
+    if: github.event.head_commit.message != 'fix: QLTC Android folder and Defect appendix label'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Apply patch
+        run: python3 scripts/tmp-fix-qltc-folder-defect-label.py
+      - name: Install
+        run: npm ci
+      - name: Full verification gate
+        run: npm run verify
+      - name: Commit clean source and remove temporary files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm scripts/tmp-fix-qltc-folder-defect-label.py .github/workflows/tmp-qltc-folder-defect-label.yml
+          git add android-wrapper/src/com/qlct/app/MainActivity.java src/components/ExportPdfModal.tsx
+          git commit -m "fix: QLTC Android folder and Defect appendix label"
+          git push
