@@ -94,4 +94,10 @@ s = p.read_text(encoding='utf-8')
 s = s.replace("inventory: 'Nhật ký kho'", "inventory: 'Phiếu nhập / xuất kho'")
 p.write_text(s, encoding='utf-8')
 
+# 5) Stability guard: Android user-facing folder was renamed from QLCT to QLTC.
+p = ROOT / 'scripts/stability-gate.mjs'
+s = p.read_text(encoding='utf-8')
+s = s.replace('Download/QLCT', 'Download/QLTC')
+p.write_text(s, encoding='utf-8')
+
 print('Applied Super Admin hidden/history center patch')
