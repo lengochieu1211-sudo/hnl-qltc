@@ -37,17 +37,21 @@ if checklist_label not in text:
     raise SystemExit('checklist sort label not found')
 text = text.replace(checklist_label, defect_label + checklist_label, 1)
 
-# Remove only the duplicate sort selector. Keep the existing filter grid and outer container.
-start_marker = '\n          {/* Defect list grouping/sorting - display-only; map marker placement is intentionally unchanged. */}\n'
-filter_marker = '            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">'
-start = text.find(start_marker)
+# Remove only the duplicate Defect sort selector, preserving its filter grid.
+start_token = '{/* Defect list grouping/sorting - display-only; map marker placement is intentionally unchanged. */}'
+filter_token = '<div className="grid grid-cols-1 sm:grid-cols-3 gap-2">'
+start = text.find(start_token)
 if start < 0:
     raise SystemExit('old defect sort section start not found')
-filter_pos = text.find(filter_marker, start)
+line_start = text.rfind('\n', 0, start)
+line_start = 0 if line_start < 0 else line_start
+filter_pos = text.find(filter_token, start)
 if filter_pos < 0:
     raise SystemExit('defect filter grid not found after sort section')
+filter_line_start = text.rfind('\n', 0, filter_pos)
+filter_line_start = filter_pos if filter_line_start < 0 else filter_line_start + 1
 replacement_start = '\n          {/* Defect filters; sorting now lives in the common per-section panel above. */}\n          <div className="space-y-1.5">\n            <label className="block text-slate-700 font-bold">Lọc Defect trong báo cáo</label>\n'
-text = text[:start] + replacement_start + text[filter_pos:]
+text = text[:line_start] + replacement_start + text[filter_line_start:]
 
 pdf.write_text(text, encoding='utf-8')
 
