@@ -1746,6 +1746,15 @@ export interface ProjectSharedSettings {
   superAdminUi?: {
     scalePercent?: number;
     checklistVisibility?: 'auto' | 'always';
+    theme?: 'light' | 'dark' | 'system';
+    primaryColor?: string;
+    secondaryColor?: string;
+    buttonSize?: 'compact' | 'standard' | 'large';
+    iconSize?: 'small' | 'standard' | 'large';
+    density?: 'compact' | 'standard' | 'comfortable';
+    borderRadius?: 'square' | 'soft' | 'round';
+    appDisplayName?: string;
+    logoUrl?: string;
   };
   driveAutoSyncEnabled?: boolean;
   syncOptions?: {

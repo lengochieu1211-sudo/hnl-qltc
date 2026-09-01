@@ -27,6 +27,8 @@ import { isSuperAdminEmail } from '../config/superAdmin';
 
 interface GoogleAuthHeaderProps {
   projectName: string;
+  appDisplayName?: string;
+  logoUrl?: string;
   projectId?: string;
   setProjectName: (name: string) => void;
   onSyncAll: () => Promise<{ success: boolean; url?: string; message?: string }>;
@@ -47,6 +49,8 @@ interface GoogleAuthHeaderProps {
 
 export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
   projectName,
+  appDisplayName = 'HNL QLTC',
+  logoUrl = '',
   projectId,
   setProjectName,
   onSyncAll,
@@ -142,13 +146,15 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center overflow-hidden shadow-md shrink-0 border border-slate-200/50 select-none">
                 <img
-                  src={`/icon.png?v=${APP_VERSION}`}
-                  alt="HNL Quản Lý Thi Công"
+                  src={logoUrl || `/icon.png?v=${APP_VERSION}`}
+                  alt={appDisplayName || 'HNL Quản Lý Thi Công'}
+                  onError={(e) => { if (!e.currentTarget.src.includes('/icon.png')) e.currentTarget.src = `/icon.png?v=${APP_VERSION}`; }}
                   className="w-full h-full object-contain"
                   draggable={false}
                 />
               </div>
               <div className="min-w-0 flex-1">
+                <div className="text-[8px] sm:text-[9px] font-extrabold uppercase tracking-widest text-indigo-300 truncate">{appDisplayName}</div>
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {isEditingProject ? (
                     <input
