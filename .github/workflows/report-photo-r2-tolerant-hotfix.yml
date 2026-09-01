@@ -1,0 +1,172 @@
+name: Report Photo R2 Tolerant Hotfix
+
+on:
+  push:
+    branches:
+      - hotfix/report-photo-r2-tolerant-20260901
+    paths:
+      - '.github/workflows/report-photo-r2-tolerant-hotfix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch_test_materialize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hotfix/report-photo-r2-tolerant-20260901
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Apply report-photo hotfix
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/components/ExportPdfModal.tsx')
+          s = p.read_text()
+          s = s.replace("  const [reportPhotoError, setReportPhotoError] = useState<string | null>(null);", "  const [reportPhotoWarning, setReportPhotoWarning] = useState<string | null>(null);")
+          s = s.replace("      setReportPhotoError(null);", "      setReportPhotoWarning(null);")
+          s = s.replace("        setReportPhotoError(null);", "        setReportPhotoWarning(null);")
+          old = '''        // requireBinary=true is intentional: never claim a PDF/HTML report is complete
+                  // while shared R2 metadata exists but the authenticated binary cannot be read.
+                  const photos = await getProjectPhotosWithBinary(activeProjectId, true);
+                  const cMap: Record<string, string[]> = {};
+                  const dMap: Record<string, { before: string[]; after: string[] }> = {};
+
+                  for (const p of photos) {
+                    if (!p.id || p.deleted) continue;
+                    const embeddedUrl = String(p.base64 || p.localUri || '');
+                    if (!embeddedUrl.startsWith('data:image/')) {
+                      throw new Error(`Ảnh ${p.id} chưa có binary tự chứa để xuất báo cáo.`);
+                    }
+
+                    if (p.entityType === 'crewRecord' && p.entityId) {
+                      if (!cMap[p.entityId]) cMap[p.entityId] = [];
+                      cMap[p.entityId].push(embeddedUrl);
+                    } else if (p.entityType === 'defect' && p.entityId) {
+                      if (!dMap[p.entityId]) dMap[p.entityId] = { before: [], after: [] };
+                      if (p.category === 'defect_after') {
+                        dMap[p.entityId].after.push(embeddedUrl);
+                      } else {
+                        dMap[p.entityId].before.push(embeddedUrl);
+                      }
+                    }
+                  }
+
+                  if (isMounted) {
+                    setCrewPhotosMap(cMap);
+                    setDefectPhotosMap(dMap);
+                  }
+          '''
+          new = '''        // Reports are best-effort for attachments: unlike a JSON backup, a printable
+                  // report must not become unusable because one stale R2/legacy photo object is
+                  // unavailable. getProjectPhotosWithBinary(..., false) still attempts authenticated
+                  // R2/Storage/Drive/Firestore recovery, but lets us embed every binary that can be
+                  // recovered and explicitly warn about the remainder. Backup remains fail-closed.
+                  const photos = await getProjectPhotosWithBinary(activeProjectId, false);
+                  const cMap: Record<string, string[]> = {};
+                  const dMap: Record<string, { before: string[]; after: string[] }> = {};
+                  const missingReportPhotoIds: string[] = [];
+
+                  for (const p of photos) {
+                    if (!p.id || p.deleted) continue;
+                    const isReportAttachment = p.entityType === 'crewRecord' || p.entityType === 'defect';
+                    if (!isReportAttachment) continue;
+
+                    const embeddedUrl = String(p.base64 || p.localUri || '');
+                    if (!embeddedUrl.startsWith('data:image/')) {
+                      missingReportPhotoIds.push(p.id);
+                      continue;
+                    }
+
+                    if (p.entityType === 'crewRecord' && p.entityId) {
+                      if (!cMap[p.entityId]) cMap[p.entityId] = [];
+                      cMap[p.entityId].push(embeddedUrl);
+                    } else if (p.entityType === 'defect' && p.entityId) {
+                      if (!dMap[p.entityId]) dMap[p.entityId] = { before: [], after: [] };
+                      if (p.category === 'defect_after') {
+                        dMap[p.entityId].after.push(embeddedUrl);
+                      } else {
+                        dMap[p.entityId].before.push(embeddedUrl);
+                      }
+                    }
+                  }
+
+                  if (isMounted) {
+                    setCrewPhotosMap(cMap);
+                    setDefectPhotosMap(dMap);
+                    if (missingReportPhotoIds.length > 0) {
+                      const previewIds = missingReportPhotoIds.slice(0, 3).join(', ');
+                      const more = missingReportPhotoIds.length > 3 ? ` và ${missingReportPhotoIds.length - 3} ảnh khác` : '';
+                      setReportPhotoWarning(`Có ${missingReportPhotoIds.length} ảnh không tải được từ Cloud/R2 (${previewIds}${more}). Báo cáo vẫn có thể xuất, nhưng các ảnh này sẽ được bỏ qua.`);
+                    } else {
+                      setReportPhotoWarning(null);
+                    }
+                  }
+          '''
+          if old not in s:
+              raise SystemExit('Expected report-photo block not found')
+          s = s.replace(old, new)
+          old_catch = '''        if (isMounted) {
+                    setCrewPhotosMap({});
+                    setDefectPhotosMap({});
+                    setReportPhotoError(message);
+                  }
+          '''
+          new_catch = '''        if (isMounted) {
+                    setCrewPhotosMap({});
+                    setDefectPhotosMap({});
+                    setReportPhotoWarning(`Không thể chuẩn bị ảnh báo cáo: ${message}. Bạn vẫn có thể xuất báo cáo không kèm ảnh.`);
+                  }
+          '''
+          if old_catch not in s:
+              raise SystemExit('Expected report-photo catch block not found')
+          s = s.replace(old_catch, new_catch)
+          old_ensure = '''    if (reportPhotoError) {
+                alert(`Không thể xuất báo cáo có ảnh vì chưa tải đủ binary ảnh từ Cloud/R2.\n\n${reportPhotoError}`);
+                return false;
+              }
+              return true;
+          '''
+          new_ensure = '''    if (reportPhotoWarning) {
+                return window.confirm(`${reportPhotoWarning}\n\nBạn có muốn tiếp tục xuất báo cáo với các ảnh hiện có không?`);
+              }
+              return true;
+          '''
+          if old_ensure not in s:
+              raise SystemExit('Expected report-photo ensure block not found')
+          s = s.replace(old_ensure, new_ensure)
+          p.write_text(s)
+          PY
+          grep -q "getProjectPhotosWithBinary(activeProjectId, false)" src/components/ExportPdfModal.tsx
+          grep -q "reportPhotoWarning" src/components/ExportPdfModal.tsx
+          grep -q "getProjectPhotosWithBinary(projectId: string, requireBinary = false)" src/utils/photoStorage.ts
+          grep -q "từ chối tạo backup không đầy đủ" src/utils/photoStorage.ts
+      - run: npm ci
+      - name: Stability
+        run: npm run test:stability
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Rules
+        run: npm run test:rules
+      - name: Security
+        run: npm run security:audit
+      - name: Build
+        run: npm run build
+      - name: Commit certified source and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name 'HNL QLTC CI'
+          git config user.email 'actions@users.noreply.github.com'
+          git rm .github/workflows/report-photo-r2-tolerant-hotfix.yml
+          git add src/components/ExportPdfModal.tsx
+          git commit -m 'fix: allow reports to export when individual R2 photos are unavailable'
+          git push origin HEAD:hotfix/report-photo-r2-tolerant-20260901
