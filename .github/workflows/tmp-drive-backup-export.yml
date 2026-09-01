@@ -1,0 +1,73 @@
+name: TEMP Drive Backup Export
+on:
+  push:
+    branches:
+      - backup/drive-export-2026-09-01-post-pr31
+    paths:
+      - .github/workflows/tmp-drive-backup-export.yml
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout certified main commit
+        uses: actions/checkout@v4
+        with:
+          ref: 73e479efcdd5c82bc9447bce35694c76d18509bd
+      - name: Prepare full source staging
+        shell: bash
+        run: |
+          rm -rf /tmp/hnl-full /tmp/hnl-patch
+          mkdir -p /tmp/hnl-full /tmp/hnl-patch
+          rsync -a ./ /tmp/hnl-full/ \
+            --exclude '.git/' \
+            --exclude 'node_modules/' \
+            --exclude 'dist/' \
+            --exclude '.firebase/' \
+            --exclude '*.log'
+          for f in \
+            scripts/stability-gate.mjs \
+            src/App.tsx \
+            src/components/GoogleConfigTab.tsx \
+            src/components/SuperAdminCenter.tsx \
+            src/lib/trash.ts; do
+            mkdir -p "/tmp/hnl-patch/$(dirname "$f")"
+            cp "$f" "/tmp/hnl-patch/$f"
+          done
+          cat > /tmp/hnl-patch/REPORT-POST-PR31.md <<'EOF'
+          # HNL QLTC - POST PR31 REPORT
+
+          Baseline commit: 73e479efcdd5c82bc9447bce35694c76d18509bd
+          Date: 2026-09-01
+
+          Changes included:
+          - Super Admin: added “Dữ liệu đã ẩn & lịch sử”.
+          - Direct navigation to existing Cloud-backed trash/recovery area.
+          - Warehouse history terminology changed to “Phiếu nhập / xuất kho”.
+          - Warning added: restore then cancel/adjust warehouse transactions; permanent delete only when certain.
+          - Android diagnostic folder text aligned to Download/QLTC.
+          - Stability guard aligned to Download/QLTC.
+
+          PR #31 verification before merge:
+          - Build #330: PASS
+          - Windows #133: PASS
+          - Android #139: PASS
+
+          Main commit verification was triggered after squash merge as Build #331, Windows #134, Android #140.
+          Firebase project/repo/R2 configuration were not changed by this patch.
+          EOF
+      - name: Upload FULL SOURCE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-POST-PR31-FULL-SOURCE-2026-09-01
+          path: /tmp/hnl-full/
+          include-hidden-files: true
+          if-no-files-found: error
+      - name: Upload PATCH artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-POST-PR31-PATCH-2026-09-01
+          path: /tmp/hnl-patch/
+          include-hidden-files: true
+          if-no-files-found: error
