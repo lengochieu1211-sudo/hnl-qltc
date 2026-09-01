@@ -195,16 +195,8 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
 
                 <div className="flex items-center gap-2 mt-0.5 min-w-0">
                   {lastUpdatedAt && (
-                    <span className="text-[9px] sm:text-[10px] text-slate-400">
+                    <span className="text-[9px] sm:text-[10px] text-slate-400" title="Thời điểm dữ liệu dự án được nhập/cập nhật gần nhất">
                       {formatDateTime(lastUpdatedAt)}
-                    </span>
-                  )}
-                  {projectId && (
-                    <span
-                      className="text-[8px] sm:text-[9px] text-slate-500 font-mono truncate"
-                      title={`Project ID: ${projectId}`}
-                    >
-                      ID {projectId.slice(0, 8)}
                     </span>
                   )}
                 </div>
