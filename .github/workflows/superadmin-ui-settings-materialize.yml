@@ -8,6 +8,7 @@ on:
       - '.github/workflows/superadmin-ui-settings-materialize.yml'
       - 'scripts/materialize-superadmin-ui-settings.py'
       - 'scripts/fix-superadmin-ui-rbac-guard.py'
+      - 'scripts/fix-superadmin-ui-shared-settings-type.py'
 
 permissions:
   contents: write
@@ -28,6 +29,8 @@ jobs:
         run: python3 scripts/materialize-superadmin-ui-settings.py
       - name: Fix regression guard helper
         run: python3 scripts/fix-superadmin-ui-rbac-guard.py
+      - name: Extend shared settings type
+        run: python3 scripts/fix-superadmin-ui-shared-settings-type.py
       - run: npm ci
       - name: Stability
         run: npm run test:stability
@@ -47,7 +50,7 @@ jobs:
           set -euo pipefail
           git config user.name "HNL QLTC CI"
           git config user.email "actions@users.noreply.github.com"
-          rm -f .github/workflows/superadmin-ui-settings-materialize.yml scripts/materialize-superadmin-ui-settings.py scripts/fix-superadmin-ui-rbac-guard.py
-          git add src/App.tsx src/components/SuperAdminCenter.tsx scripts/rbac-matrix.mjs .github/workflows/superadmin-ui-settings-materialize.yml scripts/materialize-superadmin-ui-settings.py scripts/fix-superadmin-ui-rbac-guard.py
+          rm -f .github/workflows/superadmin-ui-settings-materialize.yml scripts/materialize-superadmin-ui-settings.py scripts/fix-superadmin-ui-rbac-guard.py scripts/fix-superadmin-ui-shared-settings-type.py
+          git add src/App.tsx src/lib/firebase.ts src/components/SuperAdminCenter.tsx scripts/rbac-matrix.mjs .github/workflows/superadmin-ui-settings-materialize.yml scripts/materialize-superadmin-ui-settings.py scripts/fix-superadmin-ui-rbac-guard.py scripts/fix-superadmin-ui-shared-settings-type.py
           git commit -m "Add Super Admin UI and module settings"
           git push origin HEAD:feature/superadmin-ui-pin-reset-20260901
