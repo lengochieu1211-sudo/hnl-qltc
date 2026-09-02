@@ -28,6 +28,99 @@ if (typeof window !== 'undefined') {
   });
 }
 
+/**
+ * Android/Chrome can keep navigator.onLine=true when the radio is connected but the
+ * Internet/Firebase route is actually unavailable. HNL QLTC historically showed an
+ * offline banner, but relying only on navigator.onLine made that UI regress after the
+ * Firebase-only migration. This watchdog keeps the browser events as the fast signal
+ * and adds a conservative network probe as a second source of truth.
+ *
+ * Important safety rules:
+ * - two consecutive probe failures are required before declaring offline;
+ * - native navigator.onLine=false declares offline immediately;
+ * - a successful probe restores online even when Android never emitted an online event;
+ * - the synthetic online/offline events feed the existing App + OfflineSyncBanner, so
+ *   all permission/cache/retry logic keeps one shared connectivity state.
+ */
+function installConnectivityWatchdog() {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return;
+
+  let effectiveOnline = navigator.onLine;
+  let consecutiveFailures = 0;
+  let probing = false;
+
+  const emitConnectivity = (nextOnline: boolean, source: string) => {
+    if (effectiveOnline === nextOnline) return;
+    effectiveOnline = nextOnline;
+    appendRuntimeDiagnostic({
+      level: nextOnline ? 'info' : 'warn',
+      area: 'connectivity',
+      code: nextOnline ? 'ONLINE' : 'OFFLINE',
+      message: `${nextOnline ? 'Online' : 'Offline'} · source=${source}`,
+    });
+    window.dispatchEvent(new Event(nextOnline ? 'online' : 'offline'));
+  };
+
+  const probeConnectivity = async () => {
+    if (probing) return;
+    if (!navigator.onLine) {
+      consecutiveFailures = 2;
+      emitConnectivity(false, 'navigator');
+      return;
+    }
+
+    probing = true;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 4500);
+    try {
+      // Firebase Hosting reserved endpoint is intentionally used instead of an app
+      // asset so the service worker/app cache cannot make an offline device look online.
+      await fetch(`/__/firebase/init.json?qlct_probe=${Date.now()}`, {
+        method: 'GET',
+        cache: 'no-store',
+        credentials: 'same-origin',
+        signal: controller.signal,
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+      consecutiveFailures = 0;
+      emitConnectivity(true, 'firebase-hosting-probe');
+    } catch (_) {
+      consecutiveFailures += 1;
+      if (consecutiveFailures >= 2) {
+        emitConnectivity(false, 'firebase-hosting-probe');
+      }
+    } finally {
+      window.clearTimeout(timeout);
+      probing = false;
+    }
+  };
+
+  const handleNativeOffline = () => {
+    if (!navigator.onLine) {
+      consecutiveFailures = 2;
+      emitConnectivity(false, 'native-event');
+    }
+  };
+
+  const handleNativeOnline = () => {
+    consecutiveFailures = 0;
+    void probeConnectivity();
+  };
+
+  window.addEventListener('offline', handleNativeOffline);
+  window.addEventListener('online', handleNativeOnline);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) void probeConnectivity();
+  });
+
+  // Probe quickly after startup, then keep a lightweight heartbeat. Twelve seconds is
+  // frequent enough for field work while avoiding noisy traffic/battery usage.
+  window.setTimeout(() => void probeConnectivity(), 1200);
+  window.setInterval(() => void probeConnectivity(), 12000);
+}
+
+installConnectivityWatchdog();
+
 async function bootstrap() {
   // IMPORTANT: run storage cleanup/migration before importing App. App imports Firebase.
   // On affected browsers Firestore can touch WebStorage client-state metadata during
