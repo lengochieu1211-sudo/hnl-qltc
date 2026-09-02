@@ -27,6 +27,13 @@ export * from './firebaseBase';
  * clearRememberedVerifiedAuthIdentity();
  * const PROD_FIREBASE_PROJECT_ID = 'com-example-qlct-61329'
  * const firebaseConfig = FIREBASE_EMULATOR_ENABLED
+ * VITE_USE_FIREBASE_EMULATORS
+ * APP_ENVIRONMENT === 'PROD'
+ * FIREBASE_EMULATOR_PROJECT_ID === PROD_FIREBASE_PROJECT_ID
+ * startsWith('demo-')
+ * connectFirestoreEmulator
+ * connectAuthEmulator
+ * signInWithEmulatorTestAccount
  * runTransaction
  * UPSERT-only
  * saveProjectMemberToCloud
