@@ -73,9 +73,13 @@ foreach ($size in $requiredSizes) {
   }
 }
 
-$cellW = 300; $cellH = 330; $columns = 4
+$cellW = 300
+$cellH = 330
+$columns = 4
 $rows = [int][Math]::Ceiling($frames.Count / [double]$columns)
-$sheet = New-Object System.Drawing.Bitmap($cellW*$columns, $cellH*$rows, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+$sheetWidth = [int]($cellW * $columns)
+$sheetHeight = [int]($cellH * $rows)
+$sheet = [System.Drawing.Bitmap]::new($sheetWidth, $sheetHeight, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
 $g = [System.Drawing.Graphics]::FromImage($sheet)
 $font = New-Object System.Drawing.Font('Segoe UI', 14, [System.Drawing.FontStyle]::Bold)
 try {
