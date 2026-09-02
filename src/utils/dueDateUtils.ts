@@ -1,5 +1,5 @@
 import { WorkVolume, ChecklistItem, DefectItem } from '../types';
-import { parseLegacyTimestamp } from './dateFormatter';
+import { formatDate, parseLegacyTimestamp } from './dateFormatter';
 
 export interface DueDateAlertItem {
   id: string;
@@ -37,13 +37,13 @@ export function addDaysToDateString(baseDateStr: string, days: number): string {
   return `${year}-${month}-${day}`;
 }
 
+/**
+ * Formats due dates using the single app-level date-format preference from
+ * Cài đặt → Cấu hình. The legacy function name is kept to avoid breaking
+ * existing imports while removing the old hard-coded DD/MM/YYYY output.
+ */
 export function formatDateVN(dateStr?: string): string {
-  if (!dateStr) return '';
-  const parts = dateStr.split('-');
-  if (parts.length === 3) {
-    return `${parts[2]}/${parts[1]}/${parts[0]}`;
-  }
-  return dateStr;
+  return dateStr ? formatDate(dateStr) : '';
 }
 
 export function calculateDiffDays(dueDateStr: string): number {
