@@ -16,5 +16,7 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <!-- Final dark-mode guard is intentionally loaded last so opacity-suffixed Tailwind utilities cannot override it. -->
+    <link rel="stylesheet" href="/darkmode-final.css" />
   </body>
 </html>
