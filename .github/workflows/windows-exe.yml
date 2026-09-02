@@ -13,6 +13,7 @@ on:
       - 'package-lock.json'
       - 'vite.config.ts'
       - 'scripts/desktop-launcher-golden.mjs'
+      - 'scripts/windows-icon-golden.ps1'
       - '.github/workflows/windows-exe.yml'
   push:
     branches:
@@ -26,6 +27,7 @@ on:
       - 'package-lock.json'
       - 'vite.config.ts'
       - 'scripts/desktop-launcher-golden.mjs'
+      - 'scripts/windows-icon-golden.ps1'
       - '.github/workflows/windows-exe.yml'
 
 jobs:
@@ -84,6 +86,10 @@ jobs:
         shell: pwsh
         run: ./desktop-wrapper/build-launcher.ps1
 
+      - name: Windows taskbar icon golden
+        shell: pwsh
+        run: ./scripts/windows-icon-golden.ps1
+
       - name: Verify EXE
         shell: pwsh
         run: |
@@ -101,6 +107,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: HNL-QLTC-Windows-EXE-${{ github.run_number }}
-          path: HNL-QLTC-Windows.exe
+          path: |
+            HNL-QLTC-Windows.exe
+            icon-golden-evidence/**
           if-no-files-found: error
           retention-days: 30
