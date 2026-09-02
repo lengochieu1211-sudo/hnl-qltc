@@ -25,6 +25,13 @@ html[data-hnl-theme="dark"] .bg-white\/70,
 html[data-hnl-theme="dark"] .bg-white\/80,
 html[data-hnl-theme="dark"] .bg-white\/90,
 html[data-hnl-theme="dark"] .bg-white\/95 { background-color: var(--hnl-dark-surface-raised) !important; }
+/* Final success/import modal title contrast: these dialogs use bg-white surfaces that
+ * are remapped to dark, while text-slate-950 is intentionally preserved elsewhere
+ * for bright amber controls. Scope the light-text override to these modal surfaces. */
+html[data-hnl-theme="dark"] .bg-white.border-emerald-100 .text-slate-950,
+html[data-hnl-theme="dark"] .bg-white.border-indigo-100 .text-slate-950 {
+  color: var(--hnl-dark-text) !important;
+}
 
 html[data-hnl-theme="dark"] [class*="bg-indigo-50/"],
 html[data-hnl-theme="dark"] [class*="bg-indigo-100/"] { background-color: rgb(49 46 129 / .34) !important; }
@@ -37,6 +44,7 @@ html[data-hnl-theme="dark"] [class*="bg-purple-50/"],
 html[data-hnl-theme="dark"] [class*="bg-purple-100/"] { background-color: rgb(91 33 182 / .30) !important; }
 html[data-hnl-theme="dark"] [class*="bg-emerald-50/"],
 html[data-hnl-theme="dark"] [class*="bg-emerald-100/"],
+html[data-hnl-theme="dark"] .bg-emerald-200,
 html[data-hnl-theme="dark"] [class*="bg-emerald-200/"],
 html[data-hnl-theme="dark"] [class*="bg-green-50/"],
 html[data-hnl-theme="dark"] [class*="bg-green-100/"],
