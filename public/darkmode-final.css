@@ -1,0 +1,145 @@
+/* HNL QLTC final Dark Mode opacity/contrast guard.
+ * Tailwind opacity utilities (for example bg-indigo-50/70) compile to distinct class
+ * names, so exact .bg-indigo-50 rules do not catch them. Normalize the remaining
+ * light-mode translucent cards seen in PROD mobile screenshots without touching feature logic.
+ */
+html[data-hnl-theme="dark"] [class*="bg-slate-50/"],
+html[data-hnl-theme="dark"] [class*="bg-gray-50/"],
+html[data-hnl-theme="dark"] [class*="bg-zinc-50/"],
+html[data-hnl-theme="dark"] [class*="bg-neutral-50/"] { background-color: var(--hnl-dark-surface) !important; }
+html[data-hnl-theme="dark"] [class*="bg-slate-100/"],
+html[data-hnl-theme="dark"] [class*="bg-gray-100/"],
+html[data-hnl-theme="dark"] [class*="bg-zinc-100/"],
+html[data-hnl-theme="dark"] [class*="bg-neutral-100/"] { background-color: var(--hnl-dark-surface-soft) !important; }
+html[data-hnl-theme="dark"] [class*="bg-slate-200/"],
+html[data-hnl-theme="dark"] [class*="bg-gray-200/"],
+html[data-hnl-theme="dark"] [class*="bg-zinc-200/"],
+html[data-hnl-theme="dark"] [class*="bg-neutral-200/"] { background-color: var(--hnl-dark-surface-raised) !important; }
+
+/* High-opacity white cards/popovers must not remain light in dark mode. Low-opacity
+ * white overlays (8/10/15/20) are intentionally preserved as glass/highlight effects. */
+html[data-hnl-theme="dark"] .bg-white\/40,
+html[data-hnl-theme="dark"] .bg-white\/50,
+html[data-hnl-theme="dark"] .bg-white\/60,
+html[data-hnl-theme="dark"] .bg-white\/70,
+html[data-hnl-theme="dark"] .bg-white\/80,
+html[data-hnl-theme="dark"] .bg-white\/90,
+html[data-hnl-theme="dark"] .bg-white\/95 { background-color: var(--hnl-dark-surface-raised) !important; }
+
+html[data-hnl-theme="dark"] [class*="bg-indigo-50/"],
+html[data-hnl-theme="dark"] [class*="bg-indigo-100/"] { background-color: rgb(49 46 129 / .34) !important; }
+html[data-hnl-theme="dark"] [class*="bg-blue-50/"],
+html[data-hnl-theme="dark"] [class*="bg-blue-100/"],
+html[data-hnl-theme="dark"] [class*="bg-blue-200/"] { background-color: rgb(30 64 175 / .30) !important; }
+html[data-hnl-theme="dark"] [class*="bg-violet-50/"],
+html[data-hnl-theme="dark"] [class*="bg-violet-100/"],
+html[data-hnl-theme="dark"] [class*="bg-purple-50/"],
+html[data-hnl-theme="dark"] [class*="bg-purple-100/"] { background-color: rgb(91 33 182 / .30) !important; }
+html[data-hnl-theme="dark"] [class*="bg-emerald-50/"],
+html[data-hnl-theme="dark"] [class*="bg-emerald-100/"],
+html[data-hnl-theme="dark"] [class*="bg-emerald-200/"],
+html[data-hnl-theme="dark"] [class*="bg-green-50/"],
+html[data-hnl-theme="dark"] [class*="bg-green-100/"],
+html[data-hnl-theme="dark"] [class*="bg-green-200/"] { background-color: rgb(6 95 70 / .34) !important; }
+html[data-hnl-theme="dark"] [class*="bg-amber-50/"],
+html[data-hnl-theme="dark"] [class*="bg-amber-100/"],
+html[data-hnl-theme="dark"] [class*="bg-amber-200/"],
+html[data-hnl-theme="dark"] [class*="bg-yellow-50/"],
+html[data-hnl-theme="dark"] [class*="bg-yellow-100/"],
+html[data-hnl-theme="dark"] [class*="bg-yellow-200/"] { background-color: rgb(120 53 15 / .40) !important; }
+html[data-hnl-theme="dark"] [class*="bg-orange-50/"],
+html[data-hnl-theme="dark"] [class*="bg-orange-100/"],
+html[data-hnl-theme="dark"] [class*="bg-orange-200/"] { background-color: rgb(124 45 18 / .38) !important; }
+html[data-hnl-theme="dark"] [class*="bg-red-50/"],
+html[data-hnl-theme="dark"] [class*="bg-red-100/"],
+html[data-hnl-theme="dark"] [class*="bg-red-200/"],
+html[data-hnl-theme="dark"] [class*="bg-rose-50/"],
+html[data-hnl-theme="dark"] [class*="bg-rose-100/"],
+html[data-hnl-theme="dark"] [class*="bg-rose-200/"] { background-color: rgb(127 29 29 / .38) !important; }
+html[data-hnl-theme="dark"] [class*="bg-pink-50/"],
+html[data-hnl-theme="dark"] [class*="bg-pink-100/"],
+html[data-hnl-theme="dark"] [class*="bg-pink-200/"] { background-color: rgb(131 24 67 / .34) !important; }
+
+/* Opacity-suffixed pale borders are distinct Tailwind class names too. */
+html[data-hnl-theme="dark"] [class*="border-slate-100/"],
+html[data-hnl-theme="dark"] [class*="border-slate-200/"],
+html[data-hnl-theme="dark"] [class*="border-slate-300/"],
+html[data-hnl-theme="dark"] [class*="border-gray-100/"],
+html[data-hnl-theme="dark"] [class*="border-gray-200/"],
+html[data-hnl-theme="dark"] [class*="border-gray-300/"] { border-color: var(--hnl-dark-border) !important; }
+html[data-hnl-theme="dark"] [class*="border-indigo-100/"],
+html[data-hnl-theme="dark"] [class*="border-indigo-200/"] { border-color: rgb(129 140 248 / .48) !important; }
+html[data-hnl-theme="dark"] [class*="border-blue-100/"],
+html[data-hnl-theme="dark"] [class*="border-blue-200/"] { border-color: rgb(96 165 250 / .46) !important; }
+html[data-hnl-theme="dark"] [class*="border-emerald-100/"],
+html[data-hnl-theme="dark"] [class*="border-emerald-200/"],
+html[data-hnl-theme="dark"] [class*="border-green-100/"],
+html[data-hnl-theme="dark"] [class*="border-green-200/"] { border-color: rgb(52 211 153 / .44) !important; }
+html[data-hnl-theme="dark"] [class*="border-amber-100/"],
+html[data-hnl-theme="dark"] [class*="border-amber-200/"],
+html[data-hnl-theme="dark"] [class*="border-yellow-100/"],
+html[data-hnl-theme="dark"] [class*="border-yellow-200/"] { border-color: rgb(251 191 36 / .50) !important; }
+html[data-hnl-theme="dark"] [class*="border-red-100/"],
+html[data-hnl-theme="dark"] [class*="border-red-200/"],
+html[data-hnl-theme="dark"] [class*="border-rose-100/"],
+html[data-hnl-theme="dark"] [class*="border-rose-200/"] { border-color: rgb(248 113 113 / .48) !important; }
+
+/* Global primary-color mapping intentionally makes indigo 300-700 use the configured
+ * brand color. In dark mode those text utilities need a lighter foreground for contrast. */
+html[data-hnl-theme="dark"] .text-indigo-300,
+html[data-hnl-theme="dark"] .text-indigo-400,
+html[data-hnl-theme="dark"] .text-indigo-500,
+html[data-hnl-theme="dark"] .text-indigo-600,
+html[data-hnl-theme="dark"] .text-indigo-700,
+html[data-hnl-theme="dark"] .text-indigo-800,
+html[data-hnl-theme="dark"] .text-indigo-900,
+html[data-hnl-theme="dark"] .text-indigo-950 { color: #a5b4fc !important; }
+html[data-hnl-theme="dark"] .text-violet-500,
+html[data-hnl-theme="dark"] .text-violet-600,
+html[data-hnl-theme="dark"] .text-violet-700,
+html[data-hnl-theme="dark"] .text-violet-800,
+html[data-hnl-theme="dark"] .text-violet-900,
+html[data-hnl-theme="dark"] .text-purple-500,
+html[data-hnl-theme="dark"] .text-purple-600,
+html[data-hnl-theme="dark"] .text-purple-700,
+html[data-hnl-theme="dark"] .text-purple-800,
+html[data-hnl-theme="dark"] .text-purple-900 { color: #c4b5fd !important; }
+html[data-hnl-theme="dark"] .text-blue-600,
+html[data-hnl-theme="dark"] .text-blue-700,
+html[data-hnl-theme="dark"] .text-blue-800,
+html[data-hnl-theme="dark"] .text-blue-900,
+html[data-hnl-theme="dark"] .text-blue-950 { color: #93c5fd !important; }
+html[data-hnl-theme="dark"] .text-emerald-600,
+html[data-hnl-theme="dark"] .text-emerald-700,
+html[data-hnl-theme="dark"] .text-emerald-800,
+html[data-hnl-theme="dark"] .text-emerald-900,
+html[data-hnl-theme="dark"] .text-emerald-950,
+html[data-hnl-theme="dark"] .text-green-600,
+html[data-hnl-theme="dark"] .text-green-700,
+html[data-hnl-theme="dark"] .text-green-800,
+html[data-hnl-theme="dark"] .text-green-900 { color: #6ee7b7 !important; }
+html[data-hnl-theme="dark"] .text-amber-600,
+html[data-hnl-theme="dark"] .text-amber-700,
+html[data-hnl-theme="dark"] .text-amber-800,
+html[data-hnl-theme="dark"] .text-amber-900,
+html[data-hnl-theme="dark"] .text-amber-950,
+html[data-hnl-theme="dark"] .text-yellow-600,
+html[data-hnl-theme="dark"] .text-yellow-700,
+html[data-hnl-theme="dark"] .text-yellow-800,
+html[data-hnl-theme="dark"] .text-yellow-900 { color: #fcd34d !important; }
+html[data-hnl-theme="dark"] .text-orange-600,
+html[data-hnl-theme="dark"] .text-orange-700,
+html[data-hnl-theme="dark"] .text-orange-800,
+html[data-hnl-theme="dark"] .text-orange-900 { color: #fdba74 !important; }
+html[data-hnl-theme="dark"] .text-red-600,
+html[data-hnl-theme="dark"] .text-red-700,
+html[data-hnl-theme="dark"] .text-red-800,
+html[data-hnl-theme="dark"] .text-red-900,
+html[data-hnl-theme="dark"] .text-rose-600,
+html[data-hnl-theme="dark"] .text-rose-700,
+html[data-hnl-theme="dark"] .text-rose-800,
+html[data-hnl-theme="dark"] .text-rose-900 { color: #fca5a5 !important; }
+html[data-hnl-theme="dark"] .text-pink-600,
+html[data-hnl-theme="dark"] .text-pink-700,
+html[data-hnl-theme="dark"] .text-pink-800,
+html[data-hnl-theme="dark"] .text-pink-900 { color: #f9a8d4 !important; }
