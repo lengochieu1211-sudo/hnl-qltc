@@ -391,7 +391,17 @@ export async function syncProjectPhotosToCloud(projectId: string): Promise<{ upl
   let lastError = '';
   let lastErrorPhotoId = '';
 
-  const cloudSnapshot = await getDocs(collection(db, 'projects', projectId, 'photos')).catch(() => null);
+  // Online sync decisions must be based on SERVER metadata. Using getDocs() here
+  // allowed persistent Firestore cache to classify an already-repaired R2 row as
+  // `firestore-fallback`/legacy and repeatedly attempt an impossible local migration.
+  // Offline still falls back to the cache so the outbox remains usable without network.
+  let cloudSnapshot: Awaited<ReturnType<typeof getDocs>> | null = null;
+  if (typeof navigator === 'undefined' || navigator.onLine) {
+    cloudSnapshot = await getDocsFromServer(collection(db, 'projects', projectId, 'photos')).catch(() => null);
+  }
+  if (!cloudSnapshot) {
+    cloudSnapshot = await getDocs(collection(db, 'projects', projectId, 'photos')).catch(() => null);
+  }
   const cloudById = new Map<string, any>();
   cloudSnapshot?.docs.forEach((item) => cloudById.set(item.id, item.data()));
 
@@ -433,12 +443,24 @@ export async function syncProjectPhotosToCloud(projectId: string): Promise<{ upl
 }
 
 async function downloadPhotoBlobFromFirestoreChunks(projectId: string, photoId: string, mimeType = 'image/jpeg'): Promise<Blob | null> {
-  const metaSnap = await getDoc(doc(db, 'projects', projectId, 'photos', photoId));
-  if (!metaSnap.exists() || metaSnap.data()?.deleted) return null;
+  const metaRef = doc(db, 'projects', projectId, 'photos', photoId);
+  let metaSnap = null as Awaited<ReturnType<typeof getDoc>> | null;
+  if (typeof navigator === 'undefined' || navigator.onLine) {
+    metaSnap = await getDocFromServer(metaRef).catch(() => null);
+  }
+  if (!metaSnap) metaSnap = await getDoc(metaRef).catch(() => null);
+  if (!metaSnap?.exists() || metaSnap.data()?.deleted) return null;
 
   const q = query(collection(db, 'projects', projectId, 'photos', photoId, 'chunks'), orderBy('index', 'asc'));
-  const snap = await getDocs(q);
-  if (snap.empty) return null;
+  // Legacy chunks may never have been materialized in this browser's persistent cache.
+  // Ask the server first while online; otherwise a valid historical image can be
+  // misreported as missing during PDF/HTML export on a second device.
+  let snap = null as Awaited<ReturnType<typeof getDocs>> | null;
+  if (typeof navigator === 'undefined' || navigator.onLine) {
+    snap = await getDocsFromServer(q).catch(() => null);
+  }
+  if (!snap) snap = await getDocs(q).catch(() => null);
+  if (!snap || snap.empty) return null;
 
   const parts: Uint8Array[] = [];
   snap.forEach((chunkDoc) => {
