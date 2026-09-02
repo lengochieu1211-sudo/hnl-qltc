@@ -148,12 +148,30 @@ async function bootstrap() {
   // document, producing "Database is closing/hidden" when the credential returns.
   // Prepare a non-IndexedDB Auth persistence backend before ANY UI login entry point
   // becomes clickable. Firestore's persistent IndexedDB cache remains unchanged.
-  const { prepareFirebaseAuthPersistence } = await import('./lib/authPersistence');
+  const { prepareFirebaseAuthPersistence, completeFirebaseAuthRedirect } = await import('./lib/authPersistence');
   await prepareFirebaseAuthPersistence();
 
-  // Dynamic imports intentionally happen after both storage and Auth persistence
-  // preflight. App Check is optional until DEV/PROD site keys are provisioned;
-  // missing key is a deliberate no-op.
+  // P0 mobile Auth gate: a signInWithRedirect() round trip is not complete until the
+  // returning page consumes getRedirectResult(). Do this before App mounts so both the
+  // header login button and the permission-screen login button see the same restored
+  // Firebase identity and RBAC refresh cannot race against an empty auth.currentUser.
+  try {
+    await completeFirebaseAuthRedirect();
+  } catch (err) {
+    // A failed OAuth return must not brick the application. Keep the UI available so
+    // the user can retry login, while diagnostics retain the exact Firebase error.
+    console.warn('[Bootstrap auth redirect] Continuing after redirect completion error:', err);
+    appendRuntimeDiagnostic({
+      level: 'error',
+      area: 'firebase-auth',
+      code: 'REDIRECT_COMPLETION_FAILED',
+      message: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+    });
+  }
+
+  // Dynamic imports intentionally happen after storage/Auth/redirect preflight.
+  // App Check is optional until DEV/PROD site keys are provisioned; missing key is a
+  // deliberate no-op.
   const [{ default: App }, { initializeOptionalAppCheck }] = await Promise.all([
     import('./App.tsx'),
     import('./lib/appCheck'),
