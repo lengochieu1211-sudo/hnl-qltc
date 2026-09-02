@@ -163,6 +163,72 @@ html[data-hnl-theme="dark"] .border-emerald-200 { border-color: rgb(52 211 153 /
 html[data-hnl-theme="dark"] .border-indigo-100,
 html[data-hnl-theme="dark"] .border-indigo-200 { border-color: rgb(129 140 248 / .45) !important; }
 
+/* Runtime dark-mode refinement from PROD mobile Golden screenshots.
+ * Cover the remaining medium neutral surfaces, inactive tabs, disabled controls and
+ * legacy warning cards without touching semantic/feature logic.
+ */
+html[data-hnl-theme="dark"] .bg-gray-300,
+html[data-hnl-theme="dark"] .bg-zinc-300,
+html[data-hnl-theme="dark"] .bg-neutral-300,
+html[data-hnl-theme="dark"] .bg-slate-300 { background-color: #263244 !important; }
+html[data-hnl-theme="dark"] .bg-gray-400,
+html[data-hnl-theme="dark"] .bg-zinc-400,
+html[data-hnl-theme="dark"] .bg-neutral-400,
+html[data-hnl-theme="dark"] .bg-slate-400 { background-color: #334155 !important; }
+html[data-hnl-theme="dark"] .bg-gray-500,
+html[data-hnl-theme="dark"] .bg-slate-500 { background-color: #475569 !important; }
+
+html[data-hnl-theme="dark"] .text-white\/70,
+html[data-hnl-theme="dark"] .text-white\/60,
+html[data-hnl-theme="dark"] .text-white\/50 { color: var(--hnl-dark-text-soft) !important; }
+
+html[data-hnl-theme="dark"] button:disabled,
+html[data-hnl-theme="dark"] [aria-disabled="true"] {
+  background-color: #1e293b !important;
+  border-color: #475569 !important;
+  color: #94a3b8 !important;
+  opacity: .72;
+}
+
+/* Inactive segmented tabs occasionally use a light neutral background with white/muted text. */
+html[data-hnl-theme="dark"] .bg-gray-50.text-white,
+html[data-hnl-theme="dark"] .bg-gray-100.text-white,
+html[data-hnl-theme="dark"] .bg-slate-50.text-white,
+html[data-hnl-theme="dark"] .bg-slate-100.text-white,
+html[data-hnl-theme="dark"] .bg-gray-200.text-white,
+html[data-hnl-theme="dark"] .bg-slate-200.text-white {
+  color: var(--hnl-dark-text-soft) !important;
+}
+
+/* Legacy acceptance/progress cards were built with mid-gray light-mode fills. */
+html[data-hnl-theme="dark"] .bg-gray-300.text-gray-900,
+html[data-hnl-theme="dark"] .bg-gray-300.text-slate-900,
+html[data-hnl-theme="dark"] .bg-gray-400.text-gray-900,
+html[data-hnl-theme="dark"] .bg-slate-300.text-slate-900 {
+  background-color: #1e293b !important;
+  color: var(--hnl-dark-text) !important;
+}
+
+/* Warning panels should stay visibly amber but no longer look like a light-mode card pasted on dark UI. */
+html[data-hnl-theme="dark"] .bg-amber-200,
+html[data-hnl-theme="dark"] .bg-yellow-200 { background-color: rgb(120 53 15 / .46) !important; }
+html[data-hnl-theme="dark"] .bg-orange-100,
+html[data-hnl-theme="dark"] .bg-orange-200 { background-color: rgb(124 45 18 / .42) !important; }
+html[data-hnl-theme="dark"] .text-amber-900,
+html[data-hnl-theme="dark"] .text-yellow-900,
+html[data-hnl-theme="dark"] .text-orange-800,
+html[data-hnl-theme="dark"] .text-orange-900 { color: #fde68a !important; }
+html[data-hnl-theme="dark"] .border-amber-300,
+html[data-hnl-theme="dark"] .border-yellow-300,
+html[data-hnl-theme="dark"] .border-orange-200,
+html[data-hnl-theme="dark"] .border-orange-300 { border-color: rgb(251 191 36 / .52) !important; }
+
+/* Pale status chips inside dark cards remain readable while preserving status color. */
+html[data-hnl-theme="dark"] .bg-pink-50,
+html[data-hnl-theme="dark"] .bg-pink-100 { background-color: rgb(131 24 67 / .34) !important; }
+html[data-hnl-theme="dark"] .text-pink-700,
+html[data-hnl-theme="dark"] .text-pink-800 { color: #f9a8d4 !important; }
+
 /* Button/input touch targets. Compact never shrinks below accessibility-friendly defaults. */
 html[data-hnl-button-size="large"] button,
 html[data-hnl-button-size="large"] input,
