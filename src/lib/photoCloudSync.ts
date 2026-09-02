@@ -444,7 +444,7 @@ export async function syncProjectPhotosToCloud(projectId: string): Promise<{ upl
 
 async function downloadPhotoBlobFromFirestoreChunks(projectId: string, photoId: string, mimeType = 'image/jpeg'): Promise<Blob | null> {
   const metaRef = doc(db, 'projects', projectId, 'photos', photoId);
-  let metaSnap = null as Awaited<ReturnType<typeof getDoc>> | null;
+  let metaSnap: any = null;
   if (typeof navigator === 'undefined' || navigator.onLine) {
     metaSnap = await getDocFromServer(metaRef).catch(() => null);
   }
@@ -455,7 +455,7 @@ async function downloadPhotoBlobFromFirestoreChunks(projectId: string, photoId: 
   // Legacy chunks may never have been materialized in this browser's persistent cache.
   // Ask the server first while online; otherwise a valid historical image can be
   // misreported as missing during PDF/HTML export on a second device.
-  let snap = null as Awaited<ReturnType<typeof getDocs>> | null;
+  let snap: any = null;
   if (typeof navigator === 'undefined' || navigator.onLine) {
     snap = await getDocsFromServer(q).catch(() => null);
   }
@@ -463,7 +463,7 @@ async function downloadPhotoBlobFromFirestoreChunks(projectId: string, photoId: 
   if (!snap || snap.empty) return null;
 
   const parts: Uint8Array[] = [];
-  snap.forEach((chunkDoc) => {
+  snap.forEach((chunkDoc: any) => {
     const bytes = chunkDoc.data()?.data;
     if (bytes && typeof bytes.toUint8Array === 'function') parts.push(bytes.toUint8Array());
   });
