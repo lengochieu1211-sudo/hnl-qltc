@@ -28,19 +28,140 @@
 .border-indigo-200, .border-indigo-300, .border-indigo-500, .border-indigo-600, .border-indigo-700 { border-color: color-mix(in srgb, var(--hnl-primary) 55%, transparent) !important; }
 .hnl-secondary-action { background-color: var(--hnl-secondary) !important; }
 
-/* Dark mode intentionally targets the common neutral surfaces only; semantic status colors stay intact. */
+/*
+ * Dark mode regression guard.
+ * Keep semantic status colors, but normalize every common neutral surface/text family
+ * and the pale semantic utility families used by tabs, cards, forms and warnings.
+ * This stays at the theme layer so feature modules do not need one-off dark patches.
+ */
+html[data-hnl-theme="dark"] {
+  --hnl-dark-canvas: #020617;
+  --hnl-dark-surface: #0f172a;
+  --hnl-dark-surface-soft: #111827;
+  --hnl-dark-surface-raised: #1e293b;
+  --hnl-dark-border: #334155;
+  --hnl-dark-text: #f1f5f9;
+  --hnl-dark-text-soft: #cbd5e1;
+  --hnl-dark-text-muted: #94a3b8;
+}
 html[data-hnl-theme="dark"] body,
-html[data-hnl-theme="dark"] #root { background: #020617 !important; color: #e2e8f0; }
-html[data-hnl-theme="dark"] .bg-white { background-color: #0f172a !important; }
-html[data-hnl-theme="dark"] .bg-slate-50 { background-color: #111827 !important; }
-html[data-hnl-theme="dark"] .bg-slate-100 { background-color: #1e293b !important; }
+html[data-hnl-theme="dark"] #root {
+  background: var(--hnl-dark-canvas) !important;
+  color: #e2e8f0;
+  color-scheme: dark;
+}
+
+/* Neutral surfaces: cover Tailwind slate/gray/zinc/neutral families used across legacy modules. */
+html[data-hnl-theme="dark"] .bg-white,
+html[data-hnl-theme="dark"] .bg-gray-50,
+html[data-hnl-theme="dark"] .bg-zinc-50,
+html[data-hnl-theme="dark"] .bg-neutral-50,
+html[data-hnl-theme="dark"] .bg-slate-50 { background-color: var(--hnl-dark-surface) !important; }
+html[data-hnl-theme="dark"] .bg-gray-100,
+html[data-hnl-theme="dark"] .bg-zinc-100,
+html[data-hnl-theme="dark"] .bg-neutral-100,
+html[data-hnl-theme="dark"] .bg-slate-100 { background-color: var(--hnl-dark-surface-soft) !important; }
+html[data-hnl-theme="dark"] .bg-gray-200,
+html[data-hnl-theme="dark"] .bg-zinc-200,
+html[data-hnl-theme="dark"] .bg-neutral-200,
+html[data-hnl-theme="dark"] .bg-slate-200 { background-color: var(--hnl-dark-surface-raised) !important; }
+
+/* Neutral text. */
+html[data-hnl-theme="dark"] .text-gray-950,
+html[data-hnl-theme="dark"] .text-gray-900,
+html[data-hnl-theme="dark"] .text-gray-800,
+html[data-hnl-theme="dark"] .text-gray-700,
+html[data-hnl-theme="dark"] .text-zinc-900,
+html[data-hnl-theme="dark"] .text-zinc-800,
+html[data-hnl-theme="dark"] .text-neutral-900,
+html[data-hnl-theme="dark"] .text-neutral-800,
 html[data-hnl-theme="dark"] .text-slate-900,
 html[data-hnl-theme="dark"] .text-slate-800,
-html[data-hnl-theme="dark"] .text-slate-700 { color: #f1f5f9 !important; }
+html[data-hnl-theme="dark"] .text-slate-700 { color: var(--hnl-dark-text) !important; }
+html[data-hnl-theme="dark"] .text-gray-600,
+html[data-hnl-theme="dark"] .text-gray-500,
+html[data-hnl-theme="dark"] .text-zinc-600,
+html[data-hnl-theme="dark"] .text-zinc-500,
+html[data-hnl-theme="dark"] .text-neutral-600,
+html[data-hnl-theme="dark"] .text-neutral-500,
 html[data-hnl-theme="dark"] .text-slate-600,
-html[data-hnl-theme="dark"] .text-slate-500 { color: #cbd5e1 !important; }
+html[data-hnl-theme="dark"] .text-slate-500 { color: var(--hnl-dark-text-soft) !important; }
+html[data-hnl-theme="dark"] .text-gray-400,
+html[data-hnl-theme="dark"] .text-gray-300,
+html[data-hnl-theme="dark"] .text-zinc-400,
+html[data-hnl-theme="dark"] .text-neutral-400,
+html[data-hnl-theme="dark"] .text-slate-400,
+html[data-hnl-theme="dark"] .text-slate-300 { color: var(--hnl-dark-text-muted) !important; }
+
+/* Neutral borders/dividers. */
+html[data-hnl-theme="dark"] .border-gray-100,
+html[data-hnl-theme="dark"] .border-gray-200,
+html[data-hnl-theme="dark"] .border-gray-300,
+html[data-hnl-theme="dark"] .border-zinc-200,
+html[data-hnl-theme="dark"] .border-neutral-200,
+html[data-hnl-theme="dark"] .border-slate-100,
 html[data-hnl-theme="dark"] .border-slate-200,
-html[data-hnl-theme="dark"] .border-slate-300 { border-color: #334155 !important; }
+html[data-hnl-theme="dark"] .border-slate-300,
+html[data-hnl-theme="dark"] .divide-slate-200 > :not([hidden]) ~ :not([hidden]),
+html[data-hnl-theme="dark"] .divide-gray-200 > :not([hidden]) ~ :not([hidden]) { border-color: var(--hnl-dark-border) !important; }
+
+/* Forms need an explicit dark surface because browser/system form rendering varies on Android. */
+html[data-hnl-theme="dark"] input:not([type="checkbox"]):not([type="radio"]),
+html[data-hnl-theme="dark"] select,
+html[data-hnl-theme="dark"] textarea {
+  background-color: var(--hnl-dark-surface) !important;
+  color: var(--hnl-dark-text) !important;
+  border-color: var(--hnl-dark-border) !important;
+}
+html[data-hnl-theme="dark"] input::placeholder,
+html[data-hnl-theme="dark"] textarea::placeholder { color: #64748b !important; opacity: 1; }
+html[data-hnl-theme="dark"] :disabled { opacity: .62; }
+
+/* Pale accent surfaces used by tabs/cards. Keep brand meaning without light-mode glare. */
+html[data-hnl-theme="dark"] .bg-indigo-50 { background-color: rgb(49 46 129 / .28) !important; }
+html[data-hnl-theme="dark"] .bg-indigo-100 { background-color: rgb(55 48 163 / .34) !important; }
+html[data-hnl-theme="dark"] .bg-blue-50 { background-color: rgb(30 64 175 / .24) !important; }
+html[data-hnl-theme="dark"] .bg-blue-100 { background-color: rgb(30 64 175 / .34) !important; }
+html[data-hnl-theme="dark"] .bg-violet-50,
+html[data-hnl-theme="dark"] .bg-purple-50 { background-color: rgb(91 33 182 / .24) !important; }
+html[data-hnl-theme="dark"] .bg-violet-100,
+html[data-hnl-theme="dark"] .bg-purple-100 { background-color: rgb(91 33 182 / .34) !important; }
+html[data-hnl-theme="dark"] .bg-emerald-50,
+html[data-hnl-theme="dark"] .bg-green-50 { background-color: rgb(6 95 70 / .25) !important; }
+html[data-hnl-theme="dark"] .bg-emerald-100,
+html[data-hnl-theme="dark"] .bg-green-100 { background-color: rgb(6 95 70 / .36) !important; }
+html[data-hnl-theme="dark"] .bg-amber-50,
+html[data-hnl-theme="dark"] .bg-yellow-50 { background-color: rgb(120 53 15 / .30) !important; }
+html[data-hnl-theme="dark"] .bg-amber-100,
+html[data-hnl-theme="dark"] .bg-yellow-100 { background-color: rgb(146 64 14 / .40) !important; }
+html[data-hnl-theme="dark"] .bg-orange-50 { background-color: rgb(124 45 18 / .30) !important; }
+html[data-hnl-theme="dark"] .bg-red-50,
+html[data-hnl-theme="dark"] .bg-rose-50 { background-color: rgb(127 29 29 / .28) !important; }
+html[data-hnl-theme="dark"] .bg-red-100,
+html[data-hnl-theme="dark"] .bg-rose-100 { background-color: rgb(127 29 29 / .40) !important; }
+
+/* Semantic text on dark pale surfaces. */
+html[data-hnl-theme="dark"] .text-amber-700,
+html[data-hnl-theme="dark"] .text-amber-800,
+html[data-hnl-theme="dark"] .text-yellow-700,
+html[data-hnl-theme="dark"] .text-orange-700 { color: #fcd34d !important; }
+html[data-hnl-theme="dark"] .text-red-700,
+html[data-hnl-theme="dark"] .text-red-800,
+html[data-hnl-theme="dark"] .text-rose-700 { color: #fca5a5 !important; }
+html[data-hnl-theme="dark"] .text-green-700,
+html[data-hnl-theme="dark"] .text-emerald-700 { color: #6ee7b7 !important; }
+html[data-hnl-theme="dark"] .text-blue-700 { color: #93c5fd !important; }
+html[data-hnl-theme="dark"] .text-indigo-700 { color: #a5b4fc !important; }
+
+/* Semantic borders for warning/error/success cards. */
+html[data-hnl-theme="dark"] .border-amber-200,
+html[data-hnl-theme="dark"] .border-yellow-200 { border-color: rgb(245 158 11 / .48) !important; }
+html[data-hnl-theme="dark"] .border-red-200,
+html[data-hnl-theme="dark"] .border-rose-200 { border-color: rgb(248 113 113 / .45) !important; }
+html[data-hnl-theme="dark"] .border-green-200,
+html[data-hnl-theme="dark"] .border-emerald-200 { border-color: rgb(52 211 153 / .42) !important; }
+html[data-hnl-theme="dark"] .border-indigo-100,
+html[data-hnl-theme="dark"] .border-indigo-200 { border-color: rgb(129 140 248 / .45) !important; }
 
 /* Button/input touch targets. Compact never shrinks below accessibility-friendly defaults. */
 html[data-hnl-button-size="large"] button,
