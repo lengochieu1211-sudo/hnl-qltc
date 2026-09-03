@@ -148,6 +148,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   const [authStatus, setAuthStatus] = useState<GoogleAuthStatus>({ authenticated: false });
   const [sheetUrl, setSheetUrl] = useState<string | null>(null);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
+  const [photoDiagnosticSnapshot, setPhotoDiagnosticSnapshot] = useState<any>(null);
 
   const isIframe = typeof window !== 'undefined' && window.self !== window.top;
 
@@ -193,6 +194,55 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       recordCounts: syncDiagnostics?.recordCounts || {},
       photoDiagnostics,
     });
+  };
+
+  const refreshPhotoDiagnosticSnapshot = async () => {
+    if (!activeProjectId) {
+      setPhotoDiagnosticSnapshot(null);
+      return;
+    }
+    const snapshot = await getProjectPhotoDiagnosticSnapshot(activeProjectId).catch(() => null);
+    setPhotoDiagnosticSnapshot(snapshot);
+  };
+
+  useEffect(() => {
+    if (!syncDiagnostics) return;
+    void refreshPhotoDiagnosticSnapshot();
+  }, [activeProjectId, syncDiagnostics?.photoPending, syncDiagnostics?.pendingDriveUploads]);
+
+  const diagnosticPhotoIssues = useMemo(() => {
+    const photos = Array.isArray(photoDiagnosticSnapshot?.photos) ? photoDiagnosticSnapshot.photos : [];
+    return photos.filter((photo: any) => !photo?.deleted && (
+      photo?.binaryUploadState !== 'ready' ||
+      photo?.cloudReady !== true ||
+      (photo?.storageProvider === 'firestore-fallback' && !photo?.localBinary)
+    )).slice(0, 20);
+  }, [photoDiagnosticSnapshot]);
+
+  const handleGoToDiagnosticEntity = (photo: any) => {
+    const entityType = String(photo?.entityType || '');
+    const entityId = String(photo?.entityId || '');
+    if (!entityType || !entityId || !activeProjectId) {
+      setSyncMsg('Không xác định được bản ghi liên quan đến ảnh này.');
+      return;
+    }
+    try {
+      sessionStorage.setItem('qlct_diagnostic_navigation_request', JSON.stringify({
+        projectId: activeProjectId,
+        entityType,
+        entityId,
+        photoId: String(photo?.id || ''),
+        createdAt: Date.now(),
+      }));
+    } catch (_) {}
+    window.dispatchEvent(new CustomEvent('qlct-diagnostic-open-entity', { detail: { entityType, entityId } }));
+    if (entityType !== 'crewRecord') {
+      setSyncMsg(entityType === 'defect'
+        ? 'Đã mở module Defect. Điều hướng chính xác tới Defect sẽ được bổ sung ở lượt kế tiếp.'
+        : entityType === 'chat'
+          ? 'Đã mở Trò chuyện. Điều hướng chính xác tới tin nhắn sẽ được bổ sung ở lượt kế tiếp.'
+          : 'Đã mở module liên quan.');
+    }
   };
 
   const handleDownloadDiagnostics = async () => {
@@ -465,6 +515,35 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
               <span key={name} className="px-2 py-1 rounded-lg bg-slate-100 border border-slate-200 text-[9px] font-bold text-slate-600">{name}: {count}</span>
             ))}
           </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="text-[11px] font-extrabold text-slate-800">Ảnh cần xử lý</div>
+                <div className="text-[10px] text-slate-500">Chỉ hiện ảnh active chưa Cloud-ready hoặc legacy không còn binary local.</div>
+              </div>
+              <button type="button" onClick={() => void refreshPhotoDiagnosticSnapshot()} className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-[10px] font-bold text-slate-600 flex items-center gap-1">
+                <RefreshCw className="w-3.5 h-3.5" /> Kiểm tra lại
+              </button>
+            </div>
+            {diagnosticPhotoIssues.length === 0 ? (
+              <div className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-2">Không có ảnh active cần xử lý.</div>
+            ) : (
+              <div className="space-y-1.5">
+                {diagnosticPhotoIssues.map((photo: any) => (
+                  <div key={photo.id} className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-extrabold text-amber-900 truncate">{photo.entityType}/{photo.entityId}</div>
+                      <div className="text-[9px] text-amber-700 truncate font-mono">{photo.id} · {photo.storageProvider || 'legacy'} · {photo.binaryUploadState || 'unknown'}</div>
+                    </div>
+                    <button type="button" onClick={() => handleGoToDiagnosticEntity(photo)} className="shrink-0 rounded-lg bg-amber-600 hover:bg-amber-700 text-white px-2.5 py-1.5 text-[10px] font-extrabold flex items-center gap-1">
+                      <ExternalLink className="w-3.5 h-3.5" /> {photo.entityType === 'crewRecord' ? 'Đi tới bản ghi' : 'Mở module'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
