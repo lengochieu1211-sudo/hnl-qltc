@@ -86,6 +86,7 @@ public class MainActivity extends Activity {
         startUrl = getConfiguredStartUrl();
         webView.setWebViewClient(createAppWebViewClient(true));
         webView.addJavascriptInterface(new AndroidExportBridge(), "AndroidExport");
+        webView.addJavascriptInterface(new AndroidContactBridge(), "AndroidContact");
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public boolean onShowFileChooser(
@@ -503,6 +504,52 @@ public class MainActivity extends Activity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
             if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
                 requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, STORAGE_PERMISSION_REQUEST);
+            }
+        }
+    }
+
+    public class AndroidContactBridge {
+        @JavascriptInterface
+        public boolean shareText(String title, String text) {
+            try {
+                final String safeTitle = title == null || title.trim().isEmpty() ? "HNL QLTC" : title.trim();
+                final String safeText = text == null ? "" : text;
+                if (safeText.trim().isEmpty()) return false;
+                runOnUiThread(() -> {
+                    try {
+                        Intent sendIntent = new Intent(Intent.ACTION_SEND);
+                        sendIntent.setType("text/plain");
+                        sendIntent.putExtra(Intent.EXTRA_SUBJECT, safeTitle);
+                        sendIntent.putExtra(Intent.EXTRA_TEXT, safeText);
+                        startActivity(Intent.createChooser(sendIntent, "Chia se tu HNL QLTC"));
+                    } catch (Exception error) {
+                        showToast("Khong the mo chia se he thong: " + error.getMessage());
+                    }
+                });
+                return true;
+            } catch (Exception error) {
+                return false;
+            }
+        }
+
+        @JavascriptInterface
+        public boolean openZalo() {
+            try {
+                runOnUiThread(() -> {
+                    try {
+                        Intent launchIntent = getPackageManager().getLaunchIntentForPackage("com.zing.zalo");
+                        if (launchIntent != null) {
+                            startActivity(launchIntent);
+                            return;
+                        }
+                        startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://zalo.me/")));
+                    } catch (Exception error) {
+                        showToast("Khong the mo Zalo. Hay mo Zalo thu cong.");
+                    }
+                });
+                return true;
+            } catch (Exception error) {
+                return false;
             }
         }
     }
