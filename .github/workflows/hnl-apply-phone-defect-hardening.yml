@@ -1,0 +1,38 @@
+name: HNL Apply Phone Defect Hardening
+
+on:
+  push:
+    branches:
+      - fix/post-pr53-phone-defect-hardening
+    paths:
+      - '.hnl-bootstrap/phone-defect-hardening.patch'
+      - '.github/workflows/hnl-apply-phone-defect-hardening.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-patch:
+    if: ${{ hashFiles('.hnl-bootstrap/phone-defect-hardening.patch') != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify and apply exact audited patch
+        shell: bash
+        run: |
+          git apply --check .hnl-bootstrap/phone-defect-hardening.patch
+          git apply .hnl-bootstrap/phone-defect-hardening.patch
+
+      - name: Commit hardened source
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/App.tsx src/components/FloorPlanDefectTab.tsx src/components/SecurityModal.tsx src/utils/defectLinkageUtils.ts scripts/contact-core-golden.ts scripts/defect-linkage-golden.ts package.json HNL-QLTC-POST-PR53-PROD85-PHONE-DEFECT-HARDENING-REPORT-2026-09-04.md
+          git diff --cached --check
+          git commit -m "Fix Android phone focus and harden defect linkage"
+          git push origin HEAD:${GITHUB_REF_NAME}
