@@ -1,0 +1,71 @@
+name: PROD Deploy Authorized 2026-09-03
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/prod-deploy-authorized-20260903.yml'
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      VITE_APP_ENV: PROD
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
+      VITE_ENABLE_LEGACY_DRIVE_READ: "true"
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: "false"
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: "false"
+      VITE_FIREBASE_API_KEY: AIzaSyAShhTKSnmLMOEm4dST--1_X7fjJUE4znY
+      VITE_FIREBASE_AUTH_DOMAIN: hnlqltc.web.app
+      VITE_FIREBASE_PROJECT_ID: com-example-qlct-61329
+      VITE_FIREBASE_STORAGE_BUCKET: com-example-qlct-61329.firebasestorage.app
+      VITE_FIREBASE_MESSAGING_SENDER_ID: "119152410850"
+      VITE_FIREBASE_APP_ID: 1:119152410850:web:c2aee2135428af34ef5ebb
+      VITE_FIRESTORE_DATABASE_ID: "(default)"
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: "(default)"
+      VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      VITE_GIT_COMMIT: 7c653f42158b115a9ddffa221b79decda066934e
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 7c653f42158b115a9ddffa221b79decda066934e
+      - name: Verify exact certified source
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "7c653f42158b115a9ddffa221b79decda066934e" || exit 1
+          test -f package.json || exit 1
+          test -f package-lock.json || exit 1
+          test "$(node -p "require('./package.json').version")" = "$(node -p "require('./package-lock.json').version")" || exit 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npm run test:stability
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test:rules
+      - run: npm run security:audit
+      - run: npm run build
+      - name: Deploy Firestore rules
+        shell: bash
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
+        run: |
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          npx --yes firebase-tools@13.35.1 deploy --only firestore:rules --project com-example-qlct-61329 --non-interactive
+      - name: Deploy Hosting site hnlqltc
+        shell: bash
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
+        run: |
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          npx --yes firebase-tools@13.35.1 deploy --only hosting --config firebase.prod.json --project com-example-qlct-61329 --non-interactive
+          echo "PROD Hosting: https://hnlqltc.web.app"
