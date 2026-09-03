@@ -36,12 +36,13 @@ import {
   canManageSecurity
 } from '../utils/securityUtils';
 import { hashPin, verifyPin } from '../utils/cryptoUtils';
-import { signInWithGoogle, getCurrentFirebaseUser, fetchProjectUserRoleFromCloud, claimProjectOwnership, fetchProjectMembersFromCloud, fetchProjectAuditLogsFromCloud, subscribeProjectMembersRealtime, subscribeProjectAuditLogsRealtime, repairProjectAccessIndexForProject } from '../lib/firebase';
+import { signInWithGoogle, getCurrentFirebaseUser, fetchProjectUserRoleFromCloud, claimProjectOwnership, fetchProjectMembersFromCloud, fetchProjectAuditLogsFromCloud, subscribeProjectMembersRealtime, subscribeProjectAuditLogsRealtime, repairProjectAccessIndexForProject, subscribeProjectMemberContactsRealtime, saveProjectMemberContactToCloud, ProjectMemberContact } from '../lib/firebase';
 import { saveTextFile } from '../utils/fileExport';
 import { QuickSortBar } from './QuickSortBar';
 import { confirmAsync } from '../utils/confirmAsync';
 import { formatDateTime } from '../utils/dateFormatter';
 import { isSuperAdminEmail } from '../config/superAdmin';
+import { ContactMenu } from './ContactMenu';
 
 interface SecurityModalProps {
   isOpen: boolean;
@@ -83,6 +84,9 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
   // Project Members state
   const [selectedPid, setSelectedPid] = useState<string>(activeProjectId);
   const [projectMembers, setProjectMembers] = useState<any[]>([]);
+  const [memberContacts, setMemberContacts] = useState<Record<string, ProjectMemberContact>>({});
+  const [contactDrafts, setContactDrafts] = useState<Record<string, string>>({});
+  const [savingContactEmail, setSavingContactEmail] = useState<string>('');
   const [newMemberEmail, setNewMemberEmail] = useState('');
   const [newMemberRole, setNewMemberRole] = useState<UserRole>('EDITOR');
   const [isSavingMember, setIsSavingMember] = useState(false);
@@ -98,6 +102,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
   const [auditSortOrder, setAuditSortOrder] = useState<'asc' | 'desc'>('desc');
 
   const canManageProjectMembers = canManageMembers(currentRole);
+  const canReadMemberContacts = currentRole === 'ADMIN' || currentRole === 'EDITOR';
   const isCompanySuperAdmin = isSuperAdminEmail(cloudUser?.email);
   const canManageSecuritySettings = canManageSecurity(currentRole);
   const canReadAudit = currentRole === 'ADMIN' || currentRole === 'EDITOR';
@@ -219,6 +224,24 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
 
     return () => { cancelled = true; unsubMembers(); unsubAudit(); };
   }, [selectedPid]);
+
+  useEffect(() => {
+    setMemberContacts({});
+    setContactDrafts({});
+    if (!selectedPid || !canReadMemberContacts) return;
+    return subscribeProjectMemberContactsRealtime(selectedPid, (contacts) => {
+      if (selectedPidRef.current !== selectedPid) return;
+      const next: Record<string, ProjectMemberContact> = {};
+      contacts.forEach((contact) => {
+        const email = String(contact.email || '').trim().toLowerCase();
+        if (email) next[email] = contact;
+      });
+      setMemberContacts(next);
+    }, (error: any) => {
+      if (String(error?.code || '').toLowerCase().includes('permission')) return;
+      console.warn('Member contact realtime warning:', error);
+    });
+  }, [selectedPid, canReadMemberContacts]);
 
   if (!isOpen) return null;
 
@@ -586,6 +609,42 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
           setIsSavingMember(false);
         }
       }
+    }
+  };
+
+  const handleSaveMemberContact = async (email: string) => {
+    if (!canManageProjectMembers) {
+      setMemberMsg({ type: 'error', text: 'Chỉ ADMIN/Owner được cập nhật số điện thoại thành viên.' });
+      return;
+    }
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    if (!normalizedEmail) return;
+    setSavingContactEmail(normalizedEmail);
+    setMemberMsg(null);
+    try {
+      await ensureCloudAdminForMemberWrite(selectedPid);
+      const current = memberContacts[normalizedEmail];
+      const member = projectMembers.find((item: any) => String(item?.email || '').trim().toLowerCase() === normalizedEmail);
+      const phone = String(contactDrafts[normalizedEmail] ?? current?.phone ?? '').trim();
+      await saveProjectMemberContactToCloud(selectedPid, {
+        email: normalizedEmail,
+        phone,
+        displayName: String(member?.displayName || current?.displayName || '').trim(),
+      });
+      setMemberContacts((prev) => ({
+        ...prev,
+        [normalizedEmail]: {
+          email: normalizedEmail, projectId: selectedPid, phone: phone || undefined,
+          displayName: String(member?.displayName || current?.displayName || '').trim() || undefined,
+        },
+      }));
+      setContactDrafts((prev) => ({ ...prev, [normalizedEmail]: phone }));
+      setMemberMsg({ type: 'success', text: phone ? `Đã lưu số liên hệ cho ${normalizedEmail}.` : `Đã xóa số liên hệ của ${normalizedEmail}.` });
+      logAuditAction('SECURITY_CONFIG_CHANGE', `Cập nhật danh bạ liên hệ thành viên ${normalizedEmail} ở dự án ${selectedPid}`, selectedPid);
+    } catch (err: any) {
+      setMemberMsg({ type: 'error', text: `Không lưu được số liên hệ: ${err?.message || err}` });
+    } finally {
+      setSavingContactEmail('');
     }
   };
 
@@ -1267,37 +1326,75 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                       Chưa có thành viên riêng cho dự án này (Áp dụng quyền chung của thiết bị).
                     </p>
                   ) : (
-                    sortedProjectMembers.map(m => (
+                    sortedProjectMembers.map(m => {
+                      const email = String(m.email || '').trim().toLowerCase();
+                      const contact = memberContacts[email];
+                      const phoneValue = contactDrafts[email] ?? contact?.phone ?? '';
+                      return (
                       <div
                         key={m.email}
-                        className="flex items-center justify-between p-2 bg-slate-50 rounded-xl border border-slate-100 text-xs"
+                        className="p-2 bg-slate-50 rounded-xl border border-slate-100 text-xs space-y-2"
                       >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className="min-w-0">
-                            {m.displayName && <div className="font-bold text-slate-800 truncate">{m.displayName}</div>}
-                            <div className="font-semibold text-slate-600 truncate">{m.email}</div>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="min-w-0">
+                              {m.displayName && <div className="font-bold text-slate-800 truncate">{m.displayName}</div>}
+                              <div className="font-semibold text-slate-600 truncate">{m.email}</div>
+                              {canReadMemberContacts && contact?.phone && <div className="text-[10px] font-bold text-emerald-700 mt-0.5">☎ {contact.phone}</div>}
+                            </div>
+                            <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-extrabold uppercase ${
+                              m.role === 'ADMIN'
+                                ? 'bg-rose-100 text-rose-700'
+                                : m.role === 'EDITOR'
+                                ? 'bg-blue-100 text-blue-700'
+                                : 'bg-slate-200 text-slate-700'
+                            }`}>
+                              {m.role === 'ADMIN' ? 'Admin' : m.role === 'EDITOR' ? 'Kỹ sư' : 'Chỉ xem'}
+                            </span>
                           </div>
-                          <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-extrabold uppercase ${
-                            m.role === 'ADMIN'
-                              ? 'bg-rose-100 text-rose-700'
-                              : m.role === 'EDITOR'
-                              ? 'bg-blue-100 text-blue-700'
-                              : 'bg-slate-200 text-slate-700'
-                          }`}>
-                            {m.role === 'ADMIN' ? 'Admin' : m.role === 'EDITOR' ? 'Kỹ sư' : 'Chỉ xem'}
-                          </span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            {canReadMemberContacts && <ContactMenu
+                              target={{ name: m.displayName || m.email, phone: contact?.phone }}
+                              context={{ type: 'member', projectId: selectedPid, entityId: email }}
+                              triggerLabel={contact?.phone ? 'Liên hệ' : 'Chia sẻ'}
+                            />}
+                            {isCompanySuperAdmin && <button type="button" onClick={() => void handleRemotePinReset(m.email)} className="px-2 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 text-[9px] font-extrabold whitespace-nowrap" title="Vô hiệu hóa PIN local của user khi thiết bị online">Reset PIN</button>}
+                            {canManageProjectMembers && <button
+                              type="button"
+                              onClick={() => handleRemoveMemberSafe(m.email)}
+                              disabled={isSavingMember}
+                              className="text-rose-500 hover:text-rose-700 p-1 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                              title="Thu hồi quyền thành viên"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>}
+                          </div>
                         </div>
-                        {isCompanySuperAdmin && <button type="button" onClick={() => void handleRemotePinReset(m.email)} className="mr-1 px-2 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 text-[9px] font-extrabold whitespace-nowrap" title="Vô hiệu hóa PIN local của user khi thiết bị online">Reset PIN</button>}
-                        {canManageProjectMembers && <button
-                          type="button"
-                          onClick={() => handleRemoveMemberSafe(m.email)}
-                          disabled={isSavingMember}
-                          className="text-rose-500 hover:text-rose-700 p-1 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>}
+                        {canManageProjectMembers && (
+                          <div className="flex flex-col min-[420px]:flex-row gap-1.5 items-stretch">
+                            <input
+                              type="tel"
+                              value={phoneValue}
+                              onChange={(e) => setContactDrafts((prev) => ({ ...prev, [email]: e.target.value }))}
+                              placeholder="Số điện thoại / Zalo"
+                              className="flex-1 min-w-0 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-[10.5px] font-semibold focus:ring-2 focus:ring-indigo-500"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => void handleSaveMemberContact(email)}
+                              disabled={savingContactEmail === email}
+                              className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-extrabold disabled:opacity-50"
+                            >
+                              {savingContactEmail === email ? 'Đang lưu...' : 'Lưu liên hệ'}
+                            </button>
+                          </div>
+                        )}
+                        {!canReadMemberContacts && (
+                          <div className="text-[9.5px] text-slate-400">Thông tin liên hệ được ẩn với vai trò Chỉ xem.</div>
+                        )}
                       </div>
-                    ))
+                    );
+                    })
                   )}
                 </div>
               </div>

@@ -1,4 +1,5 @@
 export * from './firebaseBase';
+export * from './memberContactService';
 
 /*
  * SOURCE-GUARD DELEGATION MANIFEST

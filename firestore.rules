@@ -384,6 +384,21 @@ service cloud.firestore {
         allow delete: if isAdmin(projectId);
       }
 
+      // Private contact directory. VIEWER may read member role/email documents but
+      // must never receive phone/contact details. EDITOR may read contacts for field
+      // coordination; only ADMIN/Owner/Super Admin may write them.
+      match /memberContacts/{memberId} {
+        allow read: if canEdit(projectId);
+        allow create, update: if isAdmin(projectId)
+          && request.resource.data.projectId == projectId
+          && request.resource.data.email is string
+          && request.resource.data.email.lower() == memberId.lower()
+          && request.resource.data.phone is string
+          && request.resource.data.displayName is string
+          && request.resource.data.updatedByUid == request.auth.uid;
+        allow delete: if false;
+      }
+
       // Append-only, identity-bound audit stream. This path is intentionally
       // excluded from the generic project-data rule below.
       match /activityLogs/{logId} {
@@ -484,11 +499,11 @@ service cloud.firestore {
       // overwrites. Shared settings/trash metadata are ADMIN-owned structure; legacy
       // floor_plan_images Firestore fallback is read-only until verified purge.
       match /{collectionName}/{recordId} {
-        allow read: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'conversations' && collectionName != 'inventory_balances' && isMember(projectId);
+        allow read: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && isMember(projectId);
         // Master project structure is ADMIN-only. EDITOR may create operational records
         // (defect, warehouse transaction, crew log, photo metadata) and may update only
         // explicitly allowed operational fields on rooms/checklist. VIEWER remains read-only.
-        allow create: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'conversations' && collectionName != 'inventory_balances'
+        allow create: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances'
           && !isLegacyReadOnlyCollection(collectionName)
           && (
             isAdmin(projectId)
@@ -499,7 +514,7 @@ service cloud.firestore {
             ))
           )
           && (!isCoreBusinessCollection(collectionName) || coreCreateLifecycleIsValid(recordId));
-        allow update: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'conversations' && collectionName != 'inventory_balances'
+        allow update: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances'
           && !isLegacyReadOnlyCollection(collectionName)
           && (
             isAdmin(projectId)
@@ -512,7 +527,7 @@ service cloud.firestore {
             ))
           )
           && (!isCoreBusinessCollection(collectionName) || (coreIdentityUpdateIsValid(recordId) && lifecycleUpdateIsMonotonic()));
-        allow delete: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'conversations' && collectionName != 'inventory_balances'
+        allow delete: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances'
           && isAdmin(projectId)
           && !isCoreBusinessCollection(collectionName);
 
