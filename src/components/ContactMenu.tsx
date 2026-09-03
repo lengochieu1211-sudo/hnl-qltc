@@ -7,6 +7,7 @@ import {
   ContactTarget,
   copyText,
   getContactPhone,
+  isAndroidWebBrowser,
   openZalo,
   sharePreparedText,
 } from '../utils/contactUtils';
@@ -38,7 +39,7 @@ export const ContactMenu: React.FC<ContactMenuProps> = ({
 
   const showStatus = (message: string) => {
     setStatus(message);
-    window.setTimeout(() => setStatus(''), 3200);
+    window.setTimeout(() => setStatus(''), 3800);
   };
 
   const handleCall = () => {
@@ -49,16 +50,38 @@ export const ContactMenu: React.FC<ContactMenuProps> = ({
     setOpen(false);
   };
 
-  const handleOpenZalo = () => {
+  const handleOpenZalo = async () => {
     if (!phone.valid) {
       showStatus('Chưa cập nhật số điện thoại để liên hệ qua Zalo.');
       return;
     }
-    if (!openZalo()) {
-      showStatus('Không mở được Zalo. Hãy mở Zalo thủ công.');
+
+    if (openZalo()) {
+      setOpen(false);
       return;
     }
-    setOpen(false);
+
+    // Android Web: direct Zalo URLs are intentionally avoided because they can
+    // redirect to Google Play even when Zalo is installed. Use the OS share sheet.
+    if (isAndroidWebBrowser()) {
+      const result = await sharePreparedText({
+        title: `HNL QLTC – ${target.name || 'Liên hệ'}`,
+        text: shareText,
+        url: shareUrl,
+      });
+      if (result === 'shared') {
+        setOpen(false);
+      } else if (result === 'copied') {
+        showStatus('Đã sao chép nội dung. Hãy mở Zalo và dán để gửi.');
+      } else if (result === 'cancelled') {
+        showStatus('Đã hủy bảng chia sẻ.');
+      } else {
+        showStatus('Không mở được bảng chia sẻ. Hãy sao chép nội dung và mở Zalo thủ công.');
+      }
+      return;
+    }
+
+    showStatus('Không mở được Zalo trực tiếp. Hãy dùng “Nhắn qua Zalo / Chia sẻ hệ thống”.');
   };
 
   const handleMessageZalo = async () => {
@@ -72,8 +95,10 @@ export const ContactMenu: React.FC<ContactMenuProps> = ({
       url: shareUrl,
     });
     if (result === 'copied') {
-      openZalo();
+      if (!isAndroidWebBrowser()) openZalo();
       showStatus('Đã sao chép nội dung. Hãy mở Zalo và dán để gửi.');
+    } else if (result === 'cancelled') {
+      showStatus('Đã hủy bảng chia sẻ.');
     } else if (result === 'failed') {
       showStatus('Không thể chia sẻ tự động. Hãy sao chép nội dung để gửi.');
     }
@@ -129,9 +154,9 @@ export const ContactMenu: React.FC<ContactMenuProps> = ({
                 <Phone className="w-4 h-4 text-emerald-600" />
                 <span>Gọi điện</span>
               </button>
-              <button type="button" onClick={handleOpenZalo} disabled={!phone.valid} className={actionClass}>
+              <button type="button" onClick={() => void handleOpenZalo()} disabled={!phone.valid} className={actionClass}>
                 <ExternalLink className="w-4 h-4 text-blue-600" />
-                <span>Mở Zalo</span>
+                <span>{isAndroidWebBrowser() ? 'Mở Zalo qua bảng chia sẻ' : 'Mở Zalo'}</span>
               </button>
               <button type="button" onClick={() => void handleMessageZalo()} disabled={!phone.valid} className={actionClass}>
                 <MessageCircle className="w-4 h-4 text-blue-600" />
@@ -146,6 +171,11 @@ export const ContactMenu: React.FC<ContactMenuProps> = ({
                 <span>Sao chép nội dung liên hệ</span>
               </button>
 
+              {isAndroidWebBrowser() && phone.valid && (
+                <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-[10px] font-semibold text-blue-800">
+                  Trên Web Android, HNL QLTC dùng bảng chia sẻ hệ thống để tránh Chrome chuyển nhầm sang Google Play. Hãy chọn Zalo trong danh sách ứng dụng.
+                </div>
+              )}
               {!phone.valid && (
                 <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-semibold text-amber-800">
                   Chưa cập nhật số điện thoại. Các hành động gọi/Zalo đang được khóa an toàn.

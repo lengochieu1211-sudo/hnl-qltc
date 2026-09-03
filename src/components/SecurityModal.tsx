@@ -44,6 +44,46 @@ import { formatDateTime } from '../utils/dateFormatter';
 import { isSuperAdminEmail } from '../config/superAdmin';
 import { ContactMenu } from './ContactMenu';
 
+const ContactPhoneEditor: React.FC<{
+  initialValue: string;
+  saving: boolean;
+  onSave: (value: string) => void;
+  onCancel: () => void;
+}> = ({ initialValue, saving, onSave, onCancel }) => {
+  const [value, setValue] = useState(initialValue);
+  return (
+    <div className="flex flex-col min-[420px]:flex-row gap-1.5 items-stretch">
+      <input
+        type="tel"
+        inputMode="tel"
+        autoComplete="tel"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder="Số điện thoại / Zalo"
+        className="flex-1 min-w-0 px-2.5 py-2 bg-white border border-slate-300 rounded-lg text-[11px] font-semibold focus:ring-2 focus:ring-indigo-500"
+      />
+      <div className="flex gap-1.5">
+        <button
+          type="button"
+          onClick={() => onSave(value)}
+          disabled={saving}
+          className="flex-1 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-extrabold disabled:opacity-50"
+        >
+          {saving ? 'Đang lưu...' : 'Lưu'}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={saving}
+          className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-extrabold disabled:opacity-50"
+        >
+          Hủy
+        </button>
+      </div>
+    </div>
+  );
+};
+
 interface SecurityModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -640,7 +680,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
     }
   };
 
-  const handleSaveMemberContact = async (email: string) => {
+  const handleSaveMemberContact = async (email: string, explicitPhone?: string) => {
     if (!canManageProjectMembers) {
       setMemberMsg({ type: 'error', text: 'Chỉ ADMIN/Owner được cập nhật số điện thoại thành viên.' });
       return;
@@ -653,7 +693,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
       await ensureCloudAdminForMemberWrite(selectedPid);
       const current = getEffectiveMemberContact(normalizedEmail);
       const member = projectMembers.find((item: any) => String(item?.email || '').trim().toLowerCase() === normalizedEmail);
-      const phone = String(contactDrafts[normalizedEmail] ?? current?.phone ?? '').trim();
+      const phone = String(explicitPhone ?? contactDrafts[normalizedEmail] ?? current?.phone ?? '').trim();
       await saveProjectMemberContactToCloud(selectedPid, {
         email: normalizedEmail,
         phone,
@@ -1409,37 +1449,15 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                         </div>
                         {canManageProjectMembers && (
                           editingContactEmail === email ? (
-                            <div className="flex flex-col min-[420px]:flex-row gap-1.5 items-stretch">
-                              <input
-                                type="tel"
-                                inputMode="tel"
-                                autoFocus
-                                value={phoneValue}
-                                onChange={(e) => setContactDrafts((prev) => ({ ...prev, [email]: e.target.value }))}
-                                placeholder="Số điện thoại / Zalo"
-                                className="flex-1 min-w-0 px-2.5 py-2 bg-white border border-slate-300 rounded-lg text-[11px] font-semibold focus:ring-2 focus:ring-indigo-500"
-                              />
-                              <div className="flex gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => void handleSaveMemberContact(email)}
-                                  disabled={savingContactEmail === email}
-                                  className="flex-1 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-extrabold disabled:opacity-50"
-                                >
-                                  {savingContactEmail === email ? 'Đang lưu...' : 'Lưu'}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setContactDrafts((prev) => { const next = { ...prev }; delete next[email]; return next; });
-                                    setEditingContactEmail('');
-                                  }}
-                                  className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-extrabold"
-                                >
-                                  Hủy
-                                </button>
-                              </div>
-                            </div>
+                            <ContactPhoneEditor
+                              initialValue={phoneValue}
+                              saving={savingContactEmail === email}
+                              onSave={(value) => void handleSaveMemberContact(email, value)}
+                              onCancel={() => {
+                                setContactDrafts((prev) => { const next = { ...prev }; delete next[email]; return next; });
+                                setEditingContactEmail('');
+                              }}
+                            />
                           ) : (
                             <button
                               type="button"
