@@ -23,7 +23,6 @@ import {
   ChevronDown,
   Edit2,
   Check,
-  Phone,
   Pencil
 } from 'lucide-react';
 import { RoomProgressItem, RoomSubItem, AcceptanceStatus, RoomInspectionResult, Point2D, TeamInfo, ChecklistItem, MaterialNorm, InventoryItem, WorkVolume } from '../types';
@@ -35,6 +34,7 @@ import { createEntityId, createDeterministicId } from '../utils/idUtils';
 import { normalizeUnit, areSameUnit } from '../utils/unitUtils';
 import { buildMaterialAliasMap, getMaterialIdentityKey, resolveNormMaterialId, normalizeMaterialNameKey } from '../utils/inventoryUtils';
 import { MoveOrderControls } from './MoveOrderControls';
+import { ContactMenu } from './ContactMenu';
 
 interface RoomHighlightModalProps {
   isOpen: boolean;
@@ -1562,16 +1562,12 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                               {(() => {
                                 const matchingTeam = displayTeams.find(t => t.name === item.assignedTeam);
                                 if (matchingTeam?.phone) {
-                                  const phoneClean = String(matchingTeam.phone || '').replace(/\s+/g, '');
                                   return (
-                                    <a
-                                      href={`tel:${phoneClean}`}
-                                      className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg font-bold text-[10px] flex items-center gap-1 shrink-0 active:scale-95 transition-all shadow-2xs"
-                                      title={`Gọi điện thoại cho ${matchingTeam.name} (${matchingTeam.phone})`}
-                                    >
-                                      <Phone className="w-3 h-3 text-emerald-600" />
-                                      <span>Gọi</span>
-                                    </a>
+                                    <ContactMenu
+                                      target={{ name: matchingTeam.leader || matchingTeam.name, phone: matchingTeam.phone }}
+                                      context={{ type: 'room', shareText: `HNL QLTC – Liên hệ đội thi công\nĐội: ${matchingTeam.name}\nĐội trưởng: ${matchingTeam.leader || 'Chưa cập nhật'}\nSĐT: ${matchingTeam.phone}` }}
+                                      triggerLabel="Liên hệ"
+                                    />
                                   );
                                 }
                                 return null;
