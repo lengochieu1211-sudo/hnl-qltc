@@ -36,7 +36,7 @@ import {
   canManageSecurity
 } from '../utils/securityUtils';
 import { hashPin, verifyPin } from '../utils/cryptoUtils';
-import { signInWithGoogle, getCurrentFirebaseUser, fetchProjectUserRoleFromCloud, claimProjectOwnership, fetchProjectMembersFromCloud, fetchProjectAuditLogsFromCloud, subscribeProjectMembersRealtime, subscribeProjectAuditLogsRealtime, repairProjectAccessIndexForProject, subscribeProjectMemberContactsRealtime, saveProjectMemberContactToCloud, ProjectMemberContact } from '../lib/firebase';
+import { signInWithGoogle, getCurrentFirebaseUser, fetchProjectUserRoleFromCloud, claimProjectOwnership, fetchProjectMembersFromCloud, fetchProjectAuditLogsFromCloud, subscribeProjectMembersRealtime, subscribeProjectAuditLogsRealtime, repairProjectAccessIndexForProject, subscribeProjectMemberContactsRealtime, saveProjectMemberContactToCloud, fetchAccessibleMemberContactDirectory, ProjectMemberContact } from '../lib/firebase';
 import { saveTextFile } from '../utils/fileExport';
 import { QuickSortBar } from './QuickSortBar';
 import { confirmAsync } from '../utils/confirmAsync';
@@ -85,7 +85,9 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
   const [selectedPid, setSelectedPid] = useState<string>(activeProjectId);
   const [projectMembers, setProjectMembers] = useState<any[]>([]);
   const [memberContacts, setMemberContacts] = useState<Record<string, ProjectMemberContact>>({});
+  const [sharedMemberContacts, setSharedMemberContacts] = useState<Record<string, ProjectMemberContact>>({});
   const [contactDrafts, setContactDrafts] = useState<Record<string, string>>({});
+  const [editingContactEmail, setEditingContactEmail] = useState<string>('');
   const [savingContactEmail, setSavingContactEmail] = useState<string>('');
   const [newMemberEmail, setNewMemberEmail] = useState('');
   const [newMemberRole, setNewMemberRole] = useState<UserRole>('EDITOR');
@@ -242,6 +244,32 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
       console.warn('Member contact realtime warning:', error);
     });
   }, [selectedPid, canReadMemberContacts]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSharedMemberContacts({});
+    if (!isOpen || !canReadMemberContacts) return () => { cancelled = true; };
+    const projectIds = projects.map((project) => project.id).filter(Boolean);
+    void fetchAccessibleMemberContactDirectory(projectIds).then((contacts) => {
+      if (cancelled) return;
+      const next: Record<string, ProjectMemberContact> = {};
+      contacts.forEach((contact) => {
+        const email = String(contact.email || '').trim().toLowerCase();
+        if (email) next[email] = contact;
+      });
+      setSharedMemberContacts(next);
+    });
+    return () => { cancelled = true; };
+  }, [isOpen, canReadMemberContacts, selectedPid, projects]);
+
+  const getEffectiveMemberContact = (email: string): ProjectMemberContact | undefined => {
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const local = memberContacts[normalizedEmail];
+    const shared = sharedMemberContacts[normalizedEmail];
+    if (!local) return shared;
+    if (!shared) return local;
+    return Number(shared.updatedAt || 0) > Number(local.updatedAt || 0) ? shared : local;
+  };
 
   if (!isOpen) return null;
 
@@ -623,7 +651,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
     setMemberMsg(null);
     try {
       await ensureCloudAdminForMemberWrite(selectedPid);
-      const current = memberContacts[normalizedEmail];
+      const current = getEffectiveMemberContact(normalizedEmail);
       const member = projectMembers.find((item: any) => String(item?.email || '').trim().toLowerCase() === normalizedEmail);
       const phone = String(contactDrafts[normalizedEmail] ?? current?.phone ?? '').trim();
       await saveProjectMemberContactToCloud(selectedPid, {
@@ -638,8 +666,17 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
           displayName: String(member?.displayName || current?.displayName || '').trim() || undefined,
         },
       }));
+      setSharedMemberContacts((prev) => ({
+        ...prev,
+        [normalizedEmail]: {
+          email: normalizedEmail, projectId: selectedPid, phone: phone || undefined,
+          displayName: String(member?.displayName || current?.displayName || '').trim() || undefined,
+          updatedAt: Date.now(),
+        },
+      }));
       setContactDrafts((prev) => ({ ...prev, [normalizedEmail]: phone }));
-      setMemberMsg({ type: 'success', text: phone ? `Đã lưu số liên hệ cho ${normalizedEmail}.` : `Đã xóa số liên hệ của ${normalizedEmail}.` });
+      setEditingContactEmail('');
+      setMemberMsg({ type: 'success', text: phone ? `Đã lưu số liên hệ dùng chung theo email ${normalizedEmail}.` : `Đã xóa số liên hệ của ${normalizedEmail}.` });
       logAuditAction('SECURITY_CONFIG_CHANGE', `Cập nhật danh bạ liên hệ thành viên ${normalizedEmail} ở dự án ${selectedPid}`, selectedPid);
     } catch (err: any) {
       setMemberMsg({ type: 'error', text: `Không lưu được số liên hệ: ${err?.message || err}` });
@@ -1328,7 +1365,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                   ) : (
                     sortedProjectMembers.map(m => {
                       const email = String(m.email || '').trim().toLowerCase();
-                      const contact = memberContacts[email];
+                      const contact = getEffectiveMemberContact(email);
                       const phoneValue = contactDrafts[email] ?? contact?.phone ?? '';
                       return (
                       <div
@@ -1371,23 +1408,50 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                           </div>
                         </div>
                         {canManageProjectMembers && (
-                          <div className="flex flex-col min-[420px]:flex-row gap-1.5 items-stretch">
-                            <input
-                              type="tel"
-                              value={phoneValue}
-                              onChange={(e) => setContactDrafts((prev) => ({ ...prev, [email]: e.target.value }))}
-                              placeholder="Số điện thoại / Zalo"
-                              className="flex-1 min-w-0 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-[10.5px] font-semibold focus:ring-2 focus:ring-indigo-500"
-                            />
+                          editingContactEmail === email ? (
+                            <div className="flex flex-col min-[420px]:flex-row gap-1.5 items-stretch">
+                              <input
+                                type="tel"
+                                inputMode="tel"
+                                autoFocus
+                                value={phoneValue}
+                                onChange={(e) => setContactDrafts((prev) => ({ ...prev, [email]: e.target.value }))}
+                                placeholder="Số điện thoại / Zalo"
+                                className="flex-1 min-w-0 px-2.5 py-2 bg-white border border-slate-300 rounded-lg text-[11px] font-semibold focus:ring-2 focus:ring-indigo-500"
+                              />
+                              <div className="flex gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => void handleSaveMemberContact(email)}
+                                  disabled={savingContactEmail === email}
+                                  className="flex-1 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-extrabold disabled:opacity-50"
+                                >
+                                  {savingContactEmail === email ? 'Đang lưu...' : 'Lưu'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setContactDrafts((prev) => { const next = { ...prev }; delete next[email]; return next; });
+                                    setEditingContactEmail('');
+                                  }}
+                                  className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-extrabold"
+                                >
+                                  Hủy
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
                             <button
                               type="button"
-                              onClick={() => void handleSaveMemberContact(email)}
-                              disabled={savingContactEmail === email}
-                              className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-extrabold disabled:opacity-50"
+                              onClick={() => {
+                                setContactDrafts((prev) => ({ ...prev, [email]: contact?.phone || '' }));
+                                setEditingContactEmail(email);
+                              }}
+                              className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 text-[10px] font-extrabold hover:bg-slate-50"
                             >
-                              {savingContactEmail === email ? 'Đang lưu...' : 'Lưu liên hệ'}
+                              {contact?.phone ? 'Sửa số điện thoại' : 'Thêm số điện thoại'}
                             </button>
-                          </div>
+                          )
                         )}
                         {!canReadMemberContacts && (
                           <div className="text-[9.5px] text-slate-400">Thông tin liên hệ được ẩn với vai trò Chỉ xem.</div>
