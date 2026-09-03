@@ -30,4 +30,13 @@ const contactUtils = fs.readFileSync('src/utils/contactUtils.ts', 'utf8');
 assert.match(contactUtils, /https:\/\/chat\.zalo\.me\//, 'web Zalo fallback must use the stable web chat origin');
 assert.doesNotMatch(contactUtils, /window\.open\('https:\/\/zalo\.me\//, 'web must not force the generic zalo.me root deep link');
 
+
+const appSource = fs.readFileSync('src/App.tsx', 'utf8');
+assert.match(appSource, /const securityModalProjects = React\.useMemo\(/, 'SecurityModal projects must stay referentially stable across Android VisualViewport keyboard renders');
+assert.doesNotMatch(appSource, /<SecurityModal[\s\S]{0,500}projects=\{getProjectsList\(\)\}/, 'SecurityModal must not receive a fresh projects array on every App render');
+
+const securityModalSource = fs.readFileSync('src/components/SecurityModal.tsx', 'utf8');
+assert.match(securityModalSource, /\[isOpen, activeProjectId, firstProjectId\]/, 'SecurityModal initialization must depend on primitive project identity, not projects array identity');
+assert.doesNotMatch(securityModalSource, /\[isOpen, activeProjectId, projects\]/, 'projects array identity must not retrigger SecurityModal initialization');
+
 console.log(`Contact Core Golden: PASS (${cases.length} phone normalization cases + persistence/Zalo runtime guards)`);
