@@ -1,0 +1,35 @@
+name: Temporary Member Contact Phase 3 Patcher
+
+on:
+  push:
+    branches:
+      - feat/member-contact-directory-phase3
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/member-contact-directory-phase3
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply deterministic patch
+        run: python scripts/patch-member-contact-phase3.py
+      - name: Commit source patch
+        run: |
+          if git diff --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add firestore.rules scripts/firebase-rules-behavior.mjs src/components/SecurityModal.tsx
+          git commit -m "feat: add private member contact directory"
+          git push origin HEAD:feat/member-contact-directory-phase3
