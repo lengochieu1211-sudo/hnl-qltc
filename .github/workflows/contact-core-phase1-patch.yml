@@ -1,0 +1,35 @@
+name: Temporary Contact Core Phase 1 Patcher
+
+on:
+  push:
+    branches:
+      - feat/contact-core-phase1
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/contact-core-phase1
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply deterministic patch
+        run: python scripts/patch-contact-core-phase1.py
+      - name: Commit source patch
+        run: |
+          if git diff --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/CrewTab.tsx src/components/RoomHighlightModal.tsx android-wrapper/src/com/qlct/app/MainActivity.java
+          git commit -m "feat: integrate shared contact actions in crew and Android"
+          git push origin HEAD:feat/contact-core-phase1
