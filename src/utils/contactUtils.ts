@@ -55,12 +55,10 @@ export function normalizePhone(input?: string | null): NormalizedPhone {
     national = `0${digits.slice(2)}`;
     e164 = `+${digits}`;
   } else if (/^\d{9}$/.test(digits)) {
-    // Accept the common Vietnamese form without the leading zero.
     national = `0${digits}`;
     e164 = `+84${digits}`;
   }
 
-  // Keep non-VN international numbers callable, but do not pretend they are VN numbers.
   const genericInternational = compact.startsWith('+') && digits.length >= 9 && digits.length <= 15
     ? `+${digits}`
     : '';
@@ -96,9 +94,7 @@ export async function copyText(text: string): Promise<boolean> {
       await navigator.clipboard.writeText(value);
       return true;
     }
-  } catch (_) {
-    // Fall through to the DOM clipboard fallback.
-  }
+  } catch (_) {}
 
   try {
     const textarea = document.createElement('textarea');
@@ -131,19 +127,22 @@ function getAndroidContactBridge(): any | null {
   return bridge && typeof bridge === 'object' ? bridge : null;
 }
 
-/** Open Zalo generically. This never targets a private chat or auto-sends a message. */
+/**
+ * Open Zalo without forcing the generic zalo.me deep link on normal browsers.
+ * The generic root link can be claimed by multiple Zalo installations/clones on Android
+ * and has produced a stuck blue splash screen in runtime. APK keeps the native bridge;
+ * Web/desktop opens the official web chat origin instead.
+ */
 export function openZalo(): boolean {
   const bridge = getAndroidContactBridge();
   try {
     if (bridge && typeof bridge.openZalo === 'function') {
       return bridge.openZalo() !== false;
     }
-  } catch (_) {
-    // Continue with the official web entry.
-  }
+  } catch (_) {}
 
   try {
-    const opened = window.open('https://zalo.me/', '_blank', 'noopener,noreferrer');
+    const opened = window.open('https://chat.zalo.me/', '_blank', 'noopener,noreferrer');
     return Boolean(opened);
   } catch (_) {
     return false;
@@ -167,9 +166,7 @@ export async function sharePreparedText(params: {
       const ok = bridge.shareText(title, combined);
       if (ok !== false) return 'shared';
     }
-  } catch (_) {
-    // Fall through to Web Share / clipboard.
-  }
+  } catch (_) {}
 
   if (typeof navigator.share === 'function') {
     try {

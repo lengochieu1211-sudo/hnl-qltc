@@ -8,6 +8,7 @@ export interface ProjectMemberContact {
   projectId: string;
   updatedAt?: number;
   updatedByUid?: string;
+  updatedByEmail?: string;
 }
 
 function normalizeEmail(email: string): string {
@@ -24,6 +25,7 @@ function mapContact(data: any, id = ''): ProjectMemberContact | null {
     projectId: String(data?.projectId || '').trim(),
     updatedAt: typeof data?.updatedAt === 'number' ? data.updatedAt : undefined,
     updatedByUid: String(data?.updatedByUid || '').trim() || undefined,
+    updatedByEmail: normalizeEmail(data?.updatedByEmail || '') || undefined,
   };
 }
 
@@ -65,6 +67,8 @@ export async function saveProjectMemberContactToCloud(
   if (!projectId || !email) throw new Error('Thiếu projectId hoặc email thành viên.');
   const actor = auth.currentUser;
   if (!actor) throw new Error('Cần đăng nhập Firebase trước khi lưu liên hệ thành viên.');
+  const updatedByEmail = normalizeEmail(actor.email || '');
+  if (!updatedByEmail) throw new Error('Tài khoản Firebase hiện tại chưa có email để ghi nhật ký liên hệ.');
 
   await setDoc(doc(db, 'projects', projectId, 'memberContacts', email), {
     projectId,
@@ -73,5 +77,6 @@ export async function saveProjectMemberContactToCloud(
     displayName: String(input.displayName || '').trim(),
     updatedAt: Date.now(),
     updatedByUid: actor.uid,
+    updatedByEmail,
   }, { merge: true });
 }

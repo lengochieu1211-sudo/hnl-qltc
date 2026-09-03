@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { normalizePhone } from '../src/utils/contactUtils';
 
 const cases = [
@@ -22,4 +23,11 @@ for (const testCase of cases) {
   assert.equal(result.valid, testCase.valid, `valid mismatch: ${testCase.input}`);
 }
 
-console.log(`Contact Core Golden: PASS (${cases.length} phone normalization cases)`);
+const memberContactService = fs.readFileSync('src/lib/memberContactService.ts', 'utf8');
+assert.match(memberContactService, /updatedByEmail[,\s]/, 'member contact writes must include updatedByEmail required by Firestore Rules');
+
+const contactUtils = fs.readFileSync('src/utils/contactUtils.ts', 'utf8');
+assert.match(contactUtils, /https:\/\/chat\.zalo\.me\//, 'web Zalo fallback must use the stable web chat origin');
+assert.doesNotMatch(contactUtils, /window\.open\('https:\/\/zalo\.me\//, 'web must not force the generic zalo.me root deep link');
+
+console.log(`Contact Core Golden: PASS (${cases.length} phone normalization cases + persistence/Zalo runtime guards)`);
