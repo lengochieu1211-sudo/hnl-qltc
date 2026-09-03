@@ -148,6 +148,9 @@ export async function stagePhotoMetadataForCloud(projectId: string, photo: Photo
   const updatedAt = Number(photo.updatedAt || photo.createdAt || now);
   const revision = Math.max(Number(photo.revision || 0), 1);
   const deleted = Boolean(photo.deleted || photo.deletedAt);
+  // Ready-only publish: active metadata is NOT written to the shared Firestore
+  // collection until the object-storage upload has produced a durable pointer.
+  // The account-scoped IndexedDB outbox is the only source for pending active media.
   if (!deleted && (!hasDurableCloudBinaryPointer(photo) || String(photo.binaryUploadState || '') === 'pending')) {
     return;
   }
@@ -209,6 +212,10 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
   const localRevision = Number(photo.revision || 0);
   const legacyMigrationMode = Boolean(cloudData && !photo.deleted && (!currentProviderBacked) && (cloudStorageBacked || cloudDriveBacked || cloudFirestoreBacked));
 
+  // RC2.2.15 P0 self-heal: older releases could leave a Firestore row that looks R2-ready
+  // while the actual object is missing/denied. If the original uploader device still has
+  // the Blob, verify the object before treating metadata as authoritative. A broken pointer
+  // is repaired from that local Blob instead of being skipped forever on every startup.
   const localRepairBlob = !photo.deleted && currentProviderBacked
     ? await getPhotoBlob(photo.id, false).catch(() => null)
     : null;
@@ -230,9 +237,10 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
     await mergeCloudPhotoMetadata(projectId, [cloudPhoto], [cloudPhoto]);
   };
 
-  // A secondary device with no local Blob cannot repair a server R2 pointer.
-  // Do not turn that situation into a false upload-pending loop; download/verify
-  // remains responsible for reporting whether the remote object is actually readable.
+  // If Firestore already says the photo is backed by the current provider but this
+  // device has no local binary, it cannot repair/re-upload that object. Treat the
+  // server metadata as authoritative and leave binary health to the download/verify
+  // path. Re-upload attempts here only create a false pending loop on secondary devices.
   if (cloudData && currentProviderBacked && !photo.deleted && !localRepairBlob) {
     await reconcileCloudIntoLocal();
     return;
@@ -252,6 +260,9 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
   }
 
   const now = Date.now();
+  // Existing Firestore photo rows must advance revision. Older releases could
+  // leave pending/legacy metadata at the same revision as the local outbox;
+  // reusing it violates lifecycleUpdateIsMonotonic() and strands the binary.
   const nextRevision = cloudData
     ? Math.max(cloudRevision + 1, localRevision + 1, 1)
     : Math.max(localRevision, 1);
@@ -267,6 +278,8 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
   };
 
   if (photo.deleted) {
+    // Soft delete only. Do NOT delete R2/Firebase Storage/Drive/chunks here. Physical
+    // purge happens after the configured retention window and migration verification.
     await setDoc(metaRef, {
       ...baseMeta,
       deleted: true,
@@ -282,16 +295,20 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
 
   let blob = localRepairBlob || await getPhotoBlob(photo.id, false);
 
+  // Migration source #0: another object-storage provider. This makes R2 ↔ Firebase
+  // Storage reversible without changing Firestore metadata shape or UI call sites.
   if (!blob && cloudData && cloudStorageBacked && cloudData?.storagePath) {
     blob = await downloadBinaryBlob(String(cloudData.storageProvider || ''), String(cloudData.storagePath)).catch(() => null);
   }
 
-  // Some legacy Firestore rows have firestore-fallback/firestore: pointers but no
-  // chunkCount. Probe the server chunks whenever the legacy pointer says they may exist.
+  // Migration source #1: old Firestore chunk binary. Some legacy rows were written
+  // with storageProvider/firestore: pointers but without chunkCount, so the pointer
+  // itself must trigger a server-first chunk probe.
   if (!blob && cloudData && cloudFirestoreBacked) {
     blob = await downloadPhotoBlobFromFirestoreChunks(projectId, photo.id, photo.mimeType || 'image/jpeg').catch(() => null);
   }
 
+  // Migration source #2: old Drive binary. Read-only fallback is deliberately gated.
   if (!blob && LEGACY_DRIVE_READ_FALLBACK && cloudDriveBacked) {
     const driveFileId = parseDriveFileId(cloudData?.cloudFileId || cloudData?.cloudUrl);
     if (driveFileId) {
@@ -304,7 +321,13 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
   }
 
   const thumbnailBlob = await getPhotoBlob(photo.id, true).catch(() => null);
-  const contentVersion = Math.max(localUpdatedAt || 0, cloudData ? cloudUpdatedAt + 1 : 0, now);
+  // updatedAt is lifecycle-controlled too. Always advance an existing
+  // pending/legacy row when replacing it with verified R2 metadata.
+  const contentVersion = Math.max(
+    localUpdatedAt || 0,
+    cloudData ? cloudUpdatedAt + 1 : 0,
+    now,
+  );
   const uploaded = await uploadProjectBinaryToCloud({
     projectId,
     entityType: photo.entityType || 'photo',
@@ -342,8 +365,19 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
     updatedAt: contentVersion,
     cloudSyncedAt: now,
   }, { merge: true });
+
+  // Legacy binary is intentionally NOT deleted here. A separate migration/purge job
+  // may clean Drive/chunks only after count + checksum + reference verification.
 }
 
+/**
+ * One-shot metadata hydration for backup/export paths. This verifies the photo index
+ * against the Firestore server (not only local cache); binary objects remain lazy and are downloaded by
+ * getProjectPhotosWithBinary() when a self-contained backup is requested.
+ *
+ * Returning `verified=false` lets backup callers fail closed instead of silently
+ * creating an incomplete archive when the project photo index cannot be read.
+ */
 export async function refreshProjectPhotoMetadataFromCloud(projectId: string): Promise<{ verified: boolean; count: number }> {
   if (!projectId) return { verified: false, count: 0 };
   try {
@@ -370,6 +404,10 @@ export async function syncProjectPhotosToCloud(projectId: string): Promise<{ upl
   let lastError = '';
   let lastErrorPhotoId = '';
 
+  // Online sync decisions must be based on SERVER metadata. Using getDocs() here
+  // allowed persistent Firestore cache to classify an already-repaired R2 row as
+  // `firestore-fallback`/legacy and repeatedly attempt an impossible local migration.
+  // Offline still falls back to the cache so the outbox remains usable without network.
   let cloudSnapshot: Awaited<ReturnType<typeof getDocs>> | null = null;
   if (typeof navigator === 'undefined' || navigator.onLine) {
     cloudSnapshot = await getDocsFromServer(collection(db, 'projects', projectId, 'photos')).catch(() => null);
@@ -395,7 +433,7 @@ export async function syncProjectPhotosToCloud(projectId: string): Promise<{ upl
       const needsStorageMigration = Boolean(!photo.deleted && cloudData && !currentProviderBacked && (storageBacked || legacyBacked));
       const localRepairCandidate = Boolean(!photo.deleted && currentProviderBacked && await getPhotoBlob(photo.id, false).catch(() => null));
 
-      // A server R2-ready photo with no local binary is not an upload pending item.
+      // Server R2-ready + no local Blob is not an upload-pending item on this device.
       if (currentProviderBacked && !photo.deleted && !localRepairCandidate) {
         skipped++;
         continue;
@@ -437,6 +475,9 @@ async function downloadPhotoBlobFromFirestoreChunks(projectId: string, photoId: 
   if (!metaSnap?.exists() || metaSnap.data()?.deleted) return null;
 
   const q = query(collection(db, 'projects', projectId, 'photos', photoId, 'chunks'), orderBy('index', 'asc'));
+  // Legacy chunks may never have been materialized in this browser's persistent cache.
+  // Ask the server first while online; otherwise a valid historical image can be
+  // misreported as missing during PDF/HTML export on a second device.
   let snap: any = null;
   if (typeof navigator === 'undefined' || navigator.onLine) {
     snap = await getDocsFromServer(q).catch(() => null);
@@ -479,6 +520,11 @@ export async function downloadPhotoBlobFromCloud(projectId: string, photoId: str
     || Number(value?.chunkCount || 0) > 0
   );
 
+  // RC2.2.9 same-phone account switch: persistent Firestore cache can still contain
+  // the initial binaryUploadState=pending document after account A has completed the
+  // R2 upload on the server. Account B must refresh that metadata from the server once
+  // before showing a placeholder. This also repairs a stale cache without clearing all
+  // Firestore offline data.
   if (!hasUsableBinaryPointer(data) || String(data?.binaryUploadState || '') === 'pending') {
     try {
       const serverData = await readPhotoMeta(true);
@@ -502,6 +548,10 @@ export async function downloadPhotoBlobFromCloud(projectId: string, photoId: str
   let storageBlob = await tryObjectStorage(data);
   if (storageBlob) return storageBlob;
 
+  // P0 cross-account recovery (RC2.2.15): a second user may already have a valid-looking
+  // cached Firestore pointer while the server row has since been repaired/migrated. A
+  // failed private-object read must therefore force one server metadata refresh and retry
+  // before the UI gives up. This specifically closes Editor-local -> Admin-broken-image.
   if (typeof navigator === 'undefined' || navigator.onLine) {
     try {
       const serverData = await readPhotoMeta(true);
@@ -527,8 +577,10 @@ export async function downloadPhotoBlobFromCloud(projectId: string, photoId: str
     }
   }
 
+  // Read-only compatibility for images uploaded before Firebase Storage migration.
   return downloadPhotoBlobFromFirestoreChunks(projectId, photoId, data?.mimeType || mimeType);
 }
+
 
 export async function verifyPhotoBinaryReadyInCloud(projectId: string, photoId: string): Promise<boolean> {
   if (!projectId || !photoId) return false;
@@ -549,6 +601,7 @@ export async function verifyPhotoBinaryReadyInCloud(projectId: string, photoId: 
   }
 }
 
+
 const projectInitialPhotoSyncScheduled = new Set<string>();
 const projectLastPhotoSyncAt = new Map<string, number>();
 const PHOTO_INITIAL_SYNC_DELAY_MS = 1200;
@@ -563,6 +616,9 @@ export function subscribeProjectPhotosRealtime(
   let firstSnapshot = true;
   let cancelled = false;
   let initialUploadNeeded = false;
+  // Firestore may emit another snapshot while the previous IndexedDB metadata merge
+  // is still awaiting. Serialize merges so an older snapshot can never finish after
+  // a newer one and overwrite the local photo index.
   let photoSnapshotMergeQueue: Promise<void> = Promise.resolve();
   let delayedSyncTimer: ReturnType<typeof setTimeout> | null = null;
   let retrySyncTimer: ReturnType<typeof setTimeout> | null = null;
@@ -583,6 +639,8 @@ export function subscribeProjectPhotosRealtime(
         return;
       }
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+        // Keep initialUploadNeeded=true. visibilitychange below schedules a fresh idle
+        // attempt when the user returns instead of silently losing photo upload sync.
         projectInitialPhotoSyncScheduled.delete(projectId);
         return;
       }
@@ -634,6 +692,8 @@ export function subscribeProjectPhotosRealtime(
 
   const unsubscribe = onSnapshot(ref, (snap) => {
     const snapshotIsInitial = firstSnapshot;
+    // Flip this synchronously before any async merge. Without this, a second
+    // Firestore emission can also enter the "first snapshot" path and race it.
     firstSnapshot = false;
     const changes = snap.docChanges();
     onStatus?.({ phase: 'syncing', pending: changes.length });
@@ -669,6 +729,8 @@ export function subscribeProjectPhotosRealtime(
         }
 
         if (snapshotIsInitial && pendingLocal === 0) {
+          // Still run one migration/self-heal pass for legacy pointers even when the
+          // current account has no explicit local pending item.
           initialUploadNeeded = true;
           scheduleInitialUpload();
         }
@@ -681,6 +743,7 @@ export function subscribeProjectPhotosRealtime(
     appendRuntimeDiagnostic({ level: 'error', area: 'photo-realtime', projectId, code: photoSyncErrorCode(err), message: err?.message || String(err) });
     onStatus?.({ phase: 'error', message: err?.message || String(err) });
   });
+
 
   return () => {
     cancelled = true;
