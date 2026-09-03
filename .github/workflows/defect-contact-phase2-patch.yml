@@ -1,0 +1,35 @@
+name: Temporary Defect Contact Phase 2 Patcher
+
+on:
+  push:
+    branches:
+      - feat/contact-defect-phase2
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/contact-defect-phase2
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply deterministic patch
+        run: python scripts/patch-defect-contact-phase2.py
+      - name: Commit source patch
+        run: |
+          if git diff --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/FloorPlanDefectTab.tsx
+          git commit -m "feat: add defect contact and share actions"
+          git push origin HEAD:feat/contact-defect-phase2
