@@ -499,11 +499,11 @@ service cloud.firestore {
       // overwrites. Shared settings/trash metadata are ADMIN-owned structure; legacy
       // floor_plan_images Firestore fallback is read-only until verified purge.
       match /{collectionName}/{recordId} {
-        allow read: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'conversations' && collectionName != 'inventory_balances' && isMember(projectId);
+        allow read: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && isMember(projectId);
         // Master project structure is ADMIN-only. EDITOR may create operational records
         // (defect, warehouse transaction, crew log, photo metadata) and may update only
         // explicitly allowed operational fields on rooms/checklist. VIEWER remains read-only.
-        allow create: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'conversations' && collectionName != 'inventory_balances'
+        allow create: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances'
           && !isLegacyReadOnlyCollection(collectionName)
           && (
             isAdmin(projectId)
@@ -514,7 +514,7 @@ service cloud.firestore {
             ))
           )
           && (!isCoreBusinessCollection(collectionName) || coreCreateLifecycleIsValid(recordId));
-        allow update: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'conversations' && collectionName != 'inventory_balances'
+        allow update: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances'
           && !isLegacyReadOnlyCollection(collectionName)
           && (
             isAdmin(projectId)
@@ -527,7 +527,7 @@ service cloud.firestore {
             ))
           )
           && (!isCoreBusinessCollection(collectionName) || (coreIdentityUpdateIsValid(recordId) && lifecycleUpdateIsMonotonic()));
-        allow delete: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'conversations' && collectionName != 'inventory_balances'
+        allow delete: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances'
           && isAdmin(projectId)
           && !isCoreBusinessCollection(collectionName);
 
