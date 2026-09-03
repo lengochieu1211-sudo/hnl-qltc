@@ -5,7 +5,7 @@ on:
     branches:
       - fix/post-pr53-phone-defect-hardening
     paths:
-      - '.hnl-bootstrap/phone-defect-hardening.patch'
+      - '.hnl-bootstrap/**'
       - '.github/workflows/hnl-apply-phone-defect-hardening.yml'
 
 permissions:
@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   apply-patch:
-    if: ${{ hashFiles('.hnl-bootstrap/phone-defect-hardening.patch') != '' }}
+    if: ${{ hashFiles('.hnl-bootstrap/*.patch') != '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout branch
@@ -21,18 +21,25 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Verify and apply exact audited patch
+      - name: Verify and apply exact audited patches
         shell: bash
         run: |
-          git apply --check .hnl-bootstrap/phone-defect-hardening.patch
-          git apply .hnl-bootstrap/phone-defect-hardening.patch
+          set -euo pipefail
+          for patch in .hnl-bootstrap/*.patch; do
+            echo "Checking ${patch}"
+            git apply --check "${patch}"
+          done
+          for patch in .hnl-bootstrap/*.patch; do
+            echo "Applying ${patch}"
+            git apply "${patch}"
+          done
 
       - name: Commit hardened source
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/App.tsx src/components/FloorPlanDefectTab.tsx src/components/SecurityModal.tsx src/utils/defectLinkageUtils.ts scripts/contact-core-golden.ts scripts/defect-linkage-golden.ts package.json HNL-QLTC-POST-PR53-PROD85-PHONE-DEFECT-HARDENING-REPORT-2026-09-04.md
+          git add src/App.tsx src/components/FloorPlanDefectTab.tsx src/components/SecurityModal.tsx
           git diff --cached --check
           git commit -m "Fix Android phone focus and harden defect linkage"
           git push origin HEAD:${GITHUB_REF_NAME}
