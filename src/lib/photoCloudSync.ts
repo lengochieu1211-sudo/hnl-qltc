@@ -175,6 +175,7 @@ export async function stagePhotoMetadataForCloud(projectId: string, photo: Photo
 }
 
 const photoUploadInFlight = new Map<string, Promise<void>>();
+const photoUnrecoverableThisSession = new Set<string>();
 
 export async function uploadPhotoToCloud(projectId: string, photo: PhotoAttachment): Promise<void> {
   if (!projectId || !photo?.id) return;
@@ -196,7 +197,11 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
   if (!user || user.isAnonymous) throw new Error('PHOTO_AUTH_UNAVAILABLE');
 
   const metaRef = doc(db, 'projects', projectId, 'photos', photo.id);
-  const cloudSnap = await getDoc(metaRef).catch(() => null);
+  let cloudSnap: any = null;
+  if (typeof navigator === 'undefined' || navigator.onLine) {
+    cloudSnap = await getDocFromServer(metaRef).catch(() => null);
+  }
+  if (!cloudSnap) cloudSnap = await getDoc(metaRef).catch(() => null);
   const cloudData = cloudSnap?.exists() ? cloudSnap.data() : null;
   const localUpdatedAt = Number(photo.updatedAt || photo.createdAt || 0);
   const cloudUpdatedAt = Number(cloudData?.updatedAt || 0);
@@ -317,6 +322,10 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
   }
 
   if (!blob) {
+    if (cloudData && (cloudFirestoreBacked || cloudDriveBacked)) {
+      photoUnrecoverableThisSession.add(`${projectId}:${photo.id}`);
+      throw new Error(`PHOTO_BINARY_UNRECOVERABLE: Ảnh ${photo.id} chỉ còn metadata legacy nhưng không còn binary/chunks có thể đọc để migrate lên ${BINARY_STORAGE_PROVIDER}.`);
+    }
     throw new Error(`Ảnh ${photo.id} chưa có binary local/legacy để migrate lên ${BINARY_STORAGE_PROVIDER}; giữ trạng thái pending.`);
   }
 
@@ -420,6 +429,10 @@ export async function syncProjectPhotosToCloud(projectId: string): Promise<{ upl
 
   for (const photo of photos) {
     try {
+      if (photoUnrecoverableThisSession.has(`${projectId}:${photo.id}`)) {
+        skipped++;
+        continue;
+      }
       const cloudData = cloudById.get(photo.id) || null;
       const cloudUpdatedAt = cloudData ? Number(cloudData?.updatedAt || 0) : 0;
       const localUpdatedAt = Number(photo.updatedAt || photo.createdAt || 0);
@@ -448,8 +461,21 @@ export async function syncProjectPhotosToCloud(projectId: string): Promise<{ upl
       uploaded++;
       if (needsStorageMigration) migratedToStorage++;
     } catch (err) {
-      failed++;
       const message = err instanceof Error ? err.message : String(err);
+      if (message.startsWith('PHOTO_BINARY_UNRECOVERABLE:')) {
+        skipped++;
+        lastError = message;
+        lastErrorPhotoId = photo.id;
+        appendRuntimeDiagnostic({
+          level: 'warn',
+          area: 'photo-sync',
+          projectId,
+          code: 'PHOTO_BINARY_UNRECOVERABLE',
+          message: `${photo.entityType || 'photo'}/${photo.entityId || ''}/${photo.id}: ${message}`,
+        });
+        continue;
+      }
+      failed++;
       lastError = message;
       lastErrorPhotoId = photo.id;
       appendRuntimeDiagnostic({
