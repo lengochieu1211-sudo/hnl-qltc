@@ -306,6 +306,38 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [editingRecord, setEditingRecord] = useState<CrewRecord | null>(null);
   const [editingTeam, setEditingTeam] = useState<TeamInfo | null>(null);
 
+  // A diagnostic request is stored before App switches tabs, so lazy mounting cannot
+  // lose the target. Editors open the exact record; read-only users land on its date
+  // and the matching card is scrolled into view.
+  useEffect(() => {
+    let raw = '';
+    try { raw = sessionStorage.getItem('qlct_diagnostic_navigation_request') || ''; } catch (_) {}
+    if (!raw) return;
+    try {
+      const request = JSON.parse(raw);
+      if (request?.entityType !== 'crewRecord') return;
+      if (request?.projectId && request.projectId !== projectId) return;
+      const target = crewRecords.find((record) => record.id === request.entityId);
+      if (!target) {
+        sessionStorage.removeItem('qlct_diagnostic_navigation_request');
+        alert('Bản ghi quân số liên quan không còn tồn tại hoặc đã bị xóa.');
+        return;
+      }
+      setActiveSubTab('logs');
+      setSelectedDate(target.date);
+      if (canOperate) {
+        setEditingRecord(target);
+        setShowAddLogModal(true);
+      }
+      sessionStorage.removeItem('qlct_diagnostic_navigation_request');
+      window.setTimeout(() => {
+        document.querySelector(`[data-crew-record-id="${target.id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 120);
+    } catch (_) {
+      try { sessionStorage.removeItem('qlct_diagnostic_navigation_request'); } catch (_) {}
+    }
+  }, [projectId, crewRecords, canOperate]);
+
   // Custom confirmation modal states
   const [deletingRecordTarget, setDeletingRecordTarget] = useState<CrewRecord | null>(null);
   const [deletingTeamTarget, setDeletingTeamTarget] = useState<TeamInfo | null>(null);
@@ -1352,6 +1384,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               sortedFilteredRecords.map((record) => (
                 <div 
                   key={record.id}
+                  data-crew-record-id={record.id}
                   className={`bg-white border rounded-xl p-4 transition-all duration-150 relative hover:border-slate-300 ${
                     selectedRecordIds.includes(record.id)
                       ? 'border-indigo-300 bg-indigo-50/10 shadow-xs'

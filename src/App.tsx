@@ -263,6 +263,24 @@ const normalizeSuperAdminUiSettings = (raw: any): SuperAdminUiSettings => {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('floorplan');
+
+  // Diagnostic navigation stays decoupled from individual screens. The source screen
+  // stores the entity request in sessionStorage, while App only switches modules.
+  useEffect(() => {
+    const handleDiagnosticOpenTab = (event: Event) => {
+      const detail = (event as CustomEvent<{ entityType?: string }>).detail || {};
+      const nextTab: TabType | null = detail.entityType === 'crewRecord'
+        ? 'crew'
+        : detail.entityType === 'defect'
+          ? 'floorplan'
+          : detail.entityType === 'chat'
+            ? 'chat'
+            : null;
+      if (nextTab) setActiveTab(nextTab);
+    };
+    window.addEventListener('qlct-diagnostic-open-entity', handleDiagnosticOpenTab);
+    return () => window.removeEventListener('qlct-diagnostic-open-entity', handleDiagnosticOpenTab);
+  }, []);
   const [activeProjectId, setActiveProjectId] = useState<string>(() => getActiveProjectId());
   const activeProjectIdRef = useRef<string>(activeProjectId);
   // Firebase-only business data must come from Firestore/its official cache. Legacy
