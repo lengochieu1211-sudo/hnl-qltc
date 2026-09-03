@@ -1,0 +1,30 @@
+name: HNL QLTC Chat Handoff Backup
+on:
+  push:
+    branches:
+      - backup/chat-handoff-2026-09-03-pr53
+    paths:
+      - .github/workflows/backup-chat-handoff.yml
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Package exact PROD source and handoff docs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p handoff
+          git archive --format=zip --output=handoff/HNL-QLTC-FULL-SOURCE-POST-PR53-PROD85-d1c93a9.zip d1c93a9feddaae99fa2f2524240c60e3c4969a09
+          cp BACKUP/HNL-QLTC-CONTINUATION-CHECKPOINT-2026-09-03-POST-PR53-PROD85.md handoff/
+          cp BACKUP/HNL-QLTC-DETAILED-CHANGE-HISTORY-2026-09-03-POST-PR53.md handoff/
+          (cd handoff && sha256sum * > SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-CHAT-HANDOFF-POST-PR53-PROD85
+          path: handoff/*
+          if-no-files-found: error
