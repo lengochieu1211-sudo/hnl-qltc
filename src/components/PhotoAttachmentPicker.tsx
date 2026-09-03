@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Camera, Image as ImageIcon, Images, Eye, Loader2, X, Pencil } from 'lucide-react';
+import { Camera, Image as ImageIcon, Images, Eye, Loader2, X, Pencil, AlertTriangle } from 'lucide-react';
 import { PhotoAttachment, getEntityPhotos, getProjectPhotos, savePhotoAttachment, deletePhotoAttachment, getPhotoDataUrl, updatePhotoAttachmentBlob, resetPhotoRuntimeMemoryCache } from '../utils/photoStorage';
 import { refreshProjectPhotoMetadataFromCloud, uploadPhotoToCloud, verifyPhotoBinaryReadyInCloud } from '../lib/photoCloudSync';
 import { getCurrentRealFirebaseUser, onAuthUserChanged } from '../lib/firebase';
@@ -36,6 +36,10 @@ const isDirectPhotoUrl = (url?: string) => {
   return value.startsWith('blob:') || value.startsWith('data:image/') || value.startsWith('http://') || value.startsWith('https://');
 };
 
+const isLegacyFirestorePhoto = (photo: PhotoAttachment) => {
+  const pointer = String(photo.cloudFileId || photo.cloudUrl || '');
+  return String(photo.storageProvider || '') === 'firestore-fallback' || pointer.startsWith('firestore:');
+};
 
 const photoPickerServerRefreshKeys = new Set<string>();
 
@@ -121,7 +125,12 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
         unresolved = items.filter((p) => !urlMap[p.id]);
       }
       setPhotos(items);
-      setPhotoLoadErrors(Object.fromEntries(unresolved.map((p) => [p.id, 'Không tải được binary ảnh từ Cloud/R2.'])));
+      setPhotoLoadErrors(Object.fromEntries(unresolved.map((p) => [
+        p.id,
+        isLegacyFirestorePhoto(p)
+          ? 'Ảnh cũ chỉ còn metadata legacy; binary/chunks không còn đọc được để khôi phục.'
+          : 'Không tải được binary ảnh từ Cloud/R2.'
+      ])));
       
       // Load data URLs / thumbnails asynchronously
       if (loadSeq !== loadSeqRef.current) {
@@ -321,7 +330,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
   const handleRetryCloudPhoto = async (photo: PhotoAttachment, e?: React.MouseEvent) => {
     e?.preventDefault();
     e?.stopPropagation();
-    if (!projectId || !photo?.id || retryingPhotoIds[photo.id]) return;
+    if (!projectId || !photo?.id || retryingPhotoIds[photo.id] || isLegacyFirestorePhoto(photo)) return;
     setRetryingPhotoIds((prev) => ({ ...prev, [photo.id]: true }));
     setPhotoLoadErrors((prev) => { const next = { ...prev }; delete next[photo.id]; return next; });
     try {
@@ -497,12 +506,13 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
           {sortedPhotos.map((photo, index) => {
             const url = photoDataUrls[photo.id] || photo.localUri || (isDirectPhotoUrl(photo.cloudUrl) ? photo.cloudUrl : '');
+            const legacyUnrecoverable = !url && isLegacyFirestorePhoto(photo) && Boolean(photoLoadErrors[photo.id]);
             return (
               <div
                 key={photo.id}
                 onClick={() => {
                   if (!url) {
-                    void handleRetryCloudPhoto(photo);
+                    if (!legacyUnrecoverable) void handleRetryCloudPhoto(photo);
                     return;
                   }
                   const viewableIndex = photoImageUrls.slice(0, index + 1).filter(Boolean).length - 1;
@@ -510,7 +520,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
                     setViewingIndex(viewableIndex);
                   }
                 }}
-                className="relative group aspect-square rounded-lg border border-slate-200 overflow-hidden bg-slate-100 cursor-pointer hover:border-blue-400 transition-all shadow-sm"
+                className={`relative group aspect-square rounded-lg border overflow-hidden transition-all shadow-sm ${legacyUnrecoverable ? 'border-amber-300 bg-amber-50 cursor-default' : 'border-slate-200 bg-slate-100 cursor-pointer hover:border-blue-400'}`}
               >
                 {url ? (
                   <img
@@ -519,6 +529,36 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
                     className="w-full h-full object-cover"
                     referrerPolicy="no-referrer"
                   />
+                ) : legacyUnrecoverable ? (
+                  <div className="w-full h-full flex flex-col items-center justify-center gap-1 px-1.5 text-center text-amber-800">
+                    <AlertTriangle className="w-6 h-6 text-amber-600" />
+                    <span className="text-[9px] font-extrabold leading-tight">Ảnh cũ không thể khôi phục</span>
+                    <span className="text-[8px] leading-tight text-amber-700">Binary/chunks legacy không còn đọc được.</span>
+                    {!readOnly && (
+                      <div className="mt-1 flex flex-col items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            libraryInputRef.current?.click();
+                          }}
+                          className="rounded-md border border-emerald-300 bg-white px-1.5 py-0.5 text-[8px] font-extrabold text-emerald-700 hover:bg-emerald-50"
+                          title="Thêm ảnh mới thay thế trước khi xóa ảnh lỗi"
+                        >
+                          Thêm ảnh thay thế
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => void handleDeletePhoto(photo.id, e)}
+                          className="rounded-md border border-rose-300 bg-white px-1.5 py-0.5 text-[8px] font-extrabold text-rose-700 hover:bg-rose-50"
+                          title="Xóa tham chiếu ảnh cũ không còn binary"
+                        >
+                          Xóa ảnh lỗi
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 px-1 text-center text-slate-400">
                     {retryingPhotoIds[photo.id] ? <Loader2 className="w-5 h-5 animate-spin" /> : <ImageIcon className="w-6 h-6" />}
@@ -539,7 +579,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
                 )}
                 
                 {/* Control Action Overlay & Top-Right Delete X */}
-                {!readOnly && (
+                {!readOnly && url && (
                   <div className="absolute top-1 right-1 flex items-center gap-1 z-10">
                     <button
                       type="button"
@@ -560,11 +600,13 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
                   </div>
                 )}
 
-                <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                  <span className="p-1.5 bg-white/90 text-slate-800 rounded-full hover:bg-white transition-colors">
-                    <Eye className="w-4 h-4" />
-                  </span>
-                </div>
+                {url && (
+                  <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                    <span className="p-1.5 bg-white/90 text-slate-800 rounded-full hover:bg-white transition-colors">
+                      <Eye className="w-4 h-4" />
+                    </span>
+                  </div>
+                )}
               </div>
             );
           })}
