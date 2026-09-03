@@ -1,0 +1,9 @@
+from pathlib import Path
+
+source = Path('scripts/patch-contact-runtime-v2.py').read_text(encoding='utf-8')
+old = '''replace_once(p,\n"syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && syncDiagnostics.pendingDriveUploads === 0 && syncDiagnostics.photoPending === 0",\n"syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0")\n# second identical condition\nreplace_once(p,\n"syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && syncDiagnostics.pendingDriveUploads === 0 && syncDiagnostics.photoPending === 0",\n"syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0")'''
+new = '''_p = Path(p)\n_text = _p.read_text(encoding='utf-8')\n_old_condition = "syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && syncDiagnostics.pendingDriveUploads === 0 && syncDiagnostics.photoPending === 0"\n_new_condition = "syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0"\nif _text.count(_old_condition) != 2:\n    raise SystemExit(f'{p}: expected two diagnostic status conditions, found {_text.count(_old_condition)}')\n_p.write_text(_text.replace(_old_condition, _new_condition), encoding='utf-8')'''
+if source.count(old) != 1:
+    raise SystemExit('could not locate duplicate diagnostic condition block')
+source = source.replace(old, new, 1)
+exec(compile(source, 'patch-contact-runtime-v2.py', 'exec'))
