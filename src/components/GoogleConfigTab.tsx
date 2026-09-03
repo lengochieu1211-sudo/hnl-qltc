@@ -173,6 +173,12 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
     const photoDiagnostics = activeProjectId
       ? await getProjectPhotoDiagnosticSnapshot(activeProjectId).catch((err) => ({ error: err instanceof Error ? err.message : String(err) }))
       : null;
+    const photoDiagnosticsClean = Boolean(
+      photoDiagnostics &&
+      !('error' in photoDiagnostics) &&
+      Number(photoDiagnostics.pending || 0) === 0 &&
+      Number(photoDiagnostics.active || 0) === Number(photoDiagnostics.ready || 0)
+    );
     return buildDiagnosticBundle({
       screen: 'system-diagnostics',
       projectId: activeProjectId || 'default',
@@ -184,12 +190,12 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       snapshotReadyCount: syncDiagnostics?.snapshotReadyCount ?? 0,
       dataCloudPhase: syncDiagnostics?.dataCloudPhase || 'unknown',
       pendingData: syncDiagnostics?.pendingData ?? 0,
-      pendingDriveUploads: syncDiagnostics?.pendingDriveUploads ?? 0,
+      pendingDriveUploads: photoDiagnosticsClean ? 0 : (syncDiagnostics?.pendingDriveUploads ?? 0),
       lastSyncAt: syncDiagnostics?.lastSyncAt ?? 0,
-      lastSyncError: syncDiagnostics?.lastSyncError || '',
+      lastSyncError: photoDiagnosticsClean && /ảnh|photo|cloud\/r2/i.test(syncDiagnostics?.lastSyncError || '') ? '' : (syncDiagnostics?.lastSyncError || ''),
       duplicateProjectIds: syncDiagnostics?.duplicateProjectIds || [],
-      photoPending: syncDiagnostics?.photoPending ?? 0,
-      photoPhase: syncDiagnostics?.photoPhase || 'idle',
+      photoPending: photoDiagnosticsClean ? 0 : (syncDiagnostics?.photoPending ?? 0),
+      photoPhase: photoDiagnosticsClean ? 'idle' : (syncDiagnostics?.photoPhase || 'idle'),
       driveSyncStatus,
       recordCounts: syncDiagnostics?.recordCounts || {},
       photoDiagnostics,
@@ -218,6 +224,19 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       (photo?.storageProvider === 'firestore-fallback' && !photo?.localBinary)
     )).slice(0, 20);
   }, [photoDiagnosticSnapshot]);
+
+  const photoSnapshotClean = Boolean(
+    photoDiagnosticSnapshot &&
+    Number(photoDiagnosticSnapshot?.pending || 0) === 0 &&
+    Number(photoDiagnosticSnapshot?.active || 0) === Number(photoDiagnosticSnapshot?.ready || 0) &&
+    diagnosticPhotoIssues.length === 0
+  );
+  const displayedPhotoPending = photoSnapshotClean ? 0 : (syncDiagnostics?.photoPending ?? 0);
+  const displayedPendingDriveUploads = photoSnapshotClean ? 0 : (syncDiagnostics?.pendingDriveUploads ?? 0);
+  const displayedPhotoPhase = photoSnapshotClean ? 'idle' : (syncDiagnostics?.photoPhase || 'idle');
+  const displayedLastSyncError = photoSnapshotClean && /ảnh|photo|cloud\/r2/i.test(syncDiagnostics?.lastSyncError || '')
+    ? ''
+    : (syncDiagnostics?.lastSyncError || '');
 
   const handleGoToDiagnosticEntity = (photo: any) => {
     const entityType = String(photo?.entityType || '');
@@ -478,8 +497,8 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
               </h3>
               <p className="text-[10px] text-slate-500 mt-1">Dùng khi thiết bị/tài khoản nhìn dữ liệu hoặc ảnh khác nhau. File chẩn đoán không chứa mật khẩu, token hay binary ảnh thật.</p>
             </div>
-            <span className={`text-[10px] font-bold rounded-lg px-2 py-1 border ${syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && syncDiagnostics.pendingDriveUploads === 0 && syncDiagnostics.photoPending === 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
-              {syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && syncDiagnostics.pendingDriveUploads === 0 && syncDiagnostics.photoPending === 0 ? 'Cloud sẵn sàng' : 'Đang kiểm tra'}
+            <span className={`text-[10px] font-bold rounded-lg px-2 py-1 border ${syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+              {syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'Cloud sẵn sàng' : 'Đang kiểm tra'}
             </span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px]">
@@ -494,15 +513,15 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
               <div><b>Firestore:</b> {syncDiagnostics.dataCloudPhase}</div>
               <div><b>Realtime bootstrap:</b> {syncDiagnostics.snapshotReadyCount}/9 {syncDiagnostics.cloudInitialReady ? '· sẵn sàng' : '· đang chờ'}</div>
               <div><b>Dữ liệu chờ:</b> {syncDiagnostics.pendingData}</div>
-              <div><b>Ảnh chờ Cloud:</b> {syncDiagnostics.photoPending} · {syncDiagnostics.photoPhase}</div>
-              <div><b>Drive:</b> {driveSyncStatus} · pending {syncDiagnostics.pendingDriveUploads}</div>
+              <div><b>Ảnh chờ Cloud:</b> {displayedPhotoPending} · {displayedPhotoPhase}</div>
+              <div><b>Drive:</b> {driveSyncStatus} · pending {displayedPendingDriveUploads}</div>
               <div><b>Sync cuối:</b> {syncDiagnostics.lastSyncAt > 0 ? formatDateTime(syncDiagnostics.lastSyncAt) : 'Chưa có'}</div>
               <div><b>Mạng:</b> {syncDiagnostics.online === false ? 'Offline' : 'Online'}</div>
             </div>
           </div>
-          {syncDiagnostics.lastSyncError && (
+          {displayedLastSyncError && (
             <div className="rounded-xl border border-rose-200 bg-rose-50 p-2.5 text-[10px] text-rose-800 break-words">
-              <b>Lỗi sync gần nhất:</b> {syncDiagnostics.lastSyncError}
+              <b>Lỗi sync gần nhất:</b> {displayedLastSyncError}
             </div>
           )}
           {syncDiagnostics.duplicateProjectIds.length > 0 && (
