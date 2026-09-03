@@ -1,0 +1,30 @@
+diff --git a/src/App.tsx b/src/App.tsx
+index 87de29f..637ac2f 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -307,6 +307,16 @@ export default function App() {
+   const trashCaptureSuppressedRef = useRef(false);
+   const googleServerBackendAvailable = hasApiBackend();
+ 
++  // Keep SecurityModal project props stable while Android's VisualViewport changes as
++  // the soft keyboard opens/closes. Calling getProjectsList() inline creates a fresh array
++  // on every App render, which retriggers SecurityModal initialization and can steal focus
++  // from the phone editor on Android Web/PWA. Refresh only when the modal is (re)opened
++  // or the active project actually changes.
++  const securityModalProjects = React.useMemo(
++    () => getProjectsList(),
++    [isSecurityModalOpen, activeProjectId]
++  );
++
+   useEffect(() => {
+     const handleOnline = () => setIsOnline(true);
+     const handleOffline = () => setIsOnline(false);
+@@ -6643,7 +6653,7 @@ export default function App() {
+           onClose={() => setIsSecurityModalOpen(false)}
+           onLockNow={() => setIsAppLocked(true)}
+           activeProjectId={activeProjectId}
+-          projects={getProjectsList()}
++          projects={securityModalProjects}
+         />
+ 
+         {/* PIN App Lock Fullscreen Overlay */}
