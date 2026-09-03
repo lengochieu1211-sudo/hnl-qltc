@@ -32,10 +32,7 @@ const EMPTY_PHONE: NormalizedPhone = {
   valid: false,
 };
 
-/**
- * Normalize a Vietnamese phone number for runtime actions only.
- * The original database value must remain unchanged.
- */
+/** Normalize a Vietnamese phone number for runtime actions only. */
 export function normalizePhone(input?: string | null): NormalizedPhone {
   const original = String(input || '').trim();
   if (!original) return EMPTY_PHONE;
@@ -127,11 +124,16 @@ function getAndroidContactBridge(): any | null {
   return bridge && typeof bridge === 'object' ? bridge : null;
 }
 
+export function isAndroidWebBrowser(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return /Android/i.test(navigator.userAgent || '') && !getAndroidContactBridge();
+}
+
 /**
- * Open Zalo without forcing the generic zalo.me deep link on normal browsers.
- * The generic root link can be claimed by multiple Zalo installations/clones on Android
- * and has produced a stuck blue splash screen in runtime. APK keeps the native bridge;
- * Web/desktop opens the official web chat origin instead.
+ * Direct-open Zalo is only considered reliable inside the APK native bridge.
+ * On Android browsers we intentionally DO NOT navigate to zalo.me/chat.zalo.me because
+ * Chrome/Zalo may redirect to Play Store even when Zalo is already installed (runtime
+ * evidence 2026-09-03). The caller should use the system share sheet instead.
  */
 export function openZalo(): boolean {
   const bridge = getAndroidContactBridge();
@@ -140,6 +142,8 @@ export function openZalo(): boolean {
       return bridge.openZalo() !== false;
     }
   } catch (_) {}
+
+  if (isAndroidWebBrowser()) return false;
 
   try {
     const opened = window.open('https://chat.zalo.me/', '_blank', 'noopener,noreferrer');
