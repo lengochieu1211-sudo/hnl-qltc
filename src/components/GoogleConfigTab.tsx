@@ -173,6 +173,12 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
     const photoDiagnostics = activeProjectId
       ? await getProjectPhotoDiagnosticSnapshot(activeProjectId).catch((err) => ({ error: err instanceof Error ? err.message : String(err) }))
       : null;
+    const photoDiagnosticsClean = Boolean(
+      photoDiagnostics &&
+      !('error' in photoDiagnostics) &&
+      Number(photoDiagnostics.pending || 0) === 0 &&
+      Number(photoDiagnostics.active || 0) === Number(photoDiagnostics.ready || 0)
+    );
     return buildDiagnosticBundle({
       screen: 'system-diagnostics',
       projectId: activeProjectId || 'default',
@@ -184,12 +190,12 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       snapshotReadyCount: syncDiagnostics?.snapshotReadyCount ?? 0,
       dataCloudPhase: syncDiagnostics?.dataCloudPhase || 'unknown',
       pendingData: syncDiagnostics?.pendingData ?? 0,
-      pendingDriveUploads: photoDiagnostics && Number(photoDiagnostics?.pending || 0) === 0 && Number(photoDiagnostics?.active || 0) === Number(photoDiagnostics?.ready || 0) ? 0 : (syncDiagnostics?.pendingDriveUploads ?? 0),
+      pendingDriveUploads: photoDiagnosticsClean ? 0 : (syncDiagnostics?.pendingDriveUploads ?? 0),
       lastSyncAt: syncDiagnostics?.lastSyncAt ?? 0,
-      lastSyncError: photoDiagnostics && Number(photoDiagnostics?.pending || 0) === 0 && Number(photoDiagnostics?.active || 0) === Number(photoDiagnostics?.ready || 0) && /ảnh|photo|cloud\/r2/i.test(syncDiagnostics?.lastSyncError || '') ? '' : (syncDiagnostics?.lastSyncError || ''),
+      lastSyncError: photoDiagnosticsClean && /ảnh|photo|cloud\/r2/i.test(syncDiagnostics?.lastSyncError || '') ? '' : (syncDiagnostics?.lastSyncError || ''),
       duplicateProjectIds: syncDiagnostics?.duplicateProjectIds || [],
-      photoPending: photoDiagnostics && Number(photoDiagnostics?.pending || 0) === 0 && Number(photoDiagnostics?.active || 0) === Number(photoDiagnostics?.ready || 0) ? 0 : (syncDiagnostics?.photoPending ?? 0),
-      photoPhase: photoDiagnostics && Number(photoDiagnostics?.pending || 0) === 0 && Number(photoDiagnostics?.active || 0) === Number(photoDiagnostics?.ready || 0) ? 'idle' : (syncDiagnostics?.photoPhase || 'idle'),
+      photoPending: photoDiagnosticsClean ? 0 : (syncDiagnostics?.photoPending ?? 0),
+      photoPhase: photoDiagnosticsClean ? 'idle' : (syncDiagnostics?.photoPhase || 'idle'),
       driveSyncStatus,
       recordCounts: syncDiagnostics?.recordCounts || {},
       photoDiagnostics,
