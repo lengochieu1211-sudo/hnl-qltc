@@ -146,6 +146,15 @@ try {
     updatedAt: Date.now(), updatedByUid: editorUid,
   }, { merge: true }));
 
+  await signIn(viewerEmail);
+  await expectAllowed('VIEWER remains a valid project member', () => getDoc(doc(db, 'projects', pid)));
+  await expectDenied('VIEWER cannot read private member contact', () => getDoc(memberContactRef));
+  await expectDenied('VIEWER cannot write private member contact', () => setDoc(doc(db, 'projects', pid, 'memberContacts', viewerEmail), {
+    projectId: pid, email: viewerEmail, phone: '0888888888', displayName: 'Viewer Test',
+    updatedAt: Date.now(), updatedByUid: viewerUid,
+  }));
+  await signIn(editorEmail);
+
   await expectAllowed('EDITOR reads work-volume master definition', () => getDoc(workVolumeRef));
   await expectDenied('EDITOR cannot create work-volume master definition', () => setDoc(doc(db, 'projects', pid, 'work_volumes', 'WV-RULE-EDITOR'), {
     id: 'WV-RULE-EDITOR', title: 'Editor created', floor: 'Tầng 1', category: 'Trần', unit: 'm²',
