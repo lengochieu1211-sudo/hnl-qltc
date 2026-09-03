@@ -37,6 +37,42 @@ export async function fetchProjectMemberContactsFromCloud(projectId: string): Pr
     .filter((item): item is ProjectMemberContact => Boolean(item));
 }
 
+/**
+ * Build a privacy-safe shared directory from projects the current Firebase user can
+ * already read. Firestore Rules remain the authority: inaccessible projects simply
+ * contribute no contacts. When the same email exists in more than one accessible
+ * project, the newest contact wins so one phone update is visible anywhere that same
+ * member email appears without creating a globally-readable phone directory.
+ */
+export async function fetchAccessibleMemberContactDirectory(
+  projectIds: string[],
+): Promise<ProjectMemberContact[]> {
+  const uniqueProjectIds = Array.from(new Set(projectIds.map((id) => String(id || '').trim()).filter(Boolean)));
+  if (uniqueProjectIds.length === 0) return [];
+
+  const snapshots = await Promise.all(uniqueProjectIds.map(async (projectId) => {
+    try {
+      return await fetchProjectMemberContactsFromCloud(projectId);
+    } catch (_) {
+      // permission-denied is expected for projects the current account cannot inspect.
+      return [] as ProjectMemberContact[];
+    }
+  }));
+
+  const newestByEmail = new Map<string, ProjectMemberContact>();
+  snapshots.flat().forEach((contact) => {
+    const email = normalizeEmail(contact.email);
+    if (!email) return;
+    const current = newestByEmail.get(email);
+    const currentUpdatedAt = Number(current?.updatedAt || 0);
+    const candidateUpdatedAt = Number(contact.updatedAt || 0);
+    if (!current || candidateUpdatedAt >= currentUpdatedAt) {
+      newestByEmail.set(email, { ...contact, email });
+    }
+  });
+  return Array.from(newestByEmail.values());
+}
+
 export function subscribeProjectMemberContactsRealtime(
   projectId: string,
   onUpdate: (contacts: ProjectMemberContact[]) => void,
