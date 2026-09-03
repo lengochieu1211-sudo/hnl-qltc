@@ -203,7 +203,9 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
   const cloudStorageBacked = Boolean(cloudData?.storagePath) || isStorageCloudValue(cloudData?.cloudFileId) || ['firebase-storage', 'r2'].includes(String(cloudData?.storageProvider || ''));
   const currentProviderBacked = cloudStorageBacked && String(cloudData?.storageProvider || '') === BINARY_STORAGE_PROVIDER;
   const cloudDriveBacked = isDriveCloudValue(cloudData?.cloudFileId) || cloudData?.storageProvider === 'google-drive-primary';
-  const cloudFirestoreBacked = Number(cloudData?.chunkCount || 0) > 0;
+  const cloudFirestoreBacked = Number(cloudData?.chunkCount || 0) > 0
+    || String(cloudData?.storageProvider || '') === 'firestore-fallback'
+    || String(cloudData?.cloudFileId || cloudData?.cloudUrl || '').startsWith('firestore:');
   const cloudHasResolvedBinaryState = Boolean(cloudData?.deleted) || cloudStorageBacked || cloudDriveBacked || cloudFirestoreBacked;
   const cloudDeleteStateMatches = Boolean(cloudData?.deleted) === Boolean(photo.deleted);
   const cloudRevision = Number(cloudData?.revision || 0);
@@ -234,6 +236,15 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
     const cloudPhoto = { id: photo.id, ...cloudData } as PhotoAttachment;
     await mergeCloudPhotoMetadata(projectId, [cloudPhoto], [cloudPhoto]);
   };
+
+  // If Firestore already says the photo is backed by the current provider but this
+  // device has no local binary, it cannot repair/re-upload that object. Treat the
+  // server metadata as authoritative and leave binary health to the download/verify
+  // path. Re-upload attempts here only create a false pending loop on secondary devices.
+  if (cloudData && currentProviderBacked && !photo.deleted && !localRepairBlob) {
+    await reconcileCloudIntoLocal();
+    return;
+  }
 
   if (cloudData && cloudUpdatedAt >= localUpdatedAt && cloudDeleteStateMatches && cloudHasResolvedBinaryState && (photo.deleted || currentProviderBacked) && !currentProviderRepairMode) {
     await reconcileCloudIntoLocal();
@@ -290,8 +301,10 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
     blob = await downloadBinaryBlob(String(cloudData.storageProvider || ''), String(cloudData.storagePath)).catch(() => null);
   }
 
-  // Migration source #1: old Firestore chunk binary.
-  if (!blob && cloudData && Number(cloudData?.chunkCount || 0) > 0) {
+  // Migration source #1: old Firestore chunk binary. Some legacy rows were written
+  // with storageProvider/firestore: pointers but without chunkCount, so the pointer
+  // itself must trigger a server-first chunk probe.
+  if (!blob && cloudData && cloudFirestoreBacked) {
     blob = await downloadPhotoBlobFromFirestoreChunks(projectId, photo.id, photo.mimeType || 'image/jpeg').catch(() => null);
   }
 
@@ -348,7 +361,7 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
     deleted: false,
     deletedAt: null,
     deletedByUid: null,
-          deletedBy: null,
+    deletedBy: null,
     updatedAt: contentVersion,
     cloudSyncedAt: now,
   }, { merge: true });
@@ -412,9 +425,19 @@ export async function syncProjectPhotosToCloud(projectId: string): Promise<{ upl
       const localUpdatedAt = Number(photo.updatedAt || photo.createdAt || 0);
       const storageBacked = Boolean(cloudData?.storagePath) || isStorageCloudValue(cloudData?.cloudFileId) || ['firebase-storage', 'r2'].includes(String(cloudData?.storageProvider || ''));
       const currentProviderBacked = storageBacked && String(cloudData?.storageProvider || '') === BINARY_STORAGE_PROVIDER;
-      const legacyBacked = isDriveCloudValue(cloudData?.cloudFileId) || cloudData?.storageProvider === 'google-drive-primary' || Number(cloudData?.chunkCount || 0) > 0;
+      const legacyBacked = isDriveCloudValue(cloudData?.cloudFileId)
+        || cloudData?.storageProvider === 'google-drive-primary'
+        || cloudData?.storageProvider === 'firestore-fallback'
+        || String(cloudData?.cloudFileId || cloudData?.cloudUrl || '').startsWith('firestore:')
+        || Number(cloudData?.chunkCount || 0) > 0;
       const needsStorageMigration = Boolean(!photo.deleted && cloudData && !currentProviderBacked && (storageBacked || legacyBacked));
       const localRepairCandidate = Boolean(!photo.deleted && currentProviderBacked && await getPhotoBlob(photo.id, false).catch(() => null));
+
+      // Server R2-ready + no local Blob is not an upload-pending item on this device.
+      if (currentProviderBacked && !photo.deleted && !localRepairCandidate) {
+        skipped++;
+        continue;
+      }
 
       if (!needsStorageMigration && !localRepairCandidate && Boolean(cloudData) && cloudUpdatedAt >= localUpdatedAt && Boolean(cloudData?.deleted) === Boolean(photo.deleted) && (Boolean(cloudData?.deleted) || currentProviderBacked)) {
         skipped++;
@@ -492,6 +515,8 @@ export async function downloadPhotoBlobFromCloud(projectId: string, photoId: str
     || isStorageCloudValue(value?.cloudUrl)
     || isDriveCloudValue(value?.cloudFileId)
     || isDriveCloudValue(value?.cloudUrl)
+    || String(value?.storageProvider || '') === 'firestore-fallback'
+    || String(value?.cloudFileId || value?.cloudUrl || '').startsWith('firestore:')
     || Number(value?.chunkCount || 0) > 0
   );
 
