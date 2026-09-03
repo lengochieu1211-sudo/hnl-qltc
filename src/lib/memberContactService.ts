@@ -1,4 +1,4 @@
-import { collection, doc, getDocs, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
+import { collection, doc, getDocs, onSnapshot, setDoc } from 'firebase/firestore';
 import { auth, db } from './firebaseBase';
 
 export interface ProjectMemberContact {
@@ -72,8 +72,6 @@ export async function saveProjectMemberContactToCloud(
     phone: String(input.phone || '').trim(),
     displayName: String(input.displayName || '').trim(),
     updatedAt: Date.now(),
-    updatedAtServer: serverTimestamp(),
     updatedByUid: actor.uid,
-    updatedByEmail: normalizeEmail(actor.email || ''),
   }, { merge: true });
 }
