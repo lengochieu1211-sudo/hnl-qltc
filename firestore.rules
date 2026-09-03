@@ -384,6 +384,21 @@ service cloud.firestore {
         allow delete: if isAdmin(projectId);
       }
 
+      // Private contact directory. VIEWER may read member role/email documents but
+      // must never receive phone/contact details. EDITOR may read contacts for field
+      // coordination; only ADMIN/Owner/Super Admin may write them.
+      match /memberContacts/{memberId} {
+        allow read: if canEdit(projectId);
+        allow create, update: if isAdmin(projectId)
+          && request.resource.data.projectId == projectId
+          && request.resource.data.email is string
+          && request.resource.data.email.lower() == memberId.lower()
+          && request.resource.data.phone is string
+          && request.resource.data.displayName is string
+          && request.resource.data.updatedByUid == request.auth.uid;
+        allow delete: if false;
+      }
+
       // Append-only, identity-bound audit stream. This path is intentionally
       // excluded from the generic project-data rule below.
       match /activityLogs/{logId} {
