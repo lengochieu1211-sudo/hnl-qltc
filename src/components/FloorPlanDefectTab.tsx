@@ -81,6 +81,8 @@ import { QuickSortBar } from './QuickSortBar';
 import { MoveOrderControls } from './MoveOrderControls';
 import { UserRole, canManageFloorPlanStructure, canEditDefectData, canDeleteBusinessData } from '../utils/securityUtils';
 import { appendRuntimeDiagnostic } from '../lib/runtimeDiagnostics';
+import { ContactMenu } from './ContactMenu';
+import { buildDefectShareText, resolveDefectTeam } from '../utils/defectContactUtils';
 
 const getMappedCoordinates = (e: React.PointerEvent | React.MouseEvent | Touch, element: HTMLElement, currentRotation: number) => {
   const rect = element.getBoundingClientRect();
@@ -7178,6 +7180,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           ) : (
             filteredDefects.map((defect) => {
               const overdueInfo = getDefectOverdueInfo(defect);
+              const contactTeam = resolveDefectTeam(defect, teams);
+              const defectShareText = buildDefectShareText(defect);
               return (
                 <div
                   key={defect.id}
@@ -7251,7 +7255,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         </div>
                         <div>
                           <span className="text-slate-400 block text-[9px] font-bold uppercase">Phụ trách</span>
-                          <span className="font-bold text-slate-800">{defect.assignedTo}</span>
+                          <div className="mt-0.5 flex flex-wrap items-center gap-1.5" onClick={(event) => event.stopPropagation()}>
+                            <span className="font-bold text-slate-800">{defect.assignedTo}</span>
+                            <ContactMenu
+                              target={{ name: defect.assignedTo || 'Đội phụ trách', phone: contactTeam?.phone }}
+                              context={{ type: 'defect', projectId: currentProjectId, entityId: defect.id, shareText: defectShareText }}
+                              triggerLabel={contactTeam?.phone ? 'Liên hệ' : 'Chia sẻ'}
+                            />
+                          </div>
                         </div>
                         <div>
                           <span className="text-slate-400 block text-[9px] font-bold uppercase">Deadline sửa</span>
@@ -7834,6 +7845,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       {/* Defect Detail & Control Modal */}
       {activeDefectDetail && (() => {
         const overdueInfo = getDefectOverdueInfo(activeDefectDetail);
+        const activeContactTeam = resolveDefectTeam(activeDefectDetail, teams);
+        const activeDefectShareText = buildDefectShareText(activeDefectDetail);
         const handleDetailFieldChange = (field: keyof DefectItem, value: any) => {
           if (!canEditDefects) return;
           let updated = { ...activeDefectDetail, [field]: value };
@@ -7982,7 +7995,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     />
                   </div>
 
-                  <div className="sm:col-span-2">
+                  <div className="sm:col-span-2 space-y-2">
                     {canEditDefects ? (
                       <TeamSelectorInput
                         value={activeDefectDetail.assignedTo || ''}
@@ -7998,6 +8011,19 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         <span className="font-bold">Đội phụ trách:</span> {activeDefectDetail.assignedTo || 'Chưa gán'}
                       </div>
                     )}
+                    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-blue-100 bg-blue-50/60 p-2.5">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[10px] font-extrabold uppercase tracking-wider text-blue-700">Liên hệ người phụ trách / Chia sẻ Defect</div>
+                        <div className="mt-0.5 text-[10px] font-semibold text-slate-600">
+                          {activeContactTeam?.phone ? `${activeDefectDetail.assignedTo} · ${activeContactTeam.phone}` : 'Chưa có số điện thoại khớp với đội phụ trách. Vẫn có thể sao chép/chia sẻ nội dung Defect.'}
+                        </div>
+                      </div>
+                      <ContactMenu
+                        target={{ name: activeDefectDetail.assignedTo || 'Đội phụ trách', phone: activeContactTeam?.phone }}
+                        context={{ type: 'defect', projectId: currentProjectId, entityId: activeDefectDetail.id, shareText: activeDefectShareText }}
+                        triggerLabel={activeContactTeam?.phone ? 'Liên hệ' : 'Chia sẻ'}
+                      />
+                    </div>
                   </div>
 
                   <div>
