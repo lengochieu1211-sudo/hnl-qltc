@@ -1,8 +1,10 @@
 name: Patch Contact Phone Editor
 on:
   push:
-    branches: [fix/contact-zalo-webshare-runtime]
-    paths: ['.github/workflows/patch-contact-phone-editor.yml']
+    branches:
+      - fix/contact-zalo-webshare-runtime
+    paths:
+      - .github/workflows/patch-contact-phone-editor.yml
 permissions:
   contents: write
 jobs:
@@ -13,111 +15,35 @@ jobs:
         with:
           ref: fix/contact-zalo-webshare-runtime
       - name: Patch SecurityModal contact editor
-        shell: python
+        shell: bash
         run: |
+          cat > /tmp/patch_phone_editor.py <<'PY'
           from pathlib import Path
           p = Path('src/components/SecurityModal.tsx')
           s = p.read_text(encoding='utf-8')
-
           marker = "interface SecurityModalProps {"
-          component = r'''const ContactPhoneEditor: React.FC<{
-  initialValue: string;
-  saving: boolean;
-  onSave: (value: string) => void;
-  onCancel: () => void;
-}> = ({ initialValue, saving, onSave, onCancel }) => {
-  const [value, setValue] = useState(initialValue);
-  return (
-    <div className="flex flex-col min-[420px]:flex-row gap-1.5 items-stretch">
-      <input
-        type="tel"
-        inputMode="tel"
-        autoComplete="tel"
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        placeholder="Số điện thoại / Zalo"
-        className="flex-1 min-w-0 px-2.5 py-2 bg-white border border-slate-300 rounded-lg text-[11px] font-semibold focus:ring-2 focus:ring-indigo-500"
-      />
-      <div className="flex gap-1.5">
-        <button
-          type="button"
-          onClick={() => onSave(value)}
-          disabled={saving}
-          className="flex-1 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-extrabold disabled:opacity-50"
-        >
-          {saving ? 'Đang lưu...' : 'Lưu'}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={saving}
-          className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-extrabold disabled:opacity-50"
-        >
-          Hủy
-        </button>
-      </div>
-    </div>
-  );
-};
-
-'''
-          assert marker in s, 'props marker not found'
+          component = '''const ContactPhoneEditor: React.FC<{\n  initialValue: string;\n  saving: boolean;\n  onSave: (value: string) => void;\n  onCancel: () => void;\n}> = ({ initialValue, saving, onSave, onCancel }) => {\n  const [value, setValue] = useState(initialValue);\n  return (\n    <div className="flex flex-col min-[420px]:flex-row gap-1.5 items-stretch">\n      <input\n        type="tel"\n        inputMode="tel"\n        autoComplete="tel"\n        value={value}\n        onChange={(e) => setValue(e.target.value)}\n        placeholder="Số điện thoại / Zalo"\n        className="flex-1 min-w-0 px-2.5 py-2 bg-white border border-slate-300 rounded-lg text-[11px] font-semibold focus:ring-2 focus:ring-indigo-500"\n      />\n      <div className="flex gap-1.5">\n        <button\n          type="button"\n          onClick={() => onSave(value)}\n          disabled={saving}\n          className="flex-1 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-extrabold disabled:opacity-50"\n        >\n          {saving ? 'Đang lưu...' : 'Lưu'}\n        </button>\n        <button\n          type="button"\n          onClick={onCancel}\n          disabled={saving}\n          className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-extrabold disabled:opacity-50"\n        >\n          Hủy\n        </button>\n      </div>\n    </div>\n  );\n};\n\n'''
+          assert marker in s
           s = s.replace(marker, component + marker, 1)
-
           old_sig = "  const handleSaveMemberContact = async (email: string) => {"
-          new_sig = "  const handleSaveMemberContact = async (email: string, explicitPhone?: string) => {"
-          assert old_sig in s, 'save signature not found'
-          s = s.replace(old_sig, new_sig, 1)
-
+          assert old_sig in s
+          s = s.replace(old_sig, "  const handleSaveMemberContact = async (email: string, explicitPhone?: string) => {", 1)
           old_phone = "      const phone = String(contactDrafts[normalizedEmail] ?? current?.phone ?? '').trim();"
-          new_phone = "      const phone = String(explicitPhone ?? contactDrafts[normalizedEmail] ?? current?.phone ?? '').trim();"
-          assert old_phone in s, 'phone value line not found'
-          s = s.replace(old_phone, new_phone, 1)
-
-          old_block = r'''                            <div className="flex flex-col min-[420px]:flex-row gap-1.5 items-stretch">
-                              <input
-                                type="tel"
-                                inputMode="tel"
-                                autoFocus
-                                value={phoneValue}
-                                onChange={(e) => setContactDrafts((prev) => ({ ...prev, [email]: e.target.value }))}
-                                placeholder="Số điện thoại / Zalo"
-                                className="flex-1 min-w-0 px-2.5 py-2 bg-white border border-slate-300 rounded-lg text-[11px] font-semibold focus:ring-2 focus:ring-indigo-500"
-                              />
-                              <div className="flex gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => void handleSaveMemberContact(email)}
-                                  disabled={savingContactEmail === email}
-                                  className="flex-1 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-extrabold disabled:opacity-50"
-                                >
-                                  {savingContactEmail === email ? 'Đang lưu...' : 'Lưu'}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setContactDrafts((prev) => { const next = { ...prev }; delete next[email]; return next; });
-                                    setEditingContactEmail('');
-                                  }}
-                                  className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-extrabold"
-                                >
-                                  Hủy
-                                </button>
-                              </div>
-                            </div>'''
-          new_block = r'''                            <ContactPhoneEditor
-                              initialValue={phoneValue}
-                              saving={savingContactEmail === email}
-                              onSave={(value) => void handleSaveMemberContact(email, value)}
-                              onCancel={() => {
-                                setContactDrafts((prev) => { const next = { ...prev }; delete next[email]; return next; });
-                                setEditingContactEmail('');
-                              }}
-                            />'''
-          assert old_block in s, 'editor block not found'
-          s = s.replace(old_block, new_block, 1)
+          assert old_phone in s
+          s = s.replace(old_phone, "      const phone = String(explicitPhone ?? contactDrafts[normalizedEmail] ?? current?.phone ?? '').trim();", 1)
+          start = s.index('                            <div className="flex flex-col min-[420px]:flex-row gap-1.5 items-stretch">', s.index('editingContactEmail === email'))
+          end_marker = '                            </div>'
+          cursor = start
+          depth = 0
+          # Use exact old editor region end right before the ternary else marker.
+          end = s.index('\n                          ) : (', start)
+          new_block = '''                            <ContactPhoneEditor\n                              initialValue={phoneValue}\n                              saving={savingContactEmail === email}\n                              onSave={(value) => void handleSaveMemberContact(email, value)}\n                              onCancel={() => {\n                                setContactDrafts((prev) => { const next = { ...prev }; delete next[email]; return next; });\n                                setEditingContactEmail('');\n                              }}\n                            />'''
+          s = s[:start] + new_block + s[end:]
           p.write_text(s, encoding='utf-8')
+          PY
+          python3 /tmp/patch_phone_editor.py
       - name: Commit patch
+        shell: bash
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
