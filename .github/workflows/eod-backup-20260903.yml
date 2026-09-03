@@ -1,0 +1,141 @@
+name: EOD Backup 2026-09-03
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/eod-backup-20260903.yml'
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 7c653f42158b115a9ddffa221b79decda066934e
+          fetch-depth: 0
+      - name: Build backup package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p backup
+          git archive --format=zip --output=backup/HNL-QLTC-POST-PR52-PROD-CERTIFIED-FULL-SOURCE-7c653f4.zip HEAD
+          cat > backup/HNL-QLTC-CONTINUATION-CHECKPOINT-2026-09-03.md <<'EOF'
+          # HNL QLTC – CONTINUATION CHECKPOINT – 2026-09-03
+
+          ## Baseline bắt buộc
+          - Repository hiện tại: `lengochieu1211-sudo/hnl-qltc`.
+          - Source nghiệp vụ PROD đã chứng nhận và deploy: `7c653f42158b115a9ddffa221b79decda066934e`.
+          - PR #52: Fix cross-project member contacts and stale photo diagnostics.
+          - Không rollback source cũ. Không đổi Firebase Project, Hosting, R2, GitHub repo.
+          - Firebase Project: `com-example-qlct-61329`.
+          - Hosting PROD: `https://hnlqltc.web.app`.
+          - Binary storage PROD: Cloudflare R2 qua gateway hiện hữu.
+          - Firestore là nguồn dữ liệu nghiệp vụ/realtime; IndexedDB/Firestore persistent cache phục vụ offline.
+
+          ## Việc đã sửa trong PR #52
+          1. Sửa số điện thoại thành viên trên mobile: dùng chế độ Sửa → Lưu/Hủy rõ ràng, tránh ô inline bị nhảy lại/khó xóa.
+          2. Liên hệ theo cùng email giữa nhiều dự án: ứng dụng tra số trên các project mà tài khoản hiện tại có quyền đọc, cùng email lấy bản cập nhật mới nhất. Không tạo directory công khai toàn hệ thống; Firestore Rules vẫn là authority.
+          3. Chẩn đoán ảnh: khi metadata active thực tế đã `active == ready` và `pending == 0`, UI/file diagnostic không giữ cảnh báo đỏ từ retry/log cũ.
+          4. Source thay đổi: `src/components/SecurityModal.tsx`, `src/components/GoogleConfigTab.tsx`, `src/lib/memberContactService.ts`.
+
+          ## Evidence / Gate
+          - PR #52 Build #395: PASS.
+          - PR #52 Windows EXE #195: PASS.
+          - PR #52 Android APK #199: PASS.
+          - Main sau merge: `7c653f42158b115a9ddffa221b79decda066934e`.
+          - Main Build: PASS.
+          - Main Android signed APK: PASS.
+          - Main Windows portable EXE + taskbar icon golden: PASS.
+          - PROD deploy ngày 2026-09-03: PASS Stability / TypeScript / Lint / Rules / Security / Build / Firestore rules / Hosting.
+
+          ## Cơ chế hoạt động cần giữ nguyên
+          ### Dữ liệu
+          - Firestore là source of truth cho dữ liệu nghiệp vụ và phân quyền.
+          - Realtime listeners đồng bộ giữa tài khoản/thiết bị.
+          - Offline dùng Firestore persistent cache/pending writes; không lấy localStorage làm source chính.
+          - projectId là định danh; không gộp project chỉ vì trùng tên.
+
+          ### Ảnh
+          - Ảnh mới: nén/tạo metadata → upload binary private R2 → chỉ publish metadata cross-account sau khi R2 durable-ready.
+          - Firestore lưu metadata/path/reference nhẹ; thiết bị khác nhận realtime rồi tải binary theo quyền.
+          - Firebase Storage/Drive chỉ giữ vai trò legacy read compatibility theo cấu hình hiện hành, không là nơi ghi chính mới.
+          - Ảnh lỗi upload phải nằm local outbox/retry, không publish pointer chưa durable.
+
+          ### Phân quyền
+          - ADMIN: cấu trúc dự án, thành viên, cài đặt, xóa rộng, backup/restore, tài chính, rules-sensitive operations.
+          - EDITOR/Kỹ sư: nghiệp vụ hiện trường theo allowlist; không sửa cấu trúc/phân quyền.
+          - VIEWER: chỉ đọc; không ghi dữ liệu và không xem dữ liệu liên hệ riêng nếu Rules không cho phép.
+          - Canonical email được ưu tiên trước UID alias để tránh quyền cũ/stale UID vượt quyền email hiện tại.
+
+          ### Danh bạ liên hệ
+          - Contact vẫn được lưu project-scoped để Rules bảo vệ.
+          - Khi hiển thị, app có thể tổng hợp từ các project mà user hiện tại được phép đọc; merge theo email, bản mới nhất thắng.
+          - Không tạo collection directory toàn cục public/readable cho mọi user.
+
+          ### Chẩn đoán
+          - Snapshot metadata active là authority cho tình trạng ảnh hiện tại.
+          - Retry counter/log cũ không được làm UI báo đỏ nếu active images đều ready và pending thực tế bằng 0.
+          - File diagnostic không chứa password/token/binary ảnh thật.
+
+          ## Quy tắc làm việc bắt buộc
+          1. Luôn lấy FULL SOURCE mới nhất/checkpoint mới nhất làm nền; không chép ngược code cũ.
+          2. Không mất dữ liệu/tính năng hiện có.
+          3. Không đổi Firebase projectId/appId/Hosting, R2 gateway/bucket, GitHub repo nếu chưa được yêu cầu.
+          4. Mọi sửa quan trọng phải tìm nguyên nhân gốc, kiểm PC + mobile + realtime + offline + RBAC + hiệu năng nếu liên quan.
+          5. Trước merge/release bắt buộc: package.json + package-lock.json, Stability, TypeScript, Lint, Firebase Rules/Emulator, Security audit, Build; APK/EXE nếu ảnh hưởng wrapper/runtime.
+          6. Không tự Deploy PROD khi chưa được người dùng xác nhận rõ. Ngày 2026-09-03 người dùng đã xác nhận Deploy PROD cho PR #52.
+          7. Khi giao source: PATCH ZIP + FULL SOURCE ZIP + REPORT/checkpoint; giữ lịch sử commit/PR/evidence.
+          8. Sau mỗi ngày hoặc milestone lớn phải tạo checkpoint Drive có FULL SOURCE, change history, quy tắc, cơ chế và việc đang dở.
+
+          ## Việc nên test runtime sau deploy
+          - Trên Sân Bay: sửa/xóa/nhập lại số điện thoại của một email thành viên.
+          - Chuyển sang Mizuki bằng cùng tài khoản có quyền: xác nhận cùng email hiện đúng số liên hệ.
+          - Mở Hệ thống & Chẩn đoán: nếu active=ready và pending=0 thì không còn báo đỏ `Ảnh chờ Cloud: 1` từ lỗi cũ.
+          - Kiểm tra gọi/Zalo/contact menu trên mobile.
+          - Nếu có lỗi mới, xuất diagnostic mới và ghi rõ projectId/user/device/time.
+          EOF
+          cat > backup/HNL-QLTC-DETAILED-CHANGE-HISTORY-2026-09-03.md <<'EOF'
+          # HNL QLTC – DETAILED CHANGE HISTORY – 2026-09-03
+
+          ## PR #52 – Contact cross-project + stale photo diagnostics
+          ### Triệu chứng người dùng
+          - Ô nhập số điện thoại trong Phân quyền trên mobile khó chỉnh/xóa; số có thể nhảy lại.
+          - Cùng email đã nhập số ở dự án Sân Bay nhưng qua Mizuki không thấy liên hệ.
+          - Diagnostic báo `Ảnh chờ Cloud: 1`, `pendingDriveUploads: 1`, `Missing or insufficient permissions` dù danh sách ảnh active cho thấy không còn ảnh cần xử lý.
+
+          ### Nguyên nhân
+          - UI contact dùng inline controlled value/fallback chưa có explicit edit lifecycle.
+          - Contact lưu project-scoped nên UI chỉ đọc collection của project đang chọn; chưa có lớp tổng hợp theo email từ các project user được phép đọc.
+          - Diagnostic header dùng retry counters/last error state có thể stale hơn authoritative photo metadata snapshot.
+
+          ### Sửa gốc
+          - Thêm explicit editing state cho contact: Sửa / Lưu / Hủy.
+          - Thêm hàm đọc directory liên hệ từ các project accessible, merge theo normalized email, newest updatedAt wins.
+          - Không thay Firestore Rules; project-level access vẫn là boundary bảo mật.
+          - Diagnostic tính trạng thái hiển thị từ metadata snapshot khi `pending=0` và `active=ready`; stale photo error được ẩn khỏi trạng thái hiện tại/export tương ứng.
+          - Bổ sung type narrowing cho trường hợp diagnostic snapshot trả `{error}`.
+
+          ### CI chronology
+          - Lần đầu Build bắt lỗi TypeScript vì union snapshot `{diagnostic}|{error}`; Stability đã PASS.
+          - Sửa bằng `photoDiagnosticsClean` với guard `!('error' in photoDiagnostics)`.
+          - PR #52 sau đó PASS Build/TS/Lint/Rules/Security, Windows EXE và Android APK.
+          - Merge PR #52 → main `7c653f42158b115a9ddffa221b79decda066934e`.
+          - Main Build + signed APK + Windows EXE đều PASS.
+          - PROD deploy được người dùng xác nhận lúc tối 03/09/2026; deploy exact certified source `7c653f4` và PASS toàn bộ gate, Firestore Rules và Hosting.
+
+          ## Không thay đổi
+          - Không đổi Firebase Project `com-example-qlct-61329`.
+          - Không đổi Hosting `hnlqltc.web.app`.
+          - Không đổi R2 gateway/storage authority.
+          - Không đổi GitHub repo.
+          - Không rollback dữ liệu/source.
+          EOF
+          sha256sum backup/*.zip backup/*.md > backup/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-EOD-BACKUP-2026-09-03-POST-PR52-PROD-CERTIFIED
+          path: backup/*
+          if-no-files-found: error
+          retention-days: 90
