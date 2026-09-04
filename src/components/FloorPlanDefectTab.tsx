@@ -81,8 +81,12 @@ import { QuickSortBar } from './QuickSortBar';
 import { MoveOrderControls } from './MoveOrderControls';
 import { UserRole, canManageFloorPlanStructure, canEditDefectData, canDeleteBusinessData } from '../utils/securityUtils';
 import { appendRuntimeDiagnostic } from '../lib/runtimeDiagnostics';
+import { getCurrentRealFirebaseUser } from '../lib/firebase';
+import { getRememberedVerifiedAuthIdentity } from '../utils/offlineAccess';
+import { resolveVerifiedIdentityLabel } from '../utils/authIdentityUtils';
 import { ContactMenu } from './ContactMenu';
 import { buildDefectShareText, resolveDefectTeam } from '../utils/defectContactUtils';
+import { isPointInsideRoom, reconcileDefectLinkage, resolveDefectLinkageFromSelection } from '../utils/defectLinkageUtils';
 
 const getMappedCoordinates = (e: React.PointerEvent | React.MouseEvent | Touch, element: HTMLElement, currentRotation: number) => {
   const rect = element.getBoundingClientRect();
@@ -112,24 +116,7 @@ const getMappedCoordinates = (e: React.PointerEvent | React.MouseEvent | Touch, 
   };
 };
 
-const isPointInRoom = (px: number, py: number, room: RoomProgressItem): boolean => {
-  if (room.points && room.points.length >= 3) {
-    let inside = false;
-    for (let i = 0, j = room.points.length - 1; i < room.points.length; j = i++) {
-      const xi = room.points[i].x, yi = room.points[i].y;
-      const xj = room.points[j].x, yj = room.points[j].y;
-      const intersect = ((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
-      if (intersect) inside = !inside;
-    }
-    if (inside) return true;
-  }
-  if (room.x !== undefined && room.y !== undefined && room.width && room.height) {
-    if (px >= room.x && px <= room.x + room.width && py >= room.y && py <= room.y + room.height) {
-      return true;
-    }
-  }
-  return false;
-};
+const isPointInRoom = isPointInsideRoom;
 
 const getCandidateTeamsForDefect = (
   pinPos: { x: number; y: number } | null,
@@ -142,22 +129,38 @@ const getCandidateTeamsForDefect = (
     roomAtPos = activeFloorRooms.find((r) => isPointInRoom(pinPos.x, pinPos.y, r));
   }
 
-  const roomAtPosTeam = roomAtPos?.assignedTeam?.trim();
+  const teamNameById = new Map(
+    declaredTeams
+      .filter((team) => team.id && team.name?.trim())
+      .map((team) => [team.id, team.name.trim()] as const)
+  );
+  const resolveAssignedTeamName = (teamId?: string, assignedTeam?: string) =>
+    (teamId ? teamNameById.get(teamId) : undefined) || assignedTeam?.trim() || '';
+
+  // The durable teamId is authoritative. Legacy room/sub-item rows may have teamId but an
+  // empty or stale assignedTeam string; the Defect UI must still display the real linked team.
+  const roomAtPosTeam = roomAtPos
+    ? resolveAssignedTeamName(roomAtPos.teamId, roomAtPos.assignedTeam)
+    : '';
 
   const currentFloorTeamsSet = new Set<string>();
   activeFloorRooms.forEach((r) => {
-    if (r.assignedTeam?.trim()) currentFloorTeamsSet.add(r.assignedTeam.trim());
+    const roomTeamName = resolveAssignedTeamName(r.teamId, r.assignedTeam);
+    if (roomTeamName) currentFloorTeamsSet.add(roomTeamName);
     r.subItems?.forEach((s) => {
-      if (s.assignedTeam?.trim()) currentFloorTeamsSet.add(s.assignedTeam.trim());
+      const subItemTeamName = resolveAssignedTeamName(s.teamId, s.assignedTeam);
+      if (subItemTeamName) currentFloorTeamsSet.add(subItemTeamName);
     });
   });
   const currentFloorTeams = Array.from(currentFloorTeamsSet);
 
   const allFloorTeamsSet = new Set<string>();
   allRooms.forEach((r) => {
-    if (r.assignedTeam?.trim()) allFloorTeamsSet.add(r.assignedTeam.trim());
+    const roomTeamName = resolveAssignedTeamName(r.teamId, r.assignedTeam);
+    if (roomTeamName) allFloorTeamsSet.add(roomTeamName);
     r.subItems?.forEach((s) => {
-      if (s.assignedTeam?.trim()) allFloorTeamsSet.add(s.assignedTeam.trim());
+      const subItemTeamName = resolveAssignedTeamName(s.teamId, s.assignedTeam);
+      if (subItemTeamName) allFloorTeamsSet.add(subItemTeamName);
     });
   });
   const allFloorTeams = Array.from(allFloorTeamsSet);
@@ -310,8 +313,15 @@ const TeamSelectorInput: React.FC<TeamSelectorInputProps> = ({
                 Gán ({roomAtPosTeam})
               </button>
             ) : (
-              <span className="text-[10px] text-amber-700 italic shrink-0">Căn này chưa có đội</span>
+              <span className="text-[10px] text-amber-700 italic shrink-0">Căn chưa gán đội mặc định</span>
             )}
+          </div>
+        )}
+
+        {value?.trim() && (
+          <div className="bg-sky-50 border border-sky-200 p-2 rounded-xl flex items-center justify-between gap-2">
+            <span className="text-sky-900 font-semibold truncate">✅ Đội Defect đang chọn: <strong>{value.trim()}</strong></span>
+            <span className="text-[10px] text-sky-700 shrink-0">Sẽ lưu liên kết đội</span>
           </div>
         )}
 
@@ -994,7 +1004,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const [assignedTo, setAssignedTo] = useState(() => {
     return localStorage.getItem(getDraftKey('construction_defect_draft_assignedTo')) || 'Đội thi công bắn tấm';
   });
-  const [createdBy, setCreatedBy] = useState(() => inspectorName || 'Kỹ sư QC');
+  const realDefectCreator = getCurrentRealFirebaseUser();
+  const rememberedDefectCreator = getRememberedVerifiedAuthIdentity();
+  const currentDefectCreatorLabel = resolveVerifiedIdentityLabel(
+    realDefectCreator,
+    rememberedDefectCreator,
+  );
   const [dueDate, setDueDate] = useState(() => {
     const saved = localStorage.getItem(getDraftKey('construction_defect_draft_dueDate'));
     if (saved) return saved;
@@ -2512,6 +2527,17 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     return () => { window.removeEventListener('keydown', handleKeyDown, true); window.removeEventListener('keyup', handleKeyUp, true); };
   }, [selectedRoomForDragId, selectedRoomIds, floorRooms, copiedRoomsState, activeFloor, onSaveRoomProgress, onDeleteRoomProgress, lockedRoomIds, canManageStructure]);
 
+  // Repair legacy/stale links once source data is available. This is idempotent: only
+  // mismatches are written. roomId follows the actual pin/highlight geometry, while a
+  // valid per-defect teamId is preserved and its display name is refreshed after renames.
+  React.useEffect(() => {
+    if (!canEditDefects || !onUpdateDefect || floorDefects.length === 0) return;
+    floorDefects.forEach((defect) => {
+      const repaired = reconcileDefectLinkage(defect, floorRooms, teams);
+      if (repaired !== defect) onUpdateDefect(repaired);
+    });
+  }, [canEditDefects, floorDefects, floorRooms, teams, onUpdateDefect]);
+
   const filteredDefects = React.useMemo(() => {
     const getRoomLabel = (defect: DefectItem) => {
       const matchedRoom = floorRooms.find((room) => room.id === defect.roomId);
@@ -3943,42 +3969,26 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     if (!canEditDefects) return;
     if (!pinPos || !activeFloor) return;
 
-    const isPointInRoom = (px: number, py: number, r: any) => {
-      if (r.points && r.points.length >= 3) {
-        let inside = false;
-        for (let i = 0, j = r.points.length - 1; i < r.points.length; j = i++) {
-          const xi = r.points[i].x, yi = r.points[i].y;
-          const xj = r.points[j].x, yj = r.points[j].y;
-          const intersect = ((yi > py) !== (yj > py))
-              && (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
-          if (intersect) inside = !inside;
-        }
-        return inside;
-      }
-      const rx = r.x;
-      const ry = r.y;
-      const rw = r.width || 0;
-      const rh = r.height || 0;
-      return px >= rx && px <= rx + rw && py >= ry && py <= ry + rh;
-    };
-    const matchedRoom = floorRooms.find(r => isPointInRoom(pinPos.x, pinPos.y, r));
-
-    const matchingTeam = teams.find(t => t.name.trim().toLowerCase() === assignedTo.trim().toLowerCase());
-    const finalTeamId = matchingTeam?.id || undefined;
+    const linkage = resolveDefectLinkageFromSelection(
+      { x: pinPos.x, y: pinPos.y },
+      assignedTo,
+      floorRooms,
+      teams
+    );
 
     onAddDefect({
       id: draftDefectId,
       floorId: activeFloor.id,
       floorName: activeFloor.floorName,
-      roomId: matchedRoom?.id || undefined,
-      teamId: finalTeamId,
+      roomId: linkage.roomId,
+      teamId: linkage.teamId,
       category,
       x: pinPos.x,
       y: pinPos.y,
       description: description.trim() || `Lỗi ${category} tại vị trí (${pinPos.x}%, ${pinPos.y}%)`,
       severity,
-      assignedTo: assignedTo.trim() || 'Đội thi công',
-      createdBy: createdBy.trim() || inspectorName || 'Kỹ sư QC',
+      assignedTo: linkage.assignedTo,
+      createdBy: currentDefectCreatorLabel,
       dueDate: dueDate || undefined,
       imageUrl: photoUrl || undefined,
       afterImageUrl: afterPhotoUrl || undefined,
@@ -7759,9 +7769,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   <label className="block text-slate-700 font-bold mb-1">👤 Người Tạo</label>
                   <input
                     type="text"
-                    value={createdBy}
+                    value={currentDefectCreatorLabel}
                     readOnly
-                    placeholder="Tự ghi theo tài khoản đăng nhập"
+                    placeholder="Đang xác định tài khoản Firebase..."
                     className="w-full border border-slate-200 bg-slate-100 rounded-xl p-2 font-semibold text-slate-700"
                   />
                   <p className="mt-1 text-[10px] text-slate-400">Khi lưu, hệ thống tự ghi đúng tài khoản Firebase đang đăng nhập.</p>
@@ -7851,8 +7861,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           if (!canEditDefects) return;
           let updated = { ...activeDefectDetail, [field]: value };
           if (field === 'assignedTo') {
-            const matchingTeam = teams.find(t => t.name.trim().toLowerCase() === String(value).trim().toLowerCase());
-            updated.teamId = matchingTeam?.id || undefined;
+            const linkage = resolveDefectLinkageFromSelection(
+              { x: activeDefectDetail.x, y: activeDefectDetail.y },
+              String(value),
+              floorRooms,
+              teams
+            );
+            updated = { ...updated, ...linkage };
           }
           setActiveDefectDetail(updated);
           if (onUpdateDefect) {

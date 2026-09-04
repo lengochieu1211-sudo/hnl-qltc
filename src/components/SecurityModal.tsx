@@ -135,6 +135,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
   const [memberMsg, setMemberMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const selectedPidRef = useRef(selectedPid);
   const cloudStatusRequestRef = useRef(0);
+  const firstProjectId = projects[0]?.id || 'default';
 
   // Audit state
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
@@ -215,7 +216,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
       setPinConfig(getStoredPinLockConfig());
       setRoleState(getCurrentUserRole());
       setAuditLogs(getAuditLogs());
-      const pid = activeProjectId || (projects[0]?.id || 'default');
+      const pid = activeProjectId || firstProjectId;
       setSelectedPid(pid);
       setPinMsg(null);
       setClaimMsg(null);
@@ -228,7 +229,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
       setMemberMsg(null);
       refreshCloudStatus(pid);
     }
-  }, [isOpen, activeProjectId, projects]);
+  }, [isOpen, activeProjectId, firstProjectId]);
 
   useEffect(() => {
     if (!selectedPid) return;

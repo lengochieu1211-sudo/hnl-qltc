@@ -7,6 +7,7 @@ import { AppLockOverlay } from './components/AppLockOverlay';
 import { SecurityModal } from './components/SecurityModal';
 import { getStoredPinLockConfig, applyRemotePinReset, logAuditAction, getCurrentUserRole, setCurrentUserRole, UserRole, canEditProjectData, canManageProjects, canManageWorkVolumeStructure, canManageFloorPlanStructure, canManageMaterialNorms, canManageTeams, canManageChecklistStructure, canDeleteBusinessData, canDeleteCrewRecord, canManageBackups, canUseGlobalUndoRedo, canEditWarehouseData, canEditDefectData, canEditChecklistData, canEditCrewData, canImportData } from './utils/securityUtils';
 import { cacheVerifiedProjectRole, getCachedVerifiedProjectRole, getRememberedVerifiedAuthIdentity, rememberVerifiedAuthIdentity } from './utils/offlineAccess';
+import { resolveVerifiedIdentityLabel } from './utils/authIdentityUtils';
 
 function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
   if (!cloudItem || !localItem) return cloudItem;
@@ -306,6 +307,16 @@ export default function App() {
   const trashOperationsRef = useRef<TrashOperation[]>([]);
   const trashCaptureSuppressedRef = useRef(false);
   const googleServerBackendAvailable = hasApiBackend();
+
+  // Keep SecurityModal project props stable while Android's VisualViewport changes as
+  // the soft keyboard opens/closes. Calling getProjectsList() inline creates a fresh array
+  // on every App render, which retriggers SecurityModal initialization and can steal focus
+  // from the phone editor on Android Web/PWA. Refresh only when the modal is (re)opened
+  // or the active project actually changes.
+  const securityModalProjects = React.useMemo(
+    () => getProjectsList(),
+    [isSecurityModalOpen, activeProjectId]
+  );
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -5559,13 +5570,19 @@ export default function App() {
       const newId = defect.id || `DEF-${nextNum}-${uniqueDefectSuffix}`;
       
       const actor = getCurrentRealFirebaseUser();
-      const actorLabel = String(actor?.displayName || actor?.email || defect.createdBy || inspectorName || 'Kỹ sư QC').trim();
+      const rememberedActor = getRememberedVerifiedAuthIdentity();
+      const actorLabel = resolveVerifiedIdentityLabel(actor, rememberedActor);
+      const actorUid = actor?.uid || rememberedActor?.uid || '';
+      if (!actorLabel) {
+        console.warn('[Defect] Không xác định được tài khoản tạo Defect; bỏ qua thao tác để tránh ghi sai Người Tạo.');
+        return prev;
+      }
       const newDefect: DefectItem = {
         ...defect,
         id: newId,
         createdAt: new Date().toISOString(),
         createdBy: actorLabel,
-        ...(actor?.uid ? { createdByUid: actor.uid } : {}),
+        ...(actorUid ? { createdByUid: actorUid } : {}),
       };
 
       return {
@@ -6643,7 +6660,7 @@ export default function App() {
           onClose={() => setIsSecurityModalOpen(false)}
           onLockNow={() => setIsAppLocked(true)}
           activeProjectId={activeProjectId}
-          projects={getProjectsList()}
+          projects={securityModalProjects}
         />
 
         {/* PIN App Lock Fullscreen Overlay */}
