@@ -46,6 +46,7 @@ jobs:
       - name: Create or reuse DEV Firestore default database
         shell: bash
         run: |
+          set +e
           set -uo pipefail
           echo "Attempting DEV Firestore bootstrap in ${DEV_FIRESTORE_LOCATION} for ${DEV_PROJECT_ID}"
           OUT="$(npx --yes firebase-tools@13.35.1 firestore:databases:create '(default)' --location="$DEV_FIRESTORE_LOCATION" --project "$DEV_PROJECT_ID" --non-interactive 2>&1)"
