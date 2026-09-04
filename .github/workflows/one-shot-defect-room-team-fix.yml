@@ -33,21 +33,22 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           path = Path('src/components/FloorPlanDefectTab.tsx')
           text = path.read_text(encoding='utf-8')
 
-          old = """  // The durable teamId is authoritative. Legacy room/sub-item rows may have teamId but an
-          // empty or stale assignedTeam string; the Defect UI must still display the real linked team.
-          const roomAtPosTeam = roomAtPos
-            ? resolveAssignedTeamName(roomAtPos.teamId, roomAtPos.assignedTeam)
-            : '';
-          """
-          new = """  // Surface every team that is actually linked to this room. In real projects the room
-          // root can be intentionally blank while teams are assigned per category/sub-item. The old
-          // picker only read room.teamId/assignedTeam, so a pin inside such a room incorrectly showed
-          // \"Căn chưa gán đội mặc định\" even though the room's work items had valid teamId links.
-          const roomAtPosDefaultTeam = roomAtPos
+          # 1) Replace only the declaration itself; keep surrounding comments/formatting intact.
+          marker = 'const roomAtPosTeam = roomAtPos'
+          start = text.find(marker)
+          if start < 0:
+              raise SystemExit('roomAtPosTeam declaration not found')
+          end_marker = ": '';"
+          end = text.find(end_marker, start)
+          if end < 0:
+              raise SystemExit('roomAtPosTeam declaration end not found')
+          end += len(end_marker)
+          declaration = """const roomAtPosDefaultTeam = roomAtPos
             ? resolveAssignedTeamName(roomAtPos.teamId, roomAtPos.assignedTeam)
             : '';
           const roomAtPosTeamNames = roomAtPos
@@ -56,85 +57,59 @@ jobs:
                 ...(roomAtPos.subItems || []).map((s) => resolveAssignedTeamName(s.teamId, s.assignedTeam)),
               ].filter(Boolean)))
             : [];
-          // A single room-specific team is safe to treat as the room suggestion. If several teams
-          // work in the room, keep all of them visible and require the user to choose the responsible one.
-          const roomAtPosTeam = roomAtPosDefaultTeam || (roomAtPosTeamNames.length === 1 ? roomAtPosTeamNames[0] : '');
-          """
-          if old not in text:
-              raise SystemExit('Expected roomAtPosTeam block not found')
-          text = text.replace(old, new, 1)
+          // If there is exactly one team working in the room, it is a safe primary suggestion.
+          // With several room teams, show all of them and let the user choose the responsible team.
+          const roomAtPosTeam = roomAtPosDefaultTeam || (roomAtPosTeamNames.length === 1 ? roomAtPosTeamNames[0] : '');"""
+          text = text[:start] + declaration + text[end:]
 
-          old = """      ...(roomAtPosTeam ? [roomAtPosTeam] : []),
-          """
-          new = """      ...roomAtPosTeamNames,
-          """
-          if old not in text:
-              raise SystemExit('Expected allSuggestedTeams room entry not found')
-          text = text.replace(old, new, 1)
+          # 2) Current-room teams must precede floor-wide and declared-team fallbacks.
+          old = '...(roomAtPosTeam ? [roomAtPosTeam] : []),'
+          if text.count(old) != 1:
+              raise SystemExit(f'Expected exactly one allSuggestedTeams room entry, got {text.count(old)}')
+          text = text.replace(old, '...roomAtPosTeamNames,', 1)
 
-          old = """    roomAtPos,
-            roomAtPosTeam,
-          """
-          new = """    roomAtPos,
-            roomAtPosTeamNames,
-            roomAtPosTeam,
-          """
-          if old not in text:
-              raise SystemExit('Expected return roomAtPos block not found')
-          text = text.replace(old, new, 1)
+          # 3) Return/destructure the room team collection. There should be exactly two bare properties.
+          prop_pattern = re.compile(r'(?m)^(?P<indent>\s*)roomAtPosTeam,\s*$')
+          matches = list(prop_pattern.finditer(text))
+          if len(matches) != 2:
+              raise SystemExit(f'Expected two roomAtPosTeam object properties, got {len(matches)}')
+          text = prop_pattern.sub(lambda m: f"{m.group('indent')}roomAtPosTeamNames,\n{m.group('indent')}roomAtPosTeam,", text)
 
-          old = """    roomAtPos,
-            roomAtPosTeam,
-            currentFloorTeams,
-          """
-          new = """    roomAtPos,
-            roomAtPosTeamNames,
-            roomAtPosTeam,
-            currentFloorTeams,
-          """
-          if old not in text:
-              raise SystemExit('Expected destructuring roomAtPos block not found')
-          text = text.replace(old, new, 1)
-
-          old = """          {roomAtPosTeam && (
-            <optgroup label=\"📍 Đội thuộc Căn / Phòng hiện tại\">
-              <option value={roomAtPosTeam}>📍 {roomAtPosTeam} ({roomAtPos?.roomName || 'Căn hiện tại'})</option>
-            </optgroup>
-          )}
-          """
-          new = """          {roomAtPosTeamNames.length > 0 && (
-            <optgroup label=\"📍 Đội đang làm Căn / Phòng hiện tại\">
+          # 4) Replace the current-room optgroup with all teams linked at room or sub-item level.
+          opt_pattern = re.compile(
+              r'\{roomAtPosTeam\s*&&\s*\(\s*'
+              r'<optgroup label="📍 Đội thuộc Căn / Phòng hiện tại">.*?'
+              r'</optgroup>\s*\)\}',
+              re.S,
+          )
+          opt_replacement = """{roomAtPosTeamNames.length > 0 && (
+            <optgroup label="📍 Đội đang làm Căn / Phòng hiện tại">
               {roomAtPosTeamNames.map((tName) => (
                 <option key={tName} value={tName}>📍 {tName} ({roomAtPos?.roomName || 'Căn hiện tại'})</option>
               ))}
             </optgroup>
-          )}
-          """
-          if old not in text:
-              raise SystemExit('Expected room team optgroup not found')
-          text = text.replace(old, new, 1)
+          )}"""
+          text, count = opt_pattern.subn(opt_replacement, text, count=1)
+          if count != 1:
+              raise SystemExit(f'Expected one current-room optgroup, got {count}')
 
-          old = """            {roomAtPosTeam ? (
-              <button
-                type=\"button\"
-                onClick={() => onChange(roomAtPosTeam)}
-                className={`px-2 py-1 rounded-lg text-[10px] font-bold shrink-0 transition-all ${
-                  value === roomAtPosTeam
-                    ? 'bg-amber-600 text-white shadow-xs'
-                    : 'bg-white border border-amber-300 text-amber-900 hover:bg-amber-100'
-                }`}
-              >
-                Gán ({roomAtPosTeam})
-              </button>
-            ) : (
-              <span className=\"text-[10px] text-amber-700 italic shrink-0\">Căn chưa gán đội mặc định</span>
-            )}
-          """
-          new = """            {roomAtPosTeamNames.length > 0 ? (
-              <div className=\"flex flex-wrap justify-end gap-1\">
+          # 5) Replace the quick-click room action. Use the visible legacy message as a bounded anchor.
+          message = 'Căn chưa gán đội mặc định'
+          message_pos = text.find(message)
+          if message_pos < 0:
+              raise SystemExit('Legacy room quick-click message not found')
+          quick_start = text.rfind('{roomAtPosTeam ? (', 0, message_pos)
+          if quick_start < 0:
+              raise SystemExit('room quick-click conditional start not found')
+          quick_end = text.find(')}', message_pos)
+          if quick_end < 0:
+              raise SystemExit('room quick-click conditional end not found')
+          quick_end += 2
+          quick_replacement = """{roomAtPosTeamNames.length > 0 ? (
+              <div className="flex flex-wrap justify-end gap-1">
                 {roomAtPosTeamNames.map((tName) => (
                   <button
-                    type=\"button\"
+                    type="button"
                     key={tName}
                     onClick={() => onChange(tName)}
                     className={`px-2 py-1 rounded-lg text-[10px] font-bold shrink-0 transition-all ${
@@ -148,42 +123,41 @@ jobs:
                 ))}
               </div>
             ) : (
-              <span className=\"text-[10px] text-amber-700 italic shrink-0\">Căn chưa gán đội ở cấp căn / hạng mục</span>
-            )}
-          """
-          if old not in text:
-              raise SystemExit('Expected room quick-click block not found')
-          text = text.replace(old, new, 1)
+              <span className="text-[10px] text-amber-700 italic shrink-0">Căn chưa gán đội ở cấp căn / hạng mục</span>
+            )}"""
+          text = text[:quick_start] + quick_replacement + text[quick_end:]
 
           path.write_text(text, encoding='utf-8')
 
+          # Targeted regression evidence for the exact user-visible failure.
           test_path = Path('scripts/defect-linkage-golden.ts')
           test = test_path.read_text(encoding='utf-8')
-          anchor = """assert.match(floorPlanSource, /teamNameById = new Map/, 'Defect team picker must resolve durable room/sub-item teamId to the current team name');
-          """
-          addition = anchor + """assert.match(floorPlanSource, /roomAtPosTeamNames/, 'Defect team picker must collect room-specific teams');
-          assert.match(floorPlanSource, /roomAtPos\\.subItems/, 'Defect team picker must include teams assigned on current-room sub-items');
-          assert.match(floorPlanSource, /Đội đang làm Căn \\/ Phòng hiện tại/, 'Defect picker must prioritize current-room teams before floor-wide teams');
-          """
+          anchor = "assert.match(floorPlanSource, /teamNameById = new Map/, 'Defect team picker must resolve durable room/sub-item teamId to the current team name');"
           if anchor not in test:
-              raise SystemExit('Expected golden assertion anchor not found')
-          test = test.replace(anchor, addition, 1)
+              raise SystemExit('Golden assertion anchor not found')
+          if 'Defect team picker must collect room-specific teams' not in test:
+              addition = anchor + "\n" + (
+                  "assert.match(floorPlanSource, /roomAtPosTeamNames/, 'Defect team picker must collect room-specific teams');\n"
+                  "assert.match(floorPlanSource, /roomAtPos\\.subItems/, 'Defect team picker must include teams assigned on current-room sub-items');\n"
+                  "assert.match(floorPlanSource, /Đội đang làm Căn \\/ Phòng hiện tại/, 'Defect picker must prioritize current-room teams before floor-wide teams');"
+              )
+              test = test.replace(anchor, addition, 1)
           test_path.write_text(test, encoding='utf-8')
 
+          # Ensure this source change triggers Runtime Golden in future dev pushes.
           workflow = Path('.github/workflows/dev-runtime-golden.yml')
           wf = workflow.read_text(encoding='utf-8')
-          anchor = """      - 'scripts/dev-hosted-browser-golden.mjs'
-                - '.github/workflows/dev-runtime-golden.yml'
-          """
-          replacement = """      - 'scripts/dev-hosted-browser-golden.mjs'
-                - 'src/components/FloorPlanDefectTab.tsx'
-                - 'src/utils/defectLinkageUtils.ts'
-                - 'scripts/defect-linkage-golden.ts'
-                - '.github/workflows/dev-runtime-golden.yml'
-          """
-          if anchor not in wf:
-              raise SystemExit('Expected runtime-golden path anchor not found')
-          wf = wf.replace(anchor, replacement, 1)
+          if "      - 'src/components/FloorPlanDefectTab.tsx'" not in wf:
+              anchor_line = "      - '.github/workflows/dev-runtime-golden.yml'"
+              if anchor_line not in wf:
+                  raise SystemExit('Runtime Golden path anchor not found')
+              extra = (
+                  "      - 'src/components/FloorPlanDefectTab.tsx'\n"
+                  "      - 'src/utils/defectLinkageUtils.ts'\n"
+                  "      - 'scripts/defect-linkage-golden.ts'\n"
+                  + anchor_line
+              )
+              wf = wf.replace(anchor_line, extra, 1)
           workflow.write_text(wf, encoding='utf-8')
           PY
 
