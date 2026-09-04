@@ -14,14 +14,15 @@ jobs:
     runs-on: ubuntu-latest
     env:
       FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
-      GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-prod-readonly.json
     steps:
       - name: Require existing PROD service account secret
         shell: bash
         run: |
           set -euo pipefail
           test -n "${FIREBASE_SERVICE_ACCOUNT:-}" || { echo '::error::Missing existing PROD Firebase service account secret'; exit 1; }
-          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          CRED="$RUNNER_TEMP/firebase-prod-readonly.json"
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$CRED"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$CRED" >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
