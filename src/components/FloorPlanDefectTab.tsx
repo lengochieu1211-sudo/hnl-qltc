@@ -83,6 +83,7 @@ import { UserRole, canManageFloorPlanStructure, canEditDefectData, canDeleteBusi
 import { appendRuntimeDiagnostic } from '../lib/runtimeDiagnostics';
 import { getCurrentRealFirebaseUser } from '../lib/firebase';
 import { getRememberedVerifiedAuthIdentity } from '../utils/offlineAccess';
+import { resolveVerifiedIdentityLabel } from '../utils/authIdentityUtils';
 import { ContactMenu } from './ContactMenu';
 import { buildDefectShareText, resolveDefectTeam } from '../utils/defectContactUtils';
 import { isPointInsideRoom, reconcileDefectLinkage, resolveDefectLinkageFromSelection } from '../utils/defectLinkageUtils';
@@ -1005,12 +1006,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   });
   const realDefectCreator = getCurrentRealFirebaseUser();
   const rememberedDefectCreator = getRememberedVerifiedAuthIdentity();
-  const currentDefectCreatorLabel = String(
-    realDefectCreator?.displayName ||
-    realDefectCreator?.email ||
-    rememberedDefectCreator?.displayName ||
-    rememberedDefectCreator?.email || ''
-  ).trim();
+  const currentDefectCreatorLabel = resolveVerifiedIdentityLabel(
+    realDefectCreator,
+    rememberedDefectCreator,
+  );
   const [dueDate, setDueDate] = useState(() => {
     const saved = localStorage.getItem(getDraftKey('construction_defect_draft_dueDate'));
     if (saved) return saved;

@@ -7,6 +7,7 @@ import { AppLockOverlay } from './components/AppLockOverlay';
 import { SecurityModal } from './components/SecurityModal';
 import { getStoredPinLockConfig, applyRemotePinReset, logAuditAction, getCurrentUserRole, setCurrentUserRole, UserRole, canEditProjectData, canManageProjects, canManageWorkVolumeStructure, canManageFloorPlanStructure, canManageMaterialNorms, canManageTeams, canManageChecklistStructure, canDeleteBusinessData, canDeleteCrewRecord, canManageBackups, canUseGlobalUndoRedo, canEditWarehouseData, canEditDefectData, canEditChecklistData, canEditCrewData, canImportData } from './utils/securityUtils';
 import { cacheVerifiedProjectRole, getCachedVerifiedProjectRole, getRememberedVerifiedAuthIdentity, rememberVerifiedAuthIdentity } from './utils/offlineAccess';
+import { resolveVerifiedIdentityLabel } from './utils/authIdentityUtils';
 
 function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
   if (!cloudItem || !localItem) return cloudItem;
@@ -5570,11 +5571,7 @@ export default function App() {
       
       const actor = getCurrentRealFirebaseUser();
       const rememberedActor = getRememberedVerifiedAuthIdentity();
-      const actorLabel = String(
-        actor?.displayName || actor?.email ||
-        rememberedActor?.displayName || rememberedActor?.email ||
-        defect.createdBy || ''
-      ).trim();
+      const actorLabel = resolveVerifiedIdentityLabel(actor, rememberedActor);
       const actorUid = actor?.uid || rememberedActor?.uid || '';
       if (!actorLabel) {
         console.warn('[Defect] Không xác định được tài khoản tạo Defect; bỏ qua thao tác để tránh ghi sai Người Tạo.');
