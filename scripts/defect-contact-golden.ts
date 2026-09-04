@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { buildDefectShareText, resolveDefectTeam } from '../src/utils/defectContactUtils';
 import type { DefectItem, TeamInfo } from '../src/types';
 
@@ -29,5 +30,12 @@ const text = buildDefectShareText(defect);
 for (const expected of ['HNL QLTC – Defect', 'Tầng: Tầng 5', 'Loại lỗi: Tấm thạch cao', 'Mô tả: Thiếu vít', 'Phụ trách: Đội Tấm B', '05/09/2026', 'Trạng thái: Đang sửa']) {
   assert.ok(text.includes(expected), `Missing share text segment: ${expected}`);
 }
+
+const floorPlanSource = fs.readFileSync('src/components/FloorPlanDefectTab.tsx', 'utf8');
+const appSource = fs.readFileSync('src/App.tsx', 'utf8');
+assert.match(floorPlanSource, /getCurrentRealFirebaseUser\(\)/, 'Defect creator preview must read the active Firebase identity');
+assert.match(floorPlanSource, /getRememberedVerifiedAuthIdentity\(\)/, 'Defect creator preview must retain verified offline identity');
+assert.doesNotMatch(floorPlanSource, /const \[createdBy, setCreatedBy\] = useState\(\(\) => inspectorName \|\| 'Kỹ sư QC'\)/, 'Defect creator preview must not freeze to the legacy QC placeholder');
+assert.doesNotMatch(appSource, /defect\.createdBy \|\| inspectorName \|\| 'Kỹ sư QC'/, 'Persisted Defect creator must not fall back to a fake QC identity');
 
 console.log('Defect Contact Golden: PASS');
