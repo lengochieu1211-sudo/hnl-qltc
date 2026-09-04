@@ -2,12 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { google } from 'googleapis';
 import { initializeApp, deleteApp } from 'firebase/app';
-import {
-  getAuth,
-  signInWithCustomToken,
-  deleteUser,
-  getIdTokenResult,
-} from 'firebase/auth';
+import { getAuth, signInWithCustomToken, deleteUser, getIdTokenResult } from 'firebase/auth';
 import {
   getFirestore,
   doc,
@@ -58,25 +53,16 @@ const viewerUid = `dev-viewer-${nonce}`.slice(0, 120);
 const adminEmail = `dev-admin-${nonce}@example.test`.toLowerCase();
 const editorEmail = `dev-editor-${nonce}@example.test`.toLowerCase();
 const viewerEmail = `dev-viewer-${nonce}@example.test`.toLowerCase();
-
 const floorId = 'FP-LIVE-1';
 const roomId = 'ROOM-LIVE-1';
 const teamId = 'TEAM-LIVE-1';
 const defectId = 'DEFECT-LIVE-1';
 
-const report = {
-  projectId,
-  pid,
-  startedAt: new Date().toISOString(),
-  checks: [],
-  cleanup: [],
-};
-
+const report = { projectId, pid, startedAt: new Date().toISOString(), checks: [], cleanup: [] };
 const pass = (name, detail = '') => {
   report.checks.push({ name, status: 'PASS', detail });
   console.log(`PASS LIVE: ${name}${detail ? ` — ${detail}` : ''}`);
 };
-
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const b64url = (value) => Buffer.from(value).toString('base64url');
 
@@ -90,11 +76,7 @@ function mintCustomToken(uid, email) {
     iat: now,
     exp: now + 3600,
     uid,
-    claims: {
-      email,
-      email_verified: true,
-      hnlDevGolden: true,
-    },
+    claims: { email, email_verified: true, hnlDevGolden: true },
   };
   const unsigned = `${b64url(JSON.stringify(header))}.${b64url(JSON.stringify(payload))}`;
   const signature = crypto.sign('RSA-SHA256', Buffer.from(unsigned), serviceAccount.private_key).toString('base64url');
@@ -104,8 +86,7 @@ function mintCustomToken(uid, email) {
 async function createIdentity(kind, uid, email) {
   const app = initializeApp(config, `dev-live-${kind}-${nonce}`);
   const auth = getAuth(app);
-  const token = mintCustomToken(uid, email);
-  await signInWithCustomToken(auth, token);
+  await signInWithCustomToken(auth, mintCustomToken(uid, email));
   const tokenResult = await getIdTokenResult(auth.currentUser, true);
   if (String(tokenResult.claims.email || '').toLowerCase() !== email) {
     throw new Error(`${kind} custom token email claim missing`);
@@ -135,6 +116,27 @@ async function requireStatus(name, response, expected) {
   }
   pass(name, `HTTP ${expected}`);
   return response;
+}
+
+function waitForSnapshot(ref, predicate, label, timeoutMs = 15000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      unsubscribe();
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    const unsubscribe = onSnapshot(ref, snapshot => {
+      if (!snapshot.exists()) return;
+      const data = snapshot.data();
+      if (!predicate(data)) return;
+      clearTimeout(timer);
+      unsubscribe();
+      resolve(data);
+    }, error => {
+      clearTimeout(timer);
+      unsubscribe();
+      reject(error);
+    });
+  });
 }
 
 async function adminAccessToken() {
@@ -169,7 +171,6 @@ async function adminDeleteDoc(oauthToken, path) {
 let admin;
 let editor;
 let viewer;
-let unsubscribeRealtime;
 let r2ObjectKey = '';
 
 try {
@@ -182,8 +183,7 @@ try {
   const projectRefViewer = doc(viewer.db, 'projects', pid);
   const now = Date.now();
 
-  const missing = await getDoc(projectRefAdmin);
-  if (missing.exists()) throw new Error('Fresh live golden project unexpectedly exists');
+  if ((await getDoc(projectRefAdmin)).exists()) throw new Error('Fresh live golden project unexpectedly exists');
   pass('fresh DEV project root probe');
 
   await setDoc(projectRefAdmin, {
@@ -214,8 +214,7 @@ try {
   if (!(await getDoc(projectRefViewer)).exists()) throw new Error('VIEWER cannot read live project');
   pass('multi-user project reads through deployed Firestore rules');
 
-  const contactRefAdmin = doc(admin.db, 'projects', pid, 'memberContacts', editorEmail);
-  await setDoc(contactRefAdmin, {
+  await setDoc(doc(admin.db, 'projects', pid, 'memberContacts', editorEmail), {
     projectId: pid,
     email: editorEmail,
     phone: '0901234567',
@@ -283,18 +282,11 @@ try {
 
   const defectRefEditor = doc(editor.db, 'projects', pid, 'defects', defectId);
   const defectRefViewer = doc(viewer.db, 'projects', pid, 'defects', defectId);
-  const realtimePromise = new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error('Realtime viewer did not receive defect within 15s')), 15000);
-    unsubscribeRealtime = onSnapshot(defectRefViewer, snapshot => {
-      if (snapshot.exists() && snapshot.data().id === defectId) {
-        clearTimeout(timeout);
-        resolve(snapshot.data());
-      }
-    }, error => {
-      clearTimeout(timeout);
-      reject(error);
-    });
-  });
+  const viewerSeesCreate = waitForSnapshot(
+    defectRefViewer,
+    data => data.id === defectId && data.revision === 1,
+    'VIEWER realtime Defect create',
+  );
 
   await setDoc(defectRefEditor, {
     id: defectId,
@@ -314,7 +306,7 @@ try {
   });
   pass('EDITOR creates operational Defect on live DEV');
 
-  const realtimeDefect = await realtimePromise;
+  const realtimeDefect = await viewerSeesCreate;
   if (realtimeDefect.roomId !== roomId || realtimeDefect.teamId !== teamId) {
     throw new Error(`Realtime Defect linkage mismatch: room=${realtimeDefect.roomId} team=${realtimeDefect.teamId}`);
   }
@@ -349,14 +341,21 @@ try {
   await sleep(500);
   if (pendingResolved) throw new Error('Offline write unexpectedly committed while Firestore network disabled');
   pass('offline write remains pending while network disabled');
+
+  const viewerSeesReconnect = waitForSnapshot(
+    defectRefViewer,
+    data => data.revision === 3 && data.status === 'Chờ đồng bộ lại',
+    'VIEWER realtime reconnect update',
+    20000,
+  );
   await enableNetwork(editor.db);
   await offlinePendingWrite;
   await waitForPendingWrites(editor.db);
-  const reconnected = await getDoc(defectRefViewer);
-  if (!reconnected.exists() || reconnected.data().revision !== 3 || reconnected.data().status !== 'Chờ đồng bộ lại') {
-    throw new Error('Reconnect did not publish pending Defect mutation to other identity');
+  const reconnected = await viewerSeesReconnect;
+  if (reconnected.roomId !== roomId || reconnected.teamId !== teamId) {
+    throw new Error('Reconnect changed Defect room/team identity');
   }
-  pass('offline → reconnect publishes pending Defect to VIEWER');
+  pass('offline → reconnect publishes pending Defect to VIEWER with linkage intact');
 
   const editorIdToken = await editor.auth.currentUser.getIdToken(true);
   const viewerIdToken = await viewer.auth.currentUser.getIdToken(true);
@@ -366,7 +365,7 @@ try {
   const payload = Buffer.from(`HNL-QLTC-DEV-R2-${nonce}`, 'utf8');
   const metadata = encodeURIComponent(JSON.stringify({ projectId: pid, entityType: 'defect', entityId: defectId, golden: 'true' }));
 
-  const editorPut = await fetch(r2Endpoint, {
+  await requireStatus('EDITOR uploads operational media to DEV R2', await fetch(r2Endpoint, {
     method: 'PUT',
     headers: {
       Authorization: `Bearer ${editorIdToken}`,
@@ -375,53 +374,44 @@ try {
       'X-HNL-Metadata': metadata,
     },
     body: payload,
-  });
-  await requireStatus('EDITOR uploads operational media to DEV R2', editorPut, 200);
+  }), 200);
 
-  const viewerHead = await fetch(r2Endpoint, {
+  const viewerHead = await requireStatus('VIEWER HEADs durable DEV R2 media', await fetch(r2Endpoint, {
     method: 'HEAD',
     headers: { Authorization: `Bearer ${viewerIdToken}`, Origin: hostingUrl },
-  });
-  await requireStatus('VIEWER HEADs durable DEV R2 media', viewerHead, 200);
-  if (Number(viewerHead.headers.get('content-length') || 0) !== payload.length) {
-    throw new Error('R2 HEAD content-length mismatch');
-  }
+  }), 200);
+  if (Number(viewerHead.headers.get('content-length') || 0) !== payload.length) throw new Error('R2 HEAD content-length mismatch');
   if (!viewerHead.headers.get('x-hnl-sha256')) throw new Error('R2 HEAD missing X-HNL-SHA256');
   pass('R2 durability exposes byte size + SHA256');
 
-  const viewerGet = await fetch(r2Endpoint, {
+  const viewerGet = await requireStatus('VIEWER reads DEV R2 media cross-account', await fetch(r2Endpoint, {
     headers: { Authorization: `Bearer ${viewerIdToken}`, Origin: hostingUrl },
-  });
-  await requireStatus('VIEWER reads DEV R2 media cross-account', viewerGet, 200);
+  }), 200);
   const downloaded = Buffer.from(await viewerGet.arrayBuffer());
   if (!downloaded.equals(payload)) throw new Error('Cross-account R2 binary payload mismatch');
   pass('cross-account R2 binary byte parity');
 
-  const viewerPut = await fetch(`${r2Url}/v1/object?key=${encodeURIComponent(`projects/${pid}/media/viewer-denied.txt`)}`, {
+  await requireStatus('VIEWER cannot upload DEV R2 media', await fetch(`${r2Url}/v1/object?key=${encodeURIComponent(`projects/${pid}/media/viewer-denied.txt`)}`, {
     method: 'PUT',
     headers: { Authorization: `Bearer ${viewerIdToken}`, Origin: hostingUrl, 'Content-Type': 'text/plain' },
     body: Buffer.from('deny-me'),
-  });
-  await requireStatus('VIEWER cannot upload DEV R2 media', viewerPut, 403);
+  }), 403);
 
-  const editorFloorPut = await fetch(`${r2Url}/v1/object?key=${encodeURIComponent(`projects/${pid}/floor-plans/editor-denied.txt`)}`, {
+  await requireStatus('EDITOR cannot upload floor-plan structure to DEV R2', await fetch(`${r2Url}/v1/object?key=${encodeURIComponent(`projects/${pid}/floor-plans/editor-denied.txt`)}`, {
     method: 'PUT',
     headers: { Authorization: `Bearer ${editorIdToken}`, Origin: hostingUrl, 'Content-Type': 'text/plain' },
     body: Buffer.from('deny-floor'),
-  });
-  await requireStatus('EDITOR cannot upload floor-plan structure to DEV R2', editorFloorPut, 403);
+  }), 403);
 
-  const editorDelete = await fetch(r2Endpoint, {
+  await requireStatus('EDITOR cannot purge DEV R2 media', await fetch(r2Endpoint, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${editorIdToken}`, Origin: hostingUrl },
-  });
-  await requireStatus('EDITOR cannot purge DEV R2 media', editorDelete, 403);
+  }), 403);
 
-  const adminDelete = await fetch(r2Endpoint, {
+  await requireStatus('ADMIN purges DEV R2 golden media', await fetch(r2Endpoint, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${adminIdToken}`, Origin: hostingUrl },
-  });
-  await requireStatus('ADMIN purges DEV R2 golden media', adminDelete, 200);
+  }), 200);
   r2ObjectKey = '';
 
   report.status = 'PASS';
@@ -431,7 +421,16 @@ try {
   console.error(report.error);
   process.exitCode = 1;
 } finally {
-  try { if (unsubscribeRealtime) unsubscribeRealtime(); } catch {}
+  if (r2ObjectKey && admin?.auth?.currentUser) {
+    try {
+      const token = await admin.auth.currentUser.getIdToken(true);
+      await fetch(`${r2Url}/v1/object?key=${encodeURIComponent(r2ObjectKey)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}`, Origin: hostingUrl },
+      });
+      report.cleanup.push({ r2ObjectKey, status: 'DELETE_ATTEMPTED' });
+    } catch {}
+  }
 
   try {
     const oauth = await adminAccessToken();
