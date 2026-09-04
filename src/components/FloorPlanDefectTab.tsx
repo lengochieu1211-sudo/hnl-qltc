@@ -139,9 +139,18 @@ const getCandidateTeamsForDefect = (
 
   // The durable teamId is authoritative. Legacy room/sub-item rows may have teamId but an
   // empty or stale assignedTeam string; the Defect UI must still display the real linked team.
-  const roomAtPosTeam = roomAtPos
-    ? resolveAssignedTeamName(roomAtPos.teamId, roomAtPos.assignedTeam)
-    : '';
+  const roomAtPosDefaultTeam = roomAtPos
+  ? resolveAssignedTeamName(roomAtPos.teamId, roomAtPos.assignedTeam)
+  : '';
+const roomAtPosTeamNames = roomAtPos
+  ? Array.from(new Set([
+      roomAtPosDefaultTeam,
+      ...(roomAtPos.subItems || []).map((s) => resolveAssignedTeamName(s.teamId, s.assignedTeam)),
+    ].filter(Boolean)))
+  : [];
+// If there is exactly one team working in the room, it is a safe primary suggestion.
+// With several room teams, show all of them and let the user choose the responsible team.
+const roomAtPosTeam = roomAtPosDefaultTeam || (roomAtPosTeamNames.length === 1 ? roomAtPosTeamNames[0] : '');
 
   const currentFloorTeamsSet = new Set<string>();
   activeFloorRooms.forEach((r) => {
@@ -169,7 +178,7 @@ const getCandidateTeamsForDefect = (
 
   const allSuggestedTeams = Array.from(
     new Set([
-      ...(roomAtPosTeam ? [roomAtPosTeam] : []),
+      ...roomAtPosTeamNames,
       ...currentFloorTeams,
       ...declaredTeamNames,
       ...allFloorTeams,
@@ -181,6 +190,7 @@ const getCandidateTeamsForDefect = (
 
   return {
     roomAtPos,
+    roomAtPosTeamNames,
     roomAtPosTeam,
     currentFloorTeams,
     declaredTeamNames,
@@ -209,6 +219,7 @@ const TeamSelectorInput: React.FC<TeamSelectorInputProps> = ({
 }) => {
   const {
     roomAtPos,
+    roomAtPosTeamNames,
     roomAtPosTeam,
     currentFloorTeams,
     declaredTeamNames,
@@ -243,11 +254,13 @@ const TeamSelectorInput: React.FC<TeamSelectorInputProps> = ({
         >
           <option value="">-- Chọn đội từ danh sách ở đây --</option>
           
-          {roomAtPosTeam && (
-            <optgroup label="📍 Đội thuộc Căn / Phòng hiện tại">
-              <option value={roomAtPosTeam}>📍 {roomAtPosTeam} ({roomAtPos?.roomName || 'Căn hiện tại'})</option>
-            </optgroup>
-          )}
+          {roomAtPosTeamNames.length > 0 && (
+  <optgroup label="📍 Đội đang làm Căn / Phòng hiện tại">
+    {roomAtPosTeamNames.map((tName) => (
+      <option key={tName} value={tName}>📍 {tName} ({roomAtPos?.roomName || 'Căn hiện tại'})</option>
+    ))}
+  </optgroup>
+)}
 
           {currentFloorTeams.length > 0 && (
             <optgroup label="🏢 Đội thi công trên tầng này">
@@ -300,21 +313,26 @@ const TeamSelectorInput: React.FC<TeamSelectorInputProps> = ({
             <span className="font-semibold text-amber-900 truncate">
               📍 Vị trí: <strong>{roomAtPos.roomName}</strong>
             </span>
-            {roomAtPosTeam ? (
-              <button
-                type="button"
-                onClick={() => onChange(roomAtPosTeam)}
-                className={`px-2 py-1 rounded-lg text-[10px] font-bold shrink-0 transition-all ${
-                  value === roomAtPosTeam
-                    ? 'bg-amber-600 text-white shadow-xs'
-                    : 'bg-white border border-amber-300 text-amber-900 hover:bg-amber-100'
-                }`}
-              >
-                Gán ({roomAtPosTeam})
-              </button>
-            ) : (
-              <span className="text-[10px] text-amber-700 italic shrink-0">Căn chưa gán đội mặc định</span>
-            )}
+            {roomAtPosTeamNames.length > 0 ? (
+    <div className="flex flex-wrap justify-end gap-1">
+      {roomAtPosTeamNames.map((tName) => (
+        <button
+          type="button"
+          key={tName}
+          onClick={() => onChange(tName)}
+          className={`px-2 py-1 rounded-lg text-[10px] font-bold shrink-0 transition-all ${
+            value === tName
+              ? 'bg-amber-600 text-white shadow-xs'
+              : 'bg-white border border-amber-300 text-amber-900 hover:bg-amber-100'
+          }`}
+        >
+          {tName}
+        </button>
+      ))}
+    </div>
+  ) : (
+    <span className="text-[10px] text-amber-700 italic shrink-0">Căn chưa gán đội ở cấp căn / hạng mục</span>
+  )}
           </div>
         )}
 
