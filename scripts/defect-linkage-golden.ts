@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { findRoomForDefectPoint, reconcileDefectLinkage, resolveDefectLinkageFromSelection } from '../src/utils/defectLinkageUtils';
 import type { DefectItem, RoomProgressItem, TeamInfo } from '../src/types';
 
@@ -47,5 +48,10 @@ assert.deepEqual(selected, { roomId: 'room-101', teamId: 'team-b', assignedTo: '
 const loading = reconcileDefectLinkage({ ...base, roomId: 'room-101', teamId: 'team-a' }, [], []);
 assert.equal(loading.roomId, 'room-101', 'empty realtime rooms must not erase roomId');
 assert.equal(loading.teamId, 'team-a', 'empty realtime teams must not erase teamId');
+
+const floorPlanSource = fs.readFileSync('src/components/FloorPlanDefectTab.tsx', 'utf8');
+assert.match(floorPlanSource, /teamNameById = new Map/, 'Defect team picker must resolve durable room/sub-item teamId to the current team name');
+assert.match(floorPlanSource, /Đội Defect đang chọn:/, 'Defect form must visibly confirm the team selected for the Defect');
+assert.doesNotMatch(floorPlanSource, />Căn này chưa có đội</, 'ambiguous legacy room-team warning must not hide a valid Defect team selection');
 
 console.log('Defect Linkage Golden: PASS');
