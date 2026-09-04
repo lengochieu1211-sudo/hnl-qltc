@@ -1,0 +1,134 @@
+name: Build HNL QLTC Android DEV APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [dev]
+    paths:
+      - 'android-wrapper/**'
+      - 'src/**'
+      - 'public/**'
+      - 'index.html'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'vite.config.ts'
+      - '.github/workflows/android-apk-dev.yml'
+
+permissions:
+  contents: read
+
+env:
+  DEV_FIREBASE_PROJECT_ID: hnl-qltc-dev
+  PROD_FIREBASE_PROJECT_ID: com-example-qlct-61329
+  DEV_HOSTING_URL: https://hnl-qltc-dev.web.app
+  DEV_R2_URL: https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev
+  PROD_R2_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
+
+jobs:
+  build_dev_apk:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev
+      VITE_ENABLE_LEGACY_DRIVE_READ: "true"
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: "false"
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: "false"
+      VITE_FIREBASE_API_KEY: AIzaSyB6y060Mji2684mB-g1qYHoEJ-F1ep5q5M
+      VITE_FIREBASE_AUTH_DOMAIN: hnl-qltc-dev.web.app
+      VITE_FIREBASE_PROJECT_ID: hnl-qltc-dev
+      VITE_FIREBASE_STORAGE_BUCKET: hnl-qltc-dev.firebasestorage.app
+      VITE_FIREBASE_MESSAGING_SENDER_ID: "1036808734475"
+      VITE_FIREBASE_APP_ID: 1:1036808734475:web:e124b3ff0c50369393840e
+      VITE_FIRESTORE_DATABASE_ID: "(default)"
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: "(default)"
+      VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      VITE_GIT_COMMIT: ${{ github.sha }}
+      QLCT_WEB_URL: https://hnl-qltc-dev.web.app/?app=android&env=dev
+      QLCT_RELEASE_TAG: 6.3.0-dev
+
+    steps:
+      - name: Checkout DEV
+        uses: actions/checkout@v4
+
+      - name: DEV isolation gate
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -ne 'refs/heads/dev') { throw "REFUSING: DEV APK must run on dev, got $env:GITHUB_REF" }
+          if ($env:VITE_FIREBASE_PROJECT_ID -ne $env:DEV_FIREBASE_PROJECT_ID) { throw 'REFUSING: Firebase project is not HNL QLTC DEV' }
+          if ($env:VITE_FIREBASE_PROJECT_ID -eq $env:PROD_FIREBASE_PROJECT_ID) { throw 'REFUSING: DEV APK points to PROD Firebase' }
+          if ($env:VITE_R2_GATEWAY_URL -ne $env:DEV_R2_URL) { throw 'REFUSING: R2 gateway is not DEV' }
+          if ($env:VITE_R2_GATEWAY_URL -eq $env:PROD_R2_URL) { throw 'REFUSING: DEV APK points to PROD R2' }
+          if ($env:QLCT_WEB_URL -notlike 'https://hnl-qltc-dev.web.app/*') { throw 'REFUSING: Android wrapper URL is not DEV Hosting' }
+          if ($env:QLCT_WEB_URL -match 'hnlqltc\.web\.app|com-example-qlct-61329') { throw 'REFUSING: Android wrapper URL references PROD' }
+          Write-Host 'Android DEV isolation gate: PASS'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Stability Gate
+        run: npm run test:stability
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build DEV web bundle
+        run: npm run build
+
+      - name: Mark wrapper as DEV and require non-release signing
+        shell: pwsh
+        run: |
+          # Keep DEV unmistakable on-device. This edit exists only in the CI runner.
+          $manifest = './android-wrapper/AndroidManifest.xml'
+          $text = Get-Content -Raw -LiteralPath $manifest
+          $text = $text -replace 'android:label="HNL Quản Lý Thi Công"', 'android:label="HNL QLTC DEV"'
+          [System.IO.File]::WriteAllText((Resolve-Path $manifest), $text, (New-Object System.Text.UTF8Encoding($false)))
+
+          # DEV intentionally does NOT receive the production release keystore secrets.
+          # build-apk.ps1 therefore creates an ephemeral development key. Because the
+          # package name is unchanged, Android will refuse to overwrite a release-signed
+          # PROD install rather than accidentally replacing it with DEV.
+          Remove-Item Env:QLCT_ANDROID_KEYSTORE_BASE64 -ErrorAction SilentlyContinue
+          Remove-Item Env:QLCT_ANDROID_KEYSTORE_PASSWORD -ErrorAction SilentlyContinue
+          Remove-Item Env:QLCT_ANDROID_KEY_PASSWORD -ErrorAction SilentlyContinue
+          Remove-Item Env:QLCT_ANDROID_KEY_ALIAS -ErrorAction SilentlyContinue
+
+      - name: Build isolated DEV APK
+        shell: pwsh
+        run: ./android-wrapper/build-apk.ps1
+
+      - name: Verify DEV APK and embedded target
+        shell: pwsh
+        run: |
+          if (-not (Test-Path -LiteralPath './HNL-QLTC-Android.apk')) { throw 'DEV APK was not created' }
+          $strings = Get-Content -Raw -LiteralPath './android-wrapper/res/values/strings.xml'
+          if ($strings -notmatch 'https://hnl-qltc-dev\.web\.app/') { throw 'DEV Hosting URL not embedded in wrapper resources' }
+          if ($strings -match 'https://hnlqltc\.web\.app|com-example-qlct-61329') { throw 'REFUSING: PROD target leaked into DEV wrapper URL' }
+          Move-Item -Force './HNL-QLTC-Android.apk' './HNL-QLTC-Android-DEV.apk'
+          Get-Item './HNL-QLTC-Android-DEV.apk' | Format-List Name,Length,LastWriteTime
+
+      - name: Upload DEV APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-Android-DEV-${{ github.run_number }}
+          path: HNL-QLTC-Android-DEV.apk
+          if-no-files-found: error
+          retention-days: 30
