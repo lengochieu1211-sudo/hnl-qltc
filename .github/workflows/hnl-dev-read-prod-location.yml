@@ -1,0 +1,33 @@
+name: HNL DEV Read PROD Firestore Location
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - '.github/workflows/hnl-dev-read-prod-location.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  read_location:
+    runs-on: ubuntu-latest
+    env:
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+      GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-prod-readonly.json
+    steps:
+      - name: Require existing PROD service account secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${FIREBASE_SERVICE_ACCOUNT:-}" || { echo '::error::Missing existing PROD Firebase service account secret'; exit 1; }
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Read Firestore database metadata only
+        shell: bash
+        run: |
+          set -euo pipefail
+          RAW="$(npx --yes firebase-tools@13.35.1 firestore:databases:list --project com-example-qlct-61329 --json)"
+          printf '%s' "$RAW" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const r=Array.isArray(j.result)?j.result:[];const d=r.find(x=>x.name&&x.name.endsWith('/databases/(default)'))||r[0];if(!d){console.error('No Firestore database metadata returned');process.exit(2)};console.log('PROD_FIRESTORE_LOCATION='+(d.locationId||d.location||'UNKNOWN'));console.log('PROD_FIRESTORE_TYPE='+(d.type||'UNKNOWN'));})"
