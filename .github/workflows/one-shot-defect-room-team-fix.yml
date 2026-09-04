@@ -38,7 +38,6 @@ jobs:
           path = Path('src/components/FloorPlanDefectTab.tsx')
           text = path.read_text(encoding='utf-8')
 
-          # 1) Replace only the declaration itself; keep surrounding comments/formatting intact.
           marker = 'const roomAtPosTeam = roomAtPos'
           start = text.find(marker)
           if start < 0:
@@ -62,20 +61,17 @@ jobs:
           const roomAtPosTeam = roomAtPosDefaultTeam || (roomAtPosTeamNames.length === 1 ? roomAtPosTeamNames[0] : '');"""
           text = text[:start] + declaration + text[end:]
 
-          # 2) Current-room teams must precede floor-wide and declared-team fallbacks.
           old = '...(roomAtPosTeam ? [roomAtPosTeam] : []),'
           if text.count(old) != 1:
               raise SystemExit(f'Expected exactly one allSuggestedTeams room entry, got {text.count(old)}')
           text = text.replace(old, '...roomAtPosTeamNames,', 1)
 
-          # 3) Return/destructure the room team collection. There should be exactly two bare properties.
           prop_pattern = re.compile(r'(?m)^(?P<indent>\s*)roomAtPosTeam,\s*$')
           matches = list(prop_pattern.finditer(text))
           if len(matches) != 2:
               raise SystemExit(f'Expected two roomAtPosTeam object properties, got {len(matches)}')
           text = prop_pattern.sub(lambda m: f"{m.group('indent')}roomAtPosTeamNames,\n{m.group('indent')}roomAtPosTeam,", text)
 
-          # 4) Replace the current-room optgroup with all teams linked at room or sub-item level.
           opt_pattern = re.compile(
               r'\{roomAtPosTeam\s*&&\s*\(\s*'
               r'<optgroup label="📍 Đội thuộc Căn / Phòng hiện tại">.*?'
@@ -93,7 +89,6 @@ jobs:
           if count != 1:
               raise SystemExit(f'Expected one current-room optgroup, got {count}')
 
-          # 5) Replace the quick-click room action. Use the visible legacy message as a bounded anchor.
           message = 'Căn chưa gán đội mặc định'
           message_pos = text.find(message)
           if message_pos < 0:
@@ -126,10 +121,8 @@ jobs:
               <span className="text-[10px] text-amber-700 italic shrink-0">Căn chưa gán đội ở cấp căn / hạng mục</span>
             )}"""
           text = text[:quick_start] + quick_replacement + text[quick_end:]
-
           path.write_text(text, encoding='utf-8')
 
-          # Targeted regression evidence for the exact user-visible failure.
           test_path = Path('scripts/defect-linkage-golden.ts')
           test = test_path.read_text(encoding='utf-8')
           anchor = "assert.match(floorPlanSource, /teamNameById = new Map/, 'Defect team picker must resolve durable room/sub-item teamId to the current team name');"
@@ -143,22 +136,6 @@ jobs:
               )
               test = test.replace(anchor, addition, 1)
           test_path.write_text(test, encoding='utf-8')
-
-          # Ensure this source change triggers Runtime Golden in future dev pushes.
-          workflow = Path('.github/workflows/dev-runtime-golden.yml')
-          wf = workflow.read_text(encoding='utf-8')
-          if "      - 'src/components/FloorPlanDefectTab.tsx'" not in wf:
-              anchor_line = "      - '.github/workflows/dev-runtime-golden.yml'"
-              if anchor_line not in wf:
-                  raise SystemExit('Runtime Golden path anchor not found')
-              extra = (
-                  "      - 'src/components/FloorPlanDefectTab.tsx'\n"
-                  "      - 'src/utils/defectLinkageUtils.ts'\n"
-                  "      - 'scripts/defect-linkage-golden.ts'\n"
-                  + anchor_line
-              )
-              wf = wf.replace(anchor_line, extra, 1)
-          workflow.write_text(wf, encoding='utf-8')
           PY
 
       - name: Validate targeted linkage repair
@@ -169,14 +146,13 @@ jobs:
           npm run lint
           npm run build
 
-      - name: Commit source repair and remove one-shot workflow
+      - name: Commit source repair
         shell: bash
         run: |
           set -euo pipefail
-          rm -f .github/workflows/one-shot-defect-room-team-fix.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/components/FloorPlanDefectTab.tsx scripts/defect-linkage-golden.ts .github/workflows/dev-runtime-golden.yml .github/workflows/one-shot-defect-room-team-fix.yml
+          git add src/components/FloorPlanDefectTab.tsx scripts/defect-linkage-golden.ts
           git diff --cached --check
           git commit -m 'fix(dev): suggest teams working in selected room for Defect'
           git push origin HEAD:dev
