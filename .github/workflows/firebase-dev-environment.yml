@@ -191,12 +191,18 @@ jobs:
         if: steps.preflight.outputs.configured == 'true'
         shell: bash
         run: |
-          set -euo pipefail
-          LIST="$(npx --yes wrangler@4.33.0 r2 bucket list --json)"
-          if printf '%s' "$LIST" | DEV_R2_BUCKET="$DEV_R2_BUCKET" node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const r=Array.isArray(j)?j:(Array.isArray(j.result)?j.result:[]);process.exit(r.some(x=>(x.name||x.bucket_name)===process.env.DEV_R2_BUCKET)?0:1)})"; then
-            echo "DEV R2 bucket exists: $DEV_R2_BUCKET"
+          set +e
+          OUT="$(npx --yes wrangler@4.33.0 r2 bucket create "$DEV_R2_BUCKET" 2>&1)"
+          RC=$?
+          set -e
+          printf '%s\n' "$OUT"
+          if [ "$RC" -eq 0 ]; then
+            echo "DEV R2 bucket created: $DEV_R2_BUCKET"
+          elif printf '%s' "$OUT" | grep -Eqi 'already exists|already in use|bucket.*exists'; then
+            echo "DEV R2 bucket already exists: $DEV_R2_BUCKET"
           else
-            npx --yes wrangler@4.33.0 r2 bucket create "$DEV_R2_BUCKET"
+            echo "::error::Unable to create/reuse DEV R2 bucket: $DEV_R2_BUCKET"
+            exit "$RC"
           fi
 
       - name: Deploy isolated DEV R2 Worker
