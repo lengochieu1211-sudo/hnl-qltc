@@ -1,4 +1,5 @@
 name: Build HNL QLTC Android DEV APK
+# DEV certification trigger: dark active-project card + room Excel export/link hardening.
 
 on:
   workflow_dispatch:
