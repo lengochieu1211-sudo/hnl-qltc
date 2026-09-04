@@ -92,15 +92,29 @@ async function runViewport(browser, label, viewport, screenshotPath) {
   await modalText.waitFor({ state: 'visible', timeout: 10000 });
   pass(`${label} Google/Firebase login modal opens`);
 
-  const swState = await page.evaluate(async () => {
-    if (!('serviceWorker' in navigator)) return { supported: false, registrations: 0 };
-    await new Promise(resolve => setTimeout(resolve, 1200));
-    const regs = await navigator.serviceWorker.getRegistrations();
-    return { supported: true, registrations: regs.length, scopes: regs.map(r => r.scope) };
+  // HNL QLTC offline data is provided by Firestore persistentLocalCache/IndexedDB,
+  // not by a PWA service worker. Requiring a service-worker registration here would
+  // incorrectly fail a healthy deployment. Verify the browser primitives required by
+  // the actual offline architecture instead; the live backend golden separately proves
+  // pending writes survive disableNetwork -> enableNetwork and reach another user.
+  const storageState = await page.evaluate(() => {
+    let localStorageWritable = false;
+    try {
+      const key = `__hnl_runtime_golden_${Date.now()}`;
+      localStorage.setItem(key, '1');
+      localStorageWritable = localStorage.getItem(key) === '1';
+      localStorage.removeItem(key);
+    } catch {}
+    return {
+      secureContext: window.isSecureContext,
+      indexedDbSupported: typeof indexedDB !== 'undefined',
+      localStorageWritable,
+    };
   });
-  assert(swState.supported, `${label}: service worker unsupported unexpectedly`);
-  assert(swState.registrations >= 1, `${label}: no service worker registration detected`);
-  pass(`${label} service worker registered`, String(swState.registrations));
+  assert(storageState.secureContext, `${label}: Hosting is not a secure context`);
+  assert(storageState.indexedDbSupported, `${label}: IndexedDB unavailable for Firestore persistent cache`);
+  assert(storageState.localStorageWritable, `${label}: localStorage unavailable for runtime metadata`);
+  pass(`${label} Firestore offline browser prerequisites`, 'secure context + IndexedDB + localStorage');
 
   await page.screenshot({ path: screenshotPath, fullPage: true });
   pass(`${label} screenshot captured`, screenshotPath);
