@@ -1,0 +1,75 @@
+--- a/src/components/FloorPlanDefectTab.tsx
++++ b/src/components/FloorPlanDefectTab.tsx
+@@ -82,6 +82,8 @@
+ import { UserRole, canManageFloorPlanStructure, canEditDefectData, canDeleteBusinessData } from '../utils/securityUtils';
+ import { appendRuntimeDiagnostic } from '../lib/runtimeDiagnostics';
++import { getCurrentRealFirebaseUser } from '../lib/firebase';
++import { getRememberedVerifiedAuthIdentity } from '../utils/offlineAccess';
+ import { ContactMenu } from './ContactMenu';
+ import { buildDefectShareText, resolveDefectTeam } from '../utils/defectContactUtils';
+ import { isPointInsideRoom, reconcileDefectLinkage, resolveDefectLinkageFromSelection } from '../utils/defectLinkageUtils';
+@@ -1001,7 +1003,14 @@
+   const [assignedTo, setAssignedTo] = useState(() => {
+     return localStorage.getItem(getDraftKey('construction_defect_draft_assignedTo')) || 'Đội thi công bắn tấm';
+   });
+-  const [createdBy, setCreatedBy] = useState(() => inspectorName || 'Kỹ sư QC');
++  const realDefectCreator = getCurrentRealFirebaseUser();
++  const rememberedDefectCreator = getRememberedVerifiedAuthIdentity();
++  const currentDefectCreatorLabel = String(
++    realDefectCreator?.displayName ||
++    realDefectCreator?.email ||
++    rememberedDefectCreator?.displayName ||
++    rememberedDefectCreator?.email || ''
++  ).trim();
+   const [dueDate, setDueDate] = useState(() => {
+     const saved = localStorage.getItem(getDraftKey('construction_defect_draft_dueDate'));
+     if (saved) return saved;
+@@ -3978,7 +3987,7 @@
+       description: description.trim() || `Lỗi ${category} tại vị trí (${pinPos.x}%, ${pinPos.y}%)`,
+       severity,
+       assignedTo: linkage.assignedTo,
+-      createdBy: createdBy.trim() || inspectorName || 'Kỹ sư QC',
++      createdBy: currentDefectCreatorLabel,
+       dueDate: dueDate || undefined,
+       imageUrl: photoUrl || undefined,
+       afterImageUrl: afterPhotoUrl || undefined,
+@@ -7761,9 +7770,9 @@
+                   <label className="block text-slate-700 font-bold mb-1">👤 Người Tạo</label>
+                   <input
+                     type="text"
+-                    value={createdBy}
++                    value={currentDefectCreatorLabel}
+                     readOnly
+-                    placeholder="Tự ghi theo tài khoản đăng nhập"
++                    placeholder="Đang xác định tài khoản Firebase..."
+                     className="w-full border border-slate-200 bg-slate-100 rounded-xl p-2 font-semibold text-slate-700"
+                   />
+                   <p className="mt-1 text-[10px] text-slate-400">Khi lưu, hệ thống tự ghi đúng tài khoản Firebase đang đăng nhập.</p>
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -5570,13 +5570,22 @@
+       const newId = defect.id || `DEF-${nextNum}-${uniqueDefectSuffix}`;
+       
+       const actor = getCurrentRealFirebaseUser();
+-      const actorLabel = String(actor?.displayName || actor?.email || defect.createdBy || inspectorName || 'Kỹ sư QC').trim();
++      const rememberedActor = getRememberedVerifiedAuthIdentity();
++      const actorLabel = String(
++        actor?.displayName || actor?.email ||
++        rememberedActor?.displayName || rememberedActor?.email ||
++        defect.createdBy || ''
++      ).trim();
++      const actorUid = actor?.uid || rememberedActor?.uid || '';
++      if (!actorLabel) {
++        console.warn('[Defect] Không xác định được tài khoản tạo Defect; bỏ qua thao tác để tránh ghi sai Người Tạo.');
++        return prev;
++      }
+       const newDefect: DefectItem = {
+         ...defect,
+         id: newId,
+         createdAt: new Date().toISOString(),
+         createdBy: actorLabel,
+-        ...(actor?.uid ? { createdByUid: actor.uid } : {}),
++        ...(actorUid ? { createdByUid: actorUid } : {}),
+       };
+ 
+       return {
