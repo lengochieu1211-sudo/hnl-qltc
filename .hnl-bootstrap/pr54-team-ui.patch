@@ -1,0 +1,66 @@
+--- a/src/components/FloorPlanDefectTab.tsx
++++ b/src/components/FloorPlanDefectTab.tsx
+@@ -126,22 +126,38 @@
+     roomAtPos = activeFloorRooms.find((r) => isPointInRoom(pinPos.x, pinPos.y, r));
+   }
+ 
+-  const roomAtPosTeam = roomAtPos?.assignedTeam?.trim();
++  const teamNameById = new Map(
++    declaredTeams
++      .filter((team) => team.id && team.name?.trim())
++      .map((team) => [team.id, team.name.trim()] as const)
++  );
++  const resolveAssignedTeamName = (teamId?: string, assignedTeam?: string) =>
++    (teamId ? teamNameById.get(teamId) : undefined) || assignedTeam?.trim() || '';
++
++  // The durable teamId is authoritative. Legacy room/sub-item rows may have teamId but an
++  // empty or stale assignedTeam string; the Defect UI must still display the real linked team.
++  const roomAtPosTeam = roomAtPos
++    ? resolveAssignedTeamName(roomAtPos.teamId, roomAtPos.assignedTeam)
++    : '';
+ 
+   const currentFloorTeamsSet = new Set<string>();
+   activeFloorRooms.forEach((r) => {
+-    if (r.assignedTeam?.trim()) currentFloorTeamsSet.add(r.assignedTeam.trim());
++    const roomTeamName = resolveAssignedTeamName(r.teamId, r.assignedTeam);
++    if (roomTeamName) currentFloorTeamsSet.add(roomTeamName);
+     r.subItems?.forEach((s) => {
+-      if (s.assignedTeam?.trim()) currentFloorTeamsSet.add(s.assignedTeam.trim());
++      const subItemTeamName = resolveAssignedTeamName(s.teamId, s.assignedTeam);
++      if (subItemTeamName) currentFloorTeamsSet.add(subItemTeamName);
+     });
+   });
+   const currentFloorTeams = Array.from(currentFloorTeamsSet);
+ 
+   const allFloorTeamsSet = new Set<string>();
+   allRooms.forEach((r) => {
+-    if (r.assignedTeam?.trim()) allFloorTeamsSet.add(r.assignedTeam.trim());
++    const roomTeamName = resolveAssignedTeamName(r.teamId, r.assignedTeam);
++    if (roomTeamName) allFloorTeamsSet.add(roomTeamName);
+     r.subItems?.forEach((s) => {
+-      if (s.assignedTeam?.trim()) allFloorTeamsSet.add(s.assignedTeam.trim());
++      const subItemTeamName = resolveAssignedTeamName(s.teamId, s.assignedTeam);
++      if (subItemTeamName) allFloorTeamsSet.add(subItemTeamName);
+     });
+   });
+   const allFloorTeams = Array.from(allFloorTeamsSet);
+@@ -294,11 +310,18 @@
+                 Gán ({roomAtPosTeam})
+               </button>
+             ) : (
+-              <span className="text-[10px] text-amber-700 italic shrink-0">Căn này chưa có đội</span>
++              <span className="text-[10px] text-amber-700 italic shrink-0">Căn chưa gán đội mặc định</span>
+             )}
+           </div>
+         )}
+ 
++        {value?.trim() && (
++          <div className="bg-sky-50 border border-sky-200 p-2 rounded-xl flex items-center justify-between gap-2">
++            <span className="text-sky-900 font-semibold truncate">✅ Đội Defect đang chọn: <strong>{value.trim()}</strong></span>
++            <span className="text-[10px] text-sky-700 shrink-0">Sẽ lưu liên kết đội</span>
++          </div>
++        )}
++
+         {/* Floor Plan Teams */}
+         {currentFloorTeams.length > 0 && (
+           <div className="bg-slate-50 border border-slate-200 p-2 rounded-xl">
