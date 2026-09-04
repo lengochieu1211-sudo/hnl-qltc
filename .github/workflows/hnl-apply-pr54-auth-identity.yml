@@ -1,0 +1,39 @@
+name: HNL Apply PR54 Defect Identity
+
+on:
+  push:
+    branches:
+      - fix/post-pr53-phone-defect-hardening
+    paths:
+      - '.github/workflows/hnl-apply-pr54-auth-identity.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/post-pr53-phone-defect-hardening
+          fetch-depth: 0
+      - name: Apply exact replacements
+        run: python3 .hnl-bootstrap/pr54-auth-identity-replace.py
+      - name: Verify intended diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git diff -- src/App.tsx src/components/FloorPlanDefectTab.tsx
+          test -z "$(git status --porcelain | grep -v -E '^ M (src/App.tsx|src/components/FloorPlanDefectTab.tsx)$' || true)"
+      - name: Commit integrated source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/App.tsx src/components/FloorPlanDefectTab.tsx
+          git commit -m 'fix: use auditable identity for defect creator'
+          git push origin HEAD:fix/post-pr53-phone-defect-hardening
