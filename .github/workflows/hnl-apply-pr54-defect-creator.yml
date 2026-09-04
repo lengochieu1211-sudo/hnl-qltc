@@ -19,12 +19,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Verify and apply audited Defect creator patch
+      - name: Apply audited Defect creator exact replacements
         shell: bash
         run: |
           set -euo pipefail
-          git apply --check .hnl-bootstrap/pr54-defect-creator.patch
-          git apply .hnl-bootstrap/pr54-defect-creator.patch
+          python3 .hnl-bootstrap/apply-pr54-defect-creator.py
 
       - name: Commit real Firebase Defect creator fix
         shell: bash
