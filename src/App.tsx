@@ -5569,13 +5569,23 @@ export default function App() {
       const newId = defect.id || `DEF-${nextNum}-${uniqueDefectSuffix}`;
       
       const actor = getCurrentRealFirebaseUser();
-      const actorLabel = String(actor?.displayName || actor?.email || defect.createdBy || inspectorName || 'Kỹ sư QC').trim();
+      const rememberedActor = getRememberedVerifiedAuthIdentity();
+      const actorLabel = String(
+        actor?.displayName || actor?.email ||
+        rememberedActor?.displayName || rememberedActor?.email ||
+        defect.createdBy || ''
+      ).trim();
+      const actorUid = actor?.uid || rememberedActor?.uid || '';
+      if (!actorLabel) {
+        console.warn('[Defect] Không xác định được tài khoản tạo Defect; bỏ qua thao tác để tránh ghi sai Người Tạo.');
+        return prev;
+      }
       const newDefect: DefectItem = {
         ...defect,
         id: newId,
         createdAt: new Date().toISOString(),
         createdBy: actorLabel,
-        ...(actor?.uid ? { createdByUid: actor.uid } : {}),
+        ...(actorUid ? { createdByUid: actorUid } : {}),
       };
 
       return {

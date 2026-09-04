@@ -81,6 +81,8 @@ import { QuickSortBar } from './QuickSortBar';
 import { MoveOrderControls } from './MoveOrderControls';
 import { UserRole, canManageFloorPlanStructure, canEditDefectData, canDeleteBusinessData } from '../utils/securityUtils';
 import { appendRuntimeDiagnostic } from '../lib/runtimeDiagnostics';
+import { getCurrentRealFirebaseUser } from '../lib/firebase';
+import { getRememberedVerifiedAuthIdentity } from '../utils/offlineAccess';
 import { ContactMenu } from './ContactMenu';
 import { buildDefectShareText, resolveDefectTeam } from '../utils/defectContactUtils';
 import { isPointInsideRoom, reconcileDefectLinkage, resolveDefectLinkageFromSelection } from '../utils/defectLinkageUtils';
@@ -1001,7 +1003,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const [assignedTo, setAssignedTo] = useState(() => {
     return localStorage.getItem(getDraftKey('construction_defect_draft_assignedTo')) || 'Đội thi công bắn tấm';
   });
-  const [createdBy, setCreatedBy] = useState(() => inspectorName || 'Kỹ sư QC');
+  const realDefectCreator = getCurrentRealFirebaseUser();
+  const rememberedDefectCreator = getRememberedVerifiedAuthIdentity();
+  const currentDefectCreatorLabel = String(
+    realDefectCreator?.displayName ||
+    realDefectCreator?.email ||
+    rememberedDefectCreator?.displayName ||
+    rememberedDefectCreator?.email || ''
+  ).trim();
   const [dueDate, setDueDate] = useState(() => {
     const saved = localStorage.getItem(getDraftKey('construction_defect_draft_dueDate'));
     if (saved) return saved;
@@ -3980,7 +3989,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       description: description.trim() || `Lỗi ${category} tại vị trí (${pinPos.x}%, ${pinPos.y}%)`,
       severity,
       assignedTo: linkage.assignedTo,
-      createdBy: createdBy.trim() || inspectorName || 'Kỹ sư QC',
+      createdBy: currentDefectCreatorLabel,
       dueDate: dueDate || undefined,
       imageUrl: photoUrl || undefined,
       afterImageUrl: afterPhotoUrl || undefined,
@@ -7761,9 +7770,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   <label className="block text-slate-700 font-bold mb-1">👤 Người Tạo</label>
                   <input
                     type="text"
-                    value={createdBy}
+                    value={currentDefectCreatorLabel}
                     readOnly
-                    placeholder="Tự ghi theo tài khoản đăng nhập"
+                    placeholder="Đang xác định tài khoản Firebase..."
                     className="w-full border border-slate-200 bg-slate-100 rounded-xl p-2 font-semibold text-slate-700"
                   />
                   <p className="mt-1 text-[10px] text-slate-400">Khi lưu, hệ thống tự ghi đúng tài khoản Firebase đang đăng nhập.</p>
