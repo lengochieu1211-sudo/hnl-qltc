@@ -23,6 +23,8 @@ env:
   DEV_HOSTING_URL: https://hnl-qltc-dev.web.app
   DEV_R2_URL: https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev
   PROD_R2_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
+  DEV_ANDROID_PACKAGE: com.qlct.app.dev
+  PROD_ANDROID_PACKAGE: com.qlct.app
 
 jobs:
   build_dev_apk:
@@ -63,6 +65,7 @@ jobs:
           if ($env:VITE_R2_GATEWAY_URL -eq $env:PROD_R2_URL) { throw 'REFUSING: DEV APK points to PROD R2' }
           if ($env:QLCT_WEB_URL -notlike 'https://hnl-qltc-dev.web.app/*') { throw 'REFUSING: Android wrapper URL is not DEV Hosting' }
           if ($env:QLCT_WEB_URL -match 'hnlqltc\.web\.app|com-example-qlct-61329') { throw 'REFUSING: Android wrapper URL references PROD' }
+          if ($env:DEV_ANDROID_PACKAGE -eq $env:PROD_ANDROID_PACKAGE) { throw 'REFUSING: DEV Android package equals PROD package' }
           Write-Host 'Android DEV isolation gate: PASS'
 
       - name: Setup Node
@@ -93,19 +96,32 @@ jobs:
       - name: Build DEV web bundle
         run: npm run build
 
-      - name: Mark wrapper as DEV and require non-release signing
+      - name: Isolate Android package, label, and signing for DEV
         shell: pwsh
         run: |
-          # Keep DEV unmistakable on-device. This edit exists only in the CI runner.
+          # These edits exist only inside this CI runner. Repository/PROD wrapper source
+          # remains com.qlct.app. DEV is rewritten to com.qlct.app.dev so both apps can
+          # be installed side-by-side on the same phone without replacing production.
+          $utf8 = New-Object System.Text.UTF8Encoding($false)
           $manifest = './android-wrapper/AndroidManifest.xml'
-          $text = Get-Content -Raw -LiteralPath $manifest
-          $text = $text -replace 'android:label="HNL Quản Lý Thi Công"', 'android:label="HNL QLTC DEV"'
-          [System.IO.File]::WriteAllText((Resolve-Path $manifest), $text, (New-Object System.Text.UTF8Encoding($false)))
+          $manifestText = Get-Content -Raw -LiteralPath $manifest
+          $manifestText = $manifestText.Replace($env:PROD_ANDROID_PACKAGE, $env:DEV_ANDROID_PACKAGE)
+          $manifestText = $manifestText -replace 'android:label="HNL Quản Lý Thi Công"', 'android:label="HNL QLTC DEV"'
+          [System.IO.File]::WriteAllText((Resolve-Path $manifest), $manifestText, $utf8)
+
+          Get-ChildItem './android-wrapper/src' -Recurse -Filter '*.java' | ForEach-Object {
+            $javaText = Get-Content -Raw -LiteralPath $_.FullName
+            $javaText = $javaText.Replace($env:PROD_ANDROID_PACKAGE, $env:DEV_ANDROID_PACKAGE)
+            [System.IO.File]::WriteAllText($_.FullName, $javaText, $utf8)
+          }
+
+          $after = Get-Content -Raw -LiteralPath $manifest
+          if ($after -notmatch ('package="' + [regex]::Escape($env:DEV_ANDROID_PACKAGE) + '"')) { throw 'DEV package rewrite failed' }
+          if ($after -match ('package="' + [regex]::Escape($env:PROD_ANDROID_PACKAGE) + '"')) { throw 'PROD package remains in DEV manifest' }
+          if ($after -notmatch 'android:label="HNL QLTC DEV"') { throw 'DEV label rewrite failed' }
 
           # DEV intentionally does NOT receive the production release keystore secrets.
-          # build-apk.ps1 therefore creates an ephemeral development key. Because the
-          # package name is unchanged, Android will refuse to overwrite a release-signed
-          # PROD install rather than accidentally replacing it with DEV.
+          # build-apk.ps1 creates an ephemeral development key for this test artifact.
           Remove-Item Env:QLCT_ANDROID_KEYSTORE_BASE64 -ErrorAction SilentlyContinue
           Remove-Item Env:QLCT_ANDROID_KEYSTORE_PASSWORD -ErrorAction SilentlyContinue
           Remove-Item Env:QLCT_ANDROID_KEY_PASSWORD -ErrorAction SilentlyContinue
@@ -122,6 +138,8 @@ jobs:
           $strings = Get-Content -Raw -LiteralPath './android-wrapper/res/values/strings.xml'
           if ($strings -notmatch 'https://hnl-qltc-dev\.web\.app/') { throw 'DEV Hosting URL not embedded in wrapper resources' }
           if ($strings -match 'https://hnlqltc\.web\.app|com-example-qlct-61329') { throw 'REFUSING: PROD target leaked into DEV wrapper URL' }
+          $manifest = Get-Content -Raw -LiteralPath './android-wrapper/AndroidManifest.xml'
+          if ($manifest -notmatch 'package="com\.qlct\.app\.dev"') { throw 'DEV APK package source is not com.qlct.app.dev' }
           Move-Item -Force './HNL-QLTC-Android.apk' './HNL-QLTC-Android-DEV.apk'
           Get-Item './HNL-QLTC-Android-DEV.apk' | Format-List Name,Length,LastWriteTime
 
