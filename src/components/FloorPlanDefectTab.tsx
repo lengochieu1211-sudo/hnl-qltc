@@ -1709,6 +1709,34 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const resolveExcelTeamName = (teamId?: string, assignedTeam?: string) =>
       (teamId ? teamNameById.get(teamId) : undefined) || assignedTeam?.trim() || '';
 
+    // Export durable IDs even for older room/sub-item records that only retained the
+    // human-readable team/category name. This keeps a downloaded workbook round-trip
+    // safe without inventing links: IDs are restored only on an exact active catalog match.
+    const excelTeamIdByName = new Map<string, string>();
+    teams.forEach((team) => {
+      const id = String(team.id || '').trim();
+      const name = String(team.name || '').trim();
+      if (id && name) excelTeamIdByName.set(name.toLocaleLowerCase('vi-VN'), id);
+    });
+    const excelCategoryIdByName = new Map<string, string>();
+    workVolumes.forEach((item) => {
+      const name = String(item.title || '').trim();
+      const id = String(item.workCategoryId || item.id || '').trim();
+      if (id && name) excelCategoryIdByName.set(name.toLocaleLowerCase('vi-VN'), id);
+    });
+    const resolveExcelTeamId = (teamId?: string, assignedTeam?: string) => {
+      const explicitId = String(teamId || '').trim();
+      if (explicitId) return explicitId;
+      const name = String(assignedTeam || '').trim();
+      return name ? (excelTeamIdByName.get(name.toLocaleLowerCase('vi-VN')) || '') : '';
+    };
+    const resolveExcelCategoryId = (workCategoryId?: string, categoryName?: string) => {
+      const explicitId = String(workCategoryId || '').trim();
+      if (explicitId) return explicitId;
+      const name = String(categoryName || '').trim();
+      return name ? (excelCategoryIdByName.get(name.toLocaleLowerCase('vi-VN')) || '') : '';
+    };
+
     const roomHeaders = [
       'STT', '__recordId', 'Tên Căn / Phòng',
       'Hạng Mục Thi Công Chính', '__workCategoryId',
@@ -1723,9 +1751,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       '__recordId': r.id || '',
       'Tên Căn / Phòng': r.roomName,
       'Hạng Mục Thi Công Chính': r.workCategory || '',
-      '__workCategoryId': r.workCategoryId || '',
+      '__workCategoryId': resolveExcelCategoryId(r.workCategoryId, r.workCategory),
       'Đội Thi Công Căn / Phòng': resolveExcelTeamName(r.teamId, r.assignedTeam),
-      '__teamId': r.teamId || '',
+      '__teamId': resolveExcelTeamId(r.teamId, r.assignedTeam),
       'Khối Lượng Căn / Phòng': r.workVolume ?? '',
       'Đơn Vị Căn / Phòng': r.volumeUnit || '',
       'Tọa độ X (%)': r.x,
@@ -1740,6 +1768,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       'Ghi Chú': r.notes || ''
     }));
     const roomSheet = XLSX.utils.json_to_sheet(roomData, { header: roomHeaders });
+    roomSheet['!cols'] = [
+      { wch: 6 }, { wch: 24, hidden: true }, { wch: 26 }, { wch: 24 }, { wch: 24, hidden: true },
+      { wch: 22 }, { wch: 24, hidden: true }, { wch: 18 }, { wch: 14 },
+      { wch: 13 }, { wch: 13 }, { wch: 15 }, { wch: 15 },
+      { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 22 }, { wch: 32 }
+    ];
+    roomSheet['!autofilter'] = { ref: `A1:S${Math.max(2, roomData.length + 1)}` };
+    roomSheet['!rows'] = [{ hpt: 24 }];
     XLSX.utils.book_append_sheet(wb, roomSheet, 'Can_Phong');
 
     const subItemHeaders = [
@@ -1755,19 +1791,29 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         'Tên Căn / Phòng': room.roomName,
         '__subItemId': subItem.id || '',
         'Hạng Mục Thi Công': subItem.category || room.workCategory || '',
-        '__workCategoryId': subItem.workCategoryId || room.workCategoryId || '',
+        '__workCategoryId': resolveExcelCategoryId(
+          subItem.workCategoryId || room.workCategoryId,
+          subItem.category || room.workCategory
+        ),
         'Công Đoạn / Nội Dung': subItem.name,
         'Trạng Thái Thi Công': subItem.status,
         'Nghiệm Thu Hạng Mục': subItem.inspectionStatus || 'Chưa nghiệm thu',
         'Hạn Hoàn Thành': subItem.targetDate || '',
         'Đội Thi Công': resolveExcelTeamName(subItem.teamId, subItem.assignedTeam),
-        '__teamId': subItem.teamId || '',
+        '__teamId': resolveExcelTeamId(subItem.teamId, subItem.assignedTeam),
         'Khối Lượng': subItem.workVolume ?? '',
         'Đơn Vị': subItem.volumeUnit || '',
         'Trọng Số Tiến Độ': subItem.progressWeight ?? ''
       }))
     );
     const subItemSheet = XLSX.utils.json_to_sheet(subItemData, { header: subItemHeaders });
+    subItemSheet['!cols'] = [
+      { wch: 8 }, { wch: 24, hidden: true }, { wch: 26 }, { wch: 24, hidden: true },
+      { wch: 24 }, { wch: 24, hidden: true }, { wch: 28 }, { wch: 20 }, { wch: 22 },
+      { wch: 16 }, { wch: 22 }, { wch: 24, hidden: true }, { wch: 14 }, { wch: 12 }, { wch: 18 }
+    ];
+    subItemSheet['!autofilter'] = { ref: `A1:O${Math.max(2, subItemData.length + 1)}` };
+    subItemSheet['!rows'] = [{ hpt: 24 }];
     XLSX.utils.book_append_sheet(wb, subItemSheet, 'Hang_Muc_Thi_Cong');
 
     const teamHeaders = ['__teamId', 'Tên Đội', 'Đội Trưởng', 'Điện Thoại', 'Ghi Chú'];
@@ -1779,6 +1825,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       'Ghi Chú': team.notes || ''
     }));
     const teamSheet = XLSX.utils.json_to_sheet(teamData, { header: teamHeaders });
+    teamSheet['!cols'] = [
+      { wch: 24, hidden: true }, { wch: 24 }, { wch: 24 }, { wch: 18 }, { wch: 32 }
+    ];
+    teamSheet['!autofilter'] = { ref: `A1:E${Math.max(2, teamData.length + 1)}` };
+    teamSheet['!rows'] = [{ hpt: 24 }];
     XLSX.utils.book_append_sheet(wb, teamSheet, 'Danh_Muc_Doi');
 
     const guideSheet = XLSX.utils.aoa_to_sheet([
@@ -1786,9 +1837,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       ['1', 'Sheet Can_Phong: chỉnh thông tin cấp Căn / Phòng.'],
       ['2', 'Sheet Hang_Muc_Thi_Cong: mỗi dòng là một hạng mục/công đoạn của đúng Căn / Phòng.'],
       ['3', 'Có thể đổi Trạng thái, Nghiệm thu, Hạn hoàn thành, Đội thi công, Khối lượng và Đơn vị rồi Nhập Excel lại.'],
-      ['4', 'Giữ nguyên các cột kỹ thuật __recordId, __subItemId, __teamId, __workCategoryId khi chỉ chỉnh dữ liệu hiện có.'],
-      ['5', 'Sheet Danh_Muc_Doi chỉ để tham chiếu đội đã khai báo; nhập lại sẽ liên kết theo __teamId hoặc tên đội trùng khớp.']
+      ['4', 'Các cột kỹ thuật __recordId, __subItemId, __teamId, __workCategoryId được ẩn để bảng dễ đọc nhưng vẫn được giữ nguyên khi Nhập Excel lại.'],
+      ['5', 'Sheet Danh_Muc_Doi chỉ để tham chiếu đội đã khai báo; nhập lại sẽ liên kết theo __teamId hoặc tên đội trùng khớp.'],
+      ['6', 'Nếu dữ liệu cũ chỉ có tên đội/hạng mục, khi Xuất Excel ứng dụng sẽ tự bổ sung ID nếu tên khớp chính xác danh mục hiện hành.']
     ]);
+    guideSheet['!cols'] = [{ wch: 8 }, { wch: 100 }];
+    guideSheet['!rows'] = [{ hpt: 26 }];
     XLSX.utils.book_append_sheet(wb, guideSheet, 'Huong_Dan');
 
     return saveWorkbookFile(
