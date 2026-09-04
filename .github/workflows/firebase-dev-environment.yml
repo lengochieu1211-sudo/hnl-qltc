@@ -268,7 +268,31 @@ jobs:
           npm run typecheck
           npm run lint
           npm run test:rules
-          npm run security:audit
+
+          audit_ok=0
+          for attempt in 1 2 3; do
+            set +e
+            AUDIT_OUT="$(npm run security:audit 2>&1)"
+            RC=$?
+            set -e
+            printf '%s\n' "$AUDIT_OUT"
+            if [ "$RC" -eq 0 ]; then
+              audit_ok=1
+              break
+            fi
+            if printf '%s' "$AUDIT_OUT" | grep -Eqi '503 Service Unavailable|audit endpoint returned an error|EAI_AGAIN|ECONNRESET|ETIMEDOUT|ECONNREFUSED'; then
+              if [ "$attempt" -lt 3 ]; then
+                echo "Transient npm audit registry failure; retry $attempt/3"
+                sleep $((attempt * 15))
+                continue
+              fi
+            else
+              echo '::error::Security audit reported a non-transient failure.'
+              exit "$RC"
+            fi
+          done
+          test "$audit_ok" = 1 || { echo '::error::Security audit unavailable after 3 transient retries'; exit 1; }
+
           npm run build
 
       - name: Deploy DEV Firestore rules
