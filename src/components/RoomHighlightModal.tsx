@@ -769,27 +769,27 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     ]);
   };
 
+  const applyProgressPatch = (item: RoomSubItem, patch: Partial<RoomSubItem>): RoomSubItem => {
+    const next = { ...item, ...patch };
+
+    // Business invariant: an item can only be "Đạt nghiệm thu" after construction
+    // is completed. Moving progress backwards automatically reopens inspection;
+    // trying to pass an unfinished item is ignored instead of creating bad data.
+    if (next.inspectionStatus === 'Đạt nghiệm thu' && next.status !== 'Đã hoàn thành') {
+      if (patch.inspectionStatus === 'Đạt nghiệm thu') return item;
+      next.inspectionStatus = 'Chưa nghiệm thu';
+    }
+
+    return next;
+  };
+
   // Update sub item field
   const handleUpdateSubItem = (id: string, patch: Partial<RoomSubItem>) => {
     const effectivePatch = structureReadOnly
       ? Object.fromEntries(Object.entries(patch).filter(([key]) => ['status', 'inspectionStatus', 'targetDate', 'assignedTeam', 'teamId'].includes(key))) as Partial<RoomSubItem>
       : patch;
     if (Object.keys(effectivePatch).length === 0) return;
-    setSubItems(prev => prev.map(item => {
-      if (item.id !== id) return item;
-      const next = { ...item, ...effectivePatch };
-      // A work step cannot stay "Đạt nghiệm thu" after its construction status
-      // is moved back to Chưa làm / Đang làm. Keep old data compatible but
-      // prevent creating new contradictory states.
-      if (effectivePatch.status && effectivePatch.status !== 'Đã hoàn thành' && next.inspectionStatus === 'Đạt nghiệm thu') {
-        next.inspectionStatus = 'Chưa nghiệm thu';
-      }
-      // Passing inspection is only valid after construction is completed.
-      if (effectivePatch.inspectionStatus === 'Đạt nghiệm thu' && next.status !== 'Đã hoàn thành') {
-        return item;
-      }
-      return next;
-    }));
+    setSubItems(prev => prev.map(item => item.id === id ? applyProgressPatch(item, effectivePatch) : item));
   };
 
   // Delete sub item
@@ -864,6 +864,18 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     const normalizedRoomName = roomName.trim().toLocaleLowerCase('vi-VN');
     if (existingRoomNames.some((name) => String(name || '').trim().toLocaleLowerCase('vi-VN') === normalizedRoomName)) {
       alert(`Tên Căn / Phòng “${roomName.trim()}” đã tồn tại trên mặt bằng này. Vui lòng dùng tên khác để tránh liên kết Defect/Checklist nhầm phòng.`);
+      return;
+    }
+
+    const contradictorySubItems = subItems.filter(
+      (item) => item.inspectionStatus === 'Đạt nghiệm thu' && item.status !== 'Đã hoàn thành'
+    );
+    if (contradictorySubItems.length > 0) {
+      const names = contradictorySubItems.slice(0, 5).map((item) => `• ${item.name}: ${item.status} → ${item.inspectionStatus}`).join('\n');
+      const suffix = contradictorySubItems.length > 5 ? `\n• ... và ${contradictorySubItems.length - 5} hạng mục khác` : '';
+      alert(
+        `⚠️ Không thể lưu vì có ${contradictorySubItems.length} hạng mục “Đạt nghiệm thu” nhưng thi công chưa hoàn thành.\n\n${names}${suffix}\n\nHãy chuyển Tiến độ sang “Đã hoàn thành” hoặc đưa Nghiệm thu về “Chưa nghiệm thu”.`
+      );
       return;
     }
 
@@ -1258,7 +1270,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                               key={st}
                               type="button"
                               onClick={async () => {
-                                setSubItems(prev => prev.map(s => selectedSubItemIds.includes(s.id) ? { ...s, status: st } : s));
+                                setSubItems(prev => prev.map(s => selectedSubItemIds.includes(s.id) ? applyProgressPatch(s, { status: st }) : s));
                               }}
                               className="py-1 px-0.5 bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 hover:border-slate-300 rounded-lg font-bold text-[9.5px] cursor-pointer transition-colors text-center"
                             >
@@ -1277,7 +1289,13 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                               key={st}
                               type="button"
                               onClick={async () => {
-                                setSubItems(prev => prev.map(s => selectedSubItemIds.includes(s.id) ? { ...s, inspectionStatus: st } : s));
+                                if (st === 'Đạt nghiệm thu') {
+                                  const blockedCount = subItems.filter(s => selectedSubItemIds.includes(s.id) && s.status !== 'Đã hoàn thành').length;
+                                  if (blockedCount > 0) {
+                                    alert(`⚠️ Có ${blockedCount} hạng mục chưa hoàn thành nên không thể chuyển sang “Đạt nghiệm thu”. Hãy cập nhật Tiến độ = “Đã hoàn thành” trước.`);
+                                  }
+                                }
+                                setSubItems(prev => prev.map(s => selectedSubItemIds.includes(s.id) ? applyProgressPatch(s, { inspectionStatus: st }) : s));
                               }}
                               className="py-1 px-0.5 bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 hover:border-slate-300 rounded-lg font-bold text-[9.5px] cursor-pointer transition-colors text-center"
                             >

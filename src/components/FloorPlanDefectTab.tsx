@@ -1737,6 +1737,71 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       return name ? (excelCategoryIdByName.get(name.toLocaleLowerCase('vi-VN')) || '') : '';
     };
 
+    const exportIssues: Array<{
+      'Mức': 'LỖI' | 'CẢNH BÁO';
+      'Căn / Phòng': string;
+      'Hạng Mục / Công Đoạn': string;
+      'Vấn Đề': string;
+      'Đề Xuất': string;
+    }> = [];
+
+    roomsToExport.forEach((room) => {
+      const roomSubItems = room.subItems || [];
+      roomSubItems.forEach((subItem) => {
+        const resolvedTeam = resolveExcelTeamName(subItem.teamId, subItem.assignedTeam);
+        if (!resolvedTeam) {
+          exportIssues.push({
+            'Mức': 'CẢNH BÁO',
+            'Căn / Phòng': room.roomName,
+            'Hạng Mục / Công Đoạn': `${subItem.category || room.workCategory || 'Chưa phân nhóm'} / ${subItem.name}`,
+            'Vấn Đề': 'Chưa gán đội thi công cho hạng mục.',
+            'Đề Xuất': 'Chọn đúng đội đang thi công Căn / Phòng trước khi nghiệm thu hoặc cập nhật Excel.'
+          });
+        }
+        if (subItem.inspectionStatus === 'Đạt nghiệm thu' && subItem.status !== 'Đã hoàn thành') {
+          exportIssues.push({
+            'Mức': 'LỖI',
+            'Căn / Phòng': room.roomName,
+            'Hạng Mục / Công Đoạn': `${subItem.category || room.workCategory || 'Chưa phân nhóm'} / ${subItem.name}`,
+            'Vấn Đề': `Nghiệm thu = “Đạt nghiệm thu” nhưng Tiến độ = “${subItem.status}”.`,
+            'Đề Xuất': 'Chỉ được Đạt nghiệm thu khi Tiến độ = “Đã hoàn thành”.'
+          });
+        }
+      });
+
+      // Legacy rooms without subItems still need the same invariant checked on
+      // frame/board summary fields so older data cannot hide contradictions.
+      if (roomSubItems.length === 0) {
+        if (room.frameInspectionStatus === 'Đạt nghiệm thu' && room.frameStatus !== 'Đã hoàn thành') {
+          exportIssues.push({
+            'Mức': 'LỖI',
+            'Căn / Phòng': room.roomName,
+            'Hạng Mục / Công Đoạn': 'Khung xương (legacy)',
+            'Vấn Đề': `Nghiệm thu Khung = “Đạt nghiệm thu” nhưng Tiến độ = “${room.frameStatus}”.`,
+            'Đề Xuất': 'Hoàn thành thi công Khung trước khi Đạt nghiệm thu.'
+          });
+        }
+        if (room.boardInspectionStatus === 'Đạt nghiệm thu' && room.boardStatus !== 'Đã hoàn thành') {
+          exportIssues.push({
+            'Mức': 'LỖI',
+            'Căn / Phòng': room.roomName,
+            'Hạng Mục / Công Đoạn': 'Tấm (legacy)',
+            'Vấn Đề': `Nghiệm thu Tấm = “Đạt nghiệm thu” nhưng Tiến độ = “${room.boardStatus}”.`,
+            'Đề Xuất': 'Hoàn thành thi công Tấm trước khi Đạt nghiệm thu.'
+          });
+        }
+        if (!resolveExcelTeamName(room.teamId, room.assignedTeam)) {
+          exportIssues.push({
+            'Mức': 'CẢNH BÁO',
+            'Căn / Phòng': room.roomName,
+            'Hạng Mục / Công Đoạn': 'Căn / Phòng (legacy)',
+            'Vấn Đề': 'Chưa gán đội thi công.',
+            'Đề Xuất': 'Gán đội thi công trước khi cập nhật nghiệm thu.'
+          });
+        }
+      }
+    });
+
     const roomHeaders = [
       'STT', '__recordId', 'Tên Căn / Phòng',
       'Hạng Mục Thi Công Chính', '__workCategoryId',
@@ -1832,6 +1897,24 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     teamSheet['!rows'] = [{ hpt: 24 }];
     XLSX.utils.book_append_sheet(wb, teamSheet, 'Danh_Muc_Doi');
 
+    const issueHeaders = ['Mức', 'Căn / Phòng', 'Hạng Mục / Công Đoạn', 'Vấn Đề', 'Đề Xuất'];
+    const issueData = exportIssues.length > 0
+      ? exportIssues
+      : [{
+          'Mức': 'OK',
+          'Căn / Phòng': '',
+          'Hạng Mục / Công Đoạn': '',
+          'Vấn Đề': 'Không phát hiện lỗi logic nghiệm thu hoặc hạng mục thiếu đội thi công.',
+          'Đề Xuất': 'Có thể chỉnh sửa các sheet dữ liệu và Nhập Excel lại.'
+        }];
+    const issueSheet = XLSX.utils.json_to_sheet(issueData, { header: issueHeaders });
+    issueSheet['!cols'] = [
+      { wch: 12 }, { wch: 26 }, { wch: 38 }, { wch: 56 }, { wch: 56 }
+    ];
+    issueSheet['!autofilter'] = { ref: `A1:E${Math.max(2, issueData.length + 1)}` };
+    issueSheet['!rows'] = [{ hpt: 24 }];
+    XLSX.utils.book_append_sheet(wb, issueSheet, 'Kiem_Tra');
+
     const guideSheet = XLSX.utils.aoa_to_sheet([
       ['HNL QLTC - Mẫu Excel Nghiệm thu Căn / Phòng'],
       ['1', 'Sheet Can_Phong: chỉnh thông tin cấp Căn / Phòng.'],
@@ -1839,11 +1922,24 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       ['3', 'Có thể đổi Trạng thái, Nghiệm thu, Hạn hoàn thành, Đội thi công, Khối lượng và Đơn vị rồi Nhập Excel lại.'],
       ['4', 'Các cột kỹ thuật __recordId, __subItemId, __teamId, __workCategoryId được ẩn để bảng dễ đọc nhưng vẫn được giữ nguyên khi Nhập Excel lại.'],
       ['5', 'Sheet Danh_Muc_Doi chỉ để tham chiếu đội đã khai báo; nhập lại sẽ liên kết theo __teamId hoặc tên đội trùng khớp.'],
-      ['6', 'Nếu dữ liệu cũ chỉ có tên đội/hạng mục, khi Xuất Excel ứng dụng sẽ tự bổ sung ID nếu tên khớp chính xác danh mục hiện hành.']
+      ['6', 'Nếu dữ liệu cũ chỉ có tên đội/hạng mục, khi Xuất Excel ứng dụng sẽ tự bổ sung ID nếu tên khớp chính xác danh mục hiện hành.'],
+      ['7', 'Sheet Kiem_Tra liệt kê lỗi logic nghiệm thu và các hạng mục chưa gán đội. CẢNH BÁO không chặn nhập; LỖI nghiệm thu sẽ được tự chuẩn hóa khi Nhập Excel.'],
+      ['8', 'Quy tắc bắt buộc: chỉ được Đạt nghiệm thu khi Trạng Thái Thi Công = Đã hoàn thành.']
     ]);
     guideSheet['!cols'] = [{ wch: 8 }, { wch: 100 }];
     guideSheet['!rows'] = [{ hpt: 26 }];
     XLSX.utils.book_append_sheet(wb, guideSheet, 'Huong_Dan');
+
+    const exportErrorCount = exportIssues.filter((issue) => issue['Mức'] === 'LỖI').length;
+    const exportWarningCount = exportIssues.filter((issue) => issue['Mức'] === 'CẢNH BÁO').length;
+    if (exportIssues.length > 0) {
+      alert(
+        `⚠️ Kiểm tra trước khi xuất Excel:\n\n` +
+        `• Lỗi logic nghiệm thu: ${exportErrorCount}\n` +
+        `• Hạng mục/Căn chưa gán đội: ${exportWarningCount}\n\n` +
+        `File vẫn được xuất. Xem sheet “Kiem_Tra” để biết chính xác Căn / Phòng và hạng mục cần xử lý.`
+      );
+    }
 
     return saveWorkbookFile(
       wb,
@@ -1900,6 +1996,41 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             `• Vui lòng đặt lại tiêu đề cột trong file Excel trùng với mẫu để hệ thống nhận diện đúng phòng.`
           );
           return;
+        }
+
+        const preflightRoomConflicts = jsonData.filter((row: any) => {
+          const frameStatus = String(row['Trạng Thái Khung Xương'] ?? row['frameStatus'] ?? '').trim();
+          const boardStatus = String(row['Trạng Thái Bắn Tấm'] ?? row['boardStatus'] ?? '').trim();
+          const frameInspection = String(row['Nghiệm Thu Khung'] ?? row['frameInspectionStatus'] ?? '').trim();
+          const boardInspection = String(row['Nghiệm Thu Tấm'] ?? row['boardInspectionStatus'] ?? '').trim();
+          return (frameInspection === 'Đạt nghiệm thu' && frameStatus !== 'Đã hoàn thành') ||
+            (boardInspection === 'Đạt nghiệm thu' && boardStatus !== 'Đã hoàn thành');
+        }).length;
+        const preflightDetailConflicts = detailJsonData.filter((row: any) => {
+          const status = String(row['Trạng Thái Thi Công'] ?? row['status'] ?? '').trim();
+          const inspection = String(row['Nghiệm Thu Hạng Mục'] ?? row['inspectionStatus'] ?? '').trim();
+          return inspection === 'Đạt nghiệm thu' && status !== 'Đã hoàn thành';
+        }).length;
+        const preflightMissingTeamRows = detailJsonData.filter((row: any) => {
+          const teamId = String(row['__teamId'] ?? row['teamId'] ?? '').trim();
+          const teamName = String(row['Đội Thi Công'] ?? row['assignedTeam'] ?? '').trim();
+          return !teamId && !teamName;
+        }).length;
+        const preflightConflictCount = preflightRoomConflicts + preflightDetailConflicts;
+
+        if (preflightConflictCount > 0 || preflightMissingTeamRows > 0) {
+          const proceedWithWarnings = await confirmAsync(
+            `⚠️ KIỂM TRA FILE EXCEL TRƯỚC KHI NHẬP\n\n` +
+            `• Trạng thái nghiệm thu không hợp lệ: ${preflightConflictCount}\n` +
+            `• Dòng hạng mục chưa có đội thi công: ${preflightMissingTeamRows}\n\n` +
+            `Nếu tiếp tục, ứng dụng sẽ tự đổi “Đạt nghiệm thu” → “Chưa nghiệm thu” cho các hạng mục chưa hoàn thành. ` +
+            `Các dòng chưa có đội vẫn được nhập; khi cập nhật phòng cũ hệ thống giữ đội cũ nếu có.\n\n` +
+            `Bấm “Đồng ý” để tiếp tục hoặc “Hủy” để quay lại chỉnh Excel.`
+          );
+          if (!proceedWithWarnings) {
+            e.target.value = '';
+            return;
+          }
         }
 
         const currentFloorRooms = roomProgressList.filter(r => r.floorId === activeFloor?.id);
@@ -1987,6 +2118,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
         let importedCount = 0;
         let updatedCount = 0;
+        let normalizedInspectionCount = 0;
+        let missingTeamWarningCount = 0;
         const processedRoomIds = new Set<string>();
 
         jsonData.forEach((row: any) => {
@@ -2014,8 +2147,17 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
           const frameStatusVal = validAcceptance.includes(frameSt) ? frameSt : 'Chưa làm';
           const boardStatusVal = validAcceptance.includes(boardSt) ? boardSt : 'Chưa làm';
-          const frameInspectionVal = validInspection.includes(frameInsp) ? frameInsp : 'Chưa nghiệm thu';
-          const boardInspectionVal = validInspection.includes(boardInsp) ? boardInsp : 'Chưa nghiệm thu';
+          let frameInspectionVal = validInspection.includes(frameInsp) ? frameInsp : 'Chưa nghiệm thu';
+          let boardInspectionVal = validInspection.includes(boardInsp) ? boardInsp : 'Chưa nghiệm thu';
+
+          if (frameInspectionVal === 'Đạt nghiệm thu' && frameStatusVal !== 'Đã hoàn thành') {
+            frameInspectionVal = 'Chưa nghiệm thu';
+            normalizedInspectionCount++;
+          }
+          if (boardInspectionVal === 'Đạt nghiệm thu' && boardStatusVal !== 'Đã hoàn thành') {
+            boardInspectionVal = 'Chưa nghiệm thu';
+            normalizedInspectionCount++;
+          }
 
           let overall = 'Chưa nghiệm thu';
           if (frameInspectionVal === 'Đạt nghiệm thu' && boardInspectionVal === 'Đạt nghiệm thu') {
@@ -2089,21 +2231,34 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   const rawUnit = String(detailRow['Đơn Vị'] ?? detailRow['volumeUnit'] ?? '').trim();
                   const rawWeight = detailRow['Trọng Số Tiến Độ'] ?? detailRow['progressWeight'];
 
+                  const normalizedStatus = validAcceptance.includes(rawStatus)
+                    ? rawStatus as RoomSubItem['status']
+                    : (existingSubItem?.status || 'Chưa làm');
+                  let normalizedInspection = validInspection.includes(rawInspection)
+                    ? rawInspection as RoomSubItem['inspectionStatus']
+                    : (existingSubItem?.inspectionStatus || 'Chưa nghiệm thu');
+                  if (normalizedInspection === 'Đạt nghiệm thu' && normalizedStatus !== 'Đã hoàn thành') {
+                    normalizedInspection = 'Chưa nghiệm thu';
+                    normalizedInspectionCount++;
+                  }
+
+                  const resolvedAssignedTeam = teamLink.assignedTeam || existingSubItem?.assignedTeam;
+                  const resolvedTeamId = teamLink.teamId || (teamLink.assignedTeam ? undefined : existingSubItem?.teamId);
+                  if (!String(resolvedAssignedTeam || '').trim() && !String(resolvedTeamId || '').trim()) {
+                    missingTeamWarningCount++;
+                  }
+
                   return {
                     ...(existingSubItem || {}),
                     id: existingSubItem?.id || rawSubItemId || createEntityId('sub-custom'),
                     name: itemName,
                     category: categoryLink.name || existingSubItem?.category,
                     workCategoryId: categoryLink.id || (categoryLink.name ? undefined : existingSubItem?.workCategoryId),
-                    status: validAcceptance.includes(rawStatus)
-                      ? rawStatus as RoomSubItem['status']
-                      : (existingSubItem?.status || 'Chưa làm'),
-                    inspectionStatus: validInspection.includes(rawInspection)
-                      ? rawInspection as RoomSubItem['inspectionStatus']
-                      : (existingSubItem?.inspectionStatus || 'Chưa nghiệm thu'),
+                    status: normalizedStatus,
+                    inspectionStatus: normalizedInspection,
                     targetDate: rawTargetDate || existingSubItem?.targetDate,
-                    assignedTeam: teamLink.assignedTeam || existingSubItem?.assignedTeam,
-                    teamId: teamLink.teamId || (teamLink.assignedTeam ? undefined : existingSubItem?.teamId),
+                    assignedTeam: resolvedAssignedTeam,
+                    teamId: resolvedTeamId,
                     workVolume: hasExcelValue(rawVolume) ? parseExcelNumber(rawVolume) : existingSubItem?.workVolume,
                     volumeUnit: rawUnit || existingSubItem?.volumeUnit,
                     progressWeight: hasExcelValue(rawWeight) ? parseExcelNumber(rawWeight) : existingSubItem?.progressWeight,
@@ -2160,7 +2315,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         alert(
           `🎉 Nhập dữ liệu Mặt bằng từ Excel thành công!\n\n` +
           `• Đã cập nhật/chỉnh sửa: ${updatedCount} phòng/căn\n` +
-          `• Đã tạo mới/thêm mới: ${importedCount} phòng/căn`
+          `• Đã tạo mới/thêm mới: ${importedCount} phòng/căn\n` +
+          `• Tự sửa nghiệm thu không hợp lệ: ${normalizedInspectionCount} trường hợp\n` +
+          `• Hạng mục vẫn chưa gán đội: ${missingTeamWarningCount} dòng`
         );
       } catch (err: any) {
         alert(`❌ Lỗi đọc hoặc phân tích tệp Excel:\n${err.message || err}`);
