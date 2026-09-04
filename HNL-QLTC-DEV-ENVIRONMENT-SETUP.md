@@ -53,6 +53,12 @@ Once the DEV service account secret exists, a push to branch `dev` will:
 
 Enable Google sign-in for the DEV Firebase Authentication project so runtime multi-user tests can use Google accounts. Do not change PROD Auth configuration.
 
+## Activation status
+
+- 2026-09-04: Google sign-in enabled for HNL QLTC DEV.
+- 2026-09-04: Repository secret `FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV` added.
+- 2026-09-04: DEV workflow trigger commit issued after credential setup.
+
 ## Release rule
 
 - DEV failures never trigger PROD deployment.
