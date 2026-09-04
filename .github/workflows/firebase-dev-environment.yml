@@ -19,6 +19,7 @@ env:
 jobs:
   deploy_dev:
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     env:
       FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -103,21 +104,76 @@ jobs:
             APP_ID="$(printf '%s' "$CREATED" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const r=j.result||j;process.stdout.write(String(r.appId||r.app?.appId||''))})")"
           fi
           test -n "$APP_ID" || { echo '::error::Unable to resolve/create DEV Firebase Web App'; exit 1; }
+
           SDK="$(npx --yes firebase-tools@13.35.1 apps:sdkconfig WEB "$APP_ID" --project "$DEV_PROJECT_ID" --json)"
           printf '%s' "$SDK" > "$RUNNER_TEMP/firebase-dev-sdk.json"
           node - <<'NODE'
           const fs = require('fs');
           const raw = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/firebase-dev-sdk.json','utf8'));
-          const c = raw.result || raw;
-          const need = ['apiKey','appId','messagingSenderId','projectId','storageBucket'];
-          for (const k of need) if (!c[k]) { console.error('Missing DEV SDK field: '+k); process.exit(2); }
+
+          const keys = ['apiKey','appId','messagingSenderId','projectId','storageBucket','authDomain'];
+          const candidates = [];
+          const extracted = {};
+
+          function parseConfigString(text) {
+            if (typeof text !== 'string') return;
+            const trimmed = text.trim();
+            if (!trimmed) return;
+            try {
+              const obj = JSON.parse(trimmed);
+              walk(obj);
+            } catch {}
+            for (const key of keys) {
+              const re = new RegExp(`${key}\\s*:\\s*["']([^"']+)["']`);
+              const m = trimmed.match(re);
+              if (m && !extracted[key]) extracted[key] = m[1];
+            }
+          }
+
+          function walk(value) {
+            if (value == null) return;
+            if (typeof value === 'string') {
+              parseConfigString(value);
+              return;
+            }
+            if (Array.isArray(value)) {
+              for (const item of value) walk(item);
+              return;
+            }
+            if (typeof value === 'object') {
+              candidates.push(value);
+              for (const [k,v] of Object.entries(value)) {
+                if (keys.includes(k) && typeof v === 'string' && v && !extracted[k]) extracted[k] = v;
+                walk(v);
+              }
+            }
+          }
+
+          walk(raw);
+          const objectCandidate = candidates.find(o => o && typeof o === 'object' && o.apiKey && o.appId) || {};
+          const c = { ...extracted, ...objectCandidate };
+
+          c.projectId = c.projectId || process.env.DEV_PROJECT_ID;
+          c.authDomain = process.env.DEV_AUTH_DOMAIN;
+          if (!c.storageBucket && c.projectId) c.storageBucket = `${c.projectId}.firebasestorage.app`;
+
+          const need = ['apiKey','appId','messagingSenderId','projectId'];
+          const missing = need.filter(k => !c[k]);
+          if (missing.length) {
+            const top = raw && typeof raw === 'object' ? Object.keys(raw) : [];
+            const resultKeys = raw?.result && typeof raw.result === 'object' ? Object.keys(raw.result) : [];
+            console.error(`Missing DEV SDK field(s): ${missing.join(', ')}`);
+            console.error(`SDK JSON shape: top=[${top.join(',')}], result=[${resultKeys.join(',')}]`);
+            process.exit(2);
+          }
+
           const out = process.env.GITHUB_ENV;
           fs.appendFileSync(out, `VITE_FIREBASE_API_KEY=${c.apiKey}\n`);
           fs.appendFileSync(out, `VITE_FIREBASE_APP_ID=${c.appId}\n`);
           fs.appendFileSync(out, `VITE_FIREBASE_MESSAGING_SENDER_ID=${c.messagingSenderId}\n`);
           fs.appendFileSync(out, `VITE_FIREBASE_PROJECT_ID=${c.projectId}\n`);
           fs.appendFileSync(out, `VITE_FIREBASE_STORAGE_BUCKET=${c.storageBucket}\n`);
-          fs.appendFileSync(out, `VITE_FIREBASE_AUTH_DOMAIN=${process.env.DEV_AUTH_DOMAIN}\n`);
+          fs.appendFileSync(out, `VITE_FIREBASE_AUTH_DOMAIN=${c.authDomain}\n`);
           NODE
           echo "DEV Firebase Web App: $APP_ID"
 
