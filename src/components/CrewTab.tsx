@@ -44,6 +44,7 @@ import { QuickSortBar } from './QuickSortBar';
 import { UserRole, canEditCrewData, canDeleteBusinessData, canDeleteCrewRecord, canManageTeams, canImportData } from '../utils/securityUtils';
 import { getCrewShiftCounts } from '../utils/crewUtils';
 import { ContactMenu } from './ContactMenu';
+import { ShareEntityMenu } from './ShareEntityMenu';
 
 const CrewPhotoCount: React.FC<{ projectId?: string; recordId: string }> = ({ projectId, recordId }) => {
   const [count, setCount] = useState(0);
@@ -143,6 +144,36 @@ interface CrewTabProps {
   teams?: TeamInfo[];
   onUpdateTeams?: (teams: TeamInfo[]) => void;
 }
+
+const buildCrewRecordShareText = (record: CrewRecord, projectName?: string) => {
+  const counts = getCrewShiftCounts(record);
+  const floors = Array.from(new Set([
+    record.floorName,
+    ...(record.floorWorks || []).map((work) => work.floorName),
+  ].map((value) => String(value || '').trim()).filter(Boolean)));
+  const tasks = Array.from(new Set([
+    record.taskDescription,
+    ...(record.floorWorks || []).flatMap((work) => (work.categories || []).flatMap((category) => [
+      category.categoryName,
+      ...(category.subItems || []),
+    ])),
+  ].map((value) => String(value || '').trim()).filter(Boolean)));
+  return [
+    'HNL QLTC – Báo cáo quân số theo ngày',
+    projectName ? `Dự án: ${projectName}` : '',
+    `Ngày: ${formatDateDDMMYYYY(record.date)}`,
+    `Đội: ${record.teamName || 'Chưa cập nhật'}`,
+    record.leaderName ? `Đội trưởng: ${record.leaderName}` : '',
+    floors.length ? `Tầng / khu vực: ${floors.join(', ')}` : '',
+    `Sáng: ${counts.morning} người`,
+    `Chiều: ${counts.afternoon} người`,
+    `Tối: ${counts.evening} người`,
+    `Quân số tham chiếu: ${Number(record.workerCount || 0)} người`,
+    tasks.length ? `Công việc: ${tasks.join(' · ')}` : '',
+    record.notes ? `Ghi chú: ${record.notes}` : '',
+    'Lưu ý: Sáng/Chiều/Tối là quân số theo ca, không cộng thành số người duy nhất trong ngày.',
+  ].filter(Boolean).join('\n');
+};
 
 const COMMON_TASKS = [
   'Bắn tấm thạch cao trần vách',
@@ -1457,6 +1488,17 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
                       {/* Lightweight list mode: count only; thumbnails load on demand. */}
                       <CrewPhotoCount projectId={projectId} recordId={record.id} />
+
+                      <div className="mt-2 flex justify-end">
+                        <ShareEntityMenu
+                          projectId={projectId}
+                          entityType="crewRecord"
+                          entityId={record.id}
+                          title={`Quân số ${record.teamName || 'Đội thi công'} · ${formatDateDDMMYYYY(record.date)}`}
+                          text={buildCrewRecordShareText(record, projectName)}
+                          triggerLabel="Chia sẻ báo cáo"
+                        />
+                      </div>
 
                       {/* Actions buttons */}
                       {(canOperate || canDeleteRecord(record)) && <div className="flex items-center justify-end gap-3 mt-3 pt-2 border-t border-slate-100">

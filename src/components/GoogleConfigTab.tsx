@@ -489,6 +489,19 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
 
       {/* V6.2.27 STABILITY DIAGNOSTICS */}
       {syncDiagnostics && (
+        <details className="group rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-2xl px-4 py-3.5 select-none">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
+                <ShieldCheck className="h-4 w-4 text-emerald-600" /> Hệ thống & Chẩn đoán
+              </div>
+              <div className="mt-0.5 text-[10px] font-semibold text-slate-500">Nhấn để mở trạng thái đồng bộ, ảnh và công cụ chẩn đoán.</div>
+            </div>
+            <span className={`shrink-0 rounded-lg border px-2 py-1 text-[10px] font-bold ${syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+              {syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'Cloud sẵn sàng' : 'Đang kiểm tra'}
+            </span>
+          </summary>
+          <div className="px-2 pb-2 sm:px-3 sm:pb-3">
         <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
           <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-2">
             <div>
@@ -595,6 +608,9 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
             </button>
           </div>
         </div>
+      
+          </div>
+        </details>
       )}
 
       {/* PROJECT SETTINGS FORM CARD */}
