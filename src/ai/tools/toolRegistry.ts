@@ -4,6 +4,7 @@ import { auditCrewData } from '../audit/crewAudit';
 import { auditDefectLinks } from '../audit/defectAudit';
 import { auditProjectIntegrity } from '../audit/projectAudit';
 import { auditQuantityData } from '../audit/quantityAudit';
+import { calculateCurrentTeamDetail } from '../calculations/currentTeamDetail';
 import { calculateAiTeamSummary } from '../calculations/teamSummary';
 import type { AiDateRange, AiFact, AiQueryContext, AiToolResult } from '../core/contracts';
 import { resolveTeamReference, type TeamResolutionResult } from '../core/entityResolver';
@@ -18,6 +19,7 @@ export const HNL_AI_TOOL_NAMES = [
   'resolveTeam',
   'getTeamSummary',
   'getCurrentTeamProgress',
+  'getCurrentTeamProgressDetail',
   'auditDefectLinks',
   'auditQuantityData',
   'auditCrewData',
@@ -48,6 +50,7 @@ export type HnlAiToolArgs =
   | { name: 'resolveTeam'; args: ResolveTeamArgs }
   | { name: 'getTeamSummary'; args: GetTeamSummaryArgs }
   | { name: 'getCurrentTeamProgress'; args: GetCurrentTeamProgressArgs }
+  | { name: 'getCurrentTeamProgressDetail'; args: GetCurrentTeamProgressArgs }
   | { name: 'auditDefectLinks'; args: Record<string, never> }
   | { name: 'auditQuantityData'; args: Record<string, never> }
   | { name: 'auditCrewData'; args: Record<string, never> }
@@ -220,7 +223,7 @@ function currentTeamProgress(runtime: HnlAiToolRuntime, team: TeamInfo): AiToolR
       permissionRole: runtime.context.role,
       dataVersion: 'hnl-ai-tools-v1',
     },
-    warnings: [historicalQuantityUnavailableMessage()],
+    warnings: [],
     assumptions: [
       'Đây là snapshot tiến độ hiện tại, không phải khối lượng phát sinh theo từng ngày trong quá khứ.',
       'Không expose totalTeamVol legacy vì có thể trộn nhiều đơn vị; chỉ expose volumeByUnit.',
@@ -259,6 +262,16 @@ export function executeHnlAiTool(request: HnlAiToolArgs, runtime: HnlAiToolRunti
     case 'getCurrentTeamProgress': {
       const team = requireResolvedTeam(request.args.teamRef, runtime.snapshot.teams);
       return currentTeamProgress(runtime, team);
+    }
+    case 'getCurrentTeamProgressDetail': {
+      const team = requireResolvedTeam(request.args.teamRef, runtime.snapshot.teams);
+      return calculateCurrentTeamDetail({
+        context: runtime.context,
+        team,
+        rooms: [...runtime.snapshot.rooms],
+        freshness: runtime.snapshot.freshness,
+        asOf: runtime.snapshot.asOf,
+      });
     }
     case 'auditDefectLinks': {
       return auditDefectLinks({
