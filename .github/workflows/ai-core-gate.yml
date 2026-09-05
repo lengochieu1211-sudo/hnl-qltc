@@ -1,0 +1,64 @@
+name: HNL AI Core Gate
+
+on:
+  push:
+    branches:
+      - feature/hnl-ai-assistant
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phase1a:
+    runs-on: ubuntu-latest
+    env:
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: "false"
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: "false"
+      VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      VITE_GIT_COMMIT: ${{ github.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify isolated AI branch and source root
+        shell: bash
+        run: |
+          test "$GITHUB_REF_NAME" = "feature/hnl-ai-assistant" || { echo "REFUSING: AI gate only runs on feature/hnl-ai-assistant"; exit 1; }
+          test -f package.json || { echo "Missing package.json"; exit 1; }
+          test -f package-lock.json || { echo "Missing package-lock.json"; exit 1; }
+          test -f src/ai/core/contracts.ts || { echo "Missing AI core contracts"; exit 1; }
+          test -f scripts/ai-core-golden.ts || { echo "Missing AI core golden"; exit 1; }
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install exact locked dependencies
+        run: npm ci
+
+      - name: HNL AI deterministic core golden
+        run: npm run test:ai-core
+
+      - name: Existing HNL stability regression
+        run: npm run test:stability
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: Lint and source secret scan
+        run: npm run lint
+
+      - name: Firebase Rules regression
+        run: npm run test:rules
+
+      - name: Production dependency critical security audit
+        run: npm run security:audit
+
+      - name: Build
+        run: npm run build
