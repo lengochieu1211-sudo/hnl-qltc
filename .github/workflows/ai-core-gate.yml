@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  phase1_2:
+  phase1_2_planner:
     runs-on: ubuntu-latest
     env:
       VITE_APP_ENV: DEV
@@ -31,6 +31,9 @@ jobs:
           test -f package-lock.json || { echo "Missing package-lock.json"; exit 1; }
           test -f src/ai/core/contracts.ts || { echo "Missing AI core contracts"; exit 1; }
           test -f src/ai/tools/toolRegistry.ts || { echo "Missing AI tool registry"; exit 1; }
+          test -f src/ai/tools/toolValidation.ts || { echo "Missing AI tool validation"; exit 1; }
+          test -f src/ai/planning/queryPlanner.ts || { echo "Missing deterministic query planner"; exit 1; }
+          test -f src/ai/evidence/narrativeContext.ts || { echo "Missing evidence-first narrative context"; exit 1; }
           test -f src/ai/audit/defectAudit.ts || { echo "Missing Defect audit"; exit 1; }
           test -f src/ai/audit/quantityAudit.ts || { echo "Missing Quantity audit"; exit 1; }
           test -f src/ai/audit/crewAudit.ts || { echo "Missing Crew audit"; exit 1; }
@@ -38,6 +41,7 @@ jobs:
           test -f scripts/ai-core-golden.ts || { echo "Missing AI core golden"; exit 1; }
           test -f scripts/ai-tool-registry-golden.ts || { echo "Missing AI tool registry golden"; exit 1; }
           test -f scripts/ai-audit-golden.ts || { echo "Missing AI audit golden"; exit 1; }
+          test -f scripts/ai-planner-golden.ts || { echo "Missing AI planner golden"; exit 1; }
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -57,6 +61,9 @@ jobs:
 
       - name: HNL AI audit regression golden
         run: npm run test:ai-audit
+
+      - name: HNL AI deterministic planner and provider-boundary golden
+        run: npm run test:ai-planner
 
       - name: Existing HNL stability regression
         run: npm run test:stability
