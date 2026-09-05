@@ -85,6 +85,7 @@ import { getCurrentRealFirebaseUser } from '../lib/firebase';
 import { getRememberedVerifiedAuthIdentity } from '../utils/offlineAccess';
 import { resolveVerifiedIdentityLabel } from '../utils/authIdentityUtils';
 import { ContactMenu } from './ContactMenu';
+import { ShareEntityMenu } from './ShareEntityMenu';
 import { buildDefectShareText, resolveDefectTeam } from '../utils/defectContactUtils';
 import { isPointInsideRoom, reconcileDefectLinkage, resolveDefectLinkageFromSelection } from '../utils/defectLinkageUtils';
 
@@ -7691,10 +7692,20 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           <span className="text-slate-400 block text-[9px] font-bold uppercase">Phụ trách</span>
                           <div className="mt-0.5 flex flex-wrap items-center gap-1.5" onClick={(event) => event.stopPropagation()}>
                             <span className="font-bold text-slate-800">{defect.assignedTo}</span>
-                            <ContactMenu
-                              target={{ name: defect.assignedTo || 'Đội phụ trách', phone: contactTeam?.phone }}
-                              context={{ type: 'defect', projectId: currentProjectId, entityId: defect.id, shareText: defectShareText }}
-                              triggerLabel={contactTeam?.phone ? 'Liên hệ' : 'Chia sẻ'}
+                            {contactTeam?.phone && (
+                              <ContactMenu
+                                target={{ name: defect.assignedTo || 'Đội phụ trách', phone: contactTeam.phone }}
+                                context={{ type: 'defect', projectId: currentProjectId, entityId: defect.id, shareText: defectShareText }}
+                                triggerLabel="Liên hệ"
+                              />
+                            )}
+                            <ShareEntityMenu
+                              projectId={currentProjectId}
+                              entityType="defect"
+                              entityId={defect.id}
+                              title={`Defect ${getDefectShortCode(defect)} · ${defect.floorName || 'Chưa rõ tầng'}`}
+                              text={defectShareText}
+                              legacyImageUrls={[defect.imageUrl || '', defect.afterImageUrl || '']}
                             />
                           </div>
                         </div>
@@ -8457,11 +8468,23 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           {activeContactTeam?.phone ? `${activeDefectDetail.assignedTo} · ${activeContactTeam.phone}` : 'Chưa có số điện thoại khớp với đội phụ trách. Vẫn có thể sao chép/chia sẻ nội dung Defect.'}
                         </div>
                       </div>
-                      <ContactMenu
-                        target={{ name: activeDefectDetail.assignedTo || 'Đội phụ trách', phone: activeContactTeam?.phone }}
-                        context={{ type: 'defect', projectId: currentProjectId, entityId: activeDefectDetail.id, shareText: activeDefectShareText }}
-                        triggerLabel={activeContactTeam?.phone ? 'Liên hệ' : 'Chia sẻ'}
-                      />
+                      <div className="flex flex-wrap items-center justify-end gap-1.5">
+                        {activeContactTeam?.phone && (
+                          <ContactMenu
+                            target={{ name: activeDefectDetail.assignedTo || 'Đội phụ trách', phone: activeContactTeam.phone }}
+                            context={{ type: 'defect', projectId: currentProjectId, entityId: activeDefectDetail.id, shareText: activeDefectShareText }}
+                            triggerLabel="Liên hệ"
+                          />
+                        )}
+                        <ShareEntityMenu
+                          projectId={currentProjectId}
+                          entityType="defect"
+                          entityId={activeDefectDetail.id}
+                          title={`Defect ${getDefectShortCode(activeDefectDetail)} · ${activeDefectDetail.floorName || 'Chưa rõ tầng'}`}
+                          text={activeDefectShareText}
+                          legacyImageUrls={[activeDefectDetail.imageUrl || '', activeDefectDetail.afterImageUrl || '']}
+                        />
+                      </div>
                     </div>
                   </div>
 
