@@ -15,8 +15,10 @@ on:
       - 'src/features/ai/**'
       - 'src/ai/**'
       - 'cloudflare/ai-gateway/**'
+      - 'scripts/ai-gateway-golden.mjs'
       - 'package.json'
       - 'package-lock.json'
+      - '.github/workflows/firebase-hosting-merge.yml'
       - '.github/workflows/dev-runtime-golden.yml'
 
 permissions:
