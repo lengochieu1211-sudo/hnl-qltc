@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Copy, ExternalLink, MessageCircle, Phone, Share2, X } from 'lucide-react';
+import { Copy, MessageCircle, Phone, Share2, X } from 'lucide-react';
 import {
   buildContactShareText,
   callPhone,
@@ -7,8 +7,6 @@ import {
   ContactTarget,
   copyText,
   getContactPhone,
-  isAndroidWebBrowser,
-  openZalo,
   sharePreparedText,
 } from '../utils/contactUtils';
 
@@ -39,7 +37,7 @@ export const ContactMenu: React.FC<ContactMenuProps> = ({
 
   const showStatus = (message: string) => {
     setStatus(message);
-    window.setTimeout(() => setStatus(''), 3800);
+    window.setTimeout(() => setStatus(''), 4200);
   };
 
   const handleCall = () => {
@@ -50,57 +48,34 @@ export const ContactMenu: React.FC<ContactMenuProps> = ({
     setOpen(false);
   };
 
-  const handleOpenZalo = async () => {
+  const handleSms = () => {
     if (!phone.valid) {
-      showStatus('Chưa cập nhật số điện thoại để liên hệ qua Zalo.');
+      showStatus('Chưa cập nhật số điện thoại hợp lệ.');
       return;
     }
-
-    if (openZalo()) {
+    try {
+      const body = shareText ? `?body=${encodeURIComponent(shareText)}` : '';
+      window.location.href = `sms:${phone.dial}${body}`;
       setOpen(false);
-      return;
+    } catch (_) {
+      showStatus('Không mở được ứng dụng SMS trên thiết bị này.');
     }
-
-    // Android Web: direct Zalo URLs are intentionally avoided because they can
-    // redirect to Google Play even when Zalo is installed. Use the OS share sheet.
-    if (isAndroidWebBrowser()) {
-      const result = await sharePreparedText({
-        title: `HNL QLTC – ${target.name || 'Liên hệ'}`,
-        text: shareText,
-        url: shareUrl,
-      });
-      if (result === 'shared') {
-        setOpen(false);
-      } else if (result === 'copied') {
-        showStatus('Đã sao chép nội dung. Hãy mở Zalo và dán để gửi.');
-      } else if (result === 'cancelled') {
-        showStatus('Đã hủy bảng chia sẻ.');
-      } else {
-        showStatus('Không mở được bảng chia sẻ. Hãy sao chép nội dung và mở Zalo thủ công.');
-      }
-      return;
-    }
-
-    showStatus('Không mở được Zalo trực tiếp. Hãy dùng “Nhắn qua Zalo / Chia sẻ hệ thống”.');
   };
 
-  const handleMessageZalo = async () => {
-    if (!phone.valid) {
-      showStatus('Chưa cập nhật số điện thoại để liên hệ qua Zalo.');
-      return;
-    }
+  const handleSystemShare = async () => {
     const result = await sharePreparedText({
       title: `HNL QLTC – ${target.name || 'Liên hệ'}`,
       text: shareText,
       url: shareUrl,
     });
-    if (result === 'copied') {
-      if (!isAndroidWebBrowser()) openZalo();
-      showStatus('Đã sao chép nội dung. Hãy mở Zalo và dán để gửi.');
+    if (result === 'shared') {
+      setOpen(false);
+    } else if (result === 'copied') {
+      showStatus('Trình duyệt không có bảng chia sẻ. Nội dung đã được sao chép.');
     } else if (result === 'cancelled') {
       showStatus('Đã hủy bảng chia sẻ.');
-    } else if (result === 'failed') {
-      showStatus('Không thể chia sẻ tự động. Hãy sao chép nội dung để gửi.');
+    } else {
+      showStatus('Không mở được bảng chia sẻ. Hãy sao chép nội dung để gửi thủ công.');
     }
   };
 
@@ -154,31 +129,29 @@ export const ContactMenu: React.FC<ContactMenuProps> = ({
                 <Phone className="w-4 h-4 text-emerald-600" />
                 <span>Gọi điện</span>
               </button>
-              <button type="button" onClick={() => void handleOpenZalo()} disabled={!phone.valid} className={actionClass}>
-                <ExternalLink className="w-4 h-4 text-blue-600" />
-                <span>{isAndroidWebBrowser() ? 'Mở Zalo qua bảng chia sẻ' : 'Mở Zalo'}</span>
+              <button type="button" onClick={handleSms} disabled={!phone.valid} className={actionClass}>
+                <MessageCircle className="w-4 h-4 text-sky-600" />
+                <span>Nhắn SMS</span>
               </button>
-              <button type="button" onClick={() => void handleMessageZalo()} disabled={!phone.valid} className={actionClass}>
-                <MessageCircle className="w-4 h-4 text-blue-600" />
-                <span>Nhắn qua Zalo / Chia sẻ hệ thống</span>
+              <button type="button" onClick={() => void handleSystemShare()} disabled={!shareText && !shareUrl} className={actionClass}>
+                <Share2 className="w-4 h-4 text-indigo-600" />
+                <span>Chia sẻ / Nhắn qua ứng dụng</span>
               </button>
               <button type="button" onClick={() => void handleCopyPhone()} disabled={!phone.original} className={actionClass}>
                 <Copy className="w-4 h-4 text-slate-500" />
                 <span>Sao chép số điện thoại</span>
               </button>
               <button type="button" onClick={() => void handleCopyContent()} disabled={!shareText && !shareUrl} className={actionClass}>
-                <Share2 className="w-4 h-4 text-indigo-600" />
+                <Copy className="w-4 h-4 text-slate-500" />
                 <span>Sao chép nội dung liên hệ</span>
               </button>
 
-              {isAndroidWebBrowser() && phone.valid && (
-                <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-[10px] font-semibold text-blue-800">
-                  Trên Web Android, HNL QLTC dùng bảng chia sẻ hệ thống để tránh Chrome chuyển nhầm sang Google Play. Hãy chọn Zalo trong danh sách ứng dụng.
-                </div>
-              )}
+              <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-[10px] font-semibold leading-relaxed text-indigo-800">
+                “Chia sẻ / Nhắn qua ứng dụng” mở bảng chia sẻ của thiết bị. Bạn có thể chọn Zalo, Messenger, Telegram, Gmail, Teams hoặc ứng dụng nhắn tin đang cài mà không cần HNL QLTC hard-code từng ứng dụng.
+              </div>
               {!phone.valid && (
                 <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-semibold text-amber-800">
-                  Chưa cập nhật số điện thoại. Các hành động gọi/Zalo đang được khóa an toàn.
+                  Chưa cập nhật số điện thoại. Gọi/SMS đang khóa; vẫn có thể chia sẻ nội dung nếu có.
                 </div>
               )}
               {status && (
