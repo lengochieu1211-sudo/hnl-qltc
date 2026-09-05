@@ -4,7 +4,7 @@ import type { ChecklistItem, CrewRecord, DefectItem, FloorPlan, InventoryItem, M
 import type { UserRole } from '../../utils/securityUtils';
 import { createHnlAiProjectSnapshot } from '../../ai/data/projectSnapshot';
 import { runHnlAiQuestion, type HnlAiOrchestratorResult } from '../../ai/orchestrator/aiOrchestrator';
-import { HnlManagedAiProvider } from '../../ai/providers/hnlManagedProvider';
+import { HnlManagedAiProvider, type HnlManagedProviderId } from '../../ai/providers/hnlManagedProvider';
 import type { AiProviderModelInfo } from '../../ai/providers/providerTypes';
 import type { AiAuditSummary } from '../../ai/core/contracts';
 import { exportHnlAiExcel, exportHnlAiPdf, type HnlAiReportExportInput } from '../../ai/export/aiReportExport';
@@ -44,6 +44,14 @@ const QUICK_PROMPTS: Record<AiAssistantMode, string[]> = {
   hybrid: ['Dựa trên dữ liệu hiện tại, phân tích Defect và đề xuất ưu tiên', 'Kiểm tra toàn dự án và giải thích các rủi ro chính'],
 };
 
+const PROVIDER_META: Record<HnlManagedProviderId, { label: string; apiHint: string }> = {
+  cloudflare: { label: 'Cloudflare Workers AI', apiHint: 'HNL Managed · không cần nhập API Key.' },
+  gemini: { label: 'Google Gemini', apiHint: 'Có thể dùng HNL Managed hoặc nhập Gemini API Key riêng.' },
+  openai: { label: 'OpenAI', apiHint: 'Có thể dùng HNL Managed hoặc nhập OpenAI API Key riêng.' },
+  groq: { label: 'Groq', apiHint: 'Có thể dùng HNL Managed hoặc nhập Groq API Key riêng.' },
+  openrouter: { label: 'OpenRouter', apiHint: 'Có thể dùng HNL Managed hoặc nhập OpenRouter API Key riêng.' },
+};
+
 function canonicalToday(timeZone: string): string {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
   const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
@@ -62,21 +70,35 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
   const [result, setResult] = useState<HnlAiOrchestratorResult | null>(null);
   const [generalText, setGeneralText] = useState('');
   const [error, setError] = useState('');
+  const [providerId, setProviderId] = useState<HnlManagedProviderId>('cloudflare');
   const [models, setModels] = useState<AiProviderModelInfo[]>([]);
   const [model, setModel] = useState('');
+  const [managedAvailable, setManagedAvailable] = useState(false);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [apiKey, setApiKey] = useState('');
+  const [showApiKey, setShowApiKey] = useState(false);
   const [exportBusy, setExportBusy] = useState<AiExportKind | null>(null);
   const [exportNotice, setExportNotice] = useState('');
   const timeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', []);
   const gatewayUrl = String((import.meta as any).env?.VITE_HNL_AI_GATEWAY_URL || '').trim();
 
-  const provider = useMemo(() => {
+  const catalogProvider = useMemo(() => {
     if (!gatewayUrl || !props.projectId) return null;
     try {
-      return new HnlManagedAiProvider({ gatewayUrl, provider: 'cloudflare', projectId: props.projectId, role: props.role });
+      return new HnlManagedAiProvider({ gatewayUrl, provider: providerId, projectId: props.projectId, role: props.role });
     } catch {
       return null;
     }
-  }, [gatewayUrl, props.projectId, props.role]);
+  }, [gatewayUrl, providerId, props.projectId, props.role]);
+
+  const provider = useMemo(() => {
+    if (!gatewayUrl || !props.projectId) return null;
+    try {
+      return new HnlManagedAiProvider({ gatewayUrl, provider: providerId, projectId: props.projectId, role: props.role, apiKey });
+    } catch {
+      return null;
+    }
+  }, [gatewayUrl, providerId, props.projectId, props.role, apiKey]);
 
   const snapshot = useMemo(() => createHnlAiProjectSnapshot({
     projectId: props.projectId,
@@ -96,20 +118,29 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
 
   useEffect(() => {
     let cancelled = false;
-    if (!provider || !props.online || !props.accessVerified) {
+    if (!catalogProvider || !props.online || !props.accessVerified) {
       setModels([]);
       setModel('');
+      setManagedAvailable(false);
       return;
     }
-    provider.listModels().then((items) => {
+    setModelsLoading(true);
+    catalogProvider.getCatalog().then((catalog) => {
       if (cancelled) return;
-      setModels(items);
-      setModel((current) => current && items.some((item) => item.id === current) ? current : (items[0]?.id || ''));
+      setManagedAvailable(catalog.managedAvailable);
+      setModels(catalog.models);
+      setModel((current) => current && catalog.models.some((item) => item.id === current) ? current : (catalog.models[0]?.id || ''));
     }).catch(() => {
-      if (!cancelled) { setModels([]); setModel(''); }
+      if (!cancelled) { setModels([]); setModel(''); setManagedAvailable(false); }
+    }).finally(() => {
+      if (!cancelled) setModelsLoading(false);
     });
     return () => { cancelled = true; };
-  }, [provider, props.online, props.accessVerified]);
+  }, [catalogProvider, props.online, props.accessVerified]);
+
+  const selectedProvider = PROVIDER_META[providerId];
+  const hasSessionApiKey = providerId !== 'cloudflare' && apiKey.trim().length >= 8;
+  const providerReady = Boolean(provider && model && (managedAvailable || hasSessionApiKey));
 
   const runQuestion = async (input?: string) => {
     const text = String(input ?? question).trim();
@@ -124,7 +155,7 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
       if (!props.accessVerified) throw new Error('Quyền truy cập dự án chưa được xác minh.');
       if (mode === 'ai') {
         if (!props.online) throw new Error('AI Cloud đang offline. Chế độ AI chung cần có mạng.');
-        if (!provider || !model) throw new Error('HNL Managed AI chưa sẵn sàng.');
+        if (!provider || !model || !providerReady) throw new Error(providerId === 'cloudflare' ? 'Cloudflare HNL Managed AI chưa sẵn sàng.' : 'Provider chưa có HNL Managed API. Hãy nhập API Key riêng cho phiên này hoặc chọn provider khác.');
         const response = await provider.chat({
           mode: 'GENERAL_AI', model,
           messages: [
@@ -144,8 +175,8 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
         question: text,
         runtime,
         referenceDate: canonicalToday(timeZone),
-        provider: mode === 'hybrid' ? (provider || undefined) : undefined,
-        model: mode === 'hybrid' ? (model || undefined) : undefined,
+        provider: mode === 'hybrid' && providerReady ? (provider || undefined) : undefined,
+        model: mode === 'hybrid' && providerReady ? (model || undefined) : undefined,
         requestNarrative: mode === 'hybrid',
         cloudAvailable: props.online,
       });
@@ -222,12 +253,38 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+        {(mode === 'ai' || mode === 'hybrid') && <div className="mb-3 rounded-xl border border-indigo-100 bg-indigo-50/60 p-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <label className="text-[11px] font-bold text-slate-700">Nhà cung cấp AI
+              <select value={providerId} onChange={(e) => { setProviderId(e.target.value as HnlManagedProviderId); setApiKey(''); setShowApiKey(false); setModel(''); setError(''); }} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs font-semibold text-slate-800">
+                {(Object.keys(PROVIDER_META) as HnlManagedProviderId[]).map((id) => <option key={id} value={id}>{PROVIDER_META[id].label}</option>)}
+              </select>
+            </label>
+            <label className="text-[11px] font-bold text-slate-700">Model
+              <select value={model} disabled={modelsLoading || models.length === 0} onChange={(e) => setModel(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs font-semibold text-slate-800 disabled:opacity-60">
+                {modelsLoading && <option value="">Đang tải model...</option>}
+                {!modelsLoading && models.length === 0 && <option value="">Chưa có model</option>}
+                {models.map((item) => <option key={item.id} value={item.id}>{item.displayName || item.id}</option>)}
+              </select>
+            </label>
+          </div>
+          {providerId !== 'cloudflare' && <div className="mt-2">
+            <div className="flex items-center justify-between gap-2"><label className="text-[11px] font-bold text-slate-700">API Key riêng</label><span className="text-[10px] font-semibold text-emerald-700">Chỉ giữ trong bộ nhớ phiên này</span></div>
+            <div className="mt-1 flex gap-2">
+              <input type={showApiKey ? 'text' : 'password'} value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" spellCheck={false} placeholder={`Nhập ${selectedProvider.label} API Key`} className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800" />
+              <button type="button" onClick={() => setShowApiKey((value) => !value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-[11px] font-bold text-slate-700">{showApiKey ? 'Ẩn' : 'Hiện'}</button>
+              {apiKey && <button type="button" onClick={() => setApiKey('')} className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] font-bold text-rose-700">Xóa</button>}
+            </div>
+            <p className="mt-1.5 text-[10px] leading-4 text-slate-500">{selectedProvider.apiHint} API Key bạn nhập không lưu vào Firestore, localStorage, APK/EXE hay log của HNL; tải lại ứng dụng sẽ phải nhập lại.</p>
+          </div>}
+          <div className="mt-2 text-[10px] font-semibold text-slate-600">Trạng thái: {modelsLoading ? 'Đang đọc danh sách model...' : providerReady ? `${selectedProvider.label} · ${hasSessionApiKey ? 'API riêng phiên này' : 'HNL Managed'}` : providerId === 'cloudflare' ? 'HNL Managed chưa sẵn sàng' : 'Chưa có credential — nhập API Key riêng hoặc dùng HNL Managed nếu đã cấu hình'}</div>
+        </div>}
         <div className="flex flex-wrap gap-2 mb-3">
           {QUICK_PROMPTS[mode].map((prompt) => <button key={prompt} onClick={() => void runQuestion(prompt)} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-100">{prompt}</button>)}
         </div>
         <textarea value={question} onChange={(e) => setQuestion(e.target.value)} rows={3} placeholder="Hỏi HNL AI..." className="w-full resize-none rounded-xl border border-slate-300 bg-white p-3 text-sm outline-none focus:ring-2 focus:ring-indigo-400" />
         <div className="mt-2 flex items-center justify-between gap-2">
-          <div className="text-[10px] text-slate-500">{mode === 'data' || mode === 'audit' ? 'Không cần AI Cloud' : model ? `HNL Managed AI · ${model}` : 'AI Cloud chưa sẵn sàng'}</div>
+          <div className="text-[10px] text-slate-500">{mode === 'data' || mode === 'audit' ? 'Không cần AI Cloud' : model ? `${selectedProvider.label} · ${model} · ${hasSessionApiKey ? 'API riêng' : managedAvailable ? 'HNL Managed' : 'chưa có API'}` : 'AI Cloud chưa sẵn sàng'}</div>
           <button disabled={busy || !question.trim()} onClick={() => void runQuestion()} className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50 flex items-center gap-2">{busy && <Loader2 className="w-4 h-4 animate-spin" />}Gửi</button>
         </div>
       </section>
