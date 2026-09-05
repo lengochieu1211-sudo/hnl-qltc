@@ -13,6 +13,7 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'vite.config.ts'
+      - 'scripts/firebase-rules-check.mjs'
       - '.github/workflows/android-apk-dev.yml'
 
 permissions:
