@@ -143,6 +143,8 @@ const ChecklistTab = React.lazy(() => import('./components/ChecklistTab').then(m
 const CrewTab = React.lazy(() => import('./components/CrewTab').then(m => ({ default: m.CrewTab })));
 const GoogleConfigTab = React.lazy(() => import('./components/GoogleConfigTab').then(m => ({ default: m.GoogleConfigTab })));
 const ChatTab = React.lazy(() => import('./features/chat/ChatTab').then(m => ({ default: m.ChatTab })));
+const AiAssistantPage = React.lazy(() => import('./features/ai/AiAssistantPage').then(m => ({ default: m.AiAssistantPage })));
+const HNL_AI_ENABLED = String(((import.meta as any).env || {}).VITE_HNL_AI_ENABLED || 'false').toLowerCase() === 'true';
 
 interface AppData {
   materialNorms: MaterialNorm[];
@@ -6475,6 +6477,25 @@ export default function App() {
             />
           )}
 
+          {HNL_AI_ENABLED && activeTab === 'ai' && (
+            <AiAssistantPage
+              projectId={activeProjectId}
+              projectName={projectName}
+              role={currentUserRole}
+              accessVerified={isProjectRoleResolved && projectRoleAllowed}
+              online={isOnline}
+              rooms={roomProgressList}
+              defects={defects}
+              crewRecords={crewRecords}
+              teams={teams}
+              floors={floorPlans}
+              workVolumes={workVolumes}
+              inventory={inventory}
+              materialNorms={materialNorms}
+              checklist={checklist}
+            />
+          )}
+
           {activeTab === 'config' && (
             <GoogleConfigTab
               projectName={projectName}
@@ -6650,6 +6671,7 @@ export default function App() {
             defectBadgeCount={unhandledDefectsCount}
             chatBadgeCount={chatUnreadCount}
             showChecklist={showChecklistModule}
+            showAi={HNL_AI_ENABLED}
             showSuperAdmin={isCurrentSuperAdmin}
           />
         )}
