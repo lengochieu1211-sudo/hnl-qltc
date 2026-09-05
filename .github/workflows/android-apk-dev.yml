@@ -14,6 +14,7 @@ on:
       - 'package-lock.json'
       - 'vite.config.ts'
       - 'scripts/firebase-rules-check.mjs'
+      - 'scripts/firebase-rules-behavior.mjs'
       - '.github/workflows/android-apk-dev.yml'
 
 permissions:
@@ -31,7 +32,29 @@ env:
   PROD_ANDROID_PACKAGE: com.qlct.app
 
 jobs:
+  rules_regression:
+    name: Firebase Rules regression (Ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout DEV
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Firebase Rules compile and behavior
+        run: npm run test:rules
+
   build_dev_apk:
+    needs: rules_regression
     runs-on: windows-latest
     timeout-minutes: 40
     env:
@@ -118,9 +141,6 @@ jobs:
 
       - name: Lint and source secret scan
         run: npm run lint
-
-      - name: Firebase Rules regression
-        run: npm run test:rules
 
       - name: Production dependency critical security audit
         run: npm run security:audit
