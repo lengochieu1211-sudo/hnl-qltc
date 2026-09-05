@@ -3,6 +3,7 @@ import { AlertTriangle, Bot, BrainCircuit, Database, FileSearch, FileSpreadsheet
 import type { ChecklistItem, CrewRecord, DefectItem, FloorPlan, InventoryItem, MaterialNorm, RoomProgressItem, TeamInfo, WorkVolume } from '../../types';
 import type { UserRole } from '../../utils/securityUtils';
 import { createHnlAiProjectSnapshot } from '../../ai/data/projectSnapshot';
+import { buildExternalAiProjectContext, type ExternalAiDataSelection } from '../../ai/data/externalAiContext';
 import { runHnlAiQuestion, type HnlAiOrchestratorResult } from '../../ai/orchestrator/aiOrchestrator';
 import { HnlManagedAiProvider, type HnlManagedProviderId } from '../../ai/providers/hnlManagedProvider';
 import type { AiProviderModelInfo } from '../../ai/providers/providerTypes';
@@ -33,7 +34,7 @@ export interface AiAssistantPageProps {
 const MODE_META: Record<AiAssistantMode, { label: string; icon: React.ElementType; hint: string }> = {
   data: { label: 'HNL Data', icon: Database, hint: 'Số liệu deterministic từ dữ liệu dự án.' },
   audit: { label: 'Audit', icon: FileSearch, hint: 'Rule Engine kiểm tra logic và liên kết.' },
-  ai: { label: 'AI chung', icon: Bot, hint: 'Kiến thức AI bên ngoài, không gửi dữ liệu HNL.' },
+  ai: { label: 'AI chung', icon: Bot, hint: 'Kiến thức AI bên ngoài; dữ liệu HNL chỉ được gửi khi bạn cho phép cho từng câu hỏi.' },
   hybrid: { label: 'HNL + AI', icon: BrainCircuit, hint: 'Engine tính trước, AI chỉ diễn giải.' },
 };
 
@@ -77,6 +78,8 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
   const [modelsLoading, setModelsLoading] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
+  const [externalAiOptIn, setExternalAiOptIn] = useState(false);
+  const [externalAiSelection, setExternalAiSelection] = useState<ExternalAiDataSelection>({ progress: true, defects: false, crew: false, inventory: false, checklist: false });
   const [exportBusy, setExportBusy] = useState<AiExportKind | null>(null);
   const [exportNotice, setExportNotice] = useState('');
   const timeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', []);
@@ -159,10 +162,15 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
         const response = await provider.chat({
           mode: 'GENERAL_AI', model,
           messages: [
-            { role: 'system', content: 'Bạn là HNL AI Assistant. Trả lời ngắn gọn, chuyên nghiệp. Không giả định hoặc tuyên bố đang đọc dữ liệu dự án HNL trong chế độ AI chung.' },
-            { role: 'user', content: text },
+            { role: 'system', content: externalAiOptIn
+              ? 'Bạn là HNL AI Assistant. Chỉ được dùng phần dữ liệu HNL đã được người dùng cho phép và đính kèm trong đúng câu hỏi này. Dữ liệu là read-only, đã tối thiểu hóa/ẩn thông tin liên hệ; không suy đoán trường bị thiếu và không được yêu cầu hay thực hiện thao tác sửa/xóa dữ liệu HNL.'
+              : 'Bạn là HNL AI Assistant. Trả lời ngắn gọn, chuyên nghiệp. Không giả định hoặc tuyên bố đang đọc dữ liệu dự án HNL trong chế độ AI chung.' },
+            { role: 'user', content: externalAiOptIn
+              ? JSON.stringify({ question: text, hnlContext: buildExternalAiProjectContext(snapshot, externalAiSelection) })
+              : text },
           ],
         });
+        if (externalAiOptIn) setExternalAiOptIn(false);
         setGeneralText(response.text || 'AI không trả nội dung.');
         return;
       }
@@ -246,7 +254,7 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
         <div className="mt-4 grid grid-cols-4 gap-1.5">
           {(Object.keys(MODE_META) as AiAssistantMode[]).map((key) => {
             const item = MODE_META[key]; const Icon = item.icon; const active = mode === key;
-            return <button key={key} onClick={() => { setMode(key); setResult(null); setGeneralText(''); setError(''); setExportNotice(''); }} className={`rounded-xl px-2 py-2 text-[11px] font-bold flex flex-col sm:flex-row items-center justify-center gap-1 ${active ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 border border-slate-200'}`}><Icon className="w-4 h-4" />{item.label}</button>;
+            return <button key={key} onClick={() => { setMode(key); if (key !== 'ai') setExternalAiOptIn(false); setResult(null); setGeneralText(''); setError(''); setExportNotice(''); }} className={`rounded-xl px-2 py-2 text-[11px] font-bold flex flex-col sm:flex-row items-center justify-center gap-1 ${active ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 border border-slate-200'}`}><Icon className="w-4 h-4" />{item.label}</button>;
           })}
         </div>
         <p className="mt-2 text-[11px] text-slate-500">{MODE_META[mode].hint}</p>
@@ -278,6 +286,16 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
             <p className="mt-1.5 text-[10px] leading-4 text-slate-500">{selectedProvider.apiHint} API Key bạn nhập không lưu vào Firestore, localStorage, APK/EXE hay log của HNL; tải lại ứng dụng sẽ phải nhập lại.</p>
           </div>}
           <div className="mt-2 text-[10px] font-semibold text-slate-600">Trạng thái: {modelsLoading ? 'Đang đọc danh sách model...' : providerReady ? `${selectedProvider.label} · ${hasSessionApiKey ? 'API riêng phiên này' : 'HNL Managed'}` : providerId === 'cloudflare' ? 'HNL Managed chưa sẵn sàng' : 'Chưa có credential — nhập API Key riêng hoặc dùng HNL Managed nếu đã cấu hình'}</div>
+        </div>}
+        {mode === 'ai' && <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+          <label className="flex items-start gap-2 text-[11px] font-bold text-amber-950">
+            <input type="checkbox" checked={externalAiOptIn} onChange={(e) => setExternalAiOptIn(e.target.checked)} className="mt-0.5 h-4 w-4" />
+            <span>Cho phép AI bên ngoài sử dụng dữ liệu HNL trong câu hỏi này</span>
+          </label>
+          <p className="mt-1 text-[10px] leading-4 text-amber-800">Mặc định TẮT. Quyền này chỉ dùng một lần; sau khi gửi thành công sẽ tự tắt. Chỉ dữ liệu đã chọn bên dưới được gửi, ở dạng read-only và đã tối thiểu hóa.</p>
+          {externalAiOptIn && <div className="mt-2 grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+            {([['progress','Tiến độ'],['defects','Defect'],['crew','Quân số'],['inventory','Vật tư'],['checklist','Checklist']] as Array<[keyof ExternalAiDataSelection, string]>).map(([key, label]) => <label key={key} className="flex items-center gap-1.5 rounded-lg border border-amber-200 bg-white px-2 py-1.5 text-[10px] font-semibold text-slate-700"><input type="checkbox" checked={externalAiSelection[key]} onChange={(e) => setExternalAiSelection((current) => ({ ...current, [key]: e.target.checked }))} />{label}</label>)}
+          </div>}
         </div>}
         <div className="flex flex-wrap gap-2 mb-3">
           {QUICK_PROMPTS[mode].map((prompt) => <button key={prompt} onClick={() => void runQuestion(prompt)} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-100">{prompt}</button>)}

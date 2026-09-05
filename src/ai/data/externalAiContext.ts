@@ -10,7 +10,15 @@ export interface ExternalAiDataSelection {
   checklist: boolean;
 }
 
-const MAX_ROWS_PER_COLLECTION = 240;
+const MAX_ROWS_PER_COLLECTION = 60;
+const MAX_SUBITEMS_PER_ROOM = 20;
+
+function safeText(value: unknown): string {
+  return String(value ?? '')
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email đã ẩn]')
+    .replace(/(?:\+?84|0)(?:[ .-]?\d){8,10}/g, '[số điện thoại đã ẩn]')
+    .slice(0, 600);
+}
 
 function active<T extends { deletedAt?: number | null }>(items: readonly T[]): T[] {
   return items.filter((item) => item.deletedAt === undefined || item.deletedAt === null);
@@ -36,7 +44,7 @@ export function buildExternalAiProjectContext(
   const result: Record<string, unknown> = {
     project: {
       id: snapshot.projectId,
-      name: snapshot.projectName || '',
+      name: safeText(snapshot.projectName || ''),
       asOf: snapshot.asOf,
       freshness: snapshot.freshness,
     },
@@ -60,7 +68,7 @@ export function buildExternalAiProjectContext(
       inspectionStatus: room.inspectionStatus,
       frameStatus: room.frameStatus,
       boardStatus: room.boardStatus,
-      subItems: (room.subItems || []).map((item) => ({
+      subItems: (room.subItems || []).slice(0, MAX_SUBITEMS_PER_ROOM).map((item) => ({
         id: item.id,
         name: item.name,
         category: item.category || '',
@@ -95,10 +103,10 @@ export function buildExternalAiProjectContext(
       floorId: item.floorId,
       floorName: item.floorName,
       roomId: item.roomId || '',
-      positionDetail: item.positionDetail || '',
+      positionDetail: safeText(item.positionDetail || ''),
       teamId: item.teamId || '',
       category: item.category,
-      description: item.description,
+      description: safeText(item.description),
       severity: item.severity,
       status: item.status,
       dueDate: item.dueDate || '',
@@ -120,9 +128,9 @@ export function buildExternalAiProjectContext(
       floorId: item.floorId || '',
       floorName: item.floorName || '',
       floorWorks: item.floorWorks || [],
-      taskDescription: item.taskDescription,
+      taskDescription: safeText(item.taskDescription),
       shift: item.shift || '',
-      notes: item.notes || '',
+      notes: safeText(item.notes || ''),
     })));
   }
 
@@ -136,7 +144,7 @@ export function buildExternalAiProjectContext(
       quantity: item.quantity,
       location: item.location,
       date: item.date,
-      notes: item.notes || '',
+      notes: safeText(item.notes || ''),
     })));
     result.materialNorms = capped(active(snapshot.materialNorms).map((item) => ({
       id: item.id,
@@ -163,7 +171,7 @@ export function buildExternalAiProjectContext(
       title: item.title,
       status: item.status,
       dueDate: item.dueDate || '',
-      notes: item.notes || '',
+      notes: safeText(item.notes || ''),
       inspectedAt: item.inspectedAt || '',
     })));
   }

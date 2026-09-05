@@ -31,7 +31,8 @@
     "test:ai-export": "tsx scripts/ai-export-golden.ts",
     "build:apk:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File ./android-wrapper/build-apk.ps1",
     "build:exe:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File ./desktop-wrapper/build-launcher.ps1",
-    "test:checklist-floor": "tsx scripts/checklist-floor-golden.ts"
+    "test:checklist-floor": "tsx scripts/checklist-floor-golden.ts",
+    "test:ai-external-context": "tsx scripts/ai-external-context-golden.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
