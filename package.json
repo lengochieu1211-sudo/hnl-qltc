@@ -27,6 +27,7 @@
     "test:ai-audit": "tsx scripts/ai-audit-golden.ts",
     "test:ai-planner": "tsx scripts/ai-planner-golden.ts",
     "test:ai-provider": "tsx scripts/ai-provider-orchestrator-golden.ts",
+    "test:ai-gateway": "node scripts/ai-gateway-golden.mjs",
     "build:apk:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File ./android-wrapper/build-apk.ps1",
     "build:exe:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File ./desktop-wrapper/build-launcher.ps1",
     "test:checklist-floor": "tsx scripts/checklist-floor-golden.ts"
