@@ -30,11 +30,22 @@ const originalFetch = globalThis.fetch;
 let identityLookupCalls = 0;
 globalThis.fetch = async (url, init = {}) => {
   const target = String(url);
-  if (target === 'https://api.openai.com/v1/chat/completions') {
+  if (target === 'https://api.openai.com/v1/models') {
+    assert.equal(init?.headers?.authorization, 'Bearer sk-user-session-key');
+    return new Response(JSON.stringify({ data: [{ id: 'gpt-4.1-mini' }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+  if (target === 'https://api.openai.com/v1/responses') {
     assert.equal(init?.headers?.authorization, 'Bearer sk-user-session-key');
     const payload = JSON.parse(String(init.body || '{}'));
     assert.equal(payload.model, 'gpt-4.1-mini');
-    return new Response(JSON.stringify({ choices: [{ message: { content: 'BYOK OK' } }], usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 } }), { status: 200, headers: { 'content-type': 'application/json' } });
+    assert.equal(payload.store, false);
+    return new Response(JSON.stringify({
+      output: [{ content: [{ type: 'output_text', text: 'BYOK OK' }] }],
+      usage: { input_tokens: 3, output_tokens: 2, total_tokens: 5 },
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
   }
   if (target.startsWith('https://identitytoolkit.googleapis.com/v1/accounts:lookup')) {
     identityLookupCalls += 1;
@@ -141,6 +152,19 @@ try {
     body: JSON.stringify({ ...basePayload, provider: 'openai', model: 'gpt-4.1-mini' }),
   }), env);
   assert.equal(unavailable.status, 503);
+
+  // BYOK model discovery and chat both use the session key without persisting or echoing it.
+  const byokModels = await worker.fetch(new Request('https://gateway.test/v1/models', {
+    method: 'POST',
+    headers: { ...authHeaders, 'content-type': 'application/json' },
+    body: JSON.stringify({ provider: 'openai', apiKey: 'sk-user-session-key' }),
+  }), env);
+  assert.equal(byokModels.status, 200);
+  const byokModelsBody = await byokModels.json();
+  assert.equal(byokModelsBody.ok, true);
+  assert.equal(byokModelsBody.providers[0].source, 'live');
+  assert.equal(byokModelsBody.providers[0].models.some((item) => item.id === 'gpt-4.1-mini'), true);
+  assert.equal(JSON.stringify(byokModelsBody).includes('sk-user-session-key'), false);
 
   const byok = await worker.fetch(new Request('https://gateway.test/v1/chat', {
     method: 'POST',
