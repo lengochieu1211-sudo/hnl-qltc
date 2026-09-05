@@ -63,6 +63,26 @@ assert.equal(isAllowedHnlAiToolName('auditQuantityData'), true);
 assert.equal(isAllowedHnlAiToolName('auditCrewData'), true);
 assert.equal(isAllowedHnlAiToolName('auditProjectIntegrity'), true);
 assert.equal(isAllowedHnlAiToolName('db.collection'), false);
+for (const writeLikeName of [
+  'createDefect',
+  'updateDefect',
+  'deleteDefect',
+  'setDoc',
+  'addDoc',
+  'updateDoc',
+  'deleteDoc',
+  'writeBatch',
+  'commitBatch',
+  'createRoom',
+  'updateCrew',
+  'deleteProject',
+]) {
+  assert.equal(isAllowedHnlAiToolName(writeLikeName), false, `${writeLikeName} must remain outside HNL AI whitelist`);
+  assert.throws(
+    () => executeHnlAiTool({ name: writeLikeName, args: {} } as any, { context, snapshot }),
+    (error: unknown) => error instanceof HnlAiToolError && error.code === 'AI_TOOL_NOT_ALLOWED',
+  );
+}
 assert.throws(
   () => executeHnlAiTool({ name: 'dropDatabase', args: {} } as any, { context, snapshot }),
   (error: unknown) => error instanceof HnlAiToolError && error.code === 'AI_TOOL_NOT_ALLOWED',
@@ -99,6 +119,7 @@ assert.equal('totalTeamVol' in ((currentProgress.data as any) || {}), false);
 assert.equal((currentProgress.data as any)?.historicalQuantityAvailable, false);
 
 // Audit tools are read-only, project-scoped and use only the supplied snapshot.
+const snapshotBefore = JSON.stringify(snapshot);
 const defectAudit = executeHnlAiTool({ name: 'auditDefectLinks', args: {} }, { context, snapshot });
 assert.equal((defectAudit.data as any)?.errorCount, 0);
 const quantityAudit = executeHnlAiTool({ name: 'auditQuantityData', args: {} }, { context, snapshot });
@@ -107,6 +128,7 @@ const crewAudit = executeHnlAiTool({ name: 'auditCrewData', args: {} }, { contex
 assert.equal((crewAudit.data as any)?.errorCount, 0);
 const projectAudit = executeHnlAiTool({ name: 'auditProjectIntegrity', args: {} }, { context, snapshot });
 assert.equal((projectAudit.data as any)?.errorCount, 0);
+assert.equal(JSON.stringify(snapshot), snapshotBefore, 'AI tools must not mutate the project snapshot');
 assert.equal(defects[0].roomId, 'room-101');
 assert.equal(defects[0].teamId, 'team-nguyen');
 assert.equal(workVolumes[0].actual, 80);
