@@ -34,20 +34,35 @@ function normalizeOrigin(value) {
   try { return new URL(String(value || '')).origin; } catch { return ''; }
 }
 
+function getEnvironment(env) {
+  const value = String(env.ENVIRONMENT || 'DEV').trim().toUpperCase();
+  return value === 'PROD' ? 'PROD' : 'DEV';
+}
+
+function configuredOrigins(env) {
+  return String(env.ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((value) => normalizeOrigin(value.trim()))
+    .filter(Boolean);
+}
+
 function isAllowedOrigin(origin, env) {
   if (!origin) return true;
   const normalized = normalizeOrigin(origin);
-  const exact = String(env.ALLOWED_ORIGINS || '')
-    .split(',').map((v) => normalizeOrigin(v.trim())).filter(Boolean);
-  if (exact.includes(normalized)) return true;
-  // Firebase Hosting preview channel for this isolated DEV project only.
-  return /^https:\/\/hnl-qltc-dev--hnl-ai-[a-z0-9-]+\.web\.app$/i.test(normalized);
+  if (configuredOrigins(env).includes(normalized)) return true;
+  if (getEnvironment(env) === 'DEV') {
+    return /^https:\/\/hnl-qltc-dev--hnl-ai-[a-z0-9-]+\.web\.app$/i.test(normalized);
+  }
+  return false;
 }
 
 function corsHeaders(origin, env) {
-  const allowed = isAllowedOrigin(origin, env) ? normalizeOrigin(origin) : '';
+  const normalized = normalizeOrigin(origin);
+  const exact = configuredOrigins(env);
+  const allowed = isAllowedOrigin(origin, env) ? normalized : '';
+  const fallback = exact[0] || '';
   return {
-    'access-control-allow-origin': allowed || 'https://hnl-qltc-dev.web.app',
+    ...(allowed || fallback ? { 'access-control-allow-origin': allowed || fallback } : {}),
     'access-control-allow-methods': 'GET,POST,OPTIONS',
     'access-control-allow-headers': 'authorization,content-type',
     'access-control-max-age': '600',
@@ -206,7 +221,10 @@ async function callProvider(env, payload) {
   if (payload.provider === 'gemini') return callGemini(env, payload);
   if (payload.provider === 'openai') return callOpenAiCompatible('https://api.openai.com/v1/chat/completions', env.OPENAI_API_KEY, 'openai', payload);
   if (payload.provider === 'groq') return callOpenAiCompatible('https://api.groq.com/openai/v1/chat/completions', env.GROQ_API_KEY, 'groq', payload);
-  if (payload.provider === 'openrouter') return callOpenAiCompatible('https://openrouter.ai/api/v1/chat/completions', env.OPENROUTER_API_KEY, 'openrouter', payload, { 'HTTP-Referer': 'https://hnl-qltc-dev.web.app', 'X-Title': 'HNL QLTC AI' });
+  if (payload.provider === 'openrouter') {
+    const referer = normalizeOrigin(env.PUBLIC_APP_URL) || configuredOrigins(env)[0] || 'https://hnlqltc.web.app';
+    return callOpenAiCompatible('https://openrouter.ai/api/v1/chat/completions', env.OPENROUTER_API_KEY, 'openrouter', payload, { 'HTTP-Referer': referer, 'X-Title': 'HNL QLTC AI' });
+  }
   throw new Error('PROVIDER_NOT_ALLOWED');
 }
 
@@ -219,7 +237,13 @@ export default {
 
     const url = new URL(request.url);
     if (url.pathname === '/health' && request.method === 'GET') {
-      return json({ ok: true, service: SERVICE_NAME, environment: 'DEV', firebaseProjectId: env.FIREBASE_PROJECT_ID || '', workersAi: Boolean(env.AI) }, 200, cors);
+      return json({
+        ok: true,
+        service: SERVICE_NAME,
+        environment: getEnvironment(env),
+        firebaseProjectId: env.FIREBASE_PROJECT_ID || '',
+        workersAi: Boolean(env.AI),
+      }, 200, cors);
     }
 
     try {
