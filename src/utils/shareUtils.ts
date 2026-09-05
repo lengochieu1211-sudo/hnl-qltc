@@ -76,15 +76,53 @@ function dataUrlToFile(attachment: ShareAttachmentPayload): File | null {
     for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
 
     // The actual binary/data URL is authoritative. HNL compresses photos to JPEG before
-    // storing them, while legacy metadata can still keep the camera's original MIME/name
-    // (for example PNG/WebP/HEIC). Android Chrome rejects Web Share files when the declared
-    // type/extension does not match the binary, causing an unexpected text-only fallback.
+    // storing them, while legacy metadata can still keep the camera's original MIME/name.
     const actualMimeType = decoded.mimeType || attachment.mimeType || 'image/jpeg';
     const actualFileName = normalizeShareFileName(attachment.fileName, actualMimeType, attachment.id);
-    return new File([bytes], actualFileName, { type: actualMimeType });
+    return new File([bytes], actualFileName, { type: actualMimeType, lastModified: Date.now() });
   } catch (_) {
     return null;
   }
+}
+
+async function tryWebFileShare(title: string, text: string, url: string, files: File[]): Promise<'shared' | 'cancelled' | 'unsupported'> {
+  if (files.length === 0 || typeof navigator === 'undefined' || typeof navigator.share !== 'function') return 'unsupported';
+  try {
+    if (typeof navigator.canShare === 'function' && !navigator.canShare({ files })) return 'unsupported';
+  } catch (_) {
+    return 'unsupported';
+  }
+
+  const shareText = [text, url].filter(Boolean).join('\n');
+  const attempts: ShareData[] = [
+    { title, text: shareText || undefined, files },
+    // Some OEM Chromium/WebView builds accept file sharing but reject text + files.
+    { files },
+  ];
+
+  for (const shareData of attempts) {
+    try {
+      await navigator.share(shareData);
+      return 'shared';
+    } catch (error: any) {
+      if (error?.name === 'AbortError') return 'cancelled';
+      // Retry a more conservative payload for DataError/NotAllowedError/TypeError.
+    }
+  }
+
+  // A few Android browsers reject multi-file shares even when canShare({files}) returns true.
+  if (files.length > 1) {
+    try {
+      const first = files[0];
+      if (typeof navigator.canShare !== 'function' || navigator.canShare({ files: [first] })) {
+        await navigator.share({ title, text: shareText || undefined, files: [first] });
+        return 'shared';
+      }
+    } catch (error: any) {
+      if (error?.name === 'AbortError') return 'cancelled';
+    }
+  }
+  return 'unsupported';
 }
 
 export async function sharePreparedContent(params: {
@@ -123,23 +161,13 @@ export async function sharePreparedContent(params: {
     }
 
     const files = requested.map(dataUrlToFile).filter((file): file is File => Boolean(file));
-    if (files.length > 0 && typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
-      try {
-        const canShareFiles = typeof navigator.canShare !== 'function' || navigator.canShare({ files });
-        if (canShareFiles) {
-          // Keep the share payload conservative for Android browsers: files + title/text are
-          // widely supported, while some OEM Chromium builds reject a mixed files+URL payload.
-          // The URL remains embedded in the text so no information is lost.
-          const shareText = [text, url].filter(Boolean).join('\n');
-          const shareData: ShareData = { title, text: shareText || undefined, files };
-          await navigator.share(shareData);
-          return { status: 'shared', requestedFiles: requested.length, sharedFiles: files.length, fallbackToText: false };
-        }
-      } catch (error: any) {
-        if (error?.name === 'AbortError') {
-          return { status: 'cancelled', requestedFiles: requested.length, sharedFiles: 0, fallbackToText: false };
-        }
-      }
+    const webShare = await tryWebFileShare(title, text, url, files);
+    if (webShare === 'shared') {
+      // Multi-file retry may have fallen back to one file. Report conservatively if canShare is flaky.
+      return { status: 'shared', requestedFiles: requested.length, sharedFiles: files.length > 0 ? Math.min(files.length, requested.length) : 0, fallbackToText: false };
+    }
+    if (webShare === 'cancelled') {
+      return { status: 'cancelled', requestedFiles: requested.length, sharedFiles: 0, fallbackToText: false };
     }
   }
 
