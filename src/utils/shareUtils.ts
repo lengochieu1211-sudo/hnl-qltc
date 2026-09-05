@@ -48,6 +48,25 @@ function decodeDataUrl(dataUrl: string): { mimeType: string; base64: string; byt
   }
 }
 
+const shareFileExtensionForMime = (mimeType: string): string => {
+  const mime = String(mimeType || '').toLowerCase();
+  if (mime === 'image/jpeg' || mime === 'image/jpg') return '.jpg';
+  if (mime === 'image/png') return '.png';
+  if (mime === 'image/webp') return '.webp';
+  if (mime === 'image/gif') return '.gif';
+  return '';
+};
+
+const normalizeShareFileName = (fileName: string, mimeType: string, id: string): string => {
+  const extension = shareFileExtensionForMime(mimeType);
+  const fallback = `HNL-QLTC-${id || 'image'}${extension || '.jpg'}`;
+  const cleaned = String(fileName || '').trim().replace(/[\\/:*?"<>|]+/g, '_');
+  if (!cleaned) return fallback;
+  if (!extension) return cleaned;
+  const base = cleaned.replace(/\.[a-z0-9]{1,8}$/i, '');
+  return `${base || `HNL-QLTC-${id || 'image'}`}${extension}`;
+};
+
 function dataUrlToFile(attachment: ShareAttachmentPayload): File | null {
   const decoded = decodeDataUrl(attachment.dataUrl);
   if (!decoded) return null;
@@ -55,9 +74,14 @@ function dataUrlToFile(attachment: ShareAttachmentPayload): File | null {
     const binary = atob(decoded.base64);
     const bytes = new Uint8Array(binary.length);
     for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-    return new File([bytes], attachment.fileName || `HNL-QLTC-${attachment.id}.jpg`, {
-      type: attachment.mimeType || decoded.mimeType || 'image/jpeg',
-    });
+
+    // The actual binary/data URL is authoritative. HNL compresses photos to JPEG before
+    // storing them, while legacy metadata can still keep the camera's original MIME/name
+    // (for example PNG/WebP/HEIC). Android Chrome rejects Web Share files when the declared
+    // type/extension does not match the binary, causing an unexpected text-only fallback.
+    const actualMimeType = decoded.mimeType || attachment.mimeType || 'image/jpeg';
+    const actualFileName = normalizeShareFileName(attachment.fileName, actualMimeType, attachment.id);
+    return new File([bytes], actualFileName, { type: actualMimeType });
   } catch (_) {
     return null;
   }
@@ -83,11 +107,14 @@ export async function sharePreparedContent(params: {
     const bridge = getAndroidContactBridge();
     if (decoded.length > 0 && totalBytes <= MAX_NATIVE_SHARE_BYTES && bridge && typeof bridge.shareFiles === 'function') {
       try {
-        const payload = decoded.map(({ attachment, decoded: item }) => ({
-          fileName: attachment.fileName,
-          mimeType: attachment.mimeType || item.mimeType || 'image/jpeg',
-          base64: item.base64,
-        }));
+        const payload = decoded.map(({ attachment, decoded: item }) => {
+          const actualMimeType = item.mimeType || attachment.mimeType || 'image/jpeg';
+          return {
+            fileName: normalizeShareFileName(attachment.fileName, actualMimeType, attachment.id),
+            mimeType: actualMimeType,
+            base64: item.base64,
+          };
+        });
         const ok = bridge.shareFiles(title, [text, url].filter(Boolean).join('\n'), JSON.stringify(payload));
         if (ok !== false) {
           return { status: 'shared', requestedFiles: requested.length, sharedFiles: payload.length, fallbackToText: false };
@@ -98,9 +125,13 @@ export async function sharePreparedContent(params: {
     const files = requested.map(dataUrlToFile).filter((file): file is File => Boolean(file));
     if (files.length > 0 && typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
       try {
-        const shareData: ShareData = { title, text: text || undefined, url: url || undefined, files };
         const canShareFiles = typeof navigator.canShare !== 'function' || navigator.canShare({ files });
         if (canShareFiles) {
+          // Keep the share payload conservative for Android browsers: files + title/text are
+          // widely supported, while some OEM Chromium builds reject a mixed files+URL payload.
+          // The URL remains embedded in the text so no information is lost.
+          const shareText = [text, url].filter(Boolean).join('\n');
+          const shareData: ShareData = { title, text: shareText || undefined, files };
           await navigator.share(shareData);
           return { status: 'shared', requestedFiles: requested.length, sharedFiles: files.length, fallbackToText: false };
         }
