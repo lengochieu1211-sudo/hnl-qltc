@@ -1,5 +1,5 @@
 name: Build HNL QLTC Android DEV APK
-# DEV certification trigger: room progress/inspection invariant + Excel Kiem_Tra/preflight hardening.
+# DEV certification build. Runs HNL AI + existing app gates and never uses PROD signing.
 
 on:
   workflow_dispatch:
@@ -24,13 +24,15 @@ env:
   DEV_HOSTING_URL: https://hnl-qltc-dev.web.app
   DEV_R2_URL: https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev
   PROD_R2_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
+  DEV_AI_URL: https://hnl-qltc-ai-gateway-dev.lengochieu1211.workers.dev
+  PROD_AI_URL: https://hnl-qltc-ai-gateway.lengochieu1211.workers.dev
   DEV_ANDROID_PACKAGE: com.qlct.app.dev
   PROD_ANDROID_PACKAGE: com.qlct.app
 
 jobs:
   build_dev_apk:
     runs-on: windows-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
     env:
       VITE_APP_ENV: DEV
       VITE_RUNTIME_BACKEND: firebase-only
@@ -47,6 +49,8 @@ jobs:
       VITE_FIREBASE_APP_ID: 1:1036808734475:web:e124b3ff0c50369393840e
       VITE_FIRESTORE_DATABASE_ID: "(default)"
       VITE_FIREBASE_FIRESTORE_DATABASE_ID: "(default)"
+      VITE_HNL_AI_ENABLED: "true"
+      VITE_HNL_AI_GATEWAY_URL: https://hnl-qltc-ai-gateway-dev.lengochieu1211.workers.dev
       VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
       VITE_GIT_COMMIT: ${{ github.sha }}
       QLCT_WEB_URL: https://hnl-qltc-dev.web.app/?app=android&env=dev
@@ -64,6 +68,9 @@ jobs:
           if ($env:VITE_FIREBASE_PROJECT_ID -eq $env:PROD_FIREBASE_PROJECT_ID) { throw 'REFUSING: DEV APK points to PROD Firebase' }
           if ($env:VITE_R2_GATEWAY_URL -ne $env:DEV_R2_URL) { throw 'REFUSING: R2 gateway is not DEV' }
           if ($env:VITE_R2_GATEWAY_URL -eq $env:PROD_R2_URL) { throw 'REFUSING: DEV APK points to PROD R2' }
+          if ($env:VITE_HNL_AI_GATEWAY_URL -ne $env:DEV_AI_URL) { throw 'REFUSING: AI gateway is not DEV' }
+          if ($env:VITE_HNL_AI_GATEWAY_URL -eq $env:PROD_AI_URL) { throw 'REFUSING: DEV APK points to PROD AI' }
+          if ($env:VITE_HNL_AI_ENABLED -ne 'true') { throw 'REFUSING: HNL AI is not enabled in DEV APK' }
           if ($env:QLCT_WEB_URL -notlike 'https://hnl-qltc-dev.web.app/*') { throw 'REFUSING: Android wrapper URL is not DEV Hosting' }
           if ($env:QLCT_WEB_URL -match 'hnlqltc\.web\.app|com-example-qlct-61329') { throw 'REFUSING: Android wrapper URL references PROD' }
           if ($env:DEV_ANDROID_PACKAGE -eq $env:PROD_ANDROID_PACKAGE) { throw 'REFUSING: DEV Android package equals PROD package' }
@@ -85,24 +92,51 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Stability Gate
-        run: npm run test:stability
+      - name: HNL AI and existing stability gates
+        shell: pwsh
+        run: |
+          npm run test:ai-core
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run test:ai-tools
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run test:ai-audit
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run test:ai-planner
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run test:ai-provider
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run test:ai-gateway
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run test:ai-export
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run test:stability
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Lint
+      - name: Lint and source secret scan
         run: npm run lint
 
+      - name: Firebase Rules regression
+        run: npm run test:rules
+
+      - name: Production dependency critical security audit
+        run: npm run security:audit
+
       - name: Build DEV web bundle
-        run: npm run build
+        shell: pwsh
+        run: |
+          npm run build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $assets = Get-ChildItem './dist/assets' -File -ErrorAction Stop
+          $combined = ($assets | ForEach-Object { Get-Content -Raw -LiteralPath $_.FullName -ErrorAction SilentlyContinue }) -join "`n"
+          if ($combined -notmatch 'HNL AI Assistant') { throw 'AI UI marker missing from DEV Android web bundle' }
+          if ($combined -notmatch 'hnl-qltc-ai-gateway-dev') { throw 'DEV AI gateway missing from DEV Android web bundle' }
 
       - name: Isolate Android package, label, and signing for DEV
         shell: pwsh
         run: |
-          # These edits exist only inside this CI runner. Repository/PROD wrapper source
-          # remains com.qlct.app. DEV is rewritten to com.qlct.app.dev so both apps can
-          # be installed side-by-side on the same phone without replacing production.
           $utf8 = New-Object System.Text.UTF8Encoding($false)
           $manifest = './android-wrapper/AndroidManifest.xml'
           $manifestText = Get-Content -Raw -LiteralPath $manifest
@@ -121,8 +155,6 @@ jobs:
           if ($after -match ('package="' + [regex]::Escape($env:PROD_ANDROID_PACKAGE) + '"')) { throw 'PROD package remains in DEV manifest' }
           if ($after -notmatch 'android:label="HNL QLTC DEV"') { throw 'DEV label rewrite failed' }
 
-          # DEV intentionally does NOT receive the production release keystore secrets.
-          # build-apk.ps1 creates an ephemeral development key for this test artifact.
           Remove-Item Env:QLCT_ANDROID_KEYSTORE_BASE64 -ErrorAction SilentlyContinue
           Remove-Item Env:QLCT_ANDROID_KEYSTORE_PASSWORD -ErrorAction SilentlyContinue
           Remove-Item Env:QLCT_ANDROID_KEY_PASSWORD -ErrorAction SilentlyContinue
@@ -143,6 +175,7 @@ jobs:
           if ($manifest -notmatch 'package="com\.qlct\.app\.dev"') { throw 'DEV APK package source is not com.qlct.app.dev' }
           Move-Item -Force './HNL-QLTC-Android.apk' './HNL-QLTC-Android-DEV.apk'
           Get-Item './HNL-QLTC-Android-DEV.apk' | Format-List Name,Length,LastWriteTime
+          Get-FileHash -Algorithm SHA256 './HNL-QLTC-Android-DEV.apk'
 
       - name: Upload DEV APK artifact
         uses: actions/upload-artifact@v4

@@ -13,13 +13,17 @@ env:
   DEV_R2_BUCKET: hnl-qltc-media-dev
   DEV_R2_WORKER: hnl-qltc-r2-gateway-dev
   DEV_R2_URL: https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev
+  DEV_AI_WORKER: hnl-qltc-ai-gateway-dev
+  DEV_AI_URL: https://hnl-qltc-ai-gateway-dev.lengochieu1211.workers.dev
   PROD_FIREBASE_PROJECT_ID: com-example-qlct-61329
   PROD_R2_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
+  PROD_AI_WORKER: hnl-qltc-ai-gateway
+  PROD_AI_URL: https://hnl-qltc-ai-gateway.lengochieu1211.workers.dev
 
 jobs:
   deploy_dev:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
     env:
       FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -39,14 +43,16 @@ jobs:
           DEV_PROJECT_ID="$(printf '%s' "$FIREBASE_SERVICE_ACCOUNT" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);process.stdout.write(String(j.project_id||''))})")"
           test -n "$DEV_PROJECT_ID" || { echo '::error::DEV service account JSON has no project_id'; exit 1; }
           test "$DEV_PROJECT_ID" != "$PROD_FIREBASE_PROJECT_ID" || { echo '::error::REFUSING: DEV service account points to PROD project'; exit 1; }
-          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo '::error::Missing CLOUDFLARE_API_TOKEN for isolated DEV R2'; exit 1; }
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo '::error::Missing CLOUDFLARE_API_TOKEN for isolated DEV Cloudflare resources'; exit 1; }
           test "$DEV_R2_URL" != "$PROD_R2_URL" || { echo '::error::REFUSING: DEV R2 URL equals PROD R2 URL'; exit 1; }
+          test "$DEV_AI_WORKER" != "$PROD_AI_WORKER" || { echo '::error::REFUSING: DEV AI worker equals PROD AI worker'; exit 1; }
+          test "$DEV_AI_URL" != "$PROD_AI_URL" || { echo '::error::REFUSING: DEV AI URL equals PROD AI URL'; exit 1; }
           echo "configured=true" >> "$GITHUB_OUTPUT"
           echo "DEV_PROJECT_ID=$DEV_PROJECT_ID" >> "$GITHUB_ENV"
           echo "DEV_HOSTING_URL=https://${DEV_PROJECT_ID}.web.app" >> "$GITHUB_ENV"
           echo "DEV_AUTH_DOMAIN=${DEV_PROJECT_ID}.web.app" >> "$GITHUB_ENV"
           echo "DEV_FIREBASEAPP_ORIGIN=https://${DEV_PROJECT_ID}.firebaseapp.com" >> "$GITHUB_ENV"
-          echo "DEV isolation gate: PASS ($DEV_PROJECT_ID)"
+          echo 'DEV isolation gate: PASS'
 
       - name: Stop cleanly until DEV Firebase secret exists
         if: steps.preflight.outputs.configured != 'true'
@@ -69,6 +75,7 @@ jobs:
           set -euo pipefail
           CRED="$RUNNER_TEMP/firebase-dev-service-account.json"
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$CRED"
+          chmod 600 "$CRED"
           echo "GOOGLE_APPLICATION_CREDENTIALS=$CRED" >> "$GITHUB_ENV"
 
       - name: Verify DEV Firebase access
@@ -110,36 +117,24 @@ jobs:
           node - <<'NODE'
           const fs = require('fs');
           const raw = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/firebase-dev-sdk.json','utf8'));
-
           const keys = ['apiKey','appId','messagingSenderId','projectId','storageBucket','authDomain'];
           const candidates = [];
           const extracted = {};
-
           function parseConfigString(text) {
             if (typeof text !== 'string') return;
             const trimmed = text.trim();
             if (!trimmed) return;
-            try {
-              const obj = JSON.parse(trimmed);
-              walk(obj);
-            } catch {}
+            try { walk(JSON.parse(trimmed)); } catch {}
             for (const key of keys) {
               const re = new RegExp(`${key}\\s*:\\s*["']([^"']+)["']`);
               const m = trimmed.match(re);
               if (m && !extracted[key]) extracted[key] = m[1];
             }
           }
-
           function walk(value) {
             if (value == null) return;
-            if (typeof value === 'string') {
-              parseConfigString(value);
-              return;
-            }
-            if (Array.isArray(value)) {
-              for (const item of value) walk(item);
-              return;
-            }
+            if (typeof value === 'string') return parseConfigString(value);
+            if (Array.isArray(value)) return value.forEach(walk);
             if (typeof value === 'object') {
               candidates.push(value);
               for (const [k,v] of Object.entries(value)) {
@@ -148,25 +143,18 @@ jobs:
               }
             }
           }
-
           walk(raw);
           const objectCandidate = candidates.find(o => o && typeof o === 'object' && o.apiKey && o.appId) || {};
           const c = { ...extracted, ...objectCandidate };
-
           c.projectId = c.projectId || process.env.DEV_PROJECT_ID;
           c.authDomain = process.env.DEV_AUTH_DOMAIN;
           if (!c.storageBucket && c.projectId) c.storageBucket = `${c.projectId}.firebasestorage.app`;
-
           const need = ['apiKey','appId','messagingSenderId','projectId'];
           const missing = need.filter(k => !c[k]);
           if (missing.length) {
-            const top = raw && typeof raw === 'object' ? Object.keys(raw) : [];
-            const resultKeys = raw?.result && typeof raw.result === 'object' ? Object.keys(raw.result) : [];
             console.error(`Missing DEV SDK field(s): ${missing.join(', ')}`);
-            console.error(`SDK JSON shape: top=[${top.join(',')}], result=[${resultKeys.join(',')}]`);
             process.exit(2);
           }
-
           const out = process.env.GITHUB_ENV;
           fs.appendFileSync(out, `VITE_FIREBASE_API_KEY=${c.apiKey}\n`);
           fs.appendFileSync(out, `VITE_FIREBASE_APP_ID=${c.appId}\n`);
@@ -174,6 +162,7 @@ jobs:
           fs.appendFileSync(out, `VITE_FIREBASE_PROJECT_ID=${c.projectId}\n`);
           fs.appendFileSync(out, `VITE_FIREBASE_STORAGE_BUCKET=${c.storageBucket}\n`);
           fs.appendFileSync(out, `VITE_FIREBASE_AUTH_DOMAIN=${c.authDomain}\n`);
+          fs.appendFileSync(out, `FIREBASE_WEB_API_KEY=${c.apiKey}\n`);
           NODE
           echo "DEV Firebase Web App: $APP_ID"
 
@@ -242,6 +231,42 @@ jobs:
           done
           test "$ok" = 1 || { echo '::error::DEV R2 Worker health failed'; exit 1; }
 
+      - name: Deploy isolated HNL AI Gateway DEV
+        if: steps.preflight.outputs.configured == 'true'
+        working-directory: cloudflare/ai-gateway
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f worker.js || { echo '::error::Missing HNL AI worker.js'; exit 1; }
+          cat > wrangler.dev.ci.toml <<WRANGLER_EOF
+          name = "$DEV_AI_WORKER"
+          main = "worker.js"
+          compatibility_date = "2026-09-05"
+
+          [ai]
+          binding = "AI"
+
+          [vars]
+          FIREBASE_PROJECT_ID = "$DEV_PROJECT_ID"
+          FIREBASE_WEB_API_KEY = "$FIREBASE_WEB_API_KEY"
+          ALLOWED_ORIGINS = "$DEV_HOSTING_URL,$DEV_FIREBASEAPP_ORIGIN"
+          WRANGLER_EOF
+          trap 'rm -f wrangler.dev.ci.toml' EXIT
+          npx --yes wrangler@4.33.0 deploy --config wrangler.dev.ci.toml
+
+      - name: Smoke HNL AI Gateway DEV
+        if: steps.preflight.outputs.configured == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ok=0
+          for i in $(seq 1 30); do
+            BODY="$(curl --fail --silent --show-error "${DEV_AI_URL}/health?probe=${GITHUB_RUN_ID}-${i}" || true)"
+            if printf '%s' "$BODY" | grep -q '"ok":true' && printf '%s' "$BODY" | grep -q '"firebaseProjectId":"hnl-qltc-dev"'; then ok=1; break; fi
+            sleep 2
+          done
+          test "$ok" = 1 || { echo '::error::HNL AI Gateway DEV health failed'; exit 1; }
+
       - name: Install app dependencies
         if: steps.preflight.outputs.configured == 'true'
         run: npm ci
@@ -259,11 +284,20 @@ jobs:
           VITE_FIRESTORE_DATABASE_ID: '(default)'
           VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
           VITE_FIREBASE_APP_CHECK_SITE_KEY: ''
+          VITE_HNL_AI_ENABLED: 'true'
+          VITE_HNL_AI_GATEWAY_URL: ${{ env.DEV_AI_URL }}
           VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
           VITE_GIT_COMMIT: ${{ github.sha }}
         shell: bash
         run: |
           set -euo pipefail
+          npm run test:ai-core
+          npm run test:ai-tools
+          npm run test:ai-audit
+          npm run test:ai-planner
+          npm run test:ai-provider
+          npm run test:ai-gateway
+          npm run test:ai-export
           npm run test:stability
           npm run typecheck
           npm run lint
@@ -294,6 +328,8 @@ jobs:
           test "$audit_ok" = 1 || { echo '::error::Security audit unavailable after 3 transient retries'; exit 1; }
 
           npm run build
+          grep -R -q 'HNL AI Assistant' dist/assets || { echo '::error::AI UI marker missing from DEV build'; exit 1; }
+          grep -R -q 'hnl-qltc-ai-gateway-dev' dist/assets || { echo '::error::DEV AI gateway missing from DEV build'; exit 1; }
 
       - name: Deploy DEV Firestore rules
         if: steps.preflight.outputs.configured == 'true'
@@ -322,4 +358,5 @@ jobs:
             sleep 2
           done
           test "$ok" = 1 || { echo '::error::DEV Hosting smoke failed'; exit 1; }
+          curl --fail --silent --show-error "${DEV_AI_URL}/health?hostingSmoke=${GITHUB_RUN_ID}" | grep -q '"ok":true' || { echo '::error::DEV AI health after Hosting deploy failed'; exit 1; }
           echo "DEV_READY_URL=$DEV_HOSTING_URL"

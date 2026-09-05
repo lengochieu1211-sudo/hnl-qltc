@@ -10,6 +10,13 @@ on:
       - 'src/components/FloorPlanDefectTab.tsx'
       - 'src/utils/defectLinkageUtils.ts'
       - 'scripts/defect-linkage-golden.ts'
+      - 'src/App.tsx'
+      - 'src/components/BottomNav.tsx'
+      - 'src/features/ai/**'
+      - 'src/ai/**'
+      - 'cloudflare/ai-gateway/**'
+      - 'package.json'
+      - 'package-lock.json'
       - '.github/workflows/dev-runtime-golden.yml'
 
 permissions:
@@ -19,8 +26,10 @@ env:
   DEV_PROJECT_ID: hnl-qltc-dev
   DEV_HOSTING_URL: https://hnl-qltc-dev.web.app
   DEV_R2_URL: https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev
+  DEV_AI_URL: https://hnl-qltc-ai-gateway-dev.lengochieu1211.workers.dev
   PROD_FIREBASE_PROJECT_ID: com-example-qlct-61329
   PROD_R2_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
+  PROD_AI_URL: https://hnl-qltc-ai-gateway.lengochieu1211.workers.dev
   DEV_AUTH_DOMAIN: hnl-qltc-dev.web.app
   VITE_APP_ENV: DEV
   VITE_RUNTIME_BACKEND: firebase-only
@@ -31,11 +40,13 @@ env:
   VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
   VITE_FIRESTORE_DATABASE_ID: '(default)'
   VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+  VITE_HNL_AI_ENABLED: 'true'
+  VITE_HNL_AI_GATEWAY_URL: https://hnl-qltc-ai-gateway-dev.lengochieu1211.workers.dev
 
 jobs:
   runtime_golden:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     env:
       FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV }}
       VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
@@ -59,6 +70,8 @@ jobs:
           test "$DEV_PROJECT_ID" = 'hnl-qltc-dev' || { echo '::error::Unexpected DEV project'; exit 1; }
           test "$DEV_PROJECT_ID" != "$PROD_FIREBASE_PROJECT_ID" || { echo '::error::REFUSING: DEV Firebase equals PROD'; exit 1; }
           test "$DEV_R2_URL" != "$PROD_R2_URL" || { echo '::error::REFUSING: DEV R2 equals PROD'; exit 1; }
+          test "$DEV_AI_URL" != "$PROD_AI_URL" || { echo '::error::REFUSING: DEV AI equals PROD'; exit 1; }
+          test "$VITE_HNL_AI_ENABLED" = 'true' || { echo '::error::HNL AI must be enabled for DEV runtime golden'; exit 1; }
           test -n "${FIREBASE_SERVICE_ACCOUNT:-}" || { echo '::error::Missing FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV'; exit 1; }
           SA_PROJECT="$(printf '%s' "$FIREBASE_SERVICE_ACCOUNT" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);process.stdout.write(String(j.project_id||''))})")"
           test "$SA_PROJECT" = "$DEV_PROJECT_ID" || { echo "::error::REFUSING: service account project is $SA_PROJECT"; exit 1; }
@@ -127,12 +140,31 @@ jobs:
           NODE
           echo "DEV Firebase Web SDK config: PASS ($APP_ID)"
 
+      - name: Build and deploy exact DEV runtime under test
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run test:ai-core
+          npm run test:ai-tools
+          npm run test:ai-audit
+          npm run test:ai-planner
+          npm run test:ai-provider
+          npm run test:ai-gateway
+          npm run test:ai-export
+          npm run typecheck
+          npm run lint
+          npm run build
+          grep -R -q 'HNL AI Assistant' dist/assets || { echo '::error::AI UI marker missing from runtime build'; exit 1; }
+          grep -R -q 'hnl-qltc-ai-gateway-dev' dist/assets || { echo '::error::DEV AI gateway missing from runtime build'; exit 1; }
+          npx --yes firebase-tools@13.35.1 deploy --only hosting --project "$DEV_PROJECT_ID" --non-interactive
+
       - name: Preflight live DEV endpoints
         shell: bash
         run: |
           set -euo pipefail
           test "$(curl --silent --output /tmp/dev-index.html --write-out '%{http_code}' "${DEV_HOSTING_URL}/?goldenPreflight=${GITHUB_RUN_ID}")" = '200' || { echo '::error::DEV Hosting preflight failed'; exit 1; }
           curl --fail --silent --show-error "${DEV_R2_URL}/health?goldenPreflight=${GITHUB_RUN_ID}" | grep -q '"ok":true' || { echo '::error::DEV R2 preflight failed'; exit 1; }
+          curl --fail --silent --show-error "${DEV_AI_URL}/health?goldenPreflight=${GITHUB_RUN_ID}" | grep -q '"ok":true' || { echo '::error::DEV AI preflight failed'; exit 1; }
           echo 'DEV live endpoint preflight: PASS'
 
       - name: Live Firebase + R2 multi-user golden
