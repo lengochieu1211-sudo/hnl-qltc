@@ -8,18 +8,32 @@ const MODES = new Set(['HNL_DATA_NARRATIVE', 'GENERAL_AI', 'HYBRID']);
 const PROVIDER_MODELS = {
   cloudflare: [
     { id: DEFAULT_CF_MODEL, displayName: 'Cloudflare Llama 3.1 8B Fast', supportsStructuredOutput: true },
+    { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', displayName: 'Cloudflare Llama 3.3 70B Fast', supportsStructuredOutput: true },
+    { id: '@cf/zai-org/glm-4.7-flash', displayName: 'Cloudflare GLM 4.7 Flash', supportsStructuredOutput: true },
+    { id: '@cf/moonshotai/kimi-k2.6', displayName: 'Cloudflare Kimi K2.6', supportsStructuredOutput: true },
   ],
   gemini: [
     { id: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', supportsStructuredOutput: true },
+    { id: 'gemini-3.8-flash', displayName: 'Gemini 3.8 Flash', supportsStructuredOutput: true },
+    { id: 'gemini-3.7-flash', displayName: 'Gemini 3.7 Flash', supportsStructuredOutput: true },
+    { id: 'gemini-3.1-flash-lite', displayName: 'Gemini 3.1 Flash-Lite', supportsStructuredOutput: true },
+    { id: 'gemini-2.5-pro', displayName: 'Gemini 2.5 Pro', supportsStructuredOutput: true },
   ],
   openai: [
     { id: 'gpt-4.1-mini', displayName: 'GPT-4.1 mini', supportsStructuredOutput: true },
+    { id: 'gpt-4.1', displayName: 'GPT-4.1', supportsStructuredOutput: true },
+    { id: 'gpt-4.1-nano', displayName: 'GPT-4.1 nano', supportsStructuredOutput: true },
   ],
   groq: [
     { id: 'llama-3.3-70b-versatile', displayName: 'Llama 3.3 70B Versatile', supportsStructuredOutput: true },
+    { id: 'llama-3.1-8b-instant', displayName: 'Llama 3.1 8B Instant', supportsStructuredOutput: true },
+    { id: 'openai/gpt-oss-20b', displayName: 'GPT OSS 20B', supportsStructuredOutput: true },
+    { id: 'openai/gpt-oss-120b', displayName: 'GPT OSS 120B', supportsStructuredOutput: true },
   ],
   openrouter: [
     { id: 'openai/gpt-4.1-mini', displayName: 'OpenRouter GPT-4.1 mini', supportsStructuredOutput: true },
+    { id: 'google/gemini-3.8-flash', displayName: 'OpenRouter Gemini 3.8 Flash', supportsStructuredOutput: true },
+    { id: 'openrouter/auto', displayName: 'OpenRouter Auto', supportsStructuredOutput: true },
   ],
 };
 
@@ -76,6 +90,13 @@ function safeText(value, max = MAX_MESSAGE_CHARS) {
   return text;
 }
 
+function safeApiKey(value) {
+  const key = String(value ?? '').trim();
+  if (!key) return '';
+  if (key.length < 8 || key.length > 1024 || /\s/.test(key)) throw new Error('API_KEY_INVALID');
+  return key;
+}
+
 function providerAvailable(provider, env) {
   if (provider === 'cloudflare') return Boolean(env.AI);
   if (provider === 'gemini') return Boolean(env.GEMINI_API_KEY);
@@ -123,7 +144,9 @@ function validateChatBody(input, env) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('INVALID_BODY');
   const provider = String(input.provider || 'cloudflare').trim().toLowerCase();
   if (!Object.prototype.hasOwnProperty.call(PROVIDER_MODELS, provider)) throw new Error('PROVIDER_NOT_ALLOWED');
-  if (!providerAvailable(provider, env)) throw Object.assign(new Error('PROVIDER_UNAVAILABLE'), { status: 503 });
+  const apiKey = safeApiKey(input.apiKey);
+  if (provider === 'cloudflare' && apiKey) throw new Error('BYOK_NOT_SUPPORTED_FOR_CLOUDFLARE');
+  if (!providerAvailable(provider, env) && !apiKey) throw Object.assign(new Error('PROVIDER_UNAVAILABLE'), { status: 503 });
   const model = safeText(input.model || PROVIDER_MODELS[provider][0].id, 160);
   if (!PROVIDER_MODELS[provider].some((item) => item.id === model)) throw new Error('MODEL_NOT_ALLOWED');
   const mode = String(input.mode || '').trim();
@@ -144,7 +167,7 @@ function validateChatBody(input, env) {
     return { role: roleValue, content };
   });
   if (totalChars > 64000) throw new Error('PROMPT_TOO_LARGE');
-  return { provider, model, mode, responseSchema, projectId, role, messages };
+  return { provider, model, mode, responseSchema, projectId, role, messages, apiKey };
 }
 
 function parseStructured(text) {
@@ -195,12 +218,13 @@ async function callOpenAiCompatible(url, apiKey, provider, payload, extraHeaders
 
 async function callGemini(env, payload) {
   const started = Date.now();
+  const apiKey = payload.apiKey || env.GEMINI_API_KEY;
   const system = payload.messages.filter((m) => m.role === 'system').map((m) => m.content).join('\n');
   const contents = payload.messages.filter((m) => m.role !== 'system').map((m) => ({
     role: m.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: m.content }],
   }));
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(payload.model)}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY)}`;
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(payload.model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
   const response = await withTimeout(30000, (signal) => fetch(endpoint, {
     method: 'POST', signal,
     headers: { 'content-type': 'application/json' },
@@ -219,11 +243,11 @@ async function callGemini(env, payload) {
 async function callProvider(env, payload) {
   if (payload.provider === 'cloudflare') return callCloudflareAI(env, payload);
   if (payload.provider === 'gemini') return callGemini(env, payload);
-  if (payload.provider === 'openai') return callOpenAiCompatible('https://api.openai.com/v1/chat/completions', env.OPENAI_API_KEY, 'openai', payload);
-  if (payload.provider === 'groq') return callOpenAiCompatible('https://api.groq.com/openai/v1/chat/completions', env.GROQ_API_KEY, 'groq', payload);
+  if (payload.provider === 'openai') return callOpenAiCompatible('https://api.openai.com/v1/chat/completions', payload.apiKey || env.OPENAI_API_KEY, 'openai', payload);
+  if (payload.provider === 'groq') return callOpenAiCompatible('https://api.groq.com/openai/v1/chat/completions', payload.apiKey || env.GROQ_API_KEY, 'groq', payload);
   if (payload.provider === 'openrouter') {
     const referer = normalizeOrigin(env.PUBLIC_APP_URL) || configuredOrigins(env)[0] || 'https://hnlqltc.web.app';
-    return callOpenAiCompatible('https://openrouter.ai/api/v1/chat/completions', env.OPENROUTER_API_KEY, 'openrouter', payload, { 'HTTP-Referer': referer, 'X-Title': 'HNL QLTC AI' });
+    return callOpenAiCompatible('https://openrouter.ai/api/v1/chat/completions', payload.apiKey || env.OPENROUTER_API_KEY, 'openrouter', payload, { 'HTTP-Referer': referer, 'X-Title': 'HNL QLTC AI' });
   }
   throw new Error('PROVIDER_NOT_ALLOWED');
 }

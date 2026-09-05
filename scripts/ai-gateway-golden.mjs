@@ -30,6 +30,12 @@ const originalFetch = globalThis.fetch;
 let identityLookupCalls = 0;
 globalThis.fetch = async (url, init = {}) => {
   const target = String(url);
+  if (target === 'https://api.openai.com/v1/chat/completions') {
+    assert.equal(init?.headers?.authorization, 'Bearer sk-user-session-key');
+    const payload = JSON.parse(String(init.body || '{}'));
+    assert.equal(payload.model, 'gpt-4.1-mini');
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'BYOK OK' } }], usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 } }), { status: 200, headers: { 'content-type': 'application/json' } });
+  }
   if (target.startsWith('https://identitytoolkit.googleapis.com/v1/accounts:lookup')) {
     identityLookupCalls += 1;
     const payload = JSON.parse(String(init.body || '{}'));
@@ -135,6 +141,25 @@ try {
     body: JSON.stringify({ ...basePayload, provider: 'openai', model: 'gpt-4.1-mini' }),
   }), env);
   assert.equal(unavailable.status, 503);
+
+  const byok = await worker.fetch(new Request('https://gateway.test/v1/chat', {
+    method: 'POST',
+    headers: { ...authHeaders, 'content-type': 'application/json' },
+    body: JSON.stringify({ ...basePayload, provider: 'openai', model: 'gpt-4.1-mini', responseSchema: undefined, apiKey: 'sk-user-session-key' }),
+  }), env);
+  assert.equal(byok.status, 200);
+  const byokBody = await byok.json();
+  assert.equal(byokBody.ok, true);
+  assert.equal(byokBody.provider, 'openai');
+  assert.equal(byokBody.text, 'BYOK OK');
+  assert.equal(JSON.stringify(byokBody).includes('sk-user-session-key'), false);
+
+  const badKey = await worker.fetch(new Request('https://gateway.test/v1/chat', {
+    method: 'POST',
+    headers: { ...authHeaders, 'content-type': 'application/json' },
+    body: JSON.stringify({ ...basePayload, provider: 'openai', model: 'gpt-4.1-mini', apiKey: 'short' }),
+  }), env);
+  assert.equal(badKey.status, 400);
 
   assert.ok(identityLookupCalls >= 1);
   console.log('HNL AI Gateway Golden: PASS');
