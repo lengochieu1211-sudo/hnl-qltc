@@ -22,6 +22,7 @@
     "test:firebase-only": "node scripts/firebase-only-golden.mjs",
     "test:migration-audit": "node scripts/firebase-only-legacy-audit.mjs --self-test",
     "test:rbac": "node scripts/rbac-matrix.mjs",
+    "test:ai-core": "tsx scripts/ai-core-golden.ts",
     "build:apk:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File ./android-wrapper/build-apk.ps1",
     "build:exe:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File ./desktop-wrapper/build-launcher.ps1",
     "test:checklist-floor": "tsx scripts/checklist-floor-golden.ts"
