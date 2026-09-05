@@ -1,0 +1,165 @@
+name: HNL QLTC DEV AI External Opt-in Autopatch
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - '.github/workflows/dev-ai-external-optin-autopatch.yml'
+
+permissions:
+  contents: write
+
+env:
+  EXPECTED_BRANCH: dev
+  PROD_FIREBASE_PROJECT_ID: com-example-qlct-61329
+  DEV_FIREBASE_PROJECT_ID: hnl-qltc-dev
+
+jobs:
+  patch_and_verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout DEV
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      - name: Guard DEV isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/dev'
+          test "$DEV_FIREBASE_PROJECT_ID" = 'hnl-qltc-dev'
+          test "$DEV_FIREBASE_PROJECT_ID" != "$PROD_FIREBASE_PROJECT_ID"
+          test "$(git branch --show-current)" = "$EXPECTED_BRANCH"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Apply root-fix for external AI opt-in and privacy minimization
+        shell: python
+        run: |
+          from pathlib import Path
+          import json
+
+          page = Path('src/features/ai/AiAssistantPage.tsx')
+          text = page.read_text(encoding='utf-8')
+
+          def replace_once(old, new, label):
+              global text
+              if old not in text:
+                  raise SystemExit(f'anchor missing: {label}')
+              if text.count(old) != 1:
+                  raise SystemExit(f'anchor not unique: {label} ({text.count(old)})')
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              "import { createHnlAiProjectSnapshot } from '../../ai/data/projectSnapshot';",
+              "import { createHnlAiProjectSnapshot } from '../../ai/data/projectSnapshot';\nimport { buildExternalAiProjectContext, type ExternalAiDataSelection } from '../../ai/data/externalAiContext';",
+              'external context import',
+          )
+          replace_once(
+              "ai: { label: 'AI chung', icon: Bot, hint: 'Kiến thức AI bên ngoài, không gửi dữ liệu HNL.' },",
+              "ai: { label: 'AI chung', icon: Bot, hint: 'Kiến thức AI bên ngoài; dữ liệu HNL chỉ được gửi khi bạn cho phép cho từng câu hỏi.' },",
+              'AI mode hint',
+          )
+          replace_once(
+              "  const [showApiKey, setShowApiKey] = useState(false);\n  const [exportBusy, setExportBusy] = useState<AiExportKind | null>(null);",
+              "  const [showApiKey, setShowApiKey] = useState(false);\n  const [externalAiOptIn, setExternalAiOptIn] = useState(false);\n  const [externalAiSelection, setExternalAiSelection] = useState<ExternalAiDataSelection>({ progress: true, defects: false, crew: false, inventory: false, checklist: false });\n  const [exportBusy, setExportBusy] = useState<AiExportKind | null>(null);",
+              'opt-in state',
+          )
+          replace_once(
+              "            { role: 'system', content: 'Bạn là HNL AI Assistant. Trả lời ngắn gọn, chuyên nghiệp. Không giả định hoặc tuyên bố đang đọc dữ liệu dự án HNL trong chế độ AI chung.' },\n            { role: 'user', content: text },",
+              "            { role: 'system', content: externalAiOptIn\n              ? 'Bạn là HNL AI Assistant. Chỉ được dùng phần dữ liệu HNL đã được người dùng cho phép và đính kèm trong đúng câu hỏi này. Dữ liệu là read-only, đã tối thiểu hóa/ẩn thông tin liên hệ; không suy đoán trường bị thiếu và không được yêu cầu hay thực hiện thao tác sửa/xóa dữ liệu HNL.'\n              : 'Bạn là HNL AI Assistant. Trả lời ngắn gọn, chuyên nghiệp. Không giả định hoặc tuyên bố đang đọc dữ liệu dự án HNL trong chế độ AI chung.' },\n            { role: 'user', content: externalAiOptIn\n              ? JSON.stringify({ question: text, hnlContext: buildExternalAiProjectContext(snapshot, externalAiSelection) })\n              : text },",
+              'general AI provider messages',
+          )
+          replace_once(
+              "        setGeneralText(response.text || 'AI không trả nội dung.');\n        return;",
+              "        if (externalAiOptIn) setExternalAiOptIn(false);\n        setGeneralText(response.text || 'AI không trả nội dung.');\n        return;",
+              'single-use consent reset',
+          )
+          replace_once(
+              "            return <button key={key} onClick={() => { setMode(key); setResult(null); setGeneralText(''); setError(''); setExportNotice(''); }}",
+              "            return <button key={key} onClick={() => { setMode(key); if (key !== 'ai') setExternalAiOptIn(false); setResult(null); setGeneralText(''); setError(''); setExportNotice(''); }}",
+              'mode change privacy reset',
+          )
+          ui_anchor = "          <div className=\"mt-2 text-[10px] font-semibold text-slate-600\">Trạng thái: {modelsLoading ? 'Đang đọc danh sách model...' : providerReady ? `${selectedProvider.label} · ${hasSessionApiKey ? 'API riêng phiên này' : 'HNL Managed'}` : providerId === 'cloudflare' ? 'HNL Managed chưa sẵn sàng' : 'Chưa có credential — nhập API Key riêng hoặc dùng HNL Managed nếu đã cấu hình'}</div>\n        </div>}"
+          ui_new = ui_anchor + "\n        {mode === 'ai' && <div className=\"mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3\">\n          <label className=\"flex items-start gap-2 text-[11px] font-bold text-amber-950\">\n            <input type=\"checkbox\" checked={externalAiOptIn} onChange={(e) => setExternalAiOptIn(e.target.checked)} className=\"mt-0.5 h-4 w-4\" />\n            <span>Cho phép AI bên ngoài sử dụng dữ liệu HNL trong câu hỏi này</span>\n          </label>\n          <p className=\"mt-1 text-[10px] leading-4 text-amber-800\">Mặc định TẮT. Quyền này chỉ dùng một lần; sau khi gửi thành công sẽ tự tắt. Chỉ dữ liệu đã chọn bên dưới được gửi, ở dạng read-only và đã tối thiểu hóa.</p>\n          {externalAiOptIn && <div className=\"mt-2 grid grid-cols-2 sm:grid-cols-5 gap-1.5\">\n            {([['progress','Tiến độ'],['defects','Defect'],['crew','Quân số'],['inventory','Vật tư'],['checklist','Checklist']] as Array<[keyof ExternalAiDataSelection, string]>).map(([key, label]) => <label key={key} className=\"flex items-center gap-1.5 rounded-lg border border-amber-200 bg-white px-2 py-1.5 text-[10px] font-semibold text-slate-700\"><input type=\"checkbox\" checked={externalAiSelection[key]} onChange={(e) => setExternalAiSelection((current) => ({ ...current, [key]: e.target.checked }))} />{label}</label>)}\n          </div>}\n        </div>}"
+          replace_once(ui_anchor, ui_new, 'AI opt-in UI')
+          page.write_text(text, encoding='utf-8')
+
+          ctx = Path('src/ai/data/externalAiContext.ts')
+          c = ctx.read_text(encoding='utf-8')
+          if "const MAX_ROWS_PER_COLLECTION = 240;" not in c:
+              raise SystemExit('external context row cap anchor missing')
+          c = c.replace("const MAX_ROWS_PER_COLLECTION = 240;", "const MAX_ROWS_PER_COLLECTION = 60;\nconst MAX_SUBITEMS_PER_ROOM = 20;\n\nfunction safeText(value: unknown): string {\n  return String(value ?? '')\n    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/gi, '[email đã ẩn]')\n    .replace(/(?:\\+?84|0)(?:[ .-]?\\d){8,10}/g, '[số điện thoại đã ẩn]')\n    .slice(0, 600);\n}")
+          replacements = {
+              "name: snapshot.projectName || ''": "name: safeText(snapshot.projectName || '')",
+              "positionDetail: item.positionDetail || ''": "positionDetail: safeText(item.positionDetail || '')",
+              "description: item.description": "description: safeText(item.description)",
+              "taskDescription: item.taskDescription": "taskDescription: safeText(item.taskDescription)",
+              "notes: item.notes || ''": "notes: safeText(item.notes || '')",
+              "(room.subItems || []).map((item) => ({": "(room.subItems || []).slice(0, MAX_SUBITEMS_PER_ROOM).map((item) => ({",
+          }
+          for old, new in replacements.items():
+              count = c.count(old)
+              if count == 0:
+                  raise SystemExit(f'external context privacy anchor missing: {old}')
+              c = c.replace(old, new)
+          ctx.write_text(c, encoding='utf-8')
+
+          test = Path('scripts/ai-external-context-golden.ts')
+          test.write_text("""import assert from 'node:assert/strict';\nimport { buildExternalAiProjectContext } from '../src/ai/data/externalAiContext';\n\nconst snapshot = {\n  projectId: 'dev-project', projectName: 'HNL demo 0901234567 owner@example.com', asOf: 1, freshness: 'live',\n  teams: [], floors: [], workVolumes: [], inventory: [], materialNorms: [], checklist: [],\n  rooms: [{ id: 'r1', roomName: 'A01', floorId: 'f1', floorName: 'L1', subItems: [] }],\n  defects: [{ id: 'd1', floorId: 'f1', floorName: 'L1', category: 'TC', description: 'Gọi 0901234567 hoặc owner@example.com', severity: 'HIGH', status: 'OPEN', createdAt: 1 }],\n  crewRecords: [{ id: 'c1', teamName: 'Đội A', date: '2026-09-05', workerCount: 5, taskDescription: 'Liên hệ +84 901 234 567', notes: 'mail worker@example.com' }],\n} as any;\n\nconst noOptIn = buildExternalAiProjectContext(snapshot, { progress: false, defects: false, crew: false, inventory: false, checklist: false });\nassert.equal('defects' in noOptIn, false);\nassert.equal('crew' in noOptIn, false);\n\nconst allowed = buildExternalAiProjectContext(snapshot, { progress: false, defects: true, crew: true, inventory: false, checklist: false });\nconst serialized = JSON.stringify(allowed);\nassert.equal(serialized.includes('0901234567'), false);\nassert.equal(serialized.includes('owner@example.com'), false);\nassert.equal(serialized.includes('worker@example.com'), false);\nassert.match(serialized, /đã ẩn/);\nconsole.log('AI external context golden: PASS');\n""", encoding='utf-8')
+
+          pkg_path = Path('package.json')
+          pkg = json.loads(pkg_path.read_text(encoding='utf-8'))
+          pkg['scripts']['test:ai-external-context'] = 'tsx scripts/ai-external-context-golden.ts'
+          pkg_path.write_text(json.dumps(pkg, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+          wf = Path('.github/workflows/dev-runtime-golden.yml')
+          w = wf.read_text(encoding='utf-8')
+          path_anchor = "      - 'scripts/ai-planner-golden.ts'\n"
+          if path_anchor not in w:
+              raise SystemExit('runtime workflow path anchor missing')
+          w = w.replace(path_anchor, path_anchor + "      - 'scripts/ai-external-context-golden.ts'\n", 1)
+          test_anchor = "          npm run test:ai-gateway\n          npm run test:ai-export\n"
+          if test_anchor not in w:
+              raise SystemExit('runtime workflow test anchor missing')
+          w = w.replace(test_anchor, "          npm run test:ai-gateway\n          npm run test:ai-external-context\n          npm run test:ai-export\n", 1)
+          wf.write_text(w, encoding='utf-8')
+
+      - name: Verify lock, AI regressions, TypeScript, lint and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run test:ai-core
+          npm run test:ai-tools
+          npm run test:ai-audit
+          npm run test:ai-planner
+          npm run test:ai-provider
+          npm run test:ai-gateway
+          npm run test:ai-external-context
+          npm run test:ai-export
+          npm run typecheck
+          npm run lint
+          npm run build
+          git diff --check
+          grep -q 'Cho phép AI bên ngoài sử dụng dữ liệu HNL trong câu hỏi này' src/features/ai/AiAssistantPage.tsx
+          grep -q "const MAX_ROWS_PER_COLLECTION = 60" src/ai/data/externalAiContext.ts
+
+      - name: Commit verified DEV source only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/features/ai/AiAssistantPage.tsx src/ai/data/externalAiContext.ts scripts/ai-external-context-golden.ts package.json .github/workflows/dev-runtime-golden.yml
+          git diff --cached --quiet && { echo 'No source changes needed'; exit 0; }
+          git commit -m 'feat(dev): add per-question external AI data opt-in hardening'
+          git push origin HEAD:dev
