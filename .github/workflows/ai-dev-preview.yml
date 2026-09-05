@@ -33,6 +33,8 @@ jobs:
         run: |
           set -euo pipefail
           test "$GITHUB_REF_NAME" = "feature/hnl-ai-assistant" || { echo '::error::REFUSING: wrong branch'; exit 1; }
+          test -f src/ai/export/aiReportExport.ts || { echo '::error::Missing HNL AI report export'; exit 1; }
+          test -f scripts/ai-export-golden.ts || { echo '::error::Missing HNL AI export golden'; exit 1; }
           test -n "${FIREBASE_SERVICE_ACCOUNT:-}" || { echo '::error::Missing FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV'; exit 1; }
           test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo '::error::Missing CLOUDFLARE_API_TOKEN'; exit 1; }
           DEV_PROJECT_ID="$(printf '%s' "$FIREBASE_SERVICE_ACCOUNT" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);process.stdout.write(String(j.project_id||''))})")"
@@ -180,6 +182,7 @@ jobs:
           npm run test:ai-planner
           npm run test:ai-provider
           npm run test:ai-gateway
+          npm run test:ai-export
           npm run test:stability
           npm run typecheck
           npm run lint
