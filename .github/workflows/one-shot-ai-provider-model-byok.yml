@@ -1,0 +1,66 @@
+name: One-shot HNL AI Provider Model BYOK
+
+on:
+  push:
+    branches: [feature/ai-provider-model-byok]
+    paths:
+      - 'scripts/patch-ai-provider-model-byok.py'
+      - '.github/workflows/one-shot-ai-provider-model-byok.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch_and_certify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/ai-provider-model-byok
+          fetch-depth: 0
+
+      - name: Apply provider/model/BYOK patch
+        run: python3 scripts/patch-ai-provider-model-byok.py
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: HNL AI gateway BYOK golden
+        run: npm run test:ai-gateway
+
+      - name: HNL AI provider/orchestrator golden
+        run: npm run test:ai-provider
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: Lint and secret scan
+        run: npm run lint
+
+      - name: BYOK privacy static gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "Nhà cung cấp AI" src/features/ai/AiAssistantPage.tsx
+          grep -q "API Key chỉ giữ trong bộ nhớ phiên này\|Chỉ giữ trong bộ nhớ phiên này" src/features/ai/AiAssistantPage.tsx
+          grep -q "apiKey: this.apiKey || undefined" src/ai/providers/hnlManagedProvider.ts
+          grep -q "payload.apiKey || env.OPENAI_API_KEY" cloudflare/ai-gateway/worker.js
+          ! grep -E "(localStorage|sessionStorage).*apiKey|apiKey.*(localStorage|sessionStorage)" src/features/ai/AiAssistantPage.tsx src/ai/providers/hnlManagedProvider.ts
+          echo 'BYOK privacy static gate: PASS'
+
+      - name: Build
+        run: npm run build
+
+      - name: Commit certified source only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm scripts/patch-ai-provider-model-byok.py .github/workflows/one-shot-ai-provider-model-byok.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/features/ai/AiAssistantPage.tsx src/ai/providers/hnlManagedProvider.ts cloudflare/ai-gateway/worker.js scripts/ai-gateway-golden.mjs
+          git diff --cached --check
+          git commit -m 'feat(ai): add provider model selector and session BYOK'
+          git push origin HEAD:feature/ai-provider-model-byok
