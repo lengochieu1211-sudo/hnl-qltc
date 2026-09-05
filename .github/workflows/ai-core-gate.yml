@@ -44,6 +44,7 @@ jobs:
           test -f src/ai/audit/quantityAudit.ts || { echo "Missing Quantity audit"; exit 1; }
           test -f src/ai/audit/crewAudit.ts || { echo "Missing Crew audit"; exit 1; }
           test -f src/ai/audit/projectAudit.ts || { echo "Missing Project audit"; exit 1; }
+          test -f src/ai/export/aiReportExport.ts || { echo "Missing HNL AI report export"; exit 1; }
           test -f src/features/ai/AiAssistantPage.tsx || { echo "Missing HNL AI UI"; exit 1; }
           test -f cloudflare/ai-gateway/worker.js || { echo "Missing isolated HNL AI Gateway"; exit 1; }
           test -f scripts/ai-core-golden.ts || { echo "Missing AI core golden"; exit 1; }
@@ -52,6 +53,7 @@ jobs:
           test -f scripts/ai-planner-golden.ts || { echo "Missing AI planner golden"; exit 1; }
           test -f scripts/ai-provider-orchestrator-golden.ts || { echo "Missing provider/orchestrator golden"; exit 1; }
           test -f scripts/ai-gateway-golden.mjs || { echo "Missing AI gateway golden"; exit 1; }
+          test -f scripts/ai-export-golden.ts || { echo "Missing AI export golden"; exit 1; }
           test ! -e scripts/patch-ai-ui-integration.py || { echo "Temporary patch runner must not remain in release source"; exit 1; }
 
       - name: Setup Node
@@ -81,6 +83,9 @@ jobs:
 
       - name: HNL AI isolated gateway golden
         run: npm run test:ai-gateway
+
+      - name: HNL AI report export golden
+        run: npm run test:ai-export
 
       - name: Existing HNL stability regression
         run: npm run test:stability
