@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import type { CrewRecord, DefectItem, FloorPlan, RoomProgressItem, TeamInfo } from '../src/types';
+import type { CrewRecord, DefectItem, FloorPlan, RoomProgressItem, TeamInfo, WorkVolume } from '../src/types';
 import type { AiQueryContext } from '../src/ai/core/contracts';
 import { createHnlAiProjectSnapshot } from '../src/ai/data/projectSnapshot';
 import { executeHnlAiTool, HnlAiToolError, isAllowedHnlAiToolName } from '../src/ai/tools/toolRegistry';
@@ -35,6 +35,12 @@ const crewRecords: CrewRecord[] = [
     workerCount: 10, morningCount: 10, afternoonCount: 10, eveningCount: 0, taskDescription: 'Trần',
   },
 ];
+const workVolumes: WorkVolume[] = [
+  {
+    id: 'wv-1', workCategoryId: 'wc-tran', title: 'Trần thạch cao', floor: 'Tầng 1', floorId: 'f1',
+    category: 'Trần', unit: 'm2', planned: 100, actual: 80, unitPrice: 0, status: 'Đang thi công',
+  },
+];
 const snapshot = createHnlAiProjectSnapshot({
   projectId,
   projectName: 'AI Golden',
@@ -43,7 +49,7 @@ const snapshot = createHnlAiProjectSnapshot({
   crewRecords,
   teams,
   floors,
-  workVolumes: [],
+  workVolumes,
   inventory: [],
   materialNorms: [],
   checklist: [],
@@ -53,6 +59,9 @@ const snapshot = createHnlAiProjectSnapshot({
 
 // Whitelist is explicit and arbitrary model-generated tool names are rejected.
 assert.equal(isAllowedHnlAiToolName('getTeamSummary'), true);
+assert.equal(isAllowedHnlAiToolName('auditQuantityData'), true);
+assert.equal(isAllowedHnlAiToolName('auditCrewData'), true);
+assert.equal(isAllowedHnlAiToolName('auditProjectIntegrity'), true);
 assert.equal(isAllowedHnlAiToolName('db.collection'), false);
 assert.throws(
   () => executeHnlAiTool({ name: 'dropDatabase', args: {} } as any, { context, snapshot }),
@@ -89,17 +98,24 @@ assert.equal((currentProgress.data as any)?.inspectedVolumeByUnit['m²'], 100);
 assert.equal('totalTeamVol' in ((currentProgress.data as any) || {}), false);
 assert.equal((currentProgress.data as any)?.historicalQuantityAvailable, false);
 
-// Audit tool is read-only and project-scoped.
-const audit = executeHnlAiTool({ name: 'auditDefectLinks', args: {} }, { context, snapshot });
-assert.equal((audit.data as any)?.errorCount, 0);
+// Audit tools are read-only, project-scoped and use only the supplied snapshot.
+const defectAudit = executeHnlAiTool({ name: 'auditDefectLinks', args: {} }, { context, snapshot });
+assert.equal((defectAudit.data as any)?.errorCount, 0);
+const quantityAudit = executeHnlAiTool({ name: 'auditQuantityData', args: {} }, { context, snapshot });
+assert.equal((quantityAudit.data as any)?.errorCount, 0);
+const crewAudit = executeHnlAiTool({ name: 'auditCrewData', args: {} }, { context, snapshot });
+assert.equal((crewAudit.data as any)?.errorCount, 0);
+const projectAudit = executeHnlAiTool({ name: 'auditProjectIntegrity', args: {} }, { context, snapshot });
+assert.equal((projectAudit.data as any)?.errorCount, 0);
 assert.equal(defects[0].roomId, 'room-101');
 assert.equal(defects[0].teamId, 'team-nguyen');
+assert.equal(workVolumes[0].actual, 80);
 
 // A verified role for Project A must never be used with a snapshot from Project B.
 const wrongContext: AiQueryContext = { ...context, projectId: 'project-other' };
 assert.throws(
-  () => executeHnlAiTool({ name: 'auditDefectLinks', args: {} }, { context: wrongContext, snapshot }),
+  () => executeHnlAiTool({ name: 'auditProjectIntegrity', args: {} }, { context: wrongContext, snapshot }),
   (error: unknown) => error instanceof HnlAiToolError && error.code === 'AI_PROJECT_SCOPE_MISMATCH',
 );
 
-console.log('HNL AI Tool Registry Golden Phase 1B: PASS');
+console.log('HNL AI Tool Registry Golden Phase 2: PASS');
