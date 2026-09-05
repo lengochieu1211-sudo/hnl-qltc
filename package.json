@@ -22,6 +22,13 @@
     "test:firebase-only": "node scripts/firebase-only-golden.mjs",
     "test:migration-audit": "node scripts/firebase-only-legacy-audit.mjs --self-test",
     "test:rbac": "node scripts/rbac-matrix.mjs",
+    "test:ai-core": "tsx scripts/ai-core-golden.ts",
+    "test:ai-tools": "tsx scripts/ai-tool-registry-golden.ts",
+    "test:ai-audit": "tsx scripts/ai-audit-golden.ts",
+    "test:ai-planner": "tsx scripts/ai-planner-golden.ts",
+    "test:ai-provider": "tsx scripts/ai-provider-orchestrator-golden.ts",
+    "test:ai-gateway": "node scripts/ai-gateway-golden.mjs",
+    "test:ai-export": "tsx scripts/ai-export-golden.ts",
     "build:apk:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File ./android-wrapper/build-apk.ps1",
     "build:exe:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File ./desktop-wrapper/build-launcher.ps1",
     "test:checklist-floor": "tsx scripts/checklist-floor-golden.ts"

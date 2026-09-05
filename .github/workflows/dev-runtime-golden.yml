@@ -1,0 +1,192 @@
+name: HNL QLTC DEV Runtime Golden
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [dev]
+    paths:
+      - 'scripts/dev-live-backend-golden.mjs'
+      - 'scripts/dev-hosted-browser-golden.mjs'
+      - 'src/components/FloorPlanDefectTab.tsx'
+      - 'src/utils/defectLinkageUtils.ts'
+      - 'scripts/defect-linkage-golden.ts'
+      - 'src/App.tsx'
+      - 'src/components/BottomNav.tsx'
+      - 'src/features/ai/**'
+      - 'src/ai/**'
+      - 'cloudflare/ai-gateway/**'
+      - 'scripts/ai-gateway-golden.mjs'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/firebase-hosting-merge.yml'
+      - '.github/workflows/dev-runtime-golden.yml'
+
+permissions:
+  contents: read
+
+env:
+  DEV_PROJECT_ID: hnl-qltc-dev
+  DEV_HOSTING_URL: https://hnl-qltc-dev.web.app
+  DEV_R2_URL: https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev
+  DEV_AI_URL: https://hnl-qltc-ai-gateway-dev.lengochieu1211.workers.dev
+  PROD_FIREBASE_PROJECT_ID: com-example-qlct-61329
+  PROD_R2_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
+  PROD_AI_URL: https://hnl-qltc-ai-gateway.lengochieu1211.workers.dev
+  DEV_AUTH_DOMAIN: hnl-qltc-dev.web.app
+  VITE_APP_ENV: DEV
+  VITE_RUNTIME_BACKEND: firebase-only
+  VITE_BINARY_STORAGE_PROVIDER: r2
+  VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev
+  VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+  VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+  VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+  VITE_FIRESTORE_DATABASE_ID: '(default)'
+  VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+  VITE_HNL_AI_ENABLED: 'true'
+  VITE_HNL_AI_GATEWAY_URL: https://hnl-qltc-ai-gateway-dev.lengochieu1211.workers.dev
+
+jobs:
+  runtime_golden:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV }}
+      VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      VITE_GIT_COMMIT: ${{ github.sha }}
+    steps:
+      - name: Checkout DEV
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: DEV isolation and credential gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/dev' || { echo '::error::REFUSING: runtime golden must run on dev'; exit 1; }
+          test "$DEV_PROJECT_ID" = 'hnl-qltc-dev' || { echo '::error::Unexpected DEV project'; exit 1; }
+          test "$DEV_PROJECT_ID" != "$PROD_FIREBASE_PROJECT_ID" || { echo '::error::REFUSING: DEV Firebase equals PROD'; exit 1; }
+          test "$DEV_R2_URL" != "$PROD_R2_URL" || { echo '::error::REFUSING: DEV R2 equals PROD'; exit 1; }
+          test "$DEV_AI_URL" != "$PROD_AI_URL" || { echo '::error::REFUSING: DEV AI equals PROD'; exit 1; }
+          test "$VITE_HNL_AI_ENABLED" = 'true' || { echo '::error::HNL AI must be enabled for DEV runtime golden'; exit 1; }
+          test -n "${FIREBASE_SERVICE_ACCOUNT:-}" || { echo '::error::Missing FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV'; exit 1; }
+          SA_PROJECT="$(printf '%s' "$FIREBASE_SERVICE_ACCOUNT" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);process.stdout.write(String(j.project_id||''))})")"
+          test "$SA_PROJECT" = "$DEV_PROJECT_ID" || { echo "::error::REFUSING: service account project is $SA_PROJECT"; exit 1; }
+          CRED="$RUNNER_TEMP/firebase-dev-service-account.json"
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$CRED"
+          chmod 600 "$CRED"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$CRED" >> "$GITHUB_ENV"
+          echo "DEV runtime isolation gate: PASS ($DEV_PROJECT_ID)"
+
+      - name: Install app dependencies
+        run: npm ci
+
+      - name: Resolve live DEV Firebase Web SDK config
+        shell: bash
+        run: |
+          set -euo pipefail
+          RAW="$(npx --yes firebase-tools@13.35.1 projects:list --json)"
+          printf '%s' "$RAW" | DEV_PROJECT_ID="$DEV_PROJECT_ID" node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const r=Array.isArray(j.result)?j.result:[];const id=process.env.DEV_PROJECT_ID;if(!r.some(x=>x.projectId===id)){console.error('DEV Firebase project not accessible: '+id);process.exit(2)};console.log('DEV Firebase access: PASS')})"
+
+          APPS="$(npx --yes firebase-tools@13.35.1 apps:list WEB --project "$DEV_PROJECT_ID" --json)"
+          APP_ID="$(printf '%s' "$APPS" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const r=Array.isArray(j.result)?j.result:[];const a=r.find(x=>x.platform==='WEB'||String(x.appId||'').includes(':web:'))||r[0];process.stdout.write(String(a?.appId||''))})")"
+          test -n "$APP_ID" || { echo '::error::DEV Firebase Web App not found'; exit 1; }
+          SDK="$(npx --yes firebase-tools@13.35.1 apps:sdkconfig WEB "$APP_ID" --project "$DEV_PROJECT_ID" --json)"
+          printf '%s' "$SDK" > "$RUNNER_TEMP/firebase-dev-sdk.json"
+
+          node - <<'NODE'
+          const fs = require('fs');
+          const raw = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/firebase-dev-sdk.json', 'utf8'));
+          const keys = ['apiKey','appId','messagingSenderId','projectId','storageBucket','authDomain'];
+          const found = {};
+          function parseText(text) {
+            if (typeof text !== 'string') return;
+            try { walk(JSON.parse(text)); } catch {}
+            for (const key of keys) {
+              const m = text.match(new RegExp(`${key}\\s*:\\s*["']([^"']+)["']`));
+              if (m && !found[key]) found[key] = m[1];
+            }
+          }
+          function walk(value) {
+            if (value == null) return;
+            if (typeof value === 'string') return parseText(value);
+            if (Array.isArray(value)) return value.forEach(walk);
+            if (typeof value === 'object') {
+              for (const [key, val] of Object.entries(value)) {
+                if (keys.includes(key) && typeof val === 'string' && val && !found[key]) found[key] = val;
+                walk(val);
+              }
+            }
+          }
+          walk(raw);
+          found.projectId ||= process.env.DEV_PROJECT_ID;
+          found.authDomain = process.env.DEV_AUTH_DOMAIN;
+          found.storageBucket ||= `${found.projectId}.firebasestorage.app`;
+          const missing = ['apiKey','appId','messagingSenderId','projectId','storageBucket','authDomain'].filter(k => !found[k]);
+          if (missing.length) throw new Error(`Missing SDK fields: ${missing.join(', ')}`);
+          if (found.projectId !== process.env.DEV_PROJECT_ID) throw new Error(`SDK project mismatch: ${found.projectId}`);
+          const out = process.env.GITHUB_ENV;
+          for (const [key, envName] of Object.entries({
+            apiKey: 'VITE_FIREBASE_API_KEY',
+            appId: 'VITE_FIREBASE_APP_ID',
+            messagingSenderId: 'VITE_FIREBASE_MESSAGING_SENDER_ID',
+            projectId: 'VITE_FIREBASE_PROJECT_ID',
+            storageBucket: 'VITE_FIREBASE_STORAGE_BUCKET',
+            authDomain: 'VITE_FIREBASE_AUTH_DOMAIN',
+          })) fs.appendFileSync(out, `${envName}=${found[key]}\n`);
+          NODE
+          echo "DEV Firebase Web SDK config: PASS ($APP_ID)"
+
+      - name: Build and deploy exact DEV runtime under test
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run test:ai-core
+          npm run test:ai-tools
+          npm run test:ai-audit
+          npm run test:ai-planner
+          npm run test:ai-provider
+          npm run test:ai-gateway
+          npm run test:ai-export
+          npm run typecheck
+          npm run lint
+          npm run build
+          grep -R -q 'HNL AI Assistant' dist/assets || { echo '::error::AI UI marker missing from runtime build'; exit 1; }
+          grep -R -q 'hnl-qltc-ai-gateway-dev' dist/assets || { echo '::error::DEV AI gateway missing from runtime build'; exit 1; }
+          npx --yes firebase-tools@13.35.1 deploy --only hosting --project "$DEV_PROJECT_ID" --non-interactive
+
+      - name: Preflight live DEV endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(curl --silent --output /tmp/dev-index.html --write-out '%{http_code}' "${DEV_HOSTING_URL}/?goldenPreflight=${GITHUB_RUN_ID}")" = '200' || { echo '::error::DEV Hosting preflight failed'; exit 1; }
+          curl --fail --silent --show-error "${DEV_R2_URL}/health?goldenPreflight=${GITHUB_RUN_ID}" | grep -q '"ok":true' || { echo '::error::DEV R2 preflight failed'; exit 1; }
+          curl --fail --silent --show-error "${DEV_AI_URL}/health?goldenPreflight=${GITHUB_RUN_ID}" | grep -q '"ok":true' || { echo '::error::DEV AI preflight failed'; exit 1; }
+          echo 'DEV live endpoint preflight: PASS'
+
+      - name: Live Firebase + R2 multi-user golden
+        run: node scripts/dev-live-backend-golden.mjs
+
+      - name: Install Playwright Chromium (ephemeral)
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --package-lock=false playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Hosted DEV desktop + mobile browser golden
+        run: node scripts/dev-hosted-browser-golden.mjs
+
+      - name: Upload Runtime Golden evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-DEV-RUNTIME-GOLDEN-${{ github.run_number }}
+          path: runtime-evidence/**
+          if-no-files-found: warn
+          retention-days: 30

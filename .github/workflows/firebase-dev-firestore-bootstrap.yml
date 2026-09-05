@@ -1,0 +1,64 @@
+name: Bootstrap HNL QLTC DEV Firestore
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DEV_FIRESTORE_LOCATION: asia-southeast1
+  PROD_FIREBASE_PROJECT_ID: com-example-qlct-61329
+
+jobs:
+  bootstrap_dev_firestore:
+    runs-on: ubuntu-latest
+    env:
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: DEV credential isolation gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${FIREBASE_SERVICE_ACCOUNT:-}" || { echo '::error::Missing FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV'; exit 1; }
+          DEV_PROJECT_ID="$(printf '%s' "$FIREBASE_SERVICE_ACCOUNT" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);process.stdout.write(String(j.project_id||''))})")"
+          test -n "$DEV_PROJECT_ID" || { echo '::error::DEV service account JSON has no project_id'; exit 1; }
+          test "$DEV_PROJECT_ID" != "$PROD_FIREBASE_PROJECT_ID" || { echo '::error::REFUSING: DEV service account points to PROD project'; exit 1; }
+          echo "DEV_PROJECT_ID=$DEV_PROJECT_ID" >> "$GITHUB_ENV"
+          echo "DEV isolation gate: PASS ($DEV_PROJECT_ID)"
+
+      - name: Write DEV Firebase credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          CRED="$RUNNER_TEMP/firebase-dev-service-account.json"
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$CRED"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$CRED" >> "$GITHUB_ENV"
+
+      - name: Create or reuse DEV Firestore default database
+        shell: bash
+        run: |
+          set +e
+          set -uo pipefail
+          echo "Attempting DEV Firestore bootstrap in ${DEV_FIRESTORE_LOCATION} for ${DEV_PROJECT_ID}"
+          OUT="$(npx --yes firebase-tools@13.35.1 firestore:databases:create '(default)' --location="$DEV_FIRESTORE_LOCATION" --project "$DEV_PROJECT_ID" --non-interactive 2>&1)"
+          RC=$?
+          printf '%s\n' "$OUT"
+          if [ "$RC" -eq 0 ]; then
+            echo 'DEV Firestore default database created.'
+            exit 0
+          fi
+          if printf '%s' "$OUT" | grep -Eqi 'already exists|ALREADY_EXISTS'; then
+            echo 'DEV Firestore default database already exists.'
+            exit 0
+          fi
+          echo "::error::DEV Firestore bootstrap failed with exit code $RC"
+          exit "$RC"

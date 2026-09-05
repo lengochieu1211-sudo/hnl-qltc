@@ -151,3 +151,11 @@ html[data-hnl-theme="dark"] .text-pink-600,
 html[data-hnl-theme="dark"] .text-pink-700,
 html[data-hnl-theme="dark"] .text-pink-800,
 html[data-hnl-theme="dark"] .text-pink-900 { color: #f9a8d4 !important; }
+
+/* Project Manager active-project card: Tailwind gradient stop utilities keep their
+ * light RGB values even after neutral/pale background guards run. Scope the fix to
+ * the exact active-card gradient so dark mode stays dark without changing status UI. */
+html[data-hnl-theme="dark"] .bg-gradient-to-r.from-indigo-50\/90.to-blue-50\/50 {
+  background-image: linear-gradient(to right, rgb(49 46 129 / .42), rgb(30 64 175 / .28)) !important;
+  border-color: rgb(99 102 241 / .66) !important;
+}

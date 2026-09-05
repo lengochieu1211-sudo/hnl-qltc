@@ -1,0 +1,106 @@
+name: HNL AI Core Gate
+
+on:
+  push:
+    branches:
+      - feature/hnl-ai-assistant
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phase1_2_3_4:
+    runs-on: ubuntu-latest
+    env:
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: "false"
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: "false"
+      VITE_HNL_AI_ENABLED: "true"
+      VITE_HNL_AI_GATEWAY_URL: "https://hnl-qltc-ai-gateway-dev.lengochieu1211.workers.dev"
+      VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      VITE_GIT_COMMIT: ${{ github.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify isolated AI branch and source root
+        shell: bash
+        run: |
+          test "$GITHUB_REF_NAME" = "feature/hnl-ai-assistant" || { echo "REFUSING: AI gate only runs on feature/hnl-ai-assistant"; exit 1; }
+          test -f package.json || { echo "Missing package.json"; exit 1; }
+          test -f package-lock.json || { echo "Missing package-lock.json"; exit 1; }
+          test -f src/ai/core/contracts.ts || { echo "Missing AI core contracts"; exit 1; }
+          test -f src/ai/tools/toolRegistry.ts || { echo "Missing AI tool registry"; exit 1; }
+          test -f src/ai/tools/toolValidation.ts || { echo "Missing AI tool validation"; exit 1; }
+          test -f src/ai/planning/queryPlanner.ts || { echo "Missing deterministic query planner"; exit 1; }
+          test -f src/ai/evidence/narrativeContext.ts || { echo "Missing evidence-first narrative context"; exit 1; }
+          test -f src/ai/providers/providerTypes.ts || { echo "Missing provider-neutral contract"; exit 1; }
+          test -f src/ai/providers/mockProvider.ts || { echo "Missing non-network mock provider"; exit 1; }
+          test -f src/ai/providers/hnlManagedProvider.ts || { echo "Missing HNL Managed provider"; exit 1; }
+          test -f src/ai/orchestrator/aiOrchestrator.ts || { echo "Missing fail-safe AI orchestrator"; exit 1; }
+          test -f src/ai/audit/defectAudit.ts || { echo "Missing Defect audit"; exit 1; }
+          test -f src/ai/audit/quantityAudit.ts || { echo "Missing Quantity audit"; exit 1; }
+          test -f src/ai/audit/crewAudit.ts || { echo "Missing Crew audit"; exit 1; }
+          test -f src/ai/audit/projectAudit.ts || { echo "Missing Project audit"; exit 1; }
+          test -f src/ai/export/aiReportExport.ts || { echo "Missing HNL AI report export"; exit 1; }
+          test -f src/features/ai/AiAssistantPage.tsx || { echo "Missing HNL AI UI"; exit 1; }
+          test -f cloudflare/ai-gateway/worker.js || { echo "Missing isolated HNL AI Gateway"; exit 1; }
+          test -f scripts/ai-core-golden.ts || { echo "Missing AI core golden"; exit 1; }
+          test -f scripts/ai-tool-registry-golden.ts || { echo "Missing AI tool registry golden"; exit 1; }
+          test -f scripts/ai-audit-golden.ts || { echo "Missing AI audit golden"; exit 1; }
+          test -f scripts/ai-planner-golden.ts || { echo "Missing AI planner golden"; exit 1; }
+          test -f scripts/ai-provider-orchestrator-golden.ts || { echo "Missing provider/orchestrator golden"; exit 1; }
+          test -f scripts/ai-gateway-golden.mjs || { echo "Missing AI gateway golden"; exit 1; }
+          test -f scripts/ai-export-golden.ts || { echo "Missing AI export golden"; exit 1; }
+          test ! -e scripts/patch-ai-ui-integration.py || { echo "Temporary patch runner must not remain in release source"; exit 1; }
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install exact locked dependencies
+        run: npm ci
+
+      - name: HNL AI deterministic core golden
+        run: npm run test:ai-core
+
+      - name: HNL AI whitelist tool registry golden
+        run: npm run test:ai-tools
+
+      - name: HNL AI audit regression golden
+        run: npm run test:ai-audit
+
+      - name: HNL AI deterministic planner and provider-boundary golden
+        run: npm run test:ai-planner
+
+      - name: HNL AI provider outage and orchestrator isolation golden
+        run: npm run test:ai-provider
+
+      - name: HNL AI isolated gateway golden
+        run: npm run test:ai-gateway
+
+      - name: HNL AI report export golden
+        run: npm run test:ai-export
+
+      - name: Existing HNL stability regression
+        run: npm run test:stability
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: Lint and source secret scan
+        run: npm run lint
+
+      - name: Firebase Rules regression
+        run: npm run test:rules
+
+      - name: Production dependency critical security audit
+        run: npm run security:audit
+
+      - name: Build
+        run: npm run build

@@ -139,9 +139,18 @@ const getCandidateTeamsForDefect = (
 
   // The durable teamId is authoritative. Legacy room/sub-item rows may have teamId but an
   // empty or stale assignedTeam string; the Defect UI must still display the real linked team.
-  const roomAtPosTeam = roomAtPos
-    ? resolveAssignedTeamName(roomAtPos.teamId, roomAtPos.assignedTeam)
-    : '';
+  const roomAtPosDefaultTeam = roomAtPos
+  ? resolveAssignedTeamName(roomAtPos.teamId, roomAtPos.assignedTeam)
+  : '';
+const roomAtPosTeamNames = roomAtPos
+  ? Array.from(new Set([
+      roomAtPosDefaultTeam,
+      ...(roomAtPos.subItems || []).map((s) => resolveAssignedTeamName(s.teamId, s.assignedTeam)),
+    ].filter(Boolean)))
+  : [];
+// If there is exactly one team working in the room, it is a safe primary suggestion.
+// With several room teams, show all of them and let the user choose the responsible team.
+const roomAtPosTeam = roomAtPosDefaultTeam || (roomAtPosTeamNames.length === 1 ? roomAtPosTeamNames[0] : '');
 
   const currentFloorTeamsSet = new Set<string>();
   activeFloorRooms.forEach((r) => {
@@ -169,7 +178,7 @@ const getCandidateTeamsForDefect = (
 
   const allSuggestedTeams = Array.from(
     new Set([
-      ...(roomAtPosTeam ? [roomAtPosTeam] : []),
+      ...roomAtPosTeamNames,
       ...currentFloorTeams,
       ...declaredTeamNames,
       ...allFloorTeams,
@@ -181,6 +190,7 @@ const getCandidateTeamsForDefect = (
 
   return {
     roomAtPos,
+    roomAtPosTeamNames,
     roomAtPosTeam,
     currentFloorTeams,
     declaredTeamNames,
@@ -209,6 +219,7 @@ const TeamSelectorInput: React.FC<TeamSelectorInputProps> = ({
 }) => {
   const {
     roomAtPos,
+    roomAtPosTeamNames,
     roomAtPosTeam,
     currentFloorTeams,
     declaredTeamNames,
@@ -243,11 +254,13 @@ const TeamSelectorInput: React.FC<TeamSelectorInputProps> = ({
         >
           <option value="">-- Chọn đội từ danh sách ở đây --</option>
           
-          {roomAtPosTeam && (
-            <optgroup label="📍 Đội thuộc Căn / Phòng hiện tại">
-              <option value={roomAtPosTeam}>📍 {roomAtPosTeam} ({roomAtPos?.roomName || 'Căn hiện tại'})</option>
-            </optgroup>
-          )}
+          {roomAtPosTeamNames.length > 0 && (
+  <optgroup label="📍 Đội đang làm Căn / Phòng hiện tại">
+    {roomAtPosTeamNames.map((tName) => (
+      <option key={tName} value={tName}>📍 {tName} ({roomAtPos?.roomName || 'Căn hiện tại'})</option>
+    ))}
+  </optgroup>
+)}
 
           {currentFloorTeams.length > 0 && (
             <optgroup label="🏢 Đội thi công trên tầng này">
@@ -300,21 +313,26 @@ const TeamSelectorInput: React.FC<TeamSelectorInputProps> = ({
             <span className="font-semibold text-amber-900 truncate">
               📍 Vị trí: <strong>{roomAtPos.roomName}</strong>
             </span>
-            {roomAtPosTeam ? (
-              <button
-                type="button"
-                onClick={() => onChange(roomAtPosTeam)}
-                className={`px-2 py-1 rounded-lg text-[10px] font-bold shrink-0 transition-all ${
-                  value === roomAtPosTeam
-                    ? 'bg-amber-600 text-white shadow-xs'
-                    : 'bg-white border border-amber-300 text-amber-900 hover:bg-amber-100'
-                }`}
-              >
-                Gán ({roomAtPosTeam})
-              </button>
-            ) : (
-              <span className="text-[10px] text-amber-700 italic shrink-0">Căn chưa gán đội mặc định</span>
-            )}
+            {roomAtPosTeamNames.length > 0 ? (
+    <div className="flex flex-wrap justify-end gap-1">
+      {roomAtPosTeamNames.map((tName) => (
+        <button
+          type="button"
+          key={tName}
+          onClick={() => onChange(tName)}
+          className={`px-2 py-1 rounded-lg text-[10px] font-bold shrink-0 transition-all ${
+            value === tName
+              ? 'bg-amber-600 text-white shadow-xs'
+              : 'bg-white border border-amber-300 text-amber-900 hover:bg-amber-100'
+          }`}
+        >
+          {tName}
+        </button>
+      ))}
+    </div>
+  ) : (
+    <span className="text-[10px] text-amber-700 italic shrink-0">Căn chưa gán đội ở cấp căn / hạng mục</span>
+  )}
           </div>
         )}
 
@@ -1683,11 +1701,126 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const downloadHighlightTemplate = () => {
     const wb = XLSX.utils.book_new();
     const roomsToExport = floorRooms;
+    const teamNameById = new Map(
+      teams
+        .filter((team) => team.id && team.name?.trim())
+        .map((team) => [team.id, team.name.trim()] as const)
+    );
+    const resolveExcelTeamName = (teamId?: string, assignedTeam?: string) =>
+      (teamId ? teamNameById.get(teamId) : undefined) || assignedTeam?.trim() || '';
 
-    const data = roomsToExport.map(r => ({
-      'STT': roomsToExport.indexOf(r) + 1,
-      '__recordId': (r as any).id || '',
+    // Export durable IDs even for older room/sub-item records that only retained the
+    // human-readable team/category name. This keeps a downloaded workbook round-trip
+    // safe without inventing links: IDs are restored only on an exact active catalog match.
+    const excelTeamIdByName = new Map<string, string>();
+    teams.forEach((team) => {
+      const id = String(team.id || '').trim();
+      const name = String(team.name || '').trim();
+      if (id && name) excelTeamIdByName.set(name.toLocaleLowerCase('vi-VN'), id);
+    });
+    const excelCategoryIdByName = new Map<string, string>();
+    workVolumes.forEach((item) => {
+      const name = String(item.title || '').trim();
+      const id = String(item.workCategoryId || item.id || '').trim();
+      if (id && name) excelCategoryIdByName.set(name.toLocaleLowerCase('vi-VN'), id);
+    });
+    const resolveExcelTeamId = (teamId?: string, assignedTeam?: string) => {
+      const explicitId = String(teamId || '').trim();
+      if (explicitId) return explicitId;
+      const name = String(assignedTeam || '').trim();
+      return name ? (excelTeamIdByName.get(name.toLocaleLowerCase('vi-VN')) || '') : '';
+    };
+    const resolveExcelCategoryId = (workCategoryId?: string, categoryName?: string) => {
+      const explicitId = String(workCategoryId || '').trim();
+      if (explicitId) return explicitId;
+      const name = String(categoryName || '').trim();
+      return name ? (excelCategoryIdByName.get(name.toLocaleLowerCase('vi-VN')) || '') : '';
+    };
+
+    const exportIssues: Array<{
+      'Mức': 'LỖI' | 'CẢNH BÁO';
+      'Căn / Phòng': string;
+      'Hạng Mục / Công Đoạn': string;
+      'Vấn Đề': string;
+      'Đề Xuất': string;
+    }> = [];
+
+    roomsToExport.forEach((room) => {
+      const roomSubItems = room.subItems || [];
+      roomSubItems.forEach((subItem) => {
+        const resolvedTeam = resolveExcelTeamName(subItem.teamId, subItem.assignedTeam);
+        if (!resolvedTeam) {
+          exportIssues.push({
+            'Mức': 'CẢNH BÁO',
+            'Căn / Phòng': room.roomName,
+            'Hạng Mục / Công Đoạn': `${subItem.category || room.workCategory || 'Chưa phân nhóm'} / ${subItem.name}`,
+            'Vấn Đề': 'Chưa gán đội thi công cho hạng mục.',
+            'Đề Xuất': 'Chọn đúng đội đang thi công Căn / Phòng trước khi nghiệm thu hoặc cập nhật Excel.'
+          });
+        }
+        if (subItem.inspectionStatus === 'Đạt nghiệm thu' && subItem.status !== 'Đã hoàn thành') {
+          exportIssues.push({
+            'Mức': 'LỖI',
+            'Căn / Phòng': room.roomName,
+            'Hạng Mục / Công Đoạn': `${subItem.category || room.workCategory || 'Chưa phân nhóm'} / ${subItem.name}`,
+            'Vấn Đề': `Nghiệm thu = “Đạt nghiệm thu” nhưng Tiến độ = “${subItem.status}”.`,
+            'Đề Xuất': 'Chỉ được Đạt nghiệm thu khi Tiến độ = “Đã hoàn thành”.'
+          });
+        }
+      });
+
+      // Legacy rooms without subItems still need the same invariant checked on
+      // frame/board summary fields so older data cannot hide contradictions.
+      if (roomSubItems.length === 0) {
+        if (room.frameInspectionStatus === 'Đạt nghiệm thu' && room.frameStatus !== 'Đã hoàn thành') {
+          exportIssues.push({
+            'Mức': 'LỖI',
+            'Căn / Phòng': room.roomName,
+            'Hạng Mục / Công Đoạn': 'Khung xương (legacy)',
+            'Vấn Đề': `Nghiệm thu Khung = “Đạt nghiệm thu” nhưng Tiến độ = “${room.frameStatus}”.`,
+            'Đề Xuất': 'Hoàn thành thi công Khung trước khi Đạt nghiệm thu.'
+          });
+        }
+        if (room.boardInspectionStatus === 'Đạt nghiệm thu' && room.boardStatus !== 'Đã hoàn thành') {
+          exportIssues.push({
+            'Mức': 'LỖI',
+            'Căn / Phòng': room.roomName,
+            'Hạng Mục / Công Đoạn': 'Tấm (legacy)',
+            'Vấn Đề': `Nghiệm thu Tấm = “Đạt nghiệm thu” nhưng Tiến độ = “${room.boardStatus}”.`,
+            'Đề Xuất': 'Hoàn thành thi công Tấm trước khi Đạt nghiệm thu.'
+          });
+        }
+        if (!resolveExcelTeamName(room.teamId, room.assignedTeam)) {
+          exportIssues.push({
+            'Mức': 'CẢNH BÁO',
+            'Căn / Phòng': room.roomName,
+            'Hạng Mục / Công Đoạn': 'Căn / Phòng (legacy)',
+            'Vấn Đề': 'Chưa gán đội thi công.',
+            'Đề Xuất': 'Gán đội thi công trước khi cập nhật nghiệm thu.'
+          });
+        }
+      }
+    });
+
+    const roomHeaders = [
+      'STT', '__recordId', 'Tên Căn / Phòng',
+      'Hạng Mục Thi Công Chính', '__workCategoryId',
+      'Đội Thi Công Căn / Phòng', '__teamId',
+      'Khối Lượng Căn / Phòng', 'Đơn Vị Căn / Phòng',
+      'Tọa độ X (%)', 'Tọa độ Y (%)', 'Chiều Rộng W (%)', 'Chiều Cao H (%)',
+      'Trạng Thái Khung Xương', 'Trạng Thái Bắn Tấm',
+      'Nghiệm Thu Khung', 'Nghiệm Thu Tấm', 'Kỹ sư phụ trách', 'Ghi Chú'
+    ];
+    const roomData = roomsToExport.map((r, index) => ({
+      'STT': index + 1,
+      '__recordId': r.id || '',
       'Tên Căn / Phòng': r.roomName,
+      'Hạng Mục Thi Công Chính': r.workCategory || '',
+      '__workCategoryId': resolveExcelCategoryId(r.workCategoryId, r.workCategory),
+      'Đội Thi Công Căn / Phòng': resolveExcelTeamName(r.teamId, r.assignedTeam),
+      '__teamId': resolveExcelTeamId(r.teamId, r.assignedTeam),
+      'Khối Lượng Căn / Phòng': r.workVolume ?? '',
+      'Đơn Vị Căn / Phòng': r.volumeUnit || '',
       'Tọa độ X (%)': r.x,
       'Tọa độ Y (%)': r.y,
       'Chiều Rộng W (%)': r.width,
@@ -1699,12 +1832,120 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       'Kỹ sư phụ trách': r.inspectorName,
       'Ghi Chú': r.notes || ''
     }));
+    const roomSheet = XLSX.utils.json_to_sheet(roomData, { header: roomHeaders });
+    roomSheet['!cols'] = [
+      { wch: 6 }, { wch: 24, hidden: true }, { wch: 26 }, { wch: 24 }, { wch: 24, hidden: true },
+      { wch: 22 }, { wch: 24, hidden: true }, { wch: 18 }, { wch: 14 },
+      { wch: 13 }, { wch: 13 }, { wch: 15 }, { wch: 15 },
+      { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 22 }, { wch: 32 }
+    ];
+    roomSheet['!autofilter'] = { ref: `A1:S${Math.max(2, roomData.length + 1)}` };
+    roomSheet['!rows'] = [{ hpt: 24 }];
+    XLSX.utils.book_append_sheet(wb, roomSheet, 'Can_Phong');
 
-    const ws = XLSX.utils.json_to_sheet(data);
-    XLSX.utils.book_append_sheet(wb, ws, activeFloor ? activeFloor.floorName : 'DanhSachPhong');
-    return saveWorkbookFile(wb, `Danh_Sach_Phong_${activeFloor ? activeFloor.floorName.replace(/\s+/g, '_') : 'MatBang'}.xlsx`);
+    const subItemHeaders = [
+      'STT', '__recordId', 'Tên Căn / Phòng', '__subItemId',
+      'Hạng Mục Thi Công', '__workCategoryId', 'Công Đoạn / Nội Dung',
+      'Trạng Thái Thi Công', 'Nghiệm Thu Hạng Mục', 'Hạn Hoàn Thành',
+      'Đội Thi Công', '__teamId', 'Khối Lượng', 'Đơn Vị', 'Trọng Số Tiến Độ'
+    ];
+    const subItemData = roomsToExport.flatMap((room, roomIndex) =>
+      (room.subItems || []).map((subItem, subIndex) => ({
+        'STT': `${roomIndex + 1}.${subIndex + 1}`,
+        '__recordId': room.id || '',
+        'Tên Căn / Phòng': room.roomName,
+        '__subItemId': subItem.id || '',
+        'Hạng Mục Thi Công': subItem.category || room.workCategory || '',
+        '__workCategoryId': resolveExcelCategoryId(
+          subItem.workCategoryId || room.workCategoryId,
+          subItem.category || room.workCategory
+        ),
+        'Công Đoạn / Nội Dung': subItem.name,
+        'Trạng Thái Thi Công': subItem.status,
+        'Nghiệm Thu Hạng Mục': subItem.inspectionStatus || 'Chưa nghiệm thu',
+        'Hạn Hoàn Thành': subItem.targetDate || '',
+        'Đội Thi Công': resolveExcelTeamName(subItem.teamId, subItem.assignedTeam),
+        '__teamId': resolveExcelTeamId(subItem.teamId, subItem.assignedTeam),
+        'Khối Lượng': subItem.workVolume ?? '',
+        'Đơn Vị': subItem.volumeUnit || '',
+        'Trọng Số Tiến Độ': subItem.progressWeight ?? ''
+      }))
+    );
+    const subItemSheet = XLSX.utils.json_to_sheet(subItemData, { header: subItemHeaders });
+    subItemSheet['!cols'] = [
+      { wch: 8 }, { wch: 24, hidden: true }, { wch: 26 }, { wch: 24, hidden: true },
+      { wch: 24 }, { wch: 24, hidden: true }, { wch: 28 }, { wch: 20 }, { wch: 22 },
+      { wch: 16 }, { wch: 22 }, { wch: 24, hidden: true }, { wch: 14 }, { wch: 12 }, { wch: 18 }
+    ];
+    subItemSheet['!autofilter'] = { ref: `A1:O${Math.max(2, subItemData.length + 1)}` };
+    subItemSheet['!rows'] = [{ hpt: 24 }];
+    XLSX.utils.book_append_sheet(wb, subItemSheet, 'Hang_Muc_Thi_Cong');
+
+    const teamHeaders = ['__teamId', 'Tên Đội', 'Đội Trưởng', 'Điện Thoại', 'Ghi Chú'];
+    const teamData = teams.map((team) => ({
+      '__teamId': team.id || '',
+      'Tên Đội': team.name || '',
+      'Đội Trưởng': team.leader || '',
+      'Điện Thoại': team.phone || '',
+      'Ghi Chú': team.notes || ''
+    }));
+    const teamSheet = XLSX.utils.json_to_sheet(teamData, { header: teamHeaders });
+    teamSheet['!cols'] = [
+      { wch: 24, hidden: true }, { wch: 24 }, { wch: 24 }, { wch: 18 }, { wch: 32 }
+    ];
+    teamSheet['!autofilter'] = { ref: `A1:E${Math.max(2, teamData.length + 1)}` };
+    teamSheet['!rows'] = [{ hpt: 24 }];
+    XLSX.utils.book_append_sheet(wb, teamSheet, 'Danh_Muc_Doi');
+
+    const issueHeaders = ['Mức', 'Căn / Phòng', 'Hạng Mục / Công Đoạn', 'Vấn Đề', 'Đề Xuất'];
+    const issueData = exportIssues.length > 0
+      ? exportIssues
+      : [{
+          'Mức': 'OK',
+          'Căn / Phòng': '',
+          'Hạng Mục / Công Đoạn': '',
+          'Vấn Đề': 'Không phát hiện lỗi logic nghiệm thu hoặc hạng mục thiếu đội thi công.',
+          'Đề Xuất': 'Có thể chỉnh sửa các sheet dữ liệu và Nhập Excel lại.'
+        }];
+    const issueSheet = XLSX.utils.json_to_sheet(issueData, { header: issueHeaders });
+    issueSheet['!cols'] = [
+      { wch: 12 }, { wch: 26 }, { wch: 38 }, { wch: 56 }, { wch: 56 }
+    ];
+    issueSheet['!autofilter'] = { ref: `A1:E${Math.max(2, issueData.length + 1)}` };
+    issueSheet['!rows'] = [{ hpt: 24 }];
+    XLSX.utils.book_append_sheet(wb, issueSheet, 'Kiem_Tra');
+
+    const guideSheet = XLSX.utils.aoa_to_sheet([
+      ['HNL QLTC - Mẫu Excel Nghiệm thu Căn / Phòng'],
+      ['1', 'Sheet Can_Phong: chỉnh thông tin cấp Căn / Phòng.'],
+      ['2', 'Sheet Hang_Muc_Thi_Cong: mỗi dòng là một hạng mục/công đoạn của đúng Căn / Phòng.'],
+      ['3', 'Có thể đổi Trạng thái, Nghiệm thu, Hạn hoàn thành, Đội thi công, Khối lượng và Đơn vị rồi Nhập Excel lại.'],
+      ['4', 'Các cột kỹ thuật __recordId, __subItemId, __teamId, __workCategoryId được ẩn để bảng dễ đọc nhưng vẫn được giữ nguyên khi Nhập Excel lại.'],
+      ['5', 'Sheet Danh_Muc_Doi chỉ để tham chiếu đội đã khai báo; nhập lại sẽ liên kết theo __teamId hoặc tên đội trùng khớp.'],
+      ['6', 'Nếu dữ liệu cũ chỉ có tên đội/hạng mục, khi Xuất Excel ứng dụng sẽ tự bổ sung ID nếu tên khớp chính xác danh mục hiện hành.'],
+      ['7', 'Sheet Kiem_Tra liệt kê lỗi logic nghiệm thu và các hạng mục chưa gán đội. CẢNH BÁO không chặn nhập; LỖI nghiệm thu sẽ được tự chuẩn hóa khi Nhập Excel.'],
+      ['8', 'Quy tắc bắt buộc: chỉ được Đạt nghiệm thu khi Trạng Thái Thi Công = Đã hoàn thành.']
+    ]);
+    guideSheet['!cols'] = [{ wch: 8 }, { wch: 100 }];
+    guideSheet['!rows'] = [{ hpt: 26 }];
+    XLSX.utils.book_append_sheet(wb, guideSheet, 'Huong_Dan');
+
+    const exportErrorCount = exportIssues.filter((issue) => issue['Mức'] === 'LỖI').length;
+    const exportWarningCount = exportIssues.filter((issue) => issue['Mức'] === 'CẢNH BÁO').length;
+    if (exportIssues.length > 0) {
+      alert(
+        `⚠️ Kiểm tra trước khi xuất Excel:\n\n` +
+        `• Lỗi logic nghiệm thu: ${exportErrorCount}\n` +
+        `• Hạng mục/Căn chưa gán đội: ${exportWarningCount}\n\n` +
+        `File vẫn được xuất. Xem sheet “Kiem_Tra” để biết chính xác Căn / Phòng và hạng mục cần xử lý.`
+      );
+    }
+
+    return saveWorkbookFile(
+      wb,
+      `Danh_Sach_Phong_${activeFloor ? activeFloor.floorName.replace(/\s+/g, '_') : 'MatBang'}.xlsx`
+    );
   };
-
 
 
   // Handle uploaded excel to import Room Highlights
@@ -1721,9 +1962,20 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       try {
         const data = new Uint8Array(event.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
-        const firstSheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[firstSheetName];
+        const normalizeSheetName = (name: string) => name.trim().toLocaleLowerCase('vi-VN').replace(/\s+/g, '_');
+        const roomSheetName = workbook.SheetNames.find((name) => {
+          const normalized = normalizeSheetName(name);
+          return normalized === 'can_phong' || normalized === 'căn_phòng';
+        }) || workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[roomSheetName];
         const jsonData = XLSX.utils.sheet_to_json<any>(worksheet);
+        const detailSheetName = workbook.SheetNames.find((name) => {
+          const normalized = normalizeSheetName(name);
+          return normalized === 'hang_muc_thi_cong' || normalized === 'hạng_mục_thi_công';
+        });
+        const detailJsonData = detailSheetName
+          ? XLSX.utils.sheet_to_json<any>(workbook.Sheets[detailSheetName])
+          : [];
 
         if (!jsonData || jsonData.length === 0) {
           alert('❌ Thất bại: Tệp Excel không có dữ liệu hoặc định dạng không đúng! Vui lòng tải lại tệp chuẩn.');
@@ -1744,6 +1996,41 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             `• Vui lòng đặt lại tiêu đề cột trong file Excel trùng với mẫu để hệ thống nhận diện đúng phòng.`
           );
           return;
+        }
+
+        const preflightRoomConflicts = jsonData.filter((row: any) => {
+          const frameStatus = String(row['Trạng Thái Khung Xương'] ?? row['frameStatus'] ?? '').trim();
+          const boardStatus = String(row['Trạng Thái Bắn Tấm'] ?? row['boardStatus'] ?? '').trim();
+          const frameInspection = String(row['Nghiệm Thu Khung'] ?? row['frameInspectionStatus'] ?? '').trim();
+          const boardInspection = String(row['Nghiệm Thu Tấm'] ?? row['boardInspectionStatus'] ?? '').trim();
+          return (frameInspection === 'Đạt nghiệm thu' && frameStatus !== 'Đã hoàn thành') ||
+            (boardInspection === 'Đạt nghiệm thu' && boardStatus !== 'Đã hoàn thành');
+        }).length;
+        const preflightDetailConflicts = detailJsonData.filter((row: any) => {
+          const status = String(row['Trạng Thái Thi Công'] ?? row['status'] ?? '').trim();
+          const inspection = String(row['Nghiệm Thu Hạng Mục'] ?? row['inspectionStatus'] ?? '').trim();
+          return inspection === 'Đạt nghiệm thu' && status !== 'Đã hoàn thành';
+        }).length;
+        const preflightMissingTeamRows = detailJsonData.filter((row: any) => {
+          const teamId = String(row['__teamId'] ?? row['teamId'] ?? '').trim();
+          const teamName = String(row['Đội Thi Công'] ?? row['assignedTeam'] ?? '').trim();
+          return !teamId && !teamName;
+        }).length;
+        const preflightConflictCount = preflightRoomConflicts + preflightDetailConflicts;
+
+        if (preflightConflictCount > 0 || preflightMissingTeamRows > 0) {
+          const proceedWithWarnings = await confirmAsync(
+            `⚠️ KIỂM TRA FILE EXCEL TRƯỚC KHI NHẬP\n\n` +
+            `• Trạng thái nghiệm thu không hợp lệ: ${preflightConflictCount}\n` +
+            `• Dòng hạng mục chưa có đội thi công: ${preflightMissingTeamRows}\n\n` +
+            `Nếu tiếp tục, ứng dụng sẽ tự đổi “Đạt nghiệm thu” → “Chưa nghiệm thu” cho các hạng mục chưa hoàn thành. ` +
+            `Các dòng chưa có đội vẫn được nhập; khi cập nhật phòng cũ hệ thống giữ đội cũ nếu có.\n\n` +
+            `Bấm “Đồng ý” để tiếp tục hoặc “Hủy” để quay lại chỉnh Excel.`
+          );
+          if (!proceedWithWarnings) {
+            e.target.value = '';
+            return;
+          }
         }
 
         const currentFloorRooms = roomProgressList.filter(r => r.floorId === activeFloor?.id);
@@ -1791,8 +2078,48 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           importMode = 'replace';
         }
 
+        const excelTeamById = new Map(teams.filter((team) => team.id).map((team) => [team.id, team] as const));
+        const excelTeamByName = new Map(
+          teams
+            .filter((team) => team.name?.trim())
+            .map((team) => [team.name.trim().toLocaleLowerCase('vi-VN'), team] as const)
+        );
+        const resolveExcelTeamLink = (rawId: unknown, rawName: unknown) => {
+          const id = String(rawId ?? '').trim();
+          const name = String(rawName ?? '').trim();
+          const byId = id ? excelTeamById.get(id) : undefined;
+          if (byId) return { teamId: byId.id, assignedTeam: byId.name.trim() };
+          const byName = name ? excelTeamByName.get(name.toLocaleLowerCase('vi-VN')) : undefined;
+          if (byName) return { teamId: byName.id, assignedTeam: byName.name.trim() };
+          return { teamId: undefined as string | undefined, assignedTeam: name };
+        };
+        const excelCategoryById = new Map<string, { id: string; name: string }>();
+        const excelCategoryByName = new Map<string, { id: string; name: string }>();
+        workVolumes.forEach((item) => {
+          const name = String(item.title || '').trim();
+          if (!name) return;
+          const canonicalId = String(item.workCategoryId || item.id || '').trim();
+          const entry = { id: canonicalId, name };
+          if (canonicalId) excelCategoryById.set(canonicalId, entry);
+          if (item.id) excelCategoryById.set(String(item.id), entry);
+          if (item.workCategoryId) excelCategoryById.set(String(item.workCategoryId), entry);
+          excelCategoryByName.set(name.toLocaleLowerCase('vi-VN'), entry);
+        });
+        const resolveExcelCategory = (rawId: unknown, rawName: unknown) => {
+          const id = String(rawId ?? '').trim();
+          const name = String(rawName ?? '').trim();
+          const byId = id ? excelCategoryById.get(id) : undefined;
+          if (byId) return byId;
+          const byName = name ? excelCategoryByName.get(name.toLocaleLowerCase('vi-VN')) : undefined;
+          if (byName) return byName;
+          return { id, name };
+        };
+        const hasExcelValue = (value: unknown) => value !== undefined && value !== null && String(value).trim() !== '';
+
         let importedCount = 0;
         let updatedCount = 0;
+        let normalizedInspectionCount = 0;
+        let missingTeamWarningCount = 0;
         const processedRoomIds = new Set<string>();
 
         jsonData.forEach((row: any) => {
@@ -1820,8 +2147,17 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
           const frameStatusVal = validAcceptance.includes(frameSt) ? frameSt : 'Chưa làm';
           const boardStatusVal = validAcceptance.includes(boardSt) ? boardSt : 'Chưa làm';
-          const frameInspectionVal = validInspection.includes(frameInsp) ? frameInsp : 'Chưa nghiệm thu';
-          const boardInspectionVal = validInspection.includes(boardInsp) ? boardInsp : 'Chưa nghiệm thu';
+          let frameInspectionVal = validInspection.includes(frameInsp) ? frameInsp : 'Chưa nghiệm thu';
+          let boardInspectionVal = validInspection.includes(boardInsp) ? boardInsp : 'Chưa nghiệm thu';
+
+          if (frameInspectionVal === 'Đạt nghiệm thu' && frameStatusVal !== 'Đã hoàn thành') {
+            frameInspectionVal = 'Chưa nghiệm thu';
+            normalizedInspectionCount++;
+          }
+          if (boardInspectionVal === 'Đạt nghiệm thu' && boardStatusVal !== 'Đã hoàn thành') {
+            boardInspectionVal = 'Chưa nghiệm thu';
+            normalizedInspectionCount++;
+          }
 
           let overall = 'Chưa nghiệm thu';
           if (frameInspectionVal === 'Đạt nghiệm thu' && boardInspectionVal === 'Đạt nghiệm thu') {
@@ -1852,6 +2188,85 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
           const targetId = existingId || createEntityId('ROOM');
           processedRoomIds.add(targetId);
+
+          const roomTeamRaw = row['Đội Thi Công Căn / Phòng'] ?? row['assignedTeam'] ?? '';
+          const roomTeamIdRaw = row['__teamId'] ?? row['teamId'] ?? '';
+          const roomTeamLink = resolveExcelTeamLink(roomTeamIdRaw, roomTeamRaw);
+          const roomCategoryRaw = row['Hạng Mục Thi Công Chính'] ?? row['workCategory'] ?? '';
+          const roomCategoryIdRaw = row['__workCategoryId'] ?? row['workCategoryId'] ?? '';
+          const roomCategoryLink = resolveExcelCategory(roomCategoryIdRaw, roomCategoryRaw);
+          const roomVolumeRaw = row['Khối Lượng Căn / Phòng'] ?? row['workVolume'];
+          const roomUnitRaw = String(row['Đơn Vị Căn / Phòng'] ?? row['volumeUnit'] ?? '').trim();
+
+          const detailRowsForRoom = detailJsonData.filter((detailRow: any) => {
+            const detailRoomId = String(detailRow['__recordId'] ?? detailRow['roomId'] ?? '').trim();
+            const detailRoomName = String(detailRow['Tên Căn / Phòng'] ?? detailRow['roomName'] ?? '').trim();
+            const idMatches = Boolean(detailRoomId) && [rawRecordId, existingId, targetId].filter(Boolean).includes(detailRoomId);
+            const nameMatches = Boolean(detailRoomName) && detailRoomName.toLocaleLowerCase('vi-VN') === nameStr.toLocaleLowerCase('vi-VN');
+            return idMatches || nameMatches;
+          });
+
+          const importedSubItems: RoomSubItem[] | undefined = detailRowsForRoom.length > 0
+            ? detailRowsForRoom
+                .map((detailRow: any): RoomSubItem | null => {
+                  const rawSubItemId = String(detailRow['__subItemId'] ?? detailRow['subItemId'] ?? detailRow['id'] ?? '').trim();
+                  const itemName = String(detailRow['Công Đoạn / Nội Dung'] ?? detailRow['name'] ?? '').trim();
+                  if (!itemName) return null;
+                  const existingSubItem = (existingRoomObj?.subItems || []).find((subItem: RoomSubItem) =>
+                    (rawSubItemId && subItem.id === rawSubItemId) ||
+                    (!rawSubItemId && subItem.name.trim().toLocaleLowerCase('vi-VN') === itemName.toLocaleLowerCase('vi-VN'))
+                  );
+                  const categoryLink = resolveExcelCategory(
+                    detailRow['__workCategoryId'] ?? detailRow['workCategoryId'] ?? existingSubItem?.workCategoryId,
+                    detailRow['Hạng Mục Thi Công'] ?? detailRow['category'] ?? existingSubItem?.category ?? existingRoomObj?.workCategory
+                  );
+                  const teamLink = resolveExcelTeamLink(
+                    detailRow['__teamId'] ?? detailRow['teamId'] ?? '',
+                    detailRow['Đội Thi Công'] ?? detailRow['assignedTeam'] ?? ''
+                  );
+                  const rawStatus = String(detailRow['Trạng Thái Thi Công'] ?? detailRow['status'] ?? '').trim();
+                  const rawInspection = String(detailRow['Nghiệm Thu Hạng Mục'] ?? detailRow['inspectionStatus'] ?? '').trim();
+                  const rawTargetDate = String(detailRow['Hạn Hoàn Thành'] ?? detailRow['targetDate'] ?? '').trim();
+                  const rawVolume = detailRow['Khối Lượng'] ?? detailRow['workVolume'];
+                  const rawUnit = String(detailRow['Đơn Vị'] ?? detailRow['volumeUnit'] ?? '').trim();
+                  const rawWeight = detailRow['Trọng Số Tiến Độ'] ?? detailRow['progressWeight'];
+
+                  const normalizedStatus = validAcceptance.includes(rawStatus)
+                    ? rawStatus as RoomSubItem['status']
+                    : (existingSubItem?.status || 'Chưa làm');
+                  let normalizedInspection = validInspection.includes(rawInspection)
+                    ? rawInspection as RoomSubItem['inspectionStatus']
+                    : (existingSubItem?.inspectionStatus || 'Chưa nghiệm thu');
+                  if (normalizedInspection === 'Đạt nghiệm thu' && normalizedStatus !== 'Đã hoàn thành') {
+                    normalizedInspection = 'Chưa nghiệm thu';
+                    normalizedInspectionCount++;
+                  }
+
+                  const resolvedAssignedTeam = teamLink.assignedTeam || existingSubItem?.assignedTeam;
+                  const resolvedTeamId = teamLink.teamId || (teamLink.assignedTeam ? undefined : existingSubItem?.teamId);
+                  if (!String(resolvedAssignedTeam || '').trim() && !String(resolvedTeamId || '').trim()) {
+                    missingTeamWarningCount++;
+                  }
+
+                  return {
+                    ...(existingSubItem || {}),
+                    id: existingSubItem?.id || rawSubItemId || createEntityId('sub-custom'),
+                    name: itemName,
+                    category: categoryLink.name || existingSubItem?.category,
+                    workCategoryId: categoryLink.id || (categoryLink.name ? undefined : existingSubItem?.workCategoryId),
+                    status: normalizedStatus,
+                    inspectionStatus: normalizedInspection,
+                    targetDate: rawTargetDate || existingSubItem?.targetDate,
+                    assignedTeam: resolvedAssignedTeam,
+                    teamId: resolvedTeamId,
+                    workVolume: hasExcelValue(rawVolume) ? parseExcelNumber(rawVolume) : existingSubItem?.workVolume,
+                    volumeUnit: rawUnit || existingSubItem?.volumeUnit,
+                    progressWeight: hasExcelValue(rawWeight) ? parseExcelNumber(rawWeight) : existingSubItem?.progressWeight,
+                  };
+                })
+                .filter((subItem: RoomSubItem | null): subItem is RoomSubItem => Boolean(subItem))
+            : existingRoomObj?.subItems;
+
           const safeX = Math.min(95, Math.max(0, rawX));
           const safeY = Math.min(95, Math.max(0, rawY));
           const safeW = Math.min(100 - safeX, Math.max(5, rawW));
@@ -1874,7 +2289,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             boardInspectionStatus: boardInspectionVal,
             inspectionStatus: overall,
             inspectorName: inspector,
-            notes: noteText
+            notes: noteText,
+            workCategory: roomCategoryLink.name || existingRoomObj?.workCategory,
+            workCategoryId: roomCategoryLink.id || (roomCategoryLink.name ? undefined : existingRoomObj?.workCategoryId),
+            assignedTeam: roomTeamLink.assignedTeam || existingRoomObj?.assignedTeam,
+            teamId: roomTeamLink.teamId || (roomTeamLink.assignedTeam ? undefined : existingRoomObj?.teamId),
+            workVolume: hasExcelValue(roomVolumeRaw) ? parseExcelNumber(roomVolumeRaw) : existingRoomObj?.workVolume,
+            volumeUnit: roomUnitRaw || existingRoomObj?.volumeUnit,
+            subItems: importedSubItems,
           });
         });
 
@@ -1893,7 +2315,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         alert(
           `🎉 Nhập dữ liệu Mặt bằng từ Excel thành công!\n\n` +
           `• Đã cập nhật/chỉnh sửa: ${updatedCount} phòng/căn\n` +
-          `• Đã tạo mới/thêm mới: ${importedCount} phòng/căn`
+          `• Đã tạo mới/thêm mới: ${importedCount} phòng/căn\n` +
+          `• Tự sửa nghiệm thu không hợp lệ: ${normalizedInspectionCount} trường hợp\n` +
+          `• Hạng mục vẫn chưa gán đội: ${missingTeamWarningCount} dòng`
         );
       } catch (err: any) {
         alert(`❌ Lỗi đọc hoặc phân tích tệp Excel:\n${err.message || err}`);

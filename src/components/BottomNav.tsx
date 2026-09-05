@@ -8,11 +8,12 @@ import {
   Settings,
   MoreHorizontal,
   MessageCircle,
-  ShieldCheck
+  ShieldCheck,
+  Sparkles
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 
-export type TabType = 'warehouse' | 'volume' | 'floorplan' | 'checklist' | 'crew' | 'chat' | 'config' | 'superadmin';
+export type TabType = 'warehouse' | 'volume' | 'floorplan' | 'checklist' | 'crew' | 'chat' | 'ai' | 'config' | 'superadmin';
 
 interface BottomNavProps {
   activeTab: TabType;
@@ -20,6 +21,7 @@ interface BottomNavProps {
   defectBadgeCount: number;
   chatBadgeCount?: number;
   showChecklist?: boolean;
+  showAi?: boolean;
   showSuperAdmin?: boolean;
 }
 
@@ -29,10 +31,10 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   defectBadgeCount,
   chatBadgeCount = 0,
   showChecklist = true,
+  showAi = false,
   showSuperAdmin = false,
 }) => {
   const { t } = useLanguage();
-  
   const [showMore, setShowMore] = useState(false);
 
   const mainTabs = [
@@ -81,7 +83,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
         <button
           onClick={() => setShowMore(v => !v)}
           className={`relative flex flex-col items-center justify-center transition-all ${
-            activeTab === 'checklist' || activeTab === 'chat' || activeTab === 'config' || activeTab === 'superadmin' || showMore
+            activeTab === 'checklist' || activeTab === 'chat' || activeTab === 'ai' || activeTab === 'config' || activeTab === 'superadmin' || showMore
               ? 'text-blue-600 font-bold'
               : 'text-slate-500 font-medium'
           }`}
@@ -102,6 +104,15 @@ export const BottomNav: React.FC<BottomNavProps> = ({
               >
                 <ClipboardCheck className="w-4 h-4 text-indigo-600" />
                 Checklist
+              </button>
+            )}
+            {showAi && (
+              <button
+                onClick={() => { setShowMore(false); setActiveTab('ai'); }}
+                className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-extrabold text-indigo-700 hover:bg-indigo-50"
+              >
+                <Sparkles className="w-4 h-4 text-indigo-600" />
+                HNL AI Assistant
               </button>
             )}
             <button

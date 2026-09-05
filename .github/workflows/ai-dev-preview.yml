@@ -1,0 +1,233 @@
+name: HNL AI DEV Preview
+
+on:
+  push:
+    branches: [feature/hnl-ai-assistant]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  EXPECTED_DEV_PROJECT_ID: hnl-qltc-dev
+  PROD_FIREBASE_PROJECT_ID: com-example-qlct-61329
+  DEV_AI_WORKER: hnl-qltc-ai-gateway-dev
+  DEV_AI_URL: https://hnl-qltc-ai-gateway-dev.lengochieu1211.workers.dev
+  PROD_AI_WORKER: hnl-qltc-ai-gateway
+  DEV_R2_URL: https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev
+  PROD_R2_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - name: Checkout isolated AI branch
+        uses: actions/checkout@v4
+
+      - name: Isolation preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "feature/hnl-ai-assistant" || { echo '::error::REFUSING: wrong branch'; exit 1; }
+          test -f src/ai/export/aiReportExport.ts || { echo '::error::Missing HNL AI report export'; exit 1; }
+          test -f scripts/ai-export-golden.ts || { echo '::error::Missing HNL AI export golden'; exit 1; }
+          test -n "${FIREBASE_SERVICE_ACCOUNT:-}" || { echo '::error::Missing FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV'; exit 1; }
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo '::error::Missing CLOUDFLARE_API_TOKEN'; exit 1; }
+          DEV_PROJECT_ID="$(printf '%s' "$FIREBASE_SERVICE_ACCOUNT" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);process.stdout.write(String(j.project_id||''))})")"
+          test "$DEV_PROJECT_ID" = "$EXPECTED_DEV_PROJECT_ID" || { echo "::error::REFUSING: service account project is $DEV_PROJECT_ID, expected $EXPECTED_DEV_PROJECT_ID"; exit 1; }
+          test "$DEV_PROJECT_ID" != "$PROD_FIREBASE_PROJECT_ID" || { echo '::error::REFUSING: PROD Firebase'; exit 1; }
+          test "$DEV_AI_WORKER" != "$PROD_AI_WORKER" || { echo '::error::REFUSING: DEV AI worker equals PROD'; exit 1; }
+          test "$DEV_R2_URL" != "$PROD_R2_URL" || { echo '::error::REFUSING: DEV R2 equals PROD'; exit 1; }
+          echo "DEV_PROJECT_ID=$DEV_PROJECT_ID" >> "$GITHUB_ENV"
+          echo "DEV_HOSTING_URL=https://${DEV_PROJECT_ID}.web.app" >> "$GITHUB_ENV"
+          echo "DEV_FIREBASEAPP_ORIGIN=https://${DEV_PROJECT_ID}.firebaseapp.com" >> "$GITHUB_ENV"
+          echo "DEV_AUTH_DOMAIN=${DEV_PROJECT_ID}.web.app" >> "$GITHUB_ENV"
+          echo 'AI DEV isolation: PASS'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Write temporary DEV Firebase credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          CRED="$RUNNER_TEMP/firebase-dev-service-account.json"
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$CRED"
+          chmod 600 "$CRED"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$CRED" >> "$GITHUB_ENV"
+
+      - name: Resolve DEV Firebase Web SDK config
+        shell: bash
+        run: |
+          set -euo pipefail
+          APPS="$(npx --yes firebase-tools@13.35.1 apps:list WEB --project "$DEV_PROJECT_ID" --json)"
+          APP_ID="$(printf '%s' "$APPS" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const r=Array.isArray(j.result)?j.result:[];const a=r.find(x=>x.platform==='WEB'||String(x.appId||'').includes(':web:'))||r[0];process.stdout.write(String(a?.appId||''))})")"
+          test -n "$APP_ID" || { echo '::error::DEV Firebase Web App missing'; exit 1; }
+          SDK="$(npx --yes firebase-tools@13.35.1 apps:sdkconfig WEB "$APP_ID" --project "$DEV_PROJECT_ID" --json)"
+          printf '%s' "$SDK" > "$RUNNER_TEMP/firebase-dev-sdk.json"
+          node - <<'NODE'
+          const fs = require('fs');
+          const raw = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/firebase-dev-sdk.json','utf8'));
+          const keys = ['apiKey','appId','messagingSenderId','projectId','storageBucket','authDomain'];
+          const found = {};
+          function walk(v) {
+            if (v == null) return;
+            if (typeof v === 'string') {
+              for (const key of keys) {
+                const m = v.match(new RegExp(`${key}\\s*:\\s*["']([^"']+)["']`));
+                if (m && !found[key]) found[key] = m[1];
+              }
+              try { walk(JSON.parse(v)); } catch {}
+              return;
+            }
+            if (Array.isArray(v)) return v.forEach(walk);
+            if (typeof v === 'object') {
+              for (const [k,val] of Object.entries(v)) {
+                if (keys.includes(k) && typeof val === 'string' && val && !found[k]) found[k] = val;
+                walk(val);
+              }
+            }
+          }
+          walk(raw);
+          found.projectId ||= process.env.DEV_PROJECT_ID;
+          found.authDomain = process.env.DEV_AUTH_DOMAIN;
+          found.storageBucket ||= `${found.projectId}.firebasestorage.app`;
+          for (const key of ['apiKey','appId','messagingSenderId','projectId']) if (!found[key]) throw new Error(`Missing DEV SDK ${key}`);
+          const env = process.env.GITHUB_ENV;
+          fs.appendFileSync(env, `VITE_FIREBASE_API_KEY=${found.apiKey}\n`);
+          fs.appendFileSync(env, `VITE_FIREBASE_APP_ID=${found.appId}\n`);
+          fs.appendFileSync(env, `VITE_FIREBASE_MESSAGING_SENDER_ID=${found.messagingSenderId}\n`);
+          fs.appendFileSync(env, `VITE_FIREBASE_PROJECT_ID=${found.projectId}\n`);
+          fs.appendFileSync(env, `VITE_FIREBASE_STORAGE_BUCKET=${found.storageBucket}\n`);
+          fs.appendFileSync(env, `VITE_FIREBASE_AUTH_DOMAIN=${found.authDomain}\n`);
+          fs.appendFileSync(env, `FIREBASE_WEB_API_KEY=${found.apiKey}\n`);
+          NODE
+          echo "DEV Firebase Web App resolved: $APP_ID"
+
+      - name: Resolve Cloudflare account
+        shell: bash
+        run: |
+          set -euo pipefail
+          RESPONSE="$(curl --fail --silent --show-error -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' 'https://api.cloudflare.com/client/v4/accounts?per_page=50')"
+          ACCOUNT_ID="$(printf '%s' "$RESPONSE" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const r=Array.isArray(j.result)?j.result:[];if(!j.success||r.length!==1){console.error('Expected exactly one Cloudflare account; got '+r.length);process.exit(2)};process.stdout.write(String(r[0].id||''))})")"
+          test -n "$ACCOUNT_ID" || { echo '::error::Cloudflare Account ID resolve failed'; exit 1; }
+          echo "CLOUDFLARE_ACCOUNT_ID=$ACCOUNT_ID" >> "$GITHUB_ENV"
+
+      - name: Deploy isolated HNL AI Gateway DEV
+        working-directory: cloudflare/ai-gateway
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > wrangler.dev.ci.toml <<WRANGLER_EOF
+          name = "$DEV_AI_WORKER"
+          main = "worker.js"
+          compatibility_date = "2026-09-05"
+
+          [ai]
+          binding = "AI"
+
+          [vars]
+          FIREBASE_PROJECT_ID = "$DEV_PROJECT_ID"
+          FIREBASE_WEB_API_KEY = "$FIREBASE_WEB_API_KEY"
+          ALLOWED_ORIGINS = "$DEV_HOSTING_URL,$DEV_FIREBASEAPP_ORIGIN"
+          WRANGLER_EOF
+          trap 'rm -f wrangler.dev.ci.toml' EXIT
+          npx --yes wrangler@4.33.0 deploy --config wrangler.dev.ci.toml
+
+      - name: Smoke HNL AI Gateway DEV
+        shell: bash
+        run: |
+          set -euo pipefail
+          ok=0
+          for i in $(seq 1 30); do
+            BODY="$(curl --fail --silent --show-error "${DEV_AI_URL}/health?probe=${GITHUB_RUN_ID}-${i}" || true)"
+            if printf '%s' "$BODY" | grep -q '"ok":true' && printf '%s' "$BODY" | grep -q '"firebaseProjectId":"hnl-qltc-dev"'; then ok=1; break; fi
+            sleep 2
+          done
+          test "$ok" = 1 || { echo '::error::HNL AI Gateway DEV health failed'; exit 1; }
+
+      - name: Install exact app dependencies
+        run: npm ci
+
+      - name: Full HNL AI and existing app gates
+        env:
+          VITE_APP_ENV: DEV
+          VITE_RUNTIME_BACKEND: firebase-only
+          VITE_BINARY_STORAGE_PROVIDER: r2
+          VITE_R2_GATEWAY_URL: ${{ env.DEV_R2_URL }}
+          VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+          VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+          VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+          VITE_FIRESTORE_DATABASE_ID: '(default)'
+          VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+          VITE_FIREBASE_APP_CHECK_SITE_KEY: ''
+          VITE_HNL_AI_ENABLED: 'true'
+          VITE_HNL_AI_GATEWAY_URL: ${{ env.DEV_AI_URL }}
+          VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+          VITE_GIT_COMMIT: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run test:ai-core
+          npm run test:ai-tools
+          npm run test:ai-audit
+          npm run test:ai-planner
+          npm run test:ai-provider
+          npm run test:ai-gateway
+          npm run test:ai-export
+          npm run test:stability
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run security:audit
+          npm run build
+
+      - name: Deploy Firebase Hosting AI preview channel only
+        env:
+          VITE_APP_ENV: DEV
+          VITE_RUNTIME_BACKEND: firebase-only
+          VITE_BINARY_STORAGE_PROVIDER: r2
+          VITE_R2_GATEWAY_URL: ${{ env.DEV_R2_URL }}
+          VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+          VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+          VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+          VITE_FIRESTORE_DATABASE_ID: '(default)'
+          VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+          VITE_HNL_AI_ENABLED: 'true'
+          VITE_HNL_AI_GATEWAY_URL: ${{ env.DEV_AI_URL }}
+          VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+          VITE_GIT_COMMIT: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run build
+          OUT="$(npx --yes firebase-tools@13.35.1 hosting:channel:deploy hnl-ai --project "$DEV_PROJECT_ID" --expires 7d --non-interactive --json)"
+          printf '%s' "$OUT" > "$RUNNER_TEMP/ai-preview.json"
+          PREVIEW_URL="$(printf '%s' "$OUT" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const r=j.result||j;const c=r?.[0]||r;process.stdout.write(String(c?.url||c?.hostingUrl||c?.channel?.url||''))})")"
+          if [ -z "$PREVIEW_URL" ]; then
+            PREVIEW_URL="$(grep -Eo 'https://[^\" ]+\.web\.app' "$RUNNER_TEMP/ai-preview.json" | head -1 || true)"
+          fi
+          test -n "$PREVIEW_URL" || { echo '::error::Unable to resolve Firebase AI preview URL'; cat "$RUNNER_TEMP/ai-preview.json"; exit 1; }
+          echo "AI_PREVIEW_URL=$PREVIEW_URL" >> "$GITHUB_ENV"
+          echo "HNL AI preview: $PREVIEW_URL"
+
+      - name: Smoke Firebase AI preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          ok=0
+          for i in $(seq 1 20); do
+            STATUS="$(curl --silent --output /dev/null --write-out '%{http_code}' "$AI_PREVIEW_URL" || true)"
+            if [ "$STATUS" = 200 ]; then ok=1; break; fi
+            sleep 2
+          done
+          test "$ok" = 1 || { echo "::error::AI preview HTTP smoke failed: $AI_PREVIEW_URL"; exit 1; }
+          echo "AI DEV PREVIEW GOLDEN: PASS ($AI_PREVIEW_URL)"
