@@ -71,10 +71,17 @@ export function validateHnlAiToolCall(input: unknown): HnlAiToolArgs {
         throw new HnlAiToolValidationError('INVALID_TOOL_ARGS', 'dateRange phải là object {from,to}.');
       }
       assertExactKeys(input.args.dateRange, ['from', 'to'], 'dateRange');
-      const dateRange = assertCanonicalDateRange({
-        from: requiredString(input.args.dateRange.from, 'dateRange.from', 10),
-        to: requiredString(input.args.dateRange.to, 'dateRange.to', 10),
-      });
+      let dateRange;
+      try {
+        dateRange = assertCanonicalDateRange({
+          from: requiredString(input.args.dateRange.from, 'dateRange.from', 10),
+          to: requiredString(input.args.dateRange.to, 'dateRange.to', 10),
+        });
+      } catch (error) {
+        throw new HnlAiToolValidationError('INVALID_TOOL_ARGS', 'dateRange phải dùng canonical YYYY-MM-DD và from <= to.', {
+          cause: error instanceof Error ? error.message : String(error),
+        });
+      }
       return { name: 'getTeamSummary', args: { teamRef, dateRange } };
     }
     case 'getCurrentTeamProgress': {
