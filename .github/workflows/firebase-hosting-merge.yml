@@ -22,8 +22,6 @@ jobs:
       VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: "false"
       VITE_FIREBASE_API_KEY: AIzaSyAShhTKSnmLMOEm4dST--1_X7fjJUE4znY
       # Mobile browser OAuth redirect must use the same Firebase Hosting origin.
-      # This keeps /__/auth/* first-party on Chrome Android while preserving the
-      # exact same Firebase project/app IDs and does not affect APK/EXE workflows.
       VITE_FIREBASE_AUTH_DOMAIN: hnlqltc.web.app
       VITE_FIREBASE_PROJECT_ID: com-example-qlct-61329
       VITE_FIREBASE_STORAGE_BUCKET: com-example-qlct-61329.firebasestorage.app
@@ -31,57 +29,177 @@ jobs:
       VITE_FIREBASE_APP_ID: 1:119152410850:web:c2aee2135428af34ef5ebb
       VITE_FIRESTORE_DATABASE_ID: "(default)"
       VITE_FIREBASE_FIRESTORE_DATABASE_ID: "(default)"
+      VITE_HNL_AI_ENABLED: "true"
+      VITE_HNL_AI_GATEWAY_URL: https://hnl-qltc-ai-gateway.lengochieu1211.workers.dev
+      PROD_AI_WORKER: hnl-qltc-ai-gateway
+      PROD_AI_URL: https://hnl-qltc-ai-gateway.lengochieu1211.workers.dev
+      PROD_HOSTING_URL: https://hnlqltc.web.app
+      PROD_FIREBASEAPP_ORIGIN: https://com-example-qlct-61329.firebaseapp.com
       VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
       VITE_GIT_COMMIT: ${{ github.sha }}
     steps:
       - name: Production release confirmation gate
         shell: bash
         run: |
+          set -euo pipefail
           test "${{ inputs.confirmation }}" = "DEPLOY-PROD" || { echo "REFUSING: run DEV Golden first, then type DEPLOY-PROD"; exit 1; }
+          test "$VITE_FIREBASE_PROJECT_ID" = "com-example-qlct-61329" || { echo "REFUSING: wrong PROD Firebase project"; exit 1; }
+          test "$VITE_R2_GATEWAY_URL" = "https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev" || { echo "REFUSING: wrong PROD R2 gateway"; exit 1; }
+          test "$VITE_HNL_AI_GATEWAY_URL" = "$PROD_AI_URL" || { echo "REFUSING: wrong PROD AI gateway"; exit 1; }
+          test "$VITE_HNL_AI_GATEWAY_URL" != "https://hnl-qltc-ai-gateway-dev.lengochieu1211.workers.dev" || { echo "REFUSING: DEV AI gateway leaked into PROD"; exit 1; }
+
       - uses: actions/checkout@v4
+
       - name: Verify source root
         shell: bash
         run: |
+          set -euo pipefail
           test -f package.json || { echo "Missing package.json at repository root"; exit 1; }
-          test -f package-lock.json || { echo "Missing package-lock.json at repository root. Copy the CONTENTS of FULL SOURCE into the repo root, not a parent folder."; exit 1; }
+          test -f package-lock.json || { echo "Missing package-lock.json at repository root"; exit 1; }
           test "$(node -p "require('./package.json').version")" = "$(node -p "require('./package-lock.json').version")" || { echo "package/package-lock version mismatch"; exit 1; }
-      - name: R2 gateway configuration gate
+          test -f cloudflare/ai-gateway/worker.js || { echo "Missing HNL AI Gateway source"; exit 1; }
+
+      - name: R2 + AI configuration gate
         shell: bash
         run: |
-          test "$VITE_BINARY_STORAGE_PROVIDER" = "r2" || { echo "REFUSING: PROD binary storage provider must be r2 for this release"; exit 1; }
+          set -euo pipefail
+          test "$VITE_BINARY_STORAGE_PROVIDER" = "r2" || { echo "REFUSING: PROD binary storage provider must be r2"; exit 1; }
           echo "$VITE_R2_GATEWAY_URL" | grep -Eq '^https://[^ ]+$' || { echo "BLOCKED: invalid Cloudflare R2 Worker HTTPS URL"; exit 1; }
+          echo "$VITE_HNL_AI_GATEWAY_URL" | grep -Eq '^https://[^ ]+$' || { echo "BLOCKED: invalid HNL AI Gateway HTTPS URL"; exit 1; }
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: package-lock.json
+
       - run: npm ci
+
+      - name: HNL AI deterministic gates
+        run: |
+          npm run test:ai-core
+          npm run test:ai-tools
+          npm run test:ai-audit
+          npm run test:ai-planner
+          npm run test:ai-provider
+          npm run test:ai-gateway
+          npm run test:ai-export
+
       - name: Stability / Architecture / Golden Gate
         run: npm run test:stability
+
       - name: Typecheck
         run: npm run typecheck
+
       - name: Lint
         run: npm run lint
+
       - name: Firebase Rules compile check
         run: npm run test:rules
+
       - name: Security audit (production, critical)
         run: npm run security:audit
+
       - name: Build
         run: npm run build
+
+      - name: Certify PROD web bundle isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -R -q 'HNL AI Assistant' dist/assets || { echo 'Missing HNL AI UI in PROD bundle'; exit 1; }
+          grep -R -q 'hnl-qltc-ai-gateway.lengochieu1211.workers.dev' dist/assets || { echo 'Missing PROD HNL AI gateway in bundle'; exit 1; }
+          if grep -R -q 'hnl-qltc-ai-gateway-dev.lengochieu1211.workers.dev' dist/assets; then
+            echo 'REFUSING: DEV AI gateway leaked into PROD bundle'
+            exit 1
+          fi
+
+      - name: Resolve Cloudflare account for PROD AI
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo 'Missing CLOUDFLARE_API_TOKEN'; exit 1; }
+          RESPONSE="$(curl --fail --silent --show-error -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' 'https://api.cloudflare.com/client/v4/accounts?per_page=50')"
+          ACCOUNT_ID="$(printf '%s' "$RESPONSE" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const r=Array.isArray(j.result)?j.result:[];if(!j.success||r.length!==1){console.error('Expected exactly one accessible Cloudflare account, got '+r.length);process.exit(2)};process.stdout.write(String(r[0].id||''))})")"
+          test -n "$ACCOUNT_ID" || { echo 'Cloudflare Account ID resolve failed'; exit 1; }
+          echo "CLOUDFLARE_ACCOUNT_ID=$ACCOUNT_ID" >> "$GITHUB_ENV"
+
+      - name: Deploy isolated HNL AI Gateway PROD
+        working-directory: cloudflare/ai-gateway
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          cat > wrangler.prod.ci.toml <<WRANGLER_EOF
+          name = "$PROD_AI_WORKER"
+          main = "worker.js"
+          compatibility_date = "2026-09-05"
+
+          [ai]
+          binding = "AI"
+
+          [vars]
+          ENVIRONMENT = "PROD"
+          FIREBASE_PROJECT_ID = "$VITE_FIREBASE_PROJECT_ID"
+          FIREBASE_WEB_API_KEY = "$VITE_FIREBASE_API_KEY"
+          ALLOWED_ORIGINS = "$PROD_HOSTING_URL,$PROD_FIREBASEAPP_ORIGIN"
+          PUBLIC_APP_URL = "$PROD_HOSTING_URL"
+          WRANGLER_EOF
+          trap 'rm -f wrangler.prod.ci.toml' EXIT
+          npx --yes wrangler@4.33.0 deploy --config wrangler.prod.ci.toml
+
+      - name: Smoke HNL AI Gateway PROD
+        shell: bash
+        run: |
+          set -euo pipefail
+          ok=0
+          for i in $(seq 1 30); do
+            BODY="$(curl --fail --silent --show-error "${PROD_AI_URL}/health?probe=${GITHUB_RUN_ID}-${i}" || true)"
+            if printf '%s' "$BODY" | grep -q '"ok":true' \
+              && printf '%s' "$BODY" | grep -q '"environment":"PROD"' \
+              && printf '%s' "$BODY" | grep -q '"firebaseProjectId":"com-example-qlct-61329"'; then
+              ok=1
+              break
+            fi
+            sleep 2
+          done
+          test "$ok" = 1 || { echo 'HNL AI Gateway PROD health failed'; exit 1; }
+
       - name: Deploy Firestore rules
         shell: bash
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
         run: |
+          set -euo pipefail
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
           npx --yes firebase-tools@13.35.1 deploy --only firestore:rules --project com-example-qlct-61329 --non-interactive
+
       - name: Deploy Hosting site hnlqltc
         shell: bash
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
         run: |
+          set -euo pipefail
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
           npx --yes firebase-tools@13.35.1 deploy --only hosting --config firebase.prod.json --project com-example-qlct-61329 --non-interactive
           echo "PROD Hosting: https://hnlqltc.web.app"
+
+      - name: Smoke PROD Hosting
+        shell: bash
+        run: |
+          set -euo pipefail
+          ok=0
+          for i in $(seq 1 30); do
+            HTML="$(curl --fail --silent --show-error "${PROD_HOSTING_URL}/?release=${GITHUB_RUN_ID}-${i}" || true)"
+            if printf '%s' "$HTML" | grep -qi '<div id="root"'; then
+              ok=1
+              break
+            fi
+            sleep 2
+          done
+          test "$ok" = 1 || { echo 'PROD Hosting smoke failed'; exit 1; }
