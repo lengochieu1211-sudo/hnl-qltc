@@ -1,0 +1,157 @@
+name: Package HNL QLTC DEV Deliverables
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - '.github/workflows/dev-deliverables.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      BASELINE_SHA: 671f1b93c8a5a7ab18c4ebef34aeef2a3a40d487
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev
+      VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+      VITE_HNL_AI_ENABLED: 'true'
+      VITE_HNL_AI_GATEWAY_URL: https://hnl-qltc-ai-gateway-dev.lengochieu1211.workers.dev
+      VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      VITE_GIT_COMMIT: ${{ github.sha }}
+
+    steps:
+      - name: Checkout exact DEV head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: DEV/source isolation preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/dev'
+          test -n "$BASELINE_SHA"
+          git cat-file -e "${BASELINE_SHA}^{commit}"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -f package.json
+          test -f package-lock.json
+          test -f firebase.json
+          test -d .github/workflows
+          test "$VITE_R2_GATEWAY_URL" = 'https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev'
+          test "$VITE_HNL_AI_GATEWAY_URL" = 'https://hnl-qltc-ai-gateway-dev.lengochieu1211.workers.dev'
+          echo 'DEV deliverable isolation preflight: PASS'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install exact locked dependencies
+        run: npm ci
+
+      - name: Full certification gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run test:ai-core
+          npm run test:ai-tools
+          npm run test:ai-audit
+          npm run test:ai-planner
+          npm run test:ai-provider
+          npm run test:ai-gateway
+          npm run test:ai-export
+          npm run test:stability
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run security:audit
+          npm run build
+
+      - name: Build PATCH ZIP + FULL SOURCE ZIP + REPORT
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/hnl-deliverables"
+          PATCH_DIR="$OUT/patch"
+          mkdir -p "$PATCH_DIR"
+
+          git diff --name-status "$BASELINE_SHA" "$GITHUB_SHA" > "$OUT/changed-files.txt"
+          git diff --name-only --diff-filter=ACMRT "$BASELINE_SHA" "$GITHUB_SHA" > "$OUT/patch-files.txt"
+          while IFS= read -r file; do
+            [ -n "$file" ] || continue
+            [ -f "$file" ] || continue
+            mkdir -p "$PATCH_DIR/$(dirname "$file")"
+            cp -p "$file" "$PATCH_DIR/$file"
+          done < "$OUT/patch-files.txt"
+
+          (cd "$PATCH_DIR" && zip -qr "$OUT/HNL-QLTC-DEV-PATCH-2026-09-05.zip" .)
+          git archive --format=zip --output="$OUT/HNL-QLTC-DEV-FULL-SOURCE-2026-09-05.zip" "$GITHUB_SHA"
+
+          {
+            echo '# HNL QLTC DEV FINAL REPORT — 2026-09-05'
+            echo
+            echo "- Final DEV source commit: \`$GITHUB_SHA\`"
+            echo "- Patch baseline: \`$BASELINE_SHA\`"
+            echo '- PROD/main: NOT merged, NOT deployed by this workflow.'
+            echo '- Firebase/R2/AI endpoints used for certification: DEV only.'
+            echo
+            echo '## Root cause fixed'
+            echo '- Windows GitHub runners rejected direct `spawnSync npx.cmd` with `EINVAL` in Firebase Rules regression.'
+            echo '- `scripts/firebase-rules-check.mjs` now launches npm `npx-cli.js` through the current Node binary, with a fixed cmd.exe fallback only when needed.'
+            echo '- Android DEV and Windows DEV workflows now rerun when the Firebase Rules harness changes.'
+            echo
+            echo '## Certification in this packaging run'
+            echo '- npm ci: PASS'
+            echo '- HNL AI core/tools/audit/planner/provider/gateway/export goldens: PASS'
+            echo '- Existing stability/offline/RBAC/R2/auth/contact/defect/checklist goldens: PASS'
+            echo '- TypeScript: PASS'
+            echo '- Lint + source secret scan + package/lock consistency: PASS'
+            echo '- Firebase Rules compile/behavior: PASS'
+            echo '- Production dependency critical audit gate: PASS'
+            echo '- Build: PASS'
+            echo '- Firebase config / DEV isolation preflight: PASS'
+            echo '- .github/workflows present and packaged: PASS'
+            echo
+            echo '## Previously certified runtime/build evidence'
+            echo '- DEV deploy exact app source: PASS (Firebase Hosting + Firestore rules + R2 + HNL AI Gateway DEV).'
+            echo '- Runtime Golden: PASS (Firebase/R2 multi-user, realtime, offline/reconnect, desktop/mobile hosted browser).'
+            echo '- Android DEV APK: PASS, isolated package `com.qlct.app.dev`, DEV Hosting/Firebase/R2/AI only.'
+            echo '- Windows DEV EXE: PASS, isolated DEV Hosting/Firebase/R2/AI and DEV browser profile.'
+            echo
+            echo '## Changed/added files from baseline'
+            echo '```'
+            cat "$OUT/changed-files.txt"
+            echo '```'
+          } > "$OUT/HNL-QLTC-DEV-FINAL-REPORT-2026-09-05.md"
+
+          unzip -t "$OUT/HNL-QLTC-DEV-PATCH-2026-09-05.zip" >/dev/null
+          unzip -t "$OUT/HNL-QLTC-DEV-FULL-SOURCE-2026-09-05.zip" >/dev/null
+          test -s "$OUT/HNL-QLTC-DEV-FINAL-REPORT-2026-09-05.md"
+          sha256sum "$OUT"/*.zip "$OUT"/*.md > "$OUT/SHA256SUMS.txt"
+          ls -lh "$OUT"
+
+      - name: Upload final deliverables
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-DEV-FINAL-DELIVERABLES-${{ github.run_number }}
+          path: |
+            ${{ runner.temp }}/hnl-deliverables/HNL-QLTC-DEV-PATCH-2026-09-05.zip
+            ${{ runner.temp }}/hnl-deliverables/HNL-QLTC-DEV-FULL-SOURCE-2026-09-05.zip
+            ${{ runner.temp }}/hnl-deliverables/HNL-QLTC-DEV-FINAL-REPORT-2026-09-05.md
+            ${{ runner.temp }}/hnl-deliverables/SHA256SUMS.txt
+            ${{ runner.temp }}/hnl-deliverables/changed-files.txt
+          if-no-files-found: error
+          retention-days: 30
