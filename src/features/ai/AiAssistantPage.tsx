@@ -3,7 +3,7 @@ import { AlertTriangle, Bot, BrainCircuit, Database, FileSearch, FileSpreadsheet
 import type { ChecklistItem, CrewRecord, DefectItem, FloorPlan, InventoryItem, MaterialNorm, RoomProgressItem, TeamInfo, WorkVolume } from '../../types';
 import type { UserRole } from '../../utils/securityUtils';
 import { createHnlAiProjectSnapshot } from '../../ai/data/projectSnapshot';
-import { buildExternalAiProjectContext, type ExternalAiDataSelection } from '../../ai/data/externalAiContext';
+import { buildExternalAiQuestionPayload, type ExternalAiDataSelection } from '../../ai/data/externalAiContext';
 import { runHnlAiQuestion, type HnlAiOrchestratorResult } from '../../ai/orchestrator/aiOrchestrator';
 import { HnlManagedAiProvider, type HnlManagedProviderId } from '../../ai/providers/hnlManagedProvider';
 import type { AiProviderModelInfo } from '../../ai/providers/providerTypes';
@@ -41,7 +41,7 @@ const MODE_META: Record<AiAssistantMode, { label: string; icon: React.ElementTyp
 const QUICK_PROMPTS: Record<AiAssistantMode, string[]> = {
   data: ['Đội Nguyên đang làm gì hiện tại?', 'Tổng hợp đội Nguyên tuần này'],
   audit: ['Audit toàn dự án', 'Kiểm tra toàn bộ Defect', 'Kiểm tra quân số bất thường', 'Kiểm tra khối lượng'],
-  ai: ['Biện pháp thi công trần thạch cao chống cháy', 'Viết email nhắc tổng thầu xử lý tồn tại'],
+  ai: ['Báo cáo khối lượng đội Nguyên', 'Biện pháp thi công trần thạch cao chống cháy', 'Viết email nhắc tổng thầu xử lý tồn tại'],
   hybrid: ['Dựa trên dữ liệu hiện tại, phân tích Defect và đề xuất ưu tiên', 'Kiểm tra toàn dự án và giải thích các rủi ro chính'],
 };
 
@@ -64,6 +64,17 @@ function isAuditSummary(value: unknown): value is AiAuditSummary {
   return Boolean(candidate && Array.isArray(candidate.issues) && typeof candidate.errorCount === 'number');
 }
 
+function humanizeAiError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error || '');
+  if (/INVALID_TEXT|PROMPT_TOO_LARGE|BODY_TOO_LARGE|HNL_AI_CONTEXT_TOO_LARGE/i.test(message)) {
+    return 'Dữ liệu HNL gửi sang AI quá lớn cho một câu hỏi. HNL đã tự thu gọn dữ liệu; nếu vẫn gặp lỗi, hãy chỉ chọn các nhóm cần dùng (ví dụ Khối lượng + Quân số).';
+  }
+  if (/AUTH_REQUIRED|HNL_AI_AUTH_REQUIRED/i.test(message)) return 'Phiên đăng nhập AI đã hết hạn. Hãy đăng nhập lại tài khoản Google rồi thử lại.';
+  if (/MODEL_NOT_AVAILABLE/i.test(message)) return 'Model vừa chọn không còn khả dụng. Hãy chọn model khác trong danh sách rồi gửi lại.';
+  if (/CLOUDFLARE_EMPTY_RESPONSE/i.test(message)) return 'Cloudflare Workers AI không trả nội dung. Hãy thử lại hoặc chọn model khác.';
+  return message || 'Không thể gửi câu hỏi đến AI.';
+}
+
 export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
   const [mode, setMode] = useState<AiAssistantMode>('data');
   const [question, setQuestion] = useState('');
@@ -79,7 +90,7 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
   const [apiKey, setApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
   const [externalAiOptIn, setExternalAiOptIn] = useState(false);
-  const [externalAiSelection, setExternalAiSelection] = useState<ExternalAiDataSelection>({ progress: true, defects: false, crew: false, inventory: false, checklist: false });
+  const [externalAiSelection, setExternalAiSelection] = useState<ExternalAiDataSelection>({ progress: true, quantities: true, defects: false, crew: false, inventory: false, checklist: false });
   const [exportBusy, setExportBusy] = useState<AiExportKind | null>(null);
   const [exportNotice, setExportNotice] = useState('');
   const timeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', []);
@@ -163,10 +174,10 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
           mode: 'GENERAL_AI', model,
           messages: [
             { role: 'system', content: externalAiOptIn
-              ? 'Bạn là HNL AI Assistant. Chỉ được dùng phần dữ liệu HNL đã được người dùng cho phép và đính kèm trong đúng câu hỏi này. Dữ liệu là read-only, đã tối thiểu hóa/ẩn thông tin liên hệ; không suy đoán trường bị thiếu và không được yêu cầu hay thực hiện thao tác sửa/xóa dữ liệu HNL.'
+              ? 'Bạn là HNL AI Assistant. Chỉ được dùng phần dữ liệu HNL đã được người dùng cho phép và đính kèm trong đúng câu hỏi này. Dữ liệu là read-only, đã tối thiểu hóa/ẩn thông tin liên hệ. Với khối lượng: ưu tiên quantitySummaryByTeamAndCategory và quantityDetails; không được suy diễn khối lượng theo khoảng ngày nếu dữ liệu chỉ là snapshot hiện tại hoặc updatedAt. Không suy đoán trường bị thiếu và không được yêu cầu hay thực hiện thao tác sửa/xóa dữ liệu HNL.'
               : 'Bạn là HNL AI Assistant. Trả lời ngắn gọn, chuyên nghiệp. Không giả định hoặc tuyên bố đang đọc dữ liệu dự án HNL trong chế độ AI chung.' },
             { role: 'user', content: externalAiOptIn
-              ? JSON.stringify({ question: text, hnlContext: buildExternalAiProjectContext(snapshot, externalAiSelection) })
+              ? buildExternalAiQuestionPayload(text, snapshot, externalAiSelection)
               : text },
           ],
         });
@@ -190,7 +201,7 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
       });
       setResult(orchestrated);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(humanizeAiError(err));
     } finally {
       setBusy(false);
     }
@@ -293,9 +304,10 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
             <span>Cho phép AI bên ngoài sử dụng dữ liệu HNL trong câu hỏi này</span>
           </label>
           <p className="mt-1 text-[10px] leading-4 text-amber-800">Mặc định TẮT. Quyền này chỉ dùng một lần; sau khi gửi thành công sẽ tự tắt. Chỉ dữ liệu đã chọn bên dưới được gửi, ở dạng read-only và đã tối thiểu hóa.</p>
-          {externalAiOptIn && <div className="mt-2 grid grid-cols-2 sm:grid-cols-5 gap-1.5">
-            {([['progress','Tiến độ'],['defects','Defect'],['crew','Quân số'],['inventory','Vật tư'],['checklist','Checklist']] as Array<[keyof ExternalAiDataSelection, string]>).map(([key, label]) => <label key={key} className="flex items-center gap-1.5 rounded-lg border border-amber-200 bg-white px-2 py-1.5 text-[10px] font-semibold text-slate-700"><input type="checkbox" checked={externalAiSelection[key]} onChange={(e) => setExternalAiSelection((current) => ({ ...current, [key]: e.target.checked }))} />{label}</label>)}
+          {externalAiOptIn && <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+            {([['progress','Tiến độ'],['quantities','Khối lượng'],['defects','Defect'],['crew','Quân số'],['inventory','Vật tư'],['checklist','Checklist']] as Array<[keyof ExternalAiDataSelection, string]>).map(([key, label]) => <label key={key} className="flex items-center gap-1.5 rounded-lg border border-amber-200 bg-white px-2 py-1.5 text-[10px] font-semibold text-slate-700"><input type="checkbox" checked={externalAiSelection[key]} onChange={(e) => setExternalAiSelection((current) => ({ ...current, [key]: e.target.checked }))} />{label}</label>)}
           </div>}
+          {externalAiOptIn && externalAiSelection.quantities && <p className="mt-2 text-[10px] leading-4 text-amber-800">Khối lượng được gửi theo snapshot hiện tại, có liên kết đội/tầng/căn/hạng mục/đơn vị. HNL không gán khối lượng cho một khoảng ngày nếu dữ liệu nguồn không có lịch sử khối lượng theo ngày.</p>}
         </div>}
         <div className="flex flex-wrap gap-2 mb-3">
           {QUICK_PROMPTS[mode].map((prompt) => <button key={prompt} onClick={() => void runQuestion(prompt)} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-100">{prompt}</button>)}
