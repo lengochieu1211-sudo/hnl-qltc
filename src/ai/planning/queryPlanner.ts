@@ -8,6 +8,7 @@ import type { HnlAiToolArgs } from '../tools/toolRegistry';
 export type HnlAiIntent =
   | 'TEAM_SUMMARY'
   | 'CURRENT_TEAM_PROGRESS'
+  | 'CURRENT_TEAM_DETAIL'
   | 'AUDIT_DEFECTS'
   | 'AUDIT_QUANTITY'
   | 'AUDIT_CREW'
@@ -68,7 +69,7 @@ function monthRange(referenceDate: string, offset: number): AiDateRange {
 function weekRange(referenceDate: string, offsetWeeks: number): AiDateRange {
   const [y, m, d] = referenceDate.split('-').map(Number);
   const current = new Date(Date.UTC(y, m - 1, d));
-  const day = current.getUTCDay(); // 0 Sun ... 6 Sat
+  const day = current.getUTCDay();
   const mondayOffset = day === 0 ? -6 : 1 - day;
   const from = shiftDays(referenceDate, mondayOffset + offsetWeeks * 7);
   return { from, to: shiftDays(from, 6) };
@@ -112,16 +113,13 @@ function resolveNaturalDateRange(question: string, referenceDate: string): AiDat
   }
 
   const singleCanonical = normalized.match(/\b(\d{4}-\d{2}-\d{2})\b/);
-  if (singleCanonical && isCanonicalDate(singleCanonical[1])) {
-    return { from: singleCanonical[1], to: singleCanonical[1] };
-  }
+  if (singleCanonical && isCanonicalDate(singleCanonical[1])) return { from: singleCanonical[1], to: singleCanonical[1] };
   const singleSlash = normalized.match(/\b(\d{1,2})[\/-](\d{1,2})(?:[\/-](\d{4}))?\b/);
   if (singleSlash) {
     const year = singleSlash[3] ? Number(singleSlash[3]) : Number(referenceDate.slice(0, 4));
     const date = canonicalDate(year, Number(singleSlash[2]), Number(singleSlash[1]));
     if (date) return { from: date, to: date };
   }
-
   return null;
 }
 
@@ -160,18 +158,18 @@ function detectIntent(question: string): HnlAiIntent {
 
   if (hasAny(q, [/\bdoi nao\b/, /\btop\s+\d+\s+doi\b/, /\bso sanh cac doi\b/])) return 'UNSUPPORTED';
 
-  if (hasAny(q, [/\btong hop\b/, /\bnang suat\b/, /\bbao nhieu cong\b/, /\bbao nhieu m2\b/, /\bda lam\b/, /\bthi cong nhung hang muc\b/])) return 'TEAM_SUMMARY';
-  if (hasAny(q, [/\bdang lam\b/, /\bhien tai\b/, /\btien do\b/, /\bdefect cua doi\b/])) return 'CURRENT_TEAM_PROGRESS';
+  const detailSignal = hasAny(q, [
+    /\btung hang muc\b/, /\btheo hang muc\b/, /\btang nao\b/, /\btheo tang\b/,
+    /\bcan nao\b/, /\bphong nao\b/, /\btheo can\b/, /\btheo phong\b/, /\bchi tiet khoi luong\b/,
+  ]);
+  if (detailSignal && /\b(?:doi|to)\b/.test(q)) return 'CURRENT_TEAM_DETAIL';
 
+  if (hasAny(q, [/\btong hop\b/, /\bnang suat\b/, /\bbao nhieu cong\b/, /\bbao nhieu m2\b/, /\bda lam\b/, /\bthi cong nhung hang muc\b/, /\bkhoi luong doi\b/])) return 'TEAM_SUMMARY';
+  if (hasAny(q, [/\bdang lam\b/, /\bhien tai\b/, /\btien do\b/, /\bdefect cua doi\b/])) return 'CURRENT_TEAM_PROGRESS';
   if (/\b(?:doi|to)\b/.test(q)) return 'CURRENT_TEAM_PROGRESS';
   return 'UNSUPPORTED';
 }
 
-/**
- * Deterministic pre-provider query planner for the initial whitelist. It does not call an
- * LLM and never invents IDs. Ambiguous team references or missing date ranges are returned
- * as explicit clarification requirements.
- */
 export function planHnlAiQuestion(params: PlanHnlAiQuestionParams): HnlAiQueryPlan {
   const { question, context, teams, referenceDate } = params;
   const permission = createAiPermissionScope(context.projectId, context.role, context.accessVerified);
@@ -180,92 +178,60 @@ export function planHnlAiQuestion(params: PlanHnlAiQuestionParams): HnlAiQueryPl
 
   const normalizedQuestion = normalizeEntityText(question);
   if (!normalizedQuestion) {
-    return {
-      status: 'needs-clarification',
-      intent: 'UNSUPPORTED',
-      normalizedQuestion,
-      clarifications: ['Vui lòng nhập câu hỏi.'],
-      warnings: [],
-    };
+    return { status: 'needs-clarification', intent: 'UNSUPPORTED', normalizedQuestion, clarifications: ['Vui lòng nhập câu hỏi.'], warnings: [] };
   }
 
   const intent = detectIntent(question);
-  if (intent === 'AUDIT_DEFECTS') {
-    return { status: 'ready', intent, normalizedQuestion, toolCall: { name: 'auditDefectLinks', args: {} }, clarifications: [], warnings: [] };
-  }
-  if (intent === 'AUDIT_QUANTITY') {
-    return { status: 'ready', intent, normalizedQuestion, toolCall: { name: 'auditQuantityData', args: {} }, clarifications: [], warnings: [] };
-  }
-  if (intent === 'AUDIT_CREW') {
-    return { status: 'ready', intent, normalizedQuestion, toolCall: { name: 'auditCrewData', args: {} }, clarifications: [], warnings: [] };
-  }
-  if (intent === 'AUDIT_PROJECT') {
-    return { status: 'ready', intent, normalizedQuestion, toolCall: { name: 'auditProjectIntegrity', args: {} }, clarifications: [], warnings: [] };
-  }
+  if (intent === 'AUDIT_DEFECTS') return { status: 'ready', intent, normalizedQuestion, toolCall: { name: 'auditDefectLinks', args: {} }, clarifications: [], warnings: [] };
+  if (intent === 'AUDIT_QUANTITY') return { status: 'ready', intent, normalizedQuestion, toolCall: { name: 'auditQuantityData', args: {} }, clarifications: [], warnings: [] };
+  if (intent === 'AUDIT_CREW') return { status: 'ready', intent, normalizedQuestion, toolCall: { name: 'auditCrewData', args: {} }, clarifications: [], warnings: [] };
+  if (intent === 'AUDIT_PROJECT') return { status: 'ready', intent, normalizedQuestion, toolCall: { name: 'auditProjectIntegrity', args: {} }, clarifications: [], warnings: [] };
 
-  if (intent === 'TEAM_SUMMARY' || intent === 'CURRENT_TEAM_PROGRESS') {
+  if (intent === 'TEAM_SUMMARY' || intent === 'CURRENT_TEAM_PROGRESS' || intent === 'CURRENT_TEAM_DETAIL') {
     const teamResolution = extractTeamReference(question, teams);
     if (teamResolution.status === 'ambiguous') {
       return {
-        status: 'needs-clarification',
-        intent,
-        normalizedQuestion,
+        status: 'needs-clarification', intent, normalizedQuestion,
         clarifications: ['Có nhiều đội phù hợp. Hãy chọn đúng đội trước khi tiếp tục.'],
         warnings: [`Candidates: ${teamResolution.candidates.map((team) => `${team.name} (${team.id})`).join(', ')}`],
       };
     }
     if (teamResolution.status !== 'resolved' || !teamResolution.team) {
-      return {
-        status: 'needs-clarification',
-        intent,
-        normalizedQuestion,
-        clarifications: ['Không xác định được đội thi công. Vui lòng nêu đúng tên đội trong dự án.'],
-        warnings: [],
-      };
+      return { status: 'needs-clarification', intent, normalizedQuestion, clarifications: ['Không xác định được đội thi công. Vui lòng nêu đúng tên đội trong dự án.'], warnings: [] };
     }
 
     const resolvedTeam = { id: teamResolution.team.id, name: teamResolution.team.name };
     if (intent === 'CURRENT_TEAM_PROGRESS') {
-      return {
-        status: 'ready',
-        intent,
-        normalizedQuestion,
-        resolvedTeam,
-        toolCall: { name: 'getCurrentTeamProgress', args: { teamRef: teamResolution.team.id } },
-        clarifications: [],
-        warnings: [],
-      };
+      return { status: 'ready', intent, normalizedQuestion, resolvedTeam, toolCall: { name: 'getCurrentTeamProgress', args: { teamRef: teamResolution.team.id } }, clarifications: [], warnings: [] };
+    }
+    if (intent === 'CURRENT_TEAM_DETAIL') {
+      return { status: 'ready', intent, normalizedQuestion, resolvedTeam, toolCall: { name: 'getCurrentTeamProgressDetail', args: { teamRef: teamResolution.team.id } }, clarifications: [], warnings: [] };
     }
 
     const dateRange = resolveNaturalDateRange(question, referenceDate);
     if (!dateRange) {
+      // No explicit historical period: answer from the current verified room snapshot instead
+      // of forcing a date question that the schema cannot support accurately for quantities.
       return {
-        status: 'needs-clarification',
-        intent,
+        status: 'ready',
+        intent: 'CURRENT_TEAM_DETAIL',
         normalizedQuestion,
         resolvedTeam,
-        clarifications: ['Cần khoảng thời gian rõ ràng, ví dụ 01/08–15/08, tuần này hoặc tháng trước.'],
-        warnings: [],
+        toolCall: { name: 'getCurrentTeamProgressDetail', args: { teamRef: teamResolution.team.id } },
+        clarifications: [],
+        warnings: ['Không có khoảng ngày cụ thể; HNL dùng snapshot tiến độ/khối lượng hiện tại.'],
       };
     }
 
     return {
-      status: 'ready',
-      intent,
-      normalizedQuestion,
-      resolvedTeam,
-      dateRange,
+      status: 'ready', intent, normalizedQuestion, resolvedTeam, dateRange,
       toolCall: { name: 'getTeamSummary', args: { teamRef: teamResolution.team.id, dateRange } },
-      clarifications: [],
-      warnings: [],
+      clarifications: [], warnings: [],
     };
   }
 
   return {
-    status: 'unsupported',
-    intent: 'UNSUPPORTED',
-    normalizedQuestion,
-    clarifications: [],
+    status: 'unsupported', intent: 'UNSUPPORTED', normalizedQuestion, clarifications: [],
     warnings: ['Câu hỏi chưa có deterministic tool tương ứng trong whitelist hiện tại; không được tự suy diễn hoặc tạo Firestore query.'],
   };
 }
