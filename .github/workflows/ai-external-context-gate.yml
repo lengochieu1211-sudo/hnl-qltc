@@ -1,0 +1,59 @@
+name: HNL AI External Context Gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [dev]
+    paths:
+      - 'src/features/ai/**'
+      - 'src/ai/data/externalAiContext.ts'
+      - 'scripts/ai-external-context-golden.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/ai-external-context-gate.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/features/ai/**'
+      - 'src/ai/data/externalAiContext.ts'
+      - 'scripts/ai-external-context-golden.ts'
+      - 'package.json'
+      - 'package-lock.json'
+
+permissions:
+  contents: read
+
+jobs:
+  privacy_gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Lockfile install
+        run: npm ci
+
+      - name: External AI opt-in privacy golden
+        run: npm run test:ai-external-context
+
+      - name: TypeScript and lint
+        run: |
+          npm run typecheck
+          npm run lint
+
+      - name: Static privacy assertions
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'Cho phép AI bên ngoài sử dụng dữ liệu HNL trong câu hỏi này' src/features/ai/AiAssistantPage.tsx
+          grep -q 'const MAX_ROWS_PER_COLLECTION = 60' src/ai/data/externalAiContext.ts
+          grep -q '\[email đã ẩn\]' src/ai/data/externalAiContext.ts
+          grep -q '\[số điện thoại đã ẩn\]' src/ai/data/externalAiContext.ts
