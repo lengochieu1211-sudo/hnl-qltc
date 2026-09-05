@@ -1,6 +1,9 @@
 import type { TeamInfo } from '../../types';
 import { calculateTeamStatistics } from '../../utils/teamUtils';
+import { auditCrewData } from '../audit/crewAudit';
 import { auditDefectLinks } from '../audit/defectAudit';
+import { auditProjectIntegrity } from '../audit/projectAudit';
+import { auditQuantityData } from '../audit/quantityAudit';
 import { calculateAiTeamSummary } from '../calculations/teamSummary';
 import type { AiDateRange, AiFact, AiQueryContext, AiToolResult } from '../core/contracts';
 import { resolveTeamReference, type TeamResolutionResult } from '../core/entityResolver';
@@ -16,6 +19,9 @@ export const HNL_AI_TOOL_NAMES = [
   'getTeamSummary',
   'getCurrentTeamProgress',
   'auditDefectLinks',
+  'auditQuantityData',
+  'auditCrewData',
+  'auditProjectIntegrity',
 ] as const;
 
 export type HnlAiToolName = (typeof HNL_AI_TOOL_NAMES)[number];
@@ -42,7 +48,10 @@ export type HnlAiToolArgs =
   | { name: 'resolveTeam'; args: ResolveTeamArgs }
   | { name: 'getTeamSummary'; args: GetTeamSummaryArgs }
   | { name: 'getCurrentTeamProgress'; args: GetCurrentTeamProgressArgs }
-  | { name: 'auditDefectLinks'; args: Record<string, never> };
+  | { name: 'auditDefectLinks'; args: Record<string, never> }
+  | { name: 'auditQuantityData'; args: Record<string, never> }
+  | { name: 'auditCrewData'; args: Record<string, never> }
+  | { name: 'auditProjectIntegrity'; args: Record<string, never> };
 
 export interface CurrentTeamProgressData {
   teamId: string;
@@ -261,6 +270,28 @@ export function executeHnlAiTool(request: HnlAiToolArgs, runtime: HnlAiToolRunti
         freshness: runtime.snapshot.freshness,
         asOf: runtime.snapshot.asOf,
       });
+    }
+    case 'auditQuantityData': {
+      return auditQuantityData({
+        context: runtime.context,
+        workVolumes: [...runtime.snapshot.workVolumes],
+        rooms: [...runtime.snapshot.rooms],
+        freshness: runtime.snapshot.freshness,
+        asOf: runtime.snapshot.asOf,
+      });
+    }
+    case 'auditCrewData': {
+      return auditCrewData({
+        context: runtime.context,
+        crewRecords: [...runtime.snapshot.crewRecords],
+        teams: [...runtime.snapshot.teams],
+        floors: [...runtime.snapshot.floors],
+        freshness: runtime.snapshot.freshness,
+        asOf: runtime.snapshot.asOf,
+      });
+    }
+    case 'auditProjectIntegrity': {
+      return auditProjectIntegrity({ context: runtime.context, snapshot: runtime.snapshot });
     }
     default: {
       const neverRequest: never = request;
