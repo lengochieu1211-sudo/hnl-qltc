@@ -10,6 +10,7 @@ export interface ExternalAiDataSelection {
   checklist: boolean;
 }
 
+// Keep external-provider context intentionally smaller than the in-app deterministic snapshot.
 const MAX_ROWS_PER_COLLECTION = 60;
 const MAX_SUBITEMS_PER_ROOM = 20;
 
