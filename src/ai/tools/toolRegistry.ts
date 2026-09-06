@@ -2,7 +2,7 @@ import type { TeamInfo } from '../../types';
 import { calculateTeamStatistics } from '../../utils/teamUtils';
 import { auditCrewData } from '../audit/crewAudit';
 import { auditDefectLinks } from '../audit/defectAudit';
-import { auditProjectIntegrity } from '../audit/projectAudit';
+import { auditProjectViaHealthCenter } from '../audit/healthCenterAiAudit';
 import { auditQuantityData } from '../audit/quantityAudit';
 import { calculateCurrentTeamDetail } from '../calculations/currentTeamDetail';
 import { calculateAiTeamSummary } from '../calculations/teamSummary';
@@ -304,7 +304,7 @@ export function executeHnlAiTool(request: HnlAiToolArgs, runtime: HnlAiToolRunti
       });
     }
     case 'auditProjectIntegrity': {
-      return auditProjectIntegrity({ context: runtime.context, snapshot: runtime.snapshot });
+      return auditProjectViaHealthCenter({ context: runtime.context, snapshot: runtime.snapshot });
     }
     default: {
       const neverRequest: never = request;
