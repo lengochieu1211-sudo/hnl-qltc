@@ -31,11 +31,7 @@ function active<T extends { deletedAt?: number | null }>(items: readonly T[]): T
 }
 
 function capped<T>(items: T[], limit = MAX_ROWS_PER_COLLECTION) {
-  return {
-    rows: items.slice(0, limit),
-    total: items.length,
-    truncated: items.length > limit,
-  };
+  return { rows: items.slice(0, limit), total: items.length, truncated: items.length > limit };
 }
 
 function finiteNumber(value: unknown): number | null {
@@ -60,6 +56,20 @@ type QuantityRow = {
   updatedAt: number | null;
 };
 
+function buildFloorResolver(snapshot: HnlAiProjectSnapshot) {
+  const byId = new Map<string, string>();
+  for (const floor of active(snapshot.floors)) {
+    const id = String(floor.id || '').trim();
+    const name = safeText(floor.floorName || '').trim();
+    if (id && name) byId.set(id, name);
+  }
+  return (floorId?: string, floorName?: string) => {
+    const explicit = safeText(floorName || '').trim();
+    if (explicit) return explicit;
+    return byId.get(String(floorId || '').trim()) || '';
+  };
+}
+
 function buildTeamResolver(snapshot: HnlAiProjectSnapshot) {
   const teamNameById = new Map<string, string>();
   const teamByName = new Map<string, { id: string; name: string }>();
@@ -71,8 +81,8 @@ function buildTeamResolver(snapshot: HnlAiProjectSnapshot) {
   }
   return (teamId?: string, teamName?: string) => {
     const id = String(teamId || '').trim();
-    const declaredName = id ? teamNameById.get(id) : '';
-    if (declaredName) return { teamId: id, teamName: declaredName };
+    const byId = id ? teamNameById.get(id) : '';
+    if (byId) return { teamId: id, teamName: byId };
     const name = safeText(teamName || '').trim();
     const declared = name ? teamByName.get(normalizedText(name)) : undefined;
     if (declared) return { teamId: declared.id || id, teamName: declared.name };
@@ -88,14 +98,15 @@ function sameCategory(categoryName: string, categoryId: string, subItem: { categ
 }
 
 function buildQuantityRows(snapshot: HnlAiProjectSnapshot): QuantityRow[] {
-  const rows: QuantityRow[] = [];
+  const result: QuantityRow[] = [];
   const resolveTeam = buildTeamResolver(snapshot);
+  const resolveFloor = buildFloorResolver(snapshot);
 
   for (const room of active(snapshot.rooms)) {
     const roomTeam = resolveTeam(room.teamId, room.assignedTeam);
     const base = {
       floorId: room.floorId || '',
-      floorName: safeText(room.floorName || ''),
+      floorName: resolveFloor(room.floorId, room.floorName),
       roomId: room.id,
       roomName: safeText(room.roomName || ''),
       teamId: roomTeam.teamId,
@@ -117,7 +128,7 @@ function buildQuantityRows(snapshot: HnlAiProjectSnapshot): QuantityRow[] {
             .map((team) => [`${team.teamId}|${normalizedText(team.teamName)}`, team] as const),
         ).values());
         const categoryTeam = relatedTeams.length === 1 ? relatedTeams[0] : roomTeam;
-        rows.push({
+        result.push({
           source: 'room-category',
           ...base,
           teamId: categoryTeam.teamId,
@@ -136,7 +147,7 @@ function buildQuantityRows(snapshot: HnlAiProjectSnapshot): QuantityRow[] {
     if (subRows.length > 0) {
       for (const item of subRows) {
         const itemTeam = resolveTeam(item.teamId || base.teamId, item.assignedTeam || base.teamName);
-        rows.push({
+        result.push({
           source: 'sub-item',
           ...base,
           teamId: itemTeam.teamId,
@@ -154,7 +165,7 @@ function buildQuantityRows(snapshot: HnlAiProjectSnapshot): QuantityRow[] {
 
     const roomVolume = finiteNumber(room.workVolume);
     if (roomVolume !== null) {
-      rows.push({
+      result.push({
         source: 'room-total',
         ...base,
         item: safeText(base.workCategory || room.roomName),
@@ -164,7 +175,7 @@ function buildQuantityRows(snapshot: HnlAiProjectSnapshot): QuantityRow[] {
       });
     }
   }
-  return rows;
+  return result;
 }
 
 function buildQuantitySummary(rows: QuantityRow[]) {
@@ -214,11 +225,12 @@ function questionNeeds(question: string) {
 }
 
 function rawRoomRows(snapshot: HnlAiProjectSnapshot, targets: Array<{ id: string; name: string }>) {
+  const resolveFloor = buildFloorResolver(snapshot);
   return active(snapshot.rooms)
     .map((room) => ({
       id: room.id,
       floorId: room.floorId || '',
-      floorName: safeText(room.floorName || ''),
+      floorName: resolveFloor(room.floorId, room.floorName),
       roomName: safeText(room.roomName),
       workCategoryId: room.workCategoryId || '',
       workCategory: safeText(room.workCategory || ''),
@@ -247,6 +259,7 @@ function rawRoomRows(snapshot: HnlAiProjectSnapshot, targets: Array<{ id: string
 }
 
 function rawCrewRows(snapshot: HnlAiProjectSnapshot, targets: Array<{ id: string; name: string }>) {
+  const resolveFloor = buildFloorResolver(snapshot);
   return active(snapshot.crewRecords)
     .map((item) => ({
       id: item.id,
@@ -258,7 +271,7 @@ function rawCrewRows(snapshot: HnlAiProjectSnapshot, targets: Array<{ id: string
       eveningCount: item.eveningCount ?? null,
       workerCount: item.workerCount,
       floorId: item.floorId || '',
-      floorName: safeText(item.floorName || ''),
+      floorName: resolveFloor(item.floorId, item.floorName),
       floorWorks: item.floorWorks || [],
       taskDescription: safeText(item.taskDescription),
       shift: item.shift || '',
@@ -272,16 +285,15 @@ export function buildExternalAiProjectContext(snapshot: HnlAiProjectSnapshot, se
     project: { id: snapshot.projectId, name: safeText(snapshot.projectName || ''), asOf: snapshot.asOf, freshness: snapshot.freshness },
     privacy: 'read-only sanitized HNL project context; credentials/contact data excluded',
   };
-
   if (selection.progress) {
     result.teams = active(snapshot.teams).map((team) => ({ id: team.id, name: safeText(team.name) }));
     result.floors = active(snapshot.floors).map((floor) => ({ id: floor.id, name: safeText(floor.floorName) }));
     result.rooms = capped(rawRoomRows(snapshot, []));
   }
   if (selection.quantities) {
-    const rows = buildQuantityRows(snapshot);
-    result.quantityDetails = capped(rows);
-    result.quantitySummaryByTeamAndCategory = capped(buildQuantitySummary(rows));
+    const quantityRows = buildQuantityRows(snapshot);
+    result.quantityDetails = capped(quantityRows);
+    result.quantitySummaryByTeamAndCategory = capped(buildQuantitySummary(quantityRows));
     result.workVolumes = capped(active(snapshot.workVolumes).map((item) => ({
       id: item.id,
       workCategoryId: item.workCategoryId || '',
@@ -297,10 +309,11 @@ export function buildExternalAiProjectContext(snapshot: HnlAiProjectSnapshot, se
     })));
   }
   if (selection.defects) {
+    const resolveFloor = buildFloorResolver(snapshot);
     result.defects = capped(active(snapshot.defects).map((item) => ({
       id: item.id,
       floorId: item.floorId,
-      floorName: safeText(item.floorName),
+      floorName: resolveFloor(item.floorId, item.floorName),
       roomId: item.roomId || '',
       positionDetail: safeText(item.positionDetail || ''),
       teamId: item.teamId || '',
@@ -316,15 +329,43 @@ export function buildExternalAiProjectContext(snapshot: HnlAiProjectSnapshot, se
   if (selection.crew) result.crew = capped(rawCrewRows(snapshot, []));
   if (selection.inventory) {
     result.inventory = capped(active(snapshot.inventory).map((item) => ({
-      id: item.id, type: item.type, materialId: item.materialId || '', materialName: safeText(item.materialName), unit: safeText(item.unit), quantity: item.quantity, location: safeText(item.location), date: item.date, notes: safeText(item.notes || ''),
+      id: item.id,
+      type: item.type,
+      materialId: item.materialId || '',
+      materialName: safeText(item.materialName),
+      unit: safeText(item.unit),
+      quantity: item.quantity,
+      location: safeText(item.location),
+      date: item.date,
+      notes: safeText(item.notes || ''),
     })));
     result.materialNorms = capped(active(snapshot.materialNorms).map((item) => ({
-      id: item.id, materialId: item.materialId || '', category: safeText(item.category), workCategory: safeText(item.workCategory || ''), workCategoryId: item.workCategoryId || '', materialName: safeText(item.materialName), unit: safeText(item.unit), quotaQuantity: item.quotaQuantity, unitNormPerM2: item.unitNormPerM2 ?? null, normBasisUnit: safeText(item.normBasisUnit || ''),
+      id: item.id,
+      materialId: item.materialId || '',
+      category: safeText(item.category),
+      workCategory: safeText(item.workCategory || ''),
+      workCategoryId: item.workCategoryId || '',
+      materialName: safeText(item.materialName),
+      unit: safeText(item.unit),
+      quotaQuantity: item.quotaQuantity,
+      unitNormPerM2: item.unitNormPerM2 ?? null,
+      normBasisUnit: safeText(item.normBasisUnit || ''),
     })));
   }
   if (selection.checklist) {
+    const resolveFloor = buildFloorResolver(snapshot);
     result.checklist = capped(active(snapshot.checklist).map((item) => ({
-      id: item.id, floorId: item.floorId || '', floorName: safeText(item.floorName), roomId: item.roomId || '', teamId: item.teamId || '', category: safeText(item.category), title: safeText(item.title), status: item.status, dueDate: item.dueDate || '', notes: safeText(item.notes || ''), inspectedAt: item.inspectedAt || '',
+      id: item.id,
+      floorId: item.floorId || '',
+      floorName: resolveFloor(item.floorId, item.floorName),
+      roomId: item.roomId || '',
+      teamId: item.teamId || '',
+      category: safeText(item.category),
+      title: safeText(item.title),
+      status: item.status,
+      dueDate: item.dueDate || '',
+      notes: safeText(item.notes || ''),
+      inspectedAt: item.inspectedAt || '',
     })));
   }
   return result;
@@ -338,32 +379,25 @@ function buildQuestionFocusedContext(question: string, snapshot: HnlAiProjectSna
   context.aiContract = {
     role: 'HNL supplies factual raw records; AI filters, groups, calculates and presents.',
     calculation: 'AI may calculate sums/counts/ratios only from supplied raw rows. Never invent missing rows or sample quantities.',
-    grounding: 'Every numeric conclusion must be traceable to one or more supplied rows. Preserve unit and entity scope (team/floor/category/item/date).',
+    grounding: 'Every numeric conclusion must be traceable to supplied rows and preserve team/floor/category/item/date/unit scope.',
     historicalQuantity: 'Quantity is a current snapshot unless a dated immutable quantity ledger exists. Do not assign snapshot quantity to a past date range.',
   };
-
   if (targets.length > 0) context.requestedTeams = targets;
 
   if (selection.quantities && (needs.quantity || targets.length > 0)) {
-    const allQuantityRows = buildQuantityRows(snapshot);
-    const rows = targets.length > 0 ? allQuantityRows.filter((row) => isTeamMatch(row, targets)) : allQuantityRows;
-    context.quantityDetails = capped(rows, 72);
-    context.quantityValidationTotals = capped(buildQuantitySummary(rows), 48);
+    const allRows = buildQuantityRows(snapshot);
+    const filtered = targets.length > 0 ? allRows.filter((row) => isTeamMatch(row, targets)) : allRows;
+    context.quantityDetails = capped(filtered, 72);
+    context.quantityValidationTotals = capped(buildQuantitySummary(filtered), 48);
   }
-
-  if (selection.crew && (needs.crew || targets.length > 0)) {
-    context.crew = capped(rawCrewRows(snapshot, targets), 72);
-  }
-
-  if (selection.progress && (needs.progress || targets.length > 0)) {
-    context.rooms = capped(rawRoomRows(snapshot, targets), 48);
-  }
-
+  if (selection.crew && (needs.crew || targets.length > 0)) context.crew = capped(rawCrewRows(snapshot, targets), 72);
+  if (selection.progress && (needs.progress || targets.length > 0)) context.rooms = capped(rawRoomRows(snapshot, targets), 48);
   if (selection.defects && (needs.defects || targets.length > 0)) {
+    const resolveFloor = buildFloorResolver(snapshot);
     const defects = active(snapshot.defects).map((item) => ({
       id: item.id,
       floorId: item.floorId,
-      floorName: safeText(item.floorName),
+      floorName: resolveFloor(item.floorId, item.floorName),
       roomId: item.roomId || '',
       teamId: item.teamId || '',
       category: safeText(item.category),
@@ -375,7 +409,6 @@ function buildQuestionFocusedContext(question: string, snapshot: HnlAiProjectSna
     }));
     context.defects = capped(targets.length > 0 ? defects.filter((row) => isTeamMatch(row, targets)) : defects, 48);
   }
-
   return context;
 }
 
