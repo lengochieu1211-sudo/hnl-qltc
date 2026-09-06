@@ -14,6 +14,8 @@ on:
       - 'src/components/BottomNav.tsx'
       - 'src/features/ai/**'
       - 'src/ai/**'
+      - 'src/healthCenter/**'
+      - 'scripts/health-center-*.ts'
       - 'cloudflare/ai-gateway/**'
       - 'scripts/ai-gateway-golden.mjs'
       - 'scripts/ai-planner-golden.ts'
@@ -147,6 +149,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          npm run test:health-center
           npm run test:ai-core
           npm run test:ai-tools
           npm run test:ai-audit
