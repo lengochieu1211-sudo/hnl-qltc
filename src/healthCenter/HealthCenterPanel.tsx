@@ -60,6 +60,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
   const report = useMemo(() => {
     if (!projectId || !accessVerified) return null;
     const data = fullAppData || {};
+    const snapshotFreshness: 'live' | 'cache' = freshness === 'cache' ? 'cache' : 'live';
     const snapshot = createHnlAiProjectSnapshot({
       projectId,
       projectName: projectName || data.projectName || '',
@@ -73,7 +74,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
       materialNorms: array(data.materialNorms),
       checklist: array(data.checklist),
       asOf: runAt,
-      freshness,
+      freshness: snapshotFreshness,
     });
     return buildHealthCenterReport({
       context: { projectId, role: userRole, accessVerified, screen: 'health-center', timeZone: 'Asia/Ho_Chi_Minh' },
