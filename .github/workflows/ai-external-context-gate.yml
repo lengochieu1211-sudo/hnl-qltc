@@ -51,7 +51,7 @@ jobs:
           npm run typecheck
           npm run lint
 
-      - name: Static privacy assertions
+      - name: Static privacy and grounding assertions
         shell: bash
         run: |
           set -euo pipefail
@@ -61,4 +61,8 @@ jobs:
           grep -q '\[email đã ẩn\]' src/ai/data/externalAiContext.ts
           grep -q '\[số điện thoại đã ẩn\]' src/ai/data/externalAiContext.ts
           grep -q 'guardExternalHnlResponse' src/ai/providers/hnlManagedProvider.ts
+          grep -q 'deterministic-hnl-quantity' src/ai/providers/hnlManagedProvider.ts
+          grep -q 'findTargetTeam' src/ai/providers/hnlManagedProvider.ts
+          grep -q 'buildDeterministicQuantityAnswer' src/ai/providers/hnlManagedProvider.ts
+          grep -q 'deterministic-date' src/ai/providers/hnlManagedProvider.ts
           grep -q 'Do not invent, estimate, or produce sample quantities' src/ai/data/externalAiContext.ts
