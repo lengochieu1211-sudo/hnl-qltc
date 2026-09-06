@@ -43,6 +43,50 @@ assert.equal((allowed as any).quantitySummaryByTeamAndCategory.rows[0].teamName,
 assert.equal((allowed as any).quantitySummaryByTeamAndCategory.rows[0].unit, 'm2');
 assert.ok((allowed as any).quantitySummaryByTeamAndCategory.rows[0].volume > 0);
 
+// Regression: real projects can store categoryVolumes on the room while the responsible
+// team is attached to the matching sub-item. This must still produce a team-attributed
+// quantity instead of silently becoming "Chưa gán đội".
+const teamAttributionSnapshot = {
+  ...snapshot,
+  rooms: [{
+    id: 'room-team-link',
+    roomName: 'BHS-01',
+    floorId: 'f1',
+    floorName: 'Tầng Trệt',
+    teamId: '',
+    assignedTeam: '',
+    workCategoryId: 'cat-ceiling',
+    workCategory: 'Trần thạch cao',
+    categoryVolumes: { 'Trần thạch cao': 25.5 },
+    categoryVolumeUnits: { 'Trần thạch cao': 'm2' },
+    inspectionStatus: 'Đang làm',
+    updatedAt: 2,
+    subItems: [{
+      id: 'sub-team-link',
+      name: 'Thi công trần',
+      category: 'Trần thạch cao',
+      workCategoryId: 'cat-ceiling',
+      teamId: 'team-nguyen',
+      assignedTeam: '',
+      status: 'Đang làm',
+    }],
+  }],
+} as any;
+const teamAttributed = buildExternalAiProjectContext(teamAttributionSnapshot, {
+  progress: false,
+  quantities: true,
+  defects: false,
+  crew: false,
+  inventory: false,
+  checklist: false,
+}) as any;
+const linkedQuantity = teamAttributed.quantitySummaryByTeamAndCategory.rows.find(
+  (row: any) => row.teamId === 'team-nguyen' && row.workCategory === 'Trần thạch cao' && row.unit === 'm2',
+);
+assert.ok(linkedQuantity, 'category quantity must inherit the one unambiguous matching sub-item team');
+assert.equal(linkedQuantity.teamName, 'Đội Nguyên');
+assert.equal(linkedQuantity.volume, 25.5);
+
 const payload = buildExternalAiQuestionPayload('Báo cáo khối lượng đội Nguyên', snapshot, {
   progress: true,
   quantities: true,
