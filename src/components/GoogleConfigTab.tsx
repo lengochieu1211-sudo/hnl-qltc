@@ -44,6 +44,7 @@ import type { UserRole } from '../utils/securityUtils';
 import type { TrashOperation, TrashSettings, TrashRetentionDays } from '../lib/trash';
 import { buildDiagnosticBundle, clearRuntimeDiagnostics } from '../lib/runtimeDiagnostics';
 import { getProjectPhotoDiagnosticSnapshot } from '../utils/photoStorage';
+import { HealthCenterPanel } from '../healthCenter/HealthCenterPanel';
 
 declare const __BUILD_TIME__: string;
 
@@ -501,7 +502,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
               {syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'Cloud sẵn sàng' : 'Đang kiểm tra'}
             </span>
           </summary>
-          <div className="px-2 pb-2 sm:px-3 sm:pb-3">
+          <div className="px-2 pb-2 sm:px-3 sm:pb-3 space-y-3">
         <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
           <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-2">
             <div>
@@ -608,6 +609,15 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
             </button>
           </div>
         </div>
+
+        <HealthCenterPanel
+          projectId={activeProjectId || 'default'}
+          projectName={projectName}
+          userRole={userRole}
+          accessVerified={Boolean(syncDiagnostics.roleResolved)}
+          fullAppData={fullAppData}
+          freshness={syncDiagnostics.cloudInitialReady ? 'live' : 'cache'}
+        />
       
           </div>
         </details>
