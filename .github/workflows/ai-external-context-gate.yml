@@ -7,6 +7,7 @@ on:
     paths:
       - 'src/features/ai/**'
       - 'src/ai/data/externalAiContext.ts'
+      - 'src/ai/providers/hnlManagedProvider.ts'
       - 'scripts/ai-external-context-golden.ts'
       - 'package.json'
       - 'package-lock.json'
@@ -16,6 +17,7 @@ on:
     paths:
       - 'src/features/ai/**'
       - 'src/ai/data/externalAiContext.ts'
+      - 'src/ai/providers/hnlManagedProvider.ts'
       - 'scripts/ai-external-context-golden.ts'
       - 'package.json'
       - 'package-lock.json'
@@ -54,6 +56,9 @@ jobs:
         run: |
           set -euo pipefail
           grep -q 'Cho phép AI bên ngoài sử dụng dữ liệu HNL trong câu hỏi này' src/features/ai/AiAssistantPage.tsx
-          grep -q 'const MAX_ROWS_PER_COLLECTION = 60' src/ai/data/externalAiContext.ts
+          grep -Eq 'const MAX_ROWS_PER_COLLECTION = [1-9][0-9]*' src/ai/data/externalAiContext.ts
+          grep -q 'const MAX_EXTERNAL_MESSAGE_CHARS = 21_500' src/ai/data/externalAiContext.ts
           grep -q '\[email đã ẩn\]' src/ai/data/externalAiContext.ts
           grep -q '\[số điện thoại đã ẩn\]' src/ai/data/externalAiContext.ts
+          grep -q 'guardExternalHnlResponse' src/ai/providers/hnlManagedProvider.ts
+          grep -q 'Do not invent, estimate, or produce sample quantities' src/ai/data/externalAiContext.ts
