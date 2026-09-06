@@ -128,6 +128,14 @@ const crewAudit = executeHnlAiTool({ name: 'auditCrewData', args: {} }, { contex
 assert.equal((crewAudit.data as any)?.errorCount, 0);
 const projectAudit = executeHnlAiTool({ name: 'auditProjectIntegrity', args: {} }, { context, snapshot });
 assert.equal((projectAudit.data as any)?.errorCount, 0);
+assert.ok(
+  String(projectAudit.metadata.dataVersion || '').startsWith('health-center:hc-'),
+  'AI project audit must be backed by the canonical Health Center snapshot',
+);
+const healthSnapshotFact = projectAudit.facts.find((fact) => fact.id === 'health-center:audit-snapshot-id');
+assert.ok(healthSnapshotFact, 'AI project audit must expose the Health Center Audit Snapshot ID as a deterministic fact');
+assert.equal(String(healthSnapshotFact?.value || ''), String(projectAudit.metadata.dataVersion || '').replace(/^health-center:/, ''));
+assert.ok(projectAudit.assumptions.some((item) => item.includes('Health Center')));
 assert.equal(JSON.stringify(snapshot), snapshotBefore, 'AI tools must not mutate the project snapshot');
 assert.equal(defects[0].roomId, 'room-101');
 assert.equal(defects[0].teamId, 'team-nguyen');
