@@ -11,9 +11,6 @@ export interface ExternalAiDataSelection {
   checklist: boolean;
 }
 
-// External-provider context must stay much smaller than the in-app deterministic snapshot.
-// The AI Gateway currently limits each message to 24k characters, so the final question
-// payload is hard-capped below that limit with deterministic compaction.
 const MAX_ROWS_PER_COLLECTION = 36;
 const MAX_SUBITEMS_PER_ROOM = 12;
 const MAX_EXTERNAL_MESSAGE_CHARS = 21_500;
@@ -25,16 +22,25 @@ function safeText(value: unknown): string {
     .slice(0, 600);
 }
 
+function normalizedText(value: unknown): string {
+  return safeText(value).trim().toLocaleLowerCase('vi');
+}
+
 function active<T extends { deletedAt?: number | null }>(items: readonly T[]): T[] {
   return items.filter((item) => item.deletedAt === undefined || item.deletedAt === null);
 }
 
-function capped<T>(items: T[]) {
+function capped<T>(items: T[], limit = MAX_ROWS_PER_COLLECTION) {
   return {
-    rows: items.slice(0, MAX_ROWS_PER_COLLECTION),
+    rows: items.slice(0, limit),
     total: items.length,
-    truncated: items.length > MAX_ROWS_PER_COLLECTION,
+    truncated: items.length > limit,
   };
+}
+
+function finiteNumber(value: unknown): number | null {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 type QuantityRow = {
@@ -53,15 +59,6 @@ type QuantityRow = {
   status: string;
   updatedAt: number | null;
 };
-
-function finiteNumber(value: unknown): number | null {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : null;
-}
-
-function normalizedText(value: unknown): string {
-  return safeText(value).trim().toLocaleLowerCase('vi');
-}
 
 function buildTeamResolver(snapshot: HnlAiProjectSnapshot) {
   const teamNameById = new Map<string, string>();
@@ -83,13 +80,8 @@ function buildTeamResolver(snapshot: HnlAiProjectSnapshot) {
   };
 }
 
-function sameCategory(
-  categoryName: string,
-  categoryId: string,
-  subItem: { category?: string; workCategoryId?: string },
-): boolean {
-  const byId = Boolean(categoryId && subItem.workCategoryId && categoryId === subItem.workCategoryId);
-  if (byId) return true;
+function sameCategory(categoryName: string, categoryId: string, subItem: { category?: string; workCategoryId?: string }): boolean {
+  if (categoryId && subItem.workCategoryId && categoryId === subItem.workCategoryId) return true;
   const left = normalizedText(categoryName);
   const right = normalizedText(subItem.category || '');
   return Boolean(left && right && left === right);
@@ -122,11 +114,8 @@ function buildQuantityRows(snapshot: HnlAiProjectSnapshot): QuantityRow[] {
           relatedSubItems
             .map((item) => resolveTeam(item.teamId, item.assignedTeam))
             .filter((team) => team.teamId || team.teamName)
-            .map((team) => [`${team.teamId}|${normalizedText(team.teamName)}`, team] as const)
+            .map((team) => [`${team.teamId}|${normalizedText(team.teamName)}`, team] as const),
         ).values());
-        // Room-level/category-level quantity may only be attributed to a sub-item team when
-        // the category has exactly one unambiguous team. Otherwise the room-level team is
-        // used. If neither is available, the quantity deliberately remains unassigned.
         const categoryTeam = relatedTeams.length === 1 ? relatedTeams[0] : roomTeam;
         rows.push({
           source: 'room-category',
@@ -200,31 +189,35 @@ function buildQuantitySummary(rows: QuantityRow[]) {
     .sort((a, b) => (a.teamName || a.teamId).localeCompare(b.teamName || b.teamId, 'vi') || a.workCategory.localeCompare(b.workCategory, 'vi'));
 }
 
-/**
- * Builds a read-only, privacy-minimized context for an external AI provider.
- * Credentials, Firebase configuration, phone numbers, emails, UIDs and device/local
- * storage identifiers never enter this payload. The user must explicitly opt in in UI.
- */
-export function buildExternalAiProjectContext(
-  snapshot: HnlAiProjectSnapshot,
-  selection: ExternalAiDataSelection,
-) {
-  const result: Record<string, unknown> = {
-    project: {
-      id: snapshot.projectId,
-      name: safeText(snapshot.projectName || ''),
-      asOf: snapshot.asOf,
-      freshness: snapshot.freshness,
-    },
-    privacy: 'read-only sanitized HNL project context; credentials/contact data excluded',
-  };
+function detectMentionedTeams(question: string, snapshot: HnlAiProjectSnapshot) {
+  const q = normalizedText(question);
+  return active(snapshot.teams)
+    .map((team) => ({ id: String(team.id || ''), name: safeText(team.name).trim() }))
+    .filter((team) => team.name && q.includes(normalizedText(team.name)));
+}
 
-  if (selection.progress) {
-    result.teams = active(snapshot.teams).map((team) => ({ id: team.id, name: safeText(team.name) }));
-    result.floors = active(snapshot.floors).map((floor) => ({ id: floor.id, name: safeText(floor.floorName) }));
-    result.rooms = capped(active(snapshot.rooms).map((room) => ({
+function isTeamMatch(row: { teamId?: string; teamName?: string; assignedTeam?: string }, targets: Array<{ id: string; name: string }>): boolean {
+  if (targets.length === 0) return true;
+  const rowId = String(row.teamId || '');
+  const rowName = normalizedText(row.teamName || row.assignedTeam || '');
+  return targets.some((target) => (target.id && rowId === target.id) || (target.name && rowName === normalizedText(target.name)));
+}
+
+function questionNeeds(question: string) {
+  const q = normalizedText(question);
+  return {
+    quantity: /khối lượng|khoi luong|m2|m²|m3|m³|sản lượng|san luong/.test(q),
+    crew: /quân số|quan so|nhân công|nhan cong|công nhật|cong nhat|ngày công|ngay cong/.test(q),
+    progress: /tầng|tang|căn|can|phòng|phong|hạng mục|hang muc|tiến độ|tien do/.test(q),
+    defects: /defect|lỗi|loi|tồn tại|ton tai/.test(q),
+  };
+}
+
+function rawRoomRows(snapshot: HnlAiProjectSnapshot, targets: Array<{ id: string; name: string }>) {
+  return active(snapshot.rooms)
+    .map((room) => ({
       id: room.id,
-      floorId: room.floorId,
+      floorId: room.floorId || '',
       floorName: safeText(room.floorName || ''),
       roomName: safeText(room.roomName),
       workCategoryId: room.workCategoryId || '',
@@ -243,17 +236,52 @@ export function buildExternalAiProjectContext(
         workCategoryId: item.workCategoryId || '',
         teamId: item.teamId || '',
         assignedTeam: safeText(item.assignedTeam || ''),
+        workVolume: finiteNumber(item.workVolume),
+        volumeUnit: safeText(item.volumeUnit || ''),
         status: item.status,
         inspectionStatus: item.inspectionStatus || '',
         targetDate: item.targetDate || '',
       })),
-    })));
-  }
+    }))
+    .filter((room) => targets.length === 0 || isTeamMatch(room, targets) || room.subItems.some((item) => isTeamMatch(item, targets)));
+}
 
+function rawCrewRows(snapshot: HnlAiProjectSnapshot, targets: Array<{ id: string; name: string }>) {
+  return active(snapshot.crewRecords)
+    .map((item) => ({
+      id: item.id,
+      teamId: item.teamId || '',
+      teamName: safeText(item.teamName),
+      date: item.date,
+      morningCount: item.morningCount ?? null,
+      afternoonCount: item.afternoonCount ?? null,
+      eveningCount: item.eveningCount ?? null,
+      workerCount: item.workerCount,
+      floorId: item.floorId || '',
+      floorName: safeText(item.floorName || ''),
+      floorWorks: item.floorWorks || [],
+      taskDescription: safeText(item.taskDescription),
+      shift: item.shift || '',
+      notes: safeText(item.notes || ''),
+    }))
+    .filter((row) => isTeamMatch(row, targets));
+}
+
+export function buildExternalAiProjectContext(snapshot: HnlAiProjectSnapshot, selection: ExternalAiDataSelection) {
+  const result: Record<string, unknown> = {
+    project: { id: snapshot.projectId, name: safeText(snapshot.projectName || ''), asOf: snapshot.asOf, freshness: snapshot.freshness },
+    privacy: 'read-only sanitized HNL project context; credentials/contact data excluded',
+  };
+
+  if (selection.progress) {
+    result.teams = active(snapshot.teams).map((team) => ({ id: team.id, name: safeText(team.name) }));
+    result.floors = active(snapshot.floors).map((floor) => ({ id: floor.id, name: safeText(floor.floorName) }));
+    result.rooms = capped(rawRoomRows(snapshot, []));
+  }
   if (selection.quantities) {
-    const quantityRows = buildQuantityRows(snapshot);
-    result.quantitySummaryByTeamAndCategory = capped(buildQuantitySummary(quantityRows));
-    result.quantityDetails = capped(quantityRows);
+    const rows = buildQuantityRows(snapshot);
+    result.quantityDetails = capped(rows);
+    result.quantitySummaryByTeamAndCategory = capped(buildQuantitySummary(rows));
     result.workVolumes = capped(active(snapshot.workVolumes).map((item) => ({
       id: item.id,
       workCategoryId: item.workCategoryId || '',
@@ -267,9 +295,7 @@ export function buildExternalAiProjectContext(
       status: item.status,
       dueDate: item.dueDate || '',
     })));
-    result.quantitySemantics = 'Current project quantity snapshot. Team attribution is included only when it is explicit at room/sub-item level or unambiguous for that category. updatedAt is last modification time, not proof that quantity was executed on that date. Do not invent, estimate, or produce sample quantities. Do not claim date-range executed quantity unless dated source records support it.';
   }
-
   if (selection.defects) {
     result.defects = capped(active(snapshot.defects).map((item) => ({
       id: item.id,
@@ -287,69 +313,70 @@ export function buildExternalAiProjectContext(
       createdAt: item.createdAt,
     })));
   }
-
-  if (selection.crew) {
-    result.crew = capped(active(snapshot.crewRecords).map((item) => ({
-      id: item.id,
-      teamId: item.teamId || '',
-      teamName: safeText(item.teamName),
-      date: item.date,
-      morningCount: item.morningCount ?? null,
-      afternoonCount: item.afternoonCount ?? null,
-      eveningCount: item.eveningCount ?? null,
-      workerCount: item.workerCount,
-      floorId: item.floorId || '',
-      floorName: safeText(item.floorName || ''),
-      floorWorks: item.floorWorks || [],
-      taskDescription: safeText(item.taskDescription),
-      shift: item.shift || '',
-      notes: safeText(item.notes || ''),
-    })));
-  }
-
+  if (selection.crew) result.crew = capped(rawCrewRows(snapshot, []));
   if (selection.inventory) {
     result.inventory = capped(active(snapshot.inventory).map((item) => ({
-      id: item.id,
-      type: item.type,
-      materialId: item.materialId || '',
-      materialName: safeText(item.materialName),
-      unit: safeText(item.unit),
-      quantity: item.quantity,
-      location: safeText(item.location),
-      date: item.date,
-      notes: safeText(item.notes || ''),
+      id: item.id, type: item.type, materialId: item.materialId || '', materialName: safeText(item.materialName), unit: safeText(item.unit), quantity: item.quantity, location: safeText(item.location), date: item.date, notes: safeText(item.notes || ''),
     })));
     result.materialNorms = capped(active(snapshot.materialNorms).map((item) => ({
-      id: item.id,
-      materialId: item.materialId || '',
-      category: safeText(item.category),
-      workCategory: safeText(item.workCategory || ''),
-      workCategoryId: item.workCategoryId || '',
-      materialName: safeText(item.materialName),
-      unit: safeText(item.unit),
-      quotaQuantity: item.quotaQuantity,
-      unitNormPerM2: item.unitNormPerM2 ?? null,
-      normBasisUnit: safeText(item.normBasisUnit || ''),
+      id: item.id, materialId: item.materialId || '', category: safeText(item.category), workCategory: safeText(item.workCategory || ''), workCategoryId: item.workCategoryId || '', materialName: safeText(item.materialName), unit: safeText(item.unit), quotaQuantity: item.quotaQuantity, unitNormPerM2: item.unitNormPerM2 ?? null, normBasisUnit: safeText(item.normBasisUnit || ''),
     })));
   }
-
   if (selection.checklist) {
     result.checklist = capped(active(snapshot.checklist).map((item) => ({
+      id: item.id, floorId: item.floorId || '', floorName: safeText(item.floorName), roomId: item.roomId || '', teamId: item.teamId || '', category: safeText(item.category), title: safeText(item.title), status: item.status, dueDate: item.dueDate || '', notes: safeText(item.notes || ''), inspectedAt: item.inspectedAt || '',
+    })));
+  }
+  return result;
+}
+
+function buildQuestionFocusedContext(question: string, snapshot: HnlAiProjectSnapshot, selection: ExternalAiDataSelection) {
+  const targets = detectMentionedTeams(question, snapshot);
+  const needs = questionNeeds(question);
+  const context = buildExternalAiProjectContext(snapshot, selection) as Record<string, any>;
+
+  context.aiContract = {
+    role: 'HNL supplies factual raw records; AI filters, groups, calculates and presents.',
+    calculation: 'AI may calculate sums/counts/ratios only from supplied raw rows. Never invent missing rows or sample quantities.',
+    grounding: 'Every numeric conclusion must be traceable to one or more supplied rows. Preserve unit and entity scope (team/floor/category/item/date).',
+    historicalQuantity: 'Quantity is a current snapshot unless a dated immutable quantity ledger exists. Do not assign snapshot quantity to a past date range.',
+  };
+
+  if (targets.length > 0) context.requestedTeams = targets;
+
+  if (selection.quantities && (needs.quantity || targets.length > 0)) {
+    const allQuantityRows = buildQuantityRows(snapshot);
+    const rows = targets.length > 0 ? allQuantityRows.filter((row) => isTeamMatch(row, targets)) : allQuantityRows;
+    context.quantityDetails = capped(rows, 72);
+    context.quantityValidationTotals = capped(buildQuantitySummary(rows), 48);
+  }
+
+  if (selection.crew && (needs.crew || targets.length > 0)) {
+    context.crew = capped(rawCrewRows(snapshot, targets), 72);
+  }
+
+  if (selection.progress && (needs.progress || targets.length > 0)) {
+    context.rooms = capped(rawRoomRows(snapshot, targets), 48);
+  }
+
+  if (selection.defects && (needs.defects || targets.length > 0)) {
+    const defects = active(snapshot.defects).map((item) => ({
       id: item.id,
-      floorId: item.floorId || '',
+      floorId: item.floorId,
       floorName: safeText(item.floorName),
       roomId: item.roomId || '',
       teamId: item.teamId || '',
       category: safeText(item.category),
-      title: safeText(item.title),
+      description: safeText(item.description),
+      severity: item.severity,
       status: item.status,
       dueDate: item.dueDate || '',
-      notes: safeText(item.notes || ''),
-      inspectedAt: item.inspectedAt || '',
-    })));
+      completedAt: item.completedAt || '',
+    }));
+    context.defects = capped(targets.length > 0 ? defects.filter((row) => isTeamMatch(row, targets)) : defects, 48);
   }
 
-  return result;
+  return context;
 }
 
 function compactCappedRows(context: Record<string, any>, rowLimit: number) {
@@ -364,33 +391,25 @@ function compactCappedRows(context: Record<string, any>, rowLimit: number) {
   }
 }
 
-/** Serialize one external-AI question under the gateway's per-message limit. */
-export function buildExternalAiQuestionPayload(
-  question: string,
-  snapshot: HnlAiProjectSnapshot,
-  selection: ExternalAiDataSelection,
-): string {
-  const context = buildExternalAiProjectContext(snapshot, selection) as Record<string, any>;
+export function buildExternalAiQuestionPayload(question: string, snapshot: HnlAiProjectSnapshot, selection: ExternalAiDataSelection): string {
+  const context = buildQuestionFocusedContext(question, snapshot, selection) as Record<string, any>;
   const payload = { question: safeText(question), hnlContext: context };
   let serialized = JSON.stringify(payload);
   if (serialized.length <= MAX_EXTERNAL_MESSAGE_CHARS) return serialized;
 
-  compactCappedRows(context, 12);
+  compactCappedRows(context, 24);
   if (Array.isArray(context.teams)) context.teams = context.teams.slice(0, 30);
   if (Array.isArray(context.floors)) context.floors = context.floors.slice(0, 30);
   serialized = JSON.stringify(payload);
   if (serialized.length <= MAX_EXTERNAL_MESSAGE_CHARS) return serialized;
 
-  compactCappedRows(context, 6);
+  compactCappedRows(context, 12);
   serialized = JSON.stringify(payload);
   if (serialized.length <= MAX_EXTERNAL_MESSAGE_CHARS) return serialized;
 
-  // Final safety mode preserves aggregate quantities and top rows but drops verbose room details.
   if (context.rooms) delete context.rooms;
-  if (context.quantityDetails) {
-    context.quantityDetails.rows = (context.quantityDetails.rows || []).slice(0, 4);
-    context.quantityDetails.truncated = true;
-  }
+  if (context.workVolumes) delete context.workVolumes;
+  compactCappedRows(context, 8);
   serialized = JSON.stringify(payload);
   if (serialized.length <= MAX_EXTERNAL_MESSAGE_CHARS) return serialized;
 
