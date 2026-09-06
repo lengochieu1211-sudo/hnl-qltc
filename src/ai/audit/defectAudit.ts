@@ -31,9 +31,10 @@ export interface AuditDefectLinksParams {
 }
 
 /**
- * Read-only deterministic audit of durable Defect -> room/floor/team links.
- * A Defect assigned to a team different from the Room is REVIEW, not ERROR, because
- * per-defect assignment may be intentional. The audit never mutates or reconciles data.
+ * Read-only deterministic audit of durable Defect -> room/floor/team links and
+ * cross-field lifecycle consistency. A Defect assigned to a team different from
+ * the Room is REVIEW, not ERROR, because per-defect assignment may be intentional.
+ * The audit never mutates or reconciles data.
  */
 export function auditDefectLinks(params: AuditDefectLinksParams): AiToolResult<AiAuditSummary> {
   const {
@@ -72,8 +73,42 @@ export function auditDefectLinks(params: AuditDefectLinksParams): AiToolResult<A
       collection: 'defects',
       recordId: defect.id,
       label: defect.description || defect.id,
-      fieldPaths: ['floorId', 'roomId', 'teamId', 'assignedTo', 'x', 'y', 'status'],
+      fieldPaths: ['floorId', 'roomId', 'teamId', 'assignedTo', 'x', 'y', 'status', 'completedAt', 'dueDate', 'createdAt'],
     });
+
+    if (defect.status === 'Mới phát hiện' && String(defect.completedAt || '').trim()) {
+      issues.push({
+        ruleId: 'DEFECT_OPEN_WITH_COMPLETED_AT',
+        severity: 'ERROR',
+        entityType: 'defect',
+        entityId: defect.id,
+        message: `Defect ${defect.description || defect.id} đang ở trạng thái “Mới phát hiện” nhưng đã có ngày hoàn thành ${defect.completedAt}.`,
+        evidenceIds: [defectEv],
+        details: {
+          status: defect.status,
+          completedAt: defect.completedAt,
+          assignedTo: defect.assignedTo,
+          floorName: defect.floorName,
+          actionClass: 'NEEDS_CONFIRMATION',
+        },
+      });
+    } else if (defect.status === 'Đang sửa' && String(defect.completedAt || '').trim()) {
+      issues.push({
+        ruleId: 'DEFECT_IN_PROGRESS_WITH_COMPLETED_AT',
+        severity: 'REVIEW',
+        entityType: 'defect',
+        entityId: defect.id,
+        message: `Defect ${defect.description || defect.id} đang ở trạng thái “Đang sửa” nhưng đã có ngày hoàn thành ${defect.completedAt}; cần xác nhận trạng thái hoặc ngày hoàn thành.`,
+        evidenceIds: [defectEv],
+        details: {
+          status: defect.status,
+          completedAt: defect.completedAt,
+          assignedTo: defect.assignedTo,
+          floorName: defect.floorName,
+          actionClass: 'NEEDS_CONFIRMATION',
+        },
+      });
+    }
 
     const floor = floorById.get(defect.floorId);
     if (!floor) {
@@ -104,7 +139,7 @@ export function auditDefectLinks(params: AuditDefectLinksParams): AiToolResult<A
           entityId: defect.id,
           message: `Defect ${defect.id} chưa có roomId nhưng tọa độ nằm trong ${candidate.roomName}.`,
           evidenceIds: [defectEv, ev('rooms', candidate.id)],
-          details: { candidateRoomId: candidate.id },
+          details: { candidateRoomId: candidate.id, actionClass: 'SAFE_REPAIR_CANDIDATE' },
         });
       } else if (pointCandidates.length > 1) {
         pointCandidates.forEach((candidate) => addEvidence({ id: ev('rooms', candidate.id), collection: 'rooms', recordId: candidate.id, label: candidate.roomName }));
@@ -115,7 +150,7 @@ export function auditDefectLinks(params: AuditDefectLinksParams): AiToolResult<A
           entityId: defect.id,
           message: `Defect ${defect.id} nằm trong nhiều vùng căn/phòng; không được tự chọn roomId.`,
           evidenceIds: [defectEv, ...pointCandidates.map((candidate) => ev('rooms', candidate.id))],
-          details: { candidateRoomIds: pointCandidates.map((candidate) => candidate.id) },
+          details: { candidateRoomIds: pointCandidates.map((candidate) => candidate.id), actionClass: 'NEEDS_CONFIRMATION' },
         });
       }
     } else {
@@ -155,7 +190,7 @@ export function auditDefectLinks(params: AuditDefectLinksParams): AiToolResult<A
             entityId: defect.id,
             message: `Tọa độ ghim của Defect ${defect.id} không nằm trong roomId đang lưu.`,
             evidenceIds: [defectEv, roomEv, ...pointCandidates.map((candidate) => ev('rooms', candidate.id))],
-            details: { linkedRoomId: linkedRoom.id, candidateRoomIds: pointCandidates.map((candidate) => candidate.id) },
+            details: { linkedRoomId: linkedRoom.id, candidateRoomIds: pointCandidates.map((candidate) => candidate.id), actionClass: 'NEEDS_CONFIRMATION' },
           });
         }
       }
@@ -188,7 +223,7 @@ export function auditDefectLinks(params: AuditDefectLinksParams): AiToolResult<A
             entityId: defect.id,
             message: `Defect ${defect.id} có teamId và assignedTo trỏ tới hai đội khác nhau.`,
             evidenceIds: [defectEv, teamEv, assignedEv],
-            details: { teamId: linkedTeam.id, teamName: linkedTeam.name, assignedTo: defect.assignedTo, assignedToTeamId: assignedResolution.team.id },
+            details: { teamId: linkedTeam.id, teamName: linkedTeam.name, assignedTo: defect.assignedTo, assignedToTeamId: assignedResolution.team.id, actionClass: 'NEEDS_CONFIRMATION' },
           });
         }
 
@@ -204,7 +239,7 @@ export function auditDefectLinks(params: AuditDefectLinksParams): AiToolResult<A
             entityId: defect.id,
             message: `Đội xử lý Defect ${defect.id} khác đội mặc định của căn/phòng; cần xác nhận đây là phân công có chủ ý.`,
             evidenceIds: [defectEv, ev('rooms', linkedRoom.id), teamEv, ev('teams', roomTeam.id)],
-            details: { defectTeamId: linkedTeam.id, roomTeamId: roomTeam.id, roomId: linkedRoom.id },
+            details: { defectTeamId: linkedTeam.id, roomTeamId: roomTeam.id, roomId: linkedRoom.id, actionClass: 'NEEDS_CONFIRMATION' },
           });
         }
       }
@@ -219,7 +254,7 @@ export function auditDefectLinks(params: AuditDefectLinksParams): AiToolResult<A
           entityId: defect.id,
           message: `Defect ${defect.id} có assignedTo hợp lệ nhưng chưa lưu durable teamId.`,
           evidenceIds: [defectEv, ev('teams', resolution.team.id)],
-          details: { assignedTo: defect.assignedTo, candidateTeamId: resolution.team.id },
+          details: { assignedTo: defect.assignedTo, candidateTeamId: resolution.team.id, actionClass: 'SAFE_REPAIR_CANDIDATE' },
         });
       } else if (resolution.status === 'ambiguous') {
         resolution.candidates.forEach((candidate) => addEvidence({ id: ev('teams', candidate.id), collection: 'teams', recordId: candidate.id, label: candidate.name }));
@@ -230,7 +265,7 @@ export function auditDefectLinks(params: AuditDefectLinksParams): AiToolResult<A
           entityId: defect.id,
           message: `assignedTo của Defect ${defect.id} khớp gần nhiều đội; không được tự chọn teamId.`,
           evidenceIds: [defectEv, ...resolution.candidates.map((candidate) => ev('teams', candidate.id))],
-          details: { assignedTo: defect.assignedTo, candidateTeamIds: resolution.candidates.map((candidate) => candidate.id) },
+          details: { assignedTo: defect.assignedTo, candidateTeamIds: resolution.candidates.map((candidate) => candidate.id), actionClass: 'NEEDS_CONFIRMATION' },
         });
       }
     }
@@ -245,7 +280,7 @@ export function auditDefectLinks(params: AuditDefectLinksParams): AiToolResult<A
 
   const facts: AiFact[] = [
     { id: 'defect-audit:scanned', kind: 'CALCULATED', label: 'Defect đã kiểm tra', value: auditedDefects.length, unit: 'record' },
-    { id: 'defect-audit:errors', kind: 'CALCULATED', label: 'Lỗi liên kết', value: data.errorCount, unit: 'issue' },
+    { id: 'defect-audit:errors', kind: 'CALCULATED', label: 'Lỗi liên kết / trạng thái', value: data.errorCount, unit: 'issue' },
     { id: 'defect-audit:warnings', kind: 'CALCULATED', label: 'Cảnh báo', value: data.warningCount, unit: 'issue' },
     { id: 'defect-audit:review', kind: 'CALCULATED', label: 'Cần rà soát', value: data.reviewCount, unit: 'issue' },
   ];
@@ -264,13 +299,14 @@ export function auditDefectLinks(params: AuditDefectLinksParams): AiToolResult<A
       asOf,
       freshness,
       permissionRole: context.role,
-      dataVersion: 'hnl-ai-core-v1',
+      dataVersion: 'hnl-ai-audit-v3',
     },
     warnings: [],
     assumptions: [
       'Các collection truyền vào audit phải đã được adapter giới hạn trong đúng projectId hiện tại.',
       'Defect.teamId khác Room.teamId là REVIEW, không tự kết luận sai vì Defect có thể được giao riêng cho đội khác.',
-      'Audit chỉ đọc và phát hiện; không tự sửa roomId/teamId/floorId.',
+      'completedAt trên Defect đang mở là mâu thuẫn nghiệp vụ cần người dùng xác nhận; Audit không tự đổi trạng thái hoặc ngày.',
+      'Audit chỉ đọc và phát hiện; không tự sửa roomId/teamId/floorId/trạng thái.',
     ],
   };
 }
