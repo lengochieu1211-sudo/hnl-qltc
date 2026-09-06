@@ -1,6 +1,5 @@
-const swUrl = new URL(self.location.href);
-const SW_VERSION = swUrl.searchParams.get('v') || 'dev';
-const SW_BUILD_ID = swUrl.searchParams.get('build') || 'unknown-build';
+const SW_VERSION = new URL(self.location.href).searchParams.get('v') || 'dev';
+const SW_BUILD_ID = new URL(self.location.href).searchParams.get('build') || 'unknown-build';
 const CACHE_NAME = `hnl-thi-cong-cache-${SW_VERSION}-${SW_BUILD_ID}`;
 
 // Essential App Shell Resources
