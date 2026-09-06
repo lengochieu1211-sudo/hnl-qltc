@@ -158,7 +158,8 @@ jobs:
           unzip -t "$OUT/HNL-QLTC-DEV-PATCH-2026-09-06.zip" >/dev/null
           unzip -t "$OUT/HNL-QLTC-DEV-FULL-SOURCE-2026-09-06.zip" >/dev/null
           test -s "$OUT/HNL-QLTC-DEV-FINAL-REPORT-2026-09-06.md"
-          sha256sum "$OUT"/*.zip "$OUT"/*.md > "$OUT/SHA256SUMS.txt"
+          (cd "$OUT" && sha256sum *.zip *.md > SHA256SUMS.txt)
+          (cd "$OUT" && sha256sum -c SHA256SUMS.txt)
           ls -lh "$OUT"
 
       - name: Upload final deliverables
