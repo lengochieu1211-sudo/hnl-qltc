@@ -2,6 +2,7 @@ import type { DefectItem, CrewRecord, RoomProgressItem } from '../types';
 import type { AiQueryContext, AiAuditIssue } from '../ai/core/contracts';
 import type { HnlAiProjectSnapshot } from '../ai/data/projectSnapshot';
 import { auditProjectIntegrity } from '../ai/audit/projectAudit';
+import { normalizeEntityText } from '../ai/core/entityResolver';
 import type { RuntimeDiagnosticEntry } from '../lib/runtimeDiagnostics';
 
 export type HealthCenterModule =
@@ -75,13 +76,39 @@ function active<T extends { deletedAt?: number | null }>(items: readonly T[]): T
   return items.filter((item) => item.deletedAt === undefined || item.deletedAt === null);
 }
 
+function canonicalDateParts(year: number, month: number, day: number): string {
+  const parsed = new Date(year, month - 1, day);
+  if (parsed.getFullYear() !== year || parsed.getMonth() !== month - 1 || parsed.getDate() !== day) return '';
+  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+/**
+ * Health Center business dates follow HNL/Vietnam DMY semantics for slash/dash
+ * display strings. Do not delegate ambiguous dd/mm/yyyy strings to JS Date,
+ * because e.g. "15:22:15 11/8/2026" can otherwise be interpreted as Nov 8.
+ */
 function normalizeDate(value: unknown): string {
-  const raw = String(value || '').trim();
+  if (value === null || value === undefined || value === '') return '';
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const millis = value > 1e12 ? value : value > 1e9 ? value * 1000 : NaN;
+    if (Number.isFinite(millis)) {
+      const parsed = new Date(millis);
+      return Number.isFinite(parsed.getTime()) ? parsed.toISOString().slice(0, 10) : '';
+    }
+  }
+  if (typeof value === 'object') {
+    const seconds = Number((value as { seconds?: unknown }).seconds);
+    if (Number.isFinite(seconds) && seconds > 0) {
+      const parsed = new Date(seconds * 1000);
+      return Number.isFinite(parsed.getTime()) ? parsed.toISOString().slice(0, 10) : '';
+    }
+  }
+  const raw = String(value).trim();
   if (!raw) return '';
-  const canonical = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (canonical) return `${canonical[1]}-${canonical[2]}-${canonical[3]}`;
-  const dmy = raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
-  if (dmy) return `${dmy[3]}-${String(Number(dmy[2])).padStart(2, '0')}-${String(Number(dmy[1])).padStart(2, '0')}`;
+  const canonical = raw.match(/(?:^|\s)(\d{4})-(\d{2})-(\d{2})(?:[T\s]|$)/);
+  if (canonical) return canonicalDateParts(Number(canonical[1]), Number(canonical[2]), Number(canonical[3]));
+  const dmy = raw.match(/(?:^|\s)(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})(?:\s|$)/);
+  if (dmy) return canonicalDateParts(Number(dmy[3]), Number(dmy[2]), Number(dmy[1]));
   const parsed = new Date(raw);
   return Number.isFinite(parsed.getTime()) ? parsed.toISOString().slice(0, 10) : '';
 }
@@ -109,6 +136,20 @@ function defaultActionClass(issue: AiAuditIssue): HealthCenterActionClass {
   return 'READ_ONLY';
 }
 
+function roomFromIssue(issue: AiAuditIssue, rooms: Map<string, RoomProgressItem>): RoomProgressItem | undefined {
+  const direct = rooms.get(issue.entityId);
+  if (direct) return direct;
+  const detailRoomId = String(issue.details?.roomId || '').trim();
+  if (detailRoomId && rooms.has(detailRoomId)) return rooms.get(detailRoomId);
+  for (const evidenceId of issue.evidenceIds || []) {
+    if (!evidenceId.startsWith('rooms:')) continue;
+    const id = evidenceId.slice('rooms:'.length);
+    if (rooms.has(id)) return rooms.get(id);
+  }
+  const prefix = issue.entityId.split(':')[0];
+  return rooms.get(prefix);
+}
+
 function buildLocation(issue: AiAuditIssue, snapshot: HnlAiProjectSnapshot): HealthCenterLocation {
   const details = issue.details || {};
   const floors = new Map(active(snapshot.floors).map((x) => [x.id, x]));
@@ -125,10 +166,43 @@ function buildLocation(issue: AiAuditIssue, snapshot: HnlAiProjectSnapshot): Hea
     shift: String(details.shift || '').trim() || undefined,
     workItem: String(details.workItem || details.categoryName || '').trim() || undefined,
   };
+  const issueRoom = roomFromIssue(issue, rooms);
+  if (issueRoom) {
+    location.roomId ||= issueRoom.id;
+    location.roomName ||= issueRoom.roomName;
+    location.floorId ||= issueRoom.floorId;
+    location.floorName ||= issueRoom.floorName;
+    location.teamId ||= issueRoom.teamId;
+    location.teamName ||= issueRoom.assignedTeam;
+  }
   if (location.floorId && !location.floorName) location.floorName = floors.get(location.floorId)?.floorName;
   if (location.teamId && !location.teamName) location.teamName = teams.get(location.teamId)?.name;
   if (location.roomId && !location.roomName) location.roomName = rooms.get(location.roomId)?.roomName;
   return location;
+}
+
+function recordHasMultiFloorSummary(record: CrewRecord, snapshot: HnlAiProjectSnapshot): boolean {
+  const activeFloors = active(snapshot.floors);
+  const floorWorkIds = new Set((record.floorWorks || []).map((work) => String(work.floorId || '').trim()).filter(Boolean));
+  if (floorWorkIds.size > 1) return true;
+
+  const rawNames = String(record.floorName || '')
+    .split(/[,;|]/)
+    .map((part) => normalizeEntityText(part))
+    .filter(Boolean);
+  if (rawNames.length < 2) return false;
+  const knownNames = new Set(activeFloors.map((floor) => normalizeEntityText(floor.floorName)));
+  return new Set(rawNames.filter((name) => knownNames.has(name))).size > 1;
+}
+
+function suppressCoreIssue(issue: AiAuditIssue, snapshot: HnlAiProjectSnapshot): boolean {
+  if (issue.ruleId !== 'CREW_FLOOR_ID_NAME_MISMATCH' || issue.entityType !== 'crew') return false;
+  const record = active(snapshot.crewRecords).find((item) => item.id === issue.entityId);
+  if (!record || !recordHasMultiFloorSummary(record, snapshot)) return false;
+  const currentFloorName = normalizeEntityText(String(issue.details?.currentFloorName || ''));
+  const savedNames = String(record.floorName || '').split(/[,;|]/).map((part) => normalizeEntityText(part)).filter(Boolean);
+  const floorWorkNames = (record.floorWorks || []).map((work) => normalizeEntityText(String(work.floorName || ''))).filter(Boolean);
+  return Boolean(currentFloorName) && [...savedNames, ...floorWorkNames].includes(currentFloorName);
 }
 
 function wrapCoreIssue(issue: AiAuditIssue, snapshot: HnlAiProjectSnapshot, index: number): HealthCenterIssue {
@@ -382,7 +456,9 @@ function dedupeIssues(items: HealthCenterIssue[]): HealthCenterIssue[] {
 export function buildHealthCenterReport(params: BuildHealthCenterParams): HealthCenterSummary {
   const { context, snapshot, runtimeLog = [] } = params;
   const core = auditProjectIntegrity({ context, snapshot });
-  const coreIssues = (core.data?.issues || []).map((issue, index) => wrapCoreIssue(issue, snapshot, index));
+  const coreIssues = (core.data?.issues || [])
+    .filter((issue) => !suppressCoreIssue(issue, snapshot))
+    .map((issue, index) => wrapCoreIssue(issue, snapshot, index));
   const issues = dedupeIssues([
     ...coreIssues,
     ...defectLifecycleIssues([...snapshot.defects]),
