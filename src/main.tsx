@@ -8,22 +8,86 @@ import { cleanupTransientLocalStorage, estimateLocalStorageBytes } from './utils
 import { migrateAndCleanLocalStorage } from './utils/migrateStorage';
 import { appendRuntimeDiagnostic } from './lib/runtimeDiagnostics';
 
+declare const __BUILD_ID__: string;
+
+const STALE_ASSET_PATTERN = /(failed to fetch dynamically imported module|importing a module script failed|chunkloaderror|loading chunk .* failed|failed to load module script)/i;
+let staleAssetRecoveryStarted = false;
+
+function getErrorMessage(reason: unknown): string {
+  if (reason instanceof Error) return `${reason.name}: ${reason.message}`;
+  if (typeof reason === 'string') return reason;
+  try {
+    return JSON.stringify(reason);
+  } catch {
+    return String(reason || 'Unknown error');
+  }
+}
+
+function maybeRecoverFromStaleDeployment(reason: unknown): boolean {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  if (staleAssetRecoveryStarted || !navigator.onLine) return false;
+
+  const message = getErrorMessage(reason);
+  if (!STALE_ASSET_PATTERN.test(message)) return false;
+
+  const buildId = typeof __BUILD_ID__ === 'string' && __BUILD_ID__ ? __BUILD_ID__ : 'unknown-build';
+  const recoveryKey = `hnl:stale-asset-recovery:${buildId}`;
+  try {
+    if (window.sessionStorage.getItem(recoveryKey) === '1') return false;
+    window.sessionStorage.setItem(recoveryKey, '1');
+  } catch {
+    // sessionStorage can be unavailable in hardened/private browser modes. The in-memory
+    // flag below still prevents a reload loop for the current document.
+  }
+
+  staleAssetRecoveryStarted = true;
+  appendRuntimeDiagnostic({
+    level: 'warn',
+    area: 'bootstrap',
+    code: 'STALE_ASSET_RECOVERY',
+    message: `Phát hiện asset của bản cũ sau deploy; tự tải lại an toàn một lần. build=${buildId} | ${message}`,
+  });
+
+  const reloadLatest = () => {
+    // A cache-busting query ensures any intermediary/browser HTML cache is bypassed. The
+    // application router ignores this parameter, and the next build gets a different key.
+    const next = new URL(window.location.href);
+    next.searchParams.set('_hnl_build_refresh', buildId);
+    window.location.replace(next.toString());
+  };
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistration()
+      .then(async (registration) => {
+        if (registration) await registration.update();
+      })
+      .catch(() => undefined)
+      .finally(reloadLatest);
+  } else {
+    reloadLatest();
+  }
+  return true;
+}
+
 if (typeof window !== 'undefined') {
   window.addEventListener('error', (event) => {
+    const message = `${event.message || 'Unknown error'}${event.filename ? ` | ${event.filename}:${event.lineno || 0}:${event.colno || 0}` : ''}`;
+    if (maybeRecoverFromStaleDeployment(message)) return;
     appendRuntimeDiagnostic({
       level: 'error',
       area: 'window-error',
       code: 'UNCAUGHT_ERROR',
-      message: `${event.message || 'Unknown error'}${event.filename ? ` | ${event.filename}:${event.lineno || 0}:${event.colno || 0}` : ''}`,
+      message,
     });
   });
   window.addEventListener('unhandledrejection', (event) => {
     const reason = event.reason;
+    if (maybeRecoverFromStaleDeployment(reason)) return;
     appendRuntimeDiagnostic({
       level: 'error',
       area: 'unhandled-rejection',
       code: 'UNHANDLED_REJECTION',
-      message: reason instanceof Error ? `${reason.name}: ${reason.message}` : String(reason || 'Unknown rejection'),
+      message: getErrorMessage(reason),
     });
   });
 }
@@ -193,7 +257,8 @@ async function bootstrap() {
 
 bootstrap().catch((err) => {
   console.error('Application bootstrap failed:', err);
-  appendRuntimeDiagnostic({ level: 'error', area: 'bootstrap', message: err instanceof Error ? `${err.name}: ${err.message}` : String(err) });
+  if (maybeRecoverFromStaleDeployment(err)) return;
+  appendRuntimeDiagnostic({ level: 'error', area: 'bootstrap', message: getErrorMessage(err) });
   const root = document.getElementById('root');
   if (root) {
     root.innerHTML = '<div style="padding:24px;font-family:system-ui;color:#991b1b">Không thể khởi động ứng dụng. Hãy tải lại trang.</div>';
