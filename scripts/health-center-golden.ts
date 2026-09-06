@@ -7,7 +7,10 @@ import type { ChecklistItem, CrewRecord, DefectItem, FloorPlan, InventoryItem, M
 const projectId = 'health-center-golden';
 const context: AiQueryContext = { projectId, role: 'ADMIN', accessVerified: true, timeZone: 'Asia/Ho_Chi_Minh' };
 const teams: TeamInfo[] = [{ id: 'team-nguyen', name: 'Đội Nguyên', leader: 'Nguyên', defaultCount: 8 }];
-const floors: FloorPlan[] = [{ id: 'f1', floorName: 'Tầng 1', imageUrl: '', uploadedAt: '2026-09-06' }];
+const floors: FloorPlan[] = [
+  { id: 'f1', floorName: 'Tầng 1', imageUrl: '', uploadedAt: '2026-09-06' },
+  { id: 'f3', floorName: 'Tầng 3', imageUrl: '', uploadedAt: '2026-09-06' },
+];
 const rooms: RoomProgressItem[] = [{
   id: 'r1', floorId: 'f1', floorName: 'Tầng 1', roomName: 'A101', x: 0, y: 0, width: 20, height: 20,
   frameStatus: 'Đã hoàn thành', boardStatus: 'Đang làm', inspectionStatus: 'Chưa nghiệm thu', updatedAt: 1,
@@ -21,10 +24,19 @@ const defects: DefectItem[] = [
   { id: 'd-open', floorId: 'f1', floorName: 'Tầng 1', roomId: 'r1', teamId: 'team-nguyen', x: 10, y: 10, category: 'Tấm thạch cao', description: 'Mới nhưng có ngày xong', severity: 'Trung bình', assignedTo: 'Đội Nguyên', status: 'Mới phát hiện', createdAt: '2026-09-05', completedAt: '2026-09-06' },
   { id: 'd-closed', floorId: 'f1', floorName: 'Tầng 1', roomId: 'r1', teamId: 'team-nguyen', x: 10, y: 10, category: 'Tấm thạch cao', description: 'Đã khắc phục thiếu ngày xong', severity: 'Trung bình', assignedTo: 'Đội Nguyên', status: 'Đã khắc phục', createdAt: '2026-09-05' },
   { id: 'd-date', floorId: 'f1', floorName: 'Tầng 1', roomId: 'r1', teamId: 'team-nguyen', x: 10, y: 10, category: 'Tấm thạch cao', description: 'Ngày hoàn thành trước ngày tạo', severity: 'Trung bình', assignedTo: 'Đội Nguyên', status: 'Đã nghiệm thu', createdAt: '2026-09-06', completedAt: '2026-09-05' },
+  { id: 'd-vn-date', floorId: 'f1', floorName: 'Tầng 1', roomId: 'r1', teamId: 'team-nguyen', x: 10, y: 10, category: 'Khác', description: 'Ngày Việt Nam có tiền tố giờ', severity: 'Trung bình', assignedTo: 'Đội Nguyên', status: 'Đã nghiệm thu', createdAt: '15:22:15 11/8/2026', completedAt: '2026-08-15', dueDate: '15/08/2026' },
 ];
 const crewRecords: CrewRecord[] = [
   { id: 'c-empty-detail', teamId: 'team-nguyen', date: '2026-09-06', teamName: 'Đội Nguyên', leaderName: 'Nguyên', workerCount: 8, floorId: 'f1', floorName: 'Tầng 1', taskDescription: '[Tầng 1]: Thi công trần C04 ()' },
   { id: 'c-floorwork', teamId: 'team-nguyen', date: '2026-09-06', teamName: 'Đội Nguyên', leaderName: 'Nguyên', workerCount: 8, taskDescription: 'Thi công', floorWorks: [{ floorId: 'missing-floor', floorName: 'Tầng mất', categories: [{ categoryName: '', subItems: [] }] }] },
+  {
+    id: 'c-multi-floor', teamId: 'team-nguyen', date: '2026-08-11', teamName: 'Đội Nguyên', leaderName: 'Nguyên', workerCount: 8,
+    floorId: 'f1', floorName: 'Tầng 1, Tầng 3', taskDescription: '[Tầng 1]: Thi công vách | [Tầng 3]: Thi công trần',
+    floorWorks: [
+      { floorId: 'f1', floorName: 'Tầng 1', categories: [{ categoryName: 'Vách', subItems: [] }] },
+      { floorId: 'f3', floorName: 'Tầng 3', categories: [{ categoryName: 'Trần', subItems: [] }] },
+    ],
+  },
 ];
 const workVolumes: WorkVolume[] = [];
 const inventory: InventoryItem[] = [{ id: 'inv-zero', type: 'out', materialName: 'Tấm', unit: 'Tấm', quantity: 0, location: 'Kho', handler: 'A', date: '2026-09-06' }];
@@ -48,6 +60,16 @@ assert.ok(rules.has('INVENTORY_QUANTITY_NON_POSITIVE'), 'non-positive inventory 
 assert.ok(rules.has('MATERIAL_NORM_NEGATIVE_OR_INVALID'), 'negative material norm must be detected');
 assert.ok(rules.has('CHECKLIST_PASSED_WITHOUT_INSPECTED_AT'), 'passed checklist without inspectedAt must be review');
 assert.ok(rules.has('R2_RETRY_PENDING'), 'runtime diagnostics must feed the same Health Center report');
+
+const vnDateFalsePositive = report.issues.find((issue) =>
+  issue.entityId === 'd-vn-date' && (issue.ruleId === 'DEFECT_COMPLETED_BEFORE_CREATED' || issue.ruleId === 'DEFECT_DUE_BEFORE_CREATED')
+);
+assert.equal(vnDateFalsePositive, undefined, 'Vietnamese DMY with time prefix must not be parsed as MM/DD');
+
+const multiFloorFalsePositive = report.issues.find((issue) =>
+  issue.entityId === 'c-multi-floor' && issue.ruleId === 'CREW_FLOOR_ID_NAME_MISMATCH'
+);
+assert.equal(multiFloorFalsePositive, undefined, 'multi-floor summary floorName must not be auto-repair mismatch');
 
 const crewIssue = report.issues.find((x) => x.ruleId === 'CREW_TASK_EMPTY_DETAIL');
 assert.equal(crewIssue?.location.date, '2026-09-06');
