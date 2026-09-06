@@ -67,6 +67,8 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
   const [photos, setPhotos] = useState<PhotoAttachment[]>([]);
   const [includeImages, setIncludeImages] = useState(false);
   const [loadingPhotos, setLoadingPhotos] = useState(false);
+  const [preparingImages, setPreparingImages] = useState(false);
+  const [preparedAttachments, setPreparedAttachments] = useState<ShareAttachmentPayload[]>([]);
   const [sharing, setSharing] = useState(false);
   const [status, setStatus] = useState('');
 
@@ -88,7 +90,6 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
   }, [open, projectId, entityType, entityId]);
 
   const resolveAttachments = async (): Promise<ShareAttachmentPayload[]> => {
-    if (!includeImages) return [];
     const attachments: ShareAttachmentPayload[] = [];
     const seen = new Set<string>();
 
@@ -125,16 +126,61 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
     return attachments;
   };
 
-  const handleShare = async () => {
+  // Web Share with files requires transient user activation. Resolving R2/IndexedDB photos
+  // after the user presses Share can consume that activation and Chromium then throws
+  // NotAllowedError. Prepare the files as soon as the user enables "Kèm hình ảnh" so the
+  // final Share click can call navigator.share immediately. The Android native bridge also
+  // benefits because the base64 payload is already ready before the click.
+  useEffect(() => {
+    if (!open || !includeImages || availableImageCount === 0 || loadingPhotos) {
+      if (!includeImages) setPreparedAttachments([]);
+      return;
+    }
+    let cancelled = false;
+    setPreparingImages(true);
+    setStatus('Đang chuẩn bị ảnh để chia sẻ…');
+    void resolveAttachments()
+      .then((items) => {
+        if (cancelled) return;
+        setPreparedAttachments(items);
+        setStatus(items.length > 0
+          ? `Đã chuẩn bị ${items.length} ảnh. Bấm Chia sẻ để mở bảng chia sẻ hệ thống.`
+          : 'Không đọc được ảnh để chia sẻ. Hãy kiểm tra đồng bộ ảnh rồi thử lại.');
+      })
+      .catch((error: any) => {
+        if (!cancelled) {
+          setPreparedAttachments([]);
+          setStatus(`Không chuẩn bị được ảnh: ${error?.message || String(error)}`);
+        }
+      })
+      .finally(() => { if (!cancelled) setPreparingImages(false); });
+    return () => { cancelled = true; };
+  }, [open, includeImages, availableImageCount, loadingPhotos, photos, projectId, entityType, entityId, legacyUrls]);
+
+  const handleShare = () => {
     if (!text.trim() && !shareUrl?.trim()) {
       setStatus('Không có nội dung để chia sẻ.');
       return;
     }
+    if (includeImages && preparingImages) {
+      setStatus('Ảnh đang được chuẩn bị. Chờ hiện “Đã chuẩn bị … ảnh” rồi bấm Chia sẻ.');
+      return;
+    }
+    if (includeImages && preparedAttachments.length === 0) {
+      setStatus('Chưa có file ảnh sẵn sàng để gửi. Hãy tắt/bật lại “Kèm hình ảnh” rồi thử lại.');
+      return;
+    }
+
     setSharing(true);
-    setStatus(includeImages ? 'Đang chuẩn bị ảnh để chia sẻ…' : 'Đang mở bảng chia sẻ…');
-    try {
-      const attachments = await resolveAttachments();
-      const result = await sharePreparedContent({ title, text, url: shareUrl, attachments });
+    setStatus('Đang mở bảng chia sẻ…');
+    // Do not await any photo/network work before this call. Keeping this call directly in the
+    // click stack preserves Chromium transient activation required by navigator.share({files}).
+    void sharePreparedContent({
+      title,
+      text,
+      url: shareUrl,
+      attachments: includeImages ? preparedAttachments : [],
+    }).then((result) => {
       if (result.status === 'shared') {
         if (result.fallbackToText) setStatus('Thiết bị không hỗ trợ gửi kèm file; đã mở chia sẻ phần nội dung chữ.');
         else if (result.sharedFiles > 0) setStatus(`Đã mở bảng chia sẻ với ${result.sharedFiles} ảnh.`);
@@ -148,11 +194,11 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
       } else {
         setStatus('Không thể mở bảng chia sẻ. Hãy dùng nút Sao chép nội dung.');
       }
-    } catch (error: any) {
+    }).catch((error: any) => {
       setStatus(`Không thể chia sẻ: ${error?.message || String(error)}`);
-    } finally {
+    }).finally(() => {
       setSharing(false);
-    }
+    });
   };
 
   const handleCopy = async () => {
@@ -162,7 +208,7 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
 
   return (
     <>
-      <button type="button" onClick={() => { setStatus(''); setIncludeImages(false); setOpen(true); }} className={triggerClassName}>
+      <button type="button" onClick={() => { setStatus(''); setIncludeImages(false); setPreparedAttachments([]); setOpen(true); }} className={triggerClassName}>
         <Share2 className="w-3.5 h-3.5" />
         <span>{triggerLabel}</span>
       </button>
@@ -195,7 +241,7 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
                   <span>
                     <span className="block text-xs font-extrabold text-slate-800">Kèm hình ảnh</span>
                     <span className="block text-[10px] font-semibold text-slate-500">
-                      {loadingPhotos ? 'Đang kiểm tra ảnh…' : availableImageCount > 0 ? `${availableImageCount} ảnh có sẵn · gửi tối đa 6 ảnh` : 'Không có ảnh đính kèm'}
+                      {loadingPhotos ? 'Đang kiểm tra ảnh…' : preparingImages ? 'Đang chuẩn bị file ảnh…' : includeImages && preparedAttachments.length > 0 ? `${preparedAttachments.length} ảnh đã sẵn sàng để gửi` : availableImageCount > 0 ? `${availableImageCount} ảnh có sẵn · gửi tối đa 6 ảnh` : 'Không có ảnh đính kèm'}
                     </span>
                   </span>
                 </span>
@@ -203,7 +249,11 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
                   type="checkbox"
                   checked={includeImages && availableImageCount > 0}
                   disabled={availableImageCount === 0 || loadingPhotos}
-                  onChange={(event) => setIncludeImages(event.target.checked)}
+                  onChange={(event) => {
+                    setPreparedAttachments([]);
+                    setIncludeImages(event.target.checked);
+                    if (!event.target.checked) setStatus('');
+                  }}
                   className="h-4 w-4 accent-indigo-600"
                 />
               </label>
@@ -222,13 +272,13 @@ export const ShareEntityMenu: React.FC<ShareEntityMenuProps> = ({
                 <button type="button" onClick={() => void handleCopy()} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-extrabold text-slate-700 hover:bg-slate-50">
                   <Copy className="h-4 w-4" /> Sao chép
                 </button>
-                <button type="button" disabled={sharing} onClick={() => void handleShare()} className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-3 py-2.5 text-xs font-extrabold text-white hover:bg-indigo-700 disabled:opacity-50">
-                  <Share2 className="h-4 w-4" /> {sharing ? 'Đang chuẩn bị…' : 'Chia sẻ'}
+                <button type="button" disabled={sharing || (includeImages && preparingImages)} onClick={handleShare} className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-3 py-2.5 text-xs font-extrabold text-white hover:bg-indigo-700 disabled:opacity-50">
+                  <Share2 className="h-4 w-4" /> {preparingImages ? 'Chuẩn bị ảnh…' : sharing ? 'Đang mở…' : 'Chia sẻ'}
                 </button>
               </div>
 
               <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[10px] font-semibold leading-relaxed text-slate-600">
-                HNL QLTC chỉ gửi nội dung sau khi bạn bấm Chia sẻ. Ảnh không được tự động đính kèm; bật “Kèm hình ảnh” nếu muốn gửi ảnh thật qua bảng chia sẻ của hệ điều hành.
+                HNL QLTC chỉ gửi nội dung sau khi bạn bấm Chia sẻ. Khi bật “Kèm hình ảnh”, HNL chuẩn bị file trước để Chrome/Android có thể mở bảng chia sẻ với ảnh thật.
               </div>
               {status && <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-[10px] font-semibold text-indigo-800">{status}</div>}
             </div>
