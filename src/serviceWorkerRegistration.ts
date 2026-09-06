@@ -1,4 +1,7 @@
 import { APP_VERSION } from './config/appVersion';
+
+declare const __BUILD_ID__: string;
+
 /**
  * Basic Service Worker registration helper for Hệ Thống Quản Lý Thi Công.
  * Enables full PWA caching and offline execution support.
@@ -11,7 +14,7 @@ export function registerServiceWorker() {
   if (process.env.NODE_ENV !== 'production' || window.location.hostname.includes('ais-dev') || window.location.hostname.includes('run.app')) {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistrations().then((registrations) => {
-        for (let registration of registrations) {
+        for (const registration of registrations) {
           registration.unregister();
         }
       }).catch((err) => {
@@ -23,10 +26,16 @@ export function registerServiceWorker() {
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
+      const buildId = typeof __BUILD_ID__ === 'string' && __BUILD_ID__ ? __BUILD_ID__ : 'unknown-build';
       navigator.serviceWorker
-        .register(`/sw.js?v=${encodeURIComponent(APP_VERSION)}`)
+        .register(`/sw.js?v=${encodeURIComponent(APP_VERSION)}&build=${encodeURIComponent(buildId)}`)
         .then((registration) => {
-          console.log('[SW] ServiceWorker registered with scope:', registration.scope);
+          console.log('[SW] ServiceWorker registered with scope:', registration.scope, 'build:', buildId);
+          // Ask the browser to check immediately for a new worker. This matters on long-lived
+          // field devices where the tab can remain open across multiple DEV/PROD deployments.
+          void registration.update().catch((error) => {
+            console.warn('[SW] Update check failed:', error);
+          });
         })
         .catch((error) => {
           console.warn('[SW] Registration failed:', error);

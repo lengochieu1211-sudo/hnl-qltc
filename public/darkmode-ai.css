@@ -1,0 +1,21 @@
+/* HNL AI dark-theme guard.
+ * The AI hero uses Tailwind gradient-stop utilities (from-indigo-50/via-white/to-cyan-50).
+ * Those stops are not covered by the generic background guards and otherwise leave the
+ * HNL AI header bright white while the rest of the application is dark.
+ */
+html[data-hnl-theme="dark"] .bg-gradient-to-br.from-indigo-50.via-white.to-cyan-50 {
+  background-image: linear-gradient(to bottom right, rgb(30 41 59 / .98), rgb(15 23 42 / .98), rgb(30 27 75 / .92)) !important;
+  border-color: rgb(99 102 241 / .48) !important;
+}
+html[data-hnl-theme="dark"] .bg-gradient-to-br.from-indigo-50.via-white.to-cyan-50 .text-slate-900 {
+  color: var(--hnl-dark-text, #f8fafc) !important;
+}
+html[data-hnl-theme="dark"] .bg-gradient-to-br.from-indigo-50.via-white.to-cyan-50 .text-slate-600,
+html[data-hnl-theme="dark"] .bg-gradient-to-br.from-indigo-50.via-white.to-cyan-50 .text-slate-500 {
+  color: var(--hnl-dark-text-muted, #cbd5e1) !important;
+}
+html[data-hnl-theme="dark"] .bg-gradient-to-br.from-indigo-50.via-white.to-cyan-50 button.bg-white {
+  background-color: var(--hnl-dark-surface-raised, #172033) !important;
+  border-color: var(--hnl-dark-border, #334155) !important;
+  color: var(--hnl-dark-text, #f8fafc) !important;
+}

@@ -89,14 +89,19 @@ assert.equal(ambiguous.status, 'needs-clarification');
 assert.equal(ambiguous.intent, 'TEAM_SUMMARY');
 assert.equal(ambiguous.toolCall, undefined, 'ambiguous team must never become a tool call');
 
+// A team question without an explicit date is intentionally answered from the current
+// verified room snapshot. Historical quantity must never be invented, but forcing the
+// user to supply dates would also block valid questions about the live project state.
 const noDate = planHnlAiQuestion({
   question: 'Tổng hợp Đội Nguyên',
   context,
   teams,
   referenceDate,
 });
-assert.equal(noDate.status, 'needs-clarification');
-assert.equal(noDate.toolCall, undefined);
+assert.equal(noDate.status, 'ready');
+assert.equal(noDate.intent, 'CURRENT_TEAM_DETAIL');
+assert.deepEqual(noDate.toolCall, { name: 'getCurrentTeamProgressDetail', args: { teamRef: 'team-nguyen' } });
+assert.equal(noDate.warnings.some((warning) => warning.includes('snapshot')), true);
 
 const compareTeams = planHnlAiQuestion({
   question: 'Đội nào năng suất cao nhất tháng này?',

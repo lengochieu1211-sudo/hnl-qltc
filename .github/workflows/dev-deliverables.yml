@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
-      BASELINE_SHA: 671f1b93c8a5a7ab18c4ebef34aeef2a3a40d487
+      BASELINE_SHA: c5392beecd19b7d98afd520fca4f8a052f6fa78c
       VITE_APP_ENV: DEV
       VITE_RUNTIME_BACKEND: firebase-only
       VITE_BINARY_STORAGE_PROVIDER: r2
@@ -66,6 +66,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          npm run test:health-center
           npm run test:ai-core
           npm run test:ai-tools
           npm run test:ai-audit
@@ -97,26 +98,39 @@ jobs:
             cp -p "$file" "$PATCH_DIR/$file"
           done < "$OUT/patch-files.txt"
 
-          (cd "$PATCH_DIR" && zip -qr "$OUT/HNL-QLTC-DEV-PATCH-2026-09-05.zip" .)
-          git archive --format=zip --output="$OUT/HNL-QLTC-DEV-FULL-SOURCE-2026-09-05.zip" "$GITHUB_SHA"
+          (cd "$PATCH_DIR" && zip -qr "$OUT/HNL-QLTC-DEV-PATCH-2026-09-06.zip" .)
+          git archive --format=zip --output="$OUT/HNL-QLTC-DEV-FULL-SOURCE-2026-09-06.zip" "$GITHUB_SHA"
 
           {
-            echo '# HNL QLTC DEV FINAL REPORT — 2026-09-05'
+            echo '# HNL QLTC DEV FINAL REPORT — 2026-09-06'
             echo
             echo "- Final DEV source commit: \`$GITHUB_SHA\`"
-            echo "- Patch baseline: \`$BASELINE_SHA\`"
+            echo "- Patch baseline/main: \`$BASELINE_SHA\`"
             echo '- PROD/main: NOT merged, NOT deployed by this workflow.'
             echo '- Firebase/R2/AI endpoints used for certification: DEV only.'
             echo
-            echo '## Root cause fixed'
-            echo '- Windows GitHub runners rejected direct `spawnSync npx.cmd` with `EINVAL` in Firebase Rules regression.'
-            echo '- `scripts/firebase-rules-check.mjs` now launches npm `npx-cli.js` through the current Node binary, with a fixed cmd.exe fallback only when needed.'
-            echo '- Android DEV and Windows DEV workflows now rerun when the Firebase Rules harness changes.'
+            echo '## Health Center / Audit work completed'
+            echo '- Unified Health Center under System & Diagnostics; AI Audit consumes the same audit source.'
+            echo '- Vietnamese DMY parsing hardened for strings such as `15:22:15 11/8/2026`.'
+            echo '- Multi-floor crew summaries no longer create false CREW_FLOOR_ID_NAME_MISMATCH repairs.'
+            echo '- Room/floor/team context enriched for audit issues.'
+            echo '- JSON/Excel/PDF export uses one auditSnapshotId.'
+            echo '- Safe-repair flow is backup + confirm + before-value check + atomic apply + re-audit.'
+            echo '- Live DEV Health Center safe-repair golden passed Firestore + realtime second-account + re-audit.'
+            echo '- Stale dynamic-import/service-worker recovery hardened with build-aware cache behavior.'
+            echo
+            echo '## Current real-project audit evidence (latest user export)'
+            echo '- 177 records scanned.'
+            echo '- 20 issues after false-positive hardening: 4 ERROR + 16 WARNING.'
+            echo '- 6 deterministic CREW_TEAM_ID_MISSING candidates remain for user-confirmed repair on the real DEV project.'
+            echo '- 4 business ERROR items remain confirmation/manual-repair only; no automatic overwrite.'
+            echo '- Empty `()` crew-task details remain NEEDS_CONFIRMATION, not auto-repair.'
             echo
             echo '## Certification in this packaging run'
             echo '- npm ci: PASS'
+            echo '- Health Center golden suite: PASS'
             echo '- HNL AI core/tools/audit/planner/provider/gateway/export goldens: PASS'
-            echo '- Existing stability/offline/RBAC/R2/auth/contact/defect/checklist goldens: PASS'
+            echo '- Stability/offline/RBAC/R2/auth/contact/defect/checklist goldens: PASS'
             echo '- TypeScript: PASS'
             echo '- Lint + source secret scan + package/lock consistency: PASS'
             echo '- Firebase Rules compile/behavior: PASS'
@@ -125,22 +139,27 @@ jobs:
             echo '- Firebase config / DEV isolation preflight: PASS'
             echo '- .github/workflows present and packaged: PASS'
             echo
-            echo '## Previously certified runtime/build evidence'
-            echo '- DEV deploy exact app source: PASS (Firebase Hosting + Firestore rules + R2 + HNL AI Gateway DEV).'
-            echo '- Runtime Golden: PASS (Firebase/R2 multi-user, realtime, offline/reconnect, desktop/mobile hosted browser).'
-            echo '- Android DEV APK: PASS, isolated package `com.qlct.app.dev`, DEV Hosting/Firebase/R2/AI only.'
-            echo '- Windows DEV EXE: PASS, isolated DEV Hosting/Firebase/R2/AI and DEV browser profile.'
+            echo '## Runtime evidence already certified on exact pre-packaging DEV head'
+            echo '- DEV deploy: PASS (Hosting + Firestore rules + R2 + HNL AI Gateway DEV).'
+            echo '- Runtime Golden #39: PASS (Firebase/R2 multi-user, Health Center live safe-repair, realtime, offline/reconnect, desktop/mobile hosted browser).'
+            echo '- Android DEV APK and Windows DEV EXE were previously certified on the same application code line; packaging workflow does not deploy PROD.'
             echo
-            echo '## Changed/added files from baseline'
+            echo '## Safety status'
+            echo '- No orphan data is auto-deleted.'
+            echo '- Safe repair is restricted to deterministic fields and must preserve record identity.'
+            echo '- No merge to main and no PROD deploy performed.'
+            echo
+            echo '## Changed/added files from main baseline'
             echo '```'
             cat "$OUT/changed-files.txt"
             echo '```'
-          } > "$OUT/HNL-QLTC-DEV-FINAL-REPORT-2026-09-05.md"
+          } > "$OUT/HNL-QLTC-DEV-FINAL-REPORT-2026-09-06.md"
 
-          unzip -t "$OUT/HNL-QLTC-DEV-PATCH-2026-09-05.zip" >/dev/null
-          unzip -t "$OUT/HNL-QLTC-DEV-FULL-SOURCE-2026-09-05.zip" >/dev/null
-          test -s "$OUT/HNL-QLTC-DEV-FINAL-REPORT-2026-09-05.md"
-          sha256sum "$OUT"/*.zip "$OUT"/*.md > "$OUT/SHA256SUMS.txt"
+          unzip -t "$OUT/HNL-QLTC-DEV-PATCH-2026-09-06.zip" >/dev/null
+          unzip -t "$OUT/HNL-QLTC-DEV-FULL-SOURCE-2026-09-06.zip" >/dev/null
+          test -s "$OUT/HNL-QLTC-DEV-FINAL-REPORT-2026-09-06.md"
+          (cd "$OUT" && sha256sum *.zip *.md > SHA256SUMS.txt)
+          (cd "$OUT" && sha256sum -c SHA256SUMS.txt)
           ls -lh "$OUT"
 
       - name: Upload final deliverables
@@ -148,9 +167,9 @@ jobs:
         with:
           name: HNL-QLTC-DEV-FINAL-DELIVERABLES-${{ github.run_number }}
           path: |
-            ${{ runner.temp }}/hnl-deliverables/HNL-QLTC-DEV-PATCH-2026-09-05.zip
-            ${{ runner.temp }}/hnl-deliverables/HNL-QLTC-DEV-FULL-SOURCE-2026-09-05.zip
-            ${{ runner.temp }}/hnl-deliverables/HNL-QLTC-DEV-FINAL-REPORT-2026-09-05.md
+            ${{ runner.temp }}/hnl-deliverables/HNL-QLTC-DEV-PATCH-2026-09-06.zip
+            ${{ runner.temp }}/hnl-deliverables/HNL-QLTC-DEV-FULL-SOURCE-2026-09-06.zip
+            ${{ runner.temp }}/hnl-deliverables/HNL-QLTC-DEV-FINAL-REPORT-2026-09-06.md
             ${{ runner.temp }}/hnl-deliverables/SHA256SUMS.txt
             ${{ runner.temp }}/hnl-deliverables/changed-files.txt
           if-no-files-found: error

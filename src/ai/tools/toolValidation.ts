@@ -84,10 +84,11 @@ export function validateHnlAiToolCall(input: unknown): HnlAiToolArgs {
       }
       return { name: 'getTeamSummary', args: { teamRef, dateRange } };
     }
-    case 'getCurrentTeamProgress': {
-      if (!isPlainObject(input.args)) throw new HnlAiToolValidationError('INVALID_TOOL_ARGS', 'getCurrentTeamProgress.args phải là object.');
-      assertExactKeys(input.args, ['teamRef'], 'getCurrentTeamProgress.args');
-      return { name: 'getCurrentTeamProgress', args: { teamRef: requiredString(input.args.teamRef, 'teamRef') } };
+    case 'getCurrentTeamProgress':
+    case 'getCurrentTeamProgressDetail': {
+      if (!isPlainObject(input.args)) throw new HnlAiToolValidationError('INVALID_TOOL_ARGS', `${toolName}.args phải là object.`);
+      assertExactKeys(input.args, ['teamRef'], `${toolName}.args`);
+      return { name: toolName, args: { teamRef: requiredString(input.args.teamRef, 'teamRef') } } as HnlAiToolArgs;
     }
     case 'auditDefectLinks':
     case 'auditQuantityData':

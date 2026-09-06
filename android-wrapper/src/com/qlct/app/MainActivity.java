@@ -49,6 +49,7 @@ import java.util.Set;
 import java.util.Map;
 
 import org.json.JSONObject;
+import org.json.JSONArray;
 
 public class MainActivity extends Activity {
     private static final int FILE_CHOOSER_REQUEST = 1001;
@@ -528,6 +529,72 @@ public class MainActivity extends Activity {
                 });
                 return true;
             } catch (Exception error) {
+                return false;
+            }
+        }
+
+        @JavascriptInterface
+        public boolean shareFiles(String title, String text, String attachmentsJson) {
+            try {
+                final String safeTitle = title == null || title.trim().isEmpty() ? "HNL QLTC" : title.trim();
+                final String safeText = text == null ? "" : text;
+                JSONArray items = new JSONArray(attachmentsJson == null ? "[]" : attachmentsJson);
+                if (items.length() == 0) return false;
+
+                final int maxFiles = Math.min(items.length(), 6);
+                final long maxTotalBytes = 12L * 1024L * 1024L;
+                long totalBytes = 0L;
+                final ArrayList<Uri> uris = new ArrayList<>();
+                final ArrayList<String> mimeTypes = new ArrayList<>();
+                File dir = new File(getCacheDir(), PickerCacheProvider.CACHE_DIR);
+                if (!dir.exists() && !dir.mkdirs()) return false;
+
+                long cutoff = System.currentTimeMillis() - 24L * 60L * 60L * 1000L;
+                File[] oldFiles = dir.listFiles();
+                if (oldFiles != null) for (File old : oldFiles) {
+                    if (old.isFile() && old.getName().startsWith("share_") && old.lastModified() < cutoff) old.delete();
+                }
+
+                for (int i = 0; i < maxFiles; i++) {
+                    JSONObject item = items.optJSONObject(i);
+                    if (item == null) continue;
+                    String encoded = item.optString("base64", "").replaceAll("\\s", "");
+                    if (encoded.length() == 0) continue;
+                    byte[] bytes = Base64.decode(encoded, Base64.DEFAULT);
+                    if (bytes.length == 0 || totalBytes + bytes.length > maxTotalBytes) break;
+                    totalBytes += bytes.length;
+
+                    String originalName = sanitizeFileName(item.optString("fileName", "image_" + (i + 1) + ".jpg"));
+                    String fileName = "share_" + System.currentTimeMillis() + "_" + i + "_" + originalName;
+                    File target = new File(dir, fileName);
+                    FileOutputStream output = new FileOutputStream(target);
+                    try { output.write(bytes); output.flush(); } finally { output.close(); }
+                    Uri uri = new Uri.Builder().scheme("content").authority(PickerCacheProvider.AUTHORITY).appendPath(target.getName()).build();
+                    uris.add(uri);
+                    mimeTypes.add(item.optString("mimeType", "image/jpeg"));
+                }
+                if (uris.isEmpty()) return false;
+
+                runOnUiThread(() -> {
+                    try {
+                        Intent share = new Intent(uris.size() > 1 ? Intent.ACTION_SEND_MULTIPLE : Intent.ACTION_SEND);
+                        share.setType(uris.size() > 1 ? "image/*" : mimeTypes.get(0));
+                        share.putExtra(Intent.EXTRA_TEXT, safeText);
+                        share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        if (uris.size() > 1) share.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
+                        else share.putExtra(Intent.EXTRA_STREAM, uris.get(0));
+
+                        ClipData clip = ClipData.newUri(getContentResolver(), "HNL QLTC share", uris.get(0));
+                        for (int i = 1; i < uris.size(); i++) clip.addItem(new ClipData.Item(uris.get(i)));
+                        share.setClipData(clip);
+                        startActivity(Intent.createChooser(share, safeTitle));
+                    } catch (Exception error) {
+                        showToast("Khong the chia se anh: " + error.getMessage());
+                    }
+                });
+                return true;
+            } catch (Exception error) {
+                showToast("Khong the chuan bi anh chia se: " + error.getMessage());
                 return false;
             }
         }

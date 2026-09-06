@@ -1,0 +1,72 @@
+name: HNL AI External Context Gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [dev]
+    paths:
+      - 'src/features/ai/**'
+      - 'src/ai/data/externalAiContext.ts'
+      - 'src/ai/providers/hnlManagedProvider.ts'
+      - 'scripts/ai-external-context-golden.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/ai-external-context-gate.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/features/ai/**'
+      - 'src/ai/data/externalAiContext.ts'
+      - 'src/ai/providers/hnlManagedProvider.ts'
+      - 'scripts/ai-external-context-golden.ts'
+      - 'package.json'
+      - 'package-lock.json'
+
+permissions:
+  contents: read
+
+jobs:
+  privacy_gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Lockfile install
+        run: npm ci
+
+      - name: External AI raw-context and privacy golden
+        run: npm run test:ai-external-context
+
+      - name: TypeScript and lint
+        run: |
+          npm run typecheck
+          npm run lint
+
+      - name: Static privacy and grounding assertions
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'Cho phép AI bên ngoài sử dụng dữ liệu HNL trong câu hỏi này' src/features/ai/AiAssistantPage.tsx
+          grep -Eq 'const MAX_ROWS_PER_COLLECTION = [1-9][0-9]*' src/ai/data/externalAiContext.ts
+          grep -q 'const MAX_EXTERNAL_MESSAGE_CHARS = 21_500' src/ai/data/externalAiContext.ts
+          grep -q '\[email đã ẩn\]' src/ai/data/externalAiContext.ts
+          grep -q '\[số điện thoại đã ẩn\]' src/ai/data/externalAiContext.ts
+          grep -q 'buildFloorResolver' src/ai/data/externalAiContext.ts
+          grep -q 'requestedTeams' src/ai/data/externalAiContext.ts
+          grep -q 'quantityValidationTotals' src/ai/data/externalAiContext.ts
+          grep -q 'HNL supplies factual raw records' src/ai/data/externalAiContext.ts
+          grep -q 'guardExternalHnlResponse' src/ai/providers/hnlManagedProvider.ts
+          grep -q 'numericClaimsSupported' src/ai/providers/hnlManagedProvider.ts
+          grep -q 'entityClaimsSupported' src/ai/providers/hnlManagedProvider.ts
+          grep -q 'AI supplies.*sanitized raw records\|sanitized raw records' src/ai/providers/hnlManagedProvider.ts || grep -q 'HNL supplies' src/ai/providers/hnlManagedProvider.ts
+          grep -q 'deterministic-date' src/ai/providers/hnlManagedProvider.ts
+          ! grep -q 'deterministic-hnl-quantity' src/ai/providers/hnlManagedProvider.ts
