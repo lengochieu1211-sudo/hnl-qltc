@@ -18,7 +18,10 @@ const preview: HealthCenterRepairPreview = {
   canApply: true,
 };
 
-const source = {
+type GoldenDefect = { id: string; description: string; roomId?: string; teamId?: string };
+type GoldenCrew = { id: string; floorName: string; floorWorks: Array<{ floorId: string; floorName: string }> };
+
+const source: { defects: GoldenDefect[]; crewRecords: GoldenCrew[]; untouched: Array<{ id: string; value: number }> } = {
   defects: [{ id: 'd1', description: 'D1' }],
   crewRecords: [{ id: 'c1', floorName: 'Tang 1', floorWorks: [{ floorId: 'f1', floorName: 'Tang 1' }] }],
   untouched: [{ id: 'x1', value: 7 }],
@@ -41,7 +44,7 @@ assert.equal(result.data.defects[0].teamId, 't1');
 assert.equal(result.data.crewRecords[0].floorName, 'Tầng 1');
 assert.equal(result.data.crewRecords[0].floorWorks[0].floorName, 'Tầng 1');
 assert.equal(result.data.untouched[0].value, 7);
-assert.equal((source.defects[0] as any).roomId, undefined, 'pure apply must not mutate source data');
+assert.equal(source.defects[0].roomId, undefined, 'pure apply must not mutate source data');
 assert.equal(source.crewRecords[0].floorName, 'Tang 1', 'pure apply must not mutate source nested records');
 
 const concurrentlyEdited = {
@@ -52,7 +55,7 @@ const conflict = applyHealthCenterRepairPreview(concurrentlyEdited, preview);
 assert.equal(conflict.ok, false);
 assert.equal(conflict.appliedOperationIds.length, 0, 'conflict must make whole batch atomic/fail-closed');
 assert.ok(conflict.failures.some((f) => f.reason === 'BEFORE_VALUE_CHANGED'));
-assert.equal((conflict.data.defects[0] as any).roomId, undefined, 'no earlier operation may leak through after later conflict');
+assert.equal(conflict.data.defects[0].roomId, undefined, 'no earlier operation may leak through after later conflict');
 
 const missingRecord = applyHealthCenterRepairPreview({ ...source, defects: [] }, preview);
 assert.equal(missingRecord.ok, false);
