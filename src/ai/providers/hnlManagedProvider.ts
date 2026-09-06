@@ -16,7 +16,6 @@ export interface HnlManagedProviderOptions {
   provider?: HnlManagedProviderId;
   projectId: string;
   role: UserRole;
-  /** Optional BYOK credential kept only in the caller's in-memory state. */
   apiKey?: string;
 }
 
@@ -56,20 +55,17 @@ async function fetchGateway(url: string, init: RequestInit, retryAuth = true): P
   return response;
 }
 
-type GroundedQuantity = {
-  teamName: string;
-  workCategory: string;
-  volume: number;
-  unit: string;
-  records?: number;
-};
-
-function normalizeSearchText(value: unknown): string {
-  return String(value || '').trim().toLocaleLowerCase('vi');
+function normalizeText(value: unknown): string {
+  return String(value || '')
+    .trim()
+    .toLocaleLowerCase('vi')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd');
 }
 
-function normalizeQuantityUnit(value: unknown): string {
-  return normalizeSearchText(value)
+function normalizeUnit(value: unknown): string {
+  return normalizeText(value)
     .replace(/²/g, '2')
     .replace(/³/g, '3')
     .replace(/\s+/g, '')
@@ -77,257 +73,191 @@ function normalizeQuantityUnit(value: unknown): string {
     .replace(/^metkhoi$/, 'm3');
 }
 
-function parseLocalizedQuantity(value: string): number | null {
+function parseNumber(value: string): number | null {
   const raw = String(value || '').trim().replace(/\s/g, '');
   if (!raw) return null;
   let normalized = raw;
-  if (/^-?\d{1,3}(?:\.\d{3})+(?:,\d+)?$/.test(raw)) {
-    normalized = raw.replace(/\./g, '').replace(',', '.');
-  } else if (/^-?\d{1,3}(?:,\d{3})+(?:\.\d+)?$/.test(raw)) {
-    normalized = raw.replace(/,/g, '');
-  } else if (/^-?\d+,\d+$/.test(raw)) {
-    normalized = raw.replace(',', '.');
-  }
+  if (/^-?\d{1,3}(?:\.\d{3})+(?:,\d+)?$/.test(raw)) normalized = raw.replace(/\./g, '').replace(',', '.');
+  else if (/^-?\d{1,3}(?:,\d{3})+(?:\.\d+)?$/.test(raw)) normalized = raw.replace(/,/g, '');
+  else if (/^-?\d+,\d+$/.test(raw)) normalized = raw.replace(',', '.');
   const number = Number(normalized);
   return Number.isFinite(number) ? number : null;
 }
 
-function parseExternalHnlPayload(request: AiProviderChatRequest): { question: string; context: any } | null {
+function parseExternalPayload(request: AiProviderChatRequest): { question: string; context: any } | null {
   if (request.mode !== 'GENERAL_AI') return null;
-  const userMessages = request.messages.filter((message) => message.role === 'user');
-  const content = String(userMessages[userMessages.length - 1]?.content || '').trim();
+  const last = [...request.messages].reverse().find((message) => message.role === 'user');
+  const content = String(last?.content || '').trim();
   if (!content.startsWith('{')) return null;
   try {
     const parsed = JSON.parse(content);
-    if (!parsed || typeof parsed !== 'object' || !parsed.hnlContext) return null;
+    if (!parsed?.hnlContext) return null;
     return { question: String(parsed.question || ''), context: parsed.hnlContext };
-  } catch (_) {
+  } catch {
     return null;
   }
 }
 
-function getCappedRows(value: any): any[] {
+function rows(value: any): any[] {
   return value && typeof value === 'object' && Array.isArray(value.rows) ? value.rows : [];
-}
-
-function collectGroundedQuantities(context: any): GroundedQuantity[] {
-  const quantities: GroundedQuantity[] = [];
-  for (const row of getCappedRows(context?.quantitySummaryByTeamAndCategory)) {
-    const volume = Number(row?.volume);
-    if (!Number.isFinite(volume)) continue;
-    quantities.push({
-      teamName: String(row?.teamName || ''),
-      workCategory: String(row?.workCategory || ''),
-      volume,
-      unit: String(row?.unit || ''),
-      records: Number(row?.records) || undefined,
-    });
-  }
-  for (const row of getCappedRows(context?.quantityDetails)) {
-    const volume = Number(row?.volume);
-    if (!Number.isFinite(volume)) continue;
-    quantities.push({
-      teamName: String(row?.teamName || ''),
-      workCategory: String(row?.workCategory || row?.item || ''),
-      volume,
-      unit: String(row?.unit || ''),
-    });
-  }
-  for (const row of getCappedRows(context?.workVolumes)) {
-    for (const field of ['actual', 'planned'] as const) {
-      const volume = Number(row?.[field]);
-      if (!Number.isFinite(volume)) continue;
-      quantities.push({
-        teamName: '',
-        workCategory: String(row?.title || row?.category || ''),
-        volume,
-        unit: String(row?.unit || ''),
-      });
-    }
-  }
-  return quantities;
-}
-
-function quantityClaimIsGrounded(value: number, unit: string, evidence: GroundedQuantity[]): boolean {
-  if (Math.abs(value) < 1e-9) return true;
-  const normalizedUnit = normalizeQuantityUnit(unit);
-  return evidence.some((item) => {
-    if (normalizeQuantityUnit(item.unit) !== normalizedUnit) return false;
-    const tolerance = Math.max(0.001, Math.abs(item.volume) * 0.000001);
-    return Math.abs(item.volume - value) <= tolerance;
-  });
-}
-
-function hasUnsupportedQuantityClaim(text: string, evidence: GroundedQuantity[]): boolean {
-  const unitPattern = '(?:m²|m2|m³|m3|kg|tấn|tan|bộ|bo|cái|cai|tấm|tam|thanh|hộp|hop)';
-  const pattern = new RegExp(`(-?\\d{1,3}(?:[.\\s]\\d{3})*(?:,\\d+)?|-?\\d+(?:[.,]\\d+)?)\\s*(${unitPattern})\\b`, 'giu');
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(text)) !== null) {
-    const value = parseLocalizedQuantity(match[1]);
-    if (value === null) continue;
-    if (!quantityClaimIsGrounded(value, match[2], evidence)) return true;
-  }
-  return false;
-}
-
-function formatGroundedNumber(value: number): string {
-  return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 3 }).format(value);
-}
-
-function findTargetTeam(question: string, context: any): string | undefined {
-  const rows = [
-    ...getCappedRows(context?.quantitySummaryByTeamAndCategory),
-    ...getCappedRows(context?.quantityDetails),
-  ];
-  const names = Array.from(new Set(rows.map((row) => String(row?.teamName || '').trim()).filter(Boolean)))
-    .sort((a, b) => b.length - a.length);
-  const normalizedQuestion = normalizeSearchText(question);
-  return names.find((name) => normalizedQuestion.includes(normalizeSearchText(name)));
-}
-
-function looksLikeQuantityQuestion(question: string): boolean {
-  const q = normalizeSearchText(question)
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/g, 'd');
-  return /\b(khoi luong|san luong|m2|m3|hang muc|tung tang|theo tang)\b/.test(q);
-}
-
-function buildDeterministicQuantityAnswer(question: string, context: any): string | null {
-  if (!looksLikeQuantityQuestion(question)) return null;
-  const targetTeam = findTargetTeam(question, context);
-  if (!targetTeam) return null;
-
-  const detailRows = getCappedRows(context?.quantityDetails)
-    .map((row) => ({
-      teamName: String(row?.teamName || '').trim(),
-      floorName: String(row?.floorName || '').trim(),
-      roomName: String(row?.roomName || '').trim(),
-      workCategory: String(row?.workCategory || row?.item || '').trim(),
-      volume: Number(row?.volume),
-      unit: String(row?.unit || '').trim(),
-    }))
-    .filter((row) => row.teamName === targetTeam && Number.isFinite(row.volume));
-
-  const summaryRows = getCappedRows(context?.quantitySummaryByTeamAndCategory)
-    .map((row) => ({
-      teamName: String(row?.teamName || '').trim(),
-      workCategory: String(row?.workCategory || '').trim(),
-      volume: Number(row?.volume),
-      unit: String(row?.unit || '').trim(),
-      records: Number(row?.records) || 0,
-    }))
-    .filter((row) => row.teamName === targetTeam && Number.isFinite(row.volume));
-
-  if (detailRows.length === 0 && summaryRows.length === 0) {
-    return `HNL chưa có khối lượng xác thực được gắn với ${targetTeam} trong phạm vi dữ liệu bạn đã cho phép. HNL không tạo số liệu mẫu hoặc ước tính.`;
-  }
-
-  const wantsFloor = /tầng|tang|floor/i.test(question);
-  if (wantsFloor && detailRows.length > 0) {
-    const grouped = new Map<string, { floorName: string; workCategory: string; unit: string; volume: number; records: number }>();
-    for (const row of detailRows) {
-      const key = [row.floorName, row.workCategory, row.unit].join('|');
-      const current = grouped.get(key) || {
-        floorName: row.floorName || 'Chưa rõ tầng',
-        workCategory: row.workCategory || 'Chưa rõ hạng mục',
-        unit: row.unit || 'đơn vị chưa khai báo',
-        volume: 0,
-        records: 0,
-      };
-      current.volume += row.volume;
-      current.records += 1;
-      grouped.set(key, current);
-    }
-    const rows = Array.from(grouped.values()).sort((a, b) => a.floorName.localeCompare(b.floorName, 'vi') || a.workCategory.localeCompare(b.workCategory, 'vi'));
-    const lines = rows.slice(0, 36).map((row) => `- ${row.floorName} · ${row.workCategory}: ${formatGroundedNumber(row.volume)} ${row.unit} (${row.records} bản ghi)`);
-    return [
-      `Khối lượng xác thực của ${targetTeam} theo snapshot HNL hiện tại:`,
-      ...lines,
-      getCappedRows(context?.quantityDetails).length > detailRows.length && context?.quantityDetails?.truncated
-        ? 'Lưu ý: payload đã được giới hạn số dòng; đây là các bản ghi xác thực được gửi trong câu hỏi này, không phải số liệu ước tính.'
-        : 'HNL chỉ cộng các bản ghi cùng tầng/hạng mục/đơn vị và không cộng chéo đơn vị.',
-    ].join('\n');
-  }
-
-  const lines = summaryRows.slice(0, 24).map((row) => `- ${row.workCategory || 'Chưa rõ hạng mục'}: ${formatGroundedNumber(row.volume)} ${row.unit || 'đơn vị chưa khai báo'}${row.records ? ` (${row.records} bản ghi)` : ''}`);
-  return [
-    `Khối lượng xác thực của ${targetTeam} theo snapshot HNL hiện tại:`,
-    ...lines,
-    'HNL không tạo hạng mục hoặc số liệu mẫu, không cộng chéo đơn vị và không suy diễn khối lượng theo khoảng ngày khi nguồn không có lịch sử theo ngày.',
-  ].join('\n');
 }
 
 function buildDeterministicTodayAnswer(request: AiProviderChatRequest): string | null {
   if (request.mode !== 'GENERAL_AI') return null;
   const last = [...request.messages].reverse().find((message) => message.role === 'user');
-  const text = String(last?.content || '').trim();
-  if (!text || text.startsWith('{')) return null;
-  const normalized = normalizeSearchText(text)
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/g, 'd');
-  if (!/hom nay/.test(normalized) || !/(thu may|ngay may|ngay nao)/.test(normalized)) return null;
-  const now = new Date();
+  const content = String(last?.content || '').trim();
+  if (!content || content.startsWith('{')) return null;
+  const q = normalizeText(content);
+  if (!/hom nay/.test(q) || !/(thu may|ngay may|ngay nao)/.test(q)) return null;
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-  const date = new Intl.DateTimeFormat('vi-VN', { timeZone, weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' }).format(now);
+  const date = new Intl.DateTimeFormat('vi-VN', {
+    timeZone,
+    weekday: 'long',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(new Date());
   return `Theo ngày giờ hiện tại của thiết bị (${timeZone}), hôm nay là ${date}.`;
 }
 
-function buildGroundedQuantityFallback(question: string, context: any, evidence: GroundedQuantity[]): string {
-  const deterministic = buildDeterministicQuantityAnswer(question, context);
-  if (deterministic) return deterministic;
+function targetTeam(payload: { question: string; context: any }): string {
+  const requested = Array.isArray(payload.context?.requestedTeams) ? payload.context.requestedTeams : [];
+  const requestedName = String(requested[0]?.name || '').trim();
+  if (requestedName) return requestedName;
+  const names = new Set<string>();
+  for (const row of [...rows(payload.context?.quantityDetails), ...rows(payload.context?.crew)]) {
+    const name = String(row?.teamName || row?.assignedTeam || '').trim();
+    if (name) names.add(name);
+  }
+  const q = normalizeText(payload.question);
+  return Array.from(names).sort((a, b) => b.length - a.length).find((name) => q.includes(normalizeText(name))) || '';
+}
 
-  const summary = getCappedRows(context?.quantitySummaryByTeamAndCategory)
-    .map((row) => ({
-      teamName: String(row?.teamName || '').trim(),
-      workCategory: String(row?.workCategory || '').trim(),
-      volume: Number(row?.volume),
-      unit: String(row?.unit || '').trim(),
-      records: Number(row?.records) || 0,
-    }))
-    .filter((row) => Number.isFinite(row.volume));
+function supportedQuantityValues(context: any): Map<string, number[]> {
+  const byUnit = new Map<string, number[]>();
+  const detailRows = rows(context?.quantityDetails);
+  const validationRows = rows(context?.quantityValidationTotals);
+  const push = (unit: unknown, value: unknown) => {
+    const number = Number(value);
+    const key = normalizeUnit(unit);
+    if (!key || !Number.isFinite(number)) return;
+    const list = byUnit.get(key) || [];
+    list.push(number);
+    byUnit.set(key, list);
+  };
+  for (const row of detailRows) push(row?.unit, row?.volume);
+  for (const row of validationRows) push(row?.unit, row?.volume);
+  const totals = new Map<string, number>();
+  for (const row of detailRows) {
+    const number = Number(row?.volume);
+    const key = normalizeUnit(row?.unit);
+    if (!key || !Number.isFinite(number)) continue;
+    totals.set(key, (totals.get(key) || 0) + number);
+  }
+  for (const [unit, total] of totals) push(unit, total);
+  return byUnit;
+}
 
-  const normalizedQuestion = normalizeSearchText(question);
-  const namedTeams = Array.from(new Set(summary.map((row) => row.teamName).filter(Boolean)));
-  const targetTeam = namedTeams.find((name) => normalizedQuestion.includes(normalizeSearchText(name)));
-  const selected = targetTeam ? summary.filter((row) => row.teamName === targetTeam) : summary;
+function supportedCrewValues(context: any): Set<number> {
+  const result = new Set<number>([0]);
+  const crew = rows(context?.crew);
+  const byDate = new Map<string, number>();
+  for (const row of crew) {
+    const candidates = [row?.morningCount, row?.afternoonCount, row?.eveningCount, row?.workerCount]
+      .map(Number)
+      .filter(Number.isFinite);
+    for (const value of candidates) result.add(value);
+    const daily = Number(row?.workerCount);
+    if (Number.isFinite(daily)) byDate.set(String(row?.date || ''), (byDate.get(String(row?.date || '')) || 0) + daily);
+  }
+  for (const value of byDate.values()) result.add(value);
+  const total = Array.from(byDate.values()).reduce((sum, value) => sum + value, 0);
+  if (total > 0) result.add(total);
+  return result;
+}
 
-  if (selected.length === 0) {
-    const hasAnyQuantity = evidence.length > 0;
-    return targetTeam
-      ? `HNL đã chặn câu trả lời AI vì có số khối lượng không tồn tại trong dữ liệu được phép. Hiện chưa có khối lượng nào được gắn rõ với ${targetTeam}. Không tạo số liệu mẫu hoặc ước tính.`
-      : hasAnyQuantity
-        ? 'HNL đã chặn câu trả lời AI vì có số khối lượng không tồn tại trong dữ liệu được phép. Dữ liệu hiện có chưa đủ để lập báo cáo theo đội được hỏi; HNL không tự tạo số liệu mẫu hoặc ước tính.'
-        : 'HNL đã chặn câu trả lời AI vì có số khối lượng không tồn tại trong dữ liệu được phép. Hiện không có dữ liệu khối lượng xác thực trong phạm vi đã chọn.';
+function numericClaimsSupported(text: string, context: any): boolean {
+  const quantities = supportedQuantityValues(context);
+  const quantityPattern = /(-?\d{1,3}(?:[.\s]\d{3})*(?:,\d+)?|-?\d+(?:[.,]\d+)?)\s*(m²|m2|m³|m3|kg|tấn|tan|bộ|bo|cái|cai|tấm|tam|thanh|hộp|hop)\b/giu;
+  let match: RegExpExecArray | null;
+  while ((match = quantityPattern.exec(text)) !== null) {
+    const value = parseNumber(match[1]);
+    const unit = normalizeUnit(match[2]);
+    if (value === null) continue;
+    const supported = quantities.get(unit) || [];
+    const ok = supported.some((source) => Math.abs(source - value) <= Math.max(0.001, Math.abs(source) * 0.000001));
+    if (!ok) return false;
   }
 
-  const lines = selected.slice(0, 20).map((row) => {
-    const team = row.teamName || 'Chưa gán đội';
-    const category = row.workCategory || 'Chưa rõ hạng mục';
-    const unit = row.unit || 'đơn vị chưa khai báo';
-    return `- ${team} · ${category}: ${formatGroundedNumber(row.volume)} ${unit}${row.records ? ` (${row.records} bản ghi)` : ''}`;
-  });
+  const crewValues = supportedCrewValues(context);
+  const peoplePattern = /(\d+(?:[.,]\d+)?)\s*người\b/giu;
+  while ((match = peoplePattern.exec(text)) !== null) {
+    const value = parseNumber(match[1]);
+    if (value !== null && !crewValues.has(value)) return false;
+  }
+  return true;
+}
+
+function entityClaimsSupported(text: string, payload: { question: string; context: any }): boolean {
+  const context = payload.context;
+  const expectedTeam = targetTeam(payload);
+  const teamNames = new Set<string>();
+  for (const item of Array.isArray(context?.teams) ? context.teams : []) {
+    const name = String(item?.name || '').trim();
+    if (name) teamNames.add(name);
+  }
+  for (const row of [...rows(context?.quantityDetails), ...rows(context?.crew)]) {
+    const name = String(row?.teamName || row?.assignedTeam || '').trim();
+    if (name) teamNames.add(name);
+  }
+  if (expectedTeam) {
+    for (const name of teamNames) {
+      if (normalizeText(name) !== normalizeText(expectedTeam) && normalizeText(text).includes(normalizeText(name))) return false;
+    }
+  }
+
+  const floorNames = new Set<string>();
+  for (const item of Array.isArray(context?.floors) ? context.floors : []) {
+    const name = String(item?.name || '').trim();
+    if (name) floorNames.add(normalizeText(name));
+  }
+  for (const row of [...rows(context?.quantityDetails), ...rows(context?.crew), ...rows(context?.rooms)]) {
+    const name = String(row?.floorName || '').trim();
+    if (name) floorNames.add(normalizeText(name));
+  }
+  const floorPattern = /\bTầng\s+(Trệt|Hầm\s*\d+|\d+|[A-Za-z0-9._-]+)\b/giu;
+  let floorMatch: RegExpExecArray | null;
+  while ((floorMatch = floorPattern.exec(text)) !== null) {
+    const claimed = normalizeText(`Tầng ${floorMatch[1]}`);
+    if (floorNames.size > 0 && !Array.from(floorNames).some((known) => known === claimed || known.includes(claimed) || claimed.includes(known))) return false;
+  }
+  return true;
+}
+
+function safeFallback(payload: { question: string; context: any }): string {
+  const team = targetTeam(payload) || 'đội được hỏi';
+  const quantityLines = rows(payload.context?.quantityValidationTotals)
+    .slice(0, 24)
+    .map((row) => `- ${String(row?.workCategory || 'Chưa rõ hạng mục')}: ${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 3 }).format(Number(row?.volume) || 0)} ${String(row?.unit || '')}`);
+  const crewLines = rows(payload.context?.crew)
+    .slice(0, 24)
+    .map((row) => `- ${String(row?.date || 'Chưa rõ ngày')} · ${String(row?.floorName || 'Chưa rõ tầng')}: ${Number(row?.workerCount) || 0} người`);
   return [
-    'HNL đã chặn phần trả lời AI có số khối lượng không có trong dữ liệu nguồn.',
-    'Khối lượng xác thực hiện có trong snapshot:',
-    ...lines,
-    'HNL không cộng chéo các đơn vị khác nhau và không suy diễn khối lượng theo khoảng ngày khi nguồn không có lịch sử khối lượng theo ngày.',
-  ].join('\n');
+    `HNL đã chặn phần trả lời AI vì phát hiện số liệu hoặc nhãn không tồn tại trong dữ liệu nguồn của ${team}.`,
+    quantityLines.length ? 'Khối lượng xác thực:' : '',
+    ...quantityLines,
+    crewLines.length ? 'Quân số xác thực:' : '',
+    ...crewLines,
+    'AI chỉ được phân tích và trình bày dữ liệu HNL; không được tạo tầng, đội, hạng mục hoặc số liệu mẫu.',
+  ].filter(Boolean).join('\n');
 }
 
 function guardExternalHnlResponse(request: AiProviderChatRequest, text: string | undefined): string | undefined {
   if (!text) return text;
-  const payload = parseExternalHnlPayload(request);
-  if (!payload?.context?.quantitySummaryByTeamAndCategory && !payload?.context?.quantityDetails) return text;
-  const deterministic = buildDeterministicQuantityAnswer(payload.question, payload.context);
-  // Quantity questions about a named HNL team are answered from the sanitized deterministic
-  // rows, not from provider prose. This prevents a model from mixing another team's valid
-  // number into the requested team or inventing floor/category labels around a real number.
-  if (deterministic) return deterministic;
-  const evidence = collectGroundedQuantities(payload.context);
-  if (!hasUnsupportedQuantityClaim(text, evidence)) return text;
-  return buildGroundedQuantityFallback(payload.question, payload.context, evidence);
+  const payload = parseExternalPayload(request);
+  if (!payload) return text;
+  if (!numericClaimsSupported(text, payload.context) || !entityClaimsSupported(text, payload)) return safeFallback(payload);
+  return text;
 }
 
 export class HnlManagedAiProvider implements AIProvider {
@@ -355,9 +285,7 @@ export class HnlManagedAiProvider implements AIProvider {
     const response = await fetchGateway(`${this.gatewayUrl}/v1/models`, { method: 'GET', signal });
     if (!response.ok) throw new Error(`HNL_AI_MODELS_${response.status}`);
     const body = await response.json();
-    const provider = Array.isArray(body?.providers)
-      ? body.providers.find((item: any) => item?.provider === this.provider)
-      : null;
+    const provider = Array.isArray(body?.providers) ? body.providers.find((item: any) => item?.provider === this.provider) : null;
     const models = (provider?.models || []).map((item: any) => ({
       id: String(item.id || ''),
       displayName: String(item.displayName || item.id || ''),
@@ -379,29 +307,12 @@ export class HnlManagedAiProvider implements AIProvider {
     const startedAt = Date.now();
     const todayAnswer = buildDeterministicTodayAnswer(request);
     if (todayAnswer) {
-      return {
-        provider: 'hnl-local',
-        model: 'deterministic-date',
-        text: todayAnswer,
-        latencyMs: Date.now() - startedAt,
-        finishReason: 'stop',
-      };
+      return { provider: 'hnl-local', model: 'deterministic-date', text: todayAnswer, latencyMs: Date.now() - startedAt, finishReason: 'stop' };
     }
 
-    const hnlPayload = parseExternalHnlPayload(request);
-    if (hnlPayload) {
-      const quantityAnswer = buildDeterministicQuantityAnswer(hnlPayload.question, hnlPayload.context);
-      if (quantityAnswer) {
-        return {
-          provider: 'hnl-local',
-          model: 'deterministic-hnl-quantity',
-          text: quantityAnswer,
-          latencyMs: Date.now() - startedAt,
-          finishReason: 'stop',
-        };
-      }
-    }
-
+    // HNL data questions are intentionally sent to the selected AI provider. HNL supplies
+    // sanitized raw records and validates the returned narrative afterwards; it does not
+    // bypass the provider with a precomputed quantity answer.
     const response = await fetchGateway(`${this.gatewayUrl}/v1/chat`, {
       method: 'POST',
       signal: request.signal,
