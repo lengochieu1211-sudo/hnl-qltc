@@ -1,9 +1,12 @@
 import React, { useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Download, ExternalLink, FileJson, FileSpreadsheet, RefreshCw, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Download, ExternalLink, FileJson, FileSpreadsheet, RefreshCw, ShieldCheck, Wrench } from 'lucide-react';
 import type { UserRole } from '../utils/securityUtils';
+import { saveTextFileToDownloads } from '../utils/fileExport';
 import { createHnlAiProjectSnapshot } from '../ai/data/projectSnapshot';
 import { buildHealthCenterReport, type HealthCenterIssue, type HealthCenterModule, type HealthCenterSeverity } from './healthCenterEngine';
 import { exportHealthCenterExcel, exportHealthCenterJson, exportHealthCenterPdf } from './healthCenterExport';
+import { buildHealthCenterRepairPreview } from './healthCenterRepair';
+import { buildHealthCenterRepairBackupPayload } from './healthCenterRepairApply';
 
 interface HealthCenterPanelProps {
   projectId: string;
@@ -41,6 +44,12 @@ function moduleLabel(value: HealthCenterModule): string {
   return labels[value];
 }
 
+function renderRepairValue(value: unknown): string {
+  if (value === undefined || value === null || value === '') return '∅';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
+  try { return JSON.stringify(value); } catch { return String(value); }
+}
+
 export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
   projectId,
   projectName,
@@ -55,6 +64,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
   const [exporting, setExporting] = useState<string | null>(null);
+  const [showRepairPreview, setShowRepairPreview] = useState(false);
   const [message, setMessage] = useState('');
 
   const report = useMemo(() => {
@@ -93,6 +103,13 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
         .some((value) => String(value || '').toLocaleLowerCase('vi').includes(needle));
     });
   }, [module, query, report, severity]);
+
+  const repairPreview = useMemo(() => {
+    if (!report || userRole !== 'ADMIN') return null;
+    const safeIds = filtered.filter((issue) => issue.actionClass === 'SAFE_REPAIR_CANDIDATE').map((issue) => issue.id);
+    if (safeIds.length === 0) return null;
+    return buildHealthCenterRepairPreview(report, safeIds);
+  }, [filtered, report, userRole]);
 
   const openIssue = (issue: HealthCenterIssue) => {
     try {
@@ -135,6 +152,26 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
     }
   };
 
+  const exportRepairBackup = async () => {
+    if (!repairPreview || repairPreview.operations.length === 0 || userRole !== 'ADMIN') return;
+    setExporting('repair-backup');
+    setMessage('');
+    try {
+      const payload = buildHealthCenterRepairBackupPayload({ projectId, preview: repairPreview, fullAppData });
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      await saveTextFileToDownloads(
+        JSON.stringify(payload, null, 2),
+        `HNL-QLTC-HEALTH-CENTER-REPAIR-BACKUP-${stamp}.json`,
+        'application/json;charset=utf-8',
+      );
+      setMessage(`Đã xuất backup trước sửa cho Audit Snapshot ID ${repairPreview.auditSnapshotId}. Chưa có dữ liệu nào bị thay đổi.`);
+    } catch (err) {
+      setMessage(`Không xuất được backup trước sửa: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setExporting(null);
+    }
+  };
+
   if (!accessVerified) {
     return <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800">Health Center chỉ chạy sau khi quyền dự án đã được xác minh.</div>;
   }
@@ -147,7 +184,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
         <div className="mt-1 text-[10px] font-semibold text-slate-500">Hệ thống · Chẩn đoán · Audit dữ liệu · một nguồn kết quả duy nhất</div>
         <div className="mt-1 break-all text-[9px] text-slate-400">Snapshot: {report.auditSnapshotId}</div>
       </div>
-      <button type="button" onClick={() => setRunAt(Date.now())} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-700"><RefreshCw className="h-3.5 w-3.5" /> Quét lại</button>
+      <button type="button" onClick={() => { setRunAt(Date.now()); setShowRepairPreview(false); }} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-700"><RefreshCw className="h-3.5 w-3.5" /> Quét lại</button>
     </div>
 
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -158,21 +195,37 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
     </div>
 
     <div className="grid gap-2 sm:grid-cols-3">
-      <select value={severity} onChange={(e) => setSeverity(e.target.value as SeverityFilter)} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs">
+      <select value={severity} onChange={(e) => { setSeverity(e.target.value as SeverityFilter); setShowRepairPreview(false); }} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs">
         <option value="ALL">Tất cả mức độ</option><option value="ERROR">Lỗi nghiêm trọng</option><option value="WARNING">Cảnh báo</option><option value="REVIEW">Cần xác nhận</option><option value="SUGGESTION">Đề xuất</option>
       </select>
-      <select value={module} onChange={(e) => setModule(e.target.value as ModuleFilter)} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs">
+      <select value={module} onChange={(e) => { setModule(e.target.value as ModuleFilter); setShowRepairPreview(false); }} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs">
         <option value="ALL">Tất cả module</option>{(['system','firebase','r2','sync','rooms','defects','crew','quantities','inventory','materialNorms','checklist','links'] as HealthCenterModule[]).map((x) => <option key={x} value={x}>{moduleLabel(x)}</option>)}
       </select>
-      <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Tìm ngày, đội, tầng, căn, hạng mục..." className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs" />
+      <input value={query} onChange={(e) => { setQuery(e.target.value); setShowRepairPreview(false); }} placeholder="Tìm ngày, đội, tầng, căn, hạng mục..." className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs" />
     </div>
 
     <div className="flex flex-wrap gap-2">
       <button type="button" disabled={Boolean(exporting)} onClick={() => void exportReport('json')} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold"><FileJson className="h-3.5 w-3.5" /> JSON</button>
       <button type="button" disabled={Boolean(exporting)} onClick={() => void exportReport('excel')} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold"><FileSpreadsheet className="h-3.5 w-3.5" /> Excel</button>
       <button type="button" disabled={Boolean(exporting)} onClick={() => void exportReport('pdf')} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold"><Download className="h-3.5 w-3.5" /> PDF</button>
+      {userRole === 'ADMIN' && repairPreview && repairPreview.operations.length > 0 && <button type="button" onClick={() => setShowRepairPreview((value) => !value)} className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[10px] font-bold text-emerald-700"><Wrench className="h-3.5 w-3.5" /> {showRepairPreview ? 'Ẩn sửa an toàn' : `Xem sửa an toàn (${repairPreview.operations.length})`}</button>}
       <span className="self-center text-[9px] font-semibold text-slate-500">Đang hiển thị/xuất {filtered.length}/{report.issues.length} vấn đề · {report.recordsScanned} record đã quét</span>
     </div>
+
+    {showRepairPreview && repairPreview && <div className="space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div><div className="text-xs font-black text-emerald-800">Repair Preview · chưa ghi dữ liệu</div><div className="mt-0.5 text-[9px] font-semibold text-emerald-700">Chỉ liệt kê repair deterministic-unique. Orphan thật, ambiguous và lỗi nghiệp vụ không được tự sửa.</div></div>
+        <button type="button" disabled={Boolean(exporting)} onClick={() => void exportRepairBackup()} className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-white px-2.5 py-1.5 text-[10px] font-bold text-emerald-800"><Download className="h-3.5 w-3.5" /> Backup trước sửa</button>
+      </div>
+      <div className="space-y-1.5">
+        {repairPreview.operations.map((op) => <div key={op.id} className="rounded-lg border border-emerald-200 bg-white p-2 text-[10px]">
+          <div className="font-bold text-slate-800">{op.target}:{op.entityId} · {op.path}</div>
+          <div className="mt-1 break-all text-slate-600"><span className="line-through">{renderRepairValue(op.before)}</span> <span className="px-1 font-black text-emerald-700">→</span> <span className="font-bold text-emerald-800">{renderRepairValue(op.after)}</span></div>
+          <div className="mt-1 text-[9px] text-slate-500">{op.ruleId} · {op.reason}</div>
+        </div>)}
+      </div>
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-[9px] font-semibold text-amber-800">Chưa có nút Apply ở gate này. Trước khi bật Apply, HNL bắt buộc kiểm tra snapshot còn mới, backup thành công, xác nhận ADMIN và re-audit sau ghi.</div>
+    </div>}
 
     {report.issues.length === 0 ? <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-bold text-emerald-700"><CheckCircle2 className="h-4 w-4" /> Không phát hiện vấn đề trong snapshot hiện tại.</div> : null}
 
