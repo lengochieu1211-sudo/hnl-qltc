@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Bot, BrainCircuit, Database, FileSearch, FileSpreadsheet, FileText, Loader2, ShieldCheck, Sparkles, WifiOff } from 'lucide-react';
+import { AlertTriangle, Bot, BrainCircuit, Building2, CalendarDays, Database, Eye, FileSearch, FileSpreadsheet, FileText, Link2, Loader2, ShieldCheck, Sparkles, Users, WifiOff, X } from 'lucide-react';
 import type { ChecklistItem, CrewRecord, DefectItem, FloorPlan, InventoryItem, MaterialNorm, RoomProgressItem, TeamInfo, WorkVolume } from '../../types';
 import type { UserRole } from '../../utils/securityUtils';
 import { createHnlAiProjectSnapshot } from '../../ai/data/projectSnapshot';
@@ -7,12 +7,18 @@ import { buildExternalAiQuestionPayload, type ExternalAiDataSelection } from '..
 import { runHnlAiQuestion, type HnlAiOrchestratorResult } from '../../ai/orchestrator/aiOrchestrator';
 import { HnlManagedAiProvider, type HnlManagedProviderId } from '../../ai/providers/hnlManagedProvider';
 import type { AiProviderModelInfo } from '../../ai/providers/providerTypes';
-import type { AiAuditSummary } from '../../ai/core/contracts';
+import type { AiAuditIssue, AiAuditSummary } from '../../ai/core/contracts';
 import { exportHnlAiExcel, exportHnlAiPdf, type HnlAiReportExportInput } from '../../ai/export/aiReportExport';
 
 export type AiAssistantMode = 'data' | 'audit' | 'ai' | 'hybrid';
 
 type AiExportKind = 'excel' | 'pdf';
+type AuditInspectMode = 'record' | 'links';
+
+interface AuditInspectState {
+  issue: AiAuditIssue;
+  mode: AuditInspectMode;
+}
 
 export interface AiAssistantPageProps {
   projectId: string;
@@ -75,6 +81,23 @@ function humanizeAiError(error: unknown): string {
   return message || 'Không thể gửi câu hỏi đến AI.';
 }
 
+function compactText(value: unknown): string {
+  if (value === undefined || value === null || value === '') return '—';
+  if (typeof value === 'boolean') return value ? 'Có' : 'Không';
+  if (Array.isArray(value)) return value.map((item) => compactText(item)).join(', ') || '—';
+  if (typeof value === 'object') {
+    try { return JSON.stringify(value); } catch { return String(value); }
+  }
+  return String(value);
+}
+
+function formatAuditDate(value: unknown): string {
+  const raw = String(value || '').trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return raw || '—';
+  return `${match[3]}/${match[2]}/${match[1]}`;
+}
+
 export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
   const [mode, setMode] = useState<AiAssistantMode>('data');
   const [question, setQuestion] = useState('');
@@ -93,6 +116,7 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
   const [externalAiSelection, setExternalAiSelection] = useState<ExternalAiDataSelection>({ progress: true, quantities: true, defects: false, crew: false, inventory: false, checklist: false });
   const [exportBusy, setExportBusy] = useState<AiExportKind | null>(null);
   const [exportNotice, setExportNotice] = useState('');
+  const [auditInspect, setAuditInspect] = useState<AuditInspectState | null>(null);
   const timeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', []);
   const gatewayUrl = String((import.meta as any).env?.VITE_HNL_AI_GATEWAY_URL || '').trim();
 
@@ -130,6 +154,49 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
     freshness: props.online ? 'live' : 'cache',
   }), [props.projectId, props.projectName, props.rooms, props.defects, props.crewRecords, props.teams, props.floors, props.workVolumes, props.inventory, props.materialNorms, props.checklist, props.online]);
 
+  const teamById = useMemo(() => new Map(props.teams.map((team) => [String(team.id), team])), [props.teams]);
+  const floorById = useMemo(() => new Map(props.floors.map((floor) => [String(floor.id), floor])), [props.floors]);
+
+  const resolveIssueRecord = (issue: AiAuditIssue): Record<string, unknown> | null => {
+    const id = String(issue.entityId || '');
+    const kind = String(issue.entityType || '').toLowerCase();
+    const collections: Array<Array<Record<string, unknown>>> = [];
+    if (kind.includes('crew')) collections.push(props.crewRecords as unknown as Array<Record<string, unknown>>);
+    else if (kind.includes('defect')) collections.push(props.defects as unknown as Array<Record<string, unknown>>);
+    else if (kind.includes('room')) collections.push(props.rooms as unknown as Array<Record<string, unknown>>);
+    else if (kind.includes('floor')) collections.push(props.floors as unknown as Array<Record<string, unknown>>);
+    else if (kind.includes('team')) collections.push(props.teams as unknown as Array<Record<string, unknown>>);
+    else if (kind.includes('volume') || kind.includes('quantity')) collections.push(props.workVolumes as unknown as Array<Record<string, unknown>>);
+    else collections.push(
+      props.crewRecords as unknown as Array<Record<string, unknown>>,
+      props.defects as unknown as Array<Record<string, unknown>>,
+      props.rooms as unknown as Array<Record<string, unknown>>,
+      props.workVolumes as unknown as Array<Record<string, unknown>>,
+    );
+    for (const list of collections) {
+      const found = list.find((item) => String(item.id || '') === id);
+      if (found) return found;
+    }
+    return null;
+  };
+
+  const getIssueBusinessMeta = (issue: AiAuditIssue) => {
+    const record = resolveIssueRecord(issue) || {};
+    const details = (issue.details || {}) as Record<string, unknown>;
+    const teamId = String(record.teamId || details.teamId || details.candidateTeamId || '').trim();
+    const teamName = String(record.teamName || details.teamName || (teamId ? teamById.get(teamId)?.name : '') || '').trim();
+    const floorId = String(record.floorId || details.floorId || '').trim();
+    const linkedFloorName = floorId ? String(floorById.get(floorId)?.floorName || '').trim() : '';
+    const savedFloorName = String(record.floorName || details.savedFloorName || '').trim();
+    const currentFloorName = String(details.currentFloorName || linkedFloorName || '').trim();
+    const floorName = currentFloorName || savedFloorName;
+    const date = String(record.date || details.date || record.createdAt || '').trim();
+    const shift = String(record.shift || details.shift || '').trim();
+    const task = String(record.taskDescription || record.description || record.title || details.taskDescription || '').trim();
+    const roomName = String(record.roomName || record.name || details.roomName || '').trim();
+    return { record, details, teamId, teamName, floorId, floorName, savedFloorName, currentFloorName, date, shift, task, roomName };
+  };
+
   useEffect(() => {
     let cancelled = false;
     if (!catalogProvider || !props.online || !props.accessVerified) {
@@ -165,6 +232,7 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
     setExportNotice('');
     setResult(null);
     setGeneralText('');
+    setAuditInspect(null);
     try {
       if (!props.accessVerified) throw new Error('Quyền truy cập dự án chưa được xác minh.');
       if (mode === 'ai') {
@@ -246,6 +314,8 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
     }
   };
 
+  const inspectedMeta = auditInspect ? getIssueBusinessMeta(auditInspect.issue) : null;
+
   return (
     <div className="max-w-5xl mx-auto px-3 sm:px-5 pb-28 space-y-4">
       <section className="rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-cyan-50 p-4 shadow-sm">
@@ -265,7 +335,7 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
         <div className="mt-4 grid grid-cols-4 gap-1.5">
           {(Object.keys(MODE_META) as AiAssistantMode[]).map((key) => {
             const item = MODE_META[key]; const Icon = item.icon; const active = mode === key;
-            return <button key={key} onClick={() => { setMode(key); if (key !== 'ai') setExternalAiOptIn(false); setResult(null); setGeneralText(''); setError(''); setExportNotice(''); }} className={`rounded-xl px-2 py-2 text-[11px] font-bold flex flex-col sm:flex-row items-center justify-center gap-1 ${active ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 border border-slate-200'}`}><Icon className="w-4 h-4" />{item.label}</button>;
+            return <button key={key} onClick={() => { setMode(key); if (key !== 'ai') setExternalAiOptIn(false); setResult(null); setGeneralText(''); setError(''); setExportNotice(''); setAuditInspect(null); }} className={`rounded-xl px-2 py-2 text-[11px] font-bold flex flex-col sm:flex-row items-center justify-center gap-1 ${active ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 border border-slate-200'}`}><Icon className="w-4 h-4" />{item.label}</button>;
           })}
         </div>
         <p className="mt-2 text-[11px] text-slate-500">{MODE_META[mode].hint}</p>
@@ -341,12 +411,88 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
           </div>
         </section>
 
-        {audit && audit.issues.length > 0 && <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><h3 className="font-black text-slate-900 mb-2">Vấn đề phát hiện</h3><div className="space-y-2 max-h-[420px] overflow-auto">{audit.issues.slice(0, 100).map((issue, index) => <div key={`${issue.ruleId}-${issue.entityId}-${index}`} className="rounded-xl border border-slate-200 p-3"><div className="flex items-center gap-2"><span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${issue.severity === 'ERROR' ? 'bg-rose-100 text-rose-700' : issue.severity === 'WARNING' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>{issue.severity}</span><span className="text-[10px] font-mono text-slate-500">{issue.ruleId}</span></div><p className="mt-1 text-sm text-slate-800">{issue.message}</p></div>)}</div></section>}
+        {audit && audit.issues.length > 0 && <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="mb-3">
+            <h3 className="font-black text-slate-900">Vấn đề phát hiện</h3>
+            <p className="mt-1 text-[11px] text-slate-500">Nhấn vào từng lỗi để kiểm tra bản ghi và liên kết nguồn. Audit chỉ đọc, không tự sửa dữ liệu.</p>
+          </div>
+          <div className="space-y-2 max-h-[560px] overflow-auto">
+            {audit.issues.slice(0, 100).map((issue, index) => {
+              const meta = getIssueBusinessMeta(issue);
+              return <div key={`${issue.ruleId}-${issue.entityId}-${index}`} className="rounded-xl border border-slate-200 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${issue.severity === 'ERROR' ? 'bg-rose-100 text-rose-700' : issue.severity === 'WARNING' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>{issue.severity}</span>
+                  <span className="text-[10px] font-mono text-slate-500">{issue.ruleId}</span>
+                </div>
+                {(meta.date || meta.teamName || meta.floorName || meta.shift || meta.roomName) && <div className="mt-2 flex flex-wrap gap-1.5">
+                  {meta.date && <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-700"><CalendarDays className="w-3 h-3" />{formatAuditDate(meta.date)}</span>}
+                  {meta.teamName && <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-1 text-[10px] font-semibold text-indigo-700"><Users className="w-3 h-3" />{meta.teamName}</span>}
+                  {meta.floorName && <span className="inline-flex items-center gap-1 rounded-full bg-cyan-50 px-2 py-1 text-[10px] font-semibold text-cyan-800"><Building2 className="w-3 h-3" />{meta.floorName}</span>}
+                  {meta.shift && <span className="rounded-full bg-violet-50 px-2 py-1 text-[10px] font-semibold text-violet-700">Ca: {meta.shift}</span>}
+                  {meta.roomName && <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-700">{meta.roomName}</span>}
+                </div>}
+                <p className="mt-2 text-sm text-slate-800">{issue.message}</p>
+                {meta.task && <p className="mt-1 text-xs text-slate-600"><span className="font-semibold">Công việc:</span> {meta.task}</p>}
+                {meta.savedFloorName && meta.currentFloorName && meta.savedFloorName !== meta.currentFloorName && <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] text-amber-900"><span className="font-bold">Tên tầng đang lưu:</span> {meta.savedFloorName} <span className="mx-1">→</span> <span className="font-bold">Tên hiện tại:</span> {meta.currentFloorName}</div>}
+                <div className="mt-2 text-[10px] text-slate-400">ID kỹ thuật: {issue.entityId || '—'}</div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button type="button" onClick={() => setAuditInspect({ issue, mode: 'record' })} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-[11px] font-bold text-slate-700 hover:bg-slate-50"><Eye className="w-3.5 h-3.5" />Xem bản ghi</button>
+                  <button type="button" onClick={() => setAuditInspect({ issue, mode: 'links' })} className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-bold text-indigo-700 hover:bg-indigo-100"><Link2 className="w-3.5 h-3.5" />Xem liên kết</button>
+                </div>
+              </div>;
+            })}
+          </div>
+        </section>}
 
         {result.narrative?.statements?.length ? <section className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4"><h3 className="font-black text-indigo-900 mb-2">AI nhận xét</h3>{result.narrative.statements.map((statement, index) => <div key={index} className="mb-2 last:mb-0"><div className="text-[10px] font-black text-indigo-600">{statement.kind}</div><p className="text-sm text-indigo-950">{statement.text}</p></div>)}</section> : null}
 
         <section className="rounded-2xl border border-slate-200 bg-white p-4 text-xs text-slate-600 shadow-sm"><h3 className="font-black text-slate-800 mb-2">Nguồn dữ liệu</h3><div>Tool: {toolResult.metadata.tool}</div><div>Records: {toolResult.metadata.recordsUsed}/{toolResult.metadata.recordsScanned}</div><div>Collections: {toolResult.metadata.sourceCollections.join(', ')}</div><div>Evidence: {toolResult.evidence.length} record</div><div>As of: {new Date(toolResult.metadata.asOf).toLocaleString()}</div>{result.warnings.map((warning) => <div key={warning} className="mt-1 text-amber-700">⚠ {warning}</div>)}</section>
       </>}
+
+      {auditInspect && inspectedMeta && <div className="fixed inset-0 z-[120] bg-black/55 p-3 flex items-end sm:items-center justify-center" onClick={() => setAuditInspect(null)}>
+        <div className="w-full max-w-2xl max-h-[82vh] overflow-auto rounded-2xl border border-slate-200 bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
+          <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3">
+            <div>
+              <div className="text-[10px] font-mono text-slate-500">{auditInspect.issue.ruleId}</div>
+              <h3 className="mt-0.5 font-black text-slate-900">{auditInspect.mode === 'record' ? 'Kiểm tra bản ghi' : 'Kiểm tra liên kết dữ liệu'}</h3>
+            </div>
+            <button type="button" onClick={() => setAuditInspect(null)} className="rounded-lg border border-slate-200 p-2 text-slate-500"><X className="w-4 h-4" /></button>
+          </div>
+          <div className="p-4 space-y-4">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {inspectedMeta.date && <span className="rounded-full bg-white border border-slate-200 px-2 py-1 text-[10px] font-bold text-slate-700">Ngày {formatAuditDate(inspectedMeta.date)}</span>}
+                {inspectedMeta.teamName && <span className="rounded-full bg-indigo-50 px-2 py-1 text-[10px] font-bold text-indigo-700">{inspectedMeta.teamName}</span>}
+                {inspectedMeta.floorName && <span className="rounded-full bg-cyan-50 px-2 py-1 text-[10px] font-bold text-cyan-800">{inspectedMeta.floorName}</span>}
+              </div>
+              <p className="text-sm text-slate-800">{auditInspect.issue.message}</p>
+            </div>
+
+            {auditInspect.mode === 'record' ? <>
+              <div>
+                <h4 className="text-xs font-black text-slate-900 mb-2">Dữ liệu nghiệp vụ của bản ghi</h4>
+                {Object.keys(inspectedMeta.record).length > 0 ? <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {Object.entries(inspectedMeta.record).filter(([key, value]) => value !== undefined && value !== null && !/image|photo|base64|password|token|secret/i.test(key)).slice(0, 36).map(([key, value]) => <div key={key} className="rounded-lg border border-slate-200 p-2"><div className="text-[10px] font-mono text-slate-500">{key}</div><div className="mt-0.5 text-xs text-slate-800 break-words">{compactText(value)}</div></div>)}
+                </div> : <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">Không tìm thấy bản ghi gốc trong snapshot hiện tại. Hãy chạy Audit lại sau khi dữ liệu đồng bộ hoàn tất.</div>}
+              </div>
+            </> : <>
+              <div>
+                <h4 className="text-xs font-black text-slate-900 mb-2">Liên kết đang được Audit đối chiếu</h4>
+                <div className="space-y-2 text-xs">
+                  <div className="rounded-lg border border-slate-200 p-3"><span className="font-bold">Đội:</span> {inspectedMeta.teamName || '—'}<div className="mt-1 text-[10px] text-slate-500">teamId: {inspectedMeta.teamId || '—'}</div></div>
+                  <div className="rounded-lg border border-slate-200 p-3"><span className="font-bold">Tầng theo liên kết:</span> {inspectedMeta.currentFloorName || inspectedMeta.floorName || '—'}<div className="mt-1 text-[10px] text-slate-500">floorId: {inspectedMeta.floorId || '—'}</div>{inspectedMeta.savedFloorName && inspectedMeta.currentFloorName && inspectedMeta.savedFloorName !== inspectedMeta.currentFloorName && <div className="mt-2 text-amber-800">Tên lưu trong record: <b>{inspectedMeta.savedFloorName}</b> → tên tầng hiện tại: <b>{inspectedMeta.currentFloorName}</b></div>}</div>
+                  <div className="rounded-lg border border-slate-200 p-3"><span className="font-bold">Bản ghi:</span> {auditInspect.issue.entityType || '—'}<div className="mt-1 text-[10px] text-slate-500">entityId: {auditInspect.issue.entityId || '—'}</div></div>
+                </div>
+              </div>
+              {Object.keys(inspectedMeta.details).length > 0 && <div>
+                <h4 className="text-xs font-black text-slate-900 mb-2">Chi tiết Rule Engine</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">{Object.entries(inspectedMeta.details).map(([key, value]) => <div key={key} className="rounded-lg border border-slate-200 p-2"><div className="text-[10px] font-mono text-slate-500">{key}</div><div className="mt-0.5 text-xs text-slate-800 break-words">{compactText(value)}</div></div>)}</div>
+              </div>}
+            </>}
+            <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-[11px] leading-5 text-blue-900">Panel này chỉ dùng để kiểm tra. HNL AI/Audit không tự sửa hoặc xóa bản ghi. Nếu dữ liệu cần thay đổi, hãy sửa ở màn hình nghiệp vụ tương ứng rồi chạy Audit lại.</div>
+          </div>
+        </div>
+      </div>}
 
       <div className="text-center text-[10px] text-slate-400">HNL AI READ + ANALYZE + EXPORT ONLY · Không có quyền tự sửa/xóa dữ liệu</div>
     </div>
