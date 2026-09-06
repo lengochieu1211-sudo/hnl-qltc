@@ -2,11 +2,13 @@ import React, { useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Download, ExternalLink, FileJson, FileSpreadsheet, RefreshCw, ShieldCheck, Wrench } from 'lucide-react';
 import type { UserRole } from '../utils/securityUtils';
 import { saveTextFileToDownloads } from '../utils/fileExport';
+import { confirmAsync } from '../utils/confirmAsync';
 import { createHnlAiProjectSnapshot } from '../ai/data/projectSnapshot';
 import { buildHealthCenterReport, type HealthCenterIssue, type HealthCenterModule, type HealthCenterSeverity } from './healthCenterEngine';
 import { exportHealthCenterExcel, exportHealthCenterJson, exportHealthCenterPdf } from './healthCenterExport';
 import { buildHealthCenterRepairPreview } from './healthCenterRepair';
-import { buildHealthCenterRepairBackupPayload } from './healthCenterRepairApply';
+import { buildHealthCenterRepairBackupPayload, type HealthCenterRepairBackupPayload } from './healthCenterRepairApply';
+import { commitHealthCenterRepair } from './healthCenterRepairCommit';
 
 interface HealthCenterPanelProps {
   projectId: string;
@@ -15,6 +17,7 @@ interface HealthCenterPanelProps {
   accessVerified: boolean;
   fullAppData?: any;
   freshness?: 'live' | 'cache';
+  onApplyRepair?: (nextData: any, context: { auditSnapshotId: string; operationCount: number; backup: HealthCenterRepairBackupPayload }) => void | Promise<void>;
 }
 
 type SeverityFilter = 'ALL' | HealthCenterSeverity;
@@ -57,6 +60,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
   accessVerified,
   fullAppData,
   freshness = 'live',
+  onApplyRepair,
 }) => {
   const [runAt, setRunAt] = useState(() => Date.now());
   const [severity, setSeverity] = useState<SeverityFilter>('ALL');
@@ -111,6 +115,15 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
     return buildHealthCenterRepairPreview(report, safeIds);
   }, [filtered, report, userRole]);
 
+  const saveRepairBackupPayload = async (payload: HealthCenterRepairBackupPayload) => {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    await saveTextFileToDownloads(
+      JSON.stringify(payload, null, 2),
+      `HNL-QLTC-HEALTH-CENTER-REPAIR-BACKUP-${stamp}.json`,
+      'application/json;charset=utf-8',
+    );
+  };
+
   const openIssue = (issue: HealthCenterIssue) => {
     try {
       sessionStorage.setItem('qlct_diagnostic_navigation_request', JSON.stringify({
@@ -158,15 +171,46 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
     setMessage('');
     try {
       const payload = buildHealthCenterRepairBackupPayload({ projectId, preview: repairPreview, fullAppData });
-      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-      await saveTextFileToDownloads(
-        JSON.stringify(payload, null, 2),
-        `HNL-QLTC-HEALTH-CENTER-REPAIR-BACKUP-${stamp}.json`,
-        'application/json;charset=utf-8',
-      );
+      await saveRepairBackupPayload(payload);
       setMessage(`Đã xuất backup trước sửa cho Audit Snapshot ID ${repairPreview.auditSnapshotId}. Chưa có dữ liệu nào bị thay đổi.`);
     } catch (err) {
       setMessage(`Không xuất được backup trước sửa: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setExporting(null);
+    }
+  };
+
+  const applySafeRepair = async () => {
+    if (!report || !repairPreview || !onApplyRepair || userRole !== 'ADMIN' || !accessVerified) return;
+    setExporting('repair-apply');
+    setMessage('');
+    try {
+      const result = await commitHealthCenterRepair({
+        projectId,
+        userRole,
+        accessVerified,
+        currentReport: report,
+        preview: repairPreview,
+        fullAppData: fullAppData || {},
+        saveBackup: saveRepairBackupPayload,
+        confirmApply: async ({ operationCount, auditSnapshotId }) => await confirmAsync(
+          `Health Center đã lưu backup trước sửa.\n\nÁp dụng ${operationCount} thay đổi deterministic-unique của Audit Snapshot ${auditSnapshotId}?\n\nChỉ các field hiển thị trong Repair Preview được phép thay đổi.`
+        ),
+        persist: async (nextData, context) => {
+          await onApplyRepair(nextData, {
+            auditSnapshotId: context.preview.auditSnapshotId,
+            operationCount: context.preview.operations.length,
+            backup: context.backup,
+          });
+        },
+      });
+      setMessage(result.message);
+      if (result.ok) {
+        setShowRepairPreview(false);
+        window.setTimeout(() => setRunAt(Date.now()), 0);
+      }
+    } catch (err) {
+      setMessage(`Không áp dụng được Repair: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setExporting(null);
     }
@@ -215,7 +259,10 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
     {showRepairPreview && repairPreview && <div className="space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div><div className="text-xs font-black text-emerald-800">Repair Preview · chưa ghi dữ liệu</div><div className="mt-0.5 text-[9px] font-semibold text-emerald-700">Chỉ liệt kê repair deterministic-unique. Orphan thật, ambiguous và lỗi nghiệp vụ không được tự sửa.</div></div>
-        <button type="button" disabled={Boolean(exporting)} onClick={() => void exportRepairBackup()} className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-white px-2.5 py-1.5 text-[10px] font-bold text-emerald-800"><Download className="h-3.5 w-3.5" /> Backup trước sửa</button>
+        <div className="flex flex-wrap gap-1.5">
+          <button type="button" disabled={Boolean(exporting)} onClick={() => void exportRepairBackup()} className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-white px-2.5 py-1.5 text-[10px] font-bold text-emerald-800"><Download className="h-3.5 w-3.5" /> Backup trước sửa</button>
+          {onApplyRepair && <button type="button" disabled={Boolean(exporting) || !repairPreview.canApply || freshness !== 'live'} onClick={() => void applySafeRepair()} className="inline-flex items-center gap-1 rounded-lg border border-emerald-700 bg-emerald-700 px-2.5 py-1.5 text-[10px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"><Wrench className="h-3.5 w-3.5" /> {exporting === 'repair-apply' ? 'Đang kiểm tra...' : 'Backup & Áp dụng sửa an toàn'}</button>}
+        </div>
       </div>
       <div className="space-y-1.5">
         {repairPreview.operations.map((op) => <div key={op.id} className="rounded-lg border border-emerald-200 bg-white p-2 text-[10px]">
@@ -224,7 +271,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
           <div className="mt-1 text-[9px] text-slate-500">{op.ruleId} · {op.reason}</div>
         </div>)}
       </div>
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-[9px] font-semibold text-amber-800">Chưa có nút Apply ở gate này. Trước khi bật Apply, HNL bắt buộc kiểm tra snapshot còn mới, backup thành công, xác nhận ADMIN và re-audit sau ghi.</div>
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-[9px] font-semibold text-amber-800">Apply chỉ được bật khi App cấp đường ghi chuẩn. Luồng bắt buộc: snapshot còn mới → backup thành công → ADMIN xác nhận → kiểm tra before-value → ghi qua mutation chuẩn → re-audit.</div>
     </div>}
 
     {report.issues.length === 0 ? <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-bold text-emerald-700"><CheckCircle2 className="h-4 w-4" /> Không phát hiện vấn đề trong snapshot hiện tại.</div> : null}
