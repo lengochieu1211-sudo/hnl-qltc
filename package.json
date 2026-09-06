@@ -29,7 +29,7 @@
     "test:ai-provider": "tsx scripts/ai-provider-orchestrator-golden.ts",
     "test:ai-gateway": "node scripts/ai-gateway-golden.mjs",
     "test:ai-export": "tsx scripts/ai-export-golden.ts",
-    "test:health-center": "tsx scripts/health-center-golden.ts && tsx scripts/health-center-orphan-golden.ts && tsx scripts/health-center-export-golden.ts",
+    "test:health-center": "tsx scripts/health-center-golden.ts && tsx scripts/health-center-orphan-golden.ts && tsx scripts/health-center-export-golden.ts && tsx scripts/health-center-repair-golden.ts",
     "build:apk:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File ./android-wrapper/build-apk.ps1",
     "build:exe:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File ./desktop-wrapper/build-launcher.ps1",
     "test:checklist-floor": "tsx scripts/checklist-floor-golden.ts",
