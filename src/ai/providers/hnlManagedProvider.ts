@@ -174,7 +174,110 @@ function formatGroundedNumber(value: number): string {
   return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 3 }).format(value);
 }
 
+function findTargetTeam(question: string, context: any): string | undefined {
+  const rows = [
+    ...getCappedRows(context?.quantitySummaryByTeamAndCategory),
+    ...getCappedRows(context?.quantityDetails),
+  ];
+  const names = Array.from(new Set(rows.map((row) => String(row?.teamName || '').trim()).filter(Boolean)))
+    .sort((a, b) => b.length - a.length);
+  const normalizedQuestion = normalizeSearchText(question);
+  return names.find((name) => normalizedQuestion.includes(normalizeSearchText(name)));
+}
+
+function looksLikeQuantityQuestion(question: string): boolean {
+  const q = normalizeSearchText(question)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd');
+  return /\b(khoi luong|san luong|m2|m3|hang muc|tung tang|theo tang)\b/.test(q);
+}
+
+function buildDeterministicQuantityAnswer(question: string, context: any): string | null {
+  if (!looksLikeQuantityQuestion(question)) return null;
+  const targetTeam = findTargetTeam(question, context);
+  if (!targetTeam) return null;
+
+  const detailRows = getCappedRows(context?.quantityDetails)
+    .map((row) => ({
+      teamName: String(row?.teamName || '').trim(),
+      floorName: String(row?.floorName || '').trim(),
+      roomName: String(row?.roomName || '').trim(),
+      workCategory: String(row?.workCategory || row?.item || '').trim(),
+      volume: Number(row?.volume),
+      unit: String(row?.unit || '').trim(),
+    }))
+    .filter((row) => row.teamName === targetTeam && Number.isFinite(row.volume));
+
+  const summaryRows = getCappedRows(context?.quantitySummaryByTeamAndCategory)
+    .map((row) => ({
+      teamName: String(row?.teamName || '').trim(),
+      workCategory: String(row?.workCategory || '').trim(),
+      volume: Number(row?.volume),
+      unit: String(row?.unit || '').trim(),
+      records: Number(row?.records) || 0,
+    }))
+    .filter((row) => row.teamName === targetTeam && Number.isFinite(row.volume));
+
+  if (detailRows.length === 0 && summaryRows.length === 0) {
+    return `HNL chưa có khối lượng xác thực được gắn với ${targetTeam} trong phạm vi dữ liệu bạn đã cho phép. HNL không tạo số liệu mẫu hoặc ước tính.`;
+  }
+
+  const wantsFloor = /tầng|tang|floor/i.test(question);
+  if (wantsFloor && detailRows.length > 0) {
+    const grouped = new Map<string, { floorName: string; workCategory: string; unit: string; volume: number; records: number }>();
+    for (const row of detailRows) {
+      const key = [row.floorName, row.workCategory, row.unit].join('|');
+      const current = grouped.get(key) || {
+        floorName: row.floorName || 'Chưa rõ tầng',
+        workCategory: row.workCategory || 'Chưa rõ hạng mục',
+        unit: row.unit || 'đơn vị chưa khai báo',
+        volume: 0,
+        records: 0,
+      };
+      current.volume += row.volume;
+      current.records += 1;
+      grouped.set(key, current);
+    }
+    const rows = Array.from(grouped.values()).sort((a, b) => a.floorName.localeCompare(b.floorName, 'vi') || a.workCategory.localeCompare(b.workCategory, 'vi'));
+    const lines = rows.slice(0, 36).map((row) => `- ${row.floorName} · ${row.workCategory}: ${formatGroundedNumber(row.volume)} ${row.unit} (${row.records} bản ghi)`);
+    return [
+      `Khối lượng xác thực của ${targetTeam} theo snapshot HNL hiện tại:`,
+      ...lines,
+      getCappedRows(context?.quantityDetails).length > detailRows.length && context?.quantityDetails?.truncated
+        ? 'Lưu ý: payload đã được giới hạn số dòng; đây là các bản ghi xác thực được gửi trong câu hỏi này, không phải số liệu ước tính.'
+        : 'HNL chỉ cộng các bản ghi cùng tầng/hạng mục/đơn vị và không cộng chéo đơn vị.',
+    ].join('\n');
+  }
+
+  const lines = summaryRows.slice(0, 24).map((row) => `- ${row.workCategory || 'Chưa rõ hạng mục'}: ${formatGroundedNumber(row.volume)} ${row.unit || 'đơn vị chưa khai báo'}${row.records ? ` (${row.records} bản ghi)` : ''}`);
+  return [
+    `Khối lượng xác thực của ${targetTeam} theo snapshot HNL hiện tại:`,
+    ...lines,
+    'HNL không tạo hạng mục hoặc số liệu mẫu, không cộng chéo đơn vị và không suy diễn khối lượng theo khoảng ngày khi nguồn không có lịch sử theo ngày.',
+  ].join('\n');
+}
+
+function buildDeterministicTodayAnswer(request: AiProviderChatRequest): string | null {
+  if (request.mode !== 'GENERAL_AI') return null;
+  const last = [...request.messages].reverse().find((message) => message.role === 'user');
+  const text = String(last?.content || '').trim();
+  if (!text || text.startsWith('{')) return null;
+  const normalized = normalizeSearchText(text)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd');
+  if (!/hom nay/.test(normalized) || !/(thu may|ngay may|ngay nao)/.test(normalized)) return null;
+  const now = new Date();
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  const date = new Intl.DateTimeFormat('vi-VN', { timeZone, weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' }).format(now);
+  return `Theo ngày giờ hiện tại của thiết bị (${timeZone}), hôm nay là ${date}.`;
+}
+
 function buildGroundedQuantityFallback(question: string, context: any, evidence: GroundedQuantity[]): string {
+  const deterministic = buildDeterministicQuantityAnswer(question, context);
+  if (deterministic) return deterministic;
+
   const summary = getCappedRows(context?.quantitySummaryByTeamAndCategory)
     .map((row) => ({
       teamName: String(row?.teamName || '').trim(),
@@ -217,6 +320,11 @@ function guardExternalHnlResponse(request: AiProviderChatRequest, text: string |
   if (!text) return text;
   const payload = parseExternalHnlPayload(request);
   if (!payload?.context?.quantitySummaryByTeamAndCategory && !payload?.context?.quantityDetails) return text;
+  const deterministic = buildDeterministicQuantityAnswer(payload.question, payload.context);
+  // Quantity questions about a named HNL team are answered from the sanitized deterministic
+  // rows, not from provider prose. This prevents a model from mixing another team's valid
+  // number into the requested team or inventing floor/category labels around a real number.
+  if (deterministic) return deterministic;
   const evidence = collectGroundedQuantities(payload.context);
   if (!hasUnsupportedQuantityClaim(text, evidence)) return text;
   return buildGroundedQuantityFallback(payload.question, payload.context, evidence);
@@ -269,6 +377,31 @@ export class HnlManagedAiProvider implements AIProvider {
 
   async chat(request: AiProviderChatRequest): Promise<AiProviderChatResponse> {
     const startedAt = Date.now();
+    const todayAnswer = buildDeterministicTodayAnswer(request);
+    if (todayAnswer) {
+      return {
+        provider: 'hnl-local',
+        model: 'deterministic-date',
+        text: todayAnswer,
+        latencyMs: Date.now() - startedAt,
+        finishReason: 'stop',
+      };
+    }
+
+    const hnlPayload = parseExternalHnlPayload(request);
+    if (hnlPayload) {
+      const quantityAnswer = buildDeterministicQuantityAnswer(hnlPayload.question, hnlPayload.context);
+      if (quantityAnswer) {
+        return {
+          provider: 'hnl-local',
+          model: 'deterministic-hnl-quantity',
+          text: quantityAnswer,
+          latencyMs: Date.now() - startedAt,
+          finishReason: 'stop',
+        };
+      }
+    }
+
     const response = await fetchGateway(`${this.gatewayUrl}/v1/chat`, {
       method: 'POST',
       signal: request.signal,
