@@ -59,16 +59,55 @@ function finiteNumber(value: unknown): number | null {
   return Number.isFinite(number) ? number : null;
 }
 
+function normalizedText(value: unknown): string {
+  return safeText(value).trim().toLocaleLowerCase('vi');
+}
+
+function buildTeamResolver(snapshot: HnlAiProjectSnapshot) {
+  const teamNameById = new Map<string, string>();
+  const teamByName = new Map<string, { id: string; name: string }>();
+  for (const team of active(snapshot.teams)) {
+    const id = String(team.id || '').trim();
+    const name = safeText(team.name).trim();
+    if (id && name) teamNameById.set(id, name);
+    if (name) teamByName.set(normalizedText(name), { id, name });
+  }
+  return (teamId?: string, teamName?: string) => {
+    const id = String(teamId || '').trim();
+    const declaredName = id ? teamNameById.get(id) : '';
+    if (declaredName) return { teamId: id, teamName: declaredName };
+    const name = safeText(teamName || '').trim();
+    const declared = name ? teamByName.get(normalizedText(name)) : undefined;
+    if (declared) return { teamId: declared.id || id, teamName: declared.name };
+    return { teamId: id, teamName: name };
+  };
+}
+
+function sameCategory(
+  categoryName: string,
+  categoryId: string,
+  subItem: { category?: string; workCategoryId?: string },
+): boolean {
+  const byId = Boolean(categoryId && subItem.workCategoryId && categoryId === subItem.workCategoryId);
+  if (byId) return true;
+  const left = normalizedText(categoryName);
+  const right = normalizedText(subItem.category || '');
+  return Boolean(left && right && left === right);
+}
+
 function buildQuantityRows(snapshot: HnlAiProjectSnapshot): QuantityRow[] {
   const rows: QuantityRow[] = [];
+  const resolveTeam = buildTeamResolver(snapshot);
+
   for (const room of active(snapshot.rooms)) {
+    const roomTeam = resolveTeam(room.teamId, room.assignedTeam);
     const base = {
       floorId: room.floorId || '',
       floorName: safeText(room.floorName || ''),
       roomId: room.id,
       roomName: safeText(room.roomName || ''),
-      teamId: room.teamId || '',
-      teamName: safeText(room.assignedTeam || ''),
+      teamId: roomTeam.teamId,
+      teamName: roomTeam.teamName,
       workCategoryId: room.workCategoryId || '',
       workCategory: safeText(room.workCategory || ''),
       updatedAt: finiteNumber(room.updatedAt),
@@ -77,10 +116,24 @@ function buildQuantityRows(snapshot: HnlAiProjectSnapshot): QuantityRow[] {
     const categoryEntries = Object.entries(room.categoryVolumes || {}).filter(([, value]) => finiteNumber(value) !== null);
     if (categoryEntries.length > 0) {
       for (const [category, value] of categoryEntries) {
+        const categoryName = safeText(category || base.workCategory);
+        const relatedSubItems = (room.subItems || []).filter((item) => sameCategory(categoryName, base.workCategoryId, item));
+        const relatedTeams = Array.from(new Map(
+          relatedSubItems
+            .map((item) => resolveTeam(item.teamId, item.assignedTeam))
+            .filter((team) => team.teamId || team.teamName)
+            .map((team) => [`${team.teamId}|${normalizedText(team.teamName)}`, team] as const)
+        ).values());
+        // Room-level/category-level quantity may only be attributed to a sub-item team when
+        // the category has exactly one unambiguous team. Otherwise the room-level team is
+        // used. If neither is available, the quantity deliberately remains unassigned.
+        const categoryTeam = relatedTeams.length === 1 ? relatedTeams[0] : roomTeam;
         rows.push({
           source: 'room-category',
           ...base,
-          workCategory: safeText(category || base.workCategory),
+          teamId: categoryTeam.teamId,
+          teamName: categoryTeam.teamName,
+          workCategory: categoryName,
           item: safeText(category || base.workCategory || room.roomName),
           volume: Number(value),
           unit: safeText(room.categoryVolumeUnits?.[category] || room.volumeUnit || ''),
@@ -93,11 +146,12 @@ function buildQuantityRows(snapshot: HnlAiProjectSnapshot): QuantityRow[] {
     const subRows = (room.subItems || []).filter((item) => finiteNumber(item.workVolume) !== null);
     if (subRows.length > 0) {
       for (const item of subRows) {
+        const itemTeam = resolveTeam(item.teamId || base.teamId, item.assignedTeam || base.teamName);
         rows.push({
           source: 'sub-item',
           ...base,
-          teamId: item.teamId || base.teamId,
-          teamName: safeText(item.assignedTeam || base.teamName),
+          teamId: itemTeam.teamId,
+          teamName: itemTeam.teamName,
           workCategoryId: item.workCategoryId || base.workCategoryId,
           workCategory: safeText(item.category || base.workCategory),
           item: safeText(item.name || item.category || base.workCategory),
@@ -213,7 +267,7 @@ export function buildExternalAiProjectContext(
       status: item.status,
       dueDate: item.dueDate || '',
     })));
-    result.quantitySemantics = 'Current project quantity snapshot. updatedAt is last modification time, not proof that quantity was executed on that date. Do not claim date-range executed quantity unless dated source records support it.';
+    result.quantitySemantics = 'Current project quantity snapshot. Team attribution is included only when it is explicit at room/sub-item level or unambiguous for that category. updatedAt is last modification time, not proof that quantity was executed on that date. Do not invent, estimate, or produce sample quantities. Do not claim date-range executed quantity unless dated source records support it.';
   }
 
   if (selection.defects) {
