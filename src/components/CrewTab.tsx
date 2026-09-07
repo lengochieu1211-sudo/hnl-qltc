@@ -1,20 +1,30 @@
 import React from 'react';
 import { CrewTab as CrewTabBase } from './CrewTabBase';
-import { sanitizeCrewTaskDescriptionText } from '../utils/crewTaskDescription';
+import { prepareCrewRecordForPersistence } from '../utils/crewPersistence';
 
 type CrewTabProps = React.ComponentProps<typeof CrewTabBase>;
 
-const sanitizeRecordTask = <T extends { taskDescription?: string }>(record: T): T => {
-  if (!record.taskDescription) return record;
-  const taskDescription = sanitizeCrewTaskDescriptionText(record.taskDescription);
-  if (taskDescription === record.taskDescription) return record;
-  return { ...record, taskDescription };
-};
+export const CrewTab: React.FC<CrewTabProps> = (props) => {
+  const prepare = <T extends { taskDescription?: string; floorWorks?: any[] }>(record: T): T | null => {
+    const result = prepareCrewRecordForPersistence(record);
+    if (!result.ok || !result.record) {
+      alert(result.error || 'Nhật ký quân số chưa hợp lệ.');
+      return null;
+    }
+    return result.record;
+  };
 
-export const CrewTab: React.FC<CrewTabProps> = (props) => (
-  <CrewTabBase
-    {...props}
-    onAddCrewRecord={(record) => props.onAddCrewRecord(sanitizeRecordTask(record))}
-    onUpdateCrewRecord={(id, record) => props.onUpdateCrewRecord(id, sanitizeRecordTask(record))}
-  />
-);
+  return (
+    <CrewTabBase
+      {...props}
+      onAddCrewRecord={(record) => {
+        const next = prepare(record);
+        if (next) props.onAddCrewRecord(next);
+      }}
+      onUpdateCrewRecord={(id, record) => {
+        const next = prepare(record);
+        if (next) props.onUpdateCrewRecord(id, next);
+      }}
+    />
+  );
+};
