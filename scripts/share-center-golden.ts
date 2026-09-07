@@ -12,7 +12,9 @@ const shareUtils = read('src/utils/shareUtils.ts');
 const shareMenu = read('src/components/ShareEntityMenu.tsx');
 const contactMenu = read('src/components/ContactMenu.tsx');
 const defect = read('src/components/FloorPlanDefectTab.tsx');
-const crew = read('src/components/CrewTab.tsx');
+const crew = fs.existsSync('src/components/CrewTabBase.tsx')
+  ? `${read('src/components/CrewTab.tsx')}\n${read('src/components/CrewTabBase.tsx')}`
+  : read('src/components/CrewTab.tsx');
 const config = read('src/components/GoogleConfigTab.tsx');
 const android = read('android-wrapper/src/com/qlct/app/MainActivity.java');
 
