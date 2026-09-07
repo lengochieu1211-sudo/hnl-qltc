@@ -2,14 +2,17 @@ import assert from 'node:assert/strict';
 import worker from '../cloudflare/ai-gateway/worker.js';
 
 const origin = 'https://hnl-qltc-dev.web.app';
+let aiRunCalls = 0;
 const env = {
   ENVIRONMENT: 'DEV',
   FIREBASE_PROJECT_ID: 'hnl-qltc-dev',
   FIREBASE_WEB_API_KEY: 'dev-public-web-api-key',
+  SUPER_ADMIN_EMAIL: 'admin@example.com',
   ALLOWED_ORIGINS: 'https://hnl-qltc-dev.web.app,https://hnl-qltc-dev.firebaseapp.com',
   PUBLIC_APP_URL: 'https://hnl-qltc-dev.web.app',
   AI: {
     async run(model, input) {
+      aiRunCalls += 1;
       assert.equal(model, '@cf/meta/llama-3.1-8b-instruct-fast');
       assert.ok(Array.isArray(input.messages));
       return {
@@ -28,6 +31,9 @@ const env = {
 
 const originalFetch = globalThis.fetch;
 let identityLookupCalls = 0;
+let projectAuthCalls = 0;
+const firestorePrefix = 'https://firestore.googleapis.com/v1/projects/hnl-qltc-dev/databases/(default)/documents/';
+
 globalThis.fetch = async (url, init = {}) => {
   const target = String(url);
   if (target === 'https://api.openai.com/v1/models') {
@@ -54,6 +60,41 @@ globalThis.fetch = async (url, init = {}) => {
       return new Response(JSON.stringify({ error: { message: 'INVALID_ID_TOKEN' } }), { status: 400, headers: { 'content-type': 'application/json' } });
     }
     return new Response(JSON.stringify({ users: [{ localId: 'uid-dev', email: 'dev@example.com' }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+  }
+  if (target.startsWith(firestorePrefix)) {
+    projectAuthCalls += 1;
+    assert.equal(init?.headers?.authorization, 'Bearer valid-dev-token');
+    const path = target.slice(firestorePrefix.length);
+    if (path === 'projects/project-denied') {
+      return new Response(JSON.stringify({ error: { status: 'PERMISSION_DENIED' } }), { status: 403, headers: { 'content-type': 'application/json' } });
+    }
+    if (path === 'projects/project-dev-test') {
+      return new Response(JSON.stringify({
+        fields: {
+          id: { stringValue: 'project-dev-test' },
+          ownerUid: { stringValue: 'uid-owner' },
+          ownerEmail: { stringValue: 'owner@example.com' },
+        },
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    if (path === 'projects/project-dev-test/members/dev%40example.com') {
+      return new Response(JSON.stringify({
+        fields: {
+          role: { stringValue: 'VIEWER' },
+          active: { booleanValue: true },
+        },
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    if (path === 'projects/project-dev-test/members/uid-dev') {
+      // A legacy UID row must never override the canonical email row above.
+      return new Response(JSON.stringify({
+        fields: {
+          role: { stringValue: 'ADMIN' },
+          active: { booleanValue: true },
+        },
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    return new Response(JSON.stringify({ error: { status: 'NOT_FOUND' } }), { status: 404, headers: { 'content-type': 'application/json' } });
   }
   throw new Error(`Unexpected network request in golden: ${target}`);
 };
@@ -110,7 +151,8 @@ try {
   const basePayload = {
     provider: 'cloudflare',
     projectId: 'project-dev-test',
-    role: 'VIEWER',
+    // Deliberately spoof ADMIN. Gateway must ignore this and derive VIEWER server-side.
+    role: 'ADMIN',
     mode: 'HNL_DATA_NARRATIVE',
     model: '@cf/meta/llama-3.1-8b-instruct-fast',
     responseSchema: 'hnl-narrative-v1',
@@ -130,6 +172,19 @@ try {
   assert.equal(chatBody.ok, true);
   assert.equal(chatBody.provider, 'cloudflare');
   assert.equal(chatBody.structuredOutput.statements[0].kind, 'INFERENCE');
+  assert.equal(chatBody.authorization.role, 'VIEWER');
+  assert.equal(chatBody.authorization.source, 'canonical-email-member');
+
+  // User outside the project must fail before any managed model invocation.
+  const aiCallsBeforeDenied = aiRunCalls;
+  const denied = await worker.fetch(new Request('https://gateway.test/v1/chat', {
+    method: 'POST',
+    headers: { ...authHeaders, 'content-type': 'application/json' },
+    body: JSON.stringify({ ...basePayload, projectId: 'project-denied', role: 'ADMIN' }),
+  }), env);
+  assert.equal(denied.status, 403);
+  assert.equal((await denied.json()).error, 'PROJECT_ACCESS_DENIED');
+  assert.equal(aiRunCalls, aiCallsBeforeDenied);
 
   for (const invalid of [
     { ...basePayload, provider: 'arbitrary-provider' },
@@ -176,6 +231,7 @@ try {
   assert.equal(byokBody.ok, true);
   assert.equal(byokBody.provider, 'openai');
   assert.equal(byokBody.text, 'BYOK OK');
+  assert.equal(byokBody.authorization.role, 'VIEWER');
   assert.equal(JSON.stringify(byokBody).includes('sk-user-session-key'), false);
 
   const badKey = await worker.fetch(new Request('https://gateway.test/v1/chat', {
@@ -186,6 +242,7 @@ try {
   assert.equal(badKey.status, 400);
 
   assert.ok(identityLookupCalls >= 1);
+  assert.ok(projectAuthCalls >= 1);
   console.log('HNL AI Gateway Golden: PASS');
 } finally {
   globalThis.fetch = originalFetch;
