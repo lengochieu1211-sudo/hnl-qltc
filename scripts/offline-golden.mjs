@@ -51,6 +51,9 @@ for (const marker of [
   'parsed.email',
   'parsed.projectId',
   'clearRememberedVerifiedAuthIdentity',
+  'VERIFIED_PROJECT_ROLE_MAX_AGE_MS = 24 * 60 * 60 * 1000',
+  'Date.now() - verifiedAt > VERIFIED_PROJECT_ROLE_MAX_AGE_MS',
+  'localStorage.removeItem(key)',
 ]) {
   if (!offlineAccess.includes(marker)) fail(`offline access store missing ${marker}`);
 }
@@ -58,7 +61,7 @@ if (!firebase.includes("verification: 'verified' | 'unavailable'")) fail('role v
 if (!firebase.includes("getDocFromServer(doc(db, 'projects', projectId))")) fail('project role is not server-authoritative');
 if (!firebase.includes("verification: 'unavailable'")) fail('network failure cannot be distinguished from deny');
 if (!firebase.includes('clearRememberedVerifiedAuthIdentity();')) fail('explicit sign-out does not revoke remembered offline identity');
-pass('project-scoped verified role lease + explicit sign-out revocation');
+pass('project-scoped verified role lease expires after 24h + explicit sign-out revocation');
 
 for (const marker of [
   "projectRoleSource === 'offline-cache'",
@@ -76,7 +79,6 @@ if (!firebase.includes('persistentLocalCache()') || !firebase.includes('getDocsF
 if (!app.includes("businessDataSource === 'legacy-migration-fallback'")) fail('legacy local migration fallback is not explicitly read-only');
 if (!app.includes('Legacy data is migration input only') || !app.includes('if (FIREBASE_ONLY_RUNTIME) return;')) fail('Firebase-only still auto-recovers legacy IndexedDB rows into live state');
 pass('offline bootstrap uses Firestore persistent cache; legacy local business cache is read-only migration fallback');
-
 
 for (const marker of [
   'queueProjectDiffsToFirestoreOffline',
