@@ -19,6 +19,11 @@ export interface VerifiedProjectRoleCache {
 
 const OFFLINE_AUTH_IDENTITY_KEY = 'construction_offline_verified_auth_v1';
 const VERIFIED_PROJECT_ROLE_PREFIX = 'construction_verified_project_role_v1_';
+// A cached Cloud authorization is only a short offline lease, never a durable permission DB.
+// After 24 hours the device must reconnect and re-verify project membership before business
+// data can be unlocked again. This limits exposure after an ADMIN revokes a member while
+// that member's device remains offline.
+export const VERIFIED_PROJECT_ROLE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 const normalizeEmail = (value?: string | null): string => (value || '').trim().toLowerCase();
 
@@ -101,8 +106,9 @@ export function getCachedVerifiedProjectRole(
   const uid = String(identity.uid || '').trim();
   const email = normalizeEmail(identity.email);
   if (!normalizedProjectId || !uid || !email || typeof localStorage === 'undefined') return null;
+  const key = roleCacheKey(normalizedProjectId, { uid, email });
   try {
-    const raw = localStorage.getItem(roleCacheKey(normalizedProjectId, { uid, email }));
+    const raw = localStorage.getItem(key);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<VerifiedProjectRoleCache>;
     const rawRole = String((parsed as any).role || 'VIEWER').toUpperCase();
@@ -110,6 +116,13 @@ export function getCachedVerifiedProjectRole(
     if (parsed.version !== 1 || String(parsed.projectId || '') !== normalizedProjectId) return null;
     if (String(parsed.uid || '') !== uid || normalizeEmail(parsed.email) !== email) return null;
     if (role !== 'ADMIN' && role !== 'EDITOR' && role !== 'VIEWER') return null;
+    const verifiedAt = Number(parsed.verifiedAt || 0);
+    if (!Number.isFinite(verifiedAt) || verifiedAt <= 0 || Date.now() - verifiedAt > VERIFIED_PROJECT_ROLE_MAX_AGE_MS) {
+      // Fail closed and remove the stale authorization material so later offline starts
+      // cannot accidentally revive a permission that may have been revoked in Cloud.
+      try { localStorage.removeItem(key); } catch (_) {}
+      return null;
+    }
     return {
       version: 1,
       projectId: normalizedProjectId,
@@ -117,7 +130,7 @@ export function getCachedVerifiedProjectRole(
       email,
       role,
       allowed: parsed.allowed === true,
-      verifiedAt: Number(parsed.verifiedAt || 0),
+      verifiedAt,
     };
   } catch (_) {
     return null;
