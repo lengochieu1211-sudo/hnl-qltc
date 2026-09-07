@@ -235,7 +235,50 @@ async function verifyFirebaseToken(request, env) {
   const body = await response.json();
   const user = Array.isArray(body.users) ? body.users[0] : null;
   if (!user?.localId) throw Object.assign(new Error('AUTH_INVALID'), { status: 401 });
-  return { uid: String(user.localId), email: String(user.email || '').toLowerCase() };
+  return { uid: String(user.localId), email: String(user.email || '').toLowerCase(), token };
+}
+
+function firestoreString(doc, name) {
+  return String(doc?.fields?.[name]?.stringValue || '');
+}
+
+function firestoreBool(doc, name, fallback = true) {
+  const value = doc?.fields?.[name]?.booleanValue;
+  return typeof value === 'boolean' ? value : fallback;
+}
+
+async function firestoreGet(env, token, documentPath) {
+  const project = String(env.FIREBASE_PROJECT_ID || '').trim();
+  if (!project) throw Object.assign(new Error('PROJECT_AUTH_CONFIG_MISSING'), { status: 503 });
+  const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(project)}/databases/(default)/documents/${documentPath}`;
+  return fetch(url, { headers: { authorization: `Bearer ${token}` } });
+}
+
+async function resolveProjectAccess(env, identity, projectId) {
+  const projectResp = await firestoreGet(env, identity.token, `projects/${encodeURIComponent(projectId)}`);
+  if (!projectResp.ok) throw Object.assign(new Error('PROJECT_ACCESS_DENIED'), { status: 403 });
+  const projectDoc = await projectResp.json();
+  const ownerUid = firestoreString(projectDoc, 'ownerUid');
+  const ownerEmail = firestoreString(projectDoc, 'ownerEmail').toLowerCase();
+  const superAdminEmail = String(env.SUPER_ADMIN_EMAIL || 'lengochieu1211@gmail.com').trim().toLowerCase();
+  if ((ownerUid && ownerUid === identity.uid) || (ownerEmail && ownerEmail === identity.email) || (superAdminEmail && superAdminEmail === identity.email)) {
+    return { role: 'ADMIN', source: 'project-owner-or-super-admin' };
+  }
+
+  // Match the same canonical-email-first invariant as Firestore/R2. If a canonical
+  // email row exists, it is authoritative. UID remains legacy fallback only.
+  for (const memberId of [identity.email, identity.uid]) {
+    if (!memberId) continue;
+    const memberResp = await firestoreGet(env, identity.token, `projects/${encodeURIComponent(projectId)}/members/${encodeURIComponent(memberId)}`);
+    if (!memberResp.ok) continue;
+    const memberDoc = await memberResp.json();
+    if (!firestoreBool(memberDoc, 'active', true)) throw Object.assign(new Error('PROJECT_ACCESS_DENIED'), { status: 403 });
+    const rawRole = firestoreString(memberDoc, 'role').toUpperCase();
+    const role = rawRole === 'ENGINEER' ? 'EDITOR' : rawRole;
+    if (!['ADMIN', 'EDITOR', 'VIEWER'].includes(role)) throw Object.assign(new Error('PROJECT_ROLE_INVALID'), { status: 403 });
+    return { role, source: memberId === identity.email ? 'canonical-email-member' : 'legacy-uid-member' };
+  }
+  throw Object.assign(new Error('PROJECT_ROLE_UNRESOLVED'), { status: 403 });
 }
 
 function validateChatBody(input, env) {
@@ -252,8 +295,8 @@ function validateChatBody(input, env) {
   const responseSchema = input.responseSchema == null ? undefined : safeText(input.responseSchema, 80);
   if (responseSchema && responseSchema !== 'hnl-narrative-v1') throw new Error('SCHEMA_NOT_ALLOWED');
   const projectId = safeText(input.projectId, 160);
-  const role = String(input.role || '').toUpperCase();
-  if (!['ADMIN', 'EDITOR', 'VIEWER'].includes(role)) throw new Error('ROLE_INVALID');
+  const requestedRole = String(input.role || '').toUpperCase();
+  if (!['ADMIN', 'EDITOR', 'VIEWER'].includes(requestedRole)) throw new Error('ROLE_INVALID');
   if (!Array.isArray(input.messages) || input.messages.length < 1 || input.messages.length > MAX_MESSAGES) throw new Error('MESSAGES_INVALID');
   let totalChars = 0;
   const messages = input.messages.map((item) => {
@@ -265,7 +308,7 @@ function validateChatBody(input, env) {
     return { role: roleValue, content };
   });
   if (totalChars > 64000) throw new Error('PROMPT_TOO_LARGE');
-  return { provider, model, mode, responseSchema, projectId, role, messages, apiKey };
+  return { provider, model, mode, responseSchema, projectId, requestedRole, role: 'VIEWER', messages, apiKey };
 }
 
 async function assertModelAllowed(payload, env) {
@@ -432,9 +475,11 @@ export default {
         const raw = await request.text();
         if (raw.length > MAX_BODY_BYTES) return json({ ok: false, error: 'BODY_TOO_LARGE' }, 413, cors);
         const payload = validateChatBody(JSON.parse(raw), env);
+        const access = await resolveProjectAccess(env, identity, payload.projectId);
+        payload.role = access.role;
         await assertModelAllowed(payload, env);
         const result = await callProvider(env, payload);
-        return json({ ok: true, ...result }, 200, cors);
+        return json({ ok: true, ...result, authorization: { role: access.role, source: access.source } }, 200, cors);
       }
       return json({ ok: false, error: 'NOT_FOUND' }, 404, cors);
     } catch (error) {
