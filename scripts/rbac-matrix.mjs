@@ -120,17 +120,22 @@ check('Storage project media upload requires EDITOR/ADMIN', has(src.storage, 'ma
 check('Storage floor-plan binaries are ADMIN-only', has(src.storage, 'match /projects/{projectId}/floor-plans/', 'Floor-plan drawing binaries are project structure: ADMIN-only.', 'allow create: if isAdmin(projectId)', 'allow update: if isAdmin(projectId)'));
 check('Storage binary purge remains ADMIN-only', (src.storage.match(/allow delete: if isAdmin\(projectId\);/g) || []).length >= 2);
 
-// Regression tooling must cover all three roles and canonical stale-alias conflicts.
-const rulesBehavior = read('scripts/firebase-rules-behavior.mjs');
-check('Rules behavior test includes ADMIN/EDITOR/VIEWER identities', has(rulesBehavior, 'admin@example.com', 'editor@example.com', 'viewer@example.com'));
-check('Rules behavior test covers WorkVolume and FloorPlan structural denial', has(rulesBehavior, "'work_volumes'", "'floor_plans'", 'EDITOR must not create WorkVolume structure', 'EDITOR must not create floor structure'));
-check('Rules behavior test covers master structure collections', has(rulesBehavior, "'material_norms'", "'teams'", "'checklist'", 'EDITOR must not create material norm structure', 'EDITOR must not create team structure'));
-check('Rules behavior test covers operational Editor permissions', has(rulesBehavior, "'inventory'", "'defects'", "'crew_records'", 'EDITOR may create inventory operational record', 'EDITOR may create defect operational record'));
-check('Rules behavior test covers creator-bound crew correction delete', has(rulesBehavior, 'EDITOR may soft-delete own crew correction', 'EDITOR must not soft-delete another user crew record'));
-check('Rules behavior test covers Admin-only settings/trash and legacy floor image fallback', has(rulesBehavior, "'settings'", "'trash'", "'floor_plan_images'", 'EDITOR must not write settings', 'EDITOR must not write trash', 'Legacy floor-plan image collection is read-only'));
-check('Rules behavior test covers fail-closed future collection denial', has(rulesBehavior, 'future_unknown_collection', 'EDITOR must not write unknown future collection'));
-check('Rules behavior test covers Viewer write denial', has(rulesBehavior, 'VIEWER must not write project business data'));
-check('Rules behavior test covers stale UID ADMIN vs canonical VIEWER', has(rulesBehavior, 'canonical-viewer@example.com', 'canonical email VIEWER must override stale UID ADMIN'));
+// Regression tooling must cover all three roles and structural/operational split.
+const rulesTest = read('scripts/firebase-rules-behavior.mjs');
+check('Rules behavior test includes ADMIN/EDITOR/VIEWER identities', has(rulesTest, 'ownerEmail', 'editorEmail', 'viewerEmail'));
+check('Rules behavior test covers WorkVolume and FloorPlan structural denial', has(rulesTest, 'EDITOR cannot create work-volume master definition', 'EDITOR cannot create floor-plan structure', 'EDITOR cannot create room geometry'));
+check('Rules behavior test covers master structure collections', has(rulesTest, 'material norm', 'team directory', 'checklist definition'));
+check('Rules behavior test covers operational Editor permissions', has(rulesTest, 'checklist inspection status', 'defect operational update', 'crew operational record', 'warehouse operational record'));
+check('Rules behavior test covers creator-bound crew correction delete', has(rulesTest, 'EDITOR may soft-delete own crew record', 'EDITOR cannot soft-delete another user crew record', 'EDITOR cannot rewrite crew creator identity', 'EDITOR cannot claim legacy crew creator identity', 'EDITOR cannot soft-delete legacy crew without creator identity'));
+check('Rules behavior test covers Admin-only settings/trash and legacy floor image fallback', has(rulesTest, 'EDITOR cannot mutate shared settings', 'EDITOR cannot create trash metadata', 'ADMIN cannot recreate legacy floor-plan Firestore metadata'));
+check('Rules behavior test covers fail-closed future collection denial', has(rulesTest, 'EDITOR cannot create unclassified future project collection'));
+check('Rules behavior test covers Viewer write denial', has(rulesTest, 'VIEWER cannot write core record'));
+check('Rules behavior test covers stale UID ADMIN vs canonical VIEWER', has(rulesTest, 'stale UID alias for canonical-precedence regression', "role: 'ADMIN'", 'viewerUid'));
 
 if (failed) process.exit(1);
-console.log('RBAC MATRIX PASS');
+check('SUPER ADMIN remote PIN reset API is wired', has(src.firebase, 'requestProjectMemberPinReset'));
+check('remote PIN reset is company SUPER ADMIN-bound', has(src.firebase, 'isSuperAdminEmail(actor.email)'));
+check('target account listens for remote PIN reset', has(src.app, 'subscribeCurrentUserPinResetRealtime'));
+check('remote reset clears local PIN through monotonic epoch helper', has(src.security, 'applyRemotePinReset'));
+
+console.log('MASTER RBAC MATRIX PASS – ADMIN / EDITOR / VIEWER');
