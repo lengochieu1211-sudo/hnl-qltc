@@ -3,6 +3,13 @@ export interface CrewTaskDescriptionInput {
   subItems?: readonly string[] | null;
 }
 
+export function sanitizeCrewTaskDescriptionText(value?: string | null): string {
+  return String(value || '')
+    .replace(/\s*\(\s*\)(?=\s*(?:;|\||$))/g, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+}
+
 export function formatCrewTaskDescription(input: CrewTaskDescriptionInput): string {
   const categoryName = String(input.categoryName || '').trim();
   const subItems = (input.subItems || [])
