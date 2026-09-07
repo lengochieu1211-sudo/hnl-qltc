@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { formatCrewTaskDescription } from '../src/utils/crewTaskDescription.ts';
+import { formatCrewTaskDescription, sanitizeCrewTaskDescriptionText } from '../src/utils/crewTaskDescription.ts';
 
 assert.equal(
   formatCrewTaskDescription({ categoryName: 'Đóng vách', subItems: [] }),
@@ -23,6 +23,18 @@ assert.equal(
   formatCrewTaskDescription({ categoryName: '  Đóng vách  ', subItems: null }),
   'Đóng vách',
   'Tên công việc phải được trim mà không thêm ngoặc rỗng',
+);
+
+assert.equal(
+  sanitizeCrewTaskDescriptionText('[Tầng 1]: Đóng vách (); Bả matit (Lớp 1) | [Tầng 2]: Vệ sinh ()'),
+  '[Tầng 1]: Đóng vách; Bả matit (Lớp 1) | [Tầng 2]: Vệ sinh',
+  'Persistence boundary phải xóa ngoặc rỗng legacy nhưng giữ ngoặc có nội dung',
+);
+
+assert.equal(
+  sanitizeCrewTaskDescriptionText('  Thi công thạch cao ()  '),
+  'Thi công thạch cao',
+  'Persistence boundary phải trim và bỏ ngoặc rỗng ở cuối chuỗi',
 );
 
 console.log('Crew task description golden: PASS');
