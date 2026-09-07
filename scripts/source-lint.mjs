@@ -47,6 +47,25 @@ if (!security.includes("if (FIREBASE_ONLY_RUNTIME) return 'VIEWER'")) fail('glob
 if (!security.includes('if (FIREBASE_ONLY_RUNTIME || !projectId) return')) fail('local project member database can still be written in Firebase-only runtime');
 else pass('legacy role/member caches cannot grant Firebase-only access');
 
+const offlineAccess = read('src/utils/offlineAccess.ts');
+if (!offlineAccess.includes('VERIFIED_PROJECT_ROLE_MAX_AGE_MS = 24 * 60 * 60 * 1000') || !offlineAccess.includes('Date.now() - verifiedAt > VERIFIED_PROJECT_ROLE_MAX_AGE_MS')) fail('offline verified project-role lease does not expire after 24h');
+else pass('offline verified project-role lease expires fail-closed');
+
+const androidManifest = read('android-wrapper/AndroidManifest.xml');
+if (!androidManifest.includes('android:allowBackup="false"')) fail('Android wrapper allows OS backup of app/cache data');
+if (!androidManifest.includes('android:usesCleartextTraffic="false"')) fail('Android wrapper allows cleartext HTTP traffic');
+if (!androidManifest.includes('android:exported="false"')) fail('Android private picker provider export guard missing');
+else pass('Android wrapper backup/cleartext/provider hardening present');
+
+const aiGateway = read('cloudflare/ai-gateway/worker.js');
+for (const marker of [
+  'resolveProjectAccess(env, identity, payload.projectId)',
+  'payload.role = access.role',
+  'canonical-email-member',
+  'PROJECT_ACCESS_DENIED',
+]) if (!aiGateway.includes(marker)) fail(`AI Gateway server-side project authorization missing: ${marker}`);
+pass('AI Gateway derives project role server-side');
+
 const app = read('src/App.tsx');
 for (const marker of [
   'loadProjectFromFirestoreCache(projectId)',
