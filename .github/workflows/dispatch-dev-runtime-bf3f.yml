@@ -23,5 +23,5 @@ jobs:
           EXPECTED='bf3fdb6b87032787db2b56facf1aa5e9cd544806'
           ACTUAL="$(gh api repos/${GITHUB_REPOSITORY}/branches/dev --jq '.commit.sha')"
           test "$ACTUAL" = "$EXPECTED" || { echo "::error::DEV moved: $ACTUAL"; exit 1; }
-          gh workflow run dev-runtime-golden.yml --ref dev
+          gh workflow run dev-runtime-golden.yml --repo "$GITHUB_REPOSITORY" --ref dev
           echo "Dispatched DEV Runtime Golden for $EXPECTED"
