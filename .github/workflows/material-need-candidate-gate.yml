@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   verify-material-candidate:
@@ -100,3 +100,45 @@ jobs:
           set -euo pipefail
           git diff --exit-code -- .firebaserc firebase.json firebase.prod.json firestore.rules storage.rules package-lock.json
           echo 'MATERIAL NEED CANDIDATE FULL GATE PASS'
+
+      - name: Promote verified source to DEV only
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=26f2790597e4d94c9b704828a9517cbfcc670877
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "$BASE"
+          FILES=(
+            package.json
+            scripts/ai-external-context-golden.ts
+            scripts/ai-planner-golden.ts
+            scripts/ai-tool-registry-golden.ts
+            scripts/material-need-golden.ts
+            src/App.tsx
+            src/ai/data/externalAiContext.ts
+            src/ai/orchestrator/aiOrchestrator.ts
+            src/ai/planning/queryPlanner.ts
+            src/ai/tools/toolRegistry.ts
+            src/ai/tools/toolValidation.ts
+            src/components/RoomHighlightModal.tsx
+            src/components/WarehouseTab.tsx
+            src/types.ts
+            src/utils/excelExport.ts
+            src/utils/materialNeedEngine.ts
+          )
+          git diff --binary -- "${FILES[@]}" > /tmp/material-final-source.patch
+          test -s /tmp/material-final-source.patch
+          git reset --hard "$BASE"
+          git apply --check /tmp/material-final-source.patch
+          git apply /tmp/material-final-source.patch
+          printf '%s\n' "${FILES[@]}" | sort > /tmp/expected-files.txt
+          git diff --name-only | sort > /tmp/actual-files.txt
+          diff -u /tmp/expected-files.txt /tmp/actual-files.txt
+          git diff --exit-code -- package-lock.json .firebaserc firebase.json firebase.prod.json firestore.rules storage.rules .github/workflows
+          git config user.name 'HNL QLTC Release Gate'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -- "${FILES[@]}"
+          git commit -m 'feat: deterministic material need engine for floor team and AI'
+          test "$(git rev-parse HEAD^)" = "$BASE"
+          git push origin HEAD:dev
+          echo "DEV_PROMOTED_SHA=$(git rev-parse HEAD)"
