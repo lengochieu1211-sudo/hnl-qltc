@@ -1,0 +1,59 @@
+name: Material Orphan Lifecycle Gate
+
+on:
+  push:
+    branches: [gate/material-orphan-lifecycle-20260909]
+    paths:
+      - '.gate/apply-material-orphan-lifecycle.py'
+      - '.github/workflows/material-orphan-lifecycle-gate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout gate branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reconstruct exact candidate on current DEV
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='ad201c11ea6aa13decdf978f8847a8b90759348a'
+          TRANSFORMER="$(mktemp)"
+          git show "gate/material-orphan-lifecycle-20260909:.gate/apply-material-orphan-lifecycle.py" > "$TRANSFORMER"
+          git checkout --detach "$BASE"
+          python "$TRANSFORMER"
+          git diff --name-only | sort > /tmp/actual.txt
+          printf '%s\n' \
+            'scripts/material-need-golden.ts' \
+            'src/components/MaterialNormModal.tsx' \
+            'src/healthCenter/healthCenterEngine.ts' \
+            'src/utils/materialNeedEngine.ts' | sort > /tmp/expected.txt
+          diff -u /tmp/expected.txt /tmp/actual.txt
+          git diff --exit-code -- package.json package-lock.json .firebaserc firebase.json firebase.prod.json firestore.rules storage.rules .github/workflows
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Material lifecycle golden
+        run: npm run test:material-need
+
+      - name: Health Center regression
+        run: npm run test:health-center
+
+      - name: Full release gate
+        run: npm run verify
+
+      - name: Final candidate scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --name-only | sort > /tmp/final.txt
+          diff -u /tmp/expected.txt /tmp/final.txt
