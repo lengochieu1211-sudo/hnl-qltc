@@ -30,18 +30,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat .gate/material-v2/part*.patch > /tmp/material-candidate.patch
-          echo "PATCH_BYTES=$(wc -c < /tmp/material-candidate.patch)"
-          sha256sum /tmp/material-candidate.patch
+          cat .gate/material-v2/part0[0-5].patch > /tmp/material-candidate.patch
+          cp .gate/material-v2/part06.patch /tmp/material-fixture-fix.patch
+          echo "PRIMARY_PATCH_BYTES=$(wc -c < /tmp/material-candidate.patch)"
+          sha256sum /tmp/material-candidate.patch /tmp/material-fixture-fix.patch
           patch -p1 --dry-run < /tmp/material-candidate.patch
           patch -p1 < /tmp/material-candidate.patch
+          patch -p1 --dry-run < /tmp/material-fixture-fix.patch
+          patch -p1 < /tmp/material-fixture-fix.patch
           rm -rf .gate
 
       - name: Verify protected infrastructure files unchanged by candidate
         shell: bash
         run: |
           set -euo pipefail
-          if grep -E '^diff .* (hnl_qltc_base_fresh|hnl_qltc_candidate_v2)/(\.firebaserc|firebase\.json|firebase\.prod\.json|firestore\.rules|storage\.rules|\.github/workflows/|package-lock\.json)' /tmp/material-candidate.patch; then
+          cat /tmp/material-candidate.patch /tmp/material-fixture-fix.patch > /tmp/material-all.patch
+          if grep -E '^diff .* (hnl_qltc_base_fresh|hnl_qltc_candidate_v2)/(\.firebaserc|firebase\.json|firebase\.prod\.json|firestore\.rules|storage\.rules|\.github/workflows/|package-lock\.json)' /tmp/material-all.patch; then
             echo 'Candidate patch touches protected infrastructure or package-lock.' >&2
             exit 1
           fi
