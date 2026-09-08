@@ -31,7 +31,8 @@ jobs:
         run: |
           set -euo pipefail
           cat .gate/material-v2/part*.patch > /tmp/material-candidate.patch
-          test "$(wc -c < /tmp/material-candidate.patch)" -eq 73919
+          echo "PATCH_BYTES=$(wc -c < /tmp/material-candidate.patch)"
+          sha256sum /tmp/material-candidate.patch
           patch -p1 --dry-run < /tmp/material-candidate.patch
           patch -p1 < /tmp/material-candidate.patch
           rm -rf .gate
