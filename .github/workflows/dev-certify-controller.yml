@@ -1,0 +1,83 @@
+name: Dispatch HNL QLTC DEV Certification
+
+on:
+  push:
+    branches:
+      - gate/material-need-20260908
+    paths:
+      - '.github/workflows/dev-certify-controller.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  certify-dev:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    env:
+      EXPECTED_DEV_SHA: c0431da6718757c67f392a410a2a72beb7bd3cf8
+      REPO: lengochieu1211-sudo/hnl-qltc
+      GH_API: https://api.github.com
+    steps:
+      - name: Confirm exact DEV head
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          head_sha="$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "$GH_API/repos/$REPO/branches/dev" | jq -r '.commit.sha')"
+          test "$head_sha" = "$EXPECTED_DEV_SHA" || { echo "::error::DEV moved: $head_sha"; exit 1; }
+          echo "DEV exact SHA: $head_sha"
+
+      - name: Dispatch DEV runtime, Android and Windows certification
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for wf in dev-runtime-golden.yml android-apk-dev.yml windows-exe-dev.yml; do
+            code="$(curl -sS -o /tmp/dispatch.json -w '%{http_code}' -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              "$GH_API/repos/$REPO/actions/workflows/$wf/dispatches" \
+              -d '{"ref":"dev"}')"
+            test "$code" = '204' || { cat /tmp/dispatch.json; echo "::error::Dispatch $wf failed HTTP $code"; exit 1; }
+            echo "Dispatched $wf"
+          done
+
+      - name: Wait for exact-SHA DEV certifications
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          wait_workflow() {
+            local wf="$1"
+            local run_id=""
+            for i in $(seq 1 240); do
+              json="$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+                "$GH_API/repos/$REPO/actions/workflows/$wf/runs?branch=dev&event=workflow_dispatch&per_page=10")"
+              run_id="$(printf '%s' "$json" | jq -r --arg sha "$EXPECTED_DEV_SHA" '[.workflow_runs[] | select(.head_sha==$sha)] | sort_by(.created_at) | last | .id // empty')"
+              if [ -n "$run_id" ]; then
+                status="$(printf '%s' "$json" | jq -r --argjson id "$run_id" '.workflow_runs[] | select(.id==$id) | .status')"
+                conclusion="$(printf '%s' "$json" | jq -r --argjson id "$run_id" '.workflow_runs[] | select(.id==$id) | .conclusion // empty')"
+                echo "$wf run=$run_id status=$status conclusion=${conclusion:-pending}"
+                if [ "$status" = 'completed' ]; then
+                  test "$conclusion" = 'success' || { echo "::error::$wf failed: $conclusion"; exit 1; }
+                  echo "$wf=$run_id" >> "$GITHUB_ENV"
+                  return 0
+                fi
+              else
+                echo "$wf: waiting for exact SHA run to appear"
+              fi
+              sleep 15
+            done
+            echo "::error::Timeout waiting for $wf"
+            exit 1
+          }
+          wait_workflow dev-runtime-golden.yml
+          wait_workflow android-apk-dev.yml
+          wait_workflow windows-exe-dev.yml
+          echo 'DEV runtime + APK + EXE certification: PASS'
