@@ -131,13 +131,13 @@ jobs:
           git reset --hard "$BASE"
           git apply --check /tmp/material-final-source.patch
           git apply /tmp/material-final-source.patch
+          git add -- "${FILES[@]}"
           printf '%s\n' "${FILES[@]}" | sort > /tmp/expected-files.txt
-          git diff --name-only | sort > /tmp/actual-files.txt
+          git diff --cached --name-only | sort > /tmp/actual-files.txt
           diff -u /tmp/expected-files.txt /tmp/actual-files.txt
           git diff --exit-code -- package-lock.json .firebaserc firebase.json firebase.prod.json firestore.rules storage.rules .github/workflows
           git config user.name 'HNL QLTC Release Gate'
           git config user.email 'actions@users.noreply.github.com'
-          git add -- "${FILES[@]}"
           git commit -m 'feat: deterministic material need engine for floor team and AI'
           test "$(git rev-parse HEAD^)" = "$BASE"
           git push origin HEAD:dev
