@@ -42,12 +42,20 @@ jobs:
           python .gate/apply_material_multi_scope.py
           python - <<'PY'
           from pathlib import Path
-          p = Path('src/components/WarehouseTab.tsx')
-          s = p.read_text()
+
+          warehouse = Path('src/components/WarehouseTab.tsx')
+          s = warehouse.read_text()
           duplicate = "      {lowStockItems.length > 0 && (      {lowStockItems.length > 0 && ("
           if duplicate in s:
               s = s.replace(duplicate, "      {lowStockItems.length > 0 && (", 1)
-          p.write_text(s)
+          warehouse.write_text(s)
+
+          engine = Path('src/utils/materialNeedEngine.ts')
+          e = engine.read_text()
+          duplicate_lines = "  const lines = Array.from(demand.entries())  const lines = Array.from(demand.entries())"
+          if duplicate_lines in e:
+              e = e.replace(duplicate_lines, "  const lines = Array.from(demand.entries())", 1)
+          engine.write_text(e)
           PY
 
       - name: Candidate scope gate
@@ -75,7 +83,7 @@ jobs:
           set -euo pipefail
           grep -q 'floorIds?: string\[\]' src/utils/materialNeedEngine.ts
           grep -q 'teamIds?: string\[\]' src/utils/materialNeedEngine.ts
-          grep -q 'useState(false)' src/components/WarehouseTab.tsx
+          grep -q 'setIsMaterialNeedExpanded] = useState(false)' src/components/WarehouseTab.tsx
           grep -q 'Tất cả tầng' src/components/WarehouseTab.tsx
           grep -q 'Tất cả đội' src/components/WarehouseTab.tsx
           grep -q 'ExpandCollapseButton' src/components/WarehouseTab.tsx
