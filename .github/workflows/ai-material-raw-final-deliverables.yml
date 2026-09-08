@@ -1,0 +1,110 @@
+name: AI Material Raw Final Deliverables
+
+on:
+  push:
+    branches: [gate/ai-material-raw-20260908]
+    paths:
+      - '.github/workflows/ai-material-raw-final-deliverables.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact certified DEV source
+        uses: actions/checkout@v4
+        with:
+          ref: bf3fdb6b87032787db2b56facf1aa5e9cd544806
+          fetch-depth: 0
+
+      - name: Verify exact source and 7-file scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='0a46762829131c4388d90a8fffba431a5e88b5fd'
+          HEAD='bf3fdb6b87032787db2b56facf1aa5e9cd544806'
+          test "$(git rev-parse HEAD)" = "$HEAD"
+          test "$(git rev-parse HEAD^)" = "$BASE"
+          git diff --name-only "$BASE" "$HEAD" | sort > /tmp/actual.txt
+          cat > /tmp/expected.txt <<'EOF'
+          scripts/ai-external-context-golden.ts
+          scripts/ai-planner-golden.ts
+          src/ai/data/externalAiContext.ts
+          src/ai/planning/queryPlanner.ts
+          src/ai/tools/toolRegistry.ts
+          src/ai/tools/toolValidation.ts
+          src/features/ai/AiAssistantPage.tsx
+          EOF
+          sed -i 's/^          //' /tmp/expected.txt
+          sort -o /tmp/expected.txt /tmp/expected.txt
+          diff -u /tmp/expected.txt /tmp/actual.txt
+          git diff --exit-code "$BASE" "$HEAD" -- package.json package-lock.json .firebaserc firebase.json firebase.prod.json firestore.rules storage.rules .github/workflows
+
+      - name: Build PATCH FULL SOURCE REPORT and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/final"
+          PATCH="$OUT/patch"
+          mkdir -p "$PATCH"
+          while IFS= read -r f; do
+            mkdir -p "$PATCH/$(dirname "$f")"
+            cp -p "$f" "$PATCH/$f"
+          done < /tmp/expected.txt
+          (cd "$PATCH" && zip -qr "$OUT/HNL-QLTC-AI-MATERIAL-RAW-PATCH-2026-09-08.zip" .)
+          git archive --format=zip --output="$OUT/HNL-QLTC-AI-MATERIAL-RAW-FULL-SOURCE-2026-09-08.zip" HEAD
+          cat > "$OUT/HNL-QLTC-AI-MATERIAL-RAW-FINAL-REPORT-2026-09-08.md" <<'EOF'
+          # HNL QLTC AI MATERIAL + FULL PROJECT RAW — FINAL REPORT 2026-09-08
+
+          - Certified DEV: `bf3fdb6b87032787db2b56facf1aa5e9cd544806`
+          - Parent: `0a46762829131c4388d90a8fffba431a5e88b5fd`
+          - Scope: exactly 7 changed source/test files.
+          - main/PROD: not merged/deployed.
+
+          ## Changes
+          - Fixed plain-language material questions such as “Các vật tư của tầng 1” to route to deterministic Material Need Engine.
+          - Added multi-floor material questions such as “tầng 1 và 3”, computed independently per floor.
+          - Material payload strips rooms/workVolumes/quantity m²/raw norms/inventory after deterministic calculation so external AI cannot recompute or replace physical material results with m² work items.
+          - Added `floorIds` validation/tool support with fail-closed unresolved floor/team behavior.
+          - Added one-shot “Phân tích dữ liệu thô toàn dự án” option for general AI: six project data groups, sanitized, bounded, read-only; material questions remain deterministic.
+          - External AI permission and full-project option automatically reset after a successful question.
+
+          ## Certification
+          - Focused AI planner/tool/external-context regressions: PASS.
+          - Full `npm run verify`: PASS, including stability, TypeScript, source lint/secret scan, Firebase Rules, critical dependency audit and production build.
+          - DEV Runtime Golden #44 on exact SHA: PASS, including exact DEV deploy, Firebase + R2 multi-user, Health Center safe-repair, desktop/mobile hosted browser golden.
+
+          ## Infrastructure protection
+          - No package.json/package-lock, Firebase project/config/rules, GitHub workflows, Hosting or R2 production configuration changes in DEV commit.
+          - No main/PROD merge or deploy.
+
+          ## Changed files
+          ```text
+          scripts/ai-external-context-golden.ts
+          scripts/ai-planner-golden.ts
+          src/ai/data/externalAiContext.ts
+          src/ai/planning/queryPlanner.ts
+          src/ai/tools/toolRegistry.ts
+          src/ai/tools/toolValidation.ts
+          src/features/ai/AiAssistantPage.tsx
+          ```
+          EOF
+          sed -i 's/^          //' "$OUT/HNL-QLTC-AI-MATERIAL-RAW-FINAL-REPORT-2026-09-08.md"
+          unzip -t "$OUT/HNL-QLTC-AI-MATERIAL-RAW-PATCH-2026-09-08.zip" >/dev/null
+          unzip -t "$OUT/HNL-QLTC-AI-MATERIAL-RAW-FULL-SOURCE-2026-09-08.zip" >/dev/null
+          (cd "$OUT" && sha256sum *.zip *.md > SHA256SUMS.txt && sha256sum -c SHA256SUMS.txt)
+
+      - name: Upload final deliverables
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-AI-MATERIAL-RAW-FINAL-DELIVERABLES
+          path: |
+            ${{ runner.temp }}/final/HNL-QLTC-AI-MATERIAL-RAW-PATCH-2026-09-08.zip
+            ${{ runner.temp }}/final/HNL-QLTC-AI-MATERIAL-RAW-FULL-SOURCE-2026-09-08.zip
+            ${{ runner.temp }}/final/HNL-QLTC-AI-MATERIAL-RAW-FINAL-REPORT-2026-09-08.md
+            ${{ runner.temp }}/final/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
