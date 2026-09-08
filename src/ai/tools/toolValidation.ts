@@ -86,11 +86,18 @@ export function validateHnlAiToolCall(input: unknown): HnlAiToolArgs {
     }
     case 'getMaterialNeeds': {
       if (!isPlainObject(input.args)) throw new HnlAiToolValidationError('INVALID_TOOL_ARGS', 'getMaterialNeeds.args phải là object.');
-      assertExactKeys(input.args, ['floorId', 'teamRef'], 'getMaterialNeeds.args');
+      assertExactKeys(input.args, ['floorId', 'floorIds', 'teamRef'], 'getMaterialNeeds.args');
       const floorId = input.args.floorId == null || String(input.args.floorId).trim() === '' ? undefined : requiredString(input.args.floorId, 'floorId');
+      let floorIds: string[] | undefined;
+      if (input.args.floorIds !== undefined && input.args.floorIds !== null) {
+        if (!Array.isArray(input.args.floorIds)) throw new HnlAiToolValidationError('INVALID_TOOL_ARGS', 'floorIds phải là mảng string.');
+        if (input.args.floorIds.length > 12) throw new HnlAiToolValidationError('INVALID_TOOL_ARGS', 'floorIds vượt giới hạn 12 tầng.');
+        floorIds = Array.from(new Set(input.args.floorIds.map((value, index) => requiredString(value, `floorIds[${index}]`))));
+        if (floorIds.length === 0) floorIds = undefined;
+      }
       const teamRef = input.args.teamRef == null || String(input.args.teamRef).trim() === '' ? undefined : requiredString(input.args.teamRef, 'teamRef');
-      if (!floorId && !teamRef) throw new HnlAiToolValidationError('INVALID_TOOL_ARGS', 'getMaterialNeeds cần ít nhất floorId hoặc teamRef.');
-      return { name: 'getMaterialNeeds', args: { floorId, teamRef } };
+      if (!floorId && !floorIds?.length && !teamRef) throw new HnlAiToolValidationError('INVALID_TOOL_ARGS', 'getMaterialNeeds cần ít nhất floorId, floorIds hoặc teamRef.');
+      return { name: 'getMaterialNeeds', args: { floorId, ...(floorIds?.length ? { floorIds } : {}), teamRef } };
     }
     case 'getCurrentTeamProgress':
     case 'getCurrentTeamProgressDetail': {

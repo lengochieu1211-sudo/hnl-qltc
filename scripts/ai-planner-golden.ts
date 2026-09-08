@@ -18,6 +18,7 @@ const context: AiQueryContext = {
 };
 const referenceDate = '2026-09-05';
 const floors: FloorPlan[] = [
+  { id: 'floor-1', floorName: 'Tầng 1', imageUrl: '', uploadedAt: '2026-09-05' },
   { id: 'floor-3', floorName: 'Tầng 3', imageUrl: '', uploadedAt: '2026-09-05' },
 ];
 const teams: TeamInfo[] = [
@@ -79,6 +80,28 @@ const materialTeamFloor = planHnlAiQuestion({
 });
 assert.equal(materialTeamFloor.status, 'ready');
 assert.deepEqual(materialTeamFloor.toolCall, { name: 'getMaterialNeeds', args: { floorId: 'floor-3', teamRef: 'team-an' } });
+
+const materialPlainLanguage = planHnlAiQuestion({
+  question: 'Các vật tư của tầng 1',
+  context,
+  teams,
+  floors,
+  referenceDate,
+});
+assert.equal(materialPlainLanguage.status, 'ready');
+assert.equal(materialPlainLanguage.intent, 'MATERIAL_NEEDS');
+assert.deepEqual(materialPlainLanguage.toolCall, { name: 'getMaterialNeeds', args: { floorId: 'floor-1', teamRef: undefined } });
+
+const materialMultiFloor = planHnlAiQuestion({
+  question: 'Chi tiết các loại vật tư của tầng 1 và 3',
+  context,
+  teams,
+  floors,
+  referenceDate,
+});
+assert.equal(materialMultiFloor.status, 'ready');
+assert.equal(materialMultiFloor.intent, 'MATERIAL_NEEDS');
+assert.deepEqual(materialMultiFloor.toolCall, { name: 'getMaterialNeeds', args: { floorId: undefined, floorIds: ['floor-1', 'floor-3'], teamRef: undefined } });
 
 const unknownFloorMaterial = planHnlAiQuestion({
   question: 'Tầng 99 cần vật tư gì?',
@@ -155,6 +178,10 @@ assert.deepEqual(
 assert.deepEqual(
   validateHnlAiToolCall({ name: 'getMaterialNeeds', args: { floorId: 'floor-3', teamRef: 'team-an' } }),
   { name: 'getMaterialNeeds', args: { floorId: 'floor-3', teamRef: 'team-an' } },
+);
+assert.deepEqual(
+  validateHnlAiToolCall({ name: 'getMaterialNeeds', args: { floorIds: ['floor-1', 'floor-3'] } }),
+  { name: 'getMaterialNeeds', args: { floorId: undefined, floorIds: ['floor-1', 'floor-3'], teamRef: undefined } },
 );
 assert.throws(
   () => validateHnlAiToolCall({ name: 'getMaterialNeeds', args: {} }),

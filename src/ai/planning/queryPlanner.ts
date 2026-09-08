@@ -149,6 +149,38 @@ function hasAny(value: string, patterns: RegExp[]): boolean {
   return patterns.some((pattern) => pattern.test(value));
 }
 
+function extractFloorReferences(question: string, floors: FloorPlan[]) {
+  const q = normalizeEntityText(question);
+  const activeFloors = floors
+    .filter((floor) => floor.deletedAt === undefined || floor.deletedAt === null)
+    .map((floor) => ({ floor, key: normalizeEntityText(floor.floorName) }))
+    .filter((entry) => entry.key);
+
+  const resolved = new Map<string, FloorPlan>();
+  const unresolvedTokens = new Set<string>();
+
+  for (const entry of activeFloors) {
+    if (q.includes(entry.key)) resolved.set(entry.floor.id, entry.floor);
+  }
+
+  const phrase = q.match(/\btang\s+([a-z0-9_-]+(?:\s*(?:,|\/|&|va)\s*[a-z0-9_-]+)*)/)?.[1] || '';
+  const tokens = phrase
+    ? phrase.split(/\s*(?:,|\/|&|\bva\b)\s*/).map((token) => token.trim()).filter(Boolean)
+    : [];
+
+  for (const token of tokens) {
+    const match = activeFloors.find(({ key }) => key === `tang ${token}` || key.endsWith(` ${token}`) || key === token || key.startsWith(`tang ${token} `));
+    if (match) resolved.set(match.floor.id, match.floor);
+    else unresolvedTokens.add(token);
+  }
+
+  return {
+    floors: Array.from(resolved.values()),
+    floorMentioned: /\btang\b/.test(q),
+    unresolvedTokens: Array.from(unresolvedTokens),
+  };
+}
+
 function detectIntent(question: string): HnlAiIntent {
   const q = normalizeEntityText(question);
   const auditSignal = hasAny(q, [/\bkiem tra\b/, /\baudit\b/, /\bra soat\b/, /\bbat thuong\b/, /\borphan\b/, /\bdu lieu loi\b/]);
@@ -159,7 +191,12 @@ function detectIntent(question: string): HnlAiIntent {
   if (auditSignal || hasAny(q, [/\btoan bo logic\b/, /\btoan du an\b/, /\blien ket sai\b/, /\bdu lieu trung\b/])) return 'AUDIT_PROJECT';
 
   if (hasAny(q, [/\bdoi nao\b/, /\btop\s+\d+\s+doi\b/, /\bso sanh cac doi\b/])) return 'UNSUPPORTED';
-  if (hasAny(q, [/\bvat tu\b/, /\bkhung\b/, /\btam\b/, /\bty treo\b/, /\bphu kien\b/, /\bvit\b/]) && hasAny(q, [/\bcan\b/, /\bchuyen\b/, /\bdua\b/, /\bbao nhieu\b/, /\bcon thieu\b/, /\bcon can\b/])) return 'MATERIAL_NEEDS';
+  const materialSignal = hasAny(q, [/\bvat tu\b/, /\bkhung\b/, /\btam\b/, /\bty treo\b/, /\bphu kien\b/, /\bvit\b/]);
+  const materialScopeOrAction = hasAny(q, [
+    /\btang\b/, /\bdoi\b/, /\bto\b/, /\bcan\b/, /\bphong\b/,
+    /\bchuyen\b/, /\bdua\b/, /\bbao nhieu\b/, /\bcon thieu\b/, /\bcon can\b/, /\bchi tiet\b/, /\bcac\b/,
+  ]);
+  if (materialSignal && materialScopeOrAction) return 'MATERIAL_NEEDS';
 
   const detailSignal = hasAny(q, [
     /\btung hang muc\b/, /\btheo hang muc\b/, /\btang nao\b/, /\btheo tang\b/,
@@ -192,25 +229,39 @@ export function planHnlAiQuestion(params: PlanHnlAiQuestionParams): HnlAiQueryPl
 
   if (intent === 'MATERIAL_NEEDS') {
     const q = normalizeEntityText(question);
-    const floorNumber = q.match(/\btang\s+([a-z0-9_-]+)/)?.[1];
-    const floor = floorNumber
-      ? floors.find((item) => normalizeEntityText(item.floorName) === `tang ${floorNumber}` || normalizeEntityText(item.floorName).endsWith(` ${floorNumber}`) || normalizeEntityText(item.floorName) === floorNumber)
-      : undefined;
+    const floorResolution = extractFloorReferences(question, floors);
     const mentionsTeam = /\b(?:doi|to)\b/.test(q);
     const teamResolution = mentionsTeam ? extractTeamReference(question, teams) : null;
     if (mentionsTeam && (!teamResolution || teamResolution.status !== 'resolved' || !teamResolution.team)) {
       return { status: 'needs-clarification', intent, normalizedQuestion, clarifications: ['Không xác định được teamId duy nhất cho câu hỏi vật tư.'], warnings: [] };
     }
-    if (floorNumber && !floor) {
-      return { status: 'needs-clarification', intent, normalizedQuestion, clarifications: [`Không xác định được Tầng ${floorNumber} trong dữ liệu dự án.`], warnings: [] };
+    if (floorResolution.unresolvedTokens.length > 0) {
+      return {
+        status: 'needs-clarification',
+        intent,
+        normalizedQuestion,
+        clarifications: [`Không xác định được tầng: ${floorResolution.unresolvedTokens.join(', ')} trong dữ liệu dự án.`],
+        warnings: [],
+      };
     }
-    if (!floor && !teamResolution?.team) {
+    if (floorResolution.floorMentioned && floorResolution.floors.length === 0) {
+      return { status: 'needs-clarification', intent, normalizedQuestion, clarifications: ['Không xác định được Tầng được hỏi trong dữ liệu dự án.'], warnings: [] };
+    }
+    if (floorResolution.floors.length === 0 && !teamResolution?.team) {
       return { status: 'needs-clarification', intent, normalizedQuestion, clarifications: ['Hãy nêu Tầng hoặc Đội cần tổng hợp vật tư.'], warnings: [] };
     }
+    const floorIds = floorResolution.floors.map((floor) => floor.id);
     return {
       status: 'ready', intent, normalizedQuestion,
       resolvedTeam: teamResolution?.team ? { id: teamResolution.team.id, name: teamResolution.team.name } : undefined,
-      toolCall: { name: 'getMaterialNeeds', args: { floorId: floor?.id, teamRef: teamResolution?.team?.id } },
+      toolCall: {
+        name: 'getMaterialNeeds',
+        args: {
+          floorId: floorIds.length === 1 ? floorIds[0] : undefined,
+          ...(floorIds.length > 1 ? { floorIds } : {}),
+          teamRef: teamResolution?.team?.id,
+        },
+      },
       clarifications: [], warnings: [],
     };
   }

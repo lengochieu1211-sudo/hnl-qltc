@@ -12,6 +12,11 @@ export interface ExternalAiDataSelection {
   checklist: boolean;
 }
 
+export interface ExternalAiQuestionOptions {
+  /** Send a broader sanitized/capped project snapshot for one general-analysis question. */
+  fullProjectRaw?: boolean;
+}
+
 const MAX_ROWS_PER_COLLECTION = 36;
 const MAX_SUBITEMS_PER_ROOM = 12;
 const MAX_EXTERNAL_MESSAGE_CHARS = 21_500;
@@ -25,6 +30,14 @@ function safeText(value: unknown): string {
 
 function normalizedText(value: unknown): string {
   return safeText(value).trim().toLocaleLowerCase('vi');
+}
+
+function lookupText(value: unknown): string {
+  return safeText(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLocaleLowerCase('vi');
 }
 
 function active<T extends { deletedAt?: number | null }>(items: readonly T[]): T[] {
@@ -373,27 +386,76 @@ export function buildExternalAiProjectContext(snapshot: HnlAiProjectSnapshot, se
   return result;
 }
 
-function resolveMaterialScope(question: string, snapshot: HnlAiProjectSnapshot) {
-  const q = normalizedText(question);
+function resolveMaterialScopes(question: string, snapshot: HnlAiProjectSnapshot) {
+  const q = lookupText(question);
   const targets = detectMentionedTeams(question, snapshot);
-  const floorToken = q.match(/(?:^|\s)tầng\s+([a-z0-9_-]+)/i)?.[1] || q.match(/(?:^|\s)tang\s+([a-z0-9_-]+)/i)?.[1] || '';
-  const floor = floorToken
-    ? active(snapshot.floors).find((item) => {
-        const name = normalizedText(item.floorName);
-        return name === `tầng ${floorToken}` || name === `tang ${floorToken}` || name.endsWith(` ${floorToken}`) || name === floorToken;
-      })
-    : undefined;
+  const activeFloors = active(snapshot.floors)
+    .map((floor) => ({
+      id: String(floor.id || '').trim(),
+      name: safeText(floor.floorName || '').trim(),
+      lookup: lookupText(floor.floorName || ''),
+    }))
+    .filter((floor) => floor.id && floor.name);
+
+  const resolved = new Map<string, { id: string; name: string }>();
+  const unresolvedTokens = new Set<string>();
+
+  // First prefer exact floor names present in the question (handles "Tầng Trệt", "Tầng 1 (SOL)", etc).
+  for (const floor of activeFloors) {
+    if (floor.lookup && q.includes(floor.lookup)) resolved.set(floor.id, { id: floor.id, name: floor.name });
+  }
+
+  // Also parse compact multi-floor language such as "tầng 1 và 3", "tầng 1, 2, 3".
+  const floorPhrase = q.match(/\btang\s+([a-z0-9_-]+(?:\s*(?:,|\/|&|va|và)\s*[a-z0-9_-]+)*)/i)?.[1] || '';
+  const tokens = floorPhrase
+    ? floorPhrase.split(/\s*(?:,|\/|&|\bva\b|\bvà\b)\s*/i).map((token) => token.trim()).filter(Boolean)
+    : [];
+
+  for (const token of tokens) {
+    const floor = activeFloors.find((item) => {
+      const name = item.lookup;
+      return name === `tang ${token}` || name.endsWith(` ${token}`) || name === token || name.startsWith(`tang ${token} `);
+    });
+    if (floor) resolved.set(floor.id, { id: floor.id, name: floor.name });
+    else unresolvedTokens.add(token);
+  }
+
   return {
-    floorId: floor?.id,
-    floorName: floor?.floorName || '',
-    floorMentioned: Boolean(floorToken),
+    floors: Array.from(resolved.values()),
+    floorMentioned: /\btang\b/.test(q),
+    unresolvedFloorTokens: Array.from(unresolvedTokens),
     teamId: targets.length === 1 ? targets[0].id : undefined,
     teamName: targets.length === 1 ? targets[0].name : '',
     teamAmbiguous: targets.length > 1,
   };
 }
 
-function buildQuestionFocusedContext(question: string, snapshot: HnlAiProjectSnapshot, selection: ExternalAiDataSelection) {
+function serializeMaterialResult(result: ReturnType<typeof computeMaterialNeeds>) {
+  return {
+    status: result.lines.length === 0 ? 'insufficient-data' : result.failClosed ? 'partial' : 'ok',
+    lines: result.lines.map((line) => ({
+      materialId: line.materialId || '',
+      materialName: line.materialName,
+      category: line.category,
+      unit: line.unit,
+      totalNeed: line.estimatedQty,
+      issuedAllocated: line.alreadyIssued,
+      issuedUnallocated: line.unallocatedIssued,
+      remainingNeed: line.remainingQty,
+      projectStock: line.stockQty,
+      deficit: line.deficitQty,
+    })),
+    warnings: result.warnings.map((warning) => warning.message),
+    failClosed: result.failClosed,
+  };
+}
+
+function buildQuestionFocusedContext(
+  question: string,
+  snapshot: HnlAiProjectSnapshot,
+  selection: ExternalAiDataSelection,
+  options: ExternalAiQuestionOptions = {},
+) {
   const targets = detectMentionedTeams(question, snapshot);
   const needs = questionNeeds(question);
   const context = buildExternalAiProjectContext(snapshot, selection) as Record<string, any>;
@@ -404,61 +466,94 @@ function buildQuestionFocusedContext(question: string, snapshot: HnlAiProjectSna
     grounding: 'Every numeric conclusion must be traceable to supplied rows and preserve team/floor/category/item/date/unit scope.',
     historicalQuantity: 'Quantity is a current snapshot unless a dated immutable quantity ledger exists. Do not assign snapshot quantity to a past date range.',
   };
+  if (options.fullProjectRaw) {
+    context.analysisScope = 'full-project-raw';
+    context.aiContract.fullProjectRaw = 'This is a sanitized, bounded, read-only whole-project snapshot. Analyze only supplied rows; never infer omitted/truncated rows.';
+  }
   if (targets.length > 0) context.requestedTeams = targets;
 
   if (needs.material) {
-    const scope = resolveMaterialScope(question, snapshot);
-    // Material questions are fail-closed: the external model receives the deterministic
-    // result only, never raw norms/inventory that would let it recompute or invent quantities.
+    const scope = resolveMaterialScopes(question, snapshot);
+    // Material questions are fail-closed. Raw m²/progress/norm/inventory rows are stripped so
+    // an external model cannot ignore the deterministic result and recompute material quantities.
     delete context.inventory;
     delete context.materialNorms;
-    context.aiContract.materialCalculation = 'STRICT: Use deterministicMaterialNeeds exactly. Do not calculate material quantities from m²/raw norms.';
+    delete context.rooms;
+    delete context.workVolumes;
+    delete context.quantityDetails;
+    delete context.quantitySummaryByTeamAndCategory;
+    delete context.quantityValidationTotals;
+
+    context.aiContract.materialCalculation = 'STRICT: Use deterministicMaterialNeeds exactly. Do not calculate material quantities from m²/raw norms/raw rooms.';
     if (!selection.inventory) {
       context.deterministicMaterialNeeds = {
         status: 'permission-required',
         message: 'Chưa cho phép nhóm dữ liệu Vật tư trong câu hỏi này. Không được suy đoán.',
       };
-    } else if (scope.teamAmbiguous || (scope.floorMentioned && !scope.floorId) || (!scope.floorId && !scope.teamId)) {
+    } else if (scope.teamAmbiguous || scope.unresolvedFloorTokens.length > 0 || (scope.floorMentioned && scope.floors.length === 0) || (scope.floors.length === 0 && !scope.teamId)) {
       context.deterministicMaterialNeeds = {
         status: 'insufficient-scope',
         message: scope.teamAmbiguous
           ? 'Có nhiều đội được nhắc tới; cần một teamId duy nhất.'
-          : scope.floorMentioned && !scope.floorId
-            ? 'Không resolve được floorId từ tầng được hỏi.'
-            : 'Cần nêu rõ Tầng hoặc Đội để tổng hợp vật tư.',
+          : scope.unresolvedFloorTokens.length > 0
+            ? `Không resolve được tầng: ${scope.unresolvedFloorTokens.join(', ')}.`
+            : scope.floorMentioned && scope.floors.length === 0
+              ? 'Không resolve được floorId từ tầng được hỏi.'
+              : 'Cần nêu rõ Tầng hoặc Đội để tổng hợp vật tư.',
+      };
+    } else if (scope.floors.length > 1) {
+      const scopes = scope.floors.map((floor) => {
+        const result = computeMaterialNeeds({
+          rooms: [...snapshot.rooms],
+          materialNorms: [...snapshot.materialNorms],
+          inventory: [...snapshot.inventory],
+          workVolumes: [...snapshot.workVolumes],
+          teams: [...snapshot.teams],
+          scope: { floorId: floor.id, teamId: scope.teamId },
+        });
+        return {
+          scope: { floorId: floor.id, floorName: floor.name, teamId: scope.teamId || '', teamName: scope.teamName },
+          ...serializeMaterialResult(result),
+        };
+      });
+      const statuses = scopes.map((item) => item.status);
+      context.deterministicMaterialNeeds = {
+        status: statuses.every((status) => status === 'ok') ? 'ok' : statuses.every((status) => status === 'insufficient-data') ? 'insufficient-data' : 'partial',
+        multiFloor: true,
+        scopes,
+        instruction: 'Present each floor separately. Do not merge floors unless the user explicitly asks for a grand total.',
       };
     } else {
+      const floor = scope.floors[0];
       const result = computeMaterialNeeds({
         rooms: [...snapshot.rooms],
         materialNorms: [...snapshot.materialNorms],
         inventory: [...snapshot.inventory],
         workVolumes: [...snapshot.workVolumes],
         teams: [...snapshot.teams],
-        scope: { floorId: scope.floorId, teamId: scope.teamId },
+        scope: { floorId: floor?.id, teamId: scope.teamId },
       });
       context.deterministicMaterialNeeds = {
-        status: result.lines.length === 0 ? 'insufficient-data' : result.failClosed ? 'partial' : 'ok',
-        scope: { floorId: scope.floorId || '', floorName: scope.floorName, teamId: scope.teamId || '', teamName: scope.teamName },
-        lines: result.lines.map((line) => ({
-          materialId: line.materialId || '', materialName: line.materialName, category: line.category, unit: line.unit,
-          totalNeed: line.estimatedQty, issuedAllocated: line.alreadyIssued, issuedUnallocated: line.unallocatedIssued,
-          remainingNeed: line.remainingQty, projectStock: line.stockQty, deficit: line.deficitQty,
-        })),
-        warnings: result.warnings.map((warning) => warning.message),
-        failClosed: result.failClosed,
+        ...serializeMaterialResult(result),
+        scope: { floorId: floor?.id || '', floorName: floor?.name || '', teamId: scope.teamId || '', teamName: scope.teamName },
       };
     }
   }
 
-  if (selection.quantities && (needs.quantity || targets.length > 0)) {
+  // For material questions, never re-add raw m²/progress data after deterministic calculation.
+  if (!needs.material && selection.quantities && (options.fullProjectRaw || needs.quantity || targets.length > 0)) {
     const allRows = buildQuantityRows(snapshot);
-    const filtered = targets.length > 0 ? allRows.filter((row) => isTeamMatch(row, targets)) : allRows;
-    context.quantityDetails = capped(filtered, 72);
+    const filtered = !options.fullProjectRaw && targets.length > 0 ? allRows.filter((row) => isTeamMatch(row, targets)) : allRows;
+    context.quantityDetails = capped(filtered, options.fullProjectRaw ? MAX_ROWS_PER_COLLECTION : 72);
     context.quantityValidationTotals = capped(buildQuantitySummary(filtered), 48);
   }
-  if (selection.crew && (needs.crew || targets.length > 0)) context.crew = capped(rawCrewRows(snapshot, targets), 72);
-  if (selection.progress && (needs.progress || targets.length > 0)) context.rooms = capped(rawRoomRows(snapshot, targets), 48);
-  if (selection.defects && (needs.defects || targets.length > 0)) {
+  if (selection.crew && (options.fullProjectRaw || needs.crew || targets.length > 0)) {
+    context.crew = capped(rawCrewRows(snapshot, options.fullProjectRaw ? [] : targets), options.fullProjectRaw ? MAX_ROWS_PER_COLLECTION : 72);
+  }
+  if (!needs.material && selection.progress && (options.fullProjectRaw || needs.progress || targets.length > 0)) {
+    context.rooms = capped(rawRoomRows(snapshot, options.fullProjectRaw ? [] : targets), options.fullProjectRaw ? MAX_ROWS_PER_COLLECTION : 48);
+  }
+  if (selection.defects && (options.fullProjectRaw || needs.defects || targets.length > 0)) {
     const resolveFloor = buildFloorResolver(snapshot);
     const defects = active(snapshot.defects).map((item) => ({
       id: item.id,
@@ -473,7 +568,7 @@ function buildQuestionFocusedContext(question: string, snapshot: HnlAiProjectSna
       dueDate: item.dueDate || '',
       completedAt: item.completedAt || '',
     }));
-    context.defects = capped(targets.length > 0 ? defects.filter((row) => isTeamMatch(row, targets)) : defects, 48);
+    context.defects = capped(!options.fullProjectRaw && targets.length > 0 ? defects.filter((row) => isTeamMatch(row, targets)) : defects, options.fullProjectRaw ? MAX_ROWS_PER_COLLECTION : 48);
   }
   return context;
 }
@@ -490,8 +585,13 @@ function compactCappedRows(context: Record<string, any>, rowLimit: number) {
   }
 }
 
-export function buildExternalAiQuestionPayload(question: string, snapshot: HnlAiProjectSnapshot, selection: ExternalAiDataSelection): string {
-  const context = buildQuestionFocusedContext(question, snapshot, selection) as Record<string, any>;
+export function buildExternalAiQuestionPayload(
+  question: string,
+  snapshot: HnlAiProjectSnapshot,
+  selection: ExternalAiDataSelection,
+  options: ExternalAiQuestionOptions = {},
+): string {
+  const context = buildQuestionFocusedContext(question, snapshot, selection, options) as Record<string, any>;
   const payload = { question: safeText(question), hnlContext: context };
   let serialized = JSON.stringify(payload);
   if (serialized.length <= MAX_EXTERNAL_MESSAGE_CHARS) return serialized;

@@ -50,6 +50,7 @@ export interface GetCurrentTeamProgressArgs {
 
 export interface GetMaterialNeedsArgs {
   floorId?: string;
+  floorIds?: string[];
   teamRef?: string;
 }
 
@@ -240,16 +241,87 @@ function currentTeamProgress(runtime: HnlAiToolRuntime, team: TeamInfo): AiToolR
 }
 
 
-function materialNeedsResult(runtime: HnlAiToolRuntime, args: GetMaterialNeedsArgs): AiToolResult<ReturnType<typeof computeMaterialNeeds>> {
+function materialNeedsResult(runtime: HnlAiToolRuntime, args: GetMaterialNeedsArgs): AiToolResult<unknown> {
   const team = args.teamRef ? requireResolvedTeam(args.teamRef, runtime.snapshot.teams) : undefined;
-  const result = computeMaterialNeeds({
+  const requestedFloorIds = Array.from(new Set([
+    ...(args.floorIds || []),
+    ...(args.floorId ? [args.floorId] : []),
+  ].map((value) => String(value || '').trim()).filter(Boolean)));
+  const floorNameById = new Map(
+    runtime.snapshot.floors
+      .filter((floor) => floor.deletedAt === undefined || floor.deletedAt === null)
+      .map((floor) => [String(floor.id), String(floor.floorName || floor.id)]),
+  );
+
+  const computeForFloor = (floorId?: string) => computeMaterialNeeds({
     rooms: [...runtime.snapshot.rooms],
     materialNorms: [...runtime.snapshot.materialNorms],
     inventory: [...runtime.snapshot.inventory],
     workVolumes: [...runtime.snapshot.workVolumes],
     teams: [...runtime.snapshot.teams],
-    scope: { floorId: args.floorId, teamId: team?.id },
+    scope: { floorId, teamId: team?.id },
   });
+
+  if (requestedFloorIds.length > 1) {
+    const floors = requestedFloorIds.map((floorId) => {
+      const result = computeForFloor(floorId);
+      return {
+        floorId,
+        floorName: floorNameById.get(floorId) || floorId,
+        result,
+      };
+    });
+    const facts: AiFact[] = floors.flatMap((floor, floorIndex) => floor.result.lines.flatMap((line, lineIndex) => [
+      {
+        id: `material:${floorIndex}:${lineIndex}:need`,
+        kind: 'CALCULATED' as const,
+        label: `${floor.floorName} · ${line.materialName} - tổng cần`,
+        value: line.estimatedQty,
+        unit: line.unit,
+        method: 'Material Need Engine deterministic',
+      },
+      {
+        id: `material:${floorIndex}:${lineIndex}:remaining`,
+        kind: 'CALCULATED' as const,
+        label: `${floor.floorName} · ${line.materialName} - còn cần`,
+        value: line.remainingQty,
+        unit: line.unit,
+        method: 'Nhu cầu định mức trừ phiếu xuất có provenance xác định',
+      },
+    ]));
+    const allEmpty = floors.every((floor) => floor.result.lines.length === 0);
+    const anyFailClosed = floors.some((floor) => floor.result.failClosed);
+    return {
+      status: allEmpty ? 'insufficient-data' : anyFailClosed || floors.some((floor) => floor.result.lines.length === 0) ? 'partial' : 'ok',
+      data: {
+        multiFloor: true,
+        teamId: team?.id || '',
+        teamName: team?.name || '',
+        floors,
+      },
+      facts,
+      evidence: [],
+      metadata: {
+        projectId: runtime.context.projectId,
+        tool: 'getMaterialNeeds',
+        sourceCollections: ['rooms', 'work_volumes', 'material_norms', 'inventory', 'teams', 'floor_plans'],
+        recordsScanned: runtime.snapshot.rooms.length + runtime.snapshot.workVolumes.length + runtime.snapshot.materialNorms.length + runtime.snapshot.inventory.length + runtime.snapshot.teams.length + runtime.snapshot.floors.length,
+        recordsUsed: floors.reduce((sum, floor) => sum + floor.result.lines.length, 0),
+        asOf: runtime.snapshot.asOf,
+        freshness: runtime.snapshot.freshness,
+        permissionRole: runtime.context.role,
+        dataVersion: 'hnl-material-need-v2',
+      },
+      warnings: floors.flatMap((floor) => floor.result.warnings.map((warning) => `${floor.floorName}: ${warning.message}`)),
+      assumptions: [
+        'Mỗi tầng được tính độc lập bằng cùng Material Need Engine; không gộp m² giữa tầng trước khi áp định mức.',
+        'Không tự suy m² thành vật tư: mọi số lượng đi qua Material Need Engine và định mức đã cấu hình.',
+        'Phiếu xuất thiếu team provenance chỉ trừ khi teamId có thể chứng minh duy nhất; nếu mơ hồ thì giữ chưa phân bổ.',
+      ],
+    };
+  }
+
+  const result = computeForFloor(requestedFloorIds[0]);
   const facts: AiFact[] = result.lines.flatMap((line, index) => [
     { id: `material:${index}:need`, kind: 'CALCULATED' as const, label: `${line.materialName} - tổng cần`, value: line.estimatedQty, unit: line.unit, method: 'Material Need Engine deterministic' },
     { id: `material:${index}:remaining`, kind: 'CALCULATED' as const, label: `${line.materialName} - còn cần`, value: line.remainingQty, unit: line.unit, method: 'Nhu cầu định mức trừ phiếu xuất có provenance xác định' },
@@ -268,7 +340,7 @@ function materialNeedsResult(runtime: HnlAiToolRuntime, args: GetMaterialNeedsAr
       asOf: runtime.snapshot.asOf,
       freshness: runtime.snapshot.freshness,
       permissionRole: runtime.context.role,
-      dataVersion: 'hnl-material-need-v1',
+      dataVersion: 'hnl-material-need-v2',
     },
     warnings: result.warnings.map((warning) => warning.message),
     assumptions: [

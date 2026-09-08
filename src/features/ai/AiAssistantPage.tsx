@@ -113,6 +113,7 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
   const [apiKey, setApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
   const [externalAiOptIn, setExternalAiOptIn] = useState(false);
+  const [externalAiFullProject, setExternalAiFullProject] = useState(false);
   const [externalAiSelection, setExternalAiSelection] = useState<ExternalAiDataSelection>({ progress: true, quantities: true, defects: false, crew: false, inventory: false, checklist: false });
   const [exportBusy, setExportBusy] = useState<AiExportKind | null>(null);
   const [exportNotice, setExportNotice] = useState('');
@@ -242,14 +243,24 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
           mode: 'GENERAL_AI', model,
           messages: [
             { role: 'system', content: externalAiOptIn
-              ? 'Bạn là HNL AI Assistant. Chỉ được dùng phần dữ liệu HNL đã được người dùng cho phép và đính kèm trong đúng câu hỏi này. Dữ liệu là read-only, đã tối thiểu hóa/ẩn thông tin liên hệ. Với khối lượng: ưu tiên quantitySummaryByTeamAndCategory và quantityDetails; không được suy diễn khối lượng theo khoảng ngày nếu dữ liệu chỉ là snapshot hiện tại hoặc updatedAt. Không suy đoán trường bị thiếu và không được yêu cầu hay thực hiện thao tác sửa/xóa dữ liệu HNL.'
+              ? 'Bạn là HNL AI Assistant. Chỉ được dùng phần dữ liệu HNL đã được người dùng cho phép và đính kèm trong đúng câu hỏi này. Dữ liệu là read-only, đã tối thiểu hóa/ẩn thông tin liên hệ. Nếu có deterministicMaterialNeeds thì đây là nguồn DUY NHẤT cho số lượng vật tư: phải trình bày đúng khung/tấm/phụ kiện theo kết quả này, không được thay bằng hạng mục m² và không tự tính lại từ rooms/workVolumes/định mức. Với khối lượng: ưu tiên quantitySummaryByTeamAndCategory và quantityDetails; không được suy diễn khối lượng theo khoảng ngày nếu dữ liệu chỉ là snapshot hiện tại hoặc updatedAt. Không suy đoán trường bị thiếu và không được yêu cầu hay thực hiện thao tác sửa/xóa dữ liệu HNL.'
               : 'Bạn là HNL AI Assistant. Trả lời ngắn gọn, chuyên nghiệp. Không giả định hoặc tuyên bố đang đọc dữ liệu dự án HNL trong chế độ AI chung.' },
             { role: 'user', content: externalAiOptIn
-              ? buildExternalAiQuestionPayload(text, snapshot, externalAiSelection)
+              ? buildExternalAiQuestionPayload(
+                  text,
+                  snapshot,
+                  externalAiFullProject
+                    ? { progress: true, quantities: true, defects: true, crew: true, inventory: true, checklist: true }
+                    : externalAiSelection,
+                  { fullProjectRaw: externalAiFullProject },
+                )
               : text },
           ],
         });
-        if (externalAiOptIn) setExternalAiOptIn(false);
+        if (externalAiOptIn) {
+          setExternalAiOptIn(false);
+          setExternalAiFullProject(false);
+        }
         setGeneralText(response.text || 'AI không trả nội dung.');
         return;
       }
@@ -335,7 +346,7 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
         <div className="mt-4 grid grid-cols-4 gap-1.5">
           {(Object.keys(MODE_META) as AiAssistantMode[]).map((key) => {
             const item = MODE_META[key]; const Icon = item.icon; const active = mode === key;
-            return <button key={key} onClick={() => { setMode(key); if (key !== 'ai') setExternalAiOptIn(false); setResult(null); setGeneralText(''); setError(''); setExportNotice(''); setAuditInspect(null); }} className={`rounded-xl px-2 py-2 text-[11px] font-bold flex flex-col sm:flex-row items-center justify-center gap-1 ${active ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 border border-slate-200'}`}><Icon className="w-4 h-4" />{item.label}</button>;
+            return <button key={key} onClick={() => { setMode(key); if (key !== 'ai') { setExternalAiOptIn(false); setExternalAiFullProject(false); } setResult(null); setGeneralText(''); setError(''); setExportNotice(''); setAuditInspect(null); }} className={`rounded-xl px-2 py-2 text-[11px] font-bold flex flex-col sm:flex-row items-center justify-center gap-1 ${active ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 border border-slate-200'}`}><Icon className="w-4 h-4" />{item.label}</button>;
           })}
         </div>
         <p className="mt-2 text-[11px] text-slate-500">{MODE_META[mode].hint}</p>
@@ -374,10 +385,23 @@ export const AiAssistantPage: React.FC<AiAssistantPageProps> = (props) => {
             <span>Cho phép AI bên ngoài sử dụng dữ liệu HNL trong câu hỏi này</span>
           </label>
           <p className="mt-1 text-[10px] leading-4 text-amber-800">Mặc định TẮT. Quyền này chỉ dùng một lần; sau khi gửi thành công sẽ tự tắt. Chỉ dữ liệu đã chọn bên dưới được gửi, ở dạng read-only và đã tối thiểu hóa.</p>
-          {externalAiOptIn && <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+          {externalAiOptIn && <label className="mt-2 flex items-start gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-2 text-[10px] font-semibold text-indigo-950">
+            <input
+              type="checkbox"
+              checked={externalAiFullProject}
+              onChange={(e) => setExternalAiFullProject(e.target.checked)}
+              className="mt-0.5 h-4 w-4"
+            />
+            <span>
+              <strong>Phân tích dữ liệu thô toàn dự án</strong>
+              <span className="block mt-0.5 font-normal leading-4 text-indigo-800">Gửi snapshot toàn dự án đã ẩn thông tin liên hệ, giới hạn dung lượng và chỉ đọc. Dùng cho phân tích tổng thể; câu hỏi vật tư vẫn bắt buộc dùng Material Need Engine, không cho AI tự nhân m².</span>
+            </span>
+          </label>}
+          {externalAiOptIn && !externalAiFullProject && <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-1.5">
             {([['progress','Tiến độ'],['quantities','Khối lượng'],['defects','Defect'],['crew','Quân số'],['inventory','Vật tư'],['checklist','Checklist']] as Array<[keyof ExternalAiDataSelection, string]>).map(([key, label]) => <label key={key} className="flex items-center gap-1.5 rounded-lg border border-amber-200 bg-white px-2 py-1.5 text-[10px] font-semibold text-slate-700"><input type="checkbox" checked={externalAiSelection[key]} onChange={(e) => setExternalAiSelection((current) => ({ ...current, [key]: e.target.checked }))} />{label}</label>)}
           </div>}
-          {externalAiOptIn && externalAiSelection.quantities && <p className="mt-2 text-[10px] leading-4 text-amber-800">Khối lượng được gửi theo snapshot hiện tại, có liên kết đội/tầng/căn/hạng mục/đơn vị. HNL không gán khối lượng cho một khoảng ngày nếu dữ liệu nguồn không có lịch sử khối lượng theo ngày.</p>}
+          {externalAiOptIn && externalAiFullProject && <p className="mt-2 text-[10px] leading-4 text-indigo-800">Toàn bộ 6 nhóm dữ liệu được chọn tự động cho câu hỏi này: Tiến độ, Khối lượng, Defect, Quân số, Vật tư và Checklist. HNL vẫn áp dụng giới hạn số dòng/kích thước payload và fail-closed khi dữ liệu không đủ.</p>}
+          {externalAiOptIn && !externalAiFullProject && externalAiSelection.quantities && <p className="mt-2 text-[10px] leading-4 text-amber-800">Khối lượng được gửi theo snapshot hiện tại, có liên kết đội/tầng/căn/hạng mục/đơn vị. HNL không gán khối lượng cho một khoảng ngày nếu dữ liệu nguồn không có lịch sử khối lượng theo ngày.</p>}
         </div>}
         <div className="flex flex-wrap gap-2 mb-3">
           {QUICK_PROMPTS[mode].map((prompt) => <button key={prompt} onClick={() => void runQuestion(prompt)} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-100">{prompt}</button>)}

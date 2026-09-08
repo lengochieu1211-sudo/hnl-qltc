@@ -141,11 +141,67 @@ const materialPayload = JSON.parse(buildExternalAiQuestionPayload(
 assert.equal(materialPayload.hnlContext.deterministicMaterialNeeds.status, 'ok');
 assert.equal('inventory' in materialPayload.hnlContext, false, 'raw inventory must not be sent for material calculation');
 assert.equal('materialNorms' in materialPayload.hnlContext, false, 'raw norms must not be sent for material calculation');
+assert.equal('rooms' in materialPayload.hnlContext, false, 'raw room m² must not be sent for material calculation');
+assert.equal('workVolumes' in materialPayload.hnlContext, false, 'raw work volumes must not be sent for material calculation');
+assert.equal('quantityDetails' in materialPayload.hnlContext, false, 'raw quantity details must not be sent for material calculation');
+assert.equal('quantitySummaryByTeamAndCategory' in materialPayload.hnlContext, false, 'raw quantity summary must not be sent for material calculation');
 const boardNeed = materialPayload.hnlContext.deterministicMaterialNeeds.lines.find((line: any) => line.materialId === 'mat-board');
 assert.equal(boardNeed.totalNeed, 35);
 assert.equal(boardNeed.issuedAllocated, 5);
 assert.equal(boardNeed.remainingNeed, 30);
 assert.match(materialPayload.hnlContext.aiContract.materialCalculation, /STRICT/);
+
+const materialMultiFloorSnapshot = {
+  ...materialSnapshot,
+  floors: [
+    { id: 'f1', floorName: 'Tầng 1' },
+    { id: 'f3', floorName: 'Tầng 3' },
+  ],
+  rooms: [
+    ...materialSnapshot.rooms,
+    {
+      id: 'room-mat-3', roomName: 'A303', floorId: 'f3', floorName: 'Tầng 3',
+      teamId: 'team-nguyen', assignedTeam: 'Đội Nguyên', workCategoryId: 'cat-ceiling', workCategory: 'Trần thạch cao',
+      workVolume: 50, volumeUnit: 'm2', inspectionStatus: 'Chưa nghiệm thu', frameStatus: 'Đang làm', boardStatus: 'Đang làm', updatedAt: 4, subItems: [],
+    },
+  ],
+} as any;
+const materialMultiFloorPayload = JSON.parse(buildExternalAiQuestionPayload(
+  'Chi tiết các loại vật tư của tầng 1 và 3',
+  materialMultiFloorSnapshot,
+  { progress: true, quantities: true, defects: false, crew: false, inventory: true, checklist: false },
+));
+assert.equal(materialMultiFloorPayload.hnlContext.deterministicMaterialNeeds.status, 'ok');
+assert.equal(materialMultiFloorPayload.hnlContext.deterministicMaterialNeeds.multiFloor, true);
+assert.deepEqual(
+  materialMultiFloorPayload.hnlContext.deterministicMaterialNeeds.scopes.map((scope: any) => scope.scope.floorName),
+  ['Tầng 1', 'Tầng 3'],
+);
+const floor1Board = materialMultiFloorPayload.hnlContext.deterministicMaterialNeeds.scopes[0].lines.find((line: any) => line.materialId === 'mat-board');
+const floor3Board = materialMultiFloorPayload.hnlContext.deterministicMaterialNeeds.scopes[1].lines.find((line: any) => line.materialId === 'mat-board');
+assert.equal(floor1Board.totalNeed, 35);
+assert.equal(floor1Board.issuedAllocated, 5);
+assert.equal(floor3Board.totalNeed, 17.5);
+assert.equal(floor3Board.issuedAllocated, 0);
+for (const rawKey of ['rooms', 'workVolumes', 'quantityDetails', 'quantitySummaryByTeamAndCategory', 'inventory', 'materialNorms']) {
+  assert.equal(rawKey in materialMultiFloorPayload.hnlContext, false, `${rawKey} must stay out of multi-floor material payload`);
+}
+
+// Whole-project raw analysis is explicit, sanitized, capped and read-only for non-material questions.
+const fullProjectPayload = JSON.parse(buildExternalAiQuestionPayload(
+  'Phân tích tổng thể dự án và nêu các rủi ro chính',
+  snapshot,
+  { progress: true, quantities: true, defects: true, crew: true, inventory: true, checklist: true },
+  { fullProjectRaw: true },
+));
+assert.equal(fullProjectPayload.hnlContext.analysisScope, 'full-project-raw');
+assert.match(fullProjectPayload.hnlContext.aiContract.fullProjectRaw, /sanitized/i);
+assert.ok(fullProjectPayload.hnlContext.rooms.rows.length > 0);
+assert.ok(fullProjectPayload.hnlContext.quantityDetails.rows.length > 0);
+assert.ok(fullProjectPayload.hnlContext.defects.rows.length > 0);
+assert.ok(fullProjectPayload.hnlContext.crew.rows.length > 0);
+assert.equal(JSON.stringify(fullProjectPayload).includes('owner@example.com'), false);
+assert.equal(JSON.stringify(fullProjectPayload).includes('0901234567'), false);
 
 const materialNoPermission = JSON.parse(buildExternalAiQuestionPayload(
   'Tầng 1 cần vật tư gì?',
