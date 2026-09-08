@@ -1,0 +1,143 @@
+diff --git a/src/utils/materialNeedEngine.ts b/src/utils/materialNeedEngine.ts
+--- a/src/utils/materialNeedEngine.ts
++++ b/src/utils/materialNeedEngine.ts
+@@ -104,6 +104,17 @@ function uniqueRoomTeamIds(room: RoomProgressItem): string[] {
+   return Array.from(ids);
+ }
+ 
++function categorySubItems(room: RoomProgressItem, categoryId: string | undefined, categoryName: string) {
++  return (room.subItems || []).filter((sub) => {
++    const sameId = Boolean(categoryId && sub.workCategoryId === categoryId);
++    const sameName = textKey(sub.category) === textKey(categoryName);
++    return sameId || sameName;
++  });
++}
++
++function uniqueCategoryTeamIds(room: RoomProgressItem, categoryId: string | undefined, categoryName: string): string[] {
++  return Array.from(new Set(categorySubItems(room, categoryId, categoryName).map((sub) => sub.teamId).filter(Boolean) as string[]));
++}
++
+ function buildContributions(
+   rooms: RoomProgressItem[],
+   workVolumes: WorkVolume[],
+@@ -130,12 +141,10 @@ function buildContributions(
+         return;
+       }
+ 
+-      const matchingSubs = (room.subItems || []).filter((sub) => {
+-        if (sub.teamId !== scope.teamId) return false;
+-        const sameId = cat.id && sub.workCategoryId === cat.id;
+-        const sameName = textKey(sub.category) === textKey(cat.name);
+-        return Boolean(sameId || sameName);
+-      });
++      const categorySubs = categorySubItems(room, cat.id, cat.name);
++      const categoryTeamIds = uniqueCategoryTeamIds(room, cat.id, cat.name);
++      const matchingSubs = categorySubs.filter((sub) => sub.teamId === scope.teamId);
+       const explicitVolume = matchingSubs.reduce((sum, sub) => sum + (Number(sub.workVolume) || 0), 0);
+       if (explicitVolume > 0) {
+         contributions.push({ roomId: room.id, floorId: room.floorId, teamId: scope.teamId, workCategoryId: cat.id, workCategoryName: cat.name, sourceUnit: normalizeUnit(matchingSubs[0]?.volumeUnit || sourceUnit) || sourceUnit, volume: explicitVolume });
+@@ -143,6 +152,15 @@ function buildContributions(
+         return;
+       }
+ 
++      // A room may contain multiple teams across different work categories. If every
++      // sub-step of this category points to exactly one team, the category's total
++      // volume is deterministically owned by that team even when the individual
++      // sub-steps do not repeat workVolume. This is the same linkage shown in the
++      // room progress UI (e.g. W12 -> Đội Nguyên, C04 -> Đội Châu).
++      if (categoryTeamIds.length === 1 && categoryTeamIds[0] === scope.teamId) {
++        contributions.push({ roomId: room.id, floorId: room.floorId, teamId: scope.teamId, workCategoryId: cat.id, workCategoryName: cat.name, sourceUnit, volume: totalVolume });
++        return;
++      }
++
+       if (teamIds.length === 1 && teamIds[0] === scope.teamId) {
+         contributions.push({ roomId: room.id, floorId: room.floorId, teamId: scope.teamId, workCategoryId: cat.id, workCategoryName: cat.name, sourceUnit, volume: totalVolume });
+         return;
+@@ -150,7 +168,7 @@ function buildContributions(
+       }
+ 
+-      if (teamIds.includes(scope.teamId)) {
++      if (categoryTeamIds.includes(scope.teamId) || (categoryTeamIds.length === 0 && teamIds.includes(scope.teamId))) {
+         warnings.push({
+           code: 'AMBIGUOUS_TEAM',
+           roomId: room.id,
+diff --git a/scripts/material-need-golden.ts b/scripts/material-need-golden.ts
+--- a/scripts/material-need-golden.ts
++++ b/scripts/material-need-golden.ts
+@@ -83,6 +83,113 @@ assert.equal(ambiguous.failClosed, true);
+ assert.ok(ambiguous.warnings.some((w) => w.code === 'AMBIGUOUS_TEAM'));
+ 
++// Regression: one room may have different teams for different work categories while
++// sub-steps carry team linkage but not duplicated workVolume. Category ownership is
++// still deterministic and must use the category's total volume.
++const categoryWorkVolumes: WorkVolume[] = [
++  { id: 'wc-w12', title: 'Vách W12', unit: 'm²' } as WorkVolume,
++  { id: 'wc-c04', title: 'Trần C04', unit: 'm²' } as WorkVolume,
++  { id: 'wc-iw11', title: 'Vách IW11', unit: 'm²' } as WorkVolume,
++];
++const categoryNorms: MaterialNorm[] = [
++  {
++    id: 'norm-w12', materialId: 'mat-w12-frame', materialName: 'Thanh đứng W12', category: 'Khung vách', unit: 'Thanh', quotaQuantity: 0,
++    workCategoryId: 'wc-w12', workCategoryIds: ['wc-w12'], workCategoryNormsById: { 'wc-w12': 0.85 }, normBasisUnit: 'm²', unitNormPerM2: 0.85,
++  } as MaterialNorm,
++  {
++    id: 'norm-c04', materialId: 'mat-c04-frame', materialName: 'Xương C04', category: 'Khung trần', unit: 'Thanh', quotaQuantity: 0,
++    workCategoryId: 'wc-c04', workCategoryIds: ['wc-c04'], workCategoryNormsById: { 'wc-c04': 0.4 }, normBasisUnit: 'm²', unitNormPerM2: 0.4,
++  } as MaterialNorm,
++  {
++    id: 'norm-iw11', materialId: 'mat-iw11-frame', materialName: 'Thanh đứng IW11', category: 'Khung vách', unit: 'Thanh', quotaQuantity: 0,
++    workCategoryId: 'wc-iw11', workCategoryIds: ['wc-iw11'], workCategoryNormsById: { 'wc-iw11': 0.85 }, normBasisUnit: 'm²', unitNormPerM2: 0.85,
++  } as MaterialNorm,
++];
++const roomBhs = {
++  id: 'room-bhs', roomName: 'Phòng BHS', floorId: 'floor-ground',
++  categoryVolumes: { 'wc-w12': 178.27, 'wc-c04': 50 },
++  categoryVolumeUnits: { 'wc-w12': 'm²', 'wc-c04': 'm²' },
++  frameStatus: 'Đang làm', boardStatus: 'Đang làm', x: 0, y: 0, width: 1, height: 1,
++  subItems: [
++    { id: 'w12-1', name: 'Thi công khung', category: 'Vách W12', workCategoryId: 'wc-w12', teamId: 'team-a', status: 'Đã hoàn thành' },
++    { id: 'w12-2', name: 'Thi công tấm mặt 1', category: 'Vách W12', workCategoryId: 'wc-w12', teamId: 'team-a', status: 'Đã hoàn thành' },
++    { id: 'w12-3', name: 'Thi công tấm mặt 2', category: 'Vách W12', workCategoryId: 'wc-w12', teamId: 'team-a', status: 'Đã hoàn thành' },
++    { id: 'c04-1', name: 'Thi công khung', category: 'Trần C04', workCategoryId: 'wc-c04', teamId: 'team-b', status: 'Đang làm' },
++    { id: 'c04-2', name: 'Thi công tấm', category: 'Trần C04', workCategoryId: 'wc-c04', teamId: 'team-b', status: 'Chưa làm' },
++  ],
++} as RoomProgressItem;
++
++const groundTeamA = computeMaterialNeeds({
++  rooms: [roomBhs], materialNorms: categoryNorms, inventory: [], workVolumes: categoryWorkVolumes, teams,
++  scope: { floorId: 'floor-ground', teamId: 'team-a' },
++});
++assert.equal(groundTeamA.lines.length, 1, 'W12 must belong to Team A from category-level sub-step linkage');
++assert.equal(groundTeamA.lines[0].materialId, 'mat-w12-frame');
++assert.equal(groundTeamA.lines[0].estimatedQty, 151.53);
++assert.equal(groundTeamA.warnings.some((w) => w.code === 'AMBIGUOUS_TEAM'), false);
++
++const groundTeamB = computeMaterialNeeds({
++  rooms: [roomBhs], materialNorms: categoryNorms, inventory: [], workVolumes: categoryWorkVolumes, teams,
++  scope: { floorId: 'floor-ground', teamId: 'team-b' },
++});
++assert.equal(groundTeamB.lines.length, 1, 'C04 must belong to Team B from category-level sub-step linkage');
++assert.equal(groundTeamB.lines[0].materialId, 'mat-c04-frame');
++assert.equal(groundTeamB.lines[0].estimatedQty, 20);
++assert.equal(groundTeamB.warnings.some((w) => w.code === 'AMBIGUOUS_TEAM'), false);
++
++const roomIw11 = {
++  id: 'room-a9-13', roomName: 'Vách NH/A9-13', floorId: 'floor-3',
++  workCategoryId: 'wc-iw11', workCategory: 'Vách IW11', workVolume: 150, volumeUnit: 'm²',
++  frameStatus: 'Đang làm', boardStatus: 'Đang làm', x: 0, y: 0, width: 1, height: 1,
++  subItems: [
++    { id: 'iw11-1', name: 'Thi công khung', category: 'Vách IW11', workCategoryId: 'wc-iw11', teamId: 'team-a', status: 'Đã hoàn thành' },
++    { id: 'iw11-2', name: 'Thi công tấm', category: 'Vách IW11', workCategoryId: 'wc-iw11', teamId: 'team-a', status: 'Đang làm' },
++  ],
++} as RoomProgressItem;
++const floor3TeamA = computeMaterialNeeds({
++  rooms: [roomIw11], materialNorms: categoryNorms, inventory: [], workVolumes: categoryWorkVolumes, teams,
++  scope: { floorId: 'floor-3', teamId: 'team-a' },
++});
++assert.equal(floor3TeamA.lines.length, 1, 'Tầng 3 IW11 must remain visible for Team A without per-step workVolume');
++assert.equal(floor3TeamA.lines[0].materialId, 'mat-iw11-frame');
++assert.equal(floor3TeamA.lines[0].estimatedQty, 127.5);
++
+ const missingNorm = computeMaterialNeeds({ rooms: [multiTeamRoom], materialNorms: [], inventory: [], workVolumes, teams, scope: { floorId: 'floor-3' } });
+ assert.equal(missingNorm.lines.length, 0);
+ assert.equal(missingNorm.failClosed, true);
