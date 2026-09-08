@@ -28,25 +28,23 @@ jobs:
           test "$(git rev-parse HEAD)" = 'c0431da6718757c67f392a410a2a72beb7bd3cf8'
           test "$(git rev-parse HEAD^)" = '26f2790597e4d94c9b704828a9517cbfcc670877'
           git diff --name-only HEAD^ HEAD | sort > /tmp/actual.txt
-          cat > /tmp/expected.txt <<'EOF'
-package.json
-scripts/ai-external-context-golden.ts
-scripts/ai-planner-golden.ts
-scripts/ai-tool-registry-golden.ts
-scripts/material-need-golden.ts
-src/App.tsx
-src/ai/data/externalAiContext.ts
-src/ai/orchestrator/aiOrchestrator.ts
-src/ai/planning/queryPlanner.ts
-src/ai/tools/toolRegistry.ts
-src/ai/tools/toolValidation.ts
-src/components/RoomHighlightModal.tsx
-src/components/WarehouseTab.tsx
-src/types.ts
-src/utils/excelExport.ts
-src/utils/materialNeedEngine.ts
-EOF
-          sort -o /tmp/expected.txt /tmp/expected.txt
+          printf '%s\n' \
+            package.json \
+            scripts/ai-external-context-golden.ts \
+            scripts/ai-planner-golden.ts \
+            scripts/ai-tool-registry-golden.ts \
+            scripts/material-need-golden.ts \
+            src/App.tsx \
+            src/ai/data/externalAiContext.ts \
+            src/ai/orchestrator/aiOrchestrator.ts \
+            src/ai/planning/queryPlanner.ts \
+            src/ai/tools/toolRegistry.ts \
+            src/ai/tools/toolValidation.ts \
+            src/components/RoomHighlightModal.tsx \
+            src/components/WarehouseTab.tsx \
+            src/types.ts \
+            src/utils/excelExport.ts \
+            src/utils/materialNeedEngine.ts | sort > /tmp/expected.txt
           diff -u /tmp/expected.txt /tmp/actual.txt
           git diff --exit-code HEAD^ HEAD -- .firebaserc firebase.json firebase.prod.json firestore.rules storage.rules package-lock.json .github/workflows
 
