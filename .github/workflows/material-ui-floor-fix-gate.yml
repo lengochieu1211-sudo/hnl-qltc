@@ -1,0 +1,68 @@
+name: Gate Material UI Floor Fix
+
+on:
+  push:
+    branches: [gate/material-ui-floor-fix-20260908]
+    paths:
+      - '.gate/material-ui-floor-fix.patch'
+      - '.github/workflows/material-ui-floor-fix-gate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  gate-and-promote-dev:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout gate branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Rebuild exact candidate from certified DEV baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='c0431da6718757c67f392a410a2a72beb7bd3cf8'
+          git show "$GITHUB_SHA:.gate/material-ui-floor-fix.patch" > /tmp/ui-fix.patch
+          git checkout --detach "$BASE"
+          git apply --check /tmp/ui-fix.patch
+          git apply /tmp/ui-fix.patch
+          git diff --name-only | sort > /tmp/actual.txt
+          printf '%s\n' 'src/App.tsx' 'src/components/WarehouseTab.tsx' | sort > /tmp/expected.txt
+          diff -u /tmp/expected.txt /tmp/actual.txt
+          git diff --exit-code -- package.json package-lock.json .firebaserc firebase.json firebase.prod.json firestore.rules storage.rules .github/workflows
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Full regression gate
+        run: npm run verify
+
+      - name: Build source-clean DEV commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add src/App.tsx src/components/WarehouseTab.tsx
+          git diff --cached --name-only | sort > /tmp/staged.txt
+          diff -u /tmp/expected.txt /tmp/staged.txt
+          git config user.name 'HNL QLTC Release Gate'
+          git config user.email 'actions@users.noreply.github.com'
+          git commit -m 'fix: compact material suggestion and resolve floor names'
+
+      - name: Fast-forward DEV only if baseline is unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='c0431da6718757c67f392a410a2a72beb7bd3cf8'
+          CURRENT="$(git ls-remote origin refs/heads/dev | cut -f1)"
+          test "$CURRENT" = "$BASE"
+          git push origin HEAD:dev
