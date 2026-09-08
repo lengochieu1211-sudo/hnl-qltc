@@ -1,0 +1,62 @@
+name: Material Category Identity Promote DEV
+
+on:
+  push:
+    branches: [gate/material-category-identity-20260909]
+    paths:
+      - '.github/workflows/material-category-identity-promote.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout gate branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Reconstruct exact candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='6f26b879e67d004aeb49096927d3c23ecff6a18c'
+          test "$(git rev-parse origin/dev)" = "$BASE"
+          TRANSFORMER="$(mktemp)"
+          git show "gate/material-category-identity-20260909:.gate/apply-material-category-identity.py" > "$TRANSFORMER"
+          git checkout --detach "$BASE"
+          python "$TRANSFORMER"
+          git diff --name-only | sort > /tmp/actual.txt
+          printf '%s\n' \
+            'scripts/material-need-golden.ts' \
+            'src/components/MaterialNormModal.tsx' \
+            'src/healthCenter/healthCenterEngine.ts' \
+            'src/utils/materialNeedEngine.ts' | sort > /tmp/expected.txt
+          diff -u /tmp/expected.txt /tmp/actual.txt
+          git diff --exit-code -- package.json package-lock.json .firebaserc firebase.json firebase.prod.json firestore.rules storage.rules .github/workflows
+      - name: Install exact dependencies
+        run: npm ci
+      - name: Focused regressions including AI tools
+        run: |
+          npm run test:material-need
+          npm run test:health-center
+          npm run test:ai-tools
+      - name: Full release gate
+        run: npm run verify
+      - name: Commit clean candidate and fast-forward DEV
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='6f26b879e67d004aeb49096927d3c23ecff6a18c'
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "$BASE"
+          git add scripts/material-need-golden.ts src/components/MaterialNormModal.tsx src/healthCenter/healthCenterEngine.ts src/utils/materialNeedEngine.ts
+          git diff --cached --name-only | sort > /tmp/staged.txt
+          diff -u /tmp/expected.txt /tmp/staged.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: normalize material work-category identity'
+          git push origin HEAD:dev
