@@ -1,0 +1,27 @@
+name: Dispatch Material Category DEV Runtime
+
+on:
+  push:
+    branches: [gate/material-category-team-link-20260909]
+    paths:
+      - '.github/workflows/dispatch-material-category-dev.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify DEV SHA and dispatch DEV runtime
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED='ad201c11ea6aa13decdf978f8847a8b90759348a'
+          ACTUAL="$(gh api repos/${GITHUB_REPOSITORY}/branches/dev --jq '.commit.sha')"
+          test "$ACTUAL" = "$EXPECTED" || { echo "::error::DEV moved: $ACTUAL"; exit 1; }
+          gh workflow run dev-runtime-golden.yml --ref dev --repo "$GITHUB_REPOSITORY"
+          echo "Dispatched DEV Runtime Golden for $EXPECTED"
