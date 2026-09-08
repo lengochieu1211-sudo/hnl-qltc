@@ -1,0 +1,26 @@
+name: Dispatch Material UI DEV Runtime
+
+on:
+  push:
+    branches: [gate/material-ui-floor-fix-20260908]
+    paths:
+      - '.github/workflows/material-ui-floor-fix-runtime-controller.yml'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm DEV exact SHA and dispatch Runtime Golden
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED='0a46762829131c4388d90a8fffba431a5e88b5fd'
+          ACTUAL="$(gh api repos/${{ github.repository }}/branches/dev --jq .commit.sha)"
+          test "$ACTUAL" = "$EXPECTED"
+          gh workflow run dev-runtime-golden.yml --ref dev
