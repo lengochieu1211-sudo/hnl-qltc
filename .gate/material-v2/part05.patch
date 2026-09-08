@@ -1,0 +1,77 @@
++          ? `Hạng mục ${c.workCategoryName} (${c.sourceUnit}) không có hệ số định mức tương thích. Không suy đoán vật tư.`
++          : `Hạng mục ${c.workCategoryName} chưa có định mức vật tư. Không suy đoán vật tư.`,
++      });
++    }
++  });
++
++  const stock = new Map<string, number>();
++  inventory.forEach((tx) => {
++    let key = canonicalKey(tx.materialId, tx.materialName, tx.unit);
++    if (!tx.materialId) {
++      const norm = materialNorms.find((n) => normalizeMaterialNameKey(n.materialName) === normalizeMaterialNameKey(tx.materialName) && areSameUnit(n.unit, tx.unit));
++      if (norm) key = canonicalKey(resolveNormMaterialId(norm), norm.materialName, norm.unit);
++    }
++    stock.set(key, (stock.get(key) || 0) + (tx.type === 'in' ? 1 : -1) * (Number(tx.quantity) || 0));
++  });
++
++  const issued = new Map<string, number>();
++  const unallocated = new Map<string, number>();
++  inventory.forEach((tx) => {
++    if (tx.type !== 'out') return;
++    if (scope.roomId && tx.sourceRoomId !== scope.roomId) return;
++    if (scope.floorId && tx.sourceFloorId !== scope.floorId) return;
++    let key = canonicalKey(tx.materialId, tx.materialName, tx.unit);
++    if (!tx.materialId) {
++      const norm = materialNorms.find((n) => normalizeMaterialNameKey(n.materialName) === normalizeMaterialNameKey(tx.materialName) && areSameUnit(n.unit, tx.unit));
++      if (norm) key = canonicalKey(resolveNormMaterialId(norm), norm.materialName, norm.unit);
++    }
++    const qty = Number(tx.quantity) || 0;
++    if (scope.teamId) {
++      if (tx.sourceTeamId === scope.teamId) issued.set(key, (issued.get(key) || 0) + qty);
++      else if (!tx.sourceTeamId && tx.sourceRoomId) {
++        const room = rooms.find((r) => r.id === tx.sourceRoomId);
++        const ids = room ? uniqueRoomTeamIds(room) : [];
++        if (ids.length === 1 && ids[0] === scope.teamId) issued.set(key, (issued.get(key) || 0) + qty);
++        else if (ids.includes(scope.teamId)) {
++          unallocated.set(key, (unallocated.get(key) || 0) + qty);
++          warnings.push({ code: 'UNALLOCATED_ISSUE', roomId: tx.sourceRoomId, floorId: tx.sourceFloorId, teamId: scope.teamId, message: `Phiếu ${tx.id} chưa có sourceTeamId và không thể chứng minh duy nhất đội nhận. Không trừ vào nhu cầu đội.` });
++        }
++      }
++      return;
++    }
++    if (scope.floorId && tx.sourceFloorId === scope.floorId) issued.set(key, (issued.get(key) || 0) + qty);
++    else if (scope.roomId && tx.sourceRoomId === scope.roomId) issued.set(key, (issued.get(key) || 0) + qty);
++  });
++
++  const lines = Array.from(demand.entries()).map(([materialKey, item]) => {
++    const estimatedQty = round2(item.qty);
++    const alreadyIssued = round2(issued.get(materialKey) || 0);
++    const unallocatedIssued = round2(unallocated.get(materialKey) || 0);
++    const remainingQty = round2(Math.max(0, estimatedQty - alreadyIssued));
++    const stockQty = round2(stock.get(materialKey) || 0);
++    const deficitQty = round2(Math.max(0, remainingQty - stockQty));
++    return {
++      materialKey,
++      materialId: item.materialId,
++      materialName: item.materialName,
++      category: item.category,
++      unit: item.unit,
++      estimatedQty,
++      estQty: estimatedQty,
++      alreadyIssued,
++      unallocatedIssued,
++      remainingQty,
++      stockQty,
++      deficitQty,
++      sufficient: stockQty + 1e-9 >= remainingQty,
++      sourceNormIds: Array.from(item.normIds),
++      normDetails: Array.from(item.normDetails.values()),
++      ...(item.normDetails.size === 1 ? (() => {
++        const only = Array.from(item.normDetails.values())[0];
++        return { workCategory: only.workCategory, unitNormPerM2: only.factor, normBasisUnit: only.basisUnit };
++      })() : {}),
++    } satisfies MaterialNeedLine;
++  }).sort((a, b) => a.category.localeCompare(b.category, 'vi') || a.materialName.localeCompare(b.materialName, 'vi'));
++
++  return { lines, warnings, failClosed: warnings.some((w) => w.code === 'MISSING_NORM' || w.code === 'UNIT_MISMATCH' || w.code === 'AMBIGUOUS_TEAM') };
++}

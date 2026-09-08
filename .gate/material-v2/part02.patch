@@ -1,0 +1,265 @@
++    const floorNumber = q.match(/\btang\s+([a-z0-9_-]+)/)?.[1];
++    const floor = floorNumber
++      ? floors.find((item) => normalizeEntityText(item.floorName) === `tang ${floorNumber}` || normalizeEntityText(item.floorName).endsWith(` ${floorNumber}`) || normalizeEntityText(item.floorName) === floorNumber)
++      : undefined;
++    const mentionsTeam = /\b(?:doi|to)\b/.test(q);
++    const teamResolution = mentionsTeam ? extractTeamReference(question, teams) : null;
++    if (mentionsTeam && (!teamResolution || teamResolution.status !== 'resolved' || !teamResolution.team)) {
++      return { status: 'needs-clarification', intent, normalizedQuestion, clarifications: ['Không xác định được teamId duy nhất cho câu hỏi vật tư.'], warnings: [] };
++    }
++    if (floorNumber && !floor) {
++      return { status: 'needs-clarification', intent, normalizedQuestion, clarifications: [`Không xác định được Tầng ${floorNumber} trong dữ liệu dự án.`], warnings: [] };
++    }
++    if (!floor && !teamResolution?.team) {
++      return { status: 'needs-clarification', intent, normalizedQuestion, clarifications: ['Hãy nêu Tầng hoặc Đội cần tổng hợp vật tư.'], warnings: [] };
++    }
++    return {
++      status: 'ready', intent, normalizedQuestion,
++      resolvedTeam: teamResolution?.team ? { id: teamResolution.team.id, name: teamResolution.team.name } : undefined,
++      toolCall: { name: 'getMaterialNeeds', args: { floorId: floor?.id, teamRef: teamResolution?.team?.id } },
++      clarifications: [], warnings: [],
++    };
++  }
++
+   if (intent === 'TEAM_SUMMARY' || intent === 'CURRENT_TEAM_PROGRESS' || intent === 'CURRENT_TEAM_DETAIL') {
+     const teamResolution = extractTeamReference(question, teams);
+     if (teamResolution.status === 'ambiguous') {
+diff -ruN '--exclude=node_modules' hnl_qltc_base_fresh/src/ai/tools/toolRegistry.ts hnl_qltc_candidate_v2/src/ai/tools/toolRegistry.ts
+--- hnl_qltc_base_fresh/src/ai/tools/toolRegistry.ts	2026-09-06 15:29:14.000000000 +0000
++++ hnl_qltc_candidate_v2/src/ai/tools/toolRegistry.ts	2026-09-08 12:36:56.000000000 +0000
+@@ -1,5 +1,6 @@
+ import type { TeamInfo } from '../../types';
+ import { calculateTeamStatistics } from '../../utils/teamUtils';
++import { computeMaterialNeeds } from '../../utils/materialNeedEngine';
+ import { auditCrewData } from '../audit/crewAudit';
+ import { auditDefectLinks } from '../audit/defectAudit';
+ import { auditProjectViaHealthCenter } from '../audit/healthCenterAiAudit';
+@@ -24,6 +25,7 @@
+   'auditQuantityData',
+   'auditCrewData',
+   'auditProjectIntegrity',
++  'getMaterialNeeds',
+ ] as const;
+ 
+ export type HnlAiToolName = (typeof HNL_AI_TOOL_NAMES)[number];
+@@ -46,11 +48,17 @@
+   teamRef: string;
+ }
+ 
++export interface GetMaterialNeedsArgs {
++  floorId?: string;
++  teamRef?: string;
++}
++
+ export type HnlAiToolArgs =
+   | { name: 'resolveTeam'; args: ResolveTeamArgs }
+   | { name: 'getTeamSummary'; args: GetTeamSummaryArgs }
+   | { name: 'getCurrentTeamProgress'; args: GetCurrentTeamProgressArgs }
+   | { name: 'getCurrentTeamProgressDetail'; args: GetCurrentTeamProgressArgs }
++  | { name: 'getMaterialNeeds'; args: GetMaterialNeedsArgs }
+   | { name: 'auditDefectLinks'; args: Record<string, never> }
+   | { name: 'auditQuantityData'; args: Record<string, never> }
+   | { name: 'auditCrewData'; args: Record<string, never> }
+@@ -231,6 +239,45 @@
+   };
+ }
+ 
++
++function materialNeedsResult(runtime: HnlAiToolRuntime, args: GetMaterialNeedsArgs): AiToolResult<ReturnType<typeof computeMaterialNeeds>> {
++  const team = args.teamRef ? requireResolvedTeam(args.teamRef, runtime.snapshot.teams) : undefined;
++  const result = computeMaterialNeeds({
++    rooms: [...runtime.snapshot.rooms],
++    materialNorms: [...runtime.snapshot.materialNorms],
++    inventory: [...runtime.snapshot.inventory],
++    workVolumes: [...runtime.snapshot.workVolumes],
++    teams: [...runtime.snapshot.teams],
++    scope: { floorId: args.floorId, teamId: team?.id },
++  });
++  const facts: AiFact[] = result.lines.flatMap((line, index) => [
++    { id: `material:${index}:need`, kind: 'CALCULATED' as const, label: `${line.materialName} - tổng cần`, value: line.estimatedQty, unit: line.unit, method: 'Material Need Engine deterministic' },
++    { id: `material:${index}:remaining`, kind: 'CALCULATED' as const, label: `${line.materialName} - còn cần`, value: line.remainingQty, unit: line.unit, method: 'Nhu cầu định mức trừ phiếu xuất có provenance xác định' },
++  ]);
++  return {
++    status: result.lines.length === 0 ? 'insufficient-data' : result.failClosed ? 'partial' : 'ok',
++    data: result,
++    facts,
++    evidence: [],
++    metadata: {
++      projectId: runtime.context.projectId,
++      tool: 'getMaterialNeeds',
++      sourceCollections: ['rooms', 'work_volumes', 'material_norms', 'inventory', 'teams'],
++      recordsScanned: runtime.snapshot.rooms.length + runtime.snapshot.workVolumes.length + runtime.snapshot.materialNorms.length + runtime.snapshot.inventory.length + runtime.snapshot.teams.length,
++      recordsUsed: result.lines.length,
++      asOf: runtime.snapshot.asOf,
++      freshness: runtime.snapshot.freshness,
++      permissionRole: runtime.context.role,
++      dataVersion: 'hnl-material-need-v1',
++    },
++    warnings: result.warnings.map((warning) => warning.message),
++    assumptions: [
++      'Không tự suy m² thành vật tư: mọi số lượng đi qua Material Need Engine và định mức đã cấu hình.',
++      'Phiếu xuất thiếu team provenance chỉ trừ khi teamId có thể chứng minh duy nhất; nếu mơ hồ thì giữ chưa phân bổ.',
++    ],
++  };
++}
++
+ /**
+  * Strict whitelist executor. Model/provider layers may only request one of the typed tool
+  * names below. No JavaScript, Firestore path, collection name, or arbitrary query string
+@@ -273,6 +320,9 @@
+         asOf: runtime.snapshot.asOf,
+       });
+     }
++    case 'getMaterialNeeds': {
++      return materialNeedsResult(runtime, request.args);
++    }
+     case 'auditDefectLinks': {
+       return auditDefectLinks({
+         context: runtime.context,
+diff -ruN '--exclude=node_modules' hnl_qltc_base_fresh/src/ai/tools/toolValidation.ts hnl_qltc_candidate_v2/src/ai/tools/toolValidation.ts
+--- hnl_qltc_base_fresh/src/ai/tools/toolValidation.ts	2026-09-06 15:29:14.000000000 +0000
++++ hnl_qltc_candidate_v2/src/ai/tools/toolValidation.ts	2026-09-08 12:36:56.000000000 +0000
+@@ -84,6 +84,14 @@
+       }
+       return { name: 'getTeamSummary', args: { teamRef, dateRange } };
+     }
++    case 'getMaterialNeeds': {
++      if (!isPlainObject(input.args)) throw new HnlAiToolValidationError('INVALID_TOOL_ARGS', 'getMaterialNeeds.args phải là object.');
++      assertExactKeys(input.args, ['floorId', 'teamRef'], 'getMaterialNeeds.args');
++      const floorId = input.args.floorId == null || String(input.args.floorId).trim() === '' ? undefined : requiredString(input.args.floorId, 'floorId');
++      const teamRef = input.args.teamRef == null || String(input.args.teamRef).trim() === '' ? undefined : requiredString(input.args.teamRef, 'teamRef');
++      if (!floorId && !teamRef) throw new HnlAiToolValidationError('INVALID_TOOL_ARGS', 'getMaterialNeeds cần ít nhất floorId hoặc teamRef.');
++      return { name: 'getMaterialNeeds', args: { floorId, teamRef } };
++    }
+     case 'getCurrentTeamProgress':
+     case 'getCurrentTeamProgressDetail': {
+       if (!isPlainObject(input.args)) throw new HnlAiToolValidationError('INVALID_TOOL_ARGS', `${toolName}.args phải là object.`);
+diff -ruN '--exclude=node_modules' hnl_qltc_base_fresh/src/components/RoomHighlightModal.tsx hnl_qltc_candidate_v2/src/components/RoomHighlightModal.tsx
+--- hnl_qltc_base_fresh/src/components/RoomHighlightModal.tsx	2026-09-06 15:29:14.000000000 +0000
++++ hnl_qltc_candidate_v2/src/components/RoomHighlightModal.tsx	2026-09-08 12:49:41.000000000 +0000
+@@ -33,6 +33,7 @@
+ import { createEntityId, createDeterministicId } from '../utils/idUtils';
+ import { normalizeUnit, areSameUnit } from '../utils/unitUtils';
+ import { buildMaterialAliasMap, getMaterialIdentityKey, resolveNormMaterialId, normalizeMaterialNameKey } from '../utils/inventoryUtils';
++import { computeMaterialNeeds } from '../utils/materialNeedEngine';
+ import { MoveOrderControls } from './MoveOrderControls';
+ import { ContactMenu } from './ContactMenu';
+ 
+@@ -612,70 +613,56 @@
+     return map;
+   }, [inventory, roomItem?.id, roomItem?.roomName, floorName, materialNorms, canonicalMaterialKey]);
+ 
+-  // Sum up material estimates from all active categories based on their volumes
+-  const roomMaterialEstimates = React.useMemo(() => {
+-    if (!materialNorms || materialNorms.length === 0) return [];
+-
+-    const accumulated: Record<string, { norm: MaterialNorm; estQty: number; materialId?: string }> = {};
+-
+-    activeCategories.forEach((cat) => {
+-      const catVolume = getCategoryVolume(cat);
+-      if (catVolume <= 0) return;
+-
+-      const matchedWorkVolume = workVolumes.find((v) =>
+-        v.id === cat || v.title.trim().toLocaleLowerCase('vi-VN') === cat.trim().toLocaleLowerCase('vi-VN')
+-      );
+-      const catId = matchedWorkVolume?.id;
+-      const matchingNorms = materialNorms.filter((norm) => {
+-        // IDs are authoritative. Names are only a compatibility fallback for legacy data.
+-        const normIds = norm.workCategoryIds || (norm.workCategoryId ? [norm.workCategoryId] : []);
+-        if (normIds.length > 0 && catId) return normIds.includes(catId);
+-        const normNames = norm.workCategories || (norm.workCategory ? [norm.workCategory] : []);
+-        if (normNames.length === 0 && normIds.length === 0) return true;
+-        return normNames.some((name) => name.trim().toLocaleLowerCase('vi-VN') === cat.trim().toLocaleLowerCase('vi-VN'));
+-      });
+-
+-      matchingNorms.forEach((norm) => {
+-        let factor = 0;
+-        if (catId && norm.workCategoryNormsById && norm.workCategoryNormsById[catId] !== undefined) {
+-          factor = norm.workCategoryNormsById[catId];
+-        } else if (norm.workCategoryNorms && norm.workCategoryNorms[cat] !== undefined) {
+-          factor = norm.workCategoryNorms[cat];
+-        } else {
+-          const sourceUnit = getCategorySourceUnit(cat);
+-          const basisUnit = norm.normBasisUnit || 'm²';
+-          factor = areSameUnit(basisUnit, sourceUnit) ? (norm.unitNormPerM2 || 0) : 0;
+-        }
+-        if (factor <= 0) return;
+-
+-        const portionQty = catVolume * factor;
+-        const materialId = resolveNormMaterialId(norm);
+-        const key = canonicalMaterialKey(materialId, norm.materialName, norm.unit);
+-        if (accumulated[key]) accumulated[key].estQty += portionQty;
+-        else accumulated[key] = { norm, estQty: portionQty, materialId };
+-      });
++  // Single source of truth: the same deterministic Material Need Engine is used by
++  // Room, Warehouse floor/team summaries and AI tools. Preserve legacy UI aliases.
++  const roomMaterialNeedResult = React.useMemo(() => {
++    const draftRoom: RoomProgressItem = {
++      ...(roomItem || {} as RoomProgressItem),
++      id: roomItem?.id || '__draft_room__',
++      floorId,
++      floorName,
++      roomName: roomName || 'Căn / Phòng mới',
++      workCategory,
++      workCategoryId: roomItem?.workCategoryId,
++      categoryVolumes,
++      subItems,
++      workVolume: Number(workVolume) || 0,
++      volumeUnit,
++      assignedTeam,
++      teamId: roomItem?.teamId,
++      x: roomItem?.x || 0,
++      y: roomItem?.y || 0,
++      width: roomItem?.width || 1,
++      height: roomItem?.height || 1,
++      frameStatus: roomItem?.frameStatus || 'Chưa làm',
++      boardStatus: roomItem?.boardStatus || 'Chưa làm',
++      inspectionStatus: roomItem?.inspectionStatus || 'Chưa nghiệm thu',
++      updatedAt: roomItem?.updatedAt || Date.now(),
++    };
++    return computeMaterialNeeds({
++      rooms: [draftRoom],
++      materialNorms,
++      inventory,
++      workVolumes,
++      scope: { roomId: draftRoom.id },
+     });
++  }, [roomItem, floorId, floorName, roomName, workCategory, categoryVolumes, subItems, workVolume, volumeUnit, assignedTeam, materialNorms, inventory, workVolumes]);
+ 
+-    return Object.entries(accumulated).map(([materialKey, { norm, estQty, materialId }]) => {
+-      const roundedEstQty = Math.ceil(estQty * 100) / 100;
+-      const stockQty = stockMap[materialKey] || 0;
+-      const issued = currentRoomAutoIssuedMap[materialKey] || { total: 0, stableRecordQty: 0 };
+-      const remainingQty = Math.max(0, Math.ceil((roundedEstQty - issued.total) * 100) / 100);
+-      const overIssuedQty = Math.max(0, Math.ceil((issued.total - roundedEstQty) * 100) / 100);
+-      return {
+-        ...norm,
+-        materialId,
+-        materialKey,
+-        estQty: roundedEstQty,
+-        alreadyIssued: issued.total,
+-        stableRecordQty: issued.stableRecordQty,
+-        remainingQty,
+-        overIssuedQty,
+-        stockQty,
+-        sufficient: stockQty >= remainingQty,
+-      };
+-    });
+-  }, [materialNorms, activeCategories, getCategoryVolume, stockMap, currentRoomAutoIssuedMap, workVolumes, volumeUnit, canonicalMaterialKey]);
++  const roomMaterialEstimates = React.useMemo(() => roomMaterialNeedResult.lines.map((line) => {
++    const issued = currentRoomAutoIssuedMap[line.materialKey] || { total: line.alreadyIssued, stableRecordQty: 0 };
++    const alreadyIssued = Math.max(line.alreadyIssued, issued.total);
++    const remainingQty = Math.max(0, Math.ceil((line.estimatedQty - alreadyIssued) * 100) / 100);
++    const overIssuedQty = Math.max(0, Math.ceil((alreadyIssued - line.estimatedQty) * 100) / 100);
++    return {
++      ...line,
++      id: line.sourceNormIds[0],
++      estQty: line.estimatedQty,
++      alreadyIssued,
++      stableRecordQty: issued.stableRecordQty,
++      remainingQty,
++      overIssuedQty,
++    };
++  }), [roomMaterialNeedResult.lines, currentRoomAutoIssuedMap]);
+ 
+ 

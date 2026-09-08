@@ -1,0 +1,252 @@
++import type { InventoryItem, MaterialNorm, RoomProgressItem, TeamInfo, WorkVolume } from '../src/types';
++
++const workVolumes: WorkVolume[] = [
++  { id: 'wc-ceiling', title: 'Trần thạch cao', unit: 'm²' } as WorkVolume,
++];
++const teams: TeamInfo[] = [
++  { id: 'team-a', name: 'Đội A' } as TeamInfo,
++  { id: 'team-b', name: 'Đội B' } as TeamInfo,
++];
++const norm: MaterialNorm = {
++  id: 'norm-board',
++  materialId: 'mat-board',
++  materialName: 'Tấm thạch cao',
++  category: 'Tấm',
++  unit: 'tấm',
++  workCategoryId: 'wc-ceiling',
++  workCategoryIds: ['wc-ceiling'],
++  workCategoryNormsById: { 'wc-ceiling': 0.35 },
++  normBasisUnit: 'm²',
++  unitNormPerM2: 0.35,
++} as MaterialNorm;
++
++const multiTeamRoom: RoomProgressItem = {
++  id: 'room-301',
++  roomName: '301',
++  floorId: 'floor-3',
++  workCategoryId: 'wc-ceiling',
++  workCategory: 'Trần thạch cao',
++  workVolume: 100,
++  volumeUnit: 'm²',
++  subItems: [
++    { id: 'sub-a', category: 'Trần thạch cao', workCategoryId: 'wc-ceiling', teamId: 'team-a', workVolume: 50, volumeUnit: 'm²' },
++    { id: 'sub-b', category: 'Trần thạch cao', workCategoryId: 'wc-ceiling', teamId: 'team-b', workVolume: 50, volumeUnit: 'm²' },
++  ],
++} as RoomProgressItem;
++
++const inventory: InventoryItem[] = [
++  { id: 'in-1', type: 'in', materialId: 'mat-board', materialName: 'Tấm thạch cao', unit: 'tấm', quantity: 100 } as InventoryItem,
++  { id: 'out-a', type: 'out', materialId: 'mat-board', materialName: 'Tấm thạch cao', unit: 'tấm', quantity: 10, sourceRoomId: 'room-301', sourceFloorId: 'floor-3', sourceTeamId: 'team-a' } as InventoryItem,
++  { id: 'out-legacy', type: 'out', materialId: 'mat-board', materialName: 'Tấm thạch cao', unit: 'tấm', quantity: 6, sourceRoomId: 'room-301', sourceFloorId: 'floor-3' } as InventoryItem,
++];
++
++const floor = computeMaterialNeeds({ rooms: [multiTeamRoom], materialNorms: [norm], inventory, workVolumes, teams, scope: { floorId: 'floor-3' } });
++assert.equal(floor.lines.length, 1);
++assert.equal(floor.lines[0].estimatedQty, 35, 'Floor demand must count the room/category exactly once');
++assert.equal(floor.lines[0].alreadyIssued, 16, 'Floor may subtract both allocated and legacy issues proven to belong to the floor');
++assert.equal(floor.lines[0].remainingQty, 19);
++
++const teamA = computeMaterialNeeds({ rooms: [multiTeamRoom], materialNorms: [norm], inventory, workVolumes, teams, scope: { floorId: 'floor-3', teamId: 'team-a' } });
++assert.equal(teamA.lines[0].estimatedQty, 17.5, 'Team demand must use explicit sub-item work volume');
++assert.equal(teamA.lines[0].alreadyIssued, 10, 'Team may subtract only the explicitly allocated issue');
++assert.equal(teamA.lines[0].unallocatedIssued, 6, 'Ambiguous legacy issue must remain unallocated');
++assert.equal(teamA.lines[0].remainingQty, 7.5, 'Unallocated legacy issue must not reduce team need');
++assert.ok(teamA.warnings.some((w) => w.code === 'UNALLOCATED_ISSUE'));
++
++const teamB = computeMaterialNeeds({ rooms: [multiTeamRoom], materialNorms: [norm], inventory, workVolumes, teams, scope: { floorId: 'floor-3', teamId: 'team-b' } });
++assert.equal(teamB.lines[0].estimatedQty, 17.5);
++assert.equal(teamB.lines[0].alreadyIssued, 0, 'Issue allocated to team A must never be double-counted for team B');
++assert.equal(teamB.lines[0].unallocatedIssued, 6);
++
++const ambiguousRoom = {
++  ...multiTeamRoom,
++  id: 'room-302',
++  roomName: '302',
++  subItems: [
++    { id: 'sub-a2', category: 'Trần thạch cao', workCategoryId: 'wc-ceiling', teamId: 'team-a', volumeUnit: 'm²' },
++    { id: 'sub-b2', category: 'Trần thạch cao', workCategoryId: 'wc-ceiling', teamId: 'team-b', volumeUnit: 'm²' },
++  ],
++} as RoomProgressItem;
++const ambiguous = computeMaterialNeeds({ rooms: [ambiguousRoom], materialNorms: [norm], inventory: [], workVolumes, teams, scope: { floorId: 'floor-3', teamId: 'team-a' } });
++assert.equal(ambiguous.lines.length, 0, 'Ambiguous multi-team room must fail closed instead of assigning all demand to one team');
++assert.equal(ambiguous.failClosed, true);
++assert.ok(ambiguous.warnings.some((w) => w.code === 'AMBIGUOUS_TEAM'));
++
++const missingNorm = computeMaterialNeeds({ rooms: [multiTeamRoom], materialNorms: [], inventory: [], workVolumes, teams, scope: { floorId: 'floor-3' } });
++assert.equal(missingNorm.lines.length, 0);
++assert.equal(missingNorm.failClosed, true);
++assert.ok(missingNorm.warnings.some((w) => w.code === 'MISSING_NORM'));
++
++const mismatchedNorm = { ...norm, id: 'norm-bad-unit', workCategoryNormsById: undefined, unitNormPerM2: 0.35, normBasisUnit: 'm' } as MaterialNorm;
++const unitMismatch = computeMaterialNeeds({ rooms: [multiTeamRoom], materialNorms: [mismatchedNorm], inventory: [], workVolumes, teams, scope: { floorId: 'floor-3' } });
++assert.equal(unitMismatch.lines.length, 0);
++assert.equal(unitMismatch.failClosed, true);
++assert.ok(unitMismatch.warnings.some((w) => w.code === 'UNIT_MISMATCH'));
++
++console.log('MATERIAL NEED GOLDEN PASS');
+diff -ruN '--exclude=node_modules' hnl_qltc_base_fresh/src/App.tsx hnl_qltc_candidate_v2/src/App.tsx
+--- hnl_qltc_base_fresh/src/App.tsx	2026-09-06 15:29:14.000000000 +0000
++++ hnl_qltc_candidate_v2/src/App.tsx	2026-09-08 12:33:58.000000000 +0000
+@@ -6221,6 +6221,8 @@
+               canUndo={isProjectRoleResolved && canUseGlobalUndoRedo(currentUserRole) && past.length > 0}
+               canRedo={isProjectRoleResolved && canUseGlobalUndoRedo(currentUserRole) && future.length > 0}
+               workVolumes={computedWorkVolumes}
++              roomProgressList={roomProgressList}
++              teams={teams}
+               onImportInventory={handleImportInventory}
+               onImportNorms={handleImportNorms}
+               onImportWorkVolumes={(importedVolumes) => {
+diff -ruN '--exclude=node_modules' hnl_qltc_base_fresh/src/ai/data/externalAiContext.ts hnl_qltc_candidate_v2/src/ai/data/externalAiContext.ts
+--- hnl_qltc_base_fresh/src/ai/data/externalAiContext.ts	2026-09-06 15:29:14.000000000 +0000
++++ hnl_qltc_candidate_v2/src/ai/data/externalAiContext.ts	2026-09-08 12:47:32.000000000 +0000
+@@ -1,4 +1,5 @@
+ import type { HnlAiProjectSnapshot } from './projectSnapshot';
++import { computeMaterialNeeds } from '../../utils/materialNeedEngine';
+ 
+ export type ExternalAiDataScope = 'progress' | 'quantities' | 'defects' | 'crew' | 'inventory' | 'checklist';
+ 
+@@ -221,6 +222,7 @@
+     crew: /quân số|quan so|nhân công|nhan cong|công nhật|cong nhat|ngày công|ngay cong/.test(q),
+     progress: /tầng|tang|căn|can|phòng|phong|hạng mục|hang muc|tiến độ|tien do/.test(q),
+     defects: /defect|lỗi|loi|tồn tại|ton tai/.test(q),
++    material: /vật tư|vat tu|khung|tấm|tam|ty treo|phụ kiện|phu kien|vít|vit/.test(q),
+   };
+ }
+ 
+@@ -371,6 +373,26 @@
+   return result;
+ }
+ 
++function resolveMaterialScope(question: string, snapshot: HnlAiProjectSnapshot) {
++  const q = normalizedText(question);
++  const targets = detectMentionedTeams(question, snapshot);
++  const floorToken = q.match(/(?:^|\s)tầng\s+([a-z0-9_-]+)/i)?.[1] || q.match(/(?:^|\s)tang\s+([a-z0-9_-]+)/i)?.[1] || '';
++  const floor = floorToken
++    ? active(snapshot.floors).find((item) => {
++        const name = normalizedText(item.floorName);
++        return name === `tầng ${floorToken}` || name === `tang ${floorToken}` || name.endsWith(` ${floorToken}`) || name === floorToken;
++      })
++    : undefined;
++  return {
++    floorId: floor?.id,
++    floorName: floor?.floorName || '',
++    floorMentioned: Boolean(floorToken),
++    teamId: targets.length === 1 ? targets[0].id : undefined,
++    teamName: targets.length === 1 ? targets[0].name : '',
++    teamAmbiguous: targets.length > 1,
++  };
++}
++
+ function buildQuestionFocusedContext(question: string, snapshot: HnlAiProjectSnapshot, selection: ExternalAiDataSelection) {
+   const targets = detectMentionedTeams(question, snapshot);
+   const needs = questionNeeds(question);
+@@ -384,6 +406,50 @@
+   };
+   if (targets.length > 0) context.requestedTeams = targets;
+ 
++  if (needs.material) {
++    const scope = resolveMaterialScope(question, snapshot);
++    // Material questions are fail-closed: the external model receives the deterministic
++    // result only, never raw norms/inventory that would let it recompute or invent quantities.
++    delete context.inventory;
++    delete context.materialNorms;
++    context.aiContract.materialCalculation = 'STRICT: Use deterministicMaterialNeeds exactly. Do not calculate material quantities from m²/raw norms.';
++    if (!selection.inventory) {
++      context.deterministicMaterialNeeds = {
++        status: 'permission-required',
++        message: 'Chưa cho phép nhóm dữ liệu Vật tư trong câu hỏi này. Không được suy đoán.',
++      };
++    } else if (scope.teamAmbiguous || (scope.floorMentioned && !scope.floorId) || (!scope.floorId && !scope.teamId)) {
++      context.deterministicMaterialNeeds = {
++        status: 'insufficient-scope',
++        message: scope.teamAmbiguous
++          ? 'Có nhiều đội được nhắc tới; cần một teamId duy nhất.'
++          : scope.floorMentioned && !scope.floorId
++            ? 'Không resolve được floorId từ tầng được hỏi.'
++            : 'Cần nêu rõ Tầng hoặc Đội để tổng hợp vật tư.',
++      };
++    } else {
++      const result = computeMaterialNeeds({
++        rooms: [...snapshot.rooms],
++        materialNorms: [...snapshot.materialNorms],
++        inventory: [...snapshot.inventory],
++        workVolumes: [...snapshot.workVolumes],
++        teams: [...snapshot.teams],
++        scope: { floorId: scope.floorId, teamId: scope.teamId },
++      });
++      context.deterministicMaterialNeeds = {
++        status: result.lines.length === 0 ? 'insufficient-data' : result.failClosed ? 'partial' : 'ok',
++        scope: { floorId: scope.floorId || '', floorName: scope.floorName, teamId: scope.teamId || '', teamName: scope.teamName },
++        lines: result.lines.map((line) => ({
++          materialId: line.materialId || '', materialName: line.materialName, category: line.category, unit: line.unit,
++          totalNeed: line.estimatedQty, issuedAllocated: line.alreadyIssued, issuedUnallocated: line.unallocatedIssued,
++          remainingNeed: line.remainingQty, projectStock: line.stockQty, deficit: line.deficitQty,
++        })),
++        warnings: result.warnings.map((warning) => warning.message),
++        failClosed: result.failClosed,
++      };
++    }
++  }
++
+   if (selection.quantities && (needs.quantity || targets.length > 0)) {
+     const allRows = buildQuantityRows(snapshot);
+     const filtered = targets.length > 0 ? allRows.filter((row) => isTeamMatch(row, targets)) : allRows;
+diff -ruN '--exclude=node_modules' hnl_qltc_base_fresh/src/ai/orchestrator/aiOrchestrator.ts hnl_qltc_candidate_v2/src/ai/orchestrator/aiOrchestrator.ts
+--- hnl_qltc_base_fresh/src/ai/orchestrator/aiOrchestrator.ts	2026-09-06 15:29:14.000000000 +0000
++++ hnl_qltc_candidate_v2/src/ai/orchestrator/aiOrchestrator.ts	2026-09-08 12:36:56.000000000 +0000
+@@ -106,6 +106,7 @@
+     question: params.question,
+     context: runtime.context,
+     teams: activeTeams,
++    floors: [...runtime.snapshot.floors],
+     referenceDate: params.referenceDate,
+   });
+ 
+diff -ruN '--exclude=node_modules' hnl_qltc_base_fresh/src/ai/planning/queryPlanner.ts hnl_qltc_candidate_v2/src/ai/planning/queryPlanner.ts
+--- hnl_qltc_base_fresh/src/ai/planning/queryPlanner.ts	2026-09-06 15:29:14.000000000 +0000
++++ hnl_qltc_candidate_v2/src/ai/planning/queryPlanner.ts	2026-09-08 12:36:56.000000000 +0000
+@@ -1,4 +1,4 @@
+-import type { TeamInfo } from '../../types';
++import type { FloorPlan, TeamInfo } from '../../types';
+ import type { AiDateRange, AiQueryContext } from '../core/contracts';
+ import { assertCanonicalDateRange, isCanonicalDate } from '../core/dateRange';
+ import { normalizeEntityText, normalizeTeamLookupText, resolveTeamReference } from '../core/entityResolver';
+@@ -13,6 +13,7 @@
+   | 'AUDIT_QUANTITY'
+   | 'AUDIT_CREW'
+   | 'AUDIT_PROJECT'
++  | 'MATERIAL_NEEDS'
+   | 'UNSUPPORTED';
+ 
+ export type HnlAiPlanStatus = 'ready' | 'needs-clarification' | 'unsupported';
+@@ -32,6 +33,7 @@
+   question: string;
+   context: AiQueryContext;
+   teams: TeamInfo[];
++  floors?: FloorPlan[];
+   /** Project-local canonical date YYYY-MM-DD supplied by the caller. */
+   referenceDate: string;
+ }
+@@ -157,6 +159,7 @@
+   if (auditSignal || hasAny(q, [/\btoan bo logic\b/, /\btoan du an\b/, /\blien ket sai\b/, /\bdu lieu trung\b/])) return 'AUDIT_PROJECT';
+ 
+   if (hasAny(q, [/\bdoi nao\b/, /\btop\s+\d+\s+doi\b/, /\bso sanh cac doi\b/])) return 'UNSUPPORTED';
++  if (hasAny(q, [/\bvat tu\b/, /\bkhung\b/, /\btam\b/, /\bty treo\b/, /\bphu kien\b/, /\bvit\b/]) && hasAny(q, [/\bcan\b/, /\bchuyen\b/, /\bdua\b/, /\bbao nhieu\b/, /\bcon thieu\b/, /\bcon can\b/])) return 'MATERIAL_NEEDS';
+ 
+   const detailSignal = hasAny(q, [
+     /\btung hang muc\b/, /\btheo hang muc\b/, /\btang nao\b/, /\btheo tang\b/,
+@@ -171,7 +174,7 @@
+ }
+ 
+ export function planHnlAiQuestion(params: PlanHnlAiQuestionParams): HnlAiQueryPlan {
+-  const { question, context, teams, referenceDate } = params;
++  const { question, context, teams, referenceDate, floors = [] } = params;
+   const permission = createAiPermissionScope(context.projectId, context.role, context.accessVerified);
+   assertAiProjectAccess(permission, context.projectId);
+   assertCanonicalDateRange({ from: referenceDate, to: referenceDate });
+@@ -187,6 +190,31 @@
+   if (intent === 'AUDIT_CREW') return { status: 'ready', intent, normalizedQuestion, toolCall: { name: 'auditCrewData', args: {} }, clarifications: [], warnings: [] };
+   if (intent === 'AUDIT_PROJECT') return { status: 'ready', intent, normalizedQuestion, toolCall: { name: 'auditProjectIntegrity', args: {} }, clarifications: [], warnings: [] };
+ 
++  if (intent === 'MATERIAL_NEEDS') {
++    const q = normalizeEntityText(question);

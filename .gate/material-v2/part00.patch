@@ -1,0 +1,208 @@
+diff -ruN '--exclude=node_modules' hnl_qltc_base_fresh/package.json hnl_qltc_candidate_v2/package.json
+--- hnl_qltc_base_fresh/package.json	2026-09-08 06:30:18.000000000 +0000
++++ hnl_qltc_candidate_v2/package.json	2026-09-08 12:54:21.000000000 +0000
+@@ -15,7 +15,7 @@
+     "test:rules": "node scripts/firebase-rules-check.mjs",
+     "test:emulator-config": "node scripts/emulator-golden.mjs",
+     "security:audit": "npm audit --omit=dev --audit-level=critical",
+-    "test:stability": "node scripts/stability-gate.mjs && node scripts/offline-golden.mjs && node scripts/category-golden.mjs && node scripts/firebase-only-golden.mjs && node scripts/firebase-only-legacy-audit.mjs --self-test && node scripts/emulator-golden.mjs && node scripts/rbac-matrix.mjs && node scripts/r2-gateway-golden.mjs && node scripts/ai-gateway-golden.mjs && node scripts/desktop-launcher-golden.mjs && node scripts/auth-popup-golden.mjs && tsx scripts/contact-core-golden.ts && tsx scripts/defect-contact-golden.ts && tsx scripts/defect-linkage-golden.ts && node --experimental-strip-types scripts/crew-task-description-golden.ts && tsx scripts/crew-persistence-golden.ts && npm run test:share-center && npm run test:checklist-floor && npm run test:health-center",
++    "test:stability": "node scripts/stability-gate.mjs && node scripts/offline-golden.mjs && node scripts/category-golden.mjs && node scripts/firebase-only-golden.mjs && node scripts/firebase-only-legacy-audit.mjs --self-test && node scripts/emulator-golden.mjs && node scripts/rbac-matrix.mjs && node scripts/r2-gateway-golden.mjs && node scripts/ai-gateway-golden.mjs && node scripts/desktop-launcher-golden.mjs && node scripts/auth-popup-golden.mjs && npm run test:material-need && tsx scripts/contact-core-golden.ts && tsx scripts/defect-contact-golden.ts && tsx scripts/defect-linkage-golden.ts && node --experimental-strip-types scripts/crew-task-description-golden.ts && tsx scripts/crew-persistence-golden.ts && npm run test:share-center && npm run test:checklist-floor && npm run test:health-center",
+     "verify": "npm run test:stability && npm run typecheck && npm run lint && npm run test:rules && npm run security:audit && npm run build",
+     "test:offline": "node scripts/offline-golden.mjs",
+     "test:category": "node scripts/category-golden.mjs",
+@@ -35,7 +35,8 @@
+     "test:checklist-floor": "tsx scripts/checklist-floor-golden.ts",
+     "test:share-center": "tsx scripts/share-center-golden.ts",
+     "test:ai-external-context": "tsx scripts/ai-external-context-golden.ts",
+-    "test:crew-task-description": "node --experimental-strip-types scripts/crew-task-description-golden.ts"
++    "test:crew-task-description": "node --experimental-strip-types scripts/crew-task-description-golden.ts",
++    "test:material-need": "tsx scripts/material-need-golden.ts"
+   },
+   "dependencies": {
+     "@google/genai": "^2.4.0",
+diff -ruN '--exclude=node_modules' hnl_qltc_base_fresh/scripts/ai-external-context-golden.ts hnl_qltc_candidate_v2/scripts/ai-external-context-golden.ts
+--- hnl_qltc_base_fresh/scripts/ai-external-context-golden.ts	2026-09-06 15:29:14.000000000 +0000
++++ hnl_qltc_candidate_v2/scripts/ai-external-context-golden.ts	2026-09-08 12:48:05.000000000 +0000
+@@ -116,4 +116,44 @@
+ assert.equal(parsed.hnlContext.crew.rows[0].floorName, 'Tầng 1');
+ assert.equal(payload.includes('99'), false, 'other team crew must not leak into focused payload');
+ 
++// Material questions must use deterministic Material Need Engine output, never raw norms/inventory.
++const materialSnapshot = {
++  ...snapshot,
++  rooms: [{
++    id: 'room-mat', roomName: 'A301', floorId: 'f1', floorName: 'Tầng 1',
++    teamId: 'team-nguyen', assignedTeam: 'Đội Nguyên', workCategoryId: 'cat-ceiling', workCategory: 'Trần thạch cao',
++    workVolume: 100, volumeUnit: 'm2', inspectionStatus: 'Chưa nghiệm thu', frameStatus: 'Đang làm', boardStatus: 'Đang làm', updatedAt: 3, subItems: [],
++  }],
++  inventory: [
++    { id: 'in-board', type: 'in', materialId: 'mat-board', materialName: 'Tấm thạch cao', unit: 'Tấm', quantity: 100, location: 'Kho', handler: 'Kho', date: '2026-09-05' },
++    { id: 'out-board', type: 'out', materialId: 'mat-board', materialName: 'Tấm thạch cao', unit: 'Tấm', quantity: 5, location: 'Tầng 1', handler: 'Đội Nguyên', date: '2026-09-05', sourceType: 'room-auto', sourceRoomId: 'room-mat', sourceFloorId: 'f1', sourceTeamId: 'team-nguyen' },
++  ],
++  materialNorms: [
++    { id: 'norm-board', materialId: 'mat-board', category: 'Tấm', workCategoryId: 'cat-ceiling', materialName: 'Tấm thạch cao', unit: 'Tấm', quotaQuantity: 0, unitNormPerM2: 0.35, normBasisUnit: 'm²' },
++    { id: 'norm-frame', materialId: 'mat-frame', category: 'Khung', workCategoryId: 'cat-ceiling', materialName: 'Thanh xương', unit: 'Thanh', quotaQuantity: 0, unitNormPerM2: 0.5, normBasisUnit: 'm²' },
++  ],
++} as any;
++const materialPayload = JSON.parse(buildExternalAiQuestionPayload(
++  'Tầng 1 cần chuyển bao nhiêu khung, tấm và phụ kiện?',
++  materialSnapshot,
++  { progress: true, quantities: true, defects: false, crew: false, inventory: true, checklist: false },
++));
++assert.equal(materialPayload.hnlContext.deterministicMaterialNeeds.status, 'ok');
++assert.equal('inventory' in materialPayload.hnlContext, false, 'raw inventory must not be sent for material calculation');
++assert.equal('materialNorms' in materialPayload.hnlContext, false, 'raw norms must not be sent for material calculation');
++const boardNeed = materialPayload.hnlContext.deterministicMaterialNeeds.lines.find((line: any) => line.materialId === 'mat-board');
++assert.equal(boardNeed.totalNeed, 35);
++assert.equal(boardNeed.issuedAllocated, 5);
++assert.equal(boardNeed.remainingNeed, 30);
++assert.match(materialPayload.hnlContext.aiContract.materialCalculation, /STRICT/);
++
++const materialNoPermission = JSON.parse(buildExternalAiQuestionPayload(
++  'Tầng 1 cần vật tư gì?',
++  materialSnapshot,
++  { progress: true, quantities: true, defects: false, crew: false, inventory: false, checklist: false },
++));
++assert.equal(materialNoPermission.hnlContext.deterministicMaterialNeeds.status, 'permission-required');
++assert.equal('inventory' in materialNoPermission.hnlContext, false);
++assert.equal('materialNorms' in materialNoPermission.hnlContext, false);
++
+ console.log('AI external context golden: PASS');
+diff -ruN '--exclude=node_modules' hnl_qltc_base_fresh/scripts/ai-planner-golden.ts hnl_qltc_candidate_v2/scripts/ai-planner-golden.ts
+--- hnl_qltc_base_fresh/scripts/ai-planner-golden.ts	2026-09-06 15:29:14.000000000 +0000
++++ hnl_qltc_candidate_v2/scripts/ai-planner-golden.ts	2026-09-08 12:45:40.000000000 +0000
+@@ -1,5 +1,5 @@
+ import assert from 'node:assert/strict';
+-import type { TeamInfo } from '../src/types';
++import type { FloorPlan, TeamInfo } from '../src/types';
+ import type { AiQueryContext, AiToolResult } from '../src/ai/core/contracts';
+ import { planHnlAiQuestion } from '../src/ai/planning/queryPlanner';
+ import { HnlAiToolValidationError, validateHnlAiToolCall } from '../src/ai/tools/toolValidation';
+@@ -17,6 +17,9 @@
+   timeZone: 'Asia/Ho_Chi_Minh',
+ };
+ const referenceDate = '2026-09-05';
++const floors: FloorPlan[] = [
++  { id: 'floor-3', floorName: 'Tầng 3', imageUrl: '', uploadedAt: '2026-09-05' },
++];
+ const teams: TeamInfo[] = [
+   { id: 'team-nguyen', name: 'Đội Nguyên', leader: 'Nguyên', defaultCount: 10 },
+   { id: 'team-nguyen-2', name: 'Đội Nguyên 2', leader: 'N2', defaultCount: 8 },
+@@ -56,6 +59,37 @@
+ assert.equal(currentTeam.status, 'ready');
+ assert.deepEqual(currentTeam.toolCall, { name: 'getCurrentTeamProgress', args: { teamRef: 'team-nguyen' } });
+ 
++const materialFloor = planHnlAiQuestion({
++  question: 'Tầng 3 cần chuyển bao nhiêu khung, tấm và phụ kiện?',
++  context,
++  teams,
++  floors,
++  referenceDate,
++});
++assert.equal(materialFloor.status, 'ready');
++assert.equal(materialFloor.intent, 'MATERIAL_NEEDS');
++assert.deepEqual(materialFloor.toolCall, { name: 'getMaterialNeeds', args: { floorId: 'floor-3', teamRef: undefined } });
++
++const materialTeamFloor = planHnlAiQuestion({
++  question: 'Đội An ở Tầng 3 còn cần vật tư gì?',
++  context,
++  teams,
++  floors,
++  referenceDate,
++});
++assert.equal(materialTeamFloor.status, 'ready');
++assert.deepEqual(materialTeamFloor.toolCall, { name: 'getMaterialNeeds', args: { floorId: 'floor-3', teamRef: 'team-an' } });
++
++const unknownFloorMaterial = planHnlAiQuestion({
++  question: 'Tầng 99 cần vật tư gì?',
++  context,
++  teams,
++  floors,
++  referenceDate,
++});
++assert.equal(unknownFloorMaterial.status, 'needs-clarification');
++assert.equal(unknownFloorMaterial.toolCall, undefined);
++
+ const projectAudit = planHnlAiQuestion({
+   question: 'Kiểm tra toàn bộ logic dữ liệu dự án có bất thường không.',
+   context,
+@@ -118,6 +152,14 @@
+   validateHnlAiToolCall({ name: 'getTeamSummary', args: { teamRef: 'team-nguyen', dateRange: { from: '2026-08-01', to: '2026-08-15' } } }),
+   { name: 'getTeamSummary', args: { teamRef: 'team-nguyen', dateRange: { from: '2026-08-01', to: '2026-08-15' } } },
+ );
++assert.deepEqual(
++  validateHnlAiToolCall({ name: 'getMaterialNeeds', args: { floorId: 'floor-3', teamRef: 'team-an' } }),
++  { name: 'getMaterialNeeds', args: { floorId: 'floor-3', teamRef: 'team-an' } },
++);
++assert.throws(
++  () => validateHnlAiToolCall({ name: 'getMaterialNeeds', args: {} }),
++  HnlAiToolValidationError,
++);
+ assert.throws(
+   () => validateHnlAiToolCall({ name: 'db.collection', args: { path: 'projects' } }),
+   (error: unknown) => error instanceof HnlAiToolValidationError && error.code === 'TOOL_NOT_ALLOWED',
+diff -ruN '--exclude=node_modules' hnl_qltc_base_fresh/scripts/ai-tool-registry-golden.ts hnl_qltc_candidate_v2/scripts/ai-tool-registry-golden.ts
+--- hnl_qltc_base_fresh/scripts/ai-tool-registry-golden.ts	2026-09-06 15:29:14.000000000 +0000
++++ hnl_qltc_candidate_v2/scripts/ai-tool-registry-golden.ts	2026-09-08 12:46:40.000000000 +0000
+@@ -1,5 +1,5 @@
+ import assert from 'node:assert/strict';
+-import type { CrewRecord, DefectItem, FloorPlan, RoomProgressItem, TeamInfo, WorkVolume } from '../src/types';
++import type { CrewRecord, DefectItem, FloorPlan, InventoryItem, MaterialNorm, RoomProgressItem, TeamInfo, WorkVolume } from '../src/types';
+ import type { AiQueryContext } from '../src/ai/core/contracts';
+ import { createHnlAiProjectSnapshot } from '../src/ai/data/projectSnapshot';
+ import { executeHnlAiTool, HnlAiToolError, isAllowedHnlAiToolName } from '../src/ai/tools/toolRegistry';
+@@ -41,6 +41,14 @@
+     category: 'Trần', unit: 'm2', planned: 100, actual: 80, unitPrice: 0, status: 'Đang thi công',
+   },
+ ];
++const materialNorms: MaterialNorm[] = [
++  { id: 'norm-board', materialId: 'mat-board', category: 'Tấm', workCategoryId: 'wc-tran', materialName: 'Tấm thạch cao', unit: 'Tấm', quotaQuantity: 0, unitNormPerM2: 0.35, normBasisUnit: 'm²' },
++  { id: 'norm-frame', materialId: 'mat-frame', category: 'Khung', workCategoryId: 'wc-tran', materialName: 'Thanh xương', unit: 'Thanh', quotaQuantity: 0, unitNormPerM2: 0.5, normBasisUnit: 'm²' },
++];
++const inventory: InventoryItem[] = [
++  { id: 'in-board', type: 'in', materialId: 'mat-board', materialName: 'Tấm thạch cao', unit: 'Tấm', quantity: 100, location: 'Kho', handler: 'Kho', date: '2026-09-05' },
++  { id: 'out-board', type: 'out', materialId: 'mat-board', materialName: 'Tấm thạch cao', unit: 'Tấm', quantity: 5, location: 'Tầng 1', handler: 'Đội Nguyên', date: '2026-09-05', sourceType: 'room-auto', sourceRoomId: 'room-101', sourceFloorId: 'f1', sourceTeamId: 'team-nguyen' },
++];
+ const snapshot = createHnlAiProjectSnapshot({
+   projectId,
+   projectName: 'AI Golden',
+@@ -50,8 +58,8 @@
+   teams,
+   floors,
+   workVolumes,
+-  inventory: [],
+-  materialNorms: [],
++  inventory,
++  materialNorms,
+   checklist: [],
+   asOf: 1757044800000,
+   freshness: 'fixture',
+@@ -62,6 +70,7 @@
+ assert.equal(isAllowedHnlAiToolName('auditQuantityData'), true);
+ assert.equal(isAllowedHnlAiToolName('auditCrewData'), true);
+ assert.equal(isAllowedHnlAiToolName('auditProjectIntegrity'), true);
++assert.equal(isAllowedHnlAiToolName('getMaterialNeeds'), true);
+ assert.equal(isAllowedHnlAiToolName('db.collection'), false);
+ for (const writeLikeName of [
+   'createDefect',
+@@ -118,6 +127,14 @@
+ assert.equal('totalTeamVol' in ((currentProgress.data as any) || {}), false);
+ assert.equal((currentProgress.data as any)?.historicalQuantityAvailable, false);
+ 
++const materialNeeds = executeHnlAiTool({ name: 'getMaterialNeeds', args: { floorId: 'f1', teamRef: 'team-nguyen' } }, { context, snapshot });
++assert.equal(materialNeeds.status, 'ok');
++const materialData = materialNeeds.data as any;
++assert.equal(materialData.lines.find((line: any) => line.materialId === 'mat-board')?.estimatedQty, 35);
++assert.equal(materialData.lines.find((line: any) => line.materialId === 'mat-board')?.alreadyIssued, 5);
++assert.equal(materialData.lines.find((line: any) => line.materialId === 'mat-board')?.remainingQty, 30);
++assert.ok(materialNeeds.assumptions.some((item) => item.includes('Không tự suy m²')));
++
+ // Audit tools are read-only, project-scoped and use only the supplied snapshot.
+ const snapshotBefore = JSON.stringify(snapshot);
+ const defectAudit = executeHnlAiTool({ name: 'auditDefectLinks', args: {} }, { context, snapshot });
+diff -ruN '--exclude=node_modules' hnl_qltc_base_fresh/scripts/material-need-golden.ts hnl_qltc_candidate_v2/scripts/material-need-golden.ts
+--- hnl_qltc_base_fresh/scripts/material-need-golden.ts	1970-01-01 00:00:00.000000000 +0000
++++ hnl_qltc_candidate_v2/scripts/material-need-golden.ts	2026-09-08 12:54:21.000000000 +0000
+@@ -0,0 +1,88 @@
++import assert from 'node:assert/strict';
++import { computeMaterialNeeds } from '../src/utils/materialNeedEngine';
