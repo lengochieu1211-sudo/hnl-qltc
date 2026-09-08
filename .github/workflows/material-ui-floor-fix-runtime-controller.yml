@@ -23,4 +23,4 @@ jobs:
           EXPECTED='0a46762829131c4388d90a8fffba431a5e88b5fd'
           ACTUAL="$(gh api repos/${{ github.repository }}/branches/dev --jq .commit.sha)"
           test "$ACTUAL" = "$EXPECTED"
-          gh workflow run dev-runtime-golden.yml --ref dev
+          gh api --method POST repos/${{ github.repository }}/actions/workflows/dev-runtime-golden.yml/dispatches -f ref=dev
