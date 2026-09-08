@@ -1,0 +1,28 @@
+name: Material Orphan Runtime Controller
+
+on:
+  push:
+    branches: [gate/material-orphan-lifecycle-20260909]
+    paths:
+      - '.github/workflows/material-orphan-runtime-controller.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify exact DEV and dispatch Runtime Golden
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPO='lengochieu1211-sudo/hnl-qltc'
+          EXPECTED='6f26b879e67d004aeb49096927d3c23ecff6a18c'
+          ACTUAL="$(gh api "repos/$REPO/branches/dev" --jq '.commit.sha')"
+          test "$ACTUAL" = "$EXPECTED"
+          gh workflow run dev-runtime-golden.yml --repo "$REPO" --ref dev
