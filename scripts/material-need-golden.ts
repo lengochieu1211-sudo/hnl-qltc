@@ -100,7 +100,8 @@ const roomBhs = {
   id: 'room-bhs', roomName: 'Phòng BHS', floorId: 'floor-ground',
   categoryVolumes: { 'wc-w12': 178.27, 'wc-c04': 50 },
   categoryVolumeUnits: { 'wc-w12': 'm²', 'wc-c04': 'm²' },
-  frameStatus: 'Đang làm', boardStatus: 'Đang làm', x: 0, y: 0, width: 1, height: 1,
+  frameStatus: 'Đang làm', boardStatus: 'Đang làm', inspectionStatus: 'Chưa nghiệm thu', updatedAt: 1,
+  x: 0, y: 0, width: 1, height: 1,
   subItems: [
     { id: 'w12-1', name: 'Thi công khung', category: 'Vách W12', workCategoryId: 'wc-w12', teamId: 'team-a', status: 'Đã hoàn thành' },
     { id: 'w12-2', name: 'Thi công tấm mặt 1', category: 'Vách W12', workCategoryId: 'wc-w12', teamId: 'team-a', status: 'Đã hoàn thành' },
@@ -131,7 +132,8 @@ assert.equal(groundTeamB.warnings.some((w) => w.code === 'AMBIGUOUS_TEAM'), fals
 const roomIw11 = {
   id: 'room-a9-13', roomName: 'Vách NH/A9-13', floorId: 'floor-3',
   workCategoryId: 'wc-iw11', workCategory: 'Vách IW11', workVolume: 150, volumeUnit: 'm²',
-  frameStatus: 'Đang làm', boardStatus: 'Đang làm', x: 0, y: 0, width: 1, height: 1,
+  frameStatus: 'Đang làm', boardStatus: 'Đang làm', inspectionStatus: 'Chưa nghiệm thu', updatedAt: 2,
+  x: 0, y: 0, width: 1, height: 1,
   subItems: [
     { id: 'iw11-1', name: 'Thi công khung', category: 'Vách IW11', workCategoryId: 'wc-iw11', teamId: 'team-a', status: 'Đã hoàn thành' },
     { id: 'iw11-2', name: 'Thi công tấm', category: 'Vách IW11', workCategoryId: 'wc-iw11', teamId: 'team-a', status: 'Đang làm' },
