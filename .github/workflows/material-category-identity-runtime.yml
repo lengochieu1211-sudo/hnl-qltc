@@ -1,0 +1,28 @@
+name: Material Category Identity Runtime Controller
+
+on:
+  push:
+    branches: [gate/material-category-identity-20260909]
+    paths:
+      - '.github/workflows/material-category-identity-runtime.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify exact DEV and dispatch Runtime Golden
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPO='lengochieu1211-sudo/hnl-qltc'
+          EXPECTED='2779b6a5540335ae78a3442efdbc1f28cb0d7ebd'
+          ACTUAL="$(gh api "repos/$REPO/branches/dev" --jq '.commit.sha')"
+          test "$ACTUAL" = "$EXPECTED"
+          gh workflow run dev-runtime-golden.yml --repo "$REPO" --ref dev
