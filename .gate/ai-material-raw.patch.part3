@@ -1,0 +1,149 @@
+     warnings: result.warnings.map((warning) => warning.message),
+     assumptions: [
+--- a/src/ai/tools/toolValidation.ts	2026-09-08 14:46:50.000000000 +0000
++++ b/src/ai/tools/toolValidation.ts	2026-09-08 16:10:45.363553009 +0000
+@@ -86,11 +86,18 @@
+     }
+     case 'getMaterialNeeds': {
+       if (!isPlainObject(input.args)) throw new HnlAiToolValidationError('INVALID_TOOL_ARGS', 'getMaterialNeeds.args phải là object.');
+-      assertExactKeys(input.args, ['floorId', 'teamRef'], 'getMaterialNeeds.args');
++      assertExactKeys(input.args, ['floorId', 'floorIds', 'teamRef'], 'getMaterialNeeds.args');
+       const floorId = input.args.floorId == null || String(input.args.floorId).trim() === '' ? undefined : requiredString(input.args.floorId, 'floorId');
++      let floorIds: string[] | undefined;
++      if (input.args.floorIds !== undefined && input.args.floorIds !== null) {
++        if (!Array.isArray(input.args.floorIds)) throw new HnlAiToolValidationError('INVALID_TOOL_ARGS', 'floorIds phải là mảng string.');
++        if (input.args.floorIds.length > 12) throw new HnlAiToolValidationError('INVALID_TOOL_ARGS', 'floorIds vượt giới hạn 12 tầng.');
++        floorIds = Array.from(new Set(input.args.floorIds.map((value, index) => requiredString(value, `floorIds[${index}]`))));
++        if (floorIds.length === 0) floorIds = undefined;
++      }
+       const teamRef = input.args.teamRef == null || String(input.args.teamRef).trim() === '' ? undefined : requiredString(input.args.teamRef, 'teamRef');
+-      if (!floorId && !teamRef) throw new HnlAiToolValidationError('INVALID_TOOL_ARGS', 'getMaterialNeeds cần ít nhất floorId hoặc teamRef.');
+-      return { name: 'getMaterialNeeds', args: { floorId, teamRef } };
++      if (!floorId && !floorIds?.length && !teamRef) throw new HnlAiToolValidationError('INVALID_TOOL_ARGS', 'getMaterialNeeds cần ít nhất floorId, floorIds hoặc teamRef.');
++      return { name: 'getMaterialNeeds', args: { floorId, ...(floorIds?.length ? { floorIds } : {}), teamRef } };
+     }
+     case 'getCurrentTeamProgress':
+     case 'getCurrentTeamProgressDetail': {
+--- a/src/features/ai/AiAssistantPage.tsx	2026-09-08 14:46:50.000000000 +0000
++++ b/src/features/ai/AiAssistantPage.tsx	2026-09-08 16:10:30.985280134 +0000
+@@ -113,6 +113,7 @@
+   const [apiKey, setApiKey] = useState('');
+   const [showApiKey, setShowApiKey] = useState(false);
+   const [externalAiOptIn, setExternalAiOptIn] = useState(false);
++  const [externalAiFullProject, setExternalAiFullProject] = useState(false);
+   const [externalAiSelection, setExternalAiSelection] = useState<ExternalAiDataSelection>({ progress: true, quantities: true, defects: false, crew: false, inventory: false, checklist: false });
+   const [exportBusy, setExportBusy] = useState<AiExportKind | null>(null);
+   const [exportNotice, setExportNotice] = useState('');
+@@ -242,14 +243,24 @@
+           mode: 'GENERAL_AI', model,
+           messages: [
+             { role: 'system', content: externalAiOptIn
+-              ? 'Bạn là HNL AI Assistant. Chỉ được dùng phần dữ liệu HNL đã được người dùng cho phép và đính kèm trong đúng câu hỏi này. Dữ liệu là read-only, đã tối thiểu hóa/ẩn thông tin liên hệ. Với khối lượng: ưu tiên quantitySummaryByTeamAndCategory và quantityDetails; không được suy diễn khối lượng theo khoảng ngày nếu dữ liệu chỉ là snapshot hiện tại hoặc updatedAt. Không suy đoán trường bị thiếu và không được yêu cầu hay thực hiện thao tác sửa/xóa dữ liệu HNL.'
++              ? 'Bạn là HNL AI Assistant. Chỉ được dùng phần dữ liệu HNL đã được người dùng cho phép và đính kèm trong đúng câu hỏi này. Dữ liệu là read-only, đã tối thiểu hóa/ẩn thông tin liên hệ. Nếu có deterministicMaterialNeeds thì đây là nguồn DUY NHẤT cho số lượng vật tư: phải trình bày đúng khung/tấm/phụ kiện theo kết quả này, không được thay bằng hạng mục m² và không tự tính lại từ rooms/workVolumes/định mức. Với khối lượng: ưu tiên quantitySummaryByTeamAndCategory và quantityDetails; không được suy diễn khối lượng theo khoảng ngày nếu dữ liệu chỉ là snapshot hiện tại hoặc updatedAt. Không suy đoán trường bị thiếu và không được yêu cầu hay thực hiện thao tác sửa/xóa dữ liệu HNL.'
+               : 'Bạn là HNL AI Assistant. Trả lời ngắn gọn, chuyên nghiệp. Không giả định hoặc tuyên bố đang đọc dữ liệu dự án HNL trong chế độ AI chung.' },
+             { role: 'user', content: externalAiOptIn
+-              ? buildExternalAiQuestionPayload(text, snapshot, externalAiSelection)
++              ? buildExternalAiQuestionPayload(
++                  text,
++                  snapshot,
++                  externalAiFullProject
++                    ? { progress: true, quantities: true, defects: true, crew: true, inventory: true, checklist: true }
++                    : externalAiSelection,
++                  { fullProjectRaw: externalAiFullProject },
++                )
+               : text },
+           ],
+         });
+-        if (externalAiOptIn) setExternalAiOptIn(false);
++        if (externalAiOptIn) {
++          setExternalAiOptIn(false);
++          setExternalAiFullProject(false);
++        }
+         setGeneralText(response.text || 'AI không trả nội dung.');
+         return;
+       }
+@@ -335,7 +346,7 @@
+         <div className="mt-4 grid grid-cols-4 gap-1.5">
+           {(Object.keys(MODE_META) as AiAssistantMode[]).map((key) => {
+             const item = MODE_META[key]; const Icon = item.icon; const active = mode === key;
+-            return <button key={key} onClick={() => { setMode(key); if (key !== 'ai') setExternalAiOptIn(false); setResult(null); setGeneralText(''); setError(''); setExportNotice(''); setAuditInspect(null); }} className={`rounded-xl px-2 py-2 text-[11px] font-bold flex flex-col sm:flex-row items-center justify-center gap-1 ${active ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 border border-slate-200'}`}><Icon className="w-4 h-4" />{item.label}</button>;
++            return <button key={key} onClick={() => { setMode(key); if (key !== 'ai') { setExternalAiOptIn(false); setExternalAiFullProject(false); } setResult(null); setGeneralText(''); setError(''); setExportNotice(''); setAuditInspect(null); }} className={`rounded-xl px-2 py-2 text-[11px] font-bold flex flex-col sm:flex-row items-center justify-center gap-1 ${active ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 border border-slate-200'}`}><Icon className="w-4 h-4" />{item.label}</button>;
+           })}
+         </div>
+         <p className="mt-2 text-[11px] text-slate-500">{MODE_META[mode].hint}</p>
+@@ -374,10 +385,23 @@
+             <span>Cho phép AI bên ngoài sử dụng dữ liệu HNL trong câu hỏi này</span>
+           </label>
+           <p className="mt-1 text-[10px] leading-4 text-amber-800">Mặc định TẮT. Quyền này chỉ dùng một lần; sau khi gửi thành công sẽ tự tắt. Chỉ dữ liệu đã chọn bên dưới được gửi, ở dạng read-only và đã tối thiểu hóa.</p>
+-          {externalAiOptIn && <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-1.5">
++          {externalAiOptIn && <label className="mt-2 flex items-start gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-2 text-[10px] font-semibold text-indigo-950">
++            <input
++              type="checkbox"
++              checked={externalAiFullProject}
++              onChange={(e) => setExternalAiFullProject(e.target.checked)}
++              className="mt-0.5 h-4 w-4"
++            />
++            <span>
++              <strong>Phân tích dữ liệu thô toàn dự án</strong>
++              <span className="block mt-0.5 font-normal leading-4 text-indigo-800">Gửi snapshot toàn dự án đã ẩn thông tin liên hệ, giới hạn dung lượng và chỉ đọc. Dùng cho phân tích tổng thể; câu hỏi vật tư vẫn bắt buộc dùng Material Need Engine, không cho AI tự nhân m².</span>
++            </span>
++          </label>}
++          {externalAiOptIn && !externalAiFullProject && <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+             {([['progress','Tiến độ'],['quantities','Khối lượng'],['defects','Defect'],['crew','Quân số'],['inventory','Vật tư'],['checklist','Checklist']] as Array<[keyof ExternalAiDataSelection, string]>).map(([key, label]) => <label key={key} className="flex items-center gap-1.5 rounded-lg border border-amber-200 bg-white px-2 py-1.5 text-[10px] font-semibold text-slate-700"><input type="checkbox" checked={externalAiSelection[key]} onChange={(e) => setExternalAiSelection((current) => ({ ...current, [key]: e.target.checked }))} />{label}</label>)}
+           </div>}
+-          {externalAiOptIn && externalAiSelection.quantities && <p className="mt-2 text-[10px] leading-4 text-amber-800">Khối lượng được gửi theo snapshot hiện tại, có liên kết đội/tầng/căn/hạng mục/đơn vị. HNL không gán khối lượng cho một khoảng ngày nếu dữ liệu nguồn không có lịch sử khối lượng theo ngày.</p>}
++          {externalAiOptIn && externalAiFullProject && <p className="mt-2 text-[10px] leading-4 text-indigo-800">Toàn bộ 6 nhóm dữ liệu được chọn tự động cho câu hỏi này: Tiến độ, Khối lượng, Defect, Quân số, Vật tư và Checklist. HNL vẫn áp dụng giới hạn số dòng/kích thước payload và fail-closed khi dữ liệu không đủ.</p>}
++          {externalAiOptIn && !externalAiFullProject && externalAiSelection.quantities && <p className="mt-2 text-[10px] leading-4 text-amber-800">Khối lượng được gửi theo snapshot hiện tại, có liên kết đội/tầng/căn/hạng mục/đơn vị. HNL không gán khối lượng cho một khoảng ngày nếu dữ liệu nguồn không có lịch sử khối lượng theo ngày.</p>}
+         </div>}
+         <div className="flex flex-wrap gap-2 mb-3">
+           {QUICK_PROMPTS[mode].map((prompt) => <button key={prompt} onClick={() => void runQuestion(prompt)} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-100">{prompt}</button>)}
+--- a/scripts/ai-planner-golden.ts	2026-09-08 14:46:50.000000000 +0000
++++ b/scripts/ai-planner-golden.ts	2026-09-08 16:11:09.490143587 +0000
+@@ -18,6 +18,7 @@
+ };
+ const referenceDate = '2026-09-05';
+ const floors: FloorPlan[] = [
++  { id: 'floor-1', floorName: 'Tầng 1', imageUrl: '', uploadedAt: '2026-09-05' },
+   { id: 'floor-3', floorName: 'Tầng 3', imageUrl: '', uploadedAt: '2026-09-05' },
+ ];
+ const teams: TeamInfo[] = [
+@@ -80,6 +81,28 @@
+ assert.equal(materialTeamFloor.status, 'ready');
+ assert.deepEqual(materialTeamFloor.toolCall, { name: 'getMaterialNeeds', args: { floorId: 'floor-3', teamRef: 'team-an' } });
+ 
++const materialPlainLanguage = planHnlAiQuestion({
++  question: 'Các vật tư của tầng 1',
++  context,
++  teams,
++  floors,
++  referenceDate,
++});
++assert.equal(materialPlainLanguage.status, 'ready');
++assert.equal(materialPlainLanguage.intent, 'MATERIAL_NEEDS');
++assert.deepEqual(materialPlainLanguage.toolCall, { name: 'getMaterialNeeds', args: { floorId: 'floor-1', teamRef: undefined } });
++
++const materialMultiFloor = planHnlAiQuestion({
++  question: 'Chi tiết các loại vật tư của tầng 1 và 3',
++  context,
++  teams,
++  floors,
++  referenceDate,
++});
++assert.equal(materialMultiFloor.status, 'ready');
++assert.equal(materialMultiFloor.intent, 'MATERIAL_NEEDS');
++assert.deepEqual(materialMultiFloor.toolCall, { name: 'getMaterialNeeds', args: { floorId: undefined, floorIds: ['floor-1', 'floor-3'], teamRef: undefined } });
++
+ const unknownFloorMaterial = planHnlAiQuestion({
+   question: 'Tầng 99 cần vật tư gì?',
+   context,
+@@ -156,6 +179,10 @@
+   validateHnlAiToolCall({ name: 'getMaterialNeeds', args: { floorId: 'floor-3', teamRef: 'team-an' } }),
+   { name: 'getMaterialNeeds', args: { floorId: 'floor-3', teamRef: 'team-an' } },
+ );
++assert.deepEqual(
++  validateHnlAiToolCall({ name: 'getMaterialNeeds', args: { floorIds: ['floor-1', 'floor-3'] } }),
++  { name: 'getMaterialNeeds', args: { floorId: undefined, floorIds: ['floor-1', 'floor-3'], teamRef: undefined } },
++);
+ assert.throws(
+   () => validateHnlAiToolCall({ name: 'getMaterialNeeds', args: {} }),
+   HnlAiToolValidationError,
