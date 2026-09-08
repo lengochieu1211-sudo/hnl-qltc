@@ -1,0 +1,143 @@
+name: Gate Material Need Multi Scope
+
+on:
+  push:
+    branches: [gate/material-need-multi-scope-20260909]
+    paths:
+      - '.gate/apply_material_multi_scope.py'
+      - '.github/workflows/gate-material-multi-scope.yml'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      DEV_BASE: 2779b6a5540335ae78a3442efdbc1f28cb0d7ebd
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Confirm DEV baseline unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote_dev=$(git ls-remote origin refs/heads/dev | awk '{print $1}')
+          test "$remote_dev" = "$DEV_BASE" || { echo "::error::DEV moved: $remote_dev"; exit 1; }
+
+      - name: Apply multi-scope source transformation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .gate/apply_material_multi_scope.py
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/components/WarehouseTab.tsx')
+          s = p.read_text()
+          duplicate = "      {lowStockItems.length > 0 && (      {lowStockItems.length > 0 && ("
+          if duplicate in s:
+              s = s.replace(duplicate, "      {lowStockItems.length > 0 && (", 1)
+          p.write_text(s)
+          PY
+
+      - name: Candidate scope gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=$(printf '%s\n' scripts/material-need-golden.ts src/components/ExpandCollapseButton.tsx src/components/WarehouseTab.tsx src/utils/materialNeedEngine.ts | sort)
+          actual=$(git status --short | awk '{print $2}' | grep -v '^\.gate/' | grep -v '^\.github/workflows/gate-material-multi-scope.yml$' | sort)
+          printf 'EXPECTED\n%s\nACTUAL\n%s\n' "$expected" "$actual"
+          test "$actual" = "$expected"
+          git diff --exit-code -- package.json package-lock.json .firebaserc firebase.json firebase.prod.json firestore.rules storage.rules .github/workflows/dev-runtime-golden.yml
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Focused Material Need golden
+        run: npm run test:material-need
+
+      - name: Full verification
+        run: npm run verify
+
+      - name: Source assertions
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'floorIds?: string\[\]' src/utils/materialNeedEngine.ts
+          grep -q 'teamIds?: string\[\]' src/utils/materialNeedEngine.ts
+          grep -q 'useState(false)' src/components/WarehouseTab.tsx
+          grep -q 'Tất cả tầng' src/components/WarehouseTab.tsx
+          grep -q 'Tất cả đội' src/components/WarehouseTab.tsx
+          grep -q 'ExpandCollapseButton' src/components/WarehouseTab.tsx
+
+      - name: Build clean promotion patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add scripts/material-need-golden.ts src/components/ExpandCollapseButton.tsx src/components/WarehouseTab.tsx src/utils/materialNeedEngine.ts
+          expected=$(printf '%s\n' scripts/material-need-golden.ts src/components/ExpandCollapseButton.tsx src/components/WarehouseTab.tsx src/utils/materialNeedEngine.ts | sort)
+          actual=$(git diff --cached --name-only | sort)
+          test "$actual" = "$expected"
+          git diff --cached --binary > /tmp/material-multi-scope.patch
+          test -s /tmp/material-multi-scope.patch
+
+      - name: Rebuild exact clean candidate from DEV and verify again
+        shell: bash
+        run: |
+          set -euo pipefail
+          git reset --hard
+          git clean -fd
+          git checkout --detach "$DEV_BASE"
+          git apply --index /tmp/material-multi-scope.patch
+          npm run test:material-need
+          npm run verify
+          test "$(git diff --cached --name-only | sort)" = "$(printf '%s\n' scripts/material-need-golden.ts src/components/ExpandCollapseButton.tsx src/components/WarehouseTab.tsx src/utils/materialNeedEngine.ts | sort)"
+
+      - name: Promote clean commit to DEV
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          remote_dev=$(git ls-remote origin refs/heads/dev | awk '{print $1}')
+          test "$remote_dev" = "$DEV_BASE" || { echo "::error::DEV moved before promotion: $remote_dev"; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat: multi-scope material need filters'
+          new_sha=$(git rev-parse HEAD)
+          test "$(git rev-parse HEAD^)" = "$DEV_BASE"
+          git push origin HEAD:dev
+          echo "NEW_DEV_SHA=$new_sha" >> "$GITHUB_ENV"
+
+      - name: Dispatch DEV Runtime Golden
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run dev-runtime-golden.yml --repo "$GITHUB_REPOSITORY" --ref dev
+          for i in $(seq 1 60); do
+            sleep 15
+            row=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow dev-runtime-golden.yml --branch dev --limit 10 --json databaseId,headSha,status,conclusion --jq '.[] | select(.headSha == env.NEW_DEV_SHA) | [.databaseId,.status,.conclusion] | @tsv' | head -n1 || true)
+            if [ -z "$row" ]; then continue; fi
+            run_id=$(echo "$row" | cut -f1)
+            status=$(echo "$row" | cut -f2)
+            conclusion=$(echo "$row" | cut -f3)
+            echo "Runtime run=$run_id status=$status conclusion=$conclusion"
+            if [ "$status" = "completed" ]; then
+              test "$conclusion" = "success"
+              exit 0
+            fi
+          done
+          echo '::error::Timed out waiting for exact-SHA DEV Runtime Golden'
+          exit 1
