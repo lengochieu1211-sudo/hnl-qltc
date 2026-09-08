@@ -1,0 +1,240 @@
++  if (selection.defects && (options.fullProjectRaw || needs.defects || targets.length > 0)) {
+     const resolveFloor = buildFloorResolver(snapshot);
+     const defects = active(snapshot.defects).map((item) => ({
+       id: item.id,
+@@ -473,7 +568,7 @@
+       dueDate: item.dueDate || '',
+       completedAt: item.completedAt || '',
+     }));
+-    context.defects = capped(targets.length > 0 ? defects.filter((row) => isTeamMatch(row, targets)) : defects, 48);
++    context.defects = capped(!options.fullProjectRaw && targets.length > 0 ? defects.filter((row) => isTeamMatch(row, targets)) : defects, options.fullProjectRaw ? MAX_ROWS_PER_COLLECTION : 48);
+   }
+   return context;
+ }
+@@ -490,8 +585,13 @@
+   }
+ }
+ 
+-export function buildExternalAiQuestionPayload(question: string, snapshot: HnlAiProjectSnapshot, selection: ExternalAiDataSelection): string {
+-  const context = buildQuestionFocusedContext(question, snapshot, selection) as Record<string, any>;
++export function buildExternalAiQuestionPayload(
++  question: string,
++  snapshot: HnlAiProjectSnapshot,
++  selection: ExternalAiDataSelection,
++  options: ExternalAiQuestionOptions = {},
++): string {
++  const context = buildQuestionFocusedContext(question, snapshot, selection, options) as Record<string, any>;
+   const payload = { question: safeText(question), hnlContext: context };
+   let serialized = JSON.stringify(payload);
+   if (serialized.length <= MAX_EXTERNAL_MESSAGE_CHARS) return serialized;
+--- a/src/ai/planning/queryPlanner.ts	2026-09-08 14:46:50.000000000 +0000
++++ b/src/ai/planning/queryPlanner.ts	2026-09-08 16:10:45.363273277 +0000
+@@ -149,6 +149,38 @@
+   return patterns.some((pattern) => pattern.test(value));
+ }
+ 
++function extractFloorReferences(question: string, floors: FloorPlan[]) {
++  const q = normalizeEntityText(question);
++  const activeFloors = floors
++    .filter((floor) => floor.deletedAt === undefined || floor.deletedAt === null)
++    .map((floor) => ({ floor, key: normalizeEntityText(floor.floorName) }))
++    .filter((entry) => entry.key);
++
++  const resolved = new Map<string, FloorPlan>();
++  const unresolvedTokens = new Set<string>();
++
++  for (const entry of activeFloors) {
++    if (q.includes(entry.key)) resolved.set(entry.floor.id, entry.floor);
++  }
++
++  const phrase = q.match(/\btang\s+([a-z0-9_-]+(?:\s*(?:,|\/|&|va)\s*[a-z0-9_-]+)*)/)?.[1] || '';
++  const tokens = phrase
++    ? phrase.split(/\s*(?:,|\/|&|\bva\b)\s*/).map((token) => token.trim()).filter(Boolean)
++    : [];
++
++  for (const token of tokens) {
++    const match = activeFloors.find(({ key }) => key === `tang ${token}` || key.endsWith(` ${token}`) || key === token || key.startsWith(`tang ${token} `));
++    if (match) resolved.set(match.floor.id, match.floor);
++    else unresolvedTokens.add(token);
++  }
++
++  return {
++    floors: Array.from(resolved.values()),
++    floorMentioned: /\btang\b/.test(q),
++    unresolvedTokens: Array.from(unresolvedTokens),
++  };
++}
++
+ function detectIntent(question: string): HnlAiIntent {
+   const q = normalizeEntityText(question);
+   const auditSignal = hasAny(q, [/\bkiem tra\b/, /\baudit\b/, /\bra soat\b/, /\bbat thuong\b/, /\borphan\b/, /\bdu lieu loi\b/]);
+@@ -159,7 +191,12 @@
+   if (auditSignal || hasAny(q, [/\btoan bo logic\b/, /\btoan du an\b/, /\blien ket sai\b/, /\bdu lieu trung\b/])) return 'AUDIT_PROJECT';
+ 
+   if (hasAny(q, [/\bdoi nao\b/, /\btop\s+\d+\s+doi\b/, /\bso sanh cac doi\b/])) return 'UNSUPPORTED';
+-  if (hasAny(q, [/\bvat tu\b/, /\bkhung\b/, /\btam\b/, /\bty treo\b/, /\bphu kien\b/, /\bvit\b/]) && hasAny(q, [/\bcan\b/, /\bchuyen\b/, /\bdua\b/, /\bbao nhieu\b/, /\bcon thieu\b/, /\bcon can\b/])) return 'MATERIAL_NEEDS';
++  const materialSignal = hasAny(q, [/\bvat tu\b/, /\bkhung\b/, /\btam\b/, /\bty treo\b/, /\bphu kien\b/, /\bvit\b/]);
++  const materialScopeOrAction = hasAny(q, [
++    /\btang\b/, /\bdoi\b/, /\bto\b/, /\bcan\b/, /\bphong\b/,
++    /\bchuyen\b/, /\bdua\b/, /\bbao nhieu\b/, /\bcon thieu\b/, /\bcon can\b/, /\bchi tiet\b/, /\bcac\b/,
++  ]);
++  if (materialSignal && materialScopeOrAction) return 'MATERIAL_NEEDS';
+ 
+   const detailSignal = hasAny(q, [
+     /\btung hang muc\b/, /\btheo hang muc\b/, /\btang nao\b/, /\btheo tang\b/,
+@@ -192,25 +229,39 @@
+ 
+   if (intent === 'MATERIAL_NEEDS') {
+     const q = normalizeEntityText(question);
+-    const floorNumber = q.match(/\btang\s+([a-z0-9_-]+)/)?.[1];
+-    const floor = floorNumber
+-      ? floors.find((item) => normalizeEntityText(item.floorName) === `tang ${floorNumber}` || normalizeEntityText(item.floorName).endsWith(` ${floorNumber}`) || normalizeEntityText(item.floorName) === floorNumber)
+-      : undefined;
++    const floorResolution = extractFloorReferences(question, floors);
+     const mentionsTeam = /\b(?:doi|to)\b/.test(q);
+     const teamResolution = mentionsTeam ? extractTeamReference(question, teams) : null;
+     if (mentionsTeam && (!teamResolution || teamResolution.status !== 'resolved' || !teamResolution.team)) {
+       return { status: 'needs-clarification', intent, normalizedQuestion, clarifications: ['Không xác định được teamId duy nhất cho câu hỏi vật tư.'], warnings: [] };
+     }
+-    if (floorNumber && !floor) {
+-      return { status: 'needs-clarification', intent, normalizedQuestion, clarifications: [`Không xác định được Tầng ${floorNumber} trong dữ liệu dự án.`], warnings: [] };
++    if (floorResolution.unresolvedTokens.length > 0) {
++      return {
++        status: 'needs-clarification',
++        intent,
++        normalizedQuestion,
++        clarifications: [`Không xác định được tầng: ${floorResolution.unresolvedTokens.join(', ')} trong dữ liệu dự án.`],
++        warnings: [],
++      };
++    }
++    if (floorResolution.floorMentioned && floorResolution.floors.length === 0) {
++      return { status: 'needs-clarification', intent, normalizedQuestion, clarifications: ['Không xác định được Tầng được hỏi trong dữ liệu dự án.'], warnings: [] };
+     }
+-    if (!floor && !teamResolution?.team) {
++    if (floorResolution.floors.length === 0 && !teamResolution?.team) {
+       return { status: 'needs-clarification', intent, normalizedQuestion, clarifications: ['Hãy nêu Tầng hoặc Đội cần tổng hợp vật tư.'], warnings: [] };
+     }
++    const floorIds = floorResolution.floors.map((floor) => floor.id);
+     return {
+       status: 'ready', intent, normalizedQuestion,
+       resolvedTeam: teamResolution?.team ? { id: teamResolution.team.id, name: teamResolution.team.name } : undefined,
+-      toolCall: { name: 'getMaterialNeeds', args: { floorId: floor?.id, teamRef: teamResolution?.team?.id } },
++      toolCall: {
++        name: 'getMaterialNeeds',
++        args: {
++          floorId: floorIds.length === 1 ? floorIds[0] : undefined,
++          ...(floorIds.length > 1 ? { floorIds } : {}),
++          teamRef: teamResolution?.team?.id,
++        },
++      },
+       clarifications: [], warnings: [],
+     };
+   }
+--- a/src/ai/tools/toolRegistry.ts	2026-09-08 14:46:50.000000000 +0000
++++ b/src/ai/tools/toolRegistry.ts	2026-09-08 16:09:30.102861550 +0000
+@@ -50,6 +50,7 @@
+ 
+ export interface GetMaterialNeedsArgs {
+   floorId?: string;
++  floorIds?: string[];
+   teamRef?: string;
+ }
+ 
+@@ -240,16 +241,87 @@
+ }
+ 
+ 
+-function materialNeedsResult(runtime: HnlAiToolRuntime, args: GetMaterialNeedsArgs): AiToolResult<ReturnType<typeof computeMaterialNeeds>> {
++function materialNeedsResult(runtime: HnlAiToolRuntime, args: GetMaterialNeedsArgs): AiToolResult<unknown> {
+   const team = args.teamRef ? requireResolvedTeam(args.teamRef, runtime.snapshot.teams) : undefined;
+-  const result = computeMaterialNeeds({
++  const requestedFloorIds = Array.from(new Set([
++    ...(args.floorIds || []),
++    ...(args.floorId ? [args.floorId] : []),
++  ].map((value) => String(value || '').trim()).filter(Boolean)));
++  const floorNameById = new Map(
++    runtime.snapshot.floors
++      .filter((floor) => floor.deletedAt === undefined || floor.deletedAt === null)
++      .map((floor) => [String(floor.id), String(floor.floorName || floor.id)]),
++  );
++
++  const computeForFloor = (floorId?: string) => computeMaterialNeeds({
+     rooms: [...runtime.snapshot.rooms],
+     materialNorms: [...runtime.snapshot.materialNorms],
+     inventory: [...runtime.snapshot.inventory],
+     workVolumes: [...runtime.snapshot.workVolumes],
+     teams: [...runtime.snapshot.teams],
+-    scope: { floorId: args.floorId, teamId: team?.id },
++    scope: { floorId, teamId: team?.id },
+   });
++
++  if (requestedFloorIds.length > 1) {
++    const floors = requestedFloorIds.map((floorId) => {
++      const result = computeForFloor(floorId);
++      return {
++        floorId,
++        floorName: floorNameById.get(floorId) || floorId,
++        result,
++      };
++    });
++    const facts: AiFact[] = floors.flatMap((floor, floorIndex) => floor.result.lines.flatMap((line, lineIndex) => [
++      {
++        id: `material:${floorIndex}:${lineIndex}:need`,
++        kind: 'CALCULATED' as const,
++        label: `${floor.floorName} · ${line.materialName} - tổng cần`,
++        value: line.estimatedQty,
++        unit: line.unit,
++        method: 'Material Need Engine deterministic',
++      },
++      {
++        id: `material:${floorIndex}:${lineIndex}:remaining`,
++        kind: 'CALCULATED' as const,
++        label: `${floor.floorName} · ${line.materialName} - còn cần`,
++        value: line.remainingQty,
++        unit: line.unit,
++        method: 'Nhu cầu định mức trừ phiếu xuất có provenance xác định',
++      },
++    ]));
++    const allEmpty = floors.every((floor) => floor.result.lines.length === 0);
++    const anyFailClosed = floors.some((floor) => floor.result.failClosed);
++    return {
++      status: allEmpty ? 'insufficient-data' : anyFailClosed || floors.some((floor) => floor.result.lines.length === 0) ? 'partial' : 'ok',
++      data: {
++        multiFloor: true,
++        teamId: team?.id || '',
++        teamName: team?.name || '',
++        floors,
++      },
++      facts,
++      evidence: [],
++      metadata: {
++        projectId: runtime.context.projectId,
++        tool: 'getMaterialNeeds',
++        sourceCollections: ['rooms', 'work_volumes', 'material_norms', 'inventory', 'teams', 'floor_plans'],
++        recordsScanned: runtime.snapshot.rooms.length + runtime.snapshot.workVolumes.length + runtime.snapshot.materialNorms.length + runtime.snapshot.inventory.length + runtime.snapshot.teams.length + runtime.snapshot.floors.length,
++        recordsUsed: floors.reduce((sum, floor) => sum + floor.result.lines.length, 0),
++        asOf: runtime.snapshot.asOf,
++        freshness: runtime.snapshot.freshness,
++        permissionRole: runtime.context.role,
++        dataVersion: 'hnl-material-need-v2',
++      },
++      warnings: floors.flatMap((floor) => floor.result.warnings.map((warning) => `${floor.floorName}: ${warning.message}`)),
++      assumptions: [
++        'Mỗi tầng được tính độc lập bằng cùng Material Need Engine; không gộp m² giữa tầng trước khi áp định mức.',
++        'Không tự suy m² thành vật tư: mọi số lượng đi qua Material Need Engine và định mức đã cấu hình.',
++        'Phiếu xuất thiếu team provenance chỉ trừ khi teamId có thể chứng minh duy nhất; nếu mơ hồ thì giữ chưa phân bổ.',
++      ],
++    };
++  }
++
++  const result = computeForFloor(requestedFloorIds[0]);
+   const facts: AiFact[] = result.lines.flatMap((line, index) => [
+     { id: `material:${index}:need`, kind: 'CALCULATED' as const, label: `${line.materialName} - tổng cần`, value: line.estimatedQty, unit: line.unit, method: 'Material Need Engine deterministic' },
+     { id: `material:${index}:remaining`, kind: 'CALCULATED' as const, label: `${line.materialName} - còn cần`, value: line.remainingQty, unit: line.unit, method: 'Nhu cầu định mức trừ phiếu xuất có provenance xác định' },
+@@ -268,7 +340,7 @@
+       asOf: runtime.snapshot.asOf,
+       freshness: runtime.snapshot.freshness,
+       permissionRole: runtime.context.role,
+-      dataVersion: 'hnl-material-need-v1',
++      dataVersion: 'hnl-material-need-v2',
+     },
