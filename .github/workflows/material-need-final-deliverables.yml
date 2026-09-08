@@ -1,0 +1,113 @@
+name: Package Material Need Final Deliverables
+
+on:
+  push:
+    branches: [gate/material-need-20260908]
+    paths:
+      - '.github/workflows/material-need-final-deliverables.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact certified DEV source
+        uses: actions/checkout@v4
+        with:
+          ref: c0431da6718757c67f392a410a2a72beb7bd3cf8
+          fetch-depth: 0
+
+      - name: Verify certified source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 'c0431da6718757c67f392a410a2a72beb7bd3cf8'
+          test "$(git rev-parse HEAD^)" = '26f2790597e4d94c9b704828a9517cbfcc670877'
+          git diff --name-only HEAD^ HEAD | sort > /tmp/actual.txt
+          cat > /tmp/expected.txt <<'EOF'
+package.json
+scripts/ai-external-context-golden.ts
+scripts/ai-planner-golden.ts
+scripts/ai-tool-registry-golden.ts
+scripts/material-need-golden.ts
+src/App.tsx
+src/ai/data/externalAiContext.ts
+src/ai/orchestrator/aiOrchestrator.ts
+src/ai/planning/queryPlanner.ts
+src/ai/tools/toolRegistry.ts
+src/ai/tools/toolValidation.ts
+src/components/RoomHighlightModal.tsx
+src/components/WarehouseTab.tsx
+src/types.ts
+src/utils/excelExport.ts
+src/utils/materialNeedEngine.ts
+EOF
+          sort -o /tmp/expected.txt /tmp/expected.txt
+          diff -u /tmp/expected.txt /tmp/actual.txt
+          git diff --exit-code HEAD^ HEAD -- .firebaserc firebase.json firebase.prod.json firestore.rules storage.rules package-lock.json .github/workflows
+
+      - name: Build PATCH ZIP FULL SOURCE ZIP REPORT
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/final"
+          PATCH="$OUT/patch"
+          mkdir -p "$PATCH"
+          while IFS= read -r f; do
+            mkdir -p "$PATCH/$(dirname "$f")"
+            cp -p "$f" "$PATCH/$f"
+          done < /tmp/expected.txt
+          (cd "$PATCH" && zip -qr "$OUT/HNL-QLTC-MATERIAL-NEED-PATCH-2026-09-08.zip" .)
+          git archive --format=zip --output="$OUT/HNL-QLTC-MATERIAL-NEED-FULL-SOURCE-2026-09-08.zip" HEAD
+          {
+            echo '# HNL QLTC MATERIAL NEED FINAL REPORT — 2026-09-08'
+            echo
+            echo '- Certified DEV source: `c0431da6718757c67f392a410a2a72beb7bd3cf8`'
+            echo '- Parent baseline: `26f2790597e4d94c9b704828a9517cbfcc670877`'
+            echo '- Scope: exactly 16 changed/added files.'
+            echo '- main/PROD: not merged and not deployed by this packaging workflow.'
+            echo
+            echo '## Main changes'
+            echo '- Added deterministic Material Need engine used by floor/team/warehouse/AI flows.'
+            echo '- Added Material Need golden regression coverage and package script wiring.'
+            echo '- Added AI planner/tool/external-context deterministic material awareness.'
+            echo '- Updated Room Highlight and Warehouse surfaces to consume the same material-need logic.'
+            echo '- Updated Excel export/type definitions for the new material-need fields.'
+            echo
+            echo '## Certification evidence on exact DEV SHA'
+            echo '- Candidate full gate: npm ci, lock consistency, Material Need Golden, AI deterministic gates, full stability, TypeScript, source lint/secret scan, Firebase Rules, critical dependency audit and production build: PASS.'
+            echo '- DEV Runtime Golden #42: PASS, including DEV deploy, live Firebase + R2 multi-user, Health Center safe-repair, and hosted desktop/mobile browser golden.'
+            echo '- Android DEV APK #60: PASS, including isolation, Rules, stability, TypeScript, lint, security audit, build and APK verification.'
+            echo '- Windows DEV EXE #54: PASS, including isolation, Rules, stability, TypeScript, lint, security audit, build, taskbar icon golden and EXE verification.'
+            echo
+            echo '## Security / infrastructure'
+            echo '- No Firebase projectId, Hosting target, R2 endpoint, GitHub repo, Rules or package-lock change is included in this 16-file commit.'
+            echo '- Source lint found no private keys, GitHub tokens or Cloudflare R2 credentials.'
+            echo '- npm audit gate passed at critical threshold; existing advisory baseline remains 1 high + 3 moderate and was not introduced by this change.'
+            echo
+            echo '## Changed files'
+            echo '```'
+            cat /tmp/expected.txt
+            echo '```'
+          } > "$OUT/HNL-QLTC-MATERIAL-NEED-FINAL-REPORT-2026-09-08.md"
+          unzip -t "$OUT/HNL-QLTC-MATERIAL-NEED-PATCH-2026-09-08.zip" >/dev/null
+          unzip -t "$OUT/HNL-QLTC-MATERIAL-NEED-FULL-SOURCE-2026-09-08.zip" >/dev/null
+          test -s "$OUT/HNL-QLTC-MATERIAL-NEED-FINAL-REPORT-2026-09-08.md"
+          (cd "$OUT" && sha256sum *.zip *.md > SHA256SUMS.txt && sha256sum -c SHA256SUMS.txt)
+          ls -lh "$OUT"
+
+      - name: Upload final deliverables
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-MATERIAL-NEED-FINAL-DELIVERABLES
+          path: |
+            ${{ runner.temp }}/final/HNL-QLTC-MATERIAL-NEED-PATCH-2026-09-08.zip
+            ${{ runner.temp }}/final/HNL-QLTC-MATERIAL-NEED-FULL-SOURCE-2026-09-08.zip
+            ${{ runner.temp }}/final/HNL-QLTC-MATERIAL-NEED-FINAL-REPORT-2026-09-08.md
+            ${{ runner.temp }}/final/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
