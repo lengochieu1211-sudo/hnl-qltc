@@ -4,6 +4,8 @@ on:
   push:
     branches: [gate/material-category-team-link-20260909]
     paths:
+      - 'src/utils/materialNeedEngine.ts'
+      - 'scripts/material-need-golden.ts'
       - '.gate/material-category-team-link.patch'
       - '.github/workflows/material-category-team-link-gate.yml'
   workflow_dispatch:
@@ -21,25 +23,20 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Reconstruct exact candidate on DEV parent
+      - name: Verify exact DEV parent and candidate scope
         shell: bash
         run: |
           set -euo pipefail
           BASE='bf3fdb6b87032787db2b56facf1aa5e9cd544806'
-          git checkout --detach "$BASE"
-          git apply --check "$GITHUB_WORKSPACE/.gate/material-category-team-link.patch" || {
-            git show "gate/material-category-team-link-20260909:.gate/material-category-team-link.patch" > /tmp/material.patch
-            git apply --check /tmp/material.patch
-            git apply /tmp/material.patch
-          }
-          if git diff --quiet; then
-            git show "gate/material-category-team-link-20260909:.gate/material-category-team-link.patch" > /tmp/material.patch
-            git apply /tmp/material.patch
-          fi
-          git diff --name-only | sort > /tmp/actual.txt
-          printf '%s\n' 'scripts/material-need-golden.ts' 'src/utils/materialNeedEngine.ts' | sort > /tmp/expected.txt
+          git merge-base --is-ancestor "$BASE" HEAD
+          git diff --name-only "$BASE"..HEAD | sort > /tmp/actual.txt
+          printf '%s\n' \
+            '.gate/material-category-team-link.patch' \
+            '.github/workflows/material-category-team-link-gate.yml' \
+            'scripts/material-need-golden.ts' \
+            'src/utils/materialNeedEngine.ts' | sort > /tmp/expected.txt
           diff -u /tmp/expected.txt /tmp/actual.txt
-          git diff --exit-code -- package.json package-lock.json .firebaserc firebase.json firebase.prod.json firestore.rules storage.rules .github/workflows
+          git diff --exit-code "$BASE"..HEAD -- package.json package-lock.json .firebaserc firebase.json firebase.prod.json firestore.rules storage.rules
 
       - name: Install exact dependencies
         run: npm ci
@@ -50,9 +47,5 @@ jobs:
       - name: Full release gate
         run: npm run verify
 
-      - name: Final drift check
-        shell: bash
-        run: |
-          set -euo pipefail
-          git diff --name-only | sort > /tmp/final.txt
-          diff -u /tmp/expected.txt /tmp/final.txt
+      - name: Working tree clean
+        run: git diff --exit-code && git diff --cached --exit-code
