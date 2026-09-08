@@ -57,6 +57,7 @@ interface NeedContribution {
 
 const round2 = (value: number) => Math.ceil((Number(value) || 0) * 100) / 100;
 const textKey = (value?: string) => String(value || '').trim().toLocaleLowerCase('vi-VN');
+const isActiveLifecycle = <T extends { deletedAt?: number | null }>(item: T): boolean => item.deletedAt === undefined || item.deletedAt === null;
 
 function resolveWorkVolume(categoryIdOrName: string | undefined, workVolumes: WorkVolume[]): WorkVolume | undefined {
   if (!categoryIdOrName) return undefined;
@@ -140,6 +141,9 @@ function buildContributions(
     const teamIds = uniqueRoomTeamIds(room);
 
     cats.forEach((cat) => {
+      // An explicit category ID that no longer exists in the active WorkVolume catalog is an orphan linkage.
+      // Do not turn a deleted category into a false MISSING_NORM warning; Health Center owns the orphan audit.
+      if (cat.id && !workVolumes.some((work) => work.id === cat.id)) return;
       const categoryRef = cat.id || cat.name;
       const totalVolume = categoryVolumeForRoom(room, categoryRef, workVolumes);
       if (totalVolume <= 0) return;
@@ -213,7 +217,11 @@ export function computeMaterialNeeds(params: {
   teams?: TeamInfo[];
   scope?: MaterialNeedScope;
 }): MaterialNeedResult {
-  const { rooms, materialNorms, inventory, workVolumes } = params;
+  const { rooms: rawRooms, materialNorms: rawMaterialNorms, inventory: rawInventory, workVolumes: rawWorkVolumes } = params;
+  const rooms = rawRooms.filter(isActiveLifecycle);
+  const materialNorms = rawMaterialNorms.filter(isActiveLifecycle);
+  const inventory = rawInventory.filter(isActiveLifecycle);
+  const workVolumes = rawWorkVolumes.filter(isActiveLifecycle);
   const scope = params.scope || {};
   const warnings: MaterialNeedWarning[] = [];
   const contributions = buildContributions(rooms, workVolumes, scope, warnings);

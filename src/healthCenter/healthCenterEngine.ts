@@ -375,6 +375,7 @@ function roomQualityIssues(rooms: RoomProgressItem[]): HealthCenterIssue[] {
 
 function lightweightBusinessQualityIssues(snapshot: HnlAiProjectSnapshot): HealthCenterIssue[] {
   const issues: HealthCenterIssue[] = [];
+  const activeWorkVolumeIds = new Set(active(snapshot.workVolumes).map((item) => item.id));
   active(snapshot.inventory).forEach((item) => {
     if (!Number.isFinite(item.quantity) || item.quantity <= 0) {
       issues.push(makeIssue({
@@ -385,6 +386,15 @@ function lightweightBusinessQualityIssues(snapshot: HnlAiProjectSnapshot): Healt
     }
   });
   active(snapshot.materialNorms).forEach((norm) => {
+    const linkedWorkCategoryIds = Array.from(new Set([...(norm.workCategoryIds || []), ...(norm.workCategoryId ? [norm.workCategoryId] : [])].filter(Boolean)));
+    const orphanWorkCategoryIds = linkedWorkCategoryIds.filter((id) => !activeWorkVolumeIds.has(id));
+    if (orphanWorkCategoryIds.length > 0) {
+      issues.push(makeIssue({
+        ruleId: 'MATERIAL_NORM_ORPHAN_WORK_CATEGORY', severity: 'WARNING', module: 'materialNorms', entityType: 'materialNorm', entityId: norm.id,
+        message: `Định mức ${norm.materialName || norm.id} còn liên kết tới hạng mục đã xoá/không còn tồn tại.`, actionClass: 'NEEDS_CONFIRMATION', evidenceIds: [`material_norms:${norm.id}`], location: { workItem: norm.materialName },
+        details: { workCategoryId: norm.workCategoryId || null, workCategoryIds: norm.workCategoryIds || [], orphanWorkCategoryIds },
+      }));
+    }
     if (!String(norm.materialName || '').trim() || !String(norm.unit || '').trim()) {
       issues.push(makeIssue({
         ruleId: 'MATERIAL_NORM_REQUIRED_FIELD_MISSING', severity: 'ERROR', module: 'materialNorms', entityType: 'materialNorm', entityId: norm.id,

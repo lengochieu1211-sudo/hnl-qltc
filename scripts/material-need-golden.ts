@@ -147,6 +147,21 @@ assert.equal(floor3TeamA.lines.length, 1, 'Tầng 3 IW11 must remain visible for
 assert.equal(floor3TeamA.lines[0].materialId, 'mat-iw11-frame');
 assert.equal(floor3TeamA.lines[0].estimatedQty, 127.5);
 
+// Lifecycle regression: soft-deleted norms/categories are historical only and must not participate in live Material Need.
+const deletedNormOnly = computeMaterialNeeds({
+  rooms: [multiTeamRoom], materialNorms: [{ ...norm, deletedAt: Date.now() } as MaterialNorm], inventory: [], workVolumes, teams,
+  scope: { floorId: 'floor-3' },
+});
+assert.equal(deletedNormOnly.lines.length, 0, 'Soft-deleted material norm must never generate live demand');
+assert.ok(deletedNormOnly.warnings.some((w) => w.code === 'MISSING_NORM'), 'Active category with only a deleted norm is genuinely missing an active norm');
+
+const deletedWorkCategory = computeMaterialNeeds({
+  rooms: [multiTeamRoom], materialNorms: [norm], inventory: [], workVolumes: [{ ...workVolumes[0], deletedAt: Date.now() } as WorkVolume], teams,
+  scope: { floorId: 'floor-3' },
+});
+assert.equal(deletedWorkCategory.lines.length, 0, 'Room reference to a deleted explicit work-category ID must not generate demand');
+assert.equal(deletedWorkCategory.warnings.some((w) => w.code === 'MISSING_NORM'), false, 'Deleted/orphan category must not be misreported as a missing material norm');
+
 const missingNorm = computeMaterialNeeds({ rooms: [multiTeamRoom], materialNorms: [], inventory: [], workVolumes, teams, scope: { floorId: 'floor-3' } });
 assert.equal(missingNorm.lines.length, 0);
 assert.equal(missingNorm.failClosed, true);

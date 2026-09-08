@@ -89,6 +89,8 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
 }) => {
   const hasManageAccess = roleResolved && canManageMaterialNorms(userRole);
   const hasImportAccess = roleResolved && canImportData(userRole);
+  const activeMaterialNorms = React.useMemo(() => materialNorms.filter((norm) => norm.deletedAt === undefined || norm.deletedAt === null), [materialNorms]);
+  const activeWorkVolumes = React.useMemo(() => (workVolumes || []).filter((volume) => volume.deletedAt === undefined || volume.deletedAt === null), [workVolumes]);
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
   const [normSortBy, setNormSortBy] = useState<'none' | 'materialName' | 'quotaQuantity' | 'stock'>('none');
   const [normSortOrder, setNormSortOrder] = useState<'asc' | 'desc'>('asc');
@@ -98,18 +100,20 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   
   const workCategoriesList = React.useMemo(() => {
     const list = new Set<string>();
-    if (workVolumes && workVolumes.length > 0) {
-      workVolumes.forEach((v) => {
+    if (activeWorkVolumes.length > 0) {
+      activeWorkVolumes.forEach((v) => {
         if (v.title && v.title.trim()) {
           list.add(v.title.trim());
         }
       });
     }
-    if (list.size === 0) {
+    // Keep the legacy starter list only when there is genuinely no catalog at all.
+    // If records exist but are all deleted, do not resurrect deleted category names in the selector.
+    if (list.size === 0 && (!workVolumes || workVolumes.length === 0)) {
       WORK_CATEGORIES_LIST.forEach(cat => list.add(cat));
     }
     return Array.from(list);
-  }, [workVolumes]);
+  }, [activeWorkVolumes, workVolumes]);
   
   // Drag and Drop State
   const [isDragging, setIsDragging] = useState(false);
@@ -489,9 +493,9 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     }
   });
 
-  const categoriesInUse = Array.from(new Set(materialNorms.map((n) => n.category).filter(Boolean)));
+  const categoriesInUse = Array.from(new Set(activeMaterialNorms.map((n) => n.category).filter(Boolean)));
 
-  const filteredNorms = materialNorms.filter((norm) => {
+  const filteredNorms = activeMaterialNorms.filter((norm) => {
     const matchesCategory = selectedCategoryFilter === 'all' || norm.category === selectedCategoryFilter;
     const matchesSearch = 
       norm.materialName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -528,7 +532,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   const selectedWorkCategoryUnits = React.useMemo(() => {
     const result: Record<string, string> = {};
     workCategories.forEach((cat) => {
-      const units = Array.from(new Set((workVolumes || [])
+      const units = Array.from(new Set(activeWorkVolumes
         .filter((v) => v.title === cat && (v.planned || 0) > 0)
         .map((v) => normalizeUnit(v.unit) || v.unit)
         .filter(Boolean)));
@@ -544,7 +548,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
 
   const selectedWorkCategoriesVolumeByUnit = React.useMemo(() => {
     const byUnit: Record<string, { unit: string; value: number }> = {};
-    (workVolumes || []).filter((v) => workCategories.includes(v.title)).forEach((v) => {
+    activeWorkVolumes.filter((v) => workCategories.includes(v.title)).forEach((v) => {
       const unit = normalizeUnit(v.unit) || v.unit || 'Đơn vị';
       const key = unitKey(unit) || 'đơn vị';
       if (!byUnit[key]) byUnit[key] = { unit, value: 0 };
@@ -558,13 +562,13 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     .join(' + ');
 
   const computedAutoQuota = React.useMemo(() => {
-    if (!workVolumes || workCategories.length === 0) return null;
+    if (activeWorkVolumes.length === 0 || workCategories.length === 0) return null;
     
     let totalQuota = 0;
     let hasNorms = false;
     
     workCategories.forEach(cat => {
-      const catVolume = workVolumes
+      const catVolume = activeWorkVolumes
         .filter(v => v.title === cat)
         .reduce((sum, v) => sum + (v.planned || 0), 0);
       
@@ -585,7 +589,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
       return Math.round(totalQuota * 100) / 100;
     }
     return null;
-  }, [workVolumes, workCategories, workCategoryNorms, unitNormPerM2, hasMixedBasisUnits]);
+  }, [activeWorkVolumes, workCategories, workCategoryNorms, unitNormPerM2, hasMixedBasisUnits]);
 
   const handleOpenAdd = async () => {
     setCategory(COMMON_CATEGORIES[0]);
@@ -615,10 +619,10 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
       setCustomCategory(norm.category);
     }
 
-    if (norm.workCategoryIds && norm.workCategoryIds.length > 0 && workVolumes && workVolumes.length > 0) {
+    if (norm.workCategoryIds && norm.workCategoryIds.length > 0 && activeWorkVolumes.length > 0) {
       const resolvedFromIds: string[] = [];
       norm.workCategoryIds.forEach(id => {
-        const foundVol = workVolumes.find(v => v.id === id);
+        const foundVol = activeWorkVolumes.find(v => v.id === id);
         if (foundVol && foundVol.title) {
           resolvedFromIds.push(foundVol.title);
         }
@@ -808,7 +812,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     const normCategoryNormsById: Record<string, number> = {};
 
     workCategories.forEach(catName => {
-      const matched = workVolumes?.find(v => v.title === catName || v.id === catName);
+      const matched = activeWorkVolumes.find(v => v.title === catName || v.id === catName);
       if (matched && matched.id) {
         if (!selectedWorkCategoryIds.includes(matched.id)) {
           selectedWorkCategoryIds.push(matched.id);
@@ -910,7 +914,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
-                Tất cả ({materialNorms.length})
+                Tất cả ({activeMaterialNorms.length})
               </button>
               {categoriesInUse.map((cat) => (
                 <button
@@ -1023,7 +1027,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                                 {norm.category}
                               </span>
                               {(() => {
-                                const resolvedCats = getResolvedNormWorkCategories(norm, workVolumes);
+                                const resolvedCats = getResolvedNormWorkCategories(norm, activeWorkVolumes);
                                 return resolvedCats.map((wCat, wIdx) => (
                                   <span key={`${wCat}-${wIdx}`} className="inline-block px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-md">
                                     🏗️ {wCat}
