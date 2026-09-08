@@ -114,6 +114,18 @@ function uniqueRoomTeamIds(room: RoomProgressItem): string[] {
   return Array.from(ids);
 }
 
+function categorySubItems(room: RoomProgressItem, categoryId: string | undefined, categoryName: string) {
+  return (room.subItems || []).filter((sub) => {
+    const sameId = Boolean(categoryId && sub.workCategoryId === categoryId);
+    const sameName = textKey(sub.category) === textKey(categoryName);
+    return sameId || sameName;
+  });
+}
+
+function uniqueCategoryTeamIds(room: RoomProgressItem, categoryId: string | undefined, categoryName: string): string[] {
+  return Array.from(new Set(categorySubItems(room, categoryId, categoryName).map((sub) => sub.teamId).filter(Boolean) as string[]));
+}
+
 function buildContributions(
   rooms: RoomProgressItem[],
   workVolumes: WorkVolume[],
@@ -138,15 +150,21 @@ function buildContributions(
         return;
       }
 
-      const matchingSubs = (room.subItems || []).filter((sub) => {
-        if (sub.teamId !== scope.teamId) return false;
-        const sameId = cat.id && sub.workCategoryId === cat.id;
-        const sameName = textKey(sub.category) === textKey(cat.name);
-        return Boolean(sameId || sameName);
-      });
+      const categorySubs = categorySubItems(room, cat.id, cat.name);
+      const categoryTeamIds = uniqueCategoryTeamIds(room, cat.id, cat.name);
+      const matchingSubs = categorySubs.filter((sub) => sub.teamId === scope.teamId);
       const explicitVolume = matchingSubs.reduce((sum, sub) => sum + (Number(sub.workVolume) || 0), 0);
       if (explicitVolume > 0) {
         contributions.push({ roomId: room.id, floorId: room.floorId, teamId: scope.teamId, workCategoryId: cat.id, workCategoryName: cat.name, sourceUnit: normalizeUnit(matchingSubs[0]?.volumeUnit || sourceUnit) || sourceUnit, volume: explicitVolume });
+        return;
+      }
+
+      // A room may contain several teams across different categories. When every
+      // sub-step for this category points to one team, the category-level linkage is
+      // deterministic even if the individual steps do not duplicate workVolume.
+      // Reuse the category's total quantity, matching what the room progress UI shows.
+      if (categoryTeamIds.length === 1 && categoryTeamIds[0] === scope.teamId) {
+        contributions.push({ roomId: room.id, floorId: room.floorId, teamId: scope.teamId, workCategoryId: cat.id, workCategoryName: cat.name, sourceUnit, volume: totalVolume });
         return;
       }
 
@@ -155,7 +173,7 @@ function buildContributions(
         return;
       }
 
-      if (teamIds.includes(scope.teamId)) {
+      if (categoryTeamIds.includes(scope.teamId) || (categoryTeamIds.length === 0 && teamIds.includes(scope.teamId))) {
         warnings.push({
           code: 'AMBIGUOUS_TEAM',
           roomId: room.id,
