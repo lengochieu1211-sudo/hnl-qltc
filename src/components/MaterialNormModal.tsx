@@ -622,7 +622,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     if (norm.workCategoryIds && norm.workCategoryIds.length > 0 && activeWorkVolumes.length > 0) {
       const resolvedFromIds: string[] = [];
       norm.workCategoryIds.forEach(id => {
-        const foundVol = activeWorkVolumes.find(v => v.id === id);
+        const foundVol = activeWorkVolumes.find(v => v.id === id || v.workCategoryId === id);
         if (foundVol && foundVol.title) {
           resolvedFromIds.push(foundVol.title);
         }
@@ -812,13 +812,14 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     const normCategoryNormsById: Record<string, number> = {};
 
     workCategories.forEach(catName => {
-      const matched = activeWorkVolumes.find(v => v.title === catName || v.id === catName);
-      if (matched && matched.id) {
-        if (!selectedWorkCategoryIds.includes(matched.id)) {
-          selectedWorkCategoryIds.push(matched.id);
+      const matched = activeWorkVolumes.find(v => v.title === catName || v.id === catName || v.workCategoryId === catName);
+      const canonicalCategoryId = matched?.workCategoryId || matched?.id;
+      if (matched && canonicalCategoryId) {
+        if (!selectedWorkCategoryIds.includes(canonicalCategoryId)) {
+          selectedWorkCategoryIds.push(canonicalCategoryId);
         }
         if (workCategoryNorms[catName] !== undefined) {
-          normCategoryNormsById[matched.id] = workCategoryNorms[catName];
+          normCategoryNormsById[canonicalCategoryId] = workCategoryNorms[catName];
         }
       }
     });

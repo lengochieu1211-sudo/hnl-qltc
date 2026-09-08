@@ -148,6 +148,13 @@ assert.equal(floor3TeamA.lines[0].materialId, 'mat-iw11-frame');
 assert.equal(floor3TeamA.lines[0].estimatedQty, 127.5);
 
 // Lifecycle regression: soft-deleted norms/categories are historical only and must not participate in live Material Need.
+const canonicalIdentityWork: WorkVolume = { ...workVolumes[0], id: 'wv-record-1', workCategoryId: 'wc-ceiling' } as WorkVolume;
+const canonicalIdentityResult = computeMaterialNeeds({
+  rooms: [multiTeamRoom], materialNorms: [norm], inventory: [], workVolumes: [canonicalIdentityWork], teams,
+  scope: { floorId: 'floor-3', teamId: 'team-a' },
+});
+assert.equal(canonicalIdentityResult.lines[0]?.estimatedQty, 17.5, 'Material engine must resolve canonical workCategoryId even when WorkVolume record id differs');
+
 const deletedNormOnly = computeMaterialNeeds({
   rooms: [multiTeamRoom], materialNorms: [{ ...norm, deletedAt: Date.now() } as MaterialNorm], inventory: [], workVolumes, teams,
   scope: { floorId: 'floor-3' },

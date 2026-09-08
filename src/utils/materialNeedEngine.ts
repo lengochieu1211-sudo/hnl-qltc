@@ -62,13 +62,14 @@ const isActiveLifecycle = <T extends { deletedAt?: number | null }>(item: T): bo
 function resolveWorkVolume(categoryIdOrName: string | undefined, workVolumes: WorkVolume[]): WorkVolume | undefined {
   if (!categoryIdOrName) return undefined;
   const key = textKey(categoryIdOrName);
-  return workVolumes.find((item) => item.id === categoryIdOrName || textKey(item.title) === key);
+  return workVolumes.find((item) => item.id === categoryIdOrName || item.workCategoryId === categoryIdOrName || textKey(item.title) === key);
 }
 
 function categoryVolumeForRoom(room: RoomProgressItem, categoryIdOrName: string, workVolumes: WorkVolume[]): number {
   const volumes = room.categoryVolumes || {};
   if (volumes[categoryIdOrName] !== undefined) return Number(volumes[categoryIdOrName]) || 0;
   const work = resolveWorkVolume(categoryIdOrName, workVolumes);
+  if (work?.workCategoryId && volumes[work.workCategoryId] !== undefined) return Number(volumes[work.workCategoryId]) || 0;
   if (work && volumes[work.id] !== undefined) return Number(volumes[work.id]) || 0;
   if (work && volumes[work.title] !== undefined) return Number(volumes[work.title]) || 0;
   if (textKey(room.workCategory) === textKey(categoryIdOrName) || room.workCategoryId === categoryIdOrName) return Number(room.workVolume) || 0;
@@ -78,29 +79,31 @@ function categoryVolumeForRoom(room: RoomProgressItem, categoryIdOrName: string,
 function sourceUnitForRoomCategory(room: RoomProgressItem, categoryIdOrName: string, workVolumes: WorkVolume[]): string {
   const units = room.categoryVolumeUnits || {};
   const work = resolveWorkVolume(categoryIdOrName, workVolumes);
-  return normalizeUnit(units[categoryIdOrName] || (work ? units[work.id] || units[work.title] : '') || work?.unit || room.volumeUnit || 'm²') || 'm²';
+  return normalizeUnit(units[categoryIdOrName] || (work ? (work.workCategoryId ? units[work.workCategoryId] : '') || units[work.id] || units[work.title] : '') || work?.unit || room.volumeUnit || 'm²') || 'm²';
 }
 
 function roomCategories(room: RoomProgressItem, workVolumes: WorkVolume[]): Array<{ id?: string; name: string }> {
   const out = new Map<string, { id?: string; name: string }>();
   Object.keys(room.categoryVolumes || {}).forEach((raw) => {
     const work = resolveWorkVolume(raw, workVolumes);
-    const id = work?.id || (raw === room.workCategoryId ? raw : undefined);
+    const id = work?.workCategoryId || work?.id || (raw === room.workCategoryId ? raw : undefined);
     const name = work?.title || (raw === room.workCategoryId ? room.workCategory || raw : raw);
     out.set(id || textKey(name), { id, name });
   });
   if (room.workCategory || room.workCategoryId) {
     const work = resolveWorkVolume(room.workCategoryId || room.workCategory, workVolumes);
-    out.set(work?.id || room.workCategoryId || textKey(room.workCategory), {
-      id: work?.id || room.workCategoryId,
+    const canonicalId = work?.workCategoryId || room.workCategoryId || work?.id;
+    out.set(canonicalId || textKey(room.workCategory), {
+      id: canonicalId,
       name: work?.title || room.workCategory || room.workCategoryId || 'Hạng mục',
     });
   }
   (room.subItems || []).forEach((sub) => {
     const work = resolveWorkVolume(sub.workCategoryId || sub.category, workVolumes);
     if (work || sub.workCategoryId || sub.category) {
-      out.set(work?.id || sub.workCategoryId || textKey(sub.category), {
-        id: work?.id || sub.workCategoryId,
+      const canonicalId = work?.workCategoryId || sub.workCategoryId || work?.id;
+      out.set(canonicalId || textKey(sub.category), {
+        id: canonicalId,
         name: work?.title || sub.category || sub.workCategoryId || 'Hạng mục',
       });
     }
@@ -143,7 +146,7 @@ function buildContributions(
     cats.forEach((cat) => {
       // An explicit category ID that no longer exists in the active WorkVolume catalog is an orphan linkage.
       // Do not turn a deleted category into a false MISSING_NORM warning; Health Center owns the orphan audit.
-      if (cat.id && !workVolumes.some((work) => work.id === cat.id)) return;
+      if (cat.id && !workVolumes.some((work) => work.id === cat.id || work.workCategoryId === cat.id)) return;
       const categoryRef = cat.id || cat.name;
       const totalVolume = categoryVolumeForRoom(room, categoryRef, workVolumes);
       if (totalVolume <= 0) return;

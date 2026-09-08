@@ -375,7 +375,7 @@ function roomQualityIssues(rooms: RoomProgressItem[]): HealthCenterIssue[] {
 
 function lightweightBusinessQualityIssues(snapshot: HnlAiProjectSnapshot): HealthCenterIssue[] {
   const issues: HealthCenterIssue[] = [];
-  const activeWorkVolumeIds = new Set(active(snapshot.workVolumes).map((item) => item.id));
+  const activeWorkVolumeIds = new Set(active(snapshot.workVolumes).flatMap((item) => [item.id, item.workCategoryId].filter(Boolean) as string[]));
   active(snapshot.inventory).forEach((item) => {
     if (!Number.isFinite(item.quantity) || item.quantity <= 0) {
       issues.push(makeIssue({
