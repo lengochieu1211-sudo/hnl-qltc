@@ -28,6 +28,10 @@ export interface InventoryItem {
   sourceType?: 'room-auto' | 'manual' | string;
   sourceRoomId?: string;
   sourceFloorId?: string;
+  /** Durable team provenance for new warehouse issues. Legacy rows may omit it. */
+  sourceTeamId?: string;
+  /** Optional work-category provenance to support exact team/category allocation. */
+  sourceWorkCategoryId?: string;
   sourceNormId?: string;
   sourceIssueKey?: string;
   revision?: number;

@@ -116,4 +116,44 @@ assert.equal(parsed.hnlContext.crew.rows[0].workerCount, 5);
 assert.equal(parsed.hnlContext.crew.rows[0].floorName, 'Tầng 1');
 assert.equal(payload.includes('99'), false, 'other team crew must not leak into focused payload');
 
+// Material questions must use deterministic Material Need Engine output, never raw norms/inventory.
+const materialSnapshot = {
+  ...snapshot,
+  rooms: [{
+    id: 'room-mat', roomName: 'A301', floorId: 'f1', floorName: 'Tầng 1',
+    teamId: 'team-nguyen', assignedTeam: 'Đội Nguyên', workCategoryId: 'cat-ceiling', workCategory: 'Trần thạch cao',
+    workVolume: 100, volumeUnit: 'm2', inspectionStatus: 'Chưa nghiệm thu', frameStatus: 'Đang làm', boardStatus: 'Đang làm', updatedAt: 3, subItems: [],
+  }],
+  inventory: [
+    { id: 'in-board', type: 'in', materialId: 'mat-board', materialName: 'Tấm thạch cao', unit: 'Tấm', quantity: 100, location: 'Kho', handler: 'Kho', date: '2026-09-05' },
+    { id: 'out-board', type: 'out', materialId: 'mat-board', materialName: 'Tấm thạch cao', unit: 'Tấm', quantity: 5, location: 'Tầng 1', handler: 'Đội Nguyên', date: '2026-09-05', sourceType: 'room-auto', sourceRoomId: 'room-mat', sourceFloorId: 'f1', sourceTeamId: 'team-nguyen' },
+  ],
+  materialNorms: [
+    { id: 'norm-board', materialId: 'mat-board', category: 'Tấm', workCategoryId: 'cat-ceiling', materialName: 'Tấm thạch cao', unit: 'Tấm', quotaQuantity: 0, unitNormPerM2: 0.35, normBasisUnit: 'm²' },
+    { id: 'norm-frame', materialId: 'mat-frame', category: 'Khung', workCategoryId: 'cat-ceiling', materialName: 'Thanh xương', unit: 'Thanh', quotaQuantity: 0, unitNormPerM2: 0.5, normBasisUnit: 'm²' },
+  ],
+} as any;
+const materialPayload = JSON.parse(buildExternalAiQuestionPayload(
+  'Tầng 1 cần chuyển bao nhiêu khung, tấm và phụ kiện?',
+  materialSnapshot,
+  { progress: true, quantities: true, defects: false, crew: false, inventory: true, checklist: false },
+));
+assert.equal(materialPayload.hnlContext.deterministicMaterialNeeds.status, 'ok');
+assert.equal('inventory' in materialPayload.hnlContext, false, 'raw inventory must not be sent for material calculation');
+assert.equal('materialNorms' in materialPayload.hnlContext, false, 'raw norms must not be sent for material calculation');
+const boardNeed = materialPayload.hnlContext.deterministicMaterialNeeds.lines.find((line: any) => line.materialId === 'mat-board');
+assert.equal(boardNeed.totalNeed, 35);
+assert.equal(boardNeed.issuedAllocated, 5);
+assert.equal(boardNeed.remainingNeed, 30);
+assert.match(materialPayload.hnlContext.aiContract.materialCalculation, /STRICT/);
+
+const materialNoPermission = JSON.parse(buildExternalAiQuestionPayload(
+  'Tầng 1 cần vật tư gì?',
+  materialSnapshot,
+  { progress: true, quantities: true, defects: false, crew: false, inventory: false, checklist: false },
+));
+assert.equal(materialNoPermission.hnlContext.deterministicMaterialNeeds.status, 'permission-required');
+assert.equal('inventory' in materialNoPermission.hnlContext, false);
+assert.equal('materialNorms' in materialNoPermission.hnlContext, false);
+
 console.log('AI external context golden: PASS');

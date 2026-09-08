@@ -84,6 +84,14 @@ export function validateHnlAiToolCall(input: unknown): HnlAiToolArgs {
       }
       return { name: 'getTeamSummary', args: { teamRef, dateRange } };
     }
+    case 'getMaterialNeeds': {
+      if (!isPlainObject(input.args)) throw new HnlAiToolValidationError('INVALID_TOOL_ARGS', 'getMaterialNeeds.args phải là object.');
+      assertExactKeys(input.args, ['floorId', 'teamRef'], 'getMaterialNeeds.args');
+      const floorId = input.args.floorId == null || String(input.args.floorId).trim() === '' ? undefined : requiredString(input.args.floorId, 'floorId');
+      const teamRef = input.args.teamRef == null || String(input.args.teamRef).trim() === '' ? undefined : requiredString(input.args.teamRef, 'teamRef');
+      if (!floorId && !teamRef) throw new HnlAiToolValidationError('INVALID_TOOL_ARGS', 'getMaterialNeeds cần ít nhất floorId hoặc teamRef.');
+      return { name: 'getMaterialNeeds', args: { floorId, teamRef } };
+    }
     case 'getCurrentTeamProgress':
     case 'getCurrentTeamProgressDetail': {
       if (!isPlainObject(input.args)) throw new HnlAiToolValidationError('INVALID_TOOL_ARGS', `${toolName}.args phải là object.`);

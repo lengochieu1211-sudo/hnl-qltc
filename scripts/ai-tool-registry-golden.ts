@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import type { CrewRecord, DefectItem, FloorPlan, RoomProgressItem, TeamInfo, WorkVolume } from '../src/types';
+import type { CrewRecord, DefectItem, FloorPlan, InventoryItem, MaterialNorm, RoomProgressItem, TeamInfo, WorkVolume } from '../src/types';
 import type { AiQueryContext } from '../src/ai/core/contracts';
 import { createHnlAiProjectSnapshot } from '../src/ai/data/projectSnapshot';
 import { executeHnlAiTool, HnlAiToolError, isAllowedHnlAiToolName } from '../src/ai/tools/toolRegistry';
@@ -41,6 +41,14 @@ const workVolumes: WorkVolume[] = [
     category: 'Trần', unit: 'm2', planned: 100, actual: 80, unitPrice: 0, status: 'Đang thi công',
   },
 ];
+const materialNorms: MaterialNorm[] = [
+  { id: 'norm-board', materialId: 'mat-board', category: 'Tấm', workCategoryId: 'wc-tran', materialName: 'Tấm thạch cao', unit: 'Tấm', quotaQuantity: 0, unitNormPerM2: 0.35, normBasisUnit: 'm²' },
+  { id: 'norm-frame', materialId: 'mat-frame', category: 'Khung', workCategoryId: 'wc-tran', materialName: 'Thanh xương', unit: 'Thanh', quotaQuantity: 0, unitNormPerM2: 0.5, normBasisUnit: 'm²' },
+];
+const inventory: InventoryItem[] = [
+  { id: 'in-board', type: 'in', materialId: 'mat-board', materialName: 'Tấm thạch cao', unit: 'Tấm', quantity: 100, location: 'Kho', handler: 'Kho', date: '2026-09-05' },
+  { id: 'out-board', type: 'out', materialId: 'mat-board', materialName: 'Tấm thạch cao', unit: 'Tấm', quantity: 5, location: 'Tầng 1', handler: 'Đội Nguyên', date: '2026-09-05', sourceType: 'room-auto', sourceRoomId: 'room-101', sourceFloorId: 'f1', sourceTeamId: 'team-nguyen' },
+];
 const snapshot = createHnlAiProjectSnapshot({
   projectId,
   projectName: 'AI Golden',
@@ -50,8 +58,8 @@ const snapshot = createHnlAiProjectSnapshot({
   teams,
   floors,
   workVolumes,
-  inventory: [],
-  materialNorms: [],
+  inventory,
+  materialNorms,
   checklist: [],
   asOf: 1757044800000,
   freshness: 'fixture',
@@ -62,6 +70,7 @@ assert.equal(isAllowedHnlAiToolName('getTeamSummary'), true);
 assert.equal(isAllowedHnlAiToolName('auditQuantityData'), true);
 assert.equal(isAllowedHnlAiToolName('auditCrewData'), true);
 assert.equal(isAllowedHnlAiToolName('auditProjectIntegrity'), true);
+assert.equal(isAllowedHnlAiToolName('getMaterialNeeds'), true);
 assert.equal(isAllowedHnlAiToolName('db.collection'), false);
 for (const writeLikeName of [
   'createDefect',
@@ -117,6 +126,14 @@ assert.equal(currentProgress.status, 'ok');
 assert.equal((currentProgress.data as any)?.inspectedVolumeByUnit['m²'], 100);
 assert.equal('totalTeamVol' in ((currentProgress.data as any) || {}), false);
 assert.equal((currentProgress.data as any)?.historicalQuantityAvailable, false);
+
+const materialNeeds = executeHnlAiTool({ name: 'getMaterialNeeds', args: { floorId: 'f1', teamRef: 'team-nguyen' } }, { context, snapshot });
+assert.equal(materialNeeds.status, 'ok');
+const materialData = materialNeeds.data as any;
+assert.equal(materialData.lines.find((line: any) => line.materialId === 'mat-board')?.estimatedQty, 35);
+assert.equal(materialData.lines.find((line: any) => line.materialId === 'mat-board')?.alreadyIssued, 5);
+assert.equal(materialData.lines.find((line: any) => line.materialId === 'mat-board')?.remainingQty, 30);
+assert.ok(materialNeeds.assumptions.some((item) => item.includes('Không tự suy m²')));
 
 // Audit tools are read-only, project-scoped and use only the supplied snapshot.
 const snapshotBefore = JSON.stringify(snapshot);

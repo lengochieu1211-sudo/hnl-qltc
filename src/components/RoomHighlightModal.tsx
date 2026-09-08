@@ -33,6 +33,7 @@ import { MathNumberInput } from './MathNumberInput';
 import { createEntityId, createDeterministicId } from '../utils/idUtils';
 import { normalizeUnit, areSameUnit } from '../utils/unitUtils';
 import { buildMaterialAliasMap, getMaterialIdentityKey, resolveNormMaterialId, normalizeMaterialNameKey } from '../utils/inventoryUtils';
+import { computeMaterialNeeds } from '../utils/materialNeedEngine';
 import { MoveOrderControls } from './MoveOrderControls';
 import { ContactMenu } from './ContactMenu';
 
@@ -612,70 +613,56 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     return map;
   }, [inventory, roomItem?.id, roomItem?.roomName, floorName, materialNorms, canonicalMaterialKey]);
 
-  // Sum up material estimates from all active categories based on their volumes
-  const roomMaterialEstimates = React.useMemo(() => {
-    if (!materialNorms || materialNorms.length === 0) return [];
-
-    const accumulated: Record<string, { norm: MaterialNorm; estQty: number; materialId?: string }> = {};
-
-    activeCategories.forEach((cat) => {
-      const catVolume = getCategoryVolume(cat);
-      if (catVolume <= 0) return;
-
-      const matchedWorkVolume = workVolumes.find((v) =>
-        v.id === cat || v.title.trim().toLocaleLowerCase('vi-VN') === cat.trim().toLocaleLowerCase('vi-VN')
-      );
-      const catId = matchedWorkVolume?.id;
-      const matchingNorms = materialNorms.filter((norm) => {
-        // IDs are authoritative. Names are only a compatibility fallback for legacy data.
-        const normIds = norm.workCategoryIds || (norm.workCategoryId ? [norm.workCategoryId] : []);
-        if (normIds.length > 0 && catId) return normIds.includes(catId);
-        const normNames = norm.workCategories || (norm.workCategory ? [norm.workCategory] : []);
-        if (normNames.length === 0 && normIds.length === 0) return true;
-        return normNames.some((name) => name.trim().toLocaleLowerCase('vi-VN') === cat.trim().toLocaleLowerCase('vi-VN'));
-      });
-
-      matchingNorms.forEach((norm) => {
-        let factor = 0;
-        if (catId && norm.workCategoryNormsById && norm.workCategoryNormsById[catId] !== undefined) {
-          factor = norm.workCategoryNormsById[catId];
-        } else if (norm.workCategoryNorms && norm.workCategoryNorms[cat] !== undefined) {
-          factor = norm.workCategoryNorms[cat];
-        } else {
-          const sourceUnit = getCategorySourceUnit(cat);
-          const basisUnit = norm.normBasisUnit || 'm²';
-          factor = areSameUnit(basisUnit, sourceUnit) ? (norm.unitNormPerM2 || 0) : 0;
-        }
-        if (factor <= 0) return;
-
-        const portionQty = catVolume * factor;
-        const materialId = resolveNormMaterialId(norm);
-        const key = canonicalMaterialKey(materialId, norm.materialName, norm.unit);
-        if (accumulated[key]) accumulated[key].estQty += portionQty;
-        else accumulated[key] = { norm, estQty: portionQty, materialId };
-      });
+  // Single source of truth: the same deterministic Material Need Engine is used by
+  // Room, Warehouse floor/team summaries and AI tools. Preserve legacy UI aliases.
+  const roomMaterialNeedResult = React.useMemo(() => {
+    const draftRoom: RoomProgressItem = {
+      ...(roomItem || {} as RoomProgressItem),
+      id: roomItem?.id || '__draft_room__',
+      floorId,
+      floorName,
+      roomName: roomName || 'Căn / Phòng mới',
+      workCategory,
+      workCategoryId: roomItem?.workCategoryId,
+      categoryVolumes,
+      subItems,
+      workVolume: Number(workVolume) || 0,
+      volumeUnit,
+      assignedTeam,
+      teamId: roomItem?.teamId,
+      x: roomItem?.x || 0,
+      y: roomItem?.y || 0,
+      width: roomItem?.width || 1,
+      height: roomItem?.height || 1,
+      frameStatus: roomItem?.frameStatus || 'Chưa làm',
+      boardStatus: roomItem?.boardStatus || 'Chưa làm',
+      inspectionStatus: roomItem?.inspectionStatus || 'Chưa nghiệm thu',
+      updatedAt: roomItem?.updatedAt || Date.now(),
+    };
+    return computeMaterialNeeds({
+      rooms: [draftRoom],
+      materialNorms,
+      inventory,
+      workVolumes,
+      scope: { roomId: draftRoom.id },
     });
+  }, [roomItem, floorId, floorName, roomName, workCategory, categoryVolumes, subItems, workVolume, volumeUnit, assignedTeam, materialNorms, inventory, workVolumes]);
 
-    return Object.entries(accumulated).map(([materialKey, { norm, estQty, materialId }]) => {
-      const roundedEstQty = Math.ceil(estQty * 100) / 100;
-      const stockQty = stockMap[materialKey] || 0;
-      const issued = currentRoomAutoIssuedMap[materialKey] || { total: 0, stableRecordQty: 0 };
-      const remainingQty = Math.max(0, Math.ceil((roundedEstQty - issued.total) * 100) / 100);
-      const overIssuedQty = Math.max(0, Math.ceil((issued.total - roundedEstQty) * 100) / 100);
-      return {
-        ...norm,
-        materialId,
-        materialKey,
-        estQty: roundedEstQty,
-        alreadyIssued: issued.total,
-        stableRecordQty: issued.stableRecordQty,
-        remainingQty,
-        overIssuedQty,
-        stockQty,
-        sufficient: stockQty >= remainingQty,
-      };
-    });
-  }, [materialNorms, activeCategories, getCategoryVolume, stockMap, currentRoomAutoIssuedMap, workVolumes, volumeUnit, canonicalMaterialKey]);
+  const roomMaterialEstimates = React.useMemo(() => roomMaterialNeedResult.lines.map((line) => {
+    const issued = currentRoomAutoIssuedMap[line.materialKey] || { total: line.alreadyIssued, stableRecordQty: 0 };
+    const alreadyIssued = Math.max(line.alreadyIssued, issued.total);
+    const remainingQty = Math.max(0, Math.ceil((line.estimatedQty - alreadyIssued) * 100) / 100);
+    const overIssuedQty = Math.max(0, Math.ceil((alreadyIssued - line.estimatedQty) * 100) / 100);
+    return {
+      ...line,
+      id: line.sourceNormIds[0],
+      estQty: line.estimatedQty,
+      alreadyIssued,
+      stableRecordQty: issued.stableRecordQty,
+      remainingQty,
+      overIssuedQty,
+    };
+  }), [roomMaterialNeedResult.lines, currentRoomAutoIssuedMap]);
 
   const handleAutoIssueForRoom = async () => {
     if (isAutoIssuing) return;
@@ -738,7 +725,9 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
           sourceType: 'room-auto',
           sourceRoomId: roomItem.id,
           sourceFloorId: floorId,
-          sourceNormId: item.id,
+          sourceNormId: item.sourceNormIds?.[0] || item.id,
+          sourceTeamId: roomItem.teamId && (!subItems.some((sub) => sub.teamId && sub.teamId !== roomItem.teamId)) ? roomItem.teamId : undefined,
+          sourceWorkCategoryId: roomItem.workCategoryId,
           sourceIssueKey,
         });
         issuedCount++;
@@ -1739,7 +1728,11 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                             </div>
                             <p className="font-bold text-slate-900 truncate mt-1">{item.materialName}</p>
                             <p className="text-[10px] text-slate-500">
-                              Định mức hao phí: <strong className="text-slate-700">{item.unitNormPerM2} {item.unit}/{item.normBasisUnit || getCategorySourceUnit(item.workCategory || workCategory)}</strong>
+                              {item.normDetails?.length === 1 && item.unitNormPerM2 !== undefined ? (
+                                <>Định mức hao phí: <strong className="text-slate-700">{item.unitNormPerM2} {item.unit}/{item.normBasisUnit || getCategorySourceUnit(item.workCategory || workCategory)}</strong></>
+                              ) : (
+                                <>Tổng hợp từ <strong className="text-slate-700">{item.normDetails?.length || item.sourceNormIds.length}</strong> định mức liên kết.</>
+                              )}
                             </p>
                           </div>
                           <div className="text-right shrink-0">

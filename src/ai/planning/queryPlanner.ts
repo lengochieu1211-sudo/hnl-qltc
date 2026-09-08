@@ -1,4 +1,4 @@
-import type { TeamInfo } from '../../types';
+import type { FloorPlan, TeamInfo } from '../../types';
 import type { AiDateRange, AiQueryContext } from '../core/contracts';
 import { assertCanonicalDateRange, isCanonicalDate } from '../core/dateRange';
 import { normalizeEntityText, normalizeTeamLookupText, resolveTeamReference } from '../core/entityResolver';
@@ -13,6 +13,7 @@ export type HnlAiIntent =
   | 'AUDIT_QUANTITY'
   | 'AUDIT_CREW'
   | 'AUDIT_PROJECT'
+  | 'MATERIAL_NEEDS'
   | 'UNSUPPORTED';
 
 export type HnlAiPlanStatus = 'ready' | 'needs-clarification' | 'unsupported';
@@ -32,6 +33,7 @@ export interface PlanHnlAiQuestionParams {
   question: string;
   context: AiQueryContext;
   teams: TeamInfo[];
+  floors?: FloorPlan[];
   /** Project-local canonical date YYYY-MM-DD supplied by the caller. */
   referenceDate: string;
 }
@@ -157,6 +159,7 @@ function detectIntent(question: string): HnlAiIntent {
   if (auditSignal || hasAny(q, [/\btoan bo logic\b/, /\btoan du an\b/, /\blien ket sai\b/, /\bdu lieu trung\b/])) return 'AUDIT_PROJECT';
 
   if (hasAny(q, [/\bdoi nao\b/, /\btop\s+\d+\s+doi\b/, /\bso sanh cac doi\b/])) return 'UNSUPPORTED';
+  if (hasAny(q, [/\bvat tu\b/, /\bkhung\b/, /\btam\b/, /\bty treo\b/, /\bphu kien\b/, /\bvit\b/]) && hasAny(q, [/\bcan\b/, /\bchuyen\b/, /\bdua\b/, /\bbao nhieu\b/, /\bcon thieu\b/, /\bcon can\b/])) return 'MATERIAL_NEEDS';
 
   const detailSignal = hasAny(q, [
     /\btung hang muc\b/, /\btheo hang muc\b/, /\btang nao\b/, /\btheo tang\b/,
@@ -171,7 +174,7 @@ function detectIntent(question: string): HnlAiIntent {
 }
 
 export function planHnlAiQuestion(params: PlanHnlAiQuestionParams): HnlAiQueryPlan {
-  const { question, context, teams, referenceDate } = params;
+  const { question, context, teams, referenceDate, floors = [] } = params;
   const permission = createAiPermissionScope(context.projectId, context.role, context.accessVerified);
   assertAiProjectAccess(permission, context.projectId);
   assertCanonicalDateRange({ from: referenceDate, to: referenceDate });
@@ -186,6 +189,31 @@ export function planHnlAiQuestion(params: PlanHnlAiQuestionParams): HnlAiQueryPl
   if (intent === 'AUDIT_QUANTITY') return { status: 'ready', intent, normalizedQuestion, toolCall: { name: 'auditQuantityData', args: {} }, clarifications: [], warnings: [] };
   if (intent === 'AUDIT_CREW') return { status: 'ready', intent, normalizedQuestion, toolCall: { name: 'auditCrewData', args: {} }, clarifications: [], warnings: [] };
   if (intent === 'AUDIT_PROJECT') return { status: 'ready', intent, normalizedQuestion, toolCall: { name: 'auditProjectIntegrity', args: {} }, clarifications: [], warnings: [] };
+
+  if (intent === 'MATERIAL_NEEDS') {
+    const q = normalizeEntityText(question);
+    const floorNumber = q.match(/\btang\s+([a-z0-9_-]+)/)?.[1];
+    const floor = floorNumber
+      ? floors.find((item) => normalizeEntityText(item.floorName) === `tang ${floorNumber}` || normalizeEntityText(item.floorName).endsWith(` ${floorNumber}`) || normalizeEntityText(item.floorName) === floorNumber)
+      : undefined;
+    const mentionsTeam = /\b(?:doi|to)\b/.test(q);
+    const teamResolution = mentionsTeam ? extractTeamReference(question, teams) : null;
+    if (mentionsTeam && (!teamResolution || teamResolution.status !== 'resolved' || !teamResolution.team)) {
+      return { status: 'needs-clarification', intent, normalizedQuestion, clarifications: ['Không xác định được teamId duy nhất cho câu hỏi vật tư.'], warnings: [] };
+    }
+    if (floorNumber && !floor) {
+      return { status: 'needs-clarification', intent, normalizedQuestion, clarifications: [`Không xác định được Tầng ${floorNumber} trong dữ liệu dự án.`], warnings: [] };
+    }
+    if (!floor && !teamResolution?.team) {
+      return { status: 'needs-clarification', intent, normalizedQuestion, clarifications: ['Hãy nêu Tầng hoặc Đội cần tổng hợp vật tư.'], warnings: [] };
+    }
+    return {
+      status: 'ready', intent, normalizedQuestion,
+      resolvedTeam: teamResolution?.team ? { id: teamResolution.team.id, name: teamResolution.team.name } : undefined,
+      toolCall: { name: 'getMaterialNeeds', args: { floorId: floor?.id, teamRef: teamResolution?.team?.id } },
+      clarifications: [], warnings: [],
+    };
+  }
 
   if (intent === 'TEAM_SUMMARY' || intent === 'CURRENT_TEAM_PROGRESS' || intent === 'CURRENT_TEAM_DETAIL') {
     const teamResolution = extractTeamReference(question, teams);

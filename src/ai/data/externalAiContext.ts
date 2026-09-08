@@ -1,4 +1,5 @@
 import type { HnlAiProjectSnapshot } from './projectSnapshot';
+import { computeMaterialNeeds } from '../../utils/materialNeedEngine';
 
 export type ExternalAiDataScope = 'progress' | 'quantities' | 'defects' | 'crew' | 'inventory' | 'checklist';
 
@@ -221,6 +222,7 @@ function questionNeeds(question: string) {
     crew: /quân số|quan so|nhân công|nhan cong|công nhật|cong nhat|ngày công|ngay cong/.test(q),
     progress: /tầng|tang|căn|can|phòng|phong|hạng mục|hang muc|tiến độ|tien do/.test(q),
     defects: /defect|lỗi|loi|tồn tại|ton tai/.test(q),
+    material: /vật tư|vat tu|khung|tấm|tam|ty treo|phụ kiện|phu kien|vít|vit/.test(q),
   };
 }
 
@@ -371,6 +373,26 @@ export function buildExternalAiProjectContext(snapshot: HnlAiProjectSnapshot, se
   return result;
 }
 
+function resolveMaterialScope(question: string, snapshot: HnlAiProjectSnapshot) {
+  const q = normalizedText(question);
+  const targets = detectMentionedTeams(question, snapshot);
+  const floorToken = q.match(/(?:^|\s)tầng\s+([a-z0-9_-]+)/i)?.[1] || q.match(/(?:^|\s)tang\s+([a-z0-9_-]+)/i)?.[1] || '';
+  const floor = floorToken
+    ? active(snapshot.floors).find((item) => {
+        const name = normalizedText(item.floorName);
+        return name === `tầng ${floorToken}` || name === `tang ${floorToken}` || name.endsWith(` ${floorToken}`) || name === floorToken;
+      })
+    : undefined;
+  return {
+    floorId: floor?.id,
+    floorName: floor?.floorName || '',
+    floorMentioned: Boolean(floorToken),
+    teamId: targets.length === 1 ? targets[0].id : undefined,
+    teamName: targets.length === 1 ? targets[0].name : '',
+    teamAmbiguous: targets.length > 1,
+  };
+}
+
 function buildQuestionFocusedContext(question: string, snapshot: HnlAiProjectSnapshot, selection: ExternalAiDataSelection) {
   const targets = detectMentionedTeams(question, snapshot);
   const needs = questionNeeds(question);
@@ -383,6 +405,50 @@ function buildQuestionFocusedContext(question: string, snapshot: HnlAiProjectSna
     historicalQuantity: 'Quantity is a current snapshot unless a dated immutable quantity ledger exists. Do not assign snapshot quantity to a past date range.',
   };
   if (targets.length > 0) context.requestedTeams = targets;
+
+  if (needs.material) {
+    const scope = resolveMaterialScope(question, snapshot);
+    // Material questions are fail-closed: the external model receives the deterministic
+    // result only, never raw norms/inventory that would let it recompute or invent quantities.
+    delete context.inventory;
+    delete context.materialNorms;
+    context.aiContract.materialCalculation = 'STRICT: Use deterministicMaterialNeeds exactly. Do not calculate material quantities from m²/raw norms.';
+    if (!selection.inventory) {
+      context.deterministicMaterialNeeds = {
+        status: 'permission-required',
+        message: 'Chưa cho phép nhóm dữ liệu Vật tư trong câu hỏi này. Không được suy đoán.',
+      };
+    } else if (scope.teamAmbiguous || (scope.floorMentioned && !scope.floorId) || (!scope.floorId && !scope.teamId)) {
+      context.deterministicMaterialNeeds = {
+        status: 'insufficient-scope',
+        message: scope.teamAmbiguous
+          ? 'Có nhiều đội được nhắc tới; cần một teamId duy nhất.'
+          : scope.floorMentioned && !scope.floorId
+            ? 'Không resolve được floorId từ tầng được hỏi.'
+            : 'Cần nêu rõ Tầng hoặc Đội để tổng hợp vật tư.',
+      };
+    } else {
+      const result = computeMaterialNeeds({
+        rooms: [...snapshot.rooms],
+        materialNorms: [...snapshot.materialNorms],
+        inventory: [...snapshot.inventory],
+        workVolumes: [...snapshot.workVolumes],
+        teams: [...snapshot.teams],
+        scope: { floorId: scope.floorId, teamId: scope.teamId },
+      });
+      context.deterministicMaterialNeeds = {
+        status: result.lines.length === 0 ? 'insufficient-data' : result.failClosed ? 'partial' : 'ok',
+        scope: { floorId: scope.floorId || '', floorName: scope.floorName, teamId: scope.teamId || '', teamName: scope.teamName },
+        lines: result.lines.map((line) => ({
+          materialId: line.materialId || '', materialName: line.materialName, category: line.category, unit: line.unit,
+          totalNeed: line.estimatedQty, issuedAllocated: line.alreadyIssued, issuedUnallocated: line.unallocatedIssued,
+          remainingNeed: line.remainingQty, projectStock: line.stockQty, deficit: line.deficitQty,
+        })),
+        warnings: result.warnings.map((warning) => warning.message),
+        failClosed: result.failClosed,
+      };
+    }
+  }
 
   if (selection.quantities && (needs.quantity || targets.length > 0)) {
     const allRows = buildQuantityRows(snapshot);

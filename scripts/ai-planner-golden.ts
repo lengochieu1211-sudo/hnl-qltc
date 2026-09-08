@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import type { TeamInfo } from '../src/types';
+import type { FloorPlan, TeamInfo } from '../src/types';
 import type { AiQueryContext, AiToolResult } from '../src/ai/core/contracts';
 import { planHnlAiQuestion } from '../src/ai/planning/queryPlanner';
 import { HnlAiToolValidationError, validateHnlAiToolCall } from '../src/ai/tools/toolValidation';
@@ -17,6 +17,9 @@ const context: AiQueryContext = {
   timeZone: 'Asia/Ho_Chi_Minh',
 };
 const referenceDate = '2026-09-05';
+const floors: FloorPlan[] = [
+  { id: 'floor-3', floorName: 'Tầng 3', imageUrl: '', uploadedAt: '2026-09-05' },
+];
 const teams: TeamInfo[] = [
   { id: 'team-nguyen', name: 'Đội Nguyên', leader: 'Nguyên', defaultCount: 10 },
   { id: 'team-nguyen-2', name: 'Đội Nguyên 2', leader: 'N2', defaultCount: 8 },
@@ -55,6 +58,37 @@ const currentTeam = planHnlAiQuestion({
 });
 assert.equal(currentTeam.status, 'ready');
 assert.deepEqual(currentTeam.toolCall, { name: 'getCurrentTeamProgress', args: { teamRef: 'team-nguyen' } });
+
+const materialFloor = planHnlAiQuestion({
+  question: 'Tầng 3 cần chuyển bao nhiêu khung, tấm và phụ kiện?',
+  context,
+  teams,
+  floors,
+  referenceDate,
+});
+assert.equal(materialFloor.status, 'ready');
+assert.equal(materialFloor.intent, 'MATERIAL_NEEDS');
+assert.deepEqual(materialFloor.toolCall, { name: 'getMaterialNeeds', args: { floorId: 'floor-3', teamRef: undefined } });
+
+const materialTeamFloor = planHnlAiQuestion({
+  question: 'Đội An ở Tầng 3 còn cần vật tư gì?',
+  context,
+  teams,
+  floors,
+  referenceDate,
+});
+assert.equal(materialTeamFloor.status, 'ready');
+assert.deepEqual(materialTeamFloor.toolCall, { name: 'getMaterialNeeds', args: { floorId: 'floor-3', teamRef: 'team-an' } });
+
+const unknownFloorMaterial = planHnlAiQuestion({
+  question: 'Tầng 99 cần vật tư gì?',
+  context,
+  teams,
+  floors,
+  referenceDate,
+});
+assert.equal(unknownFloorMaterial.status, 'needs-clarification');
+assert.equal(unknownFloorMaterial.toolCall, undefined);
 
 const projectAudit = planHnlAiQuestion({
   question: 'Kiểm tra toàn bộ logic dữ liệu dự án có bất thường không.',
@@ -117,6 +151,14 @@ assert.deepEqual(validateHnlAiToolCall({ name: 'auditProjectIntegrity', args: {}
 assert.deepEqual(
   validateHnlAiToolCall({ name: 'getTeamSummary', args: { teamRef: 'team-nguyen', dateRange: { from: '2026-08-01', to: '2026-08-15' } } }),
   { name: 'getTeamSummary', args: { teamRef: 'team-nguyen', dateRange: { from: '2026-08-01', to: '2026-08-15' } } },
+);
+assert.deepEqual(
+  validateHnlAiToolCall({ name: 'getMaterialNeeds', args: { floorId: 'floor-3', teamRef: 'team-an' } }),
+  { name: 'getMaterialNeeds', args: { floorId: 'floor-3', teamRef: 'team-an' } },
+);
+assert.throws(
+  () => validateHnlAiToolCall({ name: 'getMaterialNeeds', args: {} }),
+  HnlAiToolValidationError,
 );
 assert.throws(
   () => validateHnlAiToolCall({ name: 'db.collection', args: { path: 'projects' } }),

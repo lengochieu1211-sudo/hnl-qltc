@@ -1,5 +1,6 @@
 import type { TeamInfo } from '../../types';
 import { calculateTeamStatistics } from '../../utils/teamUtils';
+import { computeMaterialNeeds } from '../../utils/materialNeedEngine';
 import { auditCrewData } from '../audit/crewAudit';
 import { auditDefectLinks } from '../audit/defectAudit';
 import { auditProjectViaHealthCenter } from '../audit/healthCenterAiAudit';
@@ -24,6 +25,7 @@ export const HNL_AI_TOOL_NAMES = [
   'auditQuantityData',
   'auditCrewData',
   'auditProjectIntegrity',
+  'getMaterialNeeds',
 ] as const;
 
 export type HnlAiToolName = (typeof HNL_AI_TOOL_NAMES)[number];
@@ -46,11 +48,17 @@ export interface GetCurrentTeamProgressArgs {
   teamRef: string;
 }
 
+export interface GetMaterialNeedsArgs {
+  floorId?: string;
+  teamRef?: string;
+}
+
 export type HnlAiToolArgs =
   | { name: 'resolveTeam'; args: ResolveTeamArgs }
   | { name: 'getTeamSummary'; args: GetTeamSummaryArgs }
   | { name: 'getCurrentTeamProgress'; args: GetCurrentTeamProgressArgs }
   | { name: 'getCurrentTeamProgressDetail'; args: GetCurrentTeamProgressArgs }
+  | { name: 'getMaterialNeeds'; args: GetMaterialNeedsArgs }
   | { name: 'auditDefectLinks'; args: Record<string, never> }
   | { name: 'auditQuantityData'; args: Record<string, never> }
   | { name: 'auditCrewData'; args: Record<string, never> }
@@ -231,6 +239,45 @@ function currentTeamProgress(runtime: HnlAiToolRuntime, team: TeamInfo): AiToolR
   };
 }
 
+
+function materialNeedsResult(runtime: HnlAiToolRuntime, args: GetMaterialNeedsArgs): AiToolResult<ReturnType<typeof computeMaterialNeeds>> {
+  const team = args.teamRef ? requireResolvedTeam(args.teamRef, runtime.snapshot.teams) : undefined;
+  const result = computeMaterialNeeds({
+    rooms: [...runtime.snapshot.rooms],
+    materialNorms: [...runtime.snapshot.materialNorms],
+    inventory: [...runtime.snapshot.inventory],
+    workVolumes: [...runtime.snapshot.workVolumes],
+    teams: [...runtime.snapshot.teams],
+    scope: { floorId: args.floorId, teamId: team?.id },
+  });
+  const facts: AiFact[] = result.lines.flatMap((line, index) => [
+    { id: `material:${index}:need`, kind: 'CALCULATED' as const, label: `${line.materialName} - tổng cần`, value: line.estimatedQty, unit: line.unit, method: 'Material Need Engine deterministic' },
+    { id: `material:${index}:remaining`, kind: 'CALCULATED' as const, label: `${line.materialName} - còn cần`, value: line.remainingQty, unit: line.unit, method: 'Nhu cầu định mức trừ phiếu xuất có provenance xác định' },
+  ]);
+  return {
+    status: result.lines.length === 0 ? 'insufficient-data' : result.failClosed ? 'partial' : 'ok',
+    data: result,
+    facts,
+    evidence: [],
+    metadata: {
+      projectId: runtime.context.projectId,
+      tool: 'getMaterialNeeds',
+      sourceCollections: ['rooms', 'work_volumes', 'material_norms', 'inventory', 'teams'],
+      recordsScanned: runtime.snapshot.rooms.length + runtime.snapshot.workVolumes.length + runtime.snapshot.materialNorms.length + runtime.snapshot.inventory.length + runtime.snapshot.teams.length,
+      recordsUsed: result.lines.length,
+      asOf: runtime.snapshot.asOf,
+      freshness: runtime.snapshot.freshness,
+      permissionRole: runtime.context.role,
+      dataVersion: 'hnl-material-need-v1',
+    },
+    warnings: result.warnings.map((warning) => warning.message),
+    assumptions: [
+      'Không tự suy m² thành vật tư: mọi số lượng đi qua Material Need Engine và định mức đã cấu hình.',
+      'Phiếu xuất thiếu team provenance chỉ trừ khi teamId có thể chứng minh duy nhất; nếu mơ hồ thì giữ chưa phân bổ.',
+    ],
+  };
+}
+
 /**
  * Strict whitelist executor. Model/provider layers may only request one of the typed tool
  * names below. No JavaScript, Firestore path, collection name, or arbitrary query string
@@ -272,6 +319,9 @@ export function executeHnlAiTool(request: HnlAiToolArgs, runtime: HnlAiToolRunti
         freshness: runtime.snapshot.freshness,
         asOf: runtime.snapshot.asOf,
       });
+    }
+    case 'getMaterialNeeds': {
+      return materialNeedsResult(runtime, request.args);
     }
     case 'auditDefectLinks': {
       return auditDefectLinks({

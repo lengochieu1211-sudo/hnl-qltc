@@ -106,6 +106,7 @@ export async function runHnlAiQuestion(params: RunHnlAiQuestionParams): Promise<
     question: params.question,
     context: runtime.context,
     teams: activeTeams,
+    floors: [...runtime.snapshot.floors],
     referenceDate: params.referenceDate,
   });
 

@@ -6221,6 +6221,8 @@ export default function App() {
               canUndo={isProjectRoleResolved && canUseGlobalUndoRedo(currentUserRole) && past.length > 0}
               canRedo={isProjectRoleResolved && canUseGlobalUndoRedo(currentUserRole) && future.length > 0}
               workVolumes={computedWorkVolumes}
+              roomProgressList={roomProgressList}
+              teams={teams}
               onImportInventory={handleImportInventory}
               onImportNorms={handleImportNorms}
               onImportWorkVolumes={(importedVolumes) => {

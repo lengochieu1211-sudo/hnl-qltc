@@ -23,7 +23,7 @@ import {
   Upload,
   Edit2
 } from 'lucide-react';
-import { InventoryItem, TransactionType, MaterialNorm, WorkVolume } from '../types';
+import { InventoryItem, TransactionType, MaterialNorm, WorkVolume, RoomProgressItem, TeamInfo } from '../types';
 import { formatDateDDMMYYYY, formatExcelDate } from '../utils/dateFormatter';
 import { formatDecimal, evaluateMathExpression, useFormatSettings, parseVietnameseNumber, parseExcelNumber } from '../utils/numberUtils';
 import * as XLSX from 'xlsx';
@@ -35,6 +35,7 @@ import { createEntityId } from '../utils/idUtils';
 import { normalizeUnit } from '../utils/unitUtils';
 import { QuickSortBar } from './QuickSortBar';
 import { FIREBASE_ONLY_RUNTIME } from '../config/runtimeArchitecture';
+import { computeMaterialNeeds } from '../utils/materialNeedEngine';
 import { UserRole, canEditWarehouseData, canDeleteBusinessData, canImportData, canManageMaterialNorms } from '../utils/securityUtils';
 
 interface WarehouseTabProps {
@@ -58,6 +59,8 @@ interface WarehouseTabProps {
   onImportInventory?: (inventory: InventoryItem[]) => void | Promise<void>;
   onImportNorms?: (norms: MaterialNorm[]) => void;
   onImportWorkVolumes?: (volumes: WorkVolume[]) => void;
+  roomProgressList?: RoomProgressItem[];
+  teams?: TeamInfo[];
 }
 
 export const WarehouseTab: React.FC<WarehouseTabProps> = ({
@@ -81,6 +84,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   onImportInventory,
   onImportNorms,
   onImportWorkVolumes,
+  roomProgressList = [],
+  teams = [],
 }) => {
   const { t } = useLanguage();
   const hasEditAccess = roleResolved && canEditWarehouseData(userRole);
@@ -95,6 +100,33 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingInventory, setEditingInventory] = useState<InventoryItem | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
+  const [materialNeedMode, setMaterialNeedMode] = useState<'floor' | 'team'>('floor');
+  const [materialNeedFloorId, setMaterialNeedFloorId] = useState<string>('');
+  const [materialNeedTeamId, setMaterialNeedTeamId] = useState<string>('');
+
+  const materialNeedFloors = useMemo(() => {
+    const map = new Map<string, string>();
+    roomProgressList.forEach((room) => {
+      if (room.floorId) map.set(room.floorId, room.floorName || room.floorId);
+    });
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => naturalCompare(a.name, b.name));
+  }, [roomProgressList]);
+
+  useEffect(() => {
+    if (!materialNeedFloorId && materialNeedFloors.length > 0) setMaterialNeedFloorId(materialNeedFloors[0].id);
+  }, [materialNeedFloorId, materialNeedFloors]);
+
+  const materialNeedResult = useMemo(() => computeMaterialNeeds({
+    rooms: roomProgressList,
+    materialNorms,
+    inventory,
+    workVolumes: workVolumes || [],
+    teams,
+    scope: {
+      floorId: materialNeedFloorId || undefined,
+      teamId: materialNeedMode === 'team' ? (materialNeedTeamId || undefined) : undefined,
+    },
+  }), [roomProgressList, materialNorms, inventory, workVolumes, teams, materialNeedFloorId, materialNeedMode, materialNeedTeamId]);
 
   useEffect(() => {
     if (!hasEditAccess) {
@@ -187,6 +219,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             const rawSourceType = row['__sourceType'] || row['sourceType'];
             const rawSourceRoomId = row['__sourceRoomId'] || row['sourceRoomId'];
             const rawSourceFloorId = row['__sourceFloorId'] || row['sourceFloorId'];
+            const rawSourceTeamId = row['__sourceTeamId'] || row['sourceTeamId'];
+            const rawSourceWorkCategoryId = row['__sourceWorkCategoryId'] || row['sourceWorkCategoryId'];
             const rawSourceNormId = row['__sourceNormId'] || row['sourceNormId'];
             const rawSourceIssueKey = row['__sourceIssueKey'] || row['sourceIssueKey'];
 
@@ -208,6 +242,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               sourceType: rawSourceType ? String(rawSourceType).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceType : undefined),
               sourceRoomId: rawSourceRoomId ? String(rawSourceRoomId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceRoomId : undefined),
               sourceFloorId: rawSourceFloorId ? String(rawSourceFloorId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceFloorId : undefined),
+              sourceTeamId: rawSourceTeamId ? String(rawSourceTeamId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceTeamId : undefined),
+              sourceWorkCategoryId: rawSourceWorkCategoryId ? String(rawSourceWorkCategoryId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceWorkCategoryId : undefined),
               sourceNormId: rawSourceNormId ? String(rawSourceNormId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceNormId : undefined),
               sourceIssueKey: rawSourceIssueKey ? String(rawSourceIssueKey).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceIssueKey : undefined)
             };
@@ -252,6 +288,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             const rawSourceType = row['__sourceType'] || row['sourceType'];
             const rawSourceRoomId = row['__sourceRoomId'] || row['sourceRoomId'];
             const rawSourceFloorId = row['__sourceFloorId'] || row['sourceFloorId'];
+            const rawSourceTeamId = row['__sourceTeamId'] || row['sourceTeamId'];
+            const rawSourceWorkCategoryId = row['__sourceWorkCategoryId'] || row['sourceWorkCategoryId'];
             const rawSourceNormId = row['__sourceNormId'] || row['sourceNormId'];
             const rawSourceIssueKey = row['__sourceIssueKey'] || row['sourceIssueKey'];
 
@@ -273,6 +311,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               sourceType: rawSourceType ? String(rawSourceType).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceType : undefined),
               sourceRoomId: rawSourceRoomId ? String(rawSourceRoomId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceRoomId : undefined),
               sourceFloorId: rawSourceFloorId ? String(rawSourceFloorId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceFloorId : undefined),
+              sourceTeamId: rawSourceTeamId ? String(rawSourceTeamId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceTeamId : undefined),
+              sourceWorkCategoryId: rawSourceWorkCategoryId ? String(rawSourceWorkCategoryId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceWorkCategoryId : undefined),
               sourceNormId: rawSourceNormId ? String(rawSourceNormId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceNormId : undefined),
               sourceIssueKey: rawSourceIssueKey ? String(rawSourceIssueKey).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceIssueKey : undefined)
             };
@@ -888,6 +928,63 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       </div>
 
       {/* Cảnh Báo Gần Hết Vật Tư */}
+      <section className="mb-4 rounded-2xl border border-indigo-200 bg-indigo-50/50 p-4 shadow-sm">
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-extrabold text-slate-900">Gợi ý vật tư tổng hợp</h3>
+              <p className="text-[11px] text-slate-600">Dùng cùng Material Need Engine với Căn; phiếu không chứng minh được đội sẽ không bị trừ bừa.</p>
+            </div>
+            <div className="flex rounded-xl bg-white p-1 border border-indigo-100">
+              <button type="button" onClick={() => setMaterialNeedMode('floor')} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${materialNeedMode === 'floor' ? 'bg-indigo-600 text-white' : 'text-slate-600'}`}>Theo Tầng</button>
+              <button type="button" onClick={() => setMaterialNeedMode('team')} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${materialNeedMode === 'team' ? 'bg-indigo-600 text-white' : 'text-slate-600'}`}>Theo Đội</button>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <select value={materialNeedFloorId} onChange={(e) => setMaterialNeedFloorId(e.target.value)} className="rounded-xl border border-slate-200 bg-white p-2 text-xs font-semibold">
+              {materialNeedFloors.length === 0 && <option value="">Chưa có tầng</option>}
+              {materialNeedFloors.map((floor) => <option key={floor.id} value={floor.id}>{floor.name}</option>)}
+            </select>
+            {materialNeedMode === 'team' && (
+              <select value={materialNeedTeamId} onChange={(e) => setMaterialNeedTeamId(e.target.value)} className="rounded-xl border border-slate-200 bg-white p-2 text-xs font-semibold">
+                <option value="">Chọn đội</option>
+                {teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+              </select>
+            )}
+          </div>
+          {materialNeedMode === 'team' && !materialNeedTeamId ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">Chọn một đội để tính nhu cầu theo teamId. Hệ thống không dùng tên đội làm khóa.</div>
+          ) : materialNeedResult.lines.length === 0 ? (
+            <div className="rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-600">Chưa có nhu cầu vật tư xác định cho phạm vi đã chọn.</div>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-indigo-100 bg-white">
+              <table className="min-w-full text-[11px]">
+                <thead className="bg-slate-50 text-slate-600"><tr><th className="p-2 text-left">Vật tư</th><th className="p-2 text-right">Tổng cần</th><th className="p-2 text-right">Đã xuất</th>{materialNeedMode === 'team' && <th className="p-2 text-right">Chưa phân bổ</th>}<th className="p-2 text-right">Còn cần</th><th className="p-2 text-right">Tồn kho</th><th className="p-2 text-right">Thiếu</th></tr></thead>
+                <tbody>
+                  {materialNeedResult.lines.map((line) => (
+                    <tr key={line.materialKey} className="border-t border-slate-100">
+                      <td className="p-2"><div className="font-bold text-slate-800">{line.materialName}</div><div className="text-[10px] text-slate-500">{line.category} · {line.unit}</div></td>
+                      <td className="p-2 text-right font-semibold">{formatDecimal(line.estimatedQty)}</td>
+                      <td className="p-2 text-right text-emerald-700">{formatDecimal(line.alreadyIssued)}</td>
+                      {materialNeedMode === 'team' && <td className="p-2 text-right text-amber-700">{formatDecimal(line.unallocatedIssued)}</td>}
+                      <td className="p-2 text-right font-bold text-indigo-700">{formatDecimal(line.remainingQty)}</td>
+                      <td className="p-2 text-right">{formatDecimal(line.stockQty)}</td>
+                      <td className={`p-2 text-right font-bold ${line.deficitQty > 0 ? 'text-rose-600' : 'text-slate-400'}`}>{formatDecimal(line.deficitQty)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {materialNeedResult.warnings.length > 0 && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] text-amber-900">
+              <div className="font-bold mb-1">Thiếu liên kết/định mức — hệ thống đang fail-closed:</div>
+              <ul className="list-disc pl-4 space-y-0.5">{materialNeedResult.warnings.slice(0, 8).map((w, idx) => <li key={`${w.code}-${idx}`}>{w.message}</li>)}</ul>
+            </div>
+          )}
+        </div>
+      </section>
+
       {lowStockItems.length > 0 && (
         <div className="bg-amber-50/75 border border-amber-200 rounded-2xl p-3.5 space-y-2">
           <div className="flex items-center gap-1.5 text-amber-800">
