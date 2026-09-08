@@ -1,0 +1,75 @@
+name: Promote AI Material Raw to DEV
+
+on:
+  push:
+    branches: [gate/ai-material-raw-20260908]
+    paths:
+      - '.github/workflows/ai-material-raw-promote-dev.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  certify_and_promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout gate controller
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reconstruct exact candidate on certified DEV parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='0a46762829131c4388d90a8fffba431a5e88b5fd'
+          cat .gate/ai-material-raw.patch.part{1,2,3,4} > /tmp/candidate.patch
+          test "$(git rev-parse origin/dev)" = "$BASE"
+          git checkout --detach "$BASE"
+          git apply --check /tmp/candidate.patch
+          git apply /tmp/candidate.patch
+          git diff --name-only | sort > /tmp/actual.txt
+          cat > /tmp/expected.txt <<'EOF'
+          scripts/ai-external-context-golden.ts
+          scripts/ai-planner-golden.ts
+          src/ai/data/externalAiContext.ts
+          src/ai/planning/queryPlanner.ts
+          src/ai/tools/toolRegistry.ts
+          src/ai/tools/toolValidation.ts
+          src/features/ai/AiAssistantPage.tsx
+          EOF
+          sed -i 's/^          //' /tmp/expected.txt
+          sort -o /tmp/expected.txt /tmp/expected.txt
+          diff -u /tmp/expected.txt /tmp/actual.txt
+          git diff --exit-code -- package.json package-lock.json .firebaserc firebase.json firebase.prod.json firestore.rules storage.rules .github/workflows
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Focused AI regressions
+        run: |
+          npm run test:ai-planner
+          npm run test:ai-tools
+          npm run test:ai-external-context
+
+      - name: Full release gate
+        run: npm run verify
+
+      - name: Commit source-only candidate and fast-forward DEV
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='0a46762829131c4388d90a8fffba431a5e88b5fd'
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "$BASE"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          xargs -a /tmp/expected.txt git add --
+          git diff --cached --name-only | sort > /tmp/staged.txt
+          diff -u /tmp/expected.txt /tmp/staged.txt
+          git diff --cached --exit-code -- package.json package-lock.json .firebaserc firebase.json firebase.prod.json firestore.rules storage.rules .github/workflows
+          git commit -m 'fix: deterministic multi-floor material AI and raw project analysis'
+          test "$(git rev-parse HEAD^)" = "$BASE"
+          git push origin HEAD:dev
