@@ -6223,6 +6223,7 @@ export default function App() {
               workVolumes={computedWorkVolumes}
               roomProgressList={roomProgressList}
               teams={teams}
+              floorPlans={floorPlans}
               onImportInventory={handleImportInventory}
               onImportNorms={handleImportNorms}
               onImportWorkVolumes={(importedVolumes) => {

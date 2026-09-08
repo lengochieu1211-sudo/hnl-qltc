@@ -21,9 +21,11 @@ import {
   AlertCircle,
   Download,
   Upload,
-  Edit2
+  Edit2,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
-import { InventoryItem, TransactionType, MaterialNorm, WorkVolume, RoomProgressItem, TeamInfo } from '../types';
+import { InventoryItem, TransactionType, MaterialNorm, WorkVolume, RoomProgressItem, TeamInfo, FloorPlan } from '../types';
 import { formatDateDDMMYYYY, formatExcelDate } from '../utils/dateFormatter';
 import { formatDecimal, evaluateMathExpression, useFormatSettings, parseVietnameseNumber, parseExcelNumber } from '../utils/numberUtils';
 import * as XLSX from 'xlsx';
@@ -61,6 +63,7 @@ interface WarehouseTabProps {
   onImportWorkVolumes?: (volumes: WorkVolume[]) => void;
   roomProgressList?: RoomProgressItem[];
   teams?: TeamInfo[];
+  floorPlans?: FloorPlan[];
 }
 
 export const WarehouseTab: React.FC<WarehouseTabProps> = ({
@@ -86,6 +89,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   onImportWorkVolumes,
   roomProgressList = [],
   teams = [],
+  floorPlans = [],
 }) => {
   const { t } = useLanguage();
   const hasEditAccess = roleResolved && canEditWarehouseData(userRole);
@@ -103,14 +107,34 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [materialNeedMode, setMaterialNeedMode] = useState<'floor' | 'team'>('floor');
   const [materialNeedFloorId, setMaterialNeedFloorId] = useState<string>('');
   const [materialNeedTeamId, setMaterialNeedTeamId] = useState<string>('');
+  const [isMaterialNeedExpanded, setIsMaterialNeedExpanded] = useState(true);
 
   const materialNeedFloors = useMemo(() => {
     const map = new Map<string, string>();
-    roomProgressList.forEach((room) => {
-      if (room.floorId) map.set(room.floorId, room.floorName || room.floorId);
+
+    // FloorPlan is the canonical source for display names. Room records can be
+    // legacy/incomplete and must never overwrite a valid floor name with fp-* ID.
+    floorPlans.forEach((floor) => {
+      const id = String(floor.id || '').trim();
+      const name = String(floor.floorName || '').trim();
+      if (id) map.set(id, name || id);
     });
-    return Array.from(map.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => naturalCompare(a.name, b.name));
-  }, [roomProgressList]);
+
+    roomProgressList.forEach((room) => {
+      const id = String(room.floorId || '').trim();
+      if (!id) return;
+      const roomName = String(room.floorName || '').trim();
+      const existing = map.get(id);
+      const existingIsTechnicalId = !existing || existing === id || /^fp[-_]/i.test(existing);
+      if (!existing || (existingIsTechnicalId && roomName && roomName !== id && !/^fp[-_]/i.test(roomName))) {
+        map.set(id, roomName || existing || id);
+      }
+    });
+
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => naturalCompare(a.name, b.name));
+  }, [floorPlans, roomProgressList]);
 
   useEffect(() => {
     if (!materialNeedFloorId && materialNeedFloors.length > 0) setMaterialNeedFloorId(materialNeedFloors[0].id);
@@ -927,19 +951,32 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         </div>
       </div>
 
-      {/* Cảnh Báo Gần Hết Vật Tư */}
+      {/* Gợi ý vật tư tổng hợp */}
       <section className="mb-4 rounded-2xl border border-indigo-200 bg-indigo-50/50 p-4 shadow-sm">
         <div className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
               <h3 className="text-sm font-extrabold text-slate-900">Gợi ý vật tư tổng hợp</h3>
               <p className="text-[11px] text-slate-600">Dùng cùng Material Need Engine với Căn; phiếu không chứng minh được đội sẽ không bị trừ bừa.</p>
             </div>
-            <div className="flex rounded-xl bg-white p-1 border border-indigo-100">
+            <button
+              type="button"
+              onClick={() => setIsMaterialNeedExpanded((value) => !value)}
+              className="shrink-0 inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-indigo-700 active:scale-95"
+              aria-expanded={isMaterialNeedExpanded}
+              aria-controls="material-need-details"
+            >
+              {isMaterialNeedExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              {isMaterialNeedExpanded ? 'Thu gọn' : 'Mở rộng'}
+            </button>
+          </div>
+
+          {isMaterialNeedExpanded && (
+          <div id="material-need-details" className="flex flex-col gap-3">
+            <div className="flex rounded-xl bg-white p-1 border border-indigo-100 self-start">
               <button type="button" onClick={() => setMaterialNeedMode('floor')} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${materialNeedMode === 'floor' ? 'bg-indigo-600 text-white' : 'text-slate-600'}`}>Theo Tầng</button>
               <button type="button" onClick={() => setMaterialNeedMode('team')} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${materialNeedMode === 'team' ? 'bg-indigo-600 text-white' : 'text-slate-600'}`}>Theo Đội</button>
             </div>
-          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <select value={materialNeedFloorId} onChange={(e) => setMaterialNeedFloorId(e.target.value)} className="rounded-xl border border-slate-200 bg-white p-2 text-xs font-semibold">
               {materialNeedFloors.length === 0 && <option value="">Chưa có tầng</option>}
@@ -957,9 +994,9 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           ) : materialNeedResult.lines.length === 0 ? (
             <div className="rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-600">Chưa có nhu cầu vật tư xác định cho phạm vi đã chọn.</div>
           ) : (
-            <div className="overflow-x-auto rounded-xl border border-indigo-100 bg-white">
-              <table className="min-w-full text-[11px]">
-                <thead className="bg-slate-50 text-slate-600"><tr><th className="p-2 text-left">Vật tư</th><th className="p-2 text-right">Tổng cần</th><th className="p-2 text-right">Đã xuất</th>{materialNeedMode === 'team' && <th className="p-2 text-right">Chưa phân bổ</th>}<th className="p-2 text-right">Còn cần</th><th className="p-2 text-right">Tồn kho</th><th className="p-2 text-right">Thiếu</th></tr></thead>
+            <div className="max-h-[52vh] overflow-auto overscroll-contain rounded-xl border border-indigo-100 bg-white sm:max-h-[28rem]">
+              <table className="min-w-[720px] w-full text-[11px]">
+                <thead className="sticky top-0 z-10 bg-slate-50 text-slate-600"><tr><th className="p-2 text-left">Vật tư</th><th className="p-2 text-right">Tổng cần</th><th className="p-2 text-right">Đã xuất</th>{materialNeedMode === 'team' && <th className="p-2 text-right">Chưa phân bổ</th>}<th className="p-2 text-right">Còn cần</th><th className="p-2 text-right">Tồn kho</th><th className="p-2 text-right">Thiếu</th></tr></thead>
                 <tbody>
                   {materialNeedResult.lines.map((line) => (
                     <tr key={line.materialKey} className="border-t border-slate-100">
@@ -981,6 +1018,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               <div className="font-bold mb-1">Thiếu liên kết/định mức — hệ thống đang fail-closed:</div>
               <ul className="list-disc pl-4 space-y-0.5">{materialNeedResult.warnings.slice(0, 8).map((w, idx) => <li key={`${w.code}-${idx}`}>{w.message}</li>)}</ul>
             </div>
+          )}
+          </div>
           )}
         </div>
       </section>
