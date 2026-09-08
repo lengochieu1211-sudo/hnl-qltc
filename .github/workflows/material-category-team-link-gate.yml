@@ -1,0 +1,58 @@
+name: Material Category Team Link Gate
+
+on:
+  push:
+    branches: [gate/material-category-team-link-20260909]
+    paths:
+      - '.gate/material-category-team-link.patch'
+      - '.github/workflows/material-category-team-link-gate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout gate branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reconstruct exact candidate on DEV parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='bf3fdb6b87032787db2b56facf1aa5e9cd544806'
+          git checkout --detach "$BASE"
+          git apply --check "$GITHUB_WORKSPACE/.gate/material-category-team-link.patch" || {
+            git show "gate/material-category-team-link-20260909:.gate/material-category-team-link.patch" > /tmp/material.patch
+            git apply --check /tmp/material.patch
+            git apply /tmp/material.patch
+          }
+          if git diff --quiet; then
+            git show "gate/material-category-team-link-20260909:.gate/material-category-team-link.patch" > /tmp/material.patch
+            git apply /tmp/material.patch
+          fi
+          git diff --name-only | sort > /tmp/actual.txt
+          printf '%s\n' 'scripts/material-need-golden.ts' 'src/utils/materialNeedEngine.ts' | sort > /tmp/expected.txt
+          diff -u /tmp/expected.txt /tmp/actual.txt
+          git diff --exit-code -- package.json package-lock.json .firebaserc firebase.json firebase.prod.json firestore.rules storage.rules .github/workflows
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Material linkage golden
+        run: npm run test:material-need
+
+      - name: Full release gate
+        run: npm run verify
+
+      - name: Final drift check
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --name-only | sort > /tmp/final.txt
+          diff -u /tmp/expected.txt /tmp/final.txt
