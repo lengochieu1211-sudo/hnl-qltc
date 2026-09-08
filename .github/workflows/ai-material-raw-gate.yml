@@ -1,0 +1,65 @@
+name: AI Material Raw Gate
+
+on:
+  push:
+    branches: [gate/ai-material-raw-20260908]
+    paths:
+      - '.github/workflows/ai-material-raw-gate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout gate branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify baseline and apply candidate patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='0a46762829131c4388d90a8fffba431a5e88b5fd'
+          git merge-base --is-ancestor "$BASE" HEAD
+          cat .gate/ai-material-raw.patch.part{1,2,3,4} > /tmp/candidate.patch
+          git apply --check /tmp/candidate.patch
+          git apply /tmp/candidate.patch
+          git diff --name-only | sort > /tmp/actual.txt
+          cat > /tmp/expected.txt <<'EOF'
+          scripts/ai-external-context-golden.ts
+          scripts/ai-planner-golden.ts
+          scripts/ai-tool-registry-golden.ts
+          src/ai/data/externalAiContext.ts
+          src/ai/planning/queryPlanner.ts
+          src/ai/tools/toolRegistry.ts
+          src/ai/tools/toolValidation.ts
+          src/features/ai/AiAssistantPage.tsx
+          EOF
+          sed -i 's/^          //' /tmp/expected.txt
+          sort -o /tmp/expected.txt /tmp/expected.txt
+          diff -u /tmp/expected.txt /tmp/actual.txt
+          git diff --exit-code -- package.json package-lock.json .firebaserc firebase.json firebase.prod.json firestore.rules storage.rules .github/workflows ':!.github/workflows/ai-material-raw-gate.yml'
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Focused AI regressions
+        run: |
+          npm run test:ai-planner
+          npm run test:ai-tools
+          npm run test:ai-external-context
+
+      - name: Full release gate
+        run: npm run verify
+
+      - name: Final candidate drift check
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --name-only | sort > /tmp/actual-final.txt
+          diff -u /tmp/expected.txt /tmp/actual-final.txt
