@@ -33,7 +33,6 @@ jobs:
           cat > /tmp/expected.txt <<'EOF'
           scripts/ai-external-context-golden.ts
           scripts/ai-planner-golden.ts
-          scripts/ai-tool-registry-golden.ts
           src/ai/data/externalAiContext.ts
           src/ai/planning/queryPlanner.ts
           src/ai/tools/toolRegistry.ts
