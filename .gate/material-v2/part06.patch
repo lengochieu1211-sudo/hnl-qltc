@@ -1,0 +1,9 @@
+--- a/scripts/material-need-golden.ts
++++ b/scripts/material-need-golden.ts
+@@ -15,6 +15,7 @@ const norm: MaterialNorm = {
+   category: 'Tấm',
+   unit: 'tấm',
++  quotaQuantity: 0,
+   workCategoryId: 'wc-ceiling',
+   workCategoryIds: ['wc-ceiling'],
+   workCategoryNormsById: { 'wc-ceiling': 0.35 },
