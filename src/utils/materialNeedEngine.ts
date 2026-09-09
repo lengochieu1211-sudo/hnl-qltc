@@ -41,7 +41,9 @@ export interface MaterialNeedResult {
 
 export interface MaterialNeedScope {
   floorId?: string;
+  floorIds?: string[];
   teamId?: string;
+  teamIds?: string[];
   roomId?: string;
 }
 
@@ -58,6 +60,8 @@ interface NeedContribution {
 const round2 = (value: number) => Math.ceil((Number(value) || 0) * 100) / 100;
 const textKey = (value?: string) => String(value || '').trim().toLocaleLowerCase('vi-VN');
 const isActiveLifecycle = <T extends { deletedAt?: number | null }>(item: T): boolean => item.deletedAt === undefined || item.deletedAt === null;
+const scopeIds = (single?: string, multiple?: string[]): string[] => Array.from(new Set([...(multiple || []), ...(single ? [single] : [])].map((value) => String(value || '').trim()).filter(Boolean)));
+const scopeIncludes = (ids: string[], value?: string): boolean => ids.length === 0 || Boolean(value && ids.includes(value));
 
 function resolveWorkVolume(categoryIdOrName: string | undefined, workVolumes: WorkVolume[]): WorkVolume | undefined {
   if (!categoryIdOrName) return undefined;
@@ -137,11 +141,15 @@ function buildContributions(
   warnings: MaterialNeedWarning[],
 ): NeedContribution[] {
   const contributions: NeedContribution[] = [];
+  const scopedFloorIds = scopeIds(scope.floorId, scope.floorIds);
+  const scopedTeamIds = scopeIds(scope.teamId, scope.teamIds);
+  const hasTeamScope = scopedTeamIds.length > 0;
+
   rooms.forEach((room) => {
     if (scope.roomId && room.id !== scope.roomId) return;
-    if (scope.floorId && room.floorId !== scope.floorId) return;
+    if (!scopeIncludes(scopedFloorIds, room.floorId)) return;
     const cats = roomCategories(room, workVolumes);
-    const teamIds = uniqueRoomTeamIds(room);
+    const roomTeamIds = uniqueRoomTeamIds(room);
 
     cats.forEach((cat) => {
       // An explicit category ID that no longer exists in the active WorkVolume catalog is an orphan linkage.
@@ -152,42 +160,52 @@ function buildContributions(
       if (totalVolume <= 0) return;
       const sourceUnit = sourceUnitForRoomCategory(room, categoryRef, workVolumes);
 
-      if (!scope.teamId) {
+      if (!hasTeamScope) {
         contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: cat.id, workCategoryName: cat.name, sourceUnit, volume: totalVolume });
         return;
       }
 
       const categorySubs = categorySubItems(room, cat.id, cat.name);
       const categoryTeamIds = uniqueCategoryTeamIds(room, cat.id, cat.name);
-      const matchingSubs = categorySubs.filter((sub) => sub.teamId === scope.teamId);
+
+      // When every possible team for this category is inside the selected team set,
+      // the combined aggregate is deterministic even if the internal split is unknown.
+      if (categoryTeamIds.length > 0 && categoryTeamIds.every((id) => scopedTeamIds.includes(id))) {
+        contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: cat.id, workCategoryName: cat.name, sourceUnit, volume: totalVolume });
+        return;
+      }
+      if (categoryTeamIds.length === 0 && roomTeamIds.length > 0 && roomTeamIds.every((id) => scopedTeamIds.includes(id))) {
+        contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: cat.id, workCategoryName: cat.name, sourceUnit, volume: totalVolume });
+        return;
+      }
+
+      const matchingSubs = categorySubs.filter((sub) => Boolean(sub.teamId && scopedTeamIds.includes(sub.teamId)));
       const explicitVolume = matchingSubs.reduce((sum, sub) => sum + (Number(sub.workVolume) || 0), 0);
       if (explicitVolume > 0) {
-        contributions.push({ roomId: room.id, floorId: room.floorId, teamId: scope.teamId, workCategoryId: cat.id, workCategoryName: cat.name, sourceUnit: normalizeUnit(matchingSubs[0]?.volumeUnit || sourceUnit) || sourceUnit, volume: explicitVolume });
+        contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: cat.id, workCategoryName: cat.name, sourceUnit: normalizeUnit(matchingSubs[0]?.volumeUnit || sourceUnit) || sourceUnit, volume: explicitVolume });
         return;
       }
 
-      // A room may contain several teams across different categories. When every
-      // sub-step for this category points to one team, the category-level linkage is
-      // deterministic even if the individual steps do not duplicate workVolume.
-      // Reuse the category's total quantity, matching what the room progress UI shows.
-      if (categoryTeamIds.length === 1 && categoryTeamIds[0] === scope.teamId) {
-        contributions.push({ roomId: room.id, floorId: room.floorId, teamId: scope.teamId, workCategoryId: cat.id, workCategoryName: cat.name, sourceUnit, volume: totalVolume });
+      if (categoryTeamIds.length === 1 && scopedTeamIds.includes(categoryTeamIds[0])) {
+        contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: cat.id, workCategoryName: cat.name, sourceUnit, volume: totalVolume });
         return;
       }
 
-      if (teamIds.length === 1 && teamIds[0] === scope.teamId) {
-        contributions.push({ roomId: room.id, floorId: room.floorId, teamId: scope.teamId, workCategoryId: cat.id, workCategoryName: cat.name, sourceUnit, volume: totalVolume });
+      if (roomTeamIds.length === 1 && scopedTeamIds.includes(roomTeamIds[0])) {
+        contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: cat.id, workCategoryName: cat.name, sourceUnit, volume: totalVolume });
         return;
       }
 
-      if (categoryTeamIds.includes(scope.teamId) || (categoryTeamIds.length === 0 && teamIds.includes(scope.teamId))) {
+      const intersectsCategory = categoryTeamIds.some((id) => scopedTeamIds.includes(id));
+      const intersectsRoom = categoryTeamIds.length === 0 && roomTeamIds.some((id) => scopedTeamIds.includes(id));
+      if (intersectsCategory || intersectsRoom) {
         warnings.push({
           code: 'AMBIGUOUS_TEAM',
           roomId: room.id,
           floorId: room.floorId,
-          teamId: scope.teamId,
+          teamId: scopedTeamIds.length === 1 ? scopedTeamIds[0] : undefined,
           workCategoryId: cat.id,
-          message: `Căn ${room.roomName}: hạng mục ${cat.name} có nhiều đội nhưng chưa có khối lượng phân bổ theo teamId. Không tự chia nhu cầu.`,
+          message: `Căn ${room.roomName}: hạng mục ${cat.name} có nhiều đội nhưng chưa có khối lượng phân bổ đủ cho phạm vi đội đã chọn. Không tự chia nhu cầu.`,
         });
       }
     });
@@ -277,30 +295,41 @@ export function computeMaterialNeeds(params: {
 
   const issued = new Map<string, number>();
   const unallocated = new Map<string, number>();
+  const scopedFloorIds = scopeIds(scope.floorId, scope.floorIds);
+  const scopedTeamIds = scopeIds(scope.teamId, scope.teamIds);
+  const hasTeamScope = scopedTeamIds.length > 0;
   inventory.forEach((tx) => {
     if (tx.type !== 'out') return;
     if (scope.roomId && tx.sourceRoomId !== scope.roomId) return;
-    if (scope.floorId && tx.sourceFloorId !== scope.floorId) return;
+    if (scopedFloorIds.length > 0 && !scopeIncludes(scopedFloorIds, tx.sourceFloorId)) return;
     let key = canonicalKey(tx.materialId, tx.materialName, tx.unit);
     if (!tx.materialId) {
       const norm = materialNorms.find((n) => normalizeMaterialNameKey(n.materialName) === normalizeMaterialNameKey(tx.materialName) && areSameUnit(n.unit, tx.unit));
       if (norm) key = canonicalKey(resolveNormMaterialId(norm), norm.materialName, norm.unit);
     }
     const qty = Number(tx.quantity) || 0;
-    if (scope.teamId) {
-      if (tx.sourceTeamId === scope.teamId) issued.set(key, (issued.get(key) || 0) + qty);
-      else if (!tx.sourceTeamId && tx.sourceRoomId) {
+    if (hasTeamScope) {
+      if (tx.sourceTeamId && scopedTeamIds.includes(tx.sourceTeamId)) {
+        issued.set(key, (issued.get(key) || 0) + qty);
+      } else if (!tx.sourceTeamId && tx.sourceRoomId) {
         const room = rooms.find((r) => r.id === tx.sourceRoomId);
         const ids = room ? uniqueRoomTeamIds(room) : [];
-        if (ids.length === 1 && ids[0] === scope.teamId) issued.set(key, (issued.get(key) || 0) + qty);
-        else if (ids.includes(scope.teamId)) {
+        if (ids.length > 0 && ids.every((id) => scopedTeamIds.includes(id))) {
+          issued.set(key, (issued.get(key) || 0) + qty);
+        } else if (ids.some((id) => scopedTeamIds.includes(id))) {
           unallocated.set(key, (unallocated.get(key) || 0) + qty);
-          warnings.push({ code: 'UNALLOCATED_ISSUE', roomId: tx.sourceRoomId, floorId: tx.sourceFloorId, teamId: scope.teamId, message: `Phiếu ${tx.id} chưa có sourceTeamId và không thể chứng minh duy nhất đội nhận. Không trừ vào nhu cầu đội.` });
+          warnings.push({
+            code: 'UNALLOCATED_ISSUE',
+            roomId: tx.sourceRoomId,
+            floorId: tx.sourceFloorId,
+            teamId: scopedTeamIds.length === 1 ? scopedTeamIds[0] : undefined,
+            message: `Phiếu ${tx.id} chưa có sourceTeamId và không thể chứng minh toàn bộ phiếu thuộc phạm vi đội đã chọn. Không trừ vào nhu cầu đội.`,
+          });
         }
       }
       return;
     }
-    if (scope.floorId && tx.sourceFloorId === scope.floorId) issued.set(key, (issued.get(key) || 0) + qty);
+    if (scopedFloorIds.length > 0 && scopeIncludes(scopedFloorIds, tx.sourceFloorId)) issued.set(key, (issued.get(key) || 0) + qty);
     else if (scope.roomId && tx.sourceRoomId === scope.roomId) issued.set(key, (issued.get(key) || 0) + qty);
   });
 

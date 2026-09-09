@@ -169,6 +169,33 @@ const deletedWorkCategory = computeMaterialNeeds({
 assert.equal(deletedWorkCategory.lines.length, 0, 'Room reference to a deleted explicit work-category ID must not generate demand');
 assert.equal(deletedWorkCategory.warnings.some((w) => w.code === 'MISSING_NORM'), false, 'Deleted/orphan category must not be misreported as a missing material norm');
 
+
+const floor1TeamARoom = {
+  ...multiTeamRoom,
+  id: 'room-101',
+  roomName: '101',
+  floorId: 'floor-1',
+  workVolume: 40,
+  subItems: [
+    { id: 'sub-101-a', category: 'Trần thạch cao', workCategoryId: 'wc-ceiling', teamId: 'team-a', status: 'Đang làm' },
+  ],
+} as RoomProgressItem;
+
+const teamAFloor1 = computeMaterialNeeds({ rooms: [floor1TeamARoom, multiTeamRoom], materialNorms: [norm], inventory: [], workVolumes, teams, scope: { floorIds: ['floor-1'], teamIds: ['team-a'] } });
+assert.equal(teamAFloor1.lines[0]?.estimatedQty, 14, 'Team A on floor 1 must use only floor 1 demand');
+
+const teamAFloor3 = computeMaterialNeeds({ rooms: [floor1TeamARoom, multiTeamRoom], materialNorms: [norm], inventory: [], workVolumes, teams, scope: { floorIds: ['floor-3'], teamIds: ['team-a'] } });
+assert.equal(teamAFloor3.lines[0]?.estimatedQty, 17.5, 'Team A on floor 3 must use only floor 3 demand');
+
+const teamAFloor1And3 = computeMaterialNeeds({ rooms: [floor1TeamARoom, multiTeamRoom], materialNorms: [norm], inventory: [], workVolumes, teams, scope: { floorIds: ['floor-1', 'floor-3'], teamIds: ['team-a'] } });
+assert.equal(teamAFloor1And3.lines[0]?.estimatedQty, 31.5, 'Team A across floors 1+3 must aggregate both floors exactly once');
+
+const bothTeamsFloor3 = computeMaterialNeeds({ rooms: [multiTeamRoom], materialNorms: [norm], inventory: [], workVolumes, teams, scope: { floorIds: ['floor-3'], teamIds: ['team-a', 'team-b'] } });
+assert.equal(bothTeamsFloor3.lines[0]?.estimatedQty, 35, 'Selecting all teams on floor 3 must equal floor demand without double-count');
+
+const allTeamsFloors1And3 = computeMaterialNeeds({ rooms: [floor1TeamARoom, multiTeamRoom], materialNorms: [norm], inventory: [], workVolumes, teams, scope: { floorIds: ['floor-1', 'floor-3'] } });
+assert.equal(allTeamsFloors1And3.lines[0]?.estimatedQty, 49, 'All teams across floors 1+3 must aggregate room demand once');
+
 const missingNorm = computeMaterialNeeds({ rooms: [multiTeamRoom], materialNorms: [], inventory: [], workVolumes, teams, scope: { floorId: 'floor-3' } });
 assert.equal(missingNorm.lines.length, 0);
 assert.equal(missingNorm.failClosed, true);
