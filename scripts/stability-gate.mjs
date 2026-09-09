@@ -51,6 +51,7 @@ const chatTab = read('src/features/chat/ChatTab.tsx');
 const imageViewer = read('src/components/ImageViewerModal.tsx');
 const configTab = read('src/components/GoogleConfigTab.tsx');
 const bottomNav = read('src/components/BottomNav.tsx');
+const healthCenterPanelBase = read('src/healthCenter/HealthCenterPanelBase.tsx');
 const runtimeDiagnostics = read('src/lib/runtimeDiagnostics.ts');
 const fileExport = read('src/utils/fileExport.ts');
 const roomHighlight = read('src/components/RoomHighlightModal.tsx');
@@ -180,9 +181,11 @@ requireAll(app, ['qlct-defect-navigation-request', "area: 'defect-navigation'", 
 requireAll(floorPlanDefect, ['qlct-defect-navigation-request', "code: 'OPEN_TARGET'", 'requestedFloor=', 'pendingCount', "getEntityPhotos(projectId, 'defect', defect.id)"], 'Defect view consumes same-tab deep-link and opens defect-wide photo gallery with Cloud pending state');
 requireAll(imageViewer, ['swipeStartRef', 'Math.abs(dx) < 48', 'handleNext()', 'handlePrev()'], 'image viewer supports one-finger horizontal gallery swipe while preserving pinch zoom');
 requireAll(chatTab, ['ensureDraftAttachmentsCloudReady', 'verifyPhotoBinaryReadyInCloud', 'Ảnh đang chờ Cloud/R2', 'ImageViewerModal', 'openMessageImageGallery'], 'chat shows Cloud state, blocks message publication until photo is durable, and opens multi-image gallery');
-requireAll(configTab, ['HNL Health Center', 'Trạng thái hệ thống & đồng bộ', 'Xuất file chẩn đoán lỗi', 'getProjectPhotoDiagnosticSnapshot', 'clearRuntimeDiagnostics', 'saveTextFileToDownloads', 'Download/QLTC'], 'system diagnostics can export sanitized non-empty Android JSON with photo evidence');
+requireAll(configTab, ['HNL Health Center', 'Trạng thái hệ thống & đồng bộ', 'getProjectPhotoDiagnosticSnapshot', 'clearRuntimeDiagnostics', 'saveTextFileToDownloads', 'Download/QLTC', 'onExportSystemDiagnostics={() => handleDownloadDiagnostics()}'], 'system diagnostics stay inside unified Health Center and export sanitized Android JSON');
+requireAll(healthCenterPanelBase, ['Xuất báo cáo &amp; chẩn đoán', 'Audit JSON', 'Audit Excel', 'Audit PDF', 'Chẩn đoán hệ thống JSON', 'Xử lý hạng mục'], 'Health Center owns one unified export/diagnostic action area');
 requireAll(fileExport, ['saveTextFileToDownloads', "'downloads'", 'finishTextFile'], 'Android diagnostics direct Download/QLTC export avoids zero-byte picker provider');
-requireAll(bottomNav, ['HNL Health Center'], 'More menu exposes unified HNL Health Center entry');
+requireAll(bottomNav, ["{t('config')}", "setActiveTab('config')"], 'More menu keeps original Cấu hình entry; Health Center lives inside Config');
+requireAll(roomHighlight, ['Hạng mục mồ côi cần xử lý', 'Gán lại hạng mục', 'projectWorkCategoryTitles', '⚠️ Đã xóa: {catName} — chọn hạng mục mới', 'focusOrphanRepair'], 'room editor exposes deterministic orphan repair and excludes deleted categories from normal dropdown');
 requireAll(runtimeDiagnostics, ['MAX_ENTRIES = 200', 'clearRuntimeDiagnostics', 'redacted-api-key', 'Bearer [redacted]'], 'runtime diagnostics retains useful history and redacts secrets');
 pass('photo gallery no longer clears synced metadata on initial auth emission; camera input waits for non-empty MediaStore bytes');
 requireAll(androidMain, [

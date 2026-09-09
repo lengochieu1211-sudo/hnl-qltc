@@ -637,37 +637,6 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
             )}
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={async () => {
-                try {
-                  const bundle = await buildFullDiagnosticBundle();
-                  await navigator.clipboard.writeText(JSON.stringify(bundle, null, 2));
-                  setSyncMsg('Đã copy chẩn đoán hệ thống.');
-                } catch (_) {
-                  setSyncMsg('Không copy tự động được; hãy dùng nút Xuất file chẩn đoán.');
-                }
-              }}
-              className="px-3 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-bold flex items-center gap-1.5"
-            >
-              <Copy className="w-3.5 h-3.5" /> Copy chẩn đoán
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleDownloadDiagnostics()}
-              className="px-3 py-2 rounded-xl bg-indigo-600 text-white text-[10px] font-bold flex items-center gap-1.5"
-            >
-              <Download className="w-3.5 h-3.5" /> Xuất file chẩn đoán lỗi
-            </button>
-            <button
-              type="button"
-              onClick={() => { clearRuntimeDiagnostics(); setSyncMsg('Đã xóa log chẩn đoán cũ.'); }}
-              className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 text-[10px] font-bold flex items-center gap-1.5"
-            >
-              <Eraser className="w-3.5 h-3.5" /> Xóa log chẩn đoán
-            </button>
-          </div>
         </div>
 
         <HealthCenterPanel
@@ -677,6 +646,17 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           accessVerified={Boolean(syncDiagnostics.roleResolved)}
           fullAppData={fullAppData}
           freshness={syncDiagnostics.cloudInitialReady ? 'live' : 'cache'}
+          onCopySystemDiagnostics={async () => {
+            try {
+              const bundle = await buildFullDiagnosticBundle();
+              await navigator.clipboard.writeText(JSON.stringify(bundle, null, 2));
+              setSyncMsg('Đã copy chẩn đoán hệ thống.');
+            } catch (_) {
+              setSyncMsg('Không copy tự động được; hãy dùng nút Chẩn đoán hệ thống JSON.');
+            }
+          }}
+          onExportSystemDiagnostics={() => handleDownloadDiagnostics()}
+          onClearSystemDiagnostics={() => { clearRuntimeDiagnostics(); setSyncMsg('Đã xóa log chẩn đoán cũ.'); }}
         />
       
           </div>

@@ -136,7 +136,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
               className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50"
             >
               <Settings className="w-4 h-4 text-slate-600" />
-              HNL Health Center
+              {t('config')}
             </button>
           </div>
         )}

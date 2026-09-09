@@ -1228,6 +1228,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   // Room Highlight Modal State
   const [isRoomModalOpen, setIsRoomModalOpen] = useState(false);
   const [selectedRoomForEdit, setSelectedRoomForEdit] = useState<RoomProgressItem | null>(null);
+  const [healthCenterOrphanRepairRoomId, setHealthCenterOrphanRepairRoomId] = useState<string | null>(null);
   const [newRoomClickPos, setNewRoomClickPos] = useState<{ x: number; y: number } | undefined>(undefined);
   const [newRoomRect, setNewRoomRect] = useState<{ x: number; y: number; width: number; height: number } | undefined>(undefined);
   const [newRoomPoints, setNewRoomPoints] = useState<Point2D[] | undefined>(undefined);
@@ -2749,6 +2750,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       setViewMode('highlight');
       if (floorId && floorId !== selectedFloorId) setSelectedFloorId(floorId);
       setSelectedRoomForEdit(room);
+      setHealthCenterOrphanRepairRoomId(request.ruleId === 'ROOM_ORPHAN_WORK_CATEGORY_REFERENCE' ? room.id : null);
       setNewRoomClickPos(undefined);
       setNewRoomRect(undefined);
       setNewRoomPoints(undefined);
@@ -7801,7 +7803,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       {/* Room Highlight Modal */}
       <RoomHighlightModal
         isOpen={isRoomModalOpen}
-        onClose={() => setIsRoomModalOpen(false)}
+        onClose={() => { setIsRoomModalOpen(false); setHealthCenterOrphanRepairRoomId(null); }}
         roomItem={selectedRoomForEdit}
         initialPos={newRoomClickPos}
         initialRect={newRoomRect}
@@ -7811,6 +7813,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         checklistItems={checklistItems}
         onSaveRoom={onSaveRoomProgress}
         structureReadOnly={!canManageStructure}
+        focusOrphanRepair={Boolean(selectedRoomForEdit?.id && healthCenterOrphanRepairRoomId === selectedRoomForEdit.id)}
         onDeleteRoom={canManageStructure ? onDeleteRoomProgress : undefined}
         onStartRedraw2Point={canManageStructure ? handleStartRedraw2Point : undefined}
         teams={teams}
