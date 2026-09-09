@@ -1,0 +1,47 @@
+name: Dispatch DEV Certification Gate
+
+on:
+  push:
+    branches:
+      - gate/dispatch-dev-certification-20260909
+    paths:
+      - '.github/workflows/dispatch-dev-certification-gate.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Guard branch and exact DEV head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_DEV_SHA: 3bff8953ed10adb1997ea735b05ee4c623e02ae6
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/gate/dispatch-dev-certification-20260909'
+          DEV_SHA="$(gh api repos/${GITHUB_REPOSITORY}/git/ref/heads/dev --jq '.object.sha')"
+          test "$DEV_SHA" = "$EXPECTED_DEV_SHA" || { echo "::error::DEV moved to $DEV_SHA"; exit 1; }
+          echo "Exact DEV head confirmed: $DEV_SHA"
+
+      - name: Dispatch Runtime Golden
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api --method POST repos/${GITHUB_REPOSITORY}/actions/workflows/dev-runtime-golden.yml/dispatches -f ref=dev
+
+      - name: Dispatch Android DEV APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api --method POST repos/${GITHUB_REPOSITORY}/actions/workflows/android-apk-dev.yml/dispatches -f ref=dev
+
+      - name: Dispatch Windows DEV EXE
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api --method POST repos/${GITHUB_REPOSITORY}/actions/workflows/windows-exe-dev.yml/dispatches -f ref=dev
+
+      - name: Summary
+        run: echo 'Dispatched Runtime Golden + Android DEV APK + Windows DEV EXE on exact DEV head.'
