@@ -114,7 +114,8 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+      - name: Install exact locked dependencies with project-compatible npm
+        run: npx -y npm@10.8.2 ci
       - name: Focused gates
         run: |
           npm run test:health-center
