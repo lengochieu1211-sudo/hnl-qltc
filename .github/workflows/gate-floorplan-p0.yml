@@ -1,0 +1,126 @@
+name: Gate FloorPlan P0
+
+on:
+  push:
+    branches:
+      - gate/floorplan-p0-outbox-20260909
+    paths:
+      - 'src/lib/floorPlanImageSync.ts'
+      - '.gate/apply-floorplan-p0.mjs'
+      - '.github/workflows/gate-floorplan-p0.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gate-floorplan-p0-20260909
+  cancel-in-progress: true
+
+jobs:
+  verify-and-build-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BASE_SHA: 46dfbc889214dd486e1872e8321d3a7bddbdf5fd
+      CANDIDATE_BRANCH: candidate/floorplan-p0-20260909
+    steps:
+      - name: Checkout gate branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Assert exact DEV ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$BASE_SHA" HEAD
+          test "$(git rev-parse "$BASE_SHA")" = "$BASE_SHA"
+          echo "Gate head: $(git rev-parse HEAD)"
+          echo "Base DEV: $BASE_SHA"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply P0 source patch
+        run: node .gate/apply-floorplan-p0.mjs
+
+      - name: Scope and package lock guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git diff --exit-code "$BASE_SHA" -- package-lock.json
+          mapfile -t changed < <(git diff --name-only "$BASE_SHA" -- \
+            ':!.gate/**' \
+            ':!.github/workflows/gate-floorplan-p0.yml' | sort)
+          printf 'Changed source files:\n%s\n' "${changed[*]}"
+          expected=(
+            package.json
+            scripts/floorplan-p0-golden.ts
+            src/App.tsx
+            src/components/FloorPlanDefectTab.tsx
+            src/components/GoogleConfigTab.tsx
+            src/lib/floorPlanImageSync.ts
+          )
+          printf '%s\n' "${changed[@]}" > /tmp/changed.txt
+          printf '%s\n' "${expected[@]}" | sort > /tmp/expected.txt
+          diff -u /tmp/expected.txt /tmp/changed.txt
+
+      - name: Focused FloorPlan P0 golden
+        run: npm run test:floorplan-p0
+
+      - name: Full verification
+        run: npm run verify
+
+      - name: Create clean candidate from exact DEV base
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d)"
+          files=(
+            package.json
+            scripts/floorplan-p0-golden.ts
+            src/App.tsx
+            src/components/FloorPlanDefectTab.tsx
+            src/components/GoogleConfigTab.tsx
+            src/lib/floorPlanImageSync.ts
+          )
+          for file in "${files[@]}"; do
+            mkdir -p "$work/$(dirname "$file")"
+            cp "$file" "$work/$file"
+          done
+
+          git checkout --detach "$BASE_SHA"
+          for file in "${files[@]}"; do
+            mkdir -p "$(dirname "$file")"
+            cp "$work/$file" "$file"
+          done
+          git add "${files[@]}"
+          git diff --cached --check
+          mapfile -t staged < <(git diff --cached --name-only | sort)
+          printf '%s\n' "${staged[@]}" > /tmp/staged.txt
+          printf '%s\n' "${files[@]}" | sort > /tmp/staged-expected.txt
+          diff -u /tmp/staged-expected.txt /tmp/staged.txt
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: make floor-plan image sync durable and role-correct'
+          candidate_sha="$(git rev-parse HEAD)"
+          git push --force origin "HEAD:refs/heads/$CANDIDATE_BRANCH"
+          echo "candidate_sha=$candidate_sha" >> "$GITHUB_OUTPUT"
+          echo "Clean candidate: $candidate_sha"
+        id: candidate
+
+      - name: Candidate summary
+        run: |
+          echo "### FloorPlan P0 candidate" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Base DEV: \`$BASE_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Candidate: \`${{ steps.candidate.outputs.candidate_sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- package-lock.json: unchanged" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Full npm run verify: PASS" >> "$GITHUB_STEP_SUMMARY"
