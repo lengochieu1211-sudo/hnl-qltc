@@ -1,0 +1,100 @@
+-  // They are not returned by presetWorkCategories and are not shown in floor summaries.
+-  const availableWorkCategories = React.useMemo(() => {
+-    const list = new Set<string>();
+-
+-    // Keep active project categories first. Current stale values are added afterwards
+-    // only for an already-existing room, so they can be remapped instead of resurrected.
+-    projectWorkCategoryTitles.forEach((title) => list.add(title));
+-
+-    // 1. Add current room's workCategory (state)
+-    if (workCategory && workCategory.trim()) {
+-      list.add(workCategory.trim());
+-    }
++  type OrphanWorkCategoryRef = {
++    key: string;
++    workCategoryId?: string;
++    workCategoryName?: string;
++    label: string;
++    sources: string[];
++    affectedSubItemCount: number;
++    volume: number;
++  };
+ 
+-    // 2. Add any active categories from subItems state
+-    if (subItems && subItems.length > 0) {
+-      subItems.forEach((item) => {
+-        if (item.category && item.category.trim()) {
+-          list.add(item.category.trim());
+-        }
+-      });
+-    }
++  const orphanWorkCategoryRefs = React.useMemo<OrphanWorkCategoryRef[]>(() => {
++    if (!roomItem) return [];
++    const refs = new Map<string, { workCategoryId?: string; workCategoryName?: string; label: string; sources: Set<string>; affectedSubItemIds: Set<string>; volume: number }>();
++    const add = (source: string, workCategoryId?: string, workCategoryName?: string, volume = 0, subItemId?: string) => {
++      const id = String(workCategoryId || '').trim();
++      const name = String(workCategoryName || '').trim();
++      if ((!id && !name) || resolveActiveWorkCategory(id, name)) return;
++      const key = id ? `id:${id}` : `name:${normalizeWorkCategoryName(name)}`;
++      const current = refs.get(key) || {
++        workCategoryId: id || undefined,
++        workCategoryName: name || undefined,
++        label: name || id || 'Hạng mục không xác định',
++        sources: new Set<string>(),
++        affectedSubItemIds: new Set<string>(),
++        volume: 0,
++      };
++      current.sources.add(source);
++      if (subItemId) current.affectedSubItemIds.add(subItemId);
++      if (Number.isFinite(Number(volume))) current.volume += Math.max(0, Number(volume) || 0);
++      refs.set(key, current);
++    };
+ 
+-    // 3. Add any categories from categoryVolumes state
+-    if (categoryVolumes) {
+-      Object.keys(categoryVolumes).forEach((cat) => {
+-        if (cat && cat.trim()) {
+-          list.add(cat.trim());
+-        }
+-      });
+-    }
++    add('Căn/Phòng', roomItem.workCategoryId, workCategory || roomItem.workCategory, Number(workVolume || roomItem.workVolume || 0));
++    Object.entries(categoryVolumes || {}).forEach(([raw, volume]) => {
++      const activeByRawId = activeWorkCategoryById.get(raw);
++      if (activeByRawId) return;
++      add('Khối lượng hạng mục', undefined, raw, Number(volume || 0));
++    });
++    subItems.forEach((sub) => add('Hạng mục con', sub.workCategoryId, sub.category, Number(sub.workVolume || 0), sub.id));
+ 
+-    // 4. Add original roomItem's values just in case
+-    if (roomItem) {
+-      if (roomItem.workCategory && roomItem.workCategory.trim()) {
+-        list.add(roomItem.workCategory.trim());
+-      }
+-      if (roomItem.subItems) {
+-        roomItem.subItems.forEach((item) => {
+-          if (item.category && item.category.trim()) {
+-            list.add(item.category.trim());
+-          }
+-        });
+-      }
+-      if (roomItem.categoryVolumes) {
+-        Object.keys(roomItem.categoryVolumes).forEach((cat) => {
+-          if (cat && cat.trim()) {
+-            list.add(cat.trim());
+-          }
+-        });
+-      }
+-    }
++    return Array.from(refs.entries()).map(([key, value]) => ({
++      key,
++      workCategoryId: value.workCategoryId,
++      workCategoryName: value.workCategoryName,
++      label: value.label,
++      sources: Array.from(value.sources),
++      affectedSubItemCount: value.affectedSubItemIds.size,
++      volume: Math.round(value.volume * 1000) / 1000,
++    }));
++  }, [activeWorkCategoryById, categoryVolumes, normalizeWorkCategoryName, resolveActiveWorkCategory, roomItem, subItems, workCategory, workVolume]);
+ 
+-    // 5. Active project categories were inserted first above. For new rooms, do not
