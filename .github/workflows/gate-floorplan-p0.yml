@@ -50,19 +50,28 @@ jobs:
       - name: Apply P0 source patch
         run: node .gate/apply-floorplan-p0.mjs
 
-      - name: Tighten generated regression assertion
+      - name: Align regression gates with project-scoped RBAC
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
-          path = Path('scripts/floorplan-p0-golden.ts')
-          text = path.read_text()
+
+          golden_path = Path('scripts/floorplan-p0-golden.ts')
+          golden = golden_path.read_text()
           old = "check(!sync.includes('getCurrentUserRole'), 'Legacy global role cache must not authorize floor-plan upload.');"
           new = "check(!sync.includes(\"from '../utils/securityUtils'\") && !sync.includes('if (getCurrentUserRole'), 'Legacy global role cache must not authorize floor-plan upload.');"
-          if old not in text:
-              raise SystemExit('Expected legacy-role assertion not found')
-          path.write_text(text.replace(old, new, 1))
+          if old not in golden:
+              raise SystemExit('Expected legacy-role golden assertion not found')
+          golden_path.write_text(golden.replace(old, new, 1))
+
+          stability_path = Path('scripts/stability-gate.mjs')
+          stability = stability_path.read_text()
+          old_stability = "requireAll(floorPlanSync, [\"if (getCurrentUserRole() !== 'ADMIN') return null;\"], 'floor-plan upload ADMIN defense-in-depth');"
+          new_stability = "requireAll(floorPlanSync, ['fetchProjectUserRoleFromCloud', \"roleInfo.verification !== 'verified'\", \"!roleInfo.allowed || roleInfo.role !== 'ADMIN'\"], 'floor-plan upload project-scoped ADMIN defense-in-depth');\nif (floorPlanSync.includes(\"from '../utils/securityUtils'\") || floorPlanSync.includes(\"if (getCurrentUserRole() !== 'ADMIN')\")) fail('floor-plan upload must not authorize from the Firebase-only global role cache');"
+          if old_stability not in stability:
+              raise SystemExit('Expected stale floor-plan ADMIN stability assertion not found')
+          stability_path.write_text(stability.replace(old_stability, new_stability, 1))
           PY
 
       - name: Scope and package lock guard
@@ -79,6 +88,7 @@ jobs:
           expected=(
             package.json
             scripts/floorplan-p0-golden.ts
+            scripts/stability-gate.mjs
             src/App.tsx
             src/components/FloorPlanDefectTab.tsx
             src/components/GoogleConfigTab.tsx
@@ -102,6 +112,7 @@ jobs:
           files=(
             package.json
             scripts/floorplan-p0-golden.ts
+            scripts/stability-gate.mjs
             src/App.tsx
             src/components/FloorPlanDefectTab.tsx
             src/components/GoogleConfigTab.tsx
