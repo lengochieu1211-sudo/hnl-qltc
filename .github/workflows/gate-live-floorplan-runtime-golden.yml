@@ -1,0 +1,77 @@
+name: Gate Live Floorplan Runtime Golden
+
+on:
+  push:
+    branches:
+      - gate/live-floorplan-runtime-golden-20260909
+
+permissions:
+  contents: write
+
+jobs:
+  verify-and-build-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout gate branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Assert exact DEV ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='3bff8953ed10adb1997ea735b05ee4c623e02ae6'
+          git merge-base --is-ancestor "$BASE" HEAD
+          test "$(git rev-parse "$BASE")" = "$BASE"
+          echo "Exact DEV base: $BASE"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build clean candidate from exact DEV base
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='3bff8953ed10adb1997ea735b05ee4c623e02ae6'
+          cp .gate/apply-live-floorplan-runtime-golden.py "$RUNNER_TEMP/apply-live-floorplan-runtime-golden.py"
+          git checkout --detach "$BASE"
+          python "$RUNNER_TEMP/apply-live-floorplan-runtime-golden.py"
+
+      - name: Scope and syntax guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git diff --name-only | tr -d '\r')" = 'scripts/dev-live-backend-golden.mjs' || {
+            echo '::error::Unexpected files changed:'
+            git diff --name-only
+            exit 1
+          }
+          node --check scripts/dev-live-backend-golden.mjs
+          git diff --check
+          git diff -- package.json package-lock.json | grep -q . && { echo '::error::package/lock changed unexpectedly'; exit 1; } || true
+          grep -q 'ADMIN uploads floor-plan image to DEV R2' scripts/dev-live-backend-golden.mjs
+          grep -q 'VIEWER downloads floor-plan image cross-account' scripts/dev-live-backend-golden.mjs
+          grep -q 'EDITOR cannot publish floor-plan cloud metadata' scripts/dev-live-backend-golden.mjs
+
+      - name: Full verification
+        run: npm run verify
+
+      - name: Create clean candidate branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add scripts/dev-live-backend-golden.mjs
+          git commit -m 'test: add live floor-plan cloud sync golden'
+          git push origin HEAD:refs/heads/candidate/live-floorplan-runtime-golden-20260909
+          echo "Candidate SHA: $(git rev-parse HEAD)"
