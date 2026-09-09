@@ -54,6 +54,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git add -N scripts/floorplan-p0-golden.ts
           git diff --check
           git diff --exit-code "$BASE_SHA" -- package-lock.json
           mapfile -t changed < <(git diff --name-only "$BASE_SHA" -- \
