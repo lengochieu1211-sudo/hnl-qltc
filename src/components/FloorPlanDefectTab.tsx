@@ -8800,7 +8800,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 className="flex-1 py-3 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all"
               >
                 <Plus className="w-4 h-4" />
-                ⚡ Thêm tầng nhanh (không cần ảnh)
+                Thêm tầng nhanh (không cần ảnh)
               </button>
 
               <button

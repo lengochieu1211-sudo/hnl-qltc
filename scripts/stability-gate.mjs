@@ -205,8 +205,9 @@ pass('photo metadata is published cross-account only after durable R2 readiness;
 requireAll(photoPicker, ['retryDelays = [0, 400, 1200, 2500]'], 'photo immediate cloud confirmation retry');
 requireAll(app, ['? 250 : 150', 'Math.min(30000, 750 * Math.pow(2', 'photoOutboxRetryTimerRef'], 'photo near-realtime durable outbox scheduling');
 requireAll(photoSync, ['PHOTO_INITIAL_SYNC_DELAY_MS = 1200', 'requestIdleCallback(run, { timeout: 1000 })', '}, 5000);'], 'photo initial reconciliation latency');
-requireAll(desktopBuild, ['Optimize-HnlSmallIconFrame', '$sizes = @(16, 20, 24, 28, 32, 40, 48, 64, 80, 96, 128, 256)', '<=48px sharpened for taskbar DPI'], 'Windows DPI-aware taskbar icon frames');
-pass('photo pending binary retries sooner and Windows taskbar icon uses sharpened DPI-specific frames');
+requireAll(desktopBuild, ['$sizes = @(16, 20, 24, 28, 32, 40, 48, 64, 80, 96, 128, 256)', 'all frames derived directly from canonical HNL logo'], 'Windows DPI-aware original HNL taskbar icon frames');
+if (desktopBuild.includes('Optimize-HnlSmallIconFrame')) fail('Windows icon builder must not visually alter the canonical HNL logo with custom sharpening/contrast');
+pass('photo pending binary retries sooner and Windows/Web runtime icons use exact-size frames derived from the canonical HNL logo');
 
 requireAll(floorPlanDefect, ['photo.cloudUrl || photo.cloudFileId || photo.localUri', 'false, projectId'], 'Defect gallery cloud rendering');
 requireAll(exportPdf, ['getProjectPhotosWithBinary(activeProjectId, false)', "embeddedUrl.startsWith('data:image/')", 'ensureReportPhotosReady', 'isResolvingReportPhotos', 'reportPhotoWarning', 'missingReportPhotoIds'], 'PDF portable photo embedding + tolerant R2 warning gate');
