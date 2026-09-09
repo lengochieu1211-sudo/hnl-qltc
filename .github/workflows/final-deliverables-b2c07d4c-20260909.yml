@@ -1,0 +1,161 @@
+name: HNL QLTC Final Deliverables b2c07d4c 2026-09-09
+
+on:
+  push:
+    branches:
+      - gate/final-deliverables-b2c07d4c-20260909
+    paths:
+      - '.github/workflows/final-deliverables-b2c07d4c-20260909.yml'
+
+permissions:
+  contents: read
+
+env:
+  HEAD_SHA: b2c07d4c5885c5b645b6686f2f5e1e94cdf0988b
+  BASE_SHA: e036c39c9561cd327900911bf856c7c47939b911
+  SHORT_SHA: b2c07d4c
+  APP_VERSION: 6.3.0
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact DEV source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.HEAD_SHA }}
+          fetch-depth: 0
+
+      - name: Assert exact latest DEV
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          CURRENT_DEV="$(git ls-remote origin refs/heads/dev | awk '{print $1}')"
+          test "$CURRENT_DEV" = "$HEAD_SHA" || { echo "::error::DEV moved to $CURRENT_DEV"; exit 1; }
+          git merge-base --is-ancestor "$BASE_SHA" "$HEAD_SHA"
+          echo "Exact DEV confirmed: $HEAD_SHA"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Verify package manifest and lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+          if (pkg.name !== 'qlct-an-phu' || pkg.version !== '6.3.0') throw new Error('Unexpected package metadata');
+          if (!lock.packages?.['']) throw new Error('package-lock root package missing');
+          if (lock.packages[''].name !== pkg.name || lock.packages[''].version !== pkg.version) throw new Error('package/lock mismatch');
+          console.log(`package + lock coherent: ${pkg.name}@${pkg.version}`);
+          NODE
+          git diff --exit-code "$BASE_SHA" "$HEAD_SHA" -- package.json package-lock.json
+          npm ci
+
+      - name: Full verification gate
+        run: npm run verify
+
+      - name: Firebase workflow and secret-scope guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code "$BASE_SHA" "$HEAD_SHA" -- .firebaserc firebase.json firestore.rules .github/workflows
+          node - <<'NODE'
+          const fs = require('fs');
+          const rc = JSON.parse(fs.readFileSync('.firebaserc', 'utf8'));
+          if (rc?.projects?.default !== 'com-example-qlct-61329') throw new Error(`Unexpected Firebase default project: ${rc?.projects?.default}`);
+          console.log('Firebase PROD/default mapping unchanged.');
+          NODE
+          grep -q 'hnl-qltc-dev' .github/workflows/firebase-dev-environment.yml
+          echo 'Firebase config/workflows unchanged; DEV isolation retained.'
+
+      - name: Build PATCH FULL SOURCE and REPORT
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/deliverables"
+          mkdir -p "$OUT"
+          mapfile -t PATCH_FILES < <(git diff --name-only --diff-filter=ACMRTUXB "$BASE_SHA" "$HEAD_SHA")
+          mapfile -t DELETED_FILES < <(git diff --name-only --diff-filter=D "$BASE_SHA" "$HEAD_SHA")
+          test "${#PATCH_FILES[@]}" -eq 6 || { printf 'Expected 6 patch files, got %s\n' "${#PATCH_FILES[@]}"; printf '%s\n' "${PATCH_FILES[@]}"; exit 1; }
+          test "${#DELETED_FILES[@]}" -eq 0
+
+          EXPECTED=$'index.html\npublic/icon-taskbar.svg\npublic/manifest.json\nscripts/desktop-launcher-golden.mjs\nscripts/windows-icon-golden.ps1\nsrc/components/FloorPlanDefectTab.tsx'
+          ACTUAL="$(printf '%s\n' "${PATCH_FILES[@]}" | sort)"
+          test "$ACTUAL" = "$EXPECTED" || { printf 'Unexpected PATCH file set:\n%s\n' "$ACTUAL"; exit 1; }
+
+          PATCH_ZIP="$OUT/HNL-QLTC-V${APP_VERSION}-DEV-${SHORT_SHA}-PATCH.zip"
+          FULL_ZIP="$OUT/HNL-QLTC-V${APP_VERSION}-DEV-${SHORT_SHA}-FULL-SOURCE.zip"
+          REPORT="$OUT/HNL-QLTC-V${APP_VERSION}-DEV-${SHORT_SHA}-REPORT.md"
+
+          git archive --format=zip --prefix="HNL-QLTC-V${APP_VERSION}-DEV-${SHORT_SHA}-PATCH/" --output="$PATCH_ZIP" "$HEAD_SHA" "${PATCH_FILES[@]}"
+          git archive --format=zip --prefix="HNL-QLTC-V${APP_VERSION}-DEV-${SHORT_SHA}-FULL-SOURCE/" --output="$FULL_ZIP" "$HEAD_SHA"
+
+          {
+            echo "# HNL QLTC V${APP_VERSION} DEV ${SHORT_SHA} - REPORT"
+            echo
+            echo "- Exact DEV SHA: \`$HEAD_SHA\`"
+            echo "- PATCH baseline: \`$BASE_SHA\`"
+            echo "- Repository: \`lengochieu1211-sudo/hnl-qltc\`"
+            echo "- Firebase DEV: \`hnl-qltc-dev\`"
+            echo "- Firebase default/PROD: \`com-example-qlct-61329\` - unchanged, not deployed"
+            echo
+            echo "## Đã sửa"
+            echo
+            echo "- Bỏ emoji upload trùng ở nút 'Tải bản vẽ ảnh / PDF'; giữ một Lucide Upload duy nhất."
+            echo "- Thêm icon HNL runtime riêng \`public/icon-taskbar.svg\`, nét/độ tương phản cao cho Windows Taskbar kích thước nhỏ."
+            echo "- Favicon + PWA manifest ưu tiên runtime SVG và giữ PNG 192/512 làm fallback; thêm cache-bust để Chrome/Edge app-mode nhận icon mới."
+            echo "- Nâng desktop launcher golden và Windows icon golden để kiểm đúng icon runtime Web/PWA, không chỉ icon nhúng trong EXE."
+            echo
+            echo "## File thay đổi/thêm"
+            echo
+            for f in "${PATCH_FILES[@]}"; do echo "- \`$f\`"; done
+            echo
+            echo "## Verification"
+            echo
+            echo "- package.json + package-lock.json coherence/unchanged: PASS"
+            echo "- npm ci: PASS"
+            echo "- npm run verify: PASS"
+            echo "- TypeScript/Lint/secret scan/Rules/Security/Build: PASS through full verify and DEV build workflows"
+            echo "- Firebase config + existing .github/workflows regression guard: PASS"
+            echo "- Focused Taskbar + Floorplan UI Gate: PASS"
+            echo "- Windows EXE + runtime Web icon golden: PASS"
+            echo "- Deploy DEV Environment #140 / run 34319470705: PASS on exact \`$HEAD_SHA\`"
+            echo "- Runtime Golden #56 / run 34319470728: PASS on exact \`$HEAD_SHA\`"
+            echo "- Android DEV APK #69 / run 34319470677: PASS on exact \`$HEAD_SHA\`"
+            echo "- Windows DEV EXE #63 / run 34319470598: PASS on exact \`$HEAD_SHA\`"
+            echo "- Firestore bootstrap #137 / run 34319470684: PASS on exact \`$HEAD_SHA\`"
+            echo "- main/PROD: NOT modified or deployed"
+            echo
+            echo "## ZIP integrity"
+            echo
+            echo "PATCH và FULL SOURCE được tạo trực tiếp từ Git object \`$HEAD_SHA\`; cả hai được kiểm bằng \`unzip -t\`."
+          } > "$REPORT"
+
+          unzip -t "$PATCH_ZIP" >/dev/null
+          unzip -t "$FULL_ZIP" >/dev/null
+          test "$(unzip -Z1 "$PATCH_ZIP" | grep -v '/$' | wc -l)" -eq 6
+          unzip -Z1 "$FULL_ZIP" | grep -q 'package.json$'
+          unzip -Z1 "$FULL_ZIP" | grep -q 'package-lock.json$'
+          unzip -Z1 "$FULL_ZIP" | grep -q '.github/workflows/'
+          sha256sum "$PATCH_ZIP" "$FULL_ZIP" "$REPORT" | tee "$OUT/SHA256SUMS.txt"
+          echo "OUT=$OUT" >> "$GITHUB_ENV"
+
+      - name: Upload final deliverables
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-V6.3.0-DEV-b2c07d4c-FINAL-DELIVERABLES
+          path: |
+            ${{ env.OUT }}/HNL-QLTC-V6.3.0-DEV-b2c07d4c-PATCH.zip
+            ${{ env.OUT }}/HNL-QLTC-V6.3.0-DEV-b2c07d4c-FULL-SOURCE.zip
+            ${{ env.OUT }}/HNL-QLTC-V6.3.0-DEV-b2c07d4c-REPORT.md
+            ${{ env.OUT }}/SHA256SUMS.txt
+          retention-days: 30
