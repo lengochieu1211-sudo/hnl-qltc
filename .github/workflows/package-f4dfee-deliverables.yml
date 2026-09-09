@@ -205,7 +205,7 @@ jobs:
             > HNL-QLTC-V6.3.0-DEV-f4dfee32-SHA256SUMS.txt
           unzip -t HNL-QLTC-V6.3.0-DEV-f4dfee32-PATCH.zip >/dev/null
           unzip -t HNL-QLTC-V6.3.0-DEV-f4dfee32-FULL-SOURCE.zip >/dev/null
-          test "$(unzip -Z1 HNL-QLTC-V6.3.0-DEV-f4dfee32-PATCH.zip | wc -l)" -eq 13
+          test "$(unzip -Z1 HNL-QLTC-V6.3.0-DEV-f4dfee32-PATCH.zip | grep -v '/$' | wc -l)" -eq 13
           echo 'Final deliverables integrity: PASS'
           ls -lh
 
