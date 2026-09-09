@@ -11,9 +11,9 @@ permissions:
   contents: read
 
 env:
-  HEAD_SHA: 3bff8953ed10adb1997ea735b05ee4c623e02ae6
+  HEAD_SHA: e036c39c9561cd327900911bf856c7c47939b911
   BASE_SHA: 8feeb553ed7d8bf2cb1a972923638eb4a4d7fae8
-  SHORT_SHA: 3bff8953
+  SHORT_SHA: e036c39c
   APP_VERSION: 6.3.0
 
 jobs:
@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Checkout exact DEV source
+      - name: Checkout exact latest DEV source
         uses: actions/checkout@v4
         with:
           ref: ${{ env.HEAD_SHA }}
@@ -36,7 +36,7 @@ jobs:
           git merge-base --is-ancestor "$BASE_SHA" "$HEAD_SHA"
           CURRENT_DEV="$(git ls-remote origin refs/heads/dev | awk '{print $1}')"
           test "$CURRENT_DEV" = "$HEAD_SHA" || { echo "::error::DEV moved to $CURRENT_DEV"; exit 1; }
-          echo "Exact DEV source confirmed: $HEAD_SHA"
+          echo "Exact latest DEV source confirmed: $HEAD_SHA"
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -70,8 +70,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Keep repository Firebase mapping/config/rules and all production workflows exactly unchanged
-          # from the known baseline. DEV deployment stays isolated by the dedicated DEV workflows.
+          # Repository Firebase mapping/config/rules and existing workflows must stay unchanged
+          # from the diagnosed baseline. DEV remains isolated by dedicated DEV workflows.
           git diff --exit-code "$BASE_SHA" "$HEAD_SHA" -- .firebaserc firebase.json firestore.rules .github/workflows
           node - <<'NODE'
           const fs = require('fs');
@@ -82,7 +82,7 @@ jobs:
           console.log('Firebase default/PROD mapping unchanged: com-example-qlct-61329');
           NODE
           grep -q 'hnl-qltc-dev' .github/workflows/firebase-dev-environment.yml
-          echo 'Firebase config/rules and existing workflows unchanged; DEV isolation workflow still targets hnl-qltc-dev.'
+          echo 'Firebase config/rules and existing workflows unchanged; DEV isolation still targets hnl-qltc-dev.'
 
       - name: Build PATCH and FULL SOURCE ZIPs
         shell: bash
@@ -96,6 +96,7 @@ jobs:
           test "${#PATCH_FILES[@]}" -gt 0
           test "${#DELETED_FILES[@]}" -eq 0 || { printf 'Deleted files are not allowed in this PATCH gate:\n%s\n' "${DELETED_FILES[*]}"; exit 1; }
 
+          COMMIT_COUNT="$(git rev-list --count "$BASE_SHA..$HEAD_SHA")"
           PATCH_ZIP="$OUT/HNL-QLTC-V${APP_VERSION}-DEV-${SHORT_SHA}-PATCH.zip"
           FULL_ZIP="$OUT/HNL-QLTC-V${APP_VERSION}-DEV-${SHORT_SHA}-FULL-SOURCE.zip"
           REPORT="$OUT/HNL-QLTC-V${APP_VERSION}-DEV-${SHORT_SHA}-REPORT.md"
@@ -109,18 +110,19 @@ jobs:
             echo "- Generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
             echo "- Repository: lengochieu1211-sudo/hnl-qltc"
             echo "- Source branch: dev"
-            echo "- Exact DEV SHA: \`$HEAD_SHA\`"
+            echo "- Exact latest DEV SHA: \`$HEAD_SHA\`"
             echo "- PATCH baseline SHA: \`$BASE_SHA\`"
-            echo "- Baseline relationship: exact ancestor, 6 commits behind current DEV"
+            echo "- Baseline relationship: exact ancestor, ${COMMIT_COUNT} commits behind current DEV"
             echo "- Firebase DEV project: \`hnl-qltc-dev\` (unchanged; selected only by dedicated DEV workflows/runtime config)"
-            echo "- Firebase default/PROD project in source: \`com-example-qlct-61329\` (unchanged / not deployed by this delivery)"
+            echo "- Firebase default/PROD project in source: \`com-example-qlct-61329\` (unchanged; not deployed by this delivery)"
             echo
             echo "## Nội dung đã sửa"
             echo
             echo "- Harden đồng bộ ảnh mặt bằng: retry bền vững, kiểm tra quyền theo role, chặn ghi cloud sai trạng thái và bổ sung diagnostic theo từng mặt bằng."
-            echo "- Bổ sung P0 golden cho luồng cập nhật mặt bằng và regression cho Health Center/orphan linkage."
-            echo "- Chuẩn hóa indicator mở/thu gọn ở các khu vực liên quan mà không thay đổi workflow chính."
-            echo "- Củng cố Material Need Engine/regression và đồng bộ fixture AI với active work category; không thay logic production bằng fixture."
+            echo "- Bổ sung P0 golden cho cập nhật mặt bằng và live floor-plan cloud sync golden trên DEV thật để bắt lỗi thiết bị A cập nhật nhưng thiết bị B không nhận."
+            echo "- Harden Health Center/orphan linkage để liên kết defect/phòng/đội fail-closed khi thiếu hoặc mơ hồ."
+            echo "- Chuẩn hóa indicator mở/thu gọn tại các khu vực phù hợp mà không đổi workflow chính hoặc mặc định mở/đóng."
+            echo "- Củng cố Material Need Engine/regression và đồng bộ fixture AI với active work category; fixture test không thay logic production."
             echo
             echo "## File thay đổi/thêm trong PATCH"
             echo
@@ -129,30 +131,31 @@ jobs:
               echo "- \`$f\` ($stat)"
             done
             echo
-            echo "## Verification"
+            echo "## Verification trên exact DEV ${SHORT_SHA}"
             echo
             echo "- package.json + package-lock.json coherence: PASS"
-            echo "- npm ci / pinned dependency graph: PASS"
+            echo "- npm ci / exact locked dependency graph: PASS"
             echo "- npm run verify (Stability + TypeScript + Lint + Rules + Security + Build): PASS"
+            echo "- Source secret scan: PASS (Android DEV #68 và Windows DEV #62)"
             echo "- Firebase config/rules mapping regression guard: PASS"
             echo "- Existing .github/workflows regression guard: PASS"
-            echo "- HNL AI External Context Gate: PASS"
-            echo "- Firebase DEV Firestore Bootstrap: PASS"
-            echo "- Deploy HNL QLTC DEV Environment: PASS"
-            echo "- DEV Runtime Golden #54 / run 34313972966: PASS on exact \`$HEAD_SHA\`"
-            echo "- Android DEV APK #67 / run 34313974408: PASS on exact \`$HEAD_SHA\`"
-            echo "- Windows DEV EXE #61 / run 34313975772: PASS on exact \`$HEAD_SHA\`"
+            echo "- Firebase DEV Firestore Bootstrap run 34314543214: PASS"
+            echo "- Deploy HNL QLTC DEV Environment run 34314543267: PASS"
+            echo "- DEV Runtime Golden #55 / run 34314543274: PASS"
+            echo "- Android DEV APK #68 / run 34314735850: PASS"
+            echo "- Windows DEV EXE #62 / run 34314737093: PASS"
             echo "- main/PROD: NOT modified or deployed by this delivery"
             echo
             echo "## Runtime/Build evidence"
             echo
-            echo "- Runtime Golden artifact: HNL-QLTC-DEV-RUNTIME-GOLDEN-54 (artifact 10089430595)"
-            echo "- Android artifact: HNL-QLTC-Android-DEV-67 (artifact 10089421383)"
-            echo "- Windows artifact: HNL-QLTC-Windows-DEV-61 (artifact 10089430208)"
+            echo "- Runtime Golden artifact: HNL-QLTC-DEV-RUNTIME-GOLDEN-55 (artifact 10089638472)"
+            echo "- Android artifact: HNL-QLTC-Android-DEV-68 (artifact 10089698169)"
+            echo "- Windows artifact: HNL-QLTC-Windows-DEV-62 (artifact 10089710682)"
             echo
             echo "## ZIP integrity"
             echo
-            echo "Both PATCH and FULL SOURCE archives were generated from Git object \`$HEAD_SHA\` and verified with \`unzip -t\`."
+            echo "PATCH and FULL SOURCE were generated directly from Git object \`$HEAD_SHA\` and verified using \`unzip -t\`."
+            echo "FULL SOURCE includes package.json, package-lock.json and repository .github/workflows from exact DEV; temporary packaging/dispatch gate branches are not included."
           } > "$REPORT"
 
           unzip -t "$PATCH_ZIP" >/dev/null
@@ -168,14 +171,13 @@ jobs:
       - name: Upload final deliverables
         uses: actions/upload-artifact@v4
         with:
-          name: HNL-QLTC-V6.3.0-DEV-3bff8953-FINAL-DELIVERABLES
+          name: HNL-QLTC-V6.3.0-DEV-e036c39c-FINAL-DELIVERABLES
           path: |
-            ${{ env.OUT }}/HNL-QLTC-V6.3.0-DEV-3bff8953-PATCH.zip
-            ${{ env.OUT }}/HNL-QLTC-V6.3.0-DEV-3bff8953-FULL-SOURCE.zip
-            ${{ env.OUT }}/HNL-QLTC-V6.3.0-DEV-3bff8953-REPORT.md
+            ${{ env.OUT }}/HNL-QLTC-V6.3.0-DEV-e036c39c-PATCH.zip
+            ${{ env.OUT }}/HNL-QLTC-V6.3.0-DEV-e036c39c-FULL-SOURCE.zip
+            ${{ env.OUT }}/HNL-QLTC-V6.3.0-DEV-e036c39c-REPORT.md
             ${{ env.OUT }}/SHA256SUMS.txt
           retention-days: 30
 
       - name: Final summary
-        run: |
-          echo 'PATCH ZIP + FULL SOURCE ZIP + REPORT created from exact DEV 3bff8953 and integrity-tested.'
+        run: echo 'PATCH ZIP + FULL SOURCE ZIP + REPORT created from exact latest DEV e036c39c and integrity-tested.'
