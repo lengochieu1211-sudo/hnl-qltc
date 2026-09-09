@@ -7,13 +7,18 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <!-- Edge/Chrome --app mode owns the running Taskbar window. Give it HQ PNG
-         sources instead of the legacy single-frame 16x16 ICO so Windows can
-         downsample the HNL logo cleanly at Taskbar/DPI sizes. -->
-    <link rel="icon" type="image/svg+xml" sizes="any" href="/icon-taskbar.svg?v=20260909-crisp" />
-    <link rel="icon" type="image/png" sizes="192x192" href="/icon-3d-192.png?v=20260909-crisp" />
-    <link rel="icon" type="image/png" sizes="512x512" href="/icon-3d-512.png?v=20260909-crisp" />
-    <link rel="apple-touch-icon" href="/icon-3d-192.png?v=20260909-crisp" />
+    <!-- Edge/Chrome --app mode owns the running titlebar/taskbar icon. Windows was
+         visibly blurring the old SVG/192px source when rasterizing it down. Use
+         exact pixel-hinted HNL frames for the small Windows/DPI sizes instead. -->
+    <link rel="icon" type="image/png" sizes="16x16" href="/hnl-taskbar-pixel-16.png?v=20260909-pixel2" />
+    <link rel="icon" type="image/png" sizes="20x20" href="/hnl-taskbar-pixel-20.png?v=20260909-pixel2" />
+    <link rel="icon" type="image/png" sizes="24x24" href="/hnl-taskbar-pixel-24.png?v=20260909-pixel2" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/hnl-taskbar-pixel-32.png?v=20260909-pixel2" />
+    <link rel="icon" type="image/png" sizes="40x40" href="/hnl-taskbar-pixel-40.png?v=20260909-pixel2" />
+    <link rel="icon" type="image/png" sizes="48x48" href="/hnl-taskbar-pixel-48.png?v=20260909-pixel2" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-3d-192.png?v=20260909-pixel2" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/icon-3d-512.png?v=20260909-pixel2" />
+    <link rel="apple-touch-icon" href="/icon-3d-192.png?v=20260909-pixel2" />
     <link rel="manifest" href="/manifest.json" />
     <title>HNL Quản Lý Thi Công</title>
   </head>

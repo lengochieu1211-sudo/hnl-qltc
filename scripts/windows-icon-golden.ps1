@@ -26,17 +26,39 @@ function Assert-Hnl([bool]$Condition, [string]$Message) {
 }
 
 $requiredSizes = @(16,20,24,28,32,40,48,64,80,96,128,256)
+$runtimeSizes = @(16,20,24,32,40,48)
 $exe = Resolve-Path -LiteralPath $ExePath
 $source = Resolve-Path -LiteralPath $SourcePng
-$runtimeSvg = Resolve-Path -LiteralPath './public/icon-taskbar.svg'
 $indexHtml = Get-Content -Raw -LiteralPath './index.html'
 $manifestJson = Get-Content -Raw -LiteralPath './public/manifest.json'
-$runtimeSvgText = Get-Content -Raw -LiteralPath $runtimeSvg
-Assert-Hnl ($indexHtml -match 'icon-taskbar\.svg\?v=20260909-crisp') 'runtime Web taskbar uses dedicated cache-busted SVG'
-Assert-Hnl ($manifestJson -match 'icon-taskbar\.svg\?v=20260909-crisp') 'manifest advertises runtime SVG icon'
-Assert-Hnl ($runtimeSvgText -match 'viewBox="0 0 256 256"') 'runtime SVG has square vector viewBox'
-Assert-Hnl ($runtimeSvgText -match '#0f2f5f' -and $runtimeSvgText -match '#5f6670') 'runtime SVG has high-contrast HNL strokes'
+Assert-Hnl (-not ($indexHtml -match 'icon-taskbar\.svg')) 'runtime Web no longer asks Chrome/Edge to downsample the vector icon'
+Assert-Hnl (-not ($manifestJson -match 'icon-taskbar\.svg')) 'manifest no longer prioritizes the vector runtime icon'
 New-Item -ItemType Directory -Force -Path $EvidenceDir | Out-Null
+
+$runtimeFrames = @()
+foreach ($size in $runtimeSizes) {
+  $runtimePath = Resolve-Path -LiteralPath ("./public/hnl-taskbar-pixel-{0}.png" -f $size)
+  Assert-Hnl ($indexHtml -match ("hnl-taskbar-pixel-{0}\.png\?v=20260909-pixel2" -f $size)) "HTML advertises exact ${size}x${size} browser runtime frame"
+  Assert-Hnl ($manifestJson -match ("hnl-taskbar-pixel-{0}\.png\?v=20260909-pixel2" -f $size)) "manifest advertises exact ${size}x${size} browser runtime frame"
+  $bmp = [System.Drawing.Bitmap]::FromFile($runtimePath)
+  try {
+    Assert-Hnl ($bmp.Width -eq $size -and $bmp.Height -eq $size) "runtime PNG is exactly ${size}x${size}"
+    $partialAlpha = 0
+    $colors = New-Object 'System.Collections.Generic.HashSet[int]'
+    for ($y = 0; $y -lt $bmp.Height; $y++) {
+      for ($x = 0; $x -lt $bmp.Width; $x++) {
+        $c = $bmp.GetPixel($x,$y)
+        if ($c.A -ne 0 -and $c.A -ne 255) { $partialAlpha++ }
+        [void]$colors.Add($c.ToArgb())
+      }
+    }
+    Assert-Hnl ($partialAlpha -eq 0) "${size}x${size} runtime frame has no anti-aliased partial-alpha blur pixels"
+    Assert-Hnl ($colors.Count -le 4) "${size}x${size} runtime frame uses a compact pixel-hinted palette ($($colors.Count) colors)"
+    $copyPath = Join-Path $EvidenceDir ("runtime-frame-{0}.png" -f $size)
+    $bmp.Save($copyPath, [System.Drawing.Imaging.ImageFormat]::Png)
+    $runtimeFrames += [PSCustomObject]@{ Size=$size; File=$copyPath }
+  } finally { $bmp.Dispose() }
+}
 
 $sourceImage = [System.Drawing.Image]::FromFile($source)
 try {
@@ -110,13 +132,36 @@ try {
   $font.Dispose(); $g.Dispose(); $sheet.Dispose()
 }
 
+$runtimeSheet = [System.Drawing.Bitmap]::new(720, 180, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+$rg = [System.Drawing.Graphics]::FromImage($runtimeSheet)
+$rfont = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
+try {
+  $rg.Clear([System.Drawing.Color]::FromArgb(232,236,242))
+  $rg.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::NearestNeighbor
+  for ($i=0; $i -lt $runtimeFrames.Count; $i++) {
+    $frame = $runtimeFrames[$i]
+    $img = [System.Drawing.Image]::FromFile($frame.File)
+    try {
+      $x = 15 + ($i * 116)
+      $rg.DrawImage($img,$x,20,96,96)
+      $label = "{0}x{0}" -f $frame.Size
+      $rg.DrawString($label,$rfont,[System.Drawing.Brushes]::Black,$x+25,128)
+    } finally { $img.Dispose() }
+  }
+  $runtimeSheet.Save((Join-Path $EvidenceDir 'runtime-pixel-contact-sheet.png'),[System.Drawing.Imaging.ImageFormat]::Png)
+} finally {
+  $rfont.Dispose(); $rg.Dispose(); $runtimeSheet.Dispose()
+}
+
 @(
   'WINDOWS ICON GOLDEN PASS',
   "EXE=$($exe.Path)",
   "SOURCE=$($source.Path)",
   "ICON_GROUPS=$availableGroups",
   "EXTRACTED_SIZES=$($requiredSizes -join ',')",
-  'CONTACT_SHEET=icon-contact-sheet.png'
+  "RUNTIME_PIXEL_SIZES=$($runtimeSizes -join ',')",
+  'CONTACT_SHEET=icon-contact-sheet.png',
+  'RUNTIME_PIXEL_CONTACT_SHEET=runtime-pixel-contact-sheet.png'
 ) | Set-Content -LiteralPath (Join-Path $EvidenceDir 'windows-icon-golden.txt') -Encoding UTF8
 
 Write-Host 'WINDOWS ICON GOLDEN PASS'
