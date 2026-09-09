@@ -7803,7 +7803,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       {/* Room Highlight Modal */}
       <RoomHighlightModal
         isOpen={isRoomModalOpen}
-        onClose={() => { setIsRoomModalOpen(false); setHealthCenterOrphanRepairRoomId(null); }}
+        onClose={() => {
+          setIsRoomModalOpen(false);
+          setHealthCenterOrphanRepairRoomId(null);
+          try {
+            if (sessionStorage.getItem('qlct_health_center_return_state')) window.dispatchEvent(new Event('qlct-health-center-return'));
+          } catch (_) {}
+        }}
         roomItem={selectedRoomForEdit}
         initialPos={newRoomClickPos}
         initialRect={newRoomRect}
@@ -8341,6 +8347,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         const overdueInfo = getDefectOverdueInfo(activeDefectDetail);
         const activeContactTeam = resolveDefectTeam(activeDefectDetail, teams);
         const activeDefectShareText = buildDefectShareText(activeDefectDetail);
+        const closeDefectDetail = () => {
+          setActiveDefectDetail(null);
+          try {
+            if (sessionStorage.getItem('qlct_health_center_return_state')) window.dispatchEvent(new Event('qlct-health-center-return'));
+          } catch (_) {}
+        };
         const handleDetailFieldChange = (field: keyof DefectItem, value: any) => {
           if (!canEditDefects) return;
           let updated = { ...activeDefectDetail, [field]: value };
@@ -8408,7 +8420,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   >
                     {lockedDefectIds.has(activeDefectDetail.id) ? '🔒 Mở khóa vị trí' : '🔓 Khóa vị trí'}
                   </button>}
-                  <button onClick={() => setActiveDefectDetail(null)} className="font-bold text-slate-400 hover:text-slate-700">✕</button>
+                  <button onClick={closeDefectDetail} className="font-bold text-slate-400 hover:text-slate-700">✕</button>
                 </div>
               </div>
 
@@ -8623,7 +8635,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     Xóa Lỗi
                   </button>}
                   <button
-                    onClick={() => setActiveDefectDetail(null)}
+                    onClick={closeDefectDetail}
                     className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold"
                   >
                     Lưu &amp; Đóng

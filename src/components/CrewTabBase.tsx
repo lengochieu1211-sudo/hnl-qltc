@@ -332,6 +332,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   // Modals visibility states
   const [showAddLogModal, setShowAddLogModal] = useState(false);
   const [showTeamModal, setShowTeamModal] = useState(false);
+  const returnToHealthCenterIfPending = () => {
+    try {
+      if (sessionStorage.getItem('qlct_health_center_return_state')) window.dispatchEvent(new Event('qlct-health-center-return'));
+    } catch (_) {}
+  };
   
   // Editing targets
   const [editingRecord, setEditingRecord] = useState<CrewRecord | null>(null);
@@ -381,6 +386,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     if (!canOperate) {
       setShowAddLogModal(false);
       setEditingRecord(null);
+      returnToHealthCenterIfPending();
       setShowCopyConfirm(false);
     }
     if (!canDelete) {
@@ -900,6 +906,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       onAddCrewRecord({ ...recordData, id: activeLogEntityId });
     }
     setShowAddLogModal(false);
+    returnToHealthCenterIfPending();
   };
 
   // Handle Team Directory Submission
@@ -1909,6 +1916,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   }
                   setShowAddLogModal(false);
                   setEditingRecord(null);
+                  returnToHealthCenterIfPending();
                 }}
                 className="text-slate-400 hover:text-white transition"
               >
@@ -2188,6 +2196,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     }
                     setShowAddLogModal(false);
                     setEditingRecord(null);
+                    returnToHealthCenterIfPending();
                   }}
                   className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 px-4 rounded-lg text-xs transition"
                 >

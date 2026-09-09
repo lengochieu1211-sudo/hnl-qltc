@@ -310,8 +310,13 @@ export default function App() {
             : null;
       if (nextTab) setActiveTab(nextTab);
     };
+    const handleHealthCenterReturn = () => setActiveTab('config');
     window.addEventListener('qlct-diagnostic-open-entity', handleDiagnosticOpenTab);
-    return () => window.removeEventListener('qlct-diagnostic-open-entity', handleDiagnosticOpenTab);
+    window.addEventListener('qlct-health-center-return', handleHealthCenterReturn);
+    return () => {
+      window.removeEventListener('qlct-diagnostic-open-entity', handleDiagnosticOpenTab);
+      window.removeEventListener('qlct-health-center-return', handleHealthCenterReturn);
+    };
   }, []);
   const [activeProjectId, setActiveProjectId] = useState<string>(() => getActiveProjectId());
   const activeProjectIdRef = useRef<string>(activeProjectId);

@@ -216,6 +216,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   const [orphanRepairTargets, setOrphanRepairTargets] = useState<Record<string, string>>({});
   const [orphanDismissedKeys, setOrphanDismissedKeys] = useState<string[]>([]);
   const orphanRepairRef = React.useRef<HTMLDivElement | null>(null);
+  const formRef = React.useRef<HTMLFormElement | null>(null);
 
   // Combined teams list from props or local storage
   const displayTeams = (teams && teams.length > 0) 
@@ -549,6 +550,9 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     if (matches(workCategory, roomItem?.workCategoryId)) setWorkCategory(target);
     setPresetSelection(target);
     setOrphanDismissedKeys((prev) => [...new Set([...prev, orphan.key])]);
+    if (focusOrphanRepair && roomItem?.id) {
+      window.setTimeout(() => formRef.current?.requestSubmit(), 0);
+    }
   };
 
   const materialAliasMap = React.useMemo(() => buildMaterialAliasMap(materialNorms), [materialNorms]);
@@ -1060,7 +1064,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto overflow-x-hidden space-y-3.5 pr-1 text-xs">
+        <form ref={formRef} onSubmit={handleSubmit} className="flex-1 overflow-y-auto overflow-x-hidden space-y-3.5 pr-1 text-xs">
           {structureReadOnly && (
             <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-[11px] font-semibold text-indigo-800">
               Kỹ sư chỉ cập nhật tiến độ, nghiệm thu, đội thi công, hạn hoàn thành và ghi chú. Tên Căn/Phòng, khối lượng và hình học mặt bằng do Admin quản lý.
@@ -1096,7 +1100,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                         onClick={() => void remapOrphanCategory(orphan)}
                         className="rounded-lg bg-rose-600 px-3 py-2 text-[10.5px] font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-40"
                       >
-                        Gán lại hạng mục
+                        {focusOrphanRepair ? 'Gán lại & lưu' : 'Gán lại hạng mục'}
                       </button>
                     </div>
                   )}

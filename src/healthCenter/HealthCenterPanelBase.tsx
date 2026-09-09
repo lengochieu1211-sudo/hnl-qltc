@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Copy, Download, Eraser, ExternalLink, FileJson, FileSpreadsheet, RefreshCw, ShieldCheck, Wrench } from 'lucide-react';
 import type { UserRole } from '../utils/securityUtils';
 import { saveTextFileToDownloads } from '../utils/fileExport';
@@ -77,6 +77,24 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
   const [showRepairPreview, setShowRepairPreview] = useState(false);
   const [message, setMessage] = useState('');
 
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('qlct_health_center_return_state');
+      if (!raw) return;
+      const state = JSON.parse(raw);
+      if (state?.projectId && state.projectId !== projectId) return;
+      if (state?.severity) setSeverity(state.severity as SeverityFilter);
+      if (state?.module) setModule(state.module as ModuleFilter);
+      if (typeof state?.query === 'string') setQuery(state.query);
+      if (state?.issueId) setExpanded(state.issueId);
+      sessionStorage.removeItem('qlct_health_center_return_state');
+      window.setTimeout(() => {
+        const node = state?.issueId ? document.getElementById(`health-issue-${state.issueId}`) : null;
+        node?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 160);
+    } catch { /* best effort */ }
+  }, [projectId]);
+
   const report = useMemo(() => {
     if (!projectId || !accessVerified) return null;
     const data = fullAppData || {};
@@ -132,6 +150,9 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
 
   const openIssue = (issue: HealthCenterIssue) => {
     try {
+      sessionStorage.setItem('qlct_health_center_return_state', JSON.stringify({
+        projectId, severity, module, query, issueId: issue.id, createdAt: Date.now(),
+      }));
       sessionStorage.setItem('qlct_diagnostic_navigation_request', JSON.stringify({
         projectId,
         entityType: issue.entityType,
@@ -314,7 +335,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
     <div className="max-h-[560px] space-y-2 overflow-auto pr-1">
       {filtered.map((issue) => {
         const isOpen = expanded === issue.id;
-        return <div key={issue.id} className="rounded-xl border border-slate-200 bg-white p-3">
+        return <div id={`health-issue-${issue.id}`} key={issue.id} className="rounded-xl border border-slate-200 bg-white p-3">
           <div className="flex items-start gap-2">
             <AlertTriangle className={`mt-0.5 h-4 w-4 shrink-0 ${issue.severity === 'ERROR' ? 'text-red-600' : issue.severity === 'WARNING' ? 'text-amber-600' : 'text-indigo-600'}`} />
             <div className="min-w-0 flex-1">
