@@ -7,9 +7,15 @@ const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
-  '/favicon-3d.ico',
-  '/icon-3d-192.png',
-  '/icon-3d-512.png'
+  '/hnl-logo-original-16.png',
+  '/hnl-logo-original-20.png',
+  '/hnl-logo-original-24.png',
+  '/hnl-logo-original-28.png',
+  '/hnl-logo-original-32.png',
+  '/hnl-logo-original-40.png',
+  '/hnl-logo-original-48.png',
+  '/hnl-logo-original-192.png',
+  '/hnl-logo-original-512.png'
 ];
 
 // Install Event: Cache Core App Shell
