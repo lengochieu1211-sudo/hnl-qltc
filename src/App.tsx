@@ -12,6 +12,35 @@ import { resolveVerifiedIdentityLabel } from './utils/authIdentityUtils';
 function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
   if (!cloudItem || !localItem) return cloudItem;
   const merged = { ...cloudItem };
+  // P0 floor-plan durability: a newer local replacement must survive an older Cloud
+  // snapshot even when the Cloud row temporarily contains an empty/legacy imageUrl.
+  // This also recovers pre-outbox DEV records that already have imageRevision > cloud.
+  const pendingLocalFloorImage = String(localItem?.imageUrl || '');
+  const pendingLocalFloorRevision = Number(localItem?.imageRevision || 0);
+  const pendingCloudFloorRevision = Number(cloudItem?.imageCloudRevision || 0);
+  const preservePendingFloorImage = (
+    (pendingLocalFloorImage.startsWith('data:image/') || pendingLocalFloorImage.startsWith('blob:'))
+    && pendingLocalFloorRevision > pendingCloudFloorRevision
+  );
+  if (preservePendingFloorImage) {
+    merged.imageUrl = localItem.imageUrl;
+    merged.imageRevision = localItem.imageRevision;
+    merged.imageCloudRevision = localItem.imageCloudRevision;
+    merged.cloudFileId = localItem.cloudFileId;
+    merged.driveFileId = localItem.driveFileId;
+    merged.driveUrl = localItem.driveUrl;
+    merged.storageProvider = localItem.storageProvider;
+    merged.storagePath = localItem.storagePath;
+    merged.thumbnailPath = localItem.thumbnailPath;
+    merged.storageMd5Hash = localItem.storageMd5Hash;
+    merged.storageEtag = localItem.storageEtag;
+    merged.imageMimeType = localItem.imageMimeType;
+    merged.imageFileSize = localItem.imageFileSize;
+    merged.imageCloudSyncedAt = localItem.imageCloudSyncedAt;
+    merged.imageUploadState = localItem.imageUploadState;
+    merged.imagePendingByUid = localItem.imagePendingByUid;
+    merged.imageOutboxRevision = localItem.imageOutboxRevision;
+  }
   for (const key of Object.keys(merged)) {
     const val = merged[key];
     if (typeof val === 'string' && (
@@ -131,7 +160,7 @@ import { refreshProjectPhotoMetadataFromCloud, subscribeProjectPhotosRealtime, s
 import { appendRuntimeDiagnostic } from './lib/runtimeDiagnostics';
 import { isPrimaryDriveReady, PRIMARY_DRIVE_OWNER_EMAIL, uploadProjectBackupToPrimaryDrive } from './lib/primaryDriveBridge';
 import { subscribeConversationReadState, subscribeConversationSummary } from './lib/chatService';
-import { floorPlanNeedsCloudUpload, isDisplayableFloorPlanUrl, loadFloorPlanImageFromCloud, syncFloorPlanImageToCloud, deleteFloorPlanImageFromCloud } from './lib/floorPlanImageSync';
+import { floorPlanNeedsCloudUpload, isDisplayableFloorPlanUrl, loadFloorPlanImageFromCloud, stageFloorPlanImageOutbox, syncFloorPlanImageToCloud, deleteFloorPlanImageFromCloud } from './lib/floorPlanImageSync';
 import { DEFAULT_TRASH_SETTINGS, TrashOperation, TrashSettings, TrashCollectionKey, deleteTrashOperationFromCloud, estimateTrashBytes, getTrashCollectionLabel, normalizeTrashSettings, sanitizeTrashSnapshot, saveTrashOperationToCloud, subscribeProjectTrash } from './lib/trash';
 import { commitWarehouseTransactionAtomic, updateWarehouseTransactionAtomic, softDeleteWarehouseTransactionAtomic } from './lib/warehouseTransactions';
 
@@ -5222,9 +5251,24 @@ export default function App() {
     }));
   };
 
-  const handleUpdateFloorPlanImage = (id: string, imageUrl: string) => {
+  const handleUpdateFloorPlanImage = async (id: string, imageUrl: string) => {
     if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
     const imageRevision = Date.now();
+    const projectId = activeProjectIdRef.current;
+    const uploaderUid = getCurrentRealFirebaseUser()?.uid || '';
+    try {
+      await stageFloorPlanImageOutbox(projectId, id, imageRevision, imageUrl);
+    } catch (err) {
+      appendRuntimeDiagnostic({
+        level: 'error',
+        area: 'floor-plan-image',
+        projectId,
+        code: 'OUTBOX_STAGE_FAILED',
+        message: `Không thể lưu ảnh thay mặt bằng vào outbox: ${err instanceof Error ? err.message : String(err)}`,
+      });
+      alert('Không thể lưu ảnh mặt bằng an toàn trên thiết bị. Ảnh chưa được thay; hãy thử lại.');
+      return;
+    }
     updateAppData((prev) => ({
       ...prev,
       floorPlans: prev.floorPlans.map((fp) => (fp.id === id ? {
@@ -5232,10 +5276,24 @@ export default function App() {
         imageUrl,
         imageRevision,
         imageCloudRevision: 0,
+        imageUploadState: 'pending',
+        imagePendingByUid: uploaderUid,
+        imageOutboxRevision: imageRevision,
         driveFileId: undefined,
         driveUrl: undefined,
         cloudFileId: undefined,
         storageProvider: undefined,
+        storagePath: undefined,
+        thumbnailPath: undefined,
+        storageMd5Hash: undefined,
+        storageEtag: undefined,
+        imageMimeType: undefined,
+        imageFileSize: undefined,
+        imageCloudSyncedAt: undefined,
+        uploadedAt: new Date().toISOString().split('T')[0],
+        updatedAt: imageRevision,
+        revision: Math.max(Number((fp as any).revision || 0), 0) + 1,
+        updatedByUid: uploaderUid || fp.updatedByUid,
       } : fp)),
     }));
   };

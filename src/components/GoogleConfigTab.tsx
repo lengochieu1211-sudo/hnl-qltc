@@ -43,6 +43,7 @@ import { getImageQualityProfile, getImageQualitySettings, setImageQualitySetting
 import type { UserRole } from '../utils/securityUtils';
 import type { TrashOperation, TrashSettings, TrashRetentionDays } from '../lib/trash';
 import { buildDiagnosticBundle, clearRuntimeDiagnostics } from '../lib/runtimeDiagnostics';
+import { getFloorPlanImageOutboxSnapshot } from '../lib/floorPlanImageSync';
 import { getProjectPhotoDiagnosticSnapshot } from '../utils/photoStorage';
 import { HealthCenterPanel } from '../healthCenter/HealthCenterPanel';
 import { ExpandCollapseIndicator } from './ExpandCollapseIndicator';
@@ -181,34 +182,61 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       Number(photoDiagnostics.pending || 0) === 0 &&
       Number(photoDiagnostics.active || 0) === Number(photoDiagnostics.ready || 0)
     );
+    const floorPlanOutboxRows = activeProjectId
+      ? await getFloorPlanImageOutboxSnapshot(activeProjectId).catch(() => [])
+      : [];
+    const latestOutboxByFloor = new Map<string, any>();
+    for (const row of floorPlanOutboxRows) {
+      const previous = latestOutboxByFloor.get(row.floorPlanId);
+      if (!previous || Number(row.revision || 0) > Number(previous.revision || 0)) latestOutboxByFloor.set(row.floorPlanId, row);
+    }
     const floorPlanRows = Array.isArray(fullAppData?.floorPlans) ? fullAppData.floorPlans : [];
+    const floorPlanDiagnosticRows = floorPlanRows.map((plan: any) => {
+      const imageUrl = String(plan?.imageUrl || '');
+      const localBinary = imageUrl.startsWith('data:image/') || imageUrl.startsWith('blob:');
+      const outbox = latestOutboxByFloor.get(String(plan?.id || ''));
+      const imageRevision = Number(plan?.imageRevision || 0);
+      const effectiveRevision = Math.max(imageRevision, Number(outbox?.revision || 0));
+      const cloudRevision = Number(plan?.imageCloudRevision || 0);
+      const storageProvider = String(plan?.storageProvider || '');
+      const storagePath = String(plan?.storagePath || '');
+      const hasCloudPointer = Boolean(storageProvider && storagePath);
+      const cloudReady = hasCloudPointer && (effectiveRevision <= 0 || cloudRevision >= effectiveRevision);
+      const hasImageEvidence = Boolean(
+        localBinary || outbox || imageUrl || effectiveRevision || plan?.imageMimeType || plan?.imageFileSize || hasCloudPointer || plan?.imageUploadState
+      );
+      let status = 'NO_IMAGE';
+      if (cloudReady) status = 'READY';
+      else if (outbox && Number(outbox.revision || 0) > cloudRevision) status = 'PENDING_OUTBOX';
+      else if (localBinary) status = 'PENDING_LOCAL';
+      else if (hasCloudPointer && effectiveRevision > cloudRevision) status = 'CLOUD_POINTER_INCONSISTENT';
+      else if (hasImageEvidence) status = 'MISSING_BINARY';
+      const pending = status !== 'READY' && status !== 'NO_IMAGE';
+      return {
+        id: String(plan?.id || ''),
+        floorName: String(plan?.floorName || ''),
+        status,
+        pending,
+        localBinary,
+        imageRevision,
+        effectiveImageRevision: effectiveRevision,
+        imageCloudRevision: cloudRevision,
+        imageUploadState: String(plan?.imageUploadState || ''),
+        imagePendingByUid: String(plan?.imagePendingByUid || ''),
+        imageOutboxRevision: Number(plan?.imageOutboxRevision || 0),
+        outboxRevision: Number(outbox?.revision || 0),
+        outboxBytes: Number(outbox?.bytes || 0),
+        storageProvider,
+        storagePath,
+        imageCloudSyncedAt: Number(plan?.imageCloudSyncedAt || 0),
+      };
+    });
     const floorPlanDiagnostics = {
       total: floorPlanRows.length,
-      pending: floorPlanRows.filter((plan: any) => {
-        const imageUrl = String(plan?.imageUrl || '');
-        const localBinary = imageUrl.startsWith('data:image/') || imageUrl.startsWith('blob:');
-        const imageRevision = Number(plan?.imageRevision || plan?.updatedAt || 0);
-        const cloudRevision = Number(plan?.imageCloudRevision || 0);
-        return localBinary && (cloudRevision < imageRevision || !plan?.storagePath || !plan?.storageProvider);
-      }).length,
-      floors: floorPlanRows.slice(0, 50).map((plan: any) => {
-        const imageUrl = String(plan?.imageUrl || '');
-        const localBinary = imageUrl.startsWith('data:image/') || imageUrl.startsWith('blob:');
-        const imageRevision = Number(plan?.imageRevision || plan?.updatedAt || 0);
-        const cloudRevision = Number(plan?.imageCloudRevision || 0);
-        const pending = localBinary && (cloudRevision < imageRevision || !plan?.storagePath || !plan?.storageProvider);
-        return {
-          id: String(plan?.id || ''),
-          floorName: String(plan?.floorName || ''),
-          pending,
-          localBinary,
-          imageRevision,
-          imageCloudRevision: cloudRevision,
-          storageProvider: String(plan?.storageProvider || ''),
-          storagePath: String(plan?.storagePath || ''),
-          imageCloudSyncedAt: Number(plan?.imageCloudSyncedAt || 0),
-        };
-      }),
+      pending: floorPlanDiagnosticRows.filter((row: any) => row.pending).length,
+      outboxCount: floorPlanOutboxRows.length,
+      outboxBytes: floorPlanOutboxRows.reduce((sum: number, row: any) => sum + Number(row?.bytes || 0), 0),
+      floors: floorPlanDiagnosticRows.slice(0, 50),
     };
     return buildDiagnosticBundle({
       screen: 'system-diagnostics',

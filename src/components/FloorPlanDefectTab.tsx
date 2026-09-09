@@ -1212,6 +1212,16 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   // PDF Upload & Convert State (Requirement #3)
   const [isConvertingPdf, setIsConvertingPdf] = useState(false);
+  const [floorPlanProcessingKind, setFloorPlanProcessingKind] = useState<'pdf' | 'image' | null>(null);
+  const beginFloorPlanFileProcessing = (file: File) => {
+    const isPdfFile = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    setFloorPlanProcessingKind(isPdfFile ? 'pdf' : 'image');
+    setIsConvertingPdf(true);
+  };
+  const endFloorPlanFileProcessing = () => {
+    setIsConvertingPdf(false);
+    setFloorPlanProcessingKind(null);
+  };
   const [updatingFloorPlanId, setUpdatingFloorPlanId] = useState<string | null>(null);
   const updatePlanInputRef = useRef<HTMLInputElement>(null);
 
@@ -3294,7 +3304,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     if (!file) return;
 
     try {
-      setIsConvertingPdf(true);
+      beginFloorPlanFileProcessing(file);
       const planUrl = await renderFloorPlanFile(file);
       if (!planUrl) return;
 
@@ -3320,7 +3330,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       console.error('PDF upload error:', err);
       alert(describePdfError(err));
     } finally {
-      setIsConvertingPdf(false);
+      endFloorPlanFileProcessing();
     }
   };
 
@@ -3331,7 +3341,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     if (!file || !updatingFloorPlanId) return;
 
     try {
-      setIsConvertingPdf(true);
+      beginFloorPlanFileProcessing(file);
       const planUrl = await renderFloorPlanFile(file);
       if (!planUrl) return;
 
@@ -3343,7 +3353,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       console.error('Update floor plan drawing error:', err);
       alert(describePdfError(err));
     } finally {
-      setIsConvertingPdf(false);
+      endFloorPlanFileProcessing();
       setUpdatingFloorPlanId(null);
       if (updatePlanInputRef.current) updatePlanInputRef.current.value = '';
     }
@@ -4640,8 +4650,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         <div className="bg-amber-50 border border-amber-200 text-amber-900 p-3 rounded-2xl flex items-center gap-3 animate-pulse shadow-sm">
           <div className="w-5 h-5 border-2 border-amber-600 border-t-transparent rounded-full animate-spin shrink-0" />
           <div className="text-xs">
-            <span className="font-bold block">🔄 Đang nạp &amp; chuyển đổi tệp PDF mặt bằng...</span>
-            <span className="text-[11px] text-amber-700">Đang chuyển PDF thành ảnh mặt bằng sắc nét; không tự tạo Căn / Phòng hoặc dữ liệu mẫu.</span>
+            <span className="font-bold block">
+              {floorPlanProcessingKind === 'pdf' ? '🔄 Đang render PDF thành ảnh mặt bằng...' : '🖼️ Đang tối ưu ảnh mặt bằng...'}
+            </span>
+            <span className="text-[11px] text-amber-700">
+              {floorPlanProcessingKind === 'pdf'
+                ? 'Đang chuyển trang PDF đã chọn thành ảnh mặt bằng; không tự tạo Căn / Phòng hoặc dữ liệu mẫu.'
+                : 'Đang nén và chuẩn bị ảnh JPG/PNG/WebP để lưu mặt bằng; không có bước chuyển PDF.'}
+            </span>
           </div>
         </div>
       )}

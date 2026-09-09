@@ -220,7 +220,8 @@ const floorPlanNeedsEnd = floorPlanSync.indexOf('export async function syncFloor
 if (floorPlanNeedsStart < 0 || floorPlanNeedsEnd <= floorPlanNeedsStart) fail('floorPlanNeedsCloudUpload source block missing');
 const floorPlanNeedsBlock = floorPlanSync.slice(floorPlanNeedsStart, floorPlanNeedsEnd);
 if (floorPlanNeedsBlock.includes("getCurrentUserRole() !== 'ADMIN'")) fail('floorPlanNeedsCloudUpload must remain a pure data predicate; role resolution belongs to the scheduler');
-requireAll(floorPlanSync, ["if (getCurrentUserRole() !== 'ADMIN') return null;"], 'floor-plan upload ADMIN defense-in-depth');
+requireAll(floorPlanSync, ['fetchProjectUserRoleFromCloud', "roleInfo.verification !== 'verified'", "!roleInfo.allowed || roleInfo.role !== 'ADMIN'"], 'floor-plan upload project-scoped ADMIN defense-in-depth');
+if (floorPlanSync.includes("from '../utils/securityUtils'") || floorPlanSync.includes("if (getCurrentUserRole() !== 'ADMIN')")) fail('floor-plan upload must not authorize from the Firebase-only global role cache');
 requireAll(app, [
   '// Upload scheduling is role-aware: re-run as soon as the cloud role resolves to ADMIN.',
   "currentUserRole !== 'ADMIN'",
