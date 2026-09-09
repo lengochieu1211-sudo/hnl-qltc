@@ -215,6 +215,18 @@ requireAll(materialNormModal, ['sm:min-h-[2.75rem]', 'sm:items-start', 'leading-
 pass('Material norm quota inputs align on PC while remaining stacked on mobile');
 pass('cross-account/device photo metadata resolves private R2/Storage binary instead of rendering opaque pointers');
 requireAll(floorPlanSync, ['uploadFloorPlanBinaryToCloud', 'BINARY_STORAGE_PROVIDER', 'storagePath:', 'thumbnailPath:'], 'floor-plan object-storage pipeline');
+const floorPlanNeedsStart = floorPlanSync.indexOf('export function floorPlanNeedsCloudUpload');
+const floorPlanNeedsEnd = floorPlanSync.indexOf('export async function syncFloorPlanImagesToCloud', floorPlanNeedsStart);
+if (floorPlanNeedsStart < 0 || floorPlanNeedsEnd <= floorPlanNeedsStart) fail('floorPlanNeedsCloudUpload source block missing');
+const floorPlanNeedsBlock = floorPlanSync.slice(floorPlanNeedsStart, floorPlanNeedsEnd);
+if (floorPlanNeedsBlock.includes("getCurrentUserRole() !== 'ADMIN'")) fail('floorPlanNeedsCloudUpload must remain a pure data predicate; role resolution belongs to the scheduler');
+requireAll(floorPlanSync, ["if (getCurrentUserRole() !== 'ADMIN') return null;"], 'floor-plan upload ADMIN defense-in-depth');
+requireAll(app, [
+  '// Upload scheduling is role-aware: re-run as soon as the cloud role resolves to ADMIN.',
+  "currentUserRole !== 'ADMIN'",
+  'isProjectRoleResolved, currentUserRole',
+], 'floor-plan pending upload restarts after cloud ADMIN role resolution');
+pass('floor-plan pending image survives pre-resolve role and upload scheduler re-runs on ADMIN resolution');
 if (photoSync.includes('uploadPhotoToPrimaryDrive(')) fail('photo runtime still has a Drive upload call');
 if (floorPlanSync.includes('uploadFloorPlanToPrimaryDrive(')) fail('floor-plan runtime still has a Drive upload call');
 if (!photoSync.includes('LEGACY_DRIVE_READ_FALLBACK') || !floorPlanSync.includes('LEGACY_DRIVE_READ_FALLBACK')) fail('legacy Drive read fallback missing before verified binary migration');

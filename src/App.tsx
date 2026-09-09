@@ -1927,7 +1927,8 @@ export default function App() {
   // metadata stays in Firestore, while the binary goes to Firebase Storage.
   // Legacy Drive/Firestore chunks remain read-only migration fallbacks; new binaries never write to Drive.
   useEffect(() => {
-    if (!isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || !isOnline || projectRoleSource !== 'cloud' || !projectRoleAllowed || switchingProjectRef.current) return;
+    // Upload scheduling is role-aware: re-run as soon as the cloud role resolves to ADMIN.
+    if (!isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || !isOnline || !isProjectRoleResolved || projectRoleSource !== 'cloud' || !projectRoleAllowed || currentUserRole !== 'ADMIN' || switchingProjectRef.current) return;
     const projectId = activeProjectId;
     let cancelled = false;
 
@@ -2012,7 +2013,7 @@ export default function App() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [floorPlans, activeProjectId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, floorPlanImageSyncRetryTick, isOnline, projectRoleSource, projectRoleAllowed]);
+  }, [floorPlans, activeProjectId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, floorPlanImageSyncRetryTick, isOnline, isProjectRoleResolved, currentUserRole, projectRoleSource, projectRoleAllowed]);
 
   // Hydrate cloud-backed floor-plan binaries on another phone/PC. Run one-by-one so
   // opening a project does not allocate every large plan image in RAM at the same time.

@@ -201,7 +201,8 @@ export async function loadFloorPlanImageFromCloud(projectId: string, plan: Floor
 }
 
 export function floorPlanNeedsCloudUpload(plan: FloorPlan): boolean {
-  if (getCurrentUserRole() !== 'ADMIN') return false;
+  // Pure data predicate. Role gating belongs to the scheduler and the upload function;
+  // keeping it out of this helper prevents a pre-resolve VIEWER role from hiding pending work.
   if (!plan?.id || !isLocalFloorPlanBinaryUrl(plan.imageUrl)) return false;
   const revision = Number(plan.imageRevision || (plan as any).updatedAt || 0);
   return !plan.imageCloudRevision || Number(plan.imageCloudRevision) < revision || plan.storageProvider !== BINARY_STORAGE_PROVIDER || !plan.storagePath;
