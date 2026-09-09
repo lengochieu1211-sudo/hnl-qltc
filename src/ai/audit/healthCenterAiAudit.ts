@@ -116,7 +116,7 @@ export function auditProjectViaHealthCenter(
     { id: 'health-center:audit-snapshot-id', kind: 'FACT', label: 'Health Center Audit Snapshot ID', value: report.auditSnapshotId },
     { id: 'health-center:errors', kind: 'CALCULATED', label: 'Lỗi toàn dự án', value: report.errorCount, unit: 'issue' },
     { id: 'health-center:warnings', kind: 'CALCULATED', label: 'Cảnh báo toàn dự án', value: report.warningCount, unit: 'issue' },
-    { id: 'health-center:review', kind: 'CALCULATED', label: 'Mục cần xác nhận/rà soát', value: report.reviewCount + report.suggestionCount, unit: 'issue' },
+    { id: 'health-center:review', kind: 'CALCULATED', label: 'Mục cần xác nhận/rà soát', value: report.needsConfirmationCount, unit: 'issue', method: 'Health Center actionClass = NEEDS_CONFIRMATION' },
     { id: 'health-center:safe-repair', kind: 'CALCULATED', label: 'Ứng viên sửa an toàn', value: report.safeRepairCount, unit: 'issue' },
     { id: 'health-center:manual-repair', kind: 'CALCULATED', label: 'Mục cần sửa thủ công', value: report.manualRepairCount, unit: 'issue' },
   ];
