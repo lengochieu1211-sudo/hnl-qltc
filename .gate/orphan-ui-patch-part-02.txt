@@ -1,0 +1,100 @@
+-    // let stale local state manufacture extra choices when the project catalog exists.
+-    if (!roomItem) {
+-      return projectWorkCategoryTitles;
+-    }
++  const availableWorkCategories = React.useMemo(() => projectWorkCategoryTitles, [projectWorkCategoryTitles]);
+ 
+-    // Existing rooms may include historical values for inspection/remapping.
+-    if (list.size > 0) {
+-      return Array.from(list);
++  const remapOrphanWorkCategory = React.useCallback(async (orphan: OrphanWorkCategoryRef, replacementTitle: string) => {
++    if (structureReadOnly) return;
++    const replacement = activeWorkCategoryByName.get(normalizeWorkCategoryName(replacementTitle));
++    if (!replacement) {
++      setOrphanRepairMessage('Hạng mục thay thế không còn trong danh mục Khối lượng. Hãy quét lại và chọn hạng mục khác.');
++      return;
+     }
+-
+-    if (materialNorms && materialNorms.length > 0) {
+-      materialNorms.forEach((norm) => {
+-        if (norm.workCategories && norm.workCategories.length > 0) {
+-          norm.workCategories.forEach(c => list.add(c));
+-        } else if (norm.workCategory) {
+-          list.add(norm.workCategory);
+-        }
++    const oldNameKey = normalizeWorkCategoryName(orphan.workCategoryName || orphan.label);
++    const replacementNameKey = normalizeWorkCategoryName(replacement.title);
++    const matches = (id?: string, name?: string) => {
++      const currentId = String(id || '').trim();
++      if (orphan.workCategoryId && currentId === orphan.workCategoryId) return true;
++      return Boolean(oldNameKey && normalizeWorkCategoryName(name) === oldNameKey);
++    };
++    const isSourceVolumeKey = (raw: string) =>
++      Boolean((orphan.workCategoryId && raw === orphan.workCategoryId) || normalizeWorkCategoryName(raw) === oldNameKey);
++    const isTargetVolumeKey = (raw: string) =>
++      Boolean((replacement.id && raw === replacement.id) || normalizeWorkCategoryName(raw) === replacementNameKey);
++
++    let movedVolume = 0;
++    let existingTargetVolume = 0;
++    Object.entries(categoryVolumes || {}).forEach(([raw, value]) => {
++      const numeric = Math.max(0, Number(value) || 0);
++      if (isSourceVolumeKey(raw)) movedVolume += numeric;
++      else if (isTargetVolumeKey(raw)) existingTargetVolume += numeric;
++    });
++    const impactedSubItems = subItems.filter((sub) => matches(sub.workCategoryId, sub.category)).length;
++    const details = [
++      `Hạng mục cũ: ${orphan.label}`,
++      `Gán sang: ${replacement.title}`,
++      impactedSubItems ? `Hạng mục con giữ nguyên tiến độ/nghiệm thu: ${impactedSubItems}` : '',
++      movedVolume > 0 ? `Khối lượng chuyển: ${formatDecimal(movedVolume)} ${volumeUnit || 'm²'}` : '',
++      existingTargetVolume > 0 && movedVolume > 0 ? `Hạng mục đích đang có ${formatDecimal(existingTargetVolume)}; hệ thống sẽ cộng thành ${formatDecimal(existingTargetVolume + movedVolume)}.` : '',
++      '',
++      'Không xóa Căn/Phòng, không xóa lịch sử tiến độ. Sau khi gán, hãy bấm Lưu để ghi thay đổi.',
++    ].filter(Boolean).join('\n');
++    if (!(await confirmAsync(details))) return;
++
++    setSubItems((prev) => prev.map((sub) => matches(sub.workCategoryId, sub.category)
++      ? { ...sub, category: replacement.title, workCategoryId: replacement.id || undefined }
++      : sub));
++    setCategoryVolumes((prev) => {
++      const next = { ...prev };
++      let sourceTotal = 0;
++      let targetTotal = 0;
++      Object.entries(prev).forEach(([raw, value]) => {
++        const numeric = Math.max(0, Number(value) || 0);
++        if (isSourceVolumeKey(raw)) sourceTotal += numeric;
++        else if (isTargetVolumeKey(raw)) targetTotal += numeric;
++        if (isSourceVolumeKey(raw) || isTargetVolumeKey(raw)) delete next[raw];
+       });
++      if (sourceTotal > 0 || targetTotal > 0) next[replacement.title] = sourceTotal + targetTotal;
++      return next;
++    });
++    setVolumeStrings((prev) => {
++      const next = { ...prev };
++      Object.keys(next).forEach((raw) => {
++        if (isSourceVolumeKey(raw) || isTargetVolumeKey(raw)) delete next[raw];
++      });
++      const targetValue = movedVolume + existingTargetVolume;
++      if (targetValue > 0) next[replacement.title] = formatDecimal(targetValue);
++      return next;
++    });
++    if (matches(roomItem.workCategoryId, workCategory || roomItem.workCategory)) {
++      setWorkCategory(replacement.title);
+     }
++    setPresetSelection(replacement.title);
++    setOrphanReplacementByKey((prev) => ({ ...prev, [orphan.key]: replacement.title }));
++    setOrphanRepairMessage(`Đã gán “${orphan.label}” → “${replacement.title}” trong form. Bấm “Lưu” để hoàn tất và sau đó Quét lại HNL Health Center.`);
++  }, [activeWorkCategoryByName, categoryVolumes, normalizeWorkCategoryName, roomItem, structureReadOnly, subItems, volumeUnit, workCategory]);
+ 
+-    // If we have items in our set, return them
+-    if (list.size > 0) {
+-      return Array.from(list);
+-    }
+-
+-    // Fallback to keys of WORK_CATEGORY_PRESETS
+-    return Object.keys(WORK_CATEGORY_PRESETS);
+-  }, [projectWorkCategoryTitles, materialNorms, workCategory, subItems, categoryVolumes, roomItem]);
++  React.useEffect(() => {
++    if (!isOpen || !roomItem || orphanWorkCategoryRefs.length === 0) return;
++    try {
++      const raw = sessionStorage.getItem('qlct_health_center_orphan_repair_request');
