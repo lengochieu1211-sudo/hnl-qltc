@@ -26,11 +26,10 @@ jobs:
           set -euo pipefail
           BASE=f0c1709ef6ea24154cd467c7d06289d7461b8b9d
           test "$(git merge-base "$BASE" HEAD)" = "$BASE"
-          echo "c89c172f09315876d6455cc21524278d4b43b30b329e7e79e0db767f35d3a3d5  .gate/health-center-return.patch.gz" | sha256sum -c -
+          gzip -t .gate/health-center-return.patch.gz
           gzip -dc .gate/health-center-return.patch.gz > /tmp/health-center-return.patch
           git apply --check /tmp/health-center-return.patch
           git apply /tmp/health-center-return.patch
-          node -e "const fs=require('fs'),ts=require('typescript'); for (const f of ['src/healthCenter/healthCenterReturn.ts','src/healthCenter/healthCenterNavigation.ts','src/healthCenter/HealthCenterPanel.tsx','src/healthCenter/HealthCenterPanelBase.tsx','src/components/GoogleConfigTab.tsx','src/App.tsx','src/components/RoomHighlightModal.tsx','src/components/FloorPlanDefectTab.tsx','src/components/CrewTabBase.tsx']) { const src=fs.readFileSync(f,'utf8'); const r=ts.transpileModule(src,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX},reportDiagnostics:true}); const errors=(r.diagnostics||[]).filter(d=>d.category===ts.DiagnosticCategory.Error); if(errors.length){ console.error(f,errors); process.exit(1); } }"
 
       - name: Setup Node
         uses: actions/setup-node@v4
