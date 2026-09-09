@@ -1,0 +1,138 @@
+name: Gate Health Center Continuous Flow
+
+on:
+  push:
+    branches:
+      - gate/health-center-continuous-v8-20260909
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    if: ${{ !contains(github.event.head_commit.message, '[gate-verified]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: gate/health-center-continuous-v8-20260909
+          fetch-depth: 0
+
+      - name: Apply deterministic Health Center continuity patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base f0c1709ef6ea24154cd467c7d06289d7461b8b9d HEAD)" = "f0c1709ef6ea24154cd467c7d06289d7461b8b9d"
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              s = p.read_text()
+              count = s.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected 1 match, got {count} for {old[:80]!r}')
+              p.write_text(s.replace(old, new, 1))
+
+          replace_once('src/healthCenter/HealthCenterPanelBase.tsx',
+              "import React, { useMemo, useState } from 'react';",
+              "import React, { useEffect, useMemo, useState } from 'react';")
+          replace_once('src/healthCenter/HealthCenterPanelBase.tsx',
+              "  const [message, setMessage] = useState('');\n\n  const report = useMemo(() => {",
+              "  const [message, setMessage] = useState('');\n\n  useEffect(() => {\n    try {\n      const raw = sessionStorage.getItem('qlct_health_center_return_state');\n      if (!raw) return;\n      const state = JSON.parse(raw);\n      if (state?.projectId && state.projectId !== projectId) return;\n      if (state?.severity) setSeverity(state.severity as SeverityFilter);\n      if (state?.module) setModule(state.module as ModuleFilter);\n      if (typeof state?.query === 'string') setQuery(state.query);\n      if (state?.issueId) setExpanded(state.issueId);\n      sessionStorage.removeItem('qlct_health_center_return_state');\n      window.setTimeout(() => {\n        const node = state?.issueId ? document.getElementById(`health-issue-${state.issueId}`) : null;\n        node?.scrollIntoView({ behavior: 'smooth', block: 'center' });\n      }, 160);\n    } catch { /* best effort */ }\n  }, [projectId]);\n\n  const report = useMemo(() => {")
+          replace_once('src/healthCenter/HealthCenterPanelBase.tsx',
+              "    try {\n      sessionStorage.setItem('qlct_diagnostic_navigation_request', JSON.stringify({",
+              "    try {\n      sessionStorage.setItem('qlct_health_center_return_state', JSON.stringify({\n        projectId, severity, module, query, issueId: issue.id, createdAt: Date.now(),\n      }));\n      sessionStorage.setItem('qlct_diagnostic_navigation_request', JSON.stringify({")
+          replace_once('src/healthCenter/HealthCenterPanelBase.tsx',
+              "        return <div key={issue.id} className=\"rounded-xl border border-slate-200 bg-white p-3\">",
+              "        return <div id={`health-issue-${issue.id}`} key={issue.id} className=\"rounded-xl border border-slate-200 bg-white p-3\">")
+
+          replace_once('src/App.tsx',
+              "    window.addEventListener('qlct-diagnostic-open-entity', handleDiagnosticOpenTab);\n    return () => window.removeEventListener('qlct-diagnostic-open-entity', handleDiagnosticOpenTab);",
+              "    const handleHealthCenterReturn = () => setActiveTab('config');\n    window.addEventListener('qlct-diagnostic-open-entity', handleDiagnosticOpenTab);\n    window.addEventListener('qlct-health-center-return', handleHealthCenterReturn);\n    return () => {\n      window.removeEventListener('qlct-diagnostic-open-entity', handleDiagnosticOpenTab);\n      window.removeEventListener('qlct-health-center-return', handleHealthCenterReturn);\n    };")
+
+          replace_once('src/components/FloorPlanDefectTab.tsx',
+              "        onClose={() => { setIsRoomModalOpen(false); setHealthCenterOrphanRepairRoomId(null); }}",
+              "        onClose={() => {\n          setIsRoomModalOpen(false);\n          setHealthCenterOrphanRepairRoomId(null);\n          try {\n            if (sessionStorage.getItem('qlct_health_center_return_state')) window.dispatchEvent(new Event('qlct-health-center-return'));\n          } catch (_) {}\n        }}")
+          replace_once('src/components/FloorPlanDefectTab.tsx',
+              "        const activeDefectShareText = buildDefectShareText(activeDefectDetail);\n        const handleDetailFieldChange",
+              "        const activeDefectShareText = buildDefectShareText(activeDefectDetail);\n        const closeDefectDetail = () => {\n          setActiveDefectDetail(null);\n          try {\n            if (sessionStorage.getItem('qlct_health_center_return_state')) window.dispatchEvent(new Event('qlct-health-center-return'));\n          } catch (_) {}\n        };\n        const handleDetailFieldChange")
+          replace_once('src/components/FloorPlanDefectTab.tsx',
+              "                  <button onClick={() => setActiveDefectDetail(null)} className=\"font-bold text-slate-400 hover:text-slate-700\">✕</button>",
+              "                  <button onClick={closeDefectDetail} className=\"font-bold text-slate-400 hover:text-slate-700\">✕</button>")
+          replace_once('src/components/FloorPlanDefectTab.tsx',
+              "                    onClick={() => setActiveDefectDetail(null)}\n                    className=\"px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold\"",
+              "                    onClick={closeDefectDetail}\n                    className=\"px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold\"")
+
+          replace_once('src/components/RoomHighlightModal.tsx',
+              "  const orphanRepairRef = React.useRef<HTMLDivElement | null>(null);",
+              "  const orphanRepairRef = React.useRef<HTMLDivElement | null>(null);\n  const formRef = React.useRef<HTMLFormElement | null>(null);")
+          replace_once('src/components/RoomHighlightModal.tsx',
+              "    setOrphanDismissedKeys((prev) => [...new Set([...prev, orphan.key])]);\n  };",
+              "    setOrphanDismissedKeys((prev) => [...new Set([...prev, orphan.key])]);\n    if (focusOrphanRepair && roomItem?.id) {\n      window.setTimeout(() => formRef.current?.requestSubmit(), 0);\n    }\n  };")
+          replace_once('src/components/RoomHighlightModal.tsx',
+              "        <form onSubmit={handleSubmit} className=\"flex-1 overflow-y-auto overflow-x-hidden space-y-3.5 pr-1 text-xs\">",
+              "        <form ref={formRef} onSubmit={handleSubmit} className=\"flex-1 overflow-y-auto overflow-x-hidden space-y-3.5 pr-1 text-xs\">")
+          replace_once('src/components/RoomHighlightModal.tsx',
+              "                        Gán lại hạng mục\n                      </button>",
+              "                        {focusOrphanRepair ? 'Gán lại & lưu' : 'Gán lại hạng mục'}\n                      </button>")
+
+          p = Path('src/components/CrewTabBase.tsx')
+          s = p.read_text()
+          marker = "  const [showTeamModal, setShowTeamModal] = useState(false);\n  \n  // Editing targets"
+          if marker not in s: raise SystemExit('CrewTabBase: helper insertion marker missing')
+          s = s.replace(marker,
+              "  const [showTeamModal, setShowTeamModal] = useState(false);\n  const returnToHealthCenterIfPending = () => {\n    try {\n      if (sessionStorage.getItem('qlct_health_center_return_state')) window.dispatchEvent(new Event('qlct-health-center-return'));\n    } catch (_) {}\n  };\n  \n  // Editing targets", 1)
+          submit_old = "    setShowAddLogModal(false);\n  };\n\n  // Handle Team Directory Submission"
+          if submit_old not in s: raise SystemExit('CrewTabBase: submit close marker missing')
+          s = s.replace(submit_old,
+              "    setShowAddLogModal(false);\n    returnToHealthCenterIfPending();\n  };\n\n  // Handle Team Directory Submission", 1)
+          pattern = re.compile(r'(?P<i>\s*)setShowAddLogModal\(false\);\n(?P=i)setEditingRecord\(null\);')
+          def add_return(m):
+              i = m.group('i')
+              return f"{i}setShowAddLogModal(false);\n{i}setEditingRecord(null);\n{i}returnToHealthCenterIfPending();"
+          s, n = pattern.subn(add_return, s)
+          if n < 1: raise SystemExit('CrewTabBase: no close/cancel blocks patched')
+          p.write_text(s)
+
+          checks = {
+            'src/healthCenter/HealthCenterPanelBase.tsx': ['qlct_health_center_return_state', 'health-issue-${issue.id}'],
+            'src/App.tsx': ['qlct-health-center-return'],
+            'src/components/FloorPlanDefectTab.tsx': ['closeDefectDetail', 'qlct-health-center-return'],
+            'src/components/RoomHighlightModal.tsx': ['Gán lại & lưu', 'formRef.current?.requestSubmit()'],
+            'src/components/CrewTabBase.tsx': ['returnToHealthCenterIfPending'],
+          }
+          for f, needles in checks.items():
+              text = Path(f).read_text()
+              for needle in needles:
+                  if needle not in text: raise SystemExit(f'{f}: missing gate marker {needle}')
+          PY
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Focused gates
+        run: |
+          npm run test:health-center
+          node scripts/stability-gate.mjs
+          node scripts/source-lint.mjs
+      - name: Full verify
+        run: npm run verify
+      - name: Verify protected configuration unchanged
+        run: |
+          git diff --quiet f0c1709ef6ea24154cd467c7d06289d7461b8b9d -- package.json package-lock.json .firebaserc firebase.json firestore.rules storage.rules
+          git diff --name-only f0c1709ef6ea24154cd467c7d06289d7461b8b9d -- . ':!.github/workflows/gate-health-center-continuous.yml' | sort
+      - name: Commit verified candidate and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/gate-health-center-continuous.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: keep Health Center repair flow continuous [gate-verified]"
+          git push origin HEAD:gate/health-center-continuous-v8-20260909
