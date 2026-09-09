@@ -3,13 +3,19 @@
   "name": "HNL Quản Lý Thi Công",
   "icons": [
     {
-      "src": "/icon-3d-192.png",
+      "src": "/icon-taskbar.svg?v=20260909-crisp",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-3d-192.png?v=20260909-crisp",
       "type": "image/png",
       "sizes": "192x192",
       "purpose": "any maskable"
     },
     {
-      "src": "/icon-3d-512.png",
+      "src": "/icon-3d-512.png?v=20260909-crisp",
       "type": "image/png",
       "sizes": "512x512",
       "purpose": "any maskable"

@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string]$ExePath = './HNL-QLTC-Windows.exe',
   [string]$SourcePng = './public/icon.png',
   [string]$EvidenceDir = './icon-golden-evidence'
@@ -28,6 +28,14 @@ function Assert-Hnl([bool]$Condition, [string]$Message) {
 $requiredSizes = @(16,20,24,28,32,40,48,64,80,96,128,256)
 $exe = Resolve-Path -LiteralPath $ExePath
 $source = Resolve-Path -LiteralPath $SourcePng
+$runtimeSvg = Resolve-Path -LiteralPath './public/icon-taskbar.svg'
+$indexHtml = Get-Content -Raw -LiteralPath './index.html'
+$manifestJson = Get-Content -Raw -LiteralPath './public/manifest.json'
+$runtimeSvgText = Get-Content -Raw -LiteralPath $runtimeSvg
+Assert-Hnl ($indexHtml -match 'icon-taskbar\.svg\?v=20260909-crisp') 'runtime Web taskbar uses dedicated cache-busted SVG'
+Assert-Hnl ($manifestJson -match 'icon-taskbar\.svg\?v=20260909-crisp') 'manifest advertises runtime SVG icon'
+Assert-Hnl ($runtimeSvgText -match 'viewBox="0 0 256 256"') 'runtime SVG has square vector viewBox'
+Assert-Hnl ($runtimeSvgText -match '#0f2f5f' -and $runtimeSvgText -match '#5f6670') 'runtime SVG has high-contrast HNL strokes'
 New-Item -ItemType Directory -Force -Path $EvidenceDir | Out-Null
 
 $sourceImage = [System.Drawing.Image]::FromFile($source)

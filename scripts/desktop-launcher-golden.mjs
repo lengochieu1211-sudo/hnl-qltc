@@ -38,10 +38,14 @@ assert(taskbar192.width === 192 && taskbar192.height === 192, 'browser app-mode 
 assert(taskbar512.width === 512 && taskbar512.height === 512, 'browser app-mode has dedicated 512x512 HNL icon');
 assert(indexHtml.includes('/icon-3d-192.png') && indexHtml.includes('/icon-3d-512.png'), 'running browser app-mode advertises HQ PNG icon sources');
 assert(!indexHtml.includes('/favicon-3d.ico'), 'legacy single-frame 16x16 favicon is not used by running app-mode');
-const manifestIconSizes = new Set((manifest.icons || []).map((item) => `${item.src}|${item.sizes}`));
-assert(manifestIconSizes.has('/icon-3d-192.png|192x192'), 'PWA manifest includes 192x192 HNL icon');
-assert(manifestIconSizes.has('/icon-3d-512.png|512x512'), 'PWA manifest includes 512x512 HNL icon');
-assert((manifest.icons || []).length === 2, 'PWA manifest has no duplicate icon entry');
+const taskbarSvg = read('public/icon-taskbar.svg');
+assert(indexHtml.includes('/icon-taskbar.svg?v=20260909-crisp'), 'running browser app-mode advertises dedicated cache-busted SVG taskbar icon');
+assert(taskbarSvg.includes('viewBox="0 0 256 256"') && taskbarSvg.includes('aria-label="HNL"'), 'dedicated runtime taskbar icon is a deterministic HNL vector');
+const manifestIconSizes = new Set((manifest.icons || []).map((item) => `${item.src}|${item.sizes}|${item.type}`));
+assert(manifestIconSizes.has('/icon-taskbar.svg?v=20260909-crisp|any|image/svg+xml'), 'PWA manifest includes dedicated runtime SVG taskbar icon');
+assert(manifestIconSizes.has('/icon-3d-192.png?v=20260909-crisp|192x192|image/png'), 'PWA manifest retains 192x192 HNL PNG fallback');
+assert(manifestIconSizes.has('/icon-3d-512.png?v=20260909-crisp|512x512|image/png'), 'PWA manifest retains 512x512 HNL PNG fallback');
+assert((manifest.icons || []).length === 3, 'PWA manifest has exactly one runtime SVG and two PNG fallbacks');
 
 assert(build.includes("public\\icon.png"), 'EXE file icon is generated from the canonical HNL logo source');
 assert(build.includes('Write-HnlIcoFromPng'), 'build generates a native multi-resolution ICO from the HNL logo');

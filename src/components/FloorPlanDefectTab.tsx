@@ -8811,8 +8811,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 }}
                 className="flex-1 py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all"
               >
-                <Upload className="w-4 h-4" />
-                📤 Tải bản vẽ ảnh / PDF
+                <Upload className="w-4 h-4" aria-hidden="true" />
+                Tải bản vẽ ảnh / PDF
               </button>
             </div>
           </div>
