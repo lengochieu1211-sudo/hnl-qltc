@@ -1,0 +1,98 @@
+diff --git a/scripts/health-center-navigation-golden.ts b/scripts/health-center-navigation-golden.ts
+index 7ef6a98..aa5a633 100644
+--- a/scripts/health-center-navigation-golden.ts
++++ b/scripts/health-center-navigation-golden.ts
+@@ -18,12 +18,26 @@ const appSource = fs.readFileSync('src/App.tsx', 'utf8');
+ const panelSource = fs.readFileSync('src/healthCenter/HealthCenterPanel.tsx', 'utf8');
+ const floorSource = fs.readFileSync('src/components/FloorPlanDefectTab.tsx', 'utf8');
+ const configSource = fs.readFileSync('src/components/GoogleConfigTab.tsx', 'utf8');
+ const navSource = fs.readFileSync('src/components/BottomNav.tsx', 'utf8');
++const roomModalSource = fs.readFileSync('src/components/RoomHighlightModal.tsx', 'utf8');
++const healthBaseSource = fs.readFileSync('src/healthCenter/HealthCenterPanelBase.tsx', 'utf8');
+ assert.match(appSource, /entityType === 'room'.*'floorplan'/s);
+ assert.match(panelSource, /entityType === 'room'[\s\S]*qlct_diagnostic_navigation_request[\s\S]*qlct-diagnostic-open-entity/);
+ assert.match(floorSource, /HEALTH_CENTER_ROOM_OPEN/);
++assert.match(floorSource, /qlct_health_center_orphan_repair_request/);
++assert.match(floorSource, /HEALTH_CENTER_ORPHAN_REPAIR_OPEN/);
+ assert.match(configSource, /HNL Health Center/);
+ assert.match(configSource, /Trạng thái hệ thống & đồng bộ/);
+-assert.match(navSource, /HNL Health Center/);
++assert.match(configSource, /File báo lỗi và chẩn đoán được xuất tập trung/);
++assert.doesNotMatch(configSource, /Copy chẩn đoán/);
++assert.match(navSource, />\s*Cấu hình\s*</);
++assert.doesNotMatch(navSource, />\s*HNL Health Center\s*</);
++assert.match(roomModalSource, /health-center-orphan-category-repair/);
++assert.match(roomModalSource, /Gán lại hạng mục/);
++assert.match(roomModalSource, /const availableWorkCategories = React\.useMemo\(\(\) => projectWorkCategoryTitles/);
++assert.match(roomModalSource, /Hạng mục đã xóa\/không còn/);
++assert.match(healthBaseSource, /Xuất báo cáo & chẩn đoán — một nơi/);
++assert.match(healthBaseSource, /Chẩn đoán hệ thống JSON/);
++assert.match(healthBaseSource, /Xử lý hạng mục/);
+ console.log('health-center-navigation-golden: PASS');
+diff --git a/scripts/stability-gate.mjs b/scripts/stability-gate.mjs
+index 0616633..3988fc0 100644
+--- a/scripts/stability-gate.mjs
++++ b/scripts/stability-gate.mjs
+@@ -180,9 +180,13 @@ requireAll(app, ['qlct-defect-navigation-request', "area: 'defect-navigation'",
+ requireAll(floorPlanDefect, ['qlct-defect-navigation-request', "code: 'OPEN_TARGET'", 'requestedFloor=', 'pendingCount', "getEntityPhotos(projectId, 'defect', defect.id)"], 'Defect view consumes same-tab deep-link and opens defect-wide photo gallery with Cloud pending state');
+ requireAll(imageViewer, ['swipeStartRef', 'Math.abs(dx) < 48', 'handleNext()', 'handlePrev()'], 'image viewer supports one-finger horizontal gallery swipe while preserving pinch zoom');
+ requireAll(chatTab, ['ensureDraftAttachmentsCloudReady', 'verifyPhotoBinaryReadyInCloud', 'Ảnh đang chờ Cloud/R2', 'ImageViewerModal', 'openMessageImageGallery'], 'chat shows Cloud state, blocks message publication until photo is durable, and opens multi-image gallery');
+-requireAll(configTab, ['HNL Health Center', 'Trạng thái hệ thống & đồng bộ', 'Xuất file chẩn đoán lỗi', 'getProjectPhotoDiagnosticSnapshot', 'clearRuntimeDiagnostics', 'saveTextFileToDownloads', 'Download/QLTC'], 'system diagnostics can export sanitized non-empty Android JSON with photo evidence');
++requireAll(configTab, ['HNL Health Center', 'Trạng thái hệ thống & đồng bộ', 'File báo lỗi và chẩn đoán được xuất tập trung', 'getProjectPhotoDiagnosticSnapshot', 'clearRuntimeDiagnostics', 'saveTextFileToDownloads', 'Download/QLTC', 'onExportSystemDiagnostics={handleDownloadDiagnostics}'], 'system diagnostics are embedded in Health Center and export sanitized non-empty Android JSON with photo evidence');
+ requireAll(fileExport, ['saveTextFileToDownloads', "'downloads'", 'finishTextFile'], 'Android diagnostics direct Download/QLTC export avoids zero-byte picker provider');
+-requireAll(bottomNav, ['HNL Health Center'], 'More menu exposes unified HNL Health Center entry');
++requireAll(bottomNav, ['Cấu hình'], 'More menu preserves the original Cấu hình entry while Health Center stays inside Config');
++requireAll(healthCenterPanel, ['Xuất báo cáo & chẩn đoán — một nơi', 'Chẩn đoán hệ thống JSON', 'onExportSystemDiagnostics', 'Xử lý hạng mục'], 'Health Center centralizes audit/system exports and exposes actionable orphan-category repair');
++requireAll(roomHighlightModal, ['const availableWorkCategories = React.useMemo(() => projectWorkCategoryTitles', 'orphanWorkCategoryRefs', 'health-center-orphan-category-repair', 'Hạng mục đã xóa/không còn', 'Gán lại hạng mục'], 'room editor hides stale categories from normal selectors and provides explicit orphan remap UI');
++requireAll(floorPlanDefect, ['qlct_health_center_orphan_repair_request', 'HEALTH_CENTER_ORPHAN_REPAIR_OPEN'], 'Health Center orphan navigation marks exact room repair request for modal focus');
+ requireAll(runtimeDiagnostics, ['MAX_ENTRIES = 200', 'clearRuntimeDiagnostics', 'redacted-api-key', 'Bearer [redacted]'], 'runtime diagnostics retains useful history and redacts secrets');
+ pass('photo gallery no longer clears synced metadata on initial auth emission; camera input waits for non-empty MediaStore bytes');
+ requireAll(androidMain, [
+diff --git a/src/components/BottomNav.tsx b/src/components/BottomNav.tsx
+index 42b63f7..6b48679 100644
+--- a/src/components/BottomNav.tsx
++++ b/src/components/BottomNav.tsx
+@@ -121,7 +121,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
+               className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50"
+             >
+               <Settings className="w-4 h-4 text-slate-600" />
+-              HNL Health Center
++              Cấu hình
+             </button>
+           </div>
+         )}
+diff --git a/src/components/FloorPlanDefectTab.tsx b/src/components/FloorPlanDefectTab.tsx
+index 4a47f3c..2bb0918 100644
+--- a/src/components/FloorPlanDefectTab.tsx
++++ b/src/components/FloorPlanDefectTab.tsx
+@@ -3057,6 +3057,25 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
+     if (!target) {
+       appendRuntimeDiagnostic({ area: 'health-center-navigation', code: 'ROOM_TARGET_NOT_FOUND', level: 'warning', message: `roomId=${roomId}` });
+       return;
+     }
++    const orphanRepairRequested = String(request.ruleId || '') === 'ROOM_ORPHAN_WORK_CATEGORY_REFERENCE';
++    if (orphanRepairRequested) {
++      try {
++        sessionStorage.setItem('qlct_health_center_orphan_repair_request', JSON.stringify({
++          projectId,
++          entityType: 'room',
++          entityId: target.id,
++          roomId: target.id,
++          floorId: target.floorId,
++          createdAt: Date.now(),
++        }));
++      } catch { /* best effort */ }
++    }
+     try { sessionStorage.removeItem('qlct_diagnostic_navigation_request'); } catch { /* best effort */ }
+     setSelectedFloorId(target.floorId);
+     setSelectedRoomForEdit(target);
+     setIsRoomModalOpen(true);
+     appendRuntimeDiagnostic({
+       area: 'health-center-navigation',
+-      code: 'HEALTH_CENTER_ROOM_OPEN',
++      code: orphanRepairRequested ? 'HEALTH_CENTER_ORPHAN_REPAIR_OPEN' : 'HEALTH_CENTER_ROOM_OPEN',
+       level: 'info',
+-      message: `roomId=${target.id}; floorId=${target.floorId}; roomName=${target.roomName}`,
++      message: `roomId=${target.id}; floorId=${target.floorId}; roomName=${target.roomName}; ruleId=${request.ruleId || ''}`,
+     });
+   }, [isRoomModalOpen, projectId, roomProgressList, selectedRoomForEdit]);
