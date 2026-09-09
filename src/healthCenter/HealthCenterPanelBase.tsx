@@ -6,7 +6,7 @@ import { confirmAsync } from '../utils/confirmAsync';
 import { ExpandCollapseButton } from '../components/ExpandCollapseButton';
 import { createHnlAiProjectSnapshot } from '../ai/data/projectSnapshot';
 import { buildHealthCenterReport, type HealthCenterIssue, type HealthCenterModule, type HealthCenterSeverity } from './healthCenterEngine';
-import { exportHealthCenterExcel, exportHealthCenterJson, exportHealthCenterPdf } from './healthCenterExport';
+import { buildHealthCenterCopyText, exportHealthCenterExcel, exportHealthCenterJson } from './healthCenterExport';
 import { buildHealthCenterRepairPreview } from './healthCenterRepair';
 import { buildHealthCenterRepairBackupPayload, type HealthCenterRepairBackupPayload } from './healthCenterRepairApply';
 import { commitHealthCenterRepair } from './healthCenterRepairCommit';
@@ -20,8 +20,7 @@ interface HealthCenterPanelProps {
   fullAppData?: any;
   freshness?: 'live' | 'cache';
   onApplyRepair?: (nextData: any, context: { auditSnapshotId: string; operationCount: number; backup: HealthCenterRepairBackupPayload }) => void | Promise<void>;
-  onCopySystemDiagnostics?: () => void | Promise<void>;
-  onExportSystemDiagnostics?: () => void | Promise<void>;
+  getSystemDiagnostics?: () => Promise<Record<string, unknown>>;
   onClearSystemDiagnostics?: () => void | Promise<void>;
 }
 
@@ -66,8 +65,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
   fullAppData,
   freshness = 'live',
   onApplyRepair,
-  onCopySystemDiagnostics,
-  onExportSystemDiagnostics,
+  getSystemDiagnostics,
   onClearSystemDiagnostics,
 }) => {
   const [runAt, setRunAt] = useState(() => Date.now());
@@ -156,18 +154,40 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
     setMessage('Đã gửi yêu cầu mở đúng bản ghi liên quan. Nếu module chưa hỗ trợ deep-link chi tiết, HNL sẽ mở module gần nhất.');
   };
 
-  const exportReport = async (kind: 'json' | 'excel' | 'pdf') => {
+  const buildCombinedExportInput = async () => ({
+    report,
+    projectName: projectName || fullAppData?.projectName || '',
+    issues: filtered,
+    scope: 'filtered' as const,
+    systemDiagnostics: getSystemDiagnostics ? await getSystemDiagnostics() : null,
+  });
+
+  const exportReport = async (kind: 'json' | 'excel') => {
     if (!report) return;
     setExporting(kind);
     setMessage('');
     try {
-      const input = { report, projectName: projectName || fullAppData?.projectName || '', issues: filtered, scope: 'filtered' as const };
+      const input = await buildCombinedExportInput();
       if (kind === 'json') await exportHealthCenterJson(input);
       if (kind === 'excel') await exportHealthCenterExcel(input);
-      if (kind === 'pdf') await exportHealthCenterPdf(input);
-      setMessage(`Đã xuất ${kind.toUpperCase()} theo đúng Audit Snapshot ID ${report.auditSnapshotId}.`);
+      setMessage(`Đã xuất ${kind.toUpperCase()} tổng hợp Audit dữ liệu + hệ thống/đồng bộ + ảnh R2 theo Snapshot ${report.auditSnapshotId}.`);
     } catch (err) {
       setMessage(`Không xuất được ${kind.toUpperCase()}: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setExporting(null);
+    }
+  };
+
+  const copyCombinedDiagnostics = async () => {
+    if (!report) return;
+    setExporting('copy');
+    setMessage('');
+    try {
+      const input = await buildCombinedExportInput();
+      await navigator.clipboard.writeText(buildHealthCenterCopyText(input));
+      setMessage('Đã copy chẩn đoán tổng hợp: Audit dữ liệu/liên kết + hệ thống/đồng bộ + ảnh R2.');
+    } catch (err) {
+      setMessage(`Không copy được chẩn đoán tổng hợp: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setExporting(null);
     }
@@ -266,19 +286,10 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
       <input value={query} onChange={(e) => { setQuery(e.target.value); setShowRepairPreview(false); }} placeholder="Tìm ngày, đội, tầng, căn, hạng mục..." className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs" />
     </div>
 
-    <div className="rounded-xl border border-slate-200 bg-white p-2.5 space-y-2">
-      <div className="text-[10px] font-extrabold text-slate-700">Xuất báo cáo &amp; chẩn đoán</div>
-      <div className="flex flex-wrap gap-2">
-        <button type="button" disabled={Boolean(exporting)} onClick={() => void exportReport('json')} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold"><FileJson className="h-3.5 w-3.5" /> Audit JSON</button>
-        <button type="button" disabled={Boolean(exporting)} onClick={() => void exportReport('excel')} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold"><FileSpreadsheet className="h-3.5 w-3.5" /> Audit Excel</button>
-        <button type="button" disabled={Boolean(exporting)} onClick={() => void exportReport('pdf')} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold"><Download className="h-3.5 w-3.5" /> Audit PDF</button>
-        {onCopySystemDiagnostics && <button type="button" onClick={() => void onCopySystemDiagnostics()} className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-slate-900 px-2.5 py-1.5 text-[10px] font-bold text-white"><Copy className="h-3.5 w-3.5" /> Copy chẩn đoán</button>}
-        {onExportSystemDiagnostics && <button type="button" onClick={() => void onExportSystemDiagnostics()} className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-600 px-2.5 py-1.5 text-[10px] font-bold text-white"><Download className="h-3.5 w-3.5" /> Chẩn đoán hệ thống JSON</button>}
-        {onClearSystemDiagnostics && <button type="button" onClick={() => void onClearSystemDiagnostics()} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-600"><Eraser className="h-3.5 w-3.5" /> Xóa log</button>}
-        {userRole === 'ADMIN' && repairPreview && repairPreview.operations.length > 0 && <button type="button" onClick={() => setShowRepairPreview((value) => !value)} className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[10px] font-bold text-emerald-700"><Wrench className="h-3.5 w-3.5" /> {showRepairPreview ? 'Ẩn sửa an toàn' : `Xem sửa an toàn (${repairPreview.operations.length})`}</button>}
-      </div>
-      <div className="text-[9px] font-semibold text-slate-500">Đang hiển thị/xuất {filtered.length}/{report.issues.length} vấn đề · {report.recordsScanned} record đã quét</div>
-    </div>
+
+    {userRole === 'ADMIN' && repairPreview && repairPreview.operations.length > 0 && <div className="flex justify-end">
+      <button type="button" onClick={() => setShowRepairPreview((value) => !value)} className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[10px] font-bold text-emerald-700"><Wrench className="h-3.5 w-3.5" /> {showRepairPreview ? 'Ẩn sửa an toàn' : `Xem sửa an toàn (${repairPreview.operations.length})`}</button>
+    </div>}
 
     {showRepairPreview && repairPreview && <div className="space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -321,5 +332,21 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
       })}
     </div>
     {message && <div className="rounded-lg border border-slate-200 bg-white p-2 text-[10px] font-semibold text-slate-600">{message}</div>}
+
+    <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3 space-y-2">
+      <div>
+        <div className="text-[10px] font-extrabold text-slate-700">Xuất &amp; chia sẻ chẩn đoán</div>
+        <div className="mt-0.5 text-[9px] font-semibold text-slate-500">Một file chứa chung Audit dữ liệu/liên kết + trạng thái hệ thống/đồng bộ + ảnh R2. PDF đã bỏ để tránh trùng.</div>
+      </div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <button type="button" disabled={Boolean(exporting)} onClick={() => void exportReport('json')} className="inline-flex min-h-9 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-bold disabled:opacity-50"><FileJson className="h-3.5 w-3.5" /> Xuất JSON</button>
+        <button type="button" disabled={Boolean(exporting)} onClick={() => void exportReport('excel')} className="inline-flex min-h-9 items-center justify-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-[10px] font-bold text-indigo-700 disabled:opacity-50"><FileSpreadsheet className="h-3.5 w-3.5" /> Xuất Excel</button>
+        <button type="button" disabled={Boolean(exporting)} onClick={() => void copyCombinedDiagnostics()} className="inline-flex min-h-9 items-center justify-center gap-1 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-[10px] font-bold text-white disabled:opacity-50"><Copy className="h-3.5 w-3.5" /> Copy chẩn đoán</button>
+      </div>
+      <div className="text-[9px] font-semibold text-slate-500">Đang hiển thị/xuất {filtered.length}/{report.issues.length} vấn đề · {report.recordsScanned} record đã quét</div>
+      {onClearSystemDiagnostics && <div className="border-t border-slate-100 pt-2">
+        <button type="button" disabled={Boolean(exporting)} onClick={() => void onClearSystemDiagnostics()} className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-[9px] font-bold text-slate-500 hover:bg-slate-50 hover:text-rose-600 disabled:opacity-50"><Eraser className="h-3.5 w-3.5" /> Xóa log chẩn đoán cũ</button>
+      </div>}
+    </div>
   </div>;
 };

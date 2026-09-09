@@ -130,6 +130,7 @@ export async function sharePreparedContent(params: {
   text: string;
   url?: string;
   attachments?: ShareAttachmentPayload[];
+  allowTextFallback?: boolean;
 }): Promise<ShareContentResult> {
   const title = String(params.title || 'HNL QLTC').trim() || 'HNL QLTC';
   const text = String(params.text || '').trim();
@@ -169,6 +170,15 @@ export async function sharePreparedContent(params: {
     if (webShare === 'cancelled') {
       return { status: 'cancelled', requestedFiles: requested.length, sharedFiles: 0, fallbackToText: false };
     }
+  }
+
+  if (requested.length > 0 && params.allowTextFallback === false) {
+    return {
+      status: 'failed',
+      requestedFiles: requested.length,
+      sharedFiles: 0,
+      fallbackToText: false,
+    };
   }
 
   const status = await sharePreparedText({ title, text, url });
