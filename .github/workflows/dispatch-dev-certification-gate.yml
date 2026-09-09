@@ -19,7 +19,7 @@ jobs:
       - name: Guard branch and exact DEV head
         env:
           GH_TOKEN: ${{ github.token }}
-          EXPECTED_DEV_SHA: 3bff8953ed10adb1997ea735b05ee4c623e02ae6
+          EXPECTED_DEV_SHA: e036c39c9561cd327900911bf856c7c47939b911
         shell: bash
         run: |
           set -euo pipefail
@@ -27,11 +27,6 @@ jobs:
           DEV_SHA="$(gh api repos/${GITHUB_REPOSITORY}/git/ref/heads/dev --jq '.object.sha')"
           test "$DEV_SHA" = "$EXPECTED_DEV_SHA" || { echo "::error::DEV moved to $DEV_SHA"; exit 1; }
           echo "Exact DEV head confirmed: $DEV_SHA"
-
-      - name: Dispatch Runtime Golden
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh api --method POST repos/${GITHUB_REPOSITORY}/actions/workflows/dev-runtime-golden.yml/dispatches -f ref=dev
 
       - name: Dispatch Android DEV APK
         env:
@@ -44,4 +39,4 @@ jobs:
         run: gh api --method POST repos/${GITHUB_REPOSITORY}/actions/workflows/windows-exe-dev.yml/dispatches -f ref=dev
 
       - name: Summary
-        run: echo 'Dispatched Runtime Golden + Android DEV APK + Windows DEV EXE on exact DEV head.'
+        run: echo 'Dispatched Android DEV APK + Windows DEV EXE on exact latest DEV head; Runtime Golden already auto-running on the same SHA.'
