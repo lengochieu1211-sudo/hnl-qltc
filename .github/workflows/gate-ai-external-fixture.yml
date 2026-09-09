@@ -1,0 +1,101 @@
+name: Gate AI External Fixture
+
+on:
+  push:
+    branches:
+      - gate/ai-external-active-category-fixture-20260909
+    paths:
+      - '.gate/apply-ai-fixture.mjs'
+      - '.github/workflows/gate-ai-external-fixture.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gate-ai-external-active-category-fixture-20260909
+  cancel-in-progress: true
+
+jobs:
+  verify-and-build-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BASE_SHA: bd4c616a9a2db0c4e9ecbb256272ef9072d6da6a
+      CANDIDATE_BRANCH: candidate/ai-external-active-category-fixture-20260909
+    steps:
+      - name: Checkout gate branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Assert exact DEV ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$BASE_SHA" HEAD
+          test "$(git rev-parse "$BASE_SHA")" = "$BASE_SHA"
+          echo "Gate head: $(git rev-parse HEAD)"
+          echo "Base DEV: $BASE_SHA"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply AI fixture patch
+        run: node .gate/apply-ai-fixture.mjs
+
+      - name: Scope and lockfile guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git diff --exit-code "$BASE_SHA" -- package.json package-lock.json
+          mapfile -t changed < <(git diff --name-only "$BASE_SHA" -- \
+            ':!.gate/**' \
+            ':!.github/workflows/gate-ai-external-fixture.yml' | sort)
+          printf '%s\n' "${changed[@]}" > /tmp/changed.txt
+          printf '%s\n' scripts/ai-external-context-golden.ts > /tmp/expected.txt
+          diff -u /tmp/expected.txt /tmp/changed.txt
+          grep -F "workCategoryId: 'cat-ceiling'" scripts/ai-external-context-golden.ts
+
+      - name: Focused AI external context golden
+        run: npm run test:ai-external-context
+
+      - name: Full verification
+        run: npm run verify
+
+      - name: Create clean candidate from exact DEV base
+        id: candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d)"
+          cp scripts/ai-external-context-golden.ts "$work/ai-external-context-golden.ts"
+
+          git checkout --detach "$BASE_SHA"
+          cp "$work/ai-external-context-golden.ts" scripts/ai-external-context-golden.ts
+          git add scripts/ai-external-context-golden.ts
+          git diff --cached --check
+          test "$(git diff --cached --name-only)" = "scripts/ai-external-context-golden.ts"
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'test: align AI material fixture with active category'
+          candidate_sha="$(git rev-parse HEAD)"
+          git push --force origin "HEAD:refs/heads/$CANDIDATE_BRANCH"
+          echo "candidate_sha=$candidate_sha" >> "$GITHUB_OUTPUT"
+          echo "Clean candidate: $candidate_sha"
+
+      - name: Candidate summary
+        run: |
+          echo "### AI external fixture candidate" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Base DEV: \`$BASE_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Candidate: \`${{ steps.candidate.outputs.candidate_sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Changed source file: \`scripts/ai-external-context-golden.ts\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- package.json/package-lock.json: unchanged" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Full npm run verify: PASS" >> "$GITHUB_STEP_SUMMARY"
