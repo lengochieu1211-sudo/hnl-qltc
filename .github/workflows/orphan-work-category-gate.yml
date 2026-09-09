@@ -1,0 +1,92 @@
+name: Orphan Work Category Gate
+
+on:
+  push:
+    branches:
+      - gate/orphan-work-category-20260909
+    paths:
+      - 'scripts/orphan_work_category_gate.py'
+      - '.github/workflows/orphan-work-category-gate.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      EXPECTED_BASE: bd0f2db884e294eee173e1530516ac80ad8800aa
+      CANDIDATE_BRANCH: gate/orphan-work-category-candidate-20260909
+    steps:
+      - name: Checkout gate branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify exact DEV baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "$EXPECTED_BASE" || { echo "::error::DEV moved from expected baseline"; exit 1; }
+          test "$(git merge-base HEAD origin/dev)" = "$EXPECTED_BASE" || { echo "::error::Gate branch is not based on exact DEV"; exit 1; }
+          echo "Exact DEV baseline: PASS ($EXPECTED_BASE)"
+
+      - name: Apply orphan work-category patch
+        run: python scripts/orphan_work_category_gate.py
+
+      - name: Verify patch scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only | sort)
+          printf 'Changed source files:\n%s\n' "${changed[*]}"
+          expected=(scripts/health-center-orphan-golden.ts scripts/material-need-golden.ts src/healthCenter/healthCenterEngine.ts src/utils/materialNeedEngine.ts)
+          test "${#changed[@]}" -eq "${#expected[@]}" || { echo '::error::Unexpected changed-file count'; exit 1; }
+          for i in "${!expected[@]}"; do test "${changed[$i]}" = "${expected[$i]}" || { echo "::error::Unexpected file ${changed[$i]}"; exit 1; }; done
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Focused material regression
+        run: npx tsx scripts/material-need-golden.ts
+
+      - name: Focused Health Center orphan regression
+        run: npx tsx scripts/health-center-orphan-golden.ts
+
+      - name: Full verify
+        run: npm run verify
+
+      - name: Build clean verified candidate from exact DEV
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/orphan-work/src/utils /tmp/orphan-work/src/healthCenter /tmp/orphan-work/scripts
+          cp src/utils/materialNeedEngine.ts /tmp/orphan-work/src/utils/materialNeedEngine.ts
+          cp src/healthCenter/healthCenterEngine.ts /tmp/orphan-work/src/healthCenter/healthCenterEngine.ts
+          cp scripts/material-need-golden.ts /tmp/orphan-work/scripts/material-need-golden.ts
+          cp scripts/health-center-orphan-golden.ts /tmp/orphan-work/scripts/health-center-orphan-golden.ts
+
+          git checkout --detach "$EXPECTED_BASE"
+          cp /tmp/orphan-work/src/utils/materialNeedEngine.ts src/utils/materialNeedEngine.ts
+          cp /tmp/orphan-work/src/healthCenter/healthCenterEngine.ts src/healthCenter/healthCenterEngine.ts
+          cp /tmp/orphan-work/scripts/material-need-golden.ts scripts/material-need-golden.ts
+          cp /tmp/orphan-work/scripts/health-center-orphan-golden.ts scripts/health-center-orphan-golden.ts
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/utils/materialNeedEngine.ts src/healthCenter/healthCenterEngine.ts scripts/material-need-golden.ts scripts/health-center-orphan-golden.ts
+          test "$(git diff --cached --name-only | wc -l | tr -d ' ')" = '4' || { echo '::error::Candidate scope is not exactly 4 files'; exit 1; }
+          git commit -m 'fix: ignore deleted legacy work categories in material need'
+          CANDIDATE_SHA="$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_BASE" || { echo '::error::Candidate parent mismatch'; exit 1; }
+          git push --force origin "HEAD:refs/heads/$CANDIDATE_BRANCH"
+          echo "Candidate SHA: $CANDIDATE_SHA"
