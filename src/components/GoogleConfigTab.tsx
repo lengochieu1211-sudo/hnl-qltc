@@ -45,6 +45,7 @@ import type { TrashOperation, TrashSettings, TrashRetentionDays } from '../lib/t
 import { buildDiagnosticBundle, clearRuntimeDiagnostics } from '../lib/runtimeDiagnostics';
 import { getProjectPhotoDiagnosticSnapshot } from '../utils/photoStorage';
 import { HealthCenterPanel } from '../healthCenter/HealthCenterPanel';
+import { ExpandCollapseIndicator } from './ExpandCollapseIndicator';
 
 declare const __BUILD_TIME__: string;
 
@@ -531,6 +532,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
             <span className={`shrink-0 rounded-lg border px-2 py-1 text-[10px] font-bold ${syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
               {syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'Cloud sẵn sàng' : 'Đang kiểm tra'}
             </span>
+            <ExpandCollapseIndicator />
           </summary>
           <div className="px-2 pb-2 sm:px-3 sm:pb-3 space-y-3">
         <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
@@ -733,6 +735,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           <span className="shrink-0 rounded-lg border border-indigo-100 bg-indigo-50 px-2 py-1 text-[10px] font-bold text-indigo-700">
             {numberFormatPreset === 'dot_comma' ? '1.234,56' : '1,234.56'} · {dateFormatPreset}
           </span>
+          <ExpandCollapseIndicator />
         </summary>
         <div className="space-y-3.5 px-4 pb-4">
 
@@ -836,6 +839,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           <span className="shrink-0 rounded-lg border border-indigo-100 bg-indigo-50 px-2 py-1 text-[10px] font-bold text-indigo-700">
             {getImageQualityProfile('floorPlan', imageQualitySettings.floorPlan).label}
           </span>
+          <ExpandCollapseIndicator />
         </summary>
         <div className="space-y-3.5 px-4 pb-4">
           <p className="text-[10px] text-slate-500">Mặt bằng ưu tiên độ nét chữ; Defect ưu tiên chi tiết lỗi; Quân số ưu tiên cân bằng tốc độ đồng bộ. Thiết lập lưu trên thiết bị này.</p>
@@ -874,6 +878,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           <span className={`shrink-0 rounded-lg border px-2 py-1 text-[10px] font-bold ${trashSettings.enabled ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-100 border-slate-200 text-slate-600'}`}>
             {trashOperations.length} mục · {trashSettings.enabled ? 'Đang bật' : 'Đang tắt'}
           </span>
+          <ExpandCollapseIndicator />
         </summary>
         <div className="space-y-3.5 px-4 pb-4">
           <div>

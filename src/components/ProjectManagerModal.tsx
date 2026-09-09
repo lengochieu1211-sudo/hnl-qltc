@@ -2,8 +2,7 @@ import { downloadOrShareFile } from '../utils/downloadUtils';
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   X, Plus, Folder, Trash2, HardDrive, Download, Upload, RefreshCw, 
-  CheckCircle2, AlertTriangle, ShieldCheck, ArrowLeftRight, ChevronDown, 
-  ChevronUp, Search, Edit3, Check, Building2, Copy, Sparkles, FolderPlus,
+  CheckCircle2, AlertTriangle, ShieldCheck, ArrowLeftRight, Search, Edit3, Check, Building2, Copy, Sparkles, FolderPlus,
   Cloud, CloudUpload, CloudDownload, Smartphone, Monitor, Share2, Layers,
   CheckSquare, Square, FileSpreadsheet, Layers3, CheckCircle, Database, History, Eye,
   Lock, Key, ShieldAlert
@@ -38,6 +37,7 @@ import type { User as FirebaseUser } from 'firebase/auth';
 import { ConflictMergeModal } from './ConflictMergeModal';
 import { PrimaryDriveStatusCard } from './PrimaryDriveStatusCard';
 import { QuickSortBar } from './QuickSortBar';
+import { ExpandCollapseIndicator } from './ExpandCollapseIndicator';
 import { confirmAsync } from '../utils/confirmAsync';
 import { 
   normalizeImportedData, 
@@ -3163,7 +3163,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                 <details className="group pt-2 border-t border-slate-100">
                   <summary className="cursor-pointer select-none flex items-center justify-between text-[11px] font-bold text-slate-700">
                     <span>Cài đặt sao lưu nâng cao</span>
-                    <ChevronDown className="w-3.5 h-3.5 group-open:rotate-180 transition-transform" />
+                    <ExpandCollapseIndicator />
                   </summary>
                   <div className="pt-2 space-y-2.5">
 
@@ -3626,7 +3626,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   {canManage && <details className="group bg-white/70 border border-indigo-100 rounded-lg">
                     <summary className="cursor-pointer select-none px-2.5 py-2 text-[10px] font-bold text-indigo-700 flex items-center justify-between">
                       <span>Công cụ đồng bộ nâng cao</span>
-                      <ChevronDown className="w-3.5 h-3.5 group-open:rotate-180 transition-transform" />
+                      <ExpandCollapseIndicator />
                     </summary>
                     <div className="px-2.5 pb-2.5 space-y-2 border-t border-indigo-100 pt-2">
                       <button
@@ -3674,7 +3674,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                 <details className="group pt-2 border-t border-slate-100">
                   <summary className="cursor-pointer select-none flex items-center justify-between mb-1.5 text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">
                     <span>Phiên bản đám mây ({cloudBackups.length})</span>
-                    <ChevronDown className="w-3.5 h-3.5 group-open:rotate-180 transition-transform" />
+                    <ExpandCollapseIndicator />
                   </summary>
                   <div>
 

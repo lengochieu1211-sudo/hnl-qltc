@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, Download, ExternalLink, FileJson, FileSpre
 import type { UserRole } from '../utils/securityUtils';
 import { saveTextFileToDownloads } from '../utils/fileExport';
 import { confirmAsync } from '../utils/confirmAsync';
+import { ExpandCollapseButton } from '../components/ExpandCollapseButton';
 import { createHnlAiProjectSnapshot } from '../ai/data/projectSnapshot';
 import { buildHealthCenterReport, type HealthCenterIssue, type HealthCenterModule, type HealthCenterSeverity } from './healthCenterEngine';
 import { exportHealthCenterExcel, exportHealthCenterJson, exportHealthCenterPdf } from './healthCenterExport';
@@ -300,7 +301,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
                 {issue.location.date && <span>Ngày: {issue.location.date}</span>}{issue.location.teamName && <span>Đội: {issue.location.teamName}</span>}{issue.location.floorName && <span>Tầng: {issue.location.floorName}</span>}{issue.location.roomName && <span>Căn: {issue.location.roomName}</span>}{issue.location.shift && <span>Ca: {issue.location.shift}</span>}{issue.location.workItem && <span>Công việc: {issue.location.workItem}</span>}
               </div>
               <div className="mt-1 break-all text-[9px] text-slate-400">{issue.ruleId} · {issue.entityType}:{issue.entityId}</div>
-              <div className="mt-2 flex flex-wrap gap-1.5"><button type="button" onClick={() => openIssue(issue)} className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-[9px] font-bold text-indigo-700"><ExternalLink className="h-3 w-3" /> Xem bản ghi</button><button type="button" onClick={() => setExpanded(isOpen ? null : issue.id)} className="rounded-md border border-slate-200 px-2 py-1 text-[9px] font-bold text-slate-600">{isOpen ? 'Ẩn liên kết' : 'Xem liên kết'}</button></div>
+              <div className="mt-2 flex flex-wrap gap-1.5"><button type="button" onClick={() => openIssue(issue)} className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-[9px] font-bold text-indigo-700"><ExternalLink className="h-3 w-3" /> Xem bản ghi</button><ExpandCollapseButton expanded={isOpen} onToggle={() => setExpanded(isOpen ? null : issue.id)} expandLabel="Xem liên kết" collapseLabel="Ẩn liên kết" className="min-h-7 rounded-md border-slate-200 px-2 py-1 text-[9px] text-slate-600" /></div>
               {isOpen && <div className="mt-2 rounded-lg bg-slate-50 p-2 text-[9px] text-slate-600"><div><b>Evidence:</b> {issue.evidenceIds.join(', ') || '—'}</div><div className="mt-1 break-all"><b>Chi tiết:</b> {JSON.stringify(issue.details || {})}</div></div>}
             </div>
           </div>
