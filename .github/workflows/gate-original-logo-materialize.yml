@@ -1,0 +1,92 @@
+name: Gate Materialize Original HNL Logo
+
+on:
+  push:
+    branches:
+      - gate/original-logo-runtime-20260909
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout isolated gate branch
+        uses: actions/checkout@v4
+        with:
+          ref: gate/original-logo-runtime-20260909
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Pillow
+        run: python -m pip install --disable-pip-version-check pillow==12.3.0
+
+      - name: Materialize canonical HNL assets and regression fixes
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+          from PIL import Image
+
+          root = Path('.')
+          source = Image.open(root / 'public/icon.png').convert('RGBA')
+          for size in (16, 20, 24, 28, 32, 40, 48, 192, 512):
+              source.resize((size, size), Image.Resampling.LANCZOS).save(
+                  root / f'public/hnl-logo-original-{size}.png', optimize=True
+              )
+
+          floor = root / 'src/components/FloorPlanDefectTab.tsx'
+          text = floor.read_text(encoding='utf-8')
+          old = '⚡ Thêm tầng nhanh (không cần ảnh)'
+          new = 'Thêm tầng nhanh (không cần ảnh)'
+          if text.count(old) != 1:
+              raise SystemExit(f'Expected exactly one duplicate quick-floor glyph, found {text.count(old)}')
+          floor.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          stability = root / 'scripts/stability-gate.mjs'
+          text = stability.read_text(encoding='utf-8')
+          old = "requireAll(desktopBuild, ['Optimize-HnlSmallIconFrame', '$sizes = @(16, 20, 24, 28, 32, 40, 48, 64, 80, 96, 128, 256)', '<=48px sharpened for taskbar DPI'], 'Windows DPI-aware taskbar icon frames');\npass('photo pending binary retries sooner and Windows taskbar icon uses sharpened DPI-specific frames');"
+          new = "requireAll(desktopBuild, ['$sizes = @(16, 20, 24, 28, 32, 40, 48, 64, 80, 96, 128, 256)', 'all frames derived directly from canonical HNL logo'], 'Windows DPI-aware original HNL taskbar icon frames');\nif (desktopBuild.includes('Optimize-HnlSmallIconFrame')) fail('Windows icon builder must not visually alter the canonical HNL logo with custom sharpening/contrast');\npass('photo pending binary retries sooner and Windows/Web runtime icons use exact-size frames derived from the canonical HNL logo');"
+          if text.count(old) != 1:
+              raise SystemExit('Stability icon guard source block did not match exactly')
+          stability.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          win = root / 'scripts/windows-icon-golden.ps1'
+          text = win.read_text(encoding='utf-8-sig')
+          replacements = [
+              ('$runtimeSizes = @(16,20,24,32,40,48)', '$runtimeSizes = @(16,20,24,28,32,40,48)'),
+              ('hnl-taskbar-pixel-', 'hnl-logo-original-'),
+              ('20260909-pixel2', '20260909-original1'),
+              ('Assert-Hnl ($partialAlpha -eq 0) "${size}x${size} runtime frame has no anti-aliased partial-alpha blur pixels"', 'Assert-Hnl ($partialAlpha -gt 0) "${size}x${size} runtime frame preserves original-logo anti-aliased edges ($partialAlpha partial-alpha pixels)"'),
+              ('Assert-Hnl ($colors.Count -le 4) "${size}x${size} runtime frame uses a compact pixel-hinted palette ($($colors.Count) colors)"', 'Assert-Hnl ($colors.Count -ge 16) "${size}x${size} runtime frame preserves original-logo color/detail ($($colors.Count) colors)"'),
+              ('runtime-pixel-contact-sheet.png', 'runtime-original-logo-contact-sheet.png'),
+              ('RUNTIME_PIXEL_SIZES=', 'RUNTIME_ORIGINAL_LOGO_SIZES='),
+              ('RUNTIME_PIXEL_CONTACT_SHEET=', 'RUNTIME_ORIGINAL_LOGO_CONTACT_SHEET='),
+          ]
+          for old, new in replacements:
+              if old not in text:
+                  raise SystemExit(f'Windows icon golden marker missing: {old}')
+              text = text.replace(old, new)
+          win.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Source-only regression gates
+        run: |
+          node scripts/source-lint.mjs
+          node scripts/stability-gate.mjs
+          node scripts/desktop-launcher-golden.mjs
+
+      - name: Commit materialized candidate only to isolated gate branch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/hnl-logo-original-*.png src/components/FloorPlanDefectTab.tsx scripts/stability-gate.mjs scripts/windows-icon-golden.ps1
+          git diff --cached --quiet && exit 0
+          git commit -m "gate: materialize canonical HNL runtime assets"
+          git push origin HEAD:gate/original-logo-runtime-20260909
