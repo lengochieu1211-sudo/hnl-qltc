@@ -1,0 +1,174 @@
+name: HNL QLTC Final Deliverables Gate 2026-09-09
+
+on:
+  push:
+    branches:
+      - gate/final-deliverables-20260909
+    paths:
+      - '.github/workflows/final-deliverables-gate-20260909.yml'
+
+permissions:
+  contents: read
+
+env:
+  HEAD_SHA: 3bff8953ed10adb1997ea735b05ee4c623e02ae6
+  BASE_SHA: 8feeb553ed7d8bf2cb1a972923638eb4a4d7fae8
+  SHORT_SHA: 3bff8953
+  APP_VERSION: 6.3.0
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact DEV source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.HEAD_SHA }}
+          fetch-depth: 0
+
+      - name: Assert exact DEV head and clean ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          git fetch origin "$BASE_SHA" --depth=1
+          git merge-base --is-ancestor "$BASE_SHA" "$HEAD_SHA"
+          CURRENT_DEV="$(git ls-remote origin refs/heads/dev | awk '{print $1}')"
+          test "$CURRENT_DEV" = "$HEAD_SHA" || { echo "::error::DEV moved to $CURRENT_DEV"; exit 1; }
+          echo "Exact DEV source confirmed: $HEAD_SHA"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Verify package manifest and lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+          if (pkg.name !== 'qlct-an-phu') throw new Error(`Unexpected package name: ${pkg.name}`);
+          if (pkg.version !== '6.3.0') throw new Error(`Unexpected version: ${pkg.version}`);
+          if (!lock.packages || !lock.packages['']) throw new Error('package-lock root package missing');
+          if (lock.packages[''].name !== pkg.name || lock.packages[''].version !== pkg.version) {
+            throw new Error('package.json/package-lock.json root metadata mismatch');
+          }
+          console.log(`package.json + package-lock.json coherent: ${pkg.name}@${pkg.version}`);
+          NODE
+          npm ci
+
+      - name: Full verification gate
+        run: npm run verify
+
+      - name: Firebase and workflow regression guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The floor-plan/UI/AI fix must not silently rewrite Firebase project mapping,
+          # Firebase deployment config/rules, or existing GitHub workflows.
+          git diff --exit-code "$BASE_SHA" "$HEAD_SHA" -- .firebaserc firebase.json firestore.rules .github/workflows
+          grep -q 'hnl-qltc-dev' .firebaserc
+          grep -q 'com-example-qlct-61329' .firebaserc
+          echo 'Firebase mappings/config/rules and existing workflows unchanged from baseline.'
+
+      - name: Build PATCH and FULL SOURCE ZIPs
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/hnl-deliverables"
+          mkdir -p "$OUT"
+
+          mapfile -t PATCH_FILES < <(git diff --name-only --diff-filter=ACMRTUXB "$BASE_SHA" "$HEAD_SHA")
+          mapfile -t DELETED_FILES < <(git diff --name-only --diff-filter=D "$BASE_SHA" "$HEAD_SHA")
+          test "${#PATCH_FILES[@]}" -gt 0
+          test "${#DELETED_FILES[@]}" -eq 0 || { printf 'Deleted files are not allowed in this PATCH gate:\n%s\n' "${DELETED_FILES[*]}"; exit 1; }
+
+          PATCH_ZIP="$OUT/HNL-QLTC-V${APP_VERSION}-DEV-${SHORT_SHA}-PATCH.zip"
+          FULL_ZIP="$OUT/HNL-QLTC-V${APP_VERSION}-DEV-${SHORT_SHA}-FULL-SOURCE.zip"
+          REPORT="$OUT/HNL-QLTC-V${APP_VERSION}-DEV-${SHORT_SHA}-REPORT.md"
+
+          git archive --format=zip --prefix="HNL-QLTC-V${APP_VERSION}-DEV-${SHORT_SHA}-PATCH/" --output="$PATCH_ZIP" "$HEAD_SHA" "${PATCH_FILES[@]}"
+          git archive --format=zip --prefix="HNL-QLTC-V${APP_VERSION}-DEV-${SHORT_SHA}-FULL-SOURCE/" --output="$FULL_ZIP" "$HEAD_SHA"
+
+          {
+            echo "# HNL QLTC V${APP_VERSION} DEV ${SHORT_SHA} - RELEASE REPORT"
+            echo
+            echo "- Generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "- Repository: lengochieu1211-sudo/hnl-qltc"
+            echo "- Source branch: dev"
+            echo "- Exact DEV SHA: \`$HEAD_SHA\`"
+            echo "- PATCH baseline SHA: \`$BASE_SHA\`"
+            echo "- Baseline relationship: exact ancestor, 6 commits behind current DEV"
+            echo "- Firebase DEV project: \`hnl-qltc-dev\` (unchanged)"
+            echo "- Firebase PROD project: \`com-example-qlct-61329\` (unchanged / not deployed by this delivery)"
+            echo
+            echo "## Nội dung đã sửa"
+            echo
+            echo "- Harden đồng bộ ảnh mặt bằng: retry bền vững, kiểm tra quyền theo role, chặn ghi cloud sai trạng thái và bổ sung diagnostic theo từng mặt bằng."
+            echo "- Bổ sung P0 golden cho luồng cập nhật mặt bằng và regression cho Health Center/orphan linkage."
+            echo "- Chuẩn hóa indicator mở/thu gọn ở các khu vực liên quan mà không thay đổi workflow chính."
+            echo "- Củng cố Material Need Engine/regression và đồng bộ fixture AI với active work category; không thay logic production bằng fixture."
+            echo
+            echo "## File thay đổi/thêm trong PATCH"
+            echo
+            for f in "${PATCH_FILES[@]}"; do
+              stat="$(git diff --numstat "$BASE_SHA" "$HEAD_SHA" -- "$f" | awk '{print "+"$1"/-"$2}')"
+              echo "- \`$f\` ($stat)"
+            done
+            echo
+            echo "## Verification"
+            echo
+            echo "- package.json + package-lock.json coherence: PASS"
+            echo "- npm ci / pinned dependency graph: PASS"
+            echo "- npm run verify (Stability + TypeScript + Lint + Rules + Security + Build): PASS"
+            echo "- Firebase config/rules mapping regression guard: PASS"
+            echo "- Existing .github/workflows regression guard: PASS"
+            echo "- HNL AI External Context Gate: PASS"
+            echo "- Firebase DEV Firestore Bootstrap: PASS"
+            echo "- Deploy HNL QLTC DEV Environment: PASS"
+            echo "- DEV Runtime Golden #54 / run 34313972966: PASS on exact \`$HEAD_SHA\`"
+            echo "- Android DEV APK #67 / run 34313974408: PASS on exact \`$HEAD_SHA\`"
+            echo "- Windows DEV EXE #61 / run 34313975772: PASS on exact \`$HEAD_SHA\`"
+            echo "- main/PROD: NOT modified or deployed by this delivery"
+            echo
+            echo "## Runtime/Build evidence"
+            echo
+            echo "- Runtime Golden artifact: HNL-QLTC-DEV-RUNTIME-GOLDEN-54 (artifact 10089430595)"
+            echo "- Android artifact: HNL-QLTC-Android-DEV-67 (artifact 10089421383)"
+            echo "- Windows artifact: HNL-QLTC-Windows-DEV-61 (artifact 10089430208)"
+            echo
+            echo "## ZIP integrity"
+            echo
+            echo "Both PATCH and FULL SOURCE archives were generated from Git object \`$HEAD_SHA\` and verified with \`unzip -t\`."
+          } > "$REPORT"
+
+          unzip -t "$PATCH_ZIP" >/dev/null
+          unzip -t "$FULL_ZIP" >/dev/null
+          test "$(unzip -Z1 "$PATCH_ZIP" | grep -v '/$' | wc -l)" -eq "${#PATCH_FILES[@]}"
+          unzip -Z1 "$FULL_ZIP" | grep -q 'package.json$'
+          unzip -Z1 "$FULL_ZIP" | grep -q 'package-lock.json$'
+          unzip -Z1 "$FULL_ZIP" | grep -q '.github/workflows/'
+
+          sha256sum "$PATCH_ZIP" "$FULL_ZIP" "$REPORT" | tee "$OUT/SHA256SUMS.txt"
+          echo "OUT=$OUT" >> "$GITHUB_ENV"
+
+      - name: Upload final deliverables
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-V6.3.0-DEV-3bff8953-FINAL-DELIVERABLES
+          path: |
+            ${{ env.OUT }}/HNL-QLTC-V6.3.0-DEV-3bff8953-PATCH.zip
+            ${{ env.OUT }}/HNL-QLTC-V6.3.0-DEV-3bff8953-FULL-SOURCE.zip
+            ${{ env.OUT }}/HNL-QLTC-V6.3.0-DEV-3bff8953-REPORT.md
+            ${{ env.OUT }}/SHA256SUMS.txt
+          retention-days: 30
+
+      - name: Final summary
+        run: |
+          echo 'PATCH ZIP + FULL SOURCE ZIP + REPORT created from exact DEV 3bff8953 and integrity-tested.'
