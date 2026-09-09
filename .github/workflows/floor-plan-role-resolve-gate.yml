@@ -1,0 +1,84 @@
+name: Floor Plan Role Resolve Gate
+
+on:
+  push:
+    branches:
+      - gate/floor-plan-role-resolve-20260909
+    paths:
+      - 'scripts/floor_plan_role_resolve_gate.py'
+      - '.github/workflows/floor-plan-role-resolve-gate.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      EXPECTED_BASE: b7534aba4db5b9749d4bcc0605e233dda086edc0
+      CANDIDATE_BRANCH: gate/floor-plan-role-resolve-candidate-20260909
+    steps:
+      - name: Checkout gate branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify exact DEV baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "$EXPECTED_BASE" || { echo "::error::DEV moved from expected baseline"; exit 1; }
+          test "$(git merge-base HEAD origin/dev)" = "$EXPECTED_BASE" || { echo "::error::Gate branch is not based on exact DEV"; exit 1; }
+          echo "Exact DEV baseline: PASS ($EXPECTED_BASE)"
+
+      - name: Apply role-resolution regression patch
+        run: python scripts/floor_plan_role_resolve_gate.py
+
+      - name: Verify patch scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only | sort)
+          printf 'Changed source files:\n%s\n' "${changed[*]}"
+          expected=(scripts/stability-gate.mjs src/App.tsx src/lib/floorPlanImageSync.ts)
+          test "${#changed[@]}" -eq "${#expected[@]}" || { echo '::error::Unexpected changed-file count'; exit 1; }
+          for i in "${!expected[@]}"; do test "${changed[$i]}" = "${expected[$i]}" || { echo "::error::Unexpected file ${changed[$i]}"; exit 1; }; done
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Full verify
+        run: npm run verify
+
+      - name: Build clean verified candidate from exact DEV
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/floor-role/src/lib /tmp/floor-role/src /tmp/floor-role/scripts
+          cp src/App.tsx /tmp/floor-role/src/App.tsx
+          cp src/lib/floorPlanImageSync.ts /tmp/floor-role/src/lib/floorPlanImageSync.ts
+          cp scripts/stability-gate.mjs /tmp/floor-role/scripts/stability-gate.mjs
+
+          git checkout --detach "$EXPECTED_BASE"
+          cp /tmp/floor-role/src/App.tsx src/App.tsx
+          cp /tmp/floor-role/src/lib/floorPlanImageSync.ts src/lib/floorPlanImageSync.ts
+          cp /tmp/floor-role/scripts/stability-gate.mjs scripts/stability-gate.mjs
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/App.tsx src/lib/floorPlanImageSync.ts scripts/stability-gate.mjs
+          test "$(git diff --cached --name-only | wc -l | tr -d ' ')" = '3' || { echo '::error::Candidate scope is not exactly 3 files'; exit 1; }
+          git commit -m 'fix: resume floor plan upload after ADMIN role resolves'
+          CANDIDATE_SHA="$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_BASE" || { echo '::error::Candidate parent mismatch'; exit 1; }
+          git push --force origin "HEAD:refs/heads/$CANDIDATE_BRANCH"
+          echo "Candidate SHA: $CANDIDATE_SHA"
