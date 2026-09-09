@@ -58,6 +58,7 @@ interface RoomHighlightModalProps {
   onDeleteRoom?: (id: string) => void;
   onStartRedraw2Point?: (room: RoomProgressItem, tool: 'freehand' | 'polygon' | '2point') => void;
   structureReadOnly?: boolean;
+  focusOrphanRepair?: boolean;
 }
 
 // Preset mapping for Construction & Acceptance Categories requested by user
@@ -128,6 +129,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   onDeleteRoom,
   onStartRedraw2Point,
   structureReadOnly = false,
+  focusOrphanRepair = false,
 }) => {
   const activeDefaultInspector = defaultInspectorName || '';
 
@@ -211,6 +213,9 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   const [showMaterialEstimates, setShowMaterialEstimates] = useState<boolean>(false);
   const [isAutoIssuing, setIsAutoIssuing] = useState<boolean>(false);
   const [selectedSubItemIds, setSelectedSubItemIds] = useState<string[]>([]);
+  const [orphanRepairTargets, setOrphanRepairTargets] = useState<Record<string, string>>({});
+  const [orphanDismissedKeys, setOrphanDismissedKeys] = useState<string[]>([]);
+  const orphanRepairRef = React.useRef<HTMLDivElement | null>(null);
 
   // Combined teams list from props or local storage
   const displayTeams = (teams && teams.length > 0) 
@@ -222,6 +227,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   useEffect(() => {
     setIsConfirmingDelete(false);
     setSelectedSubItemIds([]);
+    setOrphanRepairTargets({});
+    setOrphanDismissedKeys([]);
     if (roomItem) {
       setRoomName(roomItem.roomName);
       const projectDefaultCategory = workVolumes.find((item) => item.title?.trim())?.title?.trim() || '';
@@ -438,89 +445,111 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     }
   }, [isOpen, roomItem, presetSelection, presetWorkCategories, workCategory]);
 
-  // Get unique work categories used by the room editor. If a current room still carries
-  // historical values, keep them visible here only so the user can inspect/remap them.
-  // They are not returned by presetWorkCategories and are not shown in floor summaries.
-  const availableWorkCategories = React.useMemo(() => {
-    const list = new Set<string>();
+  const activeWorkCategoryIdSet = React.useMemo(() => new Set(
+    workVolumes.flatMap((item) => [item.id, item.workCategoryId].filter(Boolean) as string[])
+  ), [workVolumes]);
+  const activeWorkCategoryNameMap = React.useMemo(() => new Map(
+    projectWorkCategoryTitles.map((title) => [title.trim().toLocaleLowerCase('vi-VN'), title] as const)
+  ), [projectWorkCategoryTitles]);
 
-    // Keep active project categories first. Current stale values are added afterwards
-    // only for an already-existing room, so they can be remapped instead of resurrected.
-    projectWorkCategoryTitles.forEach((title) => list.add(title));
+  // Normal dropdowns expose only ACTIVE WorkVolume categories. Historical/deleted names
+  // remain visible only in the dedicated orphan-repair warning and can never be selected again.
+  const availableWorkCategories = React.useMemo(() => projectWorkCategoryTitles, [projectWorkCategoryTitles]);
 
-    // 1. Add current room's workCategory (state)
-    if (workCategory && workCategory.trim()) {
-      list.add(workCategory.trim());
+  type OrphanCategoryRef = { key: string; source: 'room' | 'categoryVolumes' | 'subItem'; workCategoryId?: string; workCategoryName?: string; label: string };
+  const orphanWorkCategoryRefs = React.useMemo<OrphanCategoryRef[]>(() => {
+    const refs = new Map<string, OrphanCategoryRef>();
+    const dismissed = new Set(orphanDismissedKeys);
+    const add = (source: OrphanCategoryRef['source'], workCategoryId?: string, workCategoryName?: string) => {
+      const id = String(workCategoryId || '').trim();
+      const name = String(workCategoryName || '').trim();
+      if (!id && !name) return;
+      const known = id ? activeWorkCategoryIdSet.has(id) : activeWorkCategoryNameMap.has(name.toLocaleLowerCase('vi-VN'));
+      if (known) return;
+      const key = id ? `id:${id}` : `name:${name.toLocaleLowerCase('vi-VN')}`;
+      if (dismissed.has(key) || refs.has(key)) return;
+      refs.set(key, { key, source, workCategoryId: id || undefined, workCategoryName: name || undefined, label: name || id });
+    };
+
+    if ((Number(workVolume) || 0) > 0) {
+      const roomId = roomItem && workCategory === String(roomItem.workCategory || '') ? roomItem.workCategoryId : undefined;
+      add('room', roomId, workCategory);
     }
+    Object.entries(categoryVolumes || {}).forEach(([raw, volume]) => {
+      if ((Number(volume) || 0) <= 0) return;
+      add('categoryVolumes', activeWorkCategoryIdSet.has(raw) ? raw : undefined, activeWorkCategoryIdSet.has(raw) ? '' : raw);
+    });
+    subItems.forEach((sub) => {
+      if (sub.workCategoryId) add('subItem', sub.workCategoryId, sub.category);
+      else if ((Number(sub.workVolume) || 0) > 0) add('subItem', undefined, sub.category);
+    });
+    return Array.from(refs.values());
+  }, [activeWorkCategoryIdSet, activeWorkCategoryNameMap, categoryVolumes, orphanDismissedKeys, roomItem, subItems, workCategory, workVolume]);
 
-    // 2. Add any active categories from subItems state
-    if (subItems && subItems.length > 0) {
-      subItems.forEach((item) => {
-        if (item.category && item.category.trim()) {
-          list.add(item.category.trim());
+  React.useEffect(() => {
+    if (!isOpen || !focusOrphanRepair || orphanWorkCategoryRefs.length === 0) return;
+    const timer = window.setTimeout(() => orphanRepairRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 120);
+    return () => window.clearTimeout(timer);
+  }, [focusOrphanRepair, isOpen, orphanWorkCategoryRefs.length]);
+
+  const remapOrphanCategory = async (orphan: OrphanCategoryRef) => {
+    if (structureReadOnly) return;
+    const target = String(orphanRepairTargets[orphan.key] || '').trim();
+    if (!target || !activeWorkCategoryNameMap.has(target.toLocaleLowerCase('vi-VN'))) {
+      alert('Hãy chọn một hạng mục đang còn trong danh mục Khối lượng.');
+      return;
+    }
+    const targetVolume = workVolumes.find((item) => item.title.trim().toLocaleLowerCase('vi-VN') === target.toLocaleLowerCase('vi-VN'));
+    const targetId = targetVolume?.workCategoryId || targetVolume?.id || undefined;
+    const oldName = String(orphan.workCategoryName || '').trim();
+    const oldId = String(orphan.workCategoryId || '').trim();
+    const matches = (name?: string, id?: string) => Boolean(
+      (oldId && id && oldId === String(id).trim()) ||
+      (oldName && name && oldName.toLocaleLowerCase('vi-VN') === String(name).trim().toLocaleLowerCase('vi-VN'))
+    );
+    const affectedSubItems = subItems.filter((sub) => matches(sub.category, sub.workCategoryId)).length;
+    const sourceVolume = oldName && categoryVolumes[oldName] !== undefined
+      ? Number(categoryVolumes[oldName]) || 0
+      : oldId && categoryVolumes[oldId] !== undefined
+        ? Number(categoryVolumes[oldId]) || 0
+        : (orphan.source === 'room' ? Number(workVolume) || 0 : 0);
+    const confirmed = await confirmAsync(
+      `Gán lại hạng mục mồ côi:\n\n“${orphan.label}” → “${target}”\n\nHạng mục con liên quan: ${affectedSubItems}\nKhối lượng chuyển: ${formatDecimal(sourceVolume)} ${volumeUnit || 'm²'}\n\nTiến độ, nghiệm thu và đội thi công được giữ nguyên. Không xóa lịch sử. Tiếp tục?`
+    );
+    if (!confirmed) return;
+
+    setSubItems((prev) => prev.map((sub) => matches(sub.category, sub.workCategoryId)
+      ? { ...sub, category: target, workCategoryId: targetId }
+      : sub));
+    setCategoryVolumes((prev) => {
+      const next = { ...prev };
+      let moved = 0;
+      for (const rawKey of Object.keys(next)) {
+        if ((oldId && rawKey === oldId) || (oldName && rawKey.toLocaleLowerCase('vi-VN') === oldName.toLocaleLowerCase('vi-VN'))) {
+          moved += Number(next[rawKey]) || 0;
+          delete next[rawKey];
         }
-      });
-    }
-
-    // 3. Add any categories from categoryVolumes state
-    if (categoryVolumes) {
-      Object.keys(categoryVolumes).forEach((cat) => {
-        if (cat && cat.trim()) {
-          list.add(cat.trim());
+      }
+      if (moved > 0 || orphan.source === 'categoryVolumes') next[target] = (Number(next[target]) || 0) + moved;
+      return next;
+    });
+    setVolumeStrings((prev) => {
+      const next = { ...prev };
+      let moved = 0;
+      for (const rawKey of Object.keys(next)) {
+        if ((oldId && rawKey === oldId) || (oldName && rawKey.toLocaleLowerCase('vi-VN') === oldName.toLocaleLowerCase('vi-VN'))) {
+          const parsed = evaluateMathExpression(String(next[rawKey] || ''));
+          moved += parsed === null ? 0 : parsed;
+          delete next[rawKey];
         }
-      });
-    }
-
-    // 4. Add original roomItem's values just in case
-    if (roomItem) {
-      if (roomItem.workCategory && roomItem.workCategory.trim()) {
-        list.add(roomItem.workCategory.trim());
       }
-      if (roomItem.subItems) {
-        roomItem.subItems.forEach((item) => {
-          if (item.category && item.category.trim()) {
-            list.add(item.category.trim());
-          }
-        });
-      }
-      if (roomItem.categoryVolumes) {
-        Object.keys(roomItem.categoryVolumes).forEach((cat) => {
-          if (cat && cat.trim()) {
-            list.add(cat.trim());
-          }
-        });
-      }
-    }
-
-    // 5. Active project categories were inserted first above. For new rooms, do not
-    // let stale local state manufacture extra choices when the project catalog exists.
-    if (!roomItem) {
-      return projectWorkCategoryTitles;
-    }
-
-    // Existing rooms may include historical values for inspection/remapping.
-    if (list.size > 0) {
-      return Array.from(list);
-    }
-
-    if (materialNorms && materialNorms.length > 0) {
-      materialNorms.forEach((norm) => {
-        if (norm.workCategories && norm.workCategories.length > 0) {
-          norm.workCategories.forEach(c => list.add(c));
-        } else if (norm.workCategory) {
-          list.add(norm.workCategory);
-        }
-      });
-    }
-
-    // If we have items in our set, return them
-    if (list.size > 0) {
-      return Array.from(list);
-    }
-
-    // Fallback to keys of WORK_CATEGORY_PRESETS
-    return Object.keys(WORK_CATEGORY_PRESETS);
-  }, [projectWorkCategoryTitles, materialNorms, workCategory, subItems, categoryVolumes, roomItem]);
+      if (moved > 0 || orphan.source === 'categoryVolumes') next[target] = formatDecimal((evaluateMathExpression(String(next[target] || '')) || 0) + moved);
+      return next;
+    });
+    if (matches(workCategory, roomItem?.workCategoryId)) setWorkCategory(target);
+    setPresetSelection(target);
+    setOrphanDismissedKeys((prev) => [...new Set([...prev, orphan.key])]);
+  };
 
   const materialAliasMap = React.useMemo(() => buildMaterialAliasMap(materialNorms), [materialNorms]);
 
@@ -1037,6 +1066,45 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
               Kỹ sư chỉ cập nhật tiến độ, nghiệm thu, đội thi công, hạn hoàn thành và ghi chú. Tên Căn/Phòng, khối lượng và hình học mặt bằng do Admin quản lý.
             </div>
           )}
+
+          {orphanWorkCategoryRefs.length > 0 && (
+            <div ref={orphanRepairRef} className="rounded-2xl border-2 border-rose-300 bg-rose-50 p-3 space-y-2 shadow-sm">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
+                <div>
+                  <div className="text-xs font-black text-rose-800">Hạng mục mồ côi cần xử lý</div>
+                  <div className="mt-0.5 text-[10px] font-semibold text-rose-700">Các hạng mục dưới đây đã bị xóa/không còn trong Khối lượng. HNL không dùng chúng để tính AI/vật tư và không cho chọn lại trong dropdown thường.</div>
+                </div>
+              </div>
+              {orphanWorkCategoryRefs.map((orphan) => (
+                <div key={orphan.key} className="rounded-xl border border-rose-200 bg-white p-2.5 space-y-2">
+                  <div className="text-[11px] font-black text-slate-900">⚠️ {orphan.label}</div>
+                  <div className="text-[9px] font-semibold text-slate-500">Nguồn tham chiếu: {orphan.source === 'room' ? 'Căn/Phòng' : orphan.source === 'categoryVolumes' ? 'Khối lượng theo hạng mục' : 'Hạng mục con'}</div>
+                  {!structureReadOnly && (
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <select
+                        value={orphanRepairTargets[orphan.key] || ''}
+                        onChange={(e) => setOrphanRepairTargets((prev) => ({ ...prev, [orphan.key]: e.target.value }))}
+                        className="min-w-0 flex-1 rounded-lg border border-rose-200 bg-white px-2.5 py-2 text-[10.5px] font-bold text-slate-800"
+                      >
+                        <option value="">-- Chọn hạng mục đang còn để gán lại --</option>
+                        {projectWorkCategoryTitles.map((title) => <option key={title} value={title}>{title}</option>)}
+                      </select>
+                      <button
+                        type="button"
+                        disabled={!orphanRepairTargets[orphan.key]}
+                        onClick={() => void remapOrphanCategory(orphan)}
+                        className="rounded-lg bg-rose-600 px-3 py-2 text-[10.5px] font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        Gán lại hạng mục
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {!structureReadOnly && projectWorkCategoryTitles.length === 0 && <div className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[10px] font-bold text-amber-800">Chưa có hạng mục active trong Khối lượng để gán lại. Hãy tạo hạng mục hợp lệ ở Khối lượng trước.</div>}
+            </div>
+          )}
           
           {/* Room / Apartment Name */}
           <div>
@@ -1359,7 +1427,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                       {/* Select to swap category */}
                       <select
                         disabled={structureReadOnly}
-                        value={catName}
+                        value={activeWorkCategoryNameMap.has(catName.trim().toLocaleLowerCase('vi-VN')) ? catName : ''}
                         onChange={(e) => {
                           const newCat = e.target.value;
                           if (newCat && newCat !== catName) {
@@ -1392,6 +1460,9 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                         }}
                         className="w-full font-black text-[13px] text-indigo-950 bg-indigo-50/80 hover:bg-indigo-100 border border-indigo-200 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-3xs"
                       >
+                        {!activeWorkCategoryNameMap.has(catName.trim().toLocaleLowerCase('vi-VN')) && (
+                          <option value="" disabled>⚠️ Đã xóa: {catName} — chọn hạng mục mới</option>
+                        )}
                         {availableWorkCategories.map(c => (
                           <option key={c} value={c}>🏗️ {c}</option>
                         ))}

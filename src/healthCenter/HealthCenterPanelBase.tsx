@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Download, ExternalLink, FileJson, FileSpreadsheet, RefreshCw, ShieldCheck, Wrench } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Copy, Download, Eraser, ExternalLink, FileJson, FileSpreadsheet, RefreshCw, ShieldCheck, Wrench } from 'lucide-react';
 import type { UserRole } from '../utils/securityUtils';
 import { saveTextFileToDownloads } from '../utils/fileExport';
 import { confirmAsync } from '../utils/confirmAsync';
@@ -20,6 +20,9 @@ interface HealthCenterPanelProps {
   fullAppData?: any;
   freshness?: 'live' | 'cache';
   onApplyRepair?: (nextData: any, context: { auditSnapshotId: string; operationCount: number; backup: HealthCenterRepairBackupPayload }) => void | Promise<void>;
+  onCopySystemDiagnostics?: () => void | Promise<void>;
+  onExportSystemDiagnostics?: () => void | Promise<void>;
+  onClearSystemDiagnostics?: () => void | Promise<void>;
 }
 
 type SeverityFilter = 'ALL' | HealthCenterSeverity;
@@ -63,6 +66,9 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
   fullAppData,
   freshness = 'live',
   onApplyRepair,
+  onCopySystemDiagnostics,
+  onExportSystemDiagnostics,
+  onClearSystemDiagnostics,
 }) => {
   const [runAt, setRunAt] = useState(() => Date.now());
   const [severity, setSeverity] = useState<SeverityFilter>('ALL');
@@ -260,12 +266,18 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
       <input value={query} onChange={(e) => { setQuery(e.target.value); setShowRepairPreview(false); }} placeholder="Tìm ngày, đội, tầng, căn, hạng mục..." className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs" />
     </div>
 
-    <div className="flex flex-wrap gap-2">
-      <button type="button" disabled={Boolean(exporting)} onClick={() => void exportReport('json')} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold"><FileJson className="h-3.5 w-3.5" /> JSON</button>
-      <button type="button" disabled={Boolean(exporting)} onClick={() => void exportReport('excel')} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold"><FileSpreadsheet className="h-3.5 w-3.5" /> Excel</button>
-      <button type="button" disabled={Boolean(exporting)} onClick={() => void exportReport('pdf')} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold"><Download className="h-3.5 w-3.5" /> PDF</button>
-      {userRole === 'ADMIN' && repairPreview && repairPreview.operations.length > 0 && <button type="button" onClick={() => setShowRepairPreview((value) => !value)} className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[10px] font-bold text-emerald-700"><Wrench className="h-3.5 w-3.5" /> {showRepairPreview ? 'Ẩn sửa an toàn' : `Xem sửa an toàn (${repairPreview.operations.length})`}</button>}
-      <span className="self-center text-[9px] font-semibold text-slate-500">Đang hiển thị/xuất {filtered.length}/{report.issues.length} vấn đề · {report.recordsScanned} record đã quét</span>
+    <div className="rounded-xl border border-slate-200 bg-white p-2.5 space-y-2">
+      <div className="text-[10px] font-extrabold text-slate-700">Xuất báo cáo &amp; chẩn đoán</div>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" disabled={Boolean(exporting)} onClick={() => void exportReport('json')} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold"><FileJson className="h-3.5 w-3.5" /> Audit JSON</button>
+        <button type="button" disabled={Boolean(exporting)} onClick={() => void exportReport('excel')} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold"><FileSpreadsheet className="h-3.5 w-3.5" /> Audit Excel</button>
+        <button type="button" disabled={Boolean(exporting)} onClick={() => void exportReport('pdf')} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold"><Download className="h-3.5 w-3.5" /> Audit PDF</button>
+        {onCopySystemDiagnostics && <button type="button" onClick={() => void onCopySystemDiagnostics()} className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-slate-900 px-2.5 py-1.5 text-[10px] font-bold text-white"><Copy className="h-3.5 w-3.5" /> Copy chẩn đoán</button>}
+        {onExportSystemDiagnostics && <button type="button" onClick={() => void onExportSystemDiagnostics()} className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-600 px-2.5 py-1.5 text-[10px] font-bold text-white"><Download className="h-3.5 w-3.5" /> Chẩn đoán hệ thống JSON</button>}
+        {onClearSystemDiagnostics && <button type="button" onClick={() => void onClearSystemDiagnostics()} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-600"><Eraser className="h-3.5 w-3.5" /> Xóa log</button>}
+        {userRole === 'ADMIN' && repairPreview && repairPreview.operations.length > 0 && <button type="button" onClick={() => setShowRepairPreview((value) => !value)} className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[10px] font-bold text-emerald-700"><Wrench className="h-3.5 w-3.5" /> {showRepairPreview ? 'Ẩn sửa an toàn' : `Xem sửa an toàn (${repairPreview.operations.length})`}</button>}
+      </div>
+      <div className="text-[9px] font-semibold text-slate-500">Đang hiển thị/xuất {filtered.length}/{report.issues.length} vấn đề · {report.recordsScanned} record đã quét</div>
     </div>
 
     {showRepairPreview && repairPreview && <div className="space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
@@ -301,7 +313,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
                 {issue.location.date && <span>Ngày: {issue.location.date}</span>}{issue.location.teamName && <span>Đội: {issue.location.teamName}</span>}{issue.location.floorName && <span>Tầng: {issue.location.floorName}</span>}{issue.location.roomName && <span>Căn: {issue.location.roomName}</span>}{issue.location.shift && <span>Ca: {issue.location.shift}</span>}{issue.location.workItem && <span>Công việc: {issue.location.workItem}</span>}
               </div>
               <div className="mt-1 break-all text-[9px] text-slate-400">{issue.ruleId} · {issue.entityType}:{issue.entityId}</div>
-              <div className="mt-2 flex flex-wrap gap-1.5"><button type="button" onClick={() => openIssue(issue)} className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-[9px] font-bold text-indigo-700"><ExternalLink className="h-3 w-3" /> {issue.ruleId === 'ROOM_ORPHAN_WORK_CATEGORY_REFERENCE' && userRole === 'ADMIN' ? 'Xử lý' : 'Xem bản ghi'}</button><ExpandCollapseButton expanded={isOpen} onToggle={() => setExpanded(isOpen ? null : issue.id)} expandLabel="Xem liên kết" collapseLabel="Ẩn liên kết" className="min-h-7 rounded-md border-slate-200 px-2 py-1 text-[9px] text-slate-600" /></div>
+              <div className="mt-2 flex flex-wrap gap-1.5"><button type="button" onClick={() => openIssue(issue)} className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-[9px] font-bold text-indigo-700"><ExternalLink className="h-3 w-3" /> {issue.ruleId === 'ROOM_ORPHAN_WORK_CATEGORY_REFERENCE' && userRole === 'ADMIN' ? 'Xử lý hạng mục' : 'Xem bản ghi'}</button><ExpandCollapseButton expanded={isOpen} onToggle={() => setExpanded(isOpen ? null : issue.id)} expandLabel="Xem liên kết" collapseLabel="Ẩn liên kết" className="min-h-7 rounded-md border-slate-200 px-2 py-1 text-[9px] text-slate-600" /></div>
               {isOpen && <div className="mt-2 rounded-lg bg-slate-50 p-2 text-[9px] text-slate-600"><div><b>Evidence:</b> {issue.evidenceIds.join(', ') || '—'}</div><div className="mt-1 break-all"><b>Chi tiết:</b> {JSON.stringify(issue.details || {})}</div></div>}
             </div>
           </div>
