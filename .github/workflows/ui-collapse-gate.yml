@@ -1,0 +1,76 @@
+name: UI Collapse Gate
+
+on:
+  push:
+    branches:
+      - gate/unified-collapse-ui-20260909
+
+permissions:
+  contents: write
+
+jobs:
+  apply-verify-clean:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact gate
+        uses: actions/checkout@v4
+        with:
+          ref: gate/unified-collapse-ui-20260909
+          fetch-depth: 0
+
+      - name: Confirm baseline DEV ancestor
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 8feeb553ed7d8bf2cb1a972923638eb4a4d7fae8 HEAD
+          test -f .gate/ui-collapse.patch
+
+      - name: Dry-run and apply UI patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --check .gate/ui-collapse.patch
+          git apply .gate/ui-collapse.patch
+          test -f src/components/ExpandCollapseIndicator.tsx
+          grep -q "ExpandCollapseIndicator" src/components/GoogleConfigTab.tsx
+          grep -q "ExpandCollapseIndicator" src/components/ProjectManagerModal.tsx
+          grep -q "ExpandCollapseButton" src/healthCenter/HealthCenterPanelBase.tsx
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Full verification
+        run: npm run verify
+
+      - name: UI collapse scope audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -q "ChevronDown.*group-open:rotate-180" src/components/ProjectManagerModal.tsx
+          test "$(grep -c 'ExpandCollapseIndicator' src/components/GoogleConfigTab.tsx)" -ge 5
+          test "$(grep -c 'ExpandCollapseIndicator' src/components/ProjectManagerModal.tsx)" -ge 4
+          grep -q 'expandLabel="Xem liên kết"' src/healthCenter/HealthCenterPanelBase.tsx
+
+      - name: Remove gate-only files and commit clean candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .gate/ui-collapse.patch .github/workflows/ui-collapse-gate.yml
+          rmdir .gate 2>/dev/null || true
+          git add -A
+          echo "Changed paths staged:"
+          git diff --cached --name-only
+          printf '%s\n' \
+            src/components/ExpandCollapseIndicator.tsx \
+            src/components/GoogleConfigTab.tsx \
+            src/components/ProjectManagerModal.tsx \
+            src/healthCenter/HealthCenterPanelBase.tsx > /tmp/expected.txt
+          git diff --cached --name-only | sort > /tmp/actual.txt
+          sort /tmp/expected.txt -o /tmp/expected.txt
+          diff -u /tmp/expected.txt /tmp/actual.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "ui: unify expand collapse controls"
+          git push origin HEAD:gate/unified-collapse-ui-20260909
