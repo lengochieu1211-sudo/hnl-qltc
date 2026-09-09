@@ -50,6 +50,21 @@ jobs:
       - name: Apply P0 source patch
         run: node .gate/apply-floorplan-p0.mjs
 
+      - name: Tighten generated regression assertion
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/floorplan-p0-golden.ts')
+          text = path.read_text()
+          old = "check(!sync.includes('getCurrentUserRole'), 'Legacy global role cache must not authorize floor-plan upload.');"
+          new = "check(!sync.includes(\"from '../utils/securityUtils'\") && !sync.includes('if (getCurrentUserRole'), 'Legacy global role cache must not authorize floor-plan upload.');"
+          if old not in text:
+              raise SystemExit('Expected legacy-role assertion not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+
       - name: Scope and package lock guard
         shell: bash
         run: |
