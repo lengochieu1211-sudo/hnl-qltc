@@ -66,6 +66,11 @@ for (const marker of [
 ]) if (!aiGateway.includes(marker)) fail(`AI Gateway server-side project authorization missing: ${marker}`);
 pass('AI Gateway derives project role server-side');
 
+const floorPlanDefectTab = read('src/components/FloorPlanDefectTab.tsx');
+if (!floorPlanDefectTab.includes('<Plus className="w-4 h-4" />\n                Thêm tầng nhanh (không cần ảnh)')) fail('quick-add-floor action must use exactly one Plus icon');
+if (floorPlanDefectTab.includes('⚡ Thêm tầng nhanh (không cần ảnh)')) fail('quick-add-floor action contains duplicate lightning glyph next to Plus icon');
+else pass('quick-add-floor action has a single icon');
+
 const app = read('src/App.tsx');
 for (const marker of [
   'loadProjectFromFirestoreCache(projectId)',
