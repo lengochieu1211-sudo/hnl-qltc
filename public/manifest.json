@@ -3,49 +3,55 @@
   "name": "HNL Quản Lý Thi Công",
   "icons": [
     {
-      "src": "/hnl-taskbar-pixel-16.png?v=20260909-pixel2",
+      "src": "/hnl-logo-original-16.png?v=20260909-original1",
       "type": "image/png",
       "sizes": "16x16",
       "purpose": "any"
     },
     {
-      "src": "/hnl-taskbar-pixel-20.png?v=20260909-pixel2",
+      "src": "/hnl-logo-original-20.png?v=20260909-original1",
       "type": "image/png",
       "sizes": "20x20",
       "purpose": "any"
     },
     {
-      "src": "/hnl-taskbar-pixel-24.png?v=20260909-pixel2",
+      "src": "/hnl-logo-original-24.png?v=20260909-original1",
       "type": "image/png",
       "sizes": "24x24",
       "purpose": "any"
     },
     {
-      "src": "/hnl-taskbar-pixel-32.png?v=20260909-pixel2",
+      "src": "/hnl-logo-original-28.png?v=20260909-original1",
+      "type": "image/png",
+      "sizes": "28x28",
+      "purpose": "any"
+    },
+    {
+      "src": "/hnl-logo-original-32.png?v=20260909-original1",
       "type": "image/png",
       "sizes": "32x32",
       "purpose": "any"
     },
     {
-      "src": "/hnl-taskbar-pixel-40.png?v=20260909-pixel2",
+      "src": "/hnl-logo-original-40.png?v=20260909-original1",
       "type": "image/png",
       "sizes": "40x40",
       "purpose": "any"
     },
     {
-      "src": "/hnl-taskbar-pixel-48.png?v=20260909-pixel2",
+      "src": "/hnl-logo-original-48.png?v=20260909-original1",
       "type": "image/png",
       "sizes": "48x48",
       "purpose": "any"
     },
     {
-      "src": "/icon-3d-192.png?v=20260909-pixel2",
+      "src": "/hnl-logo-original-192.png?v=20260909-original1",
       "type": "image/png",
       "sizes": "192x192",
       "purpose": "any maskable"
     },
     {
-      "src": "/icon-3d-512.png?v=20260909-pixel2",
+      "src": "/hnl-logo-original-512.png?v=20260909-original1",
       "type": "image/png",
       "sizes": "512x512",
       "purpose": "any maskable"
