@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, ZoomIn, ZoomOut, RotateCcw, Download } from 'lucide-react';
+import { X, ZoomIn, ZoomOut, RotateCcw, Download, Share2, Loader2 } from 'lucide-react';
+import { saveBlobToDownloads } from '../utils/fileExport';
+import { sharePreparedContent } from '../utils/shareUtils';
 
 interface ImageViewerModalProps {
   isOpen: boolean;
@@ -20,6 +22,8 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [scale, setScale] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [mediaAction, setMediaAction] = useState<'download' | 'share' | null>(null);
+  const [mediaActionMessage, setMediaActionMessage] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
   
   const initialDistRef = useRef(0);
@@ -40,6 +44,8 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
       setCurrentIndex(initialIndex >= 0 && initialIndex < allImages.length ? initialIndex : 0);
       setScale(1);
       setPosition({ x: 0, y: 0 });
+      setMediaAction(null);
+      setMediaActionMessage('');
     }
   }, [isOpen, initialIndex, images, imageUrl]);
 
@@ -182,6 +188,73 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
     try { e.currentTarget.releasePointerCapture(e.pointerId); } catch(err){}
   };
 
+  const loadActiveImageBlob = async (): Promise<Blob> => {
+    if (!activeImage) throw new Error('Không có ảnh để xử lý.');
+    const response = await fetch(activeImage, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`Không tải được ảnh (${response.status}).`);
+    const blob = await response.blob();
+    if (!blob.size) throw new Error('Ảnh tải về rỗng.');
+    return blob;
+  };
+
+  const extensionForMime = (mimeType: string) => {
+    const mime = String(mimeType || '').toLowerCase();
+    if (mime.includes('png')) return 'png';
+    if (mime.includes('webp')) return 'webp';
+    if (mime.includes('gif')) return 'gif';
+    return 'jpg';
+  };
+
+  const blobToDataUrl = (blob: Blob) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('Không đọc được ảnh để chia sẻ.'));
+    reader.readAsDataURL(blob);
+  });
+
+  const handleDownload = async () => {
+    if (!activeImage || mediaAction) return;
+    setMediaAction('download');
+    setMediaActionMessage('');
+    try {
+      const blob = await loadActiveImageBlob();
+      const fileName = `HNL-QLTC-anh-${currentIndex + 1}-${Date.now()}.${extensionForMime(blob.type)}`;
+      await saveBlobToDownloads(blob, fileName, blob.type || 'image/jpeg');
+      setMediaActionMessage('Đã tải ảnh xuống.');
+    } catch (error: any) {
+      setMediaActionMessage(error?.message || 'Không thể tải ảnh xuống.');
+    } finally {
+      setMediaAction(null);
+    }
+  };
+
+  const handleShare = async () => {
+    if (!activeImage || mediaAction) return;
+    setMediaAction('share');
+    setMediaActionMessage('');
+    try {
+      const blob = await loadActiveImageBlob();
+      const mimeType = blob.type || 'image/jpeg';
+      const fileName = `HNL-QLTC-anh-${currentIndex + 1}.${extensionForMime(mimeType)}`;
+      const dataUrl = await blobToDataUrl(blob);
+      const result = await sharePreparedContent({
+        title: 'HNL QLTC - Chia sẻ ảnh',
+        text: 'Ảnh hiện trường từ HNL QLTC',
+        attachments: [{ id: `viewer-${currentIndex + 1}`, fileName, mimeType, dataUrl }],
+        allowTextFallback: false,
+      });
+      if (result.status === 'cancelled') return;
+      if (result.status !== 'shared' || result.sharedFiles < 1) {
+        throw new Error('Thiết bị/trình duyệt chưa hỗ trợ chia sẻ file ảnh. Hãy dùng Tải xuống.');
+      }
+      setMediaActionMessage('Đã mở chia sẻ ảnh.');
+    } catch (error: any) {
+      setMediaActionMessage(error?.message || 'Không thể chia sẻ ảnh.');
+    } finally {
+      setMediaAction(null);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -238,18 +311,48 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
         )}
       </div>
       
-      <div className="p-6 flex items-center justify-center gap-4 z-10 bg-gradient-to-t from-slate-950 to-transparent">
-        <button onClick={() => setScale(s => Math.max(1, s - 0.5))} className="p-3 bg-slate-800 rounded-full text-white">
-          <ZoomOut className="w-5 h-5" />
-        </button>
-        <span className="text-white font-bold min-w-[3rem] text-center">{Math.round(scale * 100)}%</span>
-        <button onClick={() => setScale(s => Math.min(5, s + 0.5))} className="p-3 bg-slate-800 rounded-full text-white">
-          <ZoomIn className="w-5 h-5" />
-        </button>
-        {scale > 1 && (
-          <button onClick={() => { setScale(1); setPosition({x:0, y:0}); }} className="p-3 bg-slate-800 rounded-full text-white ml-2">
-            <RotateCcw className="w-5 h-5" />
+      <div className="px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 z-10 bg-gradient-to-t from-slate-950 via-slate-950/95 to-transparent">
+        <div className="flex items-center justify-center gap-4">
+          <button onClick={() => setScale(s => Math.max(1, s - 0.5))} className="p-3 bg-slate-800 rounded-full text-white" aria-label="Thu nhỏ ảnh">
+            <ZoomOut className="w-5 h-5" />
           </button>
+          <span className="text-white font-bold min-w-[3rem] text-center">{Math.round(scale * 100)}%</span>
+          <button onClick={() => setScale(s => Math.min(5, s + 0.5))} className="p-3 bg-slate-800 rounded-full text-white" aria-label="Phóng to ảnh">
+            <ZoomIn className="w-5 h-5" />
+          </button>
+          {scale > 1 && (
+            <button onClick={() => { setScale(1); setPosition({x:0, y:0}); }} className="p-3 bg-slate-800 rounded-full text-white" aria-label="Đặt lại ảnh">
+              <RotateCcw className="w-5 h-5" />
+            </button>
+          )}
+        </div>
+
+        {activeImage && (
+          <div className="mt-3 flex items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={handleDownload}
+              disabled={Boolean(mediaAction)}
+              className="min-w-[8.5rem] px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 disabled:opacity-50 text-white text-sm font-bold flex items-center justify-center gap-2 border border-white/10"
+            >
+              {mediaAction === 'download' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+              Tải xuống
+            </button>
+            <button
+              type="button"
+              onClick={handleShare}
+              disabled={Boolean(mediaAction)}
+              className="min-w-[8.5rem] px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-bold flex items-center justify-center gap-2"
+            >
+              {mediaAction === 'share' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Share2 className="w-4 h-4" />}
+              Chia sẻ
+            </button>
+          </div>
+        )}
+        {mediaActionMessage && (
+          <div className="mt-2 text-center text-xs font-semibold text-slate-200" role="status">
+            {mediaActionMessage}
+          </div>
         )}
       </div>
     </div>

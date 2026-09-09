@@ -5,6 +5,7 @@ import {
   buildHealthCenterExcelWorkbook,
   buildHealthCenterHtmlReport,
   buildHealthCenterJson,
+  buildHealthCenterCopyText,
 } from '../src/healthCenter/healthCenterExport';
 
 const report: HealthCenterSummary = {
@@ -101,6 +102,48 @@ const filteredWb = buildHealthCenterExcelWorkbook({ ...input, scope: 'filtered',
 const filteredRows = XLSX.utils.sheet_to_json<Array<string | number>>(filteredWb.Sheets['Tat ca van de'], { header: 1 });
 assert.equal(filteredRows.length, 2, 'Filtered Excel chỉ gồm header + issue được lọc');
 assert.ok(filteredRows[1].includes('CREW_TASK_EMPTY_DETAIL'));
+
+
+const systemDiagnostics = {
+  dataCloudPhase: 'synced',
+  snapshotReadyCount: 9,
+  pendingData: 0,
+  online: true,
+  lastSyncAt: 1788684000000,
+  lastSyncError: '',
+  photoDiagnostics: {
+    active: 2,
+    ready: 1,
+    pending: 1,
+    photos: [
+      { id: 'photo-1', entityType: 'defect', entityId: 'defect-1', storageProvider: 'r2', cloudReady: true, binaryUploadState: 'ready', bytes: 1234, checksumPrefix: 'abc123', storagePath: 'projects/golden/defect/photo-1.jpg' },
+      { id: 'photo-2', entityType: 'room', entityId: 'room-orphan', storageProvider: 'r2', cloudReady: false, binaryUploadState: 'pending', bytes: 222, checksumPrefix: 'def456', storagePath: 'projects/golden/room/photo-2.jpg' },
+    ],
+  },
+  floorPlanDiagnostics: {
+    total: 1,
+    pending: 0,
+    outboxCount: 0,
+    floors: [{ id: 'floor-1', floorName: 'Tầng 1', status: 'READY', pending: false, effectiveImageRevision: 2, imageCloudRevision: 2, outboxRevision: 0, storageProvider: 'r2', storagePath: 'projects/golden/floor/floor-1.jpg' }],
+  },
+  runtimeLog: [{ at: 1788684000000, level: 'info', area: 'photo-sync', code: 'READY', projectId: 'golden-project', message: 'R2 ready' }],
+};
+
+const combinedInput = { ...input, systemDiagnostics } as const;
+const combinedJson = JSON.parse(buildHealthCenterJson(combinedInput));
+assert.equal(combinedJson.systemDiagnostics.photoDiagnostics.pending, 1, 'JSON tổng hợp phải chứa trạng thái ảnh R2');
+assert.equal(combinedJson.systemDiagnostics.floorPlanDiagnostics.total, 1, 'JSON tổng hợp phải chứa chẩn đoán ảnh mặt bằng');
+
+const combinedWb = buildHealthCenterExcelWorkbook(combinedInput);
+for (const sheet of ['He thong dong bo', 'Anh R2', 'Anh mat bang', 'Runtime log']) {
+  assert.ok(combinedWb.SheetNames.includes(sheet), `Excel tổng hợp phải có sheet ${sheet}`);
+}
+const r2Rows = XLSX.utils.sheet_to_json<Array<string | number>>(combinedWb.Sheets['Anh R2'], { header: 1 });
+assert.ok(r2Rows.some((row) => row.includes('photo-2') && row.includes('pending')), 'Excel phải chứa ảnh R2 đang pending');
+const copyText = buildHealthCenterCopyText(combinedInput);
+assert.ok(copyText.includes('AUDIT DỮ LIỆU & LIÊN KẾT'));
+assert.ok(copyText.includes('HỆ THỐNG / ĐỒNG BỘ / R2'));
+assert.ok(copyText.includes('Ảnh R2: active 2 | ready 1 | pending 1'));
 
 const html = buildHealthCenterHtmlReport(input);
 assert.ok(html.includes(report.auditSnapshotId), 'PDF HTML phải hiển thị auditSnapshotId');

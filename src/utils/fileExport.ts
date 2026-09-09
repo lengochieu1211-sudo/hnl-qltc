@@ -237,6 +237,48 @@ export async function saveBlob(blob: Blob, fileName: string, mimeType = blob.typ
   browserDownload(blob, safeName);
 }
 
+// Direct-download variant for photo/media viewers. On Android this deliberately bypasses
+// ACTION_CREATE_DOCUMENT and writes to Download/QLTC through the native chunked bridge.
+// Browser/desktop keeps the normal download attribute behavior.
+export async function saveBlobToDownloads(blob: Blob, fileName: string, mimeType = blob.type || 'application/octet-stream') {
+  const safeName = sanitizeFileName(fileName);
+
+  if (isAndroidExportBridgeAvailable()) {
+    const base64Data = await blobToBase64(blob);
+    const bridge = window.AndroidExport!;
+    if (
+      typeof bridge.beginBase64File === 'function'
+      && typeof bridge.appendBase64Chunk === 'function'
+      && typeof bridge.finishBase64File === 'function'
+    ) {
+      const sessionId = createExportSessionId();
+      const chunkSize = 256 * 1024;
+      try {
+        if (!bridge.beginBase64File(sessionId, safeName, mimeType)) {
+          throw new Error('Android download session failed to start.');
+        }
+        for (let i = 0; i < base64Data.length; i += chunkSize) {
+          if (!bridge.appendBase64Chunk(sessionId, base64Data.slice(i, i + chunkSize))) {
+            throw new Error('Android download chunk failed.');
+          }
+        }
+        if (!bridge.finishBase64File(sessionId)) {
+          throw new Error('Android download failed to finish.');
+        }
+      } catch (err) {
+        bridge.abortBase64File?.(sessionId);
+        throw err;
+      }
+      return;
+    }
+
+    bridge.saveBase64File!(safeName, mimeType, base64Data);
+    return;
+  }
+
+  browserDownload(blob, safeName);
+}
+
 export function saveTextFile(text: string, fileName: string, mimeType = 'application/json;charset=utf-8') {
   const safeName = sanitizeFileName(fileName);
   if (hasAndroidTextBridge()) {

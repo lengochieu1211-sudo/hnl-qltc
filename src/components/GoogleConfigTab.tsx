@@ -1,5 +1,4 @@
 import { downloadOrShareFile } from '../utils/downloadUtils';
-import { saveTextFileToDownloads } from '../utils/fileExport';
 import React, { useState, useEffect, useMemo } from 'react';
 import { APP_VERSION_LABEL } from '../config/appVersion';
 import { 
@@ -324,20 +323,6 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
     }
   };
 
-  const handleDownloadDiagnostics = async () => {
-    try {
-      const bundle = await buildFullDiagnosticBundle();
-      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const fileName = `HNL-QLTC-DIAGNOSTIC-${stamp}.json`;
-      const jsonText = JSON.stringify(bundle, null, 2);
-      await saveTextFileToDownloads(jsonText, fileName, 'application/json;charset=utf-8');
-      setSyncMsg(typeof window.AndroidExport?.beginTextFile === 'function'
-        ? `Đã lưu ${fileName} vào Download/QLTC.`
-        : 'Đã xuất file chẩn đoán lỗi. Có thể gửi file này để kiểm tra lỗi đồng bộ/ảnh/Defect.');
-    } catch (err: any) {
-      setSyncMsg(`Không xuất được file chẩn đoán: ${err?.message || String(err)}`);
-    }
-  };
 
   const handleImageQualityChange = (kind: ImageQualityKind, preset: ImageQualityPreset) => {
     const next = { ...imageQualitySettings, [kind]: preset };
@@ -646,16 +631,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           accessVerified={Boolean(syncDiagnostics.roleResolved)}
           fullAppData={fullAppData}
           freshness={syncDiagnostics.cloudInitialReady ? 'live' : 'cache'}
-          onCopySystemDiagnostics={async () => {
-            try {
-              const bundle = await buildFullDiagnosticBundle();
-              await navigator.clipboard.writeText(JSON.stringify(bundle, null, 2));
-              setSyncMsg('Đã copy chẩn đoán hệ thống.');
-            } catch (_) {
-              setSyncMsg('Không copy tự động được; hãy dùng nút Chẩn đoán hệ thống JSON.');
-            }
-          }}
-          onExportSystemDiagnostics={() => handleDownloadDiagnostics()}
+          getSystemDiagnostics={() => buildFullDiagnosticBundle()}
           onClearSystemDiagnostics={() => { clearRuntimeDiagnostics(); setSyncMsg('Đã xóa log chẩn đoán cũ.'); }}
         />
       

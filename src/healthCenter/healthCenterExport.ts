@@ -11,6 +11,7 @@ export interface HealthCenterExportInput {
   issues?: HealthCenterIssue[];
   scope?: HealthCenterExportScope;
   aiNarrative?: string;
+  systemDiagnostics?: Record<string, unknown> | null;
 }
 
 const EXPORT_SCHEMA = 'HNL-QLTC-HEALTH-CENTER-EXPORT-V1';
@@ -84,7 +85,7 @@ export function buildHealthCenterFileStem(input: HealthCenterExportInput): strin
 
 export function buildHealthCenterJson(input: HealthCenterExportInput): string {
   const issues = selectedIssues(input);
-  if ((input.scope || 'all') === 'all' && !input.aiNarrative) return serializeHealthCenterReportJson(input.report);
+  if ((input.scope || 'all') === 'all' && !input.aiNarrative && !input.systemDiagnostics) return serializeHealthCenterReportJson(input.report);
   return JSON.stringify({
     format: 'HNL-QLTC-HEALTH-CENTER',
     schemaVersion: 1,
@@ -99,6 +100,7 @@ export function buildHealthCenterJson(input: HealthCenterExportInput): string {
     exportedIssueCount: issues.length,
     issues,
     aiNarrative: input.aiNarrative || '',
+    systemDiagnostics: input.systemDiagnostics || null,
   }, null, 2);
 }
 
@@ -149,7 +151,67 @@ export function buildHealthCenterExcelWorkbook(input: HealthCenterExportInput): 
     ['Ghi chú', 'Phần này chỉ chứa diễn giải AI nếu người dùng chủ động yêu cầu; kết luận HNL nằm ở các sheet Audit.'],
     ['AI nhận xét', input.aiNarrative || 'Chưa yêu cầu AI phân tích.'],
   ]);
+
+  if (input.systemDiagnostics) {
+    const d = input.systemDiagnostics as Record<string, any>;
+    const systemRows: Array<Array<string | number>> = [['Trường', 'Giá trị']];
+    for (const [key, value] of Object.entries(d)) {
+      if (['photoDiagnostics', 'floorPlanDiagnostics', 'runtimeLog'].includes(key)) continue;
+      systemRows.push([key, typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value ?? '')]);
+    }
+    addSheet(wb, 'He thong dong bo', systemRows);
+
+    const photos = Array.isArray(d.photoDiagnostics?.photos) ? d.photoDiagnostics.photos : [];
+    const photoHeader = ['STT', 'Photo ID', 'Entity type', 'Entity ID', 'Storage', 'Cloud ready', 'Upload state', 'Deleted', 'Local binary', 'Bytes', 'Checksum', 'Storage path'];
+    addSheet(wb, 'Anh R2', [photoHeader, ...photos.map((photo: any, index: number) => [
+      index + 1, String(photo?.id || ''), String(photo?.entityType || ''), String(photo?.entityId || ''),
+      String(photo?.storageProvider || ''), String(photo?.cloudReady ?? ''), String(photo?.binaryUploadState || ''),
+      String(photo?.deleted ?? false), String(photo?.localBinary ?? false), Number(photo?.bytes || photo?.fileSize || 0),
+      String(photo?.checksumPrefix || photo?.sha256 || ''), String(photo?.storagePath || ''),
+    ])]);
+
+    const floors = Array.isArray(d.floorPlanDiagnostics?.floors) ? d.floorPlanDiagnostics.floors : [];
+    const floorHeader = ['STT', 'Floor ID', 'Tầng', 'Trạng thái', 'Pending', 'Revision', 'Cloud revision', 'Outbox revision', 'Storage', 'Storage path'];
+    addSheet(wb, 'Anh mat bang', [floorHeader, ...floors.map((floor: any, index: number) => [
+      index + 1, String(floor?.id || ''), String(floor?.floorName || ''), String(floor?.status || ''), String(floor?.pending ?? false),
+      Number(floor?.effectiveImageRevision || floor?.imageRevision || 0), Number(floor?.imageCloudRevision || 0), Number(floor?.outboxRevision || 0),
+      String(floor?.storageProvider || ''), String(floor?.storagePath || ''),
+    ])]);
+
+    const runtimeLog = Array.isArray(d.runtimeLog) ? d.runtimeLog : [];
+    addSheet(wb, 'Runtime log', [['STT', 'Thời điểm', 'Mức', 'Khu vực', 'Mã', 'Project', 'Nội dung'], ...runtimeLog.map((row: any, index: number) => [
+      index + 1, row?.at ? iso(Number(row.at)) : '', String(row?.level || ''), String(row?.area || ''), String(row?.code || ''), String(row?.projectId || ''), String(row?.message || ''),
+    ])]);
+  }
   return wb;
+}
+
+export function buildHealthCenterCopyText(input: HealthCenterExportInput): string {
+  const issues = selectedIssues(input);
+  const r = input.report;
+  const d = (input.systemDiagnostics || {}) as Record<string, any>;
+  const photoDiagnostics = d.photoDiagnostics || {};
+  const floorPlanDiagnostics = d.floorPlanDiagnostics || {};
+  const lines = [
+    'HNL HEALTH CENTER - CHẨN ĐOÁN TỔNG HỢP',
+    `Công trình: ${input.projectName || '—'}`,
+    `Project ID: ${r.projectId}`,
+    `Audit Snapshot ID: ${r.auditSnapshotId}`,
+    `Audit: ERROR ${r.errorCount} | WARNING ${r.warningCount} | Cần xác nhận ${r.needsConfirmationCount} | Safe repair ${r.safeRepairCount}`,
+    `Records quét: ${r.recordsScanned} | Issues đang xuất: ${issues.length}`,
+    '',
+    'HỆ THỐNG / ĐỒNG BỘ / R2',
+    `Firestore: ${String(d.dataCloudPhase || '—')} | Realtime: ${String(d.snapshotReadyCount ?? '—')}/9 | Pending data: ${String(d.pendingData ?? '—')}`,
+    `Ảnh R2: active ${String(photoDiagnostics.active ?? '—')} | ready ${String(photoDiagnostics.ready ?? '—')} | pending ${String(photoDiagnostics.pending ?? '—')}`,
+    `Mặt bằng ảnh: total ${String(floorPlanDiagnostics.total ?? '—')} | pending ${String(floorPlanDiagnostics.pending ?? '—')} | outbox ${String(floorPlanDiagnostics.outboxCount ?? '—')}`,
+    `Mạng: ${String(d.online ?? '—')} | Sync cuối: ${d.lastSyncAt ? iso(Number(d.lastSyncAt)) : '—'} | Lỗi sync: ${String(d.lastSyncError || 'Không')}`,
+    '',
+    'AUDIT DỮ LIỆU & LIÊN KẾT',
+    ...issues.map((issue, index) => `${index + 1}. [${issue.severity}] ${issue.ruleId} | ${issue.location.floorName || ''} ${issue.location.roomName || ''} ${issue.location.workItem || ''} | ${issue.message}`),
+    '',
+    'Nguyên tắc: không tự xóa dữ liệu mồ côi; AI/vật tư bỏ qua liên kết đã xóa cho đến khi ADMIN xác nhận xử lý.',
+  ];
+  return lines.join('\n');
 }
 
 function esc(value: unknown): string {
