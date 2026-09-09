@@ -1951,6 +1951,13 @@ export default function App() {
           const metadata = await syncFloorPlanImageToCloud(projectId, plan);
           if (!metadata || cancelled || activeProjectIdRef.current !== projectId) continue;
           floorPlanImageSyncRetryCountRef.current.delete(uploadRetryKey);
+          appendRuntimeDiagnostic({
+            level: 'info',
+            area: 'floor-plan-image',
+            projectId,
+            code: 'UPLOAD_OK',
+            message: `Đã đồng bộ mặt bằng ${plan.floorName || plan.id} · revision=${Number(metadata.imageCloudRevision || metadata.imageRevision || 0)} · provider=${metadata.storageProvider || ''}`,
+          });
           setPresent((prev) => {
             const current = prev.floorPlans.find((item) => item.id === plan.id);
             if (!current) return prev;
@@ -1973,8 +1980,18 @@ export default function App() {
           console.warn('[Floor Plan Image] upload warning:', plan.floorName, err);
           const attempt = (floorPlanImageSyncRetryCountRef.current.get(uploadRetryKey) || 0) + 1;
           floorPlanImageSyncRetryCountRef.current.set(uploadRetryKey, attempt);
-          if (attempt <= 4 && activeProjectIdRef.current === projectId) {
-            const delay = Math.min(12000, 1500 * Math.pow(2, attempt - 1));
+          appendRuntimeDiagnostic({
+            level: 'error',
+            area: 'floor-plan-image',
+            projectId,
+            code: 'UPLOAD_FAILED',
+            message: `${plan.floorName || plan.id} · attempt=${attempt} · ${err instanceof Error ? err.message : String(err)}`,
+          });
+          if (activeProjectIdRef.current === projectId && navigator.onLine) {
+            // Four fast retries handle short network hiccups. After that, keep a slow
+            // one-minute retry alive while the local image remains pending so a transient
+            // R2/Firestore outage cannot leave a replacement drawing stuck forever.
+            const delay = attempt <= 4 ? Math.min(12000, 1500 * Math.pow(2, attempt - 1)) : 60000;
             const timerId = window.setTimeout(() => {
               floorPlanImageRetryTimersRef.current.delete(timerId);
               if (activeProjectIdRef.current === projectId) setFloorPlanImageSyncRetryTick((tick) => tick + 1);

@@ -180,6 +180,35 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       Number(photoDiagnostics.pending || 0) === 0 &&
       Number(photoDiagnostics.active || 0) === Number(photoDiagnostics.ready || 0)
     );
+    const floorPlanRows = Array.isArray(fullAppData?.floorPlans) ? fullAppData.floorPlans : [];
+    const floorPlanDiagnostics = {
+      total: floorPlanRows.length,
+      pending: floorPlanRows.filter((plan: any) => {
+        const imageUrl = String(plan?.imageUrl || '');
+        const localBinary = imageUrl.startsWith('data:image/') || imageUrl.startsWith('blob:');
+        const imageRevision = Number(plan?.imageRevision || plan?.updatedAt || 0);
+        const cloudRevision = Number(plan?.imageCloudRevision || 0);
+        return localBinary && (cloudRevision < imageRevision || !plan?.storagePath || !plan?.storageProvider);
+      }).length,
+      floors: floorPlanRows.slice(0, 50).map((plan: any) => {
+        const imageUrl = String(plan?.imageUrl || '');
+        const localBinary = imageUrl.startsWith('data:image/') || imageUrl.startsWith('blob:');
+        const imageRevision = Number(plan?.imageRevision || plan?.updatedAt || 0);
+        const cloudRevision = Number(plan?.imageCloudRevision || 0);
+        const pending = localBinary && (cloudRevision < imageRevision || !plan?.storagePath || !plan?.storageProvider);
+        return {
+          id: String(plan?.id || ''),
+          floorName: String(plan?.floorName || ''),
+          pending,
+          localBinary,
+          imageRevision,
+          imageCloudRevision: cloudRevision,
+          storageProvider: String(plan?.storageProvider || ''),
+          storagePath: String(plan?.storagePath || ''),
+          imageCloudSyncedAt: Number(plan?.imageCloudSyncedAt || 0),
+        };
+      }),
+    };
     return buildDiagnosticBundle({
       screen: 'system-diagnostics',
       projectId: activeProjectId || 'default',
@@ -200,6 +229,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       driveSyncStatus,
       recordCounts: syncDiagnostics?.recordCounts || {},
       photoDiagnostics,
+      floorPlanDiagnostics,
     });
   };
 
