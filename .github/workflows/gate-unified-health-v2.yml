@@ -1,0 +1,52 @@
+name: Gate Unified Health Center V2
+
+on:
+  push:
+    branches:
+      - gate/ai-health-counter-20260909
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: gate/ai-health-counter-20260909
+          fetch-depth: 0
+      - name: Baseline guard
+        run: git merge-base --is-ancestor e9b28283560fe7600879a7b983032ef4f45c6cc0 HEAD
+      - name: Materialize source candidate
+        run: python .gate/materialize_unified_health.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install exact locked dependencies
+        run: npm ci
+      - name: Focused regressions
+        run: |
+          npm run test:ai-external-context
+          npm run test:ai-audit
+          npm run test:health-center
+      - name: Full verify
+        run: npm run verify
+      - name: Scope guard
+        shell: bash
+        run: |
+          git diff --exit-code e9b28283560fe7600879a7b983032ef4f45c6cc0 -- package.json package-lock.json .firebaserc firebase.json firestore.rules storage.rules
+          git diff --exit-code e9b28283560fe7600879a7b983032ef4f45c6cc0 -- .github/workflows/build.yml .github/workflows/firebase-hosting-merge.yml .github/workflows/firebase-hosting-pull-request.yml .github/workflows/firebase-dev-environment.yml .github/workflows/windows-exe-dev.yml .github/workflows/android-apk-dev.yml
+      - name: Commit source candidate to gate branch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/ai/data/externalAiContext.ts src/App.tsx src/healthCenter/HealthCenterPanel.tsx src/components/FloorPlanDefectTab.tsx src/healthCenter/HealthCenterPanelBase.tsx src/components/GoogleConfigTab.tsx src/components/BottomNav.tsx scripts/stability-gate.mjs scripts/ai-external-context-golden.ts scripts/health-center-navigation-golden.ts scripts/ai-audit-golden.ts
+          git diff --cached --quiet && exit 0
+          git commit -m "fix: unify Health Center and block orphan AI facts"
+          git push origin HEAD:gate/ai-health-counter-20260909
