@@ -1,0 +1,218 @@
+name: Package Certified DEV f4dfee Deliverables
+
+on:
+  push:
+    branches:
+      - gate/package-f4dfee-deliverables-20260909
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact certified DEV source
+        uses: actions/checkout@v4
+        with:
+          ref: f4dfee32e84d38af966b9ee7500e6ae3934cffa3
+          fetch-depth: 2
+
+      - name: Verify exact source and patch scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED_HEAD='f4dfee32e84d38af966b9ee7500e6ae3934cffa3'
+          EXPECTED_PARENT='e9b28283560fe7600879a7b983032ef4f45c6cc0'
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_PARENT"
+          cat > /tmp/expected-files.txt <<'EOF'
+          scripts/ai-audit-golden.ts
+          scripts/ai-external-context-golden.ts
+          scripts/health-center-navigation-golden.ts
+          scripts/share-center-golden.ts
+          scripts/stability-gate.mjs
+          src/App.tsx
+          src/ai/audit/healthCenterAiAudit.ts
+          src/ai/data/externalAiContext.ts
+          src/components/BottomNav.tsx
+          src/components/FloorPlanDefectTab.tsx
+          src/components/GoogleConfigTab.tsx
+          src/healthCenter/HealthCenterPanel.tsx
+          src/healthCenter/HealthCenterPanelBase.tsx
+          EOF
+          sed -i 's/^          //' /tmp/expected-files.txt
+          git diff --name-only "$EXPECTED_PARENT" "$EXPECTED_HEAD" | sort > /tmp/actual-files.txt
+          sort -o /tmp/expected-files.txt /tmp/expected-files.txt
+          diff -u /tmp/expected-files.txt /tmp/actual-files.txt
+          test -z "$(git diff --name-only "$EXPECTED_PARENT" "$EXPECTED_HEAD" -- package.json package-lock.json .firebaserc firebase.json firestore.rules storage.rules .github/workflows)"
+          echo 'Exact DEV SHA + 13-file patch scope: PASS'
+
+      - name: Create PATCH and FULL SOURCE ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/hnl-deliverables"
+          mkdir -p "$OUT"
+          mapfile -t PATCH_FILES < /tmp/expected-files.txt
+          git archive --format=zip \
+            --output="$OUT/HNL-QLTC-V6.3.0-DEV-f4dfee32-PATCH.zip" \
+            HEAD -- "${PATCH_FILES[@]}"
+          git archive --format=zip \
+            --prefix='HNL-QLTC-V6.3.0-DEV-f4dfee32-FULL-SOURCE/' \
+            --output="$OUT/HNL-QLTC-V6.3.0-DEV-f4dfee32-FULL-SOURCE.zip" \
+            HEAD
+          unzip -t "$OUT/HNL-QLTC-V6.3.0-DEV-f4dfee32-PATCH.zip" >/dev/null
+          unzip -t "$OUT/HNL-QLTC-V6.3.0-DEV-f4dfee32-FULL-SOURCE.zip" >/dev/null
+          echo 'ZIP integrity: PASS'
+
+      - name: Write certified report
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/hnl-deliverables"
+          cat > "$OUT/HNL-QLTC-V6.3.0-DEV-f4dfee32-REPORT.md" <<'EOF'
+          # HNL QLTC V6.3.0 — DEV f4dfee32 — REPORT
+
+          ## 1. Nguồn và phạm vi
+          - Repository: `lengochieu1211-sudo/hnl-qltc`
+          - Branch đã cập nhật: `dev`
+          - DEV HEAD chính xác: `f4dfee32e84d38af966b9ee7500e6ae3934cffa3`
+          - Parent/baseline: `e9b28283560fe7600879a7b983032ef4f45c6cc0`
+          - PR DEV: #60 — `DEV: unify HNL Health Center and fix orphan handling`
+          - Không merge `main`.
+          - Không deploy PROD.
+          - Không đổi Firebase Project/GitHub repo/R2 PROD.
+
+          ## 2. Đã sửa
+          1. Gộp `Hệ thống & Chẩn đoán` vào một **HNL Health Center** duy nhất.
+          2. Bên trong Health Center tách rõ:
+             - `Trạng thái hệ thống & đồng bộ`.
+             - `Audit dữ liệu & liên kết`.
+          3. Hạng mục mồ côi `ROOM_ORPHAN_WORK_CATEGORY_REFERENCE`:
+             - ADMIN thấy nút `Xử lý`.
+             - Điều hướng bằng `roomId/floorId` thật, không dò text DOM.
+             - Mở đúng tầng/căn và modal chỉnh sửa Căn/Phòng để gán lại hạng mục.
+             - Không tự xóa, không tự khôi phục, không tự đoán liên kết.
+          4. `App.tsx` nhận diagnostic entity `room/floor` và mở module Mặt bằng.
+          5. `FloorPlanDefectTab` tiêu thụ deep-link room chính xác, focus đúng Căn/Phòng và ghi runtime diagnostic `HEALTH_CENTER_ROOM_OPEN`.
+          6. HNL AI fail-closed với hạng mục đã xóa/mồ côi:
+             - Loại stale/deleted work-category khỏi active quantity/progress facts.
+             - Không tự count/relink/restore/delete orphan reference.
+             - Chỉ báo số lượng liên kết bị loại qua `dataQuality.omittedOrphanWorkCategoryRefs` và hướng về HNL Health Center.
+          7. AI Audit fact `health-center:review` dùng đúng `needsConfirmationCount`.
+          8. Đồng bộ regression guards với tên/luồng HNL Health Center mới.
+
+          ## 3. File thay đổi — PATCH chỉ gồm 13 file
+          - `scripts/ai-audit-golden.ts`
+          - `scripts/ai-external-context-golden.ts`
+          - `scripts/health-center-navigation-golden.ts`
+          - `scripts/share-center-golden.ts`
+          - `scripts/stability-gate.mjs`
+          - `src/App.tsx`
+          - `src/ai/audit/healthCenterAiAudit.ts`
+          - `src/ai/data/externalAiContext.ts`
+          - `src/components/BottomNav.tsx`
+          - `src/components/FloorPlanDefectTab.tsx`
+          - `src/components/GoogleConfigTab.tsx`
+          - `src/healthCenter/HealthCenterPanel.tsx`
+          - `src/healthCenter/HealthCenterPanelBase.tsx`
+
+          ## 4. Các file/cấu hình quan trọng không đổi trong patch này
+          - `package.json`
+          - `package-lock.json`
+          - `.firebaserc`
+          - `firebase.json`
+          - `firestore.rules`
+          - `storage.rules`
+          - `.github/workflows/*`
+          - Firebase PROD/default vẫn là `com-example-qlct-61329`.
+          - Firebase DEV vẫn là `hnl-qltc-dev`.
+          - DEV R2 bucket vẫn là `hnl-qltc-media-dev`.
+          - DEV R2 Worker vẫn là `hnl-qltc-r2-gateway-dev`.
+
+          ## 5. Gate trước merge DEV
+          - Unified Health Center Gate V2: run `34338776388` — PASS.
+          - Build PR: run `34339022614` — PASS.
+          - Android PR APK: run `34339022609` — PASS.
+          - Windows PR EXE: run `34339022611` — PASS.
+          - PR DEV deploy check: run `34339022632` — SKIPPED đúng thiết kế.
+
+          ## 6. Gate sau merge DEV — exact f4dfee32
+          - Windows DEV EXE run `34339299560` (#66) — PASS.
+          - Android DEV APK run `34339299593` (#72) — PASS.
+          - DEV Runtime Golden run `34339299606` (#58) — PASS.
+          - HNL AI External Context Gate run `34339299580` (#44) — PASS.
+          - DEV Firestore Bootstrap run `34339299563` (#142) — PASS.
+          - Deploy HNL QLTC DEV Environment run `34339299595` — PASS.
+
+          Deploy DEV đã xác nhận:
+          - DEV isolation gate: PASS.
+          - Firestore Rules DEV: PASS.
+          - DEV R2 Worker: PASS + health smoke PASS.
+          - DEV AI Gateway: PASS + health smoke PASS.
+          - DEV Hosting: `https://hnl-qltc-dev.web.app` — deploy + smoke PASS.
+          - PROD không được deploy.
+
+          ## 7. Kiểm tra source/build
+          Trong gate DEV đã PASS:
+          - `npm ci`.
+          - TypeScript `tsc --noEmit`.
+          - Source Lint + secret-pattern scan.
+          - Stability Gate.
+          - Firebase Rules compile + behavior test trên emulator.
+          - RBAC matrix ADMIN/EDITOR/VIEWER.
+          - Offline/Firebase-only golden.
+          - R2 gateway golden.
+          - AI core/tools/audit/planner/provider/gateway/export.
+          - Material Need Golden.
+          - Health Center golden/orphan/export/repair/apply/commit/persistence/navigation.
+          - Floor-plan P0 golden.
+          - Windows desktop launcher/icon golden.
+          - Production build: PASS (`1841 modules transformed`).
+
+          ## 8. Security / dependencies
+          `npm audit --omit=dev --audit-level=critical` PASS vì không có lỗ hổng mức critical.
+          Registry hiện vẫn báo 5 advisory đã biết: 3 moderate + 2 high (liên quan `multer`, `qs`, `xlsx`). Không tự thay dependency/package-lock trong patch Health Center này để tránh thay đổi ngoài phạm vi; cần xử lý ở một hardening task riêng, đặc biệt `xlsx` hiện báo no-fix trong registry.
+
+          ## 9. Manual Runtime Golden cần người dùng xác nhận
+          Trên DEV hiện tại:
+          1. Mở `HNL Health Center`.
+          2. Tìm `ROOM_ORPHAN_WORK_CATEGORY_REFERENCE`.
+          3. Nhấn `Xử lý`.
+          4. Xác nhận ứng dụng chuyển đúng tầng/căn và mở modal Căn/Phòng đúng bản ghi.
+          5. Gán lại hạng mục hợp lệ rồi lưu; quét lại Health Center để xác nhận orphan biến mất.
+          6. Xác nhận không có bản ghi nào bị tự xóa.
+          7. Hỏi AI về khối lượng/hạng mục; stale category không được cộng vào active facts.
+          8. Kiểm tra cùng luồng trên Windows DEV EXE #66 và Android DEV APK #72.
+
+          ## 10. Kết luận
+          DEV `f4dfee32e84d38af966b9ee7500e6ae3934cffa3` đã qua toàn bộ gate tự động và đã deploy DEV thành công. Chưa merge `main`, chưa deploy PROD. Bước còn lại là Runtime Golden thao tác thật của người dùng cho luồng `HNL Health Center → Xử lý orphan → đúng Căn/Phòng` trên PC/Android.
+          EOF
+          sed -i 's/^          //' "$OUT/HNL-QLTC-V6.3.0-DEV-f4dfee32-REPORT.md"
+
+      - name: Generate SHA256 and final integrity check
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/hnl-deliverables"
+          cd "$OUT"
+          sha256sum \
+            HNL-QLTC-V6.3.0-DEV-f4dfee32-PATCH.zip \
+            HNL-QLTC-V6.3.0-DEV-f4dfee32-FULL-SOURCE.zip \
+            HNL-QLTC-V6.3.0-DEV-f4dfee32-REPORT.md \
+            > HNL-QLTC-V6.3.0-DEV-f4dfee32-SHA256SUMS.txt
+          unzip -t HNL-QLTC-V6.3.0-DEV-f4dfee32-PATCH.zip >/dev/null
+          unzip -t HNL-QLTC-V6.3.0-DEV-f4dfee32-FULL-SOURCE.zip >/dev/null
+          test "$(unzip -Z1 HNL-QLTC-V6.3.0-DEV-f4dfee32-PATCH.zip | wc -l)" -eq 13
+          echo 'Final deliverables integrity: PASS'
+          ls -lh
+
+      - name: Upload deliverables
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-V6.3.0-DEV-f4dfee32-DELIVERABLES
+          path: ${{ runner.temp }}/hnl-deliverables/*
+          if-no-files-found: error
+          retention-days: 30
