@@ -2737,6 +2737,36 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     }
   };
 
+  useEffect(() => {
+    const consumeHealthCenterRoom = (request: any, source: 'storage' | 'event') => {
+      if (!request || request.entityType !== 'room') return false;
+      if (request.projectId && request.projectId !== currentProjectId) return false;
+      const roomId = String(request.entityId || request.roomId || '').trim();
+      if (!roomId) return false;
+      const room = roomProgressList.find((item) => item.id === roomId);
+      if (!room) return false;
+      const floorId = room.floorId || String(request.floorId || '').trim();
+      setViewMode('highlight');
+      if (floorId && floorId !== selectedFloorId) setSelectedFloorId(floorId);
+      setSelectedRoomForEdit(room);
+      setNewRoomClickPos(undefined);
+      setNewRoomRect(undefined);
+      setNewRoomPoints(undefined);
+      setIsRoomModalOpen(true);
+      try { sessionStorage.removeItem('qlct_diagnostic_navigation_request'); } catch (_) {}
+      appendRuntimeDiagnostic({ level: 'info', area: 'health-center-navigation', projectId: currentProjectId, code: 'HEALTH_CENTER_ROOM_OPEN', message: `source=${source} room=${room.id} floor=${floorId}` });
+      requestAnimationFrame(() => requestAnimationFrame(() => focusPlanPoint(room.x + room.width / 2, room.y + room.height / 2, false)));
+      return true;
+    };
+    try {
+      const raw = sessionStorage.getItem('qlct_diagnostic_navigation_request');
+      if (raw) consumeHealthCenterRoom(JSON.parse(raw), 'storage');
+    } catch (_) {}
+    const onOpenEntity = (event: Event) => consumeHealthCenterRoom((event as CustomEvent<any>).detail, 'event');
+    window.addEventListener('qlct-diagnostic-open-entity', onOpenEntity as EventListener);
+    return () => window.removeEventListener('qlct-diagnostic-open-entity', onOpenEntity as EventListener);
+  }, [currentProjectId, roomProgressList, selectedFloorId]);
+
   const fitFloorPlan = () => {
     zoomScaleRef.current = 1;
     setZoomScale(1);

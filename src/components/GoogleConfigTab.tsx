@@ -553,9 +553,9 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-2xl px-4 py-3.5 select-none">
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
-                <ShieldCheck className="h-4 w-4 text-emerald-600" /> Hệ thống & Chẩn đoán
+                <ShieldCheck className="h-4 w-4 text-emerald-600" /> HNL Health Center
               </div>
-              <div className="mt-0.5 text-[10px] font-semibold text-slate-500">Nhấn để mở trạng thái đồng bộ, ảnh và công cụ chẩn đoán.</div>
+              <div className="mt-0.5 text-[10px] font-semibold text-slate-500">Hệ thống · đồng bộ · ảnh · audit dữ liệu · xử lý liên kết trong một nơi.</div>
             </div>
             <span className={`shrink-0 rounded-lg border px-2 py-1 text-[10px] font-bold ${syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
               {syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'Cloud sẵn sàng' : 'Đang kiểm tra'}
@@ -567,7 +567,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-2">
             <div>
               <h3 className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
-                <ShieldCheck className="w-4 h-4 text-emerald-600" /> Hệ thống & Chẩn đoán
+                <ShieldCheck className="w-4 h-4 text-emerald-600" /> Trạng thái hệ thống & đồng bộ
               </h3>
               <p className="text-[10px] text-slate-500 mt-1">Dùng khi thiết bị/tài khoản nhìn dữ liệu hoặc ảnh khác nhau. File chẩn đoán không chứa mật khẩu, token hay binary ảnh thật.</p>
             </div>

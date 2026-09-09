@@ -104,6 +104,60 @@ function buildTeamResolver(snapshot: HnlAiProjectSnapshot) {
   };
 }
 
+interface ActiveWorkCategoryRef {
+  workCategoryId: string;
+  workCategory: string;
+}
+
+function buildWorkCategoryResolver(snapshot: HnlAiProjectSnapshot) {
+  const byId = new Map<string, ActiveWorkCategoryRef>();
+  const byName = new Map<string, ActiveWorkCategoryRef>();
+  for (const item of active(snapshot.workVolumes)) {
+    const canonicalId = String(item.workCategoryId || item.id || '').trim();
+    const canonicalName = safeText(item.title || '').trim();
+    if (!canonicalId && !canonicalName) continue;
+    const ref = { workCategoryId: canonicalId, workCategory: canonicalName };
+    for (const id of [item.id, item.workCategoryId]) {
+      const normalizedId = String(id || '').trim();
+      if (normalizedId) byId.set(normalizedId, ref);
+    }
+    const normalizedName = normalizedText(canonicalName);
+    if (normalizedName) byName.set(normalizedName, ref);
+  }
+  return (workCategoryId?: string, workCategoryName?: string): ActiveWorkCategoryRef | null => {
+    const id = String(workCategoryId || '').trim();
+    const suppliedName = safeText(workCategoryName || '').trim();
+    if (id && byId.has(id)) {
+      const ref = byId.get(id)!;
+      return { ...ref, workCategory: suppliedName || ref.workCategory };
+    }
+    const name = normalizedText(suppliedName);
+    if (name && byName.has(name)) return byName.get(name)!;
+    return null;
+  };
+}
+
+function collectOrphanWorkCategoryRefs(snapshot: HnlAiProjectSnapshot) {
+  const resolveCategory = buildWorkCategoryResolver(snapshot);
+  const refs = new Set<string>();
+  const add = (source: string, ownerId: string, workCategoryId?: string, workCategoryName?: string) => {
+    const id = String(workCategoryId || '').trim();
+    const name = safeText(workCategoryName || '').trim();
+    if ((!id && !name) || resolveCategory(id, name)) return;
+    refs.add(`${source}:${ownerId}:${id || normalizedText(name)}`);
+  };
+  for (const room of active(snapshot.rooms)) {
+    if ((Number(room.workVolume) || 0) > 0 || room.workCategoryId || room.workCategory) add('room', room.id, room.workCategoryId, room.workCategory);
+    for (const [raw, volume] of Object.entries(room.categoryVolumes || {})) {
+      if ((Number(volume) || 0) > 0) add('room-category', room.id, undefined, raw);
+    }
+    for (const sub of room.subItems || []) {
+      if (sub.workCategoryId || sub.category) add('sub-item', `${room.id}:${sub.id || ''}`, sub.workCategoryId, sub.category);
+    }
+  }
+  return refs;
+}
+
 function sameCategory(categoryName: string, categoryId: string, subItem: { category?: string; workCategoryId?: string }): boolean {
   if (categoryId && subItem.workCategoryId && categoryId === subItem.workCategoryId) return true;
   const left = normalizedText(categoryName);
@@ -115,9 +169,11 @@ function buildQuantityRows(snapshot: HnlAiProjectSnapshot): QuantityRow[] {
   const result: QuantityRow[] = [];
   const resolveTeam = buildTeamResolver(snapshot);
   const resolveFloor = buildFloorResolver(snapshot);
+  const resolveCategory = buildWorkCategoryResolver(snapshot);
 
   for (const room of active(snapshot.rooms)) {
     const roomTeam = resolveTeam(room.teamId, room.assignedTeam);
+    const roomCategory = resolveCategory(room.workCategoryId, room.workCategory);
     const base = {
       floorId: room.floorId || '',
       floorName: resolveFloor(room.floorId, room.floorName),
@@ -125,8 +181,8 @@ function buildQuantityRows(snapshot: HnlAiProjectSnapshot): QuantityRow[] {
       roomName: safeText(room.roomName || ''),
       teamId: roomTeam.teamId,
       teamName: roomTeam.teamName,
-      workCategoryId: room.workCategoryId || '',
-      workCategory: safeText(room.workCategory || ''),
+      workCategoryId: roomCategory?.workCategoryId || '',
+      workCategory: roomCategory?.workCategory || '',
       updatedAt: finiteNumber(room.updatedAt),
     };
 
@@ -135,6 +191,15 @@ function buildQuantityRows(snapshot: HnlAiProjectSnapshot): QuantityRow[] {
       for (const [category, value] of categoryEntries) {
         const categoryName = safeText(category || base.workCategory);
         const relatedSubItems = (room.subItems || []).filter((item) => sameCategory(categoryName, base.workCategoryId, item));
+        const relatedCategoryRefs = Array.from(new Map(
+          relatedSubItems
+            .map((item) => resolveCategory(item.workCategoryId, item.category))
+            .filter((ref): ref is ActiveWorkCategoryRef => Boolean(ref))
+            .map((ref) => [`${ref.workCategoryId}|${normalizedText(ref.workCategory)}`, ref] as const),
+        ).values());
+        const categoryRef = resolveCategory(undefined, categoryName)
+          || (relatedCategoryRefs.length === 1 ? relatedCategoryRefs[0] : null);
+        if (!categoryRef) continue;
         const relatedTeams = Array.from(new Map(
           relatedSubItems
             .map((item) => resolveTeam(item.teamId, item.assignedTeam))
@@ -147,8 +212,9 @@ function buildQuantityRows(snapshot: HnlAiProjectSnapshot): QuantityRow[] {
           ...base,
           teamId: categoryTeam.teamId,
           teamName: categoryTeam.teamName,
-          workCategory: categoryName,
-          item: safeText(category || base.workCategory || room.roomName),
+          workCategoryId: categoryRef.workCategoryId,
+          workCategory: categoryRef.workCategory,
+          item: categoryRef.workCategory || room.roomName,
           volume: Number(value),
           unit: safeText(room.categoryVolumeUnits?.[category] || room.volumeUnit || ''),
           status: room.inspectionStatus || '',
@@ -161,14 +227,16 @@ function buildQuantityRows(snapshot: HnlAiProjectSnapshot): QuantityRow[] {
     if (subRows.length > 0) {
       for (const item of subRows) {
         const itemTeam = resolveTeam(item.teamId || base.teamId, item.assignedTeam || base.teamName);
+        const categoryRef = resolveCategory(item.workCategoryId || base.workCategoryId, item.category || base.workCategory);
+        if (!categoryRef) continue;
         result.push({
           source: 'sub-item',
           ...base,
           teamId: itemTeam.teamId,
           teamName: itemTeam.teamName,
-          workCategoryId: item.workCategoryId || base.workCategoryId,
-          workCategory: safeText(item.category || base.workCategory),
-          item: safeText(item.name || item.category || base.workCategory),
+          workCategoryId: categoryRef.workCategoryId,
+          workCategory: categoryRef.workCategory,
+          item: safeText(item.name || categoryRef.workCategory),
           volume: Number(item.workVolume),
           unit: safeText(item.volumeUnit || room.volumeUnit || ''),
           status: item.status || '',
@@ -178,11 +246,13 @@ function buildQuantityRows(snapshot: HnlAiProjectSnapshot): QuantityRow[] {
     }
 
     const roomVolume = finiteNumber(room.workVolume);
-    if (roomVolume !== null) {
+    if (roomVolume !== null && roomCategory) {
       result.push({
         source: 'room-total',
         ...base,
-        item: safeText(base.workCategory || room.roomName),
+        workCategoryId: roomCategory.workCategoryId,
+        workCategory: roomCategory.workCategory,
+        item: roomCategory.workCategory || room.roomName,
         volume: roomVolume,
         unit: safeText(room.volumeUnit || ''),
         status: room.inspectionStatus || '',
@@ -241,35 +311,46 @@ function questionNeeds(question: string) {
 
 function rawRoomRows(snapshot: HnlAiProjectSnapshot, targets: Array<{ id: string; name: string }>) {
   const resolveFloor = buildFloorResolver(snapshot);
+  const resolveCategory = buildWorkCategoryResolver(snapshot);
   return active(snapshot.rooms)
-    .map((room) => ({
-      id: room.id,
-      floorId: room.floorId || '',
-      floorName: resolveFloor(room.floorId, room.floorName),
-      roomName: safeText(room.roomName),
-      workCategoryId: room.workCategoryId || '',
-      workCategory: safeText(room.workCategory || ''),
-      teamId: room.teamId || '',
-      assignedTeam: safeText(room.assignedTeam || ''),
-      inspectionStatus: room.inspectionStatus,
-      frameStatus: room.frameStatus,
-      boardStatus: room.boardStatus,
-      targetFrameDate: room.targetFrameDate || '',
-      targetBoardDate: room.targetBoardDate || '',
-      subItems: (room.subItems || []).slice(0, MAX_SUBITEMS_PER_ROOM).map((item) => ({
-        id: item.id,
-        name: safeText(item.name),
-        category: safeText(item.category || ''),
-        workCategoryId: item.workCategoryId || '',
-        teamId: item.teamId || '',
-        assignedTeam: safeText(item.assignedTeam || ''),
-        workVolume: finiteNumber(item.workVolume),
-        volumeUnit: safeText(item.volumeUnit || ''),
-        status: item.status,
-        inspectionStatus: item.inspectionStatus || '',
-        targetDate: item.targetDate || '',
-      })),
-    }))
+    .map((room) => {
+      const roomCategory = resolveCategory(room.workCategoryId, room.workCategory);
+      const roomHasExplicitCategory = Boolean(String(room.workCategoryId || '').trim() || String(room.workCategory || '').trim());
+      return {
+        id: room.id,
+        floorId: room.floorId || '',
+        floorName: resolveFloor(room.floorId, room.floorName),
+        roomName: safeText(room.roomName),
+        workCategoryId: roomCategory?.workCategoryId || '',
+        workCategory: roomCategory?.workCategory || '',
+        orphanWorkCategory: roomHasExplicitCategory && !roomCategory,
+        teamId: room.teamId || '',
+        assignedTeam: safeText(room.assignedTeam || ''),
+        inspectionStatus: room.inspectionStatus,
+        frameStatus: room.frameStatus,
+        boardStatus: room.boardStatus,
+        targetFrameDate: room.targetFrameDate || '',
+        targetBoardDate: room.targetBoardDate || '',
+        subItems: (room.subItems || []).slice(0, MAX_SUBITEMS_PER_ROOM).map((item) => {
+          const itemCategory = resolveCategory(item.workCategoryId, item.category);
+          const itemHasExplicitCategory = Boolean(String(item.workCategoryId || '').trim() || String(item.category || '').trim());
+          return {
+            id: item.id,
+            name: safeText(item.name),
+            category: itemCategory?.workCategory || '',
+            workCategoryId: itemCategory?.workCategoryId || '',
+            orphanWorkCategory: itemHasExplicitCategory && !itemCategory,
+            teamId: item.teamId || '',
+            assignedTeam: safeText(item.assignedTeam || ''),
+            workVolume: itemCategory ? finiteNumber(item.workVolume) : null,
+            volumeUnit: itemCategory ? safeText(item.volumeUnit || '') : '',
+            status: item.status,
+            inspectionStatus: item.inspectionStatus || '',
+            targetDate: item.targetDate || '',
+          };
+        }),
+      };
+    })
     .filter((room) => targets.length === 0 || isTeamMatch(room, targets) || room.subItems.some((item) => isTeamMatch(item, targets)));
 }
 
@@ -300,6 +381,10 @@ export function buildExternalAiProjectContext(snapshot: HnlAiProjectSnapshot, se
     project: { id: snapshot.projectId, name: safeText(snapshot.projectName || ''), asOf: snapshot.asOf, freshness: snapshot.freshness },
     privacy: 'read-only sanitized HNL project context; credentials/contact data excluded',
   };
+  const orphanWorkCategoryRefs = collectOrphanWorkCategoryRefs(snapshot);
+  if (orphanWorkCategoryRefs.size > 0) {
+    result.dataQuality = { omittedOrphanWorkCategoryRefs: orphanWorkCategoryRefs.size, policy: 'Stale/deleted work-category references are excluded from active AI quantity/progress facts. Review them in HNL Health Center; never infer or auto-delete.' };
+  }
   if (selection.progress) {
     result.teams = active(snapshot.teams).map((team) => ({ id: team.id, name: safeText(team.name) }));
     result.floors = active(snapshot.floors).map((floor) => ({ id: floor.id, name: safeText(floor.floorName) }));
@@ -464,6 +549,7 @@ function buildQuestionFocusedContext(
     role: 'HNL supplies factual raw records; AI filters, groups, calculates and presents.',
     calculation: 'AI may calculate sums/counts/ratios only from supplied raw rows. Never invent missing rows or sample quantities.',
     grounding: 'Every numeric conclusion must be traceable to supplied rows and preserve team/floor/category/item/date/unit scope.',
+    orphanReferences: 'Stale/deleted work-category references are omitted from active facts. Never restore, count, relink or delete them from AI output; direct users to HNL Health Center for confirmation.',
     historicalQuantity: 'Quantity is a current snapshot unless a dated immutable quantity ledger exists. Do not assign snapshot quantity to a past date range.',
   };
   if (options.fullProjectRaw) {

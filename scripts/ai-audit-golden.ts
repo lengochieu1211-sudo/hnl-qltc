@@ -14,6 +14,8 @@ import type { AiQueryContext } from '../src/ai/core/contracts';
 import { auditQuantityData } from '../src/ai/audit/quantityAudit';
 import { auditCrewData } from '../src/ai/audit/crewAudit';
 import { auditProjectIntegrity } from '../src/ai/audit/projectAudit';
+import { auditProjectViaHealthCenter } from '../src/ai/audit/healthCenterAiAudit';
+import { buildHealthCenterReport } from '../src/healthCenter/healthCenterEngine';
 import { createHnlAiProjectSnapshot } from '../src/ai/data/projectSnapshot';
 
 const projectId = 'project-ai-audit';
@@ -160,6 +162,11 @@ const snapshot = createHnlAiProjectSnapshot({
   freshness: 'fixture',
 });
 
+const healthReport = buildHealthCenterReport({ context, snapshot });
+const healthAi = auditProjectViaHealthCenter({ context, snapshot });
+const reviewFact = healthAi.facts.find((fact) => fact.id === 'health-center:review');
+assert.ok(reviewFact);
+assert.equal(reviewFact!.value, healthReport.needsConfirmationCount, 'AI review fact must use NEEDS_CONFIRMATION action class');
 const projectAudit = auditProjectIntegrity({ context, snapshot });
 const projectRules = new Set(projectAudit.data?.issues.map((issue) => issue.ruleId) || []);
 assert.ok(projectRules.has('ROOM_FLOOR_NOT_FOUND'), 'room orphan floor must be detected');

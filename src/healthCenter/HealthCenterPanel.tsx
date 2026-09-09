@@ -7,37 +7,6 @@ import { buildHealthCenterNavigationRequest, type DiagnosticNavigationRequest } 
 type HealthCenterPanelProps = React.ComponentProps<typeof HealthCenterPanelBase>;
 const array = <T,>(value: unknown): T[] => Array.isArray(value) ? value as T[] : [];
 
-function openRoomCardAfterTabSwitch(request: DiagnosticNavigationRequest): void {
-  if (!request.roomName) return;
-  let attempt = 0;
-  const tryOpen = () => {
-    attempt += 1;
-    const labels = Array.from(document.querySelectorAll<HTMLElement>('span[title]'));
-    const label = labels.find((node) => String(node.getAttribute('title') || '').trim() === request.roomName);
-    if (label) {
-      let container: HTMLElement | null = label.parentElement;
-      while (container && container !== document.body) {
-        const editButton = Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find((button) => {
-          const value = String(button.textContent || '').trim();
-          return value === 'Chỉnh sửa' || value === 'Cập nhật';
-        });
-        if (editButton) {
-          container.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          const previousOutline = container.style.outline;
-          container.style.outline = '3px solid #6366f1';
-          window.setTimeout(() => { container!.style.outline = previousOutline; }, 2400);
-          editButton.click();
-          return;
-        }
-        container = container.parentElement;
-      }
-    }
-    if (attempt < 14) window.setTimeout(tryOpen, 180);
-    else alert(`Đã mở đúng tầng nhưng chưa tìm thấy thẻ căn/phòng “${request.roomName}”. Hãy quét lại Health Center để kiểm tra ID/tên căn hiện tại.`);
-  };
-  window.setTimeout(tryOpen, 180);
-}
-
 export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = (props) => {
   const report = useMemo(() => {
     if (!props.projectId || !props.accessVerified) return null;
@@ -85,13 +54,9 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = (props) => {
       return true;
     }
 
-    if (request.entityType === 'room' && request.floorId && request.roomName) {
-      try {
-        localStorage.setItem(`construction_selected_floor_id_${props.projectId}`, request.floorId);
-        localStorage.setItem(`construction_selected_view_mode_${props.projectId}`, 'highlight');
-      } catch (_) {}
-      window.dispatchEvent(new CustomEvent('qlct-diagnostic-open-entity', { detail: { ...request, entityType: 'defect' } }));
-      openRoomCardAfterTabSwitch(request);
+    if (request.entityType === 'room') {
+      try { sessionStorage.setItem('qlct_diagnostic_navigation_request', JSON.stringify(request)); } catch (_) {}
+      window.dispatchEvent(new CustomEvent('qlct-diagnostic-open-entity', { detail: request }));
       return true;
     }
 
@@ -100,7 +65,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = (props) => {
 
   const handleClickCapture = (event: React.MouseEvent<HTMLDivElement>) => {
     const button = (event.target as HTMLElement | null)?.closest('button');
-    if (!button || !/Xem bản ghi/i.test(String(button.textContent || ''))) return;
+    if (!button || !/(Xem bản ghi|Xử lý)/i.test(String(button.textContent || ''))) return;
     if (!report) return;
 
     let node: HTMLElement | null = button.parentElement;
