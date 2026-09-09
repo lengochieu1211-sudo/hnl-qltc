@@ -1,0 +1,86 @@
+name: Gate Health Center Return Batch
+
+on:
+  push:
+    branches:
+      - gate/health-center-return-batch-20260909
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    if: ${{ !contains(github.event.head_commit.message, '[gate-verified]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout isolated gate branch
+        uses: actions/checkout@v4
+        with:
+          ref: gate/health-center-return-batch-20260909
+          fetch-depth: 0
+
+      - name: Verify exact baseline and apply patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=f0c1709ef6ea24154cd467c7d06289d7461b8b9d
+          test "$(git merge-base "$BASE" HEAD)" = "$BASE"
+          echo "c89c172f09315876d6455cc21524278d4b43b30b329e7e79e0db767f35d3a3d5  .gate/health-center-return.patch.gz" | sha256sum -c -
+          gzip -dc .gate/health-center-return.patch.gz > /tmp/health-center-return.patch
+          git apply --check /tmp/health-center-return.patch
+          git apply /tmp/health-center-return.patch
+          node -e "const fs=require('fs'),ts=require('typescript'); for (const f of ['src/healthCenter/healthCenterReturn.ts','src/healthCenter/healthCenterNavigation.ts','src/healthCenter/HealthCenterPanel.tsx','src/healthCenter/HealthCenterPanelBase.tsx','src/components/GoogleConfigTab.tsx','src/App.tsx','src/components/RoomHighlightModal.tsx','src/components/FloorPlanDefectTab.tsx','src/components/CrewTabBase.tsx']) { const src=fs.readFileSync(f,'utf8'); const r=ts.transpileModule(src,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX},reportDiagnostics:true}); const errors=(r.diagnostics||[]).filter(d=>d.category===ts.DiagnosticCategory.Error); if(errors.length){ console.error(f,errors); process.exit(1); } }"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install exact locked dependencies
+        run: npm ci
+
+      - name: Focused Health Center regressions
+        run: |
+          npm run test:health-center
+          node scripts/stability-gate.mjs
+          node scripts/source-lint.mjs
+
+      - name: Full verification
+        run: npm run verify
+
+      - name: Verify change scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=f0c1709ef6ea24154cd467c7d06289d7461b8b9d
+          git diff --name-only "$BASE" -- . ':!.gate/**' ':!.github/workflows/gate-health-center-return-batch.yml' | sort > /tmp/changed.txt
+          cat > /tmp/allowed.txt <<'EOF'
+          scripts/health-center-navigation-golden.ts
+          scripts/stability-gate.mjs
+          src/App.tsx
+          src/components/CrewTabBase.tsx
+          src/components/FloorPlanDefectTab.tsx
+          src/components/GoogleConfigTab.tsx
+          src/components/RoomHighlightModal.tsx
+          src/healthCenter/HealthCenterPanel.tsx
+          src/healthCenter/HealthCenterPanelBase.tsx
+          src/healthCenter/healthCenterNavigation.ts
+          src/healthCenter/healthCenterReturn.ts
+          EOF
+          sort -o /tmp/allowed.txt /tmp/allowed.txt
+          diff -u /tmp/allowed.txt /tmp/changed.txt
+          git diff --quiet "$BASE" -- package.json package-lock.json .firebaserc firebase.json firestore.rules storage.rules
+
+      - name: Commit verified candidate and remove gate transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .gate
+          rm -f .github/workflows/gate-health-center-return-batch.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: make Health Center repair flow continuous [gate-verified]"
+          git push origin HEAD:gate/health-center-return-batch-20260909
