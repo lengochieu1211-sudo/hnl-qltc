@@ -48,6 +48,13 @@ const rooms: RoomProgressItem[] = [
     teamId: 'team-missing', assignedTeam: 'Đội đã mất',
     subItems: [{ id: 'sub-orphan-team', name: 'Khung', status: 'Chưa làm', teamId: 'team-missing-2', assignedTeam: 'Đội đã mất 2' }],
   },
+  {
+    id: 'room-orphan-work-title', floorId: 'floor-ok', floorName: 'Tầng hợp lệ', roomName: 'A104',
+    x: 75, y: 0, width: 20, height: 20,
+    frameStatus: 'Chưa làm', boardStatus: 'Chưa làm', inspectionStatus: 'Chưa nghiệm thu', updatedAt: 1,
+    categoryVolumes: { 'Trần Thạch Cao Khung Chìm Tấm Tiêu Chuẩn': 25 },
+    categoryVolumeUnits: { 'Trần Thạch Cao Khung Chìm Tấm Tiêu Chuẩn': 'm²' },
+  },
 ];
 
 const defects: DefectItem[] = [
@@ -123,6 +130,7 @@ const requiredRules = [
   'CREW_FLOOR_NOT_FOUND',
   'WORK_VOLUME_FLOOR_NOT_FOUND',
   'MATERIAL_NORM_WORK_CATEGORY_NOT_FOUND',
+  'ROOM_ORPHAN_WORK_CATEGORY_REFERENCE',
   'CHECKLIST_FLOOR_NOT_FOUND',
   'CHECKLIST_ROOM_NOT_FOUND',
   'CHECKLIST_TEAM_NOT_FOUND',
@@ -143,6 +151,10 @@ assert.equal(rooms[1].floorId, 'floor-missing');
 assert.equal(defects[0].roomId, 'room-missing');
 assert.equal(crewRecords[0].teamId, 'team-missing');
 assert.equal(inventory[0].sourceNormId, 'norm-missing');
+const orphanWorkIssue = report.issues.find((issue) => issue.ruleId === 'ROOM_ORPHAN_WORK_CATEGORY_REFERENCE' && issue.entityId === 'room-orphan-work-title');
+assert.ok(orphanWorkIssue, 'Health Center must surface title-only deleted work-category references');
+assert.match(orphanWorkIssue!.message, /Trần Thạch Cao Khung Chìm Tấm Tiêu Chuẩn/);
+assert.equal(orphanWorkIssue!.actionClass, 'NEEDS_CONFIRMATION', 'Deleted work-category refs must never auto-repair/relink');
 
 console.log('Health Center orphan-link golden regression PASS', {
   auditSnapshotId: report.auditSnapshotId,

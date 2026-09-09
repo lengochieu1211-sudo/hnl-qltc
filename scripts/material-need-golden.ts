@@ -169,6 +169,44 @@ const deletedWorkCategory = computeMaterialNeeds({
 assert.equal(deletedWorkCategory.lines.length, 0, 'Room reference to a deleted explicit work-category ID must not generate demand');
 assert.equal(deletedWorkCategory.warnings.some((w) => w.code === 'MISSING_NORM'), false, 'Deleted/orphan category must not be misreported as a missing material norm');
 
+// Live-data regression: very old rooms may retain only the deleted category DISPLAY NAME,
+// with no workCategoryId. Such a name must not resurrect a deleted category or create MISSING_NORM.
+const deletedLegacyTitle = 'Trần Thạch Cao Khung Chìm Tấm Tiêu Chuẩn';
+const deletedLegacyTitleRoom = {
+  ...multiTeamRoom,
+  id: 'room-deleted-title-only',
+  roomName: 'Legacy deleted title',
+  workCategoryId: undefined,
+  workCategory: '',
+  workVolume: 0,
+  categoryVolumes: { [deletedLegacyTitle]: 80 },
+  categoryVolumeUnits: { [deletedLegacyTitle]: 'm²' },
+  subItems: [],
+} as RoomProgressItem;
+const deletedLegacyTitleResult = computeMaterialNeeds({
+  rooms: [deletedLegacyTitleRoom], materialNorms: [norm], inventory: [], workVolumes, teams, scope: { floorId: 'floor-3' },
+});
+assert.equal(deletedLegacyTitleResult.lines.length, 0, 'Title-only reference to a deleted category must not generate material demand');
+assert.equal(deletedLegacyTitleResult.warnings.some((w) => w.code === 'MISSING_NORM'), false, 'Deleted title-only category must not be reported as a missing norm');
+
+// Backwards compatibility: title-only legacy rows still calculate when that exact category is ACTIVE.
+const activeLegacyTitleRoom = {
+  ...multiTeamRoom,
+  id: 'room-active-title-only',
+  roomName: 'Legacy active title',
+  workCategoryId: undefined,
+  workCategory: '',
+  workVolume: 0,
+  categoryVolumes: { 'Trần thạch cao': 40 },
+  categoryVolumeUnits: { 'Trần thạch cao': 'm²' },
+  subItems: [],
+} as RoomProgressItem;
+const activeLegacyTitleResult = computeMaterialNeeds({
+  rooms: [activeLegacyTitleRoom], materialNorms: [norm], inventory: [], workVolumes, teams, scope: { floorId: 'floor-3' },
+});
+assert.equal(activeLegacyTitleResult.lines[0]?.estimatedQty, 14, 'Title-only legacy reference must remain supported when exact category is active');
+assert.equal(activeLegacyTitleResult.warnings.some((w) => w.code === 'MISSING_NORM'), false);
+
 
 const floor1TeamARoom = {
   ...multiTeamRoom,

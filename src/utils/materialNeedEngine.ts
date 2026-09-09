@@ -152,9 +152,12 @@ function buildContributions(
     const roomTeamIds = uniqueRoomTeamIds(room);
 
     cats.forEach((cat) => {
-      // An explicit category ID that no longer exists in the active WorkVolume catalog is an orphan linkage.
-      // Do not turn a deleted category into a false MISSING_NORM warning; Health Center owns the orphan audit.
-      if (cat.id && !workVolumes.some((work) => work.id === cat.id || work.workCategoryId === cat.id)) return;
+      // Every live material contribution must be provably linked to an ACTIVE WorkVolume.
+      // Explicit legacy IDs are authoritative: never fall back by name when an old ID is gone,
+      // because a newly-created category may later reuse the same display title. Title matching is
+      // allowed only for legacy rows that genuinely have no category ID.
+      const activeWork = cat.id ? resolveWorkVolume(cat.id, workVolumes) : resolveWorkVolume(cat.name, workVolumes);
+      if (!activeWork) return;
       const categoryRef = cat.id || cat.name;
       const totalVolume = categoryVolumeForRoom(room, categoryRef, workVolumes);
       if (totalVolume <= 0) return;

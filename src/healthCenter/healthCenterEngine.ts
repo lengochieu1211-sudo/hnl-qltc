@@ -375,7 +375,49 @@ function roomQualityIssues(rooms: RoomProgressItem[]): HealthCenterIssue[] {
 
 function lightweightBusinessQualityIssues(snapshot: HnlAiProjectSnapshot): HealthCenterIssue[] {
   const issues: HealthCenterIssue[] = [];
-  const activeWorkVolumeIds = new Set(active(snapshot.workVolumes).flatMap((item) => [item.id, item.workCategoryId].filter(Boolean) as string[]));
+  const activeWorkVolumes = active(snapshot.workVolumes);
+  const activeWorkVolumeIds = new Set(activeWorkVolumes.flatMap((item) => [item.id, item.workCategoryId].filter(Boolean) as string[]));
+  const activeWorkVolumeNames = new Set(activeWorkVolumes.map((item) => normalizeEntityText(item.title)).filter(Boolean));
+  const isKnownWorkCategory = (workCategoryId?: string, workCategoryName?: string): boolean => {
+    const id = String(workCategoryId || '').trim();
+    if (id) return activeWorkVolumeIds.has(id);
+    const name = normalizeEntityText(String(workCategoryName || ''));
+    return !name || activeWorkVolumeNames.has(name);
+  };
+
+  active(snapshot.rooms).forEach((room) => {
+    const orphanRefs = new Map<string, { source: string; workCategoryId?: string; workCategoryName?: string }>();
+    const addOrphan = (source: string, workCategoryId?: string, workCategoryName?: string) => {
+      const id = String(workCategoryId || '').trim();
+      const name = String(workCategoryName || '').trim();
+      if ((!id && !name) || isKnownWorkCategory(id, name)) return;
+      const key = id ? `id:${id}` : `name:${normalizeEntityText(name)}`;
+      if (!orphanRefs.has(key)) orphanRefs.set(key, { source, workCategoryId: id || undefined, workCategoryName: name || undefined });
+    };
+
+    if ((Number(room.workVolume) || 0) > 0) addOrphan('room', room.workCategoryId, room.workCategory);
+    Object.entries(room.categoryVolumes || {}).forEach(([raw, volume]) => {
+      if ((Number(volume) || 0) <= 0) return;
+      const rawId = activeWorkVolumeIds.has(raw) ? raw : '';
+      addOrphan('categoryVolumes', rawId, rawId ? '' : raw);
+    });
+    (room.subItems || []).forEach((sub) => {
+      if (sub.workCategoryId) addOrphan('subItem', sub.workCategoryId, sub.category);
+      else if ((Number(sub.workVolume) || 0) > 0) addOrphan('subItem', undefined, sub.category);
+    });
+
+    if (orphanRefs.size > 0) {
+      const refs = Array.from(orphanRefs.values());
+      const labels = refs.map((ref) => ref.workCategoryName || ref.workCategoryId || 'Hạng mục không xác định');
+      issues.push(makeIssue({
+        ruleId: 'ROOM_ORPHAN_WORK_CATEGORY_REFERENCE', severity: 'WARNING', module: 'links', entityType: 'room', entityId: room.id,
+        message: `${room.roomName} còn tham chiếu hạng mục đã xoá/không còn tồn tại: ${labels.join(', ')}. Không dùng tham chiếu này để tính vật tư.`,
+        actionClass: 'NEEDS_CONFIRMATION', evidenceIds: [`rooms:${room.id}`],
+        location: { floorId: room.floorId, floorName: room.floorName, roomId: room.id, roomName: room.roomName, workItem: labels[0] },
+        details: { roomId: room.id, orphanWorkCategoryRefs: refs },
+      }));
+    }
+  });
   active(snapshot.inventory).forEach((item) => {
     if (!Number.isFinite(item.quantity) || item.quantity <= 0) {
       issues.push(makeIssue({
