@@ -27,7 +27,7 @@ const snapshot = {
     { id: 'team-chau', name: 'Đội Châu' },
   ],
   floors: [{ id: 'f1', floorName: 'Tầng 1' }],
-  workVolumes: [{ id: 'wv1', title: 'Trần', floorId: 'f1', floor: 'Tầng 1', category: 'Trần thạch cao', unit: 'm2', planned: 9000, actual: 4000, status: 'Đang thi công' }],
+  workVolumes: [{ id: 'wv1', workCategoryId: 'cat-ceiling', title: 'Trần', floorId: 'f1', floor: 'Tầng 1', category: 'Trần thạch cao', unit: 'm2', planned: 9000, actual: 4000, status: 'Đang thi công' }],
   inventory: [], materialNorms: [], checklist: [], rooms: manyRooms,
   defects: [{ id: 'd1', floorId: 'f1', floorName: '', teamId: 'team-nguyen', category: 'TC', description: 'Gọi 0901234567 hoặc owner@example.com', severity: 'HIGH', status: 'OPEN', createdAt: 1 }],
   crewRecords: [
