@@ -70,12 +70,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # The floor-plan/UI/AI fix must not silently rewrite Firebase project mapping,
-          # Firebase deployment config/rules, or existing GitHub workflows.
+          # Keep repository Firebase mapping/config/rules and all production workflows exactly unchanged
+          # from the known baseline. DEV deployment stays isolated by the dedicated DEV workflows.
           git diff --exit-code "$BASE_SHA" "$HEAD_SHA" -- .firebaserc firebase.json firestore.rules .github/workflows
-          grep -q 'hnl-qltc-dev' .firebaserc
-          grep -q 'com-example-qlct-61329' .firebaserc
-          echo 'Firebase mappings/config/rules and existing workflows unchanged from baseline.'
+          node - <<'NODE'
+          const fs = require('fs');
+          const rc = JSON.parse(fs.readFileSync('.firebaserc', 'utf8'));
+          if (rc?.projects?.default !== 'com-example-qlct-61329') {
+            throw new Error(`Unexpected Firebase default project: ${rc?.projects?.default}`);
+          }
+          console.log('Firebase default/PROD mapping unchanged: com-example-qlct-61329');
+          NODE
+          grep -q 'hnl-qltc-dev' .github/workflows/firebase-dev-environment.yml
+          echo 'Firebase config/rules and existing workflows unchanged; DEV isolation workflow still targets hnl-qltc-dev.'
 
       - name: Build PATCH and FULL SOURCE ZIPs
         shell: bash
@@ -105,8 +112,8 @@ jobs:
             echo "- Exact DEV SHA: \`$HEAD_SHA\`"
             echo "- PATCH baseline SHA: \`$BASE_SHA\`"
             echo "- Baseline relationship: exact ancestor, 6 commits behind current DEV"
-            echo "- Firebase DEV project: \`hnl-qltc-dev\` (unchanged)"
-            echo "- Firebase PROD project: \`com-example-qlct-61329\` (unchanged / not deployed by this delivery)"
+            echo "- Firebase DEV project: \`hnl-qltc-dev\` (unchanged; selected only by dedicated DEV workflows/runtime config)"
+            echo "- Firebase default/PROD project in source: \`com-example-qlct-61329\` (unchanged / not deployed by this delivery)"
             echo
             echo "## Nội dung đã sửa"
             echo
