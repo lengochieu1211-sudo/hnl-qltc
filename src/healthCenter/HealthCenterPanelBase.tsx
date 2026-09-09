@@ -236,8 +236,8 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
   return <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 sm:p-4">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
-        <div className="flex items-center gap-2 font-bold text-slate-900"><ShieldCheck className="h-4 w-4 text-emerald-600" /> HNL Health Center</div>
-        <div className="mt-1 text-[10px] font-semibold text-slate-500">Hệ thống · Chẩn đoán · Audit dữ liệu · một nguồn kết quả duy nhất</div>
+        <div className="flex items-center gap-2 font-bold text-slate-900"><ShieldCheck className="h-4 w-4 text-emerald-600" /> Audit dữ liệu & liên kết</div>
+        <div className="mt-1 text-[10px] font-semibold text-slate-500">Phát hiện orphan · mở đúng bản ghi · sửa có xác nhận · không tự xóa lịch sử</div>
         <div className="mt-1 break-all text-[9px] text-slate-400">Snapshot: {report.auditSnapshotId}</div>
       </div>
       <button type="button" onClick={() => { setRunAt(Date.now()); setShowRepairPreview(false); }} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-700"><RefreshCw className="h-3.5 w-3.5" /> Quét lại</button>
@@ -301,7 +301,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
                 {issue.location.date && <span>Ngày: {issue.location.date}</span>}{issue.location.teamName && <span>Đội: {issue.location.teamName}</span>}{issue.location.floorName && <span>Tầng: {issue.location.floorName}</span>}{issue.location.roomName && <span>Căn: {issue.location.roomName}</span>}{issue.location.shift && <span>Ca: {issue.location.shift}</span>}{issue.location.workItem && <span>Công việc: {issue.location.workItem}</span>}
               </div>
               <div className="mt-1 break-all text-[9px] text-slate-400">{issue.ruleId} · {issue.entityType}:{issue.entityId}</div>
-              <div className="mt-2 flex flex-wrap gap-1.5"><button type="button" onClick={() => openIssue(issue)} className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-[9px] font-bold text-indigo-700"><ExternalLink className="h-3 w-3" /> Xem bản ghi</button><ExpandCollapseButton expanded={isOpen} onToggle={() => setExpanded(isOpen ? null : issue.id)} expandLabel="Xem liên kết" collapseLabel="Ẩn liên kết" className="min-h-7 rounded-md border-slate-200 px-2 py-1 text-[9px] text-slate-600" /></div>
+              <div className="mt-2 flex flex-wrap gap-1.5"><button type="button" onClick={() => openIssue(issue)} className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-[9px] font-bold text-indigo-700"><ExternalLink className="h-3 w-3" /> {issue.ruleId === 'ROOM_ORPHAN_WORK_CATEGORY_REFERENCE' && userRole === 'ADMIN' ? 'Xử lý' : 'Xem bản ghi'}</button><ExpandCollapseButton expanded={isOpen} onToggle={() => setExpanded(isOpen ? null : issue.id)} expandLabel="Xem liên kết" collapseLabel="Ẩn liên kết" className="min-h-7 rounded-md border-slate-200 px-2 py-1 text-[9px] text-slate-600" /></div>
               {isOpen && <div className="mt-2 rounded-lg bg-slate-50 p-2 text-[9px] text-slate-600"><div><b>Evidence:</b> {issue.evidenceIds.join(', ') || '—'}</div><div className="mt-1 break-all"><b>Chi tiết:</b> {JSON.stringify(issue.details || {})}</div></div>}
             </div>
           </div>

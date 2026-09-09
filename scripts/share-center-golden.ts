@@ -41,8 +41,9 @@ mustContain(defect, 'legacyImageUrls={[defect.imageUrl', 'Defect before/after le
 mustContain(crew, 'buildCrewRecordShareText', 'daily crew deterministic share text');
 mustContain(crew, 'Lưu ý: Sáng/Chiều/Tối là quân số theo ca', 'crew shift semantic warning');
 mustContain(crew, 'triggerLabel="Chia sẻ báo cáo"', 'daily crew share entry');
-mustContain(config, '<details className="group rounded-2xl', 'collapsed diagnostics container');
-mustContain(config, 'Nhấn để mở trạng thái đồng bộ, ảnh và công cụ chẩn đoán', 'diagnostics collapsed hint');
+mustContain(config, '<details className="group rounded-2xl', 'collapsed Health Center container');
+mustContain(config, 'Hệ thống · đồng bộ · ảnh · audit dữ liệu · xử lý liên kết trong một nơi.', 'Health Center collapsed hint');
+mustContain(config, 'HNL Health Center', 'unified Health Center title');
 mustContain(android, 'public boolean shareFiles(String title, String text, String attachmentsJson)', 'Android shareFiles bridge');
 mustContain(android, 'Intent.ACTION_SEND_MULTIPLE', 'Android multi-image share');
 mustContain(android, 'Intent.FLAG_GRANT_READ_URI_PERMISSION', 'Android temporary attachment permission');

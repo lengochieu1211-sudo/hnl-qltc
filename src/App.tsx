@@ -303,7 +303,7 @@ export default function App() {
       const detail = (event as CustomEvent<{ entityType?: string }>).detail || {};
       const nextTab: TabType | null = detail.entityType === 'crewRecord'
         ? 'crew'
-        : detail.entityType === 'defect'
+        : detail.entityType === 'defect' || detail.entityType === 'room' || detail.entityType === 'floor'
           ? 'floorplan'
           : detail.entityType === 'chat'
             ? 'chat'

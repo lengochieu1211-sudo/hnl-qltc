@@ -97,6 +97,24 @@ assert.equal(linkedQuantity.teamName, 'Đội Nguyên');
 assert.equal(linkedQuantity.volume, 25.5);
 assert.equal(teamAttributed.quantityDetails.rows[0].floorName, 'Tầng 1');
 
+// Deleted/orphan work-category labels must not leak into active AI facts or whole-project prompts.
+const orphanCategoryLabel = 'Trần Thạch Cao Khung Chìm Tấm Tiêu Chuẩn';
+const orphanSnapshot = {
+  ...snapshot,
+  rooms: [
+    { ...manyRooms[0], id: 'valid-room', workVolume: 10 },
+    { id: 'orphan-room', roomName: 'Quầy A4', floorId: 'f1', floorName: '', teamId: 'team-nguyen', assignedTeam: 'Đội Nguyên', categoryVolumes: { [orphanCategoryLabel]: 76.58 }, categoryVolumeUnits: { [orphanCategoryLabel]: 'm2' }, inspectionStatus: 'Chưa nghiệm thu', frameStatus: 'Đang làm', boardStatus: 'Đang làm', updatedAt: 2, subItems: [] },
+  ],
+} as any;
+const orphanContext = buildExternalAiProjectContext(orphanSnapshot, { progress: true, quantities: true, defects: false, crew: false, inventory: false, checklist: false }) as any;
+assert.equal(orphanContext.dataQuality.omittedOrphanWorkCategoryRefs, 1);
+assert.equal(JSON.stringify(orphanContext.quantityDetails).includes(orphanCategoryLabel), false);
+assert.equal(JSON.stringify(orphanContext.quantitySummaryByTeamAndCategory).includes(orphanCategoryLabel), false);
+const orphanPayload = buildExternalAiQuestionPayload('Có bao nhiêu đội thi công và khối lượng hạng mục như nào?', orphanSnapshot, { progress: true, quantities: true, defects: false, crew: false, inventory: false, checklist: false }, { fullProjectRaw: true });
+assert.equal(orphanPayload.includes(orphanCategoryLabel), false, 'orphan category label must not leak into AI prompt');
+assert.match(orphanPayload, /omittedOrphanWorkCategoryRefs/);
+assert.match(orphanPayload, /Health Center/);
+
 const payload = buildExternalAiQuestionPayload(
   'Thống kê khối lượng từng tầng, hạng mục con và nhân công ngày đội Nguyên',
   snapshot,
