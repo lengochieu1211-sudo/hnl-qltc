@@ -1,0 +1,140 @@
+diff --git a/src/components/ExpandCollapseIndicator.tsx b/src/components/ExpandCollapseIndicator.tsx
+new file mode 100644
+index 0000000..fc66fab
+--- /dev/null
++++ b/src/components/ExpandCollapseIndicator.tsx
+@@ -0,0 +1,20 @@
++import React from 'react';
++import { ChevronDown } from 'lucide-react';
++
++interface ExpandCollapseIndicatorProps {
++  className?: string;
++  expandLabel?: string;
++  collapseLabel?: string;
++}
++
++export const ExpandCollapseIndicator: React.FC<ExpandCollapseIndicatorProps> = ({
++  className = '',
++  expandLabel = 'Mở rộng',
++  collapseLabel = 'Thu gọn',
++}) => (
++  <span aria-hidden="true" className={`shrink-0 inline-flex min-h-8 items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2 py-1 text-[10px] font-bold text-indigo-700 ${className}`}>
++    <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
++    <span className="group-open:hidden">{expandLabel}</span>
++    <span className="hidden group-open:inline">{collapseLabel}</span>
++  </span>
++);
+diff --git a/src/components/GoogleConfigTab.tsx b/src/components/GoogleConfigTab.tsx
+index 989ba15..2adecd9 100644
+--- a/src/components/GoogleConfigTab.tsx
++++ b/src/components/GoogleConfigTab.tsx
+@@ -45,6 +45,7 @@ import type { TrashOperation, TrashSettings, TrashRetentionDays } from '../lib/t
+ import { buildDiagnosticBundle, clearRuntimeDiagnostics } from '../lib/runtimeDiagnostics';
+ import { getProjectPhotoDiagnosticSnapshot } from '../utils/photoStorage';
+ import { HealthCenterPanel } from '../healthCenter/HealthCenterPanel';
++import { ExpandCollapseIndicator } from './ExpandCollapseIndicator';
+ 
+ declare const __BUILD_TIME__: string;
+ 
+@@ -501,6 +502,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
+             <span className={`shrink-0 rounded-lg border px-2 py-1 text-[10px] font-bold ${syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+               {syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'Cloud sẵn sàng' : 'Đang kiểm tra'}
+             </span>
++            <ExpandCollapseIndicator />
+           </summary>
+           <div className="px-2 pb-2 sm:px-3 sm:pb-3 space-y-3">
+         <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
+@@ -703,6 +705,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
+           <span className="shrink-0 rounded-lg border border-indigo-100 bg-indigo-50 px-2 py-1 text-[10px] font-bold text-indigo-700">
+             {numberFormatPreset === 'dot_comma' ? '1.234,56' : '1,234.56'} · {dateFormatPreset}
+           </span>
++          <ExpandCollapseIndicator />
+         </summary>
+         <div className="space-y-3.5 px-4 pb-4">
+ 
+@@ -806,6 +809,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
+           <span className="shrink-0 rounded-lg border border-indigo-100 bg-indigo-50 px-2 py-1 text-[10px] font-bold text-indigo-700">
+             {getImageQualityProfile('floorPlan', imageQualitySettings.floorPlan).label}
+           </span>
++          <ExpandCollapseIndicator />
+         </summary>
+         <div className="space-y-3.5 px-4 pb-4">
+           <p className="text-[10px] text-slate-500">Mặt bằng ưu tiên độ nét chữ; Defect ưu tiên chi tiết lỗi; Quân số ưu tiên cân bằng tốc độ đồng bộ. Thiết lập lưu trên thiết bị này.</p>
+@@ -844,6 +848,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
+           <span className={`shrink-0 rounded-lg border px-2 py-1 text-[10px] font-bold ${trashSettings.enabled ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-100 border-slate-200 text-slate-600'}`}>
+             {trashOperations.length} mục · {trashSettings.enabled ? 'Đang bật' : 'Đang tắt'}
+           </span>
++          <ExpandCollapseIndicator />
+         </summary>
+         <div className="space-y-3.5 px-4 pb-4">
+           <div>
+diff --git a/src/components/ProjectManagerModal.tsx b/src/components/ProjectManagerModal.tsx
+index f2724a4..abbed3a 100644
+--- a/src/components/ProjectManagerModal.tsx
++++ b/src/components/ProjectManagerModal.tsx
+@@ -2,8 +2,7 @@ import { downloadOrShareFile } from '../utils/downloadUtils';
+ import React, { useState, useEffect, useMemo } from 'react';
+ import { 
+   X, Plus, Folder, Trash2, HardDrive, Download, Upload, RefreshCw, 
+-  CheckCircle2, AlertTriangle, ShieldCheck, ArrowLeftRight, ChevronDown, 
+-  ChevronUp, Search, Edit3, Check, Building2, Copy, Sparkles, FolderPlus,
++  CheckCircle2, AlertTriangle, ShieldCheck, ArrowLeftRight, Search, Edit3, Check, Building2, Copy, Sparkles, FolderPlus,
+   Cloud, CloudUpload, CloudDownload, Smartphone, Monitor, Share2, Layers,
+   CheckSquare, Square, FileSpreadsheet, Layers3, CheckCircle, Database, History, Eye,
+   Lock, Key, ShieldAlert
+@@ -38,6 +37,7 @@ import type { User as FirebaseUser } from 'firebase/auth';
+ import { ConflictMergeModal } from './ConflictMergeModal';
+ import { PrimaryDriveStatusCard } from './PrimaryDriveStatusCard';
+ import { QuickSortBar } from './QuickSortBar';
++import { ExpandCollapseIndicator } from './ExpandCollapseIndicator';
+ import { confirmAsync } from '../utils/confirmAsync';
+ import { 
+   normalizeImportedData, 
+@@ -3163,7 +3163,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
+                 <details className="group pt-2 border-t border-slate-100">
+                   <summary className="cursor-pointer select-none flex items-center justify-between text-[11px] font-bold text-slate-700">
+                     <span>Cài đặt sao lưu nâng cao</span>
+-                    <ChevronDown className="w-3.5 h-3.5 group-open:rotate-180 transition-transform" />
++                    <ExpandCollapseIndicator />
+                   </summary>
+                   <div className="pt-2 space-y-2.5">
+ 
+@@ -3626,7 +3626,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
+                   {canManage && <details className="group bg-white/70 border border-indigo-100 rounded-lg">
+                     <summary className="cursor-pointer select-none px-2.5 py-2 text-[10px] font-bold text-indigo-700 flex items-center justify-between">
+                       <span>Công cụ đồng bộ nâng cao</span>
+-                      <ChevronDown className="w-3.5 h-3.5 group-open:rotate-180 transition-transform" />
++                      <ExpandCollapseIndicator />
+                     </summary>
+                     <div className="px-2.5 pb-2.5 space-y-2 border-t border-indigo-100 pt-2">
+                       <button
+@@ -3674,7 +3674,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
+                 <details className="group pt-2 border-t border-slate-100">
+                   <summary className="cursor-pointer select-none flex items-center justify-between mb-1.5 text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">
+                     <span>Phiên bản đám mây ({cloudBackups.length})</span>
+-                    <ChevronDown className="w-3.5 h-3.5 group-open:rotate-180 transition-transform" />
++                    <ExpandCollapseIndicator />
+                   </summary>
+                   <div>
+ 
+diff --git a/src/healthCenter/HealthCenterPanelBase.tsx b/src/healthCenter/HealthCenterPanelBase.tsx
+index a57b35d..cbea586 100644
+--- a/src/healthCenter/HealthCenterPanelBase.tsx
++++ b/src/healthCenter/HealthCenterPanelBase.tsx
+@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, Download, ExternalLink, FileJson, FileSpre
+ import type { UserRole } from '../utils/securityUtils';
+ import { saveTextFileToDownloads } from '../utils/fileExport';
+ import { confirmAsync } from '../utils/confirmAsync';
++import { ExpandCollapseButton } from '../components/ExpandCollapseButton';
+ import { createHnlAiProjectSnapshot } from '../ai/data/projectSnapshot';
+ import { buildHealthCenterReport, type HealthCenterIssue, type HealthCenterModule, type HealthCenterSeverity } from './healthCenterEngine';
+ import { exportHealthCenterExcel, exportHealthCenterJson, exportHealthCenterPdf } from './healthCenterExport';
+@@ -300,7 +301,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
+                 {issue.location.date && <span>Ngày: {issue.location.date}</span>}{issue.location.teamName && <span>Đội: {issue.location.teamName}</span>}{issue.location.floorName && <span>Tầng: {issue.location.floorName}</span>}{issue.location.roomName && <span>Căn: {issue.location.roomName}</span>}{issue.location.shift && <span>Ca: {issue.location.shift}</span>}{issue.location.workItem && <span>Công việc: {issue.location.workItem}</span>}
+               </div>
+               <div className="mt-1 break-all text-[9px] text-slate-400">{issue.ruleId} · {issue.entityType}:{issue.entityId}</div>
+-              <div className="mt-2 flex flex-wrap gap-1.5"><button type="button" onClick={() => openIssue(issue)} className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-[9px] font-bold text-indigo-700"><ExternalLink className="h-3 w-3" /> Xem bản ghi</button><button type="button" onClick={() => setExpanded(isOpen ? null : issue.id)} className="rounded-md border border-slate-200 px-2 py-1 text-[9px] font-bold text-slate-600">{isOpen ? 'Ẩn liên kết' : 'Xem liên kết'}</button></div>
++              <div className="mt-2 flex flex-wrap gap-1.5"><button type="button" onClick={() => openIssue(issue)} className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-[9px] font-bold text-indigo-700"><ExternalLink className="h-3 w-3" /> Xem bản ghi</button><ExpandCollapseButton expanded={isOpen} onToggle={() => setExpanded(isOpen ? null : issue.id)} expandLabel="Xem liên kết" collapseLabel="Ẩn liên kết" className="min-h-7 rounded-md border-slate-200 px-2 py-1 text-[9px] text-slate-600" /></div>
+               {isOpen && <div className="mt-2 rounded-lg bg-slate-50 p-2 text-[9px] text-slate-600"><div><b>Evidence:</b> {issue.evidenceIds.join(', ') || '—'}</div><div className="mt-1 break-all"><b>Chi tiết:</b> {JSON.stringify(issue.details || {})}</div></div>}
+             </div>
+           </div>
