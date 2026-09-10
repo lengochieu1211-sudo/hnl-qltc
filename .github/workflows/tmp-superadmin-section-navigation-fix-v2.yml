@@ -1,0 +1,38 @@
+name: TMP SuperAdmin navigation patch v2
+
+on:
+  push:
+    branches:
+      - 'fix/superadmin-section-navigation'
+
+permissions:
+  contents: write
+
+jobs:
+  patch_and_verify:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/superadmin-section-navigation
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Apply focused patch
+        run: python scripts/tmp-superadmin-nav-patch.py
+      - name: Install exact dependencies
+        run: npm ci
+      - name: Focused navigation regression
+        run: npm run test:superadmin-navigation
+      - name: Full verification
+        run: npm run verify
+      - name: Commit verified patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/SuperAdminCenter.tsx src/components/GoogleConfigTab.tsx src/components/NotificationCenterModal.tsx scripts/superadmin-navigation-golden.ts package.json
+          git commit -m "fix: open Super Admin destination panels reliably"
+          git push origin HEAD:fix/superadmin-section-navigation
