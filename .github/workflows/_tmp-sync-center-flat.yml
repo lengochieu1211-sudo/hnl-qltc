@@ -1,0 +1,142 @@
+name: TEMP Flatten Sync Center
+
+on:
+  push:
+    branches:
+      - ux/sync-center-flat-layout-20260910
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ux/sync-center-flat-layout-20260910
+
+      - name: Apply compact always-visible Sync Center layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('src/components/ProjectManagerModal.tsx')
+          text = path.read_text(encoding='utf-8')
+
+          sync_start_marker = "{modalTab === 'sync' && ("
+          projects_start_marker = "{modalTab === 'projects' && ("
+          start = text.find(sync_start_marker)
+          end = text.find(projects_start_marker, start + 1)
+          if start < 0 or end < 0:
+              raise SystemExit('Could not isolate Sync Center JSX block')
+
+          before = text[:start]
+          sync = text[start:end]
+          after = text[end:]
+
+          details_before = sync.count('<details')
+          summaries_before = sync.count('<summary')
+          if details_before < 3 or summaries_before < 3:
+              raise SystemExit(f'Unexpected Sync Center disclosure count: details={details_before}, summaries={summaries_before}')
+
+          # All Sync Center functions are visible by default. Preserve every child control;
+          # only replace disclosure containers with normal compact sections.
+          sync = sync.replace('<details', '<div').replace('</details>', '</div>')
+          sync = sync.replace('<summary', '<div').replace('</summary>', '</div>')
+          sync = re.sub(r'\n\s*<ExpandCollapseIndicator\s*/>', '', sync)
+          sync = sync.replace('cursor-pointer select-none', 'select-none')
+
+          # Encryption configuration stays contextual to the encryption checkbox, but it no
+          # longer needs a second open/collapse control.
+          toggle_pattern = re.compile(
+              r'\n\s*\{exportEncrypt && \(\s*<button\s+type="button"\s+onClick=\{\(\) => setShowExportEncryptOptions\(!showExportEncryptOptions\)\}[\s\S]*?</button>\s*\)\}',
+              re.MULTILINE,
+          )
+          sync, toggle_count = toggle_pattern.subn('', sync, count=1)
+          if toggle_count != 1:
+              raise SystemExit(f'Expected one encryption disclosure button, removed {toggle_count}')
+          sync = sync.replace('{exportEncrypt && showExportEncryptOptions && (', '{exportEncrypt && (', 1)
+          sync = sync.replace('                          if (e.target.checked) setShowExportEncryptOptions(true);\n', '', 1)
+
+          # Compact spacing without removing any function/data block.
+          sync = sync.replace('<div className="space-y-4">', '<div className="space-y-3">', 1)
+          sync = sync.replace('bg-white p-3.5 rounded-2xl border border-slate-200 space-y-2.5 shadow-xs', 'bg-white p-3 rounded-xl border border-slate-200 space-y-2 shadow-xs')
+          sync = sync.replace('bg-white p-3.5 rounded-2xl border border-slate-200 space-y-3 shadow-xs', 'bg-white p-3 rounded-xl border border-slate-200 space-y-2.5 shadow-xs')
+          sync = sync.replace('rounded-2xl border border-slate-200', 'rounded-xl border border-slate-200')
+
+          if '<details' in sync or '<summary' in sync:
+              raise SystemExit('Sync Center still contains collapsed disclosure containers')
+          if 'ExpandCollapseIndicator' in sync:
+              raise SystemExit('Sync Center still contains expand/collapse indicator')
+          if 'Mở rộng' in sync or 'Thu gọn' in sync:
+              raise SystemExit('Sync Center still renders Mở rộng/Thu gọn text')
+          if 'Công cụ đồng bộ nâng cao' not in sync or 'Đồng bộ lại dự án này' not in sync:
+              raise SystemExit('Advanced sync tools were lost')
+          if 'Cài đặt sao lưu nâng cao' not in sync or 'Xuất bản sao JSON' not in sync or 'Khôi phục từ JSON' not in sync:
+              raise SystemExit('Backup/restore functions were lost')
+          if 'Phiên bản đám mây' not in sync:
+              raise SystemExit('Cloud backup versions section was lost')
+
+          text = before + sync + after
+
+          # Remove stale disclosure state if the flattening made it unused.
+          if text.count('showExportEncryptOptions') == 1:
+              text = re.sub(r'\n\s*const \[showExportEncryptOptions, setShowExportEncryptOptions\] = useState\(false\);', '', text, count=1)
+          elif text.count('showExportEncryptOptions') > 1:
+              raise SystemExit('showExportEncryptOptions still has unexpected live uses')
+
+          # If ProjectManager no longer needs the shared indicator outside the Sync Center,
+          # remove only its import. Otherwise preserve it for the Project List destination.
+          if text.count('ExpandCollapseIndicator') == 1:
+              text = re.sub(r"\nimport \{ ExpandCollapseIndicator \} from './ExpandCollapseIndicator';", '', text, count=1)
+
+          # Header copy is intentionally shorter on mobile; technical provider detail remains
+          # available inside Health Center and the detailed sync cards.
+          old_subtitle = "? (FIREBASE_ONLY_RUNTIME ? 'Firebase Auth + Firestore + Storage · JSON chỉ dùng backup thủ công' : (hasDriveBackend ? 'Lưu trữ cục bộ, Đám mây Firebase, Google Drive & Google Sheets' : 'Lưu trữ cục bộ và Đám mây Firebase miễn phí'))"
+          text = text.replace(old_subtitle, "? 'Đồng bộ dữ liệu, R2/ảnh, sao lưu, khôi phục và đối chiếu dự án.'", 1)
+
+          # Slightly denser mobile shell, while keeping the existing close button and scroll behavior.
+          text = text.replace('max-w-lg rounded-2xl p-4 md:p-6', 'max-w-xl rounded-2xl p-3.5 md:p-5', 1)
+          text = text.replace('flex-1 overflow-y-auto pr-1 space-y-4 pt-3', 'flex-1 overflow-y-auto pr-1 space-y-3 pt-2.5', 1)
+
+          path.write_text(text, encoding='utf-8')
+
+          # Extend the existing UX golden so the Sync Center cannot drift back to nested tabs
+          # or hidden Mở/Mở rộng/Thu gọn disclosures.
+          gpath = Path('scripts/ui-entry-ux-golden.ts')
+          golden = gpath.read_text(encoding='utf-8')
+          anchor = "assert(projectManager.includes(\"const modalTab: 'sync' | 'projects' = initialTab;\"), 'Dedicated Project/Sync destination mode missing');\n"
+          addition = """assert(projectManager.includes('Trung tâm đồng bộ & sao lưu dự án'), 'Sync Center title missing');\nconst syncStart = projectManager.indexOf(\"{modalTab === 'sync' && (\");\nconst projectsStart = projectManager.indexOf(\"{modalTab === 'projects' && (\", syncStart + 1);\nassert(syncStart >= 0 && projectsStart > syncStart, 'Cannot isolate Sync Center JSX');\nconst syncCenter = projectManager.slice(syncStart, projectsStart);\nassert(!syncCenter.includes('<details'), 'Sync Center must show all function groups without collapsed details');\nassert(!syncCenter.includes('<summary'), 'Sync Center must not expose disclosure summaries');\nassert(!syncCenter.includes('ExpandCollapseIndicator'), 'Sync Center must not render expand/collapse controls');\nassert(!syncCenter.includes('Mở rộng') && !syncCenter.includes('Thu gọn'), 'Sync Center must not render Mở rộng/Thu gọn text');\nassert(syncCenter.includes('Cài đặt sao lưu nâng cao'), 'Advanced backup settings must remain visible');\nassert(syncCenter.includes('Công cụ đồng bộ nâng cao'), 'Advanced sync tools must remain visible');\nassert(syncCenter.includes('Đồng bộ lại dự án này'), 'Manual project re-sync action must remain available');\nassert(syncCenter.includes('Xuất bản sao JSON') && syncCenter.includes('Khôi phục từ JSON'), 'JSON backup/restore actions must remain available');\n"""
+          if anchor not in golden:
+              raise SystemExit('UI golden anchor not found')
+          golden = golden.replace(anchor, anchor + addition, 1)
+          gpath.write_text(golden, encoding='utf-8')
+
+          print(f'Flattened {details_before} Sync Center disclosure groups; preserved functions and compacted layout.')
+          PY
+
+      - name: Validate focused + full source gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run test:ui-entry-ux
+          npm run typecheck
+          npm run lint
+          npm run build
+
+      - name: Commit source patch and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/_tmp-sync-center-flat.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/ProjectManagerModal.tsx scripts/ui-entry-ux-golden.ts .github/workflows/_tmp-sync-center-flat.yml
+          git diff --cached --check
+          git commit -m "fix(ui): flatten and compact Sync Center"
+          git push origin HEAD:ux/sync-center-flat-layout-20260910
