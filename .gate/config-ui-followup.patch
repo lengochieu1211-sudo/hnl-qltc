@@ -1,0 +1,11 @@
+--- a/src/components/GoogleConfigTab.tsx
++++ b/src/components/GoogleConfigTab.tsx
+@@ -611,7 +611,7 @@
+               <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
+                 <ShieldCheck className="h-4 w-4 text-emerald-600" /> HNL Health Center
+               </div>
+-              <div className="mt-0.5 text-[10px] font-semibold text-slate-500">Mở trung tâm hệ thống · đồng bộ · ảnh · audit dữ liệu · xử lý liên kết.</div>
++              <div className="mt-0.5 text-[10px] font-semibold text-slate-500">Hệ thống · đồng bộ · ảnh · audit dữ liệu · xử lý liên kết trong một nơi.</div>
+             </div>
+             <span className={`shrink-0 rounded-lg border px-2 py-1 text-[10px] font-bold ${syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+               {syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'Cloud sẵn sàng' : 'Đang kiểm tra'}
