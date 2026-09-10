@@ -47,6 +47,14 @@ assert(indicator.includes("details.style.borderRadius = '28px 28px 0 0'"), 'Mobi
 assert(indicator.includes("var(--hnl-dark-surface, #f8fafc)"), 'Settings panel must use theme-aware surface instead of a hard-coded light background');
 assert(indicator.includes("env(safe-area-inset-bottom"), 'Settings panel Android safe-area padding missing');
 assert(indicator.includes('group-open:h-11 group-open:w-11'), 'Opened Settings X touch target must remain easy to tap on mobile');
+assert(indicator.includes('historyBackPending'), 'Settings feature sheets must guard against duplicate/delayed history back operations');
+assert(indicator.includes('const requestClose = () =>'), 'Settings feature sheets must use one coordinated close path');
+assert(indicator.includes("summary?.addEventListener('click', onOpenSummaryClick, true)"), 'Open Settings summary clicks must use the coordinated close path');
+const indicatorCleanupStart = indicator.indexOf('const cleanupFloating = () =>');
+const indicatorActivateStart = indicator.indexOf('const activateFloating = () =>', indicatorCleanupStart + 1);
+assert(indicatorCleanupStart >= 0 && indicatorActivateStart > indicatorCleanupStart, 'Cannot isolate Settings feature-sheet cleanup');
+const indicatorCleanup = indicator.slice(indicatorCleanupStart, indicatorActivateStart);
+assert(!indicatorCleanup.includes('window.history.back()'), 'Settings cleanup must not issue a delayed history.back that can close a freshly reopened sheet');
 
 const materialButton = read('src/components/ExpandCollapseButton.tsx');
 assert(!materialButton.includes("isMaterialNeedPage ? 'Mở'"), 'Material Need must not render redundant Mở label');
@@ -69,4 +77,4 @@ assert(config.includes('Chất lượng ảnh & dung lượng'), 'Image quality 
 assert(config.includes('Dữ liệu đã ẩn & lịch sử'), 'Hidden data/history Settings entry missing');
 assert(config.includes("{t('formatting_settings')}"), 'Number/date formatting Settings entry missing');
 
-console.log('PASS ui-entry-ux-golden: compact entry cards, MaterialNorm-style feature sheets, dark mode, safe-area and Back/Escape/X rules are intact.');
+console.log('PASS ui-entry-ux-golden: compact entry cards, race-free Settings feature sheets, dark mode, safe-area and Back/Escape/X rules are intact.');

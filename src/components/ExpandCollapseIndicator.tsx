@@ -26,6 +26,7 @@ export const ExpandCollapseIndicator: React.FC<ExpandCollapseIndicatorProps> = (
   className = '',
 }) => {
   const indicatorRef = useRef<HTMLSpanElement | null>(null);
+  const requestCloseRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (typeof document === 'undefined' || typeof window === 'undefined') return;
@@ -33,12 +34,13 @@ export const ExpandCollapseIndicator: React.FC<ExpandCollapseIndicatorProps> = (
     const details = indicatorRef.current?.closest('details') as HTMLDetailsElement | null;
     if (!details) return;
 
+    const summary = details.querySelector(':scope > summary') as HTMLElement | null;
     let previousStyle: string | null = null;
     let previousBodyOverflow = '';
     let backdrop: HTMLDivElement | null = null;
     let active = false;
     let historyEntryActive = false;
-    let closingFromPopState = false;
+    let historyBackPending = false;
     const historyMarker = `hnl-floating-details-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
     const isDesktop = () => window.matchMedia('(min-width: 768px)').matches;
@@ -84,18 +86,47 @@ export const ExpandCollapseIndicator: React.FC<ExpandCollapseIndicatorProps> = (
       }
     };
 
+    const closeImmediately = () => {
+      if (details.open) details.open = false;
+    };
+
+    // UI-driven closes must consume the synthetic history entry first. Closing the
+    // <details> and calling history.back() afterwards creates a race: a fast reopen can
+    // receive the delayed popstate and immediately close again. Waiting for popstate to
+    // perform the actual close keeps X / Escape / Android Back deterministic.
+    const requestClose = () => {
+      if (!details.open || historyBackPending) return;
+      const currentMarker = window.history.state?.__hnlFloatingDetails;
+      if (historyEntryActive && currentMarker === historyMarker) {
+        historyBackPending = true;
+        window.history.back();
+        return;
+      }
+      closeImmediately();
+    };
+    requestCloseRef.current = requestClose;
+
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || !details.open) return;
       event.preventDefault();
       event.stopPropagation();
-      details.open = false;
+      requestClose();
     };
 
     const onPopState = () => {
       if (!active || !details.open) return;
-      closingFromPopState = true;
       historyEntryActive = false;
-      details.open = false;
+      historyBackPending = false;
+      closeImmediately();
+    };
+
+    const onOpenSummaryClick = (event: MouseEvent) => {
+      if (!details.open) return;
+      // Native <summary> would close immediately and only then let cleanup unwind
+      // history. Intercept the open-state click so it follows the same race-free path.
+      event.preventDefault();
+      event.stopPropagation();
+      requestClose();
     };
 
     const cleanupFloating = () => {
@@ -104,23 +135,25 @@ export const ExpandCollapseIndicator: React.FC<ExpandCollapseIndicatorProps> = (
       window.removeEventListener('resize', applyLayout);
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('popstate', onPopState);
+      backdrop?.removeEventListener('click', requestClose);
       backdrop?.remove();
       backdrop = null;
       document.body.style.overflow = previousBodyOverflow;
       if (previousStyle === null) details.removeAttribute('style');
       else details.setAttribute('style', previousStyle);
 
-      const currentMarker = window.history.state?.__hnlFloatingDetails;
-      if (historyEntryActive && !closingFromPopState && currentMarker === historyMarker) {
-        historyEntryActive = false;
-        window.history.back();
-      }
-      closingFromPopState = false;
+      // Do not call history.back() from cleanup. All user-visible close paths consume
+      // the marker before toggling the panel, so cleanup is synchronous and cannot race
+      // a subsequent reopen.
+      historyEntryActive = false;
+      historyBackPending = false;
     };
 
     const activateFloating = () => {
       if (active) return;
       active = true;
+      historyEntryActive = false;
+      historyBackPending = false;
       previousStyle = details.getAttribute('style');
       previousBodyOverflow = document.body.style.overflow;
       document.body.style.overflow = 'hidden';
@@ -134,9 +167,7 @@ export const ExpandCollapseIndicator: React.FC<ExpandCollapseIndicatorProps> = (
         background: 'rgba(2, 6, 23, 0.58)',
         backdropFilter: 'blur(3px)',
       });
-      backdrop.addEventListener('click', () => {
-        details.open = false;
-      });
+      backdrop.addEventListener('click', requestClose);
       document.body.appendChild(backdrop);
 
       try {
@@ -157,11 +188,14 @@ export const ExpandCollapseIndicator: React.FC<ExpandCollapseIndicatorProps> = (
       else cleanupFloating();
     };
 
+    summary?.addEventListener('click', onOpenSummaryClick, true);
     details.addEventListener('toggle', onToggle);
     if (details.open) activateFloating();
 
     return () => {
+      summary?.removeEventListener('click', onOpenSummaryClick, true);
       details.removeEventListener('toggle', onToggle);
+      if (requestCloseRef.current === requestClose) requestCloseRef.current = null;
       cleanupFloating();
     };
   }, []);
@@ -171,7 +205,7 @@ export const ExpandCollapseIndicator: React.FC<ExpandCollapseIndicatorProps> = (
     if (!details?.open) return;
     event.preventDefault();
     event.stopPropagation();
-    details.open = false;
+    requestCloseRef.current?.();
   };
 
   return (
