@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { ChevronDown } from 'lucide-react';
 
 interface ExpandCollapseIndicatorProps {
@@ -11,10 +11,119 @@ export const ExpandCollapseIndicator: React.FC<ExpandCollapseIndicatorProps> = (
   className = '',
   expandLabel = 'Mở rộng',
   collapseLabel = 'Thu gọn',
-}) => (
-  <span aria-hidden="true" className={`shrink-0 inline-flex min-h-8 items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2 py-1 text-[10px] font-bold text-indigo-700 ${className}`}>
-    <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
-    <span className="group-open:hidden">{expandLabel}</span>
-    <span className="hidden group-open:inline">{collapseLabel}</span>
-  </span>
-);
+}) => {
+  const indicatorRef = useRef<HTMLSpanElement | null>(null);
+
+  useEffect(() => {
+    if (typeof document === 'undefined' || typeof window === 'undefined') return;
+
+    const details = indicatorRef.current?.closest('details') as HTMLDetailsElement | null;
+    if (!details) return;
+
+    let previousStyle: string | null = null;
+    let previousBodyOverflow = '';
+    let backdrop: HTMLDivElement | null = null;
+    let active = false;
+
+    const applyLayout = () => {
+      if (!active) return;
+      const desktop = window.matchMedia('(min-width: 768px)').matches;
+
+      details.style.position = 'fixed';
+      details.style.zIndex = '90';
+      details.style.overflowY = 'auto';
+      details.style.overscrollBehavior = 'contain';
+      details.style.background = '#f8fafc';
+      details.style.padding = desktop ? '16px' : '12px';
+      details.style.paddingBottom = 'calc(20px + env(safe-area-inset-bottom, 0px))';
+      details.style.boxShadow = desktop ? '0 28px 80px rgba(15, 23, 42, 0.28)' : 'none';
+
+      if (desktop) {
+        details.style.top = '5vh';
+        details.style.right = '5vw';
+        details.style.bottom = '5vh';
+        details.style.left = '5vw';
+        details.style.width = 'auto';
+        details.style.maxWidth = '1120px';
+        details.style.margin = '0 auto';
+        details.style.borderRadius = '24px';
+        details.style.border = '1px solid rgba(203, 213, 225, 0.95)';
+      } else {
+        details.style.top = '0';
+        details.style.right = '0';
+        details.style.bottom = '0';
+        details.style.left = '0';
+        details.style.width = '100vw';
+        details.style.maxWidth = '100vw';
+        details.style.margin = '0';
+        details.style.borderRadius = '0';
+        details.style.border = '0';
+      }
+    };
+
+    const cleanupFloating = () => {
+      if (!active) return;
+      active = false;
+      window.removeEventListener('resize', applyLayout);
+      window.removeEventListener('keydown', onKeyDown);
+      backdrop?.remove();
+      backdrop = null;
+      document.body.style.overflow = previousBodyOverflow;
+      if (previousStyle === null) details.removeAttribute('style');
+      else details.setAttribute('style', previousStyle);
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || !details.open) return;
+      event.preventDefault();
+      details.open = false;
+    };
+
+    const activateFloating = () => {
+      if (active) return;
+      active = true;
+      previousStyle = details.getAttribute('style');
+      previousBodyOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+
+      backdrop = document.createElement('div');
+      backdrop.setAttribute('data-hnl-floating-backdrop', 'true');
+      Object.assign(backdrop.style, {
+        position: 'fixed',
+        inset: '0',
+        zIndex: '89',
+        background: 'rgba(15, 23, 42, 0.42)',
+        backdropFilter: 'blur(2px)',
+      });
+      backdrop.addEventListener('click', () => {
+        details.open = false;
+      });
+      document.body.appendChild(backdrop);
+
+      applyLayout();
+      window.addEventListener('resize', applyLayout);
+      window.addEventListener('keydown', onKeyDown);
+    };
+
+    const onToggle = () => {
+      if (details.open) activateFloating();
+      else cleanupFloating();
+    };
+
+    details.addEventListener('toggle', onToggle);
+    if (details.open) activateFloating();
+
+    return () => {
+      details.removeEventListener('toggle', onToggle);
+      cleanupFloating();
+    };
+  }, []);
+
+  return (
+    <span ref={indicatorRef} aria-hidden="true" className={`shrink-0 inline-flex min-h-8 items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2 py-1 text-[10px] font-bold text-indigo-700 ${className}`}>
+      <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
+      <span className="group-open:hidden">{expandLabel}</span>
+      <span className="hidden group-open:inline">{collapseLabel}</span>
+    </span>
+  );
+};
