@@ -57,10 +57,19 @@ export function buildR2PhotoPaths(input: Pick<R2ProjectBinaryUploadInput, 'proje
   return { storagePath: `${base}/original.${ext}`, thumbnailPath: `${base}/thumb.${ext}` };
 }
 
-export function buildR2FloorPlanPaths(projectId: string, floorPlanId: string, mimeType?: string) {
+/**
+ * Floor-plan binaries are immutable/content-addressed when contentSha256 is supplied.
+ * Legacy pointers without a hash remain readable because Firestore stores the exact path.
+ * Never overwrite the object behind an already-published Firestore floor-plan pointer:
+ * a newer replacement can be staged while an older upload is still in flight.
+ */
+export function buildR2FloorPlanPaths(projectId: string, floorPlanId: string, mimeType?: string, contentSha256?: string) {
   const ext = extensionForMime(mimeType);
   const base = `projects/${safeSegment(projectId)}/floor-plans/${safeSegment(floorPlanId)}`;
-  return { storagePath: `${base}/original.${ext}`, thumbnailPath: `${base}/thumb.${ext}` };
+  const version = String(contentSha256 || '').trim().toLowerCase().replace(/[^a-f0-9]/g, '').slice(0, 64);
+  return version
+    ? { storagePath: `${base}/original.${version}.${ext}`, thumbnailPath: `${base}/thumb.${version}.${ext}` }
+    : { storagePath: `${base}/original.${ext}`, thumbnailPath: `${base}/thumb.${ext}` };
 }
 
 async function authHeader(forceRefresh = false): Promise<string> {
@@ -262,10 +271,15 @@ export async function uploadProjectBinaryToR2(input: R2ProjectBinaryUploadInput)
 export async function uploadFloorPlanBinaryToR2(input: {
   projectId: string; floorPlanId: string; blob: Blob; thumbnailBlob?: Blob | null; createdByUid?: string; createdAt?: number;
 }): Promise<R2BinaryUploadResult> {
-  const paths = buildR2FloorPlanPaths(input.projectId, input.floorPlanId, input.blob.type);
+  // Content-addressed object names make the binary phase atomic with respect to
+  // Firestore pointer publication. A stale in-flight replacement can never overwrite
+  // bytes behind the previously published path; retries of the same bytes reuse a path.
+  const contentSha256 = await sha256Hex(await input.blob.arrayBuffer());
+  const paths = buildR2FloorPlanPaths(input.projectId, input.floorPlanId, input.blob.type, contentSha256);
   const metadata = {
     projectId: input.projectId, entityType: 'floorPlan', entityId: input.floorPlanId, assetId: input.floorPlanId,
-    createdByUid: input.createdByUid || '', createdAt: String(Number(input.createdAt || Date.now())), app: 'HNL QLTC',
+    createdByUid: input.createdByUid || '', createdAt: String(Number(input.createdAt || Date.now())),
+    contentSha256, app: 'HNL QLTC',
   };
   const original = await putObject(paths.storagePath, input.blob, metadata);
   let thumbnailPath: string | undefined;

@@ -11,6 +11,19 @@ check(sync.includes('FLOOR_PLAN_ROLE_VERIFICATION_UNAVAILABLE'), 'Unavailable ro
 check(sync.includes('latestPendingRevision > revision'), 'Two rapid replacements must keep the newest revision authoritative.');
 check(sync.includes('imagePendingByUid'), 'Pending outbox must be uploader/account scoped.');
 
+// P0 atomic-publish invariant: floor-plan objects must be immutable once their path is
+// published in Firestore. Reusing /original.ext lets an older/newer in-flight upload
+// change bytes behind an existing metadata pointer before the pointer transaction wins.
+const r2Storage = read('src/lib/r2Storage.ts');
+check(r2Storage.includes('contentSha256 = await sha256Hex(await input.blob.arrayBuffer())'), 'R2 floor-plan upload must derive a deterministic content hash.');
+check(r2Storage.includes('buildR2FloorPlanPaths(input.projectId, input.floorPlanId, input.blob.type, contentSha256)'), 'R2 floor-plan upload must use the content hash in its object path.');
+check(r2Storage.includes('original.${version}.${ext}') && r2Storage.includes('thumb.${version}.${ext}'), 'R2 floor-plan original/thumb paths must be content-addressed.');
+
+const firebaseStorage = read('src/lib/firebaseStorage.ts');
+check(firebaseStorage.includes('contentSha256 = await sha256Hex(await input.blob.arrayBuffer())'), 'Firebase Storage floor-plan upload must mirror the immutable content-addressed invariant.');
+check(firebaseStorage.includes('buildFloorPlanStoragePaths(input.projectId, input.floorPlanId, input.blob.type, contentSha256)'), 'Firebase Storage floor-plan upload must use the content hash in its object path.');
+check(firebaseStorage.includes('original.${version}.${ext}') && firebaseStorage.includes('thumb.${version}.${ext}'), 'Firebase Storage floor-plan original/thumb paths must be content-addressed.');
+
 const app = read('src/App.tsx');
 const handlerStart = app.indexOf('const handleUpdateFloorPlanImage = async');
 const handlerEnd = app.indexOf('\n  const handle', handlerStart + 10);
