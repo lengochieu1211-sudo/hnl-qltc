@@ -1,6 +1,5 @@
 import { DefectItem, RoomProgressItem, TeamInfo } from '../types';
-
-const normalizeName = (value: unknown): string => String(value || '').trim().toLocaleLowerCase('vi-VN');
+import { normalizeTeamDirectoryName } from './teamDirectoryIntegrity';
 
 export function isPointInsideRoom(px: number, py: number, room: RoomProgressItem): boolean {
   if (room.points && room.points.length >= 3) {
@@ -36,22 +35,32 @@ function findTeamById(teamId: string | undefined, teams: TeamInfo[]): TeamInfo |
   return teams.find((team) => team.id === teamId);
 }
 
-function findTeamByName(name: string | undefined, teams: TeamInfo[]): TeamInfo | undefined {
-  const normalized = normalizeName(name);
-  if (!normalized) return undefined;
-  return teams.find((team) => normalizeName(team.name) === normalized);
+function findTeamsByName(name: string | undefined, teams: TeamInfo[]): TeamInfo[] {
+  const normalized = normalizeTeamDirectoryName(name);
+  if (!normalized) return [];
+  return teams.filter((team) => normalizeTeamDirectoryName(team.name) === normalized);
+}
+
+function findUniqueTeamByName(name: string | undefined, teams: TeamInfo[]): TeamInfo | undefined {
+  const matches = findTeamsByName(name, teams);
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function hasAmbiguousTeamName(name: string | undefined, teams: TeamInfo[]): boolean {
+  return findTeamsByName(name, teams).length > 1;
 }
 
 function resolveRoomTeam(room: RoomProgressItem | undefined, teams: TeamInfo[]): TeamInfo | undefined {
   if (!room) return undefined;
-  return findTeamById(room.teamId, teams) || findTeamByName(room.assignedTeam, teams);
+  return findTeamById(room.teamId, teams) || findUniqueTeamByName(room.assignedTeam, teams);
 }
 
 /**
  * Produces durable Defect -> roomId -> teamId links.
- * Existing valid teamId wins (preserves an intentional per-defect assignment), then the
- * visible assignedTo name, then the room's linked team. Whenever a declared team resolves,
- * assignedTo is canonicalized to the current team name so renames do not leave stale text.
+ * Existing valid teamId wins (preserves an intentional per-defect assignment), then a
+ * uniquely resolvable assignedTo name, then the room's linked team. A duplicated legacy
+ * team name is fail-closed: it must never silently bind the Defect to the first matching
+ * directory entry (or to a different room-default team).
  */
 export function reconcileDefectLinkage(
   defect: DefectItem,
@@ -59,14 +68,14 @@ export function reconcileDefectLinkage(
   teams: TeamInfo[]
 ): DefectItem {
   const room = findRoomForDefectPoint(defect, rooms);
-  const team =
-    findTeamById(defect.teamId, teams) ||
-    findTeamByName(defect.assignedTo, teams) ||
-    resolveRoomTeam(room, teams);
+  const explicitTeam = findTeamById(defect.teamId, teams);
+  const assignedTeam = findUniqueTeamByName(defect.assignedTo, teams);
+  const ambiguousAssignedTo = hasAmbiguousTeamName(defect.assignedTo, teams);
+  const team = explicitTeam || assignedTeam || (ambiguousAssignedTo ? undefined : resolveRoomTeam(room, teams));
 
   // Never erase durable IDs merely because realtime room/team collections have not
   // hydrated yet. Once those collections are present, geometry/name/ID reconciliation
-  // becomes authoritative.
+  // becomes authoritative. Ambiguous legacy display names deliberately remain unbound.
   const roomId = room?.id ?? (rooms.length === 0 ? defect.roomId : undefined);
   const teamId = team?.id ?? (teams.length === 0 ? defect.teamId : undefined);
   const assignedTo = team?.name || String(defect.assignedTo || '').trim() || String(room?.assignedTeam || '').trim() || 'Đội thi công';
@@ -95,13 +104,14 @@ export function resolveDefectLinkageFromSelection(
   teams: TeamInfo[]
 ): Pick<DefectItem, 'roomId' | 'teamId' | 'assignedTo'> {
   const room = findRoomForDefectPoint(pin, rooms);
-  const selectedTeam = findTeamByName(assignedTo, teams);
-  const roomTeam = resolveRoomTeam(room, teams);
+  const selectedTeam = findUniqueTeamByName(assignedTo, teams);
+  const ambiguousSelection = hasAmbiguousTeamName(assignedTo, teams);
+  const roomTeam = ambiguousSelection ? undefined : resolveRoomTeam(room, teams);
   const team = selectedTeam || roomTeam;
 
   return {
     roomId: room?.id,
-    teamId: team?.id || room?.teamId,
+    teamId: team?.id || (!ambiguousSelection ? room?.teamId : undefined),
     assignedTo: team?.name || String(assignedTo || '').trim() || String(room?.assignedTeam || '').trim() || 'Đội thi công',
   };
 }
