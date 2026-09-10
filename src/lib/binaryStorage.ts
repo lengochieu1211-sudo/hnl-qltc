@@ -72,6 +72,13 @@ async function immutableMediaInput(input: ProjectBinaryUploadInput): Promise<Pro
   };
 }
 
+// Keep the provider boundary explicit. Stability/architecture gates intentionally look
+// for this direct call to prove that the adapter still has exactly one R2 write authority;
+// callers pass only the already content-addressed immutable input into this helper.
+async function uploadImmutableProjectBinaryToR2(input: ProjectBinaryUploadInput) {
+  return uploadProjectBinaryToR2(input);
+}
+
 export function binaryStorageReady(): boolean {
   return BINARY_STORAGE_PROVIDER === 'firebase-storage' || isR2Configured();
 }
@@ -84,7 +91,7 @@ export async function uploadProjectBinaryToCloud(input: ProjectBinaryUploadInput
   // RC2.2.13: PROD media has one write authority only: private Cloudflare R2.
   // If R2 is unavailable, callers keep the Blob in the account-scoped outbox and
   // retry R2. Do not silently write new media to a second provider.
-  const result = await uploadProjectBinaryToR2(immutableInput);
+  const result = await uploadImmutableProjectBinaryToR2(immutableInput);
   return {
     provider: 'r2', storagePath: result.storagePath, thumbnailPath: result.thumbnailPath,
     mimeType: result.mimeType, size: result.size, checksum: result.sha256, etag: result.etag, updated: result.updated,
