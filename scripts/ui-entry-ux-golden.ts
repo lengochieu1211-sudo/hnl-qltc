@@ -8,7 +8,7 @@ const assert = (condition: unknown, message: string) => {
 const projectManager = read('src/components/ProjectManagerModal.tsx');
 assert(!projectManager.includes('Top Tab Bar Switcher'), 'Project list must not expose Sync/Backup tab switcher');
 assert(!projectManager.includes('setModalTab('), 'ProjectManager destination must stay fixed by caller initialTab');
-assert(projectManager.includes("const modalTab: 'sync' | 'projects' = initialTab;"), 'Dedicated Project/Sync destination mode missing');
+assert(projectManager.includes("const modalTab: 'sync' | 'projects' = initialTab === 'sync' ? 'sync' : 'projects';"), 'Dedicated Project/Sync destination mode missing');
 
 const header = read('src/components/GoogleAuthHeader.tsx');
 assert(!header.includes('<Wifi'), 'Header Wi-Fi badge must stay removed');

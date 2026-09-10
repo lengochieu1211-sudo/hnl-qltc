@@ -190,7 +190,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
   // Dedicated destination mode. Settings opens Sync/Backup only; the header
   // Project button opens Project List only. Do not cross-navigate inside this modal.
-  const modalTab: 'sync' | 'projects' = initialTab;
+  const modalTab: 'sync' | 'projects' = initialTab === 'sync' ? 'sync' : 'projects';
 
   // Creation state
   const [isCreating, setIsCreating] = useState(false);
