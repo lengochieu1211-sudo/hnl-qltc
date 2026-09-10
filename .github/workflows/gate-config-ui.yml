@@ -19,24 +19,25 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Verify base and patch
+      - name: Verify patches
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "6260cfaac5679695e255cc86848990fc277a0526" || true
-          sha256sum .gate/config-ui.patch
+          sha256sum .gate/config-ui.patch .gate/config-ui-followup.patch
           git apply --check .gate/config-ui.patch
 
-      - name: Apply config UX patch
+      - name: Apply config UX patches
         shell: bash
         run: |
           set -euo pipefail
           git apply .gate/config-ui.patch
+          git apply .gate/config-ui-followup.patch
           rm -rf .gate
           rm -f .github/workflows/gate-config-ui.yml
           grep -q 'Thông tin dự án' src/components/GoogleConfigTab.tsx
           grep -q 'Lưu cài đặt dự án' src/components/GoogleConfigTab.tsx
           grep -q 'open:fixed open:inset-0 open:z-\[80\]' src/components/GoogleConfigTab.tsx
+          grep -q 'Hệ thống · đồng bộ · ảnh · audit dữ liệu · xử lý liên kết trong một nơi.' src/components/GoogleConfigTab.tsx
           python - <<'PY'
           from pathlib import Path
           s=Path('src/components/GoogleConfigTab.tsx').read_text()
