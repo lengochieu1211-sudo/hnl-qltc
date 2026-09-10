@@ -15,176 +15,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ux/clean-open-controls-20260910
-      - name: Finish UI consistency and add regression
-        shell: bash
+      - name: Apply staged patch
+        run: python scripts/_tmp-finish-ui-consistency.py
+      - name: Validate focused UI gate
         run: |
-          set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-
-          def replace_once(text: str, old: str, new: str, label: str) -> str:
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f'{label}: expected exactly 1 match, got {count}')
-              return text.replace(old, new, 1)
-
-          # Primary Drive advanced details: summary row is the trigger; arrow is only an affordance.
-          path = Path('src/components/PrimaryDriveStatusCard.tsx')
-          text = path.read_text(encoding='utf-8')
-          text = replace_once(
-              text,
-              "import { AlertTriangle, CheckCircle2, Cloud, HardDrive, RefreshCw, Save, CloudUpload } from 'lucide-react';",
-              "import { AlertTriangle, CheckCircle2, Cloud, HardDrive, RefreshCw, Save, CloudUpload, ChevronDown } from 'lucide-react';",
-              'PrimaryDrive chevron import',
-          )
-          text = replace_once(
-              text,
-              "          <span className=\"text-[10px] text-slate-400 group-open:hidden\">Mở</span>\n          <span className=\"text-[10px] text-slate-400 hidden group-open:inline\">Thu gọn</span>",
-              "          <ChevronDown className=\"h-4 w-4 text-slate-400 transition-transform group-open:rotate-180\" />",
-              'PrimaryDrive open labels',
-          )
-          path.write_text(text, encoding='utf-8')
-
-          # Floor plan drawing tools inline details: remove redundant open/collapse words.
-          path = Path('src/components/FloorPlanDefectTab.tsx')
-          text = path.read_text(encoding='utf-8')
-          text = replace_once(
-              text,
-              "                <span className=\"text-slate-400 group-open:hidden\">Mở</span>\n                <span className=\"text-slate-400 hidden group-open:inline\">Thu gọn</span>",
-              "                <ChevronDown className=\"h-4 w-4 text-slate-400 transition-transform group-open:rotate-180\" />",
-              'FloorPlan drawing details labels',
-          )
-          path.write_text(text, encoding='utf-8')
-
-          # PDF options details: same interaction contract.
-          path = Path('src/components/ExportPdfModal.tsx')
-          text = path.read_text(encoding='utf-8')
-          text = replace_once(
-              text,
-              "import { FileText, Download, Printer, X, CheckCircle2, Filter, Mail, Package, BarChart3, Building2, ClipboardCheck, FileSpreadsheet, Users, Copy, HelpCircle, Camera, Image as ImageIcon } from 'lucide-react';",
-              "import { FileText, Download, Printer, X, CheckCircle2, Filter, Mail, Package, BarChart3, Building2, ClipboardCheck, FileSpreadsheet, Users, Copy, HelpCircle, Camera, Image as ImageIcon, ChevronDown } from 'lucide-react';",
-              'ExportPdf chevron import',
-          )
-          label_pair = "              <span className=\"text-[10px] text-slate-400 group-open:hidden\">Mở</span>\n              <span className=\"text-[10px] text-slate-400 hidden group-open:inline\">Thu gọn</span>"
-          count = text.count(label_pair)
-          if count != 2:
-              raise SystemExit(f'ExportPdf detail label pairs: expected 2, got {count}')
-          text = text.replace(label_pair, "              <ChevronDown className=\"h-4 w-4 text-slate-400 transition-transform group-open:rotate-180\" />")
-          path.write_text(text, encoding='utf-8')
-
-          # Room editor cards already use the whole row as a button. Keep the meaningful noun,
-          # remove only the state word “Thu gọn”; chevrons still show open/closed state.
-          path = Path('src/components/RoomHighlightModal.tsx')
-          text = path.read_text(encoding='utf-8')
-          text = replace_once(text, "<span>{showColorPicker ? 'Thu gọn' : 'Tùy chỉnh'}</span>", "<span>Tùy chỉnh</span>", 'Room color label')
-          text = replace_once(text, "<span>{showMaterialEstimates ? 'Thu gọn' : 'Chi tiết'}</span>", "<span>Chi tiết</span>", 'Room material detail label')
-          text = replace_once(text, "<span>{showDimensionSettings ? 'Thu gọn' : 'Tùy chỉnh'}</span>", "<span>Tùy chỉnh</span>", 'Room dimension label')
-          path.write_text(text, encoding='utf-8')
-
-          # Sync center encryption options: “Tùy chỉnh” is the feature; arrow/state is implicit.
-          path = Path('src/components/ProjectManagerModal.tsx')
-          text = path.read_text(encoding='utf-8')
-          text = replace_once(text, "{showExportEncryptOptions ? 'Thu gọn' : 'Tùy chỉnh'}", "Tùy chỉnh", 'ProjectManager encryption label')
-          path.write_text(text, encoding='utf-8')
-
-          # Security Center subtitle now explicitly includes account ownership.
-          path = Path('src/components/SecurityModal.tsx')
-          text = path.read_text(encoding='utf-8')
-          text = replace_once(
-              text,
-              "                Khóa ứng dụng, phân quyền và mã hóa bảo mật",
-              "                Tài khoản, khóa ứng dụng, phân quyền và mã hóa bảo mật",
-              'Security subtitle',
-          )
-          path.write_text(text, encoding='utf-8')
-
-          # Static regression: keeps the agreed navigation/entry contract from drifting back.
-          golden = r'''import fs from 'node:fs';
-
-const read = (path: string) => fs.readFileSync(path, 'utf8');
-const assert = (condition: unknown, message: string) => {
-  if (!condition) throw new Error(message);
-};
-
-const projectManager = read('src/components/ProjectManagerModal.tsx');
-assert(!projectManager.includes('Top Tab Bar Switcher'), 'Sync Center must not expose Project List tab switcher');
-assert(!projectManager.includes('setModalTab('), 'Sync Center destination must be fixed by caller initialTab');
-assert(projectManager.includes("const modalTab: 'sync' | 'projects' = initialTab;"), 'ProjectManager dedicated destination mode missing');
-
-const header = read('src/components/GoogleAuthHeader.tsx');
-assert(!header.includes('<Wifi'), 'Header Wi-Fi badge must stay removed');
-assert(!header.includes('<WifiOff'), 'Header offline Wi-Fi badge must stay removed');
-assert(!header.includes('GoogleAuthModal'), 'Header login modal/shortcut must stay removed');
-assert(!header.includes('Google Account Quick Badge'), 'Header Google account quick badge must stay removed');
-
-const security = read('src/components/SecurityModal.tsx');
-assert(security.includes('Tài khoản Google/Firebase'), 'Security Center must own Google/Firebase account entry');
-assert(security.includes('handleAccountSignIn'), 'Security Center sign-in handler missing');
-assert(security.includes('handleAccountSignOut'), 'Security Center sign-out handler missing');
-
-const indicator = read('src/components/ExpandCollapseIndicator.tsx');
-assert(!indicator.includes('group-open:hidden'), 'Settings details indicator must not render Mở/Mở rộng text');
-assert(!indicator.includes('group-open:inline'), 'Settings details indicator must not render Thu gọn text');
-
-const materialButton = read('src/components/ExpandCollapseButton.tsx');
-assert(!materialButton.includes("isMaterialNeedPage ? 'Mở'"), 'Material Need must not render redundant Mở label');
-const warehouse = read('src/components/WarehouseTab.tsx');
-assert(warehouse.includes('aria-controls="material-need-details"'), 'Material Need whole-row trigger missing');
-assert(warehouse.includes('role="button"'), 'Material Need heading row must be tappable');
-
-for (const path of [
-  'src/components/PrimaryDriveStatusCard.tsx',
-  'src/components/FloorPlanDefectTab.tsx',
-  'src/components/ExportPdfModal.tsx',
-]) {
-  const source = read(path);
-  assert(!source.includes('group-open:hidden">Mở</span>'), `${path}: redundant Mở detail label returned`);
-  assert(!source.includes('group-open:inline">Thu gọn</span>'), `${path}: redundant Thu gọn detail label returned`);
-}
-
-const room = read('src/components/RoomHighlightModal.tsx');
-assert(!room.includes("showColorPicker ? 'Thu gọn'"), 'Room color card must use stable meaningful label');
-assert(!room.includes("showMaterialEstimates ? 'Thu gọn'"), 'Room material card must use stable meaningful label');
-assert(!room.includes("showDimensionSettings ? 'Thu gọn'"), 'Room dimension card must use stable meaningful label');
-
-console.log('PASS ui-entry-ux-golden: unified open/close, Sync Center and Security account contracts are intact.');
-'''
-          Path('scripts/ui-entry-ux-golden.ts').write_text(golden, encoding='utf-8')
-
-          # Wire the regression into the main Stability Gate. No dependency change => package-lock stays untouched.
-          path = Path('package.json')
-          text = path.read_text(encoding='utf-8')
-          text = replace_once(
-              text,
-              'npm run test:media-p0 && npm run test:superadmin-navigation",',
-              'npm run test:media-p0 && npm run test:superadmin-navigation && npm run test:ui-entry-ux",',
-              'stability UI regression hook',
-          )
-          text = replace_once(
-              text,
-              '    "test:superadmin-navigation": "tsx scripts/superadmin-navigation-golden.ts"',
-              '    "test:superadmin-navigation": "tsx scripts/superadmin-navigation-golden.ts",\n    "test:ui-entry-ux": "tsx scripts/ui-entry-ux-golden.ts"',
-              'UI regression script',
-          )
-          path.write_text(text, encoding='utf-8')
-
-          print('Final UI consistency patch prepared.')
-          PY
-
           npm ci
           npm run test:ui-entry-ux
           npm run typecheck
           npm run lint
           npm run build
-
-      - name: Commit patch and remove temp workflow
-        shell: bash
+      - name: Commit final source patch
         run: |
-          set -euo pipefail
-          rm -f .github/workflows/_tmp-finish-ui-consistency.yml
+          rm -f .github/workflows/_tmp-finish-ui-consistency.yml scripts/_tmp-finish-ui-consistency.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/components/PrimaryDriveStatusCard.tsx src/components/FloorPlanDefectTab.tsx src/components/ExportPdfModal.tsx src/components/RoomHighlightModal.tsx src/components/ProjectManagerModal.tsx src/components/SecurityModal.tsx scripts/ui-entry-ux-golden.ts package.json .github/workflows/_tmp-finish-ui-consistency.yml
+          git add -A
           git diff --cached --check
           git commit -m "test(ui): lock unified entry and disclosure UX"
           git push origin HEAD:ux/clean-open-controls-20260910
