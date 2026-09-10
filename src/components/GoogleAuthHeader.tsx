@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
   CloudCheck, 
-  RefreshCw, 
   FileSpreadsheet, 
   CheckCircle2, 
   ExternalLink,
@@ -299,17 +298,6 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
                   <span className="hidden sm:inline">Dự án</span>
                 </button>
               )}
-
-              {/* Nút Đồng Bộ mở Trung tâm lưu & đồng bộ dự án */}
-              <button
-                onClick={() => onOpenProjectManager ? onOpenProjectManager('sync') : handleTriggerSync()}
-                disabled={isSyncing}
-                className="flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white p-1.5 sm:px-3 sm:py-1.5 rounded-lg text-xs font-extrabold transition-all shadow-sm active:scale-95 shrink-0 cursor-pointer border border-emerald-500/50 whitespace-nowrap"
-                title="Trung tâm lưu & đồng bộ dự án"
-              >
-                <RefreshCw className={`w-4 h-4 text-emerald-100 shrink-0 ${isSyncing ? 'animate-spin' : ''}`} />
-                <span className="hidden sm:inline">{isSyncing ? 'Đang đồng bộ...' : 'Đồng Bộ'}</span>
-              </button>
 
               {/* Nút Báo Cáo PDF & Excel */}
               {onOpenExportPdf && (
