@@ -41,6 +41,8 @@ assert(!indicator.includes("expandLabel = 'Mở rộng'"), 'Settings disclosure 
 assert(!indicator.includes("collapseLabel = 'Thu gọn'"), 'Settings disclosure must not render Thu gọn text labels');
 assert(indicator.includes('<X className="hidden h-5 w-5 group-open:block"'), 'Opened settings page must expose X close affordance');
 assert(indicator.includes("event.key !== 'Escape'"), 'PC Escape close behavior missing');
+assert(indicator.includes("window.addEventListener('keydown', onKeyDown, true)"), 'Settings sheet must capture Escape before nested/app key handlers');
+assert(indicator.includes("window.removeEventListener('keydown', onKeyDown, true)"), 'Settings sheet Escape capture listener cleanup missing');
 assert(indicator.includes("window.addEventListener('popstate'"), 'Android/browser Back close behavior missing');
 assert(indicator.includes("details.style.top = '8dvh'"), 'Mobile Settings panel must open as a rounded sheet instead of a flat fullscreen page');
 assert(indicator.includes("details.style.borderRadius = '28px 28px 0 0'"), 'Mobile Settings panel rounded-top contract missing');

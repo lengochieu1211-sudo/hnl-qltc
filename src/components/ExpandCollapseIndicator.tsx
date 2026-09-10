@@ -133,7 +133,8 @@ export const ExpandCollapseIndicator: React.FC<ExpandCollapseIndicatorProps> = (
       if (!active) return;
       active = false;
       window.removeEventListener('resize', applyLayout);
-      window.removeEventListener('keydown', onKeyDown);
+      // Escape must be captured before focused controls/app-level handlers can consume it.
+      window.removeEventListener('keydown', onKeyDown, true);
       window.removeEventListener('popstate', onPopState);
       backdrop?.removeEventListener('click', requestClose);
       backdrop?.remove();
@@ -179,7 +180,9 @@ export const ExpandCollapseIndicator: React.FC<ExpandCollapseIndicatorProps> = (
 
       applyLayout();
       window.addEventListener('resize', applyLayout);
-      window.addEventListener('keydown', onKeyDown);
+      // Capture phase makes PC Escape deterministic even when focus is inside a control
+      // with its own key handler. The sheet is the top interaction layer and closes first.
+      window.addEventListener('keydown', onKeyDown, true);
       window.addEventListener('popstate', onPopState);
     };
 
