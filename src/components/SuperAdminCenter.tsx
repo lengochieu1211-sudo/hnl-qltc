@@ -7,7 +7,6 @@ import {
   BellRing,
   CloudCog,
   DatabaseZap,
-  Stethoscope,
   ChevronRight,
   ImageIcon,
   Type,
@@ -147,16 +146,10 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
       onClick: onOpenNotificationCenter,
     },
     {
-      title: 'Đồng bộ & R2',
-      description: `Ảnh đang chờ: ${pendingPhotoCount}. Mở công cụ hệ thống để kiểm tra đồng bộ và chẩn đoán.`,
+      title: 'Đồng bộ, R2 & Chẩn đoán',
+      description: `Ảnh đang chờ: ${pendingPhotoCount}. Mở HNL Health Center để kiểm tra Firebase/R2, ảnh, đồng bộ, chẩn đoán và phục hồi.`,
       icon: CloudCog,
       onClick: () => openConfigSection('system-sync-card'),
-    },
-    {
-      title: 'Chẩn đoán hệ thống',
-      description: 'Mở trạng thái Firebase/R2, chẩn đoán, export diagnostic và công cụ phục hồi.',
-      icon: Stethoscope,
-      onClick: () => openConfigSection('system-diagnostics-card'),
     },
   ];
 
