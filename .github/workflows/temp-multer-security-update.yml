@@ -1,0 +1,72 @@
+name: Temporary Multer Security Hardening
+
+on:
+  push:
+    branches:
+      - security/multer-2.3.0-20260910
+    paths:
+      - .github/workflows/temp-multer-security-update.yml
+
+permissions:
+  contents: write
+
+jobs:
+  update-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout hardening branch
+        uses: actions/checkout@v4
+        with:
+          ref: security/multer-2.3.0-20260910
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Upgrade Multer to patched release
+        run: npm install multer@2.3.0 --save
+
+      - name: Add bounded multipart limits to legacy migration upload
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('server.ts')
+          text = path.read_text(encoding='utf-8')
+          old = "const upload = multer({ storage: multer.memoryStorage() });"
+          new = """const upload = multer({
+            storage: multer.memoryStorage(),
+            // Legacy Drive migration only. Keep multipart parsing bounded even when an
+            // operator explicitly enables the otherwise-disabled migration routes.
+            limits: {
+              fileSize: 50 * 1024 * 1024,
+              fieldSize: 70 * 1024 * 1024,
+              files: 1,
+              fields: 6,
+              parts: 8,
+              fieldNameSize: 100,
+            },
+          });"""
+          if old not in text:
+              raise SystemExit('Expected Multer initialization not found; refusing broad rewrite')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+      - name: Verify hardening before commit
+        run: |
+          npm run typecheck
+          npm run lint
+          npm run security:audit
+          npm run build
+
+      - name: Commit generated lockfile and bounded upload config
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json server.ts
+          if git diff --cached --quiet; then
+            echo "No dependency changes produced"
+            exit 1
+          fi
+          git commit -m "security: upgrade multer and bound legacy uploads"
+          git push origin HEAD:security/multer-2.3.0-20260910
