@@ -1,16 +1,15 @@
 name: TEMP Team ID Integrity Hardening
 
-on:
+'on':
   push:
-    branches:
-      - hardening/team-id-integrity
+    branches: ["hardening/team-id-integrity"]
 
 permissions:
   contents: write
 
 jobs:
-  patch-and-verify:
-    if: github.actor != 'github-actions[bot]'
+  patch_and_verify:
+    if: ${{ github.actor != 'github-actions[bot]' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -36,29 +35,24 @@ jobs:
                   raise SystemExit(f'{path}: expected exactly 1 occurrence, got {count}: {old[:120]!r}')
               p.write_text(text.replace(old, new, 1))
 
-          # 1) Manual team directory: case-insensitive unique name invariant.
           replace_once(
               'src/components/CrewTabBase.tsx',
               "    const teamData: TeamInfo = {\n      id: editingTeam ? editingTeam.id : createEntityId('team'),",
               "    const normalizedTeamName = tName.trim().toLocaleLowerCase('vi-VN');\n    const duplicateNameTeam = teams.find((team) =>\n      team.id !== editingTeam?.id &&\n      team.name.trim().toLocaleLowerCase('vi-VN') === normalizedTeamName\n    );\n    if (duplicateNameTeam) {\n      alert(`Tên đội “${tName.trim()}” đã tồn tại. Mỗi đội phải có tên duy nhất để liên kết teamId chính xác.`);\n      return;\n    }\n\n    const teamData: TeamInfo = {\n      id: editingTeam ? editingTeam.id : createEntityId('team'),"
           )
 
-          # 2) Excel team import: prefer ID when consistent, otherwise fall back to unique name;
-          # reject an ID/name collision instead of creating or renaming into a duplicate team.
           replace_once(
               'src/components/CrewTabBase.tsx',
               "          const existingIdx = rawTeamId \n            ? newTeams.findIndex(t => t.id === rawTeamId)\n            : newTeams.findIndex(t => t.name.toLowerCase() === nameStr.toLowerCase());",
               "          const normalizedImportedName = nameStr.toLocaleLowerCase('vi-VN');\n          const existingIdxById = rawTeamId ? newTeams.findIndex(t => t.id === rawTeamId) : -1;\n          const existingIdxByName = newTeams.findIndex(t => t.name.trim().toLocaleLowerCase('vi-VN') === normalizedImportedName);\n          if (existingIdxById !== -1 && existingIdxByName !== -1 && existingIdxById !== existingIdxByName) {\n            skippedCount++;\n            return;\n          }\n          const existingIdx = existingIdxById !== -1 ? existingIdxById : existingIdxByName;"
           )
 
-          # 3) Room save: never first-match an ambiguous team display name.
           replace_once(
               'src/components/RoomHighlightModal.tsx',
               "    const matchingTeam = displayTeams.find(t => t.name.trim().toLowerCase() === assignedTeam.trim().toLowerCase());\n    const finalTeamId = matchingTeam?.id || undefined;",
               "    const teamNameKey = (value: string) => value.trim().toLocaleLowerCase('vi-VN');\n    const resolveUniqueTeamByName = (name: string) => {\n      const key = teamNameKey(name);\n      if (!key) return undefined;\n      const matches = displayTeams.filter((team) => teamNameKey(team.name) === key);\n      return matches.length === 1 ? matches[0] : undefined;\n    };\n    const hasAmbiguousTeamName = (name: string) => {\n      const key = teamNameKey(name);\n      return Boolean(key && displayTeams.filter((team) => teamNameKey(team.name) === key).length > 1);\n    };\n\n    if (hasAmbiguousTeamName(assignedTeam)) {\n      alert(`Tên đội “${assignedTeam}” đang bị trùng trong danh bạ. Hãy đổi tên đội để liên kết teamId duy nhất trước khi lưu.`);\n      return;\n    }\n    const ambiguousSubItem = subItems.find((item) => !item.teamId && item.assignedTeam && hasAmbiguousTeamName(item.assignedTeam));\n    if (ambiguousSubItem?.assignedTeam) {\n      alert(`Hạng mục “${ambiguousSubItem.name}” đang dùng tên đội trùng “${ambiguousSubItem.assignedTeam}”. Không lưu để tránh gắn sai teamId.`);\n      return;\n    }\n\n    const existingRoomTeam = roomItem?.teamId ? displayTeams.find((team) => team.id === roomItem.teamId) : undefined;\n    const roomTeamSelectionUnchanged = Boolean(roomItem && assignedTeam === (roomItem.assignedTeam || ''));\n    const matchingTeam = roomTeamSelectionUnchanged && existingRoomTeam ? existingRoomTeam : resolveUniqueTeamByName(assignedTeam);\n    const finalTeamId = matchingTeam?.id || undefined;\n    const finalAssignedTeam = matchingTeam?.name || assignedTeam;"
           )
 
-          # 4) Sub-item finalization: preserve a valid explicit teamId; otherwise resolve only a unique name.
           replace_once(
               'src/components/RoomHighlightModal.tsx',
               "      const sTeam = s.assignedTeam || '';\n      const matchingSubTeam = displayTeams.find(t => t.name.trim().toLowerCase() === sTeam.trim().toLowerCase());\n      const subTeamId = matchingSubTeam?.id || undefined;",
@@ -75,21 +69,18 @@ jobs:
               "      assignedTeam: finalAssignedTeam,\n      teamId: finalTeamId,"
           )
 
-          # 5) Single sub-item selector stores both display name and durable ID immediately.
           replace_once(
               'src/components/RoomHighlightModal.tsx',
               "                                onChange={(e) => handleUpdateSubItem(item.id, { assignedTeam: e.target.value })}",
               "                                onChange={(e) => {\n                                  const nextName = e.target.value;\n                                  const matches = displayTeams.filter((team) => team.name === nextName);\n                                  handleUpdateSubItem(item.id, {\n                                    assignedTeam: nextName,\n                                    teamId: matches.length === 1 ? matches[0].id : undefined,\n                                  });\n                                }}"
           )
 
-          # 6) Bulk sub-item selector stores both fields as well.
           replace_once(
               'src/components/RoomHighlightModal.tsx',
               "                            const team = e.target.value;\n                            if (team !== '') {\n                              setSubItems(prev => prev.map(s => selectedSubItemIds.includes(s.id) ? { ...s, assignedTeam: team } : s));\n                            }",
               "                            const team = e.target.value;\n                            if (team !== '') {\n                              const matches = displayTeams.filter((item) => item.name === team);\n                              const teamId = matches.length === 1 ? matches[0].id : undefined;\n                              setSubItems(prev => prev.map(s => selectedSubItemIds.includes(s.id) ? { ...s, assignedTeam: team, teamId } : s));\n                            }"
           )
 
-          # Permanent source regression: guards all invariants above.
           Path('scripts/team-id-integrity-golden.ts').write_text(r'''import fs from 'node:fs';
 
 const read = (path: string) => fs.readFileSync(path, 'utf8');
@@ -113,7 +104,6 @@ check(room.includes('{ ...s, assignedTeam: team, teamId }'), 'Bulk sub-item sele
 console.log('Team ID integrity golden PASS');
 ''')
 
-          # Keep regression permanently in Stability.
           pkg_path = Path('package.json')
           pkg = json.loads(pkg_path.read_text())
           pkg['scripts']['test:team-id-integrity'] = 'tsx scripts/team-id-integrity-golden.ts'
@@ -128,12 +118,11 @@ console.log('Team ID integrity golden PASS');
         run: npm run test:material-need && npm run test:team-id-integrity
       - name: Full verify
         run: npm run verify
-      - name: Commit verified source only
+      - name: Commit verified source changes
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm .github/workflows/team-id-integrity-patch.yml
           git add src/components/CrewTabBase.tsx src/components/RoomHighlightModal.tsx scripts/team-id-integrity-golden.ts package.json
           git commit -m "hardening: make teamId linkage deterministic"
           git push origin HEAD:hardening/team-id-integrity
