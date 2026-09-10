@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ux/clean-open-controls-20260910
-      - name: Apply unified open/close UX
+      - name: Apply unified open/close and account UX
         shell: bash
         run: |
           set -euo pipefail
@@ -28,13 +28,13 @@ jobs:
                   raise SystemExit(f'{label}: expected exactly 1 match, got {count}')
               return text.replace(old, new, 1)
 
-          # 1) Project Manager and Sync/Backup Center become two dedicated entry modes.
+          # 1) Sync/Backup Center and Project List are separate destinations.
           path = Path('src/components/ProjectManagerModal.tsx')
           text = path.read_text(encoding='utf-8')
           text = replace_once(
               text,
               "  // Main navigation tab within the modal\n  const [modalTab, setModalTab] = useState<'sync' | 'projects'>('sync');",
-              "  // Dedicated modal mode. The caller decides whether this instance is the\n  // Project list or the Sync/Backup Center; users no longer switch between them here.\n  const modalTab: 'sync' | 'projects' = initialTab;",
+              "  // Dedicated destination mode. Settings opens Sync/Backup only; the header\n  // Project button opens Project List only. Do not cross-navigate inside this modal.\n  const modalTab: 'sync' | 'projects' = initialTab;",
               'ProjectManager modal mode state',
           )
           text = replace_once(
@@ -49,13 +49,12 @@ jobs:
           end = text.find(end_marker, start + 1)
           if start < 0 or end < 0:
               raise SystemExit('ProjectManager top tab bar markers not found')
-          text = text[:start] + end_marker + text[end + len(end_marker):]
-          if 'setModalTab(' in text:
-              raise SystemExit('ProjectManager still contains setModalTab after split')
+          text = text[:start] + text[end:]
+          if 'setModalTab(' in text or 'Top Tab Bar Switcher' in text:
+              raise SystemExit('ProjectManager still exposes cross-navigation')
           path.write_text(text, encoding='utf-8')
 
-          # 2) Settings collapsible rows: the whole summary row is the trigger.
-          # The trailing affordance is now icon-only; no redundant Mở/Mở rộng/Thu gọn text button.
+          # 2) Collapsible Settings rows: summary itself is the trigger; trailing affordance is icon-only.
           path = Path('src/components/ExpandCollapseIndicator.tsx')
           text = path.read_text(encoding='utf-8')
           text = replace_once(
@@ -69,33 +68,27 @@ jobs:
           text = replace_once(text, old_return, new_return, 'ExpandCollapseIndicator return')
           path.write_text(text, encoding='utf-8')
 
-          # 3) Material Need: whole heading row opens it; keep the existing floating page behavior.
-          # ExpandCollapseButton is currently intentionally used only by WarehouseTab.
-          usage_files = []
-          for candidate in Path('src').rglob('*.tsx'):
-              if '<ExpandCollapseButton' in candidate.read_text(encoding='utf-8'):
-                  usage_files.append(candidate.as_posix())
-          if usage_files != ['src/components/WarehouseTab.tsx']:
-              raise SystemExit(f'Unexpected ExpandCollapseButton usages: {usage_files}')
-
+          # 3) Material Need: tap the whole heading row to open; no redundant Mở button.
           path = Path('src/components/ExpandCollapseButton.tsx')
           text = path.read_text(encoding='utf-8')
-          text = replace_once(text, "import { ChevronDown, ChevronUp, X } from 'lucide-react';", "import { ChevronDown, X } from 'lucide-react';", 'ExpandCollapseButton import')
-          text = replace_once(
-              text,
-              "  className = '',\n  expandLabel = 'Mở rộng',\n  collapseLabel = 'Thu gọn',\n}) => {",
-              "  className = '',\n}) => {",
-              'ExpandCollapseButton props',
-          )
           text = replace_once(
               text,
               "            onClick={onToggle}\n            className=\"inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm active:scale-95\"\n            aria-label=\"Đóng Gợi ý vật tư tổng hợp\"\n          >\n            <X className=\"h-4 w-4\" />\n            Đóng\n          </button>",
               "            onClick={(event) => {\n              event.stopPropagation();\n              onToggle();\n            }}\n            className=\"inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm active:scale-95\"\n            aria-label=\"Đóng Gợi ý vật tư tổng hợp\"\n            title=\"Đóng\"\n          >\n            <X className=\"h-4 w-4\" />\n          </button>",
               'Material Need close control',
           )
-          old_generic = """  return (\n    <button\n      type=\"button\"\n      onClick={onToggle}\n      className={`shrink-0 inline-flex min-h-9 items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-indigo-700 active:scale-95 ${className}`}\n      aria-expanded={expanded}\n      aria-controls={controls}\n    >\n      {expanded ? <ChevronUp className=\"h-3.5 w-3.5\" /> : <ChevronDown className=\"h-3.5 w-3.5\" />}\n      {isMaterialNeedPage ? 'Mở' : (expanded ? collapseLabel : expandLabel)}\n    </button>\n  );"""
-          new_generic = """  return (\n    <span\n      aria-hidden=\"true\"\n      className={`shrink-0 inline-flex h-9 w-9 items-center justify-center rounded-lg text-indigo-600 transition-colors ${className}`}\n    >\n      <ChevronDown className=\"h-4 w-4\" />\n    </span>\n  );"""
-          text = replace_once(text, old_generic, new_generic, 'Material Need collapsed trigger')
+          generic_marker = "  return (\n    <button\n      type=\"button\"\n      onClick={onToggle}"
+          idx = text.find(generic_marker)
+          if idx < 0:
+              raise SystemExit('ExpandCollapseButton generic return marker not found')
+          special = """  if (isMaterialNeedPage) {\n    return (\n      <span\n        aria-hidden=\"true\"\n        className={`shrink-0 inline-flex h-9 w-9 items-center justify-center rounded-lg text-indigo-600 transition-all ${className}`}\n      >\n        <ChevronDown className=\"h-4 w-4\" />\n      </span>\n    );\n  }\n\n"""
+          text = text[:idx] + special + text[idx:]
+          text = replace_once(
+              text,
+              "      {isMaterialNeedPage ? 'Mở' : (expanded ? collapseLabel : expandLabel)}",
+              "      {expanded ? collapseLabel : expandLabel}",
+              'Material Need Mở label',
+          )
           path.write_text(text, encoding='utf-8')
 
           path = Path('src/components/WarehouseTab.tsx')
@@ -105,18 +98,94 @@ jobs:
           text = replace_once(text, old_header, new_header, 'Warehouse Material Need header')
           path.write_text(text, encoding='utf-8')
 
-          # Focused policy checks for the agreed UX.
+          # 4) Header: remove Wi-Fi and Google login/account badges. Authentication moves to Security Center.
+          path = Path('src/components/GoogleAuthHeader.tsx')
+          text = path.read_text(encoding='utf-8')
+          text = replace_once(text, "  UserCheck,\n  Wifi,\n  WifiOff,\n", "", 'Header status icon imports')
+          text = replace_once(text, "import { GoogleAuthModal } from './GoogleAuthModal';\n", "", 'Header GoogleAuthModal import')
+          text = replace_once(text, "  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);\n", "", 'Header auth modal state')
+          online_state = """  const [isOnline, setIsOnline] = useState<boolean>(\n    typeof navigator !== 'undefined' ? navigator.onLine : true\n  );\n"""
+          text = replace_once(text, online_state, "", 'Header network state')
+          online_effect = """  useEffect(() => {\n    const handleOnline = () => setIsOnline(true);\n    const handleOffline = () => setIsOnline(false);\n    window.addEventListener('online', handleOnline);\n    window.addEventListener('offline', handleOffline);\n    return () => {\n      window.removeEventListener('online', handleOnline);\n      window.removeEventListener('offline', handleOffline);\n    };\n  }, []);\n\n"""
+          text = replace_once(text, online_effect, "", 'Header network effect')
+          connect_handler = """  const handleConnectGoogle = async () => {\n    setIsAuthModalOpen(true);\n  };\n\n"""
+          text = replace_once(text, connect_handler, "", 'Header connect handler')
+          text = replace_once(
+              text,
+              "    if (!authStatus.authenticated) {\n      setIsAuthModalOpen(true);\n      return;\n    }",
+              "    if (!authStatus.authenticated) {\n      onOpenSecurity?.();\n      return;\n    }",
+              'Header sync unauthenticated route',
+          )
+          status_start = text.find("            {/* Status Badges: Network & Google (Icon badges with tooltips) */}")
+          toolbar_marker = "          {/* Action & Control Toolbar Row */}"
+          toolbar = text.find(toolbar_marker, status_start + 1)
+          if status_start < 0 or toolbar < 0:
+              raise SystemExit('Header status badges markers not found')
+          # Keep the top-header closing div immediately before the toolbar.
+          closing = text.rfind("          </div>", status_start, toolbar)
+          if closing < status_start:
+              raise SystemExit('Header top-row closing marker not found')
+          text = text[:status_start] + text[closing:]
+          auth_modal_block = """      {/* Google Auth Modal */}\n      <GoogleAuthModal\n        isOpen={isAuthModalOpen}\n        onClose={() => setIsAuthModalOpen(false)}\n        authStatus={authStatus}\n        onRefreshAuth={checkAuthStatus}\n      />\n"""
+          text = replace_once(text, auth_modal_block, "", 'Header auth modal render')
+          if '<Wifi' in text or '<WifiOff' in text or 'handleConnectGoogle' in text or 'GoogleAuthModal' in text or 'isAuthModalOpen' in text:
+              raise SystemExit('Header still contains Wi-Fi or login badge/modal UI')
+          path.write_text(text, encoding='utf-8')
+
+          # 5) Security Center owns Google/Firebase account login/logout.
+          path = Path('src/components/SecurityModal.tsx')
+          text = path.read_text(encoding='utf-8')
+          text = replace_once(text, "  Crown,\n  HardDrive\n", "  Crown,\n  HardDrive,\n  LogIn,\n  LogOut\n", 'Security account icons')
+          text = replace_once(
+              text,
+              "import { signInWithGoogle, getCurrentFirebaseUser,",
+              "import { signInWithGoogle, signOutFirebaseAccount, getCurrentFirebaseUser,",
+              'Security firebase auth import',
+          )
+          text = replace_once(
+              text,
+              "  const [claimMsg, setClaimMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);\n",
+              "  const [claimMsg, setClaimMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);\n  const [isAccountBusy, setIsAccountBusy] = useState(false);\n  const [accountMsg, setAccountMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);\n",
+              'Security account state',
+          )
+          text = replace_once(
+              text,
+              "      setClaimMsg(null);\n",
+              "      setClaimMsg(null);\n      setAccountMsg(null);\n",
+              'Security reset account message',
+          )
+          handler_marker = "  const handleClaimOwnership = async () => {"
+          handler_idx = text.find(handler_marker)
+          if handler_idx < 0:
+              raise SystemExit('Security handleClaimOwnership marker not found')
+          handlers = """  const handleAccountSignIn = async () => {\n    if (isAccountBusy) return;\n    setIsAccountBusy(true);\n    setAccountMsg(null);\n    try {\n      const user = await signInWithGoogle();\n      if (user) {\n        setCloudUser(user);\n        setAccountMsg({ type: 'success', text: `Đã đăng nhập ${user.email || 'tài khoản Google/Firebase'}.` });\n        await refreshCloudStatus(selectedPid);\n      }\n    } catch (err: any) {\n      setAccountMsg({ type: 'error', text: `Không đăng nhập được Google/Firebase: ${err?.message || err}` });\n    } finally {\n      setIsAccountBusy(false);\n    }\n  };\n\n  const handleAccountSignOut = async () => {\n    if (isAccountBusy) return;\n    setIsAccountBusy(true);\n    setAccountMsg(null);\n    try {\n      await signOutFirebaseAccount();\n      setCloudUser(null);\n      setCloudRoleInfo(null);\n      setRoleState('VIEWER');\n      setCurrentUserRole('VIEWER');\n      setAccountMsg({ type: 'success', text: 'Đã đăng xuất tài khoản Google/Firebase.' });\n    } catch (err: any) {\n      setAccountMsg({ type: 'error', text: `Không đăng xuất được: ${err?.message || err}` });\n    } finally {\n      setIsAccountBusy(false);\n    }\n  };\n\n"""
+          text = text[:handler_idx] + handlers + text[handler_idx:]
+
+          tabs_marker = "        {/* Tabs */}"
+          tabs_idx = text.find(tabs_marker)
+          if tabs_idx < 0:
+              raise SystemExit('Security Tabs marker not found')
+          account_panel = """        {/* Google/Firebase account lives in Security Center, not in the global header. */}\n        <div className=\"mt-2.5 shrink-0 rounded-2xl border border-slate-200 bg-slate-50/80 p-3\">\n          <div className=\"flex items-center justify-between gap-3\">\n            <div className=\"flex min-w-0 items-center gap-2.5\">\n              <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${cloudUser ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>\n                <UserCheck className=\"h-4 w-4\" />\n              </div>\n              <div className=\"min-w-0\">\n                <div className=\"text-[11px] font-extrabold text-slate-800\">Tài khoản Google/Firebase</div>\n                <div className={`truncate text-[10px] font-semibold ${cloudUser ? 'text-emerald-700' : 'text-slate-500'}`}>\n                  {cloudUser ? `${cloudUser.email || cloudUser.displayName || 'Đã đăng nhập'} · ${currentRole}` : 'Chưa đăng nhập'}\n                </div>\n              </div>\n            </div>\n            {cloudUser ? (\n              <button\n                type=\"button\"\n                disabled={isAccountBusy}\n                onClick={() => void handleAccountSignOut()}\n                className=\"inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl border border-rose-200 bg-white px-3 py-2 text-[10px] font-bold text-rose-700 disabled:opacity-50\"\n              >\n                <LogOut className=\"h-3.5 w-3.5\" /> Đăng xuất\n              </button>\n            ) : (\n              <button\n                type=\"button\"\n                disabled={isAccountBusy}\n                onClick={() => void handleAccountSignIn()}\n                className=\"inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-600 px-3 py-2 text-[10px] font-bold text-white disabled:opacity-50\"\n              >\n                <LogIn className=\"h-3.5 w-3.5\" /> {isAccountBusy ? 'Đang đăng nhập...' : 'Đăng nhập'}\n              </button>\n            )}\n          </div>\n          {accountMsg && (\n            <div className={`mt-2 rounded-lg border px-2.5 py-2 text-[10px] font-semibold ${accountMsg.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>\n              {accountMsg.text}\n            </div>\n          )}\n        </div>\n\n"""
+          text = text[:tabs_idx] + account_panel + text[tabs_idx:]
+          if 'Tài khoản Google/Firebase' not in text or 'handleAccountSignIn' not in text or 'signOutFirebaseAccount' not in text:
+              raise SystemExit('Security account controls were not installed')
+          path.write_text(text, encoding='utf-8')
+
+          # Focused UX assertions.
           pm = Path('src/components/ProjectManagerModal.tsx').read_text(encoding='utf-8')
           if 'Top Tab Bar Switcher' in pm or 'setModalTab(' in pm:
               raise SystemExit('Project Manager still exposes cross-navigation')
-          warehouse = Path('src/components/WarehouseTab.tsx').read_text(encoding='utf-8')
-          if "{isMaterialNeedPage ? 'Mở'" in Path('src/components/ExpandCollapseButton.tsx').read_text(encoding='utf-8'):
-              raise SystemExit('Material Need still has redundant Mở button label')
           indicator = Path('src/components/ExpandCollapseIndicator.tsx').read_text(encoding='utf-8')
           if 'group-open:hidden' in indicator or 'group-open:inline' in indicator:
-              raise SystemExit('Settings indicator still renders open/collapse words')
+              raise SystemExit('Settings indicator still renders Mở rộng/Thu gọn words')
+          expand = Path('src/components/ExpandCollapseButton.tsx').read_text(encoding='utf-8')
+          if "isMaterialNeedPage ? 'Mở'" in expand:
+              raise SystemExit('Material Need still renders redundant Mở label')
+          header = Path('src/components/GoogleAuthHeader.tsx').read_text(encoding='utf-8')
+          if '<Wifi' in header or '<WifiOff' in header or 'GoogleAuthModal' in header:
+              raise SystemExit('Header still contains Wi-Fi/login UI')
 
-          print('Focused UX patch applied successfully.')
+          print('Unified UX patch applied successfully.')
           PY
 
           echo '=== Remaining open/expand wording audit (informational) ==='
@@ -129,7 +198,7 @@ jobs:
           rm -f .github/workflows/_tmp-clean-open-controls.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/components/ProjectManagerModal.tsx src/components/ExpandCollapseIndicator.tsx src/components/ExpandCollapseButton.tsx src/components/WarehouseTab.tsx .github/workflows/_tmp-clean-open-controls.yml
+          git add src/components/ProjectManagerModal.tsx src/components/ExpandCollapseIndicator.tsx src/components/ExpandCollapseButton.tsx src/components/WarehouseTab.tsx src/components/GoogleAuthHeader.tsx src/components/SecurityModal.tsx .github/workflows/_tmp-clean-open-controls.yml
           git diff --cached --check
-          git commit -m "fix(ui): remove redundant open controls"
+          git commit -m "fix(ui): unify open controls and move account to security"
           git push origin HEAD:ux/clean-open-controls-20260910
