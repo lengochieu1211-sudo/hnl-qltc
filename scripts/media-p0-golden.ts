@@ -11,7 +11,8 @@ check(binaryStorage.includes('getCurrentRealFirebaseUser()?.uid'), 'Immutable ob
 check(binaryStorage.includes('createdByUid: uploaderUid'), 'Versioned media object metadata must carry the actual uploader uid.');
 check(binaryStorage.includes('const immutableInput = await immutableMediaInput(input)'), 'All project media uploads must use immutable media input.');
 check(binaryStorage.includes('uploadProjectBinary(immutableInput)'), 'Firebase Storage media upload must use immutable asset id.');
-check(binaryStorage.includes('uploadProjectBinaryToR2(immutableInput)'), 'R2 media upload must use immutable asset id.');
+check(binaryStorage.includes('uploadImmutableProjectBinaryToR2(immutableInput)'), 'R2 media upload must receive the immutable asset input.');
+check(binaryStorage.includes('return uploadProjectBinaryToR2(input)'), 'R2 adapter must preserve the single direct R2 write authority.');
 
 const photoStorage = read('src/utils/photoStorage.ts');
 check(photoStorage.includes('export async function updatePhotoAttachmentBlob'), 'Photo edit/replace path missing.');
