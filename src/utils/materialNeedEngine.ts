@@ -57,11 +57,43 @@ interface NeedContribution {
   volume: number;
 }
 
+interface TeamResolver {
+  uniqueIdByName: Map<string, string>;
+  ambiguousNames: Set<string>;
+}
+
 const round2 = (value: number) => Math.ceil((Number(value) || 0) * 100) / 100;
 const textKey = (value?: string) => String(value || '').trim().toLocaleLowerCase('vi-VN');
 const isActiveLifecycle = <T extends { deletedAt?: number | null }>(item: T): boolean => item.deletedAt === undefined || item.deletedAt === null;
 const scopeIds = (single?: string, multiple?: string[]): string[] => Array.from(new Set([...(multiple || []), ...(single ? [single] : [])].map((value) => String(value || '').trim()).filter(Boolean)));
 const scopeIncludes = (ids: string[], value?: string): boolean => ids.length === 0 || Boolean(value && ids.includes(value));
+
+function buildTeamResolver(teams: TeamInfo[]): TeamResolver {
+  const idsByName = new Map<string, Set<string>>();
+  teams.filter(isActiveLifecycle).forEach((team) => {
+    const key = textKey(team.name);
+    const id = String(team.id || '').trim();
+    if (!key || !id) return;
+    const ids = idsByName.get(key) || new Set<string>();
+    ids.add(id);
+    idsByName.set(key, ids);
+  });
+
+  const uniqueIdByName = new Map<string, string>();
+  const ambiguousNames = new Set<string>();
+  idsByName.forEach((ids, key) => {
+    if (ids.size === 1) uniqueIdByName.set(key, Array.from(ids)[0]);
+    else ambiguousNames.add(key);
+  });
+  return { uniqueIdByName, ambiguousNames };
+}
+
+function resolveTeamId(teamId: string | undefined, assignedTeam: string | undefined, resolver: TeamResolver): string | undefined {
+  const explicitId = String(teamId || '').trim();
+  if (explicitId) return explicitId;
+  const nameKey = textKey(assignedTeam);
+  return nameKey ? resolver.uniqueIdByName.get(nameKey) : undefined;
+}
 
 function resolveWorkVolume(categoryIdOrName: string | undefined, workVolumes: WorkVolume[]): WorkVolume | undefined {
   if (!categoryIdOrName) return undefined;
@@ -115,10 +147,14 @@ function roomCategories(room: RoomProgressItem, workVolumes: WorkVolume[]): Arra
   return Array.from(out.values());
 }
 
-function uniqueRoomTeamIds(room: RoomProgressItem): string[] {
+function uniqueRoomTeamIds(room: RoomProgressItem, resolver: TeamResolver): string[] {
   const ids = new Set<string>();
-  if (room.teamId) ids.add(room.teamId);
-  (room.subItems || []).forEach((sub) => { if (sub.teamId) ids.add(sub.teamId); });
+  const roomTeamId = resolveTeamId(room.teamId, room.assignedTeam, resolver);
+  if (roomTeamId) ids.add(roomTeamId);
+  (room.subItems || []).forEach((sub) => {
+    const teamId = resolveTeamId(sub.teamId, sub.assignedTeam, resolver);
+    if (teamId) ids.add(teamId);
+  });
   return Array.from(ids);
 }
 
@@ -130,13 +166,18 @@ function categorySubItems(room: RoomProgressItem, categoryId: string | undefined
   });
 }
 
-function uniqueCategoryTeamIds(room: RoomProgressItem, categoryId: string | undefined, categoryName: string): string[] {
-  return Array.from(new Set(categorySubItems(room, categoryId, categoryName).map((sub) => sub.teamId).filter(Boolean) as string[]));
+function uniqueCategoryTeamIds(room: RoomProgressItem, categoryId: string | undefined, categoryName: string, resolver: TeamResolver): string[] {
+  return Array.from(new Set(
+    categorySubItems(room, categoryId, categoryName)
+      .map((sub) => resolveTeamId(sub.teamId, sub.assignedTeam, resolver))
+      .filter(Boolean) as string[]
+  ));
 }
 
 function buildContributions(
   rooms: RoomProgressItem[],
   workVolumes: WorkVolume[],
+  teams: TeamInfo[],
   scope: MaterialNeedScope,
   warnings: MaterialNeedWarning[],
 ): NeedContribution[] {
@@ -144,12 +185,17 @@ function buildContributions(
   const scopedFloorIds = scopeIds(scope.floorId, scope.floorIds);
   const scopedTeamIds = scopeIds(scope.teamId, scope.teamIds);
   const hasTeamScope = scopedTeamIds.length > 0;
+  const activeTeams = teams.filter(isActiveLifecycle);
+  const teamResolver = buildTeamResolver(activeTeams);
+  const selectedTeamNameKeys = new Set(
+    activeTeams.filter((team) => scopedTeamIds.includes(team.id)).map((team) => textKey(team.name)).filter(Boolean)
+  );
 
   rooms.forEach((room) => {
     if (scope.roomId && room.id !== scope.roomId) return;
     if (!scopeIncludes(scopedFloorIds, room.floorId)) return;
     const cats = roomCategories(room, workVolumes);
-    const roomTeamIds = uniqueRoomTeamIds(room);
+    const roomTeamIds = uniqueRoomTeamIds(room, teamResolver);
 
     cats.forEach((cat) => {
       // Every live material contribution must be provably linked to an ACTIVE WorkVolume.
@@ -169,10 +215,11 @@ function buildContributions(
       }
 
       const categorySubs = categorySubItems(room, cat.id, cat.name);
-      const categoryTeamIds = uniqueCategoryTeamIds(room, cat.id, cat.name);
+      const categoryTeamIds = uniqueCategoryTeamIds(room, cat.id, cat.name, teamResolver);
 
-      // When every possible team for this category is inside the selected team set,
-      // the combined aggregate is deterministic even if the internal split is unknown.
+      // Legacy room rows often stored only assignedTeam text. Resolve that text to a durable
+      // teamId only when exactly one ACTIVE TeamInfo has the same normalized name. Explicit
+      // teamId remains authoritative and duplicate names never get guessed.
       if (categoryTeamIds.length > 0 && categoryTeamIds.every((id) => scopedTeamIds.includes(id))) {
         contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: cat.id, workCategoryName: cat.name, sourceUnit, volume: totalVolume });
         return;
@@ -182,7 +229,10 @@ function buildContributions(
         return;
       }
 
-      const matchingSubs = categorySubs.filter((sub) => Boolean(sub.teamId && scopedTeamIds.includes(sub.teamId)));
+      const matchingSubs = categorySubs.filter((sub) => {
+        const resolvedTeamId = resolveTeamId(sub.teamId, sub.assignedTeam, teamResolver);
+        return Boolean(resolvedTeamId && scopedTeamIds.includes(resolvedTeamId));
+      });
       const explicitVolume = matchingSubs.reduce((sum, sub) => sum + (Number(sub.workVolume) || 0), 0);
       if (explicitVolume > 0) {
         contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: cat.id, workCategoryName: cat.name, sourceUnit: normalizeUnit(matchingSubs[0]?.volumeUnit || sourceUnit) || sourceUnit, volume: explicitVolume });
@@ -201,14 +251,25 @@ function buildContributions(
 
       const intersectsCategory = categoryTeamIds.some((id) => scopedTeamIds.includes(id));
       const intersectsRoom = categoryTeamIds.length === 0 && roomTeamIds.some((id) => scopedTeamIds.includes(id));
-      if (intersectsCategory || intersectsRoom) {
+      const hasAmbiguousSelectedLegacyTeam = categorySubs.some((sub) => {
+        if (String(sub.teamId || '').trim()) return false;
+        const key = textKey(sub.assignedTeam);
+        return Boolean(key && selectedTeamNameKeys.has(key) && teamResolver.ambiguousNames.has(key));
+      }) || (
+        categorySubs.length === 0 &&
+        !String(room.teamId || '').trim() &&
+        Boolean(textKey(room.assignedTeam) && selectedTeamNameKeys.has(textKey(room.assignedTeam)) && teamResolver.ambiguousNames.has(textKey(room.assignedTeam)))
+      );
+      if (intersectsCategory || intersectsRoom || hasAmbiguousSelectedLegacyTeam) {
         warnings.push({
           code: 'AMBIGUOUS_TEAM',
           roomId: room.id,
           floorId: room.floorId,
           teamId: scopedTeamIds.length === 1 ? scopedTeamIds[0] : undefined,
           workCategoryId: cat.id,
-          message: `Căn ${room.roomName}: hạng mục ${cat.name} có nhiều đội nhưng chưa có khối lượng phân bổ đủ cho phạm vi đội đã chọn. Không tự chia nhu cầu.`,
+          message: hasAmbiguousSelectedLegacyTeam
+            ? `Căn ${room.roomName}: hạng mục ${cat.name} chỉ còn tên đội legacy trùng với nhiều đội đang hoạt động. Hãy gán lại đội để hệ thống không suy đoán nhu cầu.`
+            : `Căn ${room.roomName}: hạng mục ${cat.name} có nhiều đội nhưng chưa có khối lượng phân bổ đủ cho phạm vi đội đã chọn. Không tự chia nhu cầu.`,
         });
       }
     });
@@ -246,9 +307,11 @@ export function computeMaterialNeeds(params: {
   const materialNorms = rawMaterialNorms.filter(isActiveLifecycle);
   const inventory = rawInventory.filter(isActiveLifecycle);
   const workVolumes = rawWorkVolumes.filter(isActiveLifecycle);
+  const teams = (params.teams || []).filter(isActiveLifecycle);
+  const teamResolver = buildTeamResolver(teams);
   const scope = params.scope || {};
   const warnings: MaterialNeedWarning[] = [];
-  const contributions = buildContributions(rooms, workVolumes, scope, warnings);
+  const contributions = buildContributions(rooms, workVolumes, teams, scope, warnings);
   const aliasMap = buildMaterialAliasMap(materialNorms);
   const canonicalKey = (materialId?: string, materialName?: string, unit?: string) => {
     const resolved = materialId ? (aliasMap.get(String(materialId)) || String(materialId)) : undefined;
@@ -316,7 +379,7 @@ export function computeMaterialNeeds(params: {
         issued.set(key, (issued.get(key) || 0) + qty);
       } else if (!tx.sourceTeamId && tx.sourceRoomId) {
         const room = rooms.find((r) => r.id === tx.sourceRoomId);
-        const ids = room ? uniqueRoomTeamIds(room) : [];
+        const ids = room ? uniqueRoomTeamIds(room, teamResolver) : [];
         if (ids.length > 0 && ids.every((id) => scopedTeamIds.includes(id))) {
           issued.set(key, (issued.get(key) || 0) + qty);
         } else if (ids.some((id) => scopedTeamIds.includes(id))) {
