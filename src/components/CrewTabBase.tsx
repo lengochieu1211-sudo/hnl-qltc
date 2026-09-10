@@ -42,6 +42,7 @@ import { saveWorkbookFile } from '../utils/fileExport';
 import { createEntityId } from '../utils/idUtils';
 import { QuickSortBar } from './QuickSortBar';
 import { UserRole, canEditCrewData, canDeleteBusinessData, canDeleteCrewRecord, canManageTeams, canImportData } from '../utils/securityUtils';
+import { findWorsenedTeamNameConflict } from '../utils/teamDirectoryIntegrity';
 import { getCrewShiftCounts } from '../utils/crewUtils';
 import { ContactMenu } from './ContactMenu';
 import { ShareEntityMenu } from './ShareEntityMenu';
@@ -309,13 +310,21 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     }
   }, [propTeams]);
 
-  // Call onUpdateTeams when teams change
-  const updateTeamsAndParent = (nextTeams: TeamInfo[]) => {
-    if (!canManageTeamDirectory) return;
-    setTeams(nextTeams);
-    if (onUpdateTeams) {
-      onUpdateTeams(nextTeams);
+  // Validate before mutating local state so a rejected duplicate never appears as saved
+  // and no form state needs to be destroyed/remounted to recover.
+  const updateTeamsAndParent = (nextTeams: TeamInfo[]): boolean => {
+    if (!canManageTeamDirectory) return false;
+    const conflict = findWorsenedTeamNameConflict(teams, nextTeams);
+    if (conflict) {
+      alert(
+        `Không thể lưu vì tên đội “${conflict.displayName}” bị trùng. ` +
+        'Mỗi tên đội phải đại diện cho một teamId duy nhất. Hãy đổi tên một đội rồi lưu lại.'
+      );
+      return false;
     }
+    setTeams(nextTeams);
+    onUpdateTeams?.(nextTeams);
+    return true;
   };
 
   // Today's date YYYY-MM-DD
@@ -938,14 +947,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     let nextTeams: TeamInfo[];
     if (editingTeam) {
       nextTeams = teams.map((t) => (t.id === editingTeam.id ? teamData : t));
-      setEditingTeam(null);
     } else {
       nextTeams = [...teams, teamData];
     }
-    setTeams(nextTeams);
-    if (onUpdateTeams) {
-      onUpdateTeams(nextTeams);
-    }
+    if (!updateTeamsAndParent(nextTeams)) return;
+    setEditingTeam(null);
     setShowTeamModal(false);
   };
 
@@ -1008,10 +1014,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     if (!canManageTeamDirectory) return;
     if (deletingTeamTarget) {
       const nextTeams = teams.filter((t) => t.id !== deletingTeamTarget.id);
-      setTeams(nextTeams);
-      if (onUpdateTeams) {
-        onUpdateTeams(nextTeams);
-      }
+      if (!updateTeamsAndParent(nextTeams)) return;
       setDeletingTeamTarget(null);
     }
   };
@@ -1142,7 +1145,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           }
         });
 
-        updateTeamsAndParent(newTeams);
+        if (!updateTeamsAndParent(newTeams)) return;
         alert(
           `🎉 Nhập Đội Thi Công từ Excel thành công!\n\n` +
           `• Đã cập nhật/chỉnh sửa: ${updatedCount} đội\n` +

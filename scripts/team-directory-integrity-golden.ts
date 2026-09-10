@@ -48,3 +48,10 @@ assert.equal(
 assert.equal(resolveUniqueTeamByDirectoryName(clean, ''), undefined);
 
 console.log('PASS team-directory-integrity-golden');
+
+
+const crewSource = await import('node:fs').then(({ readFileSync }) => readFileSync('src/components/CrewTabBase.tsx', 'utf8'));
+assert.match(crewSource, /findWorsenedTeamNameConflict\(teams, nextTeams\)/, 'CrewTabBase must validate before local mutation');
+assert.match(crewSource, /if \(!updateTeamsAndParent\(nextTeams\)\) return;/, 'Team form/delete flows must stop on rejected write');
+assert.match(crewSource, /if \(!updateTeamsAndParent\(newTeams\)\) return;/, 'Excel import must not report success after rejected write');
+assert.doesNotMatch(crewSource, /key={`crew-directory-/, 'Integrity guard must not remount the whole Crew UI');
