@@ -35,6 +35,112 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+async function waitForDetailsOpen(page, selector, expectedOpen) {
+  await page.waitForFunction(
+    ({ targetSelector, open }) => {
+      const details = document.querySelector(targetSelector);
+      return Boolean(details && details.open === open);
+    },
+    { targetSelector: selector, open: expectedOpen },
+    { timeout: 10000 },
+  );
+}
+
+async function closeVisibleModal(page, label) {
+  const closeButtons = page.locator('button[title="Đóng"]:visible');
+  const count = await closeButtons.count();
+  assert(count > 0, `${label}: visible modal close button not found`);
+  await closeButtons.last().click();
+}
+
+async function verifySettingsFeatureSheets(page, label) {
+  const moreButton = page.getByRole('button', { name: 'Thêm', exact: true });
+  assert(await moreButton.count() > 0, `${label}: Thêm bottom-nav button not found`);
+  await moreButton.click();
+
+  const settingsButton = page.getByRole('button', { name: 'Cài đặt', exact: true });
+  await settingsButton.waitFor({ state: 'visible', timeout: 10000 });
+  await settingsButton.click();
+
+  const syncEntry = page.locator('button[title="Trung tâm đồng bộ & sao lưu dự án"]');
+  await syncEntry.waitFor({ state: 'visible', timeout: 10000 });
+  const syncEntryBox = await syncEntry.boundingBox();
+  assert(syncEntryBox, `${label}: Sync Center entry has no layout box`);
+  assert(syncEntryBox.height <= 100, `${label}: Sync Center entry is too tall (${syncEntryBox.height}px)`);
+  const syncEntryIconBox = await syncEntry.locator('svg').first().boundingBox();
+  assert(syncEntryIconBox, `${label}: Sync Center entry icon missing`);
+  assert(syncEntryIconBox.width <= 22 && syncEntryIconBox.height <= 22, `${label}: Sync Center entry icon is not compact (${syncEntryIconBox.width}x${syncEntryIconBox.height})`);
+  pass(`${label} compact Sync Center Settings entry`, `${Math.round(syncEntryBox.height)}px card, ${Math.round(syncEntryIconBox.width)}px icon`);
+
+  const healthSelector = '#system-sync-card';
+  const healthCard = page.locator(healthSelector);
+  await healthCard.waitFor({ state: 'visible', timeout: 10000 });
+  assert(!(await healthCard.evaluate(el => el.open)), `${label}: HNL Health Center must start collapsed`);
+  pass(`${label} HNL Health Center default collapsed`);
+
+  const healthSummary = healthCard.locator('summary').first();
+  await healthSummary.click();
+  await waitForDetailsOpen(page, healthSelector, true);
+  await page.waitForTimeout(80);
+
+  const panelMetrics = await page.evaluate((selector) => {
+    const details = document.querySelector(selector);
+    const style = details ? getComputedStyle(details) : null;
+    const rect = details?.getBoundingClientRect();
+    return {
+      position: style?.position || '',
+      overflowY: style?.overflowY || '',
+      top: rect?.top ?? -1,
+      width: rect?.width ?? -1,
+      radiusTopLeft: Number.parseFloat(style?.borderTopLeftRadius || '0') || 0,
+      bodyOverflow: document.body.style.overflow,
+      backdrop: Boolean(document.querySelector('[data-hnl-floating-backdrop="true"]')),
+    };
+  }, healthSelector);
+  assert(panelMetrics.position === 'fixed', `${label}: HNL Health Center did not promote to fixed feature sheet`);
+  assert(panelMetrics.bodyOverflow === 'hidden', `${label}: feature sheet did not lock background scroll`);
+  assert(panelMetrics.backdrop, `${label}: feature sheet backdrop missing`);
+  assert(panelMetrics.overflowY === 'auto' || panelMetrics.overflowY === 'scroll', `${label}: feature sheet body is not independently scrollable`);
+  if (label === 'mobile') {
+    assert(panelMetrics.top > 40 && panelMetrics.top < 120, `${label}: feature sheet top offset is unexpected (${panelMetrics.top}px)`);
+    assert(panelMetrics.radiusTopLeft >= 20, `${label}: feature sheet rounded top is missing (${panelMetrics.radiusTopLeft}px)`);
+  } else {
+    assert(panelMetrics.width <= 980, `${label}: feature panel is too wide (${panelMetrics.width}px)`);
+    assert(panelMetrics.top > 0, `${label}: feature panel must leave backdrop visible above it`);
+  }
+  pass(`${label} HNL Health Center feature sheet layout`, `top=${Math.round(panelMetrics.top)}px width=${Math.round(panelMetrics.width)}px`);
+
+  const closeIndicator = healthSummary.locator('span[aria-hidden="true"]').last();
+  await closeIndicator.waitFor({ state: 'visible', timeout: 5000 });
+  await closeIndicator.click();
+  await waitForDetailsOpen(page, healthSelector, false);
+  pass(`${label} HNL Health Center X closes sheet`);
+
+  await healthSummary.click();
+  await waitForDetailsOpen(page, healthSelector, true);
+  await page.keyboard.press('Escape');
+  await waitForDetailsOpen(page, healthSelector, false);
+  pass(`${label} HNL Health Center Escape closes sheet`);
+
+  await healthSummary.click();
+  await waitForDetailsOpen(page, healthSelector, true);
+  await page.waitForTimeout(80);
+  await page.evaluate(() => window.history.back());
+  await waitForDetailsOpen(page, healthSelector, false);
+  pass(`${label} HNL Health Center browser/Android Back closes sheet`);
+
+  await syncEntry.click();
+  const syncAdvanced = page.getByText('Cài đặt sao lưu nâng cao', { exact: true });
+  await syncAdvanced.waitFor({ state: 'visible', timeout: 10000 });
+  const redundantDisclosureText = page.getByText(/^(Mở|Mở rộng|Thu gọn)$/);
+  assert(await redundantDisclosureText.count() === 0, `${label}: Sync Center exposes redundant disclosure text`);
+  pass(`${label} Sync Center opens dedicated function panel`);
+
+  await closeVisibleModal(page, `${label} Sync Center`);
+  await syncAdvanced.waitFor({ state: 'hidden', timeout: 10000 });
+  pass(`${label} Sync Center X closes panel`);
+}
+
 async function runViewport(browser, label, viewport, screenshotPath) {
   const context = await browser.newContext({
     viewport,
@@ -101,6 +207,12 @@ async function runViewport(browser, label, viewport, screenshotPath) {
   const accountEntry = page.getByText('Tài khoản Google/Firebase', { exact: true });
   await accountEntry.waitFor({ state: 'visible', timeout: 10000 });
   pass(`${label} Security Center owns Google/Firebase account entry`);
+
+  await closeVisibleModal(page, `${label} Security Center`);
+  await securityTitle.waitFor({ state: 'hidden', timeout: 10000 });
+  pass(`${label} Security Center X closes modal`);
+
+  await verifySettingsFeatureSheets(page, label);
 
   // HNL QLTC offline data is provided by Firestore persistentLocalCache/IndexedDB,
   // not by a PWA service worker. Requiring a service-worker registration here would
