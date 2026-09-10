@@ -50,6 +50,7 @@ assert(indicator.includes('group-open:h-11 group-open:w-11'), 'Opened Settings X
 
 const materialButton = read('src/components/ExpandCollapseButton.tsx');
 assert(!materialButton.includes("isMaterialNeedPage ? 'Mở'"), 'Material Need must not render redundant Mở label');
+assert(materialButton.includes('PackageSearch'), 'Material Need panel must keep a compact feature icon in its header');
 assert(materialButton.includes('aria-label="Đóng Gợi ý vật tư tổng hợp"'), 'Material Need X close control missing');
 assert(materialButton.includes("window.addEventListener('popstate'"), 'Material Need Android/browser Back close behavior missing');
 assert(materialButton.includes("top-[8dvh]"), 'Material Need mobile header must use the same rounded-sheet offset as Settings panels');
@@ -68,5 +69,9 @@ assert(!config.includes('<details id="system-sync-card" open'), 'Health Center m
 assert(config.includes('Chất lượng ảnh & dung lượng'), 'Image quality Settings entry missing');
 assert(config.includes('Dữ liệu đã ẩn & lịch sử'), 'Hidden data/history Settings entry missing');
 assert(config.includes("{t('formatting_settings')}"), 'Number/date formatting Settings entry missing');
+
+const androidWrapper = read('android-wrapper/src/com/qlct/app/MainActivity.java');
+assert(androidWrapper.includes('webView != null && webView.canGoBack()'), 'Android wrapper must route Back through WebView history before exiting');
+assert(androidWrapper.includes('webView.goBack();'), 'Android wrapper WebView Back navigation missing');
 
 console.log('PASS ui-entry-ux-golden: compact entry cards, MaterialNorm-style feature sheets, dark mode, safe-area and Back/Escape/X rules are intact.');
