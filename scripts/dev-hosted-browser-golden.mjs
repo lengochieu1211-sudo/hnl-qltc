@@ -85,12 +85,22 @@ async function runViewport(browser, label, viewport, screenshotPath) {
   assert(overflow <= 12, `${label}: horizontal overflow ${overflow}px (scroll=${effectiveScroll}, viewport=${dimensions.innerWidth})`);
   pass(`${label} responsive horizontal overflow`, `${Math.max(0, overflow)}px`);
 
-  const loginBadge = page.locator('button[title*="dang nhap Google" i], button[title*="Google/Firebase" i]').first();
-  assert(await loginBadge.count() > 0, `${label}: Google/Firebase login badge not found`);
-  await loginBadge.click();
-  const modalText = page.getByText('Đăng nhập Google/Firebase', { exact: true });
-  await modalText.waitFor({ state: 'visible', timeout: 10000 });
-  pass(`${label} Google/Firebase login modal opens`);
+  // Account/login entry intentionally lives in Security Center. The global header must
+  // not regain a separate Google/Firebase badge or a Wi-Fi badge.
+  const legacyLoginBadge = page.locator('button[title*="dang nhap Google" i], button[title*="Google/Firebase" i]');
+  assert(await legacyLoginBadge.count() === 0, `${label}: legacy Google/Firebase header login badge returned`);
+  const wifiBadge = page.locator('button[title*="Wi-Fi" i], button[title*="wifi" i]');
+  assert(await wifiBadge.count() === 0, `${label}: legacy Wi-Fi header badge returned`);
+  pass(`${label} header account/network badges removed`);
+
+  const securityButton = page.locator('button[title*="Trung tâm bảo mật" i]').first();
+  assert(await securityButton.count() > 0, `${label}: Security Center button not found`);
+  await securityButton.click();
+  const securityTitle = page.getByText('Trung tâm bảo mật & phân quyền', { exact: true });
+  await securityTitle.waitFor({ state: 'visible', timeout: 10000 });
+  const accountEntry = page.getByText('Tài khoản Google/Firebase', { exact: true });
+  await accountEntry.waitFor({ state: 'visible', timeout: 10000 });
+  pass(`${label} Security Center owns Google/Firebase account entry`);
 
   // HNL QLTC offline data is provided by Firestore persistentLocalCache/IndexedDB,
   // not by a PWA service worker. Requiring a service-worker registration here would
