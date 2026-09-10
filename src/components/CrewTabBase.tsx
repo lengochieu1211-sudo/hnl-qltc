@@ -42,6 +42,7 @@ import { saveWorkbookFile } from '../utils/fileExport';
 import { createEntityId } from '../utils/idUtils';
 import { QuickSortBar } from './QuickSortBar';
 import { UserRole, canEditCrewData, canDeleteBusinessData, canDeleteCrewRecord, canManageTeams, canImportData } from '../utils/securityUtils';
+import { findWorsenedTeamNameConflict, normalizeTeamDirectoryName, resolveUniqueTeamByDirectoryName } from '../utils/teamDirectoryIntegrity';
 import { getCrewShiftCounts } from '../utils/crewUtils';
 import { ContactMenu } from './ContactMenu';
 import { ShareEntityMenu } from './ShareEntityMenu';
@@ -309,13 +310,21 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     }
   }, [propTeams]);
 
-  // Call onUpdateTeams when teams change
-  const updateTeamsAndParent = (nextTeams: TeamInfo[]) => {
-    if (!canManageTeamDirectory) return;
-    setTeams(nextTeams);
-    if (onUpdateTeams) {
-      onUpdateTeams(nextTeams);
+  // Validate before mutating local state so a rejected duplicate never appears as saved
+  // and no form state needs to be destroyed/remounted to recover.
+  const updateTeamsAndParent = (nextTeams: TeamInfo[]): boolean => {
+    if (!canManageTeamDirectory) return false;
+    const conflict = findWorsenedTeamNameConflict(teams, nextTeams);
+    if (conflict) {
+      alert(
+        `Không thể lưu vì tên đội “${conflict.displayName}” bị trùng. ` +
+        'Mỗi tên đội phải đại diện cho một teamId duy nhất. Hãy đổi tên một đội rồi lưu lại.'
+      );
+      return false;
     }
+    setTeams(nextTeams);
+    onUpdateTeams?.(nextTeams);
+    return true;
   };
 
   // Today's date YYYY-MM-DD
@@ -879,7 +888,10 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     const activeShifts = [morningCount > 0 ? 'Sáng' : '', afternoonCount > 0 ? 'Chiều' : '', eveningCount > 0 ? 'Tối' : ''].filter(Boolean);
     const shiftValue = activeShifts.length > 0 ? activeShifts.join(', ') : 'Nghỉ';
 
-    const matchingTeam = teams.find(t => t.name.trim().toLowerCase() === teamName.trim().toLowerCase());
+    // Explicit teamId is authoritative. Legacy display-name fallback is allowed only
+    // when the current directory has exactly one matching team. Never guess the first
+    // duplicate, otherwise Crew/Material Need attribution can drift to the wrong team.
+    const matchingTeam = resolveUniqueTeamByDirectoryName(teams, teamName);
     const finalTeamId = teamId || matchingTeam?.id || '';
 
     const recordData = {
@@ -938,14 +950,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     let nextTeams: TeamInfo[];
     if (editingTeam) {
       nextTeams = teams.map((t) => (t.id === editingTeam.id ? teamData : t));
-      setEditingTeam(null);
     } else {
       nextTeams = [...teams, teamData];
     }
-    setTeams(nextTeams);
-    if (onUpdateTeams) {
-      onUpdateTeams(nextTeams);
-    }
+    if (!updateTeamsAndParent(nextTeams)) return;
+    setEditingTeam(null);
     setShowTeamModal(false);
   };
 
@@ -1008,10 +1017,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     if (!canManageTeamDirectory) return;
     if (deletingTeamTarget) {
       const nextTeams = teams.filter((t) => t.id !== deletingTeamTarget.id);
-      setTeams(nextTeams);
-      if (onUpdateTeams) {
-        onUpdateTeams(nextTeams);
-      }
+      if (!updateTeamsAndParent(nextTeams)) return;
       setDeletingTeamTarget(null);
     }
   };
@@ -1120,9 +1126,22 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             return;
           }
 
-          const existingIdx = rawTeamId 
-            ? newTeams.findIndex(t => t.id === rawTeamId)
-            : newTeams.findIndex(t => t.name.toLowerCase() === nameStr.toLowerCase());
+          let existingIdx = -1;
+          if (rawTeamId) {
+            existingIdx = newTeams.findIndex(t => t.id === rawTeamId);
+          } else {
+            const normalizedName = normalizeTeamDirectoryName(nameStr);
+            const matchingIndices = newTeams
+              .map((team, index) => normalizeTeamDirectoryName(team.name) === normalizedName ? index : -1)
+              .filter((index) => index >= 0);
+            if (matchingIndices.length > 1) {
+              // Legacy duplicate names are ambiguous without __teamId. Do not silently
+              // update the first team; skip this row and require an exported ID-based file.
+              skippedCount++;
+              return;
+            }
+            existingIdx = matchingIndices[0] ?? -1;
+          }
 
           const teamData: TeamInfo = {
             id: existingIdx !== -1 ? newTeams[existingIdx].id : (rawTeamId || createEntityId('team')),
@@ -1142,12 +1161,12 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           }
         });
 
-        updateTeamsAndParent(newTeams);
+        if (!updateTeamsAndParent(newTeams)) return;
         alert(
           `🎉 Nhập Đội Thi Công từ Excel thành công!\n\n` +
           `• Đã cập nhật/chỉnh sửa: ${updatedCount} đội\n` +
           `• Đã thêm mới: ${addedCount} đội\n` +
-          `• Bỏ qua do thiếu thông tin bắt buộc (Tên đội, Đội trưởng hoặc Quân số > 0): ${skippedCount} dòng`
+          `• Bỏ qua do thiếu thông tin hoặc tên đội legacy bị trùng/không đủ teamId: ${skippedCount} dòng`
         );
       } catch (err: any) {
         alert(`❌ Lỗi đọc hoặc phân tích tệp Excel:\n${err.message || err}`);
