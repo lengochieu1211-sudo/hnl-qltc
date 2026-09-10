@@ -1,0 +1,27 @@
+name: TEMP UX Open Close Audit
+
+on:
+  push:
+    branches:
+      - ux/unified-open-close-20260910
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Audit open close labels and components
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== ExpandCollapse usages ==='
+          grep -RInE 'ExpandCollapse(Button|Indicator)' src --include='*.tsx' --include='*.ts' || true
+          echo '=== Vietnamese open close labels ==='
+          grep -RInE "Mở rộng|Thu gọn|>Mở<|>Đóng<|'Mở'|'Đóng'|\"Mở\"|\"Đóng\"" src --include='*.tsx' --include='*.ts' || true
+          echo '=== HTML details summaries ==='
+          grep -RInE '<details|<summary' src --include='*.tsx' || true
+          echo '=== Overlay candidates ==='
+          grep -RInE 'fixed inset-0|z-\[[0-9]+\]|onClose=|onClose\}' src/components src/features src/healthCenter --include='*.tsx' || true
