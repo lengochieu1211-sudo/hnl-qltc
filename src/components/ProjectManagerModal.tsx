@@ -188,8 +188,9 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([getActiveProjectId()]);
   const [showJsonScopePicker, setShowJsonScopePicker] = useState(false);
 
-  // Main navigation tab within the modal
-  const [modalTab, setModalTab] = useState<'sync' | 'projects'>('sync');
+  // Dedicated destination mode. Settings opens Sync/Backup only; the header
+  // Project button opens Project List only. Do not cross-navigate inside this modal.
+  const modalTab: 'sync' | 'projects' = initialTab;
 
   // Creation state
   const [isCreating, setIsCreating] = useState(false);
@@ -617,9 +618,6 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   // Re-sync projects when opened
   useEffect(() => {
     if (isOpen) {
-      if (initialTab) {
-        setModalTab(initialTab);
-      }
       const curList = getProjectsList();
       setProjects(curList);
       const curActive = activeProjectId || getActiveProjectId();
@@ -3072,34 +3070,6 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             title="Đóng"
           >
             <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Top Tab Bar Switcher */}
-        <div className="grid grid-cols-2 gap-2 mt-3 p-1 bg-slate-100/90 rounded-xl shrink-0">
-          <button
-            type="button"
-            onClick={() => setModalTab('sync')}
-            className={`py-2 px-3 rounded-lg font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
-              modalTab === 'sync'
-                ? 'bg-white text-emerald-700 shadow-xs ring-1 ring-slate-200/50'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-            }`}
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            <span>Đồng bộ & Sao lưu</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setModalTab('projects')}
-            className={`py-2 px-3 rounded-lg font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
-              modalTab === 'projects'
-                ? 'bg-white text-indigo-700 shadow-xs ring-1 ring-slate-200/50'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-            }`}
-          >
-            <Building2 className="w-3.5 h-3.5" />
-            <span>Danh sách dự án ({projects.length})</span>
           </button>
         </div>
 

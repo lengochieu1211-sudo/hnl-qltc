@@ -108,15 +108,29 @@ export const ExpandCollapseButton: React.FC<ExpandCollapseButtonProps> = ({
           </div>
           <button
             type="button"
-            onClick={onToggle}
-            className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm active:scale-95"
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggle();
+            }}
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm active:scale-95"
             aria-label="Đóng Gợi ý vật tư tổng hợp"
+            title="Đóng"
           >
             <X className="h-4 w-4" />
-            Đóng
           </button>
         </div>
       </div>
+    );
+  }
+
+  if (isMaterialNeedPage) {
+    return (
+      <span
+        aria-hidden="true"
+        className={`shrink-0 inline-flex h-9 w-9 items-center justify-center rounded-lg text-indigo-600 transition-all ${className}`}
+      >
+        <ChevronDown className="h-4 w-4" />
+      </span>
     );
   }
 
@@ -129,7 +143,7 @@ export const ExpandCollapseButton: React.FC<ExpandCollapseButtonProps> = ({
       aria-controls={controls}
     >
       {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-      {isMaterialNeedPage ? 'Mở' : (expanded ? collapseLabel : expandLabel)}
+      {expanded ? collapseLabel : expandLabel}
     </button>
   );
 };

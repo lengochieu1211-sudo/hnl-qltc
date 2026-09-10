@@ -9,8 +9,6 @@ interface ExpandCollapseIndicatorProps {
 
 export const ExpandCollapseIndicator: React.FC<ExpandCollapseIndicatorProps> = ({
   className = '',
-  expandLabel = 'Mở rộng',
-  collapseLabel = 'Thu gọn',
 }) => {
   const indicatorRef = useRef<HTMLSpanElement | null>(null);
 
@@ -120,10 +118,12 @@ export const ExpandCollapseIndicator: React.FC<ExpandCollapseIndicatorProps> = (
   }, []);
 
   return (
-    <span ref={indicatorRef} aria-hidden="true" className={`shrink-0 inline-flex min-h-8 items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2 py-1 text-[10px] font-bold text-indigo-700 ${className}`}>
-      <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
-      <span className="group-open:hidden">{expandLabel}</span>
-      <span className="hidden group-open:inline">{collapseLabel}</span>
+    <span
+      ref={indicatorRef}
+      aria-hidden="true"
+      className={`shrink-0 inline-flex h-8 w-8 items-center justify-center rounded-lg text-indigo-600 transition-colors group-hover:bg-indigo-50 ${className}`}
+    >
+      <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
     </span>
   );
 };

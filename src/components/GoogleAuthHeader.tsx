@@ -5,9 +5,6 @@ import {
   CheckCircle2, 
   ExternalLink,
   FileText,
-  UserCheck,
-  Wifi,
-  WifiOff,
   Folder,
   Cloud,
   Bell,
@@ -16,7 +13,6 @@ import {
 import { APP_VERSION } from '../config/appVersion';
 import { UndoRedoControls } from './UndoRedoControls';
 import { GoogleAuthStatus } from '../types';
-import { GoogleAuthModal } from './GoogleAuthModal';
 import { formatDateTime } from '../utils/dateFormatter';
 import { useFormatSettings } from '../utils/numberUtils';
 
@@ -72,24 +68,9 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
   const [syncResult, setSyncResult] = useState<{ url?: string; message?: string } | null>(null);
   const [isEditingProject, setIsEditingProject] = useState(false);
   const [tempProjectName, setTempProjectName] = useState(projectName);
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [isOnline, setIsOnline] = useState<boolean>(
-    typeof navigator !== 'undefined' ? navigator.onLine : true
-  );
 
   useFormatSettings();
   const isSuperAdmin = isSuperAdminEmail(authStatus.email);
-
-  useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, []);
 
   const checkAuthStatus = async () => {
     setLoadingAuth(true);
@@ -118,13 +99,9 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
     return unsubscribe;
   }, []);
 
-  const handleConnectGoogle = async () => {
-    setIsAuthModalOpen(true);
-  };
-
   const handleTriggerSync = async () => {
     if (!authStatus.authenticated) {
-      setIsAuthModalOpen(true);
+      onOpenSecurity?.();
       return;
     }
 
@@ -202,33 +179,6 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
               </div>
             </div>
 
-            {/* Status Badges: Network & Google (Icon badges with tooltips) */}
-            <div className="flex items-center gap-1.5 shrink-0">
-              {/* Network Status Badge */}
-              <div 
-                className={`p-1.5 rounded-lg border flex items-center justify-center transition-all ${
-                  isOnline 
-                    ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60' 
-                    : 'bg-amber-950/90 text-amber-300 border-amber-600/80 animate-pulse'
-                }`}
-                title={isOnline ? 'Mạng Trực Tuyến (Online): Dữ liệu lưu thiết bị & đám mây' : 'Chế độ Ngoại Tuyến (Offline): Dữ liệu lưu an toàn trên máy'}
-              >
-                {isOnline ? <Wifi className="w-3.5 h-3.5 text-emerald-400" /> : <WifiOff className="w-3.5 h-3.5 text-amber-400" />}
-              </div>
-
-              {/* Google Account Quick Badge */}
-              <button
-                onClick={handleConnectGoogle}
-                className={`p-1.5 rounded-lg border transition-all flex items-center justify-center shrink-0 ${
-                  authStatus.authenticated 
-                    ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/80 hover:bg-emerald-900' 
-                    : 'bg-blue-950/80 text-blue-300 border-blue-700/80 hover:bg-blue-900'
-                }`}
-                title={authStatus.authenticated ? `Tai khoan Google/Firebase da ket noi (${authStatus.email || authStatus.name})` : 'Nhan de dang nhap Google bang Firebase Auth'}
-              >
-                <UserCheck className={`w-3.5 h-3.5 shrink-0 ${authStatus.authenticated ? 'text-emerald-400' : 'text-blue-300'}`} />
-              </button>
-            </div>
           </div>
 
           {/* Action & Control Toolbar Row */}
@@ -346,13 +296,6 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
         </div>
       </div>
 
-      {/* Google Auth Modal */}
-      <GoogleAuthModal
-        isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
-        authStatus={authStatus}
-        onRefreshAuth={checkAuthStatus}
-      />
     </>
   );
 };
