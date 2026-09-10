@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 
+// Regression contract for the unified project/sync/security entry UX.
 const read = (path: string) => fs.readFileSync(path, 'utf8');
 const assert = (condition: unknown, message: string) => {
   if (!condition) throw new Error(message);
