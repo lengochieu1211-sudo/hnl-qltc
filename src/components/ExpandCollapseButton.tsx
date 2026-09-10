@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { ChevronDown, ChevronUp, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, PackageSearch, X } from 'lucide-react';
 
 interface ExpandCollapseButtonProps {
   expanded: boolean;
@@ -137,9 +137,14 @@ export const ExpandCollapseButton: React.FC<ExpandCollapseButtonProps> = ({
     return (
       <div className="fixed inset-x-0 top-[8dvh] z-[100] h-[68px] rounded-t-[28px] border border-b-0 border-slate-200 bg-white/95 shadow-sm backdrop-blur-sm sm:left-[5vw] sm:right-[5vw] sm:top-[5dvh] sm:mx-auto sm:max-w-5xl sm:rounded-t-3xl">
         <div className="mx-auto flex h-full w-full max-w-5xl items-center justify-between gap-3 px-4 sm:px-5">
-          <div className="min-w-0">
-            <div className="truncate text-sm font-extrabold text-slate-900">Gợi ý vật tư tổng hợp</div>
-            <div className="truncate text-[10px] font-medium text-slate-500">Theo tầng · Theo đội · Toàn dự án</div>
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
+              <PackageSearch className="h-5 w-5" aria-hidden="true" />
+            </span>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-extrabold text-slate-900">Gợi ý vật tư tổng hợp</div>
+              <div className="truncate text-[10px] font-medium text-slate-500">Theo tầng · Theo đội · Toàn dự án</div>
+            </div>
           </div>
           <button
             type="button"
@@ -147,7 +152,7 @@ export const ExpandCollapseButton: React.FC<ExpandCollapseButtonProps> = ({
               event.stopPropagation();
               onToggleRef.current();
             }}
-            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm transition-all hover:bg-slate-100 active:scale-95"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition-all hover:bg-slate-100 active:scale-95"
             aria-label="Đóng Gợi ý vật tư tổng hợp"
             title="Đóng"
           >
