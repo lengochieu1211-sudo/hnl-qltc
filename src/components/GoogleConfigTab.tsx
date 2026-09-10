@@ -635,6 +635,29 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
 
 
       {/* V6.2.27 STABILITY DIAGNOSTICS */}
+      {onOpenProjectManager && (
+        <button
+          type="button"
+          onClick={() => onOpenProjectManager()}
+          className="w-full rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 text-left shadow-sm transition-all hover:bg-emerald-50 active:scale-[0.995]"
+          aria-label="Trung tâm đồng bộ và sao lưu dự án"
+          title="Trung tâm đồng bộ & sao lưu dự án"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-emerald-200 bg-white text-emerald-700">
+                <RefreshCw className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs font-extrabold text-slate-900">Trung tâm đồng bộ & sao lưu dự án</div>
+                <div className="mt-0.5 text-[10px] font-semibold text-slate-500">Đồng bộ dữ liệu, R2/ảnh, sao lưu, khôi phục và đối chiếu dự án.</div>
+              </div>
+            </div>
+            <span className="shrink-0 text-lg font-bold text-emerald-700" aria-hidden="true">›</span>
+          </div>
+        </button>
+      )}
+
       {syncDiagnostics && (
         <details id="system-sync-card" className="group rounded-2xl border border-slate-200 bg-white shadow-sm scroll-mt-24 transition-shadow open:fixed open:inset-0 open:z-[80] open:overflow-y-auto open:rounded-none open:border-0 open:bg-slate-50 open:p-3 sm:open:p-6">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-2xl px-4 py-3.5 select-none group-open:sticky group-open:top-0 group-open:z-10 group-open:mb-3 group-open:border group-open:border-slate-200 group-open:bg-white group-open:shadow-sm">
