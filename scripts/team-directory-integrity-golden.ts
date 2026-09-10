@@ -55,3 +55,8 @@ assert.match(crewSource, /findWorsenedTeamNameConflict\(teams, nextTeams\)/, 'Cr
 assert.match(crewSource, /if \(!updateTeamsAndParent\(nextTeams\)\) return;/, 'Team form/delete flows must stop on rejected write');
 assert.match(crewSource, /if \(!updateTeamsAndParent\(newTeams\)\) return;/, 'Excel import must not report success after rejected write');
 assert.doesNotMatch(crewSource, /key={`crew-directory-/, 'Integrity guard must not remount the whole Crew UI');
+
+assert.match(crewSource, /resolveUniqueTeamByDirectoryName\(teams, teamName\)/, 'Crew save must fail closed on ambiguous legacy names');
+assert.doesNotMatch(crewSource, /teams\.find\(t => t\.name\.trim\(\)\.toLowerCase\(\) === teamName/, 'Crew save must never pick the first display-name match');
+assert.match(crewSource, /matchingIndices\.length > 1/, 'Excel import must detect ambiguous legacy team names');
+assert.match(crewSource, /normalizeTeamDirectoryName\(nameStr\)/, 'Excel team matching must use the canonical normalizer');
