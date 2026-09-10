@@ -1,0 +1,151 @@
+from pathlib import Path
+
+
+def replace_once(path: str, old: str, new: str) -> None:
+    p = Path(path)
+    text = p.read_text(encoding='utf-8')
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(f'{path}: expected exactly 1 match, got {count}: {old[:100]!r}')
+    p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+
+superadmin = Path('src/components/SuperAdminCenter.tsx')
+text = superadmin.read_text(encoding='utf-8')
+marker = "  const actions = [\n"
+if text.count(marker) != 1:
+    raise SystemExit('SuperAdmin actions marker mismatch')
+helpers = '''  const openConfigSection = (targetId: string, opener: () => void = onOpenConfig) => {
+    try { sessionStorage.setItem('qlct_config_focus_target', targetId); } catch (_) {}
+    opener();
+  };
+
+  const openUiSettingsPanel = () => {
+    setShowUiSettings(true);
+    let attempts = 0;
+    const focusPanel = () => {
+      const target = document.getElementById('superadmin-ui-settings-card');
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        target.classList.add('ring-2', 'ring-indigo-300');
+        window.setTimeout(() => target.classList.remove('ring-2', 'ring-indigo-300'), 1800);
+        return;
+      }
+      attempts += 1;
+      if (attempts < 20) window.setTimeout(focusPanel, 50);
+    };
+    window.setTimeout(focusPanel, 0);
+  };
+
+'''
+text = text.replace(marker, helpers + marker, 1)
+replacements = {
+    "      onClick: onOpenHiddenHistory,": "      onClick: () => openConfigSection('trash-recovery-card', onOpenHiddenHistory),",
+    "      onClick: () => setShowUiSettings(true),": "      onClick: openUiSettingsPanel,",
+    "      onClick: onOpenConfig,\n    },\n    {\n      title: 'Chẩn đoán hệ thống',": "      onClick: () => openConfigSection('system-sync-card'),\n    },\n    {\n      title: 'Chẩn đoán hệ thống',",
+    "      onClick: onOpenConfig,\n    },\n  ];": "      onClick: () => openConfigSection('system-diagnostics-card'),\n    },\n  ];",
+    "      {showUiSettings && (\n        <section className=\"rounded-3xl border border-indigo-200 bg-white shadow-sm overflow-hidden\">": "      {showUiSettings && (\n        <section id=\"superadmin-ui-settings-card\" className=\"rounded-3xl border border-indigo-200 bg-white shadow-sm overflow-hidden scroll-mt-24 transition-shadow\">",
+}
+for old, new in replacements.items():
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(f'SuperAdmin replacement mismatch {count}: {old[:90]!r}')
+    text = text.replace(old, new, 1)
+superadmin.write_text(text, encoding='utf-8')
+
+config = Path('src/components/GoogleConfigTab.tsx')
+text = config.read_text(encoding='utf-8')
+hook_marker = "  const handleConnect = async () => {\n"
+if text.count(hook_marker) != 1:
+    raise SystemExit('GoogleConfig hook marker mismatch')
+nav_effect = '''  // Super Admin cards can request a specific Config subsection before this tab mounts.
+  // Open the owning <details> first, then focus/highlight the requested destination.
+  useEffect(() => {
+    let cancelled = false;
+    let timer: number | undefined;
+    let attempts = 0;
+    const focusRequestedSection = () => {
+      if (cancelled) return;
+      let targetId = '';
+      try { targetId = sessionStorage.getItem('qlct_config_focus_target') || ''; } catch (_) {}
+      if (!targetId) return;
+      const target = document.getElementById(targetId);
+      if (!target) {
+        attempts += 1;
+        if (attempts < 30) timer = window.setTimeout(focusRequestedSection, 50);
+        return;
+      }
+      const ownerDetails = target instanceof HTMLDetailsElement ? target : target.closest('details');
+      if (ownerDetails instanceof HTMLDetailsElement) ownerDetails.open = true;
+      try { sessionStorage.removeItem('qlct_config_focus_target'); } catch (_) {}
+      window.requestAnimationFrame(() => {
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        target.classList.add('ring-2', 'ring-indigo-300');
+        window.setTimeout(() => target.classList.remove('ring-2', 'ring-indigo-300'), 1800);
+      });
+    };
+    timer = window.setTimeout(focusRequestedSection, 0);
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, []);
+
+'''
+text = text.replace(hook_marker, nav_effect + hook_marker, 1)
+old = "      {syncDiagnostics && (\n        <details className=\"group rounded-2xl border border-slate-200 bg-white shadow-sm open:fixed"
+new = "      {syncDiagnostics && (\n        <details id=\"system-sync-card\" className=\"group rounded-2xl border border-slate-200 bg-white shadow-sm scroll-mt-24 transition-shadow open:fixed"
+if text.count(old) != 1:
+    raise SystemExit(f'Health details marker mismatch: {text.count(old)}')
+text = text.replace(old, new, 1)
+old = "          <div className=\"px-2 pb-2 sm:px-3 sm:pb-3 space-y-3\">\n        <div className=\"bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3\">"
+new = "          <div className=\"px-2 pb-2 sm:px-3 sm:pb-3 space-y-3\">\n        <div id=\"system-diagnostics-card\" className=\"bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3 scroll-mt-24 transition-shadow\">"
+if text.count(old) != 1:
+    raise SystemExit(f'Diagnostics card marker mismatch: {text.count(old)}')
+text = text.replace(old, new, 1)
+config.write_text(text, encoding='utf-8')
+
+replace_once(
+    'src/components/NotificationCenterModal.tsx',
+    'bg-slate-900/60 backdrop-blur-xs z-50 flex items-center',
+    'bg-slate-900/60 backdrop-blur-xs z-[100] flex items-center',
+)
+
+Path('scripts/superadmin-navigation-golden.ts').write_text('''import fs from 'node:fs';
+
+const read = (path: string) => fs.readFileSync(path, 'utf8');
+const check = (condition: unknown, message: string) => { if (!condition) throw new Error(message); };
+
+const admin = read('src/components/SuperAdminCenter.tsx');
+check(admin.includes("sessionStorage.setItem('qlct_config_focus_target', targetId)"), 'Super Admin must persist Config focus intent before navigation.');
+check(admin.includes("openConfigSection('trash-recovery-card', onOpenHiddenHistory)"), 'Hidden/history card must target the trash recovery panel.');
+check(admin.includes("openConfigSection('system-sync-card')"), 'Sync/R2 card must target the system sync panel.');
+check(admin.includes("openConfigSection('system-diagnostics-card')"), 'Diagnostics card must target the diagnostics panel.');
+check(admin.includes('openUiSettingsPanel'), 'UI/module card needs a visible open-and-focus handler.');
+check(admin.includes('id="superadmin-ui-settings-card"'), 'UI/module panel needs a stable focus id.');
+check(admin.includes('onClick: onOpenNotificationCenter'), 'Notification card must invoke the notification opener.');
+
+const config = read('src/components/GoogleConfigTab.tsx');
+check(config.includes("sessionStorage.getItem('qlct_config_focus_target')"), 'Config tab must consume Super Admin focus intent.');
+check(config.includes('ownerDetails.open = true'), 'Requested Config details panel must open before focus.');
+check(config.includes('id="system-sync-card"'), 'System sync panel needs a stable navigation id.');
+check(config.includes('id="system-diagnostics-card"'), 'System diagnostics panel needs a stable navigation id.');
+check(config.includes('id="trash-recovery-card"'), 'Trash/history panel needs a stable navigation id.');
+
+const notifications = read('src/components/NotificationCenterModal.tsx');
+check(notifications.includes('z-[100]'), 'Notification modal must render above fullscreen admin/config details.');
+
+console.log('Super Admin section navigation golden PASS');
+''', encoding='utf-8')
+
+package = Path('package.json')
+text = package.read_text(encoding='utf-8')
+old = '&& npm run test:media-p0\",'
+if text.count(old) != 1:
+    raise SystemExit(f'package stability marker mismatch: {text.count(old)}')
+text = text.replace(old, '&& npm run test:media-p0 && npm run test:superadmin-navigation\",', 1)
+old = '    \"test:media-p0\": \"tsx scripts/media-p0-golden.ts\"\n'
+if text.count(old) != 1:
+    raise SystemExit(f'package media script marker mismatch: {text.count(old)}')
+text = text.replace(old, '    \"test:media-p0\": \"tsx scripts/media-p0-golden.ts\",\n    \"test:superadmin-navigation\": \"tsx scripts/superadmin-navigation-golden.ts\"\n', 1)
+package.write_text(text, encoding='utf-8')
