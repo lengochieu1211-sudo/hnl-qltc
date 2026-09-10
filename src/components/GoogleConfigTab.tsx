@@ -459,6 +459,39 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
     checkAuth();
   }, []);
 
+  // Super Admin cards can request a specific Config subsection before this tab mounts.
+  // Open the owning <details> first, then focus/highlight the requested destination.
+  useEffect(() => {
+    let cancelled = false;
+    let timer: number | undefined;
+    let attempts = 0;
+    const focusRequestedSection = () => {
+      if (cancelled) return;
+      let targetId = '';
+      try { targetId = sessionStorage.getItem('qlct_config_focus_target') || ''; } catch (_) {}
+      if (!targetId) return;
+      const target = document.getElementById(targetId);
+      if (!target) {
+        attempts += 1;
+        if (attempts < 30) timer = window.setTimeout(focusRequestedSection, 50);
+        return;
+      }
+      const ownerDetails = target instanceof HTMLDetailsElement ? target : target.closest('details');
+      if (ownerDetails instanceof HTMLDetailsElement) ownerDetails.open = true;
+      try { sessionStorage.removeItem('qlct_config_focus_target'); } catch (_) {}
+      window.requestAnimationFrame(() => {
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        target.classList.add('ring-2', 'ring-indigo-300');
+        window.setTimeout(() => target.classList.remove('ring-2', 'ring-indigo-300'), 1800);
+      });
+    };
+    timer = window.setTimeout(focusRequestedSection, 0);
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, []);
+
   const handleConnect = async () => {
     try {
       if (!hasApiBackend()) {
@@ -603,7 +636,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
 
       {/* V6.2.27 STABILITY DIAGNOSTICS */}
       {syncDiagnostics && (
-        <details className="group rounded-2xl border border-slate-200 bg-white shadow-sm open:fixed open:inset-0 open:z-[80] open:overflow-y-auto open:rounded-none open:border-0 open:bg-slate-50 open:p-3 sm:open:p-6">
+        <details id="system-sync-card" className="group rounded-2xl border border-slate-200 bg-white shadow-sm scroll-mt-24 transition-shadow open:fixed open:inset-0 open:z-[80] open:overflow-y-auto open:rounded-none open:border-0 open:bg-slate-50 open:p-3 sm:open:p-6">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-2xl px-4 py-3.5 select-none group-open:sticky group-open:top-0 group-open:z-10 group-open:mb-3 group-open:border group-open:border-slate-200 group-open:bg-white group-open:shadow-sm">
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
@@ -617,7 +650,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
             <ExpandCollapseIndicator expandLabel="Mở" collapseLabel="Đóng" />
           </summary>
           <div className="px-2 pb-2 sm:px-3 sm:pb-3 space-y-3">
-        <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
+        <div id="system-diagnostics-card" className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3 scroll-mt-24 transition-shadow">
           <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-2">
             <div>
               <h3 className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">

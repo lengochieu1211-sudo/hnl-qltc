@@ -15,7 +15,7 @@
     "test:rules": "node scripts/firebase-rules-check.mjs",
     "test:emulator-config": "node scripts/emulator-golden.mjs",
     "security:audit": "npm audit --omit=dev --audit-level=critical",
-    "test:stability": "node scripts/stability-gate.mjs && node scripts/offline-golden.mjs && node scripts/category-golden.mjs && node scripts/firebase-only-golden.mjs && node scripts/firebase-only-legacy-audit.mjs --self-test && node scripts/emulator-golden.mjs && node scripts/rbac-matrix.mjs && node scripts/r2-gateway-golden.mjs && node scripts/ai-gateway-golden.mjs && node scripts/desktop-launcher-golden.mjs && node scripts/auth-popup-golden.mjs && npm run test:material-need && tsx scripts/contact-core-golden.ts && tsx scripts/defect-contact-golden.ts && tsx scripts/defect-linkage-golden.ts && node --experimental-strip-types scripts/crew-task-description-golden.ts && tsx scripts/crew-persistence-golden.ts && npm run test:share-center && npm run test:checklist-floor && npm run test:health-center && npm run test:floorplan-p0 && npm run test:media-p0",
+    "test:stability": "node scripts/stability-gate.mjs && node scripts/offline-golden.mjs && node scripts/category-golden.mjs && node scripts/firebase-only-golden.mjs && node scripts/firebase-only-legacy-audit.mjs --self-test && node scripts/emulator-golden.mjs && node scripts/rbac-matrix.mjs && node scripts/r2-gateway-golden.mjs && node scripts/ai-gateway-golden.mjs && node scripts/desktop-launcher-golden.mjs && node scripts/auth-popup-golden.mjs && npm run test:material-need && tsx scripts/contact-core-golden.ts && tsx scripts/defect-contact-golden.ts && tsx scripts/defect-linkage-golden.ts && node --experimental-strip-types scripts/crew-task-description-golden.ts && tsx scripts/crew-persistence-golden.ts && npm run test:share-center && npm run test:checklist-floor && npm run test:health-center && npm run test:floorplan-p0 && npm run test:media-p0 && npm run test:superadmin-navigation",
     "verify": "npm run test:stability && npm run typecheck && npm run lint && npm run test:rules && npm run security:audit && npm run build",
     "test:offline": "node scripts/offline-golden.mjs",
     "test:category": "node scripts/category-golden.mjs",
@@ -38,7 +38,8 @@
     "test:crew-task-description": "node --experimental-strip-types scripts/crew-task-description-golden.ts",
     "test:material-need": "tsx scripts/material-need-golden.ts",
     "test:floorplan-p0": "tsx scripts/floorplan-p0-golden.ts",
-    "test:media-p0": "tsx scripts/media-p0-golden.ts"
+    "test:media-p0": "tsx scripts/media-p0-golden.ts",
+    "test:superadmin-navigation": "tsx scripts/superadmin-navigation-golden.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

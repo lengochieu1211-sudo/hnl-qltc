@@ -93,6 +93,28 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
     } finally { setSavingUi(false); }
   };
 
+  const openConfigSection = (targetId: string, opener: () => void = onOpenConfig) => {
+    try { sessionStorage.setItem('qlct_config_focus_target', targetId); } catch (_) {}
+    opener();
+  };
+
+  const openUiSettingsPanel = () => {
+    setShowUiSettings(true);
+    let attempts = 0;
+    const focusPanel = () => {
+      const target = document.getElementById('superadmin-ui-settings-card');
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        target.classList.add('ring-2', 'ring-indigo-300');
+        window.setTimeout(() => target.classList.remove('ring-2', 'ring-indigo-300'), 1800);
+        return;
+      }
+      attempts += 1;
+      if (attempts < 20) window.setTimeout(focusPanel, 50);
+    };
+    window.setTimeout(focusPanel, 0);
+  };
+
   const actions = [
     {
       title: 'Người dùng & phân quyền',
@@ -110,13 +132,13 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
       title: 'Dữ liệu đã ẩn & lịch sử',
       description: 'Khôi phục hoặc dọn dữ liệu đã xóa: Căn/Phòng, Hạng mục, Định mức, Phiếu nhập/xuất kho, Mặt bằng, Defect, Checklist, Quân số và Đội thi công.',
       icon: DatabaseZap,
-      onClick: onOpenHiddenHistory,
+      onClick: () => openConfigSection('trash-recovery-card', onOpenHiddenHistory),
     },
     {
       title: 'Giao diện & module',
       description: `Theme: ${uiSettings.theme} · Cỡ ${uiSettings.scalePercent}% · Checklist: ${showChecklist ? 'đang hiện' : 'tự ẩn'}.`,
       icon: Palette,
-      onClick: () => setShowUiSettings(true),
+      onClick: openUiSettingsPanel,
     },
     {
       title: 'Thông báo',
@@ -128,13 +150,13 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
       title: 'Đồng bộ & R2',
       description: `Ảnh đang chờ: ${pendingPhotoCount}. Mở công cụ hệ thống để kiểm tra đồng bộ và chẩn đoán.`,
       icon: CloudCog,
-      onClick: onOpenConfig,
+      onClick: () => openConfigSection('system-sync-card'),
     },
     {
       title: 'Chẩn đoán hệ thống',
       description: 'Mở trạng thái Firebase/R2, chẩn đoán, export diagnostic và công cụ phục hồi.',
       icon: Stethoscope,
-      onClick: onOpenConfig,
+      onClick: () => openConfigSection('system-diagnostics-card'),
     },
   ];
 
@@ -182,7 +204,7 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
       </section>
 
       {showUiSettings && (
-        <section className="rounded-3xl border border-indigo-200 bg-white shadow-sm overflow-hidden">
+        <section id="superadmin-ui-settings-card" className="rounded-3xl border border-indigo-200 bg-white shadow-sm overflow-hidden scroll-mt-24 transition-shadow">
           <div className="px-4 py-3 bg-indigo-50 border-b border-indigo-100 flex items-center justify-between gap-3">
             <div><h3 className="text-sm font-black text-indigo-950">Giao diện & Module · V2</h3><p className="text-[10px] text-indigo-700 mt-0.5">Xem trước tức thời. Chỉ khi bấm “Áp dụng & Lưu” mới đồng bộ Cloud.</p></div>
             <button type="button" onClick={() => { setShowUiSettings(false); onPreviewUiSettings(uiSettings); }} className="text-[11px] font-bold text-slate-500 px-2 py-1 rounded-lg hover:bg-white">Đóng</button>
