@@ -431,7 +431,6 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   const [exportEncrypt, setExportEncrypt] = useState(false);
   const [exportPassword, setExportPassword] = useState('');
   const [exportHint, setExportHint] = useState('');
-  const [showExportEncryptOptions, setShowExportEncryptOptions] = useState(false);
 
   const [pendingEncryptedPayload, setPendingEncryptedPayload] = useState<EncryptedBackupContainer | null>(null);
   const [decryptPassword, setDecryptPassword] = useState('');
@@ -3045,7 +3044,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-slate-900/65 backdrop-blur-md z-[180] flex items-center justify-center p-3 md:p-4 animate-in fade-in duration-200">
-      <div className="bg-white w-full max-w-lg rounded-2xl p-4 md:p-6 shadow-2xl relative border border-slate-100 flex flex-col max-h-[92vh] overflow-hidden">
+      <div className="bg-white w-full max-w-xl rounded-2xl p-3.5 md:p-5 shadow-2xl relative border border-slate-100 flex flex-col max-h-[92vh] overflow-hidden">
         
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
@@ -3059,7 +3058,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
               </h2>
               <p className="text-[11px] text-slate-500 font-medium">
                 {modalTab === 'sync' 
-                  ? (FIREBASE_ONLY_RUNTIME ? 'Firebase Auth + Firestore + Storage · JSON chỉ dùng backup thủ công' : (hasDriveBackend ? 'Lưu trữ cục bộ, Đám mây Firebase, Google Drive & Google Sheets' : 'Lưu trữ cục bộ và Đám mây Firebase miễn phí'))
+                  ? 'Đồng bộ dữ liệu, R2/ảnh, sao lưu, khôi phục và đối chiếu dự án.'
                   : 'Tạo mới, chuyển đổi, tìm kiếm và quản lý danh sách dự án công trình'}
               </p>
             </div>
@@ -3087,17 +3086,17 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         )}
 
         {/* Content Body */}
-        <div className="flex-1 overflow-y-auto pr-1 space-y-4 pt-3">
+        <div className="flex-1 overflow-y-auto pr-1 space-y-3 pt-2.5">
 
           {/* TAB 1: SAVING & SYNC HUB */}
           {modalTab === 'sync' && (
-            <div className="space-y-4">
+            <div className="space-y-3">
               
               {/* JSON backup scope is selected only when the user presses Export JSON. */}
 
               {/* 💾 SECTION 2: LOCAL SAVE & RESTORE (JSON FILE) */}
               {canBackup ? (
-              <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-2.5 shadow-xs">
+              <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-2 shadow-xs">
                 <div className="flex items-center justify-between">
                   <span className="font-extrabold text-slate-800 text-xs flex items-center gap-1.5">
                     <HardDrive className="w-4 h-4 text-emerald-600" />
@@ -3130,11 +3129,10 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   </label>
                 </div>
 
-                <details className="group pt-2 border-t border-slate-100">
-                  <summary className="cursor-pointer select-none flex items-center justify-between text-[11px] font-bold text-slate-700">
+                <div className="group pt-2 border-t border-slate-100">
+                  <div className="select-none flex items-center justify-between text-[11px] font-bold text-slate-700">
                     <span>Cài đặt sao lưu nâng cao</span>
-                    <ExpandCollapseIndicator />
-                  </summary>
+                  </div>
                   <div className="pt-2 space-y-2.5">
 
                     <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5">
@@ -3161,25 +3159,15 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                         checked={exportEncrypt}
                         onChange={(e) => {
                           setExportEncrypt(e.target.checked);
-                          if (e.target.checked) setShowExportEncryptOptions(true);
                         }}
                         className="w-3.5 h-3.5 text-indigo-600 rounded"
                       />
                       <Lock className="w-3 h-3 text-indigo-600" />
                       <span>Mã hóa AES-256 GCM (Bảo mật sao lưu)</span>
                     </label>
-                    {exportEncrypt && (
-                      <button 
-                        type="button" 
-                        onClick={() => setShowExportEncryptOptions(!showExportEncryptOptions)}
-                        className="text-[10px] text-indigo-600 font-bold hover:underline"
-                      >
-                        {showExportEncryptOptions ? 'Thu gọn' : 'Tùy chỉnh'}
-                      </button>
-                    )}
                   </div>
 
-                  {exportEncrypt && showExportEncryptOptions && (
+                  {exportEncrypt && (
                     <div className="mt-2 p-2.5 bg-indigo-50/70 border border-indigo-200 rounded-xl space-y-2 animate-in fade-in duration-150">
                       <div>
                         <label className="block text-[10px] font-extrabold text-indigo-900 mb-0.5">
@@ -3320,7 +3308,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                 )}
 
                   </div>
-                </details>
+                </div>
 
                 {/* Multi-Version Backup & Restore system (Lịch sử Bản Sao Lưu) */}
                 <div className="pt-2 border-t border-slate-100 space-y-2">
@@ -3447,13 +3435,13 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                 </div>
               </div>
               ) : (
-                <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 text-[10.5px] text-slate-600">
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-[10.5px] text-slate-600">
                   <span className="font-bold">Sao lưu/khôi phục dữ liệu:</span> chỉ ADMIN được xuất, nhập hoặc phục hồi bản sao dự án. Đồng bộ realtime Firebase vẫn hoạt động theo quyền hiện tại.
                 </div>
               )}
 
               {/* ☁️ SECTION 3: CLOUD SYNC & SNAPSHOTS (FIREBASE) */}
-              <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-3 shadow-xs">
+              <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-2.5 shadow-xs">
                 <div className="flex items-center justify-between">
                   <span className="font-extrabold text-indigo-900 text-xs flex items-center gap-1.5">
                     <Cloud className="w-4 h-4 text-indigo-600" />
@@ -3593,11 +3581,10 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     </div>
                   )}
 
-                  {canManage && <details className="group bg-white/70 border border-indigo-100 rounded-lg">
-                    <summary className="cursor-pointer select-none px-2.5 py-2 text-[10px] font-bold text-indigo-700 flex items-center justify-between">
+                  {canManage && <div className="group bg-white/70 border border-indigo-100 rounded-lg">
+                    <div className="select-none px-2.5 py-2 text-[10px] font-bold text-indigo-700 flex items-center justify-between">
                       <span>Công cụ đồng bộ nâng cao</span>
-                      <ExpandCollapseIndicator />
-                    </summary>
+                    </div>
                     <div className="px-2.5 pb-2.5 space-y-2 border-t border-indigo-100 pt-2">
                       <button
                         type="button"
@@ -3628,7 +3615,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                         Bình thường không cần nhập mã dự án. ID chỉ giữ lại để xử lý dự án cũ hoặc sự cố đặc biệt.
                       </p>
                     </div>
-                  </details>}
+                  </div>}
                 </div>
 
                 {!FIREBASE_ONLY_RUNTIME && (
@@ -3641,11 +3628,10 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
                 {/* Cloud versions only appear when at least one version exists. */}
                 {canBackup && cloudBackups.length > 0 && (
-                <details className="group pt-2 border-t border-slate-100">
-                  <summary className="cursor-pointer select-none flex items-center justify-between mb-1.5 text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">
+                <div className="group pt-2 border-t border-slate-100">
+                  <div className="select-none flex items-center justify-between mb-1.5 text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">
                     <span>Phiên bản đám mây ({cloudBackups.length})</span>
-                    <ExpandCollapseIndicator />
-                  </summary>
+                  </div>
                   <div>
 
                   <QuickSortBar
@@ -3708,13 +3694,13 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     </div>
                   )}
                   </div>
-                </details>
+                </div>
                 )}
               </div>
 
               {/* 📁 SECTION 4: GOOGLE DRIVE SYNC */}
               {hasDriveBackend && canManage && (
-                <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-2.5 shadow-xs">
+                <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-2 shadow-xs">
                   <div className="flex items-center justify-between">
                     <span className="font-extrabold text-slate-800 text-xs flex items-center gap-1.5">
                       <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
