@@ -31,6 +31,10 @@ export const ExpandCollapseButton: React.FC<ExpandCollapseButtonProps> = ({
     const previousStyle = target.getAttribute('style');
     const previousBodyOverflow = document.body.style.overflow;
     const backdrop = document.createElement('div');
+    const historyMarker = `hnl-material-need-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    let historyEntryActive = false;
+    let closingFromPopState = false;
+
     backdrop.setAttribute('data-hnl-floating-backdrop', 'material-need');
     Object.assign(backdrop.style, {
       position: 'fixed',
@@ -83,18 +87,39 @@ export const ExpandCollapseButton: React.FC<ExpandCollapseButtonProps> = ({
       onToggle();
     };
 
+    const onPopState = () => {
+      closingFromPopState = true;
+      historyEntryActive = false;
+      onToggle();
+    };
+
     document.body.style.overflow = 'hidden';
     applyLayout();
     window.addEventListener('resize', applyLayout);
     window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('popstate', onPopState);
+
+    try {
+      window.history.pushState({ ...window.history.state, __hnlMaterialNeed: historyMarker }, '', window.location.href);
+      historyEntryActive = true;
+    } catch (_) {
+      historyEntryActive = false;
+    }
 
     return () => {
       window.removeEventListener('resize', applyLayout);
       window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('popstate', onPopState);
       backdrop.remove();
       if (previousStyle === null) target.removeAttribute('style');
       else target.setAttribute('style', previousStyle);
       document.body.style.overflow = previousBodyOverflow;
+
+      const currentMarker = window.history.state?.__hnlMaterialNeed;
+      if (historyEntryActive && !closingFromPopState && currentMarker === historyMarker) {
+        historyEntryActive = false;
+        window.history.back();
+      }
     };
   }, [expanded, isMaterialNeedPage, onToggle]);
 
