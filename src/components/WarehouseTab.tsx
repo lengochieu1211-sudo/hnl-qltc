@@ -963,7 +963,20 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       {/* Gợi ý vật tư tổng hợp */}
       <section className="mb-4 rounded-2xl border border-indigo-200 bg-indigo-50/50 p-4 shadow-sm">
         <div className="flex flex-col gap-3">
-          <div className="flex items-start justify-between gap-2">
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => setIsMaterialNeedExpanded((value) => !value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                setIsMaterialNeedExpanded((value) => !value);
+              }
+            }}
+            className="flex cursor-pointer items-start justify-between gap-2 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/60"
+            aria-expanded={isMaterialNeedExpanded}
+            aria-controls="material-need-details"
+          >
             <div className="min-w-0">
               <h3 className="text-sm font-extrabold text-slate-900">Gợi ý vật tư tổng hợp</h3>
               <p className="text-[11px] text-slate-600">{materialNeedFloorSummary} · {materialNeedTeamSummary} · {materialNeedResult.lines.length} loại vật tư</p>
@@ -972,6 +985,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               expanded={isMaterialNeedExpanded}
               onToggle={() => setIsMaterialNeedExpanded((value) => !value)}
               controls="material-need-details"
+              className={isMaterialNeedExpanded ? 'rotate-180' : ''}
             />
           </div>
 

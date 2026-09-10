@@ -19,7 +19,9 @@ import {
   X,
   User as UserIcon,
   Crown,
-  HardDrive
+  HardDrive,
+  LogIn,
+  LogOut
 } from 'lucide-react';
 import {
   getStoredPinLockConfig,
@@ -36,7 +38,7 @@ import {
   canManageSecurity
 } from '../utils/securityUtils';
 import { hashPin, verifyPin } from '../utils/cryptoUtils';
-import { signInWithGoogle, getCurrentFirebaseUser, fetchProjectUserRoleFromCloud, claimProjectOwnership, fetchProjectMembersFromCloud, fetchProjectAuditLogsFromCloud, subscribeProjectMembersRealtime, subscribeProjectAuditLogsRealtime, repairProjectAccessIndexForProject, subscribeProjectMemberContactsRealtime, saveProjectMemberContactToCloud, fetchAccessibleMemberContactDirectory, ProjectMemberContact } from '../lib/firebase';
+import { signInWithGoogle, signOutFirebaseAccount, getCurrentFirebaseUser, fetchProjectUserRoleFromCloud, claimProjectOwnership, fetchProjectMembersFromCloud, fetchProjectAuditLogsFromCloud, subscribeProjectMembersRealtime, subscribeProjectAuditLogsRealtime, repairProjectAccessIndexForProject, subscribeProjectMemberContactsRealtime, saveProjectMemberContactToCloud, fetchAccessibleMemberContactDirectory, ProjectMemberContact } from '../lib/firebase';
 import { saveTextFile } from '../utils/fileExport';
 import { QuickSortBar } from './QuickSortBar';
 import { confirmAsync } from '../utils/confirmAsync';
@@ -116,6 +118,8 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
   const [isCheckingCloud, setIsCheckingCloud] = useState<boolean>(false);
   const [isClaiming, setIsClaiming] = useState<boolean>(false);
   const [claimMsg, setClaimMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [isAccountBusy, setIsAccountBusy] = useState(false);
+  const [accountMsg, setAccountMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const [adminPinPrompt, setAdminPinPrompt] = useState<boolean>(false);
   const [adminPinInput, setAdminPinInput] = useState<string>('');
@@ -220,6 +224,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
       setSelectedPid(pid);
       setPinMsg(null);
       setClaimMsg(null);
+      setAccountMsg(null);
       setNewPin('');
       setConfirmPin('');
       setCurrentPinInput('');
@@ -462,6 +467,42 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
       }
     } catch (err: any) {
       setPinMsg({ type: 'error', text: 'Lỗi xác thực Google: ' + (err?.message || err) });
+    }
+  };
+
+  const handleAccountSignIn = async () => {
+    if (isAccountBusy) return;
+    setIsAccountBusy(true);
+    setAccountMsg(null);
+    try {
+      const user = await signInWithGoogle();
+      if (user) {
+        setCloudUser(user);
+        setAccountMsg({ type: 'success', text: `Đã đăng nhập ${user.email || 'tài khoản Google/Firebase'}.` });
+        await refreshCloudStatus(selectedPid);
+      }
+    } catch (err: any) {
+      setAccountMsg({ type: 'error', text: `Không đăng nhập được Google/Firebase: ${err?.message || err}` });
+    } finally {
+      setIsAccountBusy(false);
+    }
+  };
+
+  const handleAccountSignOut = async () => {
+    if (isAccountBusy) return;
+    setIsAccountBusy(true);
+    setAccountMsg(null);
+    try {
+      await signOutFirebaseAccount();
+      setCloudUser(null);
+      setCloudRoleInfo(null);
+      setRoleState('VIEWER');
+      setCurrentUserRole('VIEWER');
+      setAccountMsg({ type: 'success', text: 'Đã đăng xuất tài khoản Google/Firebase.' });
+    } catch (err: any) {
+      setAccountMsg({ type: 'error', text: `Không đăng xuất được: ${err?.message || err}` });
+    } finally {
+      setIsAccountBusy(false);
     }
   };
 
@@ -810,6 +851,47 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
           >
             <X className="w-4 h-4" />
           </button>
+        </div>
+
+        {/* Google/Firebase account lives in Security Center, not in the global header. */}
+        <div className="mt-2.5 shrink-0 rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${cloudUser ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
+                <UserCheck className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-[11px] font-extrabold text-slate-800">Tài khoản Google/Firebase</div>
+                <div className={`truncate text-[10px] font-semibold ${cloudUser ? 'text-emerald-700' : 'text-slate-500'}`}>
+                  {cloudUser ? `${cloudUser.email || cloudUser.displayName || 'Đã đăng nhập'} · ${currentRole}` : 'Chưa đăng nhập'}
+                </div>
+              </div>
+            </div>
+            {cloudUser ? (
+              <button
+                type="button"
+                disabled={isAccountBusy}
+                onClick={() => void handleAccountSignOut()}
+                className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl border border-rose-200 bg-white px-3 py-2 text-[10px] font-bold text-rose-700 disabled:opacity-50"
+              >
+                <LogOut className="h-3.5 w-3.5" /> Đăng xuất
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={isAccountBusy}
+                onClick={() => void handleAccountSignIn()}
+                className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-600 px-3 py-2 text-[10px] font-bold text-white disabled:opacity-50"
+              >
+                <LogIn className="h-3.5 w-3.5" /> {isAccountBusy ? 'Đang đăng nhập...' : 'Đăng nhập'}
+              </button>
+            )}
+          </div>
+          {accountMsg && (
+            <div className={`mt-2 rounded-lg border px-2.5 py-2 text-[10px] font-semibold ${accountMsg.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>
+              {accountMsg.text}
+            </div>
+          )}
         </div>
 
         {/* Tabs */}
