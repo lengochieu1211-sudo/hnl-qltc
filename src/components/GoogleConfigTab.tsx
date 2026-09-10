@@ -500,7 +500,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   const handleSaveSettings = (e: React.FormEvent) => {
     e.preventDefault();
     if (userRole !== 'ADMIN') {
-      setSaveSuccessMsg('Chỉ ADMIN được thay đổi thông tin công trình dùng chung.');
+      setSaveSuccessMsg('Chỉ ADMIN được thay đổi thông tin dự án dùng chung.');
       setTimeout(() => setSaveSuccessMsg(null), 3500);
       return;
     }
@@ -509,7 +509,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
     setContractorName(localContractorName.trim());
     setInspectorName(localInspectorName.trim());
 
-    setSaveSuccessMsg('🎉 Đã lưu tất cả cài đặt công trình thành công vào bộ nhớ hệ thống!');
+    setSaveSuccessMsg('🎉 Đã lưu cài đặt dự án thành công!');
     setTimeout(() => setSaveSuccessMsg(null), 4000);
   };
 
@@ -532,10 +532,79 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
         </div>
       </div>
 
+      {/* PROJECT SETTINGS FORM CARD */}
+      <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
+        <h3 className="font-bold text-slate-900 border-b border-slate-100 pb-2 flex items-center gap-1.5 text-xs">
+          <Save className="w-4 h-4 text-blue-600" /> Thông tin dự án
+        </h3>
+
+        <form onSubmit={handleSaveSettings} className="space-y-3">
+          <div>
+            <label className="block text-slate-700 font-bold mb-1">{t('project_name')}</label>
+            <input
+              type="text"
+              value={localProjectName}
+              onChange={(e) => setLocalProjectName(e.target.value)}
+              disabled={userRole !== 'ADMIN'}
+              className="w-full border border-slate-200 rounded-xl p-2.5 font-bold text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+              placeholder="Ví dụ: LTIA Sân bay Long Thành"
+              required
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">{t('contractor')}</label>
+              <input
+                type="text"
+                value={localContractorName}
+                onChange={(e) => setLocalContractorName(e.target.value)}
+                disabled={userRole !== 'ADMIN'}
+                className="w-full border border-slate-200 rounded-xl p-2.5 font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                placeholder="Tên công ty / đội thợ"
+              />
+            </div>
+
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">{t('inspector')}</label>
+              <input
+                type="text"
+                value={localInspectorName}
+                onChange={(e) => setLocalInspectorName(e.target.value)}
+                disabled={userRole !== 'ADMIN'}
+                className="w-full border border-slate-200 rounded-xl p-2.5 font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                placeholder="Họ tên người duyệt"
+              />
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={userRole !== 'ADMIN'}
+            className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-md active:scale-98 transition-all flex items-center justify-center gap-2 text-xs cursor-pointer disabled:bg-slate-300 disabled:shadow-none disabled:cursor-not-allowed"
+          >
+            <Save className="w-4 h-4" />
+            Lưu cài đặt dự án
+          </button>
+        </form>
+
+        {userRole !== 'ADMIN' && (
+          <p className="text-[10px] text-slate-500">Thông tin dự án là dữ liệu dùng chung. EDITOR/VIEWER chỉ xem; ADMIN mới được sửa để tránh lệch tên giữa các thiết bị.</p>
+        )}
+
+        {saveSuccessMsg && (
+          <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-bold flex items-center gap-2 animate-in fade-in">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{saveSuccessMsg}</span>
+          </div>
+        )}
+      </div>
+
+
       {/* V6.2.27 STABILITY DIAGNOSTICS */}
       {syncDiagnostics && (
-        <details className="group rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-2xl px-4 py-3.5 select-none">
+        <details className="group rounded-2xl border border-slate-200 bg-white shadow-sm open:fixed open:inset-0 open:z-[80] open:overflow-y-auto open:rounded-none open:border-0 open:bg-slate-50 open:p-3 sm:open:p-6">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-2xl px-4 py-3.5 select-none group-open:sticky group-open:top-0 group-open:z-10 group-open:mb-3 group-open:border group-open:border-slate-200 group-open:bg-white group-open:shadow-sm">
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
                 <ShieldCheck className="h-4 w-4 text-emerald-600" /> HNL Health Center
@@ -545,7 +614,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
             <span className={`shrink-0 rounded-lg border px-2 py-1 text-[10px] font-bold ${syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
               {syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'Cloud sẵn sàng' : 'Đang kiểm tra'}
             </span>
-            <ExpandCollapseIndicator />
+            <ExpandCollapseIndicator expandLabel="Mở" collapseLabel="Đóng" />
           </summary>
           <div className="px-2 pb-2 sm:px-3 sm:pb-3 space-y-3">
         <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
@@ -639,87 +708,19 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
         </details>
       )}
 
-      {/* PROJECT SETTINGS FORM CARD */}
-      <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
-        <h3 className="font-bold text-slate-900 border-b border-slate-100 pb-2 flex items-center gap-1.5 text-xs">
-          <Save className="w-4 h-4 text-blue-600" /> Thông tin công trình
-        </h3>
-
-        <form onSubmit={handleSaveSettings} className="space-y-3">
-          <div>
-            <label className="block text-slate-700 font-bold mb-1">{t('project_name')}</label>
-            <input
-              type="text"
-              value={localProjectName}
-              onChange={(e) => setLocalProjectName(e.target.value)}
-              disabled={userRole !== 'ADMIN'}
-              className="w-full border border-slate-200 rounded-xl p-2.5 font-bold text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
-              placeholder="Ví dụ: LTIA Sân bay Long Thành"
-              required
-            />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <div>
-              <label className="block text-slate-700 font-bold mb-1">{t('contractor')}</label>
-              <input
-                type="text"
-                value={localContractorName}
-                onChange={(e) => setLocalContractorName(e.target.value)}
-                disabled={userRole !== 'ADMIN'}
-                className="w-full border border-slate-200 rounded-xl p-2.5 font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
-                placeholder="Tên công ty / đội thợ"
-              />
-            </div>
-
-            <div>
-              <label className="block text-slate-700 font-bold mb-1">{t('inspector')}</label>
-              <input
-                type="text"
-                value={localInspectorName}
-                onChange={(e) => setLocalInspectorName(e.target.value)}
-                disabled={userRole !== 'ADMIN'}
-                className="w-full border border-slate-200 rounded-xl p-2.5 font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
-                placeholder="Họ tên người duyệt"
-              />
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            disabled={userRole !== 'ADMIN'}
-            className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-md active:scale-98 transition-all flex items-center justify-center gap-2 text-xs cursor-pointer disabled:bg-slate-300 disabled:shadow-none disabled:cursor-not-allowed"
-          >
-            <Save className="w-4 h-4" />
-            {t('save_settings')}
-          </button>
-        </form>
-
-        {userRole !== 'ADMIN' && (
-          <p className="text-[10px] text-slate-500">Thông tin công trình là dữ liệu dùng chung. EDITOR/VIEWER chỉ xem; ADMIN mới được sửa để tránh lệch tên giữa các thiết bị.</p>
-        )}
-
-        {saveSuccessMsg && (
-          <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-bold flex items-center gap-2 animate-in fade-in">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>{saveSuccessMsg}</span>
-          </div>
-        )}
-      </div>
-
       {/* APP FORMATTING PREFERENCES CARD */}
-      <details className="group rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-2xl px-4 py-3.5 select-none">
+      <details className="group rounded-2xl border border-slate-200 bg-white shadow-sm open:fixed open:inset-0 open:z-[80] open:overflow-y-auto open:rounded-none open:border-0 open:bg-slate-50 open:p-3 sm:open:p-6">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-2xl px-4 py-3.5 select-none group-open:sticky group-open:top-0 group-open:z-10 group-open:mb-3 group-open:border group-open:border-slate-200 group-open:bg-white group-open:shadow-sm">
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
               <Sliders className="w-4 h-4 text-indigo-600" /> {t('formatting_settings')}
             </div>
-            <div className="mt-0.5 text-[10px] font-semibold text-slate-500">Nhấn để mở / thu gọn cài đặt định dạng hiển thị.</div>
+            <div className="mt-0.5 text-[10px] font-semibold text-slate-500">Mở trang cài đặt định dạng hiển thị.</div>
           </div>
           <span className="shrink-0 rounded-lg border border-indigo-100 bg-indigo-50 px-2 py-1 text-[10px] font-bold text-indigo-700">
             {numberFormatPreset === 'dot_comma' ? '1.234,56' : '1,234.56'} · {dateFormatPreset}
           </span>
-          <ExpandCollapseIndicator />
+          <ExpandCollapseIndicator expandLabel="Mở" collapseLabel="Đóng" />
         </summary>
         <div className="space-y-3.5 px-4 pb-4">
 
@@ -812,18 +813,18 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       </details>
 
       {/* IMAGE QUALITY & STORAGE CARD */}
-      <details className="group rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-2xl px-4 py-3.5 select-none">
+      <details className="group rounded-2xl border border-slate-200 bg-white shadow-sm open:fixed open:inset-0 open:z-[80] open:overflow-y-auto open:rounded-none open:border-0 open:bg-slate-50 open:p-3 sm:open:p-6">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-2xl px-4 py-3.5 select-none group-open:sticky group-open:top-0 group-open:z-10 group-open:mb-3 group-open:border group-open:border-slate-200 group-open:bg-white group-open:shadow-sm">
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
               <Sliders className="w-4 h-4 text-indigo-600" /> Chất lượng ảnh & dung lượng
             </div>
-            <div className="mt-0.5 text-[10px] font-semibold text-slate-500">Nhấn để mở / thu gọn chất lượng Mặt bằng, Defect và Quân số.</div>
+            <div className="mt-0.5 text-[10px] font-semibold text-slate-500">Mở trang chất lượng Mặt bằng, Defect và Quân số.</div>
           </div>
           <span className="shrink-0 rounded-lg border border-indigo-100 bg-indigo-50 px-2 py-1 text-[10px] font-bold text-indigo-700">
             {getImageQualityProfile('floorPlan', imageQualitySettings.floorPlan).label}
           </span>
-          <ExpandCollapseIndicator />
+          <ExpandCollapseIndicator expandLabel="Mở" collapseLabel="Đóng" />
         </summary>
         <div className="space-y-3.5 px-4 pb-4">
           <p className="text-[10px] text-slate-500">Mặt bằng ưu tiên độ nét chữ; Defect ưu tiên chi tiết lỗi; Quân số ưu tiên cân bằng tốc độ đồng bộ. Thiết lập lưu trên thiết bị này.</p>
@@ -851,18 +852,18 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       </details>
 
       {/* LIGHTWEIGHT TRASH / RECOVERY CARD */}
-      <details id="trash-recovery-card" className="group rounded-2xl border border-slate-200 bg-white shadow-sm scroll-mt-24 transition-shadow">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-2xl px-4 py-3.5 select-none">
+      <details id="trash-recovery-card" className="group rounded-2xl border border-slate-200 bg-white shadow-sm scroll-mt-24 transition-shadow open:fixed open:inset-0 open:z-[80] open:overflow-y-auto open:rounded-none open:border-0 open:bg-slate-50 open:p-3 sm:open:p-6">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-2xl px-4 py-3.5 select-none group-open:sticky group-open:top-0 group-open:z-10 group-open:mb-3 group-open:border group-open:border-slate-200 group-open:bg-white group-open:shadow-sm">
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
               <Trash2 className="w-4 h-4 text-rose-600" /> Dữ liệu đã ẩn & lịch sử
             </div>
-            <div className="mt-0.5 text-[10px] font-semibold text-slate-500">Nhấn để mở / thu gọn thùng rác, khôi phục và lịch sử xóa.</div>
+            <div className="mt-0.5 text-[10px] font-semibold text-slate-500">Mở trang thùng rác, khôi phục và lịch sử xóa.</div>
           </div>
           <span className={`shrink-0 rounded-lg border px-2 py-1 text-[10px] font-bold ${trashSettings.enabled ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-100 border-slate-200 text-slate-600'}`}>
             {trashOperations.length} mục · {trashSettings.enabled ? 'Đang bật' : 'Đang tắt'}
           </span>
-          <ExpandCollapseIndicator />
+          <ExpandCollapseIndicator expandLabel="Mở" collapseLabel="Đóng" />
         </summary>
         <div className="space-y-3.5 px-4 pb-4">
           <div>
