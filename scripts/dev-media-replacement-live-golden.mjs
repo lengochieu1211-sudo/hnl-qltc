@@ -1,10 +1,8 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import { initializeApp as initializeAdminApp, applicationDefault, deleteApp as deleteAdminApp } from 'firebase-admin/app';
-import { getAuth as getAdminAuth } from 'firebase-admin/auth';
-import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
+import { google } from 'googleapis';
 import { initializeApp, deleteApp } from 'firebase/app';
-import { getAuth, signInWithCustomToken } from 'firebase/auth';
+import { getAuth, signInWithCustomToken, deleteUser } from 'firebase/auth';
 import { getFirestore, doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
 
 const required = (name) => {
@@ -17,11 +15,15 @@ const devProjectId = required('DEV_PROJECT_ID');
 const hostingUrl = required('DEV_HOSTING_URL').replace(/\/+$/, '');
 const r2Url = required('DEV_R2_URL').replace(/\/+$/, '');
 const serviceAccountPath = required('GOOGLE_APPLICATION_CREDENTIALS');
+const prodProjectId = required('PROD_FIREBASE_PROJECT_ID');
+const prodR2Url = required('PROD_R2_URL').replace(/\/+$/, '');
 const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
 
 if (devProjectId !== 'hnl-qltc-dev') throw new Error(`REFUSING: unexpected DEV project ${devProjectId}`);
-if (/com-example-qlct-61329/i.test(devProjectId)) throw new Error('REFUSING: PROD Firebase project');
+if (devProjectId === prodProjectId) throw new Error('REFUSING: DEV Firebase project equals PROD');
+if (r2Url === prodR2Url) throw new Error('REFUSING: DEV R2 equals PROD');
 if (!/-dev\./i.test(r2Url)) throw new Error(`REFUSING: non-DEV R2 URL ${r2Url}`);
+if (serviceAccount.project_id !== devProjectId) throw new Error(`Service account project mismatch: ${serviceAccount.project_id}`);
 
 const config = {
   apiKey: required('VITE_FIREBASE_API_KEY'),
@@ -33,25 +35,33 @@ const config = {
 };
 if (config.projectId !== devProjectId) throw new Error(`REFUSING: SDK project mismatch ${config.projectId}`);
 
-const runId = String(process.env.GITHUB_RUN_ID || Date.now());
-const nonce = `${runId}-${Math.random().toString(36).slice(2, 10)}`;
+const runId = String(process.env.GITHUB_RUN_ID || Date.now()).replace(/[^0-9A-Za-z_-]/g, '').slice(-32);
+const nonce = `${runId}-${Date.now().toString(36)}`;
 const pid = `dev-media-replace-${nonce}`;
 const defectId = `DEF-${nonce}`;
 const photoId = `PHOTO-${nonce}`;
 const logicalAssetId = photoId;
-const adminUid = `dev-media-admin-${nonce}`;
-const editorUid = `dev-media-editor-${nonce}`;
-const viewerUid = `dev-media-viewer-${nonce}`;
-const adminEmail = `${adminUid}@example.test`;
-const editorEmail = `${editorUid}@example.test`;
-const viewerEmail = `${viewerUid}@example.test`;
+const adminUid = `dev-media-admin-${nonce}`.slice(0, 120);
+const editorUid = `dev-media-editor-${nonce}`.slice(0, 120);
+const viewerUid = `dev-media-viewer-${nonce}`.slice(0, 120);
+const adminEmail = `${adminUid}@example.test`.toLowerCase();
+const editorEmail = `${editorUid}@example.test`.toLowerCase();
+const viewerEmail = `${viewerUid}@example.test`.toLowerCase();
 const now = Date.now();
 
-const passLines = [];
+const report = {
+  devProjectId,
+  projectId: pid,
+  photoId,
+  runId,
+  startedAt: new Date().toISOString(),
+  checks: [],
+  cleanup: [],
+};
+
 const pass = (name, detail = '') => {
-  const line = `PASS MEDIA REPLACE LIVE: ${name}${detail ? ` — ${detail}` : ''}`;
-  passLines.push(line);
-  console.log(line);
+  report.checks.push({ name, status: 'PASS', detail });
+  console.log(`PASS MEDIA REPLACE LIVE: ${name}${detail ? ` — ${detail}` : ''}`);
 };
 const b64url = (value) => Buffer.from(value).toString('base64url');
 const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex');
@@ -78,7 +88,37 @@ async function createIdentity(kind, uid, email) {
   const auth = getAuth(app);
   await signInWithCustomToken(auth, mintCustomToken(uid, email));
   if (!auth.currentUser) throw new Error(`${kind} auth user missing`);
-  return { kind, uid, email, app, auth, db: getFirestore(app), idToken: await auth.currentUser.getIdToken(true) };
+  const idToken = await auth.currentUser.getIdToken(true);
+  return { kind, uid, email, app, auth, db: getFirestore(app), idToken };
+}
+
+async function adminAccessToken() {
+  const auth = new google.auth.GoogleAuth({
+    credentials: serviceAccount,
+    scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/datastore'],
+  });
+  const client = await auth.getClient();
+  const result = await client.getAccessToken();
+  const token = typeof result === 'string' ? result : result?.token;
+  if (!token) throw new Error('Unable to obtain service-account OAuth token for cleanup');
+  return token;
+}
+
+const firestoreDocUrl = (path) => {
+  const encoded = path.split('/').map(encodeURIComponent).join('/');
+  return `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(devProjectId)}/databases/(default)/documents/${encoded}`;
+};
+
+async function adminDeleteDoc(oauthToken, path) {
+  const response = await fetch(firestoreDocUrl(path), {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${oauthToken}` },
+  });
+  if (response.status !== 200 && response.status !== 404) {
+    const body = await response.text().catch(() => '');
+    throw new Error(`Cleanup delete ${path} failed HTTP ${response.status}: ${body.slice(0, 400)}`);
+  }
+  report.cleanup.push({ path, status: response.status === 404 ? 'NOT_FOUND' : 'DELETED' });
 }
 
 function r2Endpoint(storagePath) {
@@ -101,7 +141,7 @@ async function putR2(identity, storagePath, payload, assetId, expectedSha) {
     assetId,
     createdByUid: identity.uid,
     createdAt: String(Date.now()),
-    app: 'HNL QLTC',
+    golden: 'true',
   }));
   const response = await requireStatus(`PUT ${assetId}`, await fetch(r2Endpoint(storagePath), {
     method: 'PUT',
@@ -115,17 +155,18 @@ async function putR2(identity, storagePath, payload, assetId, expectedSha) {
   }), 200);
   const result = await response.json();
   if (Number(result?.size || 0) !== payload.length) throw new Error(`PUT ${assetId}: size mismatch`);
-  const serverSha = String(result?.sha256 || '').toLowerCase();
-  if (serverSha && serverSha !== expectedSha) throw new Error(`PUT ${assetId}: SHA mismatch ${serverSha} != ${expectedSha}`);
+  const serverSha = String(result?.sha256 || '').trim().toLowerCase();
+  if (!serverSha) throw new Error(`PUT ${assetId}: missing SHA256`);
+  if (serverSha !== expectedSha) throw new Error(`PUT ${assetId}: SHA mismatch ${serverSha} != ${expectedSha}`);
 
   const head = await requireStatus(`HEAD ${assetId}`, await fetch(r2Endpoint(storagePath), {
     method: 'HEAD',
     headers: { Authorization: `Bearer ${identity.idToken}`, Origin: hostingUrl },
   }), 200);
   if (Number(head.headers.get('content-length') || 0) !== payload.length) throw new Error(`HEAD ${assetId}: size mismatch`);
-  const headSha = String(head.headers.get('x-hnl-sha256') || '').toLowerCase();
-  if (headSha && headSha !== expectedSha) throw new Error(`HEAD ${assetId}: SHA mismatch ${headSha} != ${expectedSha}`);
-  return { size: payload.length, sha256: headSha || serverSha || expectedSha };
+  const headSha = String(head.headers.get('x-hnl-sha256') || '').trim().toLowerCase();
+  if (!headSha || headSha !== expectedSha) throw new Error(`HEAD ${assetId}: SHA mismatch ${headSha || 'missing'} != ${expectedSha}`);
+  return { size: payload.length, sha256: headSha };
 }
 
 async function getR2(identity, storagePath) {
@@ -160,48 +201,50 @@ function waitForPhoto(db, predicate, label, timeoutMs = 15000) {
 let adminClient;
 let editor;
 let viewer;
-let adminApp;
-let adminDb;
 let pathA = '';
 let pathB = '';
 
 try {
-  adminApp = initializeAdminApp({ credential: applicationDefault(), projectId: devProjectId }, `dev-media-replace-admin-sdk-${nonce}`);
-  adminDb = getAdminFirestore(adminApp);
-
   adminClient = await createIdentity('ADMIN', adminUid, adminEmail);
   editor = await createIdentity('EDITOR', editorUid, editorEmail);
   viewer = await createIdentity('VIEWER', viewerUid, viewerEmail);
   pass('isolated ADMIN/EDITOR/VIEWER identities');
 
-  await adminDb.doc(`projects/${pid}`).set({
+  const projectRefAdmin = doc(adminClient.db, 'projects', pid);
+  if ((await getDoc(projectRefAdmin)).exists()) throw new Error('Fresh replacement-golden project unexpectedly exists');
+
+  await setDoc(projectRefAdmin, {
     id: pid,
-    projectId: pid,
     name: `DEV Media Replacement Golden ${nonce}`,
     ownerUid: adminUid,
     ownerEmail: adminEmail,
     createdAt: now,
     updatedAt: now,
-    revision: 1,
-    deleted: false,
-    deletedAt: null,
   });
-  await adminDb.doc(`projects/${pid}/members/${editorEmail}`).set({ email: editorEmail, role: 'EDITOR', active: true, assignedAt: now });
-  await adminDb.doc(`projects/${pid}/members/${viewerEmail}`).set({ email: viewerEmail, role: 'VIEWER', active: true, assignedAt: now });
-  await adminDb.doc(`projects/${pid}/defects/${defectId}`).set({
+  await setDoc(doc(adminClient.db, 'projects', pid, 'members', editorEmail), {
+    email: editorEmail,
+    role: 'EDITOR',
+    active: true,
+    assignedAt: now,
+  });
+  await setDoc(doc(adminClient.db, 'projects', pid, 'members', viewerEmail), {
+    email: viewerEmail,
+    role: 'VIEWER',
+    active: true,
+    assignedAt: now,
+  });
+  await setDoc(doc(editor.db, 'projects', pid, 'defects', defectId), {
     id: defectId,
-    projectId: pid,
-    description: 'DEV immutable media replacement golden',
-    status: 'OPEN',
+    title: 'DEV immutable media replacement',
+    description: 'Same logical photo ID must publish immutable binary revisions',
+    status: 'Mới',
     revision: 1,
-    createdAt: now,
-    updatedAt: now,
-    createdByUid: editorUid,
-    updatedByUid: editorUid,
+    createdAt: now + 1,
+    updatedAt: now + 1,
     deleted: false,
     deletedAt: null,
   });
-  pass('isolated project/member/Defect fixtures seeded');
+  pass('isolated project/member/Defect fixtures seeded through deployed rules');
 
   const payloadA = Buffer.from(`HNL-QLTC-PR62-REVISION-A-${nonce}`, 'utf8');
   const payloadB = Buffer.from(`HNL-QLTC-PR62-REVISION-B-${nonce}-DIFFERENT-BYTES`, 'utf8');
@@ -221,6 +264,7 @@ try {
 
   const photoRefEditor = doc(editor.db, 'projects', pid, 'photos', photoId);
   const revision1At = now + 1000;
+  const viewerRev1Promise = waitForPhoto(viewer.db, (data) => Number(data.revision) === 1 && data.storagePath === pathA, 'viewer revision 1');
   await setDoc(photoRefEditor, {
     id: photoId,
     projectId: pid,
@@ -245,8 +289,8 @@ try {
     deletedAt: null,
   });
 
-  const viewerRev1 = await waitForPhoto(viewer.db, (data) => Number(data.revision) === 1 && data.storagePath === pathA, 'viewer revision 1');
-  if (!Buffer.from(await getR2(viewer, viewerRev1.storagePath)).equals(payloadA)) throw new Error('Viewer revision A byte mismatch');
+  const viewerRev1 = await viewerRev1Promise;
+  if (!(await getR2(viewer, viewerRev1.storagePath)).equals(payloadA)) throw new Error('Viewer revision A byte mismatch');
   pass('VIEWER receives revision A pointer + exact bytes cross-account');
 
   const uploadedB = await putR2(editor, pathB, payloadB, assetB, shaB);
@@ -287,45 +331,67 @@ try {
   pass('VIEWER receives revision B pointer + exact new bytes without stale-object overwrite');
   pass('revision A remains immutable after revision B publication');
 
-  fs.mkdirSync('runtime-evidence', { recursive: true });
-  fs.writeFileSync('runtime-evidence/dev-media-replacement-live.json', JSON.stringify({
-    generatedAt: new Date().toISOString(),
-    devProjectId,
-    runId,
-    projectId: pid,
-    photoId,
-    revisionA: { storagePath: pathA, sha256: shaA, bytes: payloadA.length },
-    revisionB: { storagePath: pathB, sha256: shaB, bytes: payloadB.length },
-    checks: passLines,
-    result: 'PASS',
-  }, null, 2));
-
-  console.log(`DEV IMMUTABLE MEDIA REPLACEMENT GOLDEN PASS — ${passLines.length} checks`);
+  report.revisionA = { storagePath: pathA, sha256: shaA, bytes: payloadA.length };
+  report.revisionB = { storagePath: pathB, sha256: shaB, bytes: payloadB.length };
+  report.status = 'PASS';
+} catch (error) {
+  report.status = 'FAIL';
+  report.error = String(error?.stack || error?.message || error);
+  console.error(report.error);
+  process.exitCode = 1;
 } finally {
-  try {
-    if (adminClient?.idToken && pathA) await fetch(r2Endpoint(pathA), { method: 'DELETE', headers: { Authorization: `Bearer ${adminClient.idToken}`, Origin: hostingUrl } });
-    if (adminClient?.idToken && pathB) await fetch(r2Endpoint(pathB), { method: 'DELETE', headers: { Authorization: `Bearer ${adminClient.idToken}`, Origin: hostingUrl } });
-  } catch (error) {
-    console.warn('DEV media replacement R2 cleanup warning:', error instanceof Error ? error.message : String(error));
-  }
-
-  try {
-    if (adminDb) await adminDb.recursiveDelete(adminDb.doc(`projects/${pid}`));
-  } catch (error) {
-    console.warn('DEV media replacement Firestore cleanup warning:', error instanceof Error ? error.message : String(error));
-  }
-
-  try {
-    if (adminApp) {
-      const adminAuth = getAdminAuth(adminApp);
-      for (const uid of [adminUid, editorUid, viewerUid]) await adminAuth.deleteUser(uid).catch(() => undefined);
+  if ((pathA || pathB) && adminClient?.auth?.currentUser) {
+    try {
+      const adminIdToken = await adminClient.auth.currentUser.getIdToken(true);
+      for (const storagePath of [pathA, pathB].filter(Boolean)) {
+        const response = await fetch(r2Endpoint(storagePath), {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${adminIdToken}`, Origin: hostingUrl },
+        });
+        if (response.status !== 200 && response.status !== 404) {
+          throw new Error(`R2 cleanup ${storagePath} failed HTTP ${response.status}`);
+        }
+        report.cleanup.push({ storagePath, status: response.status === 404 ? 'NOT_FOUND' : 'DELETED' });
+      }
+    } catch (error) {
+      report.cleanup.push({ target: 'R2', status: 'DELETE_FAILED', detail: String(error?.message || error) });
+      console.error('DEV media replacement R2 cleanup warning:', error?.message || error);
+      process.exitCode = 1;
     }
-  } catch (error) {
-    console.warn('DEV media replacement Auth cleanup warning:', error instanceof Error ? error.message : String(error));
   }
 
-  for (const identity of [adminClient, editor, viewer]) {
-    if (identity?.app) await deleteApp(identity.app).catch(() => undefined);
+  try {
+    const oauth = await adminAccessToken();
+    const cleanupPaths = [
+      `projects/${pid}/photos/${photoId}`,
+      `projects/${pid}/defects/${defectId}`,
+      `projects/${pid}/members/${editorEmail}`,
+      `projects/${pid}/members/${viewerEmail}`,
+      `projects/${pid}`,
+    ];
+    for (const path of cleanupPaths) await adminDeleteDoc(oauth, path);
+    console.log('DEV media replacement Firestore cleanup: PASS');
+  } catch (error) {
+    report.cleanup.push({ target: 'Firestore', status: 'DELETE_FAILED', detail: String(error?.message || error) });
+    console.error('DEV media replacement Firestore cleanup warning:', error?.message || error);
+    process.exitCode = 1;
   }
-  if (adminApp) await deleteAdminApp(adminApp).catch(() => undefined);
+
+  for (const identity of [viewer, editor, adminClient]) {
+    if (!identity) continue;
+    try {
+      if (identity.auth.currentUser) await deleteUser(identity.auth.currentUser);
+      report.cleanup.push({ authUid: identity.uid, status: 'DELETED' });
+    } catch (error) {
+      report.cleanup.push({ authUid: identity.uid, status: 'DELETE_FAILED', detail: String(error?.code || error?.message || error) });
+      console.error(`Auth cleanup warning for ${identity.uid}:`, error?.code || error?.message || error);
+      process.exitCode = 1;
+    }
+    try { await deleteApp(identity.app); } catch {}
+  }
+
+  report.finishedAt = new Date().toISOString();
+  fs.mkdirSync('runtime-evidence', { recursive: true });
+  fs.writeFileSync('runtime-evidence/dev-media-replacement-live.json', JSON.stringify(report, null, 2));
+  console.log(`DEV IMMUTABLE MEDIA REPLACEMENT GOLDEN ${report.status || 'FAIL'} — ${report.checks.length} checks`);
 }
