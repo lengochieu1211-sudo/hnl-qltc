@@ -6,6 +6,7 @@ on:
     branches: [dev]
     paths:
       - 'scripts/dev-live-backend-golden.mjs'
+      - 'scripts/dev-media-replacement-live-golden.mjs'
       - 'scripts/dev-health-center-repair-live-golden.ts'
       - 'scripts/dev-hosted-browser-golden.mjs'
       - 'src/components/FloorPlanDefectTab.tsx'
@@ -176,6 +177,9 @@ jobs:
 
       - name: Live Firebase + R2 multi-user golden
         run: node scripts/dev-live-backend-golden.mjs
+
+      - name: Live immutable media replacement golden
+        run: node scripts/dev-media-replacement-live-golden.mjs
 
       - name: Live Health Center safe-repair golden
         run: npx tsx scripts/dev-health-center-repair-live-golden.ts
