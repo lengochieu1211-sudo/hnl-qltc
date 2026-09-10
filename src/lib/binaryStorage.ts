@@ -1,4 +1,4 @@
-import { FIREBASE_EMULATOR_ENABLED } from './firebase';
+import { FIREBASE_EMULATOR_ENABLED, getCurrentRealFirebaseUser } from './firebase';
 import {
   downloadStorageBlob,
   readStorageMetadata,
@@ -55,13 +55,20 @@ async function sha256Hex(blob: Blob): Promise<string> {
  * replacement bytes to the old path can change what other devices read before Firestore
  * publishes the replacement metadata. The logical photo id remains unchanged in the
  * Firestore record; only the private binary assetId is content-addressed.
+ *
+ * Object-level createdByUid means the authenticated uploader of this immutable binary,
+ * not necessarily the original author of the logical photo record. Binding it here to
+ * the real Firebase user keeps Firebase Storage Rules and R2 audit metadata consistent
+ * when an authorized second project member edits an existing attachment.
  */
 async function immutableMediaInput(input: ProjectBinaryUploadInput): Promise<ProjectBinaryUploadInput> {
   const contentSha256 = await sha256Hex(input.blob);
   const logicalAssetId = String(input.assetId || 'asset').trim() || 'asset';
+  const uploaderUid = getCurrentRealFirebaseUser()?.uid || String(input.createdByUid || '');
   return {
     ...input,
     assetId: `${logicalAssetId}--${contentSha256}`,
+    createdByUid: uploaderUid,
   };
 }
 
