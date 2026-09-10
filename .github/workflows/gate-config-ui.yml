@@ -1,0 +1,68 @@
+name: Gate Config Dedicated Pages
+
+on:
+  push:
+    branches:
+      - gate/config-dedicated-pages-20260910
+    paths:
+      - .gate/run-config-ui
+
+permissions:
+  contents: write
+
+jobs:
+  apply-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout gate branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify base and patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "6260cfaac5679695e255cc86848990fc277a0526" || true
+          sha256sum .gate/config-ui.patch
+          git apply --check .gate/config-ui.patch
+
+      - name: Apply config UX patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply .gate/config-ui.patch
+          rm -rf .gate
+          rm -f .github/workflows/gate-config-ui.yml
+          grep -q 'Thông tin dự án' src/components/GoogleConfigTab.tsx
+          grep -q 'Lưu cài đặt dự án' src/components/GoogleConfigTab.tsx
+          grep -q 'open:fixed open:inset-0 open:z-\[80\]' src/components/GoogleConfigTab.tsx
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('src/components/GoogleConfigTab.tsx').read_text()
+          assert s.index('PROJECT SETTINGS FORM CARD') < s.index('V6.2.27 STABILITY DIAGNOSTICS') < s.index('APP FORMATTING PREFERENCES CARD')
+          assert s.count('expandLabel="Mở" collapseLabel="Đóng"') >= 4
+          PY
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Source lint
+        run: node scripts/source-lint.mjs
+
+      - name: Stability gate
+        run: node scripts/stability-gate.mjs
+
+      - name: Full verify
+        run: npm run verify
+
+      - name: Commit clean candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/GoogleConfigTab.tsx
+          test "$(git diff --cached --name-only)" = "src/components/GoogleConfigTab.tsx"
+          git commit -m "fix: open config sections as dedicated pages"
+          git push origin HEAD:gate/config-dedicated-pages-20260910
