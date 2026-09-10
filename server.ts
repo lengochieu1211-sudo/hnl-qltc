@@ -21,7 +21,19 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Memory storage for uploaded files via multer
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({
+  storage: multer.memoryStorage(),
+  // Legacy Drive migration only. Keep multipart parsing bounded even when an
+  // operator explicitly enables the otherwise-disabled migration routes.
+  limits: {
+    fileSize: 50 * 1024 * 1024,
+    fieldSize: 70 * 1024 * 1024,
+    files: 1,
+    fields: 6,
+    parts: 8,
+    fieldNameSize: 100,
+  },
+});
 
 // OAuth Token Memory Store per Session ID (Isolated per user/browser)
 const userTokensStore = new Map<string, any>();
