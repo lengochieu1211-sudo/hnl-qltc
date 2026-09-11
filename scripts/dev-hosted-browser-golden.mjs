@@ -62,6 +62,12 @@ async function closeVisibleModal(page, label) {
   await namedClose.last().click();
 }
 
+async function waitForSettingsSheet(page, sheetKey, visible) {
+  const sheet = page.locator(`[data-hnl-settings-sheet="${sheetKey}"]`);
+  await sheet.waitFor({ state: visible ? 'visible' : 'hidden', timeout: 10000 });
+  return sheet;
+}
+
 async function verifySettingsFeatureSheets(page, label) {
   const moreButton = page.getByRole('button', { name: 'Thêm', exact: true });
   assert(await moreButton.count() > 0, `${label}: Thêm bottom-nav button not found`);
@@ -73,24 +79,42 @@ async function verifySettingsFeatureSheets(page, label) {
 
   const syncSelector = '#sync-backup-card';
   const healthSelector = '#system-sync-card';
+  const trashSelector = '#trash-recovery-card';
   const syncCard = page.locator(syncSelector);
   const healthCard = page.locator(healthSelector);
+  const trashCard = page.locator(trashSelector);
   await syncCard.waitFor({ state: 'visible', timeout: 10000 });
   await healthCard.waitFor({ state: 'visible', timeout: 10000 });
+  await trashCard.waitFor({ state: 'visible', timeout: 10000 });
 
   const settingsCards = [
-    syncCard,
-    healthCard,
-    page.locator('details').filter({ hasText: 'Cài đặt định dạng số & ngày tháng' }).first(),
-    page.locator('details').filter({ hasText: 'Chất lượng ảnh & dung lượng' }).first(),
-    page.locator('#trash-recovery-card'),
+    { name: 'Trung tâm đồng bộ & sao lưu dự án', selector: syncSelector, card: syncCard, closeMode: 'x' },
+    { name: 'HNL Health Center', selector: healthSelector, card: healthCard, closeMode: 'history' },
+    {
+      name: 'Cài đặt định dạng số & ngày tháng',
+      selector: null,
+      card: page.locator('details').filter({ hasText: 'Cài đặt định dạng số & ngày tháng' }).first(),
+      closeMode: 'escape',
+    },
+    {
+      name: 'Chất lượng ảnh & dung lượng',
+      selector: null,
+      card: page.locator('details').filter({ hasText: 'Chất lượng ảnh & dung lượng' }).first(),
+      closeMode: 'backdrop',
+    },
+    { name: 'Dữ liệu đã ẩn & lịch sử', selector: trashSelector, card: trashCard, closeMode: 'x' },
   ];
-  for (const [index, card] of settingsCards.entries()) {
-    await card.waitFor({ state: 'visible', timeout: 10000 });
-    assert(!(await card.evaluate(el => el.open)), `${label}: Settings card ${index + 1} must start collapsed`);
+
+  for (const [index, item] of settingsCards.entries()) {
+    await item.card.waitFor({ state: 'visible', timeout: 10000 });
+    assert(!(await item.card.evaluate((el) => el.open)), `${label}: Settings card ${index + 1} must start collapsed`);
+    assert(
+      (await item.card.getAttribute('data-hnl-settings-sheet-open')) === 'false',
+      `${label}: Settings card ${index + 1} must advertise closed sheet state`,
+    );
   }
 
-  const sharedStyles = await Promise.all(settingsCards.map((card) => card.evaluate((el) => {
+  const sharedStyles = await Promise.all(settingsCards.map(({ card }) => card.evaluate((el) => {
     const style = getComputedStyle(el);
     return {
       backgroundColor: style.backgroundColor,
@@ -119,23 +143,33 @@ async function verifySettingsFeatureSheets(page, label) {
   assert(syncOverflow <= 1, `${label}: Sync Center closed header overflows horizontally`);
   pass(`${label} compact Sync Center closed state`, `${Math.round(syncClosedBox.height)}px header`);
 
-  await syncSummary.click();
-  await waitForDetailsOpen(page, syncSelector, true);
-  await page.waitForTimeout(80);
+  for (const [index, item] of settingsCards.entries()) {
+    const summary = item.card.locator('summary').first();
+    const sheetKey = await item.card.getAttribute('data-hnl-settings-sheet-card');
+    assert(sheetKey, `${label}: ${item.name} has no feature-sheet key`);
 
-  const syncOpenMetrics = await page.evaluate((selector) => {
-    const details = document.querySelector(selector);
-    const style = details ? getComputedStyle(details) : null;
-    const rect = details?.getBoundingClientRect();
-    return {
-      position: style?.position || '',
-      width: rect?.width ?? -1,
-      overflowX: details ? details.scrollWidth - details.clientWidth : -1,
-      bodyOverflow: document.body.style.overflow,
-      backdropCount: document.querySelectorAll('[data-hnl-floating-backdrop="true"]').length,
-      viewportWidth: window.innerWidth,
-      offenders: details
-        ? Array.from(details.querySelectorAll('*'))
+    await summary.click();
+    if (item.selector) {
+      await waitForDetailsOpen(page, item.selector, true);
+    } else {
+      await page.waitForFunction(
+        (key) => document.querySelector(`[data-hnl-settings-sheet-card="${key}"]`)?.open === true,
+        sheetKey,
+        { timeout: 10000 },
+      );
+    }
+
+    const sheet = await waitForSettingsSheet(page, sheetKey, true);
+    const backdrop = page.locator(`[data-hnl-settings-sheet-backdrop="${sheetKey}"]`);
+    await backdrop.waitFor({ state: 'visible', timeout: 10000 });
+
+    const metrics = await page.evaluate((key) => {
+      const dialog = document.querySelector(`[data-hnl-settings-sheet="${key}"]`);
+      const backdropElement = document.querySelector(`[data-hnl-settings-sheet-backdrop="${key}"]`);
+      const style = dialog ? getComputedStyle(dialog) : null;
+      const rect = dialog?.getBoundingClientRect();
+      const offenders = dialog
+        ? Array.from(dialog.querySelectorAll('*'))
             .map((el) => {
               const box = el.getBoundingClientRect();
               return {
@@ -148,57 +182,77 @@ async function verifySettingsFeatureSheets(page, label) {
                 clientWidth: el.clientWidth,
               };
             })
-            .filter((item) => item.right > window.innerWidth + 1 || item.scrollWidth - item.clientWidth > 1)
+            .filter((entry) => entry.right > window.innerWidth + 1 || entry.scrollWidth - entry.clientWidth > 1)
             .sort((a, b) => Math.max(b.right - window.innerWidth, b.scrollWidth - b.clientWidth) - Math.max(a.right - window.innerWidth, a.scrollWidth - a.clientWidth))
             .slice(0, 6)
-        : [],
-    };
-  }, syncSelector);
-  assert(syncOpenMetrics.position !== 'fixed', `${label}: Sync Center must expand inline, not become a fixed page/sheet`);
-  assert(syncOpenMetrics.backdropCount === 0, `${label}: inline Sync Center must not create a floating backdrop`);
-  assert(syncOpenMetrics.bodyOverflow !== 'hidden', `${label}: inline Sync Center must not lock page scroll`);
-  assert(syncOpenMetrics.width <= syncOpenMetrics.viewportWidth + 1, `${label}: Sync Center exceeds viewport width`);
-  assert(syncOpenMetrics.overflowX <= 1, `${label}: opened Sync Center overflows horizontally — ${JSON.stringify(syncOpenMetrics.offenders)}`);
+        : [];
+      return {
+        role: dialog?.getAttribute('role') || '',
+        ariaModal: dialog?.getAttribute('aria-modal') || '',
+        position: style?.position || '',
+        width: rect?.width ?? -1,
+        overflowX: dialog ? dialog.scrollWidth - dialog.clientWidth : -1,
+        bodyOverflow: document.body.style.overflow,
+        backdropVisible: Boolean(backdropElement && getComputedStyle(backdropElement).display !== 'none'),
+        viewportWidth: window.innerWidth,
+        offenders,
+      };
+    }, sheetKey);
 
-  const syncAdvanced = syncCard.getByText('Cài đặt sao lưu nâng cao', { exact: true });
-  const restrictedBackupNotice = syncCard.getByText('Sao lưu/khôi phục dữ liệu:', { exact: true });
-  const adminBackupSurfaceVisible = await syncAdvanced.isVisible();
-  const viewerBackupGuardVisible = await restrictedBackupNotice.isVisible();
-  assert(adminBackupSurfaceVisible || viewerBackupGuardVisible, `${label}: inline Sync Center lost existing backup/RBAC content`);
-  pass(`${label} Sync Center opens inline with existing business controls`, adminBackupSurfaceVisible ? 'ADMIN surface' : 'VIEWER guard');
+    assert(metrics.role === 'dialog', `${label}: ${item.name} sheet lost dialog role`);
+    assert(metrics.ariaModal === 'true', `${label}: ${item.name} sheet is not modal`);
+    assert(metrics.position === 'fixed', `${label}: ${item.name} must open as a fixed feature sheet`);
+    assert(metrics.backdropVisible, `${label}: ${item.name} sheet backdrop is not visible`);
+    assert(metrics.bodyOverflow === 'hidden', `${label}: ${item.name} sheet must lock background page scroll`);
+    assert(metrics.width <= metrics.viewportWidth + 1, `${label}: ${item.name} sheet exceeds viewport width`);
+    assert(metrics.overflowX <= 1, `${label}: ${item.name} sheet overflows horizontally — ${JSON.stringify(metrics.offenders)}`);
 
-  await page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' }));
-  await page.waitForTimeout(80);
+    const closeButton = sheet.getByRole('button', { name: /^Đóng / }).first();
+    await closeButton.waitFor({ state: 'visible', timeout: 10000 });
+
+    if (index === 0) {
+      const syncAdvanced = sheet.getByText('Cài đặt sao lưu nâng cao', { exact: true });
+      const restrictedBackupNotice = sheet.getByText('Sao lưu/khôi phục dữ liệu:', { exact: true });
+      const adminBackupSurfaceVisible = await syncAdvanced.isVisible();
+      const viewerBackupGuardVisible = await restrictedBackupNotice.isVisible();
+      assert(adminBackupSurfaceVisible || viewerBackupGuardVisible, `${label}: Sync Center sheet lost existing backup/RBAC content`);
+      pass(`${label} Sync Center feature sheet keeps existing business controls`, adminBackupSurfaceVisible ? 'ADMIN surface' : 'VIEWER guard');
+    }
+
+    if (item.closeMode === 'x') {
+      await closeButton.click();
+    } else if (item.closeMode === 'history') {
+      await page.evaluate(() => window.history.back());
+    } else if (item.closeMode === 'escape') {
+      await page.keyboard.press('Escape');
+    } else if (item.closeMode === 'backdrop') {
+      await backdrop.click({ position: { x: 8, y: 8 } });
+    }
+
+    if (item.selector) {
+      await waitForDetailsOpen(page, item.selector, false);
+    } else {
+      await page.waitForFunction(
+        (key) => document.querySelector(`[data-hnl-settings-sheet-card="${key}"]`)?.open === false,
+        sheetKey,
+        { timeout: 10000 },
+      );
+    }
+    await waitForSettingsSheet(page, sheetKey, false);
+    await backdrop.waitFor({ state: 'hidden', timeout: 10000 });
+    await page.waitForFunction(() => document.body.style.overflow !== 'hidden', null, { timeout: 10000 });
+    const historyMarker = await page.evaluate(() => window.history.state?.__hnlSettingsFeatureSheet || null);
+    assert(!historyMarker, `${label}: ${item.name} left a stale Settings history marker after close`);
+  }
+
+  pass(`${label} five Settings entries open in shared feature sheets`);
+  pass(`${label} Settings sheet close contract`, 'X + Back + Escape + backdrop');
+
   const bottomNavBox = await moreButton.boundingBox();
-  assert(bottomNavBox, `${label}: bottom navigation disappeared after opening/scrolling Settings accordion`);
+  assert(bottomNavBox, `${label}: bottom navigation disappeared after closing Settings sheets`);
   const viewport = page.viewportSize();
-  assert(!viewport || bottomNavBox.y + bottomNavBox.height <= viewport.height + 2, `${label}: bottom navigation is pushed behind viewport after accordion open`);
-  pass(`${label} page scroll + bottom navigation remain usable while Sync Center is open`);
-
-  await syncSummary.click();
-  await waitForDetailsOpen(page, syncSelector, false);
-  pass(`${label} Sync Center closes back into the same card`);
-
-  const healthSummary = healthCard.locator('summary').first();
-  await healthSummary.click();
-  await waitForDetailsOpen(page, healthSelector, true);
-  const healthMetrics = await page.evaluate((selector) => {
-    const details = document.querySelector(selector);
-    const style = details ? getComputedStyle(details) : null;
-    return {
-      position: style?.position || '',
-      overflowX: details ? details.scrollWidth - details.clientWidth : -1,
-      backdropCount: document.querySelectorAll('[data-hnl-floating-backdrop="true"]').length,
-      bodyOverflow: document.body.style.overflow,
-    };
-  }, healthSelector);
-  assert(healthMetrics.position !== 'fixed', `${label}: HNL Health Center must use the shared inline accordion behavior`);
-  assert(healthMetrics.backdropCount === 0, `${label}: HNL Health Center created an obsolete sheet backdrop`);
-  assert(healthMetrics.bodyOverflow !== 'hidden', `${label}: HNL Health Center locked page scroll`);
-  assert(healthMetrics.overflowX <= 1, `${label}: HNL Health Center overflows horizontally`);
-  await healthSummary.click();
-  await waitForDetailsOpen(page, healthSelector, false);
-  pass(`${label} HNL Health Center open/close uses shared inline accordion`);
+  assert(!viewport || bottomNavBox.y + bottomNavBox.height <= viewport.height + 2, `${label}: bottom navigation is pushed behind viewport after closing Settings sheets`);
+  pass(`${label} Settings page returns to normal scroll/navigation after sheets close`);
 }
 
 async function runViewport(browser, label, viewport, screenshotPath) {
