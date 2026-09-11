@@ -25,8 +25,8 @@ assert(syncCenter.includes('Công cụ đồng bộ nâng cao'), 'Advanced sync 
 assert(syncCenter.includes('Đồng bộ lại dự án này'), 'Manual project re-sync action must remain available');
 assert(syncCenter.includes('Xuất bản sao JSON') && syncCenter.includes('Khôi phục từ JSON'), 'JSON backup/restore actions must remain available');
 
-assert(projectManager.includes('inline?: boolean;'), 'ProjectManager must expose an inline mode for the Settings accordion');
-assert(projectManager.includes("inline ? 'w-full'"), 'Inline Sync Center must not use the fixed modal backdrop');
+assert(projectManager.includes('inline?: boolean;'), 'ProjectManager must expose an inline mode for the Settings sheet business content');
+assert(projectManager.includes("inline ? 'w-full'"), 'Inline Sync Center content must not add its own fixed backdrop inside the shared Settings sheet');
 assert(projectManager.includes('{!inline && <div className="flex items-center justify-between pb-3'), 'Inline Sync Center must suppress duplicate modal chrome/header');
 
 const header = read('src/components/GoogleAuthHeader.tsx');
@@ -39,7 +39,6 @@ const security = read('src/components/SecurityModal.tsx');
 assert(security.includes('Tài khoản Google/Firebase'), 'Security Center must own Google/Firebase account entry');
 assert(security.includes('handleAccountSignIn'), 'Security Center sign-in handler missing');
 assert(security.includes('handleAccountSignOut'), 'Security Center sign-out handler missing');
-
 
 const signOutPrompt = 'Bạn có chắc muốn đăng xuất tài khoản Google/Firebase không?';
 const globalConfirm = read('src/components/GlobalConfirmModal.tsx');
@@ -64,14 +63,24 @@ assert(appSource.includes("SUPER ADMIN đã đặt lại mã PIN"), 'Forced secu
 assert(appSource.includes('void signOutGoogle();'), 'Forced security sign-out must remain automatic after a remote PIN reset');
 
 const settingsAccordion = read('src/components/SettingsAccordionCard.tsx');
-assert(settingsAccordion.includes('<details'), 'Shared Settings accordion must use semantic details/summary disclosure');
+assert(settingsAccordion.includes('<details'), 'Shared Settings entry must retain semantic details anchor for existing navigation');
+assert(settingsAccordion.includes('<summary'), 'Shared Settings entry must retain a compact semantic trigger');
 assert(settingsAccordion.includes('rounded-2xl border border-slate-200 bg-white shadow-sm'), 'Settings cards must share the same white/border/radius/shadow design system');
 assert(settingsAccordion.includes('ChevronDown'), 'Settings cards must use the shared chevron icon');
-assert(settingsAccordion.includes('group-open:rotate-180'), 'Settings chevron must rotate when expanded');
+assert(settingsAccordion.includes("open ? 'rotate-180' : ''"), 'Settings chevron must follow shared sheet open state');
 assert(settingsAccordion.includes('duration-200 ease-out'), 'Settings open/close affordance must use one transition timing');
-assert(!settingsAccordion.includes('fixed inset-0'), 'Settings accordion must remain inline instead of becoming a fullscreen/floating sheet');
-assert(!settingsAccordion.includes('data-hnl-floating-backdrop'), 'Settings accordion must not create a separate backdrop');
-assert(settingsAccordion.includes("lazy = false"), 'Shared Settings accordion must support lazy heavy content');
+assert(settingsAccordion.includes('createPortal'), 'Settings content must render through the shared body portal');
+assert(settingsAccordion.includes('data-hnl-settings-sheet-backdrop'), 'Settings feature sheet backdrop contract missing');
+assert(settingsAccordion.includes('data-hnl-settings-sheet={sheetKey}'), 'Settings feature sheet dialog contract missing');
+assert(settingsAccordion.includes('role="dialog"') && settingsAccordion.includes('aria-modal="true"'), 'Settings feature sheet accessibility dialog contract missing');
+assert(settingsAccordion.includes('fixed inset-x-0 bottom-0 top-[8dvh]'), 'Settings feature sheet must use the shared rounded-sheet viewport geometry');
+assert(settingsAccordion.includes("document.body.style.overflow = 'hidden'"), 'Settings sheet must lock background scroll while open');
+assert(settingsAccordion.includes("window.addEventListener('popstate'"), 'Settings sheet Android/browser Back behavior missing');
+assert(settingsAccordion.includes("event.key !== 'Escape'"), 'Settings sheet Escape close behavior missing');
+assert(settingsAccordion.includes('window.history.pushState'), 'Settings sheet history marker behavior missing');
+assert(settingsAccordion.includes('flushSync'), 'Settings Back close must synchronously remove stale backdrop interception');
+assert(settingsAccordion.includes('env(safe-area-inset-bottom'), 'Settings sheet Android safe-area padding missing');
+assert(settingsAccordion.includes("lazy = false"), 'Shared Settings entry must support lazy heavy content');
 
 const materialButton = read('src/components/ExpandCollapseButton.tsx');
 assert(!materialButton.includes("isMaterialNeedPage ? 'Mở'"), 'Material Need must not render redundant Mở label');
@@ -89,11 +98,11 @@ assert(warehouse.includes('Gợi ý vật tư tổng hợp'), 'Material Need sum
 const config = read('src/components/GoogleConfigTab.tsx');
 assert(config.includes('title="Trung tâm đồng bộ & sao lưu"'), 'Settings Sync Center title missing');
 assert(config.includes('description="Đồng bộ dữ liệu · R2/ảnh · sao lưu · khôi phục và đối chiếu dữ liệu."'), 'Settings Sync Center description missing');
-assert(config.includes('id="sync-backup-card"'), 'Sync Center needs a stable inline accordion id');
+assert(config.includes('id="sync-backup-card"'), 'Sync Center needs a stable Settings navigation id');
 assert(config.includes('id="system-sync-card"'), 'Health Center needs a stable navigation id');
 assert(config.includes('id="trash-recovery-card"'), 'Trash/history card needs a stable navigation id');
-assert((config.match(/<SettingsAccordionCard/g) || []).length === 5, 'Settings must render exactly five cards through the shared accordion component');
-assert(config.includes('syncCenterContent'), 'Sync Center must reuse the existing ProjectManager business engine inline');
+assert((config.match(/<SettingsAccordionCard/g) || []).length === 5, 'Settings must render exactly five cards through the shared feature-sheet component');
+assert(config.includes('syncCenterContent'), 'Sync Center must reuse the existing ProjectManager business engine inside the Settings sheet');
 assert(!config.includes('bg-emerald-50/70 p-4 text-left'), 'Old green Sync Center banner styling must be removed');
 assert(config.includes('Chất lượng ảnh & dung lượng'), 'Image quality Settings entry missing');
 assert(config.includes('Dữ liệu đã ẩn & lịch sử'), 'Hidden data/history Settings entry missing');
@@ -102,7 +111,7 @@ assert(config.includes("label: 'Offline'") && config.includes("label: 'Đang đ�
 
 const appSourceForInlineSync = read('src/App.tsx');
 assert(appSourceForInlineSync.includes('syncCenterContent={('), 'App must inject the existing Sync Center engine into Settings');
-assert(appSourceForInlineSync.includes('<ProjectManagerModal') && appSourceForInlineSync.includes('inline'), 'App must render ProjectManager in inline mode for Settings');
+assert(appSourceForInlineSync.includes('<ProjectManagerModal') && appSourceForInlineSync.includes('inline'), 'App must render ProjectManager business content in inline mode inside the shared Settings feature sheet');
 
 const defectUi = read('src/components/FloorPlanDefectTab.tsx');
 assert(!defectUi.includes('label="📷 Ảnh Báo Lỗi Ban Đầu (Trước Sửa)"'), 'Defect before-photo label must not duplicate the camera icon with an emoji');
@@ -112,10 +121,16 @@ assert((defectUi.match(/label="Ảnh Bằng Chứng Sau Khi Sửa \(Tùy Chọn\
 
 const hostedBrowserGolden = read('scripts/dev-hosted-browser-golden.mjs');
 assert(hostedBrowserGolden.includes('five Settings cards share one design system'), 'Hosted browser Golden must verify all five Settings cards share one design system');
-assert(hostedBrowserGolden.includes('must expand inline, not become a fixed page/sheet'), 'Hosted browser Golden must lock inline expansion behavior');
-assert(hostedBrowserGolden.includes('bottom navigation remain usable while Sync Center is open'), 'Hosted browser Golden must cover mobile scroll + bottom navigation');
-assert(hostedBrowserGolden.includes("const syncSelector = '#sync-backup-card'"), 'Hosted browser Golden must target the inline Sync Center card');
-assert(hostedBrowserGolden.includes("const restrictedBackupNotice = syncCard.getByText('Sao lưu/khôi phục dữ liệu:'"), 'Hosted browser Golden must keep VIEWER fail-closed RBAC coverage inside inline Sync Center');
-assert(!hostedBrowserGolden.includes('syncModalTitle'), 'Hosted browser Golden must not expect the removed Sync Center modal heading');
+assert(hostedBrowserGolden.includes('five Settings entries open in shared feature sheets'), 'Hosted browser Golden must verify all five Settings entries open as feature sheets');
+assert(hostedBrowserGolden.includes('Settings sheet close contract'), 'Hosted browser Golden must cover shared close behavior');
+assert(hostedBrowserGolden.includes('X + Back + Escape + backdrop'), 'Hosted browser Golden must cover X, Android/browser Back, Escape and backdrop close paths');
+assert(hostedBrowserGolden.includes('data-hnl-settings-sheet'), 'Hosted browser Golden must inspect the shared Settings sheet dialog');
+assert(hostedBrowserGolden.includes('data-hnl-settings-sheet-backdrop'), 'Hosted browser Golden must inspect the Settings backdrop');
+assert(hostedBrowserGolden.includes('must open as a fixed feature sheet'), 'Hosted browser Golden must lock feature-sheet geometry');
+assert(hostedBrowserGolden.includes('Sync Center feature sheet keeps existing business controls'), 'Hosted browser Golden must retain Sync Center business/RBAC coverage');
+assert(hostedBrowserGolden.includes('Settings page returns to normal scroll/navigation after sheets close'), 'Hosted browser Golden must restore Settings page scroll/navigation after close');
+assert(hostedBrowserGolden.includes("const syncSelector = '#sync-backup-card'"), 'Hosted browser Golden must target the stable Sync Center card');
+assert(hostedBrowserGolden.includes("const restrictedBackupNotice = sheet.getByText('Sao lưu/khôi phục dữ liệu:'"), 'Hosted browser Golden must keep VIEWER fail-closed RBAC coverage inside the Sync Center sheet');
+assert(!hostedBrowserGolden.includes('must expand inline, not become a fixed page/sheet'), 'Hosted browser Golden must not regress to the removed inline-expansion contract');
 
-console.log('PASS ui-entry-ux-golden: five shared inline Settings accordions, Sync Center engine reuse, Defect photo icon de-duplication and role-aware Runtime Golden rules are intact.');
+console.log('PASS ui-entry-ux-golden: five shared Settings feature sheets, Sync Center engine reuse, close/backdrop/history contract, Defect photo icon de-duplication and role-aware Runtime Golden rules are intact.');
