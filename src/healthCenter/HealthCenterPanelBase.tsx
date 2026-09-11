@@ -11,6 +11,7 @@ import { buildHealthCenterRepairPreview } from './healthCenterRepair';
 import { buildHealthCenterRepairBackupPayload, type HealthCenterRepairBackupPayload } from './healthCenterRepairApply';
 import { commitHealthCenterRepair } from './healthCenterRepairCommit';
 import { persistHealthCenterRepairToCloud } from './healthCenterRepairCloudPersist';
+import { getHealthCenterRepairBlockReason } from './healthCenterRepairPreflight';
 
 interface HealthCenterPanelProps {
   projectId: string;
@@ -206,7 +207,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
     try {
       const input = await buildCombinedExportInput();
       await navigator.clipboard.writeText(buildHealthCenterCopyText(input));
-      setMessage('Đã copy chẩn đoán tổng hợp: Audit dữ liệu/liên kết + hệ thống/đồng bộ + ảnh R2.');
+      setMessage('Đã copy chẩn đoán đầy đủ: build/quyền + Firebase/realtime + R2/ảnh + mặt bằng/revision + runtime log + Audit.');
     } catch (err) {
       setMessage(`Không copy được chẩn đoán tổng hợp: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -234,6 +235,14 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
     setExporting('repair-apply');
     setMessage('');
     try {
+      if (getSystemDiagnostics) {
+        const diagnostics = await getSystemDiagnostics();
+        const repairBlockReason = getHealthCenterRepairBlockReason(diagnostics);
+        if (repairBlockReason) {
+          setMessage(`Repair tạm khóa: ${repairBlockReason}`);
+          return;
+        }
+      }
       const result = await commitHealthCenterRepair({
         projectId,
         userRole,
@@ -327,7 +336,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
           <div className="mt-1 text-[9px] text-slate-500">{op.ruleId} · {op.reason}</div>
         </div>)}
       </div>
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-[9px] font-semibold text-amber-800">Apply chỉ chạy khi snapshot Cloud đang live. Luồng bắt buộc: snapshot còn mới → backup thành công → ADMIN xác nhận → kiểm tra before-value → chỉ ghi Defect/Quân số qua cloud diff chuẩn có revision → realtime re-audit.</div>
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-[9px] font-semibold text-amber-800">Apply chỉ chạy khi snapshot Cloud đang live và preflight sync an toàn: online, không conflict/error/syncing, pending data = 0, realtime đủ nguồn. Luồng bắt buộc: preflight → snapshot còn mới → backup thành công → ADMIN xác nhận → kiểm tra before-value → chỉ ghi Defect/Quân số qua cloud diff chuẩn có revision → realtime re-audit.</div>
     </div>}
 
     {report.issues.length === 0 ? <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-bold text-emerald-700"><CheckCircle2 className="h-4 w-4" /> Không phát hiện vấn đề trong snapshot hiện tại.</div> : null}

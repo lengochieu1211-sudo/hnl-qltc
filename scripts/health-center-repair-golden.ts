@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { buildHealthCenterRepairPreview, assertHealthCenterRepairPreviewFresh } from '../src/healthCenter/healthCenterRepair';
 import type { HealthCenterIssue, HealthCenterSummary } from '../src/healthCenter/healthCenterEngine';
+import { getHealthCenterRepairBlockReason } from '../src/healthCenter/healthCenterRepairPreflight';
 
 function issue(input: Partial<HealthCenterIssue> & Pick<HealthCenterIssue, 'id' | 'ruleId' | 'entityType' | 'entityId' | 'actionClass'>): HealthCenterIssue {
   return {
@@ -101,5 +102,16 @@ const unknownSafe = buildHealthCenterRepairPreview({
 assert.equal(unknownSafe.operations.length, 0, 'future safe class alone must not grant write behavior');
 assert.equal(unknownSafe.blocked.length, 1, 'future rule without certified repair strategy must fail closed');
 assert.equal(unknownSafe.canApply, false);
+
+const safeSync = { online: true, dataCloudPhase: 'synced', pendingData: 0, cloudInitialReady: true, snapshotReadyCount: 9 };
+assert.equal(getHealthCenterRepairBlockReason(safeSync), null, 'synced 9/9 with no pending data must allow repair preflight');
+assert.equal(getHealthCenterRepairBlockReason({ ...safeSync, dataCloudPhase: 'idle' }), null, 'idle after live snapshot is allowed when all safety signals are clear');
+assert.match(getHealthCenterRepairBlockReason({ ...safeSync, dataCloudPhase: 'conflict' }) || '', /xung đột revision\/Rules/, 'conflict must fail closed');
+assert.match(getHealthCenterRepairBlockReason({ ...safeSync, dataCloudPhase: 'error' }) || '', /lỗi đồng bộ/, 'sync error must fail closed');
+assert.match(getHealthCenterRepairBlockReason({ ...safeSync, dataCloudPhase: 'syncing' }) || '', /đang đồng bộ/, 'syncing must fail closed');
+assert.match(getHealthCenterRepairBlockReason({ ...safeSync, pendingData: 2 }) || '', /2 thay đổi dữ liệu/, 'pending writes must fail closed');
+assert.match(getHealthCenterRepairBlockReason({ ...safeSync, online: false }) || '', /offline/, 'offline must fail closed');
+assert.match(getHealthCenterRepairBlockReason({ ...safeSync, cloudInitialReady: false }) || '', /chưa sẵn sàng/, 'cloud snapshot not ready must fail closed');
+assert.match(getHealthCenterRepairBlockReason({ ...safeSync, snapshotReadyCount: 8 }) || '', /8\/9/, 'partial realtime snapshot must fail closed');
 
 console.log('Health Center Repair Preview Golden: PASS');

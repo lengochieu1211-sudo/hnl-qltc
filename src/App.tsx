@@ -6607,7 +6607,50 @@ export default function App() {
               onLinkLocalFile={handleLinkLocalFile}
               onUnlinkLocalFile={handleUnlinkLocalFile}
               onRequestLocalFilePermission={handleRequestLocalFilePermission}
-              onOpenProjectManager={() => handleOpenProjectManager('sync')}
+              syncCenterContent={(
+                <ProjectManagerModal
+                  inline
+                  isOpen={true}
+                  onClose={() => undefined}
+                  activeProjectId={activeProjectId}
+                  initialTab="sync"
+                  userRole={currentUserRole}
+                  autoSyncEnabled={autoSyncEnabled}
+                  setAutoSyncEnabled={setAutoSyncEnabled}
+                  onDriveSyncUpAll={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleDriveSyncUpAll : undefined}
+                  onDriveSyncDownAll={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleDriveSyncDownAll : undefined}
+                  localAllSyncStatus={localAllSyncStatus}
+                  localAllFileName={localAllFileName}
+                  localAllFileHandle={localAllFileHandle}
+                  onLinkLocalAllFile={handleLinkLocalAllFile}
+                  onUnlinkLocalAllFile={handleUnlinkLocalAllFile}
+                  onRequestLocalAllFilePermission={handleRequestLocalAllFilePermission}
+                  autosaveVersions={autosaveVersions}
+                  onRestoreAutoSaveVersion={handleRestoreAutoSaveVersion}
+                  onCreateManualBackup={handleCreateManualBackup}
+                  onDeleteAutoSaveVersion={handleDeleteAutoSaveVersion}
+                  fullAppData={{
+                    projectName,
+                    contractorName,
+                    inspectorName,
+                    materialNorms,
+                    inventory,
+                    workVolumes,
+                    floorPlans,
+                    defects,
+                    roomProgressList,
+                    checklist,
+                    crewRecords,
+                    teams,
+                    updatedAt: lastUpdatedAt,
+                  }}
+                  onRestoreData={handleRestoreData}
+                  onSwitchProject={switchProject}
+                  onFlushCurrentProject={async () => await saveCurrentProject(activeProjectId)}
+                  dataCloudStatus={dataCloudStatus}
+                  photoCloudStatus={photoCloudStatus}
+                />
+              )}
               userRole={currentUserRole}
               trashSettings={trashSettings}
               trashOperations={trashOperations}
