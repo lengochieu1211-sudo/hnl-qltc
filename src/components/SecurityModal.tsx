@@ -490,6 +490,13 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
 
   const handleAccountSignOut = async () => {
     if (isAccountBusy) return;
+
+    const accountLabel = String(cloudUser?.email || 'tài khoản Google/Firebase');
+    const confirmed = await confirmAsync(
+      `Bạn có chắc muốn đăng xuất tài khoản Google/Firebase?\n\nTài khoản: ${accountLabel}\n\nSau khi đăng xuất, phiên hiện tại sẽ chuyển về VIEWER cho đến khi đăng nhập lại.`
+    );
+    if (!confirmed) return;
+
     setIsAccountBusy(true);
     setAccountMsg(null);
     try {
