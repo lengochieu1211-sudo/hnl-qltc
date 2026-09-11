@@ -10,6 +10,7 @@ on:
       - 'scripts/dev-health-center-repair-live-golden.ts'
       - 'scripts/dev-hosted-browser-golden.mjs'
       - 'scripts/ui-entry-ux-golden.ts'
+      - 'src/components/SettingsAccordionCard.tsx'
       - 'src/components/FloorPlanDefectTab.tsx'
       - 'src/utils/defectLinkageUtils.ts'
       - 'scripts/defect-linkage-golden.ts'
