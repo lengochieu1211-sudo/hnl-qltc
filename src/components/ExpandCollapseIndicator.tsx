@@ -120,6 +120,10 @@ export const ExpandCollapseIndicator: React.FC<ExpandCollapseIndicatorProps> = (
       historyEntryActive = false;
       historyBackPending = false;
       closeImmediately();
+      // Native <details> toggle cleanup is asynchronous. Remove the backdrop and unlock
+      // the Settings page in this same Back event so the very next tap cannot be swallowed
+      // by a stale overlay while React/browser toggle delivery catches up.
+      cleanupFloating();
     };
 
     const onOpenSummaryClick = (event: MouseEvent) => {
