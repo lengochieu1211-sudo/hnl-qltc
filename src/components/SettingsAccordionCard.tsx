@@ -32,6 +32,7 @@ const asHistoryObject = (value: unknown): Record<string, unknown> => {
  * `open` property. The actual settings content is rendered in a body portal as
  * a mobile feature sheet, matching the Material Need sheet UX instead of
  * expanding inline and pushing the rest of Settings down the page.
+ * Runtime + UI-entry goldens certify this single shared Settings sheet contract.
  */
 export const SettingsAccordionCard: React.FC<SettingsAccordionCardProps> = ({
   id,
