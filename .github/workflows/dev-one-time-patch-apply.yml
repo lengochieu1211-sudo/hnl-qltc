@@ -1,0 +1,65 @@
+name: HNL QLTC DEV One-Time Patch Apply
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - '.github/patches/HNL-QLTC-DEV-UI-HEALTH-2026-09-11.patch.gz.b64'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  apply_patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout DEV
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Apply exact reviewed patch
+        id: apply
+        shell: bash
+        run: |
+          set -euo pipefail
+          PATCH_B64='.github/patches/HNL-QLTC-DEV-UI-HEALTH-2026-09-11.patch.gz.b64'
+          if [ ! -f "$PATCH_B64" ]; then
+            echo 'Patch already consumed; nothing to apply.'
+            echo 'applied=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          test "$GITHUB_REF" = 'refs/heads/dev' || { echo '::error::REFUSING: patch helper only runs on dev'; exit 1; }
+          BASE="$(git rev-parse HEAD^)"
+          test "$BASE" = '4d71bafb4f9eed6797a10b970d423aa521c99bf0' || {
+            echo "::error::REFUSING: expected staging parent 4d71bafb..., got $BASE"
+            exit 1
+          }
+
+          base64 -d "$PATCH_B64" | gzip -d > "$RUNNER_TEMP/hnl-dev-ui-health.patch"
+          printf '%s  %s\n' 'bc9aadaa1ea17268f21db694c7315d43dd92f45f30c464f35ae732ab88470ed8' "$RUNNER_TEMP/hnl-dev-ui-health.patch" | sha256sum -c -
+          git apply --check "$RUNNER_TEMP/hnl-dev-ui-health.patch"
+          git apply "$RUNNER_TEMP/hnl-dev-ui-health.patch"
+          rm -f "$PATCH_B64"
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'feat(dev): unify settings sync UI and health diagnostics'
+          git push origin HEAD:dev
+          echo 'applied=true' >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch DEV Runtime Golden
+        if: steps.apply.outputs.applied == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run dev-runtime-golden.yml --ref dev
+          echo 'DEV Runtime Golden dispatched after patch commit.'
