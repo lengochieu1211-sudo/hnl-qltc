@@ -155,16 +155,16 @@ export const SettingsAccordionCard: React.FC<SettingsAccordionCardProps> = ({
           aria-hidden={!open}
           className={`fixed inset-x-0 bottom-0 top-[8dvh] z-[90] flex min-h-0 flex-col overflow-hidden rounded-t-[28px] bg-white shadow-[0_-18px_50px_rgba(15,23,42,0.22)] ${open ? '' : 'hidden'}`}
         >
-          <header className="flex min-h-[78px] shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-5 py-3.5 sm:px-6">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-indigo-50">
-              <Icon className={`h-6 w-6 ${iconClassName}`} aria-hidden="true" />
+          <header className="flex min-h-[70px] shrink-0 items-center gap-2.5 border-b border-slate-200 bg-white px-4 py-3 sm:px-5">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-50">
+              <Icon className={`h-5 w-5 ${iconClassName}`} aria-hidden="true" />
             </div>
 
             <div className="min-w-0 flex-1">
-              <h2 id={titleId} className="text-lg font-bold leading-6 text-slate-900 break-words">
+              <h2 id={titleId} className="text-[17px] font-semibold leading-5 text-slate-900 break-words">
                 {title}
               </h2>
-              <div className="mt-0.5 text-sm font-medium leading-5 text-slate-500 break-words">
+              <div className="mt-1 text-[13px] font-normal leading-[18px] text-slate-500 break-words">
                 {description}
               </div>
             </div>
@@ -173,10 +173,10 @@ export const SettingsAccordionCard: React.FC<SettingsAccordionCardProps> = ({
               ref={closeButtonRef}
               type="button"
               onClick={closeSheet}
-              className="ml-1 flex h-14 w-14 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-md transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+              className="ml-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
               aria-label={`Đóng ${typeof title === 'string' ? title : 'mục cài đặt'}`}
             >
-              <X className="h-7 w-7" aria-hidden="true" />
+              <X className="h-5 w-5" aria-hidden="true" />
             </button>
           </header>
 
