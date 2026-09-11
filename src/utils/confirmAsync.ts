@@ -1,20 +1,47 @@
 type ConfirmCallback = (result: boolean) => void;
 
-let activeConfirm: { message: string, resolve: ConfirmCallback } | null = null;
-let listeners: ((data: { message: string, resolve: ConfirmCallback } | null) => void)[] = [];
+export interface ConfirmOptions {
+  title?: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+}
 
-export const confirmAsync = (message: string): Promise<boolean> => {
+export interface ConfirmRequest extends ConfirmOptions {
+  message: string;
+  resolve: ConfirmCallback;
+}
+
+let activeConfirm: ConfirmRequest | null = null;
+let listeners: ((data: ConfirmRequest | null) => void)[] = [];
+
+let forceNextSignOut = false;
+
+export const markNextSignOutAsForced = () => {
+  forceNextSignOut = true;
+};
+
+export const consumeForcedSignOut = () => {
+  const forced = forceNextSignOut;
+  forceNextSignOut = false;
+  return forced;
+};
+
+export const confirmAsync = (message: string, options: ConfirmOptions = {}): Promise<boolean> => {
   return new Promise((resolve) => {
-    activeConfirm = { message, resolve: (res) => {
-      activeConfirm = null;
-      listeners.forEach(l => l(null));
-      resolve(res);
-    }};
+    activeConfirm = {
+      message,
+      ...options,
+      resolve: (res) => {
+        activeConfirm = null;
+        listeners.forEach(l => l(null));
+        resolve(res);
+      },
+    };
     listeners.forEach(l => l(activeConfirm));
   });
 };
 
-export const subscribeConfirm = (listener: (data: { message: string, resolve: ConfirmCallback } | null) => void) => {
+export const subscribeConfirm = (listener: (data: ConfirmRequest | null) => void) => {
   listeners.push(listener);
   listener(activeConfirm);
   return () => {

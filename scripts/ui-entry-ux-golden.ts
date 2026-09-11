@@ -36,6 +36,29 @@ assert(security.includes('Tài khoản Google/Firebase'), 'Security Center must 
 assert(security.includes('handleAccountSignIn'), 'Security Center sign-in handler missing');
 assert(security.includes('handleAccountSignOut'), 'Security Center sign-out handler missing');
 
+
+const signOutPrompt = 'Bạn có chắc muốn đăng xuất tài khoản Google/Firebase không?';
+const globalConfirm = read('src/components/GlobalConfirmModal.tsx');
+const confirmAsyncSource = read('src/utils/confirmAsync.ts');
+const firebaseFacade = read('src/lib/firebase.ts');
+const securityUtils = read('src/utils/securityUtils.ts');
+assert(firebaseFacade.includes('export async function signOutGoogle(): Promise<void>'), 'Firebase facade must centralize sign-out confirmation');
+assert(firebaseFacade.includes(signOutPrompt), 'Central Firebase sign-out guard prompt missing');
+assert(firebaseFacade.includes("confirmLabel: 'Đăng xuất'"), 'Central sign-out guard must expose an explicit Đăng xuất action');
+assert(firebaseFacade.includes('if (!consumeForcedSignOut())'), 'Central sign-out guard must preserve forced security sign-out bypass');
+assert(firebaseFacade.includes('await signOutGoogleBase();'), 'Central sign-out guard must delegate to the original Firebase sign-out implementation');
+assert(firebaseFacade.includes('export const signOutFirebaseAccount = signOutGoogle;'), 'Firebase account alias must share the centralized sign-out guard');
+assert(confirmAsyncSource.includes('options: ConfirmOptions = {}'), 'confirmAsync must remain backwards compatible while supporting action labels');
+assert(confirmAsyncSource.includes('markNextSignOutAsForced'), 'One-shot forced sign-out marker missing');
+assert(confirmAsyncSource.includes('consumeForcedSignOut'), 'One-shot forced sign-out consumer missing');
+assert(securityUtils.includes('markNextSignOutAsForced();'), 'Remote SUPER ADMIN PIN reset must mark the next sign-out as forced');
+assert(globalConfirm.includes("confirmData.title || 'Xác nhận'"), 'Global confirmation modal must support a sign-out-specific title');
+assert(globalConfirm.includes("confirmData.confirmLabel || 'Đồng ý'"), 'Global confirmation modal must support a sign-out-specific confirm label');
+assert(globalConfirm.includes("confirmData.cancelLabel || 'Hủy'"), 'Global confirmation modal must support a sign-out-specific cancel label');
+const appSource = read('src/App.tsx');
+assert(appSource.includes("SUPER ADMIN đã đặt lại mã PIN"), 'Forced security sign-out flow after SUPER ADMIN PIN reset must remain intact');
+assert(appSource.includes('void signOutGoogle();'), 'Forced security sign-out must remain automatic after a remote PIN reset');
+
 const indicator = read('src/components/ExpandCollapseIndicator.tsx');
 assert(!indicator.includes("expandLabel = 'Mở rộng'"), 'Settings disclosure must not render Mở rộng text labels');
 assert(!indicator.includes("collapseLabel = 'Thu gọn'"), 'Settings disclosure must not render Thu gọn text labels');

@@ -1,6 +1,23 @@
 export * from './firebaseBase';
 export * from './memberContactService';
 
+import { signOutGoogle as signOutGoogleBase } from './firebaseBase';
+import { confirmAsync, consumeForcedSignOut } from '../utils/confirmAsync';
+
+export async function signOutGoogle(): Promise<void> {
+  if (!consumeForcedSignOut()) {
+    const confirmed = await confirmAsync('Bạn có chắc muốn đăng xuất tài khoản Google/Firebase không?', {
+      title: 'Xác nhận đăng xuất',
+      confirmLabel: 'Đăng xuất',
+      cancelLabel: 'Hủy',
+    });
+    if (!confirmed) return;
+  }
+  await signOutGoogleBase();
+}
+
+export const signOutFirebaseAccount = signOutGoogle;
+
 /*
  * SOURCE-GUARD DELEGATION MANIFEST
  *
