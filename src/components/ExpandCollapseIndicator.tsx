@@ -109,7 +109,9 @@ export const ExpandCollapseIndicator: React.FC<ExpandCollapseIndicatorProps> = (
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || !details.open) return;
       event.preventDefault();
-      event.stopPropagation();
+      // This feature sheet is the top interaction layer. Stop other window handlers on
+      // the same event from racing the history-backed close sequence.
+      event.stopImmediatePropagation();
       requestClose();
     };
 
@@ -133,9 +135,6 @@ export const ExpandCollapseIndicator: React.FC<ExpandCollapseIndicatorProps> = (
       if (!active) return;
       active = false;
       window.removeEventListener('resize', applyLayout);
-      // Escape must be captured before focused controls/app-level handlers can consume it.
-      window.removeEventListener('keydown', onKeyDown, true);
-      window.removeEventListener('popstate', onPopState);
       backdrop?.removeEventListener('click', requestClose);
       backdrop?.remove();
       backdrop = null;
@@ -180,10 +179,6 @@ export const ExpandCollapseIndicator: React.FC<ExpandCollapseIndicatorProps> = (
 
       applyLayout();
       window.addEventListener('resize', applyLayout);
-      // Capture phase makes PC Escape deterministic even when focus is inside a control
-      // with its own key handler. The sheet is the top interaction layer and closes first.
-      window.addEventListener('keydown', onKeyDown, true);
-      window.addEventListener('popstate', onPopState);
     };
 
     const onToggle = () => {
@@ -193,11 +188,19 @@ export const ExpandCollapseIndicator: React.FC<ExpandCollapseIndicatorProps> = (
 
     summary?.addEventListener('click', onOpenSummaryClick, true);
     details.addEventListener('toggle', onToggle);
+    // Keep Escape/Back listeners stable for the component lifetime. Native <details>
+    // toggle delivery may be deferred/coalesced during a rapid X-close -> reopen, so
+    // binding these listeners only while `active` can leave the reopened sheet without
+    // an Escape handler. The handlers themselves already no-op while the card is closed.
+    window.addEventListener('keydown', onKeyDown, true);
+    window.addEventListener('popstate', onPopState);
     if (details.open) activateFloating();
 
     return () => {
       summary?.removeEventListener('click', onOpenSummaryClick, true);
       details.removeEventListener('toggle', onToggle);
+      window.removeEventListener('keydown', onKeyDown, true);
+      window.removeEventListener('popstate', onPopState);
       if (requestCloseRef.current === requestClose) requestCloseRef.current = null;
       cleanupFloating();
     };
