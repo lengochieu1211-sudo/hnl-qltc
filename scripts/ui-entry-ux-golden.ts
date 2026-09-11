@@ -53,6 +53,11 @@ assert(indicator.includes('group-open:h-11 group-open:w-11'), 'Opened Settings X
 assert(indicator.includes('historyBackPending'), 'Settings feature sheets must guard against duplicate/delayed history back operations');
 assert(indicator.includes('const requestClose = () =>'), 'Settings feature sheets must use one coordinated close path');
 assert(indicator.includes("summary?.addEventListener('click', onOpenSummaryClick, true)"), 'Open Settings summary clicks must use the coordinated close path');
+const indicatorPopStart = indicator.indexOf('const onPopState = () =>');
+const indicatorSummaryStart = indicator.indexOf('const onOpenSummaryClick =', indicatorPopStart + 1);
+assert(indicatorPopStart >= 0 && indicatorSummaryStart > indicatorPopStart, 'Cannot isolate Settings Back handler');
+const indicatorPop = indicator.slice(indicatorPopStart, indicatorSummaryStart);
+assert(indicatorPop.includes('closeImmediately();') && indicatorPop.includes('cleanupFloating();'), 'Settings Back must close and synchronously remove its backdrop before the next tap');
 const indicatorCleanupStart = indicator.indexOf('const cleanupFloating = () =>');
 const indicatorActivateStart = indicator.indexOf('const activateFloating = () =>', indicatorCleanupStart + 1);
 assert(indicatorCleanupStart >= 0 && indicatorActivateStart > indicatorCleanupStart, 'Cannot isolate Settings feature-sheet cleanup');
