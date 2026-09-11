@@ -80,6 +80,9 @@ assert(settingsAccordion.includes("event.key !== 'Escape'"), 'Settings sheet Esc
 assert(settingsAccordion.includes('window.history.pushState'), 'Settings sheet history marker behavior missing');
 assert(settingsAccordion.includes('flushSync'), 'Settings Back close must synchronously remove stale backdrop interception');
 assert(settingsAccordion.includes('env(safe-area-inset-bottom'), 'Settings sheet Android safe-area padding missing');
+assert(settingsAccordion.includes('h-10 w-10') && settingsAccordion.includes('h-5 w-5'), 'Settings sheet header icon must stay compact');
+assert(settingsAccordion.includes('h-11 w-11') && settingsAccordion.includes('<X className="h-5 w-5"'), 'Settings sheet close control must stay compact');
+assert(settingsAccordion.includes('text-[17px] font-semibold'), 'Settings sheet title must use compact medium-weight typography');
 assert(settingsAccordion.includes("lazy = false"), 'Shared Settings entry must support lazy heavy content');
 
 const materialButton = read('src/components/ExpandCollapseButton.tsx');
@@ -103,6 +106,7 @@ assert(config.includes('id="system-sync-card"'), 'Health Center needs a stable n
 assert(config.includes('id="trash-recovery-card"'), 'Trash/history card needs a stable navigation id');
 assert((config.match(/<SettingsAccordionCard/g) || []).length === 5, 'Settings must render exactly five cards through the shared feature-sheet component');
 assert(config.includes('syncCenterContent'), 'Sync Center must reuse the existing ProjectManager business engine inside the Settings sheet');
+assert(!config.includes('>Trạng thái đồng bộ</div>'), 'Sync Center must not duplicate sync diagnostics already shown in HNL Health Center');
 assert(!config.includes('bg-emerald-50/70 p-4 text-left'), 'Old green Sync Center banner styling must be removed');
 assert(config.includes('Chất lượng ảnh & dung lượng'), 'Image quality Settings entry missing');
 assert(config.includes('Dữ liệu đã ẩn & lịch sử'), 'Hidden data/history Settings entry missing');

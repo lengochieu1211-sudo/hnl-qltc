@@ -686,39 +686,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           badgeClassName={syncCenterStatus.className}
           lazy
         >
-          <div className="space-y-3">
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <div className="mb-2 text-[11px] font-extrabold text-slate-800">Trạng thái đồng bộ</div>
-              <div className="grid grid-cols-2 gap-2 text-[10px] sm:grid-cols-3">
-                <div className="rounded-lg border border-slate-200 bg-white p-2">
-                  <div className="text-slate-500">Cloud / Firestore</div>
-                  <div className="mt-0.5 font-extrabold text-slate-800">{syncDiagnostics?.dataCloudPhase || 'unknown'}</div>
-                </div>
-                <div className="rounded-lg border border-slate-200 bg-white p-2">
-                  <div className="text-slate-500">R2 / Ảnh</div>
-                  <div className="mt-0.5 font-extrabold text-slate-800">{displayedPhotoPending > 0 ? `${displayedPhotoPending} đang chờ` : 'Sẵn sàng'}</div>
-                </div>
-                <div className="rounded-lg border border-slate-200 bg-white p-2">
-                  <div className="text-slate-500">Dữ liệu dự án</div>
-                  <div className="mt-0.5 font-extrabold text-slate-800">{Number(syncDiagnostics?.pendingData || 0) > 0 ? `${syncDiagnostics?.pendingData} đang chờ` : 'Không có hàng đợi'}</div>
-                </div>
-                <div className="rounded-lg border border-slate-200 bg-white p-2">
-                  <div className="text-slate-500">Realtime</div>
-                  <div className="mt-0.5 font-extrabold text-slate-800">{syncDiagnostics ? `${syncDiagnostics.snapshotReadyCount}/9` : '—'}</div>
-                </div>
-                <div className="rounded-lg border border-slate-200 bg-white p-2 sm:col-span-2">
-                  <div className="text-slate-500">Lần đồng bộ gần nhất</div>
-                  <div className="mt-0.5 font-extrabold text-slate-800">{Number(syncDiagnostics?.lastSyncAt || 0) > 0 ? formatDateTime(Number(syncDiagnostics?.lastSyncAt || 0)) : 'Chưa có'}</div>
-                </div>
-              </div>
-              {displayedLastSyncError && (
-                <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-2 text-[10px] font-semibold text-rose-800 break-words">
-                  {displayedLastSyncError}
-                </div>
-              )}
-            </div>
-            {syncCenterContent}
-          </div>
+          {syncCenterContent}
         </SettingsAccordionCard>
       )}
 

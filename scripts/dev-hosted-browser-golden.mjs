@@ -196,6 +196,9 @@ async function verifySettingsFeatureSheets(page, label) {
         backdropVisible: Boolean(backdropElement && getComputedStyle(backdropElement).display !== 'none'),
         viewportWidth: window.innerWidth,
         offenders,
+        headerIconWidth: dialog?.querySelector('header > div:first-child svg')?.getBoundingClientRect().width ?? -1,
+        closeWidth: dialog?.querySelector('header button')?.getBoundingClientRect().width ?? -1,
+        titleFontSize: dialog ? parseFloat(getComputedStyle(dialog.querySelector('h2')).fontSize) : -1,
       };
     }, sheetKey);
 
@@ -206,6 +209,9 @@ async function verifySettingsFeatureSheets(page, label) {
     assert(metrics.bodyOverflow === 'hidden', `${label}: ${item.name} sheet must lock background page scroll`);
     assert(metrics.width <= metrics.viewportWidth + 1, `${label}: ${item.name} sheet exceeds viewport width`);
     assert(metrics.overflowX <= 1, `${label}: ${item.name} sheet overflows horizontally — ${JSON.stringify(metrics.offenders)}`);
+    assert(metrics.headerIconWidth > 0 && metrics.headerIconWidth <= 20.5, `${label}: ${item.name} header icon is too large (${metrics.headerIconWidth}px)`);
+    assert(metrics.closeWidth > 0 && metrics.closeWidth <= 45, `${label}: ${item.name} close button is too large (${metrics.closeWidth}px)`);
+    assert(metrics.titleFontSize > 0 && metrics.titleFontSize <= 17.5, `${label}: ${item.name} title is too large (${metrics.titleFontSize}px)`);
 
     const closeButton = sheet.getByRole('button', { name: /^Đóng / }).first();
     await closeButton.waitFor({ state: 'visible', timeout: 10000 });
@@ -213,10 +219,13 @@ async function verifySettingsFeatureSheets(page, label) {
     if (index === 0) {
       const syncAdvanced = sheet.getByText('Cài đặt sao lưu nâng cao', { exact: true });
       const restrictedBackupNotice = sheet.getByText('Sao lưu/khôi phục dữ liệu:', { exact: true });
+      const duplicateSyncStatus = sheet.getByText('Trạng thái đồng bộ', { exact: true });
       const adminBackupSurfaceVisible = await syncAdvanced.isVisible();
       const viewerBackupGuardVisible = await restrictedBackupNotice.isVisible();
       assert(adminBackupSurfaceVisible || viewerBackupGuardVisible, `${label}: Sync Center sheet lost existing backup/RBAC content`);
+      assert(await duplicateSyncStatus.count() === 0, `${label}: Sync Center duplicates Health Center sync diagnostics`);
       pass(`${label} Sync Center feature sheet keeps existing business controls`, adminBackupSurfaceVisible ? 'ADMIN surface' : 'VIEWER guard');
+      pass(`${label} Sync Center avoids duplicate Health diagnostics`);
     }
 
     if (item.closeMode === 'x') {
