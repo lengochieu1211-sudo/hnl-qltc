@@ -35,6 +35,12 @@ const security = read('src/components/SecurityModal.tsx');
 assert(security.includes('Tài khoản Google/Firebase'), 'Security Center must own Google/Firebase account entry');
 assert(security.includes('handleAccountSignIn'), 'Security Center sign-in handler missing');
 assert(security.includes('handleAccountSignOut'), 'Security Center sign-out handler missing');
+const signOutHandlerStart = security.indexOf('const handleAccountSignOut');
+const signOutConfirm = security.indexOf('await confirmAsync(', signOutHandlerStart);
+const signOutCall = security.indexOf('await signOutFirebaseAccount()', signOutHandlerStart);
+assert(signOutHandlerStart >= 0 && signOutConfirm > signOutHandlerStart && signOutCall > signOutConfirm, 'Security logout must confirm before Firebase sign-out');
+assert(security.includes('Bạn có chắc muốn đăng xuất tài khoản Google/Firebase?'), 'Security logout confirmation copy missing');
+assert(security.includes('if (!confirmed) return;'), 'Cancelling logout confirmation must keep the current session');
 
 const indicator = read('src/components/ExpandCollapseIndicator.tsx');
 assert(!indicator.includes("expandLabel = 'Mở rộng'"), 'Settings disclosure must not render Mở rộng text labels');
