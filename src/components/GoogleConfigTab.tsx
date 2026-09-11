@@ -701,7 +701,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           badgeClassName={syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}
           bodyClassName="p-0"
         >
-          <div className="px-2 pb-2 sm:px-3 sm:pb-3 space-y-3">
+          <div className="space-y-3">
         <div id="system-diagnostics-card" className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3 scroll-mt-24 transition-shadow">
           <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-2">
             <div>
@@ -803,7 +803,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
         badgeClassName="border-indigo-100 bg-indigo-50 text-indigo-700"
         bodyClassName="p-0"
       >
-        <div className="space-y-3.5 px-4 pb-4">
+        <div className="space-y-3.5">
 
         {/* 1. Number Formatting Setting */}
         <div className="space-y-2">
@@ -903,7 +903,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
         badgeClassName="border-indigo-100 bg-indigo-50 text-indigo-700"
         bodyClassName="p-0"
       >
-        <div className="space-y-3.5 px-4 pb-4">
+        <div className="space-y-3.5">
           <p className="text-[10px] text-slate-500">Mặt bằng ưu tiên độ nét chữ; Defect ưu tiên chi tiết lỗi; Quân số ưu tiên cân bằng tốc độ đồng bộ. Thiết lập lưu trên thiết bị này.</p>
         {([
           { kind: 'floorPlan' as const, title: 'Mặt bằng', note: 'PDF/ảnh bản vẽ. Tự động: khoảng 3.200 px trên điện thoại, 4.800 px trên PC; mức Gần gốc vẫn có giới hạn an toàn RAM.', options: ['auto','economy','standard','high','original'] as ImageQualityPreset[] },
@@ -939,7 +939,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
         badgeClassName={trashSettings.enabled ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-100 border-slate-200 text-slate-600'}
         bodyClassName="p-0"
       >
-        <div className="space-y-3.5 px-4 pb-4">
+        <div className="space-y-3.5">
           <div>
             <p className="text-[10px] text-slate-500">
               Chỉ lưu metadata cần khôi phục, không nhân đôi Base64/blob/ảnh nhị phân. Mặc định giữ 7 ngày.

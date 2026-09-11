@@ -11,6 +11,7 @@ on:
       - 'scripts/dev-hosted-browser-golden.mjs'
       - 'scripts/ui-entry-ux-golden.ts'
       - 'src/components/SettingsAccordionCard.tsx'
+      - 'src/components/SettingsFeatureSheet.tsx'
       - 'src/components/FloorPlanDefectTab.tsx'
       - 'src/utils/defectLinkageUtils.ts'
       - 'scripts/defect-linkage-golden.ts'

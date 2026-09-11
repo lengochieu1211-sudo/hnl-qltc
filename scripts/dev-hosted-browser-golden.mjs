@@ -198,6 +198,9 @@ async function verifySettingsFeatureSheets(page, label) {
         offenders,
         headerIconWidth: dialog?.querySelector('header > div:first-child svg')?.getBoundingClientRect().width ?? -1,
         closeWidth: dialog?.querySelector('header button')?.getBoundingClientRect().width ?? -1,
+        closeBackground: dialog ? getComputedStyle(dialog.querySelector('header button')).backgroundColor : '',
+        closeBorderWidth: dialog ? getComputedStyle(dialog.querySelector('header button')).borderTopWidth : '',
+        closeBoxShadow: dialog ? getComputedStyle(dialog.querySelector('header button')).boxShadow : '',
         titleFontSize: dialog ? parseFloat(getComputedStyle(dialog.querySelector('h2')).fontSize) : -1,
       };
     }, sheetKey);
@@ -209,8 +212,11 @@ async function verifySettingsFeatureSheets(page, label) {
     assert(metrics.bodyOverflow === 'hidden', `${label}: ${item.name} sheet must lock background page scroll`);
     assert(metrics.width <= metrics.viewportWidth + 1, `${label}: ${item.name} sheet exceeds viewport width`);
     assert(metrics.overflowX <= 1, `${label}: ${item.name} sheet overflows horizontally — ${JSON.stringify(metrics.offenders)}`);
-    assert(metrics.headerIconWidth > 0 && metrics.headerIconWidth <= 20.5, `${label}: ${item.name} header icon is too large (${metrics.headerIconWidth}px)`);
-    assert(metrics.closeWidth > 0 && metrics.closeWidth <= 45, `${label}: ${item.name} close button is too large (${metrics.closeWidth}px)`);
+    assert(metrics.headerIconWidth > 0 && metrics.headerIconWidth <= 24.5, `${label}: ${item.name} header icon is too large (${metrics.headerIconWidth}px)`);
+    assert(metrics.closeWidth > 0 && metrics.closeWidth <= 41, `${label}: ${item.name} close target is too large (${metrics.closeWidth}px)`);
+    assert(metrics.closeBackground === 'rgba(0, 0, 0, 0)', `${label}: ${item.name} close X regained a visible background (${metrics.closeBackground})`);
+    assert(metrics.closeBorderWidth === '0px', `${label}: ${item.name} close X regained a visible border (${metrics.closeBorderWidth})`);
+    assert(metrics.closeBoxShadow === 'none', `${label}: ${item.name} close X regained a shadow (${metrics.closeBoxShadow})`);
     assert(metrics.titleFontSize > 0 && metrics.titleFontSize <= 17.5, `${label}: ${item.name} title is too large (${metrics.titleFontSize}px)`);
 
     const closeButton = sheet.getByRole('button', { name: /^Đóng / }).first();
@@ -250,8 +256,8 @@ async function verifySettingsFeatureSheets(page, label) {
     await waitForSettingsSheet(page, sheetKey, false);
     await backdrop.waitFor({ state: 'hidden', timeout: 10000 });
     await page.waitForFunction(() => document.body.style.overflow !== 'hidden', null, { timeout: 10000 });
-    const historyMarker = await page.evaluate(() => window.history.state?.__hnlSettingsFeatureSheet || null);
-    assert(!historyMarker, `${label}: ${item.name} left a stale Settings history marker after close`);
+    const historyMarker = await page.evaluate(() => window.history.state?.__hnlFeatureSheet || null);
+    assert(!historyMarker, `${label}: ${item.name} left a stale feature-sheet history marker after close`);
   }
 
   pass(`${label} five Settings entries open in shared feature sheets`);

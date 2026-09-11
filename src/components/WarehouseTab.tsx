@@ -22,7 +22,8 @@ import {
   Download,
   Upload,
   Edit2,
-  ChevronDown
+  ChevronDown,
+  PackageSearch
 } from 'lucide-react';
 import { InventoryItem, TransactionType, MaterialNorm, WorkVolume, RoomProgressItem, TeamInfo, FloorPlan } from '../types';
 import { formatDateDDMMYYYY, formatExcelDate } from '../utils/dateFormatter';
@@ -35,7 +36,7 @@ import { compareDateValues, naturalCompare } from '../utils/sortUtils';
 import { createEntityId } from '../utils/idUtils';
 import { normalizeUnit } from '../utils/unitUtils';
 import { QuickSortBar } from './QuickSortBar';
-import { ExpandCollapseButton } from './ExpandCollapseButton';
+import { SettingsFeatureSheet } from './SettingsFeatureSheet';
 import { FIREBASE_ONLY_RUNTIME } from '../config/runtimeArchitecture';
 import { computeMaterialNeeds } from '../utils/materialNeedEngine';
 import { UserRole, canEditWarehouseData, canDeleteBusinessData, canImportData, canManageMaterialNorms } from '../utils/securityUtils';
@@ -981,16 +982,26 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               <h3 className="text-sm font-extrabold text-slate-900">Gợi ý vật tư tổng hợp</h3>
               <p className="text-[11px] text-slate-600">{materialNeedFloorSummary} · {materialNeedTeamSummary} · {materialNeedResult.lines.length} loại vật tư</p>
             </div>
-            <ExpandCollapseButton
-              expanded={isMaterialNeedExpanded}
-              onToggle={() => setIsMaterialNeedExpanded((value) => !value)}
-              controls="material-need-details"
-              className={isMaterialNeedExpanded ? 'rotate-180' : ''}
-            />
+            <span aria-hidden="true" className="shrink-0 inline-flex h-9 w-9 items-center justify-center rounded-xl text-indigo-600 transition-all group-hover:bg-indigo-50">
+              <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${isMaterialNeedExpanded ? 'rotate-180' : ''}`} />
+            </span>
           </div>
 
-          {isMaterialNeedExpanded && (
-            <div id="material-need-details" className="flex flex-col gap-3">
+          <SettingsFeatureSheet
+            open={isMaterialNeedExpanded}
+            onClose={() => {
+              setIsMaterialNeedExpanded(false);
+              setShowMaterialFloorPicker(false);
+              setShowMaterialTeamPicker(false);
+            }}
+            sheetKey="material-need-details"
+            icon={PackageSearch}
+            iconClassName="text-indigo-600"
+            title="Gợi ý vật tư tổng hợp"
+            description="Theo tầng · Theo đội · Toàn dự án"
+            bodyClassName="space-y-3"
+          >
+            <div id="material-need-details" className="flex min-w-0 flex-col gap-3">
               <p className="text-[11px] text-slate-600">Chọn một hoặc nhiều tầng và một hoặc nhiều đội. Không chọn nghĩa là Tất cả. Kết quả luôn tính lại từ dữ liệu gốc để tránh double-count.</p>
 
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -1073,7 +1084,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 </div>
               )}
             </div>
-          )}
+          </SettingsFeatureSheet>
         </div>
       </section>
 
