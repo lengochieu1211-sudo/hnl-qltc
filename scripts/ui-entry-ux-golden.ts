@@ -41,6 +41,7 @@ assert(!indicator.includes("expandLabel = 'Mở rộng'"), 'Settings disclosure 
 assert(!indicator.includes("collapseLabel = 'Thu gọn'"), 'Settings disclosure must not render Thu gọn text labels');
 assert(indicator.includes('<X className="hidden h-5 w-5 group-open:block"'), 'Opened settings page must expose X close affordance');
 assert(indicator.includes("event.key !== 'Escape'"), 'PC Escape close behavior missing');
+assert(indicator.includes('event.stopImmediatePropagation()'), 'Settings sheet must stop competing same-window Escape handlers');
 assert(indicator.includes("window.addEventListener('keydown', onKeyDown, true)"), 'Settings sheet must capture Escape before nested/app key handlers');
 assert(indicator.includes("window.removeEventListener('keydown', onKeyDown, true)"), 'Settings sheet Escape capture listener cleanup missing');
 assert(indicator.includes("window.addEventListener('popstate'"), 'Android/browser Back close behavior missing');
@@ -57,6 +58,13 @@ const indicatorActivateStart = indicator.indexOf('const activateFloating = () =>
 assert(indicatorCleanupStart >= 0 && indicatorActivateStart > indicatorCleanupStart, 'Cannot isolate Settings feature-sheet cleanup');
 const indicatorCleanup = indicator.slice(indicatorCleanupStart, indicatorActivateStart);
 assert(!indicatorCleanup.includes('window.history.back()'), 'Settings cleanup must not issue a delayed history.back that can close a freshly reopened sheet');
+assert(!indicatorCleanup.includes("removeEventListener('keydown'"), 'Settings cleanup must not detach Escape during rapid close/reopen');
+assert(!indicatorCleanup.includes("removeEventListener('popstate'"), 'Settings cleanup must not detach Back during rapid close/reopen');
+const indicatorActivateEnd = indicator.indexOf('const onToggle = () =>', indicatorActivateStart + 1);
+assert(indicatorActivateEnd > indicatorActivateStart, 'Cannot isolate Settings feature-sheet activation');
+const indicatorActivate = indicator.slice(indicatorActivateStart, indicatorActivateEnd);
+assert(!indicatorActivate.includes("addEventListener('keydown'"), 'Escape listener must remain stable across activation cycles');
+assert(!indicatorActivate.includes("addEventListener('popstate'"), 'Back listener must remain stable across activation cycles');
 
 const materialButton = read('src/components/ExpandCollapseButton.tsx');
 assert(!materialButton.includes("isMaterialNeedPage ? 'Mở'"), 'Material Need must not render redundant Mở label');
