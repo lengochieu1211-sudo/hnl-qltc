@@ -92,4 +92,13 @@ assert(config.includes('Chất lượng ảnh & dung lượng'), 'Image quality 
 assert(config.includes('Dữ liệu đã ẩn & lịch sử'), 'Hidden data/history Settings entry missing');
 assert(config.includes("{t('formatting_settings')}"), 'Number/date formatting Settings entry missing');
 
-console.log('PASS ui-entry-ux-golden: compact entry cards, race-free Settings feature sheets, dark mode, safe-area and Back/Escape/X rules are intact.');
+// Runtime Golden itself must prove the post-Back tap by the common Sync Center modal
+// title. The hosted browser runs unsigned as VIEWER, so requiring ADMIN-only backup text
+// would turn a correct fail-closed RBAC state into a false runtime failure.
+const hostedBrowserGolden = read('scripts/dev-hosted-browser-golden.mjs');
+assert(hostedBrowserGolden.includes("const syncModalTitle = page.getByRole('heading'"), 'Hosted browser Golden must anchor Sync Center open state on the common modal heading');
+assert(hostedBrowserGolden.includes("const restrictedBackupNotice = page.getByText('Sao lưu/khôi phục dữ liệu:'"), 'Hosted browser Golden must accept the VIEWER fail-closed backup notice');
+assert(!hostedBrowserGolden.includes("await syncAdvanced.waitFor({ state: 'visible'"), 'Hosted browser Golden must not require ADMIN-only backup content in an unsigned VIEWER session');
+assert(hostedBrowserGolden.includes('stale Settings backdrop remained after browser/Android Back'), 'Hosted browser Golden must directly verify synchronous Back backdrop cleanup');
+
+console.log('PASS ui-entry-ux-golden: compact entry cards, race-free Settings feature sheets, dark mode, safe-area, Back/Escape/X and role-aware Runtime Golden rules are intact.');

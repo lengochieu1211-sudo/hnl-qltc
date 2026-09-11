@@ -138,15 +138,45 @@ async function verifySettingsFeatureSheets(page, label) {
   await waitForDetailsOpen(page, healthSelector, false);
   pass(`${label} HNL Health Center browser/Android Back closes sheet`);
 
+  // The Back hotfix is specifically meant to leave Settings immediately tappable.
+  // Assert the transient sheet backdrop is already gone before exercising the very next
+  // control; this catches the original interaction race directly instead of inferring it
+  // from an ADMIN-only Sync Center label.
+  const postBackState = await page.evaluate((selector) => ({
+    detailsOpen: Boolean(document.querySelector(selector)?.open),
+    backdropCount: document.querySelectorAll('[data-hnl-floating-backdrop="true"]').length,
+    bodyOverflow: document.body.style.overflow,
+  }), healthSelector);
+  assert(!postBackState.detailsOpen, `${label}: HNL Health Center reopened after browser/Android Back`);
+  assert(postBackState.backdropCount === 0, `${label}: stale Settings backdrop remained after browser/Android Back`);
+  assert(postBackState.bodyOverflow !== 'hidden', `${label}: Settings background scroll remained locked after browser/Android Back`);
+  pass(`${label} HNL Health Center Back cleanup is interaction-ready`, `backdrops=${postBackState.backdropCount}, bodyOverflow=${postBackState.bodyOverflow || 'auto'}`);
+
   await syncEntry.click();
+  const syncModalTitle = page.getByRole('heading', { name: 'Trung tâm đồng bộ & sao lưu dự án', exact: true });
+  await syncModalTitle.waitFor({ state: 'visible', timeout: 10000 });
+
+  // Runtime Golden runs without signing in, so Firebase-only mode correctly resolves
+  // the browser session as VIEWER. Do not require an ADMIN-only backup label to prove
+  // that the Sync Center opened. Accept either the ADMIN surface or the fail-closed
+  // VIEWER notice, while still requiring the common modal title above.
   const syncAdvanced = page.getByText('Cài đặt sao lưu nâng cao', { exact: true });
-  await syncAdvanced.waitFor({ state: 'visible', timeout: 10000 });
+  const restrictedBackupNotice = page.getByText('Sao lưu/khôi phục dữ liệu:', { exact: true });
+  const adminBackupSurfaceVisible = await syncAdvanced.isVisible();
+  const viewerBackupGuardVisible = await restrictedBackupNotice.isVisible();
+  assert(
+    adminBackupSurfaceVisible || viewerBackupGuardVisible,
+    `${label}: Sync Center opened without an ADMIN backup surface or VIEWER fail-closed notice`,
+  );
   const redundantDisclosureText = page.getByText(/^(Mở|Mở rộng|Thu gọn)$/);
   assert(await redundantDisclosureText.count() === 0, `${label}: Sync Center exposes redundant disclosure text`);
-  pass(`${label} Sync Center opens dedicated function panel`);
+  pass(
+    `${label} Sync Center opens dedicated function panel`,
+    adminBackupSurfaceVisible ? 'ADMIN backup controls visible' : 'VIEWER backup guard visible',
+  );
 
   await closeVisibleModal(page, `${label} Sync Center`);
-  await syncAdvanced.waitFor({ state: 'hidden', timeout: 10000 });
+  await syncModalTitle.waitFor({ state: 'hidden', timeout: 10000 });
   pass(`${label} Sync Center X closes panel`);
 }
 
