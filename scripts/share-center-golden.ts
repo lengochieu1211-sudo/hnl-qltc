@@ -41,7 +41,8 @@ mustContain(defect, 'legacyImageUrls={[defect.imageUrl', 'Defect before/after le
 mustContain(crew, 'buildCrewRecordShareText', 'daily crew deterministic share text');
 mustContain(crew, 'Lưu ý: Sáng/Chiều/Tối là quân số theo ca', 'crew shift semantic warning');
 mustContain(crew, 'triggerLabel="Chia sẻ báo cáo"', 'daily crew share entry');
-mustContain(config, '<details className="group rounded-2xl', 'collapsed Health Center container');
+mustContain(config, 'id="system-sync-card"', 'Health Center settings accordion');
+mustContain(config, 'title="HNL Health Center"', 'Health Center accordion title');
 mustContain(config, 'Hệ thống · đồng bộ · ảnh · audit dữ liệu · xử lý liên kết trong một nơi.', 'Health Center collapsed hint');
 mustContain(config, 'HNL Health Center', 'unified Health Center title');
 mustContain(android, 'public boolean shareFiles(String title, String text, String attachmentsJson)', 'Android shareFiles bridge');
