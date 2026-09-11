@@ -1,0 +1,88 @@
+name: TEMP Unify Settings Material Sheet V2
+
+on:
+  push:
+    branches: [work/settings-feature-sheet-unify-stage]
+    paths:
+      - '.github/workflows/temp-unify-settings-material-sheet-v2.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  validate_and_publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout staging branch
+        uses: actions/checkout@v4
+        with:
+          ref: work/settings-feature-sheet-unify-stage
+          fetch-depth: 0
+
+      - name: Apply the already-reviewed source transformation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import textwrap
+          workflow = Path('.github/workflows/temp-unify-settings-material-sheet.yml').read_text()
+          marker = "          python - <<'PY'\n"
+          start = workflow.index(marker) + len(marker)
+          end = workflow.index("\n          PY", start)
+          code = textwrap.dedent(workflow[start:end])
+          exec(compile(code, '<reviewed-transform>', 'exec'))
+          PY
+          BASE_SHA='2be824b0b40c9fe06c4e6af04a144f7d426ed1da'
+          mapfile -t PRODUCT_FILES < <(git diff --name-only "$BASE_SHA" | grep -v '^\.github/workflows/temp-unify-settings-material-sheet')
+          printf 'Product diff:\n%s\n' "${PRODUCT_FILES[@]}"
+          test "${#PRODUCT_FILES[@]}" = '7'
+          printf '%s\n' "${PRODUCT_FILES[@]}" | grep -qx '.github/workflows/dev-runtime-golden.yml'
+          printf '%s\n' "${PRODUCT_FILES[@]}" | grep -qx 'scripts/dev-hosted-browser-golden.mjs'
+          printf '%s\n' "${PRODUCT_FILES[@]}" | grep -qx 'scripts/ui-entry-ux-golden.ts'
+          printf '%s\n' "${PRODUCT_FILES[@]}" | grep -qx 'src/components/GoogleConfigTab.tsx'
+          printf '%s\n' "${PRODUCT_FILES[@]}" | grep -qx 'src/components/SettingsAccordionCard.tsx'
+          printf '%s\n' "${PRODUCT_FILES[@]}" | grep -qx 'src/components/SettingsFeatureSheet.tsx'
+          printf '%s\n' "${PRODUCT_FILES[@]}" | grep -qx 'src/components/WarehouseTab.tsx'
+          ! printf '%s\n' "${PRODUCT_FILES[@]}" | grep -Ei 'MaterialNorm|material-norm|MaterialNormModal|ExpandCollapseButton'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install exact locked dependencies
+        run: npm ci
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: Lint and source secret scan
+        run: npm run lint
+
+      - name: UI golden
+        run: npm run test:ui-entry-ux
+
+      - name: Critical production dependency audit
+        run: npm audit --omit=dev --audit-level=critical
+
+      - name: Build
+        run: npm run build
+
+      - name: Publish one clean source commit based directly on DEV 2be824b0
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_SHA='2be824b0b40c9fe06c4e6af04a144f7d426ed1da'
+          rm -f .github/workflows/temp-unify-settings-material-sheet.yml
+          rm -f .github/workflows/temp-unify-settings-material-sheet-v2.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          TREE_SHA="$(git write-tree)"
+          COMMIT_SHA="$(printf '%s\n' 'feat(dev): unify Settings and Material Need feature sheets' | git commit-tree "$TREE_SHA" -p "$BASE_SHA")"
+          echo "CLEAN_COMMIT_SHA=$COMMIT_SHA"
+          git push --force origin "$COMMIT_SHA:refs/heads/work/settings-feature-sheet-unify-stage"
