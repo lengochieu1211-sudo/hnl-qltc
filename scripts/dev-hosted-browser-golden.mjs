@@ -71,113 +71,116 @@ async function verifySettingsFeatureSheets(page, label) {
   await settingsButton.waitFor({ state: 'visible', timeout: 10000 });
   await settingsButton.click();
 
-  const syncEntry = page.locator('button[title="Trung tâm đồng bộ & sao lưu dự án"]');
-  await syncEntry.waitFor({ state: 'visible', timeout: 10000 });
-  const syncEntryBox = await syncEntry.boundingBox();
-  assert(syncEntryBox, `${label}: Sync Center entry has no layout box`);
-  assert(syncEntryBox.height <= 100, `${label}: Sync Center entry is too tall (${syncEntryBox.height}px)`);
-  const syncEntryIconBox = await syncEntry.locator('svg').first().boundingBox();
-  assert(syncEntryIconBox, `${label}: Sync Center entry icon missing`);
-  assert(syncEntryIconBox.width <= 22 && syncEntryIconBox.height <= 22, `${label}: Sync Center entry icon is not compact (${syncEntryIconBox.width}x${syncEntryIconBox.height})`);
-  pass(`${label} compact Sync Center Settings entry`, `${Math.round(syncEntryBox.height)}px card, ${Math.round(syncEntryIconBox.width)}px icon`);
-
+  const syncSelector = '#sync-backup-card';
   const healthSelector = '#system-sync-card';
+  const syncCard = page.locator(syncSelector);
   const healthCard = page.locator(healthSelector);
+  await syncCard.waitFor({ state: 'visible', timeout: 10000 });
   await healthCard.waitFor({ state: 'visible', timeout: 10000 });
-  assert(!(await healthCard.evaluate(el => el.open)), `${label}: HNL Health Center must start collapsed`);
-  pass(`${label} HNL Health Center default collapsed`);
 
-  const healthSummary = healthCard.locator('summary').first();
-  await healthSummary.click();
-  await waitForDetailsOpen(page, healthSelector, true);
+  const settingsCards = [
+    syncCard,
+    healthCard,
+    page.locator('details').filter({ hasText: 'Cài đặt định dạng số & ngày tháng' }).first(),
+    page.locator('details').filter({ hasText: 'Chất lượng ảnh & dung lượng' }).first(),
+    page.locator('#trash-recovery-card'),
+  ];
+  for (const [index, card] of settingsCards.entries()) {
+    await card.waitFor({ state: 'visible', timeout: 10000 });
+    assert(!(await card.evaluate(el => el.open)), `${label}: Settings card ${index + 1} must start collapsed`);
+  }
+
+  const sharedStyles = await Promise.all(settingsCards.map((card) => card.evaluate((el) => {
+    const style = getComputedStyle(el);
+    return {
+      backgroundColor: style.backgroundColor,
+      borderRadius: style.borderRadius,
+      borderWidth: style.borderTopWidth,
+      boxShadow: style.boxShadow,
+      overflowX: el.scrollWidth - el.clientWidth,
+    };
+  })));
+  for (let i = 1; i < sharedStyles.length; i += 1) {
+    assert(sharedStyles[i].backgroundColor === sharedStyles[0].backgroundColor, `${label}: Settings cards do not share the same background`);
+    assert(sharedStyles[i].borderRadius === sharedStyles[0].borderRadius, `${label}: Settings cards do not share the same radius`);
+    assert(sharedStyles[i].borderWidth === sharedStyles[0].borderWidth, `${label}: Settings cards do not share the same border`);
+    assert(sharedStyles[i].boxShadow === sharedStyles[0].boxShadow, `${label}: Settings cards do not share the same shadow`);
+    assert(sharedStyles[i].overflowX <= 1, `${label}: Settings card ${i + 1} overflows horizontally`);
+  }
+  pass(`${label} five Settings cards share one design system`);
+
+  const syncSummary = syncCard.locator('summary').first();
+  const syncClosedBox = await syncSummary.boundingBox();
+  assert(syncClosedBox, `${label}: Sync Center summary has no layout box`);
+  assert(syncClosedBox.height <= 110, `${label}: Sync Center closed header is too tall (${syncClosedBox.height}px)`);
+  const syncIconBox = await syncSummary.locator('svg').first().boundingBox();
+  assert(syncIconBox && syncIconBox.width <= 22 && syncIconBox.height <= 22, `${label}: Sync Center icon is not compact`);
+  const syncOverflow = await syncSummary.evaluate((el) => el.scrollWidth - el.clientWidth);
+  assert(syncOverflow <= 1, `${label}: Sync Center closed header overflows horizontally`);
+  pass(`${label} compact Sync Center closed state`, `${Math.round(syncClosedBox.height)}px header`);
+
+  await syncSummary.click();
+  await waitForDetailsOpen(page, syncSelector, true);
   await page.waitForTimeout(80);
 
-  const panelMetrics = await page.evaluate((selector) => {
+  const syncOpenMetrics = await page.evaluate((selector) => {
     const details = document.querySelector(selector);
     const style = details ? getComputedStyle(details) : null;
     const rect = details?.getBoundingClientRect();
     return {
       position: style?.position || '',
-      overflowY: style?.overflowY || '',
-      top: rect?.top ?? -1,
       width: rect?.width ?? -1,
-      radiusTopLeft: Number.parseFloat(style?.borderTopLeftRadius || '0') || 0,
+      overflowX: details ? details.scrollWidth - details.clientWidth : -1,
       bodyOverflow: document.body.style.overflow,
-      backdrop: Boolean(document.querySelector('[data-hnl-floating-backdrop="true"]')),
+      backdropCount: document.querySelectorAll('[data-hnl-floating-backdrop="true"]').length,
+      viewportWidth: window.innerWidth,
     };
-  }, healthSelector);
-  assert(panelMetrics.position === 'fixed', `${label}: HNL Health Center did not promote to fixed feature sheet`);
-  assert(panelMetrics.bodyOverflow === 'hidden', `${label}: feature sheet did not lock background scroll`);
-  assert(panelMetrics.backdrop, `${label}: feature sheet backdrop missing`);
-  assert(panelMetrics.overflowY === 'auto' || panelMetrics.overflowY === 'scroll', `${label}: feature sheet body is not independently scrollable`);
-  if (label === 'mobile') {
-    assert(panelMetrics.top > 40 && panelMetrics.top < 120, `${label}: feature sheet top offset is unexpected (${panelMetrics.top}px)`);
-    assert(panelMetrics.radiusTopLeft >= 20, `${label}: feature sheet rounded top is missing (${panelMetrics.radiusTopLeft}px)`);
-  } else {
-    assert(panelMetrics.width <= 980, `${label}: feature panel is too wide (${panelMetrics.width}px)`);
-    assert(panelMetrics.top > 0, `${label}: feature panel must leave backdrop visible above it`);
-  }
-  pass(`${label} HNL Health Center feature sheet layout`, `top=${Math.round(panelMetrics.top)}px width=${Math.round(panelMetrics.width)}px`);
+  }, syncSelector);
+  assert(syncOpenMetrics.position !== 'fixed', `${label}: Sync Center must expand inline, not become a fixed page/sheet`);
+  assert(syncOpenMetrics.backdropCount === 0, `${label}: inline Sync Center must not create a floating backdrop`);
+  assert(syncOpenMetrics.bodyOverflow !== 'hidden', `${label}: inline Sync Center must not lock page scroll`);
+  assert(syncOpenMetrics.width <= syncOpenMetrics.viewportWidth + 1, `${label}: Sync Center exceeds viewport width`);
+  assert(syncOpenMetrics.overflowX <= 1, `${label}: opened Sync Center overflows horizontally`);
 
-  const closeIndicator = healthSummary.locator('span[aria-hidden="true"]').last();
-  await closeIndicator.waitFor({ state: 'visible', timeout: 5000 });
-  await closeIndicator.click();
-  await waitForDetailsOpen(page, healthSelector, false);
-  pass(`${label} HNL Health Center X closes sheet`);
-
-  await healthSummary.click();
-  await waitForDetailsOpen(page, healthSelector, true);
-  await page.keyboard.press('Escape');
-  await waitForDetailsOpen(page, healthSelector, false);
-  pass(`${label} HNL Health Center Escape closes sheet`);
-
-  await healthSummary.click();
-  await waitForDetailsOpen(page, healthSelector, true);
-  await page.waitForTimeout(80);
-  await page.evaluate(() => window.history.back());
-  await waitForDetailsOpen(page, healthSelector, false);
-  pass(`${label} HNL Health Center browser/Android Back closes sheet`);
-
-  // The Back hotfix is specifically meant to leave Settings immediately tappable.
-  // Assert the transient sheet backdrop is already gone before exercising the very next
-  // control; this catches the original interaction race directly instead of inferring it
-  // from an ADMIN-only Sync Center label.
-  const postBackState = await page.evaluate((selector) => ({
-    detailsOpen: Boolean(document.querySelector(selector)?.open),
-    backdropCount: document.querySelectorAll('[data-hnl-floating-backdrop="true"]').length,
-    bodyOverflow: document.body.style.overflow,
-  }), healthSelector);
-  assert(!postBackState.detailsOpen, `${label}: HNL Health Center reopened after browser/Android Back`);
-  assert(postBackState.backdropCount === 0, `${label}: stale Settings backdrop remained after browser/Android Back`);
-  assert(postBackState.bodyOverflow !== 'hidden', `${label}: Settings background scroll remained locked after browser/Android Back`);
-  pass(`${label} HNL Health Center Back cleanup is interaction-ready`, `backdrops=${postBackState.backdropCount}, bodyOverflow=${postBackState.bodyOverflow || 'auto'}`);
-
-  await syncEntry.click();
-  const syncModalTitle = page.getByRole('heading', { name: 'Trung tâm đồng bộ & sao lưu dự án', exact: true });
-  await syncModalTitle.waitFor({ state: 'visible', timeout: 10000 });
-
-  // Runtime Golden runs without signing in, so Firebase-only mode correctly resolves
-  // the browser session as VIEWER. Do not require an ADMIN-only backup label to prove
-  // that the Sync Center opened. Accept either the ADMIN surface or the fail-closed
-  // VIEWER notice, while still requiring the common modal title above.
-  const syncAdvanced = page.getByText('Cài đặt sao lưu nâng cao', { exact: true });
-  const restrictedBackupNotice = page.getByText('Sao lưu/khôi phục dữ liệu:', { exact: true });
+  const syncAdvanced = syncCard.getByText('Cài đặt sao lưu nâng cao', { exact: true });
+  const restrictedBackupNotice = syncCard.getByText('Sao lưu/khôi phục dữ liệu:', { exact: true });
   const adminBackupSurfaceVisible = await syncAdvanced.isVisible();
   const viewerBackupGuardVisible = await restrictedBackupNotice.isVisible();
-  assert(
-    adminBackupSurfaceVisible || viewerBackupGuardVisible,
-    `${label}: Sync Center opened without an ADMIN backup surface or VIEWER fail-closed notice`,
-  );
-  const redundantDisclosureText = page.getByText(/^(Mở|Mở rộng|Thu gọn)$/);
-  assert(await redundantDisclosureText.count() === 0, `${label}: Sync Center exposes redundant disclosure text`);
-  pass(
-    `${label} Sync Center opens dedicated function panel`,
-    adminBackupSurfaceVisible ? 'ADMIN backup controls visible' : 'VIEWER backup guard visible',
-  );
+  assert(adminBackupSurfaceVisible || viewerBackupGuardVisible, `${label}: inline Sync Center lost existing backup/RBAC content`);
+  pass(`${label} Sync Center opens inline with existing business controls`, adminBackupSurfaceVisible ? 'ADMIN surface' : 'VIEWER guard');
 
-  await closeVisibleModal(page, `${label} Sync Center`);
-  await syncModalTitle.waitFor({ state: 'hidden', timeout: 10000 });
-  pass(`${label} Sync Center X closes panel`);
+  await page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' }));
+  await page.waitForTimeout(80);
+  const bottomNavBox = await moreButton.boundingBox();
+  assert(bottomNavBox, `${label}: bottom navigation disappeared after opening/scrolling Settings accordion`);
+  const viewport = page.viewportSize();
+  assert(!viewport || bottomNavBox.y + bottomNavBox.height <= viewport.height + 2, `${label}: bottom navigation is pushed behind viewport after accordion open`);
+  pass(`${label} page scroll + bottom navigation remain usable while Sync Center is open`);
+
+  await syncSummary.click();
+  await waitForDetailsOpen(page, syncSelector, false);
+  pass(`${label} Sync Center closes back into the same card`);
+
+  const healthSummary = healthCard.locator('summary').first();
+  await healthSummary.click();
+  await waitForDetailsOpen(page, healthSelector, true);
+  const healthMetrics = await page.evaluate((selector) => {
+    const details = document.querySelector(selector);
+    const style = details ? getComputedStyle(details) : null;
+    return {
+      position: style?.position || '',
+      overflowX: details ? details.scrollWidth - details.clientWidth : -1,
+      backdropCount: document.querySelectorAll('[data-hnl-floating-backdrop="true"]').length,
+      bodyOverflow: document.body.style.overflow,
+    };
+  }, healthSelector);
+  assert(healthMetrics.position !== 'fixed', `${label}: HNL Health Center must use the shared inline accordion behavior`);
+  assert(healthMetrics.backdropCount === 0, `${label}: HNL Health Center created an obsolete sheet backdrop`);
+  assert(healthMetrics.bodyOverflow !== 'hidden', `${label}: HNL Health Center locked page scroll`);
+  assert(healthMetrics.overflowX <= 1, `${label}: HNL Health Center overflows horizontally`);
+  await healthSummary.click();
+  await waitForDetailsOpen(page, healthSelector, false);
+  pass(`${label} HNL Health Center open/close uses shared inline accordion`);
 }
 
 async function runViewport(browser, label, viewport, screenshotPath) {

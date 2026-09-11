@@ -8311,14 +8311,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   entityType="defect"
                   entityId={draftDefectId}
                   category="defect_before"
-                  label="📷 Ảnh Báo Lỗi Ban Đầu (Trước Sửa)"
+                  label="Ảnh Báo Lỗi Ban Đầu (Trước Sửa)"
                 />
                 <PhotoAttachmentPicker
                   projectId={currentProjectId}
                   entityType="defect"
                   entityId={draftDefectId}
                   category="defect_after"
-                  label="🛠️ Ảnh Bằng Chứng Sau Khi Sửa (Tùy Chọn)"
+                  label="Ảnh Bằng Chứng Sau Khi Sửa (Tùy Chọn)"
                 />
               </div>
 
@@ -8568,7 +8568,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     entityType="defect"
                     entityId={activeDefectDetail.id}
                     category="defect_before"
-                    label="📷 Ảnh Báo Lỗi Ban Đầu (Trước Sửa)"
+                    label="Ảnh Báo Lỗi Ban Đầu (Trước Sửa)"
                     readOnly={!canEditDefects}
                   />
                   <PhotoAttachmentPicker
@@ -8576,7 +8576,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     entityType="defect"
                     entityId={activeDefectDetail.id}
                     category="defect_after"
-                    label="🛠️ Ảnh Bằng Chứng Sau Khi Sửa (Tùy Chọn)"
+                    label="Ảnh Bằng Chứng Sau Khi Sửa (Tùy Chọn)"
                     readOnly={!canEditDefects}
                   />
                 </div>

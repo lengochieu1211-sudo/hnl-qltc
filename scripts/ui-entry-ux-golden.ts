@@ -25,6 +25,10 @@ assert(syncCenter.includes('Công cụ đồng bộ nâng cao'), 'Advanced sync 
 assert(syncCenter.includes('Đồng bộ lại dự án này'), 'Manual project re-sync action must remain available');
 assert(syncCenter.includes('Xuất bản sao JSON') && syncCenter.includes('Khôi phục từ JSON'), 'JSON backup/restore actions must remain available');
 
+assert(projectManager.includes('inline?: boolean;'), 'ProjectManager must expose an inline mode for the Settings accordion');
+assert(projectManager.includes("inline ? 'w-full'"), 'Inline Sync Center must not use the fixed modal backdrop');
+assert(projectManager.includes('{!inline && <div className="flex items-center justify-between pb-3'), 'Inline Sync Center must suppress duplicate modal chrome/header');
+
 const header = read('src/components/GoogleAuthHeader.tsx');
 assert(!header.includes('<Wifi'), 'Header Wi-Fi badge must stay removed');
 assert(!header.includes('<WifiOff'), 'Header offline Wi-Fi badge must stay removed');
@@ -59,40 +63,15 @@ const appSource = read('src/App.tsx');
 assert(appSource.includes("SUPER ADMIN đã đặt lại mã PIN"), 'Forced security sign-out flow after SUPER ADMIN PIN reset must remain intact');
 assert(appSource.includes('void signOutGoogle();'), 'Forced security sign-out must remain automatic after a remote PIN reset');
 
-const indicator = read('src/components/ExpandCollapseIndicator.tsx');
-assert(!indicator.includes("expandLabel = 'Mở rộng'"), 'Settings disclosure must not render Mở rộng text labels');
-assert(!indicator.includes("collapseLabel = 'Thu gọn'"), 'Settings disclosure must not render Thu gọn text labels');
-assert(indicator.includes('<X className="hidden h-5 w-5 group-open:block"'), 'Opened settings page must expose X close affordance');
-assert(indicator.includes("event.key !== 'Escape'"), 'PC Escape close behavior missing');
-assert(indicator.includes('event.stopImmediatePropagation()'), 'Settings sheet must stop competing same-window Escape handlers');
-assert(indicator.includes("window.addEventListener('keydown', onKeyDown, true)"), 'Settings sheet must capture Escape before nested/app key handlers');
-assert(indicator.includes("window.removeEventListener('keydown', onKeyDown, true)"), 'Settings sheet Escape capture listener cleanup missing');
-assert(indicator.includes("window.addEventListener('popstate'"), 'Android/browser Back close behavior missing');
-assert(indicator.includes("details.style.top = '8dvh'"), 'Mobile Settings panel must open as a rounded sheet instead of a flat fullscreen page');
-assert(indicator.includes("details.style.borderRadius = '28px 28px 0 0'"), 'Mobile Settings panel rounded-top contract missing');
-assert(indicator.includes("var(--hnl-dark-surface, #f8fafc)"), 'Settings panel must use theme-aware surface instead of a hard-coded light background');
-assert(indicator.includes("env(safe-area-inset-bottom"), 'Settings panel Android safe-area padding missing');
-assert(indicator.includes('group-open:h-11 group-open:w-11'), 'Opened Settings X touch target must remain easy to tap on mobile');
-assert(indicator.includes('historyBackPending'), 'Settings feature sheets must guard against duplicate/delayed history back operations');
-assert(indicator.includes('const requestClose = () =>'), 'Settings feature sheets must use one coordinated close path');
-assert(indicator.includes("summary?.addEventListener('click', onOpenSummaryClick, true)"), 'Open Settings summary clicks must use the coordinated close path');
-const indicatorPopStart = indicator.indexOf('const onPopState = () =>');
-const indicatorSummaryStart = indicator.indexOf('const onOpenSummaryClick =', indicatorPopStart + 1);
-assert(indicatorPopStart >= 0 && indicatorSummaryStart > indicatorPopStart, 'Cannot isolate Settings Back handler');
-const indicatorPop = indicator.slice(indicatorPopStart, indicatorSummaryStart);
-assert(indicatorPop.includes('closeImmediately();') && indicatorPop.includes('cleanupFloating();'), 'Settings Back must close and synchronously remove its backdrop before the next tap');
-const indicatorCleanupStart = indicator.indexOf('const cleanupFloating = () =>');
-const indicatorActivateStart = indicator.indexOf('const activateFloating = () =>', indicatorCleanupStart + 1);
-assert(indicatorCleanupStart >= 0 && indicatorActivateStart > indicatorCleanupStart, 'Cannot isolate Settings feature-sheet cleanup');
-const indicatorCleanup = indicator.slice(indicatorCleanupStart, indicatorActivateStart);
-assert(!indicatorCleanup.includes('window.history.back()'), 'Settings cleanup must not issue a delayed history.back that can close a freshly reopened sheet');
-assert(!indicatorCleanup.includes("removeEventListener('keydown'"), 'Settings cleanup must not detach Escape during rapid close/reopen');
-assert(!indicatorCleanup.includes("removeEventListener('popstate'"), 'Settings cleanup must not detach Back during rapid close/reopen');
-const indicatorActivateEnd = indicator.indexOf('const onToggle = () =>', indicatorActivateStart + 1);
-assert(indicatorActivateEnd > indicatorActivateStart, 'Cannot isolate Settings feature-sheet activation');
-const indicatorActivate = indicator.slice(indicatorActivateStart, indicatorActivateEnd);
-assert(!indicatorActivate.includes("addEventListener('keydown'"), 'Escape listener must remain stable across activation cycles');
-assert(!indicatorActivate.includes("addEventListener('popstate'"), 'Back listener must remain stable across activation cycles');
+const settingsAccordion = read('src/components/SettingsAccordionCard.tsx');
+assert(settingsAccordion.includes('<details'), 'Shared Settings accordion must use semantic details/summary disclosure');
+assert(settingsAccordion.includes('rounded-2xl border border-slate-200 bg-white shadow-sm'), 'Settings cards must share the same white/border/radius/shadow design system');
+assert(settingsAccordion.includes('ChevronDown'), 'Settings cards must use the shared chevron icon');
+assert(settingsAccordion.includes('group-open:rotate-180'), 'Settings chevron must rotate when expanded');
+assert(settingsAccordion.includes('duration-200 ease-out'), 'Settings open/close affordance must use one transition timing');
+assert(!settingsAccordion.includes('fixed inset-0'), 'Settings accordion must remain inline instead of becoming a fullscreen/floating sheet');
+assert(!settingsAccordion.includes('data-hnl-floating-backdrop'), 'Settings accordion must not create a separate backdrop');
+assert(settingsAccordion.includes("lazy = false"), 'Shared Settings accordion must support lazy heavy content');
 
 const materialButton = read('src/components/ExpandCollapseButton.tsx');
 assert(!materialButton.includes("isMaterialNeedPage ? 'Mở'"), 'Material Need must not render redundant Mở label');
@@ -108,20 +87,35 @@ assert(warehouse.includes('role="button"'), 'Material Need heading row must be t
 assert(warehouse.includes('Gợi ý vật tư tổng hợp'), 'Material Need summary card missing');
 
 const config = read('src/components/GoogleConfigTab.tsx');
-assert(config.includes('Trung tâm đồng bộ & sao lưu dự án'), 'Settings Sync Center entry missing');
-assert(config.includes('<details id="system-sync-card"'), 'Health Center must remain collapsed by default in Settings');
-assert(!config.includes('<details id="system-sync-card" open'), 'Health Center must not default-open');
+assert(config.includes('title="Trung tâm đồng bộ & sao lưu"'), 'Settings Sync Center title missing');
+assert(config.includes('description="Đồng bộ dữ liệu · R2/ảnh · sao lưu · khôi phục và đối chiếu dữ liệu."'), 'Settings Sync Center description missing');
+assert(config.includes('id="sync-backup-card"'), 'Sync Center needs a stable inline accordion id');
+assert(config.includes('id="system-sync-card"'), 'Health Center needs a stable navigation id');
+assert(config.includes('id="trash-recovery-card"'), 'Trash/history card needs a stable navigation id');
+assert((config.match(/<SettingsAccordionCard/g) || []).length === 5, 'Settings must render exactly five cards through the shared accordion component');
+assert(config.includes('syncCenterContent'), 'Sync Center must reuse the existing ProjectManager business engine inline');
+assert(!config.includes('bg-emerald-50/70 p-4 text-left'), 'Old green Sync Center banner styling must be removed');
 assert(config.includes('Chất lượng ảnh & dung lượng'), 'Image quality Settings entry missing');
 assert(config.includes('Dữ liệu đã ẩn & lịch sử'), 'Hidden data/history Settings entry missing');
-assert(config.includes("{t('formatting_settings')}"), 'Number/date formatting Settings entry missing');
+assert(config.includes("title={t('formatting_settings')}"), 'Number/date formatting Settings entry missing');
+assert(config.includes("label: 'Offline'") && config.includes("label: 'Đang đồng bộ'") && config.includes("label: 'Cần đồng bộ'") && config.includes("label: 'Đã đồng bộ'"), 'Sync Center status badge states are incomplete');
 
-// Runtime Golden itself must prove the post-Back tap by the common Sync Center modal
-// title. The hosted browser runs unsigned as VIEWER, so requiring ADMIN-only backup text
-// would turn a correct fail-closed RBAC state into a false runtime failure.
+const appSourceForInlineSync = read('src/App.tsx');
+assert(appSourceForInlineSync.includes('syncCenterContent={('), 'App must inject the existing Sync Center engine into Settings');
+assert(appSourceForInlineSync.includes('<ProjectManagerModal') && appSourceForInlineSync.includes('inline'), 'App must render ProjectManager in inline mode for Settings');
+
+const defectUi = read('src/components/FloorPlanDefectTab.tsx');
+assert(!defectUi.includes('label="📷 Ảnh Báo Lỗi Ban Đầu (Trước Sửa)"'), 'Defect before-photo label must not duplicate the camera icon with an emoji');
+assert(!defectUi.includes('label="🛠️ Ảnh Bằng Chứng Sau Khi Sửa (Tùy Chọn)"'), 'Defect after-photo label must not duplicate picker iconography with an emoji');
+assert((defectUi.match(/label="Ảnh Báo Lỗi Ban Đầu \(Trước Sửa\)"/g) || []).length >= 2, 'Defect before-photo label must remain available in create/detail flows');
+assert((defectUi.match(/label="Ảnh Bằng Chứng Sau Khi Sửa \(Tùy Chọn\)"/g) || []).length >= 2, 'Defect after-photo label must remain available in create/detail flows');
+
 const hostedBrowserGolden = read('scripts/dev-hosted-browser-golden.mjs');
-assert(hostedBrowserGolden.includes("const syncModalTitle = page.getByRole('heading'"), 'Hosted browser Golden must anchor Sync Center open state on the common modal heading');
-assert(hostedBrowserGolden.includes("const restrictedBackupNotice = page.getByText('Sao lưu/khôi phục dữ liệu:'"), 'Hosted browser Golden must accept the VIEWER fail-closed backup notice');
-assert(!hostedBrowserGolden.includes("await syncAdvanced.waitFor({ state: 'visible'"), 'Hosted browser Golden must not require ADMIN-only backup content in an unsigned VIEWER session');
-assert(hostedBrowserGolden.includes('stale Settings backdrop remained after browser/Android Back'), 'Hosted browser Golden must directly verify synchronous Back backdrop cleanup');
+assert(hostedBrowserGolden.includes('five Settings cards share one design system'), 'Hosted browser Golden must verify all five Settings cards share one design system');
+assert(hostedBrowserGolden.includes('must expand inline, not become a fixed page/sheet'), 'Hosted browser Golden must lock inline expansion behavior');
+assert(hostedBrowserGolden.includes('bottom navigation remain usable while Sync Center is open'), 'Hosted browser Golden must cover mobile scroll + bottom navigation');
+assert(hostedBrowserGolden.includes("const syncSelector = '#sync-backup-card'"), 'Hosted browser Golden must target the inline Sync Center card');
+assert(hostedBrowserGolden.includes("const restrictedBackupNotice = syncCard.getByText('Sao lưu/khôi phục dữ liệu:'"), 'Hosted browser Golden must keep VIEWER fail-closed RBAC coverage inside inline Sync Center');
+assert(!hostedBrowserGolden.includes('syncModalTitle'), 'Hosted browser Golden must not expect the removed Sync Center modal heading');
 
-console.log('PASS ui-entry-ux-golden: compact entry cards, race-free Settings feature sheets, dark mode, safe-area, Back/Escape/X and role-aware Runtime Golden rules are intact.');
+console.log('PASS ui-entry-ux-golden: five shared inline Settings accordions, Sync Center engine reuse, Defect photo icon de-duplication and role-aware Runtime Golden rules are intact.');

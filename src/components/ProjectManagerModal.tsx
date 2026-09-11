@@ -37,7 +37,6 @@ import type { User as FirebaseUser } from 'firebase/auth';
 import { ConflictMergeModal } from './ConflictMergeModal';
 import { PrimaryDriveStatusCard } from './PrimaryDriveStatusCard';
 import { QuickSortBar } from './QuickSortBar';
-import { ExpandCollapseIndicator } from './ExpandCollapseIndicator';
 import { confirmAsync } from '../utils/confirmAsync';
 import { 
   normalizeImportedData, 
@@ -62,6 +61,7 @@ import { floorPlanNeedsCloudUpload, loadFloorPlanImageFromCloud, syncFloorPlanIm
 interface ProjectManagerModalProps {
   isOpen: boolean;
   onClose: () => void;
+  inline?: boolean;
   activeProjectId?: string;
   initialTab?: 'sync' | 'projects';
   autoSyncEnabled?: boolean;
@@ -95,6 +95,7 @@ export type ScopeType = 'active' | 'selected' | 'all';
 export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({ 
   isOpen, 
   onClose,
+  inline = false,
   activeProjectId,
   initialTab = 'projects',
   autoSyncEnabled = false,
@@ -2991,14 +2992,14 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       if (e.key === 'Escape' && isOpen) {
         if (showJsonScopePicker) {
           setShowJsonScopePicker(false);
-        } else {
+        } else if (!inline) {
           onClose();
         }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose, showJsonScopePicker]);
+  }, [inline, isOpen, onClose, showJsonScopePicker]);
 
   if (!isOpen) return null;
 
@@ -3043,11 +3044,11 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   });
 
   return (
-    <div className="fixed inset-0 bg-slate-900/65 backdrop-blur-md z-[180] flex items-center justify-center p-3 md:p-4 animate-in fade-in duration-200">
-      <div className="bg-white w-full max-w-xl rounded-2xl p-3.5 md:p-5 shadow-2xl relative border border-slate-100 flex flex-col max-h-[92vh] overflow-hidden">
+    <div className={inline ? 'w-full' : 'fixed inset-0 bg-slate-900/65 backdrop-blur-md z-[180] flex items-center justify-center p-3 md:p-4 animate-in fade-in duration-200'}>
+      <div className={inline ? 'relative w-full' : 'bg-white w-full max-w-xl rounded-2xl p-3.5 md:p-5 shadow-2xl relative border border-slate-100 flex flex-col max-h-[92vh] overflow-hidden'}>
         
         {/* Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
+        {!inline && <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
           <div className="flex items-center gap-3">
             <div className={`p-2.5 text-white rounded-xl shadow-md transition-colors ${modalTab === 'sync' ? 'bg-emerald-600' : 'bg-indigo-600'}`}>
               {modalTab === 'sync' ? <RefreshCw className="w-5 h-5" /> : <Building2 className="w-5 h-5" />}
@@ -3070,7 +3071,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           >
             <X className="w-4 h-4" />
           </button>
-        </div>
+        </div>}
 
         {/* Error Alert */}
         {errorMessage && (
@@ -3086,7 +3087,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         )}
 
         {/* Content Body */}
-        <div className="flex-1 overflow-y-auto pr-1 space-y-3 pt-2.5">
+        <div className={inline ? 'space-y-3' : 'flex-1 overflow-y-auto pr-1 space-y-3 pt-2.5'}>
 
           {/* TAB 1: SAVING & SYNC HUB */}
           {modalTab === 'sync' && (

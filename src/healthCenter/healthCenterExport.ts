@@ -192,24 +192,74 @@ export function buildHealthCenterCopyText(input: HealthCenterExportInput): strin
   const d = (input.systemDiagnostics || {}) as Record<string, any>;
   const photoDiagnostics = d.photoDiagnostics || {};
   const floorPlanDiagnostics = d.floorPlanDiagnostics || {};
+  const floorPlanRows = Array.isArray(floorPlanDiagnostics.floors) ? floorPlanDiagnostics.floors : [];
+  const photoRows = Array.isArray(photoDiagnostics.photos) ? photoDiagnostics.photos : [];
+  const runtimeRows = Array.isArray(d.runtimeLog) ? d.runtimeLog : [];
+  const recordCounts = d.recordCounts && typeof d.recordCounts === 'object' ? d.recordCounts as Record<string, unknown> : {};
+  const duplicateProjectIds = Array.isArray(d.duplicateProjectIds) ? d.duplicateProjectIds : [];
+
+  const floorPlanDetailLines = floorPlanRows.map((floor: any) => {
+    const storageProvider = String(floor?.storageProvider || '').trim();
+    const storagePath = String(floor?.storagePath || '').trim();
+    const storage = storageProvider || storagePath ? `${storageProvider || 'storage'}${storagePath ? `:${storagePath}` : ''}` : '—';
+    return `- ${String(floor?.floorName || 'Không rõ tầng')} [${String(floor?.id || 'no-id')}] | status ${String(floor?.status || 'UNKNOWN')} | pending ${floor?.pending ? 'có' : 'không'} | localBinary ${floor?.localBinary ? 'có' : 'không'} | rev ${Number(floor?.effectiveImageRevision || floor?.imageRevision || 0)} | cloud ${Number(floor?.imageCloudRevision || 0)} | outbox ${Number(floor?.outboxRevision || 0)} | outboxBytes ${Number(floor?.outboxBytes || 0)} | uploadState ${String(floor?.imageUploadState || '—')} | pendingOwner ${String(floor?.imagePendingByUid || '').trim() ? 'có' : 'không'} | cloudSynced ${floor?.imageCloudSyncedAt ? iso(Number(floor.imageCloudSyncedAt)) : '—'} | storage ${storage}`;
+  });
+
+  const photoIssueRows = photoRows.filter((photo: any) => !photo?.deleted && (
+    photo?.cloudReady !== true ||
+    String(photo?.binaryUploadState || '').toLowerCase() !== 'ready' ||
+    (String(photo?.storageProvider || '') === 'firestore-fallback' && !photo?.localBinary)
+  ));
+  const photoIssueLines = photoIssueRows.slice(0, 50).map((photo: any) => {
+    const storageProvider = String(photo?.storageProvider || '').trim();
+    const storagePath = String(photo?.storagePath || '').trim();
+    const storage = storageProvider || storagePath ? `${storageProvider || 'storage'}${storagePath ? `:${storagePath}` : ''}` : '—';
+    return `- ${String(photo?.entityType || 'unknown')}/${String(photo?.entityId || 'unknown')} | photo ${String(photo?.id || 'no-id')} | cloudReady ${photo?.cloudReady === true ? 'có' : 'không'} | upload ${String(photo?.binaryUploadState || 'unknown')} | localBinary ${photo?.localBinary ? 'có' : 'không'} | bytes ${Number(photo?.bytes || photo?.fileSize || 0)} | storage ${storage}`;
+  });
+
+  const runtimeLines = runtimeRows.slice(-30).map((row: any) =>
+    `- ${row?.at ? iso(Number(row.at)) : '—'} | ${String(row?.level || 'info').toUpperCase()} | ${String(row?.area || 'runtime')} | ${String(row?.code || '—')} | ${String(row?.message || '')}`
+  );
+  const recordCountLine = Object.entries(recordCounts).map(([key, value]) => `${key}=${String(value ?? 0)}`).join(' | ') || '—';
+
   const lines = [
     'HNL HEALTH CENTER - CHẨN ĐOÁN TỔNG HỢP',
     `Công trình: ${input.projectName || '—'}`,
     `Project ID: ${r.projectId}`,
     `Audit Snapshot ID: ${r.auditSnapshotId}`,
-    `Audit: ERROR ${r.errorCount} | WARNING ${r.warningCount} | Cần xác nhận ${r.needsConfirmationCount} | Safe repair ${r.safeRepairCount}`,
+    `Audit lúc: ${iso(r.generatedAt)} | Freshness: ${r.freshness}`,
+    `Audit: ERROR ${r.errorCount} | WARNING ${r.warningCount} | REVIEW ${r.reviewCount} | Cần xác nhận ${r.needsConfirmationCount} | Safe repair ${r.safeRepairCount} | Manual repair ${r.manualRepairCount}`,
     `Records quét: ${r.recordsScanned} | Issues đang xuất: ${issues.length}`,
     '',
+    'RUNTIME / BUILD / QUYỀN',
+    `App: ${String(d.appVersion || '—')} | Env: ${String(d.environment || '—')} | Platform: ${String(d.platform || '—')} | Schema: v${String(d.dataSchemaVersion ?? '—')}`,
+    `Build ID: ${String(d.buildId || '—')} | Commit: ${String(d.gitCommit || '—')} | Build time: ${String(d.buildTime || '—')}`,
+    `Diagnostic generated: ${String(d.generatedAt || '—')}`,
+    `User: ${String(d.firebaseUserEmail || '—')} | Role: ${String(d.role || '—')} | Role resolved: ${String(d.roleResolved ?? '—')} | Role source: ${String(d.roleSource || '—')}`,
+    `User agent: ${String(d.userAgent || '—')}`,
+    '',
     'HỆ THỐNG / ĐỒNG BỘ / R2',
-    `Firestore: ${String(d.dataCloudPhase || '—')} | Realtime: ${String(d.snapshotReadyCount ?? '—')}/9 | Pending data: ${String(d.pendingData ?? '—')}`,
-    `Ảnh R2: active ${String(photoDiagnostics.active ?? '—')} | ready ${String(photoDiagnostics.ready ?? '—')} | pending ${String(photoDiagnostics.pending ?? '—')}`,
-    `Mặt bằng ảnh: total ${String(floorPlanDiagnostics.total ?? '—')} | pending ${String(floorPlanDiagnostics.pending ?? '—')} | outbox ${String(floorPlanDiagnostics.outboxCount ?? '—')}`,
-    `Mạng: ${String(d.online ?? '—')} | Sync cuối: ${d.lastSyncAt ? iso(Number(d.lastSyncAt)) : '—'} | Lỗi sync: ${String(d.lastSyncError || 'Không')}`,
+    `Firestore: ${String(d.dataCloudPhase || '—')} | Cloud ready: ${String(d.cloudInitialReady ?? '—')} | Realtime: ${String(d.snapshotReadyCount ?? '—')}/9 | Pending data: ${String(d.pendingData ?? '—')}`,
+    `Ảnh sync: phase ${String(d.photoPhase || '—')} | pending ${String(d.photoPending ?? '—')} | pending uploads tổng ${String(d.pendingDriveUploads ?? '—')}`,
+    `Ảnh R2: total ${String(photoDiagnostics.total ?? '—')} | active ${String(photoDiagnostics.active ?? '—')} | ready ${String(photoDiagnostics.ready ?? '—')} | pending ${String(photoDiagnostics.pending ?? '—')}`,
+    `Mặt bằng ảnh: total ${String(floorPlanDiagnostics.total ?? '—')} | pending ${String(floorPlanDiagnostics.pending ?? '—')} | outbox ${String(floorPlanDiagnostics.outboxCount ?? '—')} | outbox bytes ${String(floorPlanDiagnostics.outboxBytes ?? '—')}`,
+    `Drive sync: ${String(d.driveSyncStatus || '—')} | Mạng: ${String(d.online ?? '—')} | Sync cuối: ${d.lastSyncAt ? iso(Number(d.lastSyncAt)) : '—'}`,
+    `Lỗi sync gần nhất: ${String(d.lastSyncError || 'Không')}`,
+    `Project ID trùng tên khác ID: ${duplicateProjectIds.length ? duplicateProjectIds.join(', ') : 'Không'}`,
+    `Record counts: ${recordCountLine}`,
+    ...(floorPlanDetailLines.length > 0 ? ['', 'CHI TIẾT MẶT BẰNG ẢNH (TẤT CẢ)', ...floorPlanDetailLines] : []),
+    ...(photoIssueLines.length > 0 ? ['', `ẢNH R2/ẢNH ĐÍNH KÈM CẦN XỬ LÝ (${photoIssueRows.length})`, ...photoIssueLines, ...(photoIssueRows.length > photoIssueLines.length ? [`- ... còn ${photoIssueRows.length - photoIssueLines.length} ảnh chưa liệt kê`] : [])] : ['', 'ẢNH R2/ẢNH ĐÍNH KÈM CẦN XỬ LÝ: Không']),
+    ...(runtimeLines.length > 0 ? ['', `RUNTIME LOG GẦN NHẤT (${Math.min(runtimeRows.length, 30)}/${runtimeRows.length})`, ...runtimeLines] : ['', 'RUNTIME LOG GẦN NHẤT: Không có']),
     '',
     'AUDIT DỮ LIỆU & LIÊN KẾT',
-    ...issues.map((issue, index) => `${index + 1}. [${issue.severity}] ${issue.ruleId} | ${issue.location.floorName || ''} ${issue.location.roomName || ''} ${issue.location.workItem || ''} | ${issue.message}`),
+    ...issues.map((issue, index) => {
+      const location = [issue.location.date, issue.location.teamName, issue.location.floorName, issue.location.roomName, issue.location.shift, issue.location.workItem].filter(Boolean).join(' · ');
+      const evidence = issue.evidenceIds?.length ? issue.evidenceIds.join(',') : '—';
+      return `${index + 1}. [${issue.severity}] ${issue.ruleId} | ${issue.module} | ${issue.actionClass} | ${issue.entityType}/${issue.entityId} | ${location || '—'} | ${issue.message} | evidence ${evidence}`;
+    }),
     '',
     'Nguyên tắc: không tự xóa dữ liệu mồ côi; AI/vật tư bỏ qua liên kết đã xóa cho đến khi ADMIN xác nhận xử lý.',
+    'Bảo mật: nội dung copy không xuất password/token/API key/credential và không chứa binary ảnh thật.',
   ];
   return lines.join('\n');
 }
