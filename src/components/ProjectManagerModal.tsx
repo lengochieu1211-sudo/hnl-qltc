@@ -3455,8 +3455,8 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
                 {/* Google Authentication Account Card */}
                 <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
+                  <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex min-w-0 flex-1 items-center gap-2">
                       <div className="w-7 h-7 rounded-full bg-white border border-slate-200 flex items-center justify-center overflow-hidden shrink-0 shadow-2xs">
                         {googleUser?.photoURL ? (
                           <img src={googleUser.photoURL} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
@@ -3478,7 +3478,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                       <button
                         type="button"
                         onClick={handleGoogleSignOut}
-                        className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
+                        className="w-full px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-[10px] font-bold rounded-lg transition-colors cursor-pointer sm:w-auto sm:shrink-0"
                       >
                         Đăng xuất
                       </button>
@@ -3487,7 +3487,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                         type="button"
                         onClick={handleGoogleSignIn}
                         disabled={isGoogleSigningIn}
-                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[10.5px] font-bold rounded-lg transition-colors cursor-pointer shadow-2xs flex items-center gap-1.5 disabled:opacity-50"
+                        className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-[10.5px] font-bold text-white shadow-2xs transition-colors hover:bg-indigo-700 disabled:opacity-50 sm:w-auto sm:shrink-0"
                       >
                         {isGoogleSigningIn ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Key className="w-3 h-3" />}
                         <span>Đăng nhập Google/Firebase</span>

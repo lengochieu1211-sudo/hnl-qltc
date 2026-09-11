@@ -134,13 +134,31 @@ async function verifySettingsFeatureSheets(page, label) {
       bodyOverflow: document.body.style.overflow,
       backdropCount: document.querySelectorAll('[data-hnl-floating-backdrop="true"]').length,
       viewportWidth: window.innerWidth,
+      offenders: details
+        ? Array.from(details.querySelectorAll('*'))
+            .map((el) => {
+              const box = el.getBoundingClientRect();
+              return {
+                tag: el.tagName.toLowerCase(),
+                className: typeof el.className === 'string' ? el.className.slice(0, 180) : '',
+                left: Math.round(box.left),
+                right: Math.round(box.right),
+                width: Math.round(box.width),
+                scrollWidth: el.scrollWidth,
+                clientWidth: el.clientWidth,
+              };
+            })
+            .filter((item) => item.right > window.innerWidth + 1 || item.scrollWidth - item.clientWidth > 1)
+            .sort((a, b) => Math.max(b.right - window.innerWidth, b.scrollWidth - b.clientWidth) - Math.max(a.right - window.innerWidth, a.scrollWidth - a.clientWidth))
+            .slice(0, 6)
+        : [],
     };
   }, syncSelector);
   assert(syncOpenMetrics.position !== 'fixed', `${label}: Sync Center must expand inline, not become a fixed page/sheet`);
   assert(syncOpenMetrics.backdropCount === 0, `${label}: inline Sync Center must not create a floating backdrop`);
   assert(syncOpenMetrics.bodyOverflow !== 'hidden', `${label}: inline Sync Center must not lock page scroll`);
   assert(syncOpenMetrics.width <= syncOpenMetrics.viewportWidth + 1, `${label}: Sync Center exceeds viewport width`);
-  assert(syncOpenMetrics.overflowX <= 1, `${label}: opened Sync Center overflows horizontally`);
+  assert(syncOpenMetrics.overflowX <= 1, `${label}: opened Sync Center overflows horizontally — ${JSON.stringify(syncOpenMetrics.offenders)}`);
 
   const syncAdvanced = syncCard.getByText('Cài đặt sao lưu nâng cao', { exact: true });
   const restrictedBackupNotice = syncCard.getByText('Sao lưu/khôi phục dữ liệu:', { exact: true });
