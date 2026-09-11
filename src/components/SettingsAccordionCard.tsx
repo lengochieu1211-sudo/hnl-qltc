@@ -33,6 +33,7 @@ const asHistoryObject = (value: unknown): Record<string, unknown> => {
  * a mobile feature sheet, matching the Material Need sheet UX instead of
  * expanding inline and pushing the rest of Settings down the page.
  * Runtime, APK, EXE and UI-entry goldens certify this shared Settings sheet contract.
+ * Compact sheet chrome and Sync diagnostics de-duplication are certified together.
  */
 export const SettingsAccordionCard: React.FC<SettingsAccordionCardProps> = ({
   id,
