@@ -290,6 +290,46 @@ export async function uploadFloorPlanBinaryToR2(input: {
   return { ...original, thumbnailPath };
 }
 
+/** Physical purge only. Business/UI deletion must remain a soft-delete until the
+ * retention/reference verifier authorizes this call. The Worker enforces ADMIN again. */
+export async function purgeR2Object(storagePath?: string | null): Promise<void> {
+  const path = String(storagePath || '').trim();
+  if (!path) return;
+  const projectId = path.match(/^projects\/([^/]+)\//)?.[1] || '';
+  const url = gatewayUrl('/v1/object', path);
+  let authorization = await authHeader();
+  const requestDelete = () => fetch(url, {
+    method: 'DELETE',
+    headers: { Authorization: authorization },
+    cache: 'no-store',
+  });
+
+  let response: Response;
+  try {
+    response = await requestDelete();
+    if (response.status === 401 || response.status === 403) {
+      authorization = await authHeader(true);
+      response = await requestDelete();
+    }
+  } catch (err) {
+    appendRuntimeDiagnostic({
+      level: 'error', area: 'r2-purge', projectId, code: 'NETWORK',
+      message: `DELETE lỗi mạng/CORS: ${path} | ${err instanceof Error ? err.message : String(err)}`,
+    });
+    throw err;
+  }
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    appendRuntimeDiagnostic({
+      level: 'error', area: 'r2-purge', projectId, code: `HTTP_${response.status}`,
+      message: `DELETE thất bại ${response.status}: ${path} | ${detail.slice(0, 180)}`,
+    });
+    throw new Error(`R2_PURGE_FAILED:${response.status}:${detail.slice(0, 300)}`);
+  }
+  appendRuntimeDiagnostic({ level: 'info', area: 'r2-purge', projectId, code: 'PURGED', message: path });
+}
+
 export async function downloadR2Blob(storagePath?: string | null): Promise<Blob | null> {
   const path = String(storagePath || '').trim();
   if (!path) return null;

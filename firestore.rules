@@ -300,6 +300,9 @@ service cloud.firestore {
           'deletedAt',
           'trashRetentionDays',
           'trashExpiresAt',
+          'lifecycleMutationId',
+          'lifecycleMutationType',
+          'lifecycleMutationAt',
           'updatedAt'
         ]);
     }
