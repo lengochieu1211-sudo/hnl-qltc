@@ -19,6 +19,30 @@ check(photoStorage.includes('export async function updatePhotoAttachmentBlob'), 
 check(photoStorage.includes("binaryUploadState: 'pending'"), 'Edited attachment must return to pending before Cloud publication.');
 check(photoStorage.includes("storagePath: ''"), 'Edited attachment must clear the old shared pointer locally until replacement publication.');
 check(photoStorage.includes('revision: Math.max(Number(p.revision || 0) + 1, 1)'), 'Edited attachment must advance revision.');
+check(photoStorage.includes("const photoKind = photo.entityType === 'defect' ? 'defect' : 'crew';"), 'Photo save path must derive the correct image-quality kind at upload time.');
+check(photoStorage.includes('const profile = getImageQualityProfile(photoKind);'), 'Photo save/edit path must read the current image-quality profile before compression.');
+check(photoStorage.includes('const mainBlob = await compressImageToBlob(imageSource, profile.maxDimension, profile.quality);'), 'Main photo binary must use the selected quality profile.');
+check(photoStorage.includes('compressImageToBlob(mainBlob, 320, 0.70)'), 'Gallery thumbnail must stay lightweight and separate from the full photo binary.');
+
+const qualitySettings = read('src/utils/imageQualitySettings.ts');
+for (const marker of [
+  "case 'economy': return { maxDimension: 1280, quality: 0.76, label: 'Tiết kiệm' };",
+  "case 'high': return { maxDimension: 1920, quality: 0.88, label: 'Chất lượng cao' };",
+  "case 'original': return { maxDimension: 2560, quality: 0.92, label: 'Rất cao' };",
+  "default: return { maxDimension: 1440, quality: 0.82, label: 'Tiêu chuẩn' };",
+]) check(qualitySettings.includes(marker), `Crew image-quality preset changed unexpectedly: ${marker}`);
+
+const photoPicker = read('src/components/PhotoAttachmentPicker.tsx');
+check(photoPicker.includes("getPhotoDataUrl(p.id, p.cloudUrl || p.cloudFileId, true, projectId)"), 'Photo grid must continue to resolve lightweight thumbnails.');
+check(photoPicker.includes("getPhotoDataUrl(photo.id, photo.cloudUrl || photo.cloudFileId, false, projectId)"), 'Photo viewer must lazy-load the full stored binary, not the 320px thumbnail.');
+check((photoPicker.match(/onChange=\{handleFileChange\}/g) || []).length >= 2, 'Camera and gallery inputs must share the same current-quality upload pipeline.');
+check(photoPicker.includes('onIndexChange={(index) =>'), 'Photo viewer navigation must request full-resolution binaries lazily per image.');
+check(photoPicker.includes('clearViewerFullImages'), 'Photo viewer must release full-resolution Blob URLs when closed.');
+
+const imageViewer = read('src/components/ImageViewerModal.tsx');
+check(imageViewer.includes('onIndexChange?: (index: number) => void;'), 'Image viewer full-resolution navigation callback missing.');
+check(imageViewer.includes('Đang tải ảnh đầy đủ...'), 'Image viewer must indicate thumbnail-to-full-resolution loading.');
+check(imageViewer.includes('if (!activeImage || mediaAction || isImageLoading) return;'), 'Download/share must not export a thumbnail while full image is still loading.');
 
 const cloudSync = read('src/lib/photoCloudSync.ts');
 check(cloudSync.includes('uploadProjectBinaryToCloud'), 'Photo Cloud sync must route through binaryStorage atomic uploader.');

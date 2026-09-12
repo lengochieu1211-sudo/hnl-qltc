@@ -9,6 +9,8 @@ interface ImageViewerModalProps {
   imageUrl?: string;
   images?: string[];
   initialIndex?: number;
+  onIndexChange?: (index: number) => void;
+  isImageLoading?: boolean;
 }
 
 export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
@@ -16,7 +18,9 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
   onClose,
   imageUrl,
   images,
-  initialIndex = 0
+  initialIndex = 0,
+  onIndexChange,
+  isImageLoading = false,
 }) => {
   const allImages = images && images.length > 0 ? images : (imageUrl ? [imageUrl] : []);
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
@@ -32,12 +36,17 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
   const lastPosRef = useRef({ x: 0, y: 0 });
   const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
   const onCloseRef = useRef(onClose);
+  const onIndexChangeRef = useRef(onIndexChange);
   const pushedHistoryRef = useRef(false);
   const closedFromHistoryRef = useRef(false);
 
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
+
+  useEffect(() => {
+    onIndexChangeRef.current = onIndexChange;
+  }, [onIndexChange]);
 
   useEffect(() => {
     if (isOpen) {
@@ -47,7 +56,23 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
       setMediaAction(null);
       setMediaActionMessage('');
     }
-  }, [isOpen, initialIndex, images, imageUrl]);
+  }, [isOpen, initialIndex]);
+
+  // The caller may replace a thumbnail URL with the full-resolution Blob while the
+  // viewer is already open. Do not reset navigation back to initialIndex when that
+  // happens; only clamp the active index if the available image count shrinks.
+  useEffect(() => {
+    if (!isOpen) return;
+    setCurrentIndex((current) => {
+      if (allImages.length <= 0) return 0;
+      return Math.min(Math.max(current, 0), allImages.length - 1);
+    });
+  }, [isOpen, allImages.length]);
+
+  useEffect(() => {
+    if (!isOpen || allImages.length <= 0) return;
+    onIndexChangeRef.current?.(currentIndex);
+  }, [isOpen, currentIndex, allImages.length]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -193,7 +218,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
     const response = await fetch(activeImage, { cache: 'no-store' });
     if (!response.ok) throw new Error(`Không tải được ảnh (${response.status}).`);
     const blob = await response.blob();
-    if (!blob.size) throw new Error('Ảnh tải về rỗng.');
+    if (!blob.size) throw new Error('Ảnh tải vệ rỗng.');
     return blob;
   };
 
@@ -213,7 +238,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
   });
 
   const handleDownload = async () => {
-    if (!activeImage || mediaAction) return;
+    if (!activeImage || mediaAction || isImageLoading) return;
     setMediaAction('download');
     setMediaActionMessage('');
     try {
@@ -229,7 +254,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
   };
 
   const handleShare = async () => {
-    if (!activeImage || mediaAction) return;
+    if (!activeImage || mediaAction || isImageLoading) return;
     setMediaAction('share');
     setMediaActionMessage('');
     try {
@@ -286,17 +311,25 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
         )}
 
         {activeImage ? (
-          <img 
-            src={activeImage} 
-            alt="Full Photo" 
-            referrerPolicy="no-referrer" 
-            crossOrigin="anonymous"
-            style={{
-              transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
-              transition: isDraggingRef.current ? 'none' : 'transform 0.1s ease-out'
-            }}
-            className="max-w-full max-h-[80vh] object-contain pointer-events-none" 
-          />
+          <>
+            <img
+              src={activeImage}
+              alt="Full Photo"
+              referrerPolicy="no-referrer"
+              crossOrigin="anonymous"
+              style={{
+                transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
+                transition: isDraggingRef.current ? 'none' : 'transform 0.1s ease-out'
+              }}
+              className="max-w-full max-h-[80vh] object-contain pointer-events-none"
+            />
+            {isImageLoading && (
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 rounded-full bg-slate-950/85 px-3 py-2 text-xs font-bold text-white shadow-lg border border-white/10 flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Đang tải ảnh đầy đủ...
+              </div>
+            )}
+          </>
         ) : (
           <div className="text-white/60 font-bold text-sm">Không có hình ảnh để hiển thị</div>
         )}
@@ -332,7 +365,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
             <button
               type="button"
               onClick={handleDownload}
-              disabled={Boolean(mediaAction)}
+              disabled={Boolean(mediaAction) || isImageLoading}
               className="min-w-[8.5rem] px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 disabled:opacity-50 text-white text-sm font-bold flex items-center justify-center gap-2 border border-white/10"
             >
               {mediaAction === 'download' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
@@ -341,7 +374,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
             <button
               type="button"
               onClick={handleShare}
-              disabled={Boolean(mediaAction)}
+              disabled={Boolean(mediaAction) || isImageLoading}
               className="min-w-[8.5rem] px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-bold flex items-center justify-center gap-2"
             >
               {mediaAction === 'share' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Share2 className="w-4 h-4" />}
