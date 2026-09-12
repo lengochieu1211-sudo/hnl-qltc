@@ -85,6 +85,9 @@ export interface FloorPlan {
   imageRevision?: number;
   imageCloudRevision?: number;
   imageCloudSyncedAt?: number;
+  /** Durable shared binary identity. Multiple floors may reference the same immutable asset. */
+  imageAssetId?: string | null;
+  imageAssetOwnerFloorId?: string | null;
   /** Runtime-only display metadata. Never written as business data to Firestore. */
   imageDisplayRevision?: number;
   imageDisplaySource?: 'memory' | 'cache' | 'cloud' | 'legacy' | 'remote-url' | string;

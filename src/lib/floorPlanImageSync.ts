@@ -82,6 +82,36 @@ export interface FloorPlanOfflineCacheResult {
   skipped: number;
   failed: number;
   bytes: number;
+  paused?: boolean;
+}
+
+export interface FloorPlanOfflineCacheOptions {
+  priorityFloorPlanId?: string;
+  shouldContinue?: () => boolean;
+}
+
+export interface FloorPlanBulkApplyResult {
+  applied: number;
+  storagePath: string;
+  assetId: string;
+  ownerFloorPlanId: string;
+  bytes: number;
+  metadataByFloorId: Record<string, Partial<FloorPlan>>;
+}
+
+/**
+ * Smart background prefetch should be invisible to the field user. Respect explicit
+ * data-saver/very slow network hints; on browsers without Network Information support
+ * we fall back to navigator.onLine and download one drawing at a time.
+ */
+export function isFloorPlanAutoCacheNetworkSuitable(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  if (navigator.onLine === false) return false;
+  const connection = (navigator as any).connection || (navigator as any).mozConnection || (navigator as any).webkitConnection;
+  if (!connection) return true;
+  if (connection.saveData === true) return false;
+  const effectiveType = String(connection.effectiveType || '').toLowerCase();
+  return effectiveType !== 'slow-2g' && effectiveType !== '2g';
 }
 
 function encodeOutboxSegment(value: unknown): string {
@@ -228,6 +258,29 @@ async function readLatestFloorPlanCacheRecord(
   for (const revision of revisions) {
     const record = await readFloorPlanCacheRecord(projectId, floorPlanId, revision);
     if (record) return record;
+  }
+  return null;
+}
+
+/** Reuse one cached immutable binary across every floor that points at the same asset.
+ * This avoids storing/downloading the same typical-floor drawing 20-30 times. */
+async function readFloorPlanCacheRecordByStoragePointer(
+  projectId: string,
+  plan: FloorPlan,
+): Promise<FloorPlanImageCacheRecord | null> {
+  const pointer = parseStoragePointer(plan);
+  const path = String(pointer.path || plan.storagePath || '').trim();
+  if (!projectId || !path) return null;
+  const provider = String(pointer.provider || plan.storageProvider || '').trim();
+  const prefix = floorPlanCachePrefixFor(projectId);
+  const keys = await localforage.keys();
+  for (const key of keys) {
+    if (!key.startsWith(prefix)) continue;
+    const record = await localforage.getItem<FloorPlanImageCacheRecord>(key).catch(() => null);
+    if (!record?.blob || String(record.storagePath || '').trim() !== path) continue;
+    if (provider && record.storageProvider && String(record.storageProvider) !== provider) continue;
+    const verified = await readFloorPlanCacheRecord(record.projectId, record.floorPlanId, Number(record.revision || 0));
+    if (verified) return verified;
   }
   return null;
 }
@@ -503,6 +556,8 @@ export async function syncFloorPlanImageToCloud(projectId: string, plan: FloorPl
     imageRevision: revision,
     imageCloudRevision: revision,
     imageCloudSyncedAt: now,
+    imageAssetId: `floor-plan-asset:${uploaded.provider}:${uploaded.storagePath}`,
+    imageAssetOwnerFloorId: plan.id,
     imageUploadState: 'ready',
     imagePendingByUid: null,
     imageOutboxRevision: revision,
@@ -524,6 +579,116 @@ export async function syncFloorPlanImageToCloud(projectId: string, plan: FloorPl
   // Do not delete Drive/chunk legacy binary yet. Migration cleanup is a separate,
   // verified purge pass after count + checksum + Firestore-reference parity.
   return metadata;
+}
+
+/**
+ * Apply one immutable drawing binary to multiple existing floors. The binary is uploaded
+ * exactly once; each floor keeps its own document/revision and only shares the asset
+ * pointer. Business data (rooms, defects, progress, checklist, etc.) is never touched.
+ *
+ * Bulk apply deliberately requires every target to be cloud-stable first. If another
+ * replacement is pending, fail closed instead of racing an in-flight upload.
+ */
+export async function applyFloorPlanImageToMultipleFloors(
+  projectId: string,
+  plans: FloorPlan[],
+  imageUrl: string,
+): Promise<FloorPlanBulkApplyResult> {
+  if (!projectId) throw new Error('FLOOR_PLAN_BULK_PROJECT_REQUIRED');
+  const uniquePlans = Array.from(new Map((plans || []).filter((plan) => plan?.id).map((plan) => [plan.id, plan])).values());
+  if (uniquePlans.length < 2) throw new Error('FLOOR_PLAN_BULK_REQUIRES_MULTIPLE_TARGETS');
+  if (uniquePlans.length > 400) throw new Error('FLOOR_PLAN_BULK_TOO_MANY_TARGETS');
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error('FLOOR_PLAN_BULK_REQUIRES_ONLINE');
+
+  const user = getCurrentRealFirebaseUser();
+  if (!user || user.isAnonymous || !user.uid) throw new Error('FLOOR_PLAN_BULK_AUTH_UNAVAILABLE');
+  const roleInfo = await fetchProjectUserRoleFromCloud(projectId, user);
+  if (roleInfo.verification !== 'verified') throw new Error('FLOOR_PLAN_ROLE_VERIFICATION_UNAVAILABLE');
+  if (!roleInfo.allowed || roleInfo.role !== 'ADMIN') throw new Error('FLOOR_PLAN_ADMIN_REQUIRED');
+
+  const busyTarget = uniquePlans.find((plan) => {
+    const uploadState = String((plan as any).imageUploadState || '').toLowerCase();
+    const imageRevision = Number(plan.imageRevision || 0);
+    const cloudRevision = Number(plan.imageCloudRevision || 0);
+    return uploadState === 'pending' || imageRevision > cloudRevision;
+  });
+  if (busyTarget) throw new Error(`FLOOR_PLAN_BULK_TARGET_PENDING:${busyTarget.floorName || busyTarget.id}`);
+
+  const blob = await sourceToBlob(imageUrl);
+  if (!blob || blob.size <= 0) throw new Error('FLOOR_PLAN_BULK_BINARY_UNREADABLE');
+  let thumbnailBlob: Blob | null = null;
+  try { thumbnailBlob = await compressImageToBlob(blob, 480, 0.72); } catch (_) {}
+
+  const ownerPlan = uniquePlans[0];
+  const uploaded = await uploadFloorPlanBinaryToCloud({
+    projectId,
+    floorPlanId: ownerPlan.id,
+    blob,
+    thumbnailBlob,
+    createdByUid: user.uid,
+    createdAt: Number((ownerPlan as any).createdAt || Date.now()),
+  });
+  const now = Date.now();
+  const assetId = `floor-plan-asset:${uploaded.provider}:${uploaded.storagePath}`;
+  const metadataByFloorId: Record<string, Partial<FloorPlan>> = {};
+  const batch = writeBatch(db);
+
+  uniquePlans.forEach((plan, index) => {
+    const revision = Math.max(
+      now + index,
+      Number(plan.imageRevision || 0) + 1,
+      Number(plan.imageCloudRevision || 0) + 1,
+      Number((plan as any).updatedAt || 0) + 1,
+    );
+    const metadata: Partial<FloorPlan> & Record<string, any> = {
+      imageUrl: `cloud-floorplan:${uploaded.provider}:${uploaded.storagePath}`,
+      cloudFileId: `${uploaded.provider === 'r2' ? 'r2' : 'storage'}:${uploaded.storagePath}`,
+      storageProvider: uploaded.provider,
+      storagePath: uploaded.storagePath,
+      thumbnailPath: uploaded.thumbnailPath || '',
+      storageMd5Hash: uploaded.checksum || '',
+      storageEtag: uploaded.etag || '',
+      imageMimeType: uploaded.mimeType || blob.type || 'image/jpeg',
+      imageFileSize: Number(uploaded.size || blob.size || 0),
+      imageRevision: revision,
+      imageCloudRevision: revision,
+      imageCloudSyncedAt: now,
+      imageAssetId: assetId,
+      imageAssetOwnerFloorId: ownerPlan.id,
+      imageUploadState: 'ready',
+      imagePendingByUid: null,
+      imageOutboxRevision: revision,
+      updatedAt: revision,
+      revision: Math.max(Number((plan as any).revision || 0), 0) + 1,
+      updatedByUid: user.uid,
+      deletedAt: null,
+      deletedByUid: null,
+      deletedBy: null,
+    };
+    metadataByFloorId[plan.id] = metadata;
+    batch.set(doc(db, 'projects', projectId, 'floor_plans', plan.id), metadata, { merge: true });
+  });
+
+  await batch.commit();
+
+  // Store one physical offline cache copy only. All other selected floors resolve the
+  // same immutable storagePath through readFloorPlanCacheRecordByStoragePointer().
+  const ownerMetadata = metadataByFloorId[ownerPlan.id];
+  await cacheFloorPlanBlob(
+    projectId,
+    { ...ownerPlan, ...ownerMetadata } as FloorPlan,
+    Number(ownerMetadata.imageCloudRevision || ownerMetadata.imageRevision || now),
+    blob,
+  ).catch((err) => console.warn('[Floor Plan Image] shared asset cache warning:', err));
+
+  return {
+    applied: uniquePlans.length,
+    storagePath: uploaded.storagePath,
+    assetId,
+    ownerFloorPlanId: ownerPlan.id,
+    bytes: Number(uploaded.size || blob.size || 0),
+    metadataByFloorId,
+  };
 }
 
 async function downloadFallback(projectId: string, plan: FloorPlan): Promise<Blob | null> {
@@ -612,6 +777,19 @@ export async function resolveFloorPlanImageForDisplay(
         bytes: exactCache.blob.size,
       };
     }
+
+    // Typical floors may intentionally share one immutable R2/Storage object. Reuse
+    // any cached copy of that exact pointer instead of downloading/storing N copies.
+    const sharedPointerCache = await readFloorPlanCacheRecordByStoragePointer(projectId, plan);
+    if (sharedPointerCache) {
+      return {
+        imageUrl: await blobToDataUrl(sharedPointerCache.blob),
+        revision,
+        source: 'cache',
+        stale: false,
+        bytes: sharedPointerCache.blob.size,
+      };
+    }
   }
 
   const allowStaleCache = options.allowStaleCache === true;
@@ -666,22 +844,33 @@ export async function cacheFloorPlansForOffline(
   projectId: string,
   plans: FloorPlan[],
   onProgress?: (progress: { completed: number; total: number; floorPlanId: string; status: 'cached' | 'downloaded' | 'failed' | 'skipped' }) => void,
+  options: FloorPlanOfflineCacheOptions = {},
 ): Promise<FloorPlanOfflineCacheResult> {
-  const candidates = (plans || []).filter((plan) => {
+  const rawCandidates = (plans || []).filter((plan) => {
     if (!plan?.id) return false;
     const revision = resolveFloorPlanCloudRevision(plan);
     const pointer = parseStoragePointer(plan);
     return revision > 0 && Boolean(pointer.path || parseDriveFileId(plan) || plan.storageProvider === 'firestore-fallback');
   });
-  const result: FloorPlanOfflineCacheResult = { total: candidates.length, cached: 0, downloaded: 0, skipped: 0, failed: 0, bytes: 0 };
+  const priorityFloorPlanId = String(options.priorityFloorPlanId || '');
+  const candidates = priorityFloorPlanId
+    ? [...rawCandidates].sort((a, b) => Number(b.id === priorityFloorPlanId) - Number(a.id === priorityFloorPlanId))
+    : rawCandidates;
+  const result: FloorPlanOfflineCacheResult = { total: candidates.length, cached: 0, downloaded: 0, skipped: 0, failed: 0, bytes: 0, paused: false };
   let completed = 0;
   for (const plan of candidates) {
+    if (options.shouldContinue && !options.shouldContinue()) {
+      result.paused = true;
+      break;
+    }
     const revision = resolveFloorPlanCloudRevision(plan);
     try {
       const existing = await readFloorPlanCacheRecord(projectId, plan.id, revision);
-      if (existing) {
+      const sharedPointerCache = existing ? null : await readFloorPlanCacheRecordByStoragePointer(projectId, plan);
+      const reusableCache = existing || sharedPointerCache;
+      if (reusableCache) {
         result.cached += 1;
-        result.bytes += existing.blob.size;
+        result.bytes += reusableCache.blob.size;
         completed += 1;
         onProgress?.({ completed, total: candidates.length, floorPlanId: plan.id, status: 'cached' });
         continue;
@@ -710,9 +899,12 @@ export async function cacheFloorPlansForOffline(
       console.warn('[Floor Plan Image] offline cache warning:', plan.floorName, err);
     }
   }
-  result.skipped = Math.max(0, (plans || []).length - candidates.length);
+  const ineligible = Math.max(0, (plans || []).length - rawCandidates.length);
+  const pausedRemainder = Math.max(0, candidates.length - completed);
+  result.skipped = ineligible + pausedRemainder;
   return result;
 }
+
 
 export function floorPlanNeedsCloudUpload(plan: FloorPlan): boolean {
   // Pure data + current uploader identity. Authorization remains in the scheduler and

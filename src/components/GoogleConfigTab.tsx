@@ -176,11 +176,15 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
 
   const floorPlanOfflineSummary = useMemo(() => {
     const latestByFloor = new Map<string, any>();
+    const cacheByStoragePath = new Map<string, any>();
     for (const row of floorPlanCacheRows) {
       const floorId = String(row?.floorPlanId || '');
-      if (!floorId) continue;
-      const previous = latestByFloor.get(floorId);
-      if (!previous || Number(row?.revision || 0) > Number(previous?.revision || 0)) latestByFloor.set(floorId, row);
+      if (floorId) {
+        const previous = latestByFloor.get(floorId);
+        if (!previous || Number(row?.revision || 0) > Number(previous?.revision || 0)) latestByFloor.set(floorId, row);
+      }
+      const storagePath = String(row?.storagePath || '').trim();
+      if (storagePath && !cacheByStoragePath.has(storagePath)) cacheByStoragePath.set(storagePath, row);
     }
     const eligiblePlans = (floorPlans || []).filter((plan) => {
       const cloudRevision = Number(plan?.imageCloudRevision || plan?.imageRevision || 0);
@@ -188,14 +192,26 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       return cloudRevision > 0 && hasPointer;
     });
     const ready = eligiblePlans.filter((plan) => {
-      const cached = latestByFloor.get(String(plan.id || ''));
-      return Number(cached?.revision || 0) >= Number(plan.imageCloudRevision || plan.imageRevision || 0) && Number(cached?.bytes || 0) > 0;
+      const exact = latestByFloor.get(String(plan.id || ''));
+      const shared = cacheByStoragePath.get(String(plan.storagePath || '').trim());
+      const cached = exact || shared;
+      if (!cached || Number(cached?.bytes || 0) <= 0) return false;
+      if (shared && !exact && String(plan.storagePath || '').trim()) return true;
+      return Number(cached?.revision || 0) >= Number(plan.imageCloudRevision || plan.imageRevision || 0);
     }).length;
+    const uniqueCacheKeys = new Set<string>();
+    let uniqueCacheBytes = 0;
+    floorPlanCacheRows.forEach((row) => {
+      const key = String(row?.storagePath || '').trim() || `${row?.floorPlanId || ''}:${row?.revision || 0}`;
+      if (!key || uniqueCacheKeys.has(key)) return;
+      uniqueCacheKeys.add(key);
+      uniqueCacheBytes += Number(row?.bytes || 0);
+    });
     return {
       eligible: eligiblePlans.length,
       ready,
-      cacheBytes: floorPlanCacheRows.reduce((sum, row) => sum + Number(row?.bytes || 0), 0),
-      cacheVersions: floorPlanCacheRows.length,
+      cacheBytes: uniqueCacheBytes,
+      cacheVersions: uniqueCacheKeys.size,
     };
   }, [floorPlans, floorPlanCacheRows]);
 
@@ -250,9 +266,12 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       ? await getFloorPlanImageCacheSnapshot(activeProjectId).catch(() => [])
       : [];
     const latestCacheByFloor = new Map<string, any>();
+    const cacheByStoragePath = new Map<string, any>();
     for (const row of floorPlanCacheSnapshotRows) {
       const previous = latestCacheByFloor.get(row.floorPlanId);
       if (!previous || Number(row.revision || 0) > Number(previous.revision || 0)) latestCacheByFloor.set(row.floorPlanId, row);
+      const cachePath = String(row?.storagePath || '').trim();
+      if (cachePath && !cacheByStoragePath.has(cachePath)) cacheByStoragePath.set(cachePath, row);
     }
     const latestOutboxByFloor = new Map<string, any>();
     for (const row of floorPlanOutboxRows) {
@@ -264,7 +283,9 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       const imageUrl = String(plan?.imageUrl || '');
       const localBinary = imageUrl.startsWith('data:image/') || imageUrl.startsWith('blob:');
       const outbox = latestOutboxByFloor.get(String(plan?.id || ''));
-      const cached = latestCacheByFloor.get(String(plan?.id || ''));
+      const exactCached = latestCacheByFloor.get(String(plan?.id || ''));
+      const sharedCached = cacheByStoragePath.get(String(plan?.storagePath || '').trim());
+      const cached = exactCached || sharedCached;
       const imageRevision = Number(plan?.imageRevision || 0);
       const effectiveRevision = Math.max(imageRevision, Number(outbox?.revision || 0));
       const cloudRevision = Number(plan?.imageCloudRevision || 0);
@@ -282,7 +303,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       else if (hasCloudPointer && effectiveRevision > cloudRevision) status = 'CLOUD_POINTER_INCONSISTENT';
       else if (hasImageEvidence) status = 'MISSING_BINARY';
       const pending = status !== 'READY' && status !== 'NO_IMAGE';
-      const cachedRevision = Number(cached?.revision || 0);
+      const cachedRevision = exactCached ? Number(cached?.revision || 0) : (sharedCached ? cloudRevision : 0);
       const cachedBytes = Number(cached?.bytes || 0);
       const offlineReady = cloudReady && cachedRevision >= cloudRevision && cachedBytes > 0;
       return {
@@ -864,7 +885,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <div className="text-[11px] font-extrabold text-slate-800">Mặt bằng dùng offline</div>
-              <div className="text-[10px] text-slate-600">Lưu bản mặt bằng đã đồng bộ vào IndexedDB của thiết bị để mở ngay khi mạng yếu hoặc mất mạng.</div>
+              <div className="text-[10px] text-slate-600">Ứng dụng tự tải thông minh ở nền khi mạng phù hợp; nút bên dưới dùng để ép cập nhật tất cả mặt bằng offline ngay.</div>
             </div>
             <span className="shrink-0 rounded-lg border border-indigo-200 bg-white px-2 py-1 text-[10px] font-extrabold text-indigo-700">
               {floorPlanOfflineSummary.ready}/{floorPlanOfflineSummary.eligible}
@@ -872,7 +893,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="text-[10px] text-slate-500">
-              Cache {floorPlanOfflineSummary.cacheVersions} phiên bản · {formatTrashBytes(floorPlanOfflineSummary.cacheBytes)} · giữ tối đa 2 revision gần nhất mỗi tầng.
+              Cache {floorPlanOfflineSummary.cacheVersions} asset/phiên bản · {formatTrashBytes(floorPlanOfflineSummary.cacheBytes)} · mặt bằng điển hình dùng chung asset chỉ lưu 1 binary.
             </div>
             <button
               type="button"
@@ -880,7 +901,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
               disabled={floorPlanCacheBusy || !activeProjectId || floorPlanOfflineSummary.eligible === 0}
               className="shrink-0 rounded-lg bg-indigo-600 px-3 py-2 text-[10px] font-extrabold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {floorPlanCacheBusy ? 'Đang tải…' : 'Tải mặt bằng để dùng offline'}
+              {floorPlanCacheBusy ? 'Đang tải…' : 'Cập nhật tất cả mặt bằng offline ngay'}
             </button>
           </div>
           {floorPlanCacheMsg && <div className="text-[10px] font-semibold text-indigo-700">{floorPlanCacheMsg}</div>}

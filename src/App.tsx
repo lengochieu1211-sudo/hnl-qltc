@@ -166,7 +166,7 @@ import { refreshProjectPhotoMetadataFromCloud, subscribeProjectPhotosRealtime, s
 import { appendRuntimeDiagnostic } from './lib/runtimeDiagnostics';
 import { isPrimaryDriveReady, PRIMARY_DRIVE_OWNER_EMAIL, uploadProjectBackupToPrimaryDrive } from './lib/primaryDriveBridge';
 import { subscribeConversationReadState, subscribeConversationSummary } from './lib/chatService';
-import { floorPlanNeedsCloudUpload, isDisplayableFloorPlanUrl, loadFloorPlanImageFromCloud, resolveFloorPlanImageForDisplay, stageFloorPlanImageOutbox, syncFloorPlanImageToCloud, deleteFloorPlanImageFromCloud } from './lib/floorPlanImageSync';
+import { applyFloorPlanImageToMultipleFloors, cacheFloorPlansForOffline, floorPlanNeedsCloudUpload, isDisplayableFloorPlanUrl, isFloorPlanAutoCacheNetworkSuitable, loadFloorPlanImageFromCloud, resolveFloorPlanImageForDisplay, stageFloorPlanImageOutbox, syncFloorPlanImageToCloud, deleteFloorPlanImageFromCloud } from './lib/floorPlanImageSync';
 import { DEFAULT_TRASH_SETTINGS, TrashOperation, TrashSettings, TrashCollectionKey, deleteTrashOperationFromCloud, estimateTrashBytes, getTrashCollectionLabel, normalizeTrashSettings, sanitizeTrashSnapshot, saveTrashOperationToCloud, subscribeProjectTrash } from './lib/trash';
 import { commitWarehouseTransactionAtomic, updateWarehouseTransactionAtomic, softDeleteWarehouseTransactionAtomic } from './lib/warehouseTransactions';
 
@@ -1622,8 +1622,12 @@ export default function App() {
   const floorPlanImageSyncRetryCountRef = useRef<Map<string, number>>(new Map());
   const floorPlanImageHydrateRetryCountRef = useRef<Map<string, number>>(new Map());
   const floorPlanImageRetryTimersRef = useRef<Set<number>>(new Set());
+  const floorPlanSmartCacheKeyRef = useRef<string>('');
+  const floorPlanSmartCacheInFlightRef = useRef(false);
+  const floorPlanSmartCacheRetryTimerRef = useRef<number | null>(null);
   const [floorPlanImageSyncRetryTick, setFloorPlanImageSyncRetryTick] = useState(0);
   const [floorPlanImageHydrateRetryTick, setFloorPlanImageHydrateRetryTick] = useState(0);
+  const [floorPlanSmartCacheRetryTick, setFloorPlanSmartCacheRetryTick] = useState(0);
   const [activeFloorViewId, setActiveFloorViewId] = useState<string>('');
 
   const [cloudInitialReady, setCloudInitialReady] = useState<boolean>(false);
@@ -1952,12 +1956,25 @@ export default function App() {
       }
       floorPlanImageSyncRetryCountRef.current.clear();
       floorPlanImageHydrateRetryCountRef.current.clear();
+      floorPlanSmartCacheKeyRef.current = '';
       setFloorPlanImageSyncRetryTick((tick) => tick + 1);
       setFloorPlanImageHydrateRetryTick((tick) => tick + 1);
+      setFloorPlanSmartCacheRetryTick((tick) => tick + 1);
     };
+    const retryWhenConnectionImproves = () => {
+      floorPlanSmartCacheKeyRef.current = '';
+      setFloorPlanSmartCacheRetryTick((tick) => tick + 1);
+    };
+    const connection = (navigator as any).connection || (navigator as any).mozConnection || (navigator as any).webkitConnection;
     window.addEventListener('online', retryWhenOnline);
+    connection?.addEventListener?.('change', retryWhenConnectionImproves);
     return () => {
       window.removeEventListener('online', retryWhenOnline);
+      connection?.removeEventListener?.('change', retryWhenConnectionImproves);
+      if (floorPlanSmartCacheRetryTimerRef.current !== null) {
+        window.clearTimeout(floorPlanSmartCacheRetryTimerRef.current);
+        floorPlanSmartCacheRetryTimerRef.current = null;
+      }
       for (const timerId of floorPlanImageRetryTimersRef.current) window.clearTimeout(timerId);
       floorPlanImageRetryTimersRef.current.clear();
     };
@@ -2167,6 +2184,80 @@ export default function App() {
       window.clearTimeout(timer);
     };
   }, [floorPlans, activeProjectId, activeTab, activeFloorViewId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, floorPlanImageHydrateRetryTick, isOnline, projectRoleSource, projectRoleAllowed]);
+
+  // Smart offline cache: after the active drawing is hydrated, quietly prepare the
+  // remaining cloud-ready floor plans one-by-one. The active floor is always first.
+  // Data Saver / 2G pauses the background pass; a later online/connection-change event
+  // resumes only missing revisions. Typical floors sharing one immutable storagePath
+  // reuse the same cached binary, so 30 identical floors do not download 30 copies.
+  useEffect(() => {
+    if (!isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || !isOnline || !projectRoleAllowed || projectRoleSource !== 'cloud' || switchingProjectRef.current) return;
+    if (!activeProjectId || floorPlans.length === 0 || floorPlanSmartCacheInFlightRef.current) return;
+
+    const cloudReadyPlans = floorPlans.filter((plan) => {
+      const revision = Number(plan.imageCloudRevision || plan.imageRevision || 0);
+      return revision > 0 && Boolean(plan.storagePath || plan.driveFileId || plan.cloudFileId || plan.storageProvider);
+    });
+    if (cloudReadyPlans.length === 0) return;
+
+    const signature = cloudReadyPlans
+      .map((plan) => `${plan.id}:${Number(plan.imageCloudRevision || plan.imageRevision || 0)}:${plan.storageProvider || ''}:${plan.storagePath || plan.cloudFileId || plan.driveFileId || ''}`)
+      .sort()
+      .join('|');
+    const runKey = `${activeProjectId}:${signature}`;
+    if (floorPlanSmartCacheKeyRef.current === runKey) return;
+
+    const projectId = activeProjectId;
+    let cancelled = false;
+    const scheduleRetry = () => {
+      if (cancelled || floorPlanSmartCacheRetryTimerRef.current !== null) return;
+      floorPlanSmartCacheRetryTimerRef.current = window.setTimeout(() => {
+        floorPlanSmartCacheRetryTimerRef.current = null;
+        if (activeProjectIdRef.current === projectId) setFloorPlanSmartCacheRetryTick((tick) => tick + 1);
+      }, 60000);
+    };
+
+    const run = async () => {
+      if (cancelled || activeProjectIdRef.current !== projectId) return;
+      if (!isFloorPlanAutoCacheNetworkSuitable() || (typeof document !== 'undefined' && document.visibilityState === 'hidden')) {
+        scheduleRetry();
+        return;
+      }
+      floorPlanSmartCacheInFlightRef.current = true;
+      try {
+        const result = await cacheFloorPlansForOffline(projectId, cloudReadyPlans, undefined, {
+          priorityFloorPlanId: activeFloorViewId || cloudReadyPlans[0]?.id || '',
+          shouldContinue: () => !cancelled
+            && activeProjectIdRef.current === projectId
+            && (typeof document === 'undefined' || document.visibilityState !== 'hidden')
+            && isFloorPlanAutoCacheNetworkSuitable(),
+        });
+        if (!result.paused && result.failed === 0) {
+          floorPlanSmartCacheKeyRef.current = runKey;
+          appendRuntimeDiagnostic({
+            level: 'info', area: 'floor-plan-cache', projectId, code: 'SMART_CACHE_READY',
+            message: `offline-ready=${result.cached + result.downloaded}/${result.total}; downloaded=${result.downloaded}; shared/cache=${result.cached}`,
+          });
+        } else {
+          scheduleRetry();
+        }
+      } catch (err) {
+        appendRuntimeDiagnostic({
+          level: 'warn', area: 'floor-plan-cache', projectId, code: 'SMART_CACHE_PAUSED',
+          message: err instanceof Error ? err.message : String(err),
+        });
+        scheduleRetry();
+      } finally {
+        floorPlanSmartCacheInFlightRef.current = false;
+      }
+    };
+
+    const timer = window.setTimeout(() => void run(), 2800);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [floorPlans, activeProjectId, activeFloorViewId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, isOnline, projectRoleSource, projectRoleAllowed, floorPlanSmartCacheRetryTick]);
 
   useEffect(() => {
     const refreshCloudUser = () => {
@@ -5319,12 +5410,59 @@ export default function App() {
         imageMimeType: undefined,
         imageFileSize: undefined,
         imageCloudSyncedAt: undefined,
+        imageAssetId: null,
+        imageAssetOwnerFloorId: null,
         uploadedAt: new Date().toISOString().split('T')[0],
         updatedAt: imageRevision,
         revision: Math.max(Number((fp as any).revision || 0), 0) + 1,
         updatedByUid: uploaderUid || fp.updatedByUid,
       } : fp)),
     }));
+  };
+
+  const handleUpdateFloorPlanImages = async (ids: string[], imageUrl: string): Promise<number> => {
+    if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) throw new Error('FLOOR_PLAN_ADMIN_REQUIRED');
+    const uniqueIds = Array.from(new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean)));
+    if (uniqueIds.length === 0) return 0;
+    if (uniqueIds.length === 1) {
+      await handleUpdateFloorPlanImage(uniqueIds[0], imageUrl);
+      return 1;
+    }
+
+    const projectId = activeProjectIdRef.current;
+    const idSet = new Set(uniqueIds);
+    const targets = floorPlans.filter((plan) => idSet.has(plan.id));
+    if (targets.length !== uniqueIds.length) throw new Error('FLOOR_PLAN_BULK_TARGET_NOT_FOUND');
+
+    const result = await applyFloorPlanImageToMultipleFloors(projectId, targets, imageUrl);
+    updateAppData((prev) => ({
+      ...prev,
+      floorPlans: prev.floorPlans.map((plan) => {
+        const metadata = result.metadataByFloorId[plan.id];
+        if (!metadata) return plan;
+        const displayedHere = plan.id === activeFloorViewId;
+        return {
+          ...plan,
+          ...metadata,
+          ...(displayedHere ? {
+            imageUrl,
+            imageDisplayRevision: Number(metadata.imageCloudRevision || metadata.imageRevision || 0),
+            imageDisplaySource: 'memory',
+            imageOfflineStale: false,
+          } : {}),
+        };
+      }),
+    }));
+    appendRuntimeDiagnostic({
+      level: 'info',
+      area: 'floor-plan-image',
+      projectId,
+      code: 'BULK_SHARED_ASSET_APPLIED',
+      message: `floors=${result.applied}; asset=${result.assetId}; bytes=${result.bytes}`,
+    });
+    floorPlanSmartCacheKeyRef.current = '';
+    setFloorPlanSmartCacheRetryTick((tick) => tick + 1);
+    return result.applied;
   };
 
   const handleRenameFloorPlan = (id: string, newName: string) => {
@@ -5569,6 +5707,8 @@ export default function App() {
         storageProvider: undefined,
         imageCloudRevision: 0,
         imageCloudSyncedAt: undefined,
+        imageAssetId: null,
+        imageAssetOwnerFloorId: null,
         imageRevision: now,
         updatedAt: now,
       };
@@ -6380,6 +6520,7 @@ export default function App() {
               onAddFloorPlan={handleAddFloorPlan}
               onUpdateFloorPlan={handleUpdateFloorPlan}
               onUpdateFloorPlanImage={handleUpdateFloorPlanImage}
+              onUpdateFloorPlanImages={handleUpdateFloorPlanImages}
               onRenameFloorPlan={handleRenameFloorPlan}
               onDeleteFloorPlan={handleDeleteFloorPlan}
               onDeleteMultipleFloorPlans={handleDeleteMultipleFloorPlans}

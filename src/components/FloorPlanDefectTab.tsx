@@ -411,7 +411,8 @@ interface FloorPlanDefectTabProps {
   onAddInventory?: (item: Omit<InventoryItem, 'id'> & { id?: string }) => void;
   onAddFloorPlan: (plan: Omit<FloorPlan, 'id'> & { id?: string }) => void;
   onUpdateFloorPlan?: (id: string, updates: Partial<FloorPlan>) => void;
-  onUpdateFloorPlanImage?: (id: string, imageUrl: string) => void;
+  onUpdateFloorPlanImage?: (id: string, imageUrl: string) => void | Promise<void>;
+  onUpdateFloorPlanImages?: (ids: string[], imageUrl: string) => number | Promise<number>;
   onRenameFloorPlan?: (id: string, newName: string) => void;
   onDeleteFloorPlan?: (id: string) => void;
   onDeleteMultipleFloorPlans?: (ids: string[]) => void;
@@ -684,6 +685,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   onAddFloorPlan,
   onUpdateFloorPlan,
   onUpdateFloorPlanImage,
+  onUpdateFloorPlanImages,
   onRenameFloorPlan,
   onDeleteFloorPlan,
   onDeleteMultipleFloorPlans,
@@ -1223,6 +1225,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     setFloorPlanProcessingKind(null);
   };
   const [updatingFloorPlanId, setUpdatingFloorPlanId] = useState<string | null>(null);
+  const [showFloorPlanApplyScopeModal, setShowFloorPlanApplyScopeModal] = useState(false);
+  const [floorPlanApplyMode, setFloorPlanApplyMode] = useState<'single' | 'multiple'>('single');
+  const [floorPlanApplySelectedIds, setFloorPlanApplySelectedIds] = useState<string[]>([]);
+  const [floorPlanRangeStartId, setFloorPlanRangeStartId] = useState<string>('');
+  const [floorPlanRangeEndId, setFloorPlanRangeEndId] = useState<string>('');
   const updatePlanInputRef = useRef<HTMLInputElement>(null);
 
   // Room Highlight Modal State
@@ -1683,6 +1690,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     setShowManageFloorsModal(false);
     setShowQuickAddFloorModal(false);
     setShowAddFloorModal(false);
+    setShowFloorPlanApplyScopeModal(false);
+    setFloorPlanApplyMode('single');
+    setFloorPlanApplySelectedIds([]);
+    setUpdatingFloorPlanId(null);
     setEditingFloorId(null);
     setInlineEditingFloorId(null);
     setDuplicatingFloorTarget(null);
@@ -3330,6 +3341,41 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     return compressFloorPlanImage(file);
   };
 
+  const orderedFloorPlansForApply = React.useMemo(() =>
+    [...floorPlans].sort((a, b) => {
+      const ai = floorPlans.findIndex((item) => item.id === a.id);
+      const bi = floorPlans.findIndex((item) => item.id === b.id);
+      return Number(a.order ?? ai) - Number(b.order ?? bi);
+    }), [floorPlans]);
+
+  const resetFloorPlanApplyScope = () => {
+    setShowFloorPlanApplyScopeModal(false);
+    setFloorPlanApplyMode('single');
+    setFloorPlanApplySelectedIds([]);
+    setFloorPlanRangeStartId('');
+    setFloorPlanRangeEndId('');
+    setUpdatingFloorPlanId(null);
+  };
+
+  const openFloorPlanApplyScope = (floorPlanId: string) => {
+    if (!canManageStructure) return;
+    setUpdatingFloorPlanId(floorPlanId);
+    setFloorPlanApplyMode('single');
+    setFloorPlanApplySelectedIds([floorPlanId]);
+    setFloorPlanRangeStartId(floorPlanId);
+    setFloorPlanRangeEndId(floorPlanId);
+    setShowFloorPlanApplyScopeModal(true);
+  };
+
+  const selectFloorPlanRange = () => {
+    const startIndex = orderedFloorPlansForApply.findIndex((plan) => plan.id === floorPlanRangeStartId);
+    const endIndex = orderedFloorPlansForApply.findIndex((plan) => plan.id === floorPlanRangeEndId);
+    if (startIndex < 0 || endIndex < 0) return;
+    const from = Math.min(startIndex, endIndex);
+    const to = Math.max(startIndex, endIndex);
+    setFloorPlanApplySelectedIds(orderedFloorPlansForApply.slice(from, to + 1).map((plan) => plan.id));
+  };
+
   // Handle PDF/Image upload from legacy quick input.
   const handlePdfFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -3366,27 +3412,49 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     }
   };
 
-  // Handle PDF/Image file upload to update an existing floor plan drawing
+  // Handle PDF/Image file upload to update one or many existing floor-plan drawings.
   const handleUpdatePlanFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!canManageStructure) { if (e.target) e.target.value = ''; return; }
     const file = e.target.files?.[0];
     if (!file || !updatingFloorPlanId) return;
+
+    const targetIds = floorPlanApplyMode === 'multiple'
+      ? Array.from(new Set(floorPlanApplySelectedIds))
+      : [updatingFloorPlanId];
+    if (floorPlanApplyMode === 'multiple' && targetIds.length < 2) {
+      alert('Chế độ Nhiều tầng cần chọn ít nhất 2 tầng.');
+      if (updatePlanInputRef.current) updatePlanInputRef.current.value = '';
+      return;
+    }
 
     try {
       beginFloorPlanFileProcessing(file);
       const planUrl = await renderFloorPlanFile(file);
       if (!planUrl) return;
 
-      if (onUpdateFloorPlanImage) {
-        onUpdateFloorPlanImage(updatingFloorPlanId, planUrl);
-        alert(`🎉 Đã cập nhật thành công bản vẽ mới cho tầng!`);
+      if (targetIds.length > 1) {
+        if (!onUpdateFloorPlanImages) throw new Error('FLOOR_PLAN_BULK_HANDLER_UNAVAILABLE');
+        const applied = await onUpdateFloorPlanImages(targetIds, planUrl);
+        alert(`🎉 Đã áp dụng 1 bản vẽ chung cho ${applied} tầng. Defect, Căn/Phòng và tiến độ từng tầng vẫn giữ riêng.`);
+      } else if (onUpdateFloorPlanImage) {
+        await onUpdateFloorPlanImage(targetIds[0], planUrl);
+        alert('🎉 Đã cập nhật thành công bản vẽ mới cho tầng!');
       }
+      resetFloorPlanApplyScope();
     } catch (err) {
       console.error('Update floor plan drawing error:', err);
-      alert(describePdfError(err));
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes('FLOOR_PLAN_BULK_REQUIRES_ONLINE')) {
+        alert('Áp dụng cùng một bản vẽ cho nhiều tầng cần có mạng để tạo 1 asset dùng chung an toàn. Hãy kết nối mạng rồi thử lại.');
+      } else if (message.includes('FLOOR_PLAN_BULK_TARGET_PENDING')) {
+        alert('Có tầng đang chờ tải bản vẽ lên Cloud/R2. Hãy chờ đồng bộ xong rồi áp dụng hàng loạt để tránh ghi đè nhầm revision.');
+      } else if (message.includes('FLOOR_PLAN_ADMIN_REQUIRED') || message.includes('FLOOR_PLAN_ROLE_VERIFICATION_UNAVAILABLE')) {
+        alert('Không xác minh được quyền ADMIN để thay mặt bằng. Hãy kiểm tra kết nối/quyền dự án rồi thử lại.');
+      } else {
+        alert(describePdfError(err));
+      }
     } finally {
       endFloorPlanFileProcessing();
-      setUpdatingFloorPlanId(null);
       if (updatePlanInputRef.current) updatePlanInputRef.current.value = '';
     }
   };
@@ -5026,8 +5094,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               {canManageStructure && <button
                 type="button"
                 onClick={async () => {
-                  setUpdatingFloorPlanId(activeFloor.id);
-                  updatePlanInputRef.current?.click();
+                  openFloorPlanApplyScope(activeFloor.id);
                 }}
                 className="col-span-2 sm:col-span-1 flex items-center justify-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200/80 px-3 py-2 sm:py-1.5 rounded-xl text-xs font-bold transition-all shadow-2xs active:scale-95"
                 title="Cập nhật tệp ảnh hoặc PDF bản vẽ mới cho tầng đang xem"
@@ -8648,6 +8715,147 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       })()}
 
 
+      {/* FLOOR PLAN APPLY SCOPE — choose one floor or multiple existing floors before selecting a drawing. */}
+      {canManageStructure && showFloorPlanApplyScopeModal && updatingFloorPlanId && (
+        <div
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[210] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200"
+          onMouseDown={(event) => { if (event.target === event.currentTarget && !isConvertingPdf) resetFloorPlanApplyScope(); }}
+        >
+          <div className="bg-white w-full max-w-xl rounded-t-3xl sm:rounded-2xl shadow-2xl max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="px-5 pt-5 pb-3 border-b border-slate-100 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                  <Upload className="w-5 h-5 text-indigo-600 shrink-0" />
+                  Thêm / Thay bản vẽ mặt bằng
+                </h3>
+                <p className="text-xs text-slate-500 font-medium mt-1">
+                  Chọn phạm vi áp dụng trước khi chọn ảnh hoặc PDF. Mặc định chỉ thay tầng đang chọn.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={resetFloorPlanApplyScope}
+                disabled={isConvertingPdf}
+                className="w-9 h-9 shrink-0 inline-flex items-center justify-center text-slate-400 hover:text-slate-700 disabled:opacity-40"
+                aria-label="Đóng chọn phạm vi mặt bằng"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 overflow-y-auto overscroll-contain">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFloorPlanApplyMode('single');
+                    setFloorPlanApplySelectedIds([updatingFloorPlanId]);
+                  }}
+                  className={`rounded-2xl border p-3 text-left transition ${floorPlanApplyMode === 'single' ? 'border-indigo-400 bg-indigo-50 ring-1 ring-indigo-200' : 'border-slate-200 bg-white hover:bg-slate-50'}`}
+                >
+                  <div className="text-xs font-extrabold text-slate-900">● Chỉ tầng này</div>
+                  <div className="text-[10px] text-slate-500 mt-1">
+                    {floorPlans.find((plan) => plan.id === updatingFloorPlanId)?.floorName || 'Tầng đang chọn'}
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFloorPlanApplyMode('multiple');
+                    setFloorPlanApplySelectedIds((current) => current.length ? current : [updatingFloorPlanId]);
+                  }}
+                  className={`rounded-2xl border p-3 text-left transition ${floorPlanApplyMode === 'multiple' ? 'border-indigo-400 bg-indigo-50 ring-1 ring-indigo-200' : 'border-slate-200 bg-white hover:bg-slate-50'}`}
+                >
+                  <div className="text-xs font-extrabold text-slate-900">○ Nhiều tầng</div>
+                  <div className="text-[10px] text-slate-500 mt-1">1 file Cloud/R2 dùng chung · dữ liệu mỗi tầng vẫn riêng</div>
+                </button>
+              </div>
+
+              {floorPlanApplyMode === 'multiple' && (
+                <div className="space-y-3">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 space-y-2.5">
+                    <div className="text-[11px] font-extrabold text-slate-800">Chọn nhanh khoảng tầng</div>
+                    <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                      <select
+                        value={floorPlanRangeStartId}
+                        onChange={(event) => setFloorPlanRangeStartId(event.target.value)}
+                        className="min-w-0 rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-bold text-slate-700"
+                      >
+                        {orderedFloorPlansForApply.map((plan) => <option key={`from-${plan.id}`} value={plan.id}>{plan.floorName}</option>)}
+                      </select>
+                      <span className="text-slate-400 font-bold">→</span>
+                      <select
+                        value={floorPlanRangeEndId}
+                        onChange={(event) => setFloorPlanRangeEndId(event.target.value)}
+                        className="min-w-0 rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-bold text-slate-700"
+                      >
+                        {orderedFloorPlansForApply.map((plan) => <option key={`to-${plan.id}`} value={plan.id}>{plan.floorName}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" onClick={selectFloorPlanRange} className="rounded-xl bg-indigo-600 text-white px-3 py-2 text-[10px] font-extrabold hover:bg-indigo-700">Chọn khoảng</button>
+                      <button type="button" onClick={() => setFloorPlanApplySelectedIds(orderedFloorPlansForApply.map((plan) => plan.id))} className="rounded-xl bg-white border border-slate-200 text-slate-700 px-3 py-2 text-[10px] font-extrabold hover:bg-slate-100">Chọn tất cả</button>
+                      <button type="button" onClick={() => setFloorPlanApplySelectedIds([])} className="rounded-xl bg-white border border-slate-200 text-slate-500 px-3 py-2 text-[10px] font-extrabold hover:bg-slate-100">Bỏ chọn</button>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 divide-y divide-slate-100 max-h-56 overflow-y-auto">
+                    {orderedFloorPlansForApply.map((plan) => {
+                      const checked = floorPlanApplySelectedIds.includes(plan.id);
+                      return (
+                        <label key={`apply-${plan.id}`} className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-slate-50">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => setFloorPlanApplySelectedIds((current) => checked ? current.filter((id) => id !== plan.id) : [...current, plan.id])}
+                            className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs font-extrabold text-slate-800 truncate">{plan.floorName}</div>
+                            <div className="text-[9px] text-slate-500">{plan.id === updatingFloorPlanId ? 'Tầng bắt đầu thao tác · ' : ''}{plan.imageAssetId ? 'đang dùng asset Cloud' : 'bản vẽ độc lập/legacy'}</div>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[10px] font-semibold text-amber-900">
+                    Chỉ thay <b>ảnh nền mặt bằng</b> cho {floorPlanApplySelectedIds.length} tầng. Defect, Căn/Phòng, highlight, tiến độ, checklist và dữ liệu thi công của từng tầng không bị sao chép hoặc trộn.
+                  </div>
+                  <div className="text-[10px] text-slate-500">
+                    Nhiều tầng cần mạng trong lúc áp dụng để upload đúng <b>1 binary</b> và publish cùng một asset bất biến. Sau đó cache offline thông minh cũng chỉ tải asset chung một lần.
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-slate-100 bg-white flex items-center justify-between gap-3">
+              <div className="text-[10px] font-bold text-slate-500">
+                {floorPlanApplyMode === 'multiple' ? `Đã chọn ${floorPlanApplySelectedIds.length}/${floorPlans.length} tầng` : 'Áp dụng 1 tầng'}
+              </div>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={resetFloorPlanApplyScope} disabled={isConvertingPdf} className="px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-40">Hủy</button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (floorPlanApplyMode === 'multiple' && floorPlanApplySelectedIds.length < 2) {
+                      alert('Hãy chọn ít nhất 2 tầng hoặc chuyển về “Chỉ tầng này”.');
+                      return;
+                    }
+                    updatePlanInputRef.current?.click();
+                  }}
+                  disabled={isConvertingPdf || (floorPlanApplyMode === 'multiple' && floorPlanApplySelectedIds.length < 2)}
+                  className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                >
+                  <Upload className="w-4 h-4" />
+                  {isConvertingPdf ? 'Đang xử lý…' : 'Chọn ảnh / PDF'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
 
       {/* MANAGE FLOORS MODAL (Tùy Chỉnh, Đổi Tên, Nhân bản, Xóa tầng) */}
       {canManageStructure && showManageFloorsModal && (
@@ -8787,8 +8995,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       <button
                         type="button"
                         onClick={async () => {
-                          setUpdatingFloorPlanId(fp.id);
-                          updatePlanInputRef.current?.click();
+                          openFloorPlanApplyScope(fp.id);
                         }}
                         className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-all"
                         title="Cập nhật tệp ảnh hoặc PDF bản vẽ mới cho tầng này"
