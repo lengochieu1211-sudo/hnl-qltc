@@ -38,6 +38,17 @@ jobs:
           git checkout --detach "$BASE_SHA"
           git apply -p1 --check /tmp/p.patch
           git apply -p1 /tmp/p.patch
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/components/ProjectManagerModal.tsx')
+          text = p.read_text(encoding='utf-8')
+          old = "'PROJECT_PURGE_LOCAL'"
+          new = "'PROJECT_DELETE'"
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f'expected exactly one {old}, found {count}')
+          p.write_text(text.replace(old, new), encoding='utf-8')
+          PY
           git diff --exit-code "$BASE_SHA" -- package-lock.json .firebaserc firebase.json firebase.prod.json
           git add -N scripts/cloud-purge-golden.mjs src/lib/cloudBinaryPurge.ts
           test "$(git diff --name-only | wc -l)" = 15
