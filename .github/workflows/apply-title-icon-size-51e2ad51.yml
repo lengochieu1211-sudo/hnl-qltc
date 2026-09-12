@@ -1,0 +1,87 @@
+name: Apply HNL QLTC title icon size DEV
+
+on:
+  push:
+    branches:
+      - automation-title-icon-size-51e2ad51
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  apply_and_certify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout carrier
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Preserve and verify patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp .hnl-title-icon-size.patch /tmp/hnl-title-icon-size.patch
+          echo "082abd2488280ec8cae2831ed2b52a10aeb3d188242587f92432bc3a8ae911c8  /tmp/hnl-title-icon-size.patch" | sha256sum -c -
+
+      - name: Checkout exact DEV parent and apply patch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED_PARENT="51e2ad51bdec92309aa5d5931d3718f59dff0ba5"
+          LIVE_DEV="$(gh api repos/${GITHUB_REPOSITORY}/branches/dev --jq '.commit.sha')"
+          test "$LIVE_DEV" = "$EXPECTED_PARENT"
+          git fetch origin dev
+          git checkout -B dev origin/dev
+          test "$(git rev-parse HEAD)" = "$EXPECTED_PARENT"
+          git apply --check /tmp/hnl-title-icon-size.patch
+          git apply /tmp/hnl-title-icon-size.patch
+          test "$(git diff --name-only | sort)" = $'scripts/ui-entry-ux-golden.ts\nsrc/components/SettingsFeatureSheet.tsx'
+          git diff --check
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: UI regression gate
+        run: npm run test:ui-entry-ux
+
+      - name: TypeScript, lint, security, build
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run typecheck
+          npm run lint
+          npm run security:audit
+          npm run build
+
+      - name: Commit and push DEV atomically
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/ui-entry-ux-golden.ts src/components/SettingsFeatureSheet.tsx
+          git commit -m "fix(dev): match feature-sheet title icons to material norms"
+          git push origin HEAD:dev
+          echo "DEV_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Dispatch all DEV certification workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run dev-runtime-golden.yml --ref dev
+          gh workflow run android-apk-dev.yml --ref dev
+          gh workflow run windows-exe-dev.yml --ref dev
+          gh workflow run firebase-dev-environment.yml --ref dev
+          gh workflow run firebase-dev-firestore-bootstrap.yml --ref dev

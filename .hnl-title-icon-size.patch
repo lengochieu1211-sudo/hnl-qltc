@@ -1,0 +1,24 @@
+--- a/src/components/SettingsFeatureSheet.tsx
++++ b/src/components/SettingsFeatureSheet.tsx
+@@ -129,8 +129,8 @@
+         className={`fixed inset-x-0 bottom-0 top-[8dvh] z-[90] flex min-h-0 flex-col overflow-hidden rounded-t-[28px] bg-white shadow-[0_-18px_50px_rgba(15,23,42,0.22)] sm:left-[5vw] sm:right-[5vw] sm:mx-auto sm:max-w-5xl ${open ? '' : 'hidden'}`}
+       >
+         <header className="flex min-h-[84px] shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-7 py-4 sm:px-6">
+-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-indigo-50">
+-            <Icon className={`h-6 w-6 ${iconClassName}`} aria-hidden="true" />
++          <div className="flex shrink-0 items-center justify-center rounded-xl bg-indigo-50 p-2">
++            <Icon className={`h-5 w-5 ${iconClassName}`} aria-hidden="true" />
+           </div>
+ 
+           <div className="min-w-0 flex-1">
+--- a/scripts/ui-entry-ux-golden.ts
++++ b/scripts/ui-entry-ux-golden.ts
+@@ -85,7 +85,7 @@
+ assert(featureSheet.includes('window.history.pushState'), 'Shared feature sheet history marker behavior missing');
+ assert(featureSheet.includes('flushSync'), 'Shared feature sheet Back close must synchronously remove stale backdrop interception');
+ assert(featureSheet.includes('env(safe-area-inset-bottom'), 'Shared feature sheet Android safe-area padding missing');
+-assert(featureSheet.includes('h-12 w-12') && featureSheet.includes('h-6 w-6'), 'Shared feature sheet header icon must stay at the 48px contract');
++assert(featureSheet.includes('rounded-xl bg-indigo-50 p-2') && featureSheet.includes('h-5 w-5'), 'Shared feature sheet header icon must match the Material Norm 36px/20px title-icon contract');
+ assert(featureSheet.includes('px-7'), 'Shared feature sheet mobile padding must stay at 28px');
+ assert(featureSheet.includes('text-[17px] font-semibold'), 'Shared feature sheet title must use compact medium-weight typography');
+ assert(featureSheet.includes('<X className="h-6 w-6"'), 'Shared feature sheet close affordance must be the icon-only X');
