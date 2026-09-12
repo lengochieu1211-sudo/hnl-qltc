@@ -1,0 +1,98 @@
+name: Fix HNL QLTC DEV Health Export Copy Compatibility
+
+on:
+  push:
+    branches: [fix-health-export-copy-ba0be7eb]
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  fix_health_export_copy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout carrier branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Preserve patch and checkout exact DEV parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp .hnl/patches/health-export-copy-compat.patch.gz /tmp/health-export.patch.gz
+          git fetch origin dev
+          git checkout -B dev origin/dev
+          test "$(git rev-parse HEAD)" = "ba0be7eb5ed40829743e586393b26700f9caa7b4" || {
+            echo "::error::DEV moved; refusing stale compatibility patch"
+            exit 1
+          }
+
+      - name: Apply compatibility patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          gzip -dc /tmp/health-export.patch.gz > /tmp/health-export.patch
+          echo "52f3c2a3ae26dbad99bc950b829c83166d6b9a12a63616332754e8a4a2586d6b  /tmp/health-export.patch" | sha256sum -c -
+          git apply --check /tmp/health-export.patch
+          git apply /tmp/health-export.patch
+          git diff --check
+          test "$(git diff --name-only)" = "src/healthCenter/healthCenterExport.ts" || {
+            echo "::error::Unexpected file changed"
+            git diff --name-only
+            exit 1
+          }
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Verify Health Center and floorplan regression gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run test:health-center
+          npm run typecheck
+          node scripts/source-lint.mjs
+          node --experimental-strip-types scripts/floorplan-p0-golden.ts
+          node scripts/offline-golden.mjs
+
+      - name: Commit and push DEV
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/healthCenter/healthCenterExport.ts
+          git commit -m "fix(dev): preserve Health Center floorplan copy contract"
+          git push origin HEAD:dev
+          NEW_SHA="$(git rev-parse HEAD)"
+          sleep 3
+          REMOTE_SHA="$(git ls-remote origin refs/heads/dev | awk '{print $1}')"
+          test "$REMOTE_SHA" = "$NEW_SHA" || { echo "::error::DEV remote SHA mismatch"; exit 1; }
+          echo "NEW_SHA=$NEW_SHA" >> "$GITHUB_ENV"
+
+      - name: Dispatch certification workflows on final DEV SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for workflow in \
+            dev-runtime-golden.yml \
+            android-apk-dev.yml \
+            windows-exe-dev.yml \
+            firebase-dev-environment.yml \
+            firebase-dev-firestore-bootstrap.yml
+          do
+            gh workflow run "$workflow" --ref dev
+          done
+          echo "Dispatched certification for $NEW_SHA"
