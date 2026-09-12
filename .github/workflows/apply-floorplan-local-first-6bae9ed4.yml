@@ -1,0 +1,86 @@
+name: Apply HNL QLTC DEV Floorplan Local-First
+
+on:
+  push:
+    branches: [apply-floorplan-local-first-6bae9ed4-run]
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  apply_floorplan_local_first:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout patch carrier branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Preserve patch and checkout exact DEV parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp .hnl/patches/floorplan-local-first.patch.gz /tmp/floorplan.patch.gz
+          git fetch origin dev
+          git checkout -B dev origin/dev
+          test "$(git rev-parse HEAD)" = "6bae9ed4684915156ff3d89d2d257c5d96c07ea8" || {
+            echo "::error::DEV moved; refusing stale patch"
+            exit 1
+          }
+
+      - name: Apply and verify patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          gzip -dc /tmp/floorplan.patch.gz > /tmp/floorplan.patch
+          echo "ac70f0fcc4d2c355a54c07977e7634919fe4e668de149d029b869360e405ebcd  /tmp/floorplan.patch" | sha256sum -c -
+          git apply --check /tmp/floorplan.patch
+          git apply /tmp/floorplan.patch
+          node --experimental-strip-types scripts/floorplan-p0-golden.ts
+          node scripts/source-lint.mjs
+          node scripts/offline-golden.mjs
+          git diff --check
+          git diff --name-only | sort > /tmp/actual-files.txt
+          printf '%s\n' \
+            scripts/floorplan-p0-golden.ts \
+            src/App.tsx \
+            src/components/GoogleConfigTab.tsx \
+            src/healthCenter/healthCenterExport.ts \
+            src/lib/firebaseBase.ts \
+            src/lib/floorPlanImageSync.ts \
+            src/types.ts | sort > /tmp/expected-files.txt
+          diff -u /tmp/expected-files.txt /tmp/actual-files.txt
+
+      - name: Commit and push DEV
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/floorplan-p0-golden.ts src/App.tsx src/components/GoogleConfigTab.tsx src/healthCenter/healthCenterExport.ts src/lib/firebaseBase.ts src/lib/floorPlanImageSync.ts src/types.ts
+          git commit -m "feat(dev): cache floor plans for offline use"
+          git push origin HEAD:dev
+          NEW_SHA="$(git rev-parse HEAD)"
+          sleep 3
+          REMOTE_SHA="$(git ls-remote origin refs/heads/dev | awk '{print $1}')"
+          test "$REMOTE_SHA" = "$NEW_SHA" || { echo "::error::DEV remote SHA mismatch"; exit 1; }
+          echo "NEW_SHA=$NEW_SHA" >> "$GITHUB_ENV"
+
+      - name: Dispatch certification workflows on new DEV SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for workflow in \
+            dev-runtime-golden.yml \
+            android-apk-dev.yml \
+            windows-exe-dev.yml \
+            firebase-dev-environment.yml \
+            firebase-dev-firestore-bootstrap.yml
+          do
+            gh workflow run "$workflow" --ref dev
+          done
+          echo "Dispatched certification for $NEW_SHA"
