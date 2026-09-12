@@ -1719,6 +1719,10 @@ function sanitizeSubcollectionItemForCloud(subcollection: string, item: any): an
   // another device temporarily show a blank/stale floor plan. Keep the previous cloud
   // image metadata until the dedicated binary upload atomically publishes the new one.
   if (subcollection === 'floor_plans') {
+    // Derived display/cache metadata is device-local and must never become Cloud business data.
+    for (const key of ['imageDisplayRevision', 'imageDisplaySource', 'imageOfflineStale']) {
+      if (sanitized && typeof sanitized === 'object') delete sanitized[key];
+    }
     const rawImageUrl = typeof item?.imageUrl === 'string' ? item.imageUrl.trim() : '';
     const hasLocalBinary = rawImageUrl.startsWith('data:image/') || rawImageUrl.startsWith('blob:');
     if (hasLocalBinary && sanitized && typeof sanitized === 'object') {

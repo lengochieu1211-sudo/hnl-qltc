@@ -17,6 +17,11 @@ import { BINARY_STORAGE_PROVIDER, downloadBinaryBlob, uploadFloorPlanBinaryToClo
 import { compressImageToBlob } from '../utils/imageCompressor';
 
 const FLOOR_PLAN_OUTBOX_PREFIX = 'floor_plan_image_outbox_v1';
+const FLOOR_PLAN_CACHE_PREFIX = 'floor_plan_image_cache_v1';
+const FLOOR_PLAN_CACHE_REVISIONS_PER_FLOOR = 2;
+const FLOOR_PLAN_CACHE_DEFAULT_SOFT_LIMIT_BYTES = 96 * 1024 * 1024;
+const FLOOR_PLAN_CACHE_MIN_SOFT_LIMIT_BYTES = 32 * 1024 * 1024;
+const FLOOR_PLAN_CACHE_MAX_SOFT_LIMIT_BYTES = 160 * 1024 * 1024;
 
 interface FloorPlanImageOutboxRecord {
   projectId: string;
@@ -35,6 +40,48 @@ export interface FloorPlanImageOutboxDiagnosticRow {
   createdAt: number;
   bytes: number;
   mimeType: string;
+}
+
+interface FloorPlanImageCacheRecord {
+  projectId: string;
+  floorPlanId: string;
+  revision: number;
+  storageProvider: string;
+  storagePath: string;
+  mimeType: string;
+  bytes: number;
+  createdAt: number;
+  lastAccessedAt: number;
+  blob: Blob;
+}
+
+export interface FloorPlanImageCacheDiagnosticRow {
+  projectId: string;
+  floorPlanId: string;
+  revision: number;
+  storageProvider: string;
+  storagePath: string;
+  bytes: number;
+  mimeType: string;
+  createdAt: number;
+  lastAccessedAt: number;
+}
+
+export interface FloorPlanImageDisplayResolution {
+  imageUrl: string;
+  revision: number;
+  source: 'memory' | 'cache' | 'cloud' | 'legacy' | 'remote-url';
+  stale: boolean;
+  bytes: number;
+}
+
+export interface FloorPlanOfflineCacheResult {
+  total: number;
+  cached: number;
+  downloaded: number;
+  skipped: number;
+  failed: number;
+  bytes: number;
 }
 
 function encodeOutboxSegment(value: unknown): string {
@@ -96,6 +143,154 @@ function blobToDataUrl(blob: Blob): Promise<string> {
     reader.onerror = () => reject(reader.error || new Error('Không đọc được ảnh mặt bằng.'));
     reader.readAsDataURL(blob);
   });
+}
+
+function floorPlanCachePrefixFor(projectId: string, floorPlanId?: string): string {
+  const projectPrefix = `${FLOOR_PLAN_CACHE_PREFIX}:${encodeOutboxSegment(projectId)}:`;
+  return floorPlanId ? `${projectPrefix}${encodeOutboxSegment(floorPlanId)}:` : projectPrefix;
+}
+
+function floorPlanCacheKey(projectId: string, floorPlanId: string, revision: number): string {
+  return `${floorPlanCachePrefixFor(projectId, floorPlanId)}${Math.max(0, Number(revision || 0))}`;
+}
+
+function resolveFloorPlanCloudRevision(plan: FloorPlan): number {
+  return Math.max(0, Number(plan.imageCloudRevision || plan.imageRevision || (plan as any).imageOutboxRevision || plan.updatedAt || 0));
+}
+
+async function validateFloorPlanCacheBlob(blob: Blob): Promise<boolean> {
+  if (!(blob instanceof Blob) || blob.size <= 0) return false;
+  const mimeType = String(blob.type || '').toLowerCase();
+  if (mimeType && !mimeType.startsWith('image/')) return false;
+  if (typeof createImageBitmap === 'function') {
+    try {
+      const bitmap = await createImageBitmap(blob);
+      const valid = bitmap.width > 0 && bitmap.height > 0;
+      bitmap.close();
+      return valid;
+    } catch (_) {
+      return false;
+    }
+  }
+  return true;
+}
+
+async function getFloorPlanCacheBudgetBytes(): Promise<number> {
+  try {
+    const estimate = typeof navigator !== 'undefined' && navigator.storage?.estimate
+      ? await navigator.storage.estimate()
+      : null;
+    const quota = Number(estimate?.quota || 0);
+    if (quota > 0) {
+      return Math.max(
+        FLOOR_PLAN_CACHE_MIN_SOFT_LIMIT_BYTES,
+        Math.min(FLOOR_PLAN_CACHE_MAX_SOFT_LIMIT_BYTES, Math.floor(quota * 0.15)),
+      );
+    }
+  } catch (_) {}
+  return FLOOR_PLAN_CACHE_DEFAULT_SOFT_LIMIT_BYTES;
+}
+
+async function readFloorPlanCacheRecord(
+  projectId: string,
+  floorPlanId: string,
+  revision: number,
+): Promise<FloorPlanImageCacheRecord | null> {
+  if (!projectId || !floorPlanId || revision <= 0) return null;
+  const key = floorPlanCacheKey(projectId, floorPlanId, revision);
+  const record = await localforage.getItem<FloorPlanImageCacheRecord>(key).catch(() => null);
+  if (!record?.blob || record.projectId !== projectId || record.floorPlanId !== floorPlanId || Number(record.revision || 0) !== revision) {
+    if (record) await localforage.removeItem(key).catch(() => {});
+    return null;
+  }
+  if (!(await validateFloorPlanCacheBlob(record.blob))) {
+    await localforage.removeItem(key).catch(() => {});
+    return null;
+  }
+  const touched = { ...record, bytes: record.blob.size, lastAccessedAt: Date.now() };
+  await localforage.setItem(key, touched).catch(() => {});
+  return touched;
+}
+
+async function readLatestFloorPlanCacheRecord(
+  projectId: string,
+  floorPlanId: string,
+  maxRevision = Number.MAX_SAFE_INTEGER,
+): Promise<FloorPlanImageCacheRecord | null> {
+  if (!projectId || !floorPlanId) return null;
+  const prefix = floorPlanCachePrefixFor(projectId, floorPlanId);
+  const keys = await localforage.keys();
+  const revisions = keys
+    .filter((key) => key.startsWith(prefix))
+    .map((key) => Number(decodeURIComponent(key.slice(prefix.length)) || 0))
+    .filter((revision) => Number.isFinite(revision) && revision > 0 && revision <= maxRevision)
+    .sort((a, b) => b - a);
+  for (const revision of revisions) {
+    const record = await readFloorPlanCacheRecord(projectId, floorPlanId, revision);
+    if (record) return record;
+  }
+  return null;
+}
+
+async function pruneFloorPlanImageCache(projectId: string, floorPlanId: string, keepKey: string): Promise<void> {
+  const floorPrefix = floorPlanCachePrefixFor(projectId, floorPlanId);
+  const keys = await localforage.keys();
+  const floorRows: Array<{ key: string; record: FloorPlanImageCacheRecord }> = [];
+  for (const key of keys) {
+    if (!key.startsWith(floorPrefix)) continue;
+    const record = await localforage.getItem<FloorPlanImageCacheRecord>(key).catch(() => null);
+    if (!record?.blob || !(record.blob instanceof Blob) || record.blob.size <= 0) {
+      await localforage.removeItem(key).catch(() => {});
+      continue;
+    }
+    floorRows.push({ key, record });
+  }
+  floorRows.sort((a, b) => Number(b.record.revision || 0) - Number(a.record.revision || 0));
+  for (const row of floorRows.slice(FLOOR_PLAN_CACHE_REVISIONS_PER_FLOOR)) {
+    if (row.key !== keepKey) await localforage.removeItem(row.key).catch(() => {});
+  }
+
+  const budget = await getFloorPlanCacheBudgetBytes();
+  const remainingKeys = (await localforage.keys()).filter((key) => key.startsWith(`${FLOOR_PLAN_CACHE_PREFIX}:`));
+  const rows: Array<{ key: string; bytes: number; lastAccessedAt: number }> = [];
+  let totalBytes = 0;
+  for (const key of remainingKeys) {
+    const record = await localforage.getItem<FloorPlanImageCacheRecord>(key).catch(() => null);
+    if (!record?.blob || !(record.blob instanceof Blob) || record.blob.size <= 0) continue;
+    const bytes = Number(record.blob.size || record.bytes || 0);
+    totalBytes += bytes;
+    rows.push({ key, bytes, lastAccessedAt: Number(record.lastAccessedAt || record.createdAt || 0) });
+  }
+  if (totalBytes <= budget) return;
+  rows.sort((a, b) => a.lastAccessedAt - b.lastAccessedAt);
+  for (const row of rows) {
+    if (totalBytes <= budget) break;
+    if (row.key === keepKey) continue;
+    await localforage.removeItem(row.key).catch(() => {});
+    totalBytes -= row.bytes;
+  }
+}
+
+async function cacheFloorPlanBlob(projectId: string, plan: FloorPlan, revision: number, blob: Blob): Promise<FloorPlanImageCacheRecord | null> {
+  if (!projectId || !plan?.id || revision <= 0 || !(await validateFloorPlanCacheBlob(blob))) return null;
+  const now = Date.now();
+  const pointer = parseStoragePointer(plan);
+  const record: FloorPlanImageCacheRecord = {
+    projectId,
+    floorPlanId: plan.id,
+    revision,
+    storageProvider: pointer.provider || String(plan.storageProvider || ''),
+    storagePath: pointer.path || String(plan.storagePath || ''),
+    mimeType: blob.type || plan.imageMimeType || 'image/jpeg',
+    bytes: blob.size,
+    createdAt: now,
+    lastAccessedAt: now,
+    blob,
+  };
+  const key = floorPlanCacheKey(projectId, plan.id, revision);
+  await localforage.setItem(key, record);
+  await pruneFloorPlanImageCache(projectId, plan.id, key).catch(() => {});
+  return record;
 }
 
 async function writeFloorPlanOutboxBlob(
@@ -197,6 +392,34 @@ export async function getFloorPlanImageOutboxSnapshot(projectId: string): Promis
   return rows.sort((a, b) => b.revision - a.revision);
 }
 
+export async function getFloorPlanImageCacheSnapshot(projectId: string): Promise<FloorPlanImageCacheDiagnosticRow[]> {
+  if (!projectId) return [];
+  const prefix = floorPlanCachePrefixFor(projectId);
+  const keys = await localforage.keys();
+  const rows: FloorPlanImageCacheDiagnosticRow[] = [];
+  for (const key of keys) {
+    if (!key.startsWith(prefix)) continue;
+    const record = await localforage.getItem<FloorPlanImageCacheRecord>(key).catch(() => null);
+    if (!record?.blob || !(record.blob instanceof Blob) || record.projectId !== projectId || record.blob.size <= 0) continue;
+    if (!(await validateFloorPlanCacheBlob(record.blob))) {
+      await localforage.removeItem(key).catch(() => {});
+      continue;
+    }
+    rows.push({
+      projectId,
+      floorPlanId: record.floorPlanId,
+      revision: Number(record.revision || 0),
+      storageProvider: String(record.storageProvider || ''),
+      storagePath: String(record.storagePath || ''),
+      bytes: Number(record.blob.size || record.bytes || 0),
+      mimeType: String(record.blob.type || record.mimeType || ''),
+      createdAt: Number(record.createdAt || 0),
+      lastAccessedAt: Number(record.lastAccessedAt || 0),
+    });
+  }
+  return rows.sort((a, b) => b.revision - a.revision || b.lastAccessedAt - a.lastAccessedAt);
+}
+
 async function deleteFallbackChunks(projectId: string, floorPlanId: string): Promise<void> {
   const chunksRef = collection(db, 'projects', projectId, 'floor_plan_images', floorPlanId, 'chunks');
   const snap = await getDocs(chunksRef);
@@ -291,6 +514,11 @@ export async function syncFloorPlanImageToCloud(projectId: string, plan: FloorPl
     updatedAt: Math.max(now, Number((plan as any).updatedAt || 0) + 1),
   };
   await setDoc(doc(db, 'projects', projectId, 'floor_plans', plan.id), metadata, { merge: true });
+  // The uploader should be offline-ready immediately after a successful atomic publish;
+  // cache failure must never turn a successful Cloud upload into a failed business write.
+  await cacheFloorPlanBlob(projectId, { ...plan, ...metadata } as FloorPlan, revision, blob).catch((err) => {
+    console.warn('[Floor Plan Image] post-upload offline cache warning:', plan.floorName, err);
+  });
   await clearFloorPlanOutboxUpTo(projectId, plan.id, revision, user.uid).catch(() => {});
 
   // Do not delete Drive/chunk legacy binary yet. Migration cleanup is a separate,
@@ -330,11 +558,9 @@ function parseStoragePointer(plan: FloorPlan): { provider: string; path: string 
   return { provider: '', path: '' };
 }
 
-export async function loadFloorPlanImageFromCloud(projectId: string, plan: FloorPlan): Promise<string | null> {
-  if (!projectId || !plan?.id) return null;
-  if (isDisplayableFloorPlanUrl(plan.imageUrl) && !String(plan.imageUrl).includes('[IMAGE_OMITTED')) return plan.imageUrl;
-
+async function downloadFloorPlanBlobFromCloud(projectId: string, plan: FloorPlan): Promise<{ blob: Blob; source: 'cloud' | 'legacy' } | null> {
   let blob: Blob | null = null;
+  let source: 'cloud' | 'legacy' = 'cloud';
   const pointer = parseStoragePointer(plan);
   if (pointer.path && (pointer.provider === 'r2' || pointer.provider === 'firebase-storage')) {
     blob = await downloadBinaryBlob(pointer.provider, pointer.path);
@@ -345,6 +571,7 @@ export async function loadFloorPlanImageFromCloud(projectId: string, plan: Floor
     if (driveFileId && (plan.storageProvider === 'google-drive-primary' || plan.driveFileId || String(plan.cloudFileId || '').startsWith('drive:'))) {
       try {
         blob = await downloadFloorPlanFromPrimaryDrive(projectId, plan.id, driveFileId, plan.imageMimeType || 'image/jpeg');
+        if (blob) source = 'legacy';
       } catch (err) {
         console.warn('[Floor Plan Image] legacy Drive read warning:', err);
       }
@@ -354,12 +581,137 @@ export async function loadFloorPlanImageFromCloud(projectId: string, plan: Floor
   if (!blob) {
     try {
       blob = await downloadFallback(projectId, plan);
+      if (blob) source = 'legacy';
     } catch (err) {
       console.warn('[Floor Plan Image] legacy Firestore chunk read warning:', err);
     }
   }
   if (!blob || blob.size <= 0) return null;
-  return blobToDataUrl(blob);
+  return { blob, source };
+}
+
+export async function resolveFloorPlanImageForDisplay(
+  projectId: string,
+  plan: FloorPlan,
+  options: { allowStaleCache?: boolean } = {},
+): Promise<FloorPlanImageDisplayResolution | null> {
+  if (!projectId || !plan?.id) return null;
+  const rawImageUrl = String(plan.imageUrl || '').trim();
+  const revision = resolveFloorPlanCloudRevision(plan);
+  if (isLocalFloorPlanBinaryUrl(rawImageUrl) && !rawImageUrl.includes('[IMAGE_OMITTED')) {
+    return { imageUrl: rawImageUrl, revision, source: 'memory', stale: false, bytes: Number(plan.imageFileSize || 0) };
+  }
+  if (revision > 0) {
+    const exactCache = await readFloorPlanCacheRecord(projectId, plan.id, revision);
+    if (exactCache) {
+      return {
+        imageUrl: await blobToDataUrl(exactCache.blob),
+        revision: exactCache.revision,
+        source: 'cache',
+        stale: false,
+        bytes: exactCache.blob.size,
+      };
+    }
+  }
+
+  const allowStaleCache = options.allowStaleCache === true;
+  const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+  if (!offline && /^https?:\/\//i.test(rawImageUrl) && !rawImageUrl.includes('[IMAGE_OMITTED')) {
+    return { imageUrl: rawImageUrl, revision, source: 'remote-url', stale: false, bytes: Number(plan.imageFileSize || 0) };
+  }
+  if (offline && allowStaleCache) {
+    const staleCache = await readLatestFloorPlanCacheRecord(projectId, plan.id, revision > 0 ? revision - 1 : Number.MAX_SAFE_INTEGER);
+    if (staleCache) {
+      return { imageUrl: await blobToDataUrl(staleCache.blob), revision: staleCache.revision, source: 'cache', stale: true, bytes: staleCache.blob.size };
+    }
+  }
+
+  if (!offline) {
+    try {
+      const downloaded = await downloadFloorPlanBlobFromCloud(projectId, plan);
+      if (downloaded) {
+        if (revision > 0) {
+          await cacheFloorPlanBlob(projectId, plan, revision, downloaded.blob).catch((err) => {
+            console.warn('[Floor Plan Image] cache write warning:', plan.floorName, err);
+          });
+        }
+        return {
+          imageUrl: await blobToDataUrl(downloaded.blob),
+          revision,
+          source: downloaded.source,
+          stale: false,
+          bytes: downloaded.blob.size,
+        };
+      }
+    } catch (err) {
+      console.warn('[Floor Plan Image] cloud download warning:', plan.floorName, err);
+    }
+  }
+
+  if (allowStaleCache) {
+    const staleCache = await readLatestFloorPlanCacheRecord(projectId, plan.id, revision > 0 ? revision - 1 : Number.MAX_SAFE_INTEGER);
+    if (staleCache) {
+      return { imageUrl: await blobToDataUrl(staleCache.blob), revision: staleCache.revision, source: 'cache', stale: true, bytes: staleCache.blob.size };
+    }
+  }
+  return null;
+}
+
+export async function loadFloorPlanImageFromCloud(projectId: string, plan: FloorPlan): Promise<string | null> {
+  const resolved = await resolveFloorPlanImageForDisplay(projectId, plan, { allowStaleCache: false });
+  return resolved?.imageUrl || null;
+}
+
+export async function cacheFloorPlansForOffline(
+  projectId: string,
+  plans: FloorPlan[],
+  onProgress?: (progress: { completed: number; total: number; floorPlanId: string; status: 'cached' | 'downloaded' | 'failed' | 'skipped' }) => void,
+): Promise<FloorPlanOfflineCacheResult> {
+  const candidates = (plans || []).filter((plan) => {
+    if (!plan?.id) return false;
+    const revision = resolveFloorPlanCloudRevision(plan);
+    const pointer = parseStoragePointer(plan);
+    return revision > 0 && Boolean(pointer.path || parseDriveFileId(plan) || plan.storageProvider === 'firestore-fallback');
+  });
+  const result: FloorPlanOfflineCacheResult = { total: candidates.length, cached: 0, downloaded: 0, skipped: 0, failed: 0, bytes: 0 };
+  let completed = 0;
+  for (const plan of candidates) {
+    const revision = resolveFloorPlanCloudRevision(plan);
+    try {
+      const existing = await readFloorPlanCacheRecord(projectId, plan.id, revision);
+      if (existing) {
+        result.cached += 1;
+        result.bytes += existing.blob.size;
+        completed += 1;
+        onProgress?.({ completed, total: candidates.length, floorPlanId: plan.id, status: 'cached' });
+        continue;
+      }
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        result.failed += 1;
+        completed += 1;
+        onProgress?.({ completed, total: candidates.length, floorPlanId: plan.id, status: 'failed' });
+        continue;
+      }
+      const downloaded = await downloadFloorPlanBlobFromCloud(projectId, plan);
+      if (!downloaded || !(await cacheFloorPlanBlob(projectId, plan, revision, downloaded.blob))) {
+        result.failed += 1;
+        completed += 1;
+        onProgress?.({ completed, total: candidates.length, floorPlanId: plan.id, status: 'failed' });
+        continue;
+      }
+      result.downloaded += 1;
+      result.bytes += downloaded.blob.size;
+      completed += 1;
+      onProgress?.({ completed, total: candidates.length, floorPlanId: plan.id, status: 'downloaded' });
+    } catch (err) {
+      result.failed += 1;
+      completed += 1;
+      onProgress?.({ completed, total: candidates.length, floorPlanId: plan.id, status: 'failed' });
+      console.warn('[Floor Plan Image] offline cache warning:', plan.floorName, err);
+    }
+  }
+  result.skipped = Math.max(0, (plans || []).length - candidates.length);
+  return result;
 }
 
 export function floorPlanNeedsCloudUpload(plan: FloorPlan): boolean {

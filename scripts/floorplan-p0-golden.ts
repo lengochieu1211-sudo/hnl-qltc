@@ -10,6 +10,15 @@ check(sync.includes('stageFloorPlanImageOutbox'), 'Floor-plan binary outbox stag
 check(sync.includes('FLOOR_PLAN_ROLE_VERIFICATION_UNAVAILABLE'), 'Unavailable role verification must fail closed and retry.');
 check(sync.includes('latestPendingRevision > revision'), 'Two rapid replacements must keep the newest revision authoritative.');
 check(sync.includes('imagePendingByUid'), 'Pending outbox must be uploader/account scoped.');
+check(sync.includes("FLOOR_PLAN_CACHE_PREFIX = 'floor_plan_image_cache_v1'"), 'Persistent floor-plan offline cache prefix missing.');
+check(sync.includes('FLOOR_PLAN_CACHE_REVISIONS_PER_FLOOR = 2'), 'Offline cache must retain two revisions per floor for atomic replacement fallback.');
+check(sync.includes('navigator.storage?.estimate'), 'Offline cache must use storage quota-aware budgeting.');
+check(sync.includes('validateFloorPlanCacheBlob'), 'Offline cache must validate cached blobs and discard corrupted entries.');
+check(sync.includes('readFloorPlanCacheRecord(projectId, plan.id, revision)'), 'Floor-plan load must check exact local revision before Cloud.');
+check(sync.includes('readLatestFloorPlanCacheRecord'), 'Floor-plan load must support a previous cached revision when the latest binary is unavailable.');
+check(sync.includes('resolveFloorPlanImageForDisplay'), 'Local-first floor-plan display resolver missing.');
+check(sync.includes('cacheFloorPlansForOffline'), 'Health Center offline prefetch operation missing.');
+check(sync.includes('getFloorPlanImageCacheSnapshot'), 'Floor-plan cache diagnostics snapshot missing.');
 
 // P0 atomic-publish invariant: floor-plan objects must be immutable once their path is
 // published in Firestore. Reusing /original.ext lets an older/newer in-flight upload
@@ -35,6 +44,16 @@ check(handler.includes("imageUploadState: 'pending'"), 'Replacement must mark pe
 check(handler.includes('storagePath: undefined'), 'Replacement must clear the old cloud object pointer.');
 check(handler.includes('updatedAt: imageRevision'), 'Replacement must advance record updatedAt to defeat stale snapshots.');
 check(app.includes('preservePendingFloorImage'), 'Realtime merge must preserve a newer pending local drawing.');
+check(app.includes('resolveFloorPlanImageForDisplay(projectId, plan, { allowStaleCache: true })'), 'Floor-plan viewer must resolve local cache before/around Cloud hydration.');
+const hydrateEffectStart = app.indexOf('// Hydrate cloud-backed floor-plan binaries');
+const hydrateEffect = app.slice(hydrateEffectStart, hydrateEffectStart + 7000);
+check(!hydrateEffect.includes('!cloudUserKey || !isOnline || projectRoleSource'), 'Offline floor-plan hydration must not be blocked by navigator online state.');
+check(hydrateEffect.includes("projectRoleSource !== 'offline-cache'"), 'Offline verified role cache must be allowed to hydrate a persistent floor-plan cache.');
+check(app.includes('imageDisplayRevision: resolution.revision'), 'Viewer must track the actual displayed cache revision separately from Cloud revision.');
+check(app.includes('selectedHasStaleDisplay') && app.includes('isOnline && selectedHasStaleDisplay'), 'Reconnect must refresh a stale cached revision to the latest Cloud revision.');
+
+const firebaseBase = read('src/lib/firebaseBase.ts');
+check(firebaseBase.includes("'imageDisplayRevision', 'imageDisplaySource', 'imageOfflineStale'"), 'Transient floor-plan cache/display metadata must be stripped from Firestore writes.');
 
 const ui = read('src/components/FloorPlanDefectTab.tsx');
 check(ui.includes("floorPlanProcessingKind === 'pdf'"), 'Floor-plan processing UI must branch by file type.');
@@ -46,5 +65,8 @@ for (const status of ['PENDING_OUTBOX', 'PENDING_LOCAL', 'MISSING_BINARY', 'CLOU
   check(config.includes(status), 'Diagnostic status missing: ' + status);
 }
 check(config.includes('getFloorPlanImageOutboxSnapshot'), 'Diagnostics must inspect the floor-plan outbox.');
+check(config.includes('getFloorPlanImageCacheSnapshot'), 'Health diagnostics must inspect persistent floor-plan cache.');
+check(config.includes('Tải mặt bằng để dùng offline'), 'Health Center must expose explicit offline floor-plan prefetch.');
+check(config.includes('offlineReady') && config.includes('cachedRevision') && config.includes('cachedBytes'), 'Floor-plan diagnostics must report offline readiness and cached revision/bytes.');
 
 console.log('Floor-plan P0 golden PASS');

@@ -42,7 +42,7 @@ import { getImageQualityProfile, getImageQualitySettings, setImageQualitySetting
 import type { UserRole } from '../utils/securityUtils';
 import type { TrashOperation, TrashSettings, TrashRetentionDays } from '../lib/trash';
 import { buildDiagnosticBundle, clearRuntimeDiagnostics } from '../lib/runtimeDiagnostics';
-import { getFloorPlanImageOutboxSnapshot } from '../lib/floorPlanImageSync';
+import { cacheFloorPlansForOffline, getFloorPlanImageCacheSnapshot, getFloorPlanImageOutboxSnapshot } from '../lib/floorPlanImageSync';
 import { getProjectPhotoDiagnosticSnapshot } from '../utils/photoStorage';
 import { HealthCenterPanel } from '../healthCenter/HealthCenterPanel';
 import { SettingsAccordionCard } from './SettingsAccordionCard';
@@ -151,6 +151,9 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   const [sheetUrl, setSheetUrl] = useState<string | null>(null);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [photoDiagnosticSnapshot, setPhotoDiagnosticSnapshot] = useState<any>(null);
+  const [floorPlanCacheRows, setFloorPlanCacheRows] = useState<any[]>([]);
+  const [floorPlanCacheBusy, setFloorPlanCacheBusy] = useState(false);
+  const [floorPlanCacheMsg, setFloorPlanCacheMsg] = useState<string | null>(null);
 
   const isIframe = typeof window !== 'undefined' && window.self !== window.top;
 
@@ -171,6 +174,65 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
+  const floorPlanOfflineSummary = useMemo(() => {
+    const latestByFloor = new Map<string, any>();
+    for (const row of floorPlanCacheRows) {
+      const floorId = String(row?.floorPlanId || '');
+      if (!floorId) continue;
+      const previous = latestByFloor.get(floorId);
+      if (!previous || Number(row?.revision || 0) > Number(previous?.revision || 0)) latestByFloor.set(floorId, row);
+    }
+    const eligiblePlans = (floorPlans || []).filter((plan) => {
+      const cloudRevision = Number(plan?.imageCloudRevision || plan?.imageRevision || 0);
+      const hasPointer = Boolean(plan?.storagePath || plan?.driveFileId || plan?.cloudFileId || plan?.storageProvider);
+      return cloudRevision > 0 && hasPointer;
+    });
+    const ready = eligiblePlans.filter((plan) => {
+      const cached = latestByFloor.get(String(plan.id || ''));
+      return Number(cached?.revision || 0) >= Number(plan.imageCloudRevision || plan.imageRevision || 0) && Number(cached?.bytes || 0) > 0;
+    }).length;
+    return {
+      eligible: eligiblePlans.length,
+      ready,
+      cacheBytes: floorPlanCacheRows.reduce((sum, row) => sum + Number(row?.bytes || 0), 0),
+      cacheVersions: floorPlanCacheRows.length,
+    };
+  }, [floorPlans, floorPlanCacheRows]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!activeProjectId) {
+      setFloorPlanCacheRows([]);
+      return;
+    }
+    getFloorPlanImageCacheSnapshot(activeProjectId)
+      .then((rows) => { if (!cancelled) setFloorPlanCacheRows(rows); })
+      .catch(() => { if (!cancelled) setFloorPlanCacheRows([]); });
+    return () => { cancelled = true; };
+  }, [activeProjectId, floorPlans]);
+
+  const handleCacheFloorPlansForOffline = async () => {
+    if (!activeProjectId || floorPlanCacheBusy) return;
+    setFloorPlanCacheBusy(true);
+    setFloorPlanCacheMsg('Đang chuẩn bị mặt bằng dùng offline…');
+    try {
+      const result = await cacheFloorPlansForOffline(activeProjectId, floorPlans, (progress) => {
+        setFloorPlanCacheMsg(`Đang tải mặt bằng offline ${progress.completed}/${progress.total}…`);
+      });
+      const rows = await getFloorPlanImageCacheSnapshot(activeProjectId);
+      setFloorPlanCacheRows(rows);
+      if (result.failed > 0) {
+        setFloorPlanCacheMsg(`Đã chuẩn bị ${result.cached + result.downloaded}/${result.total} mặt bằng; ${result.failed} mặt bằng chưa tải được.`);
+      } else {
+        setFloorPlanCacheMsg(`Đã sẵn sàng offline ${result.cached + result.downloaded}/${result.total} mặt bằng.`);
+      }
+    } catch (err) {
+      setFloorPlanCacheMsg(`Không thể chuẩn bị offline: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setFloorPlanCacheBusy(false);
+    }
+  };
+
   const buildFullDiagnosticBundle = async () => {
     const photoDiagnostics = activeProjectId
       ? await getProjectPhotoDiagnosticSnapshot(activeProjectId).catch((err) => ({ error: err instanceof Error ? err.message : String(err) }))
@@ -184,6 +246,14 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
     const floorPlanOutboxRows = activeProjectId
       ? await getFloorPlanImageOutboxSnapshot(activeProjectId).catch(() => [])
       : [];
+    const floorPlanCacheSnapshotRows = activeProjectId
+      ? await getFloorPlanImageCacheSnapshot(activeProjectId).catch(() => [])
+      : [];
+    const latestCacheByFloor = new Map<string, any>();
+    for (const row of floorPlanCacheSnapshotRows) {
+      const previous = latestCacheByFloor.get(row.floorPlanId);
+      if (!previous || Number(row.revision || 0) > Number(previous.revision || 0)) latestCacheByFloor.set(row.floorPlanId, row);
+    }
     const latestOutboxByFloor = new Map<string, any>();
     for (const row of floorPlanOutboxRows) {
       const previous = latestOutboxByFloor.get(row.floorPlanId);
@@ -194,6 +264,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       const imageUrl = String(plan?.imageUrl || '');
       const localBinary = imageUrl.startsWith('data:image/') || imageUrl.startsWith('blob:');
       const outbox = latestOutboxByFloor.get(String(plan?.id || ''));
+      const cached = latestCacheByFloor.get(String(plan?.id || ''));
       const imageRevision = Number(plan?.imageRevision || 0);
       const effectiveRevision = Math.max(imageRevision, Number(outbox?.revision || 0));
       const cloudRevision = Number(plan?.imageCloudRevision || 0);
@@ -211,12 +282,19 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       else if (hasCloudPointer && effectiveRevision > cloudRevision) status = 'CLOUD_POINTER_INCONSISTENT';
       else if (hasImageEvidence) status = 'MISSING_BINARY';
       const pending = status !== 'READY' && status !== 'NO_IMAGE';
+      const cachedRevision = Number(cached?.revision || 0);
+      const cachedBytes = Number(cached?.bytes || 0);
+      const offlineReady = cloudReady && cachedRevision >= cloudRevision && cachedBytes > 0;
       return {
         id: String(plan?.id || ''),
         floorName: String(plan?.floorName || ''),
         status,
         pending,
         localBinary,
+        cachedBinary: cachedBytes > 0,
+        cachedRevision,
+        cachedBytes,
+        offlineReady,
         imageRevision,
         effectiveImageRevision: effectiveRevision,
         imageCloudRevision: cloudRevision,
@@ -233,6 +311,10 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
     const floorPlanDiagnostics = {
       total: floorPlanRows.length,
       pending: floorPlanDiagnosticRows.filter((row: any) => row.pending).length,
+      offlineEligible: floorPlanDiagnosticRows.filter((row: any) => row.status === 'READY').length,
+      offlineReady: floorPlanDiagnosticRows.filter((row: any) => row.offlineReady).length,
+      cacheCount: floorPlanCacheSnapshotRows.length,
+      cacheBytes: floorPlanCacheSnapshotRows.reduce((sum: number, row: any) => sum + Number(row?.bytes || 0), 0),
       outboxCount: floorPlanOutboxRows.length,
       outboxBytes: floorPlanOutboxRows.reduce((sum: number, row: any) => sum + Number(row?.bytes || 0), 0),
       floors: floorPlanDiagnosticRows.slice(0, 50),
@@ -776,6 +858,32 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
             )}
           </div>
 
+        </div>
+
+        <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-3 space-y-2">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="text-[11px] font-extrabold text-slate-800">Mặt bằng dùng offline</div>
+              <div className="text-[10px] text-slate-600">Lưu bản mặt bằng đã đồng bộ vào IndexedDB của thiết bị để mở ngay khi mạng yếu hoặc mất mạng.</div>
+            </div>
+            <span className="shrink-0 rounded-lg border border-indigo-200 bg-white px-2 py-1 text-[10px] font-extrabold text-indigo-700">
+              {floorPlanOfflineSummary.ready}/{floorPlanOfflineSummary.eligible}
+            </span>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-[10px] text-slate-500">
+              Cache {floorPlanOfflineSummary.cacheVersions} phiên bản · {formatTrashBytes(floorPlanOfflineSummary.cacheBytes)} · giữ tối đa 2 revision gần nhất mỗi tầng.
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleCacheFloorPlansForOffline()}
+              disabled={floorPlanCacheBusy || !activeProjectId || floorPlanOfflineSummary.eligible === 0}
+              className="shrink-0 rounded-lg bg-indigo-600 px-3 py-2 text-[10px] font-extrabold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {floorPlanCacheBusy ? 'Đang tải…' : 'Tải mặt bằng để dùng offline'}
+            </button>
+          </div>
+          {floorPlanCacheMsg && <div className="text-[10px] font-semibold text-indigo-700">{floorPlanCacheMsg}</div>}
         </div>
 
         <HealthCenterPanel

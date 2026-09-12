@@ -55,16 +55,22 @@ function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
       const cloudSyncedRevision = Number(cloudItem.imageCloudRevision || 0);
       const localCloudRevision = Number(localItem.imageCloudRevision || 0);
       const localImageRevision = Number(localItem.imageRevision || 0);
+      const localDisplayRevision = Number(localItem.imageDisplayRevision || localCloudRevision || 0);
       const sameDriveFile = Boolean(cloudItem.driveFileId && localItem.driveFileId && cloudItem.driveFileId === localItem.driveFileId);
-      // A local image is safe to retain for a cloud marker only when it is known to
-      // represent that exact uploaded binary. Comparing imageRevision alone is unsafe:
-      // a pending metadata patch can copy the NEW revision onto an OLD hydrated image.
-      const sameSyncedImageRevision = cloudSyncedRevision > 0 && localCloudRevision === cloudSyncedRevision;
+      // A cached fallback may intentionally show revision N while Firestore already points
+      // at revision N+1. Only retain a hydrated bitmap when its transient display revision
+      // matches the Cloud revision; otherwise the local-first resolver must re-evaluate it.
+      const sameSyncedImageRevision = cloudSyncedRevision > 0 && localDisplayRevision === cloudSyncedRevision;
       const localHasNewerUnsyncedImage = localImageRevision > cloudImageRevision;
       const isFloorPlanCloudMarker = key === 'imageUrl' && val.startsWith('cloud-floorplan:');
       const isOmittedMarker = val.includes('[IMAGE_OMITTED_FOR_CLOUD_SIZE_LIMIT]');
       if (localImageDisplayable && (key !== 'imageUrl' || (!isFloorPlanCloudMarker && !isOmittedMarker) || sameDriveFile || sameSyncedImageRevision || localHasNewerUnsyncedImage || isOmittedMarker)) {
         merged[key] = localImage;
+        if (key === 'imageUrl') {
+          merged.imageDisplayRevision = localDisplayRevision || localCloudRevision || localImageRevision;
+          merged.imageDisplaySource = localItem.imageDisplaySource;
+          merged.imageOfflineStale = Boolean(localItem.imageOfflineStale);
+        }
 
         // While another device is still uploading a replacement, Firestore may first
         // publish an omitted-image metadata record. Keep showing the old local bitmap,
@@ -160,7 +166,7 @@ import { refreshProjectPhotoMetadataFromCloud, subscribeProjectPhotosRealtime, s
 import { appendRuntimeDiagnostic } from './lib/runtimeDiagnostics';
 import { isPrimaryDriveReady, PRIMARY_DRIVE_OWNER_EMAIL, uploadProjectBackupToPrimaryDrive } from './lib/primaryDriveBridge';
 import { subscribeConversationReadState, subscribeConversationSummary } from './lib/chatService';
-import { floorPlanNeedsCloudUpload, isDisplayableFloorPlanUrl, loadFloorPlanImageFromCloud, stageFloorPlanImageOutbox, syncFloorPlanImageToCloud, deleteFloorPlanImageFromCloud } from './lib/floorPlanImageSync';
+import { floorPlanNeedsCloudUpload, isDisplayableFloorPlanUrl, loadFloorPlanImageFromCloud, resolveFloorPlanImageForDisplay, stageFloorPlanImageOutbox, syncFloorPlanImageToCloud, deleteFloorPlanImageFromCloud } from './lib/floorPlanImageSync';
 import { DEFAULT_TRASH_SETTINGS, TrashOperation, TrashSettings, TrashCollectionKey, deleteTrashOperationFromCloud, estimateTrashBytes, getTrashCollectionLabel, normalizeTrashSettings, sanitizeTrashSnapshot, saveTrashOperationToCloud, subscribeProjectTrash } from './lib/trash';
 import { commitWarehouseTransactionAtomic, updateWarehouseTransactionAtomic, softDeleteWarehouseTransactionAtomic } from './lib/warehouseTransactions';
 
@@ -2052,7 +2058,7 @@ export default function App() {
   // Hydrate cloud-backed floor-plan binaries on another phone/PC. Run one-by-one so
   // opening a project does not allocate every large plan image in RAM at the same time.
   useEffect(() => {
-    if (!isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || !isOnline || projectRoleSource !== 'cloud' || !projectRoleAllowed || switchingProjectRef.current) return;
+    if (!isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || !projectRoleAllowed || (projectRoleSource !== 'cloud' && projectRoleSource !== 'offline-cache') || switchingProjectRef.current) return;
     const projectId = activeProjectId;
     let cancelled = false;
     // V6.2.22: hydrate only the floor currently being viewed. Previously every
@@ -2062,8 +2068,16 @@ export default function App() {
     if (activeTab !== 'floorplan') return;
     const preferredFloorId = activeFloorViewId || floorPlans[0]?.id || '';
     const selectedPlan = floorPlans.find((plan) => plan.id === preferredFloorId);
-    const candidates = selectedPlan && !isDisplayableFloorPlanUrl(selectedPlan.imageUrl) &&
-      Boolean(selectedPlan.driveFileId || selectedPlan.cloudFileId || selectedPlan.storageProvider)
+    const selectedCloudRevision = Number(selectedPlan?.imageCloudRevision || selectedPlan?.imageRevision || 0);
+    const selectedDisplayRevision = Number((selectedPlan as any)?.imageDisplayRevision || 0);
+    const selectedHasStaleDisplay = Boolean(
+      selectedPlan && isDisplayableFloorPlanUrl(selectedPlan.imageUrl) &&
+      selectedDisplayRevision > 0 && selectedCloudRevision > selectedDisplayRevision
+    );
+    const selectedRemoteOnly = Boolean(selectedPlan && /^https?:\/\//i.test(String(selectedPlan.imageUrl || '')));
+    const candidates = selectedPlan &&
+      (!isDisplayableFloorPlanUrl(selectedPlan.imageUrl) || (!isOnline && selectedRemoteOnly) || (isOnline && selectedHasStaleDisplay)) &&
+      Boolean(selectedPlan.driveFileId || selectedPlan.cloudFileId || selectedPlan.storageProvider || selectedPlan.storagePath)
       ? [selectedPlan]
       : [];
     if (candidates.length === 0) return;
@@ -2086,13 +2100,17 @@ export default function App() {
         ].join('|');
         const hydrateRetryKey = `${projectId}:${plan.id}:${expectedCloudIdentity}`;
         try {
-          const imageUrl = await loadFloorPlanImageFromCloud(projectId, plan);
+          const resolution = await resolveFloorPlanImageForDisplay(projectId, plan, { allowStaleCache: true });
           if (cancelled || activeProjectIdRef.current !== projectId) continue;
-          if (!imageUrl) throw new Error('Cloud floor-plan image is not available yet.');
+          if (!resolution?.imageUrl) throw new Error('Cloud/local floor-plan image is not available yet.');
           floorPlanImageHydrateRetryCountRef.current.delete(hydrateRetryKey);
           setPresent((prev) => {
             const current = prev.floorPlans.find((item) => item.id === plan.id);
-            if (!current || isDisplayableFloorPlanUrl(current.imageUrl)) return prev;
+            if (!current) return prev;
+            const currentCloudRevision = Number(current.imageCloudRevision || current.imageRevision || 0);
+            const currentDisplayRevision = Number((current as any).imageDisplayRevision || 0);
+            const currentHasStaleDisplay = isDisplayableFloorPlanUrl(current.imageUrl) && currentDisplayRevision > 0 && currentCloudRevision > currentDisplayRevision;
+            if (isDisplayableFloorPlanUrl(current.imageUrl) && !(isOnline && currentHasStaleDisplay)) return prev;
 
             const currentCloudIdentity = [
               current.storageProvider || '',
@@ -2110,7 +2128,13 @@ export default function App() {
               return prev;
             }
 
-            const nextPlans = prev.floorPlans.map((item) => item.id === plan.id ? { ...item, imageUrl } : item);
+            const nextPlans = prev.floorPlans.map((item) => item.id === plan.id ? {
+              ...item,
+              imageUrl: resolution.imageUrl,
+              imageDisplayRevision: resolution.revision,
+              imageDisplaySource: resolution.source,
+              imageOfflineStale: resolution.stale,
+            } : item);
             if (!FIREBASE_ONLY_RUNTIME || LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED) {
               setAsyncItem(getKey('construction_floor_plans', projectId), nextPlans).catch((err) => console.warn('Legacy floor-plan hydrate cache warning:', err));
             }

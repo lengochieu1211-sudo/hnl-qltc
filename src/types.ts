@@ -85,6 +85,10 @@ export interface FloorPlan {
   imageRevision?: number;
   imageCloudRevision?: number;
   imageCloudSyncedAt?: number;
+  /** Runtime-only display metadata. Never written as business data to Firestore. */
+  imageDisplayRevision?: number;
+  imageDisplaySource?: 'memory' | 'cache' | 'cloud' | 'legacy' | 'remote-url' | string;
+  imageOfflineStale?: boolean;
   storagePath?: string;
   thumbnailPath?: string;
   storageMd5Hash?: string;
