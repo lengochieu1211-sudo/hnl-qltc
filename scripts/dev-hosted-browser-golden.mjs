@@ -442,6 +442,126 @@ async function runViewport(browser, label, viewport, screenshotPath) {
   await context.close();
 }
 
+
+async function verifyColdStartOffline(browser) {
+  const label = 'cold-start-offline';
+  const context = await browser.newContext({
+    viewport: { width: 1280, height: 720 },
+    locale: 'vi-VN',
+    serviceWorkers: 'allow',
+    ignoreHTTPSErrors: false,
+  });
+  let page = await context.newPage();
+  const attachEvidence = (targetPage) => {
+    targetPage.on('pageerror', error => report.pageErrors.push({ label, message: String(error?.message || error) }));
+    targetPage.on('console', message => {
+      if (message.type() === 'error') report.consoleErrors.push({ label, text: message.text() });
+    });
+    targetPage.on('request', request => {
+      const url = request.url();
+      if (url.includes(prodProjectId) || url.startsWith(prodR2Url)) {
+        report.forbiddenRequests.push({ label, method: request.method(), url });
+      }
+    });
+  };
+  attachEvidence(page);
+
+  await page.goto(`${hostingUrl}/?runtimeGoldenColdStartInstall=${Date.now()}`, {
+    waitUntil: 'domcontentloaded',
+    timeout: 45000,
+  });
+  await page.waitForSelector('#root', { timeout: 15000 });
+  await page.waitForFunction(() => document.querySelector('#root')?.children.length > 0, null, { timeout: 20000 });
+
+  // CacheStorage is part of the executable app-shell contract. Wait until the current
+  // build's Service Worker has atomically installed at least one hashed JS chunk.
+  await page.waitForFunction(async () => {
+    if (!('serviceWorker' in navigator) || typeof caches === 'undefined') return false;
+    await navigator.serviceWorker.ready;
+    const cacheNames = await caches.keys();
+    for (const cacheName of cacheNames) {
+      if (!cacheName.startsWith('hnl-thi-cong-cache-')) continue;
+      const cache = await caches.open(cacheName);
+      const keys = await cache.keys();
+      if (keys.some((request) => new URL(request.url).pathname.startsWith('/assets/') && /\.js$/i.test(new URL(request.url).pathname))) {
+        return true;
+      }
+    }
+    return false;
+  }, null, { timeout: 30000 });
+
+  let swState = await page.evaluate(async () => {
+    const registration = await navigator.serviceWorker.ready;
+    const cacheNames = await caches.keys();
+    const assets = [];
+    for (const cacheName of cacheNames) {
+      if (!cacheName.startsWith('hnl-thi-cong-cache-')) continue;
+      const cache = await caches.open(cacheName);
+      const keys = await cache.keys();
+      for (const request of keys) {
+        const pathname = new URL(request.url).pathname;
+        if (pathname.startsWith('/assets/')) assets.push(pathname);
+      }
+    }
+    return {
+      controlled: Boolean(navigator.serviceWorker.controller),
+      scope: registration.scope,
+      cacheNames,
+      assets: [...new Set(assets)].sort(),
+    };
+  });
+
+  // First installation can claim just after the initial navigation. Reload once online
+  // to make the controller relationship explicit before the browser cache is removed.
+  if (!swState.controlled) {
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller), null, { timeout: 15000 });
+    swState = await page.evaluate(async () => {
+      const cacheNames = await caches.keys();
+      const assets = [];
+      for (const cacheName of cacheNames) {
+        if (!cacheName.startsWith('hnl-thi-cong-cache-')) continue;
+        const cache = await caches.open(cacheName);
+        const keys = await cache.keys();
+        for (const request of keys) {
+          const pathname = new URL(request.url).pathname;
+          if (pathname.startsWith('/assets/')) assets.push(pathname);
+        }
+      }
+      return { controlled: Boolean(navigator.serviceWorker.controller), scope: (await navigator.serviceWorker.ready).scope, cacheNames, assets: [...new Set(assets)].sort() };
+    });
+  }
+  assert(swState.controlled, 'cold-start: page is not controlled by Service Worker');
+  assert(swState.assets.some((asset) => /\.js$/i.test(asset)), 'cold-start: CacheStorage has no hashed JS chunk');
+  pass('cold-start Service Worker controls installed build', `${swState.assets.length} hashed assets cached`);
+
+  const cdp = await context.newCDPSession(page);
+  await cdp.send('Network.enable');
+  await cdp.send('Network.clearBrowserCache');
+  pass('cold-start HTTP browser cache cleared');
+
+  await context.setOffline(true);
+  await page.close();
+  page = await context.newPage();
+  attachEvidence(page);
+
+  const offlineResponse = await page.goto(`${hostingUrl}/?runtimeGoldenColdStartOffline=${Date.now()}`, {
+    waitUntil: 'domcontentloaded',
+    timeout: 30000,
+  });
+  assert(offlineResponse, 'cold-start offline navigation produced no response');
+  assert(offlineResponse.status() === 200, `cold-start offline navigation HTTP ${offlineResponse.status()}`);
+  assert(offlineResponse.fromServiceWorker(), 'cold-start offline navigation was not served by Service Worker');
+  await page.waitForSelector('#root', { timeout: 15000 });
+  await page.waitForFunction(() => document.querySelector('#root')?.children.length > 0, null, { timeout: 20000 });
+  const title = await page.title();
+  assert(title === 'HNL Quản Lý Thi Công', `cold-start offline unexpected title: ${title}`);
+  pass('cold-start offline React boot from CacheStorage', title);
+
+  await context.setOffline(false);
+  await context.close();
+}
+
 let browser;
 try {
   browser = await chromium.launch({ headless: true });
@@ -449,6 +569,7 @@ try {
   await runViewport(browser, 'desktop-720p', { width: 1280, height: 720 }, 'runtime-evidence/desktop-720p.png');
   await runViewport(browser, 'desktop-compact', { width: 1088, height: 610 }, 'runtime-evidence/desktop-compact.png');
   await runViewport(browser, 'mobile', { width: 393, height: 852 }, 'runtime-evidence/mobile.png');
+  await verifyColdStartOffline(browser);
 
   const fatalConsole = report.consoleErrors.filter(item => {
     const text = item.text.toLowerCase();

@@ -537,11 +537,11 @@ async function registerProjectForCurrentUser(projectId: string, projectName: str
 export async function fetchCurrentUserProjectsFromCloud(): Promise<CloudProjectSummary[]> {
   try {
     await ensureAuth();
-    const user = getCurrentAppUser();
-    if (!user || !user.uid || (user as any).isAnonymous) return [];
+    const user = getCurrentRealFirebaseUser();
+    if (!user || !user.uid || !user.email) return [];
 
     if (isSuperAdminEmail(user.email)) {
-      const snap = await getDocs(collection(db, 'projects'));
+      const snap = await getDocsFromServer(collection(db, 'projects'));
       return snap.docs
         .map((d) => ({ id: d.id, ...d.data() } as any))
         .filter((item: any) => item && item.id && item.deleted !== true)
@@ -557,22 +557,48 @@ export async function fetchCurrentUserProjectsFromCloud(): Promise<CloudProjectS
         .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
     }
 
-    const snap = await getDoc(doc(db, 'users', user.uid));
+    // users/{uid}.projects is discovery-only. Every candidate must be revalidated
+    // against the canonical project root + member document from the server before it
+    // becomes visible. Stale role/index data must never grant discovery access.
+    const snap = await getDocFromServer(doc(db, 'users', user.uid));
     if (!snap.exists()) return [];
-
-    const data = snap.data();
-    const projects = data?.projects;
+    const projects = snap.data()?.projects;
     if (!projects || typeof projects !== 'object') return [];
 
-    return Object.values(projects)
-      .filter((item: any) => item && item.id)
-      .map((item: any) => ({
-        id: String(item.id),
-        name: String(item.name || item.id),
-        role: item.role,
-        updatedAt: Number(item.updatedAt || 0),
-      }))
-      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    const result: CloudProjectSummary[] = [];
+    for (const item of Object.values(projects) as any[]) {
+      const projectId = String(item?.id || '').trim();
+      if (!projectId) continue;
+      try {
+        const projectSnap = await getDocFromServer(doc(db, 'projects', projectId));
+        if (!projectSnap.exists() || projectSnap.data()?.deleted === true) continue;
+        const projectData = projectSnap.data();
+        const normalizedUserEmail = normalizeEmail(user.email);
+        const ownerVerified = String(projectData?.ownerUid || '') === user.uid
+          || (Boolean(normalizedUserEmail) && normalizeEmail(projectData?.ownerEmail) === normalizedUserEmail);
+        let role: 'ADMIN' | 'EDITOR' | 'VIEWER' = 'ADMIN';
+        if (!ownerVerified) {
+          const roleInfo = await fetchProjectUserRoleFromCloud(projectId, user);
+          if (roleInfo.verification !== 'verified' || !roleInfo.allowed) continue;
+          role = roleInfo.role;
+        }
+        const createdAt = cloudTimestampToMillis(projectData?.createdAt);
+        result.push({
+          id: projectId,
+          name: String(projectData?.name || item?.name || projectId),
+          role,
+          createdAt,
+          createdAtSource: createdAt ? 'cloud' : 'migrating',
+          updatedAt: cloudTimestampToMillis(projectData?.updatedAt) || Number(item?.updatedAt || 0),
+          canonicalProjectId: String(projectData?.canonicalProjectId || projectData?.mergedIntoProjectId || '').trim() || undefined,
+        });
+      } catch (err) {
+        // Cloud verification unavailable/denied => fail closed. The candidate can be
+        // rediscovered after reconnect; never surface its cached/index role as authority.
+        console.warn('[Project discovery] canonical verification failed:', projectId, err);
+      }
+    }
+    return result.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   } catch (err) {
     console.warn('fetchCurrentUserProjectsFromCloud warning:', err);
     return [];
@@ -743,30 +769,20 @@ export function subscribeCurrentUserProjectsRealtime(onUpdate: (projects: CloudP
       ...Object.keys(localCandidateProjects),
     ]);
     const result: CloudProjectSummary[] = [];
+    let verificationUnavailable = false;
 
     for (const id of ids) {
       if (cancelled || seq !== refreshSeq) return;
       const durableHint = userProjects[id] || accessProjects[id] || invitationProjects[id] || legacyInvitationProjects[id] || ownerUidProjects[id] || ownerEmailProjects[id];
       const localHint = localCandidateProjects[id];
       const hint = durableHint || localHint || {};
-      const isLocalProbeOnly = Boolean(localHint && !durableHint);
       const cacheKey = cacheKeyFor(id);
-      const cached = discoveryProjectCache.get(cacheKey);
-      const cacheFresh = Boolean(!isLocalProbeOnly && cached && (Date.now() - cached.at) < 8000);
-      if (cacheFresh) {
-        if (cached!.summary) result.push({ ...cached!.summary, role: String(hint.role || cached!.summary.role || '').toUpperCase() || cached!.summary.role });
-        continue;
-      }
 
       try {
         const projectRef = doc(db, 'projects', id);
-        let snap;
-        if (isLocalProbeOnly) {
-          snap = await getDocFromServer(projectRef);
-        } else {
-          try { snap = await getDocFromServer(projectRef); }
-          catch (_) { snap = await getDoc(projectRef); }
-        }
+        // Project discovery is authorization-sensitive. Always ask the server; a cached
+        // root/index role can be stale after revocation or account switching.
+        const snap = await getDocFromServer(projectRef);
         if (cancelled || seq !== refreshSeq) return;
         if (!snap.exists() || snap.data()?.deleted) {
           discoveryProjectCache.set(cacheKey, { at: Date.now(), summary: null });
@@ -775,27 +791,33 @@ export function subscribeCurrentUserProjectsRealtime(onUpdate: (projects: CloudP
         const data = snap.data();
         const createdAt = cloudTimestampToMillis(data?.createdAt);
         const updatedAt = cloudTimestampToMillis(data?.updatedAt) || Number(hint.updatedAt || 0);
+        const ownerVerified = String(data?.ownerUid || '') === user.uid
+          || (Boolean(email) && normalizeEmail(data?.ownerEmail) === email);
 
-        let effectiveRole = String(hint.role || '').toUpperCase();
-        if (isLocalProbeOnly || !effectiveRole) {
-          const roleInfo = await fetchProjectUserRoleFromCloud(id, user).catch(() => ({ allowed: false, role: 'VIEWER' as const }));
+        let effectiveRole: 'ADMIN' | 'EDITOR' | 'VIEWER';
+        if (ownerVerified) {
+          effectiveRole = 'ADMIN';
+        } else {
+          // users/{uid}.projects, projectAccess and invitation roles are candidates only.
+          // Canonical projects/{id}/members/{email|uid} is authoritative.
+          const roleInfo = await fetchProjectUserRoleFromCloud(id, user);
           if (cancelled || seq !== refreshSeq) return;
-          if (!roleInfo.allowed) continue;
-          effectiveRole = String(roleInfo.role || 'VIEWER').toUpperCase();
-          registerProjectForCurrentUser(id, String(data?.name || hint.name || id), effectiveRole).catch(() => {});
+          if (roleInfo.verification !== 'verified' || !roleInfo.allowed) {
+            discoveryProjectCache.delete(cacheKey);
+            continue;
+          }
+          effectiveRole = roleInfo.role;
         }
-        if ((invitationProjects[id] || legacyInvitationProjects[id]) && effectiveRole) {
-          registerProjectForCurrentUser(id, String(data?.name || hint.name || id), effectiveRole).catch(() => {});
-        }
-        if (!createdAt && (effectiveRole === 'ADMIN' || data?.ownerUid === user.uid || normalizeEmail(data?.ownerEmail) === email)) {
-          ensureProjectMigrationsInCloud(id).catch(() => {});
-        }
+
+        // Repair indexes only after canonical Cloud verification succeeds.
+        registerProjectForCurrentUser(id, String(data?.name || hint.name || id), effectiveRole).catch(() => {});
+        if (!createdAt && effectiveRole === 'ADMIN') ensureProjectMigrationsInCloud(id).catch(() => {});
         const canonicalProjectIdRaw = String(data?.canonicalProjectId || data?.mergedIntoProjectId || '').trim();
         const canonicalProjectId = canonicalProjectIdRaw && canonicalProjectIdRaw !== id ? canonicalProjectIdRaw : undefined;
         const summary: CloudProjectSummary = {
           id,
           name: String(data?.name || hint.name || id),
-          role: effectiveRole || hint.role,
+          role: effectiveRole,
           createdAt,
           createdAtSource: createdAt ? 'cloud' : 'migrating',
           updatedAt,
@@ -805,24 +827,24 @@ export function subscribeCurrentUserProjectsRealtime(onUpdate: (projects: CloudP
         result.push(summary);
       } catch (err: any) {
         if (cancelled || seq !== refreshSeq) return;
-        const code = String(err?.code || '');
-        if (code.includes('permission-denied') || isLocalProbeOnly) {
-          discoveryProjectCache.delete(cacheKey);
-          continue;
-        }
-        const fallback: CloudProjectSummary = {
-          id,
-          name: String(hint.name || id),
-          role: hint.role,
-          createdAt: 0,
-          createdAtSource: 'migrating',
-          updatedAt: Number(hint.updatedAt || 0),
-        };
-        result.push(fallback);
+        // No cached/index fallback here: backend/rules failure means discovery is
+        // temporarily unavailable, not permission granted.
+        discoveryProjectCache.delete(cacheKey);
+        verificationUnavailable = true;
+        console.warn('[Project discovery] server verification failed closed:', id, err);
+        continue;
       }
     }
 
     if (!cancelled && seq === refreshSeq) {
+      // A network/backend failure is not an authoritative empty/partial project list.
+      // Do not overwrite the caller's previously known local recovery list; the next
+      // realtime/reconnect event will retry canonical verification. Access to any
+      // retained local project still goes through the independent role/offline-lease guard.
+      if (verificationUnavailable) {
+        console.debug('[discovery emit] deferred because canonical verification is unavailable', source);
+        return;
+      }
       const collapsed = collapseCanonicalProjects(result);
       console.debug('[discovery emit]', source, 'ids=', ids.size, 'result=', collapsed.length, 'duration=', Date.now() - startedAt);
       onUpdate(collapsed);
@@ -2910,43 +2932,152 @@ export async function removeProjectMemberFromCloud(projectId: string, email: str
   }
 }
 
+export interface ProjectTrashServerState {
+  projectId: string;
+  exists: boolean;
+  deleted: boolean;
+  deletedAt: number;
+  expiresAt: number;
+  retentionDays: number;
+  expired: boolean;
+  mutationId?: string;
+}
+
+export interface ProjectLifecycleReceipt extends ProjectTrashServerState {
+  verified: true;
+  action: 'delete' | 'restore';
+}
+
+function projectLifecycleMutationId(action: 'delete' | 'restore', projectId: string): string {
+  const random = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+  return `${action}:${projectId}:${random}`;
+}
+
+function requireOnlineProjectLifecycle(): void {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    throw new Error('PROJECT_LIFECYCLE_REQUIRES_ONLINE');
+  }
+}
+
+async function requireVerifiedProjectAdmin(projectId: string): Promise<User> {
+  const user = getCurrentRealFirebaseUser();
+  if (!user || !user.email) throw new Error('PROJECT_LIFECYCLE_AUTH_REQUIRED');
+  const roleInfo = await fetchProjectUserRoleFromCloud(projectId, user);
+  if (roleInfo.verification !== 'verified' || !roleInfo.allowed || roleInfo.role !== 'ADMIN') {
+    throw new Error('PROJECT_LIFECYCLE_ADMIN_REQUIRED');
+  }
+  return user;
+}
+
+function projectTrashStateFromData(projectId: string, data: any, now = Date.now()): ProjectTrashServerState {
+  const deletedAt = Number(data?.deletedAt || 0);
+  const retentionRaw = Number(data?.trashRetentionDays || 7);
+  const retentionDays = [3, 7, 15, 30, 60, 90].includes(retentionRaw) ? retentionRaw : 7;
+  const explicitExpiresAt = Number(data?.trashExpiresAt || 0);
+  const expiresAt = explicitExpiresAt || (deletedAt > 0 ? deletedAt + retentionDays * 24 * 60 * 60 * 1000 : 0);
+  const deleted = data?.deleted === true;
+  return {
+    projectId,
+    exists: true,
+    deleted,
+    deletedAt,
+    expiresAt,
+    retentionDays,
+    expired: Boolean(deleted && expiresAt > 0 && expiresAt <= now),
+    mutationId: String(data?.lifecycleMutationId || '') || undefined,
+  };
+}
+
+/** Server-only project trash state. Local/cache state is never enough to authorize
+ * destructive cleanup because another device may have restored the project. */
+export async function fetchProjectDeletionStateFromServer(projectId: string): Promise<ProjectTrashServerState> {
+  if (!projectId) return { projectId, exists: false, deleted: false, deletedAt: 0, expiresAt: 0, retentionDays: 7, expired: false };
+  requireOnlineProjectLifecycle();
+  const user = getCurrentRealFirebaseUser();
+  if (!user || !user.email) throw new Error('PROJECT_LIFECYCLE_AUTH_REQUIRED');
+  const snap = await getDocFromServer(doc(db, 'projects', projectId));
+  if (!snap.exists()) return { projectId, exists: false, deleted: false, deletedAt: 0, expiresAt: 0, retentionDays: 7, expired: false };
+  return projectTrashStateFromData(projectId, snap.data());
+}
+
 /**
- * Delete a project in Cloud and leave cloud tombstone so other devices delete it
+ * Delete a project in Cloud and leave a verified Cloud tombstone. The local project
+ * list must not change until this function returns its server-readback receipt.
  */
-export async function deleteCloudProject(projectId: string, retentionDays = 7): Promise<void> {
-  if (!projectId) return;
+export async function deleteCloudProject(projectId: string, retentionDays = 7): Promise<ProjectLifecycleReceipt> {
+  if (!projectId) throw new Error('PROJECT_LIFECYCLE_PROJECT_REQUIRED');
+  requireOnlineProjectLifecycle();
+  await ensureAuth();
+  await requireVerifiedProjectAdmin(projectId);
+  const now = Date.now();
+  const safeRetentionDays = [3, 7, 15, 30, 60, 90].includes(Number(retentionDays)) ? Number(retentionDays) : 7;
+  const expiresAt = now + safeRetentionDays * 24 * 60 * 60 * 1000;
+  const mutationId = projectLifecycleMutationId('delete', projectId);
+  const ref = doc(db, 'projects', projectId);
   try {
-    await ensureAuth();
-    const now = Date.now();
-    const safeRetentionDays = [3, 7, 15, 30, 60, 90].includes(Number(retentionDays)) ? Number(retentionDays) : 7;
-    await setDoc(doc(db, 'projects', projectId), {
+    await setDoc(ref, {
       id: projectId,
       deleted: true,
       deletedAt: now,
       trashRetentionDays: safeRetentionDays,
-      trashExpiresAt: now + safeRetentionDays * 24 * 60 * 60 * 1000,
+      trashExpiresAt: expiresAt,
+      lifecycleMutationId: mutationId,
+      lifecycleMutationType: 'delete',
+      lifecycleMutationAt: now,
       updatedAt: now
     }, { merge: true });
+
+    const verifiedSnap = await getDocFromServer(ref);
+    if (!verifiedSnap.exists()) throw new Error('PROJECT_DELETE_VERIFY_MISSING_ROOT');
+    const verified = projectTrashStateFromData(projectId, verifiedSnap.data());
+    if (!verified.deleted || verified.mutationId !== mutationId || verified.expiresAt !== expiresAt) {
+      throw new Error('PROJECT_DELETE_VERIFY_MISMATCH');
+    }
+    return { ...verified, verified: true, action: 'delete' };
   } catch (err) {
     console.warn('deleteCloudProject error:', err);
     throw err;
   }
 }
 
-/** Restore a project that is still inside its trash retention window. Subcollections
- * are not duplicated/deleted during soft-delete, so restoring the root makes the
- * existing realtime data visible again without copying photos or business records. */
-export async function restoreCloudProject(projectId: string): Promise<void> {
-  if (!projectId) return;
+/** Restore a project only while its server tombstone is still inside retention.
+ * Subcollections are not duplicated/deleted during soft-delete, so restoring the root
+ * makes the existing realtime data visible again without copying media/business data. */
+export async function restoreCloudProject(projectId: string): Promise<ProjectLifecycleReceipt> {
+  if (!projectId) throw new Error('PROJECT_LIFECYCLE_PROJECT_REQUIRED');
+  requireOnlineProjectLifecycle();
   await ensureAuth();
+  await requireVerifiedProjectAdmin(projectId);
+  const ref = doc(db, 'projects', projectId);
+  const beforeSnap = await getDocFromServer(ref);
+  if (!beforeSnap.exists()) throw new Error('PROJECT_RESTORE_MISSING_ROOT');
+  const before = projectTrashStateFromData(projectId, beforeSnap.data());
+  if (!before.deleted) throw new Error('PROJECT_RESTORE_NOT_DELETED');
+  if (before.expired) throw new Error('PROJECT_RESTORE_RETENTION_EXPIRED');
+
   const now = Date.now();
-  await setDoc(doc(db, 'projects', projectId), {
+  const mutationId = projectLifecycleMutationId('restore', projectId);
+  await setDoc(ref, {
     id: projectId,
     deleted: false,
     deletedAt: null,
     trashExpiresAt: null,
+    lifecycleMutationId: mutationId,
+    lifecycleMutationType: 'restore',
+    lifecycleMutationAt: now,
     updatedAt: now,
   }, { merge: true });
+
+  const verifiedSnap = await getDocFromServer(ref);
+  if (!verifiedSnap.exists()) throw new Error('PROJECT_RESTORE_VERIFY_MISSING_ROOT');
+  const verifiedData = verifiedSnap.data();
+  if (verifiedData?.deleted === true || String(verifiedData?.lifecycleMutationId || '') !== mutationId) {
+    throw new Error('PROJECT_RESTORE_VERIFY_MISMATCH');
+  }
+  const verified = projectTrashStateFromData(projectId, verifiedData);
+  return { ...verified, verified: true, action: 'restore' };
 }
 
 /**

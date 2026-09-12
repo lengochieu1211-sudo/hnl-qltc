@@ -9,6 +9,15 @@ on:
       - 'scripts/dev-media-replacement-live-golden.mjs'
       - 'scripts/dev-health-center-repair-live-golden.ts'
       - 'scripts/dev-hosted-browser-golden.mjs'
+      - 'scripts/stability-gate.mjs'
+      - 'public/sw.js'
+      - 'vite.config.ts'
+      - 'src/serviceWorkerRegistration.ts'
+      - 'src/lib/cloudBinaryPurge.ts'
+      - 'src/lib/binaryStorage.ts'
+      - 'src/lib/r2Storage.ts'
+      - 'src/lib/firebaseBase.ts'
+      - 'src/lib/trash.ts'
       - 'scripts/ui-entry-ux-golden.ts'
       - 'src/components/SettingsAccordionCard.tsx'
       - 'src/components/SettingsFeatureSheet.tsx'
@@ -169,6 +178,7 @@ jobs:
           npm run test:ai-provider
           npm run test:ai-gateway
           npm run test:ai-export
+          npm run test:stability
           npm run typecheck
           npm run lint
           npm run build

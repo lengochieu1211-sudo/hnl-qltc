@@ -23,6 +23,7 @@ const src = {
   bottomNav: read('src/components/BottomNav.tsx'),
   authHeader: read('src/components/GoogleAuthHeader.tsx'),
   firebase: read('src/lib/firebase.ts'),
+  firebaseBase: read('src/lib/firebaseBase.ts'),
   r2: read('cloudflare/r2-gateway/worker.js'),
   firestore: read('firestore.rules'),
   storage: read('storage.rules'),
@@ -85,6 +86,7 @@ check('Security role labels are normalized', has(src.securityModal, 'ADMIN (Qu�
 check('Last ADMIN guard counts unique logical emails', has(src.securityModal, 'new Set(', "m?.role === 'ADMIN'", "String(m?.email || '').trim().toLowerCase()"));
 check('Member list collapses physical aliases to canonical email', has(src.firebase, 'candidateCanonical', 'existingCanonical', 'byEmail.set(email, candidate)'));
 check('Client resolves canonical email before UID fallback', src.firebase.indexOf('if (email) ids.add(email);') < src.firebase.indexOf('if (user.uid) ids.add(user.uid);'));
+check('Project discovery treats legacy indexes as candidates only', has(src.firebaseBase, 'users/{uid}.projects is discovery-only', 'projectAccess and invitation roles are candidates only', "roleInfo.verification !== 'verified' || !roleInfo.allowed", '[Project discovery] server verification failed closed:') && !src.firebaseBase.includes('role: hint.role'));
 check('Notification Defect navigation carries exact identity and floor', has(src.app, 'qlct_pending_defect_navigation', 'defectId: defect.id', 'floorId: defect.floorId'));
 check('FloorPlan consumes Defect deep-link and opens exact detail', has(src.floor, 'qlct_pending_defect_navigation', "setStatusFilter('all')", "setViewMode('defect')", 'setActiveDefectDetail(defect)', 'pendingFocusRef.current'));
 check('Deleted/archived Defect deep-link fails closed with a clear unavailable message', has(src.floor, 'Target no longer exists or is archived', 'Defect này không còn tồn tại hoặc đã được lưu trữ.', 'Target floor no longer exists', 'mặt bằng/tầng liên quan không còn tồn tại.', 'Không có Defect khác được mở thay thế.'));

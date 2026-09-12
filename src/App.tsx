@@ -169,6 +169,7 @@ import { subscribeConversationReadState, subscribeConversationSummary } from './
 import { applyFloorPlanImageToMultipleFloors, cacheFloorPlansForOffline, floorPlanNeedsCloudUpload, isDisplayableFloorPlanUrl, isFloorPlanAutoCacheNetworkSuitable, loadFloorPlanImageFromCloud, resolveFloorPlanImageForDisplay, stageFloorPlanImageOutbox, syncFloorPlanImageToCloud, deleteFloorPlanImageFromCloud } from './lib/floorPlanImageSync';
 import { DEFAULT_TRASH_SETTINGS, TrashOperation, TrashSettings, TrashCollectionKey, deleteTrashOperationFromCloud, estimateTrashBytes, getTrashCollectionLabel, normalizeTrashSettings, sanitizeTrashSnapshot, saveTrashOperationToCloud, subscribeProjectTrash } from './lib/trash';
 import { commitWarehouseTransactionAtomic, updateWarehouseTransactionAtomic, softDeleteWarehouseTransactionAtomic } from './lib/warehouseTransactions';
+import { drainBinaryPurgeRetryQueues, purgeTrashOperationBinaries } from './lib/cloudBinaryPurge';
 
 // Heavy screens are code-split so Android does not parse XLSX/PDF-heavy modules at startup.
 const WarehouseTab = React.lazy(() => import('./components/WarehouseTab').then(m => ({ default: m.WarehouseTab })));
@@ -1778,23 +1779,24 @@ export default function App() {
       const expired = cloudItems.filter((item) => Number(item.expiresAt || 0) > 0 && Number(item.expiresAt || 0) <= now);
       void persistTrashLocal(valid);
 
-      // Purge only when an ADMIN is online. This avoids a timer/Cloud Function cost while
-      // still enforcing the selected retention period in normal app use. Floor-plan
-      // binaries are deleted at this point; ordinary business tombstones stay tiny to
-      // protect against stale offline resurrection.
-      if (isProjectRoleResolved && currentUserRole === 'ADMIN' && expired.length > 0) {
+      // Expired binary purge is fail-closed. Every attempt re-reads canonical ADMIN,
+      // the server Trash row and every active/shared reference immediately before DELETE.
+      // Provider/reference failures persist an account-scoped retry intent; the Trash row
+      // remains until all relevant areas are safely purged or intentionally retained by a
+      // different active/unexpired reference.
+      if (isProjectRoleResolved && currentUserRole === 'ADMIN' && isOnline && expired.length > 0) {
         expired.forEach((operation) => {
           void (async () => {
-            for (const item of operation.deletedItems || []) {
-              if (item.collection === 'floorPlans') {
-                await deleteFloorPlanImageFromCloud(operation.projectId, item.snapshot as FloorPlan).catch(() => {});
-              } else if (item.collection === 'defects') {
-                await deleteEntityPhotos(operation.projectId, 'defect', item.entityId).catch(() => {});
-              } else if (item.collection === 'crewRecords') {
-                await deleteEntityPhotos(operation.projectId, 'crewRecord', item.entityId).catch(() => {});
+            try {
+              const result = await purgeTrashOperationBinaries(operation.projectId, operation.id);
+              if (!result.complete) {
+                console.warn('[Trash purge] deferred with durable retry:', operation.id, result.error || result.queuedAreas);
+                return;
               }
+              await deleteTrashOperationFromCloud(operation.projectId, operation.id);
+            } catch (err) {
+              console.warn('[Trash purge] server/provider verification deferred:', operation.id, err);
             }
-            await deleteTrashOperationFromCloud(operation.projectId, operation.id).catch(() => {});
           })();
         });
       }
@@ -1804,7 +1806,34 @@ export default function App() {
       disposed = true;
       unsubscribeCloud?.();
     };
-  }, [activeProjectId, cloudUserKey, currentUserRole, isProjectRoleResolved]);
+  }, [activeProjectId, cloudUserKey, currentUserRole, isProjectRoleResolved, isOnline]);
+
+  useEffect(() => {
+    if (!isProjectRoleResolved || currentUserRole !== 'ADMIN' || !isOnline) return;
+    let cancelled = false;
+    const drain = async () => {
+      try {
+        const result = await drainBinaryPurgeRetryQueues(activeProjectIdRef.current);
+        if (cancelled || result.completedOperationIds.length === 0) return;
+        for (const operationId of result.completedOperationIds) {
+          await deleteTrashOperationFromCloud(activeProjectIdRef.current, operationId);
+        }
+        const completed = new Set(result.completedOperationIds);
+        const remaining = trashOperationsRef.current.filter((item) => !completed.has(item.id));
+        persistTrashOperations(remaining, activeProjectIdRef.current);
+      } catch (err) {
+        if (!cancelled) console.warn('[Binary purge retry] reconnect drain deferred:', err);
+      }
+    };
+    void drain();
+    const retryOnOnline = () => { void drain(); };
+    window.addEventListener('online', retryOnOnline);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('online', retryOnOnline);
+    };
+  }, [activeProjectId, cloudUserKey, currentUserRole, isProjectRoleResolved, isOnline]);
+
   // Chat must only list projects currently authorized by Firestore. Local recovery
   // projects remain available in Project Manager, but are never treated as chat access.
   const [authorizedChatProjects, setAuthorizedChatProjects] = useState<Array<{ id: string; name: string }>>([]);
@@ -2654,27 +2683,27 @@ export default function App() {
       alert('Chỉ ADMIN được xóa vĩnh viễn dữ liệu trong Thùng rác.');
       return;
     }
+    if (!isOnline) {
+      alert('Cần có mạng để kiểm tra reference trên Server trước khi xóa vĩnh viễn.');
+      return;
+    }
     const operation = trashOperationsRef.current.find((item) => item.id === operationId);
     if (!operation) return;
-    // Floor-plan binaries are intentionally retained while recoverable. Only purge them
-    // when the trash entry is permanently removed/expired. Other business tombstones stay
-    // tiny in Firestore to prevent stale offline clients from resurrecting old records.
-    for (const item of operation.deletedItems || []) {
-      if (item.collection === 'floorPlans') {
-        await deleteFloorPlanImageFromCloud(operation.projectId, item.snapshot as FloorPlan).catch((err) =>
-          console.warn('Permanent floor-plan image cleanup warning:', err)
-        );
-      } else if (item.collection === 'defects') {
-        await deleteEntityPhotos(operation.projectId, 'defect', item.entityId).catch(() => {});
-      } else if (item.collection === 'crewRecords') {
-        await deleteEntityPhotos(operation.projectId, 'crewRecord', item.entityId).catch(() => {});
+    try {
+      // `force` means the ADMIN explicitly chose permanent deletion before expiry; it
+      // never bypasses server RBAC/reference verification.
+      const result = await purgeTrashOperationBinaries(operation.projectId, operation.id, { force: true });
+      if (!result.complete) {
+        alert('Chưa thể xóa binary an toàn. Yêu cầu đã được giữ trong hàng đợi và sẽ thử lại khi kết nối ổn định.');
+        return;
       }
+      await deleteTrashOperationFromCloud(operation.projectId, operationId);
+      const remaining = trashOperationsRef.current.filter((item) => item.id !== operationId);
+      persistTrashOperations(remaining, operation.projectId);
+    } catch (err) {
+      console.warn('Trash permanent purge verification warning:', err);
+      alert('Không thể xác minh/xóa binary an toàn. Mục Thùng rác vẫn được giữ để thử lại.');
     }
-    const remaining = trashOperationsRef.current.filter((item) => item.id !== operationId);
-    persistTrashOperations(remaining, operation.projectId);
-    await deleteTrashOperationFromCloud(operation.projectId, operationId).catch((err) =>
-      console.warn('Trash cloud permanent delete warning:', err)
-    );
   };
 
   const emptyTrash = async () => {

@@ -28,6 +28,7 @@ import {
   saveProjectMetadataToCloud,
   deleteCloudProject,
   restoreCloudProject,
+  fetchProjectDeletionStateFromServer,
   fetchProjectUserRoleFromCloud,
   getCurrentRealFirebaseUser,
   transferProjectMembersToCanonical,
@@ -212,40 +213,84 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
-    try {
-      const raw = JSON.parse(localStorage.getItem('construction_deleted_projects') || '[]');
-      const now = Date.now();
-      const rows = Array.isArray(raw) ? raw : [];
-      const valid = rows.filter((item: any) => item?.deleted && item?.projectId && Number(item.expiresAt || 0) > now);
-      const expired = rows.filter((item: any) => item?.deleted && item?.projectId && Number(item.expiresAt || 0) > 0 && Number(item.expiresAt || 0) <= now);
-      setDeletedProjects(valid);
-      localStorage.setItem('construction_deleted_projects', JSON.stringify(valid));
-      void setAsyncItem('construction_deleted_projects', valid);
-      if (canManage && expired.length > 0) {
-        void (async () => {
-          for (const entry of expired) {
+    let cancelled = false;
+
+    const reconcileDeletedProjects = async () => {
+      try {
+        const raw = JSON.parse(localStorage.getItem('construction_deleted_projects') || '[]');
+        const rows = (Array.isArray(raw) ? raw : []).filter((item: any) => item?.deleted && item?.projectId);
+        if (cancelled) return;
+        setDeletedProjects(rows);
+
+        // Expiry in localStorage is only a hint. Another device may have restored the
+        // project after this device went offline. Local data/photos are physically
+        // cleaned only after a fresh server read confirms the root is STILL deleted
+        // and its retention window is actually expired.
+        if (!canManage || rows.length === 0 || (typeof navigator !== 'undefined' && navigator.onLine === false)) return;
+        const now = Date.now();
+        const nextRows: typeof rows = [];
+        for (const entry of rows) {
+          if (cancelled) return;
+          if (Number(entry.expiresAt || 0) <= 0 || Number(entry.expiresAt || 0) > now) {
+            nextRows.push(entry);
+            continue;
+          }
+          try {
+            const serverState = await fetchProjectDeletionStateFromServer(entry.projectId);
+            if (!serverState.exists) {
+              // Missing root is not proof that cleanup is safe. Retain the local copy.
+              nextRows.push(entry);
+              continue;
+            }
+            if (!serverState.deleted) {
+              // Restored elsewhere: drop only the stale local trash marker. Never erase data.
+              continue;
+            }
+            if (!serverState.expired) {
+              nextRows.push({ ...entry, expiresAt: serverState.expiresAt, retentionDays: serverState.retentionDays });
+              continue;
+            }
+
             const keysToRemove = await getProjectStorageKeys(entry.projectId);
             for (const key of keysToRemove) {
               localStorage.removeItem(key);
               await removeAsyncItem(key);
             }
             await deleteProjectPhotos(entry.projectId);
+          } catch (err) {
+            // Network/RBAC/server verification failure => fail closed and keep local data.
+            console.warn('[Project trash] expiry verification deferred:', entry.projectId, err);
+            nextRows.push(entry);
           }
-        })();
+        }
+        if (cancelled) return;
+        setDeletedProjects(nextRows);
+        localStorage.setItem('construction_deleted_projects', JSON.stringify(nextRows));
+        await setAsyncItem('construction_deleted_projects', nextRows);
+      } catch (err) {
+        console.warn('[Project trash] local reconciliation warning:', err);
       }
-    } catch (_) {
-      setDeletedProjects([]);
-    }
-  }, [isOpen]);
+    };
+
+    void reconcileDeletedProjects();
+    const retry = () => { void reconcileDeletedProjects(); };
+    window.addEventListener('online', retry);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('online', retry);
+    };
+  }, [isOpen, canManage, googleUser?.uid]);
 
   const restoreDeletedProject = async (entry: { projectId: string; name?: string; deletedAt: number; expiresAt: number; retentionDays: number }) => {
     if (!canManage) return;
     try {
-      await restoreCloudProject(entry.projectId);
+      const receipt = await restoreCloudProject(entry.projectId);
+      if (!receipt.verified || receipt.deleted) throw new Error('PROJECT_RESTORE_SERVER_NOT_VERIFIED');
       const restoredProject: ProjectInfo = {
         id: entry.projectId,
         name: entry.name || `Dự án ${entry.projectId.slice(0, 8)}`,
-        createdAt: entry.deletedAt || Date.now(),
+        createdAt: 0,
+        createdAtSource: 'migrating',
         updatedAt: Date.now(),
       };
       const nextProjects = projects.some((p) => p.id === entry.projectId) ? projects : [...projects, restoredProject];
@@ -264,16 +309,28 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   const purgeDeletedProjectLocal = async (entry: { projectId: string; name?: string; deletedAt: number; expiresAt: number; retentionDays: number }) => {
     if (!canManage) return;
     if (!window.confirm(`Xóa vĩnh viễn dữ liệu cục bộ của "${entry.name || entry.projectId}"? Dự án Cloud vẫn giữ tombstone để chống tự sống lại.`)) return;
-    const keysToRemove = await getProjectStorageKeys(entry.projectId);
-    for (const key of keysToRemove) {
-      localStorage.removeItem(key);
-      await removeAsyncItem(key);
+    try {
+      // Even an explicit local purge must verify another device has not restored the
+      // Cloud project. Network/RBAC failure keeps the only local recoverable copy.
+      const serverState = await fetchProjectDeletionStateFromServer(entry.projectId);
+      if (!serverState.exists || !serverState.deleted) {
+        throw new Error('PROJECT_LOCAL_PURGE_SERVER_NOT_DELETED');
+      }
+      const keysToRemove = await getProjectStorageKeys(entry.projectId);
+      for (const key of keysToRemove) {
+        localStorage.removeItem(key);
+        await removeAsyncItem(key);
+      }
+      await deleteProjectPhotos(entry.projectId);
+      const nextDeleted = deletedProjects.filter((item) => item.projectId !== entry.projectId);
+      setDeletedProjects(nextDeleted);
+      localStorage.setItem('construction_deleted_projects', JSON.stringify(nextDeleted));
+      await setAsyncItem('construction_deleted_projects', nextDeleted);
+      logAuditAction('PROJECT_DELETE', `Xóa vĩnh viễn dữ liệu cục bộ dự án: ${entry.projectId}`, entry.projectId);
+    } catch (err) {
+      console.warn('[Project trash] manual local purge blocked:', entry.projectId, err);
+      setErrorMessage('Không thể xác minh dự án vẫn đang ở Thùng rác trên Server. Dữ liệu cục bộ chưa bị xóa.');
     }
-    await deleteProjectPhotos(entry.projectId);
-    const nextDeleted = deletedProjects.filter((item) => item.projectId !== entry.projectId);
-    setDeletedProjects(nextDeleted);
-    localStorage.setItem('construction_deleted_projects', JSON.stringify(nextDeleted));
-    await setAsyncItem('construction_deleted_projects', nextDeleted);
   };
 
   // Cloud Backup & Multi-device Sync State
@@ -2753,17 +2810,21 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       if ([3, 7, 15, 30, 60, 90].includes(Number(raw?.retentionDays))) retentionDays = Number(raw.retentionDays);
     } catch (_) {}
 
+    let deleteReceipt: Awaited<ReturnType<typeof deleteCloudProject>>;
     try {
       // Cloud soft-delete FIRST. If this fails, keep the project fully visible/local so
       // we never lose the only recoverable copy because of a temporary network issue.
-      await deleteCloudProject(targetDeleteId, retentionDays);
+      deleteReceipt = await deleteCloudProject(targetDeleteId, retentionDays);
+      if (!deleteReceipt.verified || !deleteReceipt.deleted) throw new Error('PROJECT_DELETE_SERVER_NOT_VERIFIED');
     } catch (err) {
-      setErrorMessage('Không thể chuyển dự án vào Thùng rác trên Firebase. Dự án chưa bị xóa khỏi máy.');
+      console.warn('[Project delete] server verification failed:', err);
+      setErrorMessage('Không thể xác nhận xóa dự án trên Firebase Server. Dự án chưa bị xóa khỏi máy.');
       return;
     }
 
-    const now = Date.now();
-    const expiresAt = now + retentionDays * 24 * 60 * 60 * 1000;
+    const now = deleteReceipt.deletedAt;
+    const expiresAt = deleteReceipt.expiresAt;
+    retentionDays = deleteReceipt.retentionDays;
     const updated = projects.filter(p => p.id !== targetDeleteId);
     saveProjectsList(updated);
     setProjects(updated);

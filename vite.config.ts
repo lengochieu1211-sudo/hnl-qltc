@@ -2,11 +2,28 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import fs from 'node:fs';
-import {defineConfig} from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 
 
 const packageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf8')) as { version?: string };
 const canonicalAppVersion = String(packageJson.version || '0.0.0-dev');
+
+
+const hnlServiceWorkerAssetManifest = (buildId: string): Plugin => ({
+  name: 'hnl-service-worker-asset-manifest',
+  apply: 'build' as const,
+  generateBundle(_options: unknown, bundle: Record<string, any>) {
+    const assets = Object.keys(bundle)
+      .filter((fileName) => /^assets\/.+\.(?:js|css)$/i.test(fileName))
+      .sort()
+      .map((fileName) => `/${fileName}`);
+    this.emitFile({
+      type: 'asset',
+      fileName: 'sw-assets.json',
+      source: JSON.stringify({ version: canonicalAppVersion, buildId, assets }, null, 2),
+    });
+  },
+});
 
 const firebaseWebConfig = (() => {
   try {
@@ -61,7 +78,7 @@ export default defineConfig(() => {
   const appEnv = String(process.env.VITE_APP_ENV || (process.env.NODE_ENV === 'production' ? 'PROD' : 'DEV')).toUpperCase() === 'PROD' ? 'PROD' : 'DEV';
 
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), hnlServiceWorkerAssetManifest(buildId)],
     define: {
       ...firebaseEnvDefine,
       __APP_VERSION__: JSON.stringify(canonicalAppVersion),

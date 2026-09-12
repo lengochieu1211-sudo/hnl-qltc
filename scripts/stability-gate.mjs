@@ -27,6 +27,9 @@ const firestoreRules = read('firestore.rules');
 const storageRules = read('storage.rules');
 const sw = read('public/sw.js');
 const swRegistration = read('src/serviceWorkerRegistration.ts');
+const devRuntimeWorkflow = read('.github/workflows/dev-runtime-golden.yml');
+const hostedBrowserGolden = read('scripts/dev-hosted-browser-golden.mjs');
+const cloudBinaryPurge = read('src/lib/cloudBinaryPurge.ts');
 const photoSync = read('src/lib/photoCloudSync.ts');
 const photoStorage = read('src/utils/photoStorage.ts');
 const photoPicker = read('src/components/PhotoAttachmentPicker.tsx');
@@ -300,9 +303,17 @@ if (app.includes("FIREBASE_ONLY_ALL_BACKUP_CLOUD_SOURCE") && app.includes("const
 }
 pass('Firebase-only JSON backup is Cloud/live-state sourced and media-complete/fail-closed');
 
-if (!sw.includes('new URL(self.location.href).searchParams.get(\'v\')') || !swRegistration.includes('APP_VERSION')) fail('service worker cache version is not derived from canonical app version');
+if (!sw.includes("new URL(self.location.href).searchParams.get('v')") || !swRegistration.includes('APP_VERSION')) fail('service worker cache version is not derived from canonical app version');
+requireAll(vite, ['hnl-service-worker-asset-manifest', 'sw-assets.json', 'assets = Object.keys(bundle)'], 'Vite service-worker asset manifest');
+requireAll(sw, ['loadBuildAssetManifest', 'SW_ASSET_MANIFEST_HAS_NO_JS_CHUNKS', 'cache.addAll(required)'], 'service-worker complete app-shell precache');
+requireAll(hostedBrowserGolden, ['verifyColdStartOffline', 'Network.clearBrowserCache', 'context.setOffline(true)', 'CacheStorage'], 'Runtime Golden cold-start offline');
+for (const trigger of ['public/sw.js', 'vite.config.ts', 'src/serviceWorkerRegistration.ts', 'scripts/stability-gate.mjs']) {
+  if (!devRuntimeWorkflow.includes(`- '${trigger}'`)) fail(`DEV Runtime Golden trigger missing ${trigger}`);
+}
+if (!devRuntimeWorkflow.includes('npm run test:stability')) fail('DEV Runtime Golden must run Stability Gate before deploy');
+requireAll(cloudBinaryPurge, ['getDocsFromServer', 'collectBinaryPointers', 'construction_binary_purge_', 'BINARY_PURGE_ADMIN_REQUIRED'], 'physical binary purge safety');
 requireAll(diagnostics, ['sanitizeDiagnosticValue', '[redacted]'], 'diagnostics redaction');
-pass('service worker/version and diagnostics safety');
+pass('service worker/version, cold-start and diagnostics safety');
 
 for (const required of [
   'scripts/firebase-only-golden.mjs',

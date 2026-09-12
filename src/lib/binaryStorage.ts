@@ -1,6 +1,7 @@
 import { FIREBASE_EMULATOR_ENABLED, getCurrentRealFirebaseUser } from './firebase';
 import {
   downloadStorageBlob,
+  purgeStoragePath,
   readStorageMetadata,
   uploadFloorPlanBinary,
   uploadProjectBinary,
@@ -10,6 +11,7 @@ import {
 import {
   downloadR2Blob,
   isR2Configured,
+  purgeR2Object,
   verifyR2ObjectReady,
   uploadFloorPlanBinaryToR2,
   uploadProjectBinaryToR2,
@@ -135,3 +137,20 @@ export async function verifyBinaryObjectReady(
   }
   return false;
 }
+
+/** Provider-neutral physical purge primitive. Callers must complete retention + live
+ * reference verification first; this function deliberately contains no business policy. */
+export async function purgeBinaryObject(provider: string | null | undefined, storagePath?: string | null): Promise<void> {
+  const path = String(storagePath || '').trim();
+  if (!path) return;
+  if (provider === 'r2' || String(provider || '').startsWith('r2')) {
+    await purgeR2Object(path);
+    return;
+  }
+  if (provider === 'firebase-storage' || String(provider || '').startsWith('storage')) {
+    await purgeStoragePath(path);
+    return;
+  }
+  throw new Error(`BINARY_PURGE_UNKNOWN_PROVIDER:${String(provider || '')}:${path}`);
+}
+
