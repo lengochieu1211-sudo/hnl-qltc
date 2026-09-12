@@ -39,6 +39,7 @@ jobs:
           git apply -p1 --check /tmp/p.patch
           git apply -p1 /tmp/p.patch
           git diff --exit-code "$BASE_SHA" -- package-lock.json .firebaserc firebase.json firebase.prod.json
+          git add -N scripts/cloud-purge-golden.mjs src/lib/cloudBinaryPurge.ts
           test "$(git diff --name-only | wc -l)" = 15
           git diff --name-only
       - uses: actions/setup-node@v4
