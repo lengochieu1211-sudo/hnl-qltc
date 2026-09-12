@@ -25,7 +25,7 @@ export function registerServiceWorker() {
   }
 
   if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
+    const registerCurrentBuildServiceWorker = () => {
       const buildId = typeof __BUILD_ID__ === 'string' && __BUILD_ID__ ? __BUILD_ID__ : 'unknown-build';
       navigator.serviceWorker
         .register(`/sw.js?v=${encodeURIComponent(APP_VERSION)}&build=${encodeURIComponent(buildId)}`)
@@ -40,7 +40,18 @@ export function registerServiceWorker() {
         .catch((error) => {
           console.warn('[SW] Registration failed:', error);
         });
-    });
+    };
+
+    // Bootstrap intentionally waits for storage/Auth/redirect preflight before mounting App.
+    // On a fresh or fast browser that work can finish after window.load has already fired.
+    // Register immediately in that case; otherwise wait for the one remaining load event.
+    // This guarantees first-install app-shell precaching instead of silently missing the
+    // Service Worker until the user's next page load.
+    if (document.readyState === 'complete') {
+      registerCurrentBuildServiceWorker();
+    } else {
+      window.addEventListener('load', registerCurrentBuildServiceWorker, { once: true });
+    }
   }
 }
 
