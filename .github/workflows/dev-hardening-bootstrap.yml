@@ -1,0 +1,81 @@
+name: DEV Hardening Bootstrap
+on:
+  push:
+    branches: [dev-hardening-bootstrap-20260912]
+    paths: ['.github/workflows/dev-hardening-bootstrap.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  certify-promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      BASE_SHA: db24c5b21112fa947dcc54c30486cec5789d72dd
+      B64_SHA: 5752916f93d2e45aa6ff5f72f7d7c769a34b6b9fadf6ffb1f742620252b8cd33
+      GZ_SHA: 34642eeebe921c1034d3ae934b5851048a18558ae780ca44905a5f026193a1fa
+      PATCH_SHA: 4ca1565159dd41b8e3dadabc4645653211ff8009cc20757d2ea7258a0d1746a7
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Reconstruct verified patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat scripts/.dev-hardening-patch.gz{00,01,02,03,04,05,06} >/tmp/p.b64
+          test "$(wc -c </tmp/p.b64)" = 27444
+          echo "$B64_SHA  /tmp/p.b64" | sha256sum -c -
+          base64 -d /tmp/p.b64 >/tmp/p.gz
+          echo "$GZ_SHA  /tmp/p.gz" | sha256sum -c -
+          gzip -dc /tmp/p.gz >/tmp/p.patch
+          echo "$PATCH_SHA  /tmp/p.patch" | sha256sum -c -
+      - name: Apply only to exact DEV baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "$BASE_SHA"
+          git checkout --detach "$BASE_SHA"
+          git apply -p1 --check /tmp/p.patch
+          git apply -p1 /tmp/p.patch
+          git diff --exit-code "$BASE_SHA" -- package-lock.json .firebaserc firebase.json firebase.prod.json
+          test "$(git diff --name-only | wc -l)" = 15
+          git diff --name-only
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install exact lock
+        run: npm ci
+      - name: Full certification
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run test:health-center
+          npm run test:ai-core
+          npm run test:ai-tools
+          npm run test:ai-audit
+          npm run test:ai-planner
+          npm run test:ai-provider
+          npm run test:ai-gateway
+          npm run test:ai-export
+          npm run test:stability
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+          npm run security:audit
+          npm run build
+          node -e "const x=require('./dist/sw-assets.json'); if(!x.buildId||!x.assets.some(a=>a.endsWith('.js'))) process.exit(1)"
+      - name: Commit and fast-forward DEV
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'fix(dev): harden discovery purge lifecycle and offline cold-start'
+          test "$(git rev-parse HEAD^)" = "$BASE_SHA"
+          git push origin HEAD:dev
+          echo "FINAL_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "### DEV promoted: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
