@@ -126,7 +126,7 @@ export const SettingsFeatureSheet: React.FC<SettingsFeatureSheetProps> = ({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-hidden={!open}
-        className={`fixed inset-x-0 bottom-0 top-[8dvh] z-[90] flex min-h-0 flex-col overflow-hidden rounded-t-[28px] bg-white shadow-[0_-18px_50px_rgba(15,23,42,0.22)] sm:left-[5vw] sm:right-[5vw] sm:mx-auto sm:max-w-5xl ${open ? '' : 'hidden'}`}
+        className={`fixed inset-x-0 bottom-0 top-[8dvh] z-[90] flex min-h-0 flex-col overflow-hidden rounded-t-[28px] bg-white shadow-[0_-18px_50px_rgba(15,23,42,0.22)] sm:left-[5vw] sm:right-[5vw] sm:mx-auto sm:max-w-5xl lg:bottom-[5dvh] lg:top-[5dvh] lg:rounded-[28px] ${open ? '' : 'hidden'}`}
       >
         <header className="flex min-h-[84px] shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-7 py-4 sm:px-6">
           <div className="flex shrink-0 items-center justify-center rounded-xl bg-indigo-50 p-2">
@@ -154,8 +154,11 @@ export const SettingsFeatureSheet: React.FC<SettingsFeatureSheetProps> = ({
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain">
-          <div className={`min-h-full px-7 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4 sm:px-6 ${bodyClassName}`}>
+        <div
+          data-hnl-settings-sheet-scrollbody={sheetKey}
+          className="min-h-0 flex-1 scroll-pb-6 overflow-x-hidden overflow-y-auto overscroll-contain"
+        >
+          <div className={`min-h-full px-7 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4 sm:px-6 lg:pb-6 ${bodyClassName}`}>
             {children}
           </div>
         </div>

@@ -195,6 +195,12 @@ async function verifySettingsFeatureSheets(page, label) {
         bodyOverflow: document.body.style.overflow,
         backdropVisible: Boolean(backdropElement && getComputedStyle(backdropElement).display !== 'none'),
         viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+        topGap: rect?.top ?? -1,
+        bottomGap: rect ? window.innerHeight - rect.bottom : -1,
+        height: rect?.height ?? -1,
+        scrollBodyClientHeight: dialog?.querySelector(`[data-hnl-settings-sheet-scrollbody="${key}"]`)?.clientHeight ?? -1,
+        scrollBodyScrollHeight: dialog?.querySelector(`[data-hnl-settings-sheet-scrollbody="${key}"]`)?.scrollHeight ?? -1,
         offenders,
         headerIconWidth: dialog?.querySelector('header > div:first-child svg')?.getBoundingClientRect().width ?? -1,
         closeWidth: dialog?.querySelector('header button')?.getBoundingClientRect().width ?? -1,
@@ -211,6 +217,27 @@ async function verifySettingsFeatureSheets(page, label) {
     assert(metrics.backdropVisible, `${label}: ${item.name} sheet backdrop is not visible`);
     assert(metrics.bodyOverflow === 'hidden', `${label}: ${item.name} sheet must lock background page scroll`);
     assert(metrics.width <= metrics.viewportWidth + 1, `${label}: ${item.name} sheet exceeds viewport width`);
+    assert(metrics.height > 0 && metrics.height <= metrics.viewportHeight + 1, `${label}: ${item.name} sheet exceeds viewport height`);
+    if (metrics.viewportWidth >= 1024) {
+      assert(metrics.topGap >= 20, `${label}: ${item.name} desktop sheet is clipped at the top (${metrics.topGap}px gap)`);
+      assert(metrics.bottomGap >= 20, `${label}: ${item.name} desktop sheet is hidden at the bottom (${metrics.bottomGap}px gap)`);
+    } else {
+      assert(metrics.bottomGap >= -1 && metrics.bottomGap <= 2, `${label}: ${item.name} mobile sheet must remain bottom-anchored (${metrics.bottomGap}px gap)`);
+    }
+    assert(metrics.scrollBodyClientHeight > 0, `${label}: ${item.name} lost its independent scroll body`);
+    assert(metrics.scrollBodyScrollHeight >= metrics.scrollBodyClientHeight, `${label}: ${item.name} scroll body has invalid geometry`);
+    const scrollReach = await page.evaluate((key) => {
+      const body = document.querySelector(`[data-hnl-settings-sheet-scrollbody="${key}"]`);
+      if (!body) return { remaining: -1, bottomGap: -1 };
+      body.scrollTop = body.scrollHeight;
+      const rect = body.getBoundingClientRect();
+      return {
+        remaining: body.scrollHeight - body.clientHeight - body.scrollTop,
+        bottomGap: window.innerHeight - rect.bottom,
+      };
+    }, sheetKey);
+    assert(scrollReach.remaining <= 1, `${label}: ${item.name} cannot scroll to its final content (${scrollReach.remaining}px remaining)`);
+    assert(scrollReach.bottomGap >= -1, `${label}: ${item.name} scroll body extends below the viewport (${scrollReach.bottomGap}px)`);
     assert(metrics.overflowX <= 1, `${label}: ${item.name} sheet overflows horizontally — ${JSON.stringify(metrics.offenders)}`);
     assert(metrics.headerIconWidth > 0 && metrics.headerIconWidth <= 24.5, `${label}: ${item.name} header icon is too large (${metrics.headerIconWidth}px)`);
     assert(metrics.closeWidth > 0 && metrics.closeWidth <= 41, `${label}: ${item.name} close target is too large (${metrics.closeWidth}px)`);
@@ -268,6 +295,47 @@ async function verifySettingsFeatureSheets(page, label) {
   const viewport = page.viewportSize();
   assert(!viewport || bottomNavBox.y + bottomNavBox.height <= viewport.height + 2, `${label}: bottom navigation is pushed behind viewport after closing Settings sheets`);
   pass(`${label} Settings page returns to normal scroll/navigation after sheets close`);
+}
+
+async function verifyMaterialNeedFeatureSheet(page, label) {
+  const warehouseButton = page.getByRole('button', { name: 'Kho vật tư', exact: true }).first();
+  assert(await warehouseButton.count() > 0, `${label}: Kho vật tư bottom-nav button not found`);
+  await warehouseButton.click();
+
+  const trigger = page.locator('[role="button"][aria-controls="material-need-details"]').first();
+  await trigger.waitFor({ state: 'visible', timeout: 15000 });
+  await trigger.click();
+
+  const sheet = await waitForSettingsSheet(page, 'material-need-details', true);
+  const metrics = await page.evaluate(() => {
+    const dialog = document.querySelector('[data-hnl-settings-sheet="material-need-details"]');
+    const rect = dialog?.getBoundingClientRect();
+    const body = dialog?.querySelector('[data-hnl-settings-sheet-scrollbody="material-need-details"]');
+    if (body) body.scrollTop = body.scrollHeight;
+    return {
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      topGap: rect?.top ?? -1,
+      bottomGap: rect ? window.innerHeight - rect.bottom : -1,
+      remaining: body ? body.scrollHeight - body.clientHeight - body.scrollTop : -1,
+      overflowX: dialog ? dialog.scrollWidth - dialog.clientWidth : -1,
+    };
+  });
+
+  if (metrics.viewportWidth >= 1024) {
+    assert(metrics.topGap >= 20, `${label}: Material Need desktop sheet is clipped at the top (${metrics.topGap}px gap)`);
+    assert(metrics.bottomGap >= 20, `${label}: Material Need desktop sheet is hidden at the bottom (${metrics.bottomGap}px gap)`);
+  } else {
+    assert(metrics.bottomGap >= -1 && metrics.bottomGap <= 2, `${label}: Material Need mobile sheet must remain bottom-anchored (${metrics.bottomGap}px gap)`);
+  }
+  assert(metrics.remaining <= 1, `${label}: Material Need cannot scroll to its final content (${metrics.remaining}px remaining)`);
+  assert(metrics.overflowX <= 1, `${label}: Material Need feature sheet overflows horizontally (${metrics.overflowX}px)`);
+  pass(`${label} Material Need feature sheet vertical viewport fit`, `${Math.round(metrics.topGap)}px top / ${Math.round(metrics.bottomGap)}px bottom`);
+
+  const closeButton = sheet.getByRole('button', { name: /^Đóng Gợi ý vật tư tổng hợp$/ }).first();
+  await closeButton.waitFor({ state: 'visible', timeout: 10000 });
+  await closeButton.click();
+  await waitForSettingsSheet(page, 'material-need-details', false);
 }
 
 async function runViewport(browser, label, viewport, screenshotPath) {
@@ -342,6 +410,7 @@ async function runViewport(browser, label, viewport, screenshotPath) {
   pass(`${label} Security Center closes through visible close control`);
 
   await verifySettingsFeatureSheets(page, label);
+  await verifyMaterialNeedFeatureSheet(page, label);
 
   // HNL QLTC offline data is provided by Firestore persistentLocalCache/IndexedDB,
   // not by a PWA service worker. Requiring a service-worker registration here would
@@ -377,6 +446,8 @@ let browser;
 try {
   browser = await chromium.launch({ headless: true });
   await runViewport(browser, 'desktop', { width: 1440, height: 900 }, 'runtime-evidence/desktop.png');
+  await runViewport(browser, 'desktop-720p', { width: 1280, height: 720 }, 'runtime-evidence/desktop-720p.png');
+  await runViewport(browser, 'desktop-compact', { width: 1088, height: 610 }, 'runtime-evidence/desktop-compact.png');
   await runViewport(browser, 'mobile', { width: 393, height: 852 }, 'runtime-evidence/mobile.png');
 
   const fatalConsole = report.consoleErrors.filter(item => {

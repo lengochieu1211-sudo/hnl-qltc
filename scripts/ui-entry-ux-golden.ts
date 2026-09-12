@@ -86,6 +86,8 @@ assert(featureSheet.includes('window.history.pushState'), 'Shared feature sheet 
 assert(featureSheet.includes('flushSync'), 'Shared feature sheet Back close must synchronously remove stale backdrop interception');
 assert(featureSheet.includes('env(safe-area-inset-bottom'), 'Shared feature sheet Android safe-area padding missing');
 assert(featureSheet.includes('rounded-xl bg-indigo-50 p-2') && featureSheet.includes('h-5 w-5'), 'Shared feature sheet header icon must match the Material Norm 36px/20px title-icon contract');
+assert(featureSheet.includes('lg:bottom-[5dvh]') && featureSheet.includes('lg:top-[5dvh]') && featureSheet.includes('lg:rounded-[28px]'), 'Shared feature sheet desktop layout must keep visible top/bottom margins and four rounded corners');
+assert(featureSheet.includes('data-hnl-settings-sheet-scrollbody') && featureSheet.includes('scroll-pb-6'), 'Shared feature sheet must expose an independently scrollable body that can reach the final content');
 assert(featureSheet.includes('px-7'), 'Shared feature sheet mobile padding must stay at 28px');
 assert(featureSheet.includes('text-[17px] font-semibold'), 'Shared feature sheet title must use compact medium-weight typography');
 assert(featureSheet.includes('<X className="h-6 w-6"'), 'Shared feature sheet close affordance must be the icon-only X');
