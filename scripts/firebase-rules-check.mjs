@@ -6,6 +6,7 @@ const firebaseArgs = [
   '--yes',
   'firebase-tools@13.35.1',
   'emulators:exec',
+  '--config', 'firebase.rules-ci.json',
   '--only', 'auth,firestore,storage',
   '--project', 'demo-hnl-qltc-rules',
   'node scripts/firebase-rules-behavior.mjs',
@@ -47,6 +48,7 @@ const result = spawnSync(command, args, {
     ...process.env,
     FIREBASE_PROJECT_ID: 'demo-hnl-qltc-rules',
     GCLOUD_PROJECT: 'demo-hnl-qltc-rules',
+    GOOGLE_CLOUD_PROJECT: 'demo-hnl-qltc-rules',
   },
 });
 
