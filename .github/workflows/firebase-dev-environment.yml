@@ -39,7 +39,7 @@ jobs:
         run: npm ci
       - name: Firebase Rules compile and behavior
         timeout-minutes: 5
-        run: node scripts/firebase-rules-ci.mjs
+        run: npm run test:rules
 
   deploy_dev:
     needs: rules
