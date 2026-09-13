@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 
@@ -23,6 +24,32 @@ function resolveNpx() {
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function canConnect(port) {
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host: '127.0.0.1', port });
+    const finish = (ok) => {
+      socket.removeAllListeners();
+      socket.destroy();
+      resolve(ok);
+    };
+    socket.setTimeout(1000);
+    socket.once('connect', () => finish(true));
+    socket.once('timeout', () => finish(false));
+    socket.once('error', () => finish(false));
+  });
+}
+
+async function waitForEmulators(timeoutMs = 90000) {
+  const ports = [9099, 8080, 9199];
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const ready = await Promise.all(ports.map((port) => canConnect(port)));
+    if (ready.every(Boolean)) return;
+    await sleep(1000);
+  }
+  throw new Error(`Firebase emulators were not ready within ${timeoutMs / 1000}s`);
+}
 
 async function terminateProcessTree(child) {
   if (!child || child.exitCode !== null || !child.pid) return;
@@ -53,64 +80,57 @@ async function terminateProcessTree(child) {
   }
 }
 
-function runAttempt(attempt, timeoutMs = 100000) {
-  return new Promise((resolve) => {
-    const { command, prefix } = resolveNpx();
-    const firebaseArgs = [
-      '--yes',
-      'firebase-tools@13.35.1',
-      'emulators:exec',
-      '--only', 'auth,firestore,storage',
-      '--project', demoProject,
-      'node scripts/firebase-rules-behavior.mjs',
-    ];
-
-    console.log(`Firebase Rules emulator attempt ${attempt}/2`);
-    const child = spawn(command, [...prefix, ...firebaseArgs], {
+function runBehavior(timeoutMs = 120000) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ['scripts/firebase-rules-behavior.mjs'], {
       cwd: process.cwd(),
       stdio: 'inherit',
       env,
       shell: false,
-      detached: process.platform !== 'win32',
     });
 
-    let settled = false;
-    const finish = async (result) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (!result.ok) await terminateProcessTree(child);
-      resolve(result);
-    };
-
     const timer = setTimeout(() => {
-      void finish({ ok: false, reason: `timeout after ${timeoutMs / 1000}s` });
+      child.kill('SIGKILL');
+      reject(new Error(`Firebase Rules behavior timed out after ${timeoutMs / 1000}s`));
     }, timeoutMs);
 
     child.once('error', (error) => {
-      void finish({ ok: false, reason: error.message });
+      clearTimeout(timer);
+      reject(error);
     });
 
     child.once('exit', (code, signal) => {
-      if (code === 0) void finish({ ok: true });
-      else void finish({ ok: false, reason: `exit code=${code}, signal=${signal || 'none'}` });
+      clearTimeout(timer);
+      if (code === 0) resolve();
+      else reject(new Error(`Firebase Rules behavior failed: exit code=${code}, signal=${signal || 'none'}`));
     });
   });
 }
 
-let lastFailure = 'unknown failure';
-for (let attempt = 1; attempt <= 2; attempt += 1) {
-  const result = await runAttempt(attempt);
-  if (result.ok) {
-    console.log('Firestore + Storage Rules compile/behavior PASS');
-    process.exit(0);
-  }
+const { command, prefix } = resolveNpx();
+const firebaseArgs = [
+  '--yes',
+  'firebase-tools@13.35.1',
+  'emulators:start',
+  '--config', 'firebase.rules-ci.json',
+  '--only', 'auth,firestore,storage',
+  '--project', demoProject,
+];
 
-  lastFailure = result.reason;
-  console.error(`Firebase Rules emulator attempt ${attempt}/2 failed: ${lastFailure}`);
-  if (attempt < 2) {
-    await sleep(5000);
-  }
+console.log('Starting isolated Firebase Rules emulators');
+const emulator = spawn(command, [...prefix, ...firebaseArgs], {
+  cwd: process.cwd(),
+  stdio: 'inherit',
+  env,
+  shell: false,
+  detached: process.platform !== 'win32',
+});
+
+try {
+  await waitForEmulators();
+  console.log('Firebase Rules emulators are ready');
+  await runBehavior();
+  console.log('Firestore + Storage Rules compile/behavior PASS');
+} finally {
+  await terminateProcessTree(emulator);
 }
-
-throw new Error(`Firebase Rules compile/behavior failed after retry: ${lastFailure}`);
