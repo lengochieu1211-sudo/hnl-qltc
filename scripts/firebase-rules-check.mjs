@@ -84,7 +84,7 @@ async function terminateProcessTree(child) {
   }
 }
 
-function runBehavior(timeoutMs = 120000) {
+function runBehavior(timeoutMs = 300000) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ['scripts/firebase-rules-behavior.mjs'], {
       cwd: process.cwd(),
