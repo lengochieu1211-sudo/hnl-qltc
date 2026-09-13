@@ -1,0 +1,52 @@
+name: HNL QLTC Audit Hardening Candidate CI
+
+on:
+  push:
+    branches: [audit-hardening-20260913]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  VITE_APP_ENV: DEV
+  VITE_RUNTIME_BACKEND: firebase-only
+  VITE_BINARY_STORAGE_PROVIDER: r2
+  VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev
+  VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+  VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+  VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+  VITE_FIRESTORE_DATABASE_ID: '(default)'
+  VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+  VITE_HNL_AI_ENABLED: 'true'
+  VITE_HNL_AI_GATEWAY_URL: https://hnl-qltc-ai-gateway-dev.lengochieu1211.workers.dev
+  VITE_BUILD_ID: audit-${{ github.run_id }}-${{ github.run_attempt }}
+  VITE_GIT_COMMIT: ${{ github.sha }}
+
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install exact dependencies
+        run: npm ci
+      - name: Audit hardening regression
+        run: npm run test:audit-hardening
+      - name: Stability suite
+        run: npm run test:stability
+      - name: TypeScript
+        run: npm run typecheck
+      - name: Lint and secret scan
+        run: npm run lint
+      - name: Firebase Rules compile and behavior
+        run: npm run test:rules
+      - name: Production dependency critical audit
+        run: npm run security:audit
+      - name: Build
+        run: npm run build
