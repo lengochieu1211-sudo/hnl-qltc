@@ -129,8 +129,8 @@ assert(appSourceForInlineSync.includes('<ProjectManagerModal') && appSourceForIn
 const defectUi = read('src/components/FloorPlanDefectTab.tsx');
 assert(!defectUi.includes('label="📷 Ảnh Báo Lỗi Ban Đầu (Trước Sửa)"'), 'Defect before-photo label must not duplicate the camera icon with an emoji');
 assert(!defectUi.includes('label="🛠️ Ảnh Bằng Chứng Sau Khi Sửa (Tùy Chọn)"'), 'Defect after-photo label must not duplicate picker iconography with an emoji');
-assert((defectUi.match(/label="Ảnh Báo Lỗi Ban Đầu \\(Trước Sửa\\)"/g) || []).length >= 2, 'Defect before-photo label must remain available in create/detail flows');
-assert((defectUi.match(/label="Ảnh Bằng Chứng Sau Khi Sửa \\(Tùy Chọn\\)"/g) || []).length >= 2, 'Defect after-photo label must remain available in create/detail flows');
+assert((defectUi.match(/label="Ảnh Báo Lỗi Ban Đầu \(Trước Sửa\)"/g) || []).length >= 2, 'Defect before-photo label must remain available in create/detail flows');
+assert((defectUi.match(/label="Ảnh Bằng Chứng Sau Khi Sửa \(Tùy Chọn\)"/g) || []).length >= 2, 'Defect after-photo label must remain available in create/detail flows');
 
 const hostedBrowserGolden = read('scripts/dev-hosted-browser-golden.mjs');
 assert(hostedBrowserGolden.includes('five Settings cards share one design system'), 'Hosted browser Golden must verify all five Settings cards share one design system');
