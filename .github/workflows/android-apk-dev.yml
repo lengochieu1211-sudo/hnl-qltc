@@ -1,5 +1,6 @@
 name: Build HNL QLTC Android DEV APK
 # DEV certification build. Runs HNL AI + existing app gates and never uses PROD signing.
+# Certification trigger 2026-09-13 for lifecycle/RBAC/financial/media hardening + Material Need multi-scope.
 
 on:
   workflow_dispatch:
