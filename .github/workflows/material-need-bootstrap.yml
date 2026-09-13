@@ -37,8 +37,8 @@ jobs:
           echo '87b0fb37b7305256754771f7f11186ab05fb01763c9277a2914ac893b8a6353a  /tmp/hnl-material-feature.patch.gz.b64' | sha256sum -c -
           base64 -d /tmp/hnl-material-feature.patch.gz.b64 | gzip -d > /tmp/hnl-material-feature.patch
           echo '1bd31fef620e9b6ef4b383b940da8ee39a37fdb4902ed8c948c0d8d54dc175c2  /tmp/hnl-material-feature.patch' | sha256sum -c -
-          git apply --check /tmp/hnl-material-feature.patch
-          git apply /tmp/hnl-material-feature.patch
+          git apply -p0 --check /tmp/hnl-material-feature.patch
+          git apply -p0 /tmp/hnl-material-feature.patch
           git diff --check
 
       - name: Candidate source guards
