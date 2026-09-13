@@ -40,15 +40,19 @@ function canConnect(port) {
   });
 }
 
-async function waitForEmulators(timeoutMs = 180000) {
-  const ports = [9099, 8080, 9199];
+async function waitForCoreEmulators(timeoutMs = 180000) {
+  // Auth + Firestore are prerequisites for the behavior suite. Storage is
+  // deliberately verified by the real uploadBytes assertion in that suite;
+  // a Storage startup/network failure therefore still fails the gate rather
+  // than being misclassified as a generic preflight timeout.
+  const ports = [9099, 8080];
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const ready = await Promise.all(ports.map((port) => canConnect(port)));
     if (ready.every(Boolean)) return;
     await sleep(1000);
   }
-  throw new Error(`Firebase emulators were not ready within ${timeoutMs / 1000}s`);
+  throw new Error(`Firebase core emulators were not ready within ${timeoutMs / 1000}s`);
 }
 
 async function terminateProcessTree(child) {
@@ -127,8 +131,8 @@ const emulator = spawn(command, [...prefix, ...firebaseArgs], {
 });
 
 try {
-  await waitForEmulators();
-  console.log('Firebase Rules emulators are ready');
+  await waitForCoreEmulators();
+  console.log('Firebase Auth + Firestore emulators are ready; behavior suite will verify Storage');
   await runBehavior();
   console.log('Firestore + Storage Rules compile/behavior PASS');
 } finally {
