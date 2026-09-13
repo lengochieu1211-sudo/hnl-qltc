@@ -204,7 +204,6 @@ jobs:
           npm run test:stability
           npm run typecheck
           npm run lint
-          npm run test:rules
 
           audit_ok=0
           for attempt in 1 2 3; do
@@ -233,6 +232,17 @@ jobs:
           npm run build
           grep -R -q 'HNL AI Assistant' dist/assets || { echo '::error::AI UI marker missing from DEV build'; exit 1; }
           grep -R -q 'hnl-qltc-ai-gateway-dev' dist/assets || { echo '::error::DEV AI gateway missing from DEV build'; exit 1; }
+
+      - name: DEV Firebase Rules isolated emulator gate
+        if: steps.preflight.outputs.configured == 'true'
+        timeout-minutes: 5
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ''
+          FIREBASE_SERVICE_ACCOUNT: ''
+          FIREBASE_CONFIG: ''
+          GCLOUD_PROJECT: ''
+          GOOGLE_CLOUD_PROJECT: ''
+        run: npm run test:rules
 
       - name: Resolve Cloudflare account
         if: steps.preflight.outputs.configured == 'true'

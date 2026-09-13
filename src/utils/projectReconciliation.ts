@@ -10,12 +10,12 @@ import { deleteProjectPhotos, scanAndCleanupPhotoOrphans } from './photoStorage'
  * Rules:
  * 1. workCategoryIds & workCategoryId are authoritative.
  * 2. If workCategoryIds exist, verify each ID exists in workVolumes.
- *    - Valid IDs -> rebuild workCategories from current workVolume.title.
+ *    - Valid IDs -> normalize to the canonical `workCategoryId || id` and rebuild titles.
  *    - Invalid IDs -> removed from workCategoryIds and workCategoryNormsById.
  * 3. If workCategoryIds do not exist (legacy data):
  *    - Match workCategories string array against workVolumes by title (case-insensitive trim).
- *    - Matched titles -> mapped to workVolume.id and stored in workCategoryIds.
- *    - Unmatched titles -> dropped (fixes stale badges!).
+ *    - Matched UNIQUE titles -> mapped to canonical `workCategoryId || id`.
+ *    - Unmatched/ambiguous titles -> dropped instead of guessing.
  * 4. Ensure workCategoryId & workCategory are synchronized with the primary link.
  */
 export function reconcileMaterialNormWorkCategoryLinks(
@@ -26,22 +26,51 @@ export function reconcileMaterialNormWorkCategoryLinks(
     return { materialNorms: [], cleanedCount: 0 };
   }
 
-  // Create lookups for work volumes
-  const volumeById = new Map<string, WorkVolume>();
-  const volumeByTitleLower = new Map<string, WorkVolume>();
+  // Material Need and the room editor use `workCategoryId || id` as the durable
+  // category identity. Reconciliation must preserve that same identity or a norm can
+  // silently become detached after an import/edit where WorkVolume.id !== workCategoryId.
+  const activeWorkVolumes = (workVolumes || []).filter((wv) => wv.deletedAt === undefined || wv.deletedAt === null);
+  const canonicalCategoryId = (wv: WorkVolume): string => String(wv.workCategoryId || wv.id || '').trim();
+  const volumeByRecordId = new Map<string, WorkVolume>();
+  const volumesByCanonicalId = new Map<string, WorkVolume[]>();
+  const volumesByTitleLower = new Map<string, WorkVolume[]>();
 
-  (workVolumes || []).forEach(wv => {
-    if (wv.id) {
-      volumeById.set(wv.id, wv);
+  activeWorkVolumes.forEach((wv) => {
+    const recordId = String(wv.id || '').trim();
+    const canonicalId = canonicalCategoryId(wv);
+    if (recordId) volumeByRecordId.set(recordId, wv);
+    if (canonicalId) {
+      const bucket = volumesByCanonicalId.get(canonicalId) || [];
+      bucket.push(wv);
+      volumesByCanonicalId.set(canonicalId, bucket);
     }
-    if (wv.title && wv.title.trim()) {
-      const key = wv.title.trim().toLowerCase();
-      // Keep first or preferred
-      if (!volumeByTitleLower.has(key)) {
-        volumeByTitleLower.set(key, wv);
-      }
+    const titleKey = String(wv.title || '').trim().toLocaleLowerCase('vi-VN');
+    if (titleKey) {
+      const bucket = volumesByTitleLower.get(titleKey) || [];
+      bucket.push(wv);
+      volumesByTitleLower.set(titleKey, bucket);
     }
   });
+
+  const resolveByReference = (rawRef?: string): WorkVolume | undefined => {
+    const ref = String(rawRef || '').trim();
+    if (!ref) return undefined;
+    const exactRecord = volumeByRecordId.get(ref);
+    if (exactRecord) return exactRecord;
+    const canonicalMatches = volumesByCanonicalId.get(ref) || [];
+    if (canonicalMatches.length > 0) return canonicalMatches[0];
+    const titleMatches = volumesByTitleLower.get(ref.toLocaleLowerCase('vi-VN')) || [];
+    const canonicalIds = new Set(titleMatches.map(canonicalCategoryId).filter(Boolean));
+    return canonicalIds.size === 1 ? titleMatches[0] : undefined;
+  };
+
+  const resolveUniqueTitle = (rawTitle?: string): WorkVolume | undefined => {
+    const key = String(rawTitle || '').trim().toLocaleLowerCase('vi-VN');
+    if (!key) return undefined;
+    const matches = volumesByTitleLower.get(key) || [];
+    const canonicalIds = new Set(matches.map(canonicalCategoryId).filter(Boolean));
+    return canonicalIds.size === 1 ? matches[0] : undefined;
+  };
 
   let cleanedCount = 0;
 
@@ -55,17 +84,22 @@ export function reconcileMaterialNormWorkCategoryLinks(
     // 1. If norm already has workCategoryIds
     if (Array.isArray(norm.workCategoryIds) && norm.workCategoryIds.length > 0) {
       norm.workCategoryIds.forEach(id => {
-        const wv = volumeById.get(id);
+        const wv = resolveByReference(id);
         if (wv) {
-          if (!validCategoryIds.includes(id)) {
-            validCategoryIds.push(id);
+          const canonicalId = canonicalCategoryId(wv);
+          if (!canonicalId) return;
+          if (!validCategoryIds.includes(canonicalId)) {
+            validCategoryIds.push(canonicalId);
             validCategoryNames.push(wv.title);
           }
-          if (norm.workCategoryNormsById && norm.workCategoryNormsById[id] !== undefined) {
-            validNormsById[id] = norm.workCategoryNormsById[id];
-            validNormsByName[wv.title] = norm.workCategoryNormsById[id];
+          const factorByOriginalId = norm.workCategoryNormsById?.[id];
+          const factorByCanonicalId = norm.workCategoryNormsById?.[canonicalId];
+          if (factorByOriginalId !== undefined || factorByCanonicalId !== undefined) {
+            const factor = factorByCanonicalId ?? factorByOriginalId;
+            validNormsById[canonicalId] = factor;
+            validNormsByName[wv.title] = factor;
           } else if (norm.workCategoryNorms && norm.workCategoryNorms[wv.title] !== undefined) {
-            validNormsById[id] = norm.workCategoryNorms[wv.title];
+            validNormsById[canonicalId] = norm.workCategoryNorms[wv.title];
             validNormsByName[wv.title] = norm.workCategoryNorms[wv.title];
           }
         } else {
@@ -84,22 +118,23 @@ export function reconcileMaterialNormWorkCategoryLinks(
 
       candidateNames.forEach(rawName => {
         if (!rawName || !rawName.trim()) return;
-        const lower = rawName.trim().toLowerCase();
-        const wv = volumeByTitleLower.get(lower);
+        const wv = resolveUniqueTitle(rawName);
         if (wv) {
-          if (!validCategoryIds.includes(wv.id)) {
-            validCategoryIds.push(wv.id);
+          const canonicalId = canonicalCategoryId(wv);
+          if (!canonicalId) return;
+          if (!validCategoryIds.includes(canonicalId)) {
+            validCategoryIds.push(canonicalId);
             validCategoryNames.push(wv.title);
           }
           if (norm.workCategoryNorms && norm.workCategoryNorms[rawName] !== undefined) {
-            validNormsById[wv.id] = norm.workCategoryNorms[rawName];
+            validNormsById[canonicalId] = norm.workCategoryNorms[rawName];
             validNormsByName[wv.title] = norm.workCategoryNorms[rawName];
-          } else if (norm.workCategoryNormsById && norm.workCategoryNormsById[wv.id] !== undefined) {
-            validNormsById[wv.id] = norm.workCategoryNormsById[wv.id];
-            validNormsByName[wv.title] = norm.workCategoryNormsById[wv.id];
+          } else if (norm.workCategoryNormsById && norm.workCategoryNormsById[canonicalId] !== undefined) {
+            validNormsById[canonicalId] = norm.workCategoryNormsById[canonicalId];
+            validNormsByName[wv.title] = norm.workCategoryNormsById[canonicalId];
           }
         } else {
-          // Stale name that does not exist in work volumes -> dropped
+          // Stale or ambiguous display-only category names are never guessed.
           hasChanges = true;
           cleanedCount++;
         }
@@ -113,11 +148,11 @@ export function reconcileMaterialNormWorkCategoryLinks(
     if (validCategoryIds.length > 0) {
       if (!primaryId || !validCategoryIds.includes(primaryId)) {
         primaryId = validCategoryIds[0];
-        const wv = volumeById.get(primaryId);
+        const wv = resolveByReference(primaryId);
         primaryName = wv ? wv.title : validCategoryNames[0];
         hasChanges = true;
       } else {
-        const wv = volumeById.get(primaryId);
+        const wv = resolveByReference(primaryId);
         if (wv && primaryName !== wv.title) {
           primaryName = wv.title;
           hasChanges = true;
@@ -175,18 +210,23 @@ export function getResolvedNormWorkCategories(
   }
 
   const volumeById = new Map<string, WorkVolume>();
-  const volumeByTitleLower = new Map<string, WorkVolume>();
+  const volumeByCanonicalId = new Map<string, WorkVolume>();
+  const volumeByTitleLower = new Map<string, WorkVolume[]>();
 
-  workVolumes.forEach(wv => {
+  workVolumes.filter((wv) => wv.deletedAt === undefined || wv.deletedAt === null).forEach(wv => {
     if (wv.id) volumeById.set(wv.id, wv);
-    if (wv.title) volumeByTitleLower.set(wv.title.trim().toLowerCase(), wv);
+    if (wv.workCategoryId) volumeByCanonicalId.set(wv.workCategoryId, wv);
+    if (wv.title) {
+      const key = wv.title.trim().toLocaleLowerCase('vi-VN');
+      volumeByTitleLower.set(key, [...(volumeByTitleLower.get(key) || []), wv]);
+    }
   });
 
   const resolved: string[] = [];
 
   if (Array.isArray(norm.workCategoryIds) && norm.workCategoryIds.length > 0) {
     norm.workCategoryIds.forEach(id => {
-      const wv = volumeById.get(id);
+      const wv = volumeById.get(id) || volumeByCanonicalId.get(id);
       if (wv && !resolved.includes(wv.title)) {
         resolved.push(wv.title);
       }
@@ -202,8 +242,10 @@ export function getResolvedNormWorkCategories(
 
     candidateNames.forEach(name => {
       if (!name) return;
-      const lower = name.trim().toLowerCase();
-      const wv = volumeByTitleLower.get(lower);
+      const lower = name.trim().toLocaleLowerCase('vi-VN');
+      const matches = volumeByTitleLower.get(lower) || [];
+      const canonicalIds = new Set(matches.map((wv) => String(wv.workCategoryId || wv.id || '').trim()).filter(Boolean));
+      const wv = canonicalIds.size === 1 ? matches[0] : undefined;
       if (wv && !resolved.includes(wv.title)) {
         resolved.push(wv.title);
       }

@@ -4,7 +4,7 @@ import { buildMaterialAliasMap, getMaterialIdentityKey, normalizeMaterialNameKey
 import { naturalCompare } from './sortUtils';
 
 export interface MaterialNeedWarning {
-  code: 'MISSING_NORM' | 'UNIT_MISMATCH' | 'AMBIGUOUS_TEAM' | 'UNALLOCATED_ISSUE';
+  code: 'MISSING_NORM' | 'UNIT_MISMATCH' | 'AMBIGUOUS_TEAM' | 'UNALLOCATED_ISSUE' | 'MISSING_LINK' | 'AMBIGUOUS_LINK';
   message: string;
   roomId?: string;
   floorId?: string;
@@ -99,10 +99,31 @@ function resolveTeamId(teamId: string | undefined, assignedTeam: string | undefi
   return nameKey ? resolver.uniqueIdByName.get(nameKey) : undefined;
 }
 
+type WorkVolumeResolution = { work?: WorkVolume; state: 'resolved' | 'missing' | 'ambiguous' };
+
+const canonicalWorkCategoryId = (work?: WorkVolume): string => String(work?.workCategoryId || work?.id || '').trim();
+
+function resolveWorkVolumeStrict(categoryIdOrName: string | undefined, workVolumes: WorkVolume[]): WorkVolumeResolution {
+  const raw = String(categoryIdOrName || '').trim();
+  if (!raw) return { state: 'missing' };
+
+  const exactRecord = workVolumes.find((item) => String(item.id || '').trim() === raw);
+  if (exactRecord) return { work: exactRecord, state: 'resolved' };
+
+  const canonicalMatches = workVolumes.filter((item) => String(item.workCategoryId || '').trim() === raw);
+  if (canonicalMatches.length > 0) {
+    const canonicalIds = new Set(canonicalMatches.map((item) => canonicalWorkCategoryId(item)).filter(Boolean));
+    return canonicalIds.size === 1 ? { work: canonicalMatches[0], state: 'resolved' } : { state: 'ambiguous' };
+  }
+
+  const titleMatches = workVolumes.filter((item) => textKey(item.title) === textKey(raw));
+  if (titleMatches.length === 0) return { state: 'missing' };
+  const canonicalIds = new Set(titleMatches.map((item) => canonicalWorkCategoryId(item)).filter(Boolean));
+  return canonicalIds.size === 1 ? { work: titleMatches[0], state: 'resolved' } : { state: 'ambiguous' };
+}
+
 function resolveWorkVolume(categoryIdOrName: string | undefined, workVolumes: WorkVolume[]): WorkVolume | undefined {
-  if (!categoryIdOrName) return undefined;
-  const key = textKey(categoryIdOrName);
-  return workVolumes.find((item) => item.id === categoryIdOrName || item.workCategoryId === categoryIdOrName || textKey(item.title) === key);
+  return resolveWorkVolumeStrict(categoryIdOrName, workVolumes).work;
 }
 
 function categoryVolumeForRoom(room: RoomProgressItem, categoryIdOrName: string, workVolumes: WorkVolume[]): number {
@@ -208,17 +229,29 @@ function buildContributions(
       // Explicit legacy IDs are authoritative: never fall back by name when an old ID is gone,
       // because a newly-created category may later reuse the same display title. Title matching is
       // allowed only for legacy rows that genuinely have no category ID.
-      const activeWork = cat.id ? resolveWorkVolume(cat.id, workVolumes) : resolveWorkVolume(cat.name, workVolumes);
-      if (!activeWork) return;
-      const canonicalWorkCategoryId = activeWork.workCategoryId || activeWork.id;
-      if (!scopeIncludes(scopedWorkCategoryIds, canonicalWorkCategoryId)) return;
-      const categoryRef = canonicalWorkCategoryId || cat.id || cat.name;
+      const resolution = resolveWorkVolumeStrict(cat.id || cat.name, workVolumes);
+      const activeWork = resolution.work;
+      if (!activeWork) {
+        warnings.push({
+          code: resolution.state === 'ambiguous' ? 'AMBIGUOUS_LINK' : 'MISSING_LINK',
+          roomId: room.id,
+          floorId: room.floorId,
+          workCategoryId: cat.id,
+          message: resolution.state === 'ambiguous'
+            ? `Căn ${room.roomName}: liên kết hạng mục ${cat.name} trùng nhiều hạng mục đang hoạt động. Không suy đoán nhu cầu vật tư.`
+            : `Căn ${room.roomName}: hạng mục ${cat.name} không còn liên kết hợp lệ với hạng mục thi công đang hoạt động. Không suy đoán nhu cầu vật tư.`,
+        });
+        return;
+      }
+      const canonicalCategoryId = canonicalWorkCategoryId(activeWork);
+      if (!scopeIncludes(scopedWorkCategoryIds, canonicalCategoryId)) return;
+      const categoryRef = canonicalCategoryId || cat.id || cat.name;
       const totalVolume = categoryVolumeForRoom(room, categoryRef, workVolumes);
       if (totalVolume <= 0) return;
       const sourceUnit = sourceUnitForRoomCategory(room, categoryRef, workVolumes);
 
       if (!hasTeamScope) {
-        contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: canonicalWorkCategoryId, workCategoryName: cat.name, sourceUnit, volume: totalVolume });
+        contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: canonicalCategoryId, workCategoryName: cat.name, sourceUnit, volume: totalVolume });
         return;
       }
 
@@ -229,11 +262,11 @@ function buildContributions(
       // teamId only when exactly one ACTIVE TeamInfo has the same normalized name. Explicit
       // teamId remains authoritative and duplicate names never get guessed.
       if (categoryTeamIds.length > 0 && categoryTeamIds.every((id) => scopedTeamIds.includes(id))) {
-        contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: canonicalWorkCategoryId, workCategoryName: cat.name, sourceUnit, volume: totalVolume });
+        contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: canonicalCategoryId, workCategoryName: cat.name, sourceUnit, volume: totalVolume });
         return;
       }
       if (categoryTeamIds.length === 0 && roomTeamIds.length > 0 && roomTeamIds.every((id) => scopedTeamIds.includes(id))) {
-        contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: canonicalWorkCategoryId, workCategoryName: cat.name, sourceUnit, volume: totalVolume });
+        contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: canonicalCategoryId, workCategoryName: cat.name, sourceUnit, volume: totalVolume });
         return;
       }
 
@@ -243,17 +276,17 @@ function buildContributions(
       });
       const explicitVolume = matchingSubs.reduce((sum, sub) => sum + (Number(sub.workVolume) || 0), 0);
       if (explicitVolume > 0) {
-        contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: canonicalWorkCategoryId, workCategoryName: cat.name, sourceUnit: normalizeUnit(matchingSubs[0]?.volumeUnit || sourceUnit) || sourceUnit, volume: explicitVolume });
+        contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: canonicalCategoryId, workCategoryName: cat.name, sourceUnit: normalizeUnit(matchingSubs[0]?.volumeUnit || sourceUnit) || sourceUnit, volume: explicitVolume });
         return;
       }
 
       if (categoryTeamIds.length === 1 && scopedTeamIds.includes(categoryTeamIds[0])) {
-        contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: canonicalWorkCategoryId, workCategoryName: cat.name, sourceUnit, volume: totalVolume });
+        contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: canonicalCategoryId, workCategoryName: cat.name, sourceUnit, volume: totalVolume });
         return;
       }
 
       if (roomTeamIds.length === 1 && scopedTeamIds.includes(roomTeamIds[0])) {
-        contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: canonicalWorkCategoryId, workCategoryName: cat.name, sourceUnit, volume: totalVolume });
+        contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: canonicalCategoryId, workCategoryName: cat.name, sourceUnit, volume: totalVolume });
         return;
       }
 
@@ -274,7 +307,7 @@ function buildContributions(
           roomId: room.id,
           floorId: room.floorId,
           teamId: scopedTeamIds.length === 1 ? scopedTeamIds[0] : undefined,
-          workCategoryId: canonicalWorkCategoryId,
+          workCategoryId: canonicalCategoryId,
           message: hasAmbiguousSelectedLegacyTeam
             ? `Căn ${room.roomName}: hạng mục ${cat.name} chỉ còn tên đội legacy trùng với nhiều đội đang hoạt động. Hãy gán lại đội để hệ thống không suy đoán nhu cầu.`
             : `Căn ${room.roomName}: hạng mục ${cat.name} có nhiều đội nhưng chưa có khối lượng phân bổ đủ cho phạm vi đội đã chọn. Không tự chia nhu cầu.`,
@@ -285,18 +318,30 @@ function buildContributions(
   return contributions;
 }
 
-function matchingNormsForContribution(c: NeedContribution, norms: MaterialNorm[]): MaterialNorm[] {
+function canonicalNormWorkCategoryIds(norm: MaterialNorm, workVolumes: WorkVolume[]): string[] {
+  const refs = [...(norm.workCategoryIds || []), ...(norm.workCategoryId ? [norm.workCategoryId] : [])];
+  return Array.from(new Set(refs.map((ref) => canonicalWorkCategoryId(resolveWorkVolumeStrict(ref, workVolumes).work)).filter(Boolean)));
+}
+
+function matchingNormsForContribution(c: NeedContribution, norms: MaterialNorm[], workVolumes: WorkVolume[]): MaterialNorm[] {
   return norms.filter((norm) => {
-    const ids = norm.workCategoryIds || (norm.workCategoryId ? [norm.workCategoryId] : []);
+    const ids = canonicalNormWorkCategoryIds(norm, workVolumes);
     if (ids.length > 0 && c.workCategoryId) return ids.includes(c.workCategoryId);
     const names = norm.workCategories || (norm.workCategory ? [norm.workCategory] : []);
     if (ids.length === 0 && names.length === 0) return true;
-    return names.some((name) => textKey(name) === textKey(c.workCategoryName));
+    return names.some((name) => {
+      const resolved = resolveWorkVolumeStrict(name, workVolumes);
+      return resolved.state === 'resolved' && canonicalWorkCategoryId(resolved.work) === c.workCategoryId;
+    });
   });
 }
 
-function factorForContribution(c: NeedContribution, norm: MaterialNorm): number {
-  if (c.workCategoryId && norm.workCategoryNormsById?.[c.workCategoryId] !== undefined) return Number(norm.workCategoryNormsById[c.workCategoryId]) || 0;
+function factorForContribution(c: NeedContribution, norm: MaterialNorm, workVolumes: WorkVolume[]): number {
+  if (c.workCategoryId && norm.workCategoryNormsById) {
+    if (norm.workCategoryNormsById[c.workCategoryId] !== undefined) return Number(norm.workCategoryNormsById[c.workCategoryId]) || 0;
+    const legacyEntries = Object.entries(norm.workCategoryNormsById).filter(([ref]) => canonicalWorkCategoryId(resolveWorkVolumeStrict(ref, workVolumes).work) === c.workCategoryId);
+    if (legacyEntries.length === 1) return Number(legacyEntries[0][1]) || 0;
+  }
   if (norm.workCategoryNorms?.[c.workCategoryName] !== undefined) return Number(norm.workCategoryNorms[c.workCategoryName]) || 0;
   const basis = normalizeUnit(norm.normBasisUnit || 'm²') || 'm²';
   return areSameUnit(basis, c.sourceUnit) ? Number(norm.unitNormPerM2) || 0 : 0;
@@ -319,6 +364,25 @@ export function computeMaterialNeeds(params: {
   const teamResolver = buildTeamResolver(teams);
   const scope = params.scope || {};
   const warnings: MaterialNeedWarning[] = [];
+
+  scopeIds(scope.roomId, scope.roomIds).forEach((roomId) => {
+    if (!rooms.some((room) => room.id === roomId)) {
+      warnings.push({ code: 'MISSING_LINK', roomId, message: `Căn đã chọn (${roomId}) không còn tồn tại/hoạt động. Không mở rộng phạm vi sang căn khác.` });
+    }
+  });
+  scopeIds(scope.workCategoryId, scope.workCategoryIds).forEach((workCategoryId) => {
+    const resolution = resolveWorkVolumeStrict(workCategoryId, workVolumes);
+    if (resolution.state !== 'resolved') {
+      warnings.push({
+        code: resolution.state === 'ambiguous' ? 'AMBIGUOUS_LINK' : 'MISSING_LINK',
+        workCategoryId,
+        message: resolution.state === 'ambiguous'
+          ? `Hạng mục đã chọn (${workCategoryId}) đang liên kết mơ hồ. Không suy đoán phạm vi vật tư.`
+          : `Hạng mục đã chọn (${workCategoryId}) không còn tồn tại/hoạt động. Không mở rộng phạm vi vật tư.`,
+      });
+    }
+  });
+
   const contributions = buildContributions(rooms, workVolumes, teams, scope, warnings);
   const aliasMap = buildMaterialAliasMap(materialNorms);
   const canonicalKey = (materialId?: string, materialName?: string, unit?: string) => {
@@ -328,10 +392,10 @@ export function computeMaterialNeeds(params: {
 
   const demand = new Map<string, { materialId?: string; materialName: string; category: string; unit: string; qty: number; normIds: Set<string>; normDetails: Map<string, { normId: string; workCategory: string; workCategoryId?: string; factor: number; basisUnit: string }> }>();
   contributions.forEach((c) => {
-    const norms = matchingNormsForContribution(c, materialNorms);
+    const norms = matchingNormsForContribution(c, materialNorms, workVolumes);
     let usable = 0;
     norms.forEach((norm) => {
-      const factor = factorForContribution(c, norm);
+      const factor = factorForContribution(c, norm, workVolumes);
       if (factor <= 0) return;
       usable++;
       const materialId = resolveNormMaterialId(norm);
@@ -393,8 +457,8 @@ export function computeMaterialNeeds(params: {
         const ids = Array.from(new Set(
           [...(sourceNorm.workCategoryIds || []), ...(sourceNorm.workCategoryId ? [sourceNorm.workCategoryId] : [])]
             .map((id) => {
-              const work = resolveWorkVolume(id, workVolumes);
-              return work?.workCategoryId || work?.id || id;
+              const work = resolveWorkVolumeStrict(id, workVolumes).work;
+              return canonicalWorkCategoryId(work);
             })
             .filter(Boolean),
         ));
@@ -429,15 +493,34 @@ export function computeMaterialNeeds(params: {
 
   inventory.forEach((tx) => {
     if (tx.type !== 'out') return;
-    if (!scopeIncludes(scopedRoomIds, tx.sourceRoomId)) return;
-    if (!scopeIncludes(scopedFloorIds, tx.sourceFloorId)) return;
 
     let key = canonicalKey(tx.materialId, tx.materialName, tx.unit);
     if (!tx.materialId) {
       const norm = materialNorms.find((n) => normalizeMaterialNameKey(n.materialName) === normalizeMaterialNameKey(tx.materialName) && areSameUnit(n.unit, tx.unit));
       if (norm) key = canonicalKey(resolveNormMaterialId(norm), norm.materialName, norm.unit);
     }
+    if (!demand.has(key)) return;
     const qty = Number(tx.quantity) || 0;
+
+    const sourceRoom = tx.sourceRoomId ? rooms.find((room) => room.id === tx.sourceRoomId) : undefined;
+    if (scopedRoomIds.length > 0) {
+      if (tx.sourceRoomId && !scopedRoomIds.includes(tx.sourceRoomId)) return;
+      if (!tx.sourceRoomId) {
+        unallocated.set(key, (unallocated.get(key) || 0) + qty);
+        warnings.push({ code: 'UNALLOCATED_ISSUE', floorId: tx.sourceFloorId, message: `Phiếu ${tx.id} chưa có sourceRoomId để chứng minh thuộc căn đã chọn. Không trừ vào nhu cầu căn.` });
+        return;
+      }
+    }
+
+    if (scopedFloorIds.length > 0) {
+      const resolvedFloorId = String(tx.sourceFloorId || sourceRoom?.floorId || '').trim();
+      if (resolvedFloorId && !scopedFloorIds.includes(resolvedFloorId)) return;
+      if (!resolvedFloorId) {
+        unallocated.set(key, (unallocated.get(key) || 0) + qty);
+        warnings.push({ code: 'UNALLOCATED_ISSUE', roomId: tx.sourceRoomId, message: `Phiếu ${tx.id} chưa có sourceFloorId/sourceRoomId đủ rõ để chứng minh thuộc tầng đã chọn. Không trừ vào nhu cầu tầng.` });
+        return;
+      }
+    }
 
     const workCategoryScopeState = resolveTxWorkCategoryScope(tx);
     if (workCategoryScopeState === 'outside') return;
@@ -461,7 +544,7 @@ export function computeMaterialNeeds(params: {
         const ids = room ? uniqueRoomTeamIds(room, teamResolver) : [];
         if (ids.length > 0 && ids.every((id) => scopedTeamIds.includes(id))) {
           issued.set(key, (issued.get(key) || 0) + qty);
-        } else if (ids.some((id) => scopedTeamIds.includes(id))) {
+        } else if (ids.some((id) => scopedTeamIds.includes(id)) || ids.length === 0) {
           unallocated.set(key, (unallocated.get(key) || 0) + qty);
           warnings.push({
             code: 'UNALLOCATED_ISSUE',
@@ -471,6 +554,14 @@ export function computeMaterialNeeds(params: {
             message: `Phiếu ${tx.id} chưa có sourceTeamId và không thể chứng minh toàn bộ phiếu thuộc phạm vi đội đã chọn. Không trừ vào nhu cầu đội.`,
           });
         }
+      } else if (!tx.sourceTeamId) {
+        unallocated.set(key, (unallocated.get(key) || 0) + qty);
+        warnings.push({
+          code: 'UNALLOCATED_ISSUE',
+          floorId: tx.sourceFloorId,
+          teamId: scopedTeamIds.length === 1 ? scopedTeamIds[0] : undefined,
+          message: `Phiếu ${tx.id} chưa có sourceTeamId/sourceRoomId để chứng minh thuộc đội đã chọn. Không trừ vào nhu cầu đội.`,
+        });
       }
       return;
     }
@@ -511,5 +602,5 @@ export function computeMaterialNeeds(params: {
     } satisfies MaterialNeedLine;
   }).sort((a, b) => naturalCompare(a.category, b.category) || naturalCompare(a.materialName, b.materialName) || naturalCompare(a.materialKey, b.materialKey));
 
-  return { lines, warnings, failClosed: warnings.some((w) => w.code === 'MISSING_NORM' || w.code === 'UNIT_MISMATCH' || w.code === 'AMBIGUOUS_TEAM') };
+  return { lines, warnings, failClosed: warnings.length > 0 };
 }
