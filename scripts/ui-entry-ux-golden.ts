@@ -103,7 +103,8 @@ assert(warehouse.includes('description="Theo tầng · Theo căn · Theo hạng 
 assert(warehouse.includes('icon={PackageSearch}'), 'Material Need shared sheet icon contract missing');
 assert(warehouse.includes('materialNeedRoomIds') && warehouse.includes('roomIds: materialNeedRoomIds'), 'Material Need multi-room filter contract missing');
 assert(warehouse.includes('materialNeedWorkCategoryIds') && warehouse.includes('workCategoryIds: materialNeedWorkCategoryIds'), 'Material Need declared work-category filter contract missing');
-assert(warehouse.includes('<QuickSortBar') && warehouse.includes("{ key: 'date', label: 'Ngày', kind: 'date', defaultOrder: 'desc' }") && warehouse.includes("{ key: 'material', label: 'Vật tư', kind: 'alpha' }") && warehouse.includes("{ key: 'location', label: 'Vị trí / Tầng', kind: 'alpha' }") && warehouse.includes("{ key: 'handler', label: 'Người thực hiện', kind: 'alpha' }") && warehouse.includes("setMaterialNeedSortBy('date'); setMaterialNeedSortOrder('desc')"), 'Material Need must reuse the common Warehouse QuickSortBar: Ngày · Vật tư · Vị trí/Tầng · Người thực hiện · Mới nhất · Mặc định');
+assert(warehouse.includes('<QuickSortBar') && warehouse.includes("{ key: 'material', label: 'Vật tư', kind: 'alpha', defaultOrder: 'asc' }") && warehouse.includes("{ key: 'category', label: 'Nhóm vật tư', kind: 'alpha', defaultOrder: 'asc' }") && warehouse.includes("{ key: 'remaining', label: 'Còn cần', kind: 'number', defaultOrder: 'desc' }") && warehouse.includes("{ key: 'deficit', label: 'Thiếu', kind: 'number', defaultOrder: 'desc' }") && warehouse.includes("{ key: 'stock', label: 'Tồn kho', kind: 'number', defaultOrder: 'desc' }") && warehouse.includes("setMaterialNeedSortBy('default'); setMaterialNeedSortOrder('asc')"), 'Material Need QuickSortBar must use intrinsic need-line semantics: Vật tư · Nhóm vật tư · Còn cần · Thiếu · Tồn kho · Mặc định');
+assert(!warehouse.includes("{ key: 'date', label: 'Ngày', kind: 'date'") && !warehouse.includes("{ key: 'location', label: 'Vị trí / Tầng', kind: 'alpha' }") && !warehouse.includes("{ key: 'handler', label: 'Người thực hiện', kind: 'alpha' }"), 'Material Need must not sort aggregate need rows by unrelated warehouse transaction date/location/handler metadata');
 assert(!warehouse.includes('<ExpandCollapseButton'), 'Material Need must not activate the legacy custom floating-sheet implementation');
 
 const config = read('src/components/GoogleConfigTab.tsx');
@@ -128,8 +129,8 @@ assert(appSourceForInlineSync.includes('<ProjectManagerModal') && appSourceForIn
 const defectUi = read('src/components/FloorPlanDefectTab.tsx');
 assert(!defectUi.includes('label="📷 Ảnh Báo Lỗi Ban Đầu (Trước Sửa)"'), 'Defect before-photo label must not duplicate the camera icon with an emoji');
 assert(!defectUi.includes('label="🛠️ Ảnh Bằng Chứng Sau Khi Sửa (Tùy Chọn)"'), 'Defect after-photo label must not duplicate picker iconography with an emoji');
-assert((defectUi.match(/label="Ảnh Báo Lỗi Ban Đầu \(Trước Sửa\)"/g) || []).length >= 2, 'Defect before-photo label must remain available in create/detail flows');
-assert((defectUi.match(/label="Ảnh Bằng Chứng Sau Khi Sửa \(Tùy Chọn\)"/g) || []).length >= 2, 'Defect after-photo label must remain available in create/detail flows');
+assert((defectUi.match(/label="Ảnh Báo Lỗi Ban Đầu \\(Trước Sửa\\)"/g) || []).length >= 2, 'Defect before-photo label must remain available in create/detail flows');
+assert((defectUi.match(/label="Ảnh Bằng Chứng Sau Khi Sửa \\(Tùy Chọn\\)"/g) || []).length >= 2, 'Defect after-photo label must remain available in create/detail flows');
 
 const hostedBrowserGolden = read('scripts/dev-hosted-browser-golden.mjs');
 assert(hostedBrowserGolden.includes('five Settings cards share one design system'), 'Hosted browser Golden must verify all five Settings cards share one design system');
@@ -145,4 +146,4 @@ assert(hostedBrowserGolden.includes("const syncSelector = '#sync-backup-card'"),
 assert(hostedBrowserGolden.includes("const restrictedBackupNotice = sheet.getByText('Sao lưu/khôi phục dữ liệu:'"), 'Hosted browser Golden must keep VIEWER fail-closed RBAC coverage inside the Sync Center sheet');
 assert(!hostedBrowserGolden.includes('must expand inline, not become a fixed page/sheet'), 'Hosted browser Golden must not regress to the removed inline-expansion contract');
 
-console.log('PASS ui-entry-ux-golden: five shared Settings feature sheets, Sync Center engine reuse, close/backdrop/history contract, Defect photo icon de-duplication and role-aware Runtime Golden rules are intact.');
+console.log('PASS ui-entry-ux-golden: shared Settings feature sheets, Material Need semantic quick-sort, Sync Center engine reuse, close/backdrop/history contract, Defect photo icon de-duplication and role-aware Runtime Golden rules are intact.');
