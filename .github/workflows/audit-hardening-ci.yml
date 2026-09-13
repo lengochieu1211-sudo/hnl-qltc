@@ -45,6 +45,7 @@ jobs:
       - name: Lint and secret scan
         run: npm run lint
       - name: Firebase Rules compile and behavior
+        timeout-minutes: 5
         run: npm run test:rules
       - name: Production dependency critical audit
         run: npm run security:audit
