@@ -1,0 +1,48 @@
+name: HNL QLTC Candidate Warehouse Type Fix
+
+on:
+  push:
+    branches: [audit-hardening-20260913]
+    paths: ['.github/workflows/candidate-warehouse-typefix-bootstrap.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 30
+          ref: audit-hardening-20260913
+      - name: Apply exact Warehouse type fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILE='src/components/WarehouseTab.tsx'
+          test "$(git hash-object "$FILE")" = 'b588d441b5342fa2ef94c622038dc5f959d1a3f2'
+          node <<'NODE'
+          const fs = require('fs');
+          const file = 'src/components/WarehouseTab.tsx';
+          const oldText = "      const floorName = floorNameById.get(floorId) || String(room.floorName || '').trim() || floorId;";
+          const newText = "      const floorName = String(floorNameById.get(floorId) || room.floorName || floorId).trim();";
+          let source = fs.readFileSync(file, 'utf8');
+          if (!source.includes(oldText)) throw new Error('Expected Warehouse floorName line not found');
+          source = source.replace(oldText, newText);
+          if (source.includes(oldText)) throw new Error('Warehouse floorName replacement incomplete');
+          fs.writeFileSync(file, source);
+          NODE
+          git diff --check
+          git diff -- src/components/WarehouseTab.tsx
+      - name: Commit source fix only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/components/WarehouseTab.tsx
+          git diff --cached --check
+          git commit -m 'fix(candidate): type material room floor labels'
+          git push origin HEAD:audit-hardening-20260913
