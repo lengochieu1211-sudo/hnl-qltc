@@ -34,8 +34,9 @@ jobs:
           test "$(git hash-object src/components/ExpandCollapseButton.tsx)" = '27a67361f46bc1c2ba1d0463e8eb1f14a43f16c1'
 
           cat .material-need-bootstrap/patch.part.* > /tmp/hnl-material-feature.patch.gz.b64
+          echo '87b0fb37b7305256754771f7f11186ab05fb01763c9277a2914ac893b8a6353a  /tmp/hnl-material-feature.patch.gz.b64' | sha256sum -c -
           base64 -d /tmp/hnl-material-feature.patch.gz.b64 | gzip -d > /tmp/hnl-material-feature.patch
-          echo '26a13198d769ac9bb59d45818930f8d184a6056fb0b364c7e70693e25b952c44  /tmp/hnl-material-feature.patch' | sha256sum -c -
+          echo '1bd31fef620e9b6ef4b383b940da8ee39a37fdb4902ed8c948c0d8d54dc175c2  /tmp/hnl-material-feature.patch' | sha256sum -c -
           git apply --check /tmp/hnl-material-feature.patch
           git apply /tmp/hnl-material-feature.patch
           git diff --check
@@ -45,6 +46,7 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/source-lint.mjs
+          node --experimental-strip-types scripts/ui-entry-ux-golden.ts
 
       - name: Commit material-need source only
         shell: bash
