@@ -31,7 +31,7 @@ import { formatDecimal, evaluateMathExpression, useFormatSettings, parseVietname
 import * as XLSX from 'xlsx';
 import { exportWarehouseUpdateTemplate } from '../utils/excelExport';
 import { confirmAsync } from '../utils/confirmAsync';
-import { buildMaterialAliasMap, calculateStockSummary, getMaterialIdentityKey, resolveNormMaterialId } from '../utils/inventoryUtils';
+import { calculateStockSummary, resolveNormMaterialId } from '../utils/inventoryUtils';
 import { compareDateValues, naturalCompare } from '../utils/sortUtils';
 import { createEntityId } from '../utils/idUtils';
 import { normalizeUnit } from '../utils/unitUtils';
@@ -41,7 +41,7 @@ import { FIREBASE_ONLY_RUNTIME } from '../config/runtimeArchitecture';
 import { computeMaterialNeeds } from '../utils/materialNeedEngine';
 import { UserRole, canEditWarehouseData, canDeleteBusinessData, canImportData, canManageMaterialNorms } from '../utils/securityUtils';
 
-type MaterialNeedSortKey = 'date' | 'material' | 'location' | 'handler';
+type MaterialNeedSortKey = 'default' | 'material' | 'category' | 'remaining' | 'deficit' | 'stock';
 
 interface WarehouseTabProps {
   inventory: InventoryItem[];
@@ -111,8 +111,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [materialNeedRoomIds, setMaterialNeedRoomIds] = useState<string[]>([]);
   const [materialNeedTeamIds, setMaterialNeedTeamIds] = useState<string[]>([]);
   const [materialNeedWorkCategoryIds, setMaterialNeedWorkCategoryIds] = useState<string[]>([]);
-  const [materialNeedSortBy, setMaterialNeedSortBy] = useState<MaterialNeedSortKey>('date');
-  const [materialNeedSortOrder, setMaterialNeedSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [materialNeedSortBy, setMaterialNeedSortBy] = useState<MaterialNeedSortKey>('default');
+  const [materialNeedSortOrder, setMaterialNeedSortOrder] = useState<'asc' | 'desc'>('asc');
   const [isMaterialNeedExpanded, setIsMaterialNeedExpanded] = useState(false);
   const [showMaterialFloorPicker, setShowMaterialFloorPicker] = useState(false);
   const [showMaterialRoomPicker, setShowMaterialRoomPicker] = useState(false);
@@ -194,76 +194,34 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     },
   }), [roomProgressList, materialNorms, inventory, workVolumes, teams, materialNeedFloorIds, materialNeedRoomIds, materialNeedTeamIds, materialNeedWorkCategoryIds]);
 
-  const materialNeedSortMeta = useMemo(() => {
-    const aliasMap = buildMaterialAliasMap(materialNorms);
-    const scoped = inventory.filter((item) => {
-      if (item.deletedAt !== undefined && item.deletedAt !== null) return false;
-      if (materialNeedFloorIds.length > 0) {
-        if (!item.sourceFloorId || !materialNeedFloorIds.includes(item.sourceFloorId)) return false;
-      }
-      if (materialNeedRoomIds.length > 0) {
-        if (!item.sourceRoomId || !materialNeedRoomIds.includes(item.sourceRoomId)) return false;
-      }
-      if (materialNeedTeamIds.length > 0) {
-        if (!item.sourceTeamId || !materialNeedTeamIds.includes(item.sourceTeamId)) return false;
-      }
-      if (materialNeedWorkCategoryIds.length > 0) {
-        if (!item.sourceWorkCategoryId || !materialNeedWorkCategoryIds.includes(item.sourceWorkCategoryId)) return false;
-      }
-      return true;
-    });
-
-    const latestByMaterial = new Map<string, InventoryItem>();
-    scoped.forEach((item) => {
-      const aliasedId = item.materialId ? (aliasMap.get(String(item.materialId)) || String(item.materialId)) : undefined;
-      const key = getMaterialIdentityKey(aliasedId, item.materialName, item.unit);
-      const current = latestByMaterial.get(key);
-      if (!current || compareDateValues(current.date, item.date) < 0 || (compareDateValues(current.date, item.date) === 0 && Number(current.updatedAt || 0) < Number(item.updatedAt || 0))) {
-        latestByMaterial.set(key, item);
-      }
-    });
-
-    return new Map(materialNeedResult.lines.map((line) => {
-      const directKey = getMaterialIdentityKey(line.materialId, line.materialName, line.unit);
-      const latest = latestByMaterial.get(directKey);
-      const fallbackLocation = materialNeedFloorIds.length === 1
-        ? (materialNeedFloors.find((floor) => floor.id === materialNeedFloorIds[0])?.name || '')
-        : '';
-      return [line.materialKey, {
-        date: latest?.date || '',
-        location: latest?.location || fallbackLocation,
-        handler: latest?.handler || '',
-      }] as const;
-    }));
-  }, [inventory, materialNorms, materialNeedResult.lines, materialNeedFloorIds, materialNeedRoomIds, materialNeedTeamIds, materialNeedWorkCategoryIds, materialNeedFloors]);
-
   const materialNeedLines = useMemo(() => {
     return [...materialNeedResult.lines].sort((a, b) => {
-      const aMeta = materialNeedSortMeta.get(a.materialKey) || { date: '', location: '', handler: '' };
-      const bMeta = materialNeedSortMeta.get(b.materialKey) || { date: '', location: '', handler: '' };
       let comparison = 0;
       switch (materialNeedSortBy) {
         case 'material':
           comparison = naturalCompare(a.materialName, b.materialName);
           break;
-        case 'location':
-          comparison = naturalCompare(aMeta.location, bMeta.location);
+        case 'category':
+          comparison = naturalCompare(a.category, b.category);
           break;
-        case 'handler':
-          comparison = naturalCompare(aMeta.handler, bMeta.handler);
+        case 'remaining':
+          comparison = a.remainingQty - b.remainingQty;
           break;
-        case 'date':
+        case 'deficit':
+          comparison = a.deficitQty - b.deficitQty;
+          break;
+        case 'stock':
+          comparison = a.stockQty - b.stockQty;
+          break;
+        case 'default':
         default:
-          if (!aMeta.date && bMeta.date) comparison = -1;
-          else if (aMeta.date && !bMeta.date) comparison = 1;
-          else comparison = compareDateValues(aMeta.date, bMeta.date);
-          break;
+          return naturalCompare(a.category, b.category) || naturalCompare(a.materialName, b.materialName) || naturalCompare(a.materialKey, b.materialKey);
       }
       if (materialNeedSortOrder === 'desc') comparison = -comparison;
       if (comparison !== 0) return comparison;
-      return naturalCompare(a.materialName, b.materialName) || naturalCompare(a.materialKey, b.materialKey);
+      return naturalCompare(a.category, b.category) || naturalCompare(a.materialName, b.materialName) || naturalCompare(a.materialKey, b.materialKey);
     });
-  }, [materialNeedResult.lines, materialNeedSortMeta, materialNeedSortBy, materialNeedSortOrder]);
+  }, [materialNeedResult.lines, materialNeedSortBy, materialNeedSortOrder]);
 
   const toggleMaterialNeedFloor = (id: string) => {
     setMaterialNeedFloorIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
@@ -1231,16 +1189,17 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               <QuickSortBar<MaterialNeedSortKey>
                 itemCount={materialNeedLines.length}
                 options={[
-                  { key: 'date', label: 'Ngày', kind: 'date', defaultOrder: 'desc' },
-                  { key: 'material', label: 'Vật tư', kind: 'alpha' },
-                  { key: 'location', label: 'Vị trí / Tầng', kind: 'alpha' },
-                  { key: 'handler', label: 'Người thực hiện', kind: 'alpha' },
+                  { key: 'material', label: 'Vật tư', kind: 'alpha', defaultOrder: 'asc' },
+                  { key: 'category', label: 'Nhóm vật tư', kind: 'alpha', defaultOrder: 'asc' },
+                  { key: 'remaining', label: 'Còn cần', kind: 'number', defaultOrder: 'desc' },
+                  { key: 'deficit', label: 'Thiếu', kind: 'number', defaultOrder: 'desc' },
+                  { key: 'stock', label: 'Tồn kho', kind: 'number', defaultOrder: 'desc' },
                 ]}
                 activeKey={materialNeedSortBy}
                 order={materialNeedSortOrder}
                 onChange={(key, order) => { setMaterialNeedSortBy(key); setMaterialNeedSortOrder(order); }}
                 onToggleOrder={() => setMaterialNeedSortOrder((order) => order === 'asc' ? 'desc' : 'asc')}
-                onReset={() => { setMaterialNeedSortBy('date'); setMaterialNeedSortOrder('desc'); }}
+                onReset={() => { setMaterialNeedSortBy('default'); setMaterialNeedSortOrder('asc'); }}
                 summary={`${materialNeedLines.length} loại vật tư`}
               />
 
