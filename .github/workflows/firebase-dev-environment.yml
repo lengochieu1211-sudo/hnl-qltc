@@ -25,7 +25,24 @@ env:
   PROD_AI_URL: https://hnl-qltc-ai-gateway.lengochieu1211.workers.dev
 
 jobs:
+  rules:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install exact dependencies
+        run: npm ci
+      - name: Firebase Rules compile and behavior
+        timeout-minutes: 5
+        run: npm run test:rules
+
   deploy_dev:
+    needs: rules
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -232,17 +249,6 @@ jobs:
           npm run build
           grep -R -q 'HNL AI Assistant' dist/assets || { echo '::error::AI UI marker missing from DEV build'; exit 1; }
           grep -R -q 'hnl-qltc-ai-gateway-dev' dist/assets || { echo '::error::DEV AI gateway missing from DEV build'; exit 1; }
-
-      - name: DEV Firebase Rules isolated emulator gate
-        if: steps.preflight.outputs.configured == 'true'
-        timeout-minutes: 5
-        env:
-          GOOGLE_APPLICATION_CREDENTIALS: ''
-          FIREBASE_SERVICE_ACCOUNT: ''
-          FIREBASE_CONFIG: ''
-          GCLOUD_PROJECT: ''
-          GOOGLE_CLOUD_PROJECT: ''
-        run: npm run test:rules
 
       - name: Resolve Cloudflare account
         if: steps.preflight.outputs.configured == 'true'
