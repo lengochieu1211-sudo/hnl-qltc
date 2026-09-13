@@ -34,7 +34,6 @@ jobs:
           test "$(git hash-object src/components/ExpandCollapseButton.tsx)" = '27a67361f46bc1c2ba1d0463e8eb1f14a43f16c1'
 
           cat .material-need-bootstrap/patch.part.* > /tmp/hnl-material-feature.patch.gz.b64
-          echo '9f40f1930dd601a5a54e19e91404935292e18513fecbe578a0320693d5083040  /tmp/hnl-material-feature.patch.gz.b64' | sha256sum -c -
           base64 -d /tmp/hnl-material-feature.patch.gz.b64 | gzip -d > /tmp/hnl-material-feature.patch
           echo '26a13198d769ac9bb59d45818930f8d184a6056fb0b364c7e70693e25b952c44  /tmp/hnl-material-feature.patch' | sha256sum -c -
           git apply --check /tmp/hnl-material-feature.patch
