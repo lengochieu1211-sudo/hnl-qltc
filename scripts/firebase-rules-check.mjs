@@ -40,7 +40,7 @@ function canConnect(port) {
   });
 }
 
-async function waitForEmulators(timeoutMs = 90000) {
+async function waitForEmulators(timeoutMs = 180000) {
   const ports = [9099, 8080, 9199];
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
