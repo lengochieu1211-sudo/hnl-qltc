@@ -332,6 +332,10 @@ async function verifyMaterialNeedFeatureSheet(page, label) {
   assert(metrics.overflowX <= 1, `${label}: Material Need feature sheet overflows horizontally (${metrics.overflowX}px)`);
   pass(`${label} Material Need feature sheet vertical viewport fit`, `${Math.round(metrics.topGap)}px top / ${Math.round(metrics.bottomGap)}px bottom`);
 
+  await sheet.getByText('Tất cả căn', { exact: true }).first().waitFor({ state: 'visible', timeout: 10000 });
+  await sheet.getByText('Tất cả hạng mục đã khai', { exact: true }).first().waitFor({ state: 'visible', timeout: 10000 });
+  pass(`${label} Material Need multi-room + declared work-category filters visible`);
+
   const closeButton = sheet.getByRole('button', { name: /^Đóng Gợi ý vật tư tổng hợp$/ }).first();
   await closeButton.waitFor({ state: 'visible', timeout: 10000 });
   await closeButton.click();
