@@ -9,7 +9,7 @@ const room: RoomProgressItem = {
   workVolume: 100, volumeUnit: 'm²', subItems: [{ id: 'sub-a', category: 'Trần thạch cao', workCategoryId: 'wc-ceiling', teamId: 'team-a', workVolume: 100, volumeUnit: 'm²' }],
 } as RoomProgressItem;
 const legacyRecordNorm = {
-  id: 'norm-board', materialId: 'mat-board', materialName: 'Tấm thạch cao', category: 'Tấm', unit: 'tấm',
+  id: 'norm-board', materialId: 'mat-board', materialName: 'Tấm thạch cao', category: 'Tấm', unit: 'tấm', quotaQuantity: 0,
   workCategoryId: 'wv-record-1', workCategoryIds: ['wv-record-1'], workCategoryNormsById: { 'wv-record-1': 0.35 }, normBasisUnit: 'm²', unitNormPerM2: 0.35,
 } as MaterialNorm;
 
