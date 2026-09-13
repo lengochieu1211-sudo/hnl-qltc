@@ -10,6 +10,8 @@ const env = {
   GOOGLE_CLOUD_PROJECT: demoProject,
 };
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 function resolveNpx() {
   const npmExecPath = String(process.env.npm_execpath || '').trim();
   const npxCliPath = npmExecPath ? path.join(path.dirname(npmExecPath), 'npx-cli.js') : '';
@@ -38,9 +40,20 @@ async function terminateProcessTree(child) {
   } catch {
     child.kill('SIGTERM');
   }
+
+  const deadline = Date.now() + 5000;
+  while (child.exitCode === null && Date.now() < deadline) await sleep(100);
+
+  if (child.exitCode === null) {
+    try {
+      process.kill(-child.pid, 'SIGKILL');
+    } catch {
+      child.kill('SIGKILL');
+    }
+  }
 }
 
-function runRulesBehavior(timeoutMs = 240000) {
+function runRulesBehaviorAttempt(attempt, timeoutMs = 75000) {
   return new Promise((resolve, reject) => {
     const { command, prefix } = resolveNpx();
     const behaviorCommand = `"${process.execPath}" scripts/firebase-rules-behavior.mjs`;
@@ -55,7 +68,7 @@ function runRulesBehavior(timeoutMs = 240000) {
       behaviorCommand,
     ];
 
-    console.log('Starting isolated Firebase Rules emulators via emulators:exec');
+    console.log(`Starting isolated Firebase Rules emulators via emulators:exec (attempt ${attempt})`);
     const child = spawn(command, args, {
       cwd: process.cwd(),
       stdio: 'inherit',
@@ -64,26 +77,44 @@ function runRulesBehavior(timeoutMs = 240000) {
       detached: process.platform !== 'win32',
     });
 
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn(value);
+    };
+
     const timer = setTimeout(async () => {
       await terminateProcessTree(child);
-      reject(new Error(`Firebase Rules emulators:exec timed out after ${timeoutMs / 1000}s`));
+      finish(reject, new Error(`Firebase Rules emulators:exec attempt ${attempt} timed out after ${timeoutMs / 1000}s`));
     }, timeoutMs);
 
-    child.once('error', (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-
+    child.once('error', (error) => finish(reject, error));
     child.once('exit', (code, signal) => {
-      clearTimeout(timer);
-      if (code === 0) {
-        console.log('Firestore + Storage Rules compile/behavior PASS');
-        resolve();
-      } else {
-        reject(new Error(`Firebase Rules emulators:exec failed: exit code=${code}, signal=${signal || 'none'}`));
-      }
+      if (code === 0) finish(resolve);
+      else finish(reject, new Error(`Firebase Rules emulators:exec attempt ${attempt} failed: exit code=${code}, signal=${signal || 'none'}`));
     });
   });
 }
 
-await runRulesBehavior();
+const maxAttempts = 3;
+let lastError;
+for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+  try {
+    await runRulesBehaviorAttempt(attempt);
+    console.log('Firestore + Storage Rules compile/behavior PASS');
+    process.exitCode = 0;
+    lastError = undefined;
+    break;
+  } catch (error) {
+    lastError = error;
+    console.warn(`Firebase Rules emulator attempt ${attempt}/${maxAttempts} failed: ${error?.message || error}`);
+    if (attempt < maxAttempts) {
+      console.log('Retrying with a clean Firebase emulator process...');
+      await sleep(2000);
+    }
+  }
+}
+
+if (lastError) throw lastError;
