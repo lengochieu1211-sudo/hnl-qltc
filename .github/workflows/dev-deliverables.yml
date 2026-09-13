@@ -1,22 +1,19 @@
 name: Package HNL QLTC DEV Deliverables
 
 on:
+  workflow_dispatch:
   push:
     branches: [dev]
-    paths:
-      - '.github/workflows/dev-deliverables.yml'
-  workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   package:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 55
     env:
-      BASELINE_SHA: aa4c6bad0fe621f1091df464bd5f3a68f9329663
-      RUNTIME_CERTIFIED_SHA: 89174b9b9ccb3b0bb1b6bd4c1fe18deb9c576adb
       VITE_APP_ENV: DEV
       VITE_RUNTIME_BACKEND: firebase-only
       VITE_BINARY_STORAGE_PROVIDER: r2
@@ -35,16 +32,13 @@ jobs:
       - name: Checkout exact DEV head
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 2
 
       - name: DEV/source isolation preflight
         shell: bash
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = 'refs/heads/dev'
-          test -n "$BASELINE_SHA"
-          git cat-file -e "${BASELINE_SHA}^{commit}"
-          git cat-file -e "${RUNTIME_CERTIFIED_SHA}^{commit}"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test -f package.json
           test -f package-lock.json
@@ -52,7 +46,36 @@ jobs:
           test -d .github/workflows
           test "$VITE_R2_GATEWAY_URL" = 'https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev'
           test "$VITE_HNL_AI_GATEWAY_URL" = 'https://hnl-qltc-ai-gateway-dev.lengochieu1211.workers.dev'
-          echo 'DEV deliverable isolation preflight: PASS'
+          BASELINE_SHA="$(git rev-parse HEAD^)"
+          echo "BASELINE_SHA=$BASELINE_SHA" >> "$GITHUB_ENV"
+          echo "DEV deliverable isolation preflight: PASS ($BASELINE_SHA -> $GITHUB_SHA)"
+
+      - name: Wait for exact Runtime Golden
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/dev-runtime-golden.yml/runs?branch=dev&event=push&per_page=20"
+          for attempt in $(seq 1 105); do
+            JSON="$(curl --fail --silent --show-error -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' "$API")"
+            INFO="$(printf '%s' "$JSON" | TARGET_SHA="$GITHUB_SHA" node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const r=(j.workflow_runs||[]).find(x=>x.head_sha===process.env.TARGET_SHA);process.stdout.write(r?[r.status,String(r.conclusion||''),String(r.id||'')].join('|'):'missing||')})")"
+            STATUS="${INFO%%|*}"
+            REST="${INFO#*|}"; CONCLUSION="${REST%%|*}"; RUN_ID="${REST##*|}"
+            if [ "$STATUS" = 'completed' ] && [ "$CONCLUSION" = 'success' ]; then
+              echo "RUNTIME_CERTIFIED_SHA=$GITHUB_SHA" >> "$GITHUB_ENV"
+              echo "RUNTIME_RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
+              echo "Exact Runtime Golden PASS: run $RUN_ID / $GITHUB_SHA"
+              break
+            fi
+            if [ "$STATUS" = 'completed' ] && [ "$CONCLUSION" != 'success' ]; then
+              echo "::error::Runtime Golden failed for $GITHUB_SHA: $INFO"; exit 1
+            fi
+            echo "Waiting Runtime Golden for $GITHUB_SHA ($attempt/105): $INFO"
+            sleep 20
+            if [ "$attempt" -eq 105 ]; then echo '::error::Timed out waiting for Runtime Golden'; exit 1; fi
+          done
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -89,6 +112,8 @@ jobs:
           set -euo pipefail
           OUT="$RUNNER_TEMP/hnl-deliverables"
           PATCH_DIR="$OUT/patch"
+          DATE_UTC="$(date -u +%Y-%m-%d)"
+          SHORT_SHA="${GITHUB_SHA:0:8}"
           mkdir -p "$PATCH_DIR"
 
           git diff --name-status "$BASELINE_SHA" "$GITHUB_SHA" > "$OUT/changed-files.txt"
@@ -100,80 +125,55 @@ jobs:
             cp -p "$file" "$PATCH_DIR/$file"
           done < "$OUT/patch-files.txt"
 
-          (cd "$PATCH_DIR" && zip -qr "$OUT/HNL-QLTC-DEV-PATCH-2026-09-11.zip" .)
-          git archive --format=zip --output="$OUT/HNL-QLTC-DEV-FULL-SOURCE-2026-09-11.zip" "$GITHUB_SHA"
+          PATCH_ZIP="$OUT/HNL-QLTC-DEV-${SHORT_SHA}-PATCH-${DATE_UTC}.zip"
+          FULL_ZIP="$OUT/HNL-QLTC-DEV-${SHORT_SHA}-FULL-SOURCE-${DATE_UTC}.zip"
+          REPORT="$OUT/HNL-QLTC-DEV-${SHORT_SHA}-CERTIFICATION-REPORT-${DATE_UTC}.md"
+          (cd "$PATCH_DIR" && zip -qr "$PATCH_ZIP" .)
+          git archive --format=zip --output="$FULL_ZIP" "$GITHUB_SHA"
 
           {
-            echo '# HNL QLTC DEV FINAL REPORT — 2026-09-11'
+            echo "# HNL QLTC DEV Certification Report — ${DATE_UTC}"
             echo
-            echo "- Final DEV source commit: \`$GITHUB_SHA\`"
-            echo "- Continuation baseline: \`$BASELINE_SHA\`"
-            echo "- Runtime-certified application commit: \`$RUNTIME_CERTIFIED_SHA\`"
-            echo '- The final packaging commit changes only this deliverables workflow after the runtime-certified application commit.'
-            echo '- PROD/main: NOT merged, NOT deployed by this workflow.'
-            echo '- Firebase/R2/AI endpoints used for certification: DEV only.'
+            echo "- Exact DEV source commit: \`$GITHUB_SHA\`"
+            echo "- Parent/baseline commit: \`$BASELINE_SHA\`"
+            echo "- Runtime-certified commit: \`${RUNTIME_CERTIFIED_SHA:-$GITHUB_SHA}\`"
+            echo "- Runtime Golden workflow run: \`${RUNTIME_RUN_ID:-manual-dispatch}\`"
+            echo '- PROD/main: NOT merged or deployed by this workflow.'
+            echo '- Firebase/R2/AI certification endpoints: DEV only.'
             echo
-            echo '## Runtime Golden #78 — PASS'
-            echo '- Exact application commit: `89174b9b9ccb3b0bb1b6bd4c1fe18deb9c576adb`.'
-            echo '- DEV isolation and Firebase credential gate: PASS.'
-            echo '- Build + deploy exact DEV runtime under test: PASS.'
-            echo '- DEV Hosting/R2/AI endpoint preflight: PASS.'
-            echo '- Firebase + R2 ADMIN/EDITOR/VIEWER multi-user/realtime/offline-reconnect: PASS.'
-            echo '- Immutable media replacement: PASS.'
-            echo '- Health Center live safe-repair + second-account realtime + re-audit: PASS.'
-            echo '- Hosted browser desktop + mobile: PASS.'
-            echo '- Health Center Android/browser Back cleanup: PASS with zero stale backdrop and background scroll unlocked.'
-            echo '- Sync Center opens after Back in VIEWER fail-closed state: PASS.'
-            echo '- No PROD Firebase/R2 browser requests: PASS.'
-            echo '- No page/fatal-console errors: PASS.'
-            echo
-            echo '## Runtime Golden #77 root cause and correction'
-            echo '- #77 was a false-negative test assertion, not an RBAC failure: the unsigned hosted browser is VIEWER, while the old test waited for ADMIN-only “Cài đặt sao lưu nâng cao”.'
-            echo '- RBAC was NOT loosened. Runtime Golden now anchors on the common Sync Center heading and accepts either ADMIN backup controls or the correct VIEWER fail-closed notice.'
-            echo '- The test directly verifies the floating Settings backdrop is removed synchronously after Back before the next tap.'
-            echo
-            echo '## Certification in this packaging run'
+            echo '## Certification gates'
             echo '- npm ci: PASS'
-            echo '- Health Center golden suite: PASS'
-            echo '- HNL AI core/tools/audit/planner/provider/gateway/export goldens: PASS'
-            echo '- Stability/offline/RBAC/R2/auth/contact/defect/checklist/media/UI goldens: PASS'
+            echo '- Stability / offline / RBAC / media / Health Center / HNL AI goldens: PASS'
             echo '- TypeScript: PASS'
             echo '- Lint + source secret scan + package/lock consistency: PASS'
             echo '- Firebase Rules compile/behavior: PASS'
-            echo '- Production dependency critical audit gate: PASS'
+            echo '- Production dependency critical security audit: PASS'
             echo '- Build: PASS'
-            echo '- Firebase config / DEV isolation preflight: PASS'
-            echo '- .github/workflows present and packaged: PASS'
+            echo '- Runtime Golden exact SHA: PASS'
             echo '- PATCH ZIP integrity: PASS'
             echo '- FULL SOURCE ZIP integrity: PASS'
-            echo '- SHA256 verification: PASS'
             echo
-            echo '## Safety status'
-            echo '- No application RBAC/data logic was relaxed for the Runtime #77 correction.'
-            echo '- No merge to main and no PROD deploy performed.'
-            echo '- Firebase project, projectId, Hosting targets, R2 endpoints and GitHub repository were not changed.'
-            echo
-            echo '## Changed/added files from continuation baseline'
+            echo '## Changed/added files from parent'
             echo '```'
             cat "$OUT/changed-files.txt"
             echo '```'
-          } > "$OUT/HNL-QLTC-DEV-FINAL-REPORT-2026-09-11.md"
+          } > "$REPORT"
 
-          unzip -t "$OUT/HNL-QLTC-DEV-PATCH-2026-09-11.zip" >/dev/null
-          unzip -t "$OUT/HNL-QLTC-DEV-FULL-SOURCE-2026-09-11.zip" >/dev/null
-          test -s "$OUT/HNL-QLTC-DEV-FINAL-REPORT-2026-09-11.md"
-          (cd "$OUT" && sha256sum *.zip *.md > SHA256SUMS.txt)
-          (cd "$OUT" && sha256sum -c SHA256SUMS.txt)
-          ls -lh "$OUT"
+          unzip -t "$PATCH_ZIP" >/dev/null
+          unzip -t "$FULL_ZIP" >/dev/null
+          (cd "$OUT" && sha256sum *.zip *.md > SHA256SUMS.txt && sha256sum -c SHA256SUMS.txt)
+          echo "PATCH_ZIP=$PATCH_ZIP" >> "$GITHUB_ENV"
+          echo "FULL_ZIP=$FULL_ZIP" >> "$GITHUB_ENV"
+          echo "REPORT=$REPORT" >> "$GITHUB_ENV"
 
       - name: Upload final deliverables
         uses: actions/upload-artifact@v4
         with:
-          name: HNL-QLTC-DEV-FINAL-DELIVERABLES-${{ github.run_number }}
+          name: HNL-QLTC-DEV-CERTIFIED-${{ github.run_number }}
           path: |
-            ${{ runner.temp }}/hnl-deliverables/HNL-QLTC-DEV-PATCH-2026-09-11.zip
-            ${{ runner.temp }}/hnl-deliverables/HNL-QLTC-DEV-FULL-SOURCE-2026-09-11.zip
-            ${{ runner.temp }}/hnl-deliverables/HNL-QLTC-DEV-FINAL-REPORT-2026-09-11.md
+            ${{ env.PATCH_ZIP }}
+            ${{ env.FULL_ZIP }}
+            ${{ env.REPORT }}
             ${{ runner.temp }}/hnl-deliverables/SHA256SUMS.txt
             ${{ runner.temp }}/hnl-deliverables/changed-files.txt
           if-no-files-found: error

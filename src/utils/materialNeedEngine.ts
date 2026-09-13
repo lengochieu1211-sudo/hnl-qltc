@@ -1,6 +1,7 @@
 import { InventoryItem, MaterialNorm, RoomProgressItem, TeamInfo, WorkVolume } from '../types';
 import { areSameUnit, normalizeUnit } from './unitUtils';
 import { buildMaterialAliasMap, getMaterialIdentityKey, normalizeMaterialNameKey, resolveNormMaterialId } from './inventoryUtils';
+import { naturalCompare } from './sortUtils';
 
 export interface MaterialNeedWarning {
   code: 'MISSING_NORM' | 'UNIT_MISMATCH' | 'AMBIGUOUS_TEAM' | 'UNALLOCATED_ISSUE';
@@ -45,6 +46,9 @@ export interface MaterialNeedScope {
   teamId?: string;
   teamIds?: string[];
   roomId?: string;
+  roomIds?: string[];
+  workCategoryId?: string;
+  workCategoryIds?: string[];
 }
 
 interface NeedContribution {
@@ -184,6 +188,8 @@ function buildContributions(
   const contributions: NeedContribution[] = [];
   const scopedFloorIds = scopeIds(scope.floorId, scope.floorIds);
   const scopedTeamIds = scopeIds(scope.teamId, scope.teamIds);
+  const scopedRoomIds = scopeIds(scope.roomId, scope.roomIds);
+  const scopedWorkCategoryIds = scopeIds(scope.workCategoryId, scope.workCategoryIds);
   const hasTeamScope = scopedTeamIds.length > 0;
   const activeTeams = teams.filter(isActiveLifecycle);
   const teamResolver = buildTeamResolver(activeTeams);
@@ -192,7 +198,7 @@ function buildContributions(
   );
 
   rooms.forEach((room) => {
-    if (scope.roomId && room.id !== scope.roomId) return;
+    if (!scopeIncludes(scopedRoomIds, room.id)) return;
     if (!scopeIncludes(scopedFloorIds, room.floorId)) return;
     const cats = roomCategories(room, workVolumes);
     const roomTeamIds = uniqueRoomTeamIds(room, teamResolver);
@@ -204,13 +210,15 @@ function buildContributions(
       // allowed only for legacy rows that genuinely have no category ID.
       const activeWork = cat.id ? resolveWorkVolume(cat.id, workVolumes) : resolveWorkVolume(cat.name, workVolumes);
       if (!activeWork) return;
-      const categoryRef = cat.id || cat.name;
+      const canonicalWorkCategoryId = activeWork.workCategoryId || activeWork.id;
+      if (!scopeIncludes(scopedWorkCategoryIds, canonicalWorkCategoryId)) return;
+      const categoryRef = canonicalWorkCategoryId || cat.id || cat.name;
       const totalVolume = categoryVolumeForRoom(room, categoryRef, workVolumes);
       if (totalVolume <= 0) return;
       const sourceUnit = sourceUnitForRoomCategory(room, categoryRef, workVolumes);
 
       if (!hasTeamScope) {
-        contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: cat.id, workCategoryName: cat.name, sourceUnit, volume: totalVolume });
+        contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: canonicalWorkCategoryId, workCategoryName: cat.name, sourceUnit, volume: totalVolume });
         return;
       }
 
@@ -221,11 +229,11 @@ function buildContributions(
       // teamId only when exactly one ACTIVE TeamInfo has the same normalized name. Explicit
       // teamId remains authoritative and duplicate names never get guessed.
       if (categoryTeamIds.length > 0 && categoryTeamIds.every((id) => scopedTeamIds.includes(id))) {
-        contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: cat.id, workCategoryName: cat.name, sourceUnit, volume: totalVolume });
+        contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: canonicalWorkCategoryId, workCategoryName: cat.name, sourceUnit, volume: totalVolume });
         return;
       }
       if (categoryTeamIds.length === 0 && roomTeamIds.length > 0 && roomTeamIds.every((id) => scopedTeamIds.includes(id))) {
-        contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: cat.id, workCategoryName: cat.name, sourceUnit, volume: totalVolume });
+        contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: canonicalWorkCategoryId, workCategoryName: cat.name, sourceUnit, volume: totalVolume });
         return;
       }
 
@@ -235,17 +243,17 @@ function buildContributions(
       });
       const explicitVolume = matchingSubs.reduce((sum, sub) => sum + (Number(sub.workVolume) || 0), 0);
       if (explicitVolume > 0) {
-        contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: cat.id, workCategoryName: cat.name, sourceUnit: normalizeUnit(matchingSubs[0]?.volumeUnit || sourceUnit) || sourceUnit, volume: explicitVolume });
+        contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: canonicalWorkCategoryId, workCategoryName: cat.name, sourceUnit: normalizeUnit(matchingSubs[0]?.volumeUnit || sourceUnit) || sourceUnit, volume: explicitVolume });
         return;
       }
 
       if (categoryTeamIds.length === 1 && scopedTeamIds.includes(categoryTeamIds[0])) {
-        contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: cat.id, workCategoryName: cat.name, sourceUnit, volume: totalVolume });
+        contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: canonicalWorkCategoryId, workCategoryName: cat.name, sourceUnit, volume: totalVolume });
         return;
       }
 
       if (roomTeamIds.length === 1 && scopedTeamIds.includes(roomTeamIds[0])) {
-        contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: cat.id, workCategoryName: cat.name, sourceUnit, volume: totalVolume });
+        contributions.push({ roomId: room.id, floorId: room.floorId, workCategoryId: canonicalWorkCategoryId, workCategoryName: cat.name, sourceUnit, volume: totalVolume });
         return;
       }
 
@@ -266,7 +274,7 @@ function buildContributions(
           roomId: room.id,
           floorId: room.floorId,
           teamId: scopedTeamIds.length === 1 ? scopedTeamIds[0] : undefined,
-          workCategoryId: cat.id,
+          workCategoryId: canonicalWorkCategoryId,
           message: hasAmbiguousSelectedLegacyTeam
             ? `Căn ${room.roomName}: hạng mục ${cat.name} chỉ còn tên đội legacy trùng với nhiều đội đang hoạt động. Hãy gán lại đội để hệ thống không suy đoán nhu cầu.`
             : `Căn ${room.roomName}: hạng mục ${cat.name} có nhiều đội nhưng chưa có khối lượng phân bổ đủ cho phạm vi đội đã chọn. Không tự chia nhu cầu.`,
@@ -363,17 +371,88 @@ export function computeMaterialNeeds(params: {
   const unallocated = new Map<string, number>();
   const scopedFloorIds = scopeIds(scope.floorId, scope.floorIds);
   const scopedTeamIds = scopeIds(scope.teamId, scope.teamIds);
+  const scopedRoomIds = scopeIds(scope.roomId, scope.roomIds);
+  const scopedWorkCategoryIds = scopeIds(scope.workCategoryId, scope.workCategoryIds);
   const hasTeamScope = scopedTeamIds.length > 0;
+  const hasWorkCategoryScope = scopedWorkCategoryIds.length > 0;
+
+  const resolveTxWorkCategoryScope = (tx: InventoryItem): 'inside' | 'outside' | 'ambiguous' => {
+    if (!hasWorkCategoryScope) return 'inside';
+
+    const explicitRef = String(tx.sourceWorkCategoryId || '').trim();
+    if (explicitRef) {
+      const work = resolveWorkVolume(explicitRef, workVolumes);
+      const canonicalId = work?.workCategoryId || work?.id || explicitRef;
+      return scopedWorkCategoryIds.includes(canonicalId) ? 'inside' : 'outside';
+    }
+
+    const sourceNormId = String(tx.sourceNormId || '').trim();
+    if (sourceNormId) {
+      const sourceNorm = materialNorms.find((norm) => norm.id === sourceNormId);
+      if (sourceNorm) {
+        const ids = Array.from(new Set(
+          [...(sourceNorm.workCategoryIds || []), ...(sourceNorm.workCategoryId ? [sourceNorm.workCategoryId] : [])]
+            .map((id) => {
+              const work = resolveWorkVolume(id, workVolumes);
+              return work?.workCategoryId || work?.id || id;
+            })
+            .filter(Boolean),
+        ));
+        if (ids.length > 0) {
+          const matched = ids.filter((id) => scopedWorkCategoryIds.includes(id));
+          if (matched.length === ids.length) return 'inside';
+          if (matched.length === 0) return 'outside';
+          return 'ambiguous';
+        }
+      }
+    }
+
+    if (tx.sourceRoomId) {
+      const room = rooms.find((item) => item.id === tx.sourceRoomId);
+      if (room) {
+        const ids = Array.from(new Set(roomCategories(room, workVolumes)
+          .map((cat) => {
+            const work = cat.id ? resolveWorkVolume(cat.id, workVolumes) : resolveWorkVolume(cat.name, workVolumes);
+            return work?.workCategoryId || work?.id;
+          })
+          .filter(Boolean) as string[]));
+        if (ids.length > 0) {
+          const matched = ids.filter((id) => scopedWorkCategoryIds.includes(id));
+          if (matched.length === ids.length) return 'inside';
+          if (matched.length === 0) return 'outside';
+        }
+      }
+    }
+
+    return 'ambiguous';
+  };
+
   inventory.forEach((tx) => {
     if (tx.type !== 'out') return;
-    if (scope.roomId && tx.sourceRoomId !== scope.roomId) return;
-    if (scopedFloorIds.length > 0 && !scopeIncludes(scopedFloorIds, tx.sourceFloorId)) return;
+    if (!scopeIncludes(scopedRoomIds, tx.sourceRoomId)) return;
+    if (!scopeIncludes(scopedFloorIds, tx.sourceFloorId)) return;
+
     let key = canonicalKey(tx.materialId, tx.materialName, tx.unit);
     if (!tx.materialId) {
       const norm = materialNorms.find((n) => normalizeMaterialNameKey(n.materialName) === normalizeMaterialNameKey(tx.materialName) && areSameUnit(n.unit, tx.unit));
       if (norm) key = canonicalKey(resolveNormMaterialId(norm), norm.materialName, norm.unit);
     }
     const qty = Number(tx.quantity) || 0;
+
+    const workCategoryScopeState = resolveTxWorkCategoryScope(tx);
+    if (workCategoryScopeState === 'outside') return;
+    if (workCategoryScopeState === 'ambiguous') {
+      unallocated.set(key, (unallocated.get(key) || 0) + qty);
+      warnings.push({
+        code: 'UNALLOCATED_ISSUE',
+        roomId: tx.sourceRoomId,
+        floorId: tx.sourceFloorId,
+        workCategoryId: scopedWorkCategoryIds.length === 1 ? scopedWorkCategoryIds[0] : undefined,
+        message: `Phiếu ${tx.id} chưa có sourceWorkCategoryId/sourceNormId đủ rõ để chứng minh thuộc hạng mục thi công đã chọn. Không trừ vào nhu cầu hạng mục.`,
+      });
+      return;
+    }
+
     if (hasTeamScope) {
       if (tx.sourceTeamId && scopedTeamIds.includes(tx.sourceTeamId)) {
         issued.set(key, (issued.get(key) || 0) + qty);
@@ -395,8 +474,11 @@ export function computeMaterialNeeds(params: {
       }
       return;
     }
-    if (scopedFloorIds.length > 0 && scopeIncludes(scopedFloorIds, tx.sourceFloorId)) issued.set(key, (issued.get(key) || 0) + qty);
-    else if (scope.roomId && tx.sourceRoomId === scope.roomId) issued.set(key, (issued.get(key) || 0) + qty);
+
+    // No team filter: every OUT transaction that is proven inside the selected
+    // floor/room/work-category scope belongs to that material need. This also
+    // fixes whole-project summaries, which must subtract project-wide issued qty.
+    issued.set(key, (issued.get(key) || 0) + qty);
   });
 
   const lines = Array.from(demand.entries()).map(([materialKey, item]) => {
@@ -427,7 +509,7 @@ export function computeMaterialNeeds(params: {
         return { workCategory: only.workCategory, unitNormPerM2: only.factor, normBasisUnit: only.basisUnit };
       })() : {}),
     } satisfies MaterialNeedLine;
-  }).sort((a, b) => a.category.localeCompare(b.category, 'vi') || a.materialName.localeCompare(b.materialName, 'vi'));
+  }).sort((a, b) => naturalCompare(a.category, b.category) || naturalCompare(a.materialName, b.materialName) || naturalCompare(a.materialKey, b.materialKey));
 
   return { lines, warnings, failClosed: warnings.some((w) => w.code === 'MISSING_NORM' || w.code === 'UNIT_MISMATCH' || w.code === 'AMBIGUOUS_TEAM') };
 }

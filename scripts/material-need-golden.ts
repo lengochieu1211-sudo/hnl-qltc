@@ -234,6 +234,62 @@ assert.equal(bothTeamsFloor3.lines[0]?.estimatedQty, 35, 'Selecting all teams on
 const allTeamsFloors1And3 = computeMaterialNeeds({ rooms: [floor1TeamARoom, multiTeamRoom], materialNorms: [norm], inventory: [], workVolumes, teams, scope: { floorIds: ['floor-1', 'floor-3'] } });
 assert.equal(allTeamsFloors1And3.lines[0]?.estimatedQty, 49, 'All teams across floors 1+3 must aggregate room demand once');
 
+
+// Multi-room scope: one or many rooms must aggregate exactly the selected rooms, never the whole floor.
+const roomOnly301 = computeMaterialNeeds({
+  rooms: [floor1TeamARoom, multiTeamRoom], materialNorms: [norm], inventory: [], workVolumes, teams,
+  scope: { roomIds: ['room-301'] },
+});
+assert.equal(roomOnly301.lines[0]?.estimatedQty, 35, 'Single-room scope must include only the selected room');
+
+const rooms101And301 = computeMaterialNeeds({
+  rooms: [floor1TeamARoom, multiTeamRoom], materialNorms: [norm], inventory: [], workVolumes, teams,
+  scope: { roomIds: ['room-101', 'room-301'] },
+});
+assert.equal(rooms101And301.lines[0]?.estimatedQty, 49, 'Multi-room scope must aggregate selected rooms exactly once');
+
+// Declared work-category scope: filter by canonical WorkVolume/workCategory IDs, not by a separate material category.
+const onlyW12 = computeMaterialNeeds({
+  rooms: [roomBhs], materialNorms: categoryNorms, inventory: [], workVolumes: categoryWorkVolumes, teams,
+  scope: { workCategoryIds: ['wc-w12'] },
+});
+assert.deepEqual(onlyW12.lines.map((line) => line.materialId), ['mat-w12-frame'], 'Declared W12 work category must expose only its linked material demand');
+assert.equal(onlyW12.lines[0]?.estimatedQty, 151.53);
+
+const w12AndC04 = computeMaterialNeeds({
+  rooms: [roomBhs], materialNorms: categoryNorms, inventory: [], workVolumes: categoryWorkVolumes, teams,
+  scope: { workCategoryIds: ['wc-w12', 'wc-c04'] },
+});
+assert.deepEqual(new Set(w12AndC04.lines.map((line) => line.materialId)), new Set(['mat-w12-frame', 'mat-c04-frame']), 'Selecting multiple declared work categories must aggregate both without double-count');
+
+const roomAndCategoryIntersection = computeMaterialNeeds({
+  rooms: [roomBhs, roomIw11], materialNorms: categoryNorms, inventory: [], workVolumes: categoryWorkVolumes, teams,
+  scope: { roomIds: ['room-a9-13'], workCategoryIds: ['wc-w12'] },
+});
+assert.equal(roomAndCategoryIntersection.lines.length, 0, 'Room + declared work-category filters must intersect instead of broadening scope');
+
+// Issued quantities must respect declared work-category provenance. Legacy issues without enough
+// category provenance remain visible as unallocated and never reduce a filtered category need.
+const scopedIssueInventory: InventoryItem[] = [
+  { id: 'in-w12', type: 'in', materialId: 'mat-w12-frame', materialName: 'Thanh đứng W12', unit: 'Thanh', quantity: 300 } as InventoryItem,
+  { id: 'out-w12-explicit', type: 'out', materialId: 'mat-w12-frame', materialName: 'Thanh đứng W12', unit: 'Thanh', quantity: 10, sourceRoomId: 'room-bhs', sourceFloorId: 'floor-ground', sourceWorkCategoryId: 'wc-w12' } as InventoryItem,
+  { id: 'out-w12-legacy', type: 'out', materialId: 'mat-w12-frame', materialName: 'Thanh đứng W12', unit: 'Thanh', quantity: 5, sourceRoomId: 'room-bhs', sourceFloorId: 'floor-ground' } as InventoryItem,
+];
+
+const allProjectIssues = computeMaterialNeeds({
+  rooms: [roomBhs], materialNorms: categoryNorms, inventory: scopedIssueInventory, workVolumes: categoryWorkVolumes, teams,
+});
+const allProjectW12 = allProjectIssues.lines.find((line) => line.materialId === 'mat-w12-frame');
+assert.equal(allProjectW12?.alreadyIssued, 15, 'Whole-project material need must subtract all project OUT transactions exactly once');
+
+const w12ScopedIssues = computeMaterialNeeds({
+  rooms: [roomBhs], materialNorms: categoryNorms, inventory: scopedIssueInventory, workVolumes: categoryWorkVolumes, teams,
+  scope: { roomIds: ['room-bhs'], workCategoryIds: ['wc-w12'] },
+});
+assert.equal(w12ScopedIssues.lines[0]?.alreadyIssued, 10, 'Filtered work category may subtract only explicitly/provably linked OUT transactions');
+assert.equal(w12ScopedIssues.lines[0]?.unallocatedIssued, 5, 'Legacy issue with ambiguous category provenance must remain unallocated');
+assert.ok(w12ScopedIssues.warnings.some((warning) => warning.code === 'UNALLOCATED_ISSUE'), 'Ambiguous category issue must surface a fail-closed warning');
+
 const missingNorm = computeMaterialNeeds({ rooms: [multiTeamRoom], materialNorms: [], inventory: [], workVolumes, teams, scope: { floorId: 'floor-3' } });
 assert.equal(missingNorm.lines.length, 0);
 assert.equal(missingNorm.failClosed, true);

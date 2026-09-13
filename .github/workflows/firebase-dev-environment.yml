@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: hnl-qltc-dev-release
+  cancel-in-progress: false
+
 env:
   DEV_FIRESTORE_LOCATION: asia-southeast1
   DEV_R2_BUCKET: hnl-qltc-media-dev
@@ -166,6 +170,70 @@ jobs:
           NODE
           echo "DEV Firebase Web App: $APP_ID"
 
+      - name: Install app dependencies
+        if: steps.preflight.outputs.configured == 'true'
+        run: npm ci
+
+      - name: DEV pre-deploy source gates
+        if: steps.preflight.outputs.configured == 'true'
+        env:
+          VITE_APP_ENV: DEV
+          VITE_RUNTIME_BACKEND: firebase-only
+          VITE_BINARY_STORAGE_PROVIDER: r2
+          VITE_R2_GATEWAY_URL: ${{ env.DEV_R2_URL }}
+          VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+          VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+          VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+          VITE_FIRESTORE_DATABASE_ID: '(default)'
+          VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+          VITE_FIREBASE_APP_CHECK_SITE_KEY: ''
+          VITE_HNL_AI_ENABLED: 'true'
+          VITE_HNL_AI_GATEWAY_URL: ${{ env.DEV_AI_URL }}
+          VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+          VITE_GIT_COMMIT: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run test:ai-core
+          npm run test:ai-tools
+          npm run test:ai-audit
+          npm run test:ai-planner
+          npm run test:ai-provider
+          npm run test:ai-gateway
+          npm run test:ai-export
+          npm run test:stability
+          npm run typecheck
+          npm run lint
+          npm run test:rules
+
+          audit_ok=0
+          for attempt in 1 2 3; do
+            set +e
+            AUDIT_OUT="$(npm run security:audit 2>&1)"
+            RC=$?
+            set -e
+            printf '%s\n' "$AUDIT_OUT"
+            if [ "$RC" -eq 0 ]; then
+              audit_ok=1
+              break
+            fi
+            if printf '%s' "$AUDIT_OUT" | grep -Eqi '503 Service Unavailable|audit endpoint returned an error|EAI_AGAIN|ECONNRESET|ETIMEDOUT|ECONNREFUSED'; then
+              if [ "$attempt" -lt 3 ]; then
+                echo "Transient npm audit registry failure; retry $attempt/3"
+                sleep $((attempt * 15))
+                continue
+              fi
+            else
+              echo '::error::Security audit reported a non-transient failure.'
+              exit "$RC"
+            fi
+          done
+          test "$audit_ok" = 1 || { echo '::error::Security audit unavailable after 3 transient retries'; exit 1; }
+
+          npm run build
+          grep -R -q 'HNL AI Assistant' dist/assets || { echo '::error::AI UI marker missing from DEV build'; exit 1; }
+          grep -R -q 'hnl-qltc-ai-gateway-dev' dist/assets || { echo '::error::DEV AI gateway missing from DEV build'; exit 1; }
+
       - name: Resolve Cloudflare account
         if: steps.preflight.outputs.configured == 'true'
         shell: bash
@@ -266,70 +334,6 @@ jobs:
             sleep 2
           done
           test "$ok" = 1 || { echo '::error::HNL AI Gateway DEV health failed'; exit 1; }
-
-      - name: Install app dependencies
-        if: steps.preflight.outputs.configured == 'true'
-        run: npm ci
-
-      - name: DEV source gates
-        if: steps.preflight.outputs.configured == 'true'
-        env:
-          VITE_APP_ENV: DEV
-          VITE_RUNTIME_BACKEND: firebase-only
-          VITE_BINARY_STORAGE_PROVIDER: r2
-          VITE_R2_GATEWAY_URL: ${{ env.DEV_R2_URL }}
-          VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
-          VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
-          VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
-          VITE_FIRESTORE_DATABASE_ID: '(default)'
-          VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
-          VITE_FIREBASE_APP_CHECK_SITE_KEY: ''
-          VITE_HNL_AI_ENABLED: 'true'
-          VITE_HNL_AI_GATEWAY_URL: ${{ env.DEV_AI_URL }}
-          VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
-          VITE_GIT_COMMIT: ${{ github.sha }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm run test:ai-core
-          npm run test:ai-tools
-          npm run test:ai-audit
-          npm run test:ai-planner
-          npm run test:ai-provider
-          npm run test:ai-gateway
-          npm run test:ai-export
-          npm run test:stability
-          npm run typecheck
-          npm run lint
-          npm run test:rules
-
-          audit_ok=0
-          for attempt in 1 2 3; do
-            set +e
-            AUDIT_OUT="$(npm run security:audit 2>&1)"
-            RC=$?
-            set -e
-            printf '%s\n' "$AUDIT_OUT"
-            if [ "$RC" -eq 0 ]; then
-              audit_ok=1
-              break
-            fi
-            if printf '%s' "$AUDIT_OUT" | grep -Eqi '503 Service Unavailable|audit endpoint returned an error|EAI_AGAIN|ECONNRESET|ETIMEDOUT|ECONNREFUSED'; then
-              if [ "$attempt" -lt 3 ]; then
-                echo "Transient npm audit registry failure; retry $attempt/3"
-                sleep $((attempt * 15))
-                continue
-              fi
-            else
-              echo '::error::Security audit reported a non-transient failure.'
-              exit "$RC"
-            fi
-          done
-          test "$audit_ok" = 1 || { echo '::error::Security audit unavailable after 3 transient retries'; exit 1; }
-
-          npm run build
-          grep -R -q 'HNL AI Assistant' dist/assets || { echo '::error::AI UI marker missing from DEV build'; exit 1; }
-          grep -R -q 'hnl-qltc-ai-gateway-dev' dist/assets || { echo '::error::DEV AI gateway missing from DEV build'; exit 1; }
 
       - name: Deploy DEV Firestore rules
         if: steps.preflight.outputs.configured == 'true'

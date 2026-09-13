@@ -99,8 +99,11 @@ assert(warehouse.includes('role="button"'), 'Material Need heading row must be t
 assert(warehouse.includes('Gợi ý vật tư tổng hợp'), 'Material Need summary card missing');
 assert(warehouse.includes("import { SettingsFeatureSheet } from './SettingsFeatureSheet';"), 'Material Need must use the same SettingsFeatureSheet shell as Settings');
 assert(warehouse.includes('sheetKey="material-need-details"'), 'Material Need shared sheet key missing');
-assert(warehouse.includes('description="Theo tầng · Theo đội · Toàn dự án"'), 'Material Need shared sheet subtitle contract missing');
+assert(warehouse.includes('description="Theo tầng · Theo căn · Theo hạng mục đã khai · Theo đội"'), 'Material Need shared sheet subtitle contract missing');
 assert(warehouse.includes('icon={PackageSearch}'), 'Material Need shared sheet icon contract missing');
+assert(warehouse.includes('materialNeedRoomIds') && warehouse.includes('roomIds: materialNeedRoomIds'), 'Material Need multi-room filter contract missing');
+assert(warehouse.includes('materialNeedWorkCategoryIds') && warehouse.includes('workCategoryIds: materialNeedWorkCategoryIds'), 'Material Need declared work-category filter contract missing');
+assert(warehouse.includes('<QuickSortBar') && warehouse.includes("{ key: 'date', label: 'Ngày', kind: 'date', defaultOrder: 'desc' }") && warehouse.includes("{ key: 'material', label: 'Vật tư', kind: 'alpha' }") && warehouse.includes("{ key: 'location', label: 'Vị trí / Tầng', kind: 'alpha' }") && warehouse.includes("{ key: 'handler', label: 'Người thực hiện', kind: 'alpha' }") && warehouse.includes("setMaterialNeedSortBy('date'); setMaterialNeedSortOrder('desc')"), 'Material Need must reuse the common Warehouse QuickSortBar: Ngày · Vật tư · Vị trí/Tầng · Người thực hiện · Mới nhất · Mặc định');
 assert(!warehouse.includes('<ExpandCollapseButton'), 'Material Need must not activate the legacy custom floating-sheet implementation');
 
 const config = read('src/components/GoogleConfigTab.tsx');

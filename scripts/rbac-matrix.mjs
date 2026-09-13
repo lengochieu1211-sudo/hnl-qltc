@@ -118,8 +118,9 @@ check('R2 canonical email role is checked before UID', has(src.r2, 'for (const m
 check('Viewer chat exception is explicit and identity-bound', has(src.firestore, 'VIEWER may chat', 'allow create: if isMember(projectId)', 'request.resource.data.senderUid == request.auth.uid'));
 
 // Storage enforcement.
-check('Storage project media upload requires EDITOR/ADMIN', has(src.storage, 'match /projects/{projectId}/media/', 'allow create: if canEdit(projectId)'));
-check('Storage floor-plan binaries are ADMIN-only', has(src.storage, 'match /projects/{projectId}/floor-plans/', 'Floor-plan drawing binaries are project structure: ADMIN-only.', 'allow create: if isAdmin(projectId)', 'allow update: if isAdmin(projectId)'));
+check('Storage project media is legacy read/purge only; R2 owns all new writes', has(src.storage, 'match /projects/{projectId}/media/', 'allow create, update: if false;', 'allow delete: if isAdmin(projectId)'));
+check('Storage floor-plan binaries are legacy read/purge only; R2 owns all new writes', has(src.storage, 'match /projects/{projectId}/floor-plans/', 'allow create, update: if false;', 'allow delete: if isAdmin(projectId)'));
+check('Storage reads are project-active membership-bound', has(src.storage, 'function projectActive(projectId)', 'return signedIn() && projectActive(projectId)', 'allow read: if isMember(projectId)'));
 check('Storage binary purge remains ADMIN-only', (src.storage.match(/allow delete: if isAdmin\(projectId\);/g) || []).length >= 2);
 
 // Regression tooling must cover all three roles and structural/operational split.
@@ -133,6 +134,10 @@ check('Rules behavior test covers Admin-only settings/trash and legacy floor ima
 check('Rules behavior test covers fail-closed future collection denial', has(rulesTest, 'EDITOR cannot create unclassified future project collection'));
 check('Rules behavior test covers Viewer write denial', has(rulesTest, 'VIEWER cannot write core record'));
 check('Rules behavior test covers stale UID ADMIN vs canonical VIEWER', has(rulesTest, 'stale UID alias for canonical-precedence regression', "role: 'ADMIN'", 'viewerUid'));
+check('Rules behavior test covers canonical revocation tombstone against stale UID ADMIN fallback', has(rulesTest, 'ADMIN tombstones canonical EDITOR membership', 'revoked canonical EDITOR cannot fall back to stale UID ADMIN alias'));
+check('Rules behavior test covers ADMIN-only financial isolation', has(rulesTest, 'ADMIN writes isolated work-volume financial record', 'EDITOR cannot read isolated work-volume financial record', 'VIEWER cannot read isolated work-volume financial record', 'ADMIN cannot embed unitPrice back into shared work-volume document'));
+check('Rules behavior test covers deleted-project business freeze', has(rulesTest, 'ADMIN soft-deletes project root for frozen-project regression', 'ADMIN cannot operate business subcollections while project is deleted', 'VIEWER cannot read business records from deleted project'));
+check('Rules behavior test covers Firebase Storage read-only legacy policy', has(rulesTest, 'ADMIN cannot create new floor-plan binary in legacy Firebase Storage', 'EDITOR cannot create new project image in legacy Firebase Storage', 'VIEWER cannot upload Storage file'));
 
 if (failed) process.exit(1);
 check('SUPER ADMIN remote PIN reset API is wired', has(src.firebase, 'requestProjectMemberPinReset'));

@@ -307,9 +307,15 @@ if (!sw.includes("new URL(self.location.href).searchParams.get('v')") || !swRegi
 requireAll(vite, ['hnl-service-worker-asset-manifest', 'sw-assets.json', 'assets = Object.keys(bundle)'], 'Vite service-worker asset manifest');
 requireAll(sw, ['loadBuildAssetManifest', 'SW_ASSET_MANIFEST_HAS_NO_JS_CHUNKS', 'cache.addAll(required)'], 'service-worker complete app-shell precache');
 requireAll(hostedBrowserGolden, ['verifyColdStartOffline', 'Network.clearBrowserCache', 'context.setOffline(true)', 'CacheStorage'], 'Runtime Golden cold-start offline');
-for (const trigger of ['public/sw.js', 'vite.config.ts', 'src/serviceWorkerRegistration.ts', 'scripts/stability-gate.mjs']) {
-  if (!devRuntimeWorkflow.includes(`- '${trigger}'`)) fail(`DEV Runtime Golden trigger missing ${trigger}`);
+const devRuntimeHasGlobalPushTrigger = !devRuntimeWorkflow.includes('    paths:');
+if (!devRuntimeHasGlobalPushTrigger) {
+  for (const trigger of ['public/sw.js', 'vite.config.ts', 'src/serviceWorkerRegistration.ts', 'scripts/stability-gate.mjs']) {
+    if (!devRuntimeWorkflow.includes(`- '${trigger}'`)) fail(`DEV Runtime Golden trigger missing ${trigger}`);
+  }
 }
+pass(devRuntimeHasGlobalPushTrigger
+  ? 'DEV Runtime Golden runs on every dev push without a path filter'
+  : 'DEV Runtime Golden path filter covers critical cold-start sources');
 if (!devRuntimeWorkflow.includes('npm run test:stability')) fail('DEV Runtime Golden must run Stability Gate before deploy');
 requireAll(cloudBinaryPurge, ['getDocsFromServer', 'collectBinaryPointers', 'construction_binary_purge_', 'BINARY_PURGE_ADMIN_REQUIRED'], 'physical binary purge safety');
 requireAll(diagnostics, ['sanitizeDiagnosticValue', '[redacted]'], 'diagnostics redaction');

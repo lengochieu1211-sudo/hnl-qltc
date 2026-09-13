@@ -143,7 +143,7 @@ export const ExpandCollapseButton: React.FC<ExpandCollapseButtonProps> = ({
             </span>
             <div className="min-w-0">
               <div className="truncate text-sm font-extrabold text-slate-900">Gợi ý vật tư tổng hợp</div>
-              <div className="truncate text-[10px] font-medium text-slate-500">Theo tầng · Theo đội · Toàn dự án</div>
+              <div className="truncate text-[10px] font-medium text-slate-500">Theo tầng · Theo căn · Hạng mục đã khai · Theo đội</div>
             </div>
           </div>
           <button

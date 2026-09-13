@@ -31,7 +31,7 @@ import { formatDecimal, evaluateMathExpression, useFormatSettings, parseVietname
 import * as XLSX from 'xlsx';
 import { exportWarehouseUpdateTemplate } from '../utils/excelExport';
 import { confirmAsync } from '../utils/confirmAsync';
-import { calculateStockSummary, resolveNormMaterialId } from '../utils/inventoryUtils';
+import { buildMaterialAliasMap, calculateStockSummary, getMaterialIdentityKey, resolveNormMaterialId } from '../utils/inventoryUtils';
 import { compareDateValues, naturalCompare } from '../utils/sortUtils';
 import { createEntityId } from '../utils/idUtils';
 import { normalizeUnit } from '../utils/unitUtils';
@@ -40,6 +40,8 @@ import { SettingsFeatureSheet } from './SettingsFeatureSheet';
 import { FIREBASE_ONLY_RUNTIME } from '../config/runtimeArchitecture';
 import { computeMaterialNeeds } from '../utils/materialNeedEngine';
 import { UserRole, canEditWarehouseData, canDeleteBusinessData, canImportData, canManageMaterialNorms } from '../utils/securityUtils';
+
+type MaterialNeedSortKey = 'date' | 'material' | 'location' | 'handler';
 
 interface WarehouseTabProps {
   inventory: InventoryItem[];
@@ -106,10 +108,16 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [editingInventory, setEditingInventory] = useState<InventoryItem | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [materialNeedFloorIds, setMaterialNeedFloorIds] = useState<string[]>([]);
+  const [materialNeedRoomIds, setMaterialNeedRoomIds] = useState<string[]>([]);
   const [materialNeedTeamIds, setMaterialNeedTeamIds] = useState<string[]>([]);
+  const [materialNeedWorkCategoryIds, setMaterialNeedWorkCategoryIds] = useState<string[]>([]);
+  const [materialNeedSortBy, setMaterialNeedSortBy] = useState<MaterialNeedSortKey>('date');
+  const [materialNeedSortOrder, setMaterialNeedSortOrder] = useState<'asc' | 'desc'>('desc');
   const [isMaterialNeedExpanded, setIsMaterialNeedExpanded] = useState(false);
   const [showMaterialFloorPicker, setShowMaterialFloorPicker] = useState(false);
+  const [showMaterialRoomPicker, setShowMaterialRoomPicker] = useState(false);
   const [showMaterialTeamPicker, setShowMaterialTeamPicker] = useState(false);
+  const [showMaterialWorkCategoryPicker, setShowMaterialWorkCategoryPicker] = useState(false);
 
 
   const materialNeedFloors = useMemo(() => {
@@ -139,6 +147,39 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       .sort((a, b) => naturalCompare(a.name, b.name));
   }, [floorPlans, roomProgressList]);
 
+  const materialNeedRooms = useMemo(() => {
+    const floorNameById = new Map(materialNeedFloors.map((floor) => [floor.id, floor.name]));
+    const map = new Map<string, { id: string; name: string; floorId: string; floorName: string }>();
+    roomProgressList.filter((room) => room.deletedAt === undefined || room.deletedAt === null).forEach((room) => {
+      const id = String(room.id || '').trim();
+      if (!id) return;
+      const floorId = String(room.floorId || '').trim();
+      const floorName = String(floorNameById.get(floorId) || room.floorName || floorId).trim();
+      map.set(id, { id, name: String(room.roomName || id).trim() || id, floorId, floorName });
+    });
+    return Array.from(map.values()).sort((a, b) =>
+      naturalCompare(a.floorName, b.floorName) || naturalCompare(a.name, b.name) || naturalCompare(a.id, b.id)
+    );
+  }, [materialNeedFloors, roomProgressList]);
+
+  const materialNeedTeams = useMemo(() => teams
+    .filter((team) => team.deletedAt === undefined || team.deletedAt === null)
+    .slice()
+    .sort((a, b) => naturalCompare(a.name, b.name) || naturalCompare(a.id, b.id)), [teams]);
+
+  const materialNeedWorkCategories = useMemo(() => {
+    const map = new Map<string, { id: string; name: string }>();
+    (workVolumes || [])
+      .filter((item) => item.deletedAt === undefined || item.deletedAt === null)
+      .forEach((item) => {
+        const id = String(item.workCategoryId || item.id || '').trim();
+        if (!id) return;
+        const name = String(item.title || id).trim() || id;
+        if (!map.has(id)) map.set(id, { id, name });
+      });
+    return Array.from(map.values()).sort((a, b) => naturalCompare(a.name, b.name) || naturalCompare(a.id, b.id));
+  }, [workVolumes]);
+
   const materialNeedResult = useMemo(() => computeMaterialNeeds({
     rooms: roomProgressList,
     materialNorms,
@@ -147,19 +188,100 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     teams,
     scope: {
       floorIds: materialNeedFloorIds.length > 0 ? materialNeedFloorIds : undefined,
+      roomIds: materialNeedRoomIds.length > 0 ? materialNeedRoomIds : undefined,
       teamIds: materialNeedTeamIds.length > 0 ? materialNeedTeamIds : undefined,
+      workCategoryIds: materialNeedWorkCategoryIds.length > 0 ? materialNeedWorkCategoryIds : undefined,
     },
-  }), [roomProgressList, materialNorms, inventory, workVolumes, teams, materialNeedFloorIds, materialNeedTeamIds]);
+  }), [roomProgressList, materialNorms, inventory, workVolumes, teams, materialNeedFloorIds, materialNeedRoomIds, materialNeedTeamIds, materialNeedWorkCategoryIds]);
+
+  const materialNeedSortMeta = useMemo(() => {
+    const aliasMap = buildMaterialAliasMap(materialNorms);
+    const scoped = inventory.filter((item) => {
+      if (item.deletedAt !== undefined && item.deletedAt !== null) return false;
+      if (materialNeedFloorIds.length > 0) {
+        if (!item.sourceFloorId || !materialNeedFloorIds.includes(item.sourceFloorId)) return false;
+      }
+      if (materialNeedRoomIds.length > 0) {
+        if (!item.sourceRoomId || !materialNeedRoomIds.includes(item.sourceRoomId)) return false;
+      }
+      if (materialNeedTeamIds.length > 0) {
+        if (!item.sourceTeamId || !materialNeedTeamIds.includes(item.sourceTeamId)) return false;
+      }
+      if (materialNeedWorkCategoryIds.length > 0) {
+        if (!item.sourceWorkCategoryId || !materialNeedWorkCategoryIds.includes(item.sourceWorkCategoryId)) return false;
+      }
+      return true;
+    });
+
+    const latestByMaterial = new Map<string, InventoryItem>();
+    scoped.forEach((item) => {
+      const aliasedId = item.materialId ? (aliasMap.get(String(item.materialId)) || String(item.materialId)) : undefined;
+      const key = getMaterialIdentityKey(aliasedId, item.materialName, item.unit);
+      const current = latestByMaterial.get(key);
+      if (!current || compareDateValues(current.date, item.date) < 0 || (compareDateValues(current.date, item.date) === 0 && Number(current.updatedAt || 0) < Number(item.updatedAt || 0))) {
+        latestByMaterial.set(key, item);
+      }
+    });
+
+    return new Map(materialNeedResult.lines.map((line) => {
+      const directKey = getMaterialIdentityKey(line.materialId, line.materialName, line.unit);
+      const latest = latestByMaterial.get(directKey);
+      const fallbackLocation = materialNeedFloorIds.length === 1
+        ? (materialNeedFloors.find((floor) => floor.id === materialNeedFloorIds[0])?.name || '')
+        : '';
+      return [line.materialKey, {
+        date: latest?.date || '',
+        location: latest?.location || fallbackLocation,
+        handler: latest?.handler || '',
+      }] as const;
+    }));
+  }, [inventory, materialNorms, materialNeedResult.lines, materialNeedFloorIds, materialNeedRoomIds, materialNeedTeamIds, materialNeedWorkCategoryIds, materialNeedFloors]);
+
+  const materialNeedLines = useMemo(() => {
+    return [...materialNeedResult.lines].sort((a, b) => {
+      const aMeta = materialNeedSortMeta.get(a.materialKey) || { date: '', location: '', handler: '' };
+      const bMeta = materialNeedSortMeta.get(b.materialKey) || { date: '', location: '', handler: '' };
+      let comparison = 0;
+      switch (materialNeedSortBy) {
+        case 'material':
+          comparison = naturalCompare(a.materialName, b.materialName);
+          break;
+        case 'location':
+          comparison = naturalCompare(aMeta.location, bMeta.location);
+          break;
+        case 'handler':
+          comparison = naturalCompare(aMeta.handler, bMeta.handler);
+          break;
+        case 'date':
+        default:
+          if (!aMeta.date && bMeta.date) comparison = -1;
+          else if (aMeta.date && !bMeta.date) comparison = 1;
+          else comparison = compareDateValues(aMeta.date, bMeta.date);
+          break;
+      }
+      if (materialNeedSortOrder === 'desc') comparison = -comparison;
+      if (comparison !== 0) return comparison;
+      return naturalCompare(a.materialName, b.materialName) || naturalCompare(a.materialKey, b.materialKey);
+    });
+  }, [materialNeedResult.lines, materialNeedSortMeta, materialNeedSortBy, materialNeedSortOrder]);
 
   const toggleMaterialNeedFloor = (id: string) => {
     setMaterialNeedFloorIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
   };
+  const toggleMaterialNeedRoom = (id: string) => {
+    setMaterialNeedRoomIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
+  };
   const toggleMaterialNeedTeam = (id: string) => {
     setMaterialNeedTeamIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
   };
-  const materialNeedFloorSummary = materialNeedFloorIds.length === 0 ? 'Tất cả tầng' : `${materialNeedFloorIds.length} tầng`;
-  const materialNeedTeamSummary = materialNeedTeamIds.length === 0 ? 'Tất cả đội' : `${materialNeedTeamIds.length} đội`;
-  const hasMaterialTeamFilter = materialNeedTeamIds.length > 0;
+  const toggleMaterialNeedWorkCategory = (id: string) => {
+    setMaterialNeedWorkCategoryIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
+  };
+  const materialNeedFloorSummary = materialNeedFloorIds.length === 0 ? 'Tất cả tầng' : materialNeedFloorIds.length === 1 ? (materialNeedFloors.find((item) => item.id === materialNeedFloorIds[0])?.name || '1 tầng') : `${materialNeedFloorIds.length} tầng`;
+  const materialNeedRoomSummary = materialNeedRoomIds.length === 0 ? 'Tất cả căn' : materialNeedRoomIds.length === 1 ? (materialNeedRooms.find((item) => item.id === materialNeedRoomIds[0])?.name || '1 căn') : `${materialNeedRoomIds.length} căn`;
+  const materialNeedTeamSummary = materialNeedTeamIds.length === 0 ? 'Tất cả đội' : materialNeedTeamIds.length === 1 ? (materialNeedTeams.find((item) => item.id === materialNeedTeamIds[0])?.name || '1 đội') : `${materialNeedTeamIds.length} đội`;
+  const materialNeedWorkCategorySummary = materialNeedWorkCategoryIds.length === 0 ? 'Tất cả hạng mục đã khai' : materialNeedWorkCategoryIds.length === 1 ? (materialNeedWorkCategories.find((item) => item.id === materialNeedWorkCategoryIds[0])?.name || '1 hạng mục') : `${materialNeedWorkCategoryIds.length} hạng mục`;
+  const hasMaterialAllocationFilter = materialNeedTeamIds.length > 0 || materialNeedWorkCategoryIds.length > 0;
 
 
   useEffect(() => {
@@ -980,7 +1102,9 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           >
             <div className="min-w-0">
               <h3 className="text-sm font-extrabold text-slate-900">Gợi ý vật tư tổng hợp</h3>
-              <p className="text-[11px] text-slate-600">{materialNeedFloorSummary} · {materialNeedTeamSummary} · {materialNeedResult.lines.length} loại vật tư</p>
+              <p className="text-[11px] leading-relaxed text-slate-600">
+                {materialNeedFloorSummary} · {materialNeedRoomSummary} · {materialNeedWorkCategorySummary} · {materialNeedTeamSummary} · {materialNeedResult.lines.length} loại vật tư
+              </p>
             </div>
             <span aria-hidden="true" className="shrink-0 inline-flex h-9 w-9 items-center justify-center rounded-xl text-indigo-600 transition-all group-hover:bg-indigo-50">
               <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${isMaterialNeedExpanded ? 'rotate-180' : ''}`} />
@@ -992,22 +1116,26 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             onClose={() => {
               setIsMaterialNeedExpanded(false);
               setShowMaterialFloorPicker(false);
+              setShowMaterialRoomPicker(false);
               setShowMaterialTeamPicker(false);
+              setShowMaterialWorkCategoryPicker(false);
             }}
             sheetKey="material-need-details"
             icon={PackageSearch}
             iconClassName="text-indigo-600"
             title="Gợi ý vật tư tổng hợp"
-            description="Theo tầng · Theo đội · Toàn dự án"
+            description="Theo tầng · Theo căn · Theo hạng mục đã khai · Theo đội"
             bodyClassName="space-y-3"
           >
             <div id="material-need-details" className="flex min-w-0 flex-col gap-3">
-              <p className="text-[11px] text-slate-600">Chọn một hoặc nhiều tầng và một hoặc nhiều đội. Không chọn nghĩa là Tất cả. Kết quả luôn tính lại từ dữ liệu gốc để tránh double-count.</p>
+              <p className="text-[11px] text-slate-600">
+                Có thể chọn một hoặc nhiều tầng, căn, hạng mục thi công đã khai và đội. Không chọn nghĩa là Tất cả. Một Material Need Engine duy nhất tính từ dữ liệu gốc rồi mới lọc/tổng hợp để chống double-count.
+              </p>
 
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
                 <div className="relative">
                   <button type="button" onClick={() => setShowMaterialFloorPicker((value) => !value)} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold">
-                    <span>{materialNeedFloorSummary}</span><ChevronDown className="h-4 w-4 text-slate-400" />
+                    <span className="truncate">{materialNeedFloorSummary}</span><ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
                   </button>
                   {showMaterialFloorPicker && (
                     <div className="mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
@@ -1024,15 +1152,52 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 </div>
 
                 <div className="relative">
+                  <button type="button" onClick={() => setShowMaterialRoomPicker((value) => !value)} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold">
+                    <span className="truncate">{materialNeedRoomSummary}</span><ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                  </button>
+                  {showMaterialRoomPicker && (
+                    <div className="mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
+                      <label className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs font-semibold hover:bg-slate-50">
+                        <input type="checkbox" checked={materialNeedRoomIds.length === 0} onChange={() => setMaterialNeedRoomIds([])} /> Tất cả căn
+                      </label>
+                      {materialNeedRooms.map((room) => (
+                        <label key={room.id} className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs hover:bg-slate-50">
+                          <input type="checkbox" checked={materialNeedRoomIds.includes(room.id)} onChange={() => toggleMaterialNeedRoom(room.id)} />
+                          <span className="min-w-0"><span className="font-semibold">{room.name}</span>{room.floorName ? <span className="text-slate-500"> · {room.floorName}</span> : null}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="relative">
+                  <button type="button" onClick={() => setShowMaterialWorkCategoryPicker((value) => !value)} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold">
+                    <span className="truncate">{materialNeedWorkCategorySummary}</span><ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                  </button>
+                  {showMaterialWorkCategoryPicker && (
+                    <div className="mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
+                      <label className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs font-semibold hover:bg-slate-50">
+                        <input type="checkbox" checked={materialNeedWorkCategoryIds.length === 0} onChange={() => setMaterialNeedWorkCategoryIds([])} /> Tất cả hạng mục đã khai
+                      </label>
+                      {materialNeedWorkCategories.map((item) => (
+                        <label key={item.id} className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs hover:bg-slate-50">
+                          <input type="checkbox" checked={materialNeedWorkCategoryIds.includes(item.id)} onChange={() => toggleMaterialNeedWorkCategory(item.id)} /> {item.name}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="relative">
                   <button type="button" onClick={() => setShowMaterialTeamPicker((value) => !value)} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold">
-                    <span>{materialNeedTeamSummary}</span><ChevronDown className="h-4 w-4 text-slate-400" />
+                    <span className="truncate">{materialNeedTeamSummary}</span><ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
                   </button>
                   {showMaterialTeamPicker && (
                     <div className="mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
                       <label className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs font-semibold hover:bg-slate-50">
                         <input type="checkbox" checked={materialNeedTeamIds.length === 0} onChange={() => setMaterialNeedTeamIds([])} /> Tất cả đội
                       </label>
-                      {teams.map((team) => (
+                      {materialNeedTeams.map((team) => (
                         <label key={team.id} className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs hover:bg-slate-50">
                           <input type="checkbox" checked={materialNeedTeamIds.includes(team.id)} onChange={() => toggleMaterialNeedTeam(team.id)} /> {team.name}
                         </label>
@@ -1042,32 +1207,56 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 </div>
               </div>
 
-              {(materialNeedFloorIds.length > 0 || materialNeedTeamIds.length > 0) && (
+              {(materialNeedFloorIds.length > 0 || materialNeedRoomIds.length > 0 || materialNeedTeamIds.length > 0 || materialNeedWorkCategoryIds.length > 0) && (
                 <div className="flex flex-wrap gap-1.5">
                   {materialNeedFloorIds.map((id) => {
                     const floor = materialNeedFloors.find((item) => item.id === id);
                     return <button key={`floor-${id}`} type="button" onClick={() => toggleMaterialNeedFloor(id)} className="rounded-full bg-indigo-100 px-2 py-1 text-[10px] font-bold text-indigo-700">{floor?.name || id} ×</button>;
                   })}
+                  {materialNeedRoomIds.map((id) => {
+                    const room = materialNeedRooms.find((item) => item.id === id);
+                    return <button key={`room-${id}`} type="button" onClick={() => toggleMaterialNeedRoom(id)} className="rounded-full bg-sky-100 px-2 py-1 text-[10px] font-bold text-sky-700">{room?.name || id} ×</button>;
+                  })}
+                  {materialNeedWorkCategoryIds.map((id) => {
+                    const item = materialNeedWorkCategories.find((category) => category.id === id);
+                    return <button key={`work-category-${id}`} type="button" onClick={() => toggleMaterialNeedWorkCategory(id)} className="rounded-full bg-violet-100 px-2 py-1 text-[10px] font-bold text-violet-700">{item?.name || id} ×</button>;
+                  })}
                   {materialNeedTeamIds.map((id) => {
-                    const team = teams.find((item) => item.id === id);
+                    const team = materialNeedTeams.find((item) => item.id === id);
                     return <button key={`team-${id}`} type="button" onClick={() => toggleMaterialNeedTeam(id)} className="rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-bold text-emerald-700">{team?.name || id} ×</button>;
                   })}
                 </div>
               )}
 
-              {materialNeedResult.lines.length === 0 ? (
+              <QuickSortBar<MaterialNeedSortKey>
+                itemCount={materialNeedLines.length}
+                options={[
+                  { key: 'date', label: 'Ngày', kind: 'date', defaultOrder: 'desc' },
+                  { key: 'material', label: 'Vật tư', kind: 'alpha' },
+                  { key: 'location', label: 'Vị trí / Tầng', kind: 'alpha' },
+                  { key: 'handler', label: 'Người thực hiện', kind: 'alpha' },
+                ]}
+                activeKey={materialNeedSortBy}
+                order={materialNeedSortOrder}
+                onChange={(key, order) => { setMaterialNeedSortBy(key); setMaterialNeedSortOrder(order); }}
+                onToggleOrder={() => setMaterialNeedSortOrder((order) => order === 'asc' ? 'desc' : 'asc')}
+                onReset={() => { setMaterialNeedSortBy('date'); setMaterialNeedSortOrder('desc'); }}
+                summary={`${materialNeedLines.length} loại vật tư`}
+              />
+
+              {materialNeedLines.length === 0 ? (
                 <div className="rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-600">Chưa có nhu cầu vật tư xác định cho phạm vi đã chọn.</div>
               ) : (
                 <div className="max-h-[52vh] overflow-auto overscroll-contain rounded-xl border border-indigo-100 bg-white sm:max-h-[28rem]">
                   <table className="min-w-[720px] w-full text-[11px]">
-                    <thead className="sticky top-0 z-10 bg-slate-50 text-slate-600"><tr><th className="p-2 text-left">Vật tư</th><th className="p-2 text-right">Tổng cần</th><th className="p-2 text-right">Đã xuất</th>{hasMaterialTeamFilter && <th className="p-2 text-right">Chưa phân bổ</th>}<th className="p-2 text-right">Còn cần</th><th className="p-2 text-right">Tồn kho</th><th className="p-2 text-right">Thiếu</th></tr></thead>
+                    <thead className="sticky top-0 z-10 bg-slate-50 text-slate-600"><tr><th className="p-2 text-left">Vật tư</th><th className="p-2 text-right">Tổng cần</th><th className="p-2 text-right">Đã xuất</th>{hasMaterialAllocationFilter && <th className="p-2 text-right">Chưa phân bổ</th>}<th className="p-2 text-right">Còn cần</th><th className="p-2 text-right">Tồn kho</th><th className="p-2 text-right">Thiếu</th></tr></thead>
                     <tbody>
-                      {materialNeedResult.lines.map((line) => (
+                      {materialNeedLines.map((line) => (
                         <tr key={line.materialKey} className="border-t border-slate-100">
                           <td className="p-2"><div className="font-bold text-slate-800">{line.materialName}</div><div className="text-[10px] text-slate-500">{line.category} · {line.unit}</div></td>
                           <td className="p-2 text-right font-semibold">{formatDecimal(line.estimatedQty)}</td>
                           <td className="p-2 text-right text-emerald-700">{formatDecimal(line.alreadyIssued)}</td>
-                          {hasMaterialTeamFilter && <td className="p-2 text-right text-amber-700">{formatDecimal(line.unallocatedIssued)}</td>}
+                          {hasMaterialAllocationFilter && <td className="p-2 text-right text-amber-700">{formatDecimal(line.unallocatedIssued)}</td>}
                           <td className="p-2 text-right font-bold text-indigo-700">{formatDecimal(line.remainingQty)}</td>
                           <td className="p-2 text-right">{formatDecimal(line.stockQty)}</td>
                           <td className={`p-2 text-right font-bold ${line.deficitQty > 0 ? 'text-rose-600' : 'text-slate-400'}`}>{formatDecimal(line.deficitQty)}</td>
