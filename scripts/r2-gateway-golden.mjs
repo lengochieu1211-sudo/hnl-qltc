@@ -2,6 +2,7 @@ import worker from '../cloudflare/r2-gateway/worker.js';
 
 const originalFetch = globalThis.fetch;
 const objects = new Map();
+let projectDeleted = false;
 
 function jwt(payload) {
   const enc = (v) => Buffer.from(JSON.stringify(v)).toString('base64url');
@@ -36,7 +37,7 @@ globalThis.fetch = async (input, init = {}) => {
   try { payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8')); } catch {}
   if (!payload?.user_id || !payload?.email) return new Response('unauthorized', { status: 401 });
   if (/\/documents\/projects\/p1$/.test(url)) {
-    return Response.json(fsDoc({ ownerUid: 'uid-admin', ownerEmail: 'admin@example.com' }));
+    return Response.json(fsDoc({ ownerUid: 'uid-admin', ownerEmail: 'admin@example.com', deleted: projectDeleted }));
   }
   const memberMatch = url.match(/\/members\/([^/?]+)$/);
   if (memberMatch) {
@@ -126,6 +127,11 @@ const floorKey = 'projects/p1/floor-plans/f1/original.jpg';
 
 let response = await call(identities.editor, 'PUT', mediaKey, new Uint8Array([1, 2, 3]));
 assert(response.status === 200, 'EDITOR may upload operational media');
+response = await call(identities.editor, 'PUT', mediaKey, new Uint8Array([1, 2, 3]));
+assert(response.status === 200, 'same-key same-bytes PUT is idempotent');
+assert((await response.json()).immutableRetry === true, 'idempotent retry is explicitly reported');
+response = await call(identities.editor, 'PUT', mediaKey, new Uint8Array([1, 2, 4]));
+assert(response.status === 409, 'same-key different-bytes PUT is rejected as immutable conflict');
 response = await call(identities.viewer, 'HEAD', mediaKey);
 assert(response.status === 200, 'VIEWER/project member may HEAD media durability');
 assert(Number(response.headers.get('Content-Length')) === 3, 'HEAD exposes durable object size');
@@ -147,8 +153,13 @@ assert(response.status === 200, 'VIEWER/project member may read media');
 assert(response.headers.get('Access-Control-Allow-Origin') === 'https://hnlqltc.web.app', 'CORS allows the new hnlqltc Hosting origin');
 response = await call(identities.editor, 'DELETE', mediaKey);
 assert(response.status === 403, 'EDITOR may not purge media');
+projectDeleted = true;
+response = await call(identities.viewer, 'GET', mediaKey);
+assert(response.status === 410, 'deleted project freezes normal R2 reads');
+response = await call(identities.editor, 'PUT', 'projects/p1/media/defect/d1/a2/original.jpg', new Uint8Array([9]));
+assert(response.status === 410, 'deleted project freezes normal R2 writes');
 response = await call(identities.admin, 'DELETE', mediaKey);
-assert(response.status === 200, 'ADMIN/owner may purge media');
+assert(response.status === 200, 'ADMIN/owner may purge retained R2 media after project soft-delete');
 
 console.log('R2 GATEWAY GOLDEN PASS');
 globalThis.fetch = originalFetch;

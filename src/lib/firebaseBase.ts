@@ -20,7 +20,8 @@ import {
   limit,
   writeBatch,
   serverTimestamp,
-  runTransaction
+  runTransaction,
+  deleteField
 } from 'firebase/firestore';
 import {
   getAuth,
@@ -426,6 +427,83 @@ const userProjectIndexSignatureCache = new Map<string, string>();
 const discoveryProjectCache = new Map<string, { at: number; summary: CloudProjectSummary | null }>();
 const projectRootMetadataTouchAt = new Map<string, number>();
 
+const WORK_VOLUME_FINANCIAL_COLLECTION = 'work_volume_financials';
+
+function normalizeUnitPrice(value: unknown): number {
+  const amount = Number(value || 0);
+  return Number.isFinite(amount) && amount >= 0 ? amount : 0;
+}
+
+function financialRecordFromWorkVolume(item: any): Record<string, any> | null {
+  if (!item?.id || item.unitPrice === undefined || item.unitPrice === null) return null;
+  return {
+    id: String(item.id),
+    unitPrice: normalizeUnitPrice(item.unitPrice),
+    deleted: item.deleted === true,
+    updatedAt: Number(item.updatedAt || Date.now()),
+  };
+}
+
+async function migrateWorkVolumeFinancialsV6(projectId: string): Promise<void> {
+  const rootSnap = await getDocFromServer(doc(db, 'projects', projectId));
+  if (!rootSnap.exists()) return;
+  if (readDataSchemaVersion(rootSnap.data()?.dataSchemaVersion) >= 6) return;
+
+  const roleInfo = await fetchProjectUserRoleFromCloud(projectId, getCurrentRealFirebaseUser());
+  if (roleInfo.verification !== 'verified' || !roleInfo.allowed || roleInfo.role !== 'ADMIN') {
+    throw new Error('WORK_VOLUME_FINANCIAL_MIGRATION_ADMIN_REQUIRED');
+  }
+
+  const rows = await getDocsFromServer(collection(db, 'projects', projectId, 'work_volumes'));
+  let batch = writeBatch(db);
+  let operations = 0;
+  const flush = async () => {
+    if (!operations) return;
+    await batch.commit();
+    batch = writeBatch(db);
+    operations = 0;
+  };
+
+  for (const row of rows.docs) {
+    const data = row.data();
+    if (data?.unitPrice === undefined || data?.unitPrice === null) continue;
+    const financialRef = doc(db, 'projects', projectId, WORK_VOLUME_FINANCIAL_COLLECTION, row.id);
+    batch.set(financialRef, {
+      id: row.id,
+      unitPrice: normalizeUnitPrice(data.unitPrice),
+      deleted: data.deleted === true,
+      migratedFromWorkVolumes: true,
+      updatedAt: Number(data.updatedAt || Date.now()),
+      updatedByUid: getCurrentRealFirebaseUser()?.uid || '',
+      updatedByEmail: normalizeEmail(getCurrentRealFirebaseUser()?.email),
+    }, { merge: true });
+    batch.update(row.ref, { unitPrice: deleteField() });
+    operations += 2;
+    if (operations >= 350) await flush();
+  }
+  await flush();
+}
+
+async function readWorkVolumeFinancials(projectId: string, serverOnly = false, failOnUnavailable = false): Promise<Map<string, any>> {
+  const result = new Map<string, any>();
+  try {
+    const snap = serverOnly
+      ? await getDocsFromServer(collection(db, 'projects', projectId, WORK_VOLUME_FINANCIAL_COLLECTION))
+      : await getDocs(collection(db, 'projects', projectId, WORK_VOLUME_FINANCIAL_COLLECTION));
+    snap.forEach((row) => {
+      const data = row.data();
+      if (data?.deleted === true) return;
+      result.set(row.id, data);
+    });
+  } catch (err) {
+    if (failOnUnavailable) throw err;
+    // Callers without financial access never rely on this collection. Returning an
+    // empty map is safe only when the caller explicitly does not require ADMIN prices.
+    console.debug('[Financial isolation] financial collection unavailable for current role', err);
+  }
+  return result;
+}
+
 /**
  * Centralized, idempotent project-root migration runner.
  *
@@ -444,6 +522,10 @@ export async function ensureProjectMigrationsInCloud(projectId: string): Promise
 
   projectMigrationInFlight.add(projectId);
   try {
+    const preflight = await getDocFromServer(doc(db, 'projects', projectId));
+    if (preflight.exists() && readDataSchemaVersion(preflight.data()?.dataSchemaVersion) < 6) {
+      await migrateWorkVolumeFinancialsV6(projectId);
+    }
     const ref = doc(db, 'projects', projectId);
     await runTransaction(db, async (transaction) => {
       const snap = await transaction.get(ref);
@@ -1373,11 +1455,13 @@ export interface ProjectRoleInfo {
   // VIEWER/deny result. `unavailable` means the network/backend could not verify the
   // role and MUST NOT downgrade a previously verified offline lease.
   verification: 'verified' | 'unavailable';
+  projectDeleted?: boolean;
 }
 
 export async function fetchProjectUserRoleFromCloud(
   projectId: string,
-  user: User | null
+  user: User | null,
+  options: { allowDeletedProject?: boolean } = {},
 ): Promise<ProjectRoleInfo> {
   if (!projectId || !user) {
     return { allowed: false, role: 'VIEWER', isCloudSynced: false, verification: 'unavailable' };
@@ -1394,6 +1478,10 @@ export async function fetchProjectUserRoleFromCloud(
       const pData = projectSnap.data();
       pOwnerUid = pData?.ownerUid;
       pOwnerEmail = normalizeEmail(pData?.ownerEmail);
+
+      if (pData?.deleted === true && !options.allowDeletedProject) {
+        return { allowed: false, role: 'VIEWER', isCloudSynced: true, ownerUid: pOwnerUid, ownerEmail: pOwnerEmail, isOwner: false, verification: 'verified', projectDeleted: true };
+      }
 
       if (pData) {
         // Company SUPER ADMIN may open every existing Cloud project without being added
@@ -1734,6 +1822,13 @@ export function sanitizePayloadForCloud(obj: any): any {
 function sanitizeSubcollectionItemForCloud(subcollection: string, item: any): any {
   const sanitized = sanitizePayloadForCloud(item);
 
+  // Financial fields are stored in the ADMIN-only work_volume_financials collection.
+  // Firestore cannot hide one field from a readable document, so unitPrice must never
+  // be persisted inside work_volumes from schema v6 onward.
+  if (subcollection === 'work_volumes' && sanitized && typeof sanitized === 'object') {
+    delete sanitized.unitPrice;
+  }
+
   // Floor-plan binaries are uploaded by floorPlanImageSync.ts. When a user replaces
   // an existing drawing, never publish the intermediate local data/blob URL (or an
   // IMAGE_OMITTED marker) through the generic Firestore merge. Doing so can replace
@@ -1897,6 +1992,24 @@ export async function saveProjectMetadataToCloud(projectId: string, name: string
 export async function saveProjectToCloud(project: { id: string; name: string; syncCode?: string; payload?: any; contractorName?: string; inspectorName?: string; [key: string]: any }): Promise<void> {
   try {
     await ensureAuth();
+    const financialActor = getCurrentRealFirebaseUser();
+    let canWriteFinancials = false;
+    if (financialActor) {
+      try {
+        const root = await getDocFromServer(doc(db, 'projects', project.id));
+        if (!root.exists()) {
+          // A fresh project will be created with this signed-in user as owner below.
+          canWriteFinancials = true;
+        } else {
+          const roleInfo = await fetchProjectUserRoleFromCloud(project.id, financialActor);
+          canWriteFinancials = roleInfo.verification === 'verified' && roleInfo.allowed && roleInfo.role === 'ADMIN';
+        }
+      } catch (err) {
+        // Financial writes are never guessed from local state. Business writes may still
+        // proceed under Rules, but price data stays untouched until ADMIN is verified.
+        console.warn('[Financial isolation] ADMIN verification unavailable; financial writes skipped:', err);
+      }
+    }
     let payloadData = project.payload;
     if (!payloadData) {
       const copy = { ...project };
@@ -1981,6 +2094,17 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
           // A full/import snapshot is never allowed to overwrite a newer Cloud record.
           // Missing/legacy timestamps are accepted only when the Cloud record is also legacy.
           if (currentCloud && cloudUpdatedAt > 0 && localUpdatedAt <= cloudUpdatedAt) continue;
+          if (cloudName === 'work_volumes' && canWriteFinancials) {
+            const financial = financialRecordFromWorkVolume(item);
+            if (financial) {
+              batch.set(doc(db, 'projects', project.id, WORK_VOLUME_FINANCIAL_COLLECTION, String(item.id)), {
+                ...financial,
+                updatedByUid: financialActor?.uid || '',
+                updatedByEmail: normalizeEmail(financialActor?.email),
+              }, { merge: true });
+              operationCount++;
+            }
+          }
           const nextRevision = Math.max(Number(item.revision || 0), Number(currentCloud?.revision || 0) + 1, 1);
 
           if (cloudName === 'inventory' && sanitized.sourceType === 'room-auto') {
@@ -2099,7 +2223,7 @@ export function queueProjectDiffsToFirestoreOffline(
     addedOrModified: { [subcollection: string]: any[] };
     deletedIds: { [subcollection: string]: Array<string | { id: string; deletedAt?: number; revision?: number }> };
   },
-  options: { touchProjectMetadata?: boolean } = {},
+  options: { touchProjectMetadata?: boolean; allowFinancialWrites?: boolean } = {},
 ): { queuedRecords: number; commitPromises: Promise<void>[] } {
   if (!projectId) return { queuedRecords: 0, commitPromises: [] };
   const currentUser = getCurrentAppUser();
@@ -2139,6 +2263,19 @@ export function queueProjectDiffsToFirestoreOffline(
       if (!item?.id) continue;
       const docRef = doc(db, 'projects', projectId, subName, String(item.id));
       const sanitized = sanitizeSubcollectionItemForCloud(subName, item);
+      if (subName === 'work_volumes' && options.allowFinancialWrites === true) {
+        const financial = financialRecordFromWorkVolume(item);
+        if (financial) {
+          batch.set(doc(db, 'projects', projectId, WORK_VOLUME_FINANCIAL_COLLECTION, String(item.id)), {
+            ...financial,
+            updatedByUid: currentUser?.uid || '',
+            updatedByEmail: normalizeEmail(currentUser?.email),
+          }, { merge: true });
+          operationCount++;
+          queuedRecords++;
+          if (operationCount >= 400) flush();
+        }
+      }
       batch.set(docRef, {
         ...sanitized,
         id: String(item.id),
@@ -2165,6 +2302,15 @@ export function queueProjectDiffsToFirestoreOffline(
       if (!id) continue;
       const deletedAt = typeof deleteEntry === 'string' ? Date.now() : Number(deleteEntry.deletedAt || Date.now());
       const revision = typeof deleteEntry === 'string' ? 1 : Math.max(Number(deleteEntry.revision || 0), 1);
+      if (subName === 'work_volumes' && options.allowFinancialWrites === true) {
+        batch.set(doc(db, 'projects', projectId, WORK_VOLUME_FINANCIAL_COLLECTION, id), {
+          id, deleted: true, updatedAt: deletedAt,
+          updatedByUid: currentUser?.uid || '', updatedByEmail: normalizeEmail(currentUser?.email),
+        }, { merge: true });
+        operationCount++;
+        queuedRecords++;
+        if (operationCount >= 400) flush();
+      }
       batch.set(doc(db, 'projects', projectId, subName, id), {
         id,
         deleted: true,
@@ -2197,7 +2343,7 @@ export async function saveProjectDiffsToCloud(
     addedOrModified: { [subcollection: string]: any[] };
     deletedIds: { [subcollection: string]: Array<string | { id: string; deletedAt?: number; revision?: number }> };
   },
-  options: { touchProjectMetadata?: boolean; allowRootMetadataWrite?: boolean; rootTouchIntervalMs?: number; auditDetailLimit?: number } = {}
+  options: { touchProjectMetadata?: boolean; allowRootMetadataWrite?: boolean; allowFinancialWrites?: boolean; rootTouchIntervalMs?: number; auditDetailLimit?: number } = {}
 ): Promise<void> {
   try {
     await ensureAuth();
@@ -2254,6 +2400,17 @@ export async function saveProjectDiffsToCloud(
         auditCandidateCount++;
         const docRef = doc(db, 'projects', projectId, subName, item.id);
         const sanitized = sanitizeSubcollectionItemForCloud(subName, item);
+        if (subName === 'work_volumes' && options.allowFinancialWrites === true) {
+          const financial = financialRecordFromWorkVolume(item);
+          if (financial) {
+            batch.set(doc(db, 'projects', projectId, WORK_VOLUME_FINANCIAL_COLLECTION, String(item.id)), {
+              ...financial,
+              updatedByUid: getCurrentAppUser()?.uid || '',
+              updatedByEmail: normalizeEmail(getCurrentAppUser()?.email),
+            }, { merge: true });
+            operationCount++;
+          }
+        }
         const beforeSnap = auditEntries.length < AUDIT_DETAIL_LIMIT ? await getDoc(docRef).catch(() => null) : null;
         const beforeData = beforeSnap && beforeSnap.exists() ? beforeSnap.data() : null;
         const changedFields = buildAuditChangedFields(beforeData || {}, sanitized);
@@ -2347,6 +2504,13 @@ export async function saveProjectDiffsToCloud(
         const currentUser = getCurrentAppUser();
         // Preserve the actual user delete time across offline/reconnect. A stale offline
         // deletion must not become artificially newest merely because connectivity returned.
+        if (subName === 'work_volumes' && options.allowFinancialWrites === true) {
+          batch.set(doc(db, 'projects', projectId, WORK_VOLUME_FINANCIAL_COLLECTION, id), {
+            id, deleted: true, updatedAt: requestedDeletedAt,
+            updatedByUid: currentUser?.uid || '', updatedByEmail: normalizeEmail(currentUser?.email),
+          }, { merge: true });
+          operationCount++;
+        }
         batch.set(docRef, {
           id,
           deleted: true,
@@ -2431,6 +2595,18 @@ export async function fetchProjectFromCloud(projectId: string, options?: { serve
 
       const subNames = REALTIME_COLLECTIONS;
 
+      const actor = getCurrentRealFirebaseUser();
+      let canViewFinancials = false;
+      if (actor) {
+        const roleInfo = await fetchProjectUserRoleFromCloud(projectId, actor);
+        if (options?.serverOnly && roleInfo.verification !== 'verified') {
+          throw new Error('WORK_VOLUME_FINANCIAL_ROLE_UNAVAILABLE');
+        }
+        canViewFinancials = roleInfo.verification === 'verified' && roleInfo.allowed && roleInfo.role === 'ADMIN';
+      }
+      const financials = canViewFinancials
+        ? await readWorkVolumeFinancials(projectId, Boolean(options?.serverOnly), true)
+        : new Map<string, any>();
       for (const { cloudName, stateKey } of subNames) {
         const querySnap = options?.serverOnly
           ? await getDocsFromServer(collection(db, 'projects', projectId, cloudName))
@@ -2439,7 +2615,12 @@ export async function fetchProjectFromCloud(projectId: string, options?: { serve
         querySnap.forEach((docSnap) => {
           const data = docSnap.data();
           if (!data.deleted) {
-            list.push({ id: docSnap.id, ...data });
+            const item = { id: docSnap.id, ...data } as any;
+            if (stateKey === 'workVolumes') {
+              const financial = financials.get(docSnap.id);
+              item.unitPrice = financial ? normalizeUnitPrice(financial.unitPrice) : 0;
+            }
+            list.push(item);
           }
         });
         if (stateKey === 'floorPlans' && Array.isArray(list)) {
@@ -2476,12 +2657,24 @@ export async function fetchProjectFromCloud(projectId: string, options?: { serve
  */
 export function subscribeToProjectRealtime(
   projectId: string,
-  onMetadataUpdate: (metadata: { projectName: string; contractorName: string; inspectorName: string; updatedAt: number }) => void,
+  onMetadataUpdate: (metadata: { projectName: string; contractorName: string; inspectorName: string; updatedAt: number; deleted: boolean }) => void,
   onSubcollectionUpdate: (subcollectionName: string, items: any[], isInitial: boolean, isPatch?: boolean) => void,
-  onError?: (err: any) => void
+  onError?: (err: any) => void,
+  options: { includeFinancials?: boolean } = {},
 ) {
   const unsubscribers: (() => void)[] = [];
   let isCancelled = false;
+  const includeFinancials = options.includeFinancials === true;
+  let financialReady = !includeFinancials;
+  let workVolumeInitialPending = false;
+  const workVolumeRaw = new Map<string, any>();
+  const workVolumeFinancials = new Map<string, any>();
+  const mergeWorkVolumeFinancials = (item: any) => ({
+    ...item,
+    unitPrice: includeFinancials
+      ? normalizeUnitPrice(workVolumeFinancials.get(String(item?.id || ''))?.unitPrice)
+      : 0,
+  });
 
   ensureAuth().then(() => {
     if (isCancelled) return;
@@ -2498,6 +2691,7 @@ export function subscribeToProjectRealtime(
             contractorName: data.contractorName || '',
             inspectorName: data.inspectorName || '',
             updatedAt: data.updatedAt || 0,
+            deleted: data.deleted === true,
           });
         }
       },
@@ -2508,7 +2702,38 @@ export function subscribeToProjectRealtime(
     );
     unsubscribers.push(metaUnsub);
 
-    // 2. Listen for each subcollection changes
+    // 2. ADMIN-only WorkVolume financial stream. Non-admin callers do not subscribe
+    // at all. ADMIN holds the initial workVolumes emission until the first financial
+    // snapshot is ready so autosave can never observe a transient unitPrice=0 state.
+    if (includeFinancials) {
+      const financialUnsub = onSnapshot(
+        collection(db, 'projects', projectId, WORK_VOLUME_FINANCIAL_COLLECTION),
+        (snap) => {
+          if (isCancelled) return;
+          workVolumeFinancials.clear();
+          snap.forEach((row) => {
+            const data = row.data();
+            if (data?.deleted !== true) workVolumeFinancials.set(row.id, data);
+          });
+          const wasReady = financialReady;
+          financialReady = true;
+          if (workVolumeRaw.size > 0) {
+            const merged = Array.from(workVolumeRaw.values()).map(mergeWorkVolumeFinancials);
+            onSubcollectionUpdate('workVolumes', merged, workVolumeInitialPending && !wasReady, false);
+            workVolumeInitialPending = false;
+          }
+        },
+        (err) => {
+          // Financial access is expected for ADMIN. Do not emit price-zero WorkVolumes
+          // on an authorization/network failure; keep Cloud bootstrap fail-closed.
+          console.warn('[Financial isolation] ADMIN financial realtime unavailable:', err);
+          if (onError) onError(err);
+        },
+      );
+      unsubscribers.push(financialUnsub);
+    }
+
+    // 3. Listen for each business subcollection changes
     const subNames = REALTIME_COLLECTIONS;
 
     subNames.forEach(({ cloudName, stateKey }) => {
@@ -2520,10 +2745,21 @@ export function subscribeToProjectRealtime(
           if (isFirst) {
             const items: any[] = [];
             snap.forEach((docSnap) => {
-              items.push({ id: docSnap.id, ...docSnap.data() });
+              const raw = { id: docSnap.id, ...docSnap.data() };
+              if (stateKey === 'workVolumes') {
+                workVolumeRaw.set(docSnap.id, raw);
+                items.push(mergeWorkVolumeFinancials(raw));
+              } else {
+                items.push(raw);
+              }
             });
             if (stateKey === 'floorPlans') {
               items.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+            }
+            if (stateKey === 'workVolumes' && includeFinancials && !financialReady) {
+              workVolumeInitialPending = true;
+              isFirst = false;
+              return;
             }
             onSubcollectionUpdate(stateKey, items, true, false);
             isFirst = false;
@@ -2532,12 +2768,20 @@ export function subscribeToProjectRealtime(
 
           // After bootstrap, send only changed documents. This avoids rebuilding and reconciling
           // an entire project collection on every phone/PC edit.
-          const changedItems = snap.docChanges().map((change) => ({
-            id: change.doc.id,
-            ...change.doc.data(),
-            __firestoreChangeType: change.type
-          }));
+          const changedItems = snap.docChanges().map((change) => {
+            const raw = { id: change.doc.id, ...change.doc.data(), __firestoreChangeType: change.type };
+            if (stateKey === 'workVolumes') {
+              if (change.type === 'removed') workVolumeRaw.delete(change.doc.id);
+              else workVolumeRaw.set(change.doc.id, raw);
+              return mergeWorkVolumeFinancials(raw);
+            }
+            return raw;
+          });
           if (changedItems.length > 0) {
+            if (stateKey === 'workVolumes' && includeFinancials && !financialReady) {
+              workVolumeInitialPending = true;
+              return;
+            }
             onSubcollectionUpdate(stateKey, changedItems, false, true);
           }
         },
@@ -2916,8 +3160,31 @@ export async function removeProjectMemberFromCloud(projectId: string, email: str
       if (rowEmail === normalizedEmail) aliasIds.add(mDoc.id);
     });
 
+    // Fail closed: materialize an authoritative canonical tombstone FIRST. Rules and
+    // all gateways treat canonical email as authoritative, so a stale UID alias can
+    // never resurrect access if cleanup of a legacy row fails midway.
+    const canonicalRef = doc(db, 'projects', projectId, 'members', normalizedEmail);
+    const revokedAt = Date.now();
+    await setDoc(canonicalRef, {
+      email: normalizedEmail,
+      role: 'VIEWER',
+      active: false,
+      revokedAt,
+      revokedByUid: getCurrentRealFirebaseUser()?.uid || '',
+      revokedByEmail: normalizeEmail(getCurrentRealFirebaseUser()?.email),
+      updatedAt: revokedAt,
+    }, { merge: true });
+    const verified = await getDocFromServer(canonicalRef);
+    if (!verified.exists() || verified.data()?.active !== false) {
+      throw new Error('MEMBER_REVOKE_VERIFY_FAILED');
+    }
+
+    // Keep the canonical tombstone. Only best-effort delete legacy UID aliases.
     for (const memberDocId of aliasIds) {
-      await deleteDoc(doc(db, 'projects', projectId, 'members', memberDocId)).catch(() => {});
+      if (memberDocId.toLowerCase() === normalizedEmail) continue;
+      await deleteDoc(doc(db, 'projects', projectId, 'members', memberDocId)).catch((err) => {
+        console.warn('Legacy member alias cleanup deferred:', memberDocId, err);
+      });
     }
 
     await deleteDoc(doc(db, 'projectAccess', projectAccessDocId(projectId, normalizedEmail))).catch(() => {});
@@ -2964,7 +3231,7 @@ function requireOnlineProjectLifecycle(): void {
 async function requireVerifiedProjectAdmin(projectId: string): Promise<User> {
   const user = getCurrentRealFirebaseUser();
   if (!user || !user.email) throw new Error('PROJECT_LIFECYCLE_AUTH_REQUIRED');
-  const roleInfo = await fetchProjectUserRoleFromCloud(projectId, user);
+  const roleInfo = await fetchProjectUserRoleFromCloud(projectId, user, { allowDeletedProject: true });
   if (roleInfo.verification !== 'verified' || !roleInfo.allowed || roleInfo.role !== 'ADMIN') {
     throw new Error('PROJECT_LIFECYCLE_ADMIN_REQUIRED');
   }

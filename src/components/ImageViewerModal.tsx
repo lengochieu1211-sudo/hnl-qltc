@@ -114,24 +114,20 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
       }
       closedFromHistoryRef.current = false;
     };
-  }, [isOpen]);
+  }, [isOpen, allImages.length]);
 
   const activeImage = allImages[currentIndex] || imageUrl || '';
 
   const handlePrev = () => {
-    if (currentIndex > 0) {
-      setCurrentIndex(c => c - 1);
-      setScale(1);
-      setPosition({ x: 0, y: 0 });
-    }
+    setCurrentIndex((current) => Math.max(0, current - 1));
+    setScale(1);
+    setPosition({ x: 0, y: 0 });
   };
 
   const handleNext = () => {
-    if (currentIndex < allImages.length - 1) {
-      setCurrentIndex(c => c + 1);
-      setScale(1);
-      setPosition({ x: 0, y: 0 });
-    }
+    setCurrentIndex((current) => Math.min(Math.max(0, allImages.length - 1), current + 1));
+    setScale(1);
+    setPosition({ x: 0, y: 0 });
   };
 
   useEffect(() => {

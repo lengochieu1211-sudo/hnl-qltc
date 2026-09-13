@@ -60,11 +60,12 @@ async function getRole(env, token, projectId) {
   const projectResp = await firestoreGet(env, token, `projects/${encodeURIComponent(projectId)}`);
   if (!projectResp.ok) return { ok: false, role: '' };
   const projectDoc = await projectResp.json();
+  const projectDeleted = fieldBool(projectDoc, 'deleted', false);
 
   const superAdmin = String(env.SUPER_ADMIN_EMAIL || '').toLowerCase();
-  if (superAdmin && email === superAdmin) return { ok: true, role: 'ADMIN' };
+  if (superAdmin && email === superAdmin) return { ok: true, role: 'ADMIN', projectDeleted };
   if (fieldString(projectDoc, 'ownerUid') === uid || fieldString(projectDoc, 'ownerEmail').toLowerCase() === email) {
-    return { ok: true, role: 'ADMIN' };
+    return { ok: true, role: 'ADMIN', projectDeleted };
   }
 
   // Canonical email is authoritative whenever present. UID is legacy fallback only.
@@ -76,10 +77,10 @@ async function getRole(env, token, projectId) {
     if (!fieldBool(member, 'active', true)) return { ok: false, role: '' };
     const role = fieldString(member, 'role').toUpperCase();
     return ['ADMIN', 'EDITOR', 'ENGINEER', 'VIEWER'].includes(role)
-      ? { ok: true, role }
-      : { ok: false, role: '' };
+      ? { ok: true, role, projectDeleted }
+      : { ok: false, role: '', projectDeleted };
   }
-  return { ok: true, role: 'VIEWER' };
+  return { ok: false, role: '', projectDeleted };
 }
 
 function parseKey(key) {
@@ -114,6 +115,11 @@ export default {
 
     const access = await getRole(env, token, parsed.projectId);
     if (!access.ok) return json({ error: 'PROJECT_ACCESS_DENIED' }, 403, cors);
+    // Soft-deleted projects are frozen for normal media access. ADMIN DELETE remains
+    // available for retention cleanup after server-side reference checks.
+    if (access.projectDeleted && request.method !== 'DELETE') {
+      return json({ error: 'PROJECT_DELETED' }, 410, cors);
+    }
 
     if (request.method === 'HEAD') {
       const object = await env.HNL_QLTC_MEDIA.head(parsed.key);
@@ -153,6 +159,23 @@ export default {
       const sha256 = await sha256Hex(arrayBuffer);
       customMetadata = { ...customMetadata, sha256 };
       const contentType = request.headers.get('Content-Type') || 'application/octet-stream';
+
+      // Immutable object contract: a published key may be retried with identical bytes,
+      // but may never be replaced with different content. This protects old Firestore
+      // pointers even if a modified client reuses a known object key.
+      const existing = await env.HNL_QLTC_MEDIA.head(parsed.key);
+      if (existing) {
+        const existingSha = String(existing.customMetadata?.sha256 || '').toLowerCase();
+        const sameBytes = existingSha && existingSha === sha256 && Number(existing.size || 0) === arrayBuffer.byteLength;
+        if (!sameBytes) {
+          return json({ error: 'IMMUTABLE_OBJECT_CONFLICT', key: parsed.key }, 409, cors);
+        }
+        return json({
+          key: parsed.key, size: Number(existing.size || 0), mimeType: contentType, sha256,
+          etag: existing.httpEtag || '', immutableRetry: true, updated: new Date().toISOString()
+        }, 200, cors);
+      }
+
       const object = await env.HNL_QLTC_MEDIA.put(parsed.key, arrayBuffer, {
         httpMetadata: { contentType, cacheControl: 'private,max-age=31536000,immutable' },
         customMetadata,

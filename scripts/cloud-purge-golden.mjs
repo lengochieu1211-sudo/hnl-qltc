@@ -74,9 +74,15 @@ pass('App keeps Trash intent until safe purge completes');
 requireAll(vite, ['hnl-service-worker-asset-manifest', 'sw-assets.json'], 'Vite app-shell manifest');
 requireAll(sw, ['loadBuildAssetManifest', 'cache.addAll(required)'], 'Service Worker full precache');
 requireAll(runtimeGolden, ['verifyColdStartOffline', 'Network.clearBrowserCache', 'context.setOffline(true)', 'offlineResponse.fromServiceWorker()'], 'cold-start Runtime Golden');
-for (const trigger of ['public/sw.js', 'vite.config.ts', 'src/serviceWorkerRegistration.ts', 'scripts/stability-gate.mjs']) {
-  if (!runtimeWorkflow.includes(`- '${trigger}'`)) fail(`Runtime Golden trigger missing ${trigger}`);
+const runtimeHasGlobalPushTrigger = !runtimeWorkflow.includes('    paths:');
+if (!runtimeHasGlobalPushTrigger) {
+  for (const trigger of ['public/sw.js', 'vite.config.ts', 'src/serviceWorkerRegistration.ts', 'scripts/stability-gate.mjs']) {
+    if (!runtimeWorkflow.includes(`- '${trigger}'`)) fail(`Runtime Golden trigger missing ${trigger}`);
+  }
 }
+pass(runtimeHasGlobalPushTrigger
+  ? 'Runtime Golden runs on every dev push without a path filter'
+  : 'Runtime Golden path filter covers critical cold-start sources');
 pass('offline cold-start is protected by source + live Runtime Golden gates');
 
 requireAll(rules, ['lifecycleMutationId', 'lifecycleMutationType', 'lifecycleMutationAt'], 'legacy project trash Rules allow-list');

@@ -3125,6 +3125,17 @@ export default function App() {
       subscribedProjectId,
       (meta) => {
         if (switchingProjectRef.current || activeProjectIdRef.current !== subscribedProjectId) return;
+        if (meta.deleted) {
+          // Another device/ADMIN moved this project to Trash. Fail closed immediately:
+          // no local handler may keep EDITOR/ADMIN privileges against a deleted root.
+          setCurrentUserRole('VIEWER');
+          setCurrentUserRoleState('VIEWER');
+          setProjectRoleAllowed(false);
+          setProjectRoleSource('cloud');
+          setCloudInitialReady(false);
+          setBusinessDataSource('empty');
+          return;
+        }
 
         // 1. Update project metadata (projectName, contractorName, inspectorName) if newer than local
         const serverTime = meta.updatedAt || 0;
@@ -3363,7 +3374,9 @@ export default function App() {
 
           return updatedState;
         });
-      }
+      },
+      undefined,
+      { includeFinancials: currentUserRole === 'ADMIN' },
     );
 
     return () => {
@@ -4245,6 +4258,7 @@ export default function App() {
                 deletedIds
               }, {
                 touchProjectMetadata: currentUserRole === 'ADMIN' && (metadataChanged || !lastSyncedPresentRef.current),
+                allowFinancialWrites: currentUserRole === 'ADMIN',
               });
 
               if (queued.queuedRecords > 0 || metadataChanged) {
@@ -4292,6 +4306,7 @@ export default function App() {
               }, {
                 touchProjectMetadata: currentUserRole === 'ADMIN' && (metadataChanged || !lastSyncedPresentRef.current),
                 allowRootMetadataWrite: currentUserRole === 'ADMIN',
+                allowFinancialWrites: currentUserRole === 'ADMIN',
                 rootTouchIntervalMs: 60000,
                 auditDetailLimit: 20,
               });

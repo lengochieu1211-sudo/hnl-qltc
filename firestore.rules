@@ -28,6 +28,11 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/projects/$(projectId));
     }
 
+    function projectIsActive(projectId) {
+      return projectExists(projectId)
+        && (!('deleted' in projectDoc(projectId).data) || projectDoc(projectId).data.deleted != true);
+    }
+
     // Never dereference projectDoc(...).data for a missing project root. A fresh
     // Firebase-only/Emulator project is intentionally allowed to be absent until
     // its first authenticated owner claim creates the root document.
@@ -84,7 +89,8 @@ service cloud.firestore {
     }
 
     function isMember(projectId) {
-      return isGoogleAuthed() && (isSuperAdmin() || isOwner(projectId) || canonicalMemberActive(projectId));
+      return isGoogleAuthed() && projectIsActive(projectId)
+        && (isSuperAdmin() || isOwner(projectId) || canonicalMemberActive(projectId));
     }
 
     function isAdmin(projectId) {
@@ -101,12 +107,16 @@ service cloud.firestore {
         && (canonicalMemberRole(projectId) == 'EDITOR' || canonicalMemberRole(projectId) == 'ENGINEER');
     }
 
+    function canAdminOperate(projectId) {
+      return projectIsActive(projectId) && isAdmin(projectId);
+    }
+
     function canEdit(projectId) {
-      return isAdmin(projectId) || isEditor(projectId);
+      return projectIsActive(projectId) && (isAdmin(projectId) || isEditor(projectId));
     }
 
     function canReadAudit(projectId) {
-      return isAdmin(projectId) || canEdit(projectId);
+      return projectIsActive(projectId) && (isAdmin(projectId) || isEditor(projectId));
     }
 
     // RC2.2.5 Master RBAC: EDITOR writes are operational-only and may never
@@ -314,7 +324,7 @@ service cloud.firestore {
       // strict create rule below. Existing project data remains membership/owner gated.
       allow read: if (
         isGoogleAuthed() && !projectExists(projectId)
-      ) || isMember(projectId) || (
+      ) || isMember(projectId) || isAdmin(projectId) || (
         isGoogleAuthed()
         && ('ownerUid' in resource.data)
         && resource.data.ownerUid == request.auth.uid
@@ -361,7 +371,7 @@ service cloud.firestore {
       allow delete: if false;
 
       match /members/{memberId} {
-        allow read: if isMember(projectId)
+        allow read: if isMember(projectId) || isAdmin(projectId)
           || (isGoogleAuthed() && memberId == request.auth.uid)
           || (isGoogleAuthed() && memberId == signedInEmail());
 
@@ -370,7 +380,7 @@ service cloud.firestore {
         // must exactly match that email member. This prevents self role escalation while
         // making email invitations durable across devices.
         allow create, update: if (
-          isAdmin(projectId)
+          canAdminOperate(projectId)
           && request.resource.data.role is string
           && isCanonicalMemberRole(request.resource.data.role)
         ) || (
@@ -384,7 +394,7 @@ service cloud.firestore {
           && isLegacyCompatibleMemberRole(request.resource.data.role)
           && request.resource.data.active != false
         );
-        allow delete: if isAdmin(projectId);
+        allow delete: if canAdminOperate(projectId);
       }
 
       // Private contact directory. VIEWER may read member role/email documents but
@@ -392,7 +402,7 @@ service cloud.firestore {
       // coordination; only ADMIN/Owner/Super Admin may write them.
       match /memberContacts/{memberId} {
         allow read: if canEdit(projectId);
-        allow create, update: if isAdmin(projectId)
+        allow create, update: if canAdminOperate(projectId)
           && request.resource.data.projectId == projectId
           && request.resource.data.email is string
           && request.resource.data.email.lower() == memberId.lower()
@@ -496,32 +506,43 @@ service cloud.firestore {
         allow delete: if false;
       }
 
+      // V6 data-schema financial isolation. Firestore cannot field-filter a readable
+      // document, so unitPrice lives in a separate ADMIN-only collection.
+      match /work_volume_financials/{recordId} {
+        allow read, create, update: if canAdminOperate(projectId);
+        allow delete: if canAdminOperate(projectId);
+      }
+
       // V6.3.0 Firebase-only business lifecycle. VIEWER reads only; EDITOR/ADMIN edit.
       // ENGINEER remains accepted as a temporary legacy alias for deployed member docs.
       // Core business records are soft-delete only and reject stale revision/updatedAt
       // overwrites. Shared settings/trash metadata are ADMIN-owned structure; legacy
       // floor_plan_images Firestore fallback is read-only until verified purge.
       match /{collectionName}/{recordId} {
-        allow read: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && isMember(projectId);
+        allow read: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials'
+          && isMember(projectId)
+          && (collectionName != 'work_volumes' || !('unitPrice' in resource.data) || isAdmin(projectId));
         // Master project structure is ADMIN-only. EDITOR may create operational records
         // (defect, warehouse transaction, crew log, photo metadata) and may update only
         // explicitly allowed operational fields on rooms/checklist. VIEWER remains read-only.
-        allow create: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances'
+        allow create: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials'
           && !isLegacyReadOnlyCollection(collectionName)
+          && (collectionName != 'work_volumes' || !('unitPrice' in request.resource.data))
           && (
-            isAdmin(projectId)
-            || (isEditor(projectId) && (
+            canAdminOperate(projectId)
+            || (isEditor(projectId) && projectIsActive(projectId) && (
               (collectionName == 'photos' && editorCreatesActiveOnly())
               || (collectionName == 'crew_records' && editorCreatesOwnedCrewRecord())
               || (collectionName != 'crew_records' && isEditorOperationalCollection(collectionName) && editorCreatesActiveOnly())
             ))
           )
           && (!isCoreBusinessCollection(collectionName) || coreCreateLifecycleIsValid(recordId));
-        allow update: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances'
+        allow update: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials'
           && !isLegacyReadOnlyCollection(collectionName)
+          && (collectionName != 'work_volumes' || !('unitPrice' in request.resource.data))
           && (
-            isAdmin(projectId)
-            || (isEditor(projectId) && (
+            canAdminOperate(projectId)
+            || (isEditor(projectId) && projectIsActive(projectId) && (
               (collectionName == 'rooms' && editorRoomOperationalUpdateOnly())
               || (collectionName == 'checklist' && editorChecklistOperationalUpdateOnly())
               || collectionName == 'photos'
@@ -530,15 +551,15 @@ service cloud.firestore {
             ))
           )
           && (!isCoreBusinessCollection(collectionName) || (coreIdentityUpdateIsValid(recordId) && lifecycleUpdateIsMonotonic()));
-        allow delete: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances'
-          && isAdmin(projectId)
+        allow delete: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials'
+          && canAdminOperate(projectId)
           && !isCoreBusinessCollection(collectionName);
 
         // Legacy Firestore binary chunks are read-only during Storage migration. Physical
         // cleanup is ADMIN-only after migration verification; no new chunks may be written.
         match /{nestedCollection}/{nestedId} {
           allow read: if isMember(projectId);
-          allow delete: if isAdmin(projectId);
+          allow delete: if canAdminOperate(projectId);
           allow create, update: if false;
         }
       }
