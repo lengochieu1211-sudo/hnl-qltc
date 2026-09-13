@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 20
+          fetch-depth: 30
           ref: audit-hardening-20260913
       - name: Verify base and materialize exact patch
         shell: bash
@@ -37,15 +37,13 @@ jobs:
           node scripts/audit-hardening-golden.mjs
           node scripts/stability-gate.mjs
           node scripts/source-lint.mjs
-      - name: Commit clean candidate source
+      - name: Commit non-workflow candidate source only
         shell: bash
         run: |
           set -euo pipefail
-          git rm -r .audit-bootstrap
-          git rm .github/workflows/audit-hardening-bootstrap.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
+          git add -A -- . ':(exclude).github/workflows/**' ':(exclude).audit-bootstrap/**'
           git diff --cached --check
-          git commit -m 'fix(candidate): harden lifecycle RBAC financial media and DEV release gates'
+          git commit -m 'fix(candidate): harden lifecycle RBAC financial and media guards'
           git push origin HEAD:audit-hardening-20260913
