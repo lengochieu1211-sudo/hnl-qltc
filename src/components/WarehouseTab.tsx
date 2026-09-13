@@ -154,7 +154,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       const id = String(room.id || '').trim();
       if (!id) return;
       const floorId = String(room.floorId || '').trim();
-      const floorName = floorNameById.get(floorId) || String(room.floorName || '').trim() || floorId;
+      const floorName = String(floorNameById.get(floorId) || room.floorName || floorId).trim();
       map.set(id, { id, name: String(room.roomName || id).trim() || id, floorId, floorName });
     });
     return Array.from(map.values()).sort((a, b) =>
