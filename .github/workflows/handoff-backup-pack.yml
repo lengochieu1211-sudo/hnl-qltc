@@ -1,0 +1,46 @@
+name: HNL QLTC Handoff Backup Pack
+
+on:
+  push:
+    branches: [backup-handoff-20260913]
+    paths: ['.github/workflows/handoff-backup-pack.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Package exact DEV and candidate sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEV_SHA='94ba0e3226a726c14c8a921c3249005d1c11e0a2'
+          CANDIDATE_SHA='5a597672ad738621ac8ae6f2d87bd958376eaa4a'
+          git cat-file -e "${DEV_SHA}^{commit}"
+          git fetch origin audit-hardening-20260913:refs/remotes/origin/audit-hardening-20260913
+          git cat-file -e "${CANDIDATE_SHA}^{commit}"
+          mkdir -p out
+          git archive --format=zip --output=out/HNL-QLTC-V6.3.0-DEV-94ba0e32-FULL-SOURCE.zip "$DEV_SHA"
+          git archive --format=zip --output=out/HNL-QLTC-CANDIDATE-5a597672-FULL-SOURCE.zip "$CANDIDATE_SHA"
+          git diff --binary "$DEV_SHA" "$CANDIDATE_SHA" > out/HNL-QLTC-DEV-94ba0e32-to-CANDIDATE-5a597672.patch || true
+          {
+            echo "DEV_SHA=$DEV_SHA"
+            echo "CANDIDATE_SHA=$CANDIDATE_SHA"
+            echo "MAIN_SHA=0952e01c4ca732b2c0258e7c127b7559ced9d858"
+            echo "PREVIOUS_CERTIFIED_DEV=663fb5eadd151ba4e9ec9ec8dcc7960cb636a6dd"
+          } > out/CURRENT-SOURCE-STATE.txt
+          unzip -t out/HNL-QLTC-V6.3.0-DEV-94ba0e32-FULL-SOURCE.zip >/dev/null
+          unzip -t out/HNL-QLTC-CANDIDATE-5a597672-FULL-SOURCE.zip >/dev/null
+          (cd out && sha256sum * > SOURCE-SHA256SUMS.txt && sha256sum -c SOURCE-SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-HANDOFF-SOURCE-SNAPSHOTS
+          path: out/*
+          retention-days: 30
+          if-no-files-found: error
