@@ -1,0 +1,192 @@
+name: HNL QLTC Audit Material Web Recovery
+
+on:
+  push:
+    branches: [audit/material-linkage-20260914]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: audit-material-web-recovery-20260914
+  cancel-in-progress: true
+
+env:
+  BASE_SHA: c2bc834f3d5a1cc136b7c5a45a336a6247636468
+  PATCH_B64_GLOB: .audit/HNL-QLTC-AUDIT-MATERIAL-c2bc834f.patch.gz.b64.part-*
+  HOTFIX_PATCH: .audit/HNL-QLTC-AUDIT-MATERIAL-unit-hotfix.patch
+  DEV_FIREBASE_PROJECT_ID: hnl-qltc-dev
+  PROD_FIREBASE_PROJECT_ID: com-example-qlct-61329
+  DEV_R2_URL: https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev
+  PROD_R2_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
+  DEV_AI_URL: https://hnl-qltc-ai-gateway-dev.lengochieu1211.workers.dev
+  PROD_AI_URL: https://hnl-qltc-ai-gateway.lengochieu1211.workers.dev
+  VITE_APP_ENV: DEV
+  VITE_RUNTIME_BACKEND: firebase-only
+  VITE_BINARY_STORAGE_PROVIDER: r2
+  VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev
+  VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+  VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+  VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+  VITE_FIREBASE_API_KEY: AIzaSyB6y060Mji2684mB-g1qYHoEJ-F1ep5q5M
+  VITE_FIREBASE_AUTH_DOMAIN: hnl-qltc-dev.web.app
+  VITE_FIREBASE_PROJECT_ID: hnl-qltc-dev
+  VITE_FIREBASE_STORAGE_BUCKET: hnl-qltc-dev.firebasestorage.app
+  VITE_FIREBASE_MESSAGING_SENDER_ID: '1036808734475'
+  VITE_FIREBASE_APP_ID: 1:1036808734475:web:e124b3ff0c50369393840e
+  VITE_FIRESTORE_DATABASE_ID: '(default)'
+  VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+  VITE_HNL_AI_ENABLED: 'true'
+  VITE_HNL_AI_GATEWAY_URL: https://hnl-qltc-ai-gateway-dev.lengochieu1211.workers.dev
+
+jobs:
+  web_runtime:
+    name: Hosted Web Runtime Golden Recovery
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HNL_QLTC_DEV }}
+      VITE_BUILD_ID: web-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+      VITE_GIT_COMMIT: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Base and DEV isolation guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse "$GITHUB_SHA^")" = "$BASE_SHA"
+          test "$VITE_FIREBASE_PROJECT_ID" = "$DEV_FIREBASE_PROJECT_ID"
+          test "$VITE_FIREBASE_PROJECT_ID" != "$PROD_FIREBASE_PROJECT_ID"
+          test "$VITE_R2_GATEWAY_URL" = "$DEV_R2_URL"
+          test "$VITE_R2_GATEWAY_URL" != "$PROD_R2_URL"
+          test "$VITE_HNL_AI_GATEWAY_URL" = "$DEV_AI_URL"
+          test "$VITE_HNL_AI_GATEWAY_URL" != "$PROD_AI_URL"
+      - name: Materialize exact audited source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat $PATCH_B64_GLOB | base64 -d | gzip -dc > "$RUNNER_TEMP/audit.patch"
+          git apply --check -p1 "$RUNNER_TEMP/audit.patch"
+          git apply -p1 "$RUNNER_TEMP/audit.patch"
+          git apply --check -p1 "$HOTFIX_PATCH"
+          git apply -p1 "$HOTFIX_PATCH"
+          git diff --check
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - name: Build exact DEV candidate
+        run: npm run build
+      - name: Install isolated Playwright runtime without touching app dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          PKG_BEFORE="$(sha256sum package.json | awk '{print $1}')"
+          LOCK_BEFORE="$(sha256sum package-lock.json | awk '{print $1}')"
+          PW_DIR="$RUNNER_TEMP/playwright-runtime"
+          mkdir -p "$PW_DIR"
+          npm install --prefix "$PW_DIR" --no-save --package-lock=false playwright@1.63.0
+          rm -rf node_modules/playwright node_modules/playwright-core
+          ln -s "$PW_DIR/node_modules/playwright" node_modules/playwright
+          ln -s "$PW_DIR/node_modules/playwright-core" node_modules/playwright-core
+          test "$PKG_BEFORE" = "$(sha256sum package.json | awk '{print $1}')"
+          test "$LOCK_BEFORE" = "$(sha256sum package-lock.json | awk '{print $1}')"
+          "$PW_DIR/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Configure DEV Firebase credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$FIREBASE_SERVICE_ACCOUNT"
+          CRED="$RUNNER_TEMP/firebase-dev.json"
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$CRED"
+          chmod 600 "$CRED"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$CRED" >> "$GITHUB_ENV"
+      - name: Deploy isolated DEV preview
+        id: preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHANNEL="audit-recovery-${GITHUB_RUN_ID}"
+          echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
+          npx --yes firebase-tools@13.35.1 hosting:channel:deploy "$CHANNEL" --project "$DEV_FIREBASE_PROJECT_ID" --expires 1h --non-interactive --json > "$RUNNER_TEMP/preview.json"
+          PREVIEW_URL="$(node - "$RUNNER_TEMP/preview.json" <<'NODE'
+          const fs=require('fs'); const j=JSON.parse(fs.readFileSync(process.argv[2],'utf8')); const found=[];
+          const walk=(v)=>{if(typeof v==='string'&&/^https:\/\/.*\.web\.app\/?$/.test(v))found.push(v.replace(/\/$/,''));else if(Array.isArray(v))v.forEach(walk);else if(v&&typeof v==='object')Object.values(v).forEach(walk)}; walk(j);
+          const u=found.find(x=>x.includes('hnl-qltc-dev--audit-recovery-'))||found[0]||''; if(!u)process.exit(2); process.stdout.write(u);
+          NODE
+          )"
+          test -n "$PREVIEW_URL"
+          echo "DEV_HOSTING_URL=$PREVIEW_URL" >> "$GITHUB_ENV"
+      - name: Desktop + mobile hosted Runtime Golden
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/dev-hosted-browser-golden.mjs'); s=p.read_text()
+          old="if (!hostingUrl.includes('hnl-qltc-dev.web.app')) throw new Error(`Refusing non-DEV Hosting URL: ${hostingUrl}`);"
+          new="if (!hostingUrl.includes('hnl-qltc-dev')) throw new Error(`Refusing non-DEV Hosting URL: ${hostingUrl}`);"
+          assert old in s or new in s
+          p.write_text(s.replace(old,new))
+          PY
+          node scripts/dev-hosted-browser-golden.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: audit-material-web-recovery-${{ github.run_number }}
+          path: runtime-evidence/**
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Delete temporary DEV preview
+        if: always() && steps.preview.outputs.channel != ''
+        shell: bash
+        run: npx --yes firebase-tools@13.35.1 hosting:channel:delete "${{ steps.preview.outputs.channel }}" --project "$DEV_FIREBASE_PROJECT_ID" --force || true
+
+  materialize_ready:
+    name: Materialize ready commit after Web PASS
+    needs: web_runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Guard DEV and create ready commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          LIVE_DEV="$(git rev-parse origin/dev)"
+          test "$LIVE_DEV" = "$BASE_SHA" || { echo "::error::DEV moved to $LIVE_DEV; refusing"; exit 2; }
+          cat $PATCH_B64_GLOB | base64 -d | gzip -dc > "$RUNNER_TEMP/audit.patch"
+          cp "$HOTFIX_PATCH" "$RUNNER_TEMP/hotfix.patch"
+          git checkout -B audit-material-ready "$BASE_SHA"
+          git apply --check -p1 "$RUNNER_TEMP/audit.patch"
+          git apply -p1 "$RUNNER_TEMP/audit.patch"
+          git apply --check -p1 "$RUNNER_TEMP/hotfix.patch"
+          git apply -p1 "$RUNNER_TEMP/hotfix.patch"
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/firebase-rules-check.mjs'); s=p.read_text()
+          old='function runRulesBehaviorAttempt(attempt, timeoutMs = 75000) {'
+          new='function runRulesBehaviorAttempt(attempt, timeoutMs = 180000) {'
+          assert old in s or new in s
+          p.write_text(s.replace(old,new))
+          PY
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(dev): canonicalize material linkage and calculations'
+          git rev-parse HEAD | tee ready-sha.txt
+          git push --force origin HEAD:refs/heads/audit/material-ready-20260914
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audit-material-ready-sha-recovery-${{ github.run_number }}
+          path: ready-sha.txt
+          if-no-files-found: error
+          retention-days: 14

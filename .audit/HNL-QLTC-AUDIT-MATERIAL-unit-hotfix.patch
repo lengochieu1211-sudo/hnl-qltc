@@ -1,0 +1,206 @@
+diff -ruN '--exclude=node_modules' a/scripts/material-need-golden.ts b/scripts/material-need-golden.ts
+--- a/scripts/material-need-golden.ts	2026-09-14 07:56:00.000000000 +0000
++++ b/scripts/material-need-golden.ts	2026-09-14 16:54:32.173252338 +0000
+@@ -281,6 +281,7 @@
+ });
+ const allProjectW12 = allProjectIssues.lines.find((line) => line.materialId === 'mat-w12-frame');
+ assert.equal(allProjectW12?.alreadyIssued, 15, 'Whole-project material need must subtract all project OUT transactions exactly once');
++assert.equal(allProjectW12?.unallocatedIssued, 5, 'Whole-project total may subtract legacy OUT physically while still exposing ambiguous category attribution as unallocated');
+ 
+ const w12ScopedIssues = computeMaterialNeeds({
+   rooms: [roomBhs], materialNorms: categoryNorms, inventory: scopedIssueInventory, workVolumes: categoryWorkVolumes, teams,
+diff -ruN '--exclude=node_modules' a/src/ai/audit/quantityAudit.ts b/src/ai/audit/quantityAudit.ts
+--- a/src/ai/audit/quantityAudit.ts	2026-09-14 16:22:06.790912138 +0000
++++ b/src/ai/audit/quantityAudit.ts	2026-09-14 16:48:40.996005085 +0000
+@@ -125,6 +125,26 @@
+   });
+ 
+   const categoryUnits = new Map<string, { names: Set<string>; units: Set<string> }>();
++  const addCategoryUnit = (workCategoryId: string, name: string | undefined, unitValue: unknown): void => {
++    const id = String(workCategoryId || '').trim();
++    if (!id) return;
++    const bucket = categoryUnits.get(id) || { names: new Set<string>(), units: new Set<string>() };
++    if (name) bucket.names.add(name);
++    const rawUnit = String(unitValue || '').trim();
++    const unit = normalizeUnit(rawUnit) || rawUnit;
++    if (unit) bucket.units.add(unit);
++    categoryUnits.set(id, bucket);
++  };
++
++  // Seed the unit catalog from the authoritative WorkVolume records. This lets the
++  // audit flag a Room that keeps the correct category ID but drifts to another unit
++  // even when that Room is also out of the WorkVolume floor scope. Floor mismatch and
++  // unit mismatch are independent integrity errors and neither should mask the other.
++  activeWorkVolumes.forEach((work) => {
++    const id = canonicalWorkCategoryId(work);
++    if (id) addCategoryUnit(id, work.title, work.unit);
++  });
++
+   const roomCanonicalEntries = new Map<string, ReturnType<typeof getCanonicalRoomCategoryEntries>>();
+ 
+   activeRooms.forEach((room) => {
+@@ -182,14 +202,14 @@
+       }
+     });
+ 
++    // Unit drift must be visible even when an authoritative ID later fails the
++    // floor-aware resolver. Never use this raw observation for quantity aggregation.
++    if (room.workCategoryId) addCategoryUnit(room.workCategoryId, room.workCategory, room.volumeUnit);
++
+     const entries = getCanonicalRoomCategoryEntries(room, activeWorkVolumes);
+     roomCanonicalEntries.set(room.id, entries);
+     entries.forEach((entry) => {
+-      const bucket = categoryUnits.get(entry.workCategoryId) || { names: new Set<string>(), units: new Set<string>() };
+-      bucket.names.add(entry.workCategoryName);
+-      const unit = normalizeUnit(entry.unit || '') || entry.unit || '';
+-      if (unit) bucket.units.add(unit);
+-      categoryUnits.set(entry.workCategoryId, bucket);
++      addCategoryUnit(entry.workCategoryId, entry.workCategoryName, entry.unit);
+     });
+   });
+ 
+@@ -218,7 +238,7 @@
+     const contractEv = evidenceId('work_volumes', contract.id);
+     if (!nearlyEqual(roomSum, contract.planned)) {
+       addIssue({
+-        ruleId: 'WORK_VOLUME_ROOM_SUM_MISMATCH', severity: 'REVIEW', entityType: 'quantity', entityId: contract.id,
++        ruleId: 'FLOOR_ROOM_SUM_MISMATCH', severity: 'REVIEW', entityType: 'quantity', entityId: contract.id,
+         message: `Tổng khối lượng Căn/Phòng của ${contract.title} trên toàn phạm vi tầng không bằng khối lượng planned.`,
+         evidenceIds: [contractEv, ...roomEvidenceIds],
+         details: { floorIds: [contract.floorId, ...(contract.floorIds || [])].filter(Boolean), roomSum: Math.round(roomSum * 10000) / 10000, planned: contract.planned, unit: contractUnit },
+diff -ruN '--exclude=node_modules' a/src/utils/linkageIntegrity.ts b/src/utils/linkageIntegrity.ts
+--- a/src/utils/linkageIntegrity.ts	2026-09-14 16:22:06.791073987 +0000
++++ b/src/utils/linkageIntegrity.ts	2026-09-14 16:54:32.172917985 +0000
+@@ -241,6 +241,7 @@
+ 
+ export interface InventoryOutProvenanceResult {
+   state: 'resolved' | 'ambiguous' | 'invalid';
++  ambiguityAt?: 'material' | 'workCategory';
+   room?: RoomProgressItem;
+   floorId?: string;
+   workCategoryId?: string;
+@@ -264,7 +265,7 @@
+   if (room && tx.sourceFloorId && room.floorId !== tx.sourceFloorId) return { state: 'invalid', room, floorId, reason: 'sourceFloorId mâu thuẫn sourceRoomId' };
+ 
+   const material = resolveUniqueMaterialIdentity({ materialId: tx.materialId, materialName: tx.materialName, unit: tx.unit, materialNorms });
+-  if (material.state !== 'resolved') return { state: material.state === 'ambiguous' ? 'ambiguous' : 'invalid', room, floorId, reason: 'material identity không duy nhất' };
++  if (material.state !== 'resolved') return { state: material.state === 'ambiguous' ? 'ambiguous' : 'invalid', ambiguityAt: material.state === 'ambiguous' ? 'material' : undefined, room, floorId, reason: 'material identity không duy nhất' };
+ 
+   const norm = tx.sourceNormId ? materialNorms.find((item) => item.id === tx.sourceNormId && isActiveRecord(item)) : undefined;
+   if (tx.sourceNormId && !norm) return { state: 'invalid', room, floorId, reason: 'sourceNormId không tồn tại' };
+@@ -276,7 +277,7 @@
+   let categoryId = String(tx.sourceWorkCategoryId || '').trim() || undefined;
+   if (categoryId) {
+     const resolved = resolveWorkVolumeRef({ workVolumes, workCategoryId: categoryId, floorId, floorName: room?.floorName });
+-    if (resolved.state !== 'resolved' || !resolved.work) return { state: resolved.state === 'ambiguous' ? 'ambiguous' : 'invalid', room, floorId, reason: 'sourceWorkCategoryId không hợp lệ trong tầng nguồn' };
++    if (resolved.state !== 'resolved' || !resolved.work) return { state: resolved.state === 'ambiguous' ? 'ambiguous' : 'invalid', ambiguityAt: resolved.state === 'ambiguous' ? 'workCategory' : undefined, room, floorId, reason: 'sourceWorkCategoryId không hợp lệ trong tầng nguồn' };
+     categoryId = canonicalWorkCategoryId(resolved.work);
+   }
+ 
+@@ -291,7 +292,7 @@
+     if (normScope.length > 0) candidates = candidates.length > 0 ? candidates.filter((id) => normScope.includes(id)) : normScope;
+     candidates = Array.from(new Set(candidates));
+     if (candidates.length === 1) categoryId = candidates[0];
+-    else return { state: 'ambiguous', room, floorId, normId: norm?.id, reason: 'không suy ra duy nhất hạng mục nguồn' };
++    else return { state: 'ambiguous', ambiguityAt: 'workCategory', room, floorId, normId: norm?.id, reason: 'không suy ra duy nhất hạng mục nguồn' };
+   }
+ 
+   let teamId = String(tx.sourceTeamId || '').trim() || undefined;
+diff -ruN '--exclude=node_modules' a/src/utils/materialNeedEngine.ts b/src/utils/materialNeedEngine.ts
+--- a/src/utils/materialNeedEngine.ts	2026-09-14 16:22:06.791085924 +0000
++++ b/src/utils/materialNeedEngine.ts	2026-09-14 16:54:32.173146602 +0000
+@@ -384,5 +384,6 @@
+   });
+ 
++  rooms.forEach((room) => { if (!scopeIncludes(scopeIds(scope.roomId, scope.roomIds), room.id) || !scopeIncludes(scopeIds(scope.floorId, scope.floorIds), room.floorId)) return; Object.keys(room.categoryVolumes || {}).forEach((raw) => { const authoritativeRefs = [room.workCategoryId, ...(room.subItems || []).map((item) => item.workCategoryId)].filter(Boolean) as string[]; const hasAuthoritativeMatch = authoritativeRefs.some((ref) => { const resolved = resolveWorkVolumeStrict(ref, workVolumes); return resolved.state === 'resolved' && textKey(resolved.work?.title) === textKey(raw); }); if (hasAuthoritativeMatch || workVolumes.some((work) => String(work.id || '').trim() === raw || String(work.workCategoryId || '').trim() === raw)) return; const titleMatches = workVolumes.filter((work) => textKey(work.title) === textKey(raw)); const ids = new Set(titleMatches.map((work) => canonicalWorkCategoryId(work)).filter(Boolean)); if (ids.size > 1 && !warnings.some((warning) => warning.code === 'AMBIGUOUS_LINK' && warning.roomId === room.id && warning.message.includes(raw))) warnings.push({ code: 'AMBIGUOUS_LINK', roomId: room.id, floorId: room.floorId, message: `Căn ${room.roomName}: liên kết hạng mục ${raw} trùng nhiều hạng mục đang hoạt động. Không suy đoán nhu cầu vật tư.` }); }); });
+   const contributions = buildContributions(rooms, workVolumes, teams, scope, warnings);
+   const aliasMap = buildMaterialAliasMap(materialNorms);
+   const canonicalKey = (materialId?: string, materialName?: string, unit?: string) => {
+@@ -504,7 +505,9 @@
+     const qty = Number(tx.quantity) || 0;
+ 
+     const provenance = validateInventoryOutProvenance({ tx, rooms, workVolumes, materialNorms, teams });
++    if (provenance.state === 'resolved' && !provenance.teamId && provenance.room) { const normalizeTeamName = (value: unknown) => String(value || '').trim().toLocaleLowerCase('vi'); const ids = new Set<string>(); const collect = (idValue?: string, nameValue?: string) => { const directId = String(idValue || '').trim(); if (directId && teams.some((team) => team.id === directId)) ids.add(directId); const name = normalizeTeamName(nameValue); if (!name) return; const matches = teams.filter((team) => normalizeTeamName(team.name) === name); if (matches.length === 1) ids.add(matches[0].id); else if (matches.length > 1) matches.forEach((team) => ids.add(team.id)); }; collect(provenance.room.teamId, provenance.room.assignedTeam); (provenance.room.subItems || []).forEach((item) => collect(item.teamId, item.assignedTeam)); if (ids.size === 1) provenance.teamId = Array.from(ids)[0]; }
+-    if (provenance.state !== 'resolved') {
++    const categoryAmbiguousButMaterialAllocatable = provenance.state === 'ambiguous' && provenance.ambiguityAt === 'workCategory';
++    if (provenance.state !== 'resolved' && !categoryAmbiguousButMaterialAllocatable) {
+       unallocated.set(key, (unallocated.get(key) || 0) + qty);
+       warnings.push({
+         code: 'UNALLOCATED_ISSUE',
+@@ -516,6 +519,21 @@
+       });
+       return;
+     }
++    if (categoryAmbiguousButMaterialAllocatable) {
++      // The material/room/floor provenance is still usable for a material-total view,
++      // but the category allocation is not. Keep the amount visible as unallocated so
++      // category/team scoped views remain fail-closed while project/floor/room material
++      // totals can still subtract the physical OUT exactly once.
++      unallocated.set(key, (unallocated.get(key) || 0) + qty);
++      warnings.push({
++        code: 'UNALLOCATED_ISSUE',
++        roomId: tx.sourceRoomId,
++        floorId: provenance.floorId || tx.sourceFloorId,
++        teamId: tx.sourceTeamId,
++        message: `Phiếu ${tx.id} chưa suy ra duy nhất hạng mục nguồn. Chỉ tính vào tổng vật tư khi phạm vi không lọc theo hạng mục/đội.`,
++      });
++      if (hasWorkCategoryScope || hasTeamScope) return;
++    }
+     const sourceRoom = provenance.room;
+ 
+     if (scopedRoomIds.length > 0) {
+
+diff --git a/src/App.tsx b/src/App.tsx
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -5242,7 +5242,7 @@
+       console.warn('[RBAC] Chỉ ADMIN được nhập thay đổi cấu trúc hạng mục khối lượng.');
+       return false;
+     }
+-    const currentById = new Map(present.workVolumes.map((work) => [work.id, work]));
++    const currentById = new Map<string, WorkVolume>(present.workVolumes.map((work) => [work.id, work] as const));
+     const normalized = items.map((item) => {
+       const existing = currentById.get(item.id);
+       return {
+@@ -5256,7 +5256,7 @@
+         status: existing?.status || 'Chưa thi công',
+       } as WorkVolume;
+     });
+-    const finalById = new Map(present.workVolumes.map((work) => [work.id, work]));
++    const finalById = new Map<string, WorkVolume>(present.workVolumes.map((work) => [work.id, work] as const));
+     normalized.forEach((work) => finalById.set(work.id, work));
+     const finalCatalog = Array.from(finalById.values());
+     const issues = validateWorkVolumeCatalog(finalCatalog);
+@@ -5265,7 +5265,7 @@
+       return false;
+     }
+     updateAppData((prev) => {
+-      const prevById = new Map(prev.workVolumes.map((work) => [work.id, work]));
++      const prevById = new Map<string, WorkVolume>(prev.workVolumes.map((work) => [work.id, work] as const));
+       normalized.forEach((work) => prevById.set(work.id, work));
+       return { ...prev, workVolumes: Array.from(prevById.values()) };
+     });
+diff --git a/src/ai/data/externalAiContext.ts b/src/ai/data/externalAiContext.ts
+--- a/src/ai/data/externalAiContext.ts
++++ b/src/ai/data/externalAiContext.ts
+@@ -192,7 +192,7 @@
+       updatedAt: finiteNumber(room.updatedAt),
+     };
+ 
+-    const categoryEntries = getCanonicalRoomCategoryEntries(room, snapshot.workVolumes);
++    const categoryEntries = getCanonicalRoomCategoryEntries(room, [...snapshot.workVolumes]);
+     if (categoryEntries.length > 0) {
+       for (const entry of categoryEntries) {
+         const relatedSubItems = (room.subItems || []).filter((item) => {
+diff --git a/src/components/WorkVolumeTab.tsx b/src/components/WorkVolumeTab.tsx
+--- a/src/components/WorkVolumeTab.tsx
++++ b/src/components/WorkVolumeTab.tsx
+@@ -424,7 +424,7 @@
+         });
+ 
+         if (upserts.length === 0) throw new Error('Không có dòng hạng mục hợp lệ để nhập.');
+-        const byId = new Map(workVolumes.map((work) => [work.id, work]));
++        const byId = new Map<string, WorkVolume>(workVolumes.map((work) => [work.id, work] as const));
+         upserts.forEach((work) => byId.set(work.id, work));
+         const finalCatalog = Array.from(byId.values());
+         const issues = validateWorkVolumeCatalog(finalCatalog);
