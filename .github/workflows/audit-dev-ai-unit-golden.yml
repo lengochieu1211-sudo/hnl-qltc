@@ -1,0 +1,170 @@
+name: HNL QLTC DEV Canonical Room Category Fix
+
+on:
+  push:
+    branches: [audit/dev-ai-unit-golden-20260915]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: audit-dev-ai-unit-golden-20260915
+  cancel-in-progress: true
+
+env:
+  DEV_SHA: 038732882a8dd599285581ade4bebdf62cafdb4d
+  VITE_APP_ENV: DEV
+  VITE_RUNTIME_BACKEND: firebase-only
+  VITE_BINARY_STORAGE_PROVIDER: r2
+  VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev
+  VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
+  VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+  VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+  VITE_FIREBASE_API_KEY: AIzaSyB6y060Mji2684mB-g1qYHoEJ-F1ep5q5M
+  VITE_FIREBASE_AUTH_DOMAIN: hnl-qltc-dev.web.app
+  VITE_FIREBASE_PROJECT_ID: hnl-qltc-dev
+  VITE_FIREBASE_STORAGE_BUCKET: hnl-qltc-dev.firebasestorage.app
+  VITE_FIREBASE_MESSAGING_SENDER_ID: '1036808734475'
+  VITE_FIREBASE_APP_ID: 1:1036808734475:web:e124b3ff0c50369393840e
+  VITE_FIRESTORE_DATABASE_ID: '(default)'
+  VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+  VITE_HNL_AI_ENABLED: 'true'
+  VITE_HNL_AI_GATEWAY_URL: https://hnl-qltc-ai-gateway-dev.lengochieu1211.workers.dev
+
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Guard base and apply root fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse "$GITHUB_SHA^")" = "$DEV_SHA"
+          python - <<'PY'
+          from pathlib import Path
+
+          helper = Path('src/utils/linkageIntegrity.ts')
+          s = helper.read_text()
+          old = '''    const resolution = resolveWorkVolumeRef({
+      workVolumes,
+      workCategoryId: hasExplicitId ? key : undefined,
+      workCategoryName: hasExplicitId ? undefined : key,
+      floorId: room.floorId,
+      floorName: room.floorName,
+    });
+    add(resolution, key, Number(volumes[key]) || 0, units[key]);'''
+          new = '''    let resolution = resolveWorkVolumeRef({
+      workVolumes,
+      workCategoryId: hasExplicitId ? key : undefined,
+      workCategoryName: hasExplicitId ? undefined : key,
+      floorId: room.floorId,
+      floorName: room.floorName,
+    });
+
+    // Legacy categoryVolumes keys may keep an old display title after the durable
+    // WorkVolume/category ID has been renamed. Durable Room/sub-item IDs are
+    // authoritative, but only when their evidence resolves to one canonical ID.
+    if (!hasExplicitId) {
+      const normalizedKey = normalizeLinkText(key);
+      const authoritativeIds = new Set<string>();
+      const collectAuthoritativeId = (workCategoryId?: string, label?: string) => {
+        const id = String(workCategoryId || '').trim();
+        if (!id) return;
+        const labelMatches = Boolean(normalizedKey && normalizeLinkText(label) === normalizedKey);
+        if (!labelMatches && keys.length !== 1) return;
+        const candidate = resolveWorkVolumeRef({
+          workVolumes,
+          workCategoryId: id,
+          floorId: room.floorId,
+          floorName: room.floorName,
+        });
+        if (candidate.state !== 'resolved' || !candidate.work) return;
+        const canonicalId = canonicalWorkCategoryId(candidate.work);
+        if (canonicalId) authoritativeIds.add(canonicalId);
+      };
+      collectAuthoritativeId(room.workCategoryId, room.workCategory);
+      (room.subItems || []).forEach((item) => collectAuthoritativeId(item.workCategoryId, item.category));
+
+      if (authoritativeIds.size > 1) {
+        resolution = { state: 'ambiguous' };
+      } else if (authoritativeIds.size === 1) {
+        const authoritativeId = Array.from(authoritativeIds)[0];
+        const resolvedId = resolution.state === 'resolved' && resolution.work ? canonicalWorkCategoryId(resolution.work) : '';
+        if (resolvedId !== authoritativeId) {
+          resolution = resolveWorkVolumeRef({
+            workVolumes,
+            workCategoryId: authoritativeId,
+            floorId: room.floorId,
+            floorName: room.floorName,
+          });
+        }
+      }
+    }
+    add(resolution, key, Number(volumes[key]) || 0, units[key]);'''
+          assert old in s, 'canonical room category preimage missing'
+          helper.write_text(s.replace(old, new, 1))
+
+          golden = Path('scripts/ai-external-context-golden.ts')
+          g = golden.read_text()
+          old1 = "assert.equal(allowed.quantitySummaryByTeamAndCategory.rows[0].unit, 'm2');"
+          new1 = "assert.equal(allowed.quantitySummaryByTeamAndCategory.rows[0].unit, 'm²');"
+          old2 = "row.teamId === 'team-nguyen' && row.workCategory === 'Trần thạch cao' && row.unit === 'm2',"
+          new2 = "row.teamId === 'team-nguyen' && row.workCategoryId === 'cat-ceiling' && row.workCategory === 'Trần' && row.unit === 'm²',"
+          assert old1 in g and old2 in g, 'AI golden preimage missing'
+          golden.write_text(g.replace(old1, new1, 1).replace(old2, new2, 1))
+          PY
+          git diff --check
+          test "$(git diff --name-only | sort | tr '\n' ' ')" = "scripts/ai-external-context-golden.ts src/utils/linkageIntegrity.ts "
+      - run: npm ci
+      - name: Deep regression gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run test:ai-external-context
+          npm run test:ai-core
+          npm run test:ai-tools
+          npm run test:ai-audit
+          npm run test:ai-planner
+          npm run test:ai-provider
+          npm run test:ai-gateway
+          npm run test:ai-export
+          npm run test:stability
+          npm run typecheck
+          npm run lint
+          git diff --exit-code -- package.json package-lock.json
+      - name: DEV build
+        env:
+          VITE_BUILD_ID: ai-canonical-fix-${{ github.run_id }}
+          VITE_GIT_COMMIT: ${{ github.sha }}
+        run: npm run build
+      - name: Create clean direct-child fix commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff -- src/utils/linkageIntegrity.ts scripts/ai-external-context-golden.ts > "$RUNNER_TEMP/canonical-room-category.patch"
+          test -s "$RUNNER_TEMP/canonical-room-category.patch"
+          git checkout --detach "$DEV_SHA"
+          git apply --check "$RUNNER_TEMP/canonical-room-category.patch"
+          git apply "$RUNNER_TEMP/canonical-room-category.patch"
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/utils/linkageIntegrity.ts scripts/ai-external-context-golden.ts
+          git commit -m 'fix(dev): preserve legacy room quantity through canonical IDs'
+          git rev-parse HEAD | tee fix-sha.txt
+          git push --force origin HEAD:refs/heads/audit/dev-ai-unit-golden-ready-20260915
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dev-canonical-room-category-ready-sha-${{ github.run_number }}
+          path: fix-sha.txt
+          if-no-files-found: error
+          retention-days: 14
