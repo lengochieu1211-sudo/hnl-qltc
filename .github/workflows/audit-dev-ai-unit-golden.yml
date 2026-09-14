@@ -13,23 +13,6 @@ concurrency:
 
 env:
   DEV_SHA: 038732882a8dd599285581ade4bebdf62cafdb4d
-  VITE_APP_ENV: DEV
-  VITE_RUNTIME_BACKEND: firebase-only
-  VITE_BINARY_STORAGE_PROVIDER: r2
-  VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev
-  VITE_ENABLE_LEGACY_DRIVE_READ: 'true'
-  VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
-  VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
-  VITE_FIREBASE_API_KEY: AIzaSyB6y060Mji2684mB-g1qYHoEJ-F1ep5q5M
-  VITE_FIREBASE_AUTH_DOMAIN: hnl-qltc-dev.web.app
-  VITE_FIREBASE_PROJECT_ID: hnl-qltc-dev
-  VITE_FIREBASE_STORAGE_BUCKET: hnl-qltc-dev.firebasestorage.app
-  VITE_FIREBASE_MESSAGING_SENDER_ID: '1036808734475'
-  VITE_FIREBASE_APP_ID: 1:1036808734475:web:e124b3ff0c50369393840e
-  VITE_FIRESTORE_DATABASE_ID: '(default)'
-  VITE_FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
-  VITE_HNL_AI_ENABLED: 'true'
-  VITE_HNL_AI_GATEWAY_URL: https://hnl-qltc-ai-gateway-dev.lengochieu1211.workers.dev
 
 jobs:
   certify:
@@ -70,9 +53,9 @@ jobs:
       floorName: room.floorName,
     });
 
-    // Legacy categoryVolumes keys may keep an old display title after the durable
-    // WorkVolume/category ID has been renamed. Durable Room/sub-item IDs are
-    // authoritative, but only when their evidence resolves to one canonical ID.
+    // Legacy categoryVolumes keys may retain an old display title after the durable
+    // WorkVolume/category ID was renamed. Durable Room/sub-item IDs are
+    // authoritative only when the available evidence resolves to one canonical ID.
     if (!hasExplicitId) {
       const normalizedKey = normalizeLinkText(key);
       const authoritativeIds = new Set<string>();
@@ -91,6 +74,7 @@ jobs:
         const canonicalId = canonicalWorkCategoryId(candidate.work);
         if (canonicalId) authoritativeIds.add(canonicalId);
       };
+
       collectAuthoritativeId(room.workCategoryId, room.workCategory);
       (room.subItems || []).forEach((item) => collectAuthoritativeId(item.workCategoryId, item.category));
 
@@ -98,7 +82,9 @@ jobs:
         resolution = { state: 'ambiguous' };
       } else if (authoritativeIds.size === 1) {
         const authoritativeId = Array.from(authoritativeIds)[0];
-        const resolvedId = resolution.state === 'resolved' && resolution.work ? canonicalWorkCategoryId(resolution.work) : '';
+        const resolvedId = resolution.state === 'resolved' && resolution.work
+          ? canonicalWorkCategoryId(resolution.work)
+          : '';
         if (resolvedId !== authoritativeId) {
           resolution = resolveWorkVolumeRef({
             workVolumes,
@@ -119,7 +105,8 @@ jobs:
           new1 = "assert.equal(allowed.quantitySummaryByTeamAndCategory.rows[0].unit, 'm²');"
           old2 = "row.teamId === 'team-nguyen' && row.workCategory === 'Trần thạch cao' && row.unit === 'm2',"
           new2 = "row.teamId === 'team-nguyen' && row.workCategoryId === 'cat-ceiling' && row.workCategory === 'Trần' && row.unit === 'm²',"
-          assert old1 in g and old2 in g, 'AI golden preimage missing'
+          assert old1 in g, 'stale summary unit expectation missing'
+          assert old2 in g, 'stale canonical category/team expectation missing'
           golden.write_text(g.replace(old1, new1, 1).replace(old2, new2, 1))
           PY
           git diff --check
@@ -141,10 +128,7 @@ jobs:
           npm run typecheck
           npm run lint
           git diff --exit-code -- package.json package-lock.json
-      - name: DEV build
-        env:
-          VITE_BUILD_ID: ai-canonical-fix-${{ github.run_id }}
-          VITE_GIT_COMMIT: ${{ github.sha }}
+      - name: Build
         run: npm run build
       - name: Create clean direct-child fix commit
         shell: bash
