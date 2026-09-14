@@ -31,7 +31,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse "$GITHUB_SHA^")" = "$DEV_SHA"
+          test "$(git rev-parse origin/dev)" = "$DEV_SHA"
+          test "$(git diff --name-only "$DEV_SHA...$GITHUB_SHA" | sort | tr '\n' ' ')" = ".github/workflows/audit-dev-ai-unit-golden.yml "
+          git checkout --detach "$DEV_SHA"
           python - <<'PY'
           from pathlib import Path
           helper = Path('src/utils/linkageIntegrity.ts')
