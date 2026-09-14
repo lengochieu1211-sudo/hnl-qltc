@@ -2,9 +2,19 @@ import { InventoryItem, MaterialNorm, RoomProgressItem, TeamInfo, WorkVolume } f
 import { areSameUnit, normalizeUnit } from './unitUtils';
 import { buildMaterialAliasMap, getMaterialIdentityKey, normalizeMaterialNameKey, resolveNormMaterialId } from './inventoryUtils';
 import { naturalCompare } from './sortUtils';
+import {
+  canonicalNormCategoryIds,
+  canonicalWorkCategoryId as canonicalWorkCategoryIdShared,
+  getCanonicalRoomCategoryEntries,
+  resolveUniqueMaterialIdentity,
+  resolveWorkVolumeRef,
+  validateInventoryOutProvenance,
+  validateMaterialNormCatalog,
+  workVolumeAppliesToFloor,
+} from './linkageIntegrity';
 
 export interface MaterialNeedWarning {
-  code: 'MISSING_NORM' | 'UNIT_MISMATCH' | 'AMBIGUOUS_TEAM' | 'UNALLOCATED_ISSUE' | 'MISSING_LINK' | 'AMBIGUOUS_LINK';
+  code: 'MISSING_NORM' | 'UNIT_MISMATCH' | 'AMBIGUOUS_TEAM' | 'UNALLOCATED_ISSUE' | 'MISSING_LINK' | 'AMBIGUOUS_LINK' | 'AMBIGUOUS_NORM' | 'MIXED_WORK_UNIT';
   message: string;
   roomId?: string;
   floorId?: string;
@@ -27,6 +37,13 @@ export interface MaterialNeedLine {
   deficitQty: number;
   sufficient: boolean;
   sourceNormIds: string[];
+  /** Unrounded calculation values. Decisions must use these, not display-rounded fields. */
+  rawEstimatedQty: number;
+  rawAlreadyIssued: number;
+  rawUnallocatedIssued: number;
+  rawRemainingQty: number;
+  rawStockQty: number;
+  rawDeficitQty: number;
   /** Exact norm contributors; UI may show a single factor only when unambiguous. */
   normDetails: Array<{ normId: string; workCategory: string; workCategoryId?: string; factor: number; basisUnit: string }>;
   workCategory?: string;
@@ -66,7 +83,7 @@ interface TeamResolver {
   ambiguousNames: Set<string>;
 }
 
-const round2 = (value: number) => Math.ceil((Number(value) || 0) * 100) / 100;
+const round2 = (value: number) => Math.round((Number(value) || 0) * 100) / 100;
 const textKey = (value?: string) => String(value || '').trim().toLocaleLowerCase('vi-VN');
 const isActiveLifecycle = <T extends { deletedAt?: number | null }>(item: T): boolean => item.deletedAt === undefined || item.deletedAt === null;
 const scopeIds = (single?: string, multiple?: string[]): string[] => Array.from(new Set([...(multiple || []), ...(single ? [single] : [])].map((value) => String(value || '').trim()).filter(Boolean)));
@@ -101,25 +118,21 @@ function resolveTeamId(teamId: string | undefined, assignedTeam: string | undefi
 
 type WorkVolumeResolution = { work?: WorkVolume; state: 'resolved' | 'missing' | 'ambiguous' };
 
-const canonicalWorkCategoryId = (work?: WorkVolume): string => String(work?.workCategoryId || work?.id || '').trim();
+const canonicalWorkCategoryId = canonicalWorkCategoryIdShared;
 
-function resolveWorkVolumeStrict(categoryIdOrName: string | undefined, workVolumes: WorkVolume[]): WorkVolumeResolution {
+function resolveWorkVolumeStrict(categoryIdOrName: string | undefined, workVolumes: WorkVolume[], floorId?: string, floorName?: string): WorkVolumeResolution {
   const raw = String(categoryIdOrName || '').trim();
   if (!raw) return { state: 'missing' };
-
-  const exactRecord = workVolumes.find((item) => String(item.id || '').trim() === raw);
-  if (exactRecord) return { work: exactRecord, state: 'resolved' };
-
-  const canonicalMatches = workVolumes.filter((item) => String(item.workCategoryId || '').trim() === raw);
-  if (canonicalMatches.length > 0) {
-    const canonicalIds = new Set(canonicalMatches.map((item) => canonicalWorkCategoryId(item)).filter(Boolean));
-    return canonicalIds.size === 1 ? { work: canonicalMatches[0], state: 'resolved' } : { state: 'ambiguous' };
-  }
-
-  const titleMatches = workVolumes.filter((item) => textKey(item.title) === textKey(raw));
-  if (titleMatches.length === 0) return { state: 'missing' };
-  const canonicalIds = new Set(titleMatches.map((item) => canonicalWorkCategoryId(item)).filter(Boolean));
-  return canonicalIds.size === 1 ? { work: titleMatches[0], state: 'resolved' } : { state: 'ambiguous' };
+  const looksLikeId = workVolumes.some((item) => String(item.id || '').trim() === raw || String(item.workCategoryId || '').trim() === raw);
+  const resolution = resolveWorkVolumeRef({
+    workVolumes,
+    workCategoryId: looksLikeId ? raw : undefined,
+    workCategoryName: looksLikeId ? undefined : raw,
+    floorId,
+    floorName,
+  });
+  if (resolution.state === 'resolved') return { work: resolution.work, state: 'resolved' };
+  return { state: resolution.state === 'ambiguous' ? 'ambiguous' : 'missing' };
 }
 
 function resolveWorkVolume(categoryIdOrName: string | undefined, workVolumes: WorkVolume[]): WorkVolume | undefined {
@@ -127,49 +140,25 @@ function resolveWorkVolume(categoryIdOrName: string | undefined, workVolumes: Wo
 }
 
 function categoryVolumeForRoom(room: RoomProgressItem, categoryIdOrName: string, workVolumes: WorkVolume[]): number {
-  const volumes = room.categoryVolumes || {};
-  if (volumes[categoryIdOrName] !== undefined) return Number(volumes[categoryIdOrName]) || 0;
-  const work = resolveWorkVolume(categoryIdOrName, workVolumes);
-  if (work?.workCategoryId && volumes[work.workCategoryId] !== undefined) return Number(volumes[work.workCategoryId]) || 0;
-  if (work && volumes[work.id] !== undefined) return Number(volumes[work.id]) || 0;
-  if (work && volumes[work.title] !== undefined) return Number(volumes[work.title]) || 0;
-  if (textKey(room.workCategory) === textKey(categoryIdOrName) || room.workCategoryId === categoryIdOrName) return Number(room.workVolume) || 0;
-  return 0;
+  const entries = getCanonicalRoomCategoryEntries(room, workVolumes);
+  const direct = entries.find((entry) => entry.workCategoryId === categoryIdOrName);
+  if (direct) return direct.quantity;
+  const resolved = resolveWorkVolumeStrict(categoryIdOrName, workVolumes, room.floorId, room.floorName);
+  const canonicalId = canonicalWorkCategoryId(resolved.work);
+  return entries.find((entry) => entry.workCategoryId === canonicalId)?.quantity || 0;
 }
 
 function sourceUnitForRoomCategory(room: RoomProgressItem, categoryIdOrName: string, workVolumes: WorkVolume[]): string {
-  const units = room.categoryVolumeUnits || {};
-  const work = resolveWorkVolume(categoryIdOrName, workVolumes);
-  return normalizeUnit(units[categoryIdOrName] || (work ? (work.workCategoryId ? units[work.workCategoryId] : '') || units[work.id] || units[work.title] : '') || work?.unit || room.volumeUnit || 'm²') || 'm²';
+  const entries = getCanonicalRoomCategoryEntries(room, workVolumes);
+  const direct = entries.find((entry) => entry.workCategoryId === categoryIdOrName);
+  if (direct) return direct.unit;
+  const resolved = resolveWorkVolumeStrict(categoryIdOrName, workVolumes, room.floorId, room.floorName);
+  const canonicalId = canonicalWorkCategoryId(resolved.work);
+  return entries.find((entry) => entry.workCategoryId === canonicalId)?.unit || normalizeUnit(resolved.work?.unit || room.volumeUnit || 'm²') || 'm²';
 }
 
 function roomCategories(room: RoomProgressItem, workVolumes: WorkVolume[]): Array<{ id?: string; name: string }> {
-  const out = new Map<string, { id?: string; name: string }>();
-  Object.keys(room.categoryVolumes || {}).forEach((raw) => {
-    const work = resolveWorkVolume(raw, workVolumes);
-    const id = work?.workCategoryId || work?.id || (raw === room.workCategoryId ? raw : undefined);
-    const name = work?.title || (raw === room.workCategoryId ? room.workCategory || raw : raw);
-    out.set(id || textKey(name), { id, name });
-  });
-  if (room.workCategory || room.workCategoryId) {
-    const work = resolveWorkVolume(room.workCategoryId || room.workCategory, workVolumes);
-    const canonicalId = work?.workCategoryId || room.workCategoryId || work?.id;
-    out.set(canonicalId || textKey(room.workCategory), {
-      id: canonicalId,
-      name: work?.title || room.workCategory || room.workCategoryId || 'Hạng mục',
-    });
-  }
-  (room.subItems || []).forEach((sub) => {
-    const work = resolveWorkVolume(sub.workCategoryId || sub.category, workVolumes);
-    if (work || sub.workCategoryId || sub.category) {
-      const canonicalId = work?.workCategoryId || sub.workCategoryId || work?.id;
-      out.set(canonicalId || textKey(sub.category), {
-        id: canonicalId,
-        name: work?.title || sub.category || sub.workCategoryId || 'Hạng mục',
-      });
-    }
-  });
-  return Array.from(out.values());
+  return getCanonicalRoomCategoryEntries(room, workVolumes).map((entry) => ({ id: entry.workCategoryId, name: entry.workCategoryName }));
 }
 
 function uniqueRoomTeamIds(room: RoomProgressItem, resolver: TeamResolver): string[] {
@@ -185,9 +174,11 @@ function uniqueRoomTeamIds(room: RoomProgressItem, resolver: TeamResolver): stri
 
 function categorySubItems(room: RoomProgressItem, categoryId: string | undefined, categoryName: string) {
   return (room.subItems || []).filter((sub) => {
-    const sameId = Boolean(categoryId && sub.workCategoryId === categoryId);
-    const sameName = textKey(sub.category) === textKey(categoryName);
-    return sameId || sameName;
+    if (categoryId) {
+      if (sub.workCategoryId) return sub.workCategoryId === categoryId;
+      return textKey(sub.category) === textKey(categoryName);
+    }
+    return textKey(sub.category) === textKey(categoryName);
   });
 }
 
@@ -229,7 +220,7 @@ function buildContributions(
       // Explicit legacy IDs are authoritative: never fall back by name when an old ID is gone,
       // because a newly-created category may later reuse the same display title. Title matching is
       // allowed only for legacy rows that genuinely have no category ID.
-      const resolution = resolveWorkVolumeStrict(cat.id || cat.name, workVolumes);
+      const resolution = resolveWorkVolumeStrict(cat.id || cat.name, workVolumes, room.floorId, room.floorName);
       const activeWork = resolution.work;
       if (!activeWork) {
         warnings.push({
@@ -319,8 +310,7 @@ function buildContributions(
 }
 
 function canonicalNormWorkCategoryIds(norm: MaterialNorm, workVolumes: WorkVolume[]): string[] {
-  const refs = [...(norm.workCategoryIds || []), ...(norm.workCategoryId ? [norm.workCategoryId] : [])];
-  return Array.from(new Set(refs.map((ref) => canonicalWorkCategoryId(resolveWorkVolumeStrict(ref, workVolumes).work)).filter(Boolean)));
+  return canonicalNormCategoryIds(norm, workVolumes).ids;
 }
 
 function matchingNormsForContribution(c: NeedContribution, norms: MaterialNorm[], workVolumes: WorkVolume[]): MaterialNorm[] {
@@ -337,12 +327,14 @@ function matchingNormsForContribution(c: NeedContribution, norms: MaterialNorm[]
 }
 
 function factorForContribution(c: NeedContribution, norm: MaterialNorm, workVolumes: WorkVolume[]): number {
-  if (c.workCategoryId && norm.workCategoryNormsById) {
+  if (c.workCategoryId && norm.workCategoryNormsById && Object.keys(norm.workCategoryNormsById).length > 0) {
     if (norm.workCategoryNormsById[c.workCategoryId] !== undefined) return Number(norm.workCategoryNormsById[c.workCategoryId]) || 0;
     const legacyEntries = Object.entries(norm.workCategoryNormsById).filter(([ref]) => canonicalWorkCategoryId(resolveWorkVolumeStrict(ref, workVolumes).work) === c.workCategoryId);
-    if (legacyEntries.length === 1) return Number(legacyEntries[0][1]) || 0;
+    return legacyEntries.length === 1 ? Number(legacyEntries[0][1]) || 0 : 0;
   }
-  if (norm.workCategoryNorms?.[c.workCategoryName] !== undefined) return Number(norm.workCategoryNorms[c.workCategoryName]) || 0;
+  if ((!norm.workCategoryIds || norm.workCategoryIds.length === 0) && !norm.workCategoryId && norm.workCategoryNorms?.[c.workCategoryName] !== undefined) {
+    return Number(norm.workCategoryNorms[c.workCategoryName]) || 0;
+  }
   const basis = normalizeUnit(norm.normBasisUnit || 'm²') || 'm²';
   return areSameUnit(basis, c.sourceUnit) ? Number(norm.unitNormPerM2) || 0 : 0;
 }
@@ -364,6 +356,15 @@ export function computeMaterialNeeds(params: {
   const teamResolver = buildTeamResolver(teams);
   const scope = params.scope || {};
   const warnings: MaterialNeedWarning[] = [];
+  const normIntegrity = validateMaterialNormCatalog(materialNorms, workVolumes);
+  normIntegrity.forEach((issue) => {
+    warnings.push({
+      code: issue.code === 'MIXED_WORK_UNIT' ? 'MIXED_WORK_UNIT' : issue.code === 'AMBIGUOUS_NORM' ? 'AMBIGUOUS_NORM' : 'MISSING_LINK',
+      workCategoryId: issue.workCategoryIds?.length === 1 ? issue.workCategoryIds[0] : undefined,
+      message: issue.message,
+    });
+  });
+  const blockedNormIds = new Set(normIntegrity.filter((issue) => issue.code === 'AMBIGUOUS_NORM' || issue.code === 'MIXED_WORK_UNIT').flatMap((issue) => issue.normIds));
 
   scopeIds(scope.roomId, scope.roomIds).forEach((roomId) => {
     if (!rooms.some((room) => room.id === roomId)) {
@@ -383,6 +384,7 @@ export function computeMaterialNeeds(params: {
     }
   });
 
+  rooms.forEach((room) => { if (!scopeIncludes(scopeIds(scope.roomId, scope.roomIds), room.id) || !scopeIncludes(scopeIds(scope.floorId, scope.floorIds), room.floorId)) return; Object.keys(room.categoryVolumes || {}).forEach((raw) => { const authoritativeRefs = [room.workCategoryId, ...(room.subItems || []).map((item) => item.workCategoryId)].filter(Boolean) as string[]; const hasAuthoritativeMatch = authoritativeRefs.some((ref) => { const resolved = resolveWorkVolumeStrict(ref, workVolumes); return resolved.state === 'resolved' && textKey(resolved.work?.title) === textKey(raw); }); if (hasAuthoritativeMatch || workVolumes.some((work) => String(work.id || '').trim() === raw || String(work.workCategoryId || '').trim() === raw)) return; const titleMatches = workVolumes.filter((work) => textKey(work.title) === textKey(raw)); const ids = new Set(titleMatches.map((work) => canonicalWorkCategoryId(work)).filter(Boolean)); if (ids.size > 1 && !warnings.some((warning) => warning.code === 'AMBIGUOUS_LINK' && warning.roomId === room.id && warning.message.includes(raw))) warnings.push({ code: 'AMBIGUOUS_LINK', roomId: room.id, floorId: room.floorId, message: `Căn ${room.roomName}: liên kết hạng mục ${raw} trùng nhiều hạng mục đang hoạt động. Không suy đoán nhu cầu vật tư.` }); }); });
   const contributions = buildContributions(rooms, workVolumes, teams, scope, warnings);
   const aliasMap = buildMaterialAliasMap(materialNorms);
   const canonicalKey = (materialId?: string, materialName?: string, unit?: string) => {
@@ -392,7 +394,7 @@ export function computeMaterialNeeds(params: {
 
   const demand = new Map<string, { materialId?: string; materialName: string; category: string; unit: string; qty: number; normIds: Set<string>; normDetails: Map<string, { normId: string; workCategory: string; workCategoryId?: string; factor: number; basisUnit: string }> }>();
   contributions.forEach((c) => {
-    const norms = matchingNormsForContribution(c, materialNorms, workVolumes);
+    const norms = matchingNormsForContribution(c, materialNorms.filter((norm) => !blockedNormIds.has(norm.id)), workVolumes);
     let usable = 0;
     norms.forEach((norm) => {
       const factor = factorForContribution(c, norm, workVolumes);
@@ -425,8 +427,8 @@ export function computeMaterialNeeds(params: {
   inventory.forEach((tx) => {
     let key = canonicalKey(tx.materialId, tx.materialName, tx.unit);
     if (!tx.materialId) {
-      const norm = materialNorms.find((n) => normalizeMaterialNameKey(n.materialName) === normalizeMaterialNameKey(tx.materialName) && areSameUnit(n.unit, tx.unit));
-      if (norm) key = canonicalKey(resolveNormMaterialId(norm), norm.materialName, norm.unit);
+      const material = resolveUniqueMaterialIdentity({ materialName: tx.materialName, unit: tx.unit, materialNorms });
+      if (material.state === 'resolved') key = canonicalKey(material.materialId, tx.materialName, tx.unit);
     }
     stock.set(key, (stock.get(key) || 0) + (tx.type === 'in' ? 1 : -1) * (Number(tx.quantity) || 0));
   });
@@ -496,13 +498,44 @@ export function computeMaterialNeeds(params: {
 
     let key = canonicalKey(tx.materialId, tx.materialName, tx.unit);
     if (!tx.materialId) {
-      const norm = materialNorms.find((n) => normalizeMaterialNameKey(n.materialName) === normalizeMaterialNameKey(tx.materialName) && areSameUnit(n.unit, tx.unit));
-      if (norm) key = canonicalKey(resolveNormMaterialId(norm), norm.materialName, norm.unit);
+      const material = resolveUniqueMaterialIdentity({ materialName: tx.materialName, unit: tx.unit, materialNorms });
+      if (material.state === 'resolved') key = canonicalKey(material.materialId, tx.materialName, tx.unit);
     }
     if (!demand.has(key)) return;
     const qty = Number(tx.quantity) || 0;
 
-    const sourceRoom = tx.sourceRoomId ? rooms.find((room) => room.id === tx.sourceRoomId) : undefined;
+    const provenance = validateInventoryOutProvenance({ tx, rooms, workVolumes, materialNorms, teams });
+    if (provenance.state === 'resolved' && !provenance.teamId && provenance.room) { const normalizeTeamName = (value: unknown) => String(value || '').trim().toLocaleLowerCase('vi'); const ids = new Set<string>(); const collect = (idValue?: string, nameValue?: string) => { const directId = String(idValue || '').trim(); if (directId && teams.some((team) => team.id === directId)) ids.add(directId); const name = normalizeTeamName(nameValue); if (!name) return; const matches = teams.filter((team) => normalizeTeamName(team.name) === name); if (matches.length === 1) ids.add(matches[0].id); else if (matches.length > 1) matches.forEach((team) => ids.add(team.id)); }; collect(provenance.room.teamId, provenance.room.assignedTeam); (provenance.room.subItems || []).forEach((item) => collect(item.teamId, item.assignedTeam)); if (ids.size === 1) provenance.teamId = Array.from(ids)[0]; }
+    const categoryAmbiguousButMaterialAllocatable = provenance.state === 'ambiguous' && provenance.ambiguityAt === 'workCategory';
+    if (provenance.state !== 'resolved' && !categoryAmbiguousButMaterialAllocatable) {
+      unallocated.set(key, (unallocated.get(key) || 0) + qty);
+      warnings.push({
+        code: 'UNALLOCATED_ISSUE',
+        roomId: tx.sourceRoomId,
+        floorId: tx.sourceFloorId,
+        teamId: tx.sourceTeamId,
+        workCategoryId: tx.sourceWorkCategoryId,
+        message: `Phiếu ${tx.id} có provenance OUT ${provenance.state}: ${provenance.reason || 'không chứng minh được liên kết nguồn'}. Không trừ vào nhu cầu.`,
+      });
+      return;
+    }
+    if (categoryAmbiguousButMaterialAllocatable) {
+      // The material/room/floor provenance is still usable for a material-total view,
+      // but the category allocation is not. Keep the amount visible as unallocated so
+      // category/team scoped views remain fail-closed while project/floor/room material
+      // totals can still subtract the physical OUT exactly once.
+      unallocated.set(key, (unallocated.get(key) || 0) + qty);
+      warnings.push({
+        code: 'UNALLOCATED_ISSUE',
+        roomId: tx.sourceRoomId,
+        floorId: provenance.floorId || tx.sourceFloorId,
+        teamId: tx.sourceTeamId,
+        message: `Phiếu ${tx.id} chưa suy ra duy nhất hạng mục nguồn. Chỉ tính vào tổng vật tư khi phạm vi không lọc theo hạng mục/đội.`,
+      });
+      if (hasWorkCategoryScope || hasTeamScope) return;
+    }
+    const sourceRoom = provenance.room;
+
     if (scopedRoomIds.length > 0) {
       if (tx.sourceRoomId && !scopedRoomIds.includes(tx.sourceRoomId)) return;
       if (!tx.sourceRoomId) {
@@ -513,7 +546,7 @@ export function computeMaterialNeeds(params: {
     }
 
     if (scopedFloorIds.length > 0) {
-      const resolvedFloorId = String(tx.sourceFloorId || sourceRoom?.floorId || '').trim();
+      const resolvedFloorId = String(provenance.floorId || '').trim();
       if (resolvedFloorId && !scopedFloorIds.includes(resolvedFloorId)) return;
       if (!resolvedFloorId) {
         unallocated.set(key, (unallocated.get(key) || 0) + qty);
@@ -522,7 +555,9 @@ export function computeMaterialNeeds(params: {
       }
     }
 
-    const workCategoryScopeState = resolveTxWorkCategoryScope(tx);
+    const workCategoryScopeState = hasWorkCategoryScope
+      ? (provenance.workCategoryId ? (scopedWorkCategoryIds.includes(provenance.workCategoryId) ? 'inside' : 'outside') : 'ambiguous')
+      : 'inside';
     if (workCategoryScopeState === 'outside') return;
     if (workCategoryScopeState === 'ambiguous') {
       unallocated.set(key, (unallocated.get(key) || 0) + qty);
@@ -537,31 +572,11 @@ export function computeMaterialNeeds(params: {
     }
 
     if (hasTeamScope) {
-      if (tx.sourceTeamId && scopedTeamIds.includes(tx.sourceTeamId)) {
-        issued.set(key, (issued.get(key) || 0) + qty);
-      } else if (!tx.sourceTeamId && tx.sourceRoomId) {
-        const room = rooms.find((r) => r.id === tx.sourceRoomId);
-        const ids = room ? uniqueRoomTeamIds(room, teamResolver) : [];
-        if (ids.length > 0 && ids.every((id) => scopedTeamIds.includes(id))) {
-          issued.set(key, (issued.get(key) || 0) + qty);
-        } else if (ids.some((id) => scopedTeamIds.includes(id)) || ids.length === 0) {
-          unallocated.set(key, (unallocated.get(key) || 0) + qty);
-          warnings.push({
-            code: 'UNALLOCATED_ISSUE',
-            roomId: tx.sourceRoomId,
-            floorId: tx.sourceFloorId,
-            teamId: scopedTeamIds.length === 1 ? scopedTeamIds[0] : undefined,
-            message: `Phiếu ${tx.id} chưa có sourceTeamId và không thể chứng minh toàn bộ phiếu thuộc phạm vi đội đã chọn. Không trừ vào nhu cầu đội.`,
-          });
-        }
-      } else if (!tx.sourceTeamId) {
+      if (provenance.teamId && scopedTeamIds.includes(provenance.teamId)) issued.set(key, (issued.get(key) || 0) + qty);
+      else if (provenance.teamId) return;
+      else {
         unallocated.set(key, (unallocated.get(key) || 0) + qty);
-        warnings.push({
-          code: 'UNALLOCATED_ISSUE',
-          floorId: tx.sourceFloorId,
-          teamId: scopedTeamIds.length === 1 ? scopedTeamIds[0] : undefined,
-          message: `Phiếu ${tx.id} chưa có sourceTeamId/sourceRoomId để chứng minh thuộc đội đã chọn. Không trừ vào nhu cầu đội.`,
-        });
+        warnings.push({ code: 'UNALLOCATED_ISSUE', roomId: tx.sourceRoomId, floorId: provenance.floorId, teamId: scopedTeamIds.length === 1 ? scopedTeamIds[0] : undefined, message: `Phiếu ${tx.id} không suy ra duy nhất đội nguồn. Không trừ vào nhu cầu đội.` });
       }
       return;
     }
@@ -573,12 +588,18 @@ export function computeMaterialNeeds(params: {
   });
 
   const lines = Array.from(demand.entries()).map(([materialKey, item]) => {
-    const estimatedQty = round2(item.qty);
-    const alreadyIssued = round2(issued.get(materialKey) || 0);
-    const unallocatedIssued = round2(unallocated.get(materialKey) || 0);
-    const remainingQty = round2(Math.max(0, estimatedQty - alreadyIssued));
-    const stockQty = round2(stock.get(materialKey) || 0);
-    const deficitQty = round2(Math.max(0, remainingQty - stockQty));
+    const rawEstimatedQty = Number(item.qty) || 0;
+    const rawAlreadyIssued = Number(issued.get(materialKey) || 0);
+    const rawUnallocatedIssued = Number(unallocated.get(materialKey) || 0);
+    const rawRemainingQty = Math.max(0, rawEstimatedQty - rawAlreadyIssued);
+    const rawStockQty = Number(stock.get(materialKey) || 0);
+    const rawDeficitQty = Math.max(0, rawRemainingQty - rawStockQty);
+    const estimatedQty = round2(rawEstimatedQty);
+    const alreadyIssued = round2(rawAlreadyIssued);
+    const unallocatedIssued = round2(rawUnallocatedIssued);
+    const remainingQty = round2(rawRemainingQty);
+    const stockQty = round2(rawStockQty);
+    const deficitQty = round2(rawDeficitQty);
     return {
       materialKey,
       materialId: item.materialId,
@@ -592,7 +613,13 @@ export function computeMaterialNeeds(params: {
       remainingQty,
       stockQty,
       deficitQty,
-      sufficient: stockQty + 1e-9 >= remainingQty,
+      sufficient: rawStockQty + 1e-9 >= rawRemainingQty,
+      rawEstimatedQty,
+      rawAlreadyIssued,
+      rawUnallocatedIssued,
+      rawRemainingQty,
+      rawStockQty,
+      rawDeficitQty,
       sourceNormIds: Array.from(item.normIds),
       normDetails: Array.from(item.normDetails.values()),
       ...(item.normDetails.size === 1 ? (() => {

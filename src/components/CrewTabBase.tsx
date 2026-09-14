@@ -28,7 +28,7 @@ import {
   CheckCircle,
   ArrowUpDown
 } from 'lucide-react';
-import { CrewRecord, FloorPlan, TeamInfo, RoomProgressItem, DefectItem, CrewFloorWork, CrewFloorCategoryWork, AcceptanceStatus, RoomInspectionResult } from '../types';
+import { CrewRecord, FloorPlan, TeamInfo, RoomProgressItem, DefectItem, CrewFloorWork, CrewFloorCategoryWork, AcceptanceStatus, RoomInspectionResult, WorkVolume } from '../types';
 import { formatDateDDMMYYYY } from '../utils/dateFormatter';
 import { exportTeamStatisticsToExcel } from '../utils/excelExport';
 import { confirmAsync } from '../utils/confirmAsync';
@@ -135,6 +135,7 @@ interface CrewTabProps {
   floorPlans: FloorPlan[];
   roomProgressList?: RoomProgressItem[];
   defects?: DefectItem[];
+  workVolumes?: WorkVolume[];
   onAddCrewRecord: (record: Omit<CrewRecord, 'id'> & { id?: string }) => void;
   onUpdateCrewRecord: (id: string, record: Partial<CrewRecord>) => void;
   onDeleteCrewRecord: (id: string) => void;
@@ -261,6 +262,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   floorPlans,
   roomProgressList = [],
   defects = [],
+  workVolumes = [],
   onAddCrewRecord,
   onUpdateCrewRecord,
   onDeleteCrewRecord,
@@ -815,9 +817,10 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       roomProgressList: roomProgressList || [],
       defects: defects || [],
       crewRecords: crewRecords || [],
-      floorPlans: floorPlans || []
+      floorPlans: floorPlans || [],
+      workVolumes
     });
-  }, [teams, roomProgressList, defects, crewRecords, floorPlans]);
+  }, [teams, roomProgressList, defects, crewRecords, floorPlans, workVolumes]);
 
   // Handle Daily Log Submission
   const handleLogSubmit = (e: React.FormEvent) => {
@@ -1069,7 +1072,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       crewRecords,
       floorPlans,
       projectName: currentProjName,
-      selectedTeamName: teamName
+      selectedTeamName: teamName,
+      workVolumes
     });
   };
 
@@ -2813,117 +2817,35 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                 {/* Rooms list inside this floor */}
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                   {f.rooms.map((room) => {
-                                    const roomStats = (() => {
-                                      let totalVol = 0;
-                                      let doneFrameVol = 0;
-                                      let doneBoardVol = 0;
-                                      let doneInspectedVol = 0;
-
-                                      const isMain = isTeamMatch(room.assignedTeam, team, room.teamId);
-                                      const teamCats = getTeamCategoriesForRoom(room, team);
-
-                                      const categoriesDetailList: {
-                                        name: string;
-                                        vol: number;
-                                        frameVol: number;
-                                        boardVol: number;
-                                        inspectedVol: number;
-                                        frameStatus: AcceptanceStatus;
-                                        boardStatus: AcceptanceStatus;
-                                        inspectionStatus: RoomInspectionResult;
-                                        subItems?: typeof room.subItems;
-                                      }[] = [];
-
-                                      if (teamCats.size > 0) {
-                                        teamCats.forEach((cat) => {
-                                          const catTotalVol = room.categoryVolumes?.[cat] ?? ((room.workCategory === cat || teamCats.size === 1) ? Number(room.workVolume || 0) : 0);
-                                          const allSubItemsInCat = room.subItems?.filter((s) => (s.category || room.workCategory) === cat) || [];
-                                          const subItemsInCat = allSubItemsInCat.filter((s) =>
-                                            isTeamMatch(s.assignedTeam, team, s.teamId) || (!s.assignedTeam && !s.teamId && isMain)
-                                          );
-
-                                          let catVol = isMain ? catTotalVol : 0;
-                                          if (allSubItemsInCat.length > 0) {
-                                            const totalWeight = allSubItemsInCat.reduce((sum, sub) => sum + getSubItemGroupWeight(allSubItemsInCat, sub), 0);
-                                            const teamWeight = subItemsInCat.reduce((sum, sub) => sum + getSubItemGroupWeight(allSubItemsInCat, sub), 0);
-                                            catVol = totalWeight > 0 ? catTotalVol * (teamWeight / totalWeight) : 0;
-                                          }
-                                          totalVol += catVol;
-
-                                          let catFrameVol = 0;
-                                          let catBoardVol = 0;
-                                          let catInspectedVol = 0;
-                                          let catFrameStatus: AcceptanceStatus = 'Chưa làm';
-                                          let catBoardStatus: AcceptanceStatus = 'Chưa làm';
-                                          let catInspectionStatus: RoomInspectionResult = 'Chưa nghiệm thu';
-
-                                          if (allSubItemsInCat.length > 0 && subItemsInCat.length > 0) {
-                                            const allWeight = allSubItemsInCat.reduce((sum, sub) => sum + getSubItemGroupWeight(allSubItemsInCat, sub), 0);
-                                            const inspectedWeight = subItemsInCat
-                                              .filter((sub) => sub.inspectionStatus === 'Đạt nghiệm thu')
-                                              .reduce((sum, sub) => sum + getSubItemGroupWeight(allSubItemsInCat, sub), 0);
-                                            catInspectedVol = allWeight > 0 ? catTotalVol * (inspectedWeight / allWeight) : 0;
-
-                                            const frameSubs = subItemsInCat.filter((sub) => sub.name.toLocaleLowerCase('vi').includes('khung'));
-                                            const boardSubs = subItemsInCat.filter((sub) => sub.name.toLocaleLowerCase('vi').includes('tấm') || sub.name.toLocaleLowerCase('vi').includes('bắn'));
-                                            const doneFrameCount = frameSubs.filter((sub) => sub.status === 'Đã hoàn thành' || sub.inspectionStatus === 'Đạt nghiệm thu').length;
-                                            const doneBoardCount = boardSubs.filter((sub) => sub.status === 'Đã hoàn thành' || sub.inspectionStatus === 'Đạt nghiệm thu').length;
-                                            catFrameVol = catVol * (frameSubs.length > 0 ? doneFrameCount / frameSubs.length : 0);
-                                            catBoardVol = catVol * (boardSubs.length > 0 ? doneBoardCount / boardSubs.length : 0);
-                                            catFrameStatus = frameSubs.length > 0 ? (doneFrameCount === frameSubs.length ? 'Đã hoàn thành' : doneFrameCount > 0 ? 'Đang làm' : 'Chưa làm') : room.frameStatus;
-                                            catBoardStatus = boardSubs.length > 0 ? (doneBoardCount === boardSubs.length ? 'Đã hoàn thành' : doneBoardCount > 0 ? 'Đang làm' : 'Chưa làm') : room.boardStatus;
-                                            if (subItemsInCat.every((sub) => sub.inspectionStatus === 'Đạt nghiệm thu')) catInspectionStatus = 'Đạt nghiệm thu';
-                                            else if (subItemsInCat.some((sub) => sub.inspectionStatus === 'Chưa đạt (Cần sửa)')) catInspectionStatus = 'Chưa đạt (Cần sửa)';
-                                          } else if (isMain) {
-                                            catInspectedVol = room.inspectionStatus === 'Đạt nghiệm thu' ? catVol : 0;
-                                            catFrameVol = room.frameStatus === 'Đã hoàn thành' ? catVol : room.frameStatus === 'Đang làm' ? catVol * 0.5 : 0;
-                                            catBoardVol = room.boardStatus === 'Đã hoàn thành' ? catVol : room.boardStatus === 'Đang làm' ? catVol * 0.5 : 0;
-                                            catFrameStatus = room.frameStatus;
-                                            catBoardStatus = room.boardStatus;
-                                            catInspectionStatus = room.inspectionStatus;
-                                          }
-
-                                          doneFrameVol += catFrameVol;
-                                          doneBoardVol += catBoardVol;
-                                          doneInspectedVol += catInspectedVol;
-                                          categoriesDetailList.push({
-                                            name: cat,
-                                            vol: catVol,
-                                            frameVol: catFrameVol,
-                                            boardVol: catBoardVol,
-                                            inspectedVol: catInspectedVol,
-                                            frameStatus: catFrameStatus,
-                                            boardStatus: catBoardStatus,
-                                            inspectionStatus: catInspectionStatus,
-                                            subItems: subItemsInCat
-                                          });
-                                        });
-                                      } else if (isMain) {
-                                        totalVol = Number(room.workVolume || 0);
-                                        doneFrameVol = room.frameStatus === 'Đã hoàn thành' ? totalVol : room.frameStatus === 'Đang làm' ? totalVol * 0.5 : 0;
-                                        doneBoardVol = room.boardStatus === 'Đã hoàn thành' ? totalVol : room.boardStatus === 'Đang làm' ? totalVol * 0.5 : 0;
-                                        doneInspectedVol = room.inspectionStatus === 'Đạt nghiệm thu' ? totalVol : 0;
-                                        categoriesDetailList.push({
-                                          name: room.workCategory || 'Hạng mục khác',
-                                          vol: totalVol,
-                                          frameVol: doneFrameVol,
-                                          boardVol: doneBoardVol,
-                                          inspectedVol: doneInspectedVol,
-                                          frameStatus: room.frameStatus,
-                                          boardStatus: room.boardStatus,
-                                          inspectionStatus: room.inspectionStatus,
-                                          subItems: room.subItems
-                                        });
-                                      }
-
-                                      return {
-                                        totalVol: Math.round(totalVol * 100) / 100,
-                                        doneFrameVol: Math.round(doneFrameVol * 100) / 100,
-                                        doneBoardVol: Math.round(doneBoardVol * 100) / 100,
-                                        doneInspectedVol: Math.round(doneInspectedVol * 100) / 100,
-                                        categories: categoriesDetailList
-                                      };
-                                    })();
+                                    const canonicalDetails = stat.teamRoomDetails.filter((detail) => detail.roomId === room.id);
+                                    const byUnit: Record<string, number> = {};
+                                    canonicalDetails.forEach((detail) => {
+                                      byUnit[detail.unit || 'm²'] = (byUnit[detail.unit || 'm²'] || 0) + Number(detail.assignedVolume || 0);
+                                    });
+                                    const roomStats = {
+                                      totalVol: canonicalDetails.reduce((sum, detail) => sum + Number(detail.assignedVolume || 0), 0),
+                                      doneFrameVol: canonicalDetails.reduce((sum, detail) => sum + Number(detail.frameVolume || 0), 0),
+                                      doneBoardVol: canonicalDetails.reduce((sum, detail) => sum + Number(detail.boardVolume || 0), 0),
+                                      doneInspectedVol: canonicalDetails.reduce((sum, detail) => sum + Number(detail.inspectedVolume || 0), 0),
+                                      volumeLabel: Object.entries(byUnit).map(([unit, value]) => `${formatDecimal(value)} ${unit}`).join(' + '),
+                                      categories: canonicalDetails.map((detail) => ({
+                                        name: detail.workCategoryName,
+                                        unit: detail.unit || 'm²',
+                                        vol: detail.assignedVolume,
+                                        frameVol: detail.frameVolume,
+                                        boardVol: detail.boardVolume,
+                                        inspectedVol: detail.inspectedVolume,
+                                        frameStatus: detail.frameStatus,
+                                        boardStatus: detail.boardStatus,
+                                        inspectionStatus: detail.inspectionStatus,
+                                        subItems: (room.subItems || []).filter((sub) => {
+                                          const categoryMatch = sub.workCategoryId
+                                            ? sub.workCategoryId === detail.workCategoryId
+                                            : (sub.category || room.workCategory) === detail.workCategoryName;
+                                          return categoryMatch && (isTeamMatch(sub.assignedTeam, team, sub.teamId) || (!sub.assignedTeam && !sub.teamId && isTeamMatch(room.assignedTeam, team, room.teamId)));
+                                        }),
+                                      })),
+                                    };
 
                                     return (
                                       <div 
@@ -2938,7 +2860,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                                 <Home className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                                                 <span>{room.roomName}</span>
                                                 <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
-                                                  Tổng KL: {formatDecimal(roomStats.totalVol)} {room.volumeUnit || 'm²'}
+                                                  Tổng KL: {roomStats.volumeLabel || '0'}
                                                 </span>
                                               </h4>
                                             </div>
@@ -2967,7 +2889,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                                       {c.name}
                                                     </span>
                                                     <span className="bg-slate-50 text-slate-600 text-[10px] px-1.5 py-0.5 rounded font-medium border border-slate-200/40">
-                                                      {formatDecimal(c.vol)} {room.volumeUnit || 'm²'}
+                                                      {formatDecimal(c.vol)} {c.unit}
                                                     </span>
                                                   </div>
 

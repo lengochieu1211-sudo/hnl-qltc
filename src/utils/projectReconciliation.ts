@@ -9,14 +9,11 @@ import { deleteProjectPhotos, scanAndCleanupPhotoOrphans } from './photoStorage'
  * 
  * Rules:
  * 1. workCategoryIds & workCategoryId are authoritative.
- * 2. If workCategoryIds exist, verify each ID exists in workVolumes.
- *    - Valid IDs -> normalize to the canonical `workCategoryId || id` and rebuild titles.
- *    - Invalid IDs -> removed from workCategoryIds and workCategoryNormsById.
- * 3. If workCategoryIds do not exist (legacy data):
- *    - Match workCategories string array against workVolumes by title (case-insensitive trim).
- *    - Matched UNIQUE titles -> mapped to canonical `workCategoryId || id`.
- *    - Unmatched/ambiguous titles -> dropped instead of guessing.
- * 4. Ensure workCategoryId & workCategory are synchronized with the primary link.
+ * 2. Explicit IDs are authoritative and are never deleted merely because the catalog
+ *    record is temporarily missing; stale IDs are preserved for Health Center repair.
+ * 3. Legacy name-only links migrate only when the title resolves uniquely. Ambiguous
+ *    or unmatched names are preserved as legacy provenance instead of being guessed/dropped.
+ * 4. Resolved IDs refresh display names/factor aliases without broadening category scope.
  */
 export function reconcileMaterialNormWorkCategoryLinks(
   materialNorms: MaterialNorm[] = [],
@@ -26,9 +23,6 @@ export function reconcileMaterialNormWorkCategoryLinks(
     return { materialNorms: [], cleanedCount: 0 };
   }
 
-  // Material Need and the room editor use `workCategoryId || id` as the durable
-  // category identity. Reconciliation must preserve that same identity or a norm can
-  // silently become detached after an import/edit where WorkVolume.id !== workCategoryId.
   const activeWorkVolumes = (workVolumes || []).filter((wv) => wv.deletedAt === undefined || wv.deletedAt === null);
   const canonicalCategoryId = (wv: WorkVolume): string => String(wv.workCategoryId || wv.id || '').trim();
   const volumeByRecordId = new Map<string, WorkVolume>();
@@ -52,16 +46,14 @@ export function reconcileMaterialNormWorkCategoryLinks(
     }
   });
 
-  const resolveByReference = (rawRef?: string): WorkVolume | undefined => {
+  const resolveById = (rawRef?: string): WorkVolume | undefined => {
     const ref = String(rawRef || '').trim();
     if (!ref) return undefined;
     const exactRecord = volumeByRecordId.get(ref);
     if (exactRecord) return exactRecord;
     const canonicalMatches = volumesByCanonicalId.get(ref) || [];
-    if (canonicalMatches.length > 0) return canonicalMatches[0];
-    const titleMatches = volumesByTitleLower.get(ref.toLocaleLowerCase('vi-VN')) || [];
-    const canonicalIds = new Set(titleMatches.map(canonicalCategoryId).filter(Boolean));
-    return canonicalIds.size === 1 ? titleMatches[0] : undefined;
+    const canonicalIds = new Set(canonicalMatches.map(canonicalCategoryId).filter(Boolean));
+    return canonicalIds.size === 1 ? canonicalMatches[0] : undefined;
   };
 
   const resolveUniqueTitle = (rawTitle?: string): WorkVolume | undefined => {
@@ -73,120 +65,96 @@ export function reconcileMaterialNormWorkCategoryLinks(
   };
 
   let cleanedCount = 0;
+  const reconciledNorms = materialNorms.map((norm) => {
+    const explicitIds = Array.from(new Set(
+      [...(norm.workCategoryIds || []), ...(norm.workCategoryId ? [norm.workCategoryId] : [])]
+        .map((value) => String(value || '').trim())
+        .filter(Boolean)
+    ));
+    const legacyNames = Array.from(new Set(
+      [...(norm.workCategories || []), ...(norm.workCategory ? [norm.workCategory] : [])]
+        .map((value) => String(value || '').trim())
+        .filter(Boolean)
+    ));
 
-  const reconciledNorms = materialNorms.map(norm => {
-    let hasChanges = false;
-    let validCategoryIds: string[] = [];
-    let validCategoryNames: string[] = [];
-    const validNormsById: Record<string, number> = {};
-    const validNormsByName: Record<string, number> = {};
+    const nextIds: string[] = [];
+    const nextNames: string[] = [];
+    const nextById: Record<string, number> = {};
+    const nextByName: Record<string, number> = { ...(norm.workCategoryNorms || {}) };
 
-    // 1. If norm already has workCategoryIds
-    if (Array.isArray(norm.workCategoryIds) && norm.workCategoryIds.length > 0) {
-      norm.workCategoryIds.forEach(id => {
-        const wv = resolveByReference(id);
-        if (wv) {
-          const canonicalId = canonicalCategoryId(wv);
-          if (!canonicalId) return;
-          if (!validCategoryIds.includes(canonicalId)) {
-            validCategoryIds.push(canonicalId);
-            validCategoryNames.push(wv.title);
-          }
-          const factorByOriginalId = norm.workCategoryNormsById?.[id];
-          const factorByCanonicalId = norm.workCategoryNormsById?.[canonicalId];
-          if (factorByOriginalId !== undefined || factorByCanonicalId !== undefined) {
-            const factor = factorByCanonicalId ?? factorByOriginalId;
-            validNormsById[canonicalId] = factor;
-            validNormsByName[wv.title] = factor;
-          } else if (norm.workCategoryNorms && norm.workCategoryNorms[wv.title] !== undefined) {
-            validNormsById[canonicalId] = norm.workCategoryNorms[wv.title];
-            validNormsByName[wv.title] = norm.workCategoryNorms[wv.title];
-          }
-        } else {
-          hasChanges = true;
-          cleanedCount++;
+    if (explicitIds.length > 0) {
+      explicitIds.forEach((rawId, index) => {
+        const resolved = resolveById(rawId);
+        const canonicalId = resolved ? canonicalCategoryId(resolved) : rawId;
+        if (!nextIds.includes(canonicalId)) nextIds.push(canonicalId);
+
+        const oldName = (norm.workCategories || [])[index];
+        const displayName = resolved?.title || oldName || (norm.workCategoryId === rawId ? norm.workCategory : undefined);
+        if (displayName && !nextNames.includes(displayName)) nextNames.push(displayName);
+
+        const factor = norm.workCategoryNormsById?.[canonicalId]
+          ?? norm.workCategoryNormsById?.[rawId];
+        if (factor !== undefined) nextById[canonicalId] = factor;
+
+        if (resolved && factor === undefined && norm.workCategoryNorms?.[resolved.title] !== undefined) {
+          // ID scope is authoritative, but legacy factor-by-name can be migrated once
+          // when the ID itself proves the category relationship.
+          nextById[canonicalId] = norm.workCategoryNorms[resolved.title];
+        }
+        if (resolved && nextById[canonicalId] !== undefined) {
+          nextByName[resolved.title] = nextById[canonicalId];
         }
       });
     } else {
-      // 2. Legacy fallback: workCategories (array of names) or workCategory (single string)
-      const candidateNames: string[] = [];
-      if (Array.isArray(norm.workCategories) && norm.workCategories.length > 0) {
-        candidateNames.push(...norm.workCategories);
-      } else if (norm.workCategory && norm.workCategory.trim()) {
-        candidateNames.push(norm.workCategory.trim());
-      }
-
-      candidateNames.forEach(rawName => {
-        if (!rawName || !rawName.trim()) return;
-        const wv = resolveUniqueTitle(rawName);
-        if (wv) {
-          const canonicalId = canonicalCategoryId(wv);
-          if (!canonicalId) return;
-          if (!validCategoryIds.includes(canonicalId)) {
-            validCategoryIds.push(canonicalId);
-            validCategoryNames.push(wv.title);
-          }
-          if (norm.workCategoryNorms && norm.workCategoryNorms[rawName] !== undefined) {
-            validNormsById[canonicalId] = norm.workCategoryNorms[rawName];
-            validNormsByName[wv.title] = norm.workCategoryNorms[rawName];
-          } else if (norm.workCategoryNormsById && norm.workCategoryNormsById[canonicalId] !== undefined) {
-            validNormsById[canonicalId] = norm.workCategoryNormsById[canonicalId];
-            validNormsByName[wv.title] = norm.workCategoryNormsById[canonicalId];
-          }
-        } else {
-          // Stale or ambiguous display-only category names are never guessed.
-          hasChanges = true;
-          cleanedCount++;
+      // Legacy name-only links may migrate only when the title resolves uniquely.
+      // Unmatched/ambiguous names are preserved verbatim so Health Center can report
+      // and repair them; reconciliation must never erase provenance.
+      legacyNames.forEach((rawName) => {
+        const resolved = resolveUniqueTitle(rawName);
+        if (!resolved) {
+          if (!nextNames.includes(rawName)) nextNames.push(rawName);
+          return;
         }
+        const canonicalId = canonicalCategoryId(resolved);
+        if (canonicalId && !nextIds.includes(canonicalId)) nextIds.push(canonicalId);
+        if (!nextNames.includes(resolved.title)) nextNames.push(resolved.title);
+        const factor = norm.workCategoryNormsById?.[canonicalId]
+          ?? norm.workCategoryNorms?.[rawName]
+          ?? norm.workCategoryNorms?.[resolved.title];
+        if (factor !== undefined && canonicalId) nextById[canonicalId] = factor;
+        if (factor !== undefined) nextByName[resolved.title] = factor;
       });
     }
 
-    // Determine primary workCategoryId and workCategory
-    let primaryId = norm.workCategoryId;
+    let primaryId = String(norm.workCategoryId || '').trim() || undefined;
     let primaryName = norm.workCategory;
-
-    if (validCategoryIds.length > 0) {
-      if (!primaryId || !validCategoryIds.includes(primaryId)) {
-        primaryId = validCategoryIds[0];
-        const wv = resolveByReference(primaryId);
-        primaryName = wv ? wv.title : validCategoryNames[0];
-        hasChanges = true;
-      } else {
-        const wv = resolveByReference(primaryId);
-        if (wv && primaryName !== wv.title) {
-          primaryName = wv.title;
-          hasChanges = true;
-        }
+    if (primaryId) {
+      const resolved = resolveById(primaryId);
+      if (resolved) {
+        primaryId = canonicalCategoryId(resolved);
+        primaryName = resolved.title;
       }
-    } else {
-      if (primaryId || primaryName) {
-        primaryId = undefined;
-        primaryName = undefined;
-        hasChanges = true;
-      }
+      // Unresolved explicit primary ID is intentionally preserved.
+    } else if (nextIds.length > 0) {
+      primaryId = nextIds[0];
+      const resolved = resolveById(primaryId);
+      if (resolved) primaryName = resolved.title;
+    } else if (!primaryName && nextNames.length > 0) {
+      primaryName = nextNames[0];
     }
 
-    // Check if workCategories or workCategoryIds array changed
-    if (
-      JSON.stringify(validCategoryIds) !== JSON.stringify(norm.workCategoryIds || []) ||
-      JSON.stringify(validCategoryNames) !== JSON.stringify(norm.workCategories || [])
-    ) {
-      hasChanges = true;
-    }
-
-    if (!hasChanges) {
-      return norm;
-    }
-
-    return {
+    const next: MaterialNorm = {
       ...norm,
       workCategoryId: primaryId,
       workCategory: primaryName,
-      workCategoryIds: validCategoryIds.length > 0 ? validCategoryIds : undefined,
-      workCategories: validCategoryNames.length > 0 ? validCategoryNames : undefined,
-      workCategoryNormsById: Object.keys(validNormsById).length > 0 ? validNormsById : undefined,
-      workCategoryNorms: Object.keys(validNormsByName).length > 0 ? validNormsByName : undefined,
+      workCategoryIds: nextIds.length > 0 ? nextIds : undefined,
+      workCategories: nextNames.length > 0 ? nextNames : undefined,
+      workCategoryNormsById: Object.keys(nextById).length > 0 ? nextById : undefined,
+      workCategoryNorms: Object.keys(nextByName).length > 0 ? nextByName : undefined,
     };
+
+    if (JSON.stringify(next) !== JSON.stringify(norm)) cleanedCount++;
+    return next;
   });
 
   return { materialNorms: reconciledNorms, cleanedCount };

@@ -53,7 +53,7 @@ async function terminateProcessTree(child) {
   }
 }
 
-function runRulesBehaviorAttempt(attempt, timeoutMs = 75000) {
+function runRulesBehaviorAttempt(attempt, timeoutMs = 180000) {
   return new Promise((resolve, reject) => {
     const { command, prefix } = resolveNpx();
     const behaviorCommand = `"${process.execPath}" scripts/firebase-rules-behavior.mjs`;

@@ -1,5 +1,6 @@
 import type { HnlAiProjectSnapshot } from './projectSnapshot';
 import { computeMaterialNeeds } from '../../utils/materialNeedEngine';
+import { getCanonicalRoomCategoryEntries } from '../../utils/linkageIntegrity';
 
 export type ExternalAiDataScope = 'progress' | 'quantities' | 'defects' | 'crew' | 'inventory' | 'checklist';
 
@@ -111,7 +112,7 @@ interface ActiveWorkCategoryRef {
 
 function buildWorkCategoryResolver(snapshot: HnlAiProjectSnapshot) {
   const byId = new Map<string, ActiveWorkCategoryRef>();
-  const byName = new Map<string, ActiveWorkCategoryRef>();
+  const byName = new Map<string, ActiveWorkCategoryRef[]>();
   for (const item of active(snapshot.workVolumes)) {
     const canonicalId = String(item.workCategoryId || item.id || '').trim();
     const canonicalName = safeText(item.title || '').trim();
@@ -122,18 +123,23 @@ function buildWorkCategoryResolver(snapshot: HnlAiProjectSnapshot) {
       if (normalizedId) byId.set(normalizedId, ref);
     }
     const normalizedName = normalizedText(canonicalName);
-    if (normalizedName) byName.set(normalizedName, ref);
+    if (normalizedName) {
+      const list = byName.get(normalizedName) || [];
+      if (!list.some((entry) => entry.workCategoryId === canonicalId)) list.push(ref);
+      byName.set(normalizedName, list);
+    }
   }
   return (workCategoryId?: string, workCategoryName?: string): ActiveWorkCategoryRef | null => {
     const id = String(workCategoryId || '').trim();
     const suppliedName = safeText(workCategoryName || '').trim();
-    if (id && byId.has(id)) {
-      const ref = byId.get(id)!;
-      return { ...ref, workCategory: suppliedName || ref.workCategory };
+    if (id) {
+      const ref = byId.get(id);
+      return ref ? { ...ref, workCategory: ref.workCategory || suppliedName } : null;
     }
     const name = normalizedText(suppliedName);
-    if (name && byName.has(name)) return byName.get(name)!;
-    return null;
+    if (!name) return null;
+    const matches = byName.get(name) || [];
+    return matches.length === 1 ? matches[0] : null;
   };
 }
 
@@ -186,20 +192,13 @@ function buildQuantityRows(snapshot: HnlAiProjectSnapshot): QuantityRow[] {
       updatedAt: finiteNumber(room.updatedAt),
     };
 
-    const categoryEntries = Object.entries(room.categoryVolumes || {}).filter(([, value]) => finiteNumber(value) !== null);
+    const categoryEntries = getCanonicalRoomCategoryEntries(room, [...snapshot.workVolumes]);
     if (categoryEntries.length > 0) {
-      for (const [category, value] of categoryEntries) {
-        const categoryName = safeText(category || base.workCategory);
-        const relatedSubItems = (room.subItems || []).filter((item) => sameCategory(categoryName, base.workCategoryId, item));
-        const relatedCategoryRefs = Array.from(new Map(
-          relatedSubItems
-            .map((item) => resolveCategory(item.workCategoryId, item.category))
-            .filter((ref): ref is ActiveWorkCategoryRef => Boolean(ref))
-            .map((ref) => [`${ref.workCategoryId}|${normalizedText(ref.workCategory)}`, ref] as const),
-        ).values());
-        const categoryRef = resolveCategory(undefined, categoryName)
-          || (relatedCategoryRefs.length === 1 ? relatedCategoryRefs[0] : null);
-        if (!categoryRef) continue;
+      for (const entry of categoryEntries) {
+        const relatedSubItems = (room.subItems || []).filter((item) => {
+          const ref = resolveCategory(item.workCategoryId, item.category);
+          return ref?.workCategoryId === entry.workCategoryId;
+        });
         const relatedTeams = Array.from(new Map(
           relatedSubItems
             .map((item) => resolveTeam(item.teamId, item.assignedTeam))
@@ -212,11 +211,11 @@ function buildQuantityRows(snapshot: HnlAiProjectSnapshot): QuantityRow[] {
           ...base,
           teamId: categoryTeam.teamId,
           teamName: categoryTeam.teamName,
-          workCategoryId: categoryRef.workCategoryId,
-          workCategory: categoryRef.workCategory,
-          item: categoryRef.workCategory || room.roomName,
-          volume: Number(value),
-          unit: safeText(room.categoryVolumeUnits?.[category] || room.volumeUnit || ''),
+          workCategoryId: entry.workCategoryId,
+          workCategory: entry.workCategoryName,
+          item: entry.workCategoryName || room.roomName,
+          volume: Number(entry.quantity),
+          unit: safeText(entry.unit || ''),
           status: room.inspectionStatus || '',
         });
       }

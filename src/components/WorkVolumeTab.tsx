@@ -29,6 +29,7 @@ import { getTodayDateString, addDaysToDateString, formatDateVN, calculateDiffDay
 import { getCurrentUserRole, canViewFinancials, canManageWorkVolumeStructure, UserRole } from '../utils/securityUtils';
 import { normalizeUnit, unitKey } from '../utils/unitUtils';
 import { createEntityId } from '../utils/idUtils';
+import { canonicalWorkCategoryId, validateWorkVolumeCatalog } from '../utils/linkageIntegrity';
 
 import { QuickSortBar } from './QuickSortBar';
 
@@ -40,6 +41,7 @@ interface WorkVolumeTabProps {
   userRole?: UserRole;
   onAddWorkVolume: (item: Omit<WorkVolume, 'id'>) => void;
   onSaveWorkVolume?: (item: Omit<WorkVolume, 'id'> & { id?: string }) => void;
+  onImportWorkVolumes?: (items: WorkVolume[]) => boolean;
   onUpdateActualVolume: (id: string, newActual: number) => void;
   onDeleteWorkVolume: (id: string) => void;
   onDeleteMultipleWorkVolumes?: (ids: string[]) => void;
@@ -59,6 +61,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   userRole,
   onAddWorkVolume,
   onSaveWorkVolume,
+  onImportWorkVolumes,
   onUpdateActualVolume,
   onDeleteWorkVolume,
   onDeleteMultipleWorkVolumes,
@@ -315,169 +318,133 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const normalizeDate = (raw: unknown): string | undefined => {
+      const value = String(raw ?? '').trim();
+      if (!value) return undefined;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+      const match = value.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+      if (match) return `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`;
+      return undefined;
+    };
+
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
         const data = new Uint8Array(event.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
-        const firstSheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[firstSheetName];
-        const jsonData = XLSX.utils.sheet_to_json<any>(worksheet);
+        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json<any>(worksheet);
+        if (!rows.length) throw new Error('Tệp Excel không có dữ liệu.');
 
-        if (!jsonData || jsonData.length === 0) {
-          alert('❌ Thất bại: Tệp Excel không có dữ liệu hoặc định dạng không đúng! Vui lòng tải lại tệp chuẩn.');
-          return;
-        }
-
-        // Validate that we can find the Work Volume titles
-        const firstRow = jsonData[0];
-        const foundHeaders = Object.keys(firstRow);
-        const titleMatchKey = foundHeaders.find(h => 
-          ['Tên hạng mục Công Việc', 'Tên hạng mục Thi Công', 'Hạng Mục Công Việc', 'Tên Hạng Mục', 'Hạng mục', 'title'].some(rk => h.toLowerCase().includes(rk.toLowerCase()))
+        const headers = Object.keys(rows[0]);
+        const titleKey = headers.find((header) =>
+          ['Tên hạng mục Công Việc', 'Tên hạng mục Thi Công', 'Hạng Mục Công Việc', 'Tên Hạng Mục', 'Hạng mục', 'title']
+            .some((candidate) => header.toLocaleLowerCase('vi-VN').includes(candidate.toLocaleLowerCase('vi-VN'))),
         );
+        if (!titleKey) throw new Error(`Không tìm thấy cột Tên Hạng Mục. Các cột hiện có: ${headers.join(', ')}`);
 
-        if (!titleMatchKey) {
-          alert(
-            `⚠️ Không tìm thấy cột thông tin bắt buộc 'Tên hạng mục Công Việc'!\n\n` +
-            `• Các cột tìm thấy trong file: [${foundHeaders.join(', ')}]\n` +
-            `• Vui lòng đặt lại tiêu đề cột trong file Excel trùng với mẫu (Ví dụ: 'Tên hạng mục Thi Công') để hệ thống nhận diện đúng.`
-          );
-          return;
-        }
-
-        let existingMatchCount = 0;
-        let newCount = 0;
-        jsonData.forEach((row: any) => {
-          const titleStr = String(row[titleMatchKey] || '').trim();
-          const floorStr = String(row['Tầng / Khu Vực'] || row['Tầng'] || row['floor'] || 'Tầng 1').trim();
-          if (titleStr) {
-            const found = workVolumes.find(
-              w => w.title.toLowerCase() === titleStr.toLowerCase() && w.floor.toLowerCase() === floorStr.toLowerCase()
-            );
-            if (found) existingMatchCount++;
-            else newCount++;
-          }
-        });
-
-        if (existingMatchCount === 0 && newCount === 0) {
-          alert('⚠️ Không tìm thấy hạng mục hợp lệ nào trong tệp Excel để xử lý!');
-          return;
-        }
-
-        const confirmMerge = await confirmAsync(
-          `📂 Phát hiện ${jsonData.length} hạng mục trong tệp Excel (${existingMatchCount} trùng tên & tầng đã có sẵn, ${newCount} mới).\n\n` +
-          `• Bấm "Đồng ý" để CẬP NHẬT thông tin các hạng mục cũ & THÊM MỚI các hạng mục chưa có.\n` +
-          `• Bấm "Hủy" để dừng thao tác.`
-        );
-
-        if (!confirmMerge) {
-          e.target.value = '';
-          return;
-        }
-
+        const upserts: WorkVolume[] = [];
+        const touchedIds = new Set<string>();
         let updatedCount = 0;
         let addedCount = 0;
 
-        jsonData.forEach((row: any) => {
+        rows.forEach((row: any, rowIndex: number) => {
+          const title = String(row[titleKey] || '').trim();
+          if (!title) return;
           const rawRecordId = String(row['__recordId'] || row['Mã Hạng Mục'] || row['id'] || '').trim();
-          const titleStr = String(row[titleMatchKey] || '').trim();
-          if (!titleStr) return;
+          const rawCategoryId = String(row['__workCategoryId'] || row['workCategoryId'] || '').trim();
+          const floorText = String(row['Tầng / Khu Vực'] || row['Tầng'] || row['floor'] || '').trim();
+          const unit = normalizeUnit(String(row['Đơn Vị Tính'] || row['Đơn vị Tính'] || row['Đơn vị'] || row['unit'] || 'm²').trim()) || 'm²';
 
-          const floorStr = String(row['Tầng / Khu Vực'] || row['Tầng'] || row['floor'] || 'Tầng 1').trim();
-          const categoryStr = String(row['Nhóm hạng mục'] || row['Phân Loại'] || row['category'] || 'khung_tran').trim() as CategoryType;
-          const unitStr = String(row['Đơn vị Tính'] || row['Đơn vị'] || row['unit'] || 'm2').trim();
-          const plannedNum = parseExcelNumber(row['Khối lượng định mức'] || row['Khối lượng kế hoạch'] || row['planned']);
-          const actualNum = parseExcelNumber(row['KL Thực Tế'] || row['KL Thực Hiện'] || row['actual']);
-          const unitPriceNum = parseExcelNumber(row['Đơn Giá (VNĐ)'] || row['Đơn Giá'] || row['unitPrice']);
-          const rawDueDate = String(row['Ngày Hạn Định'] || row['Hạn Định'] || row['Hạn Hoàn Thành'] || row['dueDate'] || '').trim();
+          let existing: WorkVolume | undefined;
+          if (rawRecordId) existing = workVolumes.find((work) => work.id === rawRecordId);
+          if (!existing && rawCategoryId) {
+            const matches = workVolumes.filter((work) => canonicalWorkCategoryId(work) === rawCategoryId);
+            if (matches.length > 1) throw new Error(`Dòng ${rowIndex + 2}: __workCategoryId ${rawCategoryId} không duy nhất.`);
+            existing = matches[0];
+          }
+          if (!existing && !rawRecordId && !rawCategoryId) {
+            const matches = workVolumes.filter((work) =>
+              work.title.trim().toLocaleLowerCase('vi-VN') === title.toLocaleLowerCase('vi-VN')
+              && work.floor.trim().toLocaleLowerCase('vi-VN') === floorText.toLocaleLowerCase('vi-VN')
+              && (normalizeUnit(work.unit) || work.unit) === unit,
+            );
+            if (matches.length > 1) throw new Error(`Dòng ${rowIndex + 2}: hạng mục legacy ${title} / ${floorText} / ${unit} bị mơ hồ.`);
+            existing = matches[0];
+          }
 
-          const existing = workVolumes.find(
-            w => (rawRecordId && w.id === rawRecordId) || (w.title.toLowerCase() === titleStr.toLowerCase() && w.floor.toLowerCase() === floorStr.toLowerCase())
-          );
-
-          const finalPlanned = Number.isFinite(plannedNum) ? plannedNum : (existing ? existing.planned : 0);
-          const finalActual = Number.isFinite(actualNum) ? actualNum : (existing ? existing.actual : 0);
-          const finalUnitPrice = Number.isFinite(unitPriceNum) ? unitPriceNum : (existing ? existing.unitPrice : 0);
-          const statusVal = finalActual >= finalPlanned ? 'Đã hoàn thành' : finalActual > 0 ? 'Đang thi công' : 'Chưa thi công';
-
-          // Extract floorIds
-          const rawFloorIdsStr = String(row['__floorIds'] || row['floorIds'] || '').trim();
-          let parsedFloorIds: string[] | undefined = undefined;
-          if (rawFloorIdsStr) {
+          const rawFloorId = String(row['__floorId'] || row['floorId'] || '').trim();
+          const rawFloorIds = String(row['__floorIds'] || row['floorIds'] || '').trim();
+          let floorIds: string[] = [];
+          if (rawFloorIds) {
             try {
-              parsedFloorIds = rawFloorIdsStr.startsWith('[') ? JSON.parse(rawFloorIdsStr) : rawFloorIdsStr.split(',').map(s => s.trim());
-            } catch (e) {
-              parsedFloorIds = rawFloorIdsStr.split(',').map(s => s.trim());
+              const parsed = rawFloorIds.startsWith('[') ? JSON.parse(rawFloorIds) : rawFloorIds.split(',');
+              if (Array.isArray(parsed)) floorIds = parsed.map((value) => String(value || '').trim()).filter(Boolean);
+            } catch {
+              floorIds = rawFloorIds.split(',').map((value) => value.trim()).filter(Boolean);
             }
           }
-          if (!parsedFloorIds || parsedFloorIds.length === 0) {
-            const splitFloors = floorStr.split(',').map(s => s.trim());
-            parsedFloorIds = splitFloors.map(fName => floorPlans?.find(fp => (fp.floorName || fp.id) === fName)?.id || fName);
+          if (rawFloorId && !floorIds.includes(rawFloorId)) floorIds.unshift(rawFloorId);
+          if (floorIds.length === 0 && floorText) {
+            floorIds = floorText.split(/[,;\n]+/).map((name) => name.trim()).filter(Boolean)
+              .map((name) => floorPlans.find((floor) => floor.floorName === name)?.id)
+              .filter((value): value is string => Boolean(value));
           }
 
-          if (existing && onSaveWorkVolume) {
-            const currentFloorIds = (existing.floorIds || []).slice().sort().join(',');
-            const newFloorIds = (parsedFloorIds || existing.floorIds || []).slice().sort().join(',');
-            const targetCategory = categoryStr || existing.category;
-            const targetDueDate = rawDueDate || existing.dueDate;
+          const recordId = existing?.id || rawRecordId || createEntityId('HM');
+          if (touchedIds.has(recordId)) throw new Error(`Dòng ${rowIndex + 2}: record ID ${recordId} xuất hiện nhiều lần trong cùng file.`);
+          touchedIds.add(recordId);
+          const categoryId = existing ? canonicalWorkCategoryId(existing) : (rawCategoryId || recordId);
+          const plannedParsed = parseExcelNumber(row['KL Định Mức'] ?? row['Khối lượng định mức'] ?? row['Khối lượng kế hoạch'] ?? row['planned']);
+          const priceParsed = parseExcelNumber(row['Đơn Giá (VNĐ)'] ?? row['Đơn Giá'] ?? row['unitPrice']);
+          const planned = Number.isFinite(plannedParsed) ? Math.max(0, plannedParsed) : Math.max(0, Number(existing?.planned || 0));
+          const unitPrice = Number.isFinite(priceParsed) ? priceParsed : Number(existing?.unitPrice || 0);
+          const dueDateRaw = row['Ngày Hạn Định'] ?? row['Hạn Định'] ?? row['Hạn Hoàn Thành'] ?? row['dueDate'];
+          const dueDate = dueDateRaw === undefined || String(dueDateRaw).trim() === '' ? existing?.dueDate : normalizeDate(dueDateRaw);
+          if (dueDateRaw && !dueDate) throw new Error(`Dòng ${rowIndex + 2}: ngày hạn không hợp lệ (${String(dueDateRaw)}).`);
 
-            const hasChanged = 
-              existing.title !== titleStr ||
-              existing.floor !== floorStr ||
-              existing.category !== targetCategory ||
-              existing.unit !== unitStr ||
-              existing.planned !== finalPlanned ||
-              existing.actual !== finalActual ||
-              existing.unitPrice !== finalUnitPrice ||
-              (existing.dueDate || '') !== (targetDueDate || '') ||
-              currentFloorIds !== newFloorIds;
-
-            if (hasChanged) {
-              onSaveWorkVolume({
-                id: existing.id,
-                workCategoryId: existing.workCategoryId || existing.id,
-                floorIds: parsedFloorIds || existing.floorIds,
-                title: titleStr,
-                floor: floorStr,
-                category: targetCategory,
-                unit: unitStr,
-                planned: finalPlanned,
-                actual: finalActual,
-                unitPrice: finalUnitPrice,
-                status: statusVal,
-                dueDate: targetDueDate
-              });
-              updatedCount++;
-            }
-          } else {
-            onAddWorkVolume({
-              workCategoryId: rawRecordId || createEntityId('CAT'),
-              floorIds: parsedFloorIds,
-              title: titleStr,
-              floor: floorStr,
-              category: categoryStr,
-              unit: unitStr,
-              planned: finalPlanned,
-              actual: finalActual,
-              unitPrice: finalUnitPrice,
-              status: statusVal,
-              dueDate: rawDueDate || undefined
-            });
-            addedCount++;
-          }
+          upserts.push({
+            ...(existing || {} as WorkVolume),
+            id: recordId,
+            workCategoryId: categoryId,
+            title,
+            floor: floorText || existing?.floor || '',
+            floorId: floorIds[0] || existing?.floorId,
+            floorIds: floorIds.length > 0 ? Array.from(new Set(floorIds)) : existing?.floorIds,
+            category: String(row['Nhóm Hạng Mục'] || row['Nhóm hạng mục'] || row['Phân Loại'] || row['category'] || existing?.category || 'khung_tran').trim() as CategoryType,
+            unit,
+            planned,
+            // Excel actual/status are reporting fields only; never import them into master.
+            actual: existing?.actual || 0,
+            status: existing?.status || 'Chưa thi công',
+            unitPrice,
+            dueDate,
+          });
+          if (existing) updatedCount += 1; else addedCount += 1;
         });
 
-        alert(
-          `🎉 Nhập hạng mục khối lượng thành công!\n\n` +
-          `• Đã cập nhật/chỉnh sửa: ${updatedCount} hạng mục cũ\n` +
-          `• Đã thêm mới: ${addedCount} hạng mục mới`
+        if (upserts.length === 0) throw new Error('Không có dòng hạng mục hợp lệ để nhập.');
+        const byId = new Map<string, WorkVolume>(workVolumes.map((work) => [work.id, work] as const));
+        upserts.forEach((work) => byId.set(work.id, work));
+        const finalCatalog = Array.from(byId.values());
+        const issues = validateWorkVolumeCatalog(finalCatalog);
+        if (issues.length > 0) throw new Error(issues.map((issue) => issue.message).join('\n'));
+
+        const confirmed = await confirmAsync(
+          `Đã preflight toàn bộ file: ${updatedCount} cập nhật, ${addedCount} thêm mới.\n\n` +
+          'Không import actual/status; ID hạng mục và phạm vi tầng được giữ authoritative. Tiếp tục ghi một lần?',
         );
+        if (!confirmed) return;
+        if (!onImportWorkVolumes) throw new Error('Phiên bản ứng dụng chưa hỗ trợ import atomic WorkVolume.');
+        if (!onImportWorkVolumes(upserts)) throw new Error('Catalog thay đổi trong lúc import; hệ thống đã hủy toàn bộ, chưa ghi dòng nào.');
+        alert(`🎉 Nhập Khối lượng thành công: ${updatedCount} cập nhật, ${addedCount} thêm mới.`);
       } catch (err: any) {
-        alert(`❌ Lỗi đọc hoặc phân tích tệp Excel:\n${err.message || err}`);
+        alert(`❌ Import Khối lượng bị hủy trước khi ghi dữ liệu:\n${err?.message || String(err)}`);
+      } finally {
+        e.target.value = '';
       }
     };
     reader.readAsArrayBuffer(file);
-    e.target.value = '';
   };
 
   useFormatSettings();

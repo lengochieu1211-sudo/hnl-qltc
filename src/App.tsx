@@ -148,11 +148,12 @@ import { getAsyncItem, setAsyncItem, getAllStorageData } from './utils/asyncStor
 import { migrateAndCleanLocalStorage } from './utils/migrateStorage';
 import { confirmAsync } from './utils/confirmAsync';
 import { normalizeImportedData } from './utils/dataNormalizer';
-import { getSubItemGroupWeight } from './utils/teamUtils';
+import { computeDerivedWorkVolumes } from './utils/workVolumeComputation';
+import { canonicalNormCategoryIds, canonicalWorkCategoryId, resolveUniqueMaterialIdentity, resolveWorkVolumeRef, validateInventoryOutProvenance, validateMaterialNormCatalog, validateWorkVolumeCatalog } from './utils/linkageIntegrity';
 import { reconcileMaterialNormWorkCategoryLinks } from './utils/projectReconciliation';
 import { createEntityId, createShortToken } from './utils/idUtils';
 import { normalizeUnit, areSameUnit } from './utils/unitUtils';
-import { resolveNormMaterialId, normalizeMaterialNameKey } from './utils/inventoryUtils';
+import { buildMaterialAliasMap, resolveNormMaterialId, normalizeMaterialNameKey } from './utils/inventoryUtils';
 import { apiFetch, hasApiBackend } from './utils/api';
 import {
   getAndroidAutoSaveFolderName,
@@ -1046,170 +1047,58 @@ export default function App() {
     return false;
   };
 
-  // Dynamically compute workVolumes actual from room progress list
-  const computedWorkVolumes = useMemo(() => {
-    return workVolumes.map(item => {
-      const itemCatId = item.workCategoryId || item.id;
-      // Check if there are any rooms at all that match this item's floor and have this work category
-      const matchingRooms = roomProgressList.filter(room => {
-        const hasCategory = (itemCatId && room.workCategoryId === itemCatId) ||
-                            (room.categoryVolumes && (room.categoryVolumes[item.title] !== undefined || (itemCatId && room.categoryVolumes[itemCatId] !== undefined))) ||
-                            (room.workCategory === item.title) ||
-                            (itemCatId && room.workCategoryId === itemCatId);
-        if (!hasCategory) return false;
+  // Single source of truth for derived work-volume progress. The catalog keeps
+  // authoritative IDs/floor scope/planned values; actual/status come from Room stages.
+  const computedWorkVolumes = useMemo(
+    () => computeDerivedWorkVolumes(workVolumes, roomProgressList, floorPlans),
+    [workVolumes, roomProgressList, floorPlans],
+  );
 
-        // Floor matching
-        const roomFloorName = floorPlans.find(f => f.id === room.floorId)?.floorName || room.floorName || '';
-        const normItemFloor = item.floor ? item.floor.trim() : '';
-
-        if (item.floorIds && item.floorIds.length > 0) {
-          if (room.floorId && item.floorIds.includes(room.floorId)) return true;
-        }
-
-        if (item.floorId && room.floorId) {
-          if (room.floorId === item.floorId) return true;
-        }
-
-        if (normItemFloor && normItemFloor !== 'Tất cả' && normItemFloor !== 'Toàn nhà' && normItemFloor !== 'Công trình') {
-          if (!isFloorMatch(normItemFloor, roomFloorName, item.floorIds, room.floorId)) return false;
-        }
-        return true;
-      });
-
-      if (matchingRooms.length === 0) {
-        // Khối lượng thực hiện trong app là số liệu liên kết từ Căn / Phòng.
-        // Khi không còn Căn / Phòng nguồn, không giữ lại actual cũ vì sẽ tạo sản lượng “mồ côi”.
-        return {
-          ...item,
-          actual: 0,
-          status: 'Chưa thi công',
-        } as WorkVolume;
-      }
-
-      let totalPlanned = 0;
-      let totalActual = 0;
-      matchingRooms.forEach(room => {
-        const roomVol = (itemCatId && room.categoryVolumes?.[itemCatId] !== undefined)
-          ? (room.categoryVolumes?.[itemCatId] ?? 0)
-          : (room.categoryVolumes?.[item.title] !== undefined
-            ? (room.categoryVolumes?.[item.title] ?? 0)
-            : ((room.workCategory === item.title || room.workCategoryId === itemCatId) ? room.workVolume || 0 : 0));
-          
-        if (roomVol <= 0) return;
-        totalPlanned += roomVol;
-
-        const subItemsInCat = room.subItems?.filter(s => 
-          (itemCatId && s.workCategoryId === itemCatId) || 
-          (s.category || room.workCategory) === item.title
-        ) || [];
-        if (subItemsInCat.length > 0) {
-          // Detailed sub-items are authoritative. A room-level “Đạt nghiệm thu”
-          // must not force unfinished sub-items to 100%. One sibling group also
-          // uses one weight system only (all volume, all %, or equal weights).
-          const totalWeight = subItemsInCat.reduce((sum, s) => sum + getSubItemGroupWeight(subItemsInCat, s), 0);
-          const completedWeight = subItemsInCat.reduce((sum, s) => {
-            const isDone = s.status === 'Đã hoàn thành' || s.inspectionStatus === 'Đạt nghiệm thu';
-            return isDone ? sum + getSubItemGroupWeight(subItemsInCat, s) : sum;
-          }, 0);
-          const ratio = totalWeight > 0 ? Math.min(1, completedWeight / totalWeight) : 0;
-          totalActual += roomVol * ratio;
-        } else if (room.inspectionStatus === 'Đạt nghiệm thu') {
-          totalActual += roomVol;
-        } else {
-          const titleLower = item.title.toLowerCase();
-          const isFrame = titleLower.includes('khung') || titleLower.includes('xương');
-          const isBoard = titleLower.includes('tấm');
-
-          if (isFrame && room.frameStatus === 'Đã hoàn thành') {
-            totalActual += roomVol;
-          } else if (isBoard && room.boardStatus === 'Đã hoàn thành') {
-            totalActual += roomVol;
-          }
-        }
-      });
-
-      const actualVolume = Math.round(totalActual * 100) / 100;
-      const plannedVolume = (item.planned !== undefined && item.planned !== null && item.planned > 0)
-        ? item.planned
-        : (totalPlanned > 0 ? Math.round(totalPlanned * 100) / 100 : 0);
-
-      const dynamicFloors = Array.from(new Set(matchingRooms.map(room => {
-        const fp = floorPlans.find(f => f.id === room.floorId);
-        return fp?.floorName || room.floorName || '';
-      }).filter(Boolean)));
-      const computedFloor = dynamicFloors.length > 0 ? dynamicFloors.join(', ') : item.floor;
-
-      return {
-        ...item,
-        floor: computedFloor,
-        planned: plannedVolume,
-        actual: actualVolume,
-        status: actualVolume >= plannedVolume && plannedVolume > 0 ? 'Đã hoàn thành' : actualVolume > 0 ? 'Đang thi công' : 'Chưa thi công'
-      } as WorkVolume;
-    });
-  }, [workVolumes, roomProgressList, floorPlans]);
-
-  // Dynamically compute materialNorms quantity based on linked work categories.
-  // ID links are authoritative; name links are legacy fallback only. Each WorkVolume
-  // can contribute at most once to one norm calculation.
+  // Dynamically compute quota from the canonical WorkVolume catalog. Ambiguous or
+  // mixed-unit norm scopes fail closed so duplicate definitions cannot inflate quota.
   const computedMaterialNorms = useMemo(() => {
+    const integrityIssues = validateMaterialNormCatalog(materialNorms, computedWorkVolumes);
+    const blockedNormIds = new Set(
+      integrityIssues
+        .filter((issue) => issue.code === 'AMBIGUOUS_NORM' || issue.code === 'MIXED_WORK_UNIT')
+        .flatMap((issue) => issue.normIds),
+    );
+
     return materialNorms.map((norm) => {
-      const categoryIds = Array.from(new Set([
-        ...(norm.workCategoryIds || []),
-        ...(norm.workCategoryId ? [norm.workCategoryId] : []),
-      ].filter(Boolean)));
-      const categories = Array.from(new Set([
-        ...(norm.workCategories || []),
-        ...(norm.workCategory ? [norm.workCategory] : []),
-      ].filter(Boolean)));
+      if (blockedNormIds.has(norm.id)) return { ...norm, quotaQuantity: 0 };
+      const scope = canonicalNormCategoryIds(norm, computedWorkVolumes);
+      if (scope.ids.length === 0 || scope.unresolved.length > 0) return { ...norm, quotaQuantity: 0 };
 
-      const processedVolumeIds = new Set<string>();
+      const hasIdFactorMap = Boolean(norm.workCategoryNormsById && Object.keys(norm.workCategoryNormsById).length > 0);
       let totalQuota = 0;
-      let hasNorms = false;
+      let applied = false;
 
-      const applyVolume = (volume: WorkVolume, factor: number) => {
-        if (!volume?.id || processedVolumeIds.has(volume.id) || factor <= 0) return;
-        processedVolumeIds.add(volume.id);
-        totalQuota += (Number(volume.planned) || 0) * factor;
-        hasNorms = true;
-      };
+      scope.ids.forEach((categoryId) => {
+        const resolved = resolveWorkVolumeRef({ workVolumes: computedWorkVolumes, workCategoryId: categoryId });
+        if (resolved.state !== 'resolved' || !resolved.work) return;
+        const work = resolved.work;
+        const canonicalId = canonicalWorkCategoryId(work);
+        let factor = Number(
+          norm.workCategoryNormsById?.[canonicalId]
+          ?? norm.workCategoryNormsById?.[work.id]
+          ?? 0,
+        );
 
-      // 1) Authoritative ID links.
-      categoryIds.forEach((catId) => {
-        computedWorkVolumes
-          .filter((v) => v.id === catId || v.workCategoryId === catId)
-          .forEach((v) => {
-            let factor = Number(norm.workCategoryNormsById?.[catId] || 0);
-            if (!(factor > 0)) {
-              const byName = norm.workCategoryNorms?.[v.title];
-              if (Number(byName || 0) > 0) factor = Number(byName);
-            }
-            if (!(factor > 0) && Number(norm.unitNormPerM2 || 0) > 0) {
-              const basisUnit = norm.normBasisUnit || 'm²';
-              if (areSameUnit(basisUnit, v.unit)) factor = Number(norm.unitNormPerM2);
-            }
-            applyVolume(v, factor);
-          });
+        // Once an ID factor map exists, never widen scope/factor by matching title.
+        if (!(factor > 0) && !hasIdFactorMap && norm.workCategoryNorms?.[work.title] !== undefined) {
+          factor = Number(norm.workCategoryNorms[work.title]);
+        }
+        if (!(factor > 0) && Number(norm.unitNormPerM2 || 0) > 0) {
+          const basisUnit = norm.normBasisUnit || 'm²';
+          if (areSameUnit(basisUnit, work.unit)) factor = Number(norm.unitNormPerM2);
+        }
+        if (!(factor > 0)) return;
+
+        totalQuota += Math.max(0, Number(work.planned) || 0) * factor;
+        applied = true;
       });
 
-      // 2) Legacy name fallback only for volumes not already linked by ID.
-      categories.forEach((cat) => {
-        computedWorkVolumes
-          .filter((v) => !processedVolumeIds.has(v.id) && (v.title === cat || v.category === cat))
-          .forEach((v) => {
-            let factor = Number(norm.workCategoryNorms?.[cat] || 0);
-            if (!(factor > 0) && Number(norm.unitNormPerM2 || 0) > 0) {
-              const basisUnit = norm.normBasisUnit || 'm²';
-              if (areSameUnit(basisUnit, v.unit)) factor = Number(norm.unitNormPerM2);
-            }
-            applyVolume(v, factor);
-          });
-      });
-
-      if (hasNorms) {
-        return { ...norm, quotaQuantity: Math.round(totalQuota * 100) / 100 };
-      }
-      return norm;
+      return applied ? { ...norm, quotaQuantity: Math.round(totalQuota * 100) / 100 } : { ...norm, quotaQuantity: 0 };
     });
   }, [materialNorms, computedWorkVolumes]);
 
@@ -4961,122 +4850,187 @@ export default function App() {
     }
   };
 
-  // Handlers for Material Norms (Auto updates material names in inventory if norm is renamed)
+  // Material Norm catalog boundary. Scope IDs are canonicalized once here and
+  // duplicate/overlapping/mixed-unit norms are rejected before they enter app state.
+  const normalizeMaterialNormCandidate = (norm: MaterialNorm, catalog: WorkVolume[]): MaterialNorm => {
+    const normalized: MaterialNorm = {
+      ...norm,
+      unit: normalizeUnit(norm.unit) || norm.unit,
+      normBasisUnit: norm.normBasisUnit ? (normalizeUnit(norm.normBasisUnit) || norm.normBasisUnit) : undefined,
+    };
+    return reconcileMaterialNormWorkCategoryLinks([normalized], catalog).materialNorms[0] || normalized;
+  };
+
   const handleAddNorm = (normData: Omit<MaterialNorm, 'id'>) => {
     if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được thêm định mức vật tư.'); return; }
     const newId = createEntityId('NORM');
-    updateAppData((prev) => {
-      const normalizedUnit = normalizeUnit(normData.unit) || normData.unit;
-      const materialKey = `${normalizeMaterialNameKey(normData.materialName)}|${normalizedUnit}`;
-      const existingMaterial = prev.materialNorms.find((norm) =>
-        `${normalizeMaterialNameKey(norm.materialName)}|${normalizeUnit(norm.unit) || norm.unit}` === materialKey
-      );
-      const materialId = normData.materialId || resolveNormMaterialId(existingMaterial) || `MAT-${newId}`;
-      return {
-        ...prev,
-        materialNorms: [{
-          ...normData,
-          materialId,
-          unit: normalizedUnit,
-          normBasisUnit: normData.normBasisUnit ? (normalizeUnit(normData.normBasisUnit) || normData.normBasisUnit) : undefined,
-          id: newId,
-        }, ...prev.materialNorms],
-      };
+    const identity = resolveUniqueMaterialIdentity({
+      materialId: normData.materialId,
+      materialName: normData.materialName,
+      unit: normData.unit,
+      materialNorms: present.materialNorms,
     });
+    if (!normData.materialId && identity.state === 'ambiguous') {
+      alert('Không thể xác định duy nhất vật tư theo Tên + ĐVT. Hãy sửa materialId/định mức trùng trước.');
+      return;
+    }
+    const materialId = normData.materialId || (identity.state === 'resolved' ? identity.materialId : resolveNormMaterialId({ ...normData, id: newId }));
+    const candidate = normalizeMaterialNormCandidate({ ...normData, id: newId, materialId } as MaterialNorm, present.workVolumes);
+    const issues = validateMaterialNormCatalog([candidate, ...present.materialNorms], present.workVolumes)
+      .filter((issue) => issue.normIds.includes(newId));
+    if (issues.length > 0) {
+      alert(issues.map((issue) => issue.message).join('\n'));
+      return;
+    }
+    updateAppData((prev) => ({ ...prev, materialNorms: [candidate, ...prev.materialNorms] }));
   };
 
   const handleUpdateNorm = (id: string, updated: Omit<MaterialNorm, 'id'>) => {
     if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được sửa định mức vật tư.'); return; }
-    updateAppData((prev) => {
-      const oldNorm = prev.materialNorms.find((n) => n.id === id);
-      const stableMaterialId = oldNorm?.materialId || `MAT-${id}`;
-      const normalizedUpdated = {
-        ...updated,
-        materialId: updated.materialId || stableMaterialId,
-        unit: normalizeUnit(updated.unit) || updated.unit,
-        normBasisUnit: updated.normBasisUnit ? (normalizeUnit(updated.normBasisUnit) || updated.normBasisUnit) : undefined,
-      };
-      const newNorms = prev.materialNorms.map((norm) =>
-        norm.id === id ? { ...norm, ...normalizedUpdated, id: norm.id } : norm
-      );
-
-      // Inventory is an immutable transaction ledger in Firebase-only. Renaming a
-      // material master must not rewrite historical stock transactions or their balance
-      // effect. Screens resolve the current material label by materialId where needed.
-      return {
-        ...prev,
-        materialNorms: newNorms,
-      };
-    });
+    const existing = present.materialNorms.find((norm) => norm.id === id);
+    if (!existing) return;
+    const candidate = normalizeMaterialNormCandidate({
+      ...existing,
+      ...updated,
+      id,
+      // Material identity does not silently change on edit unless an explicit ID is provided.
+      materialId: updated.materialId || existing.materialId || resolveNormMaterialId(existing),
+    }, present.workVolumes);
+    const finalCatalog = present.materialNorms.map((norm) => norm.id === id ? candidate : norm);
+    const issues = validateMaterialNormCatalog(finalCatalog, present.workVolumes)
+      .filter((issue) => issue.normIds.includes(id));
+    if (issues.length > 0) {
+      alert(issues.map((issue) => issue.message).join('\n'));
+      return;
+    }
+    updateAppData((prev) => ({ ...prev, materialNorms: prev.materialNorms.map((norm) => norm.id === id ? candidate : norm) }));
   };
 
   const handleDeleteNorm = (id: string) => {
     if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được xóa định mức vật tư.'); return; }
-    updateAppData((prev) => ({
-      ...prev,
-      materialNorms: prev.materialNorms.filter((norm) => norm.id !== id),
-    }));
+    updateAppData((prev) => ({ ...prev, materialNorms: prev.materialNorms.filter((norm) => norm.id !== id) }));
   };
 
   const handleDeleteMultipleNorms = (ids: string[]) => {
     if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được xóa định mức vật tư.'); return; }
-    updateAppData((prev) => ({
-      ...prev,
-      materialNorms: prev.materialNorms.filter((norm) => !ids.includes(norm.id)),
-    }));
+    const deleteSet = new Set(ids);
+    updateAppData((prev) => ({ ...prev, materialNorms: prev.materialNorms.filter((norm) => !deleteSet.has(norm.id)) }));
   };
 
   const handleImportNorms = (importedNorms: MaterialNorm[]) => {
     if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được nhập định mức vật tư.'); return; }
-    updateAppData((prev) => {
-      const materialIdByNameUnit = new Map<string, string>();
-      // Reuse current material identities first so importing norms cannot split one physical
-      // material into several stock buckets merely because each norm row has a different ID.
-      (prev.materialNorms || []).forEach((norm) => {
-        const key = `${normalizeMaterialNameKey(norm.materialName)}|${normalizeUnit(norm.unit) || norm.unit}`;
-        const resolvedId = resolveNormMaterialId(norm);
-        if (key && resolvedId && !materialIdByNameUnit.has(key)) materialIdByNameUnit.set(key, resolvedId);
-      });
 
-      const normalizedNorms = importedNorms.map((norm) => {
-        const normalizedUnit = normalizeUnit(norm.unit) || norm.unit;
-        const key = `${normalizeMaterialNameKey(norm.materialName)}|${normalizedUnit}`;
-        const materialId = norm.materialId || materialIdByNameUnit.get(key) || `MAT-${norm.id}`;
-        if (key && materialId && !materialIdByNameUnit.has(key)) materialIdByNameUnit.set(key, materialId);
-        return {
-          ...norm,
-          materialId,
-          unit: normalizedUnit,
-          normBasisUnit: norm.normBasisUnit ? (normalizeUnit(norm.normBasisUnit) || norm.normBasisUnit) : undefined,
-        };
-      });
-
-      return { ...prev, materialNorms: normalizedNorms };
+    const canonical: MaterialNorm[] = [];
+    const materialIdsByLegacyKey = new Map<string, Set<string>>();
+    present.materialNorms.forEach((norm) => {
+      const key = `${normalizeMaterialNameKey(norm.materialName)}|${normalizeUnit(norm.unit) || norm.unit}`;
+      const id = resolveNormMaterialId(norm);
+      if (!id) return;
+      const ids = materialIdsByLegacyKey.get(key) || new Set<string>();
+      ids.add(id);
+      materialIdsByLegacyKey.set(key, ids);
     });
+
+    for (const raw of importedNorms) {
+      const normalizedUnit = normalizeUnit(raw.unit) || raw.unit;
+      const key = `${normalizeMaterialNameKey(raw.materialName)}|${normalizedUnit}`;
+      const knownIds = Array.from(materialIdsByLegacyKey.get(key) || []);
+      if (!raw.materialId && knownIds.length > 1) {
+        alert(`Import định mức bị hủy: vật tư "${raw.materialName}" (${normalizedUnit}) đang có nhiều materialId.`);
+        return;
+      }
+      const materialId = raw.materialId || knownIds[0] || resolveNormMaterialId({ ...raw, unit: normalizedUnit });
+      const item = normalizeMaterialNormCandidate({ ...raw, unit: normalizedUnit, materialId }, present.workVolumes);
+      canonical.push(item);
+      if (materialId) {
+        const ids = materialIdsByLegacyKey.get(key) || new Set<string>();
+        ids.add(materialId);
+        materialIdsByLegacyKey.set(key, ids);
+      }
+    }
+
+    const issues = validateMaterialNormCatalog(canonical, present.workVolumes);
+    if (issues.length > 0) {
+      alert(`Import định mức bị hủy trước khi ghi:\n${issues.map((issue) => `• ${issue.message}`).join('\n')}`);
+      return;
+    }
+    // One atomic local-state commit; Firebase sync consumes the resulting catalog.
+    updateAppData((prev) => ({ ...prev, materialNorms: canonical }));
   };
 
-  // Handlers for Inventory. In Firebase-only runtime the inventory collection is an
-  // immutable ledger and every manual/room-auto mutation must pass through the atomic
-  // Firestore transaction service that updates inventory_balances in the same commit.
-  // React state is then refreshed by the normal Firestore realtime listener; this avoids
-  // a second local write path racing the server transaction.
+  // Handlers for Inventory. Every entry is canonicalized at this ledger boundary;
+  // OUT provenance is validated before Firebase/local state can be mutated.
+  const prepareInventoryLedgerItem = (raw: InventoryItem): InventoryItem => {
+    const unit = normalizeUnit(raw.unit) || raw.unit;
+    const aliasMap = buildMaterialAliasMap(present.materialNorms);
+    const explicitId = raw.materialId ? (aliasMap.get(String(raw.materialId)) || String(raw.materialId)) : undefined;
+    const legacyIdentity = resolveUniqueMaterialIdentity({ materialName: raw.materialName, unit, materialNorms: present.materialNorms });
+    if (explicitId && legacyIdentity.state === 'resolved' && legacyIdentity.materialId && explicitId !== legacyIdentity.materialId) {
+      throw new Error(`materialId ${explicitId} mâu thuẫn Tên + ĐVT của ${raw.materialName} (${unit}).`);
+    }
+    if (!explicitId && legacyIdentity.state !== 'resolved') {
+      throw new Error(legacyIdentity.state === 'ambiguous'
+        ? `Vật tư ${raw.materialName} (${unit}) khớp nhiều materialId; không được first-match.`
+        : `Vật tư ${raw.materialName} (${unit}) chưa có materialId/định mức duy nhất.`);
+    }
+
+    let normalized: InventoryItem = {
+      ...raw,
+      materialId: explicitId || legacyIdentity.materialId,
+      unit,
+      quantity: Number(raw.quantity) || 0,
+    };
+    if (!(normalized.quantity > 0)) throw new Error(`Số lượng phiếu ${normalized.id} phải > 0.`);
+
+    if (normalized.type === 'out') {
+      const hasProvenance = Boolean(
+        normalized.sourceType === 'room-auto'
+        || normalized.sourceRoomId
+        || normalized.sourceFloorId
+        || normalized.sourceWorkCategoryId
+        || normalized.sourceNormId
+        || normalized.sourceTeamId,
+      );
+      if (hasProvenance) {
+        const provenance = validateInventoryOutProvenance({
+          tx: normalized,
+          rooms: present.roomProgressList,
+          workVolumes: present.workVolumes,
+          materialNorms: present.materialNorms,
+          teams: present.teams,
+        });
+        if (provenance.state !== 'resolved') {
+          throw new Error(`OUT provenance không hợp lệ: ${provenance.reason || provenance.state}`);
+        }
+        normalized = {
+          ...normalized,
+          sourceFloorId: provenance.floorId || normalized.sourceFloorId,
+          sourceWorkCategoryId: provenance.workCategoryId || normalized.sourceWorkCategoryId,
+          sourceTeamId: provenance.teamId,
+          sourceNormId: provenance.normId || normalized.sourceNormId,
+        };
+      }
+    }
+    return normalized;
+  };
+
   const handleAddInventory = async (item: Omit<InventoryItem, 'id'> & { id?: string }) => {
     if (!isProjectRoleResolved || !canEditWarehouseData(currentUserRole)) throw new Error('Tài khoản không có quyền tạo giao dịch kho.');
     const newId = item.id || createEntityId(item.type === 'in' ? 'NK' : 'XK');
-    const normalized = { ...item, unit: normalizeUnit(item.unit) || item.unit, id: newId } as InventoryItem;
+    const normalized = prepareInventoryLedgerItem({ ...item, id: newId } as InventoryItem);
 
     if (FIREBASE_ONLY_RUNTIME) {
       const existing = present.inventory.find((inv) => inv.id === newId);
       if (existing) {
-        await updateWarehouseTransactionAtomic(activeProjectIdRef.current, newId, {
+        const next = prepareInventoryLedgerItem({
           ...existing,
           ...normalized,
           id: newId,
-          // room-auto IDs are deterministic and represent one cumulative ledger row.
           quantity: normalized.sourceType === 'room-auto'
             ? Math.max(Number(existing.quantity || 0), Number(normalized.quantity || 0))
             : Number(normalized.quantity || 0),
         });
+        await updateWarehouseTransactionAtomic(activeProjectIdRef.current, newId, next);
       } else {
         await commitWarehouseTransactionAtomic(activeProjectIdRef.current, normalized);
       }
@@ -5098,20 +5052,16 @@ export default function App() {
 
   const handleUpdateInventory = async (id: string, item: Omit<InventoryItem, 'id'>) => {
     if (!isProjectRoleResolved || !canEditWarehouseData(currentUserRole)) throw new Error('Tài khoản không có quyền sửa giao dịch kho.');
+    const current = present.inventory.find((inv) => inv.id === id);
+    if (!current) throw new Error('Không tìm thấy giao dịch kho hiện tại. Hãy chờ đồng bộ rồi thử lại.');
+    const normalized = prepareInventoryLedgerItem({ ...current, ...item, id });
     if (FIREBASE_ONLY_RUNTIME) {
-      const current = present.inventory.find((inv) => inv.id === id);
-      if (!current) throw new Error('Không tìm thấy giao dịch kho hiện tại. Hãy chờ đồng bộ Firestore rồi thử lại.');
-      await updateWarehouseTransactionAtomic(activeProjectIdRef.current, id, {
-        ...current,
-        ...item,
-        unit: normalizeUnit(item.unit) || item.unit,
-        id,
-      });
+      await updateWarehouseTransactionAtomic(activeProjectIdRef.current, id, normalized);
       return;
     }
     updateAppData((prev) => ({
       ...prev,
-      inventory: prev.inventory.map((existing) => existing.id === id ? { ...existing, ...item, unit: normalizeUnit(item.unit) || item.unit, id } : existing),
+      inventory: prev.inventory.map((existing) => existing.id === id ? normalized : existing),
     }));
   };
 
@@ -5130,25 +5080,34 @@ export default function App() {
       for (const id of ids) await softDeleteWarehouseTransactionAtomic(activeProjectIdRef.current, id);
       return;
     }
-    updateAppData((prev) => ({ ...prev, inventory: prev.inventory.filter((i) => !ids.includes(i.id)) }));
+    const deleteSet = new Set(ids);
+    updateAppData((prev) => ({ ...prev, inventory: prev.inventory.filter((i) => !deleteSet.has(i.id)) }));
   };
 
   const handleImportInventory = async (importedInventory: InventoryItem[]) => {
     if (!isProjectRoleResolved || !canImportData(currentUserRole)) throw new Error('Chỉ ADMIN được nhập dữ liệu kho hàng loạt.');
-    const normalizedItems = importedInventory.map((item) => ({ ...item, unit: normalizeUnit(item.unit) || item.unit }));
+    // Preflight the complete batch before the first Firestore/local write.
+    const normalizedItems = importedInventory.map((item) => prepareInventoryLedgerItem(item));
+    const duplicateIds = normalizedItems.map((item) => item.id).filter((id, index, all) => all.indexOf(id) !== index);
+    if (duplicateIds.length > 0) throw new Error(`File import có Mã Phiếu trùng: ${Array.from(new Set(duplicateIds)).join(', ')}`);
+
     if (FIREBASE_ONLY_RUNTIME) {
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
         throw new Error('Import kho cần online để cập nhật ledger + tồn kho bằng Firestore transaction an toàn.');
       }
       const existingIds = new Set(present.inventory.map((item) => item.id));
-      // UPSERT only: an import never infers deletion merely because a row is absent.
       for (const item of normalizedItems) {
         if (existingIds.has(item.id)) await updateWarehouseTransactionAtomic(activeProjectIdRef.current, item.id, item);
         else await commitWarehouseTransactionAtomic(activeProjectIdRef.current, item);
       }
       return;
     }
-    updateAppData((prev) => ({ ...prev, inventory: normalizedItems }));
+    // Local import is UPSERT too; absence of a row never means delete.
+    updateAppData((prev) => {
+      const byId = new Map(prev.inventory.map((item) => [item.id, item]));
+      normalizedItems.forEach((item) => byId.set(item.id, item));
+      return { ...prev, inventory: Array.from(byId.values()) };
+    });
   };
 
   // Handlers for Work Volume
@@ -5158,10 +5117,22 @@ export default function App() {
       return;
     }
     const newId = createEntityId('HM');
-    updateAppData((prev) => ({
-      ...prev,
-      workVolumes: [...prev.workVolumes, { ...item, unit: normalizeUnit(item.unit) || item.unit, id: newId }],
-    }));
+    const nextItem: WorkVolume = {
+      ...item,
+      id: newId,
+      workCategoryId: item.workCategoryId || newId,
+      unit: normalizeUnit(item.unit) || item.unit,
+      planned: Number.isFinite(Number(item.planned)) ? Math.max(0, Number(item.planned)) : 0,
+      // actual/status are derived from Room/Stage progress, never authored in the catalog.
+      actual: 0,
+      status: 'Chưa thi công',
+    };
+    const issues = validateWorkVolumeCatalog([...present.workVolumes, nextItem]);
+    if (issues.length > 0) {
+      alert(issues[0].message);
+      return;
+    }
+    updateAppData((prev) => ({ ...prev, workVolumes: [...prev.workVolumes, nextItem] }));
   };
 
   const handleSaveWorkVolume = (item: Omit<WorkVolume, 'id'> & { id?: string }) => {
@@ -5169,95 +5140,142 @@ export default function App() {
       console.warn('[RBAC] Chỉ ADMIN được sửa định nghĩa hạng mục khối lượng.');
       return;
     }
+
+    if (!item.id) {
+      handleAddWorkVolume(item);
+      return;
+    }
+
+    const existing = present.workVolumes.find((work) => work.id === item.id);
+    if (!existing) {
+      console.warn('[WorkVolume] Không tìm thấy hạng mục cần sửa:', item.id);
+      return;
+    }
+
+    const canonicalId = canonicalWorkCategoryId(existing) || existing.id;
+    const nextItem: WorkVolume = {
+      ...existing,
+      ...item,
+      id: existing.id,
+      // Durable category identity is immutable after creation.
+      workCategoryId: canonicalId,
+      unit: normalizeUnit(item.unit) || item.unit,
+      planned: Number.isFinite(Number(item.planned)) ? Math.max(0, Number(item.planned)) : 0,
+      actual: existing.actual || 0,
+      status: existing.status || 'Chưa thi công',
+    };
+    const candidate = present.workVolumes.map((work) => work.id === existing.id ? nextItem : work);
+    const issues = validateWorkVolumeCatalog(candidate);
+    if (issues.length > 0) {
+      alert(issues[0].message);
+      return;
+    }
+
     updateAppData((prev) => {
-      if (item.id) {
-        const oldItem = prev.workVolumes.find((w) => w.id === item.id);
-        const oldTitle = oldItem?.title;
-        const newTitle = item.title;
+      const oldItem = prev.workVolumes.find((work) => work.id === existing.id);
+      if (!oldItem) return prev;
+      const oldTitle = oldItem.title;
+      const newTitle = nextItem.title;
+      const oldCanonicalId = canonicalWorkCategoryId(oldItem) || oldItem.id;
+      const oldAliases = new Set([oldItem.id, oldItem.workCategoryId, oldCanonicalId].filter(Boolean) as string[]);
 
-        let updatedRooms = prev.roomProgressList;
-        let updatedNorms = prev.materialNorms;
+      // Rename only references that can be proven to belong to this exact ID. Legacy
+      // name-only references that are ambiguous stay untouched and are surfaced by Health Center.
+      const updatedRooms = oldTitle !== newTitle
+        ? prev.roomProgressList.map((room) => {
+            const floorName = room.floorName || prev.floorPlans.find((floor) => floor.id === room.floorId)?.floorName || '';
+            let changed = false;
+            let workCategory = room.workCategory;
+            let workCategoryId = room.workCategoryId;
+            let categoryVolumes = room.categoryVolumes ? { ...room.categoryVolumes } : undefined;
+            let categoryVolumeUnits = room.categoryVolumeUnits ? { ...room.categoryVolumeUnits } : undefined;
 
-        if (oldTitle && newTitle && oldTitle !== newTitle) {
-          // Migrate room progress category names & keys
-          updatedRooms = prev.roomProgressList.map(room => {
-            let catVols = room.categoryVolumes ? { ...room.categoryVolumes } : undefined;
-            if (catVols && catVols[oldTitle] !== undefined) {
-              const val = catVols[oldTitle];
-              delete catVols[oldTitle];
-              catVols[newTitle] = val;
+            if (workCategoryId && oldAliases.has(workCategoryId)) {
+              workCategoryId = oldCanonicalId;
+              workCategory = newTitle;
+              changed = true;
+              // If the primary category is still stored under its legacy title key,
+              // canonicalize it to the durable ID while the relationship is provable.
+              if (categoryVolumes && categoryVolumes[oldTitle] !== undefined && categoryVolumes[oldCanonicalId] === undefined) {
+                categoryVolumes[oldCanonicalId] = categoryVolumes[oldTitle];
+                delete categoryVolumes[oldTitle];
+                if (categoryVolumeUnits?.[oldTitle] !== undefined) {
+                  categoryVolumeUnits[oldCanonicalId] = categoryVolumeUnits[oldTitle];
+                  delete categoryVolumeUnits[oldTitle];
+                }
+              }
             }
-            let subItems = room.subItems;
-            if (subItems) {
-              subItems = subItems.map(s => (s.category === oldTitle ? { ...s, category: newTitle } : s));
-            }
-            const workCat = room.workCategory === oldTitle ? newTitle : room.workCategory;
-            return {
-              ...room,
-              workCategory: workCat,
-              categoryVolumes: catVols,
-              subItems
-            };
-          });
 
-          // Migrate material norms category names
-          updatedNorms = prev.materialNorms.map(norm => {
-            const workCat = norm.workCategory === oldTitle ? newTitle : norm.workCategory;
-            const workCats = norm.workCategories?.map(c => (c === oldTitle ? newTitle : c));
-            let workCategoryNorms = norm.workCategoryNorms ? { ...norm.workCategoryNorms } : undefined;
-            if (workCategoryNorms && workCategoryNorms[oldTitle] !== undefined) {
-              const oldFactor = workCategoryNorms[oldTitle];
-              delete workCategoryNorms[oldTitle];
-              workCategoryNorms[newTitle] = oldFactor;
-            }
-            return {
-              ...norm,
-              workCategory: workCat,
-              workCategories: workCats,
-              workCategoryNorms
-            };
-          });
-        }
+            const subItems = room.subItems?.map((sub) => {
+              if (sub.workCategoryId && oldAliases.has(sub.workCategoryId)) {
+                changed = true;
+                return { ...sub, workCategoryId: oldCanonicalId, category: newTitle };
+              }
+              if (!sub.workCategoryId && sub.category === oldTitle) {
+                const resolved = resolveWorkVolumeRef({
+                  workVolumes: prev.workVolumes,
+                  workCategoryName: sub.category,
+                  floorId: room.floorId,
+                  floorName,
+                });
+                if (resolved.state === 'resolved' && canonicalWorkCategoryId(resolved.work) === oldCanonicalId) {
+                  changed = true;
+                  return { ...sub, workCategoryId: oldCanonicalId, category: newTitle };
+                }
+              }
+              return sub;
+            });
 
-        const normalizedItem = { ...item, unit: normalizeUnit(item.unit) || item.unit };
-        const newWorkVolumes = prev.workVolumes.map((w) => w.id === item.id ? { ...w, ...normalizedItem, id: w.id } as WorkVolume : w);
-        const { materialNorms: reconciledNorms } = reconcileMaterialNormWorkCategoryLinks(updatedNorms, newWorkVolumes);
+            return changed ? { ...room, workCategory, workCategoryId, categoryVolumes, categoryVolumeUnits, subItems } : room;
+          })
+        : prev.roomProgressList;
 
-        return {
-          ...prev,
-          roomProgressList: updatedRooms,
-          materialNorms: reconciledNorms,
-          workVolumes: newWorkVolumes
-        };
-      } else {
-        const newId = createEntityId('HM');
-        return {
-          ...prev,
-          workVolumes: [...prev.workVolumes, { ...item, unit: normalizeUnit(item.unit) || item.unit, id: newId }]
-        };
-      }
+      const nextWorkVolumes = prev.workVolumes.map((work) => work.id === existing.id ? nextItem : work);
+      // Reconciliation may refresh display names but must preserve explicit stale IDs.
+      const { materialNorms: reconciledNorms } = reconcileMaterialNormWorkCategoryLinks(prev.materialNorms, nextWorkVolumes);
+      return { ...prev, workVolumes: nextWorkVolumes, roomProgressList: updatedRooms, materialNorms: reconciledNorms };
     });
   };
 
-  const handleUpdateActualVolume = (id: string, newActual: number) => {
+  const handleImportWorkVolumes = (items: WorkVolume[]): boolean => {
     if (!isProjectRoleResolved || !canManageWorkVolumeStructure(currentUserRole)) {
-      console.warn('[RBAC] Không ghi trực tiếp actual vào hạng mục master; Kỹ sư cập nhật tiến độ tại Mặt bằng.');
-      return;
+      console.warn('[RBAC] Chỉ ADMIN được nhập thay đổi cấu trúc hạng mục khối lượng.');
+      return false;
     }
-    updateAppData((prev) => ({
-      ...prev,
-      workVolumes: prev.workVolumes.map((item) => {
-        if (item.id === id) {
-          const updatedActual = Math.max(0, newActual);
-          return {
-            ...item,
-            actual: updatedActual,
-            status: updatedActual >= item.planned ? 'Đã hoàn thành' : updatedActual > 0 ? 'Đang thi công' : 'Chưa thi công',
-          };
-        }
-        return item;
-      }),
-    }));
+    const currentById = new Map<string, WorkVolume>(present.workVolumes.map((work) => [work.id, work] as const));
+    const normalized = items.map((item) => {
+      const existing = currentById.get(item.id);
+      return {
+        ...(existing || item),
+        ...item,
+        id: existing?.id || item.id,
+        workCategoryId: existing ? canonicalWorkCategoryId(existing) : (item.workCategoryId || item.id),
+        unit: normalizeUnit(item.unit) || item.unit,
+        planned: Math.max(0, Number(item.planned) || 0),
+        actual: existing?.actual || 0,
+        status: existing?.status || 'Chưa thi công',
+      } as WorkVolume;
+    });
+    const finalById = new Map<string, WorkVolume>(present.workVolumes.map((work) => [work.id, work] as const));
+    normalized.forEach((work) => finalById.set(work.id, work));
+    const finalCatalog = Array.from(finalById.values());
+    const issues = validateWorkVolumeCatalog(finalCatalog);
+    if (issues.length > 0) {
+      alert(issues[0].message);
+      return false;
+    }
+    updateAppData((prev) => {
+      const prevById = new Map<string, WorkVolume>(prev.workVolumes.map((work) => [work.id, work] as const));
+      normalized.forEach((work) => prevById.set(work.id, work));
+      return { ...prev, workVolumes: Array.from(prevById.values()) };
+    });
+    return true;
+  };
+
+  const handleUpdateActualVolume = (_id: string, _newActual: number) => {
+    // actual/status are derived only from Room/Stage progress. Keeping this callback as
+    // a compatibility no-op prevents legacy UI routes from mutating the master catalog.
+    console.warn('[WorkVolume] actual là dữ liệu derived; hãy cập nhật tiến độ tại Mặt bằng/Căn.');
   };
 
   const handleDeleteWorkVolume = (id: string) => {
@@ -5265,60 +5283,9 @@ export default function App() {
       console.warn('[RBAC] Chỉ ADMIN được xóa hạng mục khối lượng.');
       return;
     }
-    updateAppData((prev) => {
-      const targetVolume = prev.workVolumes.find((item) => item.id === id);
-      const remainingVolumes = prev.workVolumes.filter((item) => item.id !== id);
-      if (!targetVolume) return { ...prev, workVolumes: remainingVolumes };
-
-      const replacementByTitle = remainingVolumes.find((item) =>
-        item.title.trim().toLocaleLowerCase('vi-VN') === targetVolume.title.trim().toLocaleLowerCase('vi-VN')
-      );
-      const targetLinkIds = new Set([targetVolume.id, targetVolume.workCategoryId].filter((value): value is string => Boolean(value)));
-
-      // Deleting the master WorkVolume must never erase field history from a room.
-      // Keep category names, volumes and sub-items; only detach/remap the deleted foreign key.
-      const updatedRoomProgressList = (prev.roomProgressList || []).map((room) => {
-        let changed = false;
-        let workCategoryId = room.workCategoryId;
-        let categoryVolumes = room.categoryVolumes ? { ...room.categoryVolumes } : undefined;
-
-        if (workCategoryId && targetLinkIds.has(workCategoryId)) {
-          workCategoryId = replacementByTitle?.workCategoryId || replacementByTitle?.id;
-          changed = true;
-        }
-
-        if (categoryVolumes) {
-          for (const linkId of targetLinkIds) {
-            if (!Object.prototype.hasOwnProperty.call(categoryVolumes, linkId)) continue;
-            const preservedValue = Number(categoryVolumes[linkId] || 0);
-            const stableName = targetVolume.title || room.workCategory || 'Hạng mục đã xóa khỏi danh mục';
-            if (categoryVolumes[stableName] === undefined) categoryVolumes[stableName] = preservedValue;
-            else categoryVolumes[stableName] = Math.max(Number(categoryVolumes[stableName] || 0), preservedValue);
-            delete categoryVolumes[linkId];
-            changed = true;
-          }
-        }
-
-        const subItems = room.subItems?.map((sub) => {
-          if (!sub.workCategoryId || !targetLinkIds.has(sub.workCategoryId)) return sub;
-          changed = true;
-          const replacement = remainingVolumes.find((item) =>
-            item.title.trim().toLocaleLowerCase('vi-VN') === String(sub.category || room.workCategory || targetVolume.title).trim().toLocaleLowerCase('vi-VN')
-          );
-          return { ...sub, workCategoryId: replacement?.workCategoryId || replacement?.id };
-        });
-
-        return changed ? { ...room, workCategoryId, categoryVolumes, subItems } : room;
-      });
-
-      const { materialNorms: reconciledNorms } = reconcileMaterialNormWorkCategoryLinks(prev.materialNorms || [], remainingVolumes);
-      return {
-        ...prev,
-        workVolumes: remainingVolumes,
-        roomProgressList: updatedRoomProgressList,
-        materialNorms: reconciledNorms,
-      };
-    });
+    // Never remap or rewrite historical Room/Norm provenance on catalog deletion.
+    // Stale IDs are intentionally retained so Health Center can detect and repair them.
+    updateAppData((prev) => ({ ...prev, workVolumes: prev.workVolumes.filter((item) => item.id !== id) }));
   };
 
   const handleDeleteMultipleWorkVolumes = (ids: string[]) => {
@@ -5326,71 +5293,8 @@ export default function App() {
       console.warn('[RBAC] Chỉ ADMIN được xóa nhiều hạng mục khối lượng.');
       return;
     }
-    updateAppData((prev) => {
-      const deleteIdSet = new Set(ids);
-      const targetVolumes = prev.workVolumes.filter((item) => deleteIdSet.has(item.id));
-      const remainingVolumes = prev.workVolumes.filter((item) => !deleteIdSet.has(item.id));
-      if (targetVolumes.length === 0) return { ...prev, workVolumes: remainingVolumes };
-
-      const deletedLinkIds = new Set<string>();
-      const deletedByLinkId = new Map<string, WorkVolume>();
-      targetVolumes.forEach((item) => {
-        [item.id, item.workCategoryId].filter((value): value is string => Boolean(value)).forEach((linkId) => {
-          deletedLinkIds.add(linkId);
-          deletedByLinkId.set(linkId, item);
-        });
-      });
-      const findReplacement = (categoryName?: string) => {
-        const normalized = String(categoryName || '').trim().toLocaleLowerCase('vi-VN');
-        if (!normalized) return undefined;
-        return remainingVolumes.find((item) => item.title.trim().toLocaleLowerCase('vi-VN') === normalized);
-      };
-
-      const updatedRoomProgressList = (prev.roomProgressList || []).map((room) => {
-        let changed = false;
-        let workCategoryId = room.workCategoryId;
-        let categoryVolumes = room.categoryVolumes ? { ...room.categoryVolumes } : undefined;
-
-        if (workCategoryId && deletedLinkIds.has(workCategoryId)) {
-          const replacement = findReplacement(room.workCategory);
-          workCategoryId = replacement?.workCategoryId || replacement?.id;
-          changed = true;
-        }
-
-        if (categoryVolumes) {
-          for (const deleted of targetVolumes) {
-            const linkIds = [deleted.id, deleted.workCategoryId].filter((value): value is string => Boolean(value));
-            for (const linkId of linkIds) {
-              if (!Object.prototype.hasOwnProperty.call(categoryVolumes, linkId)) continue;
-              const preservedValue = Number(categoryVolumes[linkId] || 0);
-              const stableName = deleted.title || room.workCategory || 'Hạng mục đã xóa khỏi danh mục';
-              if (categoryVolumes[stableName] === undefined) categoryVolumes[stableName] = preservedValue;
-              else categoryVolumes[stableName] = Math.max(Number(categoryVolumes[stableName] || 0), preservedValue);
-              delete categoryVolumes[linkId];
-              changed = true;
-            }
-          }
-        }
-
-        const subItems = room.subItems?.map((sub) => {
-          if (!sub.workCategoryId || !deletedLinkIds.has(sub.workCategoryId)) return sub;
-          changed = true;
-          const deleted = deletedByLinkId.get(sub.workCategoryId);
-          const replacement = findReplacement(sub.category || room.workCategory || deleted?.title);
-          return { ...sub, workCategoryId: replacement?.workCategoryId || replacement?.id };
-        });
-
-        return changed ? { ...room, workCategoryId, categoryVolumes, subItems } : room;
-      });
-
-      const { materialNorms: reconciledNorms } = reconcileMaterialNormWorkCategoryLinks(prev.materialNorms || [], remainingVolumes);
-      return {
-        ...prev,
-        workVolumes: remainingVolumes,
-        roomProgressList: updatedRoomProgressList,
-        materialNorms: reconciledNorms,
-      };
-    });
+    const deleteSet = new Set(ids);
+    updateAppData((prev) => ({ ...prev, workVolumes: prev.workVolumes.filter((item) => !deleteSet.has(item.id)) }));
   };
 
   // Handlers for Floor Plans & Defects
@@ -6515,13 +6419,7 @@ export default function App() {
               floorPlans={floorPlans}
               onImportInventory={handleImportInventory}
               onImportNorms={handleImportNorms}
-              onImportWorkVolumes={(importedVolumes) => {
-                if (!isProjectRoleResolved || !canManageWorkVolumeStructure(currentUserRole)) {
-                  console.warn('[RBAC] Chỉ ADMIN được nhập thay đổi cấu trúc hạng mục khối lượng.');
-                  return;
-                }
-                updateAppData((prev) => ({ ...prev, workVolumes: importedVolumes.map((item) => ({ ...item, unit: normalizeUnit(item.unit) || item.unit })) }));
-              }}
+              onImportWorkVolumes={handleImportWorkVolumes}
             />
           )}
 
@@ -6534,6 +6432,7 @@ export default function App() {
               userRole={currentUserRole}
               onAddWorkVolume={handleAddWorkVolume}
               onSaveWorkVolume={handleSaveWorkVolume}
+              onImportWorkVolumes={handleImportWorkVolumes}
               onUpdateActualVolume={handleUpdateActualVolume}
               onDeleteWorkVolume={handleDeleteWorkVolume}
               onDeleteMultipleWorkVolumes={handleDeleteMultipleWorkVolumes}
@@ -6626,6 +6525,7 @@ export default function App() {
               floorPlans={floorPlans}
               roomProgressList={roomProgressList}
               defects={activeDefects}
+              workVolumes={computedWorkVolumes}
               onAddCrewRecord={handleAddCrewRecord}
               onUpdateCrewRecord={handleUpdateCrewRecord}
               onDeleteCrewRecord={handleDeleteCrewRecord}
@@ -6952,13 +6852,7 @@ export default function App() {
           inventory={inventory}
           workVolumes={computedWorkVolumes}
           onImportInventory={handleImportInventory}
-          onImportWorkVolumes={(importedVolumes) => {
-            if (!isProjectRoleResolved || !canImportData(currentUserRole) || !canManageWorkVolumeStructure(currentUserRole)) {
-              console.warn('[RBAC] Chỉ ADMIN được nhập cấu trúc hạng mục khối lượng.');
-              return;
-            }
-            updateAppData((prev) => ({ ...prev, workVolumes: importedVolumes }));
-          }}
+          onImportWorkVolumes={handleImportWorkVolumes}
         />
 
         {/* Floating alerts never compete with the chat composer / soft keyboard. */}

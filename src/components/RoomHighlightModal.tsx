@@ -34,6 +34,7 @@ import { createEntityId, createDeterministicId } from '../utils/idUtils';
 import { normalizeUnit, areSameUnit } from '../utils/unitUtils';
 import { buildMaterialAliasMap, getMaterialIdentityKey, resolveNormMaterialId, normalizeMaterialNameKey } from '../utils/inventoryUtils';
 import { computeMaterialNeeds } from '../utils/materialNeedEngine';
+import { validateInventoryOutProvenance } from '../utils/linkageIntegrity';
 import { MoveOrderControls } from './MoveOrderControls';
 import { ContactMenu } from './ContactMenu';
 
@@ -682,18 +683,21 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   }, [roomItem, floorId, floorName, roomName, workCategory, categoryVolumes, subItems, workVolume, volumeUnit, assignedTeam, materialNorms, inventory, workVolumes]);
 
   const roomMaterialEstimates = React.useMemo(() => roomMaterialNeedResult.lines.map((line) => {
-    const issued = currentRoomAutoIssuedMap[line.materialKey] || { total: line.alreadyIssued, stableRecordQty: 0 };
-    const alreadyIssued = Math.max(line.alreadyIssued, issued.total);
-    const remainingQty = Math.max(0, Math.ceil((line.estimatedQty - alreadyIssued) * 100) / 100);
-    const overIssuedQty = Math.max(0, Math.ceil((alreadyIssued - line.estimatedQty) * 100) / 100);
+    const issued = currentRoomAutoIssuedMap[line.materialKey] || { total: line.rawAlreadyIssued, stableRecordQty: 0 };
+    const rawAlreadyIssued = Math.max(line.rawAlreadyIssued, issued.total);
+    const rawRemainingQty = Math.max(0, line.rawEstimatedQty - rawAlreadyIssued);
+    const rawOverIssuedQty = Math.max(0, rawAlreadyIssued - line.rawEstimatedQty);
     return {
       ...line,
-      id: line.sourceNormIds[0],
+      id: line.sourceNormIds.length === 1 ? line.sourceNormIds[0] : undefined,
       estQty: line.estimatedQty,
-      alreadyIssued,
+      alreadyIssued: Math.round(rawAlreadyIssued * 100) / 100,
+      rawAlreadyIssued,
       stableRecordQty: issued.stableRecordQty,
-      remainingQty,
-      overIssuedQty,
+      remainingQty: Math.round(rawRemainingQty * 100) / 100,
+      rawRemainingQty,
+      overIssuedQty: Math.round(rawOverIssuedQty * 100) / 100,
+      rawOverIssuedQty,
     };
   }), [roomMaterialNeedResult.lines, currentRoomAutoIssuedMap]);
 
@@ -717,33 +721,98 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       alert('Chưa tìm thấy định mức vật tư phù hợp với các hạng mục thi công này.');
       return;
     }
+    if (roomMaterialNeedResult.failClosed) {
+      const details = roomMaterialNeedResult.warnings.slice(0, 5).map((warning) => `• ${warning.message}`).join('\n');
+      alert(`Không thể xuất kho tự động vì liên kết vật tư/hạng mục chưa duy nhất hoặc chưa đầy đủ. Hãy sửa dữ liệu trước:\n${details}`);
+      return;
+    }
 
-    const needsIssue = roomMaterialEstimates.filter((item: any) => item.remainingQty > 0);
+    const needsIssue = roomMaterialEstimates.filter((item: any) => item.rawRemainingQty > 1e-9);
     if (needsIssue.length === 0) {
-      const over = roomMaterialEstimates.filter((item: any) => item.overIssuedQty > 0);
+      const over = roomMaterialEstimates.filter((item: any) => item.rawOverIssuedQty > 1e-9);
       alert(over.length > 0
         ? `Căn / Phòng này đã xuất đủ vật tư theo định mức hiện tại. Có ${over.length} vật tư đang xuất vượt nhu cầu; vui lòng kiểm tra lịch sử kho.`
         : 'Căn / Phòng này đã xuất đủ vật tư theo định mức hiện tại. Không tạo thêm phiếu xuất trùng.');
       return;
     }
 
+    const draftRoom: RoomProgressItem = {
+      ...(roomItem as RoomProgressItem),
+      floorId,
+      floorName,
+      roomName: roomName || roomItem.roomName,
+      workCategory,
+      workCategoryId: roomItem.workCategoryId,
+      categoryVolumes,
+      subItems,
+      workVolume: Number(workVolume) || 0,
+      volumeUnit,
+      assignedTeam,
+      teamId: roomItem.teamId,
+    };
+
+    // Preflight the ENTIRE auto-issue set before the first write. Each material must
+    // come from exactly one Norm and one WorkCategory; team is recorded only if the
+    // same provenance validator resolves it uniquely and consistently.
+    const plannedIssues: Array<{ item: any; sourceNormId: string; sourceWorkCategoryId: string; sourceTeamId?: string }> = [];
+    const preflightErrors: string[] = [];
+    for (const item of needsIssue as any[]) {
+      const normIds = Array.from(new Set((item.sourceNormIds || []).filter(Boolean))) as string[];
+      const categoryIds = Array.from(new Set((item.normDetails || []).map((detail: any) => detail.workCategoryId).filter(Boolean))) as string[];
+      if (normIds.length !== 1 || categoryIds.length !== 1) {
+        preflightErrors.push(`${item.materialName}: nguồn định mức/hạng mục không duy nhất.`);
+        continue;
+      }
+      if (Number(item.rawStockQty) + 1e-9 < Number(item.rawRemainingQty)) {
+        preflightErrors.push(`${item.materialName}: cần ${formatDecimal(item.rawRemainingQty)} ${item.unit}, tồn ${formatDecimal(item.rawStockQty)} ${item.unit}.`);
+        continue;
+      }
+
+      const probe: InventoryItem = {
+        id: '__auto_issue_preflight__',
+        type: 'out',
+        materialId: item.materialId,
+        materialName: item.materialName,
+        unit: item.unit,
+        quantity: Number(item.rawRemainingQty),
+        location: `${floorName} - ${roomName || 'Căn / Phòng'}`,
+        handler: assignedTeam || 'Đội thi công Căn / Phòng',
+        date: new Date().toISOString().split('T')[0],
+        sourceType: 'room-auto',
+        sourceRoomId: roomItem.id,
+        sourceFloorId: floorId,
+        sourceNormId: normIds[0],
+        sourceWorkCategoryId: categoryIds[0],
+      };
+      const provenance = validateInventoryOutProvenance({
+        tx: probe,
+        rooms: [draftRoom],
+        workVolumes,
+        materialNorms,
+        teams,
+      });
+      if (provenance.state !== 'resolved' || provenance.workCategoryId !== categoryIds[0]) {
+        preflightErrors.push(`${item.materialName}: ${provenance.reason || 'provenance OUT không hợp lệ'}.`);
+        continue;
+      }
+      plannedIssues.push({ item, sourceNormId: normIds[0], sourceWorkCategoryId: categoryIds[0], sourceTeamId: provenance.teamId });
+    }
+
+    if (preflightErrors.length > 0 || plannedIssues.length !== needsIssue.length) {
+      alert(`Không tạo phiếu xuất nào vì preflight chưa đạt:\n• ${preflightErrors.join('\n• ')}`);
+      return;
+    }
+
     setIsAutoIssuing(true);
     let issuedCount = 0;
-    const insufficient: string[] = [];
     const catDetailsStr = validCategories.map(cat => `${cat} (${formatDecimal(getCategoryVolume(cat))} ${getCategorySourceUnit(cat)})`).join(', ');
 
     try {
-      for (const item of needsIssue as any[]) {
-        if (item.stockQty + 1e-9 < item.remainingQty) {
-          insufficient.push(`${item.materialName}: cần ${formatDecimal(item.remainingQty)} ${item.unit}, tồn ${formatDecimal(item.stockQty)} ${item.unit}`);
-          continue;
-        }
+      for (const planned of plannedIssues) {
+        const item = planned.item;
         const sourceIssueKey = `${roomItem.id}|${item.materialKey}`;
         const deterministicId = createDeterministicId('AUTO-XK', sourceIssueKey);
-        // The deterministic record stores only the cumulative quantity created by
-        // the current auto-issue engine. Firebase-only routes this through the same
-        // atomic warehouse transaction service as manual stock issues.
-        const cumulativeStableQty = Math.ceil((Number(item.stableRecordQty || 0) + Number(item.remainingQty || 0)) * 100) / 100;
+        const cumulativeStableQty = Number(item.stableRecordQty || 0) + Number(item.rawRemainingQty || 0);
         await onAddInventory({
           id: deterministicId,
           type: 'out',
@@ -758,18 +827,14 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
           sourceType: 'room-auto',
           sourceRoomId: roomItem.id,
           sourceFloorId: floorId,
-          sourceNormId: item.sourceNormIds?.[0] || item.id,
-          sourceTeamId: roomItem.teamId && (!subItems.some((sub) => sub.teamId && sub.teamId !== roomItem.teamId)) ? roomItem.teamId : undefined,
-          sourceWorkCategoryId: roomItem.workCategoryId,
+          sourceNormId: planned.sourceNormId,
+          sourceTeamId: planned.sourceTeamId,
+          sourceWorkCategoryId: planned.sourceWorkCategoryId,
           sourceIssueKey,
         });
         issuedCount++;
       }
-
-      const messages: string[] = [];
-      if (issuedCount > 0) messages.push(`Đã cập nhật ${issuedCount} phiếu xuất tự động theo phần vật tư còn thiếu cho [${roomName || 'Căn / Phòng'}].`);
-      if (insufficient.length > 0) messages.push(`Không xuất các vật tư thiếu tồn kho:\n• ${insufficient.join('\n• ')}`);
-      alert(messages.join('\n\n') || 'Không có phiếu nào cần tạo.');
+      alert(`Đã cập nhật ${issuedCount} phiếu xuất tự động theo phần vật tư còn thiếu cho [${roomName || 'Căn / Phòng'}].`);
     } finally {
       setIsAutoIssuing(false);
     }

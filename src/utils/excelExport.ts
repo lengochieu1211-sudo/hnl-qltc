@@ -190,13 +190,14 @@ export function exportAllToExcel(params: {
         'STT': idx + 1,
         '__recordId': item.id,
         '__workCategoryId': item.workCategoryId || item.id,
-        '__floorIds': item.floorIds ? item.floorIds.join(',') : '',
+        '__floorId': item.floorId || item.floorIds?.[0] || '',
+      '__floorIds': item.floorIds ? item.floorIds.join(',') : '',
         'Hạng Mục Công Việc': item.title,
         'Tầng': item.floor,
         'Nhóm Hạng Mục': item.category,
         'Đơn Vị': item.unit,
         'KL Định Mức': item.planned,
-        'KL Thực Tế': item.actual,
+        'KL Thực Tế (chỉ xem - không import)': item.actual,
       };
 
       if (canFinancials) {
@@ -394,13 +395,14 @@ export function exportAllToExcelBase64(params: {
         'STT': idx + 1,
         '__recordId': item.id,
         '__workCategoryId': item.workCategoryId || item.id,
-        '__floorIds': item.floorIds ? item.floorIds.join(',') : '',
+        '__floorId': item.floorId || item.floorIds?.[0] || '',
+      '__floorIds': item.floorIds ? item.floorIds.join(',') : '',
         'Hạng Mục Công Việc': item.title,
         'Tầng': item.floor,
         'Nhóm Hạng Mục': item.category,
         'Đơn Vị': item.unit,
         'KL Định Mức': item.planned,
-        'KL Thực Tế': item.actual,
+        'KL Thực Tế (chỉ xem - không import)': item.actual,
       };
       if (canFinancials) {
         row['Đơn Giá (VNĐ)'] = item.unitPrice || 0;
@@ -592,13 +594,14 @@ export function exportWorkVolumesTemplate(workVolumes?: WorkVolume[], projectNam
       'STT': idx + 1,
       '__recordId': item.id,
       '__workCategoryId': item.workCategoryId || item.id,
+      '__floorId': item.floorId || item.floorIds?.[0] || '',
       '__floorIds': item.floorIds ? item.floorIds.join(',') : '',
       'Tên Hạng Mục Công Việc': item.title,
       'Tầng / Khu Vực': item.floor,
       'Nhóm Hạng Mục': item.category,
       'Đơn Vị Tính': item.unit,
       'KL Định Mức': item.planned,
-      'KL Thực Tế': item.actual,
+      'KL Thực Tế (chỉ xem - không import)': item.actual,
     };
     if (canViewFinancials) {
       row['Đơn Giá (VNĐ)'] = item.unitPrice || 0;
@@ -622,6 +625,7 @@ export function exportTeamStatisticsToExcel(params: {
   floorPlans: FloorPlan[];
   projectName?: string;
   selectedTeamName?: string;
+  workVolumes?: WorkVolume[];
 }) {
   const wb = XLSX.utils.book_new();
   const projectNameStr = params.projectName || 'Cong_Trinh';
@@ -636,7 +640,8 @@ export function exportTeamStatisticsToExcel(params: {
     roomProgressList: params.roomProgressList,
     defects: params.defects,
     crewRecords: params.crewRecords,
-    floorPlans: params.floorPlans
+    floorPlans: params.floorPlans,
+    workVolumes: params.workVolumes || []
   });
 
   // If a single team is selected ("Xuất Excel Đội Này"), export 5 detailed sheets
@@ -647,7 +652,8 @@ export function exportTeamStatisticsToExcel(params: {
       roomProgressList: params.roomProgressList,
       defects: params.defects,
       crewRecords: params.crewRecords,
-      floorPlans: params.floorPlans
+      floorPlans: params.floorPlans,
+      workVolumes: params.workVolumes || []
     })[team.id];
 
     // Sheet 1: 01-Tong quan
@@ -684,7 +690,7 @@ export function exportTeamStatisticsToExcel(params: {
         floorRows.push({
           'STT': fIdx++,
           'Tầng': fName,
-          'Hạng Mục': catName,
+          'Hạng Mục': det.categoryName || catName,
           'ĐVT': det.unit || 'm²',
           'Số Phòng/Khu Vực': fg.rooms.length,
           'KL Phụ Trách': det.totalVol,

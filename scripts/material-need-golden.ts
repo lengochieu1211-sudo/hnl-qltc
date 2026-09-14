@@ -281,6 +281,7 @@ const allProjectIssues = computeMaterialNeeds({
 });
 const allProjectW12 = allProjectIssues.lines.find((line) => line.materialId === 'mat-w12-frame');
 assert.equal(allProjectW12?.alreadyIssued, 15, 'Whole-project material need must subtract all project OUT transactions exactly once');
+assert.equal(allProjectW12?.unallocatedIssued, 5, 'Whole-project total may subtract legacy OUT physically while still exposing ambiguous category attribution as unallocated');
 
 const w12ScopedIssues = computeMaterialNeeds({
   rooms: [roomBhs], materialNorms: categoryNorms, inventory: scopedIssueInventory, workVolumes: categoryWorkVolumes, teams,

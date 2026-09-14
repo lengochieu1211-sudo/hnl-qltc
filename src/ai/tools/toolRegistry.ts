@@ -175,6 +175,7 @@ function currentTeamProgress(runtime: HnlAiToolRuntime, team: TeamInfo): AiToolR
     defects: [...activeDefects],
     crewRecords: [],
     floorPlans: [...activeFloors],
+    workVolumes: [...runtime.snapshot.workVolumes],
   })[team.id];
 
   const data: CurrentTeamProgressData = {
