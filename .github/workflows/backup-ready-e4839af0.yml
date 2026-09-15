@@ -1,4 +1,4 @@
-name: HNL QLTC Backup Ready e4839af0
+name: HNL QLTC Backup Current DEV e4839af0
 
 on:
   push:
@@ -17,40 +17,39 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Build continuation backup bundle
+      - name: Build current DEV continuation backup bundle
         shell: bash
         run: |
           set -euo pipefail
           BASE=00285910d6cd9d0b07b82de3fe1533e34bdf1bfd
-          READY=e4839af06a786d87dcd815cb7de1fe44f261c657
-          git fetch origin dev audit/dev-linkage-identity-roundtrip-ready-20260915
-          test "$(git rev-parse origin/dev)" = "$BASE"
-          test "$(git rev-parse origin/audit/dev-linkage-identity-roundtrip-ready-20260915)" = "$READY"
-          test "$(git rev-parse "$READY^")" = "$BASE"
-          rm -rf backup patch-staging
-          mkdir -p backup patch-staging
+          DEV=e4839af06a786d87dcd815cb7de1fe44f261c657
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "$DEV"
+          test "$(git rev-parse "$DEV^")" = "$BASE"
+          rm -rf backup
+          mkdir -p backup
 
-          git archive --format=zip --output=backup/HNL-QLTC-READY-e4839af0-FULL-SOURCE-2026-09-15.zip "$READY"
+          git archive --format=zip --output=backup/HNL-QLTC-DEV-e4839af0-FULL-SOURCE-2026-09-15.zip "$DEV"
 
-          mapfile -t CHANGED < <(git diff --name-only --diff-filter=ACMRT "$BASE" "$READY")
+          mapfile -t CHANGED < <(git diff --name-only --diff-filter=ACMRT "$BASE" "$DEV")
           test "${#CHANGED[@]}" -eq 8
-          git archive --format=zip --output=backup/HNL-QLTC-READY-e4839af0-PATCH-8-FILES-2026-09-15.zip "$READY" -- "${CHANGED[@]}"
-          git diff --binary "$BASE" "$READY" > backup/HNL-QLTC-READY-e4839af0-GIT-DIFF.patch
+          git archive --format=zip --output=backup/HNL-QLTC-DEV-e4839af0-PATCH-FROM-00285910-8-FILES-2026-09-15.zip "$DEV" -- "${CHANGED[@]}"
+          git diff --binary "$BASE" "$DEV" > backup/HNL-QLTC-DEV-e4839af0-GIT-DIFF-FROM-00285910.patch
 
-          cat > backup/HNL-QLTC-CONTINUATION-CHECKPOINT-2026-09-15-READY-e4839af0.md <<'EOF'
-          # HNL QLTC - CONTINUATION CHECKPOINT - 2026-09-15
+          cat > backup/HNL-QLTC-CONTINUATION-CHECKPOINT-2026-09-15-DEV-e4839af0.md <<'EOF'
+          # HNL QLTC - CONTINUATION CHECKPOINT - DEV e4839af0 - 2026-09-15
 
           ## Source authoritative
           - GitHub repo: `lengochieu1211-sudo/hnl-qltc`
-          - Current DEV at handoff: `00285910d6cd9d0b07b82de3fe1533e34bdf1bfd`
-          - Certified READY commit: `e4839af06a786d87dcd815cb7de1fe44f261c657`
-          - READY parent: exactly DEV `00285910...`
-          - Certification workflow run: `34918350608` - PASS (`npm run verify`, clean ready commit created)
-          - Do NOT use/rollback to older source.
+          - Current DEV at handoff: `e4839af06a786d87dcd815cb7de1fe44f261c657`
+          - Parent DEV before latest audit: `00285910d6cd9d0b07b82de3fe1533e34bdf1bfd`
+          - Latest certification workflow: run `34918350608` - PASS (`npm run verify`, clean commit created).
+          - DEV has already been fast-forwarded to `e4839af0`; do NOT try to promote it again.
+          - Do NOT rollback to older source.
           - Do NOT merge `main` or deploy PROD unless explicitly requested.
 
-          ## Latest audit hardening in READY
-          READY changes exactly 8 files:
+          ## Latest hardening in DEV e4839af0
+          Exactly 8 files changed from `00285910...`:
           1. `scripts/linkage-calculation-golden.ts`
           2. `scripts/linkage-calculation-source-golden.mjs`
           3. `src/components/MaterialNormModal.tsx`
@@ -60,66 +59,77 @@ jobs:
           7. `src/utils/inventoryUtils.ts`
           8. `src/utils/linkageIntegrity.ts`
 
-          Main purpose: harden Material identity + unit-aware Warehouse/Norm linkage and Excel round-trip. Standalone warehouse material without norm gets deterministic Name+Unit identity; import/export keeps materialId/workCategoryIds/factor-by-ID/provenance/floor scope; no unsafe first-match by material name.
+          Purpose: harden material identity + unit-aware Warehouse/Norm linkage and Excel round-trip. Standalone warehouse material without norm gets deterministic Name+Unit identity; import/export keeps materialId/workCategoryIds/factor-by-ID/provenance/floor scope; unsafe first-match by material name is removed.
 
-          ## Required next step in new chat
-          1. Read this checkpoint first.
-          2. Use `HNL-QLTC-READY-e4839af0-FULL-SOURCE-2026-09-15.zip` as the latest source-backed candidate.
-          3. Verify live `dev` is still `00285910...` and READY is still direct child.
-          4. Fast-forward `dev` to `e4839af...` with NON-FORCE only.
-          5. Monitor all DEV Actions for exact new SHA: AI gates, Firebase DEV deploy, Runtime Golden desktop/mobile, Windows EXE, Android APK, deliverables.
-          6. If any post-push gate fails, fix root cause on a candidate branch and recertify before another DEV fast-forward.
-          7. Keep `main`/PROD untouched.
+          ## Certification before DEV promotion
+          - Local linkage source golden: 25/25 PASS.
+          - `package.json` and `package-lock.json`: unchanged by this audit.
+          - GitHub certification V2 run `34918350608`: PASS including exact-source guard, `npm ci`, full `npm run verify`, clean ready commit.
 
-          ## Already verified before handoff
-          - Audit patch v2 reconstructs the intended 8-file source.
-          - Source golden: 25/25 PASS locally before GitHub certification.
-          - `package.json` and `package-lock.json`: unchanged by audit patch.
-          - GitHub certification V2: guard exact DEV, exact dependencies, full `npm run verify`, clean ready commit, artifact upload: PASS.
+          ## Post-push Actions on exact DEV e4839af0
+          - `Bootstrap HNL QLTC DEV Firestore` run `34918743599`: PASS.
+          - `Build HNL QLTC Windows DEV EXE` run `34918743603`: PASS (attempt 2).
+          - `Build HNL QLTC Android DEV APK` run `34918743606`: PASS (attempt 2).
+          - `Deploy HNL QLTC DEV Environment` run `34918743593`: FAIL. Root blocker in job `rules`: `npm run test:rules` / Firebase emulator process received SIGTERM and the workflow step timed out after 5 minutes. Rules compilation itself returned status `ok`; next chat must fix the deterministic runner/timeout root cause rather than bypass the rules gate.
+          - `HNL QLTC DEV Runtime Golden` run `34918743666`: FAIL because it was waiting for the exact DEV Environment deploy that failed; runtime tests were therefore skipped.
+          - `Package HNL QLTC DEV Deliverables` run `34918743626`: FAIL because it was waiting for exact Runtime Golden; packaging steps were therefore skipped.
+
+          ## Priority in the new chat
+          1. Read this checkpoint first and use `HNL-QLTC-DEV-e4839af0-FULL-SOURCE-2026-09-15.zip` as the only latest source-backed foundation.
+          2. Verify live GitHub `dev` is still `e4839af0`; if it moved forward, investigate and use the newer verified source, never rollback.
+          3. Fix the Firebase Rules CI/emulator deterministic runner timeout at the root (do not weaken or skip Rules behavior tests).
+          4. Re-run exact-SHA DEV Environment. Only after PASS, re-run Runtime Golden desktop/mobile/live Firebase+R2, then Deliverables.
+          5. Continue the deep A→J linkage audit only from this DEV source; any new source change must go through candidate + certification before another non-force DEV fast-forward.
+          6. Keep `main` and PROD untouched.
           EOF
 
-          cat > backup/HNL-QLTC-CHAT-HANDOFF-READY-e4839af0.txt <<'EOF'
-          Tiếp tục HNL QLTC từ Drive folder “HNL QLTC - Continuation Backup 2026-09-15 - DEV 00285910 - READY e4839af0”. Đọc HNL-QLTC-CONTINUATION-CHECKPOINT-2026-09-15-READY-e4839af0.md trước. Lấy đúng HNL-QLTC-READY-e4839af0-FULL-SOURCE-2026-09-15.zip làm source-backed mới nhất. GitHub DEV tại lúc handoff là 00285910d6cd9d0b07b82de3fe1533e34bdf1bfd; READY đã certify là e4839af06a786d87dcd815cb7de1fe44f261c657, parent trực tiếp DEV và npm run verify PASS ở run 34918350608. Không rollback, không đổi Firebase/GitHub/R2, không merge main, không deploy PROD. Trước hết kiểm live dev chưa dịch chuyển, rồi fast-forward NON-FORCE dev -> e4839af0 và theo dõi toàn bộ DEV Actions/Runtime Golden/Web/EXE/APK đến khi xanh. Nếu có gate đỏ thì sửa nguyên nhân gốc trên candidate, recertify rồi mới cập nhật DEV tiếp.
+          cat > backup/HNL-QLTC-CHAT-HANDOFF-DEV-e4839af0.txt <<'EOF'
+          Tiếp tục HNL QLTC từ Drive folder “HNL QLTC - Continuation Backup 2026-09-15 - DEV e4839af0 - CHAT HANDOFF”. Đọc HNL-QLTC-CONTINUATION-CHECKPOINT-2026-09-15-DEV-e4839af0.md trước. Lấy đúng HNL-QLTC-DEV-e4839af0-FULL-SOURCE-2026-09-15.zip làm source-backed mới nhất. GitHub dev hiện đã ở exact SHA e4839af06a786d87dcd815cb7de1fe44f261c657; không rollback và không promote lại SHA này. Audit material identity/Excel round-trip đã certify bằng npm run verify PASS ở run 34918350608. Post-push: Firestore bootstrap PASS, Windows EXE PASS, Android APK PASS; DEV Environment FAIL tại Firebase Rules emulator/CI timeout 5 phút, nên Runtime Golden FAIL vì chờ Environment và Deliverables FAIL vì chờ Runtime. Ưu tiên sửa root cause rules runner/timeout mà không bỏ qua Rules behavior, rerun DEV Environment → Runtime Golden desktop/mobile/live Firebase+R2 → Deliverables cho tới khi xanh. Không đổi Firebase/GitHub/R2, không merge main, không deploy PROD.
           EOF
 
-          cat > backup/HNL-QLTC-READY-e4839af0-CERTIFICATION-REPORT-2026-09-15.md <<'EOF'
-          # HNL QLTC READY e4839af0 - Certification Report
+          cat > backup/HNL-QLTC-DEV-e4839af0-CERTIFICATION-AND-HANDOFF-REPORT-2026-09-15.md <<'EOF'
+          # HNL QLTC DEV e4839af0 - Certification & Handoff Report
 
-          - Base DEV: `00285910d6cd9d0b07b82de3fe1533e34bdf1bfd`
-          - Ready: `e4839af06a786d87dcd815cb7de1fe44f261c657`
-          - GitHub certification run: `34918350608`
-          - Result: PASS
-          - Ready commit was created by GitHub Actions as a clean direct child of DEV.
-          - Scope: exactly 8 source/test files; no package/lock/Firebase/workflow change in ready commit.
-          - Gate command: `npm run verify` (Stability + TypeScript + Lint + Firebase Rules/Security + Build according to project scripts).
-          - Local static linkage source golden before CI: 25/25 PASS.
-          - Main/PROD: untouched at handoff.
-          - DEV promotion: intentionally pending at handoff; new chat must verify and fast-forward non-force.
+          - Current DEV: `e4839af06a786d87dcd815cb7de1fe44f261c657`
+          - Parent: `00285910d6cd9d0b07b82de3fe1533e34bdf1bfd`
+          - Pre-promotion certification run: `34918350608` — PASS.
+          - Audit scope: exactly 8 source/test files; package/lock/Firebase identities unchanged.
+          - Source linkage golden: 25/25 PASS.
+          - DEV promotion: completed (non-force fast-forward).
+          - Post-push PASS: Firestore bootstrap, Windows EXE, Android APK.
+          - Post-push outstanding: DEV Environment Rules runner timeout; Runtime Golden blocked by Environment; Deliverables blocked by Runtime.
+          - Main/PROD: untouched.
           EOF
 
           {
-            echo "HNL QLTC READY e4839af0 MANIFEST"
+            echo "HNL QLTC DEV e4839af0 HANDOFF MANIFEST"
             echo "Generated: 2026-09-15"
-            echo "BASE_DEV=$BASE"
-            echo "READY=$READY"
-            echo "CERT_RUN=34918350608 PASS"
+            echo "CURRENT_DEV=$DEV"
+            echo "PARENT=$BASE"
+            echo "CERTIFICATION_RUN=34918350608 PASS"
+            echo "POST_PUSH_ENV_RUN=34918743593 FAIL rules-timeout"
+            echo "POST_PUSH_RUNTIME_RUN=34918743666 FAIL blocked-by-env"
+            echo "POST_PUSH_DELIVERABLES_RUN=34918743626 FAIL blocked-by-runtime"
+            echo "POST_PUSH_FIRESTORE_RUN=34918743599 PASS"
+            echo "POST_PUSH_WINDOWS_RUN=34918743603 PASS"
+            echo "POST_PUSH_ANDROID_RUN=34918743606 PASS"
             echo
-            echo "Changed files (${'#'}CHANGED[@]}):"
+            echo "Changed files (${#CHANGED[@]}):"
             printf '%s\n' "${CHANGED[@]}"
             echo
             echo "Bundle contents:"
             find backup -maxdepth 1 -type f -printf '%f\n' | sort
-          } > backup/HNL-QLTC-READY-e4839af0-MANIFEST.txt
+          } > backup/HNL-QLTC-DEV-e4839af0-MANIFEST.txt
 
-          (cd backup && sha256sum * > SHA256SUMS.txt)
-          zip -j -9 HNL-QLTC-CONTINUATION-BACKUP-2026-09-15-DEV-00285910-READY-e4839af0.zip backup/*
-          mv HNL-QLTC-CONTINUATION-BACKUP-2026-09-15-DEV-00285910-READY-e4839af0.zip backup/
-          unzip -t backup/HNL-QLTC-CONTINUATION-BACKUP-2026-09-15-DEV-00285910-READY-e4839af0.zip
-          unzip -t backup/HNL-QLTC-READY-e4839af0-FULL-SOURCE-2026-09-15.zip
-          unzip -t backup/HNL-QLTC-READY-e4839af0-PATCH-8-FILES-2026-09-15.zip
+          (cd backup && sha256sum * > SHA256SUMS-DEV-e4839af0.txt)
+          zip -j -9 HNL-QLTC-CONTINUATION-BACKUP-2026-09-15-DEV-e4839af0-CHAT-HANDOFF.zip backup/*
+          mv HNL-QLTC-CONTINUATION-BACKUP-2026-09-15-DEV-e4839af0-CHAT-HANDOFF.zip backup/
+          unzip -t backup/HNL-QLTC-CONTINUATION-BACKUP-2026-09-15-DEV-e4839af0-CHAT-HANDOFF.zip
+          unzip -t backup/HNL-QLTC-DEV-e4839af0-FULL-SOURCE-2026-09-15.zip
+          unzip -t backup/HNL-QLTC-DEV-e4839af0-PATCH-FROM-00285910-8-FILES-2026-09-15.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: hnl-qltc-continuation-backup-ready-e4839af0
+          name: hnl-qltc-continuation-backup-dev-e4839af0
           path: backup/
           if-no-files-found: error
           retention-days: 30
