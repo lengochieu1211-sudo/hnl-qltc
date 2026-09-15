@@ -1,0 +1,65 @@
+name: HNL QLTC DEV BHS Material Need Floor Link Audit
+
+on:
+  push:
+    branches:
+      - audit/dev-bhs-material-need-floor-link-20260915
+
+permissions:
+  contents: write
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      BASE_SHA: e4839af06a786d87dcd815cb7de1fe44f261c657
+      DEV_SHA: 00285910d6cd9d0b07b82de3fe1533e34bdf1bfd
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Guard exact certified base and apply BHS fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse "$GITHUB_SHA^")" = "$BASE_SHA"
+          test "$(git rev-parse origin/dev)" = "$DEV_SHA"
+          test "$(git diff --name-only "$BASE_SHA...$GITHUB_SHA" | sort | tr '\n' ' ')" = ".github/workflows/audit-bhs-material-need-floor-link.yml "
+          git checkout --detach "$BASE_SHA"
+          cat > "$RUNNER_TEMP/bhs-fix.patch.gz.b64" <<'PATCH_B64'
+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
+PATCH_B64
+          tr -d '[:space:]' < "$RUNNER_TEMP/bhs-fix.patch.gz.b64" | base64 -d | gzip -d > "$RUNNER_TEMP/bhs-fix.patch"
+          git apply --check "$RUNNER_TEMP/bhs-fix.patch"
+          git apply "$RUNNER_TEMP/bhs-fix.patch"
+          git diff --check
+          test "$(git diff --name-only | sort | tr '\n' ' ')" = "scripts/ai-audit-golden.ts scripts/linkage-calculation-golden.ts src/ai/audit/quantityAudit.ts src/healthCenter/healthCenterEngine.ts src/utils/linkageIntegrity.ts src/utils/materialNeedEngine.ts "
+          git diff --exit-code -- package.json package-lock.json .firebaserc firebase.json
+      - name: Install exact dependencies
+        run: npm ci
+      - name: Targeted BHS regressions
+        run: npm run test:linkage-calculation && npm run test:material-need && npm run test:ai-audit && npm run test:health-center
+      - name: Full certification
+        run: npm run verify
+      - name: Create clean ready commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/ai-audit-golden.ts scripts/linkage-calculation-golden.ts src/ai/audit/quantityAudit.ts src/healthCenter/healthCenterEngine.ts src/utils/linkageIntegrity.ts src/utils/materialNeedEngine.ts
+          test "$(git diff --cached --name-only | sort | tr '\n' ' ')" = "scripts/ai-audit-golden.ts scripts/linkage-calculation-golden.ts src/ai/audit/quantityAudit.ts src/healthCenter/healthCenterEngine.ts src/utils/linkageIntegrity.ts src/utils/materialNeedEngine.ts "
+          git commit -m "fix(dev): restore BHS material need floor linkage"
+          git push origin HEAD:refs/heads/audit/dev-bhs-material-need-floor-link-ready-20260915 --force
+          git rev-parse HEAD | tee ready-sha.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bhs-material-need-ready-sha
+          path: ready-sha.txt
+          if-no-files-found: error
