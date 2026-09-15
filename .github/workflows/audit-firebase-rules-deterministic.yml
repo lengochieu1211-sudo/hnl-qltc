@@ -1,0 +1,82 @@
+name: HNL QLTC Firebase Rules Deterministic Runner Audit
+
+on:
+  push:
+    branches:
+      - audit/firebase-rules-deterministic-runner-20260915
+
+permissions:
+  contents: write
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      DEV_SHA: e4839af06a786d87dcd815cb7de1fe44f261c657
+      READY_BRANCH: audit/firebase-rules-deterministic-ready-20260915
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Guard exact DEV base and candidate scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse origin/dev)" = "$DEV_SHA"
+          changed="$(git diff --name-only "$DEV_SHA...$GITHUB_SHA" | sort | tr '\n' ' ')"
+          test "$changed" = ".github/workflows/audit-firebase-rules-deterministic.yml scripts/firebase-rules-check.mjs "
+          git diff --exit-code "$DEV_SHA...$GITHUB_SHA" -- package.json package-lock.json firebase.rules-ci.json firestore.rules storage.rules
+          node --check scripts/firebase-rules-check.mjs
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Firebase Rules deterministic repeat 1
+        run: npm run test:rules
+
+      - name: Firebase Rules deterministic repeat 2
+        run: npm run test:rules
+
+      - name: Firebase Rules deterministic repeat 3
+        run: npm run test:rules
+
+      - name: Full certification gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run verify
+          git diff --check
+          git diff --exit-code "$DEV_SHA...$GITHUB_SHA" -- package.json package-lock.json firebase.rules-ci.json firestore.rules storage.rules
+
+      - name: Create clean ready commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff "$DEV_SHA...$GITHUB_SHA" -- scripts/firebase-rules-check.mjs > "$RUNNER_TEMP/rules-runner.patch"
+          test -s "$RUNNER_TEMP/rules-runner.patch"
+          git checkout --detach "$DEV_SHA"
+          git apply --check "$RUNNER_TEMP/rules-runner.patch"
+          git apply "$RUNNER_TEMP/rules-runner.patch"
+          git diff --check
+          test "$(git diff --name-only | tr '\n' ' ')" = "scripts/firebase-rules-check.mjs "
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add scripts/firebase-rules-check.mjs
+          git commit -m 'fix(ci): make Firebase Rules runner deterministic'
+          git rev-parse HEAD | tee fix-sha.txt
+          git push --force origin "HEAD:refs/heads/$READY_BRANCH"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firebase-rules-deterministic-ready-sha-${{ github.run_number }}-${{ github.run_attempt }}
+          path: fix-sha.txt
+          if-no-files-found: error
+          retention-days: 14
