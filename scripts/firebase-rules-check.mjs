@@ -12,6 +12,27 @@ const env = {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// Keep the retry budget strictly below the 5-minute GitHub Actions step timeout.
+// A previous unrelated change raised one attempt from 75s to 180s, which meant the
+// first flaky Storage-emulator startup could consume most of the step and prevent
+// the retry strategy from ever completing. 75s is the last CI-proven bound.
+const ATTEMPT_TIMEOUT_MS = 75000;
+const MAX_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 2000;
+const TERMINATION_GRACE_MS = 5000;
+const WORKFLOW_STEP_BUDGET_MS = 5 * 60 * 1000;
+const WORKFLOW_SAFETY_MARGIN_MS = 30 * 1000;
+
+const worstCaseRetryBudgetMs =
+  MAX_ATTEMPTS * (ATTEMPT_TIMEOUT_MS + TERMINATION_GRACE_MS)
+  + (MAX_ATTEMPTS - 1) * RETRY_DELAY_MS;
+
+if (worstCaseRetryBudgetMs > WORKFLOW_STEP_BUDGET_MS - WORKFLOW_SAFETY_MARGIN_MS) {
+  throw new Error(
+    `Firebase Rules retry budget ${worstCaseRetryBudgetMs}ms exceeds the safe GitHub step budget`,
+  );
+}
+
 function resolveNpx() {
   const npmExecPath = String(process.env.npm_execpath || '').trim();
   const npxCliPath = npmExecPath ? path.join(path.dirname(npmExecPath), 'npx-cli.js') : '';
@@ -41,7 +62,7 @@ async function terminateProcessTree(child) {
     child.kill('SIGTERM');
   }
 
-  const deadline = Date.now() + 5000;
+  const deadline = Date.now() + TERMINATION_GRACE_MS;
   while (child.exitCode === null && Date.now() < deadline) await sleep(100);
 
   if (child.exitCode === null) {
@@ -53,7 +74,7 @@ async function terminateProcessTree(child) {
   }
 }
 
-function runRulesBehaviorAttempt(attempt, timeoutMs = 180000) {
+function runRulesBehaviorAttempt(attempt, timeoutMs = ATTEMPT_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     const { command, prefix } = resolveNpx();
     const behaviorCommand = `"${process.execPath}" scripts/firebase-rules-behavior.mjs`;
@@ -78,6 +99,7 @@ function runRulesBehaviorAttempt(attempt, timeoutMs = 180000) {
     });
 
     let settled = false;
+    let timingOut = false;
     const finish = (fn, value) => {
       if (settled) return;
       settled = true;
@@ -86,21 +108,24 @@ function runRulesBehaviorAttempt(attempt, timeoutMs = 180000) {
     };
 
     const timer = setTimeout(async () => {
+      timingOut = true;
       await terminateProcessTree(child);
       finish(reject, new Error(`Firebase Rules emulators:exec attempt ${attempt} timed out after ${timeoutMs / 1000}s`));
     }, timeoutMs);
 
     child.once('error', (error) => finish(reject, error));
     child.once('exit', (code, signal) => {
+      // During timeout cleanup SIGTERM/SIGKILL is expected; let the timer path
+      // report the deterministic timeout instead of racing with the exit event.
+      if (timingOut) return;
       if (code === 0) finish(resolve);
       else finish(reject, new Error(`Firebase Rules emulators:exec attempt ${attempt} failed: exit code=${code}, signal=${signal || 'none'}`));
     });
   });
 }
 
-const maxAttempts = 3;
 let lastError;
-for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
   try {
     await runRulesBehaviorAttempt(attempt);
     console.log('Firestore + Storage Rules compile/behavior PASS');
@@ -109,10 +134,10 @@ for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     break;
   } catch (error) {
     lastError = error;
-    console.warn(`Firebase Rules emulator attempt ${attempt}/${maxAttempts} failed: ${error?.message || error}`);
-    if (attempt < maxAttempts) {
+    console.warn(`Firebase Rules emulator attempt ${attempt}/${MAX_ATTEMPTS} failed: ${error?.message || error}`);
+    if (attempt < MAX_ATTEMPTS) {
       console.log('Retrying with a clean Firebase emulator process...');
-      await sleep(2000);
+      await sleep(RETRY_DELAY_MS);
     }
   }
 }
