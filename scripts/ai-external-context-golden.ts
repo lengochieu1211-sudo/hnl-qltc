@@ -48,7 +48,7 @@ assert.equal(serialized.includes('owner@example.com'), false);
 assert.equal(serialized.includes('worker@example.com'), false);
 assert.match(serialized, /đã ẩn/);
 assert.equal(allowed.quantitySummaryByTeamAndCategory.rows[0].teamName, 'Đội Nguyên');
-assert.equal(allowed.quantitySummaryByTeamAndCategory.rows[0].unit, 'm2');
+assert.equal(allowed.quantitySummaryByTeamAndCategory.rows[0].unit, 'm²');
 assert.ok(allowed.quantitySummaryByTeamAndCategory.rows[0].volume > 0);
 assert.equal(allowed.quantityDetails.rows[0].floorName, 'Tầng 1', 'floorId must resolve to floorName in AI read-model');
 assert.equal(allowed.crew.rows[0].floorName, 'Tầng 1', 'crew floorId must resolve to floorName in AI read-model');
@@ -90,7 +90,7 @@ const teamAttributed = buildExternalAiProjectContext(teamAttributionSnapshot, {
   checklist: false,
 }) as any;
 const linkedQuantity = teamAttributed.quantitySummaryByTeamAndCategory.rows.find(
-  (row: any) => row.teamId === 'team-nguyen' && row.workCategory === 'Trần thạch cao' && row.unit === 'm2',
+  (row: any) => row.teamId === 'team-nguyen' && row.workCategoryId === 'cat-ceiling' && row.workCategory === 'Trần' && row.unit === 'm²',
 );
 assert.ok(linkedQuantity, 'category quantity must inherit the one unambiguous matching sub-item team');
 assert.equal(linkedQuantity.teamName, 'Đội Nguyên');
@@ -171,6 +171,7 @@ assert.match(materialPayload.hnlContext.aiContract.materialCalculation, /STRICT/
 
 const materialMultiFloorSnapshot = {
   ...materialSnapshot,
+  workVolumes: [{ ...materialSnapshot.workVolumes[0], floorIds: ['f1', 'f3'] }],
   floors: [
     { id: 'f1', floorName: 'Tầng 1' },
     { id: 'f3', floorName: 'Tầng 3' },

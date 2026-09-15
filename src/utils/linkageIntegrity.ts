@@ -118,13 +118,56 @@ export function getCanonicalRoomCategoryEntries(room: RoomProgressItem, workVolu
     return aId - bId;
   }).forEach((key) => {
     const hasExplicitId = workVolumes.some((work) => key === work.id || key === work.workCategoryId);
-    const resolution = resolveWorkVolumeRef({
+    let resolution = resolveWorkVolumeRef({
       workVolumes,
       workCategoryId: hasExplicitId ? key : undefined,
       workCategoryName: hasExplicitId ? undefined : key,
       floorId: room.floorId,
       floorName: room.floorName,
     });
+
+    // Legacy categoryVolumes keys may retain an old display title after the durable
+    // WorkVolume/category ID was renamed. Durable Room/sub-item IDs are
+    // authoritative only when the available evidence resolves to one canonical ID.
+    if (!hasExplicitId) {
+      const normalizedKey = normalizeLinkText(key);
+      const authoritativeIds = new Set<string>();
+      const collectAuthoritativeId = (workCategoryId?: string, label?: string) => {
+        const id = String(workCategoryId || '').trim();
+        if (!id) return;
+        const labelMatches = Boolean(normalizedKey && normalizeLinkText(label) === normalizedKey);
+        if (!labelMatches && keys.length !== 1) return;
+        const candidate = resolveWorkVolumeRef({
+          workVolumes,
+          workCategoryId: id,
+          floorId: room.floorId,
+          floorName: room.floorName,
+        });
+        if (candidate.state !== 'resolved' || !candidate.work) return;
+        const canonicalId = canonicalWorkCategoryId(candidate.work);
+        if (canonicalId) authoritativeIds.add(canonicalId);
+      };
+
+      collectAuthoritativeId(room.workCategoryId, room.workCategory);
+      (room.subItems || []).forEach((item) => collectAuthoritativeId(item.workCategoryId, item.category));
+
+      if (authoritativeIds.size > 1) {
+        resolution = { state: 'ambiguous' };
+      } else if (authoritativeIds.size === 1) {
+        const authoritativeId = Array.from(authoritativeIds)[0];
+        const resolvedId = resolution.state === 'resolved' && resolution.work
+          ? canonicalWorkCategoryId(resolution.work)
+          : '';
+        if (resolvedId !== authoritativeId) {
+          resolution = resolveWorkVolumeRef({
+            workVolumes,
+            workCategoryId: authoritativeId,
+            floorId: room.floorId,
+            floorName: room.floorName,
+          });
+        }
+      }
+    }
     add(resolution, key, Number(volumes[key]) || 0, units[key]);
   });
 
