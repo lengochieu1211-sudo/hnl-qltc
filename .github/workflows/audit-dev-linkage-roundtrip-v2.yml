@@ -1,0 +1,82 @@
+name: HNL QLTC DEV Linkage Identity Roundtrip Audit V2
+
+on:
+  push:
+    branches: [audit/dev-linkage-identity-roundtrip-20260915]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: audit-dev-linkage-roundtrip-v2-20260915
+  cancel-in-progress: true
+
+env:
+  DEV_SHA: 00285910d6cd9d0b07b82de3fe1533e34bdf1bfd
+  READY_BRANCH: audit/dev-linkage-identity-roundtrip-ready-20260915
+
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Guard exact DEV and recover audited patch v2
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse origin/dev)" = "$DEV_SHA"
+          git show "$GITHUB_SHA:.github/workflows/audit-dev-linkage-roundtrip.yml" \
+            | sed -n "/<<'PATCH_B64'/,/^[[:space:]]*PATCH_B64[[:space:]]*$/p" \
+            | sed '1d;$d' \
+            | tr -d '[:space:]' \
+            > "$RUNNER_TEMP/linkage.patch.gz.b64"
+          test -s "$RUNNER_TEMP/linkage.patch.gz.b64"
+          base64 -d "$RUNNER_TEMP/linkage.patch.gz.b64" | gzip -d > "$RUNNER_TEMP/linkage.patch"
+          test -s "$RUNNER_TEMP/linkage.patch"
+          git checkout --detach "$DEV_SHA"
+          git apply --check "$RUNNER_TEMP/linkage.patch"
+          git apply "$RUNNER_TEMP/linkage.patch"
+          git add -N src/utils/excelImportUtils.ts
+          git diff --check
+          test "$(git diff --name-only | sort | tr '\n' ' ')" = "scripts/linkage-calculation-golden.ts scripts/linkage-calculation-source-golden.mjs src/components/MaterialNormModal.tsx src/components/WarehouseTab.tsx src/utils/excelExport.ts src/utils/excelImportUtils.ts src/utils/inventoryUtils.ts src/utils/linkageIntegrity.ts "
+          git diff --exit-code -- package.json package-lock.json
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Full certification gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run verify
+          git diff --check
+          git diff --exit-code -- package.json package-lock.json
+
+      - name: Create clean ready commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add scripts/linkage-calculation-golden.ts scripts/linkage-calculation-source-golden.mjs src/components/MaterialNormModal.tsx src/components/WarehouseTab.tsx src/utils/excelExport.ts src/utils/excelImportUtils.ts src/utils/inventoryUtils.ts src/utils/linkageIntegrity.ts
+          test "$(git diff --cached --name-only | sort | tr '\n' ' ')" = "scripts/linkage-calculation-golden.ts scripts/linkage-calculation-source-golden.mjs src/components/MaterialNormModal.tsx src/components/WarehouseTab.tsx src/utils/excelExport.ts src/utils/excelImportUtils.ts src/utils/inventoryUtils.ts src/utils/linkageIntegrity.ts "
+          git commit -m 'fix(dev): harden material identity and Excel roundtrip'
+          git rev-parse HEAD | tee fix-sha.txt
+          git push --force origin "HEAD:refs/heads/$READY_BRANCH"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dev-linkage-roundtrip-ready-sha-v2-${{ github.run_number }}
+          path: fix-sha.txt
+          if-no-files-found: error
+          retention-days: 14
