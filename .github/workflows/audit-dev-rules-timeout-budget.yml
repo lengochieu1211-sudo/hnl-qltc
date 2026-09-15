@@ -1,0 +1,77 @@
+name: HNL QLTC DEV Rules Timeout Budget Audit
+
+on:
+  push:
+    branches: [audit/dev-rules-timeout-budget-20260915]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: audit-dev-rules-timeout-budget-20260915
+  cancel-in-progress: true
+
+env:
+  DEV_SHA: e4839af06a786d87dcd815cb7de1fe44f261c657
+  READY_BRANCH: audit/dev-rules-timeout-budget-ready-20260915
+
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Guard exact DEV and apply timeout-budget fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse origin/dev)" = "$DEV_SHA"
+          git checkout --detach "$DEV_SHA"
+          cat > "$RUNNER_TEMP/rules-timeout.patch.gz.b64" <<'PATCH_B64'
+          H4sIAECmqGoC/5VV227bRhB911dM0SKWIpGyZLu26RpRaiuOHtIAipI82IaxJIfixstdYi+6AO2/d5aULMWW0vSFWO3OmcuZM6MgCIB1wym3uYu7c6UfM6HmpptxjTEzGKQ4C1DOuFayQGnDZSEa7XYb4v8LGgwg6J92TqFN3zMYDBrwTcUmagCAdgLrkz9LEygZgYudtC4QzKKxjcC/WV6gcjYouHR0G8FZo+3vfwVvE1VuoGBL0Gj1EmyOwI3yHlLAwtFBaXAlWAVHsIDe2aG5gEfEEq5GELt0ihZYrGZIUGaBKjMWEqoorOO8iN8/rJM2Fst1AQABOONfWWK5kqab5Jg8Em4wO95nYtC6MpAqRW/kuTo681wdndPXc7WGSVZgBCNpLBMCcEEOIMUSZYoy4WjWlhWREciygIQ/h79bNQrGFWOJKkouEJhMIcaczbjSNeE7iz6pydj51jvZkQAdthrUAG9COQu1fCClRI2gEqFJNC+t6TKXchvkTFNFXE6DqRJ0CotvZiW8nzD0BB4fdn6HNn1rAtVj82BUsCnCF45z1NT3ZawITJzM+JT5PlRNgczJqitMQKycTBlJKRGsKA86MKuwIZeJcCma5sEHZvOwYIvmYQcSpzXJnWjutQ5a8OrVPnMum9s46mSVmQkFyqnNKwcbd+3KXetidw0gOKlP0g+NmUaTUwXzHCXwyjChCkjDOZPkf1cB/3TglpuPpKCXidy3LjaBr4dfwCinE4Spn8mqrTFmSiNcCeXSTDA61o31Y0/RqL3X1W8KmOLiY1a7KbXfEf7+O4/E2R87IbXp0yh7F+M+fKXFg7pKsL1OsBY0TfNKmVT/DLXZTH+9GepZpwS79eq5M69v78zdp/vXb55Lmp6ab6Le7Ulwfv/3bZ++d2mrG3o9N59yrZrd/Ymx+q8o/R9GWbdiTD0lB3BTKR5yZkAqKElSkHFhSQs+5pxxazYrwlP46f1bKvoXXeO3VODn1eNNVAv3pcVX8gbU7JVDT/bWil8F2AdehDmy9MHk7PLystQqQWNCgoeTt+Ob4eTB57URGgpOTWOxJ5FoQ1+cH/OE1mO69g4JasszTjerqtIt3Fbs8ee/JqMPw4er4XgyejcaXvto9Ndx3js9rvPdA3xW8fek70lXY6m0XSHWA0zxIF3S6uUJTdiymoudEYdP1K7GgiRUcPvDLH+7GU3ef/7zicJ/ARz0BrDSBwAA
+          PATCH_B64
+          tr -d '[:space:]' < "$RUNNER_TEMP/rules-timeout.patch.gz.b64" | base64 -d | gzip -d > "$RUNNER_TEMP/rules-timeout.patch"
+          git apply --check "$RUNNER_TEMP/rules-timeout.patch"
+          git apply "$RUNNER_TEMP/rules-timeout.patch"
+          git diff --check
+          test "$(git diff --name-only | sort | tr '\n' ' ')" = ".github/workflows/firebase-dev-environment.yml scripts/audit-hardening-golden.mjs "
+          git diff --exit-code -- package.json package-lock.json
+          node scripts/audit-hardening-golden.mjs
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Full certification gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run verify
+          git diff --check
+          git diff --exit-code -- package.json package-lock.json
+
+      - name: Create clean ready commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/firebase-dev-environment.yml scripts/audit-hardening-golden.mjs
+          test "$(git diff --cached --name-only | sort | tr '\n' ' ')" = ".github/workflows/firebase-dev-environment.yml scripts/audit-hardening-golden.mjs "
+          git commit -m 'fix(dev): align Firebase Rules retry timeout budget'
+          git rev-parse HEAD | tee fix-sha.txt
+          git push --force origin "HEAD:refs/heads/$READY_BRANCH"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dev-rules-timeout-ready-sha-${{ github.run_number }}
+          path: fix-sha.txt
+          if-no-files-found: error
+          retention-days: 14
