@@ -141,17 +141,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git diff -- src/utils/linkageIntegrity.ts scripts/ai-external-context-golden.ts > "$RUNNER_TEMP/canonical-room-category.patch"
-          test -s "$RUNNER_TEMP/canonical-room-category.patch"
-          git checkout --detach "$DEV_SHA"
-          git apply --check "$RUNNER_TEMP/canonical-room-category.patch"
-          git apply "$RUNNER_TEMP/canonical-room-category.patch"
+          test "$(git rev-parse HEAD)" = "$DEV_SHA"
           git diff --check
+          test "$(git diff --name-only | sort | tr '\n' ' ')" = "scripts/ai-external-context-golden.ts src/utils/linkageIntegrity.ts "
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add src/utils/linkageIntegrity.ts scripts/ai-external-context-golden.ts
           git commit -m 'fix(dev): preserve legacy room quantity through canonical IDs'
           git rev-parse HEAD | tee fix-sha.txt
+          test "$(git rev-parse HEAD^)" = "$DEV_SHA"
           git push --force origin HEAD:refs/heads/audit/dev-ai-unit-golden-ready-20260915
       - uses: actions/upload-artifact@v4
         with:
