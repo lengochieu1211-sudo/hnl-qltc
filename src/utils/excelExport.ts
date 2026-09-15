@@ -2,7 +2,7 @@ import * as XLSX from 'xlsx';
 import { InventoryItem, WorkVolume, DefectItem, ChecklistItem, FloorPlan, RoomProgressItem, MaterialNorm, CrewRecord, TeamInfo } from '../types';
 import { getDefectOverdueInfo } from './defectUtils';
 import { isTeamMatch, calculateTeamStatistics } from './teamUtils';
-import { calculateStockSummary } from './inventoryUtils';
+import { calculateStockSummary, resolveNormMaterialId } from './inventoryUtils';
 import { formatDateDDMMYYYY, formatDateTime } from './dateFormatter';
 import { saveWorkbookFile } from './fileExport';
 import { getCrewShiftCounts } from './crewUtils';
@@ -570,7 +570,10 @@ export function exportMaterialNormTemplate(materialNorms?: MaterialNorm[]) {
   const templateData = (materialNorms || []).map((n, idx) => ({
     'STT': idx + 1,
     '__normId': n.id,
-    '__materialId': n.materialId || n.id,
+    '__materialId': resolveNormMaterialId(n) || '',
+    '__workCategoryId': n.workCategoryId || '',
+    '__workCategoryIds': JSON.stringify(n.workCategoryIds || []),
+    '__workCategoryNormsById': JSON.stringify(n.workCategoryNormsById || {}),
     'Phân Loại': n.category,
     'Tên Hạng Mục Thi Công': n.workCategory || (n.workCategories ? n.workCategories.join(', ') : ''),
     'Tên Vật Tư': n.materialName,
@@ -893,7 +896,10 @@ export function exportWarehouseUpdateTemplate(
     return {
       'STT': idx + 1,
       '__normId': n.id,
-      '__materialId': n.materialId || n.id,
+      '__materialId': resolveNormMaterialId(n) || '',
+      '__workCategoryId': n.workCategoryId || '',
+      '__workCategoryIds': JSON.stringify(n.workCategoryIds || []),
+      '__workCategoryNormsById': JSON.stringify(n.workCategoryNormsById || {}),
       'Chủng Loại': n.category || 'Vật tư thạch cao',
       'Tên Hạng Mục Thi Công': workCatStr || '',
       'Tên Vật Tư': n.materialName,
@@ -909,7 +915,27 @@ export function exportWarehouseUpdateTemplate(
   autoFitColumns(wsNorms);
   XLSX.utils.book_append_sheet(wb, wsNorms, 'Định Mức Vật Tư');
 
-  // 4. Sheet "Tồn Kho Hiện Tại" (Calculated using unified calculateStockSummary)
+  // 4. Sheet "Hạng Mục Thi Công" — authoritative IDs/floor scope round-trip.
+  const workVolumeData = (workVolumes || []).map((item, idx) => ({
+    'STT': idx + 1,
+    '__recordId': item.id,
+    '__workCategoryId': item.workCategoryId || item.id,
+    '__floorId': item.floorId || item.floorIds?.[0] || '',
+    '__floorIds': item.floorIds ? item.floorIds.join(',') : '',
+    'Tên Hạng Mục Công Việc': item.title,
+    'Tầng / Khu Vực': item.floor,
+    'Nhóm Hạng Mục': item.category,
+    'Đơn Vị Tính': item.unit,
+    'KL Định Mức': item.planned,
+    'KL Thực Tế (chỉ xem - không import)': item.actual,
+    'Đơn Giá (VNĐ)': item.unitPrice || 0,
+    'Ngày Hạn Định': item.dueDate ? formatDateDDMMYYYY(item.dueDate) : '',
+  }));
+  const wsWorkVolumes = XLSX.utils.json_to_sheet(workVolumeData);
+  autoFitColumns(wsWorkVolumes);
+  XLSX.utils.book_append_sheet(wb, wsWorkVolumes, 'Hạng Mục Thi Công');
+
+  // 5. Sheet "Tồn Kho Hiện Tại" (Calculated using unified calculateStockSummary)
   const stockSummaries = calculateStockSummary(inventory || [], materialNorms || []);
   const stockData = stockSummaries.map((s, idx) => ({
     'STT': idx + 1,

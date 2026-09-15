@@ -3,6 +3,7 @@ import type { InventoryItem, MaterialNorm, RoomProgressItem, TeamInfo, WorkVolum
 import {
   canonicalWorkCategoryId,
   getCanonicalRoomCategoryEntries,
+  resolveUniqueMaterialIdentity,
   resolveWorkVolumeRef,
   validateInventoryOutProvenance,
   validateMaterialNormCatalog,
@@ -76,6 +77,13 @@ const legacyA = norm('LEG-A', undefined, ['CAT-F1'], 'Vít 25', 'hộp');
 const legacyB = norm('LEG-B', undefined, ['CAT-F2'], 'Vít 25', 'hộp');
 assert.equal(resolveNormMaterialId(legacyA), resolveNormMaterialId(legacyB));
 console.log('PASS material identity: legacy Name+Unit resolves to one stable material identity');
+
+const independentMaterial = resolveUniqueMaterialIdentity({ materialName: 'Băng keo độc lập', unit: 'Cuộn', materialNorms: [] });
+assert.equal(independentMaterial.state, 'resolved');
+assert.ok(independentMaterial.materialId?.startsWith('MAT-LEGACY-'));
+const independentMaterialAgain = resolveUniqueMaterialIdentity({ materialName: '  Băng   keo độc lập ', unit: 'cuộn', materialNorms: [] });
+assert.equal(independentMaterialAgain.materialId, independentMaterial.materialId, 'standalone Name+Unit bucket must be deterministic');
+console.log('PASS material identity: no-norm warehouse material remains an independent deterministic bucket');
 
 const provNorm = norm('N-P', 'MAT-P', ['CAT-F1']);
 const provRoom = room('R-P', 'F1', { 'CAT-F1': 10 }, { workCategoryId: 'CAT-F1', workCategory: w1.title });

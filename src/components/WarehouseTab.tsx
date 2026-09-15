@@ -35,6 +35,7 @@ import { calculateStockSummary, resolveNormMaterialId } from '../utils/inventory
 import { compareDateValues, naturalCompare } from '../utils/sortUtils';
 import { createEntityId } from '../utils/idUtils';
 import { normalizeUnit } from '../utils/unitUtils';
+import { parseExcelNumberRecord, parseExcelStringArray, sameStringSet } from '../utils/excelImportUtils';
 import { QuickSortBar } from './QuickSortBar';
 import { SettingsFeatureSheet } from './SettingsFeatureSheet';
 import { FIREBASE_ONLY_RUNTIME } from '../config/runtimeArchitecture';
@@ -340,12 +341,15 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
             const existingIdx = rawId ? newInventory.findIndex(i => i.id === String(rawId).trim()) : -1;
             
-            const matchedNorm = materialNorms.find(n => (rawMaterialId && (n.materialId === rawMaterialId || n.id === rawMaterialId)) || n.materialName.trim().toLowerCase() === materialNameStr.toLowerCase());
+            const existingItem = existingIdx >= 0 ? newInventory[existingIdx] : undefined;
+            const preservesExistingIdentity = Boolean(existingItem
+              && existingItem.materialName.trim().toLocaleLowerCase('vi-VN') === materialNameStr.toLocaleLowerCase('vi-VN')
+              && (normalizeUnit(existingItem.unit) || existingItem.unit) === (normalizeUnit(unitStr) || unitStr));
 
             const invItem: InventoryItem = {
               id: existingIdx >= 0 ? newInventory[existingIdx].id : (rawId ? String(rawId).trim() : createEntityId('INV-IN')),
               type: 'in',
-              materialId: rawMaterialId ? String(rawMaterialId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].materialId : resolveNormMaterialId(matchedNorm)),
+              materialId: rawMaterialId ? String(rawMaterialId).trim() : (preservesExistingIdentity ? existingItem?.materialId : undefined),
               materialName: materialNameStr,
               unit: unitStr,
               quantity: quantityNum,
@@ -409,12 +413,15 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
             const existingIdx = rawId ? newInventory.findIndex(i => i.id === String(rawId).trim()) : -1;
             
-            const matchedNorm = materialNorms.find(n => (rawMaterialId && (n.materialId === rawMaterialId || n.id === rawMaterialId)) || n.materialName.trim().toLowerCase() === materialNameStr.toLowerCase());
+            const existingItem = existingIdx >= 0 ? newInventory[existingIdx] : undefined;
+            const preservesExistingIdentity = Boolean(existingItem
+              && existingItem.materialName.trim().toLocaleLowerCase('vi-VN') === materialNameStr.toLocaleLowerCase('vi-VN')
+              && (normalizeUnit(existingItem.unit) || existingItem.unit) === (normalizeUnit(unitStr) || unitStr));
 
             const invItem: InventoryItem = {
               id: existingIdx >= 0 ? newInventory[existingIdx].id : (rawId ? String(rawId).trim() : createEntityId('INV-OUT')),
               type: 'out',
-              materialId: rawMaterialId ? String(rawMaterialId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].materialId : resolveNormMaterialId(matchedNorm)),
+              materialId: rawMaterialId ? String(rawMaterialId).trim() : (preservesExistingIdentity ? existingItem?.materialId : undefined),
               materialName: materialNameStr,
               unit: unitStr,
               quantity: quantityNum,
@@ -466,19 +473,49 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             const notesStr = String(row['Ghi Chú'] || row['notes'] || '').trim();
 
             const rawId = row['__normId'] || row['__recordId'] || row['Mã Định Mức'] || row['id'];
-            const existingIdx = rawId 
-              ? newNorms.findIndex(n => n.id === String(rawId).trim()) 
-              : newNorms.findIndex(n => n.materialName.toLowerCase() === materialNameStr.toLowerCase());
-            
+            const rawMaterialId = row['__materialId'] || row['Mã Vật Tư'] || row['materialId'];
+            const rawWorkCategoryId = row['__workCategoryId'] || row['workCategoryId'];
+            const importedWorkCategoryIds = parseExcelStringArray(row['__workCategoryIds'] || row['workCategoryIds'])
+              || (rawWorkCategoryId ? [String(rawWorkCategoryId).trim()] : undefined);
+            const importedWorkCategoryNormsById = parseExcelNumberRecord(row['__workCategoryNormsById'] || row['workCategoryNormsById']);
+            const importedWorkCategories = workCategoryStr ? workCategoryStr.split(',').map(value => value.trim()).filter(Boolean) : undefined;
+            const rawIdStr = rawId ? String(rawId).trim() : '';
+            const normalizedImportedUnit = normalizeUnit(unitStr) || unitStr;
+            const existingIdx = rawIdStr
+              ? newNorms.findIndex(n => n.id === rawIdStr)
+              : newNorms.findIndex(n => {
+                  if (n.materialName.trim().toLocaleLowerCase('vi-VN') !== materialNameStr.toLocaleLowerCase('vi-VN')) return false;
+                  if ((normalizeUnit(n.unit) || n.unit) !== normalizedImportedUnit) return false;
+                  const existingIds = n.workCategoryIds?.length ? n.workCategoryIds : (n.workCategoryId ? [n.workCategoryId] : undefined);
+                  if (importedWorkCategoryIds?.length) return sameStringSet(existingIds, importedWorkCategoryIds);
+                  const existingNames = n.workCategories?.length ? n.workCategories : (n.workCategory ? [n.workCategory] : undefined);
+                  return sameStringSet(existingNames, importedWorkCategories);
+                });
+            const existingNorm = existingIdx >= 0 ? newNorms[existingIdx] : undefined;
+            const importedNormId = existingNorm?.id || rawIdStr || createEntityId('NORM');
+            const importedMaterialId = rawMaterialId
+              ? String(rawMaterialId).trim()
+              : (existingNorm?.materialId || resolveNormMaterialId({ id: importedNormId, materialName: materialNameStr, unit: normalizedImportedUnit }));
+            const finalWorkCategoryIds = importedWorkCategoryIds || existingNorm?.workCategoryIds;
+            const finalWorkCategoryId = rawWorkCategoryId
+              ? String(rawWorkCategoryId).trim()
+              : (finalWorkCategoryIds?.[0] || existingNorm?.workCategoryId);
+
             const normData: MaterialNorm = {
-              id: existingIdx >= 0 ? newNorms[existingIdx].id : (rawId ? String(rawId).trim() : createEntityId('NORM')),
+              ...(existingNorm || {}),
+              id: importedNormId,
+              materialId: importedMaterialId,
               category: categoryStr,
-              workCategory: workCategoryStr,
-              workCategories: workCategoryStr ? workCategoryStr.split(',').map(s => s.trim()).filter(Boolean) : undefined,
+              workCategory: workCategoryStr || existingNorm?.workCategory,
+              workCategoryId: finalWorkCategoryId,
+              workCategories: importedWorkCategories || existingNorm?.workCategories,
+              workCategoryIds: finalWorkCategoryIds,
+              workCategoryNormsById: importedWorkCategoryNormsById || existingNorm?.workCategoryNormsById,
               materialName: materialNameStr,
-              unit: unitStr,
+              unit: normalizedImportedUnit,
               quotaQuantity: quotaQuantityNum,
               unitNormPerM2: unitNormPerM2Num ? parseExcelNumber(unitNormPerM2Num) : undefined,
+              normBasisUnit: normalizeUnit(row['ĐVT Khối Lượng Nguồn'] || row['Đơn Vị Khối Lượng Nguồn'] || row['normBasisUnit'] || '') || existingNorm?.normBasisUnit,
               notes: notesStr || undefined
             };
 
@@ -513,27 +550,37 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             const categoryStr = String(row['Nhóm Hạng Mục'] || row['Phân Loại'] || row['category'] || 'khung_tran').trim() as any;
             const unitStr = String(row['Đơn Vị Tính'] || row['Đơn Vị'] || row['unit'] || 'm2').trim();
             const plannedNum = parseExcelNumber(row['KL Định Mức'] || row['KL Kế Hoạch'] || row['planned'] || 0);
-            const actualNum = parseExcelNumber(row['KL Thực Tế'] || row['KL Thực Hiện'] || row['actual'] || 0);
             const unitPriceNum = parseExcelNumber(row['Đơn Giá (VNĐ)'] || row['Đơn Giá'] || row['unitPrice'] || 0);
-
             const rawVolId = row['__workCategoryId'] || row['__recordId'] || row['Mã Hạng Mục'] || row['id'];
-            const existingIdx = rawVolId
-              ? newWorkVolumes.findIndex(w => (w.workCategoryId && w.workCategoryId === String(rawVolId).trim()) || w.id === String(rawVolId).trim())
-              : newWorkVolumes.findIndex(w => w.title.toLowerCase() === titleStr.toLowerCase() && w.floor.toLowerCase() === floorStr.toLowerCase());
+            const rawRecordId = row['__recordId'] || row['id'];
+            const rawFloorId = row['__floorId'] || row['floorId'];
+            const importedFloorIds = parseExcelStringArray(row['__floorIds'] || row['floorIds'])
+              || (rawFloorId ? [String(rawFloorId).trim()] : undefined);
+            const dueDate = formatExcelDate(row['Ngày Hạn Định'] || row['Hạn Định'] || row['dueDate']);
+            const rawVolIdStr = rawVolId ? String(rawVolId).trim() : '';
+            const rawRecordIdStr = rawRecordId ? String(rawRecordId).trim() : '';
+            const existingIdx = rawVolIdStr || rawRecordIdStr
+              ? newWorkVolumes.findIndex(w => (w.workCategoryId && w.workCategoryId === rawVolIdStr) || w.id === rawRecordIdStr || w.id === rawVolIdStr)
+              : newWorkVolumes.findIndex(w => w.title.toLocaleLowerCase('vi-VN') === titleStr.toLocaleLowerCase('vi-VN') && w.floor.toLocaleLowerCase('vi-VN') === floorStr.toLocaleLowerCase('vi-VN'));
+            const existingVolume = existingIdx >= 0 ? newWorkVolumes[existingIdx] : undefined;
+            const recordId = existingVolume?.id || rawRecordIdStr || rawVolIdStr || createEntityId('HM');
 
-            const statusVal = actualNum >= plannedNum ? 'Đã hoàn thành' : actualNum > 0 ? 'Đang thi công' : 'Chưa thi công';
-
-            const volumeData: any = {
-              id: existingIdx >= 0 ? newWorkVolumes[existingIdx].id : (rawVolId ? String(rawVolId).trim() : createEntityId('HM')),
-              workCategoryId: existingIdx >= 0 ? (newWorkVolumes[existingIdx].workCategoryId || newWorkVolumes[existingIdx].id) : (rawVolId ? String(rawVolId).trim() : createEntityId('CAT')),
+            const volumeData: WorkVolume = {
+              ...(existingVolume || {} as WorkVolume),
+              id: recordId,
+              workCategoryId: existingVolume?.workCategoryId || rawVolIdStr || recordId,
               title: titleStr,
               floor: floorStr,
+              floorId: rawFloorId ? String(rawFloorId).trim() : (importedFloorIds?.[0] || existingVolume?.floorId),
+              floorIds: importedFloorIds || existingVolume?.floorIds,
               category: categoryStr,
-              unit: unitStr,
+              unit: normalizeUnit(unitStr) || unitStr,
               planned: plannedNum,
-              actual: actualNum,
+              // actual/status are derived by App.handleImportWorkVolumes and never imported as master data.
+              actual: existingVolume?.actual || 0,
               unitPrice: unitPriceNum,
-              status: statusVal
+              status: existingVolume?.status || 'Chưa thi công',
+              dueDate: dueDate || existingVolume?.dueDate,
             };
 
             if (existingIdx >= 0) {
@@ -767,8 +814,6 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     const matchedSummary = stockSummaries.find((summary) =>
       summary.materialName.trim().toLocaleLowerCase('vi-VN') === targetName.toLocaleLowerCase('vi-VN') &&
       (normalizeUnit(summary.unit) || summary.unit) === normalizedTargetUnit
-    ) || stockSummaries.find((summary) =>
-      summary.materialName.trim().toLocaleLowerCase('vi-VN') === targetName.toLocaleLowerCase('vi-VN')
     );
     const quota = Number(matchedSummary?.normQuantity || 0);
     if (!(quota > 0)) return null;
@@ -852,7 +897,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     if (!hasEditAccess) return;
     setEditingInventory(item);
     setType(item.type);
-    const matched = materialNorms.find((m) => (item.materialId && (m.materialId === item.materialId || m.id === item.materialId)) || m.materialName === item.materialName);
+    const matched = materialNorms.find((m) => item.materialId && (m.materialId === item.materialId || m.id === item.materialId))
+      || materialNorms.find((m) => m.materialName === item.materialName && (normalizeUnit(m.unit) || m.unit) === (normalizeUnit(item.unit) || item.unit));
     setMaterialName(matched?.materialName || item.materialName);
     setCustomMaterial(matched ? '' : item.materialName);
     setUnit(item.unit);
@@ -885,8 +931,6 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     const matchedStockSummary = stockSummaries.find((summary) =>
       summary.materialName.trim().toLocaleLowerCase('vi-VN') === finalMaterialName.trim().toLocaleLowerCase('vi-VN') &&
       (normalizeUnit(summary.unit) || summary.unit) === normalizedFinalUnit
-    ) || stockSummaries.find((summary) =>
-      summary.materialName.trim().toLocaleLowerCase('vi-VN') === finalMaterialName.trim().toLocaleLowerCase('vi-VN')
     );
 
     if (type === 'out') {
@@ -919,16 +963,20 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       }
     }
 
-    const matchedNorm = materialNorms.find((norm) =>
-      norm.materialName.trim().toLocaleLowerCase('vi-VN') === finalMaterialName.trim().toLocaleLowerCase('vi-VN') &&
-      (normalizeUnit(norm.unit) || norm.unit) === normalizedFinalUnit
-    ) || materialNorms.find((norm) =>
-      norm.materialName.trim().toLocaleLowerCase('vi-VN') === finalMaterialName.trim().toLocaleLowerCase('vi-VN')
-    );
+    const exactNormMaterialIds = Array.from(new Set(materialNorms
+      .filter((norm) => norm.materialName.trim().toLocaleLowerCase('vi-VN') === finalMaterialName.trim().toLocaleLowerCase('vi-VN')
+        && (normalizeUnit(norm.unit) || norm.unit) === normalizedFinalUnit)
+      .map(resolveNormMaterialId)
+      .filter(Boolean) as string[]));
+    const editingKeepsIdentity = Boolean(editingInventory
+      && editingInventory.materialName.trim().toLocaleLowerCase('vi-VN') === finalMaterialName.trim().toLocaleLowerCase('vi-VN')
+      && (normalizeUnit(editingInventory.unit) || editingInventory.unit) === normalizedFinalUnit);
 
     const payload = {
       type,
-      materialId: resolveNormMaterialId(matchedNorm),
+      materialId: exactNormMaterialIds.length === 1
+        ? exactNormMaterialIds[0]
+        : (exactNormMaterialIds.length === 0 && editingKeepsIdentity ? editingInventory?.materialId : undefined),
       materialName: finalMaterialName,
       unit: normalizedFinalUnit,
       quantity: finalQuantity,

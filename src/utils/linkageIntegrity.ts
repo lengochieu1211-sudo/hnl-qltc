@@ -1,6 +1,6 @@
 import type { InventoryItem, MaterialNorm, RoomProgressItem, TeamInfo, WorkVolume } from '../types';
 import { areSameUnit, normalizeUnit } from './unitUtils';
-import { getMaterialIdentityKey, normalizeMaterialNameKey, resolveNormMaterialId } from './inventoryUtils';
+import { getMaterialIdentityKey, normalizeMaterialNameKey, resolveLegacyMaterialId, resolveNormMaterialId } from './inventoryUtils';
 
 export type LinkResolutionState = 'resolved' | 'missing' | 'ambiguous' | 'floor-mismatch';
 export interface WorkVolumeResolution {
@@ -277,9 +277,16 @@ export function resolveUniqueMaterialIdentity(params: { materialId?: string; mat
   if (explicit) return { state: 'resolved', materialId: explicit };
   const name = normalizeMaterialNameKey(params.materialName);
   const unit = normalizeUnit(params.unit || '') || String(params.unit || '').trim();
+  if (!name || !unit) return { state: 'missing' };
   const ids = Array.from(new Set(params.materialNorms.filter(isActiveRecord).filter((norm) => normalizeMaterialNameKey(norm.materialName) === name && areSameUnit(norm.unit, unit)).map(resolveNormMaterialId).filter(Boolean) as string[]));
   if (ids.length === 1) return { state: 'resolved', materialId: ids[0] };
-  return { state: ids.length > 1 ? 'ambiguous' : 'missing' };
+  if (ids.length > 1) return { state: 'ambiguous' };
+
+  // A warehouse item does not need a MaterialNorm to exist. When Name + Unit has no
+  // catalog match, keep it as an independent deterministic bucket instead of rejecting
+  // the ledger write or guessing a different norm by display name.
+  const independentId = resolveLegacyMaterialId(params.materialName, unit);
+  return independentId ? { state: 'resolved', materialId: independentId } : { state: 'missing' };
 }
 
 export interface InventoryOutProvenanceResult {

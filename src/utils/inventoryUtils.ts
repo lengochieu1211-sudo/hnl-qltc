@@ -255,7 +255,7 @@ export function parseMaterialNormExcel(rows: any[]): Partial<MaterialNorm>[] {
 
     result.push({
       id: String(id),
-      materialId: materialId ? String(materialId) : `MAT-${String(id)}`,
+      materialId: materialId ? String(materialId) : resolveLegacyMaterialId(String(materialName).trim(), unit),
       materialName: String(materialName).trim(),
       category,
       workCategory: workCatStr,
