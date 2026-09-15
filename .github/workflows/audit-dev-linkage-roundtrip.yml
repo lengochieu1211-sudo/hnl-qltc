@@ -75,7 +75,7 @@ jobs:
           oPky38z0Bv5M9QLUq06Fbe0dvGjsHVi1mqPjF+cvfmA5quwQ5TRG1QYy3rxYwm/faUg5IuiaHSsXaVVPgrRdrkJrfjyE/5tq89Oi
           9Bt4NvwUvD3PpWR+mTum9yAlhOQaa03TdDJz8+J3Zm6OqJq56hGYri+LRPGK9yRLQJ+CsOwYrqB2i6SJmvekLYWvElc3TiNTv2sF
           5W2YSlbxvpPJoU9BWCG8LDEFRULVBu9JsIZtiulOD1h1g1IklFe8J4EC+hSEpUZlzWCYisSlVe9JXoZBJlClbyx83uUW83mXVx98
-          3gef98HnffB52ytt5s2szv8/9HmfPj+ucHrZpaMHr1d4vatMTubnF683gev98HrffB6fzpe7/z8ojM/B8prYdVZWL1XK4eaFds+
+          3gef98HnffB52ytt5s2szv8/9HmfPj+ucHrZpaMHr1d4vatMTubnFh683gev98HrffB6fzpe7/z8ojM/B8prYdVZWL1XK4eaFds+
           o9F+G5QnNNQPR7hHK45Q8ZbTnzwySwZtyVirlZ+5IbisN99Vtzr2b/5txNrarUG7JrVTaOLlc/flfZc4W2Vu1mWZg3VZcK0MgEsu
           Tig8lw6e7LLbHiVYoaamaxBoaRfHs0lOciE3K4lTRUynHk52t8QgSPyUza6+kWIcm1Q/NSk+u84kQ0FB2dRLmvGw7ye25YBUDNyh
           jaezlB0K4RfBjJq4BGVvh2GfukFNZo6RoOxEtbMnSGOHqBvqUastHJsajlp81wS9TxPFudwgjRY7JZP8z3PCLpHtdRioa7WWaN1B
@@ -157,7 +157,7 @@ jobs:
           CwNySumE4EKDkCuCywXuBZFSM6ZQ+zhJmf2THM+iU4rzO5/SMCbZAL7iDY3Q1i4qxitdRjQ+oWfkHBYGSuCYdjKjrDegsbioUbwx
           hMkLwr/062G085vWBp2c3VmtPbNOCA/reNHJZm0HCwy+UeCS9Mom1aWmUgu1p9a65zM4NWTwgNemfMl2RaD+/gUCjM9YLL4AAA==
           PATCH_B64
-          base64 -d "$RUNNER_TEMP/linkage.patch.gz.b64" | gzip -d > "$RUNNER_TEMP/linkage.patch"
+          tr -d '[:space:]' < "$RUNNER_TEMP/linkage.patch.gz.b64" | base64 -d | gzip -d > "$RUNNER_TEMP/linkage.patch"
           git apply --check "$RUNNER_TEMP/linkage.patch"
           git apply "$RUNNER_TEMP/linkage.patch"
           git diff --check
