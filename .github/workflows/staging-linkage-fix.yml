@@ -1,0 +1,59 @@
+name: Materialize HNL QLTC linkage fix
+
+on:
+  push:
+    branches:
+      - staging/qltc-linkage-fix-20260916
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout staging branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply certified local patch and self-clean
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='b5f04a06ac301841e4a1d57d27c04657637682af'
+          BRANCH='staging/qltc-linkage-fix-20260916'
+
+          test "$(git rev-parse HEAD^)" = "$BASE"
+
+          base64 -d scripts/linkage-fix.patch.gz.b64 | gzip -dc > /tmp/linkage.patch
+          patch --dry-run -p1 < /tmp/linkage.patch
+          patch -p1 < /tmp/linkage.patch
+
+          rm -f scripts/linkage-fix.patch.gz.b64
+          rm -f .github/workflows/staging-linkage-fix.yml
+
+          git diff --check
+
+          cat > /tmp/expected.txt <<'EOF'
+          scripts/health-center-orphan-golden.ts
+          scripts/linkage-calculation-golden.ts
+          scripts/linkage-calculation-source-golden.mjs
+          src/ai/audit/quantityAudit.ts
+          src/healthCenter/healthCenterEngine.ts
+          src/utils/linkageIntegrity.ts
+          src/utils/materialNeedEngine.ts
+          src/utils/teamUtils.ts
+          src/utils/workVolumeComputation.ts
+          EOF
+          sort -o /tmp/expected.txt /tmp/expected.txt
+          git diff --name-only "$BASE" | sort > /tmp/actual.txt
+          diff -u /tmp/expected.txt /tmp/actual.txt
+
+          node scripts/linkage-calculation-source-golden.mjs
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'staging: materialize room quantity team material linkage fix'
+          git push origin "HEAD:${BRANCH}"
