@@ -6,11 +6,11 @@ import {
   canonicalNormCategoryIds,
   canonicalWorkCategoryId as canonicalWorkCategoryIdShared,
   getCanonicalRoomCategoryEntries,
+  resolveAuthoritativeWorkVolumeRef,
   resolveUniqueMaterialIdentity,
   resolveWorkVolumeRef,
   validateInventoryOutProvenance,
   validateMaterialNormCatalog,
-  workVolumeAppliesToFloor,
 } from './linkageIntegrity';
 
 export interface MaterialNeedWarning {
@@ -124,13 +124,9 @@ function resolveWorkVolumeStrict(categoryIdOrName: string | undefined, workVolum
   const raw = String(categoryIdOrName || '').trim();
   if (!raw) return { state: 'missing' };
   const looksLikeId = workVolumes.some((item) => String(item.id || '').trim() === raw || String(item.workCategoryId || '').trim() === raw);
-  const resolution = resolveWorkVolumeRef({
-    workVolumes,
-    workCategoryId: looksLikeId ? raw : undefined,
-    workCategoryName: looksLikeId ? undefined : raw,
-    floorId,
-    floorName,
-  });
+  const resolution = looksLikeId
+    ? resolveAuthoritativeWorkVolumeRef({ workVolumes, workCategoryId: raw, floorId, floorName })
+    : resolveWorkVolumeRef({ workVolumes, workCategoryName: raw, floorId, floorName });
   if (resolution.state === 'resolved') return { work: resolution.work, state: 'resolved' };
   return { state: resolution.state === 'ambiguous' ? 'ambiguous' : 'missing' };
 }

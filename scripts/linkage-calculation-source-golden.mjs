@@ -8,6 +8,8 @@ const room = read('src/components/RoomHighlightModal.tsx');
 const materialNeed = read('src/utils/materialNeedEngine.ts');
 const team = read('src/utils/teamUtils.ts');
 const reconciliation = read('src/utils/projectReconciliation.ts');
+const linkage = read('src/utils/linkageIntegrity.ts');
+const workComputation = read('src/utils/workVolumeComputation.ts');
 const excel = read('src/utils/excelExport.ts');
 const warehouse = read('src/components/WarehouseTab.tsx');
 const normModal = read('src/components/MaterialNormModal.tsx');
@@ -37,6 +39,10 @@ const checks = [
   ['Material Need exposes raw calculation quantities', materialNeed.includes('rawRemainingQty') && materialNeed.includes('rawStockQty')],
   ['Team statistics consumes WorkVolume catalog', team.includes('workVolumes?: WorkVolume[]') && team.includes('getCanonicalRoomCategoryEntries')],
   ['Team rows use category-specific ID', team.includes('workCategoryId: assignment.workCategoryId')],
+  ['durable Room category ID survives catalog floor-scope drift', linkage.includes('resolveAuthoritativeWorkVolumeRef') && linkage.includes('scopeMismatch') && workComputation.includes('resolveAuthoritativeWorkVolumeRef')],
+  ['team stats keep durable category ID under floor-scope drift', team.includes('resolveAuthoritativeWorkVolumeRef({ workVolumes, workCategoryId: sub.workCategoryId')],
+  ['Material Need keeps durable category ID under floor-scope drift', materialNeed.includes('resolveAuthoritativeWorkVolumeRef({ workVolumes, workCategoryId: raw, floorId, floorName })')],
+  ['issued-material provenance keeps durable category ID under floor-scope drift', linkage.includes('const resolved = resolveAuthoritativeWorkVolumeRef({ workVolumes, workCategoryId: categoryId, floorId, floorName: room?.floorName })')],
   ['Reconciliation preserves stale authoritative IDs', reconciliation.includes('Unresolved explicit primary ID is intentionally preserved')],
   ['linkage golden is part of stability gate', String(pkg.scripts?.['test:stability'] || '').includes('test:linkage-calculation')],
 ];
