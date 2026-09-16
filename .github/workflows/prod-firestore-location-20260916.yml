@@ -1,0 +1,27 @@
+name: HNL QLTC PROD Firestore Location 2026-09-16
+
+on:
+  push:
+    branches:
+      - release/prod-preflight-20260916
+    paths:
+      - .github/workflows/prod-firestore-location-20260916.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    steps:
+      - name: Authenticate PROD Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+          create_credentials_file: true
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+      - name: Describe Firestore database
+        run: gcloud firestore databases describe --project com-example-qlct-61329 --database='(default)' --format='yaml(name,locationId,type,deleteProtectionState,pointInTimeRecoveryEnablement)'
