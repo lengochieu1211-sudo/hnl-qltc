@@ -137,6 +137,32 @@ assert.equal(stats['TEAM-A'].volumeByUnit['m²'] + stats['TEAM-B'].volumeByUnit[
 assert.equal(stats['TEAM-A'].teamRoomDetails[0].workCategoryId, 'CAT-F1');
 console.log('PASS teams: denominator keeps team allocations <= canonical category total');
 
+const zeroQuantityAssignedRoom = room('R-TEAM-ZERO', 'F1', {}, {
+  workCategoryId: 'CAT-F1', workCategory: w1.title, workVolume: 0,
+  teamId: 'TEAM-A', assignedTeam: 'Đội A',
+});
+const zeroQuantityEntries = getCanonicalRoomCategoryEntries(zeroQuantityAssignedRoom, [w1]);
+assert.equal(zeroQuantityEntries.length, 1, 'valid room/category identity must survive even when quantity is 0');
+assert.equal(zeroQuantityEntries[0].quantity, 0);
+const zeroQuantityStats = calculateTeamStatistics({ teams: [teamA], roomProgressList: [zeroQuantityAssignedRoom], defects: [], crewRecords: [], workVolumes: [w1] });
+assert.equal(zeroQuantityStats['TEAM-A'].teamRooms.length, 1, 'team room count must include assigned room before quantity/acceptance is entered');
+assert.equal(zeroQuantityStats['TEAM-A'].volumeByUnit['m²'] || 0, 0, 'zero source quantity must not fabricate team volume');
+const zeroQuantityNeed = computeMaterialNeeds({ rooms: [zeroQuantityAssignedRoom], materialNorms: [tinyNorm], inventory: [], workVolumes: [w1], teams: [teamA], scope: { teamId: 'TEAM-A' } });
+assert.equal(zeroQuantityNeed.lines.length, 0, 'zero source quantity must not fabricate material demand');
+console.log('PASS teams/materials: assigned zero-quantity room stays visible without inventing demand');
+
+const stageOnlyAssignedRoom = room('R-TEAM-STAGE-ONLY', 'F1', {}, {
+  subItems: [
+    { id: 'SO-1', name: 'Thi công', category: w1.title, workCategoryId: 'CAT-F1', teamId: 'TEAM-A', assignedTeam: 'Đội A', status: 'Chưa làm' },
+  ],
+});
+const stageOnlyEntries = getCanonicalRoomCategoryEntries(stageOnlyAssignedRoom, [w1]);
+assert.equal(stageOnlyEntries.length, 1, 'sub-item-only durable category link must remain visible');
+assert.equal(stageOnlyEntries[0].quantity, 0);
+const stageOnlyStats = calculateTeamStatistics({ teams: [teamA], roomProgressList: [stageOnlyAssignedRoom], defects: [], crewRecords: [], workVolumes: [w1] });
+assert.equal(stageOnlyStats['TEAM-A'].teamRooms.length, 1, 'sub-item-only team assignment must count the room');
+console.log('PASS teams: sub-item-only assignment keeps room membership visible');
+
 const scopeDriftDerived = computeDerivedWorkVolumes([w1], [scopeDriftRoom])[0];
 assert.equal(scopeDriftDerived.actual, 20, 'derived WorkVolume actual must use the durable category ID even if catalog floor scope drifted');
 const scopeDriftStats = calculateTeamStatistics({ teams: [teamA], roomProgressList: [scopeDriftRoom], defects: [], crewRecords: [], workVolumes: [w1] });
