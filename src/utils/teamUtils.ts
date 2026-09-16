@@ -77,9 +77,19 @@ interface TeamCategoryAssignment {
   isMain: boolean;
 }
 
-function getTeamCategoryAssignments(room: RoomProgressItem, team: TeamInfo, workVolumes: WorkVolume[] = []): TeamCategoryAssignment[] {
+function getTeamCategoryAssignments(
+  room: RoomProgressItem,
+  team: TeamInfo,
+  workVolumes: WorkVolume[] = [],
+  resolvedFloorName?: string,
+): TeamCategoryAssignment[] {
   const isMain = isTeamMatch(room.assignedTeam, team, room.teamId);
-  const floorName = room.floorName || '';
+  // Legacy Room records often keep only floorId while FloorPlan owns the display name.
+  // Name-only legacy work-category references still need the resolved floor name so a
+  // valid `Tầng 1` link is not misclassified as floor-mismatch and silently dropped
+  // from team statistics/export. Durable IDs remain authoritative as before.
+  const floorName = room.floorName || resolvedFloorName || '';
+  const roomForResolution = room.floorName || !floorName ? room : { ...room, floorName };
 
   const belongsToCategory = (sub: RoomSubItem, categoryId: string | undefined, categoryName: string): boolean => {
     if (workVolumes.length > 0) {
@@ -96,7 +106,7 @@ function getTeamCategoryAssignments(room: RoomProgressItem, team: TeamInfo, work
   };
 
   const baseCategories: Array<{ id?: string; name: string; unit: string; quantity: number }> = workVolumes.length > 0
-    ? getCanonicalRoomCategoryEntries(room, workVolumes).map((entry) => ({
+    ? getCanonicalRoomCategoryEntries(roomForResolution, workVolumes).map((entry) => ({
         id: entry.workCategoryId,
         name: entry.workCategoryName,
         unit: normalizeUnit(entry.unit) || entry.unit,
@@ -140,8 +150,13 @@ function getTeamCategoryAssignments(room: RoomProgressItem, team: TeamInfo, work
  * Display helper. Canonical stats use getTeamCategoryAssignments so equal names with
  * different IDs/units cannot be merged accidentally.
  */
-export function getTeamCategoriesForRoom(room: RoomProgressItem, team: TeamInfo, workVolumes: WorkVolume[] = []): Set<string> {
-  return new Set(getTeamCategoryAssignments(room, team, workVolumes).map((item) => item.name));
+export function getTeamCategoriesForRoom(
+  room: RoomProgressItem,
+  team: TeamInfo,
+  workVolumes: WorkVolume[] = [],
+  resolvedFloorName?: string,
+): Set<string> {
+  return new Set(getTeamCategoryAssignments(room, team, workVolumes, resolvedFloorName).map((item) => item.name));
 }
 
 export interface TeamCategoryBreakdown {
@@ -202,8 +217,13 @@ export interface TeamStatistics {
   teamRoomDetails: TeamRoomDetail[];
 }
 
-export function isTeamWorkCompletedInRoom(room: RoomProgressItem, team: TeamInfo, workVolumes: WorkVolume[] = []): boolean {
-  const assignments = getTeamCategoryAssignments(room, team, workVolumes);
+export function isTeamWorkCompletedInRoom(
+  room: RoomProgressItem,
+  team: TeamInfo,
+  workVolumes: WorkVolume[] = [],
+  resolvedFloorName?: string,
+): boolean {
+  const assignments = getTeamCategoryAssignments(room, team, workVolumes, resolvedFloorName);
   if (assignments.length === 0) return false;
   return assignments.every((assignment) => {
     if (assignment.allSubItems.length > 0) {
@@ -226,12 +246,19 @@ export function calculateTeamStatistics(params: {
 }): Record<string, TeamStatistics> {
   const { teams, roomProgressList = [], defects = [], crewRecords = [], floorPlans = [], workVolumes = [] } = params;
   const statsMap: Record<string, TeamStatistics> = {};
+  const floorNameById = new Map(
+    floorPlans
+      .filter((floor) => floor.deletedAt === undefined || floor.deletedAt === null)
+      .map((floor) => [floor.id, floor.floorName] as const),
+  );
+  const resolvedRoomFloorName = (room: RoomProgressItem): string =>
+    room.floorName || floorNameById.get(room.floorId) || '';
 
   teams.forEach((team) => {
     const activeRooms = roomProgressList.filter((room) => room.deletedAt === undefined || room.deletedAt === null);
     const assignmentsByRoom = new Map<string, TeamCategoryAssignment[]>();
     activeRooms.forEach((room) => {
-      const assignments = getTeamCategoryAssignments(room, team, workVolumes);
+      const assignments = getTeamCategoryAssignments(room, team, workVolumes, resolvedRoomFloorName(room));
       if (assignments.length > 0) assignmentsByRoom.set(room.id, assignments);
     });
     const teamRooms = activeRooms.filter((room) => assignmentsByRoom.has(room.id));
@@ -370,7 +397,7 @@ export function calculateTeamStatistics(params: {
       floorGroupMap[floorName].doneFrameVol += roomFrame;
       floorGroupMap[floorName].doneBoardVol += roomBoard;
       floorGroupMap[floorName].doneInspectedVol += roomInspected;
-      if (isTeamWorkCompletedInRoom(room, team, workVolumes)) floorGroupMap[floorName].doneRooms += 1;
+      if (isTeamWorkCompletedInRoom(room, team, workVolumes, floorName)) floorGroupMap[floorName].doneRooms += 1;
       totalTeamVol += roomAssigned;
       completedFrameVol += roomFrame;
       completedBoardVol += roomBoard;
@@ -426,7 +453,9 @@ export function calculateTeamStatistics(params: {
     const avgWorkers = dailyCounts.length ? Math.round((dailyCounts.reduce((sum, value) => sum + value, 0) / dailyCounts.length) * 10) / 10 : 0;
     const maxWorkers = dailyCounts.length ? Math.max(...dailyCounts) : 0;
     const minWorkers = dailyCounts.length ? Math.min(...dailyCounts) : 0;
-    const completedRoomsCount = teamRooms.filter((room) => isTeamWorkCompletedInRoom(room, team, workVolumes)).length;
+    const completedRoomsCount = teamRooms.filter((room) =>
+      isTeamWorkCompletedInRoom(room, team, workVolumes, resolvedRoomFloorName(room)),
+    ).length;
 
     statsMap[team.id] = {
       team,
