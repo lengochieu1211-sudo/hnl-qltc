@@ -117,7 +117,6 @@ export function resolveAuthoritativeWorkVolumeRef(params: {
   const scopeMismatch = hasFloorContext && !workVolumeAppliesToFloor(work, params.floorId, params.floorName);
   return { state: 'resolved', work, matches: idMatches, scopeMismatch };
 }
-
 export interface CanonicalRoomCategoryEntry {
   workCategoryId: string;
   workCategoryName: string;
@@ -230,11 +229,40 @@ export function getCanonicalRoomCategoryEntries(room: RoomProgressItem, workVolu
     });
     if (resolution.state === 'resolved' && resolution.work) {
       const id = canonicalWorkCategoryId(resolution.work);
-      if (!output.has(id) && (Number(room.workVolume) || 0) > 0) {
+      // A valid category link must remain visible even when its quantity is still 0.
+      // Team/room statistics are about assignment identity, while material demand and
+      // executed quantity remain 0 until a real source quantity exists. Requiring a
+      // positive workVolume here made DEV hide legacy assigned rooms that PROD still
+      // showed correctly.
+      if (!output.has(id)) {
         add(resolution, room.workCategoryId || room.workCategory || id, Number(room.workVolume) || 0, room.volumeUnit);
       }
     }
   }
+
+  // Some legacy rooms store the durable category/team only on stage/sub-item rows.
+  // Preserve those valid identities with quantity=0 when the room-level quantity
+  // map is absent. This restores room membership for team statistics without ever
+  // fabricating material need or completed quantity.
+  (room.subItems || []).forEach((item) => {
+    const source = String(item.workCategoryId || item.category || '').trim();
+    if (!source) return;
+    const resolution = item.workCategoryId ? resolveAuthoritativeWorkVolumeRef({
+      workVolumes,
+      workCategoryId: item.workCategoryId,
+      floorId: room.floorId,
+      floorName: room.floorName,
+    }) : resolveWorkVolumeRef({
+      workVolumes,
+      workCategoryName: item.category,
+      floorId: room.floorId,
+      floorName: room.floorName,
+    });
+    if (resolution.state !== 'resolved' || !resolution.work) return;
+    const id = canonicalWorkCategoryId(resolution.work);
+    if (!id || output.has(id)) return;
+    add(resolution, source, 0, item.volumeUnit || room.volumeUnit);
+  });
 
   return Array.from(output.values());
 }
