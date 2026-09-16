@@ -1,0 +1,36 @@
+name: HNL QLTC PROD R2 Discovery 2026-09-16
+
+on:
+  push:
+    branches:
+      - release/prod-preflight-20260916
+    paths:
+      - .github/workflows/prod-r2-discovery-20260916.yml
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - name: Resolve Cloudflare account
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo 'Missing CLOUDFLARE_API_TOKEN'; exit 1; }
+          RESPONSE="$(curl --fail --silent --show-error -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' 'https://api.cloudflare.com/client/v4/accounts?per_page=50')"
+          ACCOUNT_ID="$(printf '%s' "$RESPONSE" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const r=Array.isArray(j.result)?j.result:[];if(!j.success||r.length!==1){console.error('Expected exactly one accessible Cloudflare account, got '+r.length);process.exit(2)};process.stdout.write(String(r[0].id||''))})")"
+          test -n "$ACCOUNT_ID" || exit 1
+          echo "CLOUDFLARE_ACCOUNT_ID=$ACCOUNT_ID" >> "$GITHUB_ENV"
+      - name: Verify PROD R2 bucket exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$(npx --yes wrangler@4.33.0 r2 bucket list)"
+          printf '%s\n' "$OUT"
+          printf '%s' "$OUT" | grep -q 'hnl-qltc-media' || { echo 'PROD R2 bucket hnl-qltc-media not found'; exit 1; }
+          echo 'PROD private R2 bucket target: PASS'
