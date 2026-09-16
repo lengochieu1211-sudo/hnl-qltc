@@ -5,6 +5,7 @@ const read = (path) => fs.readFileSync(path, 'utf8');
 const app = read('src/App.tsx');
 const workTab = read('src/components/WorkVolumeTab.tsx');
 const room = read('src/components/RoomHighlightModal.tsx');
+const floorPlanDefect = read('src/components/FloorPlanDefectTab.tsx');
 const materialNeed = read('src/utils/materialNeedEngine.ts');
 const team = read('src/utils/teamUtils.ts');
 const reconciliation = read('src/utils/projectReconciliation.ts');
@@ -36,6 +37,10 @@ const checks = [
   ['Auto Issue has no ceil decision path', !room.includes('Math.ceil')],
   ['Auto Issue preflights whole batch', room.includes('Preflight the ENTIRE auto-issue set') && room.includes('plannedIssues.length !== needsIssue.length')],
   ['Auto Issue does not first-pick norm/category', !room.includes('sourceNormIds?.[0]') && !room.includes('sourceWorkCategoryId: roomItem.workCategoryId')],
+  ['new Room form persists floorId + floorName', room.includes('floorId,\n      floorName,\n      roomName: roomName.trim()')],
+  ['quick-save Room persists floorId + floorName', floorPlanDefect.includes('floorId: activeFloor.id,\n                            floorName: activeFloor.floorName,\n                            roomName: getNextAvailableQuickRoomName()')],
+  ['Material Need has safe missing-floor-name title fallback', materialNeed.includes("resolution.state === 'floor-mismatch' && !String(floorName || '').trim()") && materialNeed.includes('const unscoped = resolveWorkVolumeRef({ workVolumes, workCategoryName: raw })')],
+  ['Material Need canonicalizes legacy missing-floor-name rooms before contribution filtering', materialNeed.includes('function getMaterialRoomCategoryEntries') && materialNeed.includes('return getMaterialRoomCategoryEntries(room, workVolumes).map')],
   ['Material Need exposes raw calculation quantities', materialNeed.includes('rawRemainingQty') && materialNeed.includes('rawStockQty')],
   ['Team statistics consumes WorkVolume catalog', team.includes('workVolumes?: WorkVolume[]') && team.includes('getCanonicalRoomCategoryEntries')],
   ['Team rows use category-specific ID', team.includes('workCategoryId: assignment.workCategoryId')],

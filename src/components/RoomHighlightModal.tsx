@@ -1031,6 +1031,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     const roomData: Omit<RoomProgressItem, 'updatedAt'> = {
       id: roomItem?.id,
       floorId,
+      floorName,
       roomName: roomName.trim(),
       workCategory: effectiveWorkCategory,
       workCategoryId: finalWorkCategoryId,

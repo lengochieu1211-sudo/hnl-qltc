@@ -128,6 +128,19 @@ function resolveWorkVolumeStrict(categoryIdOrName: string | undefined, workVolum
     ? resolveAuthoritativeWorkVolumeRef({ workVolumes, workCategoryId: raw, floorId, floorName })
     : resolveWorkVolumeRef({ workVolumes, workCategoryName: raw, floorId, floorName });
   if (resolution.state === 'resolved') return { work: resolution.work, state: 'resolved' };
+
+  // Legacy Room rows can contain floorId but no floorName while older WorkVolume rows
+  // scope themselves only by the display floor name. In that specific case, resolve
+  // by title only when the ACTIVE catalog has one canonical category identity. This
+  // restores deterministic material demand without guessing between duplicate titles.
+  if (!looksLikeId && resolution.state === 'floor-mismatch' && !String(floorName || '').trim()) {
+    const unscoped = resolveWorkVolumeRef({ workVolumes, workCategoryName: raw });
+    if (unscoped.state === 'resolved' && unscoped.work) {
+      return { work: unscoped.work, state: 'resolved' };
+    }
+    if (unscoped.state === 'ambiguous') return { state: 'ambiguous' };
+  }
+
   return { state: resolution.state === 'ambiguous' ? 'ambiguous' : 'missing' };
 }
 
@@ -135,8 +148,55 @@ function resolveWorkVolume(categoryIdOrName: string | undefined, workVolumes: Wo
   return resolveWorkVolumeStrict(categoryIdOrName, workVolumes).work;
 }
 
+function getMaterialRoomCategoryEntries(room: RoomProgressItem, workVolumes: WorkVolume[]) {
+  const canonical = getCanonicalRoomCategoryEntries(room, workVolumes);
+  // Normal/current records already have full floor context and use the shared canonicalizer.
+  if (String(room.floorName || '').trim()) return canonical;
+
+  // Legacy records may keep only floorId while legacy WorkVolume scope is name-only.
+  // Recover only identities that resolve uniquely with resolveWorkVolumeStrict(); duplicate
+  // same-title categories remain ambiguous/fail-closed. ID-backed entries from the shared
+  // canonicalizer always win, so this compatibility path cannot double-count a category.
+  const output = new Map(canonical.map((entry) => [entry.workCategoryId, entry] as const));
+  const volumes = room.categoryVolumes || {};
+  const units = room.categoryVolumeUnits || {};
+  const keys = Object.keys(volumes).sort((a, b) => {
+    const aIsId = workVolumes.some((work) => a === work.id || a === work.workCategoryId) ? 0 : 1;
+    const bIsId = workVolumes.some((work) => b === work.id || b === work.workCategoryId) ? 0 : 1;
+    return aIsId - bIsId;
+  });
+
+  const addResolved = (rawRef: string, quantity: number, unitHint?: string) => {
+    const resolved = resolveWorkVolumeStrict(rawRef, workVolumes, room.floorId, room.floorName);
+    if (resolved.state !== 'resolved' || !resolved.work) return;
+    const id = canonicalWorkCategoryId(resolved.work);
+    if (!id || output.has(id)) return;
+    const unit = normalizeUnit(unitHint || resolved.work.unit || room.volumeUnit || '')
+      || unitHint || resolved.work.unit || room.volumeUnit || 'm²';
+    output.set(id, {
+      workCategoryId: id,
+      workCategoryName: resolved.work.title,
+      unit,
+      quantity: Number(quantity) || 0,
+      sourceKey: rawRef,
+      work: resolved.work,
+    });
+  };
+
+  keys.forEach((key) => addResolved(key, Number(volumes[key]) || 0, units[key]));
+  if (room.workCategoryId || room.workCategory) {
+    addResolved(room.workCategoryId || room.workCategory || '', Number(room.workVolume) || 0, room.volumeUnit);
+  }
+  (room.subItems || []).forEach((item) => {
+    const ref = String(item.workCategoryId || item.category || '').trim();
+    if (ref) addResolved(ref, 0, item.volumeUnit || room.volumeUnit);
+  });
+
+  return Array.from(output.values());
+}
+
 function categoryVolumeForRoom(room: RoomProgressItem, categoryIdOrName: string, workVolumes: WorkVolume[]): number {
-  const entries = getCanonicalRoomCategoryEntries(room, workVolumes);
+  const entries = getMaterialRoomCategoryEntries(room, workVolumes);
   const direct = entries.find((entry) => entry.workCategoryId === categoryIdOrName);
   if (direct) return direct.quantity;
   const resolved = resolveWorkVolumeStrict(categoryIdOrName, workVolumes, room.floorId, room.floorName);
@@ -145,7 +205,7 @@ function categoryVolumeForRoom(room: RoomProgressItem, categoryIdOrName: string,
 }
 
 function sourceUnitForRoomCategory(room: RoomProgressItem, categoryIdOrName: string, workVolumes: WorkVolume[]): string {
-  const entries = getCanonicalRoomCategoryEntries(room, workVolumes);
+  const entries = getMaterialRoomCategoryEntries(room, workVolumes);
   const direct = entries.find((entry) => entry.workCategoryId === categoryIdOrName);
   if (direct) return direct.unit;
   const resolved = resolveWorkVolumeStrict(categoryIdOrName, workVolumes, room.floorId, room.floorName);
@@ -154,7 +214,7 @@ function sourceUnitForRoomCategory(room: RoomProgressItem, categoryIdOrName: str
 }
 
 function roomCategories(room: RoomProgressItem, workVolumes: WorkVolume[]): Array<{ id?: string; name: string }> {
-  return getCanonicalRoomCategoryEntries(room, workVolumes).map((entry) => ({ id: entry.workCategoryId, name: entry.workCategoryName }));
+  return getMaterialRoomCategoryEntries(room, workVolumes).map((entry) => ({ id: entry.workCategoryId, name: entry.workCategoryName }));
 }
 
 function uniqueRoomTeamIds(room: RoomProgressItem, resolver: TeamResolver): string[] {

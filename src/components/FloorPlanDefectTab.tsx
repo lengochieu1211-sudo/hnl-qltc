@@ -5840,6 +5840,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           const roomCount = floorRooms.length + 1;
                           onSaveRoomProgress({
                             floorId: activeFloor.id,
+                            floorName: activeFloor.floorName,
                             roomName: getNextAvailableQuickRoomName(),
                             frameStatus: 'Chưa làm',
                             boardStatus: 'Chưa làm',

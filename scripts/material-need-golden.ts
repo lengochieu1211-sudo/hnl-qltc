@@ -302,4 +302,55 @@ assert.equal(unitMismatch.lines.length, 0);
 assert.equal(unitMismatch.failClosed, true);
 assert.ok(unitMismatch.warnings.some((w) => w.code === 'UNIT_MISMATCH'));
 
+// Regression: legacy room retains floorId but no floorName while WorkVolume is scoped only by floor display name.
+const legacyFloorNameOnlyWork: WorkVolume = { id: 'wc-legacy-floor-name', title: 'Vách IW11 Legacy', unit: 'm²', floor: 'Tầng 1' } as WorkVolume;
+const legacyFloorNameOnlyNorm: MaterialNorm = {
+  ...norm,
+  id: 'norm-legacy-floor-name',
+  materialId: 'mat-legacy-floor-name',
+  materialName: 'Khung IW11 Legacy',
+  workCategoryId: 'wc-legacy-floor-name',
+  workCategoryIds: ['wc-legacy-floor-name'],
+  workCategoryNormsById: { 'wc-legacy-floor-name': 0.5 },
+  unitNormPerM2: 0.5,
+} as MaterialNorm;
+const legacyMissingFloorNameRoom = {
+  ...multiTeamRoom,
+  id: 'room-legacy-missing-floor-name',
+  roomName: 'Legacy thiếu floorName',
+  floorId: 'floor-legacy-1',
+  floorName: undefined,
+  workCategoryId: undefined,
+  workCategory: '',
+  workVolume: 0,
+  categoryVolumes: { 'Vách IW11 Legacy': 20 },
+  categoryVolumeUnits: { 'Vách IW11 Legacy': 'm²' },
+  subItems: [],
+} as RoomProgressItem;
+const legacyMissingFloorNameResult = computeMaterialNeeds({
+  rooms: [legacyMissingFloorNameRoom],
+  materialNorms: [legacyFloorNameOnlyNorm],
+  inventory: [],
+  workVolumes: [legacyFloorNameOnlyWork],
+  teams,
+  scope: { floorId: 'floor-legacy-1' },
+});
+assert.equal(legacyMissingFloorNameResult.lines.length, 1, 'Unique active category title must restore material demand when only legacy floorName is missing');
+assert.equal(legacyMissingFloorNameResult.lines[0]?.estimatedQty, 10);
+
+const duplicateLegacyTitleWork: WorkVolume[] = [
+  legacyFloorNameOnlyWork,
+  { id: 'wc-legacy-floor-name-2', title: 'Vách IW11 Legacy', unit: 'm²', floor: 'Tầng 2' } as WorkVolume,
+];
+const duplicateLegacyTitleResult = computeMaterialNeeds({
+  rooms: [legacyMissingFloorNameRoom],
+  materialNorms: [legacyFloorNameOnlyNorm],
+  inventory: [],
+  workVolumes: duplicateLegacyTitleWork,
+  teams,
+  scope: { floorId: 'floor-legacy-1' },
+});
+assert.equal(duplicateLegacyTitleResult.lines.length, 0, 'Duplicate same-title categories must remain fail-closed when floorName is missing');
+assert.ok(duplicateLegacyTitleResult.warnings.some((warning) => warning.code === 'AMBIGUOUS_LINK'));
+
 console.log('MATERIAL NEED GOLDEN PASS');
