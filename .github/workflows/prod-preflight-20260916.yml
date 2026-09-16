@@ -1,0 +1,399 @@
+name: HNL QLTC PROD Preflight 2026-09-16
+
+on:
+  push:
+    branches:
+      - release/prod-preflight-20260916
+    paths:
+      - .github/workflows/prod-preflight-20260916.yml
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 45
+    env:
+      CANDIDATE_SHA: 425c59428e9a9979b4ddf323951fe8a3ea106c9e
+      PROD_BASE_SHA: 0952e01c4ca732b2c0258e7c127b7559ced9d858
+      PROD_FIREBASE_PROJECT_ID: com-example-qlct-61329
+      PROD_HOSTING_URL: https://hnlqltc.web.app
+      PROD_R2_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
+      PROD_AI_URL: https://hnl-qltc-ai-gateway.lengochieu1211.workers.dev
+      VITE_APP_ENV: PROD
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
+      VITE_ENABLE_LEGACY_DRIVE_READ: "true"
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: "false"
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: "false"
+      VITE_FIREBASE_API_KEY: AIzaSyAShhTKSnmLMOEm4dST--1_X7fjJUE4znY
+      VITE_FIREBASE_AUTH_DOMAIN: hnlqltc.web.app
+      VITE_FIREBASE_PROJECT_ID: com-example-qlct-61329
+      VITE_FIREBASE_STORAGE_BUCKET: com-example-qlct-61329.firebasestorage.app
+      VITE_FIREBASE_MESSAGING_SENDER_ID: "119152410850"
+      VITE_FIREBASE_APP_ID: 1:119152410850:web:c2aee2135428af34ef5ebb
+      VITE_FIRESTORE_DATABASE_ID: "(default)"
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: "(default)"
+      VITE_HNL_AI_ENABLED: "true"
+      VITE_HNL_AI_GATEWAY_URL: https://hnl-qltc-ai-gateway.lengochieu1211.workers.dev
+      VITE_BUILD_ID: prod-preflight-${{ github.run_id }}-${{ github.run_attempt }}
+      VITE_GIT_COMMIT: 425c59428e9a9979b4ddf323951fe8a3ea106c9e
+
+    steps:
+      - name: Checkout exact certified candidate
+        uses: actions/checkout@v4
+        with:
+          ref: 425c59428e9a9979b4ddf323951fe8a3ea106c9e
+          fetch-depth: 0
+
+      - name: Exact source and main-to-dev ancestry audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-evidence
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA" || { echo "BLOCKED: wrong candidate SHA"; exit 1; }
+          git fetch origin main --depth=1
+          ACTUAL_MAIN="$(git rev-parse origin/main)"
+          test "$ACTUAL_MAIN" = "$PROD_BASE_SHA" || { echo "BLOCKED: main moved from audited PROD base: $ACTUAL_MAIN"; exit 1; }
+          git merge-base --is-ancestor "$PROD_BASE_SHA" "$CANDIDATE_SHA" || { echo "BLOCKED: PROD main is not an ancestor of candidate"; exit 1; }
+          AHEAD="$(git rev-list --count "$PROD_BASE_SHA..$CANDIDATE_SHA")"
+          BEHIND="$(git rev-list --count "$CANDIDATE_SHA..$PROD_BASE_SHA")"
+          test "$BEHIND" = "0" || { echo "BLOCKED: candidate is behind PROD"; exit 1; }
+          {
+            echo "prodBaseSha=$PROD_BASE_SHA"
+            echo "candidateSha=$CANDIDATE_SHA"
+            echo "aheadBy=$AHEAD"
+            echo "behindBy=$BEHIND"
+            echo "changedFiles=$(git diff --name-only "$PROD_BASE_SHA..$CANDIDATE_SHA" | wc -l | tr -d ' ')"
+          } > release-evidence/main-dev-audit.txt
+          git diff --check "$PROD_BASE_SHA..$CANDIDATE_SHA"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install exact locked dependencies
+        run: npm ci
+
+      - name: Authenticate to PROD Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+          create_credentials_file: true
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Backup PROD Firestore before release
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUCKET="gs://com-example-qlct-61329.firebasestorage.app"
+          BACKUP_URI="${BUCKET}/hnl-qltc-prod-backups/pre-release-20260916-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          gcloud storage buckets describe "$BUCKET" --project "$PROD_FIREBASE_PROJECT_ID" >/dev/null
+          gcloud firestore export "$BACKUP_URI" --project "$PROD_FIREBASE_PROJECT_ID" --database="(default)"
+          gcloud storage ls "$BACKUP_URI/**" --project "$PROD_FIREBASE_PROJECT_ID" | head -n 20 > release-evidence/firestore-backup-objects.txt
+          {
+            echo "projectId=$PROD_FIREBASE_PROJECT_ID"
+            echo "database=(default)"
+            echo "backupUri=$BACKUP_URI"
+            echo "sourceMainSha=$PROD_BASE_SHA"
+            echo "candidateSha=$CANDIDATE_SHA"
+          } > release-evidence/prod-backup-manifest.txt
+
+      - name: Live PROD legacy and migration dry-run audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/prod-live-audit.mjs <<'NODE'
+          import fs from 'node:fs';
+          import { google } from 'googleapis';
+
+          const projectId = process.env.PROD_FIREBASE_PROJECT_ID;
+          const dbId = '(default)';
+          const base = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${encodeURIComponent(dbId)}/documents`;
+          const auth = new google.auth.GoogleAuth({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
+          const client = await auth.getClient();
+          const headers = await client.getRequestHeaders();
+          const authorization = headers.Authorization || headers.authorization;
+          if (!authorization) throw new Error('No Google auth header');
+
+          const decode = (v) => {
+            if (!v || typeof v !== 'object') return null;
+            if ('nullValue' in v) return null;
+            if ('stringValue' in v) return v.stringValue;
+            if ('integerValue' in v) return Number(v.integerValue);
+            if ('doubleValue' in v) return Number(v.doubleValue);
+            if ('booleanValue' in v) return Boolean(v.booleanValue);
+            if ('timestampValue' in v) return v.timestampValue;
+            if ('referenceValue' in v) return v.referenceValue;
+            if ('geoPointValue' in v) return v.geoPointValue;
+            if ('bytesValue' in v) return '[bytes]';
+            if ('arrayValue' in v) return (v.arrayValue.values || []).map(decode);
+            if ('mapValue' in v) return decodeFields(v.mapValue.fields || {});
+            return null;
+          };
+          const decodeFields = (fields = {}) => Object.fromEntries(Object.entries(fields).map(([k,v]) => [k, decode(v)]));
+          const escPath = (path) => path.split('/').map(encodeURIComponent).join('/');
+          const docId = (name) => String(name || '').split('/').pop() || '';
+
+          async function request(url, options = {}) {
+            const res = await fetch(url, {
+              ...options,
+              headers: { authorization, 'content-type': 'application/json', ...(options.headers || {}) },
+            });
+            if (!res.ok) throw new Error(`${res.status} ${res.statusText} ${await res.text()}`);
+            return res.json();
+          }
+
+          async function listCollection(path) {
+            const out = [];
+            let pageToken = '';
+            do {
+              const url = new URL(`${base}/${escPath(path)}`);
+              url.searchParams.set('pageSize', '300');
+              if (pageToken) url.searchParams.set('pageToken', pageToken);
+              const json = await request(url.toString());
+              for (const d of json.documents || []) out.push({ id: docId(d.name), ...decodeFields(d.fields || {}) });
+              pageToken = json.nextPageToken || '';
+            } while (pageToken);
+            return out;
+          }
+
+          const active = (x) => x && x.deleted !== true && (x.deletedAt === undefined || x.deletedAt === null || x.deletedAt === '');
+          const norm = (x) => String(x ?? '').trim().toLocaleLowerCase('vi-VN').replace(/\s+/g, ' ');
+          const floorIdsForWork = (w) => [...new Set([w?.floorId, ...(Array.isArray(w?.floorIds) ? w.floorIds : [])].map(x => String(x || '').trim()).filter(Boolean))];
+          const workApplies = (w, room) => {
+            const ids = floorIdsForWork(w);
+            const roomFloorId = String(room?.floorId || '').trim();
+            if (ids.length) return Boolean(roomFloorId && ids.includes(roomFloorId));
+            const wf = norm(w?.floor);
+            if (!wf || ['tất cả','toàn nhà','công trình','all'].includes(wf)) return true;
+            const rf = norm(room?.floorName);
+            if (!rf) return false;
+            return wf.split(/[,;\n]+/).map(norm).filter(Boolean).includes(rf);
+          };
+          const containsDriveRef = (obj) => {
+            const s = JSON.stringify(obj || {});
+            return /driveFileId|google-drive-primary|drive\.google\.com|"cloudFileId"\s*:\s*"drive:/i.test(s);
+          };
+
+          const projects = await listCollection('projects');
+          const canonicalCollections = ['rooms','inventory','defects','work_volumes','floor_plans','checklist','crew_records','teams','material_norms','work_volume_financials','photos','members'];
+          const summary = {
+            generatedAt: new Date().toISOString(),
+            firebaseProjectId: projectId,
+            projectCount: projects.filter(active).length,
+            schemaVersionHistogram: {},
+            pendingSchemaMigrationProjects: 0,
+            futureSchemaProjects: 0,
+            projectMissingOwnerUid: 0,
+            projectMissingCreatedAt: 0,
+            totals: Object.fromEntries(canonicalCollections.map(k => [k, 0])),
+            linkage: {
+              roomsMissingFloorNameButHaveFloorId: 0,
+              orphanRoomFloor: 0,
+              orphanDefectRoom: 0,
+              orphanDefectFloor: 0,
+              orphanRoomWorkCategoryId: 0,
+              roomWorkCategoryScopeMismatch: 0,
+              orphanRoomTeamId: 0,
+              orphanMaterialNormWorkCategoryId: 0,
+              workVolumeInlineUnitPrice: 0,
+              financialRows: 0,
+              financialConflictCount: 0,
+              legacyDriveReferenceDocuments: 0,
+            },
+            blockerCount: 0,
+            reviewCount: 0,
+          };
+
+          for (const project of projects.filter(active)) {
+            const schema = Number(project.dataSchemaVersion || 0) || 0;
+            summary.schemaVersionHistogram[String(schema)] = (summary.schemaVersionHistogram[String(schema)] || 0) + 1;
+            if (schema < 6) summary.pendingSchemaMigrationProjects++;
+            if (schema > 6) summary.futureSchemaProjects++;
+            if (!project.ownerUid) summary.projectMissingOwnerUid++;
+            if (!project.createdAt) summary.projectMissingCreatedAt++;
+
+            const data = {};
+            for (const c of canonicalCollections) {
+              data[c] = await listCollection(`projects/${project.id}/${c}`).catch(() => []);
+              summary.totals[c] += data[c].length;
+            }
+            const floors = new Set(data.floor_plans.filter(active).map(x => String(x.id || '')).filter(Boolean));
+            const rooms = data.rooms.filter(active);
+            const roomIds = new Set(rooms.map(x => String(x.id || '')).filter(Boolean));
+            const workVolumes = data.work_volumes.filter(active);
+            const workById = new Map();
+            for (const w of workVolumes) {
+              for (const key of [w.id, w.workCategoryId]) if (key) workById.set(String(key), w);
+              if (w.unitPrice !== undefined && w.unitPrice !== null) summary.linkage.workVolumeInlineUnitPrice++;
+            }
+            const teams = new Set(data.teams.filter(active).map(x => String(x.id || '')).filter(Boolean));
+            const financial = new Map(data.work_volume_financials.filter(active).map(x => [String(x.id || ''), x]));
+            summary.linkage.financialRows += financial.size;
+
+            for (const w of workVolumes) {
+              if (w.unitPrice === undefined || w.unitPrice === null) continue;
+              const f = financial.get(String(w.id || ''));
+              if (f && f.unitPrice !== undefined && Number(f.unitPrice) !== Number(w.unitPrice)) summary.linkage.financialConflictCount++;
+            }
+
+            for (const r of rooms) {
+              if (r.floorId && !r.floorName) summary.linkage.roomsMissingFloorNameButHaveFloorId++;
+              if (r.floorId && !floors.has(String(r.floorId))) summary.linkage.orphanRoomFloor++;
+              const refs = [];
+              if (r.workCategoryId) refs.push({ id: String(r.workCategoryId), teamId: r.teamId });
+              for (const s of Array.isArray(r.subItems) ? r.subItems : []) if (s?.workCategoryId) refs.push({ id: String(s.workCategoryId), teamId: s.teamId });
+              for (const ref of refs) {
+                const w = workById.get(ref.id);
+                if (!w) summary.linkage.orphanRoomWorkCategoryId++;
+                else if (!workApplies(w, r)) summary.linkage.roomWorkCategoryScopeMismatch++;
+                if (ref.teamId && !teams.has(String(ref.teamId))) summary.linkage.orphanRoomTeamId++;
+              }
+              if (r.teamId && !teams.has(String(r.teamId))) summary.linkage.orphanRoomTeamId++;
+            }
+            for (const d of data.defects.filter(active)) {
+              if (d.roomId && !roomIds.has(String(d.roomId))) summary.linkage.orphanDefectRoom++;
+              if (d.floorId && !d.archivedFloorId && !floors.has(String(d.floorId))) summary.linkage.orphanDefectFloor++;
+            }
+            for (const n of data.material_norms.filter(active)) {
+              if (n.workCategoryId && !workById.has(String(n.workCategoryId))) summary.linkage.orphanMaterialNormWorkCategoryId++;
+            }
+            for (const c of canonicalCollections) {
+              for (const row of data[c]) if (containsDriveRef(row)) summary.linkage.legacyDriveReferenceDocuments++;
+            }
+          }
+
+          if (summary.futureSchemaProjects > 0) summary.blockerCount += summary.futureSchemaProjects;
+          if (summary.linkage.financialConflictCount > 0) summary.blockerCount += summary.linkage.financialConflictCount;
+          summary.reviewCount = summary.pendingSchemaMigrationProjects
+            + summary.projectMissingOwnerUid
+            + summary.projectMissingCreatedAt
+            + summary.linkage.roomsMissingFloorNameButHaveFloorId
+            + summary.linkage.orphanRoomFloor
+            + summary.linkage.orphanDefectRoom
+            + summary.linkage.orphanDefectFloor
+            + summary.linkage.orphanRoomWorkCategoryId
+            + summary.linkage.roomWorkCategoryScopeMismatch
+            + summary.linkage.orphanRoomTeamId
+            + summary.linkage.orphanMaterialNormWorkCategoryId
+            + summary.linkage.legacyDriveReferenceDocuments;
+
+          fs.writeFileSync('release-evidence/prod-live-legacy-audit-summary.json', JSON.stringify(summary, null, 2));
+          console.log(`PROD LIVE AUDIT: projects=${summary.projectCount}, pendingSchema=${summary.pendingSchemaMigrationProjects}, blockers=${summary.blockerCount}, review=${summary.reviewCount}`);
+          if (summary.blockerCount > 0) process.exit(3);
+          NODE
+          node /tmp/prod-live-audit.mjs
+          rm -f /tmp/prod-live-audit.mjs
+
+      - name: Full dependency security inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm audit --omit=dev --json > release-evidence/npm-audit-production.json || true
+          node <<'NODE'
+          const fs=require('fs');
+          const j=JSON.parse(fs.readFileSync('release-evidence/npm-audit-production.json','utf8'));
+          const v=j.metadata?.vulnerabilities || {};
+          const summary={info:v.info||0,low:v.low||0,moderate:v.moderate||0,high:v.high||0,critical:v.critical||0,total:v.total||0};
+          fs.writeFileSync('release-evidence/npm-audit-summary.json',JSON.stringify(summary,null,2));
+          console.log('npm audit summary', summary);
+          if ((summary.critical||0)>0) process.exit(3);
+          NODE
+
+      - name: HNL AI deterministic gates
+        run: |
+          npm run test:ai-core
+          npm run test:ai-tools
+          npm run test:ai-audit
+          npm run test:ai-planner
+          npm run test:ai-provider
+          npm run test:ai-gateway
+          npm run test:ai-export
+
+      - name: Full source certification gates
+        run: npm run verify
+
+      - name: Certify PROD endpoint isolation in exact bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -R -q 'com-example-qlct-61329' dist/assets || { echo 'BLOCKED: PROD Firebase project missing in bundle'; exit 1; }
+          grep -R -q 'hnl-qltc-r2-gateway.lengochieu1211.workers.dev' dist/assets || { echo 'BLOCKED: PROD R2 gateway missing in bundle'; exit 1; }
+          grep -R -q 'hnl-qltc-ai-gateway.lengochieu1211.workers.dev' dist/assets || { echo 'BLOCKED: PROD AI gateway missing in bundle'; exit 1; }
+          if grep -R -q 'hnl-qltc-dev' dist/assets; then echo 'BLOCKED: DEV Firebase/Hosting marker leaked into PROD bundle'; exit 1; fi
+          if grep -R -q 'hnl-qltc-r2-gateway-dev' dist/assets; then echo 'BLOCKED: DEV R2 gateway leaked into PROD bundle'; exit 1; fi
+          if grep -R -q 'hnl-qltc-ai-gateway-dev' dist/assets; then echo 'BLOCKED: DEV AI gateway leaked into PROD bundle'; exit 1; fi
+          printf '%s\n' 'PROD bundle endpoint isolation PASS' > release-evidence/prod-endpoint-isolation.txt
+
+      - name: Exact candidate local smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m http.server 4173 -d dist >/tmp/hnl-preflight-http.log 2>&1 &
+          PID=$!
+          trap 'kill $PID >/dev/null 2>&1 || true' EXIT
+          ok=0
+          for i in $(seq 1 20); do
+            HTML="$(curl --fail --silent --show-error http://127.0.0.1:4173/ || true)"
+            if printf '%s' "$HTML" | grep -qi '<div id="root"'; then ok=1; break; fi
+            sleep 1
+          done
+          test "$ok" = 1 || { cat /tmp/hnl-preflight-http.log; exit 1; }
+          echo 'Exact candidate local smoke PASS' > release-evidence/exact-candidate-smoke.txt
+
+      - name: Current PROD endpoint pre-deploy smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          HTML="$(curl --fail --silent --show-error "${PROD_HOSTING_URL}/?preflight=${GITHUB_RUN_ID}")"
+          printf '%s' "$HTML" | grep -qi '<div id="root"' || { echo 'BLOCKED: current PROD Hosting unhealthy'; exit 1; }
+          AI="$(curl --fail --silent --show-error "${PROD_AI_URL}/health?preflight=${GITHUB_RUN_ID}")"
+          printf '%s' "$AI" | grep -q '"ok":true' || { echo 'BLOCKED: PROD AI health failed'; exit 1; }
+          printf '%s' "$AI" | grep -q '"environment":"PROD"' || { echo 'BLOCKED: AI endpoint is not PROD'; exit 1; }
+          printf '%s' "$AI" | grep -q '"firebaseProjectId":"com-example-qlct-61329"' || { echo 'BLOCKED: AI PROD Firebase project mismatch'; exit 1; }
+          R2_CODE="$(curl -sS -o /tmp/r2-health.txt -w '%{http_code}' "${PROD_R2_URL}/health?preflight=${GITHUB_RUN_ID}" || true)"
+          if [ "$R2_CODE" != "200" ]; then
+            R2_CODE="$(curl -sS -o /tmp/r2-root.txt -w '%{http_code}' "${PROD_R2_URL}/?preflight=${GITHUB_RUN_ID}" || true)"
+          fi
+          test "$R2_CODE" != "000" || { echo 'BLOCKED: PROD R2 endpoint unreachable'; exit 1; }
+          {
+            echo 'PROD Hosting pre-deploy smoke PASS'
+            echo 'PROD AI pre-deploy smoke PASS'
+            echo "PROD R2 endpoint HTTP=$R2_CODE"
+          } > release-evidence/prod-predeploy-smoke.txt
+
+      - name: Write release preflight summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > release-evidence/README.md <<EOF
+          # HNL QLTC PROD Preflight
+
+          - Current PROD/main source backup branch: backup/prod-pre-20260916-0952e01c
+          - PROD base SHA: $PROD_BASE_SHA
+          - Certified candidate SHA: $CANDIDATE_SHA
+          - Firebase project: $PROD_FIREBASE_PROJECT_ID
+          - Hosting: $PROD_HOSTING_URL
+          - R2: $PROD_R2_URL
+          - AI: $PROD_AI_URL
+          - Firestore backup: see prod-backup-manifest.txt (private PROD bucket)
+          - Raw PROD business data is intentionally NOT uploaded to this public GitHub artifact.
+          - Full source gates, PROD bundle isolation, local smoke, live PROD endpoint smoke: PASS when this job succeeds.
+          EOF
+
+      - name: Upload sanitized preflight evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-PROD-PREFLIGHT-425c5942
+          path: release-evidence/
+          if-no-files-found: error
+          retention-days: 30
