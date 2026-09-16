@@ -1,7 +1,7 @@
 import { TeamInfo, RoomProgressItem, DefectItem, CrewRecord, FloorPlan, TeamRoomDetail, RoomSubItem, WorkVolume } from '../types';
 import { normalizeUnit } from './unitUtils';
 import { getCrewShiftCounts } from './crewUtils';
-import { canonicalWorkCategoryId, getCanonicalRoomCategoryEntries, resolveWorkVolumeRef } from './linkageIntegrity';
+import { canonicalWorkCategoryId, getCanonicalRoomCategoryEntries, resolveAuthoritativeWorkVolumeRef, resolveWorkVolumeRef } from './linkageIntegrity';
 
 /**
  * Unified helper to get effective weight or volume of a subitem across the whole system.
@@ -84,7 +84,7 @@ function getTeamCategoryAssignments(room: RoomProgressItem, team: TeamInfo, work
   const belongsToCategory = (sub: RoomSubItem, categoryId: string | undefined, categoryName: string): boolean => {
     if (workVolumes.length > 0) {
       if (sub.workCategoryId) {
-        const resolved = resolveWorkVolumeRef({ workVolumes, workCategoryId: sub.workCategoryId, floorId: room.floorId, floorName });
+        const resolved = resolveAuthoritativeWorkVolumeRef({ workVolumes, workCategoryId: sub.workCategoryId, floorId: room.floorId, floorName });
         return resolved.state === 'resolved' && canonicalWorkCategoryId(resolved.work) === categoryId;
       }
       const legacyName = sub.category || (!sub.category && !room.workCategoryId ? room.workCategory : undefined);

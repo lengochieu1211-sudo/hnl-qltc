@@ -3,8 +3,8 @@ import { getSubItemGroupWeight } from './teamUtils';
 import {
   canonicalWorkCategoryId,
   getCanonicalRoomCategoryEntries,
+  resolveAuthoritativeWorkVolumeRef,
   resolveWorkVolumeRef,
-  workVolumeAppliesToFloor,
 } from './linkageIntegrity';
 
 function roomFloorName(room: RoomProgressItem, floorPlans: FloorPlan[]): string {
@@ -19,7 +19,7 @@ function subItemBelongsToCategory(
   floorName: string,
 ): boolean {
   if (sub.workCategoryId) {
-    const resolved = resolveWorkVolumeRef({
+    const resolved = resolveAuthoritativeWorkVolumeRef({
       workVolumes,
       workCategoryId: sub.workCategoryId,
       floorId: room.floorId,
@@ -58,7 +58,6 @@ export function computeDerivedWorkVolumes(
 
     activeRooms.forEach((room) => {
       const floorName = roomFloorName(room, floorPlans);
-      if (!workVolumeAppliesToFloor(item, room.floorId, floorName)) return;
 
       const categoryEntry = getCanonicalRoomCategoryEntries(room, workVolumes)
         .find((entry) => entry.workCategoryId === categoryId);

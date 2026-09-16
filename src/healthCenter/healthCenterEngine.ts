@@ -4,7 +4,7 @@ import type { HnlAiProjectSnapshot } from '../ai/data/projectSnapshot';
 import { auditProjectIntegrity } from '../ai/audit/projectAudit';
 import { normalizeEntityText } from '../ai/core/entityResolver';
 import type { RuntimeDiagnosticEntry } from '../lib/runtimeDiagnostics';
-import { canonicalNormCategoryIds, resolveWorkVolumeRef, validateInventoryOutProvenance, validateMaterialNormCatalog } from '../utils/linkageIntegrity';
+import { canonicalNormCategoryIds, getCanonicalRoomCategoryEntries, resolveAuthoritativeWorkVolumeRef, resolveWorkVolumeRef, validateInventoryOutProvenance, validateMaterialNormCatalog } from '../utils/linkageIntegrity';
 
 export type HealthCenterModule =
   | 'system'
@@ -381,17 +381,16 @@ function lightweightBusinessQualityIssues(snapshot: HnlAiProjectSnapshot): Healt
 
   active(snapshot.rooms).forEach((room) => {
     const orphanRefs = new Map<string, { source: string; workCategoryId?: string; workCategoryName?: string; state?: string }>();
+    const canonicalEntries = getCanonicalRoomCategoryEntries(room, activeWorkVolumes);
+    const canonicalSourceKeys = new Set(canonicalEntries.map((entry) => entry.sourceKey));
     const addOrphan = (source: string, workCategoryId?: string, workCategoryName?: string) => {
       const id = String(workCategoryId || '').trim();
       const name = String(workCategoryName || '').trim();
       if (!id && !name) return;
-      const resolution = resolveWorkVolumeRef({
-        workVolumes: activeWorkVolumes,
-        workCategoryId: id || undefined,
-        workCategoryName: id ? undefined : name,
-        floorId: room.floorId,
-        floorName: room.floorName,
-      });
+      if (!id && source === 'categoryVolumes' && canonicalSourceKeys.has(name)) return;
+      const resolution = id
+        ? resolveAuthoritativeWorkVolumeRef({ workVolumes: activeWorkVolumes, workCategoryId: id, floorId: room.floorId, floorName: room.floorName })
+        : resolveWorkVolumeRef({ workVolumes: activeWorkVolumes, workCategoryName: name, floorId: room.floorId, floorName: room.floorName });
       if (resolution.state === 'resolved') return;
       const key = id ? `id:${id}` : `name:${normalizeEntityText(name)}`;
       if (!orphanRefs.has(key)) orphanRefs.set(key, { source, workCategoryId: id || undefined, workCategoryName: name || undefined, state: resolution.state });
@@ -412,7 +411,7 @@ function lightweightBusinessQualityIssues(snapshot: HnlAiProjectSnapshot): Healt
       const labels = refs.map((ref) => ref.workCategoryName || ref.workCategoryId || 'Hạng mục không xác định');
       issues.push(makeIssue({
         ruleId: 'ROOM_ORPHAN_WORK_CATEGORY_REFERENCE', severity: 'WARNING', module: 'links', entityType: 'room', entityId: room.id,
-        message: `${room.roomName} còn tham chiếu hạng mục không resolve duy nhất theo ID+tầng: ${labels.join(', ')}. Không dùng tham chiếu này để tính vật tư.`,
+        message: `${room.roomName} còn tham chiếu hạng mục không resolve duy nhất theo ID/tên: ${labels.join(', ')}. Không dùng tham chiếu này để tính vật tư.`,
         actionClass: 'NEEDS_CONFIRMATION', evidenceIds: [`rooms:${room.id}`],
         location: { floorId: room.floorId, floorName: room.floorName, roomId: room.id, roomName: room.roomName, workItem: labels[0] },
         details: { roomId: room.id, orphanWorkCategoryRefs: refs },

@@ -7,6 +7,13 @@ export interface WorkVolumeResolution {
   state: LinkResolutionState;
   work?: WorkVolume;
   matches?: WorkVolume[];
+  /**
+   * True when an authoritative durable ID resolves uniquely but the WorkVolume's
+   * declared floor scope does not include the supplied Room floor. The identity
+   * link is still valid; callers that validate catalog scope can surface this as
+   * a separate data-quality warning instead of dropping the linked Room data.
+   */
+  scopeMismatch?: boolean;
 }
 
 export const isActiveRecord = <T extends { deletedAt?: number | null }>(item: T): boolean => item.deletedAt === undefined || item.deletedAt === null;
@@ -77,6 +84,40 @@ export function resolveWorkVolumeRef(params: {
   return canonicalIds.size === 1 ? { state: 'resolved', work: scoped[0], matches: scoped } : { state: 'ambiguous', matches: scoped };
 }
 
+/**
+ * Resolve a Room/SubItem reference for calculations where an explicit durable ID
+ * is the source of truth. A stale WorkVolume floor scope must not silently erase
+ * already-linked Room quantities, team statistics or material demand.
+ *
+ * Name-only legacy references remain floor-aware and fail closed exactly like
+ * resolveWorkVolumeRef(). This keeps ambiguous display names from being guessed.
+ */
+export function resolveAuthoritativeWorkVolumeRef(params: {
+  workVolumes: WorkVolume[];
+  workCategoryId?: string;
+  workCategoryName?: string;
+  floorId?: string;
+  floorName?: string;
+}): WorkVolumeResolution {
+  const explicitId = String(params.workCategoryId || '').trim();
+  if (!explicitId) return resolveWorkVolumeRef(params);
+
+  const active = params.workVolumes.filter(isActiveRecord);
+  const idMatches = active.filter((item) =>
+    String(item.id || '').trim() === explicitId
+    || String(item.workCategoryId || '').trim() === explicitId,
+  );
+  if (idMatches.length === 0) return { state: 'missing' };
+
+  const canonicalIds = new Set(idMatches.map(canonicalWorkCategoryId).filter(Boolean));
+  if (canonicalIds.size !== 1) return { state: 'ambiguous', matches: idMatches };
+
+  const work = idMatches[0];
+  const hasFloorContext = Boolean(String(params.floorId || '').trim() || String(params.floorName || '').trim());
+  const scopeMismatch = hasFloorContext && !workVolumeAppliesToFloor(work, params.floorId, params.floorName);
+  return { state: 'resolved', work, matches: idMatches, scopeMismatch };
+}
+
 export interface CanonicalRoomCategoryEntry {
   workCategoryId: string;
   workCategoryName: string;
@@ -118,10 +159,14 @@ export function getCanonicalRoomCategoryEntries(room: RoomProgressItem, workVolu
     return aId - bId;
   }).forEach((key) => {
     const hasExplicitId = workVolumes.some((work) => key === work.id || key === work.workCategoryId);
-    let resolution = resolveWorkVolumeRef({
+    let resolution = hasExplicitId ? resolveAuthoritativeWorkVolumeRef({
       workVolumes,
-      workCategoryId: hasExplicitId ? key : undefined,
-      workCategoryName: hasExplicitId ? undefined : key,
+      workCategoryId: key,
+      floorId: room.floorId,
+      floorName: room.floorName,
+    }) : resolveWorkVolumeRef({
+      workVolumes,
+      workCategoryName: key,
       floorId: room.floorId,
       floorName: room.floorName,
     });
@@ -137,7 +182,7 @@ export function getCanonicalRoomCategoryEntries(room: RoomProgressItem, workVolu
         if (!id) return;
         const labelMatches = Boolean(normalizedKey && normalizeLinkText(label) === normalizedKey);
         if (!labelMatches && keys.length !== 1) return;
-        const candidate = resolveWorkVolumeRef({
+        const candidate = resolveAuthoritativeWorkVolumeRef({
           workVolumes,
           workCategoryId: id,
           floorId: room.floorId,
@@ -159,7 +204,7 @@ export function getCanonicalRoomCategoryEntries(room: RoomProgressItem, workVolu
           ? canonicalWorkCategoryId(resolution.work)
           : '';
         if (resolvedId !== authoritativeId) {
-          resolution = resolveWorkVolumeRef({
+          resolution = resolveAuthoritativeWorkVolumeRef({
             workVolumes,
             workCategoryId: authoritativeId,
             floorId: room.floorId,
@@ -172,10 +217,14 @@ export function getCanonicalRoomCategoryEntries(room: RoomProgressItem, workVolu
   });
 
   if (room.workCategoryId || room.workCategory) {
-    const resolution = resolveWorkVolumeRef({
+    const resolution = room.workCategoryId ? resolveAuthoritativeWorkVolumeRef({
       workVolumes,
       workCategoryId: room.workCategoryId,
-      workCategoryName: room.workCategoryId ? undefined : room.workCategory,
+      floorId: room.floorId,
+      floorName: room.floorName,
+    }) : resolveWorkVolumeRef({
+      workVolumes,
+      workCategoryName: room.workCategory,
       floorId: room.floorId,
       floorName: room.floorName,
     });
@@ -326,8 +375,8 @@ export function validateInventoryOutProvenance(params: {
 
   let categoryId = String(tx.sourceWorkCategoryId || '').trim() || undefined;
   if (categoryId) {
-    const resolved = resolveWorkVolumeRef({ workVolumes, workCategoryId: categoryId, floorId, floorName: room?.floorName });
-    if (resolved.state !== 'resolved' || !resolved.work) return { state: resolved.state === 'ambiguous' ? 'ambiguous' : 'invalid', ambiguityAt: resolved.state === 'ambiguous' ? 'workCategory' : undefined, room, floorId, reason: 'sourceWorkCategoryId không hợp lệ trong tầng nguồn' };
+    const resolved = resolveAuthoritativeWorkVolumeRef({ workVolumes, workCategoryId: categoryId, floorId, floorName: room?.floorName });
+    if (resolved.state !== 'resolved' || !resolved.work) return { state: resolved.state === 'ambiguous' ? 'ambiguous' : 'invalid', ambiguityAt: resolved.state === 'ambiguous' ? 'workCategory' : undefined, room, floorId, reason: 'sourceWorkCategoryId không tồn tại/không duy nhất' };
     categoryId = canonicalWorkCategoryId(resolved.work);
   }
 
@@ -349,7 +398,10 @@ export function validateInventoryOutProvenance(params: {
   if (teamId && params.teams && !params.teams.some((team) => team.id === teamId && isActiveRecord(team))) return { state: 'invalid', room, floorId, workCategoryId: categoryId, teamId, normId: norm?.id, reason: 'sourceTeamId không tồn tại' };
   if (room) {
     const categoryTeams = Array.from(new Set((room.subItems || []).filter((sub) => {
-      if (sub.workCategoryId) return sub.workCategoryId === categoryId;
+      if (sub.workCategoryId) {
+        const resolved = resolveAuthoritativeWorkVolumeRef({ workVolumes, workCategoryId: sub.workCategoryId, floorId: room.floorId, floorName: room.floorName });
+        return resolved.state === 'resolved' && canonicalWorkCategoryId(resolved.work) === categoryId;
+      }
       if (!sub.category) return false;
       const resolved = resolveWorkVolumeRef({ workVolumes, workCategoryName: sub.category, floorId: room.floorId, floorName: room.floorName });
       return resolved.state === 'resolved' && canonicalWorkCategoryId(resolved.work) === categoryId;

@@ -3,6 +3,7 @@ import type { InventoryItem, MaterialNorm, RoomProgressItem, TeamInfo, WorkVolum
 import {
   canonicalWorkCategoryId,
   getCanonicalRoomCategoryEntries,
+  resolveAuthoritativeWorkVolumeRef,
   resolveUniqueMaterialIdentity,
   resolveWorkVolumeRef,
   validateInventoryOutProvenance,
@@ -33,6 +34,21 @@ const w2 = work('CAT-F2', 'F2');
 assert.equal(resolveWorkVolumeRef({ workVolumes: [w1, w2], workCategoryName: w1.title, floorId: 'F1' }).work?.id, 'CAT-F1');
 assert.equal(resolveWorkVolumeRef({ workVolumes: [w1, w2], workCategoryName: w1.title }).state, 'ambiguous');
 console.log('PASS linkage: floor-aware name fallback and authoritative IDs');
+
+const scopeDriftRoom = room('R-SCOPE-DRIFT', 'F2', { [w1.title]: 20 }, {
+  workCategoryId: 'CAT-F1',
+  workCategory: w1.title,
+  teamId: 'TEAM-A',
+  assignedTeam: 'Đội A',
+  inspectionStatus: 'Đạt nghiệm thu',
+  subItems: [{ id: 'SD-1', name: 'Hoàn thiện', category: w1.title, workCategoryId: 'CAT-F1', teamId: 'TEAM-A', assignedTeam: 'Đội A', status: 'Đã hoàn thành', inspectionStatus: 'Đạt nghiệm thu' }],
+});
+assert.equal(resolveWorkVolumeRef({ workVolumes: [w1], workCategoryId: 'CAT-F1', floorId: 'F2' }).state, 'floor-mismatch', 'strict scope validator must still detect floor drift');
+const authoritativeScopeDrift = resolveAuthoritativeWorkVolumeRef({ workVolumes: [w1], workCategoryId: 'CAT-F1', floorId: 'F2' });
+assert.equal(authoritativeScopeDrift.state, 'resolved');
+assert.equal(authoritativeScopeDrift.scopeMismatch, true);
+assert.equal(getCanonicalRoomCategoryEntries(scopeDriftRoom, [w1])[0]?.workCategoryId, 'CAT-F1', 'durable ID must keep the Room category calculable when only catalog floor scope drifted');
+console.log('PASS linkage: durable Room category identity survives WorkVolume floor-scope drift');
 
 assert.equal(validateWorkVolumeCatalog([w1, w2]).length, 0, 'same title/unit on disjoint floors is valid');
 const w1dup = { ...work('CAT-F1-B', 'F1'), title: w1.title };
@@ -120,6 +136,24 @@ assert.equal(stats['TEAM-B'].volumeByUnit['m²'], 50);
 assert.equal(stats['TEAM-A'].volumeByUnit['m²'] + stats['TEAM-B'].volumeByUnit['m²'], 100);
 assert.equal(stats['TEAM-A'].teamRoomDetails[0].workCategoryId, 'CAT-F1');
 console.log('PASS teams: denominator keeps team allocations <= canonical category total');
+
+const scopeDriftDerived = computeDerivedWorkVolumes([w1], [scopeDriftRoom])[0];
+assert.equal(scopeDriftDerived.actual, 20, 'derived WorkVolume actual must use the durable category ID even if catalog floor scope drifted');
+const scopeDriftStats = calculateTeamStatistics({ teams: [teamA], roomProgressList: [scopeDriftRoom], defects: [], crewRecords: [], workVolumes: [w1] });
+assert.equal(scopeDriftStats['TEAM-A'].teamRooms.length, 1, 'team statistics must not drop a Room that still has a valid category ID');
+assert.equal(scopeDriftStats['TEAM-A'].volumeByUnit['m²'], 20);
+const scopeDriftNorm: MaterialNorm = { ...norm('N-SCOPE-DRIFT', 'MAT-SCOPE-DRIFT', ['CAT-F1'], 'Tấm scope drift', 'tấm'), workCategoryNormsById: { 'CAT-F1': 0.5 } };
+const scopeDriftIssue: InventoryItem = {
+  id: 'OUT-SCOPE-DRIFT', type: 'out', materialId: 'MAT-SCOPE-DRIFT', materialName: 'Tấm scope drift', unit: 'tấm', quantity: 2,
+  location: 'Kho', handler: 'A', date: '2026-09-16', sourceType: 'room-auto', sourceRoomId: scopeDriftRoom.id,
+  sourceFloorId: scopeDriftRoom.floorId, sourceWorkCategoryId: 'CAT-F1', sourceTeamId: 'TEAM-A', sourceNormId: scopeDriftNorm.id,
+};
+assert.equal(validateInventoryOutProvenance({ tx: scopeDriftIssue, rooms: [scopeDriftRoom], workVolumes: [w1], materialNorms: [scopeDriftNorm], teams: [teamA] }).state, 'resolved', 'issued material provenance must keep the valid durable category ID under floor-scope drift');
+const scopeDriftNeed = computeMaterialNeeds({ rooms: [scopeDriftRoom], materialNorms: [scopeDriftNorm], inventory: [scopeDriftIssue], workVolumes: [w1], teams: [teamA], scope: { teamId: 'TEAM-A' } });
+assert.equal(scopeDriftNeed.lines[0]?.estimatedQty, 10, 'Material Need must remain linked through the durable category ID');
+assert.equal(scopeDriftNeed.lines[0]?.alreadyIssued, 2, 'issued material must remain allocated to the same durable room/category/team link');
+assert.equal(scopeDriftNeed.lines[0]?.remainingQty, 8, 'remaining material need must deduct the linked issued quantity');
+console.log('PASS cross-module linkage: WorkVolume actual + team stats + material need + issue provenance stay connected under scope drift');
 
 const staleNorm = norm('N-STALE', 'MAT-S', ['DELETED-CATEGORY']);
 const reconciled = reconcileMaterialNormWorkCategoryLinks([staleNorm], [w1]).materialNorms[0];

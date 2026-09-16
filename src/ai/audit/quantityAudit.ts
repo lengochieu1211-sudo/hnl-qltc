@@ -165,6 +165,12 @@ export function auditQuantityData(params: AuditQuantityParams): AiToolResult<AiA
       }
     }
 
+    // Canonical entries use durable Room/SubItem IDs as the calculation identity.
+    // A WorkVolume floor-scope drift is reported separately below; it must not make
+    // an otherwise valid durable ID look like a deleted/orphan work category.
+    const entries = getCanonicalRoomCategoryEntries(room, activeWorkVolumes);
+    const canonicalSourceKeys = new Set(entries.map((entry) => entry.sourceKey));
+
     Object.entries(room.categoryVolumes || {}).forEach(([rawKey, value]) => {
       if (!isFiniteNumber(value) || value < 0) {
         addIssue({ ruleId: !isFiniteNumber(value) ? 'ROOM_CATEGORY_QUANTITY_INVALID' : 'ROOM_CATEGORY_QUANTITY_NEGATIVE', severity: 'ERROR', entityType: 'room', entityId: room.id, message: `${room.roomName} có khối lượng hạng mục ${rawKey} không hợp lệ.`, evidenceIds: [roomEv], details: { category: rawKey, quantity: value } });
@@ -178,7 +184,7 @@ export function auditQuantityData(params: AuditQuantityParams): AiToolResult<AiA
         floorId: room.floorId,
         floorName: room.floorName,
       });
-      if (resolution.state !== 'resolved') {
+      if (resolution.state !== 'resolved' && !canonicalSourceKeys.has(rawKey)) {
         addIssue({
           ruleId: resolution.state === 'ambiguous' ? 'ROOM_CATEGORY_REFERENCE_AMBIGUOUS' : 'ROOM_CATEGORY_REFERENCE_INVALID',
           severity: resolution.state === 'ambiguous' ? 'WARNING' : 'ERROR',
@@ -203,13 +209,31 @@ export function auditQuantityData(params: AuditQuantityParams): AiToolResult<AiA
     });
 
     // Unit drift must be visible even when an authoritative ID later fails the
-    // floor-aware resolver. Never use this raw observation for quantity aggregation.
+    // floor-aware catalog scope. Never use this raw observation for quantity aggregation.
     if (room.workCategoryId) addCategoryUnit(room.workCategoryId, room.workCategory, room.volumeUnit);
 
-    const entries = getCanonicalRoomCategoryEntries(room, activeWorkVolumes);
     roomCanonicalEntries.set(room.id, entries);
     entries.forEach((entry) => {
       addCategoryUnit(entry.workCategoryId, entry.workCategoryName, entry.unit);
+      if (!workVolumeAppliesToFloor(entry.work, room.floorId, room.floorName)) {
+        addIssue({
+          ruleId: 'ROOM_WORK_CATEGORY_SCOPE_MISMATCH',
+          severity: 'REVIEW',
+          entityType: 'room',
+          entityId: room.id,
+          message: `${room.roomName} đang liên kết hạng mục ${entry.workCategoryName} bằng ID hợp lệ nhưng phạm vi tầng của hạng mục chưa chứa tầng hiện tại. Dữ liệu vẫn được tính theo ID; cần rà lại phạm vi tầng của hạng mục.`,
+          evidenceIds: [roomEv, evidenceId('work_volumes', entry.work.id)],
+          details: {
+            workCategoryId: entry.workCategoryId,
+            workVolumeId: entry.work.id,
+            roomFloorId: room.floorId,
+            roomFloorName: room.floorName || null,
+            declaredFloorId: entry.work.floorId || null,
+            declaredFloorIds: entry.work.floorIds || [],
+            declaredFloorLabel: entry.work.floor || null,
+          },
+        });
+      }
     });
   });
 
@@ -229,7 +253,6 @@ export function auditQuantityData(params: AuditQuantityParams): AiToolResult<AiA
     let roomSum = 0;
     const roomEvidenceIds: string[] = [];
     activeRooms.forEach((room) => {
-      if (!workVolumeAppliesToFloor(contract, room.floorId, room.floorName)) return;
       const entry = (roomCanonicalEntries.get(room.id) || []).find((item) => item.workCategoryId === categoryId && unitKey(item.unit) === unitKey(contractUnit));
       if (!entry) return;
       roomSum += Number(entry.quantity) || 0;
