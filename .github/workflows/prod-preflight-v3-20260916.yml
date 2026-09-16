@@ -1,0 +1,90 @@
+name: HNL QLTC PROD Preflight V3 2026-09-16
+
+on:
+  push:
+    branches:
+      - release/prod-preflight-20260916
+    paths:
+      - .github/workflows/prod-preflight-v3-20260916.yml
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 60
+    env:
+      CANDIDATE_SHA: 425c59428e9a9979b4ddf323951fe8a3ea106c9e
+      PROD_BASE_SHA: 0952e01c4ca732b2c0258e7c127b7559ced9d858
+      PROD_FIREBASE_PROJECT_ID: com-example-qlct-61329
+      PROD_HOSTING_URL: https://hnlqltc.web.app
+      PROD_R2_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
+      PROD_AI_URL: https://hnl-qltc-ai-gateway.lengochieu1211.workers.dev
+      VITE_APP_ENV: PROD
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_BINARY_STORAGE_PROVIDER: r2
+      VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev
+      VITE_ENABLE_LEGACY_DRIVE_READ: "true"
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: "false"
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: "false"
+      VITE_FIREBASE_API_KEY: AIzaSyAShhTKSnmLMOEm4dST--1_X7fjJUE4znY
+      VITE_FIREBASE_AUTH_DOMAIN: hnlqltc.web.app
+      VITE_FIREBASE_PROJECT_ID: com-example-qlct-61329
+      VITE_FIREBASE_STORAGE_BUCKET: com-example-qlct-61329.firebasestorage.app
+      VITE_FIREBASE_MESSAGING_SENDER_ID: "119152410850"
+      VITE_FIREBASE_APP_ID: 1:119152410850:web:c2aee2135428af34ef5ebb
+      VITE_FIRESTORE_DATABASE_ID: "(default)"
+      VITE_FIREBASE_FIRESTORE_DATABASE_ID: "(default)"
+      VITE_HNL_AI_ENABLED: "true"
+      VITE_HNL_AI_GATEWAY_URL: https://hnl-qltc-ai-gateway.lengochieu1211.workers.dev
+      VITE_BUILD_ID: prod-preflight-${{ github.run_id }}-${{ github.run_attempt }}
+      VITE_GIT_COMMIT: 425c59428e9a9979b4ddf323951fe8a3ea106c9e
+
+    steps:
+      - name: Checkout release control tools
+        uses: actions/checkout@v4
+        with:
+          path: control
+          fetch-depth: 1
+
+      - name: Checkout exact certified candidate
+        uses: actions/checkout@v4
+        with:
+          ref: 425c59428e9a9979b4ddf323951fe8a3ea106c9e
+          path: candidate
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: candidate/package-lock.json
+
+      - name: Install exact locked dependencies
+        working-directory: candidate
+        run: npm ci
+
+      - name: Authenticate to PROD Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+          create_credentials_file: true
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Run complete preflight
+        shell: bash
+        run: bash control/release-tools/prod-preflight.sh
+
+      - name: Upload sanitized preflight evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-PROD-PREFLIGHT-V3-425c5942
+          path: release-evidence/
+          if-no-files-found: warn
+          retention-days: 30
