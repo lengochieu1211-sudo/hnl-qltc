@@ -1,0 +1,130 @@
+name: HNL QLTC PROD Firestore Backup to Private R2 2026-09-16
+
+on:
+  push:
+    branches:
+      - release/prod-preflight-20260916
+    paths:
+      - .github/workflows/prod-firestore-r2-backup-20260916.yml
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    env:
+      PROD_FIREBASE_PROJECT_ID: com-example-qlct-61329
+      PROD_R2_BUCKET: hnl-qltc-media
+      PROD_BASE_SHA: 0952e01c4ca732b2c0258e7c127b7559ced9d858
+      CANDIDATE_SHA: 425c59428e9a9979b4ddf323951fe8a3ea106c9e
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - name: Checkout backup control tool
+        uses: actions/checkout@v4
+
+      - name: Authenticate read-only source access to PROD Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+          create_credentials_file: true
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Resolve Cloudflare account and verify private PROD R2 bucket
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo 'Missing CLOUDFLARE_API_TOKEN'; exit 1; }
+          RESPONSE="$(curl --fail --silent --show-error -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' 'https://api.cloudflare.com/client/v4/accounts?per_page=50')"
+          ACCOUNT_ID="$(printf '%s' "$RESPONSE" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const r=Array.isArray(j.result)?j.result:[];if(!j.success||r.length!==1){console.error('Expected exactly one accessible Cloudflare account, got '+r.length);process.exit(2)};process.stdout.write(String(r[0].id||''))})")"
+          test -n "$ACCOUNT_ID" || exit 1
+          echo "CLOUDFLARE_ACCOUNT_ID=$ACCOUNT_ID" >> "$GITHUB_ENV"
+          OUT="$(npx --yes wrangler@4.33.0 r2 bucket list)"
+          printf '%s' "$OUT" | grep -q "$PROD_R2_BUCKET" || { echo "PROD R2 bucket $PROD_R2_BUCKET not found"; exit 1; }
+          echo 'Private R2 backup target verified.'
+
+      - name: Create complete logical PROD Firestore backup without logging business data
+        id: logical
+        shell: bash
+        run: |
+          set -euo pipefail
+          RAW="$RUNNER_TEMP/hnl-qltc-prod-firestore-${GITHUB_RUN_ID}.jsonl"
+          GZ="${RAW}.gz"
+          export GOOGLE_ACCESS_TOKEN="$(gcloud auth print-access-token)"
+          node release-tools/prod-firestore-logical-backup.mjs "$RAW"
+          unset GOOGLE_ACCESS_TOKEN
+          gzip -9 "$RAW"
+          test -s "$GZ" || { echo 'Backup gzip is empty'; exit 1; }
+          SHA="$(sha256sum "$GZ" | awk '{print $1}')"
+          SIZE="$(stat -c%s "$GZ")"
+          KEY="hnl-system-backups/firestore/prod/2026-09-16/${PROD_BASE_SHA}/firestore-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.jsonl.gz"
+          echo "BACKUP_FILE=$GZ" >> "$GITHUB_ENV"
+          echo "BACKUP_SHA=$SHA" >> "$GITHUB_ENV"
+          echo "BACKUP_SIZE=$SIZE" >> "$GITHUB_ENV"
+          echo "BACKUP_KEY=$KEY" >> "$GITHUB_ENV"
+
+      - name: Upload logical backup directly to private PROD R2
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4.33.0 r2 object put "${PROD_R2_BUCKET}/${BACKUP_KEY}" \
+            --file "$BACKUP_FILE" \
+            --content-type application/gzip \
+            --remote
+          echo 'Backup uploaded directly to private R2; raw backup is not a GitHub artifact.'
+
+      - name: Download backup from R2 and verify exact SHA256
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERIFY="$RUNNER_TEMP/hnl-qltc-prod-firestore-verify-${GITHUB_RUN_ID}.jsonl.gz"
+          npx --yes wrangler@4.33.0 r2 object get "${PROD_R2_BUCKET}/${BACKUP_KEY}" --file "$VERIFY" --remote
+          VERIFY_SHA="$(sha256sum "$VERIFY" | awk '{print $1}')"
+          test "$VERIFY_SHA" = "$BACKUP_SHA" || { echo 'R2 backup SHA256 mismatch'; exit 1; }
+          gzip -t "$VERIFY"
+          rm -f "$VERIFY"
+          echo 'R2 backup download + SHA256 + gzip integrity: PASS'
+
+      - name: Write sanitized backup evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-evidence
+          gunzip -c "$BACKUP_FILE" | tail -n 1 > "$RUNNER_TEMP/footer.json"
+          node - <<'NODE'
+          const fs=require('fs');
+          const footer=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/footer.json','utf8'));
+          const manifest={
+            status:'PASS',
+            format:footer.format,
+            firebaseProjectId:process.env.PROD_FIREBASE_PROJECT_ID,
+            databaseId:footer.databaseId,
+            prodBaseSha:process.env.PROD_BASE_SHA,
+            candidateSha:process.env.CANDIDATE_SHA,
+            backupTarget:'private Cloudflare R2 bucket hnl-qltc-media',
+            backupKey:process.env.BACKUP_KEY,
+            sha256:process.env.BACKUP_SHA,
+            compressedBytes:Number(process.env.BACKUP_SIZE||0),
+            documentCount:footer.documentCount,
+            collectionCount:footer.collectionCount,
+            missingParentCount:footer.missingParentCount,
+            maxDepth:footer.maxDepth,
+            completedAt:footer.completedAt,
+            rawBusinessDataUploadedToGitHub:false,
+          };
+          fs.writeFileSync('release-evidence/prod-firestore-backup-manifest.json',JSON.stringify(manifest,null,2));
+          console.log(`Backup evidence: documents=${manifest.documentCount}, collections=${manifest.collectionCount}, bytes=${manifest.compressedBytes}`);
+          NODE
+          rm -f "$BACKUP_FILE" "$RUNNER_TEMP/footer.json"
+
+      - name: Upload sanitized backup manifest only
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-PROD-FIRESTORE-BACKUP-MANIFEST-425c5942
+          path: release-evidence/prod-firestore-backup-manifest.json
+          if-no-files-found: error
+          retention-days: 30
