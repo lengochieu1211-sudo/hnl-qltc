@@ -104,8 +104,9 @@ let healthResponse = await worker.fetch(new Request('https://gateway.example/hea
 }), env);
 const health = await healthResponse.json();
 assert(healthResponse.status === 200 && health.ok === true, 'gateway health is available');
-assert(health.version === '6.3.0-rc2.2.16', 'gateway health exposes RC2.2.15 runtime version');
+assert(health.version === '6.3.0-rc2.2.16', 'gateway health exposes RC2.2.16 runtime version');
 assert(health.accessPolicy === 'canonical-email-first', 'gateway health exposes canonical email-first RBAC policy');
+assert(health.policyVersion === 'immutable-deleted-project-v2', 'gateway health proves immutable/deleted-project policy generation');
 
 const envWithoutCorsVar = { ...env, ALLOWED_ORIGINS: '' };
 const preflight = await worker.fetch(new Request('https://gateway.example/v1/object?key=projects/p1/media/diagnostics/probe/original.jpg', {

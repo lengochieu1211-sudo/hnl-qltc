@@ -29,7 +29,7 @@ import { getResolvedNormWorkCategories } from '../utils/projectReconciliation';
 import { normalizeUnit, unitKey, areSameUnit } from '../utils/unitUtils';
 import { createEntityId } from '../utils/idUtils';
 import { calculateStockSummary, getMaterialIdentityKey, resolveNormMaterialId } from '../utils/inventoryUtils';
-import { parseExcelNumberRecord, parseExcelStringArray, sameStringSet } from '../utils/excelImportUtils';
+import { assertSafeExcelImportFile, parseExcelNumberRecord, parseExcelStringArray, sameStringSet } from '../utils/excelImportUtils';
 import { UserRole, canManageMaterialNorms, canImportData } from '../utils/securityUtils';
 
 import { QuickSortBar } from './QuickSortBar';
@@ -168,6 +168,10 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
 
   const processExcelFile = async (file: File) => {
     if (!hasImportAccess) { alert('Chỉ ADMIN được nhập dữ liệu hàng loạt từ Excel.'); return; }
+    try { assertSafeExcelImportFile(file); } catch (error) {
+      alert(`❌ ${error instanceof Error ? error.message : 'Tệp Excel không hợp lệ.'}`);
+      return;
+    }
     const reader = new FileReader();
     reader.onload = async (e) => {
       try {

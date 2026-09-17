@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import * as XLSX from 'xlsx';
+import { assertSafeExcelImportFile } from '../utils/excelImportUtils';
 import { 
   ClipboardCheck, 
   CheckCircle2, 
@@ -322,6 +323,11 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
     if (!canImport || !canManageStructure) { e.target.value = ''; return; }
     const file = e.target.files?.[0];
     if (!file) return;
+    try { assertSafeExcelImportFile(file); } catch (error) {
+      alert(`❌ ${error instanceof Error ? error.message : 'Tệp Excel không hợp lệ.'}`);
+      e.target.value = '';
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = (event) => {

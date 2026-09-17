@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import * as XLSX from 'xlsx';
+import { assertSafeExcelImportFile } from '../utils/excelImportUtils';
 import { 
   MapPin, 
   Upload, 
@@ -1979,6 +1980,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     }
     const file = e.target.files?.[0];
     if (!file) return;
+    try { assertSafeExcelImportFile(file); } catch (error) {
+      alert(`❌ ${error instanceof Error ? error.message : 'Tệp Excel không hợp lệ.'}`);
+      e.currentTarget.value = '';
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = async (event) => {

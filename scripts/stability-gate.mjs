@@ -246,10 +246,11 @@ if (!photoSync.includes('LEGACY_DRIVE_READ_FALLBACK') || !floorPlanSync.includes
 if (!photoStorage.includes('__pendingWrite')) fail('photo pending/server-ack metadata guard missing');
 const prodR2GatewayConfigured = mergeWorkflow.includes('VITE_R2_GATEWAY_URL: ${{ vars.VITE_R2_GATEWAY_URL }}') || mergeWorkflow.includes('VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev');
 if (!mergeWorkflow.includes('VITE_BINARY_STORAGE_PROVIDER: r2') || !prodR2GatewayConfigured) fail('PROD workflow does not select R2 gateway');
-if (mergeWorkflow.includes('deploy --only firestore:rules,storage')) fail('PROD still hard-depends on Firebase Storage deployment');
+if (!mergeWorkflow.includes('--only firestore:rules,storage')) fail('PROD workflow must deploy Firestore + legacy Storage Rules from the same candidate source');
+if (!storageRules.includes('allow create, update: if false;')) fail('Firebase Storage must remain legacy read/purge only even when its Rules are deployed');
 requireAll(mergeWorkflow, ['Deploy Hosting site hnlqltc', '--config firebase.prod.json', 'https://hnlqltc.web.app'], 'PROD short Hosting site');
 requireAll(read('firebase.prod.json'), ['"site": "hnlqltc"', '"public": "dist"'], 'PROD Firebase Hosting config');
-pass('new binaries use private R2 as the single PROD write authority; Firebase Storage/Drive remain read-only legacy compatibility paths');
+pass('new binaries use private R2 as the single PROD write authority; legacy Storage Rules are deployed for read/purge policy parity');
 
 requireAll(firestoreRules, ['isCoreBusinessCollection', 'lifecycleUpdateIsMonotonic', 'allow delete: if false;', "role == 'EDITOR'", "role == 'ENGINEER'", 'inventory_balances'], 'Firestore Rules lifecycle/roles');
 requireAll(storageRules, ['canEdit(projectId)', 'isAdmin(projectId)', 'identityMetadata', 'updateKeepsIdentity', 'allow delete: if isAdmin(projectId)', 'allow read, write: if false'], 'Firebase Storage legacy compatibility Rules');

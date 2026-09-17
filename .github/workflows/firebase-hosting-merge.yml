@@ -7,6 +7,22 @@ on:
         description: 'Type DEPLOY-PROD after DEV Golden is VERIFIED'
         required: true
         type: string
+      backup_confirmation:
+        description: 'Type BACKUP-VERIFIED after verifying a current PROD backup'
+        required: true
+        type: string
+      migration_confirmation:
+        description: 'Type MIGRATION-PARITY-VERIFIED after legacy Storage/Drive → R2 count/checksum review'
+        required: true
+        type: string
+      dev_certified_sha:
+        description: 'Paste the exact 40-character DEV SHA that passed Runtime Golden'
+        required: true
+        type: string
+      expected_main_sha:
+        description: 'Paste the exact 40-character main SHA approved for PROD'
+        required: true
+        type: string
 
 jobs:
   build_and_deploy:
@@ -43,12 +59,20 @@ jobs:
         run: |
           set -euo pipefail
           test "${{ inputs.confirmation }}" = "DEPLOY-PROD" || { echo "REFUSING: run DEV Golden first, then type DEPLOY-PROD"; exit 1; }
+          test "${{ inputs.backup_confirmation }}" = "BACKUP-VERIFIED" || { echo "REFUSING: verify a current PROD backup first"; exit 1; }
+          test "${{ inputs.migration_confirmation }}" = "MIGRATION-PARITY-VERIFIED" || { echo "REFUSING: verify legacy Storage/Drive → R2 count/checksum parity first"; exit 1; }
+          test "${GITHUB_REF}" = "refs/heads/main" || { echo "REFUSING: PROD deploy must run from main"; exit 1; }
+          printf '%s' "${{ inputs.dev_certified_sha }}" | grep -Eq '^[0-9a-f]{40}$' || { echo "REFUSING: dev_certified_sha must be a 40-character commit SHA"; exit 1; }
+          printf '%s' "${{ inputs.expected_main_sha }}" | grep -Eq '^[0-9a-f]{40}$' || { echo "REFUSING: expected_main_sha must be a 40-character commit SHA"; exit 1; }
+          test "${GITHUB_SHA}" = "${{ inputs.expected_main_sha }}" || { echo "REFUSING: selected workflow SHA does not match approved main SHA"; exit 1; }
           test "$VITE_FIREBASE_PROJECT_ID" = "com-example-qlct-61329" || { echo "REFUSING: wrong PROD Firebase project"; exit 1; }
           test "$VITE_R2_GATEWAY_URL" = "https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev" || { echo "REFUSING: wrong PROD R2 gateway"; exit 1; }
           test "$VITE_HNL_AI_GATEWAY_URL" = "$PROD_AI_URL" || { echo "REFUSING: wrong PROD AI gateway"; exit 1; }
           test "$VITE_HNL_AI_GATEWAY_URL" != "https://hnl-qltc-ai-gateway-dev.lengochieu1211.workers.dev" || { echo "REFUSING: DEV AI gateway leaked into PROD"; exit 1; }
 
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Verify source root
         shell: bash
@@ -58,6 +82,10 @@ jobs:
           test -f package-lock.json || { echo "Missing package-lock.json at repository root"; exit 1; }
           test "$(node -p "require('./package.json').version")" = "$(node -p "require('./package-lock.json').version")" || { echo "package/package-lock version mismatch"; exit 1; }
           test -f cloudflare/ai-gateway/worker.js || { echo "Missing HNL AI Gateway source"; exit 1; }
+          test -f cloudflare/r2-gateway/worker.js || { echo "Missing HNL R2 Gateway source"; exit 1; }
+          test -f storage.rules || { echo "Missing Firebase Storage Rules"; exit 1; }
+          test "$(git rev-parse HEAD)" = "${{ inputs.expected_main_sha }}" || { echo "Checked-out source SHA mismatch"; exit 1; }
+          git merge-base --is-ancestor "${{ inputs.dev_certified_sha }}" HEAD || { echo "REFUSING: certified DEV SHA is not an ancestor of this main candidate"; exit 1; }
 
       - name: R2 + AI configuration gate
         shell: bash
@@ -74,6 +102,13 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - run: npm ci
+
+      - name: Dependency version and PROD readiness gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "const e=require('express/package.json'); if(e.version!=='4.22.3') throw new Error('express '+e.version); const q=require('qs/package.json'); if(q.version!=='6.16.0') throw new Error('qs '+q.version); const x=require('xlsx'); if(x.version!=='0.20.3') throw new Error('xlsx '+x.version); console.log('Dependency versions PASS', {express:e.version,qs:q.version,xlsx:x.version})"
+          npm run test:prod-readiness
 
       - name: HNL AI deterministic gates
         run: |
@@ -97,7 +132,7 @@ jobs:
       - name: Firebase Rules compile check
         run: npm run test:rules
 
-      - name: Security audit (production, critical)
+      - name: Security audit (production, HIGH or above blocks release)
         run: npm run security:audit
 
       - name: Build
@@ -125,6 +160,56 @@ jobs:
           ACCOUNT_ID="$(printf '%s' "$RESPONSE" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const r=Array.isArray(j.result)?j.result:[];if(!j.success||r.length!==1){console.error('Expected exactly one accessible Cloudflare account, got '+r.length);process.exit(2)};process.stdout.write(String(r[0].id||''))})")"
           test -n "$ACCOUNT_ID" || { echo 'Cloudflare Account ID resolve failed'; exit 1; }
           echo "CLOUDFLARE_ACCOUNT_ID=$ACCOUNT_ID" >> "$GITHUB_ENV"
+
+      - name: Deploy exact-source HNL R2 Gateway PROD
+        working-directory: cloudflare/r2-gateway
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          cat > wrangler.prod.ci.toml <<WRANGLER_EOF
+          name = "hnl-qltc-r2-gateway"
+          main = "worker.js"
+          compatibility_date = "2026-08-30"
+
+          [[r2_buckets]]
+          binding = "HNL_QLTC_MEDIA"
+          bucket_name = "hnl-qltc-media"
+
+          [vars]
+          FIREBASE_PROJECT_ID = "$VITE_FIREBASE_PROJECT_ID"
+          SUPER_ADMIN_EMAIL = "lengochieu1211@gmail.com"
+          ALLOWED_ORIGINS = "$PROD_HOSTING_URL,https://com-example-qlct-61329.web.app,$PROD_FIREBASEAPP_ORIGIN"
+          MAX_UPLOAD_BYTES = "26214400"
+          WRANGLER_EOF
+          trap 'rm -f wrangler.prod.ci.toml' EXIT
+          npx --yes wrangler@4.33.0 deploy --config wrangler.prod.ci.toml
+
+      - name: Smoke HNL R2 Gateway PROD
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="${VITE_R2_GATEWAY_URL}/health"
+          ok=0
+          for i in $(seq 1 30); do
+            BODY="$(curl --fail --silent --show-error "${URL}?probe=${GITHUB_RUN_ID}-${i}" || true)"
+            if printf '%s' "$BODY" | grep -q '"ok":true' \
+              && printf '%s' "$BODY" | grep -q '"accessPolicy":"canonical-email-first"' \
+              && printf '%s' "$BODY" | grep -q '"policyVersion":"immutable-deleted-project-v2"'; then
+              ok=1
+              break
+            fi
+            sleep 2
+          done
+          test "$ok" = 1 || { echo 'HNL R2 Gateway PROD health/policy marker failed'; exit 1; }
+          curl --fail --silent --show-error -X OPTIONS -D /tmp/r2-prod-cors.headers -o /tmp/r2-prod-cors.body \
+            -H "Origin: ${PROD_HOSTING_URL}" \
+            -H 'Access-Control-Request-Method: PUT' \
+            -H 'Access-Control-Request-Headers: authorization,content-type,x-hnl-metadata' \
+            "${VITE_R2_GATEWAY_URL}/v1/object?key=projects/cors-probe/media/diagnostics/probe/original.jpg&probe=${GITHUB_RUN_ID}"
+          grep -qi "^access-control-allow-origin: ${PROD_HOSTING_URL}" /tmp/r2-prod-cors.headers
+          grep -qi '^access-control-allow-methods:.*PUT' /tmp/r2-prod-cors.headers
 
       - name: Deploy isolated HNL AI Gateway PROD
         working-directory: cloudflare/ai-gateway
@@ -168,7 +253,7 @@ jobs:
           done
           test "$ok" = 1 || { echo 'HNL AI Gateway PROD health failed'; exit 1; }
 
-      - name: Deploy Firestore rules
+      - name: Deploy Firestore + Storage rules from same candidate source
         shell: bash
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
@@ -176,7 +261,7 @@ jobs:
         run: |
           set -euo pipefail
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
-          npx --yes firebase-tools@13.35.1 deploy --only firestore:rules --project com-example-qlct-61329 --non-interactive
+          npx --yes firebase-tools@13.35.1 deploy --only firestore:rules,storage --project com-example-qlct-61329 --non-interactive
 
       - name: Deploy Hosting site hnlqltc
         shell: bash

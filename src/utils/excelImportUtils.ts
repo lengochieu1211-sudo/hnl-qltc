@@ -48,3 +48,25 @@ export function sameStringSet(left?: string[], right?: string[]): boolean {
   const b = Array.from(new Set((right || []).map((item) => String(item || '').trim()).filter(Boolean))).sort();
   return a.length === b.length && a.every((item, index) => item === b[index]);
 }
+
+export const MAX_EXCEL_IMPORT_BYTES = 12 * 1024 * 1024;
+
+/**
+ * Fail closed before handing user-controlled workbook bytes to SheetJS.
+ * MIME is intentionally not trusted because Android/Windows file pickers often
+ * omit it; the extension + byte-size contract is deterministic across wrappers.
+ */
+export function assertSafeExcelImportFile(file: Pick<File, 'name' | 'size'>): void {
+  const name = String(file?.name || '').trim();
+  const size = Number(file?.size || 0);
+  if (!name || !/\.(xlsx|xls)$/i.test(name)) {
+    throw new Error('Chỉ chấp nhận tệp Excel .xlsx hoặc .xls.');
+  }
+  if (!Number.isFinite(size) || size <= 0) {
+    throw new Error('Tệp Excel rỗng hoặc không đọc được.');
+  }
+  if (size > MAX_EXCEL_IMPORT_BYTES) {
+    const maxMb = Math.round(MAX_EXCEL_IMPORT_BYTES / (1024 * 1024));
+    throw new Error(`Tệp Excel vượt giới hạn ${maxMb} MB. Hãy chia nhỏ dữ liệu trước khi nhập.`);
+  }
+}

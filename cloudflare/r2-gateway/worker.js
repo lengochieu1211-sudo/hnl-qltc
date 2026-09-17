@@ -104,7 +104,7 @@ export default {
     const cors = corsHeaders(request, env);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     const url = new URL(request.url);
-    if (url.pathname === '/health') return json({ ok: true, service: 'hnl-qltc-r2-gateway', version: GATEWAY_VERSION, accessPolicy: 'canonical-email-first' }, 200, cors);
+    if (url.pathname === '/health') return json({ ok: true, service: 'hnl-qltc-r2-gateway', version: GATEWAY_VERSION, accessPolicy: 'canonical-email-first', policyVersion: 'immutable-deleted-project-v2' }, 200, cors);
     if (url.pathname !== '/v1/object') return json({ error: 'NOT_FOUND' }, 404, cors);
 
     const auth = request.headers.get('Authorization') || '';

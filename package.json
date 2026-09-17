@@ -14,8 +14,8 @@
     "lint": "node scripts/source-lint.mjs",
     "test:rules": "node scripts/firebase-rules-check.mjs",
     "test:emulator-config": "node scripts/emulator-golden.mjs",
-    "security:audit": "npm audit --omit=dev --audit-level=critical",
-    "test:stability": "npm run test:audit-hardening && node scripts/stability-gate.mjs && node scripts/offline-golden.mjs && node scripts/category-golden.mjs && node scripts/firebase-only-golden.mjs && node scripts/firebase-only-legacy-audit.mjs --self-test && node scripts/emulator-golden.mjs && node scripts/rbac-matrix.mjs && npm run test:cloud-purge && node scripts/r2-gateway-golden.mjs && node scripts/ai-gateway-golden.mjs && node scripts/desktop-launcher-golden.mjs && node scripts/auth-popup-golden.mjs && npm run test:linkage-calculation && npm run test:material-need && tsx scripts/contact-core-golden.ts && tsx scripts/defect-contact-golden.ts && tsx scripts/defect-linkage-golden.ts && node --experimental-strip-types scripts/crew-task-description-golden.ts && tsx scripts/crew-persistence-golden.ts && npm run test:share-center && npm run test:checklist-floor && npm run test:health-center && npm run test:floorplan-p0 && npm run test:media-p0 && npm run test:superadmin-navigation && npm run test:ui-entry-ux && npm run test:team-directory-integrity",
+    "security:audit": "npm audit --omit=dev --audit-level=high",
+    "test:stability": "npm run test:audit-hardening && node scripts/stability-gate.mjs && node scripts/offline-golden.mjs && node scripts/category-golden.mjs && node scripts/firebase-only-golden.mjs && node scripts/firebase-only-legacy-audit.mjs --self-test && node scripts/emulator-golden.mjs && node scripts/rbac-matrix.mjs && npm run test:cloud-purge && node scripts/r2-gateway-golden.mjs && node scripts/ai-gateway-golden.mjs && node scripts/desktop-launcher-golden.mjs && node scripts/auth-popup-golden.mjs && npm run test:linkage-calculation && npm run test:material-need && tsx scripts/contact-core-golden.ts && tsx scripts/defect-contact-golden.ts && tsx scripts/defect-linkage-golden.ts && node --experimental-strip-types scripts/crew-task-description-golden.ts && tsx scripts/crew-persistence-golden.ts && npm run test:share-center && npm run test:checklist-floor && npm run test:health-center && npm run test:floorplan-p0 && npm run test:media-p0 && npm run test:superadmin-navigation && npm run test:ui-entry-ux && npm run test:team-directory-integrity && npm run test:excel-security && npm run test:prod-readiness",
     "verify": "npm run test:stability && npm run typecheck && npm run lint && npm run test:rules && npm run security:audit && npm run build",
     "test:offline": "node scripts/offline-golden.mjs",
     "test:category": "node scripts/category-golden.mjs",
@@ -44,7 +44,9 @@
     "test:team-directory-integrity": "tsx scripts/team-directory-integrity-golden.ts",
     "test:cloud-purge": "node scripts/cloud-purge-golden.mjs",
     "test:audit-hardening": "node scripts/audit-hardening-golden.mjs",
-    "test:linkage-calculation": "tsx scripts/linkage-calculation-golden.ts && node scripts/linkage-calculation-source-golden.mjs"
+    "test:linkage-calculation": "tsx scripts/linkage-calculation-golden.ts && node scripts/linkage-calculation-source-golden.mjs",
+    "test:prod-readiness": "node scripts/prod-readiness-golden.mjs",
+    "test:excel-security": "tsx scripts/excel-import-security-golden.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -53,7 +55,7 @@
     "autoprefixer": "^10.4.21",
     "dotenv": "^17.2.3",
     "esbuild": "^0.25.0",
-    "express": "^4.21.2",
+    "express": "^4.22.3",
     "firebase": "12.18.0",
     "googleapis": "^174.0.1",
     "jspdf": "^4.2.1",
@@ -69,7 +71,7 @@
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.3",
-    "xlsx": "^0.18.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",

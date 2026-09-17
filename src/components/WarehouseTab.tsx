@@ -35,7 +35,7 @@ import { calculateStockSummary, resolveNormMaterialId } from '../utils/inventory
 import { compareDateValues, naturalCompare } from '../utils/sortUtils';
 import { createEntityId } from '../utils/idUtils';
 import { normalizeUnit } from '../utils/unitUtils';
-import { parseExcelNumberRecord, parseExcelStringArray, sameStringSet } from '../utils/excelImportUtils';
+import { assertSafeExcelImportFile, parseExcelNumberRecord, parseExcelStringArray, sameStringSet } from '../utils/excelImportUtils';
 import { QuickSortBar } from './QuickSortBar';
 import { SettingsFeatureSheet } from './SettingsFeatureSheet';
 import { FIREBASE_ONLY_RUNTIME } from '../config/runtimeArchitecture';
@@ -286,6 +286,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
   const processWarehouseUpdateExcel = async (file: File) => {
     if (!hasImportAccess) { alert('Chỉ ADMIN được nhập dữ liệu kho/định mức/hạng mục hàng loạt từ Excel.'); return; }
+    try { assertSafeExcelImportFile(file); } catch (error) {
+      alert(`❌ ${error instanceof Error ? error.message : 'Tệp Excel không hợp lệ.'}`);
+      return;
+    }
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {

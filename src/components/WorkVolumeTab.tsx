@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import * as XLSX from 'xlsx';
+import { assertSafeExcelImportFile } from '../utils/excelImportUtils';
 import { 
   BarChart3, 
   TrendingUp, 
@@ -317,6 +318,11 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     }
     const file = e.target.files?.[0];
     if (!file) return;
+    try { assertSafeExcelImportFile(file); } catch (error) {
+      alert(`❌ ${error instanceof Error ? error.message : 'Tệp Excel không hợp lệ.'}`);
+      e.target.value = '';
+      return;
+    }
 
     const normalizeDate = (raw: unknown): string | undefined => {
       const value = String(raw ?? '').trim();
