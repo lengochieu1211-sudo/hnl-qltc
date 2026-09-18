@@ -13,6 +13,7 @@ function readPngSize(path) {
 }
 
 const launcher = read('desktop-wrapper/QLTCAnPhuLauncher.cs');
+const localStore = read('desktop-wrapper/DesktopLocalStore.cs');
 const build = read('desktop-wrapper/build-launcher.ps1');
 const workflow = read('.github/workflows/windows-exe.yml');
 const iconGolden = read('scripts/windows-icon-golden.ps1');
@@ -40,10 +41,19 @@ assert(launcher.includes('HNL-QLTC-DESKTOP-DIAGNOSTIC-'), 'Desktop Suite can exp
 assert(launcher.includes('HostingHealthUrl') && launcher.includes('R2HealthUrl') && launcher.includes('AiHealthUrl'), 'diagnostics cover Hosting, R2 and AI Gateway');
 assert(launcher.includes('NotifyIcon') && launcher.includes('Desktop Suite vẫn đang chạy ở khay hệ thống'), 'Desktop Suite supports Windows system tray');
 assert(!launcher.includes('deletePhoto') && !launcher.includes('purgeBinary'), 'Desktop Suite shell has no destructive cloud-media operation');
+assert(launcher.includes('Local Workspace & Queue') && launcher.includes('Quét lại chỉ mục'), 'Desktop Suite exposes local workspace indexing controls');
+assert(launcher.includes('DesktopPaths.LocalDatabase') && launcher.includes('workspace.db'), 'Desktop Suite stores its local SQLite database under LocalAppData');
+assert(localStore.includes('winsqlite3.dll'), 'local workspace uses Windows inbox winsqlite3 without an external database DLL');
+assert(localStore.includes('CREATE TABLE IF NOT EXISTS workspace_files') && localStore.includes('CREATE TABLE IF NOT EXISTS sync_queue'), 'SQLite schema contains workspace mirror and durable sync queue');
+assert(localStore.includes('ready_for_app_sync') && localStore.includes('prepare_binary'), 'background queue prepares changed Imports/Photos files before app sync');
+assert(localStore.includes('SHA256.Create()'), 'background preparation hashes staged files with SHA-256');
+assert(localStore.includes('Cloudflare R2 binary') && localStore.includes('SQLite is local mirror/cache only'), 'SQLite explicitly remains a local mirror/cache, not cloud authority');
+assert(!localStore.includes('HttpWebRequest') && !localStore.includes('R2HealthUrl') && !localStore.includes('firebase'), 'local store has no direct cloud-write transport');
 assert(build.includes('HNL-QLTC-Windows.exe'), 'build script creates one portable Windows EXE');
 assert(build.includes('/reference:System.Drawing.dll'), 'build script references System.Drawing for the native Desktop Suite UI');
+assert(build.includes('DesktopLocalStore.cs'), 'build compiles the SQLite local workspace engine');
 assert(build.includes('release-tag.txt'), 'build script uses release tag for cache/version isolation');
-assert(releaseTag === '6.3.0-rc2.2.17', 'desktop release tag matches RC2.2.17 Desktop Suite Core');
+assert(releaseTag === '6.3.0-rc2.2.18', 'desktop release tag matches RC2.2.18 SQLite Workspace');
 
 assert(iconSource.width >= 1024 && iconSource.height >= 1024 && iconSource.bytes > 1_000_000, 'HQ HNL logo source is retained at >=1024px');
 assert(taskbar192.width === 192 && taskbar192.height === 192, 'browser app-mode has dedicated 192x192 HNL icon');
@@ -88,6 +98,7 @@ assert(workflow.includes('npm run test:stability'), 'EXE CI includes stability g
 assert(workflow.includes('npm run typecheck') && workflow.includes('npm run lint'), 'EXE CI includes TypeScript and lint');
 assert(workflow.includes('npm run build'), 'EXE CI certifies web build before launcher packaging');
 assert(workflow.includes('windows-icon-golden.ps1'), 'EXE CI runs Windows icon golden gate after packaging');
+assert(workflow.includes('windows-desktop-local-store-golden.ps1'), 'EXE CI runs Windows SQLite workspace runtime golden');
 assert(workflow.includes('icon-golden-evidence'), 'EXE CI uploads icon visual evidence');
 assert(workflow.includes('HNL-QLTC-Windows.exe'), 'EXE artifact is uploaded');
 console.log('DESKTOP LAUNCHER GOLDEN PASS');

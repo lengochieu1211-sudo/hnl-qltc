@@ -4,6 +4,7 @@ using System.Drawing;
 using System.IO;
 using System.Net;
 using System.Text;
+using System.Threading;
 using System.Windows.Forms;
 
 namespace QLTCAnPhu
@@ -150,10 +151,12 @@ namespace QLTCAnPhu
                 "QLTCAnPhu"
             );
             internal static readonly string Logs = Path.Combine(LocalState, "Logs");
+            internal static readonly string DesktopSuiteState = Path.Combine(LocalState, "DesktopSuite");
+            internal static readonly string LocalDatabase = Path.Combine(DesktopSuiteState, "workspace.db");
 
             internal static void EnsureWorkspace()
             {
-                string[] dirs = { WorkspaceRoot, Backup, Imports, Exports, Excel, Pdf, Reports, Photos, Diagnostics, LocalState, Logs };
+                string[] dirs = { WorkspaceRoot, Backup, Imports, Exports, Excel, Pdf, Reports, Photos, Diagnostics, LocalState, Logs, DesktopSuiteState };
                 foreach (string dir in dirs) Directory.CreateDirectory(dir);
             }
         }
@@ -163,6 +166,9 @@ namespace QLTCAnPhu
             private readonly Label statusLabel;
             private readonly Label browserLabel;
             private readonly NotifyIcon trayIcon;
+            private readonly DesktopLocalStore localStore;
+            private readonly System.Windows.Forms.Timer backgroundTimer;
+            private int maintenanceRunning;
             private bool allowClose;
 
             internal DesktopSuiteForm()
@@ -279,10 +285,11 @@ namespace QLTCAnPhu
                     }), 1, 0);
 
                 cards.Controls.Add(BuildCard(
-                    "Ảnh hiện trường",
-                    "Vùng staging/import ảnh trên Windows. Không tự upload và không thay đổi ảnh cloud nếu người dùng chưa thực hiện trong HNL QLTC.",
+                    "Local Workspace & Queue",
+                    "SQLite chỉ lưu mirror/cache cục bộ. File mới trong Imports/Photos được hash nền và xếp hàng sẵn sàng cho ứng dụng; không tự ghi cloud.",
                     new[] {
-                        new CardAction("Mở thư mục Photos", DesktopPaths.Photos)
+                        new CardAction("Mở Photos", DesktopPaths.Photos),
+                        new CardAction("Quét lại chỉ mục", delegate { RefreshLocalIndex(true); })
                     }), 0, 1);
 
                 cards.Controls.Add(BuildCard(
@@ -314,7 +321,14 @@ namespace QLTCAnPhu
                     ForeColor = Color.FromArgb(75, 86, 101)
                 };
                 footer.Controls.Add(browserLabel, 1, 0);
+
+                localStore = DesktopLocalStore.TryOpen(DesktopPaths.LocalDatabase);
                 RefreshBrowserLabel();
+                RefreshLocalIndex(false);
+
+                backgroundTimer = new System.Windows.Forms.Timer { Interval = 30000 };
+                backgroundTimer.Tick += delegate { RunBackgroundMaintenance(); };
+                backgroundTimer.Start();
 
                 trayIcon = new NotifyIcon
                 {
@@ -349,7 +363,13 @@ namespace QLTCAnPhu
                     }
                 };
 
-                FormClosed += delegate { trayIcon.Visible = false; trayIcon.Dispose(); };
+                FormClosed += delegate {
+                    backgroundTimer.Stop();
+                    backgroundTimer.Dispose();
+                    localStore.Dispose();
+                    trayIcon.Visible = false;
+                    trayIcon.Dispose();
+                };
             }
 
             private Button MakePrimaryButton(string text)
@@ -437,7 +457,11 @@ namespace QLTCAnPhu
                         Cursor = Cursors.Hand
                     };
                     string target = action.TargetPath;
-                    button.Click += delegate { SafeAction(delegate { OpenFolder(target); }); };
+                    Action handler = action.Handler;
+                    button.Click += delegate {
+                        if (handler != null) SafeAction(handler);
+                        else SafeAction(delegate { OpenFolder(target); });
+                    };
                     actionPanel.Controls.Add(button);
                 }
 
@@ -447,7 +471,69 @@ namespace QLTCAnPhu
             private void RefreshBrowserLabel()
             {
                 BrowserInfo browser = Program.FindBrowser();
-                browserLabel.Text = browser == null ? "Trình duyệt: mặc định Windows" : "Trình duyệt: " + browser.DisplayName;
+                string browserText = browser == null ? "Windows default" : browser.DisplayName;
+                if (localStore == null || !localStore.IsReady)
+                {
+                    browserLabel.Text = "SQLite: lỗi | " + browserText;
+                    return;
+                }
+                browserLabel.Text = "SQLite: " + localStore.CountIndexedFiles() + " file | Queue: " + localStore.CountQueueReady() + " sẵn sàng | " + browserText;
+            }
+
+            private void RefreshLocalIndex(bool showMessage)
+            {
+                if (localStore == null || !localStore.IsReady)
+                {
+                    if (showMessage) MessageBox.Show("SQLite local workspace chưa sẵn sàng: " + (localStore == null ? "unknown" : localStore.LastError), Program.ProductName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+                try
+                {
+                    WorkspaceIndexResult result = localStore.RefreshIndex(DesktopPaths.WorkspaceRoot);
+                    RefreshBrowserLabel();
+                    statusLabel.Text = "Local index: " + result.IndexedFiles + " file, queue mới " + result.EnqueuedFiles + ". Cloud chưa bị thay đổi.";
+                    if (showMessage)
+                    {
+                        MessageBox.Show(
+                            "Đã cập nhật SQLite local index.\n\nFile: " + result.IndexedFiles +
+                            "\nQueue mới: " + result.EnqueuedFiles +
+                            "\nFile cũ đã loại khỏi index: " + result.RemovedFiles +
+                            "\n\nKhông có dữ liệu cloud nào bị sửa.",
+                            Program.ProductName,
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Information
+                        );
+                    }
+                }
+                catch (Exception ex)
+                {
+                    statusLabel.Text = "Local index lỗi: " + ex.Message;
+                    if (showMessage) MessageBox.Show(ex.Message, Program.ProductName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+            }
+
+            private void RunBackgroundMaintenance()
+            {
+                if (localStore == null || !localStore.IsReady) return;
+                if (Interlocked.Exchange(ref maintenanceRunning, 1) != 0) return;
+                ThreadPool.QueueUserWorkItem(delegate
+                {
+                    try
+                    {
+                        localStore.RefreshIndex(DesktopPaths.WorkspaceRoot);
+                        localStore.ProcessOneQueueItem(DesktopPaths.WorkspaceRoot);
+                    }
+                    catch { }
+                    finally
+                    {
+                        Interlocked.Exchange(ref maintenanceRunning, 0);
+                        try
+                        {
+                            BeginInvoke((MethodInvoker)delegate { RefreshBrowserLabel(); });
+                        }
+                        catch { }
+                    }
+                });
             }
 
             private void RunDiagnostics()
@@ -492,11 +578,11 @@ namespace QLTCAnPhu
                 }
             }
 
-            private static string BuildDiagnosticJson(BrowserInfo browser, string hosting, string r2, string ai, DriveInfo drive)
+            private string BuildDiagnosticJson(BrowserInfo browser, string hosting, string r2, string ai, DriveInfo drive)
             {
                 var sb = new StringBuilder();
                 sb.AppendLine("{");
-                AppendJson(sb, "schema", "hnl-qltc-desktop-diagnostic-v1", true);
+                AppendJson(sb, "schema", "hnl-qltc-desktop-diagnostic-v2", true);
                 AppendJson(sb, "generatedAt", DateTime.Now.ToString("o"), true);
                 AppendJson(sb, "releaseTag", Program.GetReleaseTag(), true);
                 AppendJson(sb, "appUrl", Program.BuildAppUrl(), true);
@@ -509,6 +595,13 @@ namespace QLTCAnPhu
                 AppendJson(sb, "hosting", hosting, true);
                 AppendJson(sb, "r2", r2, true);
                 AppendJson(sb, "aiGateway", ai, true);
+                AppendJson(sb, "sqliteReady", localStore != null && localStore.IsReady ? "true" : "false", true);
+                AppendJson(sb, "sqliteDatabase", DesktopPaths.LocalDatabase, true);
+                AppendJson(sb, "sqliteLastError", localStore == null ? "store unavailable" : (localStore.LastError ?? ""), true);
+                AppendJson(sb, "indexedFiles", localStore != null && localStore.IsReady ? localStore.CountIndexedFiles().ToString() : "0", true);
+                AppendJson(sb, "queuePending", localStore != null && localStore.IsReady ? localStore.CountQueuePending().ToString() : "0", true);
+                AppendJson(sb, "queueReadyForAppSync", localStore != null && localStore.IsReady ? localStore.CountQueueReady().ToString() : "0", true);
+                AppendJson(sb, "lastIndexUtc", localStore != null && localStore.IsReady ? localStore.GetLastIndexUtc() : "", true);
                 AppendJson(sb, "diskRoot", drive.Name, true);
                 AppendJson(sb, "diskFreeBytes", drive.AvailableFreeSpace.ToString(), false);
                 sb.AppendLine("}");
@@ -581,11 +674,18 @@ namespace QLTCAnPhu
             {
                 internal string Caption { get; private set; }
                 internal string TargetPath { get; private set; }
+                internal Action Handler { get; private set; }
 
                 internal CardAction(string caption, string targetPath)
                 {
                     Caption = caption;
                     TargetPath = targetPath;
+                }
+
+                internal CardAction(string caption, Action handler)
+                {
+                    Caption = caption;
+                    Handler = handler;
                 }
             }
         }

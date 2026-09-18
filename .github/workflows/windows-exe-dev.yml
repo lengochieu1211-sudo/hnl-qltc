@@ -17,6 +17,7 @@ on:
       - 'scripts/firebase-rules-behavior.mjs'
       - 'scripts/desktop-launcher-golden.mjs'
       - 'scripts/windows-icon-golden.ps1'
+      - 'scripts/windows-desktop-local-store-golden.ps1'
       - '.github/workflows/windows-exe-dev.yml'
 
 permissions:
@@ -179,6 +180,10 @@ jobs:
       - name: Windows taskbar icon golden
         shell: pwsh
         run: ./scripts/windows-icon-golden.ps1
+
+      - name: Windows SQLite workspace golden
+        shell: pwsh
+        run: ./scripts/windows-desktop-local-store-golden.ps1
 
       - name: Verify DEV EXE
         shell: pwsh

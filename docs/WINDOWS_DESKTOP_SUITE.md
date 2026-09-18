@@ -38,3 +38,17 @@ Desktop Suite Core không tự upload, xóa, migrate hay repair dữ liệu clou
 7. Auto-update có xác nhận người dùng trước khi cài.
 
 Mỗi lớp phải qua regression Web + Android + Windows; không đổi Firebase Project, Hosting, GitHub repo hoặc R2.
+## RC2.2.18 — Local Workspace Index + SQLite Queue
+
+Desktop Suite bổ sung local data plane riêng cho Windows nhưng không thay đổi cloud authority:
+
+- SQLite thật qua `winsqlite3.dll` có sẵn trên Windows 10/11; không cần ship thêm database DLL.
+- Database: `%LOCALAPPDATA%\QLTCAnPhu\DesktopSuite\workspace.db`.
+- `workspace_files`: mirror metadata của các file trong Backup/Imports/Exports/Reports/Photos/Diagnostics.
+- `sync_queue`: hàng đợi bền vững qua restart cho các file mới/thay đổi trong `Imports` và `Photos`.
+- Background maintenance quét workspace, tạo SHA-256 cho file staging và chuyển trạng thái sang `ready_for_app_sync`.
+- Queue retry có backoff khi file tạm bị khóa/mất; trạng thái được giữ trong SQLite sau khi Windows/app restart.
+- Diagnostic JSON bổ sung SQLite readiness, database path, indexed file count, queue pending/ready và lần index cuối.
+- UI có nút `Quét lại chỉ mục` và trạng thái SQLite/Queue ở footer.
+
+Giới hạn cố ý của RC2.2.18: queue **không tự upload R2 hoặc ghi Firestore**. Nó chỉ chuẩn bị local staging + checksum. Cloud write vẫn phải đi qua cơ chế HNL QLTC đã xác thực/RBAC, tránh tạo đường ghi dữ liệu thứ hai ngoài ứng dụng.
