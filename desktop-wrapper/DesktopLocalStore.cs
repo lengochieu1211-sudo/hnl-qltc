@@ -109,8 +109,17 @@ CREATE TABLE IF NOT EXISTS sync_queue (
   last_error TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_sync_queue_state ON sync_queue(state, next_attempt_utc);
+CREATE TABLE IF NOT EXISTS sync_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  queue_key TEXT NOT NULL,
+  relative_path TEXT NOT NULL,
+  event TEXT NOT NULL,
+  detail TEXT,
+  occurred_utc TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sync_history_occurred ON sync_history(occurred_utc DESC);
 ");
-            SetMeta("schema_version", "1");
+            SetMeta("schema_version", "2");
             SetMeta("cloud_authority", "Firestore business data + Cloudflare R2 binary; SQLite is local mirror/cache only");
         }
 
@@ -216,6 +225,7 @@ CREATE INDEX IF NOT EXISTS idx_sync_queue_state ON sync_queue(state, next_attemp
                 string hash = ComputeSha256(fullPath);
                 Exec("UPDATE workspace_files SET sha256=" + Sql(hash) + ", indexed_utc=" + Sql(now) + " WHERE relative_path=" + Sql(relative) + ";");
                 Exec("UPDATE sync_queue SET state='ready_for_app_sync', updated_utc=" + Sql(now) + ", last_error=NULL WHERE queue_key=" + Sql(key) + ";");
+                AddHistory(key, relative, "prepared", "SHA-256 ready for Web App Sync Bridge", now);
                 RefreshBridgeManifest(workspaceRoot);
                 result.Processed = true;
                 result.HashSha256 = hash;
@@ -229,6 +239,7 @@ CREATE INDEX IF NOT EXISTS idx_sync_queue_state ON sync_queue(state, next_attemp
                     ", next_attempt_utc=" + Sql(retry.ToString("o", CultureInfo.InvariantCulture)) +
                     ", updated_utc=" + Sql(now) + ", last_error=" + Sql(ex.Message) + " WHERE queue_key=" + Sql(key) + ";"
                 );
+                AddHistory(key, relative, "retry", ex.Message, now);
                 result.Error = ex.Message;
             }
             return result;
@@ -259,7 +270,9 @@ CREATE INDEX IF NOT EXISTS idx_sync_queue_state ON sync_queue(state, next_attemp
             {
                 string ackPath = Path.Combine(ackRoot, row.AckName);
                 if (!File.Exists(ackPath)) continue;
-                Exec("UPDATE sync_queue SET state='completed', updated_utc=" + Sql(DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture)) + ", last_error=NULL WHERE queue_key=" + Sql(row.QueueKey) + ";");
+                string completedAt = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
+                AddHistory(row.QueueKey, row.RelativePath, "cloud_verified", "Web App Sync Bridge ACK received", completedAt);
+                Exec("UPDATE sync_queue SET state='completed', updated_utc=" + Sql(completedAt) + ", last_error=NULL WHERE queue_key=" + Sql(row.QueueKey) + ";");
                 try { File.Delete(ackPath); } catch { }
             }
 
@@ -358,6 +371,100 @@ CREATE INDEX IF NOT EXISTS idx_sync_queue_state ON sync_queue(state, next_attemp
         private static string JsonEscape(string value)
         {
             return (value ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", "\\r").Replace("\n", "\\n");
+        }
+
+        internal List<SyncQueueRow> GetQueueRows(int limit)
+        {
+            var rows = new List<SyncQueueRow>();
+            if (!IsReady) return rows;
+            int safeLimit = Math.Max(1, Math.Min(limit, 1000));
+            SqliteCallback callback = delegate(IntPtr _, int count, IntPtr values, IntPtr names)
+            {
+                if (count < 9) return 0;
+                rows.Add(new SyncQueueRow
+                {
+                    QueueKey = ValueAt(values, 0),
+                    RelativePath = ValueAt(values, 1),
+                    State = ValueAt(values, 2),
+                    Attempts = ParseInt(ValueAt(values, 3)),
+                    NextAttemptUtc = ValueAt(values, 4),
+                    UpdatedUtc = ValueAt(values, 5),
+                    LastError = ValueAt(values, 6),
+                    Sha256 = ValueAt(values, 7),
+                    SizeBytes = ParseLong(ValueAt(values, 8)),
+                });
+                return 0;
+            };
+            Exec("SELECT q.queue_key,q.relative_path,q.state,CAST(q.attempts AS TEXT),COALESCE(q.next_attempt_utc,''),q.updated_utc,COALESCE(q.last_error,''),COALESCE(f.sha256,''),CAST(COALESCE(f.size_bytes,0) AS TEXT) FROM sync_queue q LEFT JOIN workspace_files f ON f.relative_path=q.relative_path ORDER BY CASE q.state WHEN 'retry' THEN 0 WHEN 'pending' THEN 1 WHEN 'ready_for_app_sync' THEN 2 WHEN 'completed' THEN 3 ELSE 4 END,q.updated_utc DESC LIMIT " + safeLimit.ToString(CultureInfo.InvariantCulture) + ";", callback);
+            return rows;
+        }
+
+        internal List<SyncHistoryRow> GetHistoryRows(int limit)
+        {
+            var rows = new List<SyncHistoryRow>();
+            if (!IsReady) return rows;
+            int safeLimit = Math.Max(1, Math.Min(limit, 1000));
+            SqliteCallback callback = delegate(IntPtr _, int count, IntPtr values, IntPtr names)
+            {
+                if (count < 5) return 0;
+                rows.Add(new SyncHistoryRow
+                {
+                    QueueKey = ValueAt(values, 0),
+                    RelativePath = ValueAt(values, 1),
+                    Event = ValueAt(values, 2),
+                    Detail = ValueAt(values, 3),
+                    OccurredUtc = ValueAt(values, 4),
+                });
+                return 0;
+            };
+            Exec("SELECT queue_key,relative_path,event,COALESCE(detail,''),occurred_utc FROM sync_history ORDER BY occurred_utc DESC,id DESC LIMIT " + safeLimit.ToString(CultureInfo.InvariantCulture) + ";", callback);
+            return rows;
+        }
+
+        internal bool RetryQueueItem(string queueKey)
+        {
+            if (!IsReady || string.IsNullOrWhiteSpace(queueKey)) return false;
+            string relative = ScalarText("SELECT relative_path FROM sync_queue WHERE queue_key=" + Sql(queueKey) + " LIMIT 1;");
+            if (string.IsNullOrEmpty(relative)) return false;
+            string state = ScalarText("SELECT state FROM sync_queue WHERE queue_key=" + Sql(queueKey) + " LIMIT 1;");
+            if (state == "completed") return false;
+            string now = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
+            Exec("UPDATE sync_queue SET state='pending',attempts=0,next_attempt_utc=" + Sql(now) + ",updated_utc=" + Sql(now) + ",last_error=NULL WHERE queue_key=" + Sql(queueKey) + ";");
+            AddHistory(queueKey, relative, "manual_retry", "User requested retry from Sync Center", now);
+            return true;
+        }
+
+        internal int CountQueueCompleted()
+        {
+            return IsReady ? ScalarInt("SELECT COUNT(*) FROM sync_queue WHERE state='completed';") : 0;
+        }
+
+        internal int CountHistory()
+        {
+            return IsReady ? ScalarInt("SELECT COUNT(*) FROM sync_history;") : 0;
+        }
+
+        private void AddHistory(string queueKey, string relativePath, string eventName, string detail, string occurredUtc)
+        {
+            Exec("INSERT INTO sync_history(queue_key,relative_path,event,detail,occurred_utc) VALUES(" + Sql(queueKey) + "," + Sql(relativePath) + "," + Sql(eventName) + "," + Sql(detail ?? "") + "," + Sql(occurredUtc) + ");");
+        }
+
+        private static string ValueAt(IntPtr values, int index)
+        {
+            IntPtr pointer = Marshal.ReadIntPtr(values, index * IntPtr.Size);
+            return pointer == IntPtr.Zero ? "" : PtrToStringUtf8(pointer);
+        }
+
+        private static int ParseInt(string value)
+        {
+            int parsed;
+            return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out parsed) ? parsed : 0;
+        }
+
+        private static long ParseLong(string value)
+        {
+            long parsed;
+            return long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out parsed) ? parsed : 0L;
         }
 
         internal int CountIndexedFiles()
@@ -513,6 +620,28 @@ CREATE INDEX IF NOT EXISTS idx_sync_queue_state ON sync_queue(state, next_attemp
                 }
             }
         }
+    }
+
+    internal sealed class SyncQueueRow
+    {
+        internal string QueueKey;
+        internal string RelativePath;
+        internal string State;
+        internal int Attempts;
+        internal string NextAttemptUtc;
+        internal string UpdatedUtc;
+        internal string LastError;
+        internal string Sha256;
+        internal long SizeBytes;
+    }
+
+    internal sealed class SyncHistoryRow
+    {
+        internal string QueueKey;
+        internal string RelativePath;
+        internal string Event;
+        internal string Detail;
+        internal string OccurredUtc;
     }
 
     internal sealed class DesktopBridgeItem

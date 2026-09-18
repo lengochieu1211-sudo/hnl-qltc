@@ -45,6 +45,7 @@ export const WindowsDesktopSyncBridgeCard: React.FC<Props> = ({ activeProjectId,
         <div><b>Cấu trúc staging:</b> <span className="font-mono break-all">Photos/&lt;projectId&gt;/&lt;defect|crewRecord|chat&gt;/&lt;entityId&gt;/&lt;category&gt;/ảnh.jpg</span></div>
         <div><b>Category:</b> defect_before / defect_after / crew_progress / chat_attachment.</div>
         <div><b>Fail-closed:</b> sai project, sai SHA-256, VIEWER, chưa đăng nhập hoặc Cloud chưa verify → không tạo ACK.</div>
+        <div><b>Quản lý queue:</b> dùng Sync Center trong Windows Desktop Suite để xem trạng thái từng file, Retry thủ công, mở file nguồn và lịch sử Cloud-verified.</div>
       </div>
 
       {!canWrite && <div className="flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[10px] font-semibold text-amber-800"><AlertTriangle className="w-3.5 h-3.5" /> VIEWER chỉ đọc nên Sync Bridge bị khóa.</div>}

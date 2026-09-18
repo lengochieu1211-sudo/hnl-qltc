@@ -14,6 +14,7 @@ function readPngSize(path) {
 
 const launcher = read('desktop-wrapper/QLTCAnPhuLauncher.cs');
 const localStore = read('desktop-wrapper/DesktopLocalStore.cs');
+const syncCenter = read('desktop-wrapper/DesktopSyncCenterForm.cs');
 const build = read('desktop-wrapper/build-launcher.ps1');
 const workflow = read('.github/workflows/windows-exe.yml');
 const iconGolden = read('scripts/windows-icon-golden.ps1');
@@ -44,10 +45,10 @@ assert(launcher.includes('HNL-QLTC-DESKTOP-DIAGNOSTIC-'), 'Desktop Suite can exp
 assert(launcher.includes('HostingHealthUrl') && launcher.includes('R2HealthUrl') && launcher.includes('AiHealthUrl'), 'diagnostics cover Hosting, R2 and AI Gateway');
 assert(launcher.includes('NotifyIcon') && launcher.includes('Desktop Suite vẫn đang chạy ở khay hệ thống'), 'Desktop Suite supports Windows system tray');
 assert(!launcher.includes('deletePhoto') && !launcher.includes('purgeBinary'), 'Desktop Suite shell has no destructive cloud-media operation');
-assert(launcher.includes('Local Workspace & Queue') && launcher.includes('Quét lại chỉ mục'), 'Desktop Suite exposes local workspace indexing controls');
+assert(launcher.includes('Local Workspace & Queue') && launcher.includes('Quét lại chỉ mục') && launcher.includes('Mở Sync Center'), 'Desktop Suite exposes local workspace indexing and Sync Center controls');
 assert(launcher.includes('DesktopPaths.LocalDatabase') && launcher.includes('workspace.db'), 'Desktop Suite stores its local SQLite database under LocalAppData');
 assert(localStore.includes('winsqlite3.dll'), 'local workspace uses Windows inbox winsqlite3 without an external database DLL');
-assert(localStore.includes('CREATE TABLE IF NOT EXISTS workspace_files') && localStore.includes('CREATE TABLE IF NOT EXISTS sync_queue'), 'SQLite schema contains workspace mirror and durable sync queue');
+assert(localStore.includes('CREATE TABLE IF NOT EXISTS workspace_files') && localStore.includes('CREATE TABLE IF NOT EXISTS sync_queue') && localStore.includes('CREATE TABLE IF NOT EXISTS sync_history'), 'SQLite schema contains workspace mirror, durable sync queue and audit history');
 assert(localStore.includes('ready_for_app_sync') && localStore.includes('prepare_binary'), 'background queue prepares changed Imports/Photos files before app sync');
 assert(localStore.includes('SHA256.Create()'), 'background preparation hashes staged files with SHA-256');
 assert(localStore.includes('Cloudflare R2 binary') && localStore.includes('SQLite is local mirror/cache only'), 'SQLite explicitly remains a local mirror/cache, not cloud authority');
@@ -56,14 +57,18 @@ assert(localStore.includes('DesktopBridge') && localStore.includes('hnl-qltc-des
 assert(localStore.includes('Photos/<projectId>/<defect|crewRecord|chat>/<entityId>/<category>/<file>'), 'Desktop bridge only exports canonical photo staging paths');
 assert(build.includes('HNL-QLTC-Windows.exe'), 'build script creates one portable Windows EXE');
 assert(build.includes('/reference:System.Drawing.dll'), 'build script references System.Drawing for the native Desktop Suite UI');
-assert(build.includes('DesktopLocalStore.cs'), 'build compiles the SQLite local workspace engine');
+assert(build.includes('DesktopLocalStore.cs') && build.includes('DesktopSyncCenterForm.cs'), 'build compiles the SQLite engine and native Sync Center');
+assert(syncCenter.includes('Sync Center') && syncCenter.includes('Retry mục chọn') && syncCenter.includes('Mở file nguồn') && syncCenter.includes('Mở Web & đồng bộ'), 'native Sync Center exposes queue refresh, manual retry, source navigation and Web handoff');
+assert(syncCenter.includes('DataGridView') && syncCenter.includes('Lịch sử'), 'native Sync Center provides queue and history tables');
+assert(localStore.includes('RetryQueueItem') && localStore.includes('GetQueueRows') && localStore.includes('GetHistoryRows'), 'SQLite engine exposes controlled queue management APIs');
+assert(localStore.includes('cloud_verified') && localStore.includes('manual_retry'), 'queue completion and manual retry are auditable');
 assert(webBridge.includes('savePhotoAttachment') && webBridge.includes('uploadPhotoToCloud') && webBridge.includes('verifyPhotoBinaryReadyInCloud'), 'Web bridge reuses the existing authenticated photo upload pipeline');
 assert(webBridge.includes('BRIDGE_SOURCE_SHA256_MISMATCH') && webBridge.includes('VIEWER'), 'Web bridge fails closed on source hash mismatch and read-only roles');
 assert(webBridge.includes('showDirectoryPicker') && webBridge.includes('createWritable'), 'Web bridge uses explicit File System Access permission and writes local ACK only after verification');
 assert(!webBridge.includes('uploadProjectBinaryToR2') && !webBridge.includes('fetch('), 'Web bridge does not introduce a direct R2/network upload authority');
 assert(bridgeCard.includes('Windows Desktop Sync Bridge') && configTab.includes('WindowsDesktopSyncBridgeCard'), 'Settings exposes Windows App Sync Bridge controls');
 assert(build.includes('release-tag.txt'), 'build script uses release tag for cache/version isolation');
-assert(releaseTag === '6.3.0-rc2.2.19', 'desktop release tag matches RC2.2.19 App Sync Bridge');
+assert(releaseTag === '6.3.0-rc2.2.20', 'desktop release tag matches RC2.2.20 Sync Center');
 
 assert(iconSource.width >= 1024 && iconSource.height >= 1024 && iconSource.bytes > 1_000_000, 'HQ HNL logo source is retained at >=1024px');
 assert(taskbar192.width === 192 && taskbar192.height === 192, 'browser app-mode has dedicated 192x192 HNL icon');

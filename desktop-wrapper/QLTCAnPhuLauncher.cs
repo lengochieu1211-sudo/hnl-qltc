@@ -290,6 +290,7 @@ namespace QLTCAnPhu
                     "Local Workspace & Queue",
                     "SQLite chỉ lưu mirror/cache. Ảnh đúng cấu trúc Photos/<project>/<loại>/<entity>/<category>/... được bàn giao qua Web app Auth/RBAC; EXE không tự ghi cloud.",
                     new[] {
+                        new CardAction("Mở Sync Center", delegate { OpenSyncCenter(); }),
                         new CardAction("Mở Photos", DesktopPaths.Photos),
                         new CardAction("Quét lại chỉ mục", delegate { RefreshLocalIndex(true); })
                     }), 0, 1);
@@ -470,6 +471,20 @@ namespace QLTCAnPhu
                 return card;
             }
 
+            private void OpenSyncCenter()
+            {
+                if (localStore == null || !localStore.IsReady)
+                {
+                    MessageBox.Show("SQLite local workspace chưa sẵn sàng.", Program.ProductName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+                using (var form = new DesktopSyncCenterForm(localStore, DesktopPaths.WorkspaceRoot))
+                {
+                    form.ShowDialog(this);
+                }
+                RefreshBrowserLabel();
+            }
+
             private void RefreshBrowserLabel()
             {
                 BrowserInfo browser = Program.FindBrowser();
@@ -479,7 +494,7 @@ namespace QLTCAnPhu
                     browserLabel.Text = "SQLite: lỗi | " + browserText;
                     return;
                 }
-                browserLabel.Text = "SQLite: " + localStore.CountIndexedFiles() + " file | Queue: " + localStore.CountQueueReady() + " sẵn sàng | " + browserText;
+                browserLabel.Text = "SQLite: " + localStore.CountIndexedFiles() + " file | Queue: " + localStore.CountQueuePending() + " chờ / " + localStore.CountQueueReady() + " Web / " + localStore.CountQueueCompleted() + " xong | " + browserText;
             }
 
             private void RefreshLocalIndex(bool showMessage)
@@ -604,6 +619,8 @@ namespace QLTCAnPhu
                 AppendJson(sb, "indexedFiles", localStore != null && localStore.IsReady ? localStore.CountIndexedFiles().ToString() : "0", true);
                 AppendJson(sb, "queuePending", localStore != null && localStore.IsReady ? localStore.CountQueuePending().ToString() : "0", true);
                 AppendJson(sb, "queueReadyForAppSync", localStore != null && localStore.IsReady ? localStore.CountQueueReady().ToString() : "0", true);
+                AppendJson(sb, "queueCompleted", localStore != null && localStore.IsReady ? localStore.CountQueueCompleted().ToString() : "0", true);
+                AppendJson(sb, "syncHistoryCount", localStore != null && localStore.IsReady ? localStore.CountHistory().ToString() : "0", true);
                 AppendJson(sb, "lastIndexUtc", localStore != null && localStore.IsReady ? localStore.GetLastIndexUtc() : "", true);
                 AppendJson(sb, "diskRoot", drive.Name, true);
                 AppendJson(sb, "diskFreeBytes", drive.AvailableFreeSpace.ToString(), false);

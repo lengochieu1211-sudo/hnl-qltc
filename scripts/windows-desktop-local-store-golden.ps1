@@ -56,6 +56,7 @@ internal static class DesktopLocalStoreGolden
             store.ProcessOneQueueItem(workspace);
             Assert(store.CountQueuePending() == 0, "background queue drains pending preparation jobs");
             Assert(store.CountQueueReady() == 2, "prepared files persist as ready_for_app_sync");
+            Assert(store.CountHistory() == 2, "prepared queue transitions are recorded in sync history");
             string manifestPath = Path.Combine(workspace, "DesktopBridge", "ready.json");
             Assert(File.Exists(manifestPath), "Desktop bridge manifest is materialized");
             string manifest = File.ReadAllText(manifestPath, Encoding.UTF8);
@@ -69,6 +70,8 @@ internal static class DesktopLocalStoreGolden
             File.WriteAllText(Path.Combine(ackDir, ackMatch.Groups[1].Value), "cloud-verified", Encoding.UTF8);
             store.RefreshBridgeManifest(workspace);
             Assert(store.CountQueueReady() == 1, "cloud-verified ACK completes only the matching photo queue item");
+            Assert(store.CountQueueCompleted() == 1, "ACKed photo is retained as completed audit state");
+            Assert(store.CountHistory() == 3, "cloud verification is appended to sync history");
             string manifestAfterAck = File.ReadAllText(manifestPath, Encoding.UTF8);
             Assert(!manifestAfterAck.Contains("defect-001"), "ACKed photo is removed from ready bridge manifest");
         }
@@ -82,6 +85,14 @@ internal static class DesktopLocalStoreGolden
             WorkspaceIndexResult changed = reopened.RefreshIndex(workspace);
             Assert(changed.EnqueuedFiles == 1, "changed photo is re-queued without duplicating unrelated items");
             Assert(reopened.CountQueuePending() == 1, "retryable work remains in durable SQLite queue");
+            SyncQueueRow retryRow = null;
+            foreach (SyncQueueRow row in reopened.GetQueueRows(20))
+            {
+                if (row.RelativePath.IndexOf("ảnh-thử-nghiệm.jpg", StringComparison.OrdinalIgnoreCase) >= 0) retryRow = row;
+            }
+            Assert(retryRow != null, "Sync Center snapshot exposes queue rows");
+            Assert(reopened.RetryQueueItem(retryRow.QueueKey), "manual Retry resets non-completed queue item safely");
+            Assert(reopened.GetHistoryRows(20).Count >= 4, "manual Retry is auditable in sync history");
             reopened.ProcessOneQueueItem(workspace);
             Assert(reopened.CountQueuePending() == 0, "changed photo is re-hashed successfully");
             File.Delete(import);

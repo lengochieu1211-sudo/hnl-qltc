@@ -67,3 +67,16 @@ Desktop Suite không trở thành cloud uploader. Thay vào đó:
 - Sai project, VIEWER, SHA mismatch, file mất, Auth thiếu hoặc Cloud verify fail đều fail-closed và không ACK.
 
 Thiết kế này giữ Firestore/R2 + Firebase Auth/RBAC là authority duy nhất; EXE không chứa Cloud credential và không có đường PUT R2/Firestore riêng.
+
+
+## RC2.2.20 — Sync Center UI + Queue Management
+
+Windows Desktop Suite bổ sung Sync Center native, vẫn giữ nguyên cloud authority của RC2.2.19:
+
+- Queue hiển thị trạng thái `pending`, `retry`, `ready_for_app_sync`, `completed`, số lần thử, lịch retry, lỗi gần nhất và đường dẫn nguồn.
+- Nút Retry thủ công chỉ đưa item chưa hoàn tất về `pending`; item `completed` bị khóa để tránh upload trùng.
+- Có thao tác mở file nguồn, mở `DesktopBridge` và mở Web HNL QLTC để tiếp tục Auth/RBAC + Cloud upload.
+- Bổ sung `sync_history` trong SQLite để ghi `prepared`, `retry`, `manual_retry`, `cloud_verified`.
+- ACK Cloud-verified được ghi lịch sử trước khi queue chuyển `completed`.
+- Diagnostic bổ sung số queue completed và số bản ghi lịch sử.
+- Không xóa queue/history tự động, không chứa credential Cloud, không PUT trực tiếp R2/Firestore từ EXE.

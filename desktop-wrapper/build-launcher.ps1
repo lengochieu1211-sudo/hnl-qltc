@@ -155,7 +155,7 @@ try {
   $iconBytes = (Get-Item -LiteralPath $generatedIcon).Length
   if ($iconBytes -lt 20000) { throw "Generated ICO is unexpectedly small: $iconBytes bytes" }
 
-  $desktopSources = @((Join-Path $root 'QLTCAnPhuLauncher.cs'), (Join-Path $root 'DesktopLocalStore.cs'))
+  $desktopSources = @((Join-Path $root 'QLTCAnPhuLauncher.cs'), (Join-Path $root 'DesktopLocalStore.cs'), (Join-Path $root 'DesktopSyncCenterForm.cs'))
   & $csc /nologo /target:winexe /optimize+ /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.dll /win32icon:"$generatedIcon" /out:"$out" $desktopSources $assemblyInfo $releaseInfo
   if ($LASTEXITCODE -ne 0) { throw "csc failed: $LASTEXITCODE" }
   if (-not (Test-Path -LiteralPath $out)) { throw 'Desktop EXE was not created.' }
