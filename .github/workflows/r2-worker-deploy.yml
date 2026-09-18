@@ -199,20 +199,72 @@ jobs:
           const accessToken = typeof tokenResult === 'string' ? tokenResult : tokenResult?.token;
           if (!accessToken) throw new Error('Could not obtain Google Storage read-only access token');
 
-          const firebaseObjects = [];
-          let pageToken = '';
-          do {
-            const u = new URL(`https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(FIREBASE_STORAGE_BUCKET)}/o`);
-            u.searchParams.set('prefix', `projects/${PROJECT_ID}/`);
-            u.searchParams.set('maxResults', '1000');
-            if (pageToken) u.searchParams.set('pageToken', pageToken);
+          // Discover all physical Cloud Storage buckets that are readable for this PROD
+          // project. Newer Firebase configs may use *.firebasestorage.app while legacy
+          // buckets may still be *.appspot.com. This audit never mutates either.
+          const bucketDiscovery = { method:'project-list', verified:false, errors:[], buckets:[] };
+          try {
+            const u = new URL('https://storage.googleapis.com/storage/v1/b');
+            u.searchParams.set('project', FIREBASE_PROJECT_ID);
+            u.searchParams.set('maxResults', '100');
             const res = await fetch(u.toString(), { headers: { Authorization: `Bearer ${accessToken}` }});
             const body = await res.text();
-            if (!res.ok) throw new Error(`Firebase Storage list HTTP ${res.status}: ${body.slice(0,500)}`);
-            const j = JSON.parse(body);
-            firebaseObjects.push(...(Array.isArray(j.items) ? j.items : []));
-            pageToken = String(j.nextPageToken || '');
-          } while (pageToken);
+            if (res.ok) {
+              const j = JSON.parse(body);
+              bucketDiscovery.buckets = (Array.isArray(j.items) ? j.items : []).map(x => String(x.name || '')).filter(Boolean);
+              bucketDiscovery.verified = true;
+            } else {
+              bucketDiscovery.errors.push(`project bucket list HTTP ${res.status}: ${body.slice(0,300)}`);
+            }
+          } catch (err) {
+            bucketDiscovery.errors.push(String(err?.message || err));
+          }
+
+          if (!bucketDiscovery.verified) {
+            bucketDiscovery.method = 'candidate-probe';
+            const candidates = [...new Set([
+              FIREBASE_STORAGE_BUCKET,
+              `${FIREBASE_PROJECT_ID}.appspot.com`,
+              `${FIREBASE_PROJECT_ID}.firebasestorage.app`,
+            ].filter(Boolean))];
+            const readable = [];
+            let probesComplete = true;
+            for (const bucket of candidates) {
+              const u = `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(bucket)}`;
+              const res = await fetch(u, { headers: { Authorization: `Bearer ${accessToken}` }});
+              const body = await res.text();
+              if (res.ok) readable.push(bucket);
+              else if (res.status !== 404) {
+                probesComplete = false;
+                bucketDiscovery.errors.push(`${bucket}: HTTP ${res.status}: ${body.slice(0,300)}`);
+              }
+            }
+            bucketDiscovery.buckets = readable;
+            bucketDiscovery.verified = probesComplete;
+          }
+
+          const firebaseObjects = [];
+          if (bucketDiscovery.verified) {
+            for (const bucket of bucketDiscovery.buckets) {
+              let pageToken = '';
+              do {
+                const u = new URL(`https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(bucket)}/o`);
+                u.searchParams.set('prefix', `projects/${PROJECT_ID}/`);
+                u.searchParams.set('maxResults', '1000');
+                if (pageToken) u.searchParams.set('pageToken', pageToken);
+                const res = await fetch(u.toString(), { headers: { Authorization: `Bearer ${accessToken}` }});
+                const body = await res.text();
+                if (!res.ok) {
+                  bucketDiscovery.verified = false;
+                  bucketDiscovery.errors.push(`${bucket} object list HTTP ${res.status}: ${body.slice(0,300)}`);
+                  break;
+                }
+                const j = JSON.parse(body);
+                firebaseObjects.push(...(Array.isArray(j.items) ? j.items : []).map(o => ({...o, _bucket:bucket})));
+                pageToken = String(j.nextPageToken || '');
+              } while (pageToken);
+            }
+          }
 
           const report = {
             generatedAt: new Date().toISOString(),
@@ -237,10 +289,11 @@ jobs:
               extraRetainedCandidates: extras,
             },
             firebaseStorageLegacy: {
-              bucket: FIREBASE_STORAGE_BUCKET,
+              configuredBucket: FIREBASE_STORAGE_BUCKET,
+              discovery: bucketDiscovery,
               listedUnderProjectPrefix: firebaseObjects.length,
               objects: firebaseObjects.map(o => ({
-                name:String(o.name || ''), size:Number(o.size || 0), md5Hash:String(o.md5Hash || ''), generation:String(o.generation || ''), updated:String(o.updated || '')
+                bucket:String(o._bucket || ''), name:String(o.name || ''), size:Number(o.size || 0), md5Hash:String(o.md5Hash || ''), generation:String(o.generation || ''), updated:String(o.updated || '')
               })),
             },
           };
@@ -249,7 +302,8 @@ jobs:
             report.firestore.countErrors.length === 0 &&
             report.firestore.nonR2CurrentReferences.length === 0 &&
             report.r2.missing.length === 0 &&
-            report.r2.mismatched.length === 0;
+            report.r2.mismatched.length === 0 &&
+            report.firebaseStorageLegacy.discovery.verified;
 
           fs.writeFileSync('/tmp/hnl-parity/parity-report.json', JSON.stringify(report, null, 2));
           const md = [
@@ -268,6 +322,8 @@ jobs:
             `- R2 missing current objects: ${missing.length}`,
             `- R2 size/hash mismatches: ${mismatched.length}`,
             `- R2 extra retained/orphan candidates: ${extras.length}`,
+            `- Firebase Storage discovery: ${bucketDiscovery.verified ? 'verified' : 'FAILED'} via ${bucketDiscovery.method}`,
+            `- Firebase Storage buckets discovered: ${bucketDiscovery.buckets.join(', ') || '(none)'}`,
             `- Firebase Storage legacy objects under project prefix: ${firebaseObjects.length}`,
             '',
             `## Gate: ${report.releaseGatePass ? 'PASS' : 'FAIL'}`,
