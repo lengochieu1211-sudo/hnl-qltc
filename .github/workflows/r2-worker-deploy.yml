@@ -352,6 +352,15 @@ jobs:
                   break;
                 }
               }
+              if (!entityExists) {
+                const groupSnap = await db.collectionGroup('messages').get();
+                const match = groupSnap.docs.find(d => d.id === entityId && d.ref.path.startsWith(`projects/${PROJECT_ID}/conversations/`));
+                if (match) {
+                  entityPath = match.ref.path;
+                  entityExists = true;
+                  entityDeleted = Boolean(match.data()?.deleted || match.data()?.deletedAt);
+                }
+              }
             }
             const replacementR2 = photoDocs.filter(p =>
               String(p.id) !== ref.id &&
