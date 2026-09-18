@@ -154,14 +154,21 @@ jobs:
           $utf8 = New-Object System.Text.UTF8Encoding($true)
           $text = Get-Content -Raw -LiteralPath $path
           $text = $text.Replace('private const string AppBaseUrl = "https://hnlqltc.web.app/?app=desktop";', 'private const string AppBaseUrl = "https://hnl-qltc-dev.web.app/?app=desktop&env=dev";')
-          $text = $text.Replace('private const string ProductName = "HNL Quản Lý Thi Công";', 'private const string ProductName = "HNL QLTC DEV";')
+          $text = $text.Replace('private const string ProductName = "HNL QLTC Windows Desktop Suite";', 'private const string ProductName = "HNL QLTC DEV Windows Desktop Suite";')
+          $text = $text.Replace('private const string HostingHealthUrl = "https://hnlqltc.web.app/";', 'private const string HostingHealthUrl = "https://hnl-qltc-dev.web.app/";')
+          $text = $text.Replace('private const string R2HealthUrl = "https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev/health";', 'private const string R2HealthUrl = "https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev/health";')
+          $text = $text.Replace('private const string AiHealthUrl = "https://hnl-qltc-ai-gateway.lengochieu1211.workers.dev/health";', 'private const string AiHealthUrl = "https://hnl-qltc-ai-gateway-dev.lengochieu1211.workers.dev/health";')
           $text = $text.Replace('"QLTCAnPhu"', '"QLTCAnPhuDEV"')
           [System.IO.File]::WriteAllText((Resolve-Path $path), $text, $utf8)
 
           $after = Get-Content -Raw -LiteralPath $path
           if ($after -notmatch 'https://hnl-qltc-dev\.web\.app/\?app=desktop&env=dev') { throw 'DEV desktop URL rewrite failed' }
           if ($after -match 'https://hnlqltc\.web\.app/\?app=desktop') { throw 'REFUSING: PROD Hosting remains in DEV launcher target' }
-          if ($after -notmatch '"HNL QLTC DEV"') { throw 'DEV desktop product label rewrite failed' }
+          if ($after -notmatch '"HNL QLTC DEV Windows Desktop Suite"') { throw 'DEV desktop product label rewrite failed' }
+          if ($after -notmatch 'private const string HostingHealthUrl = "https://hnl-qltc-dev\.web\.app/";') { throw 'DEV desktop Hosting diagnostics rewrite failed' }
+          if ($after -notmatch 'private const string R2HealthUrl = "https://hnl-qltc-r2-gateway-dev\.lengochieu1211\.workers\.dev/health";') { throw 'DEV desktop R2 diagnostics rewrite failed' }
+          if ($after -notmatch 'private const string AiHealthUrl = "https://hnl-qltc-ai-gateway-dev\.lengochieu1211\.workers\.dev/health";') { throw 'DEV desktop AI diagnostics rewrite failed' }
+          if ($after -match 'private const string (HostingHealthUrl|R2HealthUrl|AiHealthUrl) = "https://(hnlqltc\.web\.app|hnl-qltc-r2-gateway\.lengochieu1211\.workers\.dev|hnl-qltc-ai-gateway\.lengochieu1211\.workers\.dev)') { throw 'REFUSING: PROD diagnostics endpoint remains in DEV launcher' }
           if ($after -notmatch '"QLTCAnPhuDEV"') { throw 'DEV desktop profile isolation failed' }
           Write-Host 'DEV launcher rewrite: PASS'
 
