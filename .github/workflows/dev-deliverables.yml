@@ -10,7 +10,29 @@ permissions:
   actions: read
 
 jobs:
+  rules_certification:
+    name: Firebase Rules certification
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact DEV head
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install exact locked dependencies
+        run: npm ci
+
+      - name: Firebase Rules compile and behavior
+        run: npm run test:rules
+
   package:
+    needs: rules_certification
     runs-on: ubuntu-latest
     timeout-minutes: 55
     env:
@@ -102,7 +124,6 @@ jobs:
           npm run test:stability
           npm run typecheck
           npm run lint
-          npm run test:rules
           npm run security:audit
           npm run build
 
