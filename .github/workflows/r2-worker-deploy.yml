@@ -277,6 +277,7 @@ jobs:
               activePhotos: photos.length,
               activeFloorPlans: floors.length,
               totalActiveEntries: entries.length,
+              currentEntries: entries,
               nonR2CurrentReferences: nonR2,
               countErrors,
             },
