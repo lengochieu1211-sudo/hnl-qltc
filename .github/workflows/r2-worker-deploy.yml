@@ -89,8 +89,30 @@ jobs:
           const photosSnap = await db.collection('projects').doc(PROJECT_ID).collection('photos').get();
           const floorSnap = await db.collection('projects').doc(PROJECT_ID).collection('floor_plans').get();
 
-          const photos = photosSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(active);
-          const floors = floorSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(active);
+          const photoDocs = photosSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+          const floorDocs = floorSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+          const photos = photoDocs.filter(active);
+          const floors = floorDocs.filter(active);
+
+          const auditMeta = (p) => ({
+            id: String(p.id || ''),
+            entityType: String(p.entityType || ''),
+            entityId: String(p.entityId || ''),
+            floorName: String(p.floorName || ''),
+            storageProvider: String(p.storageProvider || ''),
+            storagePath: String(p.storagePath || ''),
+            thumbnailPath: String(p.thumbnailPath || ''),
+            cloudFileId: String(p.cloudFileId || ''),
+            cloudUrl: String(p.cloudUrl || ''),
+            binaryUploadState: String(p.binaryUploadState || p.imageUploadState || ''),
+            fileSize: Number(p.fileSize || p.imageFileSize || 0),
+            contentHash: String(p.contentHash || p.storageMd5Hash || ''),
+            revision: Number(p.revision || p.imageRevision || 0),
+            createdAt: Number(p.createdAt || 0),
+            updatedAt: Number(p.updatedAt || 0),
+            deleted: Boolean(p.deleted),
+            deletedAt: p.deletedAt || null,
+          });
 
           const entries = [];
           for (const p of photos) entries.push({
@@ -278,6 +300,8 @@ jobs:
               activeFloorPlans: floors.length,
               totalActiveEntries: entries.length,
               currentEntries: entries,
+              allPhotoDocuments: photoDocs.map(auditMeta),
+              allFloorPlanDocuments: floorDocs.map(auditMeta),
               nonR2CurrentReferences: nonR2,
               countErrors,
             },
