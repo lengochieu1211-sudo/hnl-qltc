@@ -1,6 +1,6 @@
 name: Build HNL QLTC Windows EXE
 
-# RC2.2.16 final runtime rebuild after cross-account photo reconcile.
+# RC2.2.17 Windows Desktop Suite Core build.
 on:
   workflow_dispatch:
   pull_request:
@@ -17,6 +17,7 @@ on:
       - '.github/workflows/windows-exe.yml'
   push:
     branches:
+      - dev
       - main
     paths:
       - 'desktop-wrapper/**'
@@ -51,7 +52,7 @@ jobs:
       VITE_FIREBASE_FIRESTORE_DATABASE_ID: "(default)"
       VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
       VITE_GIT_COMMIT: ${{ github.sha }}
-      QLCT_RELEASE_TAG: 6.3.0-rc2.2.16
+      QLCT_RELEASE_TAG: 6.3.0-rc2.2.17
 
     steps:
       - name: Checkout

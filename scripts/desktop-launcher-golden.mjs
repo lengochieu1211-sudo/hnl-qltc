@@ -30,9 +30,20 @@ assert(launcher.includes('"QLTCAnPhu"') && launcher.includes('"EdgeProfile"'), '
 assert(!launcher.includes('Service Worker') && !launcher.includes('CacheStorage'), 'launcher no longer deletes service-worker offline cache on every start');
 assert(launcher.includes('Google') && launcher.includes('Chrome'), 'Chrome fallback is available when Edge is unavailable');
 assert(launcher.includes('--app='), 'desktop runtime is browser app-mode, so running Taskbar icon is web/PWA-owned');
+assert(launcher.includes('HNL QLTC Windows Desktop Suite'), 'launcher exposes the Windows Desktop Suite shell');
+assert(launcher.includes('Application.Run(new DesktopSuiteForm())'), 'EXE opens the native Desktop Suite dashboard before launching the web app');
+assert(launcher.includes('SpecialFolder.MyDocuments') && launcher.includes('\"HNL QLTC\"'), 'Desktop Suite creates a user-visible HNL QLTC workspace under Documents');
+for (const folder of ['Backup', 'Imports', 'Exports', 'Excel', 'PDF', 'Reports', 'Photos', 'Diagnostics', 'Logs']) {
+  assert(launcher.includes(`\"${folder}\"`), `Desktop Suite declares ${folder} workspace area`);
+}
+assert(launcher.includes('HNL-QLTC-DESKTOP-DIAGNOSTIC-'), 'Desktop Suite can export a diagnostic snapshot');
+assert(launcher.includes('HostingHealthUrl') && launcher.includes('R2HealthUrl') && launcher.includes('AiHealthUrl'), 'diagnostics cover Hosting, R2 and AI Gateway');
+assert(launcher.includes('NotifyIcon') && launcher.includes('Desktop Suite vẫn đang chạy ở khay hệ thống'), 'Desktop Suite supports Windows system tray');
+assert(!launcher.includes('deletePhoto') && !launcher.includes('purgeBinary'), 'Desktop Suite shell has no destructive cloud-media operation');
 assert(build.includes('HNL-QLTC-Windows.exe'), 'build script creates one portable Windows EXE');
+assert(build.includes('/reference:System.Drawing.dll'), 'build script references System.Drawing for the native Desktop Suite UI');
 assert(build.includes('release-tag.txt'), 'build script uses release tag for cache/version isolation');
-assert(releaseTag === '6.3.0-rc2.2.16', 'desktop release tag matches RC2.2.16');
+assert(releaseTag === '6.3.0-rc2.2.17', 'desktop release tag matches RC2.2.17 Desktop Suite Core');
 
 assert(iconSource.width >= 1024 && iconSource.height >= 1024 && iconSource.bytes > 1_000_000, 'HQ HNL logo source is retained at >=1024px');
 assert(taskbar192.width === 192 && taskbar192.height === 192, 'browser app-mode has dedicated 192x192 HNL icon');
@@ -71,6 +82,7 @@ assert(iconGolden.includes('hnl-logo-original-') && iconGolden.includes('$runtim
 assert(iconGolden.includes('runtime-original-logo-contact-sheet.png'), 'Windows golden emits dedicated original-logo runtime contact-sheet evidence');
 assert(iconGolden.includes('icon-contact-sheet.png'), 'runtime golden creates visual contact-sheet evidence');
 
+assert(workflow.includes('- dev') && workflow.includes('- main'), 'Windows EXE CI runs on both DEV certification pushes and main releases');
 assert(workflow.includes('windows-latest'), 'Windows GitHub runner is used');
 assert(workflow.includes('npm run test:stability'), 'EXE CI includes stability gate');
 assert(workflow.includes('npm run typecheck') && workflow.includes('npm run lint'), 'EXE CI includes TypeScript and lint');
