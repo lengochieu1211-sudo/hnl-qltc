@@ -322,6 +322,50 @@ jobs:
             }
           }
 
+          const legacyEntityEvidence = [];
+          const conversationsSnap = await db.collection('projects').doc(PROJECT_ID).collection('conversations').get();
+          for (const ref of nonR2.filter(x => x.type === 'photo')) {
+            const meta = photoDocs.find(p => String(p.id) === ref.id) || {};
+            const entityType = String(meta.entityType || '');
+            const entityId = String(meta.entityId || '');
+            let entityExists = false;
+            let entityDeleted = false;
+            let entityPath = '';
+            if (entityType === 'defect' && entityId) {
+              entityPath = `projects/${PROJECT_ID}/defects/${entityId}`;
+              const snap = await db.doc(entityPath).get();
+              entityExists = snap.exists;
+              entityDeleted = Boolean(snap.exists && (snap.data()?.deleted || snap.data()?.deletedAt));
+            } else if (entityType === 'crewRecord' && entityId) {
+              entityPath = `projects/${PROJECT_ID}/crew_records/${entityId}`;
+              const snap = await db.doc(entityPath).get();
+              entityExists = snap.exists;
+              entityDeleted = Boolean(snap.exists && (snap.data()?.deleted || snap.data()?.deletedAt));
+            } else if (entityType === 'chat' && entityId) {
+              for (const conv of conversationsSnap.docs) {
+                const msgPath = `projects/${PROJECT_ID}/conversations/${conv.id}/messages/${entityId}`;
+                const snap = await db.doc(msgPath).get();
+                if (snap.exists) {
+                  entityPath = msgPath;
+                  entityExists = true;
+                  entityDeleted = Boolean(snap.data()?.deleted || snap.data()?.deletedAt);
+                  break;
+                }
+              }
+            }
+            const replacementR2 = photoDocs.filter(p =>
+              String(p.id) !== ref.id &&
+              !Boolean(p.deleted || p.deletedAt) &&
+              String(p.entityType || '') === entityType &&
+              String(p.entityId || '') === entityId &&
+              String(p.storageProvider || '') === 'r2' &&
+              Boolean(p.storagePath)
+            ).map(auditMeta);
+            legacyEntityEvidence.push({
+              photoId:ref.id, entityType, entityId, entityPath, entityExists, entityDeleted, replacementR2,
+            });
+          }
+
           const report = {
             generatedAt: new Date().toISOString(),
             mode: 'READ_ONLY',
@@ -339,6 +383,7 @@ jobs:
               nonR2CurrentReferences: nonR2,
               countErrors,
               legacyChunkEvidence,
+              legacyEntityEvidence,
             },
             r2: {
               bucket: R2_BUCKET,
