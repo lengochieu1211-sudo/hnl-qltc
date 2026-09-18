@@ -1,110 +1,294 @@
-name: Deploy HNL QLTC R2 Worker
+name: HNL QLTC PROD Binary Parity Audit
 
 on:
+  push:
+    branches:
+      - audit/prod-binary-parity-2026-09-18
   workflow_dispatch:
-    inputs:
-      confirmation:
-        description: 'Type DEPLOY-R2-PROD to deploy the production R2 Worker'
-        required: true
-        type: string
 
 permissions:
   contents: read
 
 jobs:
-  deploy_r2_worker:
+  readonly_prod_binary_parity:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COM_EXAMPLE_QLCT_61329 }}
+      FIREBASE_PROJECT_ID: com-example-qlct-61329
+      FIREBASE_STORAGE_BUCKET: com-example-qlct-61329.firebasestorage.app
+      R2_BUCKET: hnl-qltc-media
+      PROJECT_ID: proj_1786411472502
+      EXPECTED_BACKUP_SHA256: 09b53db4244c1ab02f8e4786ff10eac052801f556022c86d2841da32a43b9ebb
+      EXPECTED_LIVE_MANIFEST_SHA256: 96430953b7b4e6d0c46483d71fcafef375ec84bd96e57c7a8b4b4c9efd85c3fd
+      EXPECTED_ACTIVE_PHOTOS: "57"
+      EXPECTED_ACTIVE_FLOOR_PLANS: "6"
     steps:
-      - name: Require explicit PROD R2 confirmation
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "${{ inputs.confirmation }}" = 'DEPLOY-R2-PROD' || { echo '::error::REFUSING_R2_PROD_WITHOUT_CONFIRMATION'; exit 1; }
-          test "${GITHUB_REF}" = 'refs/heads/main' || { echo '::error::R2_PROD_MUST_RUN_FROM_MAIN'; exit 1; }
-
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Require Cloudflare deploy token
+      - name: Guard read-only audit branch and credentials
         shell: bash
         run: |
           set -euo pipefail
-          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo '::error::MISSING_CLOUDFLARE_API_TOKEN'; exit 1; }
+          test "${GITHUB_REF}" = "refs/heads/audit/prod-binary-parity-2026-09-18" || {
+            echo "::error::READ_ONLY_AUDIT_MUST_RUN_FROM_DEDICATED_AUDIT_BRANCH"
+            exit 1
+          }
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "::error::MISSING_CLOUDFLARE_API_TOKEN"; exit 1; }
+          test -n "${FIREBASE_SERVICE_ACCOUNT:-}" || { echo "::error::MISSING_PROD_FIREBASE_SERVICE_ACCOUNT"; exit 1; }
+          echo "READ-ONLY audit only. No PUT/POST/PATCH/DELETE to PROD providers."
 
-      - name: Resolve Cloudflare Account ID automatically
+      - name: Install read-only audit dependencies
         shell: bash
         run: |
           set -euo pipefail
-          RESPONSE="$(curl --fail --silent --show-error \
-            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            -H 'Content-Type: application/json' \
-            'https://api.cloudflare.com/client/v4/accounts?per_page=50')"
-          ACCOUNT_ID="$(printf '%s' "$RESPONSE" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const r=Array.isArray(j.result)?j.result:[];if(!j.success||r.length!==1){console.error('Expected exactly one accessible Cloudflare account, got '+r.length);process.exit(2)};process.stdout.write(String(r[0].id||''))})")"
-          test -n "$ACCOUNT_ID" || { echo '::error::CLOUDFLARE_ACCOUNT_ID_AUTO_RESOLVE_FAILED'; exit 1; }
-          echo "CLOUDFLARE_ACCOUNT_ID=$ACCOUNT_ID" >> "$GITHUB_ENV"
-          echo "Cloudflare account resolved successfully."
+          mkdir -p /tmp/hnl-parity
+          cd /tmp/hnl-parity
+          npm init -y >/dev/null 2>&1
+          npm install --no-audit --no-fund --ignore-scripts firebase-admin@13.4.0 google-auth-library@9.15.1
 
-      - name: Deploy existing HNL QLTC R2 Worker
-        working-directory: cloudflare/r2-gateway
+      - name: Inventory Firestore, R2 and Firebase Storage
         shell: bash
         run: |
           set -euo pipefail
-          cat > wrangler.ci.toml <<'WRANGLER_EOF'
-          name = "hnl-qltc-r2-gateway"
-          main = "worker.js"
-          compatibility_date = "2026-08-30"
+          cat > /tmp/hnl-parity/audit.mjs <<'NODE'
+          import crypto from 'node:crypto';
+          import fs from 'node:fs';
+          import { createRequire } from 'node:module';
+          const require = createRequire(import.meta.url);
+          const admin = require('firebase-admin');
+          const { GoogleAuth } = require('google-auth-library');
 
-          [[r2_buckets]]
-          binding = "HNL_QLTC_MEDIA"
-          bucket_name = "hnl-qltc-media"
+          const {
+            CLOUDFLARE_API_TOKEN,
+            FIREBASE_SERVICE_ACCOUNT,
+            FIREBASE_PROJECT_ID,
+            FIREBASE_STORAGE_BUCKET,
+            R2_BUCKET,
+            PROJECT_ID,
+            EXPECTED_BACKUP_SHA256,
+            EXPECTED_LIVE_MANIFEST_SHA256,
+            EXPECTED_ACTIVE_PHOTOS,
+            EXPECTED_ACTIVE_FLOOR_PLANS,
+          } = process.env;
 
-          [vars]
-          FIREBASE_PROJECT_ID = "com-example-qlct-61329"
-          SUPER_ADMIN_EMAIL = "lengochieu1211@gmail.com"
-          ALLOWED_ORIGINS = "https://hnlqltc.web.app,https://com-example-qlct-61329.web.app,https://com-example-qlct-61329.firebaseapp.com"
-          MAX_UPLOAD_BYTES = "26214400"
-          WRANGLER_EOF
-          trap 'rm -f wrangler.ci.toml' EXIT
-          npx --yes wrangler@4.33.0 deploy --config wrangler.ci.toml
+          const serviceAccount = JSON.parse(FIREBASE_SERVICE_ACCOUNT);
+          admin.initializeApp({
+            credential: admin.credential.cert(serviceAccount),
+            projectId: FIREBASE_PROJECT_ID,
+            storageBucket: FIREBASE_STORAGE_BUCKET,
+          });
 
-      - name: Smoke Worker health after propagation
-        shell: bash
-        run: |
-          set -euo pipefail
-          URL='https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev/health'
-          ok=0
-          for i in $(seq 1 30); do
-            BODY="$(curl --fail --silent --show-error "${URL}?probe=${GITHUB_RUN_ID}-${i}" || true)"
-            echo "attempt=${i} body=${BODY}"
-            if printf '%s' "$BODY" | grep -q '"ok":true' \
-              && printf '%s' "$BODY" | grep -q '"version":"6.3.0-rc2.2.16"' \
-              && printf '%s' "$BODY" | grep -q '"accessPolicy":"canonical-email-first"' \
-              && printf '%s' "$BODY" | grep -q '"policyVersion":"immutable-deleted-project-v2"'; then
-              ok=1
-              break
-            fi
-            sleep 2
-          done
-          test "$ok" = 1 || { echo '::error::R2_HEALTH_MARKER_NOT_PROPAGATED'; exit 1; }
+          const db = admin.firestore();
+          const active = (d) => !Boolean(d?.deleted || d?.deletedAt);
+          const photosSnap = await db.collection('projects').doc(PROJECT_ID).collection('photos').get();
+          const floorSnap = await db.collection('projects').doc(PROJECT_ID).collection('floor_plans').get();
 
-      - name: Smoke browser PUT CORS preflight
-        shell: bash
-        run: |
-          set -euo pipefail
-          BASE='https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev'
-          curl --fail --silent --show-error -X OPTIONS -D /tmp/r2-cors.headers -o /tmp/r2-cors.body \
-            -H 'Origin: https://hnlqltc.web.app' \
-            -H 'Access-Control-Request-Method: PUT' \
-            -H 'Access-Control-Request-Headers: authorization,content-type,x-hnl-metadata' \
-            "$BASE/v1/object?key=projects/cors-probe/media/diagnostics/probe/original.jpg&probe=${GITHUB_RUN_ID}"
-          cat /tmp/r2-cors.headers
-          grep -qi '^access-control-allow-origin: https://hnlqltc.web.app' /tmp/r2-cors.headers
-          grep -qi '^access-control-allow-methods:.*PUT' /tmp/r2-cors.headers
-          grep -qi '^access-control-allow-headers:.*Authorization' /tmp/r2-cors.headers
-          grep -qi '^access-control-allow-headers:.*X-HNL-Metadata' /tmp/r2-cors.headers
-          grep -qi '^x-hnl-r2-gateway-version: 6.3.0-rc2.2.16' /tmp/r2-cors.headers
+          const photos = photosSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(active);
+          const floors = floorSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(active);
+
+          const entries = [];
+          for (const p of photos) entries.push({
+            type: 'photo',
+            id: String(p.id),
+            storageProvider: String(p.storageProvider || ''),
+            storagePath: String(p.storagePath || ''),
+            thumbnailPath: String(p.thumbnailPath || ''),
+            size: Number(p.fileSize || 0),
+            sha256: String(p.contentHash || p.storageMd5Hash || ''),
+            deleted: Boolean(p.deleted),
+          });
+          for (const p of floors) entries.push({
+            type: 'floorplan',
+            id: String(p.id),
+            storageProvider: String(p.storageProvider || ''),
+            storagePath: String(p.storagePath || ''),
+            thumbnailPath: String(p.thumbnailPath || ''),
+            size: Number(p.imageFileSize || 0),
+            sha256: String(p.storageMd5Hash || ''),
+            deleted: Boolean(p.deleted),
+          });
+
+          const stable = (o) => JSON.stringify(Object.fromEntries(Object.keys(o).sort().map(k => [k, o[k]])));
+          const canonical = entries
+            .sort((a,b) => a.type.localeCompare(b.type) || a.id.localeCompare(b.id))
+            .map(stable)
+            .join('\n');
+          const liveManifestSha256 = crypto.createHash('sha256').update(canonical).digest('hex');
+
+          const countErrors = [];
+          if (photos.length !== Number(EXPECTED_ACTIVE_PHOTOS)) countErrors.push(`active photos expected ${EXPECTED_ACTIVE_PHOTOS}, got ${photos.length}`);
+          if (floors.length !== Number(EXPECTED_ACTIVE_FLOOR_PLANS)) countErrors.push(`active floor plans expected ${EXPECTED_ACTIVE_FLOOR_PLANS}, got ${floors.length}`);
+          if (liveManifestSha256 !== EXPECTED_LIVE_MANIFEST_SHA256) countErrors.push(`live Firestore manifest differs from verified backup: ${liveManifestSha256}`);
+
+          const nonR2 = entries.filter(x => x.storageProvider !== 'r2' || !x.storagePath);
+          const expectedObjects = new Map();
+          for (const x of entries) {
+            if (x.storagePath) {
+              const prev = expectedObjects.get(x.storagePath);
+              const next = { key:x.storagePath, role:`${x.type}-original`, size:x.size, sha256:x.sha256 };
+              if (!prev) expectedObjects.set(x.storagePath, next);
+              else if ((prev.size && next.size && prev.size !== next.size) || (prev.sha256 && next.sha256 && prev.sha256 !== next.sha256)) {
+                countErrors.push(`conflicting current metadata for shared R2 key ${x.storagePath}`);
+              }
+            }
+            if (x.thumbnailPath && !expectedObjects.has(x.thumbnailPath)) {
+              expectedObjects.set(x.thumbnailPath, { key:x.thumbnailPath, role:`${x.type}-thumb`, size:0, sha256:'' });
+            }
+          }
+
+          async function cfJson(url) {
+            const res = await fetch(url, { headers: { Authorization: `Bearer ${CLOUDFLARE_API_TOKEN}` }});
+            const body = await res.text();
+            if (!res.ok) throw new Error(`Cloudflare HTTP ${res.status}: ${body.slice(0,500)}`);
+            const j = JSON.parse(body);
+            if (j.success === false) throw new Error(`Cloudflare API failure: ${body.slice(0,500)}`);
+            return j;
+          }
+
+          const accounts = await cfJson('https://api.cloudflare.com/client/v4/accounts?per_page=50');
+          const accountList = Array.isArray(accounts.result) ? accounts.result : [];
+          if (accountList.length !== 1) throw new Error(`Expected exactly one Cloudflare account, got ${accountList.length}`);
+          const accountId = String(accountList[0].id);
+
+          const r2Objects = [];
+          let cursor = '';
+          do {
+            const u = new URL(`https://api.cloudflare.com/client/v4/accounts/${accountId}/r2/buckets/${R2_BUCKET}/objects`);
+            u.searchParams.set('prefix', `projects/${PROJECT_ID}/`);
+            u.searchParams.set('per_page', '1000');
+            if (cursor) u.searchParams.set('cursor', cursor);
+            const page = await cfJson(u.toString());
+            const result = page.result;
+            const items = Array.isArray(result) ? result : (Array.isArray(result?.objects) ? result.objects : []);
+            r2Objects.push(...items);
+            cursor = String(page.result_info?.cursor || result?.cursor || '');
+          } while (cursor);
+
+          const r2ByKey = new Map(r2Objects.map(o => [String(o.key), o]));
+          const missing = [];
+          const mismatched = [];
+          for (const exp of expectedObjects.values()) {
+            const got = r2ByKey.get(exp.key);
+            if (!got) {
+              missing.push(exp);
+              continue;
+            }
+            const gotSize = Number(got.size || 0);
+            const cm = got.custom_metadata || got.customMetadata || {};
+            const gotSha = String(cm.sha256 || cm.contentHash || '').toLowerCase();
+            if (exp.size && gotSize !== exp.size) mismatched.push({ key:exp.key, field:'size', expected:exp.size, actual:gotSize });
+            if (exp.sha256 && gotSha && gotSha !== exp.sha256.toLowerCase()) mismatched.push({ key:exp.key, field:'sha256', expected:exp.sha256, actual:gotSha });
+            if (exp.sha256 && !gotSha) mismatched.push({ key:exp.key, field:'sha256', expected:exp.sha256, actual:'MISSING_CUSTOM_METADATA_SHA256' });
+          }
+          const extras = r2Objects.filter(o => !expectedObjects.has(String(o.key))).map(o => ({
+            key:String(o.key), size:Number(o.size || 0), etag:String(o.etag || ''), uploaded:String(o.uploaded || o.last_modified || o.lastModified || '')
+          }));
+
+          const auth = new GoogleAuth({
+            credentials: serviceAccount,
+            scopes: ['https://www.googleapis.com/auth/devstorage.read_only'],
+          });
+          const client = await auth.getClient();
+          const tokenResult = await client.getAccessToken();
+          const accessToken = typeof tokenResult === 'string' ? tokenResult : tokenResult?.token;
+          if (!accessToken) throw new Error('Could not obtain Google Storage read-only access token');
+
+          const firebaseObjects = [];
+          let pageToken = '';
+          do {
+            const u = new URL(`https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(FIREBASE_STORAGE_BUCKET)}/o`);
+            u.searchParams.set('prefix', `projects/${PROJECT_ID}/`);
+            u.searchParams.set('maxResults', '1000');
+            if (pageToken) u.searchParams.set('pageToken', pageToken);
+            const res = await fetch(u.toString(), { headers: { Authorization: `Bearer ${accessToken}` }});
+            const body = await res.text();
+            if (!res.ok) throw new Error(`Firebase Storage list HTTP ${res.status}: ${body.slice(0,500)}`);
+            const j = JSON.parse(body);
+            firebaseObjects.push(...(Array.isArray(j.items) ? j.items : []));
+            pageToken = String(j.nextPageToken || '');
+          } while (pageToken);
+
+          const report = {
+            generatedAt: new Date().toISOString(),
+            mode: 'READ_ONLY',
+            projectId: PROJECT_ID,
+            expectedBackupSha256: EXPECTED_BACKUP_SHA256,
+            expectedLiveManifestSha256: EXPECTED_LIVE_MANIFEST_SHA256,
+            liveManifestSha256,
+            firestore: {
+              activePhotos: photos.length,
+              activeFloorPlans: floors.length,
+              totalActiveEntries: entries.length,
+              nonR2CurrentReferences: nonR2,
+              countErrors,
+            },
+            r2: {
+              bucket: R2_BUCKET,
+              listedUnderProjectPrefix: r2Objects.length,
+              expectedUniqueObjects: expectedObjects.size,
+              missing,
+              mismatched,
+              extraRetainedCandidates: extras,
+            },
+            firebaseStorageLegacy: {
+              bucket: FIREBASE_STORAGE_BUCKET,
+              listedUnderProjectPrefix: firebaseObjects.length,
+              objects: firebaseObjects.map(o => ({
+                name:String(o.name || ''), size:Number(o.size || 0), md5Hash:String(o.md5Hash || ''), generation:String(o.generation || ''), updated:String(o.updated || '')
+              })),
+            },
+          };
+
+          report.releaseGatePass =
+            report.firestore.countErrors.length === 0 &&
+            report.firestore.nonR2CurrentReferences.length === 0 &&
+            report.r2.missing.length === 0 &&
+            report.r2.mismatched.length === 0;
+
+          fs.writeFileSync('/tmp/hnl-parity/parity-report.json', JSON.stringify(report, null, 2));
+          const md = [
+            '# HNL QLTC PROD Binary Parity Audit',
+            '',
+            `- Mode: **READ_ONLY**`,
+            `- Project: \`${PROJECT_ID}\``,
+            `- Verified backup SHA-256: \`${EXPECTED_BACKUP_SHA256}\``,
+            `- Expected manifest SHA-256: \`${EXPECTED_LIVE_MANIFEST_SHA256}\``,
+            `- Live Firestore manifest SHA-256: \`${liveManifestSha256}\``,
+            `- Active photos: ${photos.length}`,
+            `- Active floor plans: ${floors.length}`,
+            `- Current non-R2 references: ${nonR2.length}`,
+            `- R2 expected unique objects: ${expectedObjects.size}`,
+            `- R2 listed objects under project prefix: ${r2Objects.length}`,
+            `- R2 missing current objects: ${missing.length}`,
+            `- R2 size/hash mismatches: ${mismatched.length}`,
+            `- R2 extra retained/orphan candidates: ${extras.length}`,
+            `- Firebase Storage legacy objects under project prefix: ${firebaseObjects.length}`,
+            '',
+            `## Gate: ${report.releaseGatePass ? 'PASS' : 'FAIL'}`,
+            '',
+            'No object was uploaded, changed, or deleted by this workflow.',
+            ''
+          ].join('\n');
+          fs.writeFileSync('/tmp/hnl-parity/parity-report.md', md);
+          console.log(md);
+          if (!report.releaseGatePass) process.exitCode = 2;
+          NODE
+          cd /tmp/hnl-parity
+          node audit.mjs
+
+      - name: Upload parity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-QLTC-PROD-BINARY-PARITY-${{ github.run_number }}
+          path: |
+            /tmp/hnl-parity/parity-report.json
+            /tmp/hnl-parity/parity-report.md
+          if-no-files-found: warn
+          retention-days: 30
