@@ -146,6 +146,8 @@ namespace QLTCAnPhu
             internal static readonly string Reports = Path.Combine(WorkspaceRoot, "Reports");
             internal static readonly string Photos = Path.Combine(WorkspaceRoot, "Photos");
             internal static readonly string Diagnostics = Path.Combine(WorkspaceRoot, "Diagnostics");
+            internal static readonly string DesktopBridge = Path.Combine(WorkspaceRoot, "DesktopBridge");
+            internal static readonly string DesktopBridgeAcks = Path.Combine(DesktopBridge, "acks");
             internal static readonly string LocalState = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "QLTCAnPhu"
@@ -156,7 +158,7 @@ namespace QLTCAnPhu
 
             internal static void EnsureWorkspace()
             {
-                string[] dirs = { WorkspaceRoot, Backup, Imports, Exports, Excel, Pdf, Reports, Photos, Diagnostics, LocalState, Logs, DesktopSuiteState };
+                string[] dirs = { WorkspaceRoot, Backup, Imports, Exports, Excel, Pdf, Reports, Photos, Diagnostics, DesktopBridge, DesktopBridgeAcks, LocalState, Logs, DesktopSuiteState };
                 foreach (string dir in dirs) Directory.CreateDirectory(dir);
             }
         }
@@ -286,7 +288,7 @@ namespace QLTCAnPhu
 
                 cards.Controls.Add(BuildCard(
                     "Local Workspace & Queue",
-                    "SQLite chỉ lưu mirror/cache cục bộ. File mới trong Imports/Photos được hash nền và xếp hàng sẵn sàng cho ứng dụng; không tự ghi cloud.",
+                    "SQLite chỉ lưu mirror/cache. Ảnh đúng cấu trúc Photos/<project>/<loại>/<entity>/<category>/... được bàn giao qua Web app Auth/RBAC; EXE không tự ghi cloud.",
                     new[] {
                         new CardAction("Mở Photos", DesktopPaths.Photos),
                         new CardAction("Quét lại chỉ mục", delegate { RefreshLocalIndex(true); })
@@ -522,6 +524,7 @@ namespace QLTCAnPhu
                     {
                         localStore.RefreshIndex(DesktopPaths.WorkspaceRoot);
                         localStore.ProcessOneQueueItem(DesktopPaths.WorkspaceRoot);
+                        localStore.RefreshBridgeManifest(DesktopPaths.WorkspaceRoot);
                     }
                     catch { }
                     finally

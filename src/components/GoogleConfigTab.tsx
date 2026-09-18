@@ -46,6 +46,7 @@ import { cacheFloorPlansForOffline, getFloorPlanImageCacheSnapshot, getFloorPlan
 import { getProjectPhotoDiagnosticSnapshot } from '../utils/photoStorage';
 import { HealthCenterPanel } from '../healthCenter/HealthCenterPanel';
 import { SettingsAccordionCard } from './SettingsAccordionCard';
+import { WindowsDesktopSyncBridgeCard } from './WindowsDesktopSyncBridgeCard';
 
 declare const __BUILD_TIME__: string;
 
@@ -835,6 +836,8 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
               <div><b>Mạng:</b> {syncDiagnostics.online === false ? 'Offline' : 'Online'}</div>
             </div>
           </div>
+          <WindowsDesktopSyncBridgeCard activeProjectId={activeProjectId} userRole={userRole} />
+
           {displayedLastSyncError && (
             <div className="rounded-xl border border-rose-200 bg-rose-50 p-2.5 text-[10px] text-rose-800 break-words">
               <b>Lỗi sync gần nhất:</b> {displayedLastSyncError}

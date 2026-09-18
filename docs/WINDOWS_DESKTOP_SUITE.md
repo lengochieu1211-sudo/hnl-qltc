@@ -52,3 +52,18 @@ Desktop Suite bổ sung local data plane riêng cho Windows nhưng không thay �
 - UI có nút `Quét lại chỉ mục` và trạng thái SQLite/Queue ở footer.
 
 Giới hạn cố ý của RC2.2.18: queue **không tự upload R2 hoặc ghi Firestore**. Nó chỉ chuẩn bị local staging + checksum. Cloud write vẫn phải đi qua cơ chế HNL QLTC đã xác thực/RBAC, tránh tạo đường ghi dữ liệu thứ hai ngoài ứng dụng.
+
+## RC2.2.19 — App Sync Bridge
+
+Desktop Suite không trở thành cloud uploader. Thay vào đó:
+
+- SQLite queue chuẩn bị binary + SHA-256 như RC2.2.18.
+- Chỉ ảnh có đường dẫn canonical `Photos/<projectId>/<defect|crewRecord|chat>/<entityId>/<category>/<file>` mới được xuất vào `Documents/HNL QLTC/DesktopBridge/ready.json`.
+- Web HNL QLTC trên Edge/Chrome dùng File System Access API để người dùng chọn `HNL QLTC` Workspace bằng quyền read/write.
+- Web kiểm project, role, Firebase user và SHA-256 nguồn trước khi nhập.
+- Web gọi đúng pipeline hiện hữu `savePhotoAttachment -> uploadPhotoToCloud -> verifyPhotoBinaryReadyInCloud`.
+- Chỉ sau khi Cloud xác nhận binary ready, Web mới ghi ACK vào `DesktopBridge/acks`.
+- Desktop đọc ACK tương ứng và chuyển queue sang `completed`.
+- Sai project, VIEWER, SHA mismatch, file mất, Auth thiếu hoặc Cloud verify fail đều fail-closed và không ACK.
+
+Thiết kế này giữ Firestore/R2 + Firebase Auth/RBAC là authority duy nhất; EXE không chứa Cloud credential và không có đường PUT R2/Firestore riêng.

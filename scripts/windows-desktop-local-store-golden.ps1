@@ -18,6 +18,7 @@ $workspace = Join-Path $tempRoot 'workspace'
 using System;
 using System.IO;
 using System.Text;
+using System.Text.RegularExpressions;
 using QLTCAnPhu;
 
 internal static class DesktopLocalStoreGolden
@@ -33,13 +34,13 @@ internal static class DesktopLocalStoreGolden
         string dbPath = args[0];
         string workspace = args[1];
         Directory.CreateDirectory(Path.Combine(workspace, "Imports"));
-        Directory.CreateDirectory(Path.Combine(workspace, "Photos"));
+        Directory.CreateDirectory(Path.Combine(workspace, "Photos", "proj-golden", "defect", "defect-001", "defect_before"));
         Directory.CreateDirectory(Path.Combine(workspace, "Backup"));
         Directory.CreateDirectory(Path.Combine(workspace, "Exports"));
         Directory.CreateDirectory(Path.Combine(workspace, "Reports"));
         Directory.CreateDirectory(Path.Combine(workspace, "Diagnostics"));
 
-        string photo = Path.Combine(workspace, "Photos", "ảnh-thử-nghiệm.txt");
+        string photo = Path.Combine(workspace, "Photos", "proj-golden", "defect", "defect-001", "defect_before", "ảnh-thử-nghiệm.jpg");
         string import = Path.Combine(workspace, "Imports", "stage.bin");
         File.WriteAllText(photo, "HNL QLTC SQLite UTF-8", Encoding.UTF8);
         File.WriteAllBytes(import, new byte[] { 1, 2, 3, 4, 5 });
@@ -55,13 +56,28 @@ internal static class DesktopLocalStoreGolden
             store.ProcessOneQueueItem(workspace);
             Assert(store.CountQueuePending() == 0, "background queue drains pending preparation jobs");
             Assert(store.CountQueueReady() == 2, "prepared files persist as ready_for_app_sync");
+            string manifestPath = Path.Combine(workspace, "DesktopBridge", "ready.json");
+            Assert(File.Exists(manifestPath), "Desktop bridge manifest is materialized");
+            string manifest = File.ReadAllText(manifestPath, Encoding.UTF8);
+            Assert(manifest.Contains("hnl-qltc-desktop-sync-v1"), "Desktop bridge manifest schema is explicit");
+            Assert(manifest.Contains("proj-golden") && manifest.Contains("defect-001") && manifest.Contains("defect_before"), "canonical photo staging metadata is exported to Web bridge");
+            Assert(!manifest.Contains("stage.bin"), "generic Imports queue item is not silently exposed as a photo bridge item");
+            Match ackMatch = Regex.Match(manifest, "\"ackName\":\"([^\"]+)\"");
+            Assert(ackMatch.Success, "bridge manifest contains deterministic ACK name");
+            string ackDir = Path.Combine(workspace, "DesktopBridge", "acks");
+            Directory.CreateDirectory(ackDir);
+            File.WriteAllText(Path.Combine(ackDir, ackMatch.Groups[1].Value), "cloud-verified", Encoding.UTF8);
+            store.RefreshBridgeManifest(workspace);
+            Assert(store.CountQueueReady() == 1, "cloud-verified ACK completes only the matching photo queue item");
+            string manifestAfterAck = File.ReadAllText(manifestPath, Encoding.UTF8);
+            Assert(!manifestAfterAck.Contains("defect-001"), "ACKed photo is removed from ready bridge manifest");
         }
 
         using (DesktopLocalStore reopened = DesktopLocalStore.TryOpen(dbPath))
         {
             Assert(reopened.IsReady, "SQLite database reopens after restart");
             Assert(reopened.CountIndexedFiles() == 2, "workspace mirror persists across restart");
-            Assert(reopened.CountQueueReady() == 2, "sync queue state persists across restart");
+            Assert(reopened.CountQueueReady() == 1, "remaining sync queue state persists across restart after photo ACK");
             File.AppendAllText(photo, " changed", Encoding.UTF8);
             WorkspaceIndexResult changed = reopened.RefreshIndex(workspace);
             Assert(changed.EnqueuedFiles == 1, "changed photo is re-queued without duplicating unrelated items");

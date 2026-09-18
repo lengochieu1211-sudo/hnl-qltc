@@ -172,6 +172,7 @@ CREATE INDEX IF NOT EXISTS idx_sync_queue_state ON sync_queue(state, next_attemp
                 Exec("DELETE FROM sync_queue WHERE relative_path NOT IN (SELECT relative_path FROM workspace_files) AND state<>'completed';");
                 SetMeta("last_index_utc", now);
                 Exec("COMMIT;");
+                RefreshBridgeManifest(workspaceRoot);
             }
             catch
             {
@@ -215,6 +216,7 @@ CREATE INDEX IF NOT EXISTS idx_sync_queue_state ON sync_queue(state, next_attemp
                 string hash = ComputeSha256(fullPath);
                 Exec("UPDATE workspace_files SET sha256=" + Sql(hash) + ", indexed_utc=" + Sql(now) + " WHERE relative_path=" + Sql(relative) + ";");
                 Exec("UPDATE sync_queue SET state='ready_for_app_sync', updated_utc=" + Sql(now) + ", last_error=NULL WHERE queue_key=" + Sql(key) + ";");
+                RefreshBridgeManifest(workspaceRoot);
                 result.Processed = true;
                 result.HashSha256 = hash;
             }
@@ -230,6 +232,132 @@ CREATE INDEX IF NOT EXISTS idx_sync_queue_state ON sync_queue(state, next_attemp
                 result.Error = ex.Message;
             }
             return result;
+        }
+
+        internal void RefreshBridgeManifest(string workspaceRoot)
+        {
+            if (!IsReady) return;
+            string bridgeRoot = Path.Combine(workspaceRoot, "DesktopBridge");
+            string ackRoot = Path.Combine(bridgeRoot, "acks");
+            Directory.CreateDirectory(bridgeRoot);
+            Directory.CreateDirectory(ackRoot);
+
+            var rows = new List<DesktopBridgeItem>();
+            SqliteCallback callback = delegate(IntPtr _, int count, IntPtr values, IntPtr names)
+            {
+                if (count < 3) return 0;
+                string key = PtrToStringUtf8(Marshal.ReadIntPtr(values, 0));
+                string relative = PtrToStringUtf8(Marshal.ReadIntPtr(values, IntPtr.Size));
+                string sha = PtrToStringUtf8(Marshal.ReadIntPtr(values, IntPtr.Size * 2));
+                DesktopBridgeItem parsed;
+                if (TryParseBridgePhotoItem(key, relative, sha, out parsed)) rows.Add(parsed);
+                return 0;
+            };
+            Exec("SELECT q.queue_key,q.relative_path,COALESCE(f.sha256,'') FROM sync_queue q JOIN workspace_files f ON f.relative_path=q.relative_path WHERE q.state='ready_for_app_sync' ORDER BY q.created_utc;", callback);
+
+            foreach (var row in rows)
+            {
+                string ackPath = Path.Combine(ackRoot, row.AckName);
+                if (!File.Exists(ackPath)) continue;
+                Exec("UPDATE sync_queue SET state='completed', updated_utc=" + Sql(DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture)) + ", last_error=NULL WHERE queue_key=" + Sql(row.QueueKey) + ";");
+                try { File.Delete(ackPath); } catch { }
+            }
+
+            rows.Clear();
+            Exec("SELECT q.queue_key,q.relative_path,COALESCE(f.sha256,'') FROM sync_queue q JOIN workspace_files f ON f.relative_path=q.relative_path WHERE q.state='ready_for_app_sync' ORDER BY q.created_utc;", callback);
+            string manifestPath = Path.Combine(bridgeRoot, "ready.json");
+            string tmpPath = manifestPath + ".tmp";
+            var json = new StringBuilder();
+            json.Append("{\n  \"schema\": \"hnl-qltc-desktop-sync-v1\",\n  \"generatedAt\": \"")
+                .Append(JsonEscape(DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture)))
+                .Append("\",\n  \"cloudAuthority\": \"Web app Firebase Auth/RBAC + existing R2 upload pipeline\",\n  \"items\": [\n");
+            for (int i = 0; i < rows.Count; i++)
+            {
+                var row = rows[i];
+                json.Append("    {\"queueKey\":\"").Append(JsonEscape(row.QueueKey))
+                    .Append("\",\"relativePath\":\"").Append(JsonEscape(row.RelativePath.Replace('\\', '/')))
+                    .Append("\",\"sourceSha256\":\"").Append(JsonEscape(row.SourceSha256))
+                    .Append("\",\"projectId\":\"").Append(JsonEscape(row.ProjectId))
+                    .Append("\",\"entityType\":\"").Append(JsonEscape(row.EntityType))
+                    .Append("\",\"entityId\":\"").Append(JsonEscape(row.EntityId))
+                    .Append("\",\"category\":\"").Append(JsonEscape(row.Category))
+                    .Append("\",\"fileName\":\"").Append(JsonEscape(row.FileName))
+                    .Append("\",\"mimeType\":\"").Append(JsonEscape(row.MimeType))
+                    .Append("\",\"ackName\":\"").Append(JsonEscape(row.AckName)).Append("\"}");
+                if (i + 1 < rows.Count) json.Append(',');
+                json.Append('\n');
+            }
+            json.Append("  ]\n}\n");
+            File.WriteAllText(tmpPath, json.ToString(), new UTF8Encoding(false));
+            if (File.Exists(manifestPath)) File.Delete(manifestPath);
+            File.Move(tmpPath, manifestPath);
+        }
+
+        private static bool TryParseBridgePhotoItem(string queueKey, string relativePath, string sha256, out DesktopBridgeItem item)
+        {
+            item = null;
+            if (string.IsNullOrWhiteSpace(sha256) || sha256.Length != 64) return false;
+            string normalized = relativePath.Replace('\\', '/').Trim('/');
+            string[] parts = normalized.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+            // Canonical bridge staging path:
+            // Photos/<projectId>/<defect|crewRecord|chat>/<entityId>/<category>/<file>
+            if (parts.Length < 6 || !string.Equals(parts[0], "Photos", StringComparison.OrdinalIgnoreCase)) return false;
+            string entityType = parts[2];
+            if (entityType != "defect" && entityType != "crewRecord" && entityType != "chat") return false;
+            string category = parts[4];
+            if (!IsAllowedPhotoCategory(entityType, category)) return false;
+            string fileName = parts[parts.Length - 1];
+            string mime = GuessImageMime(fileName);
+            if (string.IsNullOrEmpty(mime)) return false;
+            item = new DesktopBridgeItem
+            {
+                QueueKey = queueKey,
+                RelativePath = relativePath,
+                SourceSha256 = sha256.ToLowerInvariant(),
+                ProjectId = parts[1],
+                EntityType = entityType,
+                EntityId = parts[3],
+                Category = category,
+                FileName = fileName,
+                MimeType = mime,
+            };
+            item.AckName = item.SourceSha256 + "-" + ComputeStringSha256(queueKey).Substring(0, 16) + ".ack";
+            return true;
+        }
+
+        private static bool IsAllowedPhotoCategory(string entityType, string category)
+        {
+            if (entityType == "defect") return category == "defect_before" || category == "defect_after";
+            if (entityType == "crewRecord") return category == "crew_progress";
+            if (entityType == "chat") return category == "chat_attachment";
+            return false;
+        }
+
+        private static string GuessImageMime(string fileName)
+        {
+            string ext = Path.GetExtension(fileName).ToLowerInvariant();
+            if (ext == ".jpg" || ext == ".jpeg") return "image/jpeg";
+            if (ext == ".png") return "image/png";
+            if (ext == ".webp") return "image/webp";
+            if (ext == ".gif") return "image/gif";
+            if (ext == ".bmp") return "image/bmp";
+            return "";
+        }
+
+        private static string ComputeStringSha256(string text)
+        {
+            using (var sha = SHA256.Create())
+            {
+                byte[] hash = sha.ComputeHash(Encoding.UTF8.GetBytes(text ?? ""));
+                var sb = new StringBuilder(hash.Length * 2);
+                foreach (byte b in hash) sb.Append(b.ToString("x2", CultureInfo.InvariantCulture));
+                return sb.ToString();
+            }
+        }
+
+        private static string JsonEscape(string value)
+        {
+            return (value ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", "\\r").Replace("\n", "\\n");
         }
 
         internal int CountIndexedFiles()
@@ -385,6 +513,20 @@ CREATE INDEX IF NOT EXISTS idx_sync_queue_state ON sync_queue(state, next_attemp
                 }
             }
         }
+    }
+
+    internal sealed class DesktopBridgeItem
+    {
+        internal string QueueKey;
+        internal string RelativePath;
+        internal string SourceSha256;
+        internal string ProjectId;
+        internal string EntityType;
+        internal string EntityId;
+        internal string Category;
+        internal string FileName;
+        internal string MimeType;
+        internal string AckName;
     }
 
     internal sealed class WorkspaceIndexResult
