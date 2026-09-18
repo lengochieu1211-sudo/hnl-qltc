@@ -167,7 +167,7 @@ namespace QLTCAnPhu
 
             internal DesktopSuiteForm()
             {
-                Text = ProductName;
+                Text = Program.ProductName;
                 StartPosition = FormStartPosition.CenterScreen;
                 MinimumSize = new Size(780, 540);
                 Size = new Size(920, 640);
@@ -476,7 +476,7 @@ namespace QLTCAnPhu
                         "\n\nHosting: " + hosting +
                         "\nR2: " + r2 +
                         "\nAI Gateway: " + ai,
-                        ProductName,
+                        Program.ProductName,
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Information
                     );
@@ -484,7 +484,7 @@ namespace QLTCAnPhu
                 catch (Exception ex)
                 {
                     statusLabel.Text = "Chẩn đoán gặp lỗi: " + ex.Message;
-                    MessageBox.Show(ex.Message, ProductName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    MessageBox.Show(ex.Message, Program.ProductName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 }
                 finally
                 {
@@ -573,7 +573,7 @@ namespace QLTCAnPhu
                 try { action(); }
                 catch (Exception ex)
                 {
-                    MessageBox.Show(ex.Message, ProductName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    MessageBox.Show(ex.Message, Program.ProductName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 }
             }
 
