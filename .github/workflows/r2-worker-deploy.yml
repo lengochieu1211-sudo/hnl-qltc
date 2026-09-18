@@ -288,6 +288,40 @@ jobs:
             }
           }
 
+          const legacyChunkEvidence = [];
+          const toBuffer = (value) => {
+            if (!value) return null;
+            if (Buffer.isBuffer(value)) return value;
+            if (value instanceof Uint8Array) return Buffer.from(value);
+            if (typeof value.toUint8Array === 'function') return Buffer.from(value.toUint8Array());
+            return null;
+          };
+          for (const ref of nonR2) {
+            if (ref.type === 'photo') {
+              const snap = await db.collection('projects').doc(PROJECT_ID).collection('photos').doc(ref.id).collection('chunks').orderBy('index','asc').get();
+              const parts = snap.docs.map(d => toBuffer(d.data()?.data)).filter(Boolean);
+              const bytes = parts.length ? Buffer.concat(parts) : Buffer.alloc(0);
+              legacyChunkEvidence.push({
+                type:'photo', id:ref.id, chunkCount:snap.size, binaryBytes:bytes.length,
+                sha256:bytes.length ? crypto.createHash('sha256').update(bytes).digest('hex') : '',
+                recoverable:bytes.length > 0,
+              });
+            } else if (ref.type === 'floorplan') {
+              const imageRef = db.collection('projects').doc(PROJECT_ID).collection('floor_plan_images').doc(ref.id);
+              const meta = await imageRef.get();
+              const snap = await imageRef.collection('chunks').orderBy('index','asc').get();
+              const parts = snap.docs.map(d => toBuffer(d.data()?.data)).filter(Boolean);
+              const bytes = parts.length ? Buffer.concat(parts) : Buffer.alloc(0);
+              legacyChunkEvidence.push({
+                type:'floorplan', id:ref.id, chunkCount:snap.size, binaryBytes:bytes.length,
+                sha256:bytes.length ? crypto.createHash('sha256').update(bytes).digest('hex') : '',
+                recoverable:bytes.length > 0,
+                legacyImageMetaExists:meta.exists,
+                legacyMimeType:String(meta.exists ? (meta.data()?.mimeType || '') : ''),
+              });
+            }
+          }
+
           const report = {
             generatedAt: new Date().toISOString(),
             mode: 'READ_ONLY',
@@ -304,6 +338,7 @@ jobs:
               allFloorPlanDocuments: floorDocs.map(auditMeta),
               nonR2CurrentReferences: nonR2,
               countErrors,
+              legacyChunkEvidence,
             },
             r2: {
               bucket: R2_BUCKET,
