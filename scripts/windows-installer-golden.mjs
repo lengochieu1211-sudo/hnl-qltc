@@ -17,7 +17,7 @@ assert(manifest.includes('requireAdministrator'), 'installer uses Windows UAC fo
 assert(setup.includes('AutoScaleMode.Dpi') && setup.includes('PictureBox') && setup.includes('Icon.ToBitmap()'), 'installer UI is DPI-aware and displays the embedded HNL logo');
 assert(build.includes("[ValidateSet('PROD','DEV')]") && build.includes("$Channel = 'PROD'"), 'installer build has explicit PROD/DEV channels');
 assert(build.includes("'HNL QLTC DEV'") && build.includes("'HNL QLTC'"), 'DEV and PROD install identities are isolated');
-assert(build.includes('/resource:"$launcher",HNL.QLTC.Payload.Launcher'), 'setup embeds the exact built launcher payload');
+assert(build.includes('$launcherResource = "/resource:$launcher,HNL.QLTC.Payload.Launcher"') && build.includes('$uninstallerResource = "/resource:$uninstallerTemp,HNL.QLTC.Payload.Uninstaller"'), 'setup builds csc resource arguments without PowerShell quote leakage');
 assert(build.includes('HNL.QLTC.Payload.Uninstaller'), 'setup embeds its uninstaller payload');
 assert(build.includes('public\\icon.png') && build.includes('Write-HnlIcoFromPng'), 'setup icon is generated from canonical HNL logo');
 assert(setup.includes('ProgramW6432') && setup.includes('"HNL"') && setup.includes('InstallerBuildInfo.InstallFolderName'), 'installer targets C:\\Program Files\\HNL\\<channel>');

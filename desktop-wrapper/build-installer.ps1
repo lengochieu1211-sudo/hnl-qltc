@@ -144,7 +144,9 @@ try {
   if ($LASTEXITCODE -ne 0) { throw "Uninstaller csc failed: $LASTEXITCODE" }
   if (-not (Test-Path -LiteralPath $uninstallerTemp)) { throw 'Uninstaller payload was not created.' }
 
-  & $csc /nologo /target:winexe /optimize+ /platform:anycpu /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.dll /win32manifest:"$manifest" /win32icon:"$generatedIcon" /resource:"$launcher",HNL.QLTC.Payload.Launcher /resource:"$uninstallerTemp",HNL.QLTC.Payload.Uninstaller /out:"$OutputPath" (Join-Path $root 'HnlQltcInstaller.cs') $buildInfo $assemblyInfo
+  $launcherResource = "/resource:$launcher,HNL.QLTC.Payload.Launcher"
+  $uninstallerResource = "/resource:$uninstallerTemp,HNL.QLTC.Payload.Uninstaller"
+  & $csc /nologo /target:winexe /optimize+ /platform:anycpu /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.dll /win32manifest:"$manifest" /win32icon:"$generatedIcon" $launcherResource $uninstallerResource /out:"$OutputPath" (Join-Path $root 'HnlQltcInstaller.cs') $buildInfo $assemblyInfo
   if ($LASTEXITCODE -ne 0) { throw "Installer csc failed: $LASTEXITCODE" }
   if (-not (Test-Path -LiteralPath $OutputPath)) { throw 'Setup EXE was not created.' }
 
