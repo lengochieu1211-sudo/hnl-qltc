@@ -77,6 +77,7 @@ async function readManifest(root: any): Promise<WindowsDesktopBridgeManifest> {
   return parsed;
 }
 
+// Replay safety invariant: bind every ready queue attempt to its one-time token and deterministic photo identity.
 function validateItem(item: WindowsDesktopBridgeItem): void {
   if (!item?.queueKey || !item?.relativePath || !item?.sourceSha256 || !item?.attemptToken || !item?.photoId || !item?.projectId || !item?.entityId || !item?.ackName) throw new Error('BRIDGE_ITEM_INCOMPLETE');
   if (!['defect', 'crewRecord', 'chat'].includes(item.entityType)) throw new Error('BRIDGE_ENTITY_TYPE_INVALID');
