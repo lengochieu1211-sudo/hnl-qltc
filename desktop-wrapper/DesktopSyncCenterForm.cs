@@ -45,11 +45,11 @@ namespace QLTCAnPhu
             rootPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
             Controls.Add(rootPanel);
 
-            var header = new Panel { Dock = DockStyle.Fill, Padding = new Padding(18, 14, 18, 12), Tag = "header" };
+            var header = new Panel { Dock = DockStyle.Fill, Padding = new Padding(18, 12, 18, 10), Tag = "header" };
             rootPanel.Controls.Add(header, 0, 0);
-            var title = new Label { AutoSize = true, Text = "Sync Center", Font = new Font("Segoe UI", 18F, FontStyle.Bold), Location = new Point(14, 9), Tag = "title" };
+            var title = new Label { AutoSize = true, Text = "Sync Center", Font = new Font("Segoe UI", 18F, FontStyle.Bold), Location = new Point(14, 8), Tag = "title" };
             header.Controls.Add(title);
-            summaryLabel = new Label { AutoSize = true, Text = "Đang tải trạng thái queue...", Location = new Point(17, 45), Tag = "muted" };
+            summaryLabel = new Label { AutoSize = true, Text = "Đang tải trạng thái queue...", Location = new Point(17, 43), Tag = "muted" };
             header.Controls.Add(summaryLabel);
 
             var filters = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Padding = new Padding(0, 7, 0, 3), Tag = "root" };
@@ -156,7 +156,11 @@ namespace QLTCAnPhu
         {
             if (e.Category != UserPreferenceCategory.General &&
                 e.Category != UserPreferenceCategory.Color &&
-                e.Category != UserPreferenceCategory.VisualStyle) return;
+                e.Category != UserPreferenceCategory.VisualStyle)
+            {
+                return;
+            }
+
             theme = Program.DesktopUiTheme.ReadFromSystem();
             ApplyTheme();
         }
