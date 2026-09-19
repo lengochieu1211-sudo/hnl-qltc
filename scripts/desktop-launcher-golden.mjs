@@ -19,6 +19,7 @@ const syncCenter = read('desktop-wrapper/DesktopSyncCenterForm.cs');
 const build = read('desktop-wrapper/build-launcher.ps1');
 const workflow = read('.github/workflows/windows-exe.yml');
 const iconGolden = read('scripts/windows-icon-golden.ps1');
+const webViewRuntimeGolden = read('scripts/windows-webview2-runtime-golden.ps1');
 const indexHtml = read('index.html');
 const manifest = JSON.parse(read('public/manifest.json'));
 const releaseTag = read('desktop-wrapper/release-tag.txt').trim();
@@ -79,6 +80,8 @@ assert(build.includes('DesktopWebShellForm.cs'), 'build compiles the embedded We
 assert(build.includes('webview2-sdk-version.txt') && build.includes('Microsoft.Web.WebView2'), 'build downloads a pinned Microsoft WebView2 SDK');
 assert(build.includes('HNL.QLTC.WebView2.Core') && build.includes('HNL.QLTC.WebView2.WinForms') && build.includes('HNL.QLTC.WebView2.Loader.x64') && build.includes('HNL.QLTC.WebView2.Loader.x86'), 'build embeds WebView2 managed assemblies and native loaders into the single EXE');
 assert(build.includes('/reference:System.Core.dll'), 'build references System.Core for reflection-safe WebView2 event delegation');
+assert(webShell.includes('HNL_QLTC_WEBVIEW2_SMOKE_FILE') && webShell.includes('READY|'), 'embedded shell exposes a CI-only WebView2 readiness marker without changing normal runtime behavior');
+assert(webViewRuntimeGolden.includes('WINDOWS EMBEDDED WEBVIEW2 RUNTIME GOLDEN PASS') && webViewRuntimeGolden.includes('Microsoft.Web.WebView2.Core.dll'), 'Windows runtime golden launches the real EXE and verifies embedded WebView2 extraction/readiness');
 assert(syncCenter.includes('Sync Center') && syncCenter.includes('Retry đã chọn (tối đa 50)') && syncCenter.includes('Mở file nguồn') && syncCenter.includes('Mở Web & đồng bộ'), 'native Sync Center exposes filtered batch retry, source navigation and Web handoff');
 assert(syncCenter.includes('DataGridView') && syncCenter.includes('Lịch sử') && syncCenter.includes('Tìm file/lỗi') && syncCenter.includes('Chọn tất cả đang lọc'), 'native Sync Center provides searchable multi-select queue and history tables');
 assert(localStore.includes('RetryQueueItem') && localStore.includes('RetryQueueItems') && localStore.includes('GetQueueRows') && localStore.includes('GetHistoryRows'), 'SQLite engine exposes controlled single and batch queue management APIs');
@@ -143,6 +146,7 @@ assert(workflow.includes('npm run typecheck') && workflow.includes('npm run lint
 assert(workflow.includes('npm run build'), 'EXE CI certifies web build before launcher packaging');
 assert(workflow.includes('windows-icon-golden.ps1'), 'EXE CI runs Windows icon golden gate after packaging');
 assert(workflow.includes('windows-desktop-local-store-golden.ps1'), 'EXE CI runs Windows SQLite workspace runtime golden');
+assert(workflow.includes('windows-webview2-runtime-golden.ps1'), 'EXE CI launches the built EXE and certifies embedded WebView2 runtime');
 assert(workflow.includes('icon-golden-evidence'), 'EXE CI uploads icon visual evidence');
 assert(workflow.includes('HNL-QLTC-Windows.exe'), 'portable EXE artifact is uploaded');
 assert(workflow.includes('build-installer.ps1') && workflow.includes('HNL-QLTC-Setup.exe'), 'Windows CI also builds the professional Setup EXE');

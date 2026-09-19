@@ -299,6 +299,8 @@ namespace QLTCAnPhu
                     {
                         try
                         {
+                            if (message.IndexOf("WebView2 sẵn sàng", StringComparison.OrdinalIgnoreCase) >= 0)
+                                WriteWebViewSmokeMarker("READY|" + Program.GetReleaseTag());
                             if (IsDisposed) return;
                             BeginInvoke((MethodInvoker)delegate
                             {
@@ -310,6 +312,7 @@ namespace QLTCAnPhu
                     },
                     delegate(string error)
                     {
+                        WriteWebViewSmokeMarker("FAIL|" + error);
                         try
                         {
                             if (IsDisposed) return;
@@ -672,6 +675,19 @@ namespace QLTCAnPhu
                 MessageBox.Show(ex.Message, "HNL QLTC", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
+        private static void WriteWebViewSmokeMarker(string value)
+        {
+            try
+            {
+                string marker = Environment.GetEnvironmentVariable("HNL_QLTC_WEBVIEW2_SMOKE_FILE");
+                if (string.IsNullOrWhiteSpace(marker)) return;
+                string directory = Path.GetDirectoryName(marker);
+                if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
+                File.WriteAllText(marker, value + "|PID=" + Process.GetCurrentProcess().Id);
+            }
+            catch { }
+        }
+
 
         private sealed class HomeAction
         {

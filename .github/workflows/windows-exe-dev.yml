@@ -18,6 +18,7 @@ on:
       - 'scripts/desktop-launcher-golden.mjs'
       - 'scripts/windows-icon-golden.ps1'
       - 'scripts/windows-desktop-local-store-golden.ps1'
+      - 'scripts/windows-webview2-runtime-golden.ps1'
       - 'scripts/windows-installer-golden.mjs'
       - 'scripts/windows-installer-runtime-golden.ps1'
       - '.github/workflows/windows-exe-dev.yml'
@@ -178,6 +179,10 @@ jobs:
       - name: Build portable Windows DEV EXE
         shell: pwsh
         run: ./desktop-wrapper/build-launcher.ps1
+
+      - name: Embedded WebView2 runtime golden
+        shell: pwsh
+        run: ./scripts/windows-webview2-runtime-golden.ps1 -LauncherPath './HNL-QLTC-Windows.exe' -Channel DEV
 
       - name: Windows taskbar icon golden
         shell: pwsh

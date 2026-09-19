@@ -101,3 +101,9 @@ GitHub `windows-latest` must still compile and runtime-test this exact source. I
 - package certification
 
 Release posture before those gates: **RC2.2.26 LOCAL CANDIDATE**.
+
+## Exact Windows runtime certification added
+
+A dedicated `scripts/windows-webview2-runtime-golden.ps1` now launches the **real built EXE** on the GitHub Windows runner and requires a CI-only READY marker emitted only after `CoreWebView2` has initialized successfully.
+
+The runtime gate also verifies that the single EXE extracted its embedded WebView2 Core, WinForms and native loader payloads. Both PROD/DEV Windows EXE workflows run this gate immediately after launcher build. Normal users are unaffected because the smoke marker is enabled only when the CI environment variable `HNL_QLTC_WEBVIEW2_SMOKE_FILE` is explicitly set.
