@@ -1,0 +1,58 @@
+name: RC2.2.26.1 Apply Runtime Hardening
+
+on:
+  push:
+    branches:
+      - dev-rc2261-runtime-hardening-20260919
+    paths:
+      - .github/workflows/rc2261-apply.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Guard exact certified base
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor e99bc2748a8a4406a2ceaad89d1210207a0227f5 HEAD
+          git diff --quiet e99bc2748a8a4406a2ceaad89d1210207a0227f5 HEAD -- . \
+            ':(exclude)ci/rc2261-patch/**' \
+            ':(exclude).github/workflows/rc2261-apply.yml'
+
+      - name: Reconstruct and verify candidate patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat ci/rc2261-patch/part.* | base64 -d > /tmp/rc2261.patch
+          echo "3fa712a1dc8aae527f895c051308054b2ee585a6680dc9323051f6731419fc91  /tmp/rc2261.patch" | sha256sum -c -
+          git apply --check /tmp/rc2261.patch
+          git apply /tmp/rc2261.patch
+
+      - name: Source gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/desktop-launcher-golden.mjs
+          node scripts/source-lint.mjs
+          node scripts/prod-readiness-golden.mjs
+
+      - name: Commit clean candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf ci/rc2261-patch
+          rm -f .github/workflows/rc2261-apply.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix(dev): harden embedded WebView2 runtime"
+          git push origin HEAD:dev-rc2261-runtime-hardening-20260919
