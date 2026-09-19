@@ -15,6 +15,9 @@ const devWorkflow = read('.github/workflows/windows-exe-dev.yml');
 
 assert(manifest.includes('requireAdministrator'), 'installer uses Windows UAC for Program Files installation');
 assert(setup.includes('AutoScaleMode.Dpi') && setup.includes('PictureBox') && setup.includes('Icon.ToBitmap()'), 'installer UI is DPI-aware and displays the embedded HNL logo');
+assert(setup.includes('RowCount = 3') && setup.includes('buttonFlow') && setup.includes('Tag = "primary"'), 'installer reserves a dedicated footer so Install/Upgrade action remains visible under DPI scaling');
+assert(setup.includes('AppsUseLightTheme') && setup.includes('SystemEvents.UserPreferenceChanged') && setup.includes('DwmSetWindowAttribute'), 'installer follows Windows system light/dark theme including title bar where supported');
+assert(setup.includes('Cài đặt chuyên nghiệp cho Windows') && setup.includes('Tùy chọn cài đặt'), 'installer uses grouped professional user-facing UI');
 assert(build.includes("[ValidateSet('PROD','DEV')]") && build.includes("$Channel = 'PROD'"), 'installer build has explicit PROD/DEV channels');
 assert(build.includes("'HNL QLTC DEV'") && build.includes("'HNL QLTC'"), 'DEV and PROD install identities are isolated');
 assert(build.includes('$launcherResource = "/resource:$launcher,HNL.QLTC.Payload.Launcher"') && build.includes('$uninstallerResource = "/resource:$uninstallerTemp,HNL.QLTC.Payload.Uninstaller"'), 'setup builds csc resource arguments without PowerShell quote leakage');

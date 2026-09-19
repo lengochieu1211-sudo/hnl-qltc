@@ -30,40 +30,60 @@ namespace HnlQltcSetup
         private readonly ProgressBar progress;
         private readonly string installDirectory;
         private readonly bool isUpgrade;
+        private UiTheme theme;
 
         internal InstallerForm()
         {
             installDirectory = InstallLayout.GetInstallDirectory();
             isUpgrade = File.Exists(Path.Combine(installDirectory, InstallerBuildInfo.InstalledExeName));
+            theme = UiTheme.ReadFromSystem();
 
             Text = "Cài đặt " + InstallerBuildInfo.ProductLabel;
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
-            ClientSize = new Size(660, 430);
-            BackColor = Color.FromArgb(246, 248, 251);
+            ShowInTaskbar = true;
+            ClientSize = new Size(720, 540);
+            MinimumSize = new Size(720, 540);
             Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point);
             AutoScaleMode = AutoScaleMode.Dpi;
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
+            AcceptButton = installButton;
+            CancelButton = cancelButton;
+
+            var root = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 3,
+                Padding = new Padding(0),
+                Margin = new Padding(0),
+                Tag = "root"
+            };
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 126F));
+            root.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 82F));
+            Controls.Add(root);
 
             var header = new Panel
             {
-                Dock = DockStyle.Top,
-                Height = 116,
-                BackColor = Color.White,
-                Padding = new Padding(28, 22, 28, 18)
+                Dock = DockStyle.Fill,
+                Padding = new Padding(28, 22, 28, 18),
+                Margin = new Padding(0),
+                Tag = "header"
             };
-            Controls.Add(header);
+            root.Controls.Add(header, 0, 0);
 
             if (Icon != null)
             {
                 var logo = new PictureBox
                 {
-                    Size = new Size(48, 48),
-                    Location = new Point(28, 26),
+                    Size = new Size(52, 52),
+                    Location = new Point(28, 28),
                     SizeMode = PictureBoxSizeMode.Zoom,
-                    Image = Icon.ToBitmap()
+                    Image = Icon.ToBitmap(),
+                    BackColor = Color.Transparent
                 };
                 header.Controls.Add(logo);
             }
@@ -72,9 +92,9 @@ namespace HnlQltcSetup
             {
                 AutoSize = true,
                 Text = isUpgrade ? "Nâng cấp " + InstallerBuildInfo.ProductLabel : "Cài đặt " + InstallerBuildInfo.ProductLabel,
-                Font = new Font("Segoe UI", 20F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(25, 46, 80),
-                Location = new Point(88, 20)
+                Font = new Font("Segoe UI", 21F, FontStyle.Bold),
+                Location = new Point(96, 22),
+                Tag = "title"
             };
             header.Controls.Add(title);
 
@@ -82,121 +102,226 @@ namespace HnlQltcSetup
             {
                 AutoSize = true,
                 Text = "Ứng dụng HNL QLTC cho Windows 10/11 • " + InstallerBuildInfo.ReleaseTag,
-                ForeColor = Color.FromArgb(88, 99, 115),
-                Location = new Point(91, 67)
+                Location = new Point(99, 68),
+                Tag = "muted"
             };
             header.Controls.Add(subtitle);
 
-            var body = new Panel
+            var body = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                Padding = new Padding(30, 22, 30, 20),
-                BackColor = BackColor
+                ColumnCount = 1,
+                RowCount = 7,
+                Padding = new Padding(28, 20, 28, 12),
+                Margin = new Padding(0),
+                AutoScroll = true,
+                Tag = "root"
             };
-            Controls.Add(body);
-            body.BringToFront();
+            body.RowStyles.Add(new RowStyle(SizeType.Absolute, 58F));
+            body.RowStyles.Add(new RowStyle(SizeType.Absolute, 28F));
+            body.RowStyles.Add(new RowStyle(SizeType.Absolute, 38F));
+            body.RowStyles.Add(new RowStyle(SizeType.Absolute, 88F));
+            body.RowStyles.Add(new RowStyle(SizeType.Absolute, 110F));
+            body.RowStyles.Add(new RowStyle(SizeType.Absolute, 18F));
+            body.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            root.Controls.Add(body, 0, 1);
 
             var description = new Label
             {
-                AutoSize = false,
-                Width = 595,
-                Height = 58,
+                Dock = DockStyle.Fill,
                 Text = isUpgrade
                     ? "Bản hiện có sẽ được nâng cấp tại chỗ. Dữ liệu dự án, backup, ảnh, cache và cấu hình người dùng được giữ nguyên."
-                    : "Phần mềm sẽ được cài vào Program Files, tạo mục trong Start Menu và có thể tạo biểu tượng ngoài Desktop.",
-                ForeColor = Color.FromArgb(65, 77, 93),
-                Location = new Point(30, 24)
+                    : "Phần mềm sẽ được cài vào Program Files, tạo mục trong Start Menu, tạo shortcut ngoài Desktop và không xóa dữ liệu người dùng.",
+                Tag = "body"
             };
-            body.Controls.Add(description);
+            body.Controls.Add(description, 0, 0);
 
             var pathCaption = new Label
             {
-                AutoSize = true,
+                Dock = DockStyle.Fill,
                 Text = "Thư mục cài đặt",
                 Font = new Font("Segoe UI", 10F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(31, 53, 82),
-                Location = new Point(30, 96)
+                TextAlign = ContentAlignment.BottomLeft,
+                Tag = "section-title"
             };
-            body.Controls.Add(pathCaption);
+            body.Controls.Add(pathCaption, 0, 1);
 
             var pathBox = new TextBox
             {
+                Dock = DockStyle.Fill,
                 ReadOnly = true,
                 Text = installDirectory,
-                Location = new Point(30, 122),
-                Width = 595,
-                BackColor = Color.White
+                Margin = new Padding(0, 0, 0, 0),
+                TabStop = false,
+                Tag = "textbox"
             };
-            body.Controls.Add(pathBox);
+            body.Controls.Add(pathBox, 0, 2);
+
+            var optionsCard = new Panel
+            {
+                Dock = DockStyle.Fill,
+                Padding = new Padding(18, 14, 18, 12),
+                Margin = new Padding(0, 12, 0, 10),
+                Tag = "card"
+            };
+            body.Controls.Add(optionsCard, 0, 3);
+
+            var optionsTitle = new Label
+            {
+                AutoSize = true,
+                Text = "Tùy chọn cài đặt",
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                Location = new Point(18, 12),
+                Tag = "section-title"
+            };
+            optionsCard.Controls.Add(optionsTitle);
 
             desktopShortcut = new CheckBox
             {
                 AutoSize = true,
                 Text = "Tạo biểu tượng HNL QLTC ngoài Desktop",
                 Checked = true,
-                Location = new Point(30, 166)
+                Location = new Point(18, 40),
+                Tag = "checkbox"
             };
-            body.Controls.Add(desktopShortcut);
+            optionsCard.Controls.Add(desktopShortcut);
 
             launchAfterInstall = new CheckBox
             {
                 AutoSize = true,
                 Text = "Mở HNL QLTC sau khi hoàn tất",
                 Checked = true,
-                Location = new Point(30, 196)
+                Location = new Point(18, 66),
+                Tag = "checkbox"
             };
-            body.Controls.Add(launchAfterInstall);
+            optionsCard.Controls.Add(launchAfterInstall);
+
+            var summaryCard = new Panel
+            {
+                Dock = DockStyle.Fill,
+                Padding = new Padding(18, 14, 18, 14),
+                Margin = new Padding(0, 0, 0, 12),
+                Tag = "card"
+            };
+            body.Controls.Add(summaryCard, 0, 4);
+
+            var summaryTitle = new Label
+            {
+                AutoSize = true,
+                Text = "Cài đặt chuyên nghiệp cho Windows",
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                Location = new Point(18, 12),
+                Tag = "section-title"
+            };
+            summaryCard.Controls.Add(summaryTitle);
+
+            var summary = new Label
+            {
+                AutoSize = false,
+                Width = 600,
+                Height = 72,
+                Text = "• Cài thẳng vào C:\\Program Files\\HNL\\...\r\n" +
+                       "• Tạo Start Menu > HNL và shortcut ngoài Desktop\r\n" +
+                       "• Dữ liệu dự án, backup, ảnh và cache không bị xóa hoặc reset",
+                Location = new Point(18, 38),
+                Tag = "muted"
+            };
+            summaryCard.Controls.Add(summary);
 
             progress = new ProgressBar
             {
-                Location = new Point(30, 236),
-                Width = 595,
+                Dock = DockStyle.Fill,
                 Height = 18,
                 Minimum = 0,
                 Maximum = 100,
-                Value = 0
+                Value = 0,
+                Margin = new Padding(0, 0, 0, 8)
             };
-            body.Controls.Add(progress);
+            body.Controls.Add(progress, 0, 5);
 
             stateLabel = new Label
             {
-                AutoSize = false,
-                Width = 595,
-                Height = 42,
+                Dock = DockStyle.Fill,
                 Text = isUpgrade ? "Sẵn sàng nâng cấp." : "Sẵn sàng cài đặt.",
-                ForeColor = Color.FromArgb(75, 86, 101),
-                Location = new Point(30, 262)
+                Tag = "muted"
             };
-            body.Controls.Add(stateLabel);
+            body.Controls.Add(stateLabel, 0, 6);
+
+            var footer = new Panel
+            {
+                Dock = DockStyle.Fill,
+                Padding = new Padding(28, 12, 28, 18),
+                Margin = new Padding(0),
+                Tag = "footer"
+            };
+            root.Controls.Add(footer, 0, 2);
+
+            var buttonFlow = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Right,
+                Width = 310,
+                Height = 48,
+                FlowDirection = FlowDirection.RightToLeft,
+                WrapContents = false,
+                Padding = new Padding(0),
+                Margin = new Padding(0),
+                BackColor = Color.Transparent
+            };
+            footer.Controls.Add(buttonFlow);
 
             installButton = new Button
             {
                 Text = isUpgrade ? "Nâng cấp" : "Cài đặt",
-                Width = 132,
-                Height = 42,
-                Location = new Point(354, 318),
-                BackColor = Color.FromArgb(24, 86, 164),
-                ForeColor = Color.White,
+                Width = 146,
+                Height = 44,
+                Margin = new Padding(12, 0, 0, 0),
                 FlatStyle = FlatStyle.Flat,
                 Font = new Font("Segoe UI", 10F, FontStyle.Bold),
-                Cursor = Cursors.Hand
+                Cursor = Cursors.Hand,
+                Tag = "primary"
             };
             installButton.Click += delegate { Install(); };
-            body.Controls.Add(installButton);
+            buttonFlow.Controls.Add(installButton);
 
             cancelButton = new Button
             {
                 Text = "Hủy",
                 Width = 132,
-                Height = 42,
-                Location = new Point(493, 318),
-                BackColor = Color.White,
-                ForeColor = Color.FromArgb(38, 61, 92),
+                Height = 44,
+                Margin = new Padding(0),
                 FlatStyle = FlatStyle.Flat,
-                Cursor = Cursors.Hand
+                Font = new Font("Segoe UI", 10F, FontStyle.Regular),
+                Cursor = Cursors.Hand,
+                Tag = "secondary"
             };
             cancelButton.Click += delegate { Close(); };
-            body.Controls.Add(cancelButton);
+            buttonFlow.Controls.Add(cancelButton);
+
+            AcceptButton = installButton;
+            CancelButton = cancelButton;
+
+            SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
+            FormClosed += delegate { SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged; };
+            Shown += delegate { ApplyTheme(); };
+            ApplyTheme();
+        }
+
+        private void OnUserPreferenceChanged(object sender, UserPreferenceChangedEventArgs e)
+        {
+            if (e.Category != UserPreferenceCategory.General &&
+                e.Category != UserPreferenceCategory.Color &&
+                e.Category != UserPreferenceCategory.VisualStyle)
+            {
+                return;
+            }
+
+            theme = UiTheme.ReadFromSystem();
+            ApplyTheme();
+        }
+
+        private void ApplyTheme()
+        {
+            UiTheme.ApplyToForm(this, theme);
         }
 
         private void Install()
@@ -318,6 +443,170 @@ namespace HnlQltcSetup
                 key.SetValue("InstallDate", DateTime.Now.ToString("yyyyMMdd"), RegistryValueKind.String);
             }
         }
+    }
+
+    internal sealed class UiTheme
+    {
+        internal bool IsDark;
+        internal Color WindowBack;
+        internal Color Surface;
+        internal Color SurfaceAlt;
+        internal Color Border;
+        internal Color Primary;
+        internal Color PrimaryText;
+        internal Color Text;
+        internal Color TextMuted;
+        internal Color TextSubtle;
+        internal Color InputBack;
+
+        internal static UiTheme ReadFromSystem()
+        {
+            bool dark = false;
+            try
+            {
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"))
+                {
+                    object value = key == null ? null : key.GetValue("AppsUseLightTheme");
+                    if (value is int)
+                        dark = ((int)value) == 0;
+                }
+            }
+            catch { }
+
+            if (dark)
+            {
+                return new UiTheme
+                {
+                    IsDark = true,
+                    WindowBack = Color.FromArgb(18, 21, 27),
+                    Surface = Color.FromArgb(28, 34, 43),
+                    SurfaceAlt = Color.FromArgb(37, 45, 57),
+                    Border = Color.FromArgb(58, 67, 81),
+                    Primary = Color.FromArgb(50, 120, 220),
+                    PrimaryText = Color.White,
+                    Text = Color.FromArgb(236, 241, 248),
+                    TextMuted = Color.FromArgb(188, 198, 212),
+                    TextSubtle = Color.FromArgb(149, 160, 176),
+                    InputBack = Color.FromArgb(24, 29, 38)
+                };
+            }
+
+            return new UiTheme
+            {
+                IsDark = false,
+                WindowBack = Color.FromArgb(246, 248, 251),
+                Surface = Color.White,
+                SurfaceAlt = Color.FromArgb(247, 249, 252),
+                Border = Color.FromArgb(212, 220, 230),
+                Primary = Color.FromArgb(24, 86, 164),
+                PrimaryText = Color.White,
+                Text = Color.FromArgb(25, 46, 80),
+                TextMuted = Color.FromArgb(65, 77, 93),
+                TextSubtle = Color.FromArgb(88, 99, 115),
+                InputBack = Color.White
+            };
+        }
+
+        internal static void ApplyToForm(Form form, UiTheme theme)
+        {
+            if (form == null || theme == null) return;
+            ApplyImmersiveDarkMode(form, theme.IsDark);
+            ApplyControl(form, theme, theme.WindowBack);
+        }
+
+        private static void ApplyControl(Control control, UiTheme theme, Color inheritedBack)
+        {
+            if (control == null) return;
+            string tag = control.Tag as string;
+            Color back = inheritedBack;
+
+            if (control is Form)
+            {
+                control.BackColor = theme.WindowBack;
+                control.ForeColor = theme.Text;
+                back = theme.WindowBack;
+            }
+            else if (control is Panel || control is TableLayoutPanel || control is FlowLayoutPanel)
+            {
+                if (tag == "header" || tag == "card") back = theme.Surface;
+                else if (tag == "footer") back = theme.WindowBack;
+                else back = theme.WindowBack;
+                control.BackColor = back;
+                control.ForeColor = theme.Text;
+            }
+            else if (control is Label)
+            {
+                control.BackColor = inheritedBack;
+                if (tag == "title" || tag == "section-title") control.ForeColor = theme.Text;
+                else if (tag == "muted") control.ForeColor = theme.TextSubtle;
+                else control.ForeColor = theme.TextMuted;
+                back = inheritedBack;
+            }
+            else if (control is TextBox)
+            {
+                TextBox box = (TextBox)control;
+                box.BackColor = theme.InputBack;
+                box.ForeColor = theme.Text;
+                box.BorderStyle = BorderStyle.FixedSingle;
+                back = box.BackColor;
+            }
+            else if (control is CheckBox)
+            {
+                control.BackColor = inheritedBack;
+                control.ForeColor = theme.TextMuted;
+                back = inheritedBack;
+            }
+            else if (control is Button)
+            {
+                Button button = (Button)control;
+                button.FlatAppearance.BorderSize = 1;
+                button.FlatAppearance.MouseDownBackColor = theme.IsDark ? Color.FromArgb(44, 72, 112) : Color.FromArgb(19, 72, 140);
+                button.FlatAppearance.MouseOverBackColor = theme.IsDark ? Color.FromArgb(63, 86, 122) : Color.FromArgb(231, 239, 250);
+                if (tag == "primary")
+                {
+                    button.BackColor = theme.Primary;
+                    button.ForeColor = theme.PrimaryText;
+                    button.FlatAppearance.BorderColor = theme.Primary;
+                }
+                else
+                {
+                    button.BackColor = theme.SurfaceAlt;
+                    button.ForeColor = theme.Text;
+                    button.FlatAppearance.BorderColor = theme.Border;
+                }
+                back = button.BackColor;
+            }
+            else
+            {
+                control.BackColor = inheritedBack;
+                control.ForeColor = theme.Text;
+                back = inheritedBack;
+            }
+
+            foreach (Control child in control.Controls)
+            {
+                ApplyControl(child, theme, back);
+            }
+        }
+
+        private static void ApplyImmersiveDarkMode(Form form, bool dark)
+        {
+            try
+            {
+                if (!form.IsHandleCreated) return;
+                int useDark = dark ? 1 : 0;
+                int attribute = 20;
+                if (DwmSetWindowAttribute(form.Handle, attribute, ref useDark, Marshal.SizeOf(typeof(int))) != 0)
+                {
+                    attribute = 19;
+                    DwmSetWindowAttribute(form.Handle, attribute, ref useDark, Marshal.SizeOf(typeof(int)));
+                }
+            }
+            catch { }
+        }
+
+        [DllImport("dwmapi.dll")]
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int pvAttribute, int cbAttribute);
     }
 
     internal static class InstallLayout

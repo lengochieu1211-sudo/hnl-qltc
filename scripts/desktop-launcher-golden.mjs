@@ -45,11 +45,16 @@ for (const folder of ['Backup', 'Imports', 'Exports', 'Excel', 'PDF', 'Reports',
 }
 assert(launcher.includes('HNL-QLTC-DESKTOP-DIAGNOSTIC-'), 'Desktop Suite can export a diagnostic snapshot');
 assert(launcher.includes('HostingHealthUrl') && launcher.includes('R2HealthUrl') && launcher.includes('AiHealthUrl'), 'diagnostics cover Hosting, R2 and AI Gateway');
-assert(launcher.includes('NotifyIcon') && launcher.includes('HNL QLTC vẫn đang chạy ở khay hệ thống'), 'HNL QLTC Desktop supports Windows system tray');
+assert(launcher.includes('NotifyIcon') && launcher.includes('Ứng dụng vẫn đang chạy ở khay hệ thống'), 'HNL QLTC Desktop supports Windows system tray');
 assert(!launcher.includes('deletePhoto') && !launcher.includes('purgeBinary'), 'Desktop Suite shell has no destructive cloud-media operation');
-assert(launcher.includes('Dữ liệu & Sao lưu') && launcher.includes('Ảnh hiện trường') && launcher.includes('Trạng thái hệ thống'), 'main Desktop UI uses user-facing cards');
+assert(launcher.includes('Dữ liệu & Sao lưu') && launcher.includes('Ảnh hiện trường & đồng bộ') && launcher.includes('Hỗ trợ & công cụ'), 'main Desktop UI uses professional user-facing cards');
 assert(launcher.includes('Công cụ nâng cao') && launcher.includes('Quét lại chỉ mục') && launcher.includes('Chẩn đoán hệ thống'), 'technical workspace/index/diagnostic controls remain available behind Advanced Tools');
 assert(!launcher.includes('Local Workspace & Queue'), 'technical Local Workspace & Queue label is removed from the main user UI');
+assert(launcher.includes('HNL QLTC Windows Desktop Suite') && launcher.includes('Thao tác nhanh') && launcher.includes('Sẵn sàng mở dự án và làm việc'), 'main Desktop EXE uses refreshed professional dashboard layout');
+assert(launcher.includes('AppsUseLightTheme') && launcher.includes('SystemEvents.UserPreferenceChanged') && launcher.includes('DwmSetWindowAttribute'), 'Desktop EXE follows Windows light/dark system theme and dark title bar');
+assert(launcher.includes('Giao diện: Tự động theo hệ thống'), 'Desktop EXE communicates automatic system-theme behavior');
+assert(syncCenter.includes('Program.DesktopUiTheme.ReadFromSystem()') && syncCenter.includes('Program.DesktopUiTheme.ApplyToForm(this, theme)'), 'Sync Center shares the professional Desktop light/dark theme');
+assert(launcher.includes('DataGridViewHeaderBorderStyle.Single') && launcher.includes('AlternatingRowsDefaultCellStyle'), 'shared Desktop theme includes professional data-grid styling');
 assert(launcher.includes('DesktopPaths.LocalDatabase') && launcher.includes('workspace.db'), 'Desktop Suite stores its local SQLite database under LocalAppData');
 assert(localStore.includes('winsqlite3.dll'), 'local workspace uses Windows inbox winsqlite3 without an external database DLL');
 assert(localStore.includes('CREATE TABLE IF NOT EXISTS workspace_files') && localStore.includes('CREATE TABLE IF NOT EXISTS sync_queue') && localStore.includes('CREATE TABLE IF NOT EXISTS sync_history'), 'SQLite schema contains workspace mirror, durable sync queue and audit history');
@@ -80,7 +85,7 @@ assert(webBridge.includes('BRIDGE_ATTEMPT_TOKEN_INVALID') && webBridge.includes(
 assert(!webBridge.includes('uploadProjectBinaryToR2') && !webBridge.includes('fetch('), 'Web bridge does not introduce a direct R2/network upload authority');
 assert(bridgeCard.includes('Windows Desktop Sync Bridge') && configTab.includes('WindowsDesktopSyncBridgeCard'), 'Settings exposes Windows App Sync Bridge controls');
 assert(build.includes('release-tag.txt'), 'build script uses release tag for cache/version isolation');
-assert(releaseTag === '6.3.0-rc2.2.23', 'desktop release tag matches RC2.2.23 installer and user-first desktop hardening');
+assert(releaseTag === '6.3.0-rc2.2.25', 'desktop release tag matches RC2.2.25 professional desktop dark-mode refresh');
 
 assert(iconSource.width >= 1024 && iconSource.height >= 1024 && iconSource.bytes > 1_000_000, 'HQ HNL logo source is retained at >=1024px');
 assert(taskbar192.width === 192 && taskbar192.height === 192, 'browser app-mode has dedicated 192x192 HNL icon');

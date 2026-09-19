@@ -6,6 +6,8 @@ using System.Net;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
+using Microsoft.Win32;
+using System.Runtime.InteropServices;
 
 namespace QLTCAnPhu
 {
@@ -163,6 +165,7 @@ namespace QLTCAnPhu
             }
         }
 
+
         internal sealed class DesktopSuiteForm : Form
         {
             private readonly Label statusLabel;
@@ -172,17 +175,17 @@ namespace QLTCAnPhu
             private readonly System.Windows.Forms.Timer backgroundTimer;
             private int maintenanceRunning;
             private bool allowClose;
+            private DesktopUiTheme theme;
 
             internal DesktopSuiteForm()
             {
-                Text = Program.ProductName;
+                theme = DesktopUiTheme.ReadFromSystem();
+                Text = "HNL QLTC Windows Desktop Suite";
                 StartPosition = FormStartPosition.CenterScreen;
-                MinimumSize = new Size(780, 540);
-                Size = new Size(920, 640);
+                MinimumSize = new Size(980, 680);
+                Size = new Size(1220, 820);
                 Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point);
                 AutoScaleMode = AutoScaleMode.Dpi;
-                BackColor = Color.FromArgb(246, 248, 251);
-
                 try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
 
                 var root = new TableLayoutPanel
@@ -190,26 +193,34 @@ namespace QLTCAnPhu
                     Dock = DockStyle.Fill,
                     ColumnCount = 1,
                     RowCount = 4,
-                    Padding = new Padding(24),
-                    BackColor = BackColor
+                    Padding = new Padding(22),
+                    Margin = new Padding(0),
+                    Tag = "root"
                 };
-                root.RowStyles.Add(new RowStyle(SizeType.Absolute, 104));
-                root.RowStyles.Add(new RowStyle(SizeType.Absolute, 78));
-                root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-                root.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+                root.RowStyles.Add(new RowStyle(SizeType.Absolute, 118));
+                root.RowStyles.Add(new RowStyle(SizeType.Absolute, 156));
+                root.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+                root.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
                 Controls.Add(root);
 
-                var header = new Panel { Dock = DockStyle.Fill, BackColor = Color.White, Padding = new Padding(18, 14, 18, 12) };
+                var header = new Panel
+                {
+                    Dock = DockStyle.Fill,
+                    Padding = new Padding(22, 18, 22, 18),
+                    Margin = new Padding(0, 0, 0, 14),
+                    Tag = "header"
+                };
                 root.Controls.Add(header, 0, 0);
 
                 if (Icon != null)
                 {
                     var logo = new PictureBox
                     {
-                        Size = new Size(48, 48),
-                        Location = new Point(18, 18),
+                        Size = new Size(58, 58),
+                        Location = new Point(0, 6),
                         SizeMode = PictureBoxSizeMode.Zoom,
-                        Image = Icon.ToBitmap()
+                        Image = Icon.ToBitmap(),
+                        BackColor = Color.Transparent
                     };
                     header.Controls.Add(logo);
                 }
@@ -217,107 +228,201 @@ namespace QLTCAnPhu
                 var title = new Label
                 {
                     AutoSize = true,
-                    Text = "HNL QLTC Desktop",
-                    Font = new Font("Segoe UI", 20F, FontStyle.Bold),
-                    ForeColor = Color.FromArgb(25, 46, 80),
-                    Location = new Point(80, 14)
+                    Text = "HNL QLTC Windows Desktop Suite",
+                    Font = new Font("Segoe UI", 22F, FontStyle.Bold),
+                    Location = new Point(74, 8),
+                    Tag = "title"
                 };
                 header.Controls.Add(title);
 
                 var subtitle = new Label
                 {
                     AutoSize = true,
-                    Text = "Quản lý thi công trên Windows",
+                    Text = "Trung tâm làm việc trên Windows cho HNL Quản Lý Thi Công",
                     Font = new Font("Segoe UI", 10F, FontStyle.Regular),
-                    ForeColor = Color.FromArgb(88, 99, 115),
-                    Location = new Point(83, 57)
+                    Location = new Point(78, 50),
+                    Tag = "muted"
                 };
                 header.Controls.Add(subtitle);
 
-                var version = new Label
+                var themeMode = new Label
                 {
                     AutoSize = true,
-                    Text = "Phiên bản " + Program.GetReleaseTag(),
+                    Text = "Giao diện: Tự động theo hệ thống",
                     Font = new Font("Segoe UI", 9F, FontStyle.Bold),
-                    ForeColor = Color.FromArgb(68, 78, 92),
-                    Anchor = AnchorStyles.Top | AnchorStyles.Right
+                    Location = new Point(78, 76),
+                    Tag = "subtle"
                 };
-                header.Controls.Add(version);
-                version.Location = new Point(Math.Max(20, header.Width - version.Width - 18), 18);
-                header.Resize += delegate { version.Location = new Point(Math.Max(20, header.Width - version.Width - 18), 18); };
+                header.Controls.Add(themeMode);
 
-                var openPanel = new TableLayoutPanel
+                var versionBadge = new Label
+                {
+                    AutoSize = true,
+                    Text = "Build " + Program.GetReleaseTag(),
+                    Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+                    Padding = new Padding(12, 8, 12, 8),
+                    Tag = "badge"
+                };
+                header.Controls.Add(versionBadge);
+                Action positionHeaderBadges = delegate
+                {
+                    versionBadge.Location = new Point(Math.Max(20, header.Width - versionBadge.Width - 18), 14);
+                };
+                header.Resize += delegate { positionHeaderBadges(); };
+                positionHeaderBadges();
+
+                var hero = new TableLayoutPanel
                 {
                     Dock = DockStyle.Fill,
-                    ColumnCount = 3,
-                    Padding = new Padding(0, 14, 0, 8)
+                    ColumnCount = 2,
+                    Padding = new Padding(0),
+                    Margin = new Padding(0, 0, 0, 14),
+                    Tag = "root"
                 };
-                openPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 60));
-                openPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20));
-                openPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20));
-                root.Controls.Add(openPanel, 0, 1);
+                hero.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 56F));
+                hero.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 44F));
+                root.Controls.Add(hero, 0, 1);
+
+                var welcomeCard = new Panel
+                {
+                    Dock = DockStyle.Fill,
+                    Padding = new Padding(22, 18, 22, 18),
+                    Margin = new Padding(0, 0, 10, 0),
+                    Tag = "card"
+                };
+                hero.Controls.Add(welcomeCard, 0, 0);
+
+                var welcomeTitle = new Label
+                {
+                    AutoSize = true,
+                    Text = "Sẵn sàng mở dự án và làm việc",
+                    Font = new Font("Segoe UI", 15F, FontStyle.Bold),
+                    Location = new Point(0, 0),
+                    Tag = "section-title"
+                };
+                welcomeCard.Controls.Add(welcomeTitle);
+
+                var welcomeText = new Label
+                {
+                    AutoSize = false,
+                    Width = 560,
+                    Height = 72,
+                    Text = "Mở nhanh HNL QLTC bằng chế độ app desktop, giữ profile trình duyệt riêng, đồng thời theo dõi dữ liệu local, ảnh hiện trường và trạng thái đồng bộ mà không làm rối giao diện.",
+                    Location = new Point(0, 34),
+                    Tag = "body"
+                };
+                welcomeCard.Controls.Add(welcomeText);
+
+                var bullet = new Label
+                {
+                    AutoSize = false,
+                    Width = 560,
+                    Height = 54,
+                    Text = "• Gọn cho người dùng thường ngày
+• Có dark mode theo Windows
+• Giữ nguyên Local Workspace, Queue và cơ chế sync đã certified",
+                    Location = new Point(0, 98),
+                    Tag = "subtle"
+                };
+                welcomeCard.Controls.Add(bullet);
+
+                var actionCard = new Panel
+                {
+                    Dock = DockStyle.Fill,
+                    Padding = new Padding(20, 18, 20, 18),
+                    Margin = new Padding(10, 0, 0, 0),
+                    Tag = "card"
+                };
+                hero.Controls.Add(actionCard, 1, 0);
+
+                var actionTitle = new Label
+                {
+                    AutoSize = true,
+                    Text = "Thao tác nhanh",
+                    Font = new Font("Segoe UI", 12F, FontStyle.Bold),
+                    Location = new Point(0, 0),
+                    Tag = "section-title"
+                };
+                actionCard.Controls.Add(actionTitle);
+
+                var actionButtons = new TableLayoutPanel
+                {
+                    Location = new Point(0, 34),
+                    Size = new Size(420, 96),
+                    ColumnCount = 2,
+                    RowCount = 2,
+                    Tag = "root"
+                };
+                actionButtons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
+                actionButtons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
+                actionButtons.RowStyles.Add(new RowStyle(SizeType.Percent, 50F));
+                actionButtons.RowStyles.Add(new RowStyle(SizeType.Percent, 50F));
+                actionCard.Controls.Add(actionButtons);
 
                 var openApp = MakePrimaryButton("Mở HNL QLTC");
                 openApp.Click += delegate { SafeAction(Program.OpenHnlQltc); };
-                openPanel.Controls.Add(openApp, 0, 0);
+                actionButtons.Controls.Add(openApp, 0, 0);
+                actionButtons.SetColumnSpan(openApp, 2);
 
-                var openWorkspace = MakeSecondaryButton("Mở dữ liệu");
+                var openWorkspace = MakeSecondaryButton("Mở thư mục dữ liệu");
                 openWorkspace.Click += delegate { SafeAction(delegate { OpenFolder(DesktopPaths.WorkspaceRoot); }); };
-                openPanel.Controls.Add(openWorkspace, 1, 0);
+                actionButtons.Controls.Add(openWorkspace, 0, 1);
 
-                var advancedTools = MakeSecondaryButton("Công cụ nâng cao");
-                advancedTools.Click += delegate { OpenAdvancedTools(); };
-                openPanel.Controls.Add(advancedTools, 2, 0);
+                var openSync = MakeSecondaryButton("Sync Center");
+                openSync.Click += delegate { OpenSyncCenter(); };
+                actionButtons.Controls.Add(openSync, 1, 1);
 
                 var cards = new TableLayoutPanel
                 {
                     Dock = DockStyle.Fill,
                     ColumnCount = 2,
                     RowCount = 2,
-                    Padding = new Padding(0, 8, 0, 8)
+                    Padding = new Padding(0),
+                    Margin = new Padding(0),
+                    Tag = "root"
                 };
-                cards.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-                cards.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-                cards.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
-                cards.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+                cards.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
+                cards.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
+                cards.RowStyles.Add(new RowStyle(SizeType.Percent, 50F));
+                cards.RowStyles.Add(new RowStyle(SizeType.Percent, 50F));
                 root.Controls.Add(cards, 0, 2);
 
                 cards.Controls.Add(BuildCard(
                     "Dữ liệu & Sao lưu",
-                    "Mở nhanh thư mục sao lưu và dữ liệu nhập. Dữ liệu cloud của dự án vẫn được giữ nguyên.",
+                    "Mở nhanh khu vực Backup và Imports. Dữ liệu cloud của dự án vẫn là nguồn chính; vùng local chỉ hỗ trợ làm việc và cache an toàn.",
                     new[] {
-                        new CardAction("Sao lưu", DesktopPaths.Backup),
-                        new CardAction("Khôi phục / Nhập", DesktopPaths.Imports)
+                        new CardAction("Mở Backup", DesktopPaths.Backup),
+                        new CardAction("Mở Imports", DesktopPaths.Imports)
                     }), 0, 0);
 
                 cards.Controls.Add(BuildCard(
                     "Xuất hồ sơ",
-                    "Mở khu vực lưu Excel, PDF và báo cáo để bàn giao hoặc lưu trữ hồ sơ dự án.",
+                    "Tập trung toàn bộ hồ sơ xuất từ desktop: Excel, PDF và Reports để bàn giao, kiểm tra hoặc lưu trữ theo đợt.",
                     new[] {
                         new CardAction("Excel", DesktopPaths.Excel),
                         new CardAction("PDF", DesktopPaths.Pdf),
-                        new CardAction("Báo cáo", DesktopPaths.Reports)
+                        new CardAction("Reports", DesktopPaths.Reports)
                     }), 1, 0);
 
                 cards.Controls.Add(BuildCard(
-                    "Ảnh hiện trường",
-                    "Quản lý ảnh đã lưu trên máy và tiếp tục đồng bộ qua tài khoản HNL QLTC khi cần.",
+                    "Ảnh hiện trường & đồng bộ",
+                    "Quản lý ảnh lưu trên máy, xem trạng thái queue/history, retry có kiểm soát và tiếp tục đồng bộ qua web app khi cần.",
                     new[] {
-                        new CardAction("Mở ảnh", DesktopPaths.Photos),
-                        new CardAction("Xem đồng bộ", delegate { OpenSyncCenter(); })
+                        new CardAction("Mở Photos", DesktopPaths.Photos),
+                        new CardAction("Mở Sync Center", delegate { OpenSyncCenter(); })
                     }), 0, 1);
 
                 cards.Controls.Add(BuildCard(
-                    "Trạng thái hệ thống",
-                    "Theo dõi tình trạng dữ liệu cục bộ và đồng bộ. Công cụ kỹ thuật được ẩn trong mục nâng cao.",
+                    "Hỗ trợ & công cụ",
+                    "Chẩn đoán hệ thống, mở logs, quét lại chỉ mục và các công cụ hỗ trợ kỹ thuật được gom riêng để giao diện chính gọn hơn.",
                     new[] {
-                        new CardAction("Xem đồng bộ", delegate { OpenSyncCenter(); }),
-                        new CardAction("Hỗ trợ kỹ thuật", delegate { OpenAdvancedTools(); })
+                        new CardAction("Công cụ nâng cao", delegate { OpenAdvancedTools(); }),
+                        new CardAction("Logs", DesktopPaths.Logs)
                     }), 1, 1);
 
-                var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2 };
-                footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 43));
-                footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 57));
+                var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Tag = "root" };
+                footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 42F));
+                footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 58F));
                 root.Controls.Add(footer, 0, 3);
 
                 statusLabel = new Label
@@ -325,7 +430,7 @@ namespace QLTCAnPhu
                     Dock = DockStyle.Fill,
                     TextAlign = ContentAlignment.MiddleLeft,
                     Text = "Sẵn sàng.",
-                    ForeColor = Color.FromArgb(75, 86, 101)
+                    Tag = "muted"
                 };
                 footer.Controls.Add(statusLabel, 0, 0);
 
@@ -333,7 +438,7 @@ namespace QLTCAnPhu
                 {
                     Dock = DockStyle.Fill,
                     TextAlign = ContentAlignment.MiddleRight,
-                    ForeColor = Color.FromArgb(75, 86, 101)
+                    Tag = "muted"
                 };
                 footer.Controls.Add(browserLabel, 1, 0);
 
@@ -347,13 +452,14 @@ namespace QLTCAnPhu
 
                 trayIcon = new NotifyIcon
                 {
-                    Text = "HNL QLTC Desktop",
+                    Text = "HNL QLTC Windows Desktop Suite",
                     Visible = true,
                     Icon = Icon
                 };
                 var menu = new ContextMenuStrip();
                 menu.Items.Add("Mở HNL QLTC Desktop", null, delegate { RestoreFromTray(); });
                 menu.Items.Add("Mở HNL QLTC", null, delegate { SafeAction(Program.OpenHnlQltc); });
+                menu.Items.Add("Sync Center", null, delegate { RestoreFromTray(); OpenSyncCenter(); });
                 menu.Items.Add("Công cụ nâng cao", null, delegate { RestoreFromTray(); OpenAdvancedTools(); });
                 menu.Items.Add(new ToolStripSeparator());
                 menu.Items.Add("Thoát", null, delegate { allowClose = true; Close(); });
@@ -365,7 +471,7 @@ namespace QLTCAnPhu
                     if (WindowState == FormWindowState.Minimized)
                     {
                         Hide();
-                        trayIcon.ShowBalloonTip(1500, "HNL QLTC", "HNL QLTC vẫn đang chạy ở khay hệ thống.", ToolTipIcon.Info);
+                        trayIcon.ShowBalloonTip(1500, "HNL QLTC", "Ứng dụng vẫn đang chạy ở khay hệ thống.", ToolTipIcon.Info);
                     }
                 };
 
@@ -379,13 +485,33 @@ namespace QLTCAnPhu
                     }
                 };
 
+                SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
+                Shown += delegate { ApplyTheme(); };
                 FormClosed += delegate {
                     backgroundTimer.Stop();
                     backgroundTimer.Dispose();
                     localStore.Dispose();
                     trayIcon.Visible = false;
                     trayIcon.Dispose();
+                    SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
                 };
+            }
+
+            private void OnUserPreferenceChanged(object sender, UserPreferenceChangedEventArgs e)
+            {
+                if (e.Category != UserPreferenceCategory.General &&
+                    e.Category != UserPreferenceCategory.Color &&
+                    e.Category != UserPreferenceCategory.VisualStyle)
+                {
+                    return;
+                }
+                theme = DesktopUiTheme.ReadFromSystem();
+                ApplyTheme();
+            }
+
+            private void ApplyTheme()
+            {
+                DesktopUiTheme.ApplyToForm(this, theme);
             }
 
             private Button MakePrimaryButton(string text)
@@ -397,10 +523,9 @@ namespace QLTCAnPhu
                     Text = text,
                     Height = 52,
                     FlatStyle = FlatStyle.Flat,
-                    BackColor = Color.FromArgb(24, 86, 164),
-                    ForeColor = Color.White,
                     Font = new Font("Segoe UI", 11F, FontStyle.Bold),
-                    Cursor = Cursors.Hand
+                    Cursor = Cursors.Hand,
+                    Tag = "primary"
                 };
             }
 
@@ -413,10 +538,9 @@ namespace QLTCAnPhu
                     Text = text,
                     Height = 52,
                     FlatStyle = FlatStyle.Flat,
-                    BackColor = Color.White,
-                    ForeColor = Color.FromArgb(38, 61, 92),
                     Font = new Font("Segoe UI", 10F, FontStyle.Bold),
-                    Cursor = Cursors.Hand
+                    Cursor = Cursors.Hand,
+                    Tag = "secondary"
                 };
             }
 
@@ -427,7 +551,7 @@ namespace QLTCAnPhu
                     Dock = DockStyle.Fill,
                     Margin = new Padding(6),
                     Padding = new Padding(18),
-                    BackColor = Color.White
+                    Tag = "card"
                 };
 
                 var heading = new Label
@@ -436,16 +560,16 @@ namespace QLTCAnPhu
                     Height = 30,
                     Text = title,
                     Font = new Font("Segoe UI", 12F, FontStyle.Bold),
-                    ForeColor = Color.FromArgb(31, 53, 82)
+                    Tag = "section-title"
                 };
                 card.Controls.Add(heading);
 
                 var desc = new Label
                 {
                     Dock = DockStyle.Top,
-                    Height = 62,
+                    Height = 68,
                     Text = description,
-                    ForeColor = Color.FromArgb(92, 103, 118)
+                    Tag = "body"
                 };
                 card.Controls.Add(desc);
                 desc.BringToFront();
@@ -453,10 +577,11 @@ namespace QLTCAnPhu
                 var actionPanel = new FlowLayoutPanel
                 {
                     Dock = DockStyle.Bottom,
-                    Height = 42,
+                    Height = 44,
                     FlowDirection = FlowDirection.LeftToRight,
                     WrapContents = false,
-                    AutoScroll = true
+                    AutoScroll = true,
+                    Tag = "root"
                 };
                 card.Controls.Add(actionPanel);
 
@@ -468,9 +593,9 @@ namespace QLTCAnPhu
                         Height = 34,
                         Text = action.Caption,
                         FlatStyle = FlatStyle.Flat,
-                        BackColor = Color.FromArgb(247, 249, 252),
-                        ForeColor = Color.FromArgb(40, 66, 99),
-                        Cursor = Cursors.Hand
+                        Cursor = Cursors.Hand,
+                        Margin = new Padding(0, 0, 8, 0),
+                        Tag = "secondary"
                     };
                     string target = action.TargetPath;
                     Action handler = action.Handler;
@@ -488,48 +613,62 @@ namespace QLTCAnPhu
             {
                 using (var form = new Form())
                 {
-                    form.Text = "Công cụ nâng cao - HNL QLTC";
+                    form.Text = "Hỗ trợ & công cụ - HNL QLTC";
                     form.StartPosition = FormStartPosition.CenterParent;
                     form.FormBorderStyle = FormBorderStyle.FixedDialog;
                     form.MaximizeBox = false;
                     form.MinimizeBox = false;
-                    form.ClientSize = new Size(650, 390);
-                    form.BackColor = Color.FromArgb(246, 248, 251);
+                    form.ClientSize = new Size(760, 470);
                     form.Font = Font;
+                    form.Tag = "root";
                     try { form.Icon = Icon; } catch { }
 
+                    var root = new TableLayoutPanel
+                    {
+                        Dock = DockStyle.Fill,
+                        RowCount = 3,
+                        ColumnCount = 1,
+                        Padding = new Padding(22),
+                        Tag = "root"
+                    };
+                    root.RowStyles.Add(new RowStyle(SizeType.Absolute, 92F));
+                    root.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+                    root.RowStyles.Add(new RowStyle(SizeType.Absolute, 60F));
+                    form.Controls.Add(root);
+
+                    var header = new Panel { Dock = DockStyle.Fill, Padding = new Padding(18, 16, 18, 14), Tag = "card" };
+                    root.Controls.Add(header, 0, 0);
                     var title = new Label
                     {
                         AutoSize = true,
-                        Text = "Công cụ nâng cao",
+                        Text = "Hỗ trợ & công cụ nâng cao",
                         Font = new Font("Segoe UI", 18F, FontStyle.Bold),
-                        ForeColor = Color.FromArgb(25, 46, 80),
-                        Location = new Point(26, 22)
+                        Location = new Point(0, 0),
+                        Tag = "title"
                     };
-                    form.Controls.Add(title);
-
+                    header.Controls.Add(title);
                     var desc = new Label
                     {
                         AutoSize = false,
-                        Width = 595,
-                        Height = 48,
-                        Text = "Dành cho quản trị hoặc hỗ trợ kỹ thuật. Người dùng hằng ngày không cần thao tác các mục bên dưới.",
-                        ForeColor = Color.FromArgb(88, 99, 115),
-                        Location = new Point(29, 64)
+                        Width = 660,
+                        Height = 42,
+                        Text = "Dành cho quản trị hoặc hỗ trợ kỹ thuật. Các tính năng kỹ thuật được gom riêng để người dùng hằng ngày chỉ thấy giao diện đơn giản, gọn và dễ dùng.",
+                        Location = new Point(0, 38),
+                        Tag = "body"
                     };
-                    form.Controls.Add(desc);
+                    header.Controls.Add(desc);
 
                     var tools = new TableLayoutPanel
                     {
                         ColumnCount = 2,
                         RowCount = 3,
-                        Location = new Point(26, 122),
-                        Size = new Size(598, 174)
+                        Dock = DockStyle.Fill,
+                        Tag = "root"
                     };
-                    tools.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-                    tools.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+                    tools.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
+                    tools.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
                     for (int i = 0; i < 3; i++) tools.RowStyles.Add(new RowStyle(SizeType.Percent, 33.333F));
-                    form.Controls.Add(tools);
+                    root.Controls.Add(tools, 0, 1);
 
                     AddAdvancedToolButton(tools, "Mở Workspace", delegate { OpenFolder(DesktopPaths.WorkspaceRoot); }, 0, 0);
                     AddAdvancedToolButton(tools, "Trung tâm đồng bộ", delegate { OpenSyncCenter(); }, 1, 0);
@@ -540,15 +679,14 @@ namespace QLTCAnPhu
 
                     var note = new Label
                     {
-                        AutoSize = false,
-                        Width = 595,
-                        Height = 40,
-                        Text = "SQLite, Queue, R2 và các chi tiết đồng bộ kỹ thuật vẫn được giữ nguyên ở lớp nền; màn hình chính chỉ hiển thị trạng thái dễ hiểu.",
-                        ForeColor = Color.FromArgb(93, 104, 119),
-                        Location = new Point(29, 314)
+                        Dock = DockStyle.Fill,
+                        Text = "SQLite, Queue, R2 và các chi tiết đồng bộ kỹ thuật vẫn được giữ nguyên ở lớp nền; giao diện chính chỉ hiển thị trạng thái dễ hiểu cho người dùng thông thường.",
+                        TextAlign = ContentAlignment.MiddleLeft,
+                        Tag = "muted"
                     };
-                    form.Controls.Add(note);
+                    root.Controls.Add(note, 0, 2);
 
+                    DesktopUiTheme.ApplyToForm(form, theme);
                     form.ShowDialog(this);
                 }
             }
@@ -561,9 +699,8 @@ namespace QLTCAnPhu
                     Margin = new Padding(6),
                     Text = text,
                     FlatStyle = FlatStyle.Flat,
-                    BackColor = Color.White,
-                    ForeColor = Color.FromArgb(38, 61, 92),
-                    Cursor = Cursors.Hand
+                    Cursor = Cursors.Hand,
+                    Tag = column == 1 && row == 0 ? "primary" : "secondary"
                 };
                 button.Click += delegate { SafeAction(action); };
                 panel.Controls.Add(button, column, row);
@@ -615,11 +752,18 @@ namespace QLTCAnPhu
                     if (showMessage)
                     {
                         MessageBox.Show(
-                            "Đã cập nhật SQLite local index.\n\nFile: " + result.IndexedFiles +
-                            "\nQueue mới: " + result.EnqueuedFiles +
-                            "\nFile cũ đã loại khỏi index: " + result.RemovedFiles +
-                            (result.ScanIncomplete ? "\nCảnh báo: scan chưa đầy đủ; không xóa stale index/queue trong lượt này." : "") +
-                            "\n\nKhông có dữ liệu cloud nào bị sửa.",
+                            "Đã cập nhật SQLite local index.
+
+File: " + result.IndexedFiles +
+                            "
+Queue mới: " + result.EnqueuedFiles +
+                            "
+File cũ đã loại khỏi index: " + result.RemovedFiles +
+                            (result.ScanIncomplete ? "
+Cảnh báo: scan chưa đầy đủ; không xóa stale index/queue trong lượt này." : "") +
+                            "
+
+Không có dữ liệu cloud nào bị sửa.",
                             Program.ProductName,
                             MessageBoxButtons.OK,
                             MessageBoxIcon.Information
@@ -681,10 +825,16 @@ namespace QLTCAnPhu
 
                     statusLabel.Text = "Đã xuất chẩn đoán: " + Path.GetFileName(path);
                     MessageBox.Show(
-                        "Đã tạo báo cáo chẩn đoán chỉ-đọc.\n\n" + path +
-                        "\n\nHosting: " + hosting +
-                        "\nR2: " + r2 +
-                        "\nAI Gateway: " + ai,
+                        "Đã tạo báo cáo chẩn đoán chỉ-đọc.
+
+" + path +
+                        "
+
+Hosting: " + hosting +
+                        "
+R2: " + r2 +
+                        "
+AI Gateway: " + ai,
                         Program.ProductName,
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Information
@@ -735,7 +885,7 @@ namespace QLTCAnPhu
 
             private static void AppendJson(StringBuilder sb, string key, string value, bool comma)
             {
-                sb.Append("  \"").Append(JsonEscape(key)).Append("\": \"").Append(JsonEscape(value)).Append("\"");
+                sb.Append("  "").Append(JsonEscape(key)).Append("": "").Append(JsonEscape(value)).Append(""");
                 if (comma) sb.Append(',');
                 sb.AppendLine();
             }
@@ -743,7 +893,9 @@ namespace QLTCAnPhu
             private static string JsonEscape(string value)
             {
                 if (value == null) return "";
-                return value.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", "\\r").Replace("\n", "\\n");
+                return value.Replace("\", "\\").Replace(""", "\"").Replace("
+", "\r").Replace("
+", "\n");
             }
 
             private static string CheckEndpoint(string url)
@@ -814,5 +966,35 @@ namespace QLTCAnPhu
                 }
             }
         }
-    }
-}
+
+        internal sealed class DesktopUiTheme
+        {
+            internal bool IsDark;
+            internal Color WindowBack;
+            internal Color Surface;
+            internal Color SurfaceAlt;
+            internal Color Border;
+            internal Color Primary;
+            internal Color PrimaryHover;
+            internal Color Text;
+            internal Color TextMuted;
+            internal Color TextSubtle;
+            internal Color InputBack;
+            internal Color GridHeader;
+            internal Color SelectionBack;
+            internal Color SelectionText;
+
+            internal static DesktopUiTheme ReadFromSystem()
+            {
+                bool dark = false;
+                try
+                {
+                    using (RegistryKey key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"))
+                    {
+                        object value = key == null ? null : key.GetValue("AppsUseLightTheme");
+                        if (value is int) dark = ((int)value) == 0;
+                    }
+                }
+                catch { }
+
+                if (dark)

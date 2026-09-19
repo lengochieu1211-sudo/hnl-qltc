@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using Microsoft.Win32;
 using System.Windows.Forms;
 
 namespace QLTCAnPhu
@@ -20,20 +21,23 @@ namespace QLTCAnPhu
         private readonly ComboBox stateFilter;
         private readonly TextBox searchBox;
         private readonly System.Windows.Forms.Timer refreshTimer;
+        private Program.DesktopUiTheme theme;
 
         internal DesktopSyncCenterForm(DesktopLocalStore localStore, string root)
         {
             store = localStore;
             workspaceRoot = root;
+            theme = Program.DesktopUiTheme.ReadFromSystem();
             Text = "HNL QLTC - Sync Center";
             StartPosition = FormStartPosition.CenterParent;
             MinimumSize = new Size(960, 620);
             Size = new Size(1180, 720);
             Font = new Font("Segoe UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
             BackColor = Color.FromArgb(246, 248, 251);
+            AutoScaleMode = AutoScaleMode.Dpi;
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
 
-            var rootPanel = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 5, ColumnCount = 1, Padding = new Padding(18) };
+            var rootPanel = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 5, ColumnCount = 1, Padding = new Padding(18), Tag = "root" };
             rootPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 72));
             rootPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
             rootPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
@@ -41,16 +45,16 @@ namespace QLTCAnPhu
             rootPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
             Controls.Add(rootPanel);
 
-            var header = new Panel { Dock = DockStyle.Fill, BackColor = Color.White, Padding = new Padding(14, 10, 14, 8) };
+            var header = new Panel { Dock = DockStyle.Fill, Padding = new Padding(18, 14, 18, 12), Tag = "header" };
             rootPanel.Controls.Add(header, 0, 0);
-            var title = new Label { AutoSize = true, Text = "Sync Center", Font = new Font("Segoe UI", 17F, FontStyle.Bold), ForeColor = Color.FromArgb(25, 46, 80), Location = new Point(14, 9) };
+            var title = new Label { AutoSize = true, Text = "Sync Center", Font = new Font("Segoe UI", 18F, FontStyle.Bold), Location = new Point(14, 9), Tag = "title" };
             header.Controls.Add(title);
-            summaryLabel = new Label { AutoSize = true, Text = "Đang tải trạng thái queue...", ForeColor = Color.FromArgb(85, 95, 108), Location = new Point(17, 41) };
+            summaryLabel = new Label { AutoSize = true, Text = "Đang tải trạng thái queue...", Location = new Point(17, 45), Tag = "muted" };
             header.Controls.Add(summaryLabel);
 
-            var filters = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Padding = new Padding(0, 7, 0, 3) };
+            var filters = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Padding = new Padding(0, 7, 0, 3), Tag = "root" };
             rootPanel.Controls.Add(filters, 0, 1);
-            filters.Controls.Add(new Label { Text = "Trạng thái:", AutoSize = true, Margin = new Padding(0, 6, 6, 0) });
+            filters.Controls.Add(new Label { Text = "Trạng thái:", AutoSize = true, Margin = new Padding(0, 6, 6, 0), Tag = "muted" });
             stateFilter = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 165 };
             stateFilter.Items.Add(new QueueFilterOption("Tất cả", ""));
             stateFilter.Items.Add(new QueueFilterOption("Chờ xử lý", "pending"));
@@ -60,14 +64,14 @@ namespace QLTCAnPhu
             stateFilter.SelectedIndex = 0;
             stateFilter.SelectedIndexChanged += delegate { RefreshAll(); };
             filters.Controls.Add(stateFilter);
-            filters.Controls.Add(new Label { Text = "Tìm file/lỗi:", AutoSize = true, Margin = new Padding(16, 6, 6, 0) });
+            filters.Controls.Add(new Label { Text = "Tìm file/lỗi:", AutoSize = true, Margin = new Padding(16, 6, 6, 0), Tag = "muted" });
             searchBox = new TextBox { Width = 260 };
             searchBox.KeyDown += delegate(object sender, KeyEventArgs e) { if (e.KeyCode == Keys.Enter) { RefreshAll(); e.SuppressKeyPress = true; } };
             filters.Controls.Add(searchBox);
             filters.Controls.Add(MakeButton("Lọc", delegate { RefreshAll(); }));
             filters.Controls.Add(MakeButton("Xóa lọc", ClearFilters));
 
-            var actions = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Padding = new Padding(0, 8, 0, 4) };
+            var actions = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Padding = new Padding(0, 8, 0, 4), Tag = "root" };
             rootPanel.Controls.Add(actions, 0, 2);
             actions.Controls.Add(MakeButton("Làm mới", delegate { RefreshAll(); }));
             actions.Controls.Add(MakeButton("Chọn tất cả đang lọc", SelectAllVisible));
@@ -77,21 +81,21 @@ namespace QLTCAnPhu
             actions.Controls.Add(MakeButton("Mở DesktopBridge", delegate { OpenPath(Program.DesktopPaths.DesktopBridge); }));
             actions.Controls.Add(MakePrimaryButton("Mở Web & đồng bộ", delegate { Program.OpenHnlQltc(); }));
 
-            tabs = new TabControl { Dock = DockStyle.Fill };
+            tabs = new TabControl { Dock = DockStyle.Fill, Tag = "root" };
             rootPanel.Controls.Add(tabs, 0, 3);
 
             queueGrid = BuildQueueGrid();
             queueGrid.SelectionChanged += delegate { UpdateSelectionLabel(); };
-            var queuePage = new TabPage("Queue") { BackColor = Color.White };
+            var queuePage = new TabPage("Queue") { Tag = "card" };
             queuePage.Controls.Add(queueGrid);
             tabs.TabPages.Add(queuePage);
 
             historyGrid = BuildHistoryGrid();
-            var historyPage = new TabPage("Lịch sử") { BackColor = Color.White };
+            var historyPage = new TabPage("Lịch sử") { Tag = "card" };
             historyPage.Controls.Add(historyGrid);
             tabs.TabPages.Add(historyPage);
 
-            var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2 };
+            var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Tag = "root" };
             footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 75));
             footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
             rootPanel.Controls.Add(footer, 0, 4);
@@ -99,22 +103,23 @@ namespace QLTCAnPhu
             {
                 Dock = DockStyle.Fill,
                 TextAlign = ContentAlignment.MiddleLeft,
-                ForeColor = Color.FromArgb(86, 96, 109),
-                Text = "Queue local không tự ghi Cloud. Lịch sử giữ tối đa 90 ngày / 5.000 sự kiện; completed queue giữ 30 ngày."
+                Text = "Queue local không tự ghi Cloud. Lịch sử giữ tối đa 90 ngày / 5.000 sự kiện; completed queue giữ 30 ngày.",
+                Tag = "muted"
             };
             footer.Controls.Add(hintLabel, 0, 0);
-            selectionLabel = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleRight, ForeColor = Color.FromArgb(86, 96, 109), Text = "Đã chọn: 0" };
+            selectionLabel = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleRight, Text = "Đã chọn: 0", Tag = "muted" };
             footer.Controls.Add(selectionLabel, 1, 0);
 
             refreshTimer = new System.Windows.Forms.Timer { Interval = 5000 };
             refreshTimer.Tick += delegate { if (Visible && !IsDisposed && store != null && !store.IsOperationBusy) RefreshAll(); };
-            Shown += delegate { RefreshAll(); refreshTimer.Start(); };
-            FormClosed += delegate { refreshTimer.Stop(); refreshTimer.Dispose(); };
+            SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
+            Shown += delegate { RefreshAll(); refreshTimer.Start(); ApplyTheme(); };
+            FormClosed += delegate { refreshTimer.Stop(); refreshTimer.Dispose(); SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged; };
         }
 
         private static Button MakeButton(string text, Action action)
         {
-            var button = new Button { Text = text, AutoSize = true, Height = 30, Padding = new Padding(10, 0, 10, 0), FlatStyle = FlatStyle.System };
+            var button = new Button { Text = text, AutoSize = true, Height = 32, Padding = new Padding(10, 0, 10, 0), FlatStyle = FlatStyle.Flat, Tag = "secondary", Cursor = Cursors.Hand };
             button.Click += delegate { SafeAction(action); };
             return button;
         }
@@ -123,6 +128,7 @@ namespace QLTCAnPhu
         {
             var button = MakeButton(text, action);
             button.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+            button.Tag = "primary";
             return button;
         }
 
@@ -142,8 +148,22 @@ namespace QLTCAnPhu
                 BackgroundColor = Color.White,
                 BorderStyle = BorderStyle.None,
                 AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.AllCells,
-                DefaultCellStyle = new DataGridViewCellStyle { WrapMode = DataGridViewTriState.False, SelectionBackColor = Color.FromArgb(220, 235, 252), SelectionForeColor = Color.Black },
+                DefaultCellStyle = new DataGridViewCellStyle { WrapMode = DataGridViewTriState.False },
             };
+        }
+
+        private void OnUserPreferenceChanged(object sender, UserPreferenceChangedEventArgs e)
+        {
+            if (e.Category != UserPreferenceCategory.General &&
+                e.Category != UserPreferenceCategory.Color &&
+                e.Category != UserPreferenceCategory.VisualStyle) return;
+            theme = Program.DesktopUiTheme.ReadFromSystem();
+            ApplyTheme();
+        }
+
+        private void ApplyTheme()
+        {
+            Program.DesktopUiTheme.ApplyToForm(this, theme);
         }
 
         private static DataGridView BuildQueueGrid()
