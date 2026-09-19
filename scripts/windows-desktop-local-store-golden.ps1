@@ -47,7 +47,7 @@ internal static class DesktopLocalStoreGolden
         File.WriteAllText(photo, "HNL QLTC SQLite UTF-8", Encoding.UTF8);
         File.WriteAllBytes(import, new byte[] { 1, 2, 3, 4, 5 });
 
-        using (DesktopLocalStore store = DesktopLocalStore.TryOpen(dbPath))
+        string firstAttemptToken = "";\n\n        using (DesktopLocalStore store = DesktopLocalStore.TryOpen(dbPath))
         {
             Assert(store.IsReady, "winsqlite3 opens the local workspace database");
             WorkspaceIndexResult first = store.RefreshIndex(workspace);
@@ -70,7 +70,7 @@ internal static class DesktopLocalStoreGolden
             Match sourceShaMatch = Regex.Match(manifest, "\"sourceSha256\":\"([^\"]+)\"");
             Match attemptTokenMatch = Regex.Match(manifest, "\"attemptToken\":\"([^\"]+)\"");
             Match photoIdMatch = Regex.Match(manifest, "\"photoId\":\"([^\"]+)\"");
-            Assert(ackMatch.Success && queueKeyMatch.Success && sourceShaMatch.Success && attemptTokenMatch.Success && photoIdMatch.Success, "bridge manifest contains ACK identity, one-time attempt token and deterministic photo ID");
+            Assert(ackMatch.Success && queueKeyMatch.Success && sourceShaMatch.Success && attemptTokenMatch.Success && photoIdMatch.Success, "bridge manifest contains ACK identity, one-time attempt token and deterministic photo ID");\n            firstAttemptToken = attemptTokenMatch.Groups[1].Value;
             string ackDir = Path.Combine(workspace, "DesktopBridge", "acks");
             Directory.CreateDirectory(ackDir);
             string ackPath = Path.Combine(ackDir, ackMatch.Groups[1].Value);
@@ -116,7 +116,7 @@ internal static class DesktopLocalStoreGolden
             reopened.ProcessOneQueueItem(workspace);
             Assert(reopened.CountQueuePending() == 0, "changed photo and batch files are re-hashed successfully");
             string replayManifest = File.ReadAllText(Path.Combine(workspace, "DesktopBridge", "ready.json"), Encoding.UTF8);
-            Assert(!replayManifest.Contains("\"attemptToken\":\"" + attemptTokenMatch.Groups[1].Value + "\""), "re-prepared photo receives a fresh attempt token so prior ACK cannot replay");
+            Assert(!replayManifest.Contains("\"attemptToken\":\"" + firstAttemptToken + "\""), "re-prepared photo receives a fresh attempt token so prior ACK cannot replay");
             RetentionMaintenanceResult retention = reopened.RunRetentionMaintenanceIfDue();
             Assert(retention.SkippedAsNotDue, "retention maintenance is throttled to at most once per 24 hours");
 
