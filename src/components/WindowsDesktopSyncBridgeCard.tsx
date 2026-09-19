@@ -44,7 +44,7 @@ export const WindowsDesktopSyncBridgeCard: React.FC<Props> = ({ activeProjectId,
       <div className="rounded-lg border border-sky-100 bg-white/80 px-2.5 py-2 text-[10px] text-slate-600 space-y-1">
         <div><b>Cấu trúc staging:</b> <span className="font-mono break-all">Photos/&lt;projectId&gt;/&lt;defect|crewRecord|chat&gt;/&lt;entityId&gt;/&lt;category&gt;/ảnh.jpg</span></div>
         <div><b>Category:</b> defect_before / defect_after / crew_progress / chat_attachment.</div>
-        <div><b>Fail-closed:</b> sai project, sai SHA-256, VIEWER, chưa đăng nhập hoặc Cloud chưa verify → không tạo ACK.</div>
+        <div><b>Fail-closed:</b> sai project, SHA-256, attemptToken/photoId, VIEWER, chưa đăng nhập hoặc Cloud chưa verify → không tạo ACK.</div>
         <div><b>Quản lý queue:</b> dùng Sync Center trong Windows Desktop Suite để lọc/tìm queue, chọn nhiều, Retry batch tối đa 50 mục/lần, xem dung lượng/tiến độ và lịch sử Cloud-verified.</div>
       </div>
 

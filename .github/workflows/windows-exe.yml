@@ -1,6 +1,6 @@
 name: Build HNL QLTC Windows EXE
 
-# RC2.2.17 Windows Desktop Suite Core build.
+# Windows Desktop Suite exact-source build. Release metadata comes from desktop-wrapper/release-tag.txt.
 on:
   workflow_dispatch:
   pull_request:
@@ -54,7 +54,6 @@ jobs:
       VITE_FIREBASE_FIRESTORE_DATABASE_ID: "(default)"
       VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
       VITE_GIT_COMMIT: ${{ github.sha }}
-      QLCT_RELEASE_TAG: 6.3.0-rc2.2.18
 
     steps:
       - name: Checkout
