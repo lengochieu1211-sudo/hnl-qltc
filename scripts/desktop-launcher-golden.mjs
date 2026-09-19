@@ -40,7 +40,8 @@ assert(launcher.includes('Google') && launcher.includes('Chrome'), 'Chrome fallb
 assert(launcher.includes('--app='), 'browser app-mode remains available only as a fallback path');
 assert(launcher.includes('OpenHnlQltcExternal') && launcher.includes('DesktopWebShellForm.Current'), 'normal OpenHnlQltc routes into the embedded desktop shell before browser fallback');
 assert(launcher.includes('HNL QLTC Desktop'), 'launcher exposes the user-facing HNL QLTC Desktop shell');
-assert(launcher.includes('AutoScaleMode.Dpi') && launcher.includes('PictureBox') && launcher.includes('Icon.ToBitmap()'), 'Desktop UI is DPI-aware and shows the embedded HNL logo in the header');
+assert(launcher.includes('AutoScaleMode.Dpi') && launcher.includes('SetProcessDpiAwarenessContext') && launcher.includes('new IntPtr(-4)') && launcher.includes('PictureBox') && launcher.includes('Icon.ToBitmap()'), 'Desktop UI opts into Per-Monitor V2 DPI awareness and shows the embedded HNL logo in the header');
+assert(launcher.indexOf('TryEnablePerMonitorV2DpiAwareness();') < launcher.indexOf('Application.EnableVisualStyles();'), 'Per-Monitor V2 DPI awareness is enabled before WinForms visual-style initialization');
 assert(launcher.includes('Application.Run(new DesktopWebShellForm())'), 'EXE opens the embedded HNL QLTC desktop shell as its primary window');
 assert(launcher.includes('SpecialFolder.MyDocuments') && launcher.includes('\"HNL QLTC\"'), 'Desktop Suite creates a user-visible HNL QLTC workspace under Documents');
 for (const folder of ['Backup', 'Imports', 'Exports', 'Excel', 'PDF', 'Reports', 'Photos', 'Diagnostics', 'Logs']) {
@@ -48,7 +49,7 @@ for (const folder of ['Backup', 'Imports', 'Exports', 'Excel', 'PDF', 'Reports',
 }
 assert(launcher.includes('HNL-QLTC-DESKTOP-DIAGNOSTIC-'), 'Desktop Suite can export a diagnostic snapshot');
 assert(launcher.includes('HostingHealthUrl') && launcher.includes('R2HealthUrl') && launcher.includes('AiHealthUrl'), 'diagnostics cover Hosting, R2 and AI Gateway');
-assert(launcher.includes('NotifyIcon') && launcher.includes('Ứng dụng vẫn đang chạy ở khay hệ thống'), 'HNL QLTC Desktop supports Windows system tray');
+assert(launcher.includes('NotifyIcon') && launcher.includes('Ứng dụng vẫn đang chạy ở khay hệ thống') && webShell.includes('restoreWindowState'), 'HNL QLTC Desktop supports Windows system tray and restores the previous Normal/Maximized state');
 assert(!launcher.includes('deletePhoto') && !launcher.includes('purgeBinary'), 'Desktop Suite shell has no destructive cloud-media operation');
 assert(launcher.includes('Dữ liệu & Sao lưu') && launcher.includes('Ảnh hiện trường & đồng bộ') && launcher.includes('Hỗ trợ & công cụ'), 'main Desktop UI uses professional user-facing cards');
 assert(launcher.includes('Công cụ nâng cao') && launcher.includes('Quét lại chỉ mục') && launcher.includes('Chẩn đoán hệ thống'), 'technical workspace/index/diagnostic controls remain available behind Advanced Tools');
@@ -60,7 +61,11 @@ assert(syncCenter.includes('Program.DesktopUiTheme.ReadFromSystem()') && syncCen
 assert(launcher.includes('DataGridViewHeaderBorderStyle.Single') && launcher.includes('AlternatingRowsDefaultCellStyle'), 'shared Desktop theme includes professional data-grid styling');
 assert(webShell.includes('HNL.QLTC.WebView2.Core') && webShell.includes('HNL.QLTC.WebView2.WinForms'), 'desktop shell loads embedded WebView2 managed payloads');
 assert(webShell.includes('HNL.QLTC.WebView2.Loader.x64') && webShell.includes('HNL.QLTC.WebView2.Loader.x86'), 'desktop shell carries both x64 and x86 WebView2 native loaders');
-assert(webShell.includes('CoreWebView2InitializationCompleted') && webShell.includes('NewWindowRequested') && webShell.includes('Handled'), 'embedded WebView2 handles initialization and keeps popup/new-window navigation inside the EXE');
+assert(webShell.includes('CoreWebView2InitializationCompleted') && webShell.includes('NewWindowRequested') && webShell.includes('GetDeferral') && webShell.includes('NewWindow') && webShell.includes('EnsureCoreWebView2Async'), 'embedded WebView2 creates a same-environment popup target so OAuth keeps the real opener/window relationship');
+assert(webShell.includes('WindowCloseRequested') && webShell.includes('SafeClosePopup'), 'embedded auth/link popup closes through WebView2 window.close semantics');
+assert(webShell.includes('DownloadStarting') && webShell.includes('ResultFilePath') && webShell.includes('DesktopPaths.Pdf') && webShell.includes('DesktopPaths.Excel'), 'WebView2 downloads are routed into the HNL PDF/Excel/Exports workspace');
+assert(webShell.includes('PermissionRequested') && webShell.includes('Camera') && webShell.includes('Microphone') && webShell.includes('SavesInProfile'), 'camera/microphone access is explicitly user-approved for the HNL app origin');
+assert(webShell.includes('scheme == "blob"') && webShell.includes('scheme != "zalo"'), 'blob downloads stay inside WebView2 while external protocol launching is allowlisted');
 assert(webShell.includes('WebView2Profile') && webShell.includes('UserDataFolder'), 'embedded WebView2 stores its writable browser profile under LocalAppData');
 assert(webShell.includes('Mở bằng trình duyệt') && webShell.includes('Program.OpenHnlQltcExternal()'), 'external browser remains an explicit fallback instead of the default launch path');
 assert(webShell.includes('BeginInvoke((MethodInvoker)delegate { ShowWebApp(); })'), 'desktop shell opens HNL QLTC inside the EXE automatically on startup');
@@ -81,7 +86,9 @@ assert(build.includes('webview2-sdk-version.txt') && build.includes('Microsoft.W
 assert(build.includes('HNL.QLTC.WebView2.Core') && build.includes('HNL.QLTC.WebView2.WinForms') && build.includes('HNL.QLTC.WebView2.Loader.x64') && build.includes('HNL.QLTC.WebView2.Loader.x86'), 'build embeds WebView2 managed assemblies and native loaders into the single EXE');
 assert(build.includes('/reference:System.Core.dll'), 'build references System.Core for reflection-safe WebView2 event delegation');
 assert(webShell.includes('HNL_QLTC_WEBVIEW2_SMOKE_FILE') && webShell.includes('READY|'), 'embedded shell exposes a CI-only WebView2 readiness marker without changing normal runtime behavior');
+assert(webShell.includes('HNL_QLTC_WEBVIEW2_PROBE_FILE') && webShell.includes('SCRIPT_TRIGGERED') && webShell.includes('POPUP_READY|') && webShell.includes('DOWNLOAD|'), 'embedded shell exposes CI-only popup/download runtime probes');
 assert(webViewRuntimeGolden.includes('WINDOWS EMBEDDED WEBVIEW2 RUNTIME GOLDEN PASS') && webViewRuntimeGolden.includes('Microsoft.Web.WebView2.Core.dll'), 'Windows runtime golden launches the real EXE and verifies embedded WebView2 extraction/readiness');
+assert(webViewRuntimeGolden.includes('POPUP_READY') && webViewRuntimeGolden.includes('DOWNLOAD') && webViewRuntimeGolden.includes('HNL_QLTC_WEBVIEW2_PROBE_FILE'), 'Windows runtime golden requires real embedded popup and download-routing probe evidence');
 assert(syncCenter.includes('Sync Center') && syncCenter.includes('Retry đã chọn (tối đa 50)') && syncCenter.includes('Mở file nguồn') && syncCenter.includes('Mở Web & đồng bộ'), 'native Sync Center exposes filtered batch retry, source navigation and Web handoff');
 assert(syncCenter.includes('DataGridView') && syncCenter.includes('Lịch sử') && syncCenter.includes('Tìm file/lỗi') && syncCenter.includes('Chọn tất cả đang lọc'), 'native Sync Center provides searchable multi-select queue and history tables');
 assert(localStore.includes('RetryQueueItem') && localStore.includes('RetryQueueItems') && localStore.includes('GetQueueRows') && localStore.includes('GetHistoryRows'), 'SQLite engine exposes controlled single and batch queue management APIs');
@@ -100,7 +107,7 @@ assert(webBridge.includes('BRIDGE_ATTEMPT_TOKEN_INVALID') && webBridge.includes(
 assert(!webBridge.includes('uploadProjectBinaryToR2') && !webBridge.includes('fetch('), 'Web bridge does not introduce a direct R2/network upload authority');
 assert(bridgeCard.includes('Windows Desktop Sync Bridge') && configTab.includes('WindowsDesktopSyncBridgeCard'), 'Settings exposes Windows App Sync Bridge controls');
 assert(build.includes('release-tag.txt'), 'build script uses release tag for cache/version isolation');
-assert(releaseTag === '6.3.0-rc2.2.26', 'desktop release tag matches RC2.2.26 embedded WebView2 desktop shell');
+assert(releaseTag === '6.3.0-rc2.2.26.1', 'desktop release tag identifies the RC2.2.26.1 WebView2 runtime hardening build');
 
 assert(iconSource.width >= 1024 && iconSource.height >= 1024 && iconSource.bytes > 1_000_000, 'HQ HNL logo source is retained at >=1024px');
 assert(taskbar192.width === 192 && taskbar192.height === 192, 'browser app-mode has dedicated 192x192 HNL icon');

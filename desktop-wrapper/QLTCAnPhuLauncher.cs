@@ -22,6 +22,11 @@ namespace QLTCAnPhu
         [STAThread]
         private static void Main()
         {
+            // Opt into Per-Monitor V2 before WinForms initializes visual styles or creates any
+            // window/control handle. The launcher is deliberately a single EXE, so this
+            // self-contained Win32 fallback replaces a sidecar app.config while avoiding
+            // bitmap-scaled UI at 125/150% DPI.
+            TryEnablePerMonitorV2DpiAwareness();
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
@@ -40,6 +45,38 @@ namespace QLTCAnPhu
                 );
             }
         }
+
+        private static void TryEnablePerMonitorV2DpiAwareness()
+        {
+            try
+            {
+                // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4 on Windows 10+.
+                if (SetProcessDpiAwarenessContext(new IntPtr(-4))) return;
+            }
+            catch (EntryPointNotFoundException) { }
+            catch (DllNotFoundException) { }
+            catch { }
+
+            try
+            {
+                // Windows 8.1 fallback: PROCESS_PER_MONITOR_DPI_AWARE = 2.
+                if (SetProcessDpiAwareness(2) == 0) return;
+            }
+            catch (EntryPointNotFoundException) { }
+            catch (DllNotFoundException) { }
+            catch { }
+
+            try { SetProcessDPIAware(); } catch { }
+        }
+
+        [DllImport("user32.dll")]
+        private static extern bool SetProcessDpiAwarenessContext(IntPtr dpiContext);
+
+        [DllImport("shcore.dll")]
+        private static extern int SetProcessDpiAwareness(int awareness);
+
+        [DllImport("user32.dll")]
+        private static extern bool SetProcessDPIAware();
 
         internal static string GetReleaseTag()
         {

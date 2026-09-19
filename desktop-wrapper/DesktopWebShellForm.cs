@@ -28,6 +28,7 @@ namespace QLTCAnPhu
         private EmbeddedWebViewRuntime embeddedRuntime;
         private bool webInitializationStarted;
         private bool allowClose;
+        private FormWindowState restoreWindowState = FormWindowState.Normal;
         private int maintenanceRunning;
 
         internal DesktopWebShellForm()
@@ -228,6 +229,10 @@ namespace QLTCAnPhu
                 {
                     Hide();
                     trayIcon.ShowBalloonTip(1200, "HNL QLTC", "Ứng dụng vẫn đang chạy ở khay hệ thống.", ToolTipIcon.Info);
+                }
+                else
+                {
+                    restoreWindowState = WindowState;
                 }
             };
 
@@ -642,7 +647,9 @@ namespace QLTCAnPhu
         private void RestoreFromTray()
         {
             Show();
-            WindowState = FormWindowState.Normal;
+            WindowState = restoreWindowState == FormWindowState.Minimized
+                ? FormWindowState.Normal
+                : restoreWindowState;
             Activate();
         }
 
@@ -652,6 +659,17 @@ namespace QLTCAnPhu
                 e.Category != UserPreferenceCategory.Color &&
                 e.Category != UserPreferenceCategory.VisualStyle) return;
 
+            if (IsDisposed) return;
+            if (InvokeRequired)
+            {
+                try { BeginInvoke((MethodInvoker)RefreshSystemTheme); } catch { }
+                return;
+            }
+            RefreshSystemTheme();
+        }
+
+        private void RefreshSystemTheme()
+        {
             theme = Program.DesktopUiTheme.ReadFromSystem();
             ApplyTheme();
         }
@@ -718,7 +736,9 @@ namespace QLTCAnPhu
         private Control webView;
         private object coreWebView2;
         private bool eventsAttached;
+        private bool runtimeProbeStarted;
         private string runtimeDirectory;
+        private Type webViewType;
 
         internal bool IsReady { get { return coreWebView2 != null; } }
 
@@ -738,7 +758,7 @@ namespace QLTCAnPhu
             PrepareEmbeddedSdk();
 
             Assembly winFormsAssembly = Assembly.LoadFrom(Path.Combine(runtimeDirectory, "Microsoft.Web.WebView2.WinForms.dll"));
-            Type webViewType = winFormsAssembly.GetType("Microsoft.Web.WebView2.WinForms.WebView2", true);
+            webViewType = winFormsAssembly.GetType("Microsoft.Web.WebView2.WinForms.WebView2", true);
             Type creationType = winFormsAssembly.GetType("Microsoft.Web.WebView2.WinForms.CoreWebView2CreationProperties", true);
 
             object creation = Activator.CreateInstance(creationType);
@@ -801,7 +821,7 @@ namespace QLTCAnPhu
             {
                 object core = webView.GetType().GetProperty("CoreWebView2").GetValue(webView, null);
                 if (core == null) return;
-                AttachCore(core);
+                AttachPrimaryCore(core);
             }
             catch { }
         }
@@ -810,18 +830,14 @@ namespace QLTCAnPhu
         {
             try
             {
-                PropertyInfo successProperty = args.GetType().GetProperty("IsSuccess");
-                bool success = successProperty != null && (bool)successProperty.GetValue(args, null);
-                if (!success)
+                if (!ReadInitializationSuccess(args))
                 {
-                    PropertyInfo exceptionProperty = args.GetType().GetProperty("InitializationException");
-                    Exception error = exceptionProperty == null ? null : exceptionProperty.GetValue(args, null) as Exception;
-                    failureCallback(error == null ? "WebView2 Runtime chưa sẵn sàng." : error.Message);
+                    failureCallback(ReadInitializationError(args, "WebView2 Runtime chưa sẵn sàng."));
                     return;
                 }
 
                 object core = webView.GetType().GetProperty("CoreWebView2").GetValue(webView, null);
-                if (core != null) AttachCore(core);
+                if (core != null) AttachPrimaryCore(core);
             }
             catch (Exception ex)
             {
@@ -829,13 +845,18 @@ namespace QLTCAnPhu
             }
         }
 
-        private void AttachCore(object core)
+        private void AttachPrimaryCore(object core)
         {
             if (eventsAttached || core == null) return;
             coreWebView2 = core;
             eventsAttached = true;
             coreTimer.Stop();
+            ConfigureCore(core, null, true);
+            statusCallback("HNL QLTC đang chạy bên trong ứng dụng Windows • WebView2 sẵn sàng.");
+        }
 
+        private void ConfigureCore(object core, Form popupOwner, bool primary)
+        {
             TrySetSetting(core, "IsStatusBarEnabled", false);
             TrySetSetting(core, "AreBrowserAcceleratorKeysEnabled", true);
             TrySetSetting(core, "AreDefaultContextMenusEnabled", true);
@@ -843,20 +864,215 @@ namespace QLTCAnPhu
 
             AddCoreEvent(core, "NewWindowRequested", OnNewWindowRequested);
             AddCoreEvent(core, "NavigationStarting", OnNavigationStarting);
-            AddCoreEvent(core, "NavigationCompleted", OnNavigationCompleted);
-            AddCoreEvent(core, "DocumentTitleChanged", OnDocumentTitleChanged);
+            AddCoreEvent(core, "DownloadStarting", OnDownloadStarting);
+            AddCoreEvent(core, "PermissionRequested", OnPermissionRequested);
 
-            statusCallback("HNL QLTC đang chạy bên trong ứng dụng Windows • WebView2 sẵn sàng.");
+            if (primary)
+            {
+                AddCoreEvent(core, "NavigationCompleted", OnNavigationCompleted);
+                AddCoreEvent(core, "DocumentTitleChanged", OnDocumentTitleChanged);
+            }
+            else if (popupOwner != null)
+            {
+                AddCoreEvent(core, "WindowCloseRequested", delegate
+                {
+                    SafeClosePopup(popupOwner);
+                });
+                AddCoreEvent(core, "DocumentTitleChanged", delegate(object sender, object args)
+                {
+                    try
+                    {
+                        PropertyInfo titleProperty = sender.GetType().GetProperty("DocumentTitle");
+                        string title = titleProperty == null ? null : Convert.ToString(titleProperty.GetValue(sender, null));
+                        if (string.IsNullOrWhiteSpace(title)) return;
+                        if (popupOwner.IsDisposed) return;
+                        popupOwner.BeginInvoke((MethodInvoker)delegate { popupOwner.Text = "HNL QLTC • " + title; });
+                    }
+                    catch { }
+                });
+            }
         }
 
         private void OnNewWindowRequested(object sender, object args)
         {
+            PropertyInfo handledProperty = null;
+            object deferral = null;
+            Form popup = null;
             try
             {
-                string uri = Convert.ToString(args.GetType().GetProperty("Uri").GetValue(args, null));
+                string uri = ReadStringProperty(args, "Uri");
+                handledProperty = args.GetType().GetProperty("Handled");
+
+                if (!CanHostInsideWebView(uri))
+                {
+                    if (handledProperty != null) handledProperty.SetValue(args, true, null);
+                    TryOpenAllowedExternalProtocol(uri);
+                    return;
+                }
+
+                MethodInfo getDeferral = args.GetType().GetMethod("GetDeferral", Type.EmptyTypes);
+                if (getDeferral == null) throw new InvalidOperationException("WebView2 popup deferral is unavailable.");
+                deferral = getDeferral.Invoke(args, null);
+
+                PropertyInfo environmentProperty = sender == null ? null : sender.GetType().GetProperty("Environment");
+                object environment = environmentProperty == null ? null : environmentProperty.GetValue(sender, null);
+                if (environment == null) throw new InvalidOperationException("Không lấy được WebView2 environment dùng chung cho popup.");
+
+                popup = BuildPopupForm(uri);
+                Control popupWebView = (Control)Activator.CreateInstance(webViewType);
+                popupWebView.Dock = DockStyle.Fill;
+                popupWebView.Margin = new Padding(0);
+                popupWebView.Tag = "root";
+                popup.Controls.Add(popupWebView);
+
+                bool completed = false;
+                Action<bool, object, string> complete = delegate(bool success, object popupCore, string error)
+                {
+                    if (completed) return;
+                    completed = true;
+                    try
+                    {
+                        if (success && popupCore != null)
+                        {
+                            ConfigureCore(popupCore, popup, false);
+                            PropertyInfo newWindow = args.GetType().GetProperty("NewWindow");
+                            if (newWindow == null || !newWindow.CanWrite) throw new InvalidOperationException("WebView2 NewWindow không khả dụng.");
+                            newWindow.SetValue(args, popupCore, null);
+                            if (handledProperty != null) handledProperty.SetValue(args, true, null);
+                            WriteRuntimeProbeMarker("POPUP_READY|" + (uri ?? string.Empty));
+                        }
+                        else
+                        {
+                            if (handledProperty != null) handledProperty.SetValue(args, true, null);
+                            if (!string.IsNullOrWhiteSpace(error)) statusCallback("Không thể mở cửa sổ WebView2: " + error);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        try { if (handledProperty != null) handledProperty.SetValue(args, true, null); } catch { }
+                        statusCallback("Không thể liên kết cửa sổ WebView2: " + ex.Message);
+                        success = false;
+                    }
+                    finally
+                    {
+                        CompleteDeferral(deferral);
+                        if (!success) SafeClosePopup(popup);
+                    }
+                };
+
+                EventInfo initEvent = webViewType.GetEvent("CoreWebView2InitializationCompleted");
+                if (initEvent == null) throw new InvalidOperationException("Thiếu sự kiện khởi tạo WebView2 popup.");
+                Delegate initHandler = CreateEventDelegate(initEvent.EventHandlerType, delegate(object initSender, object initArgs)
+                {
+                    try
+                    {
+                        if (!ReadInitializationSuccess(initArgs))
+                        {
+                            complete(false, null, ReadInitializationError(initArgs, "Khởi tạo popup thất bại."));
+                            return;
+                        }
+                        object popupCore = popupWebView.GetType().GetProperty("CoreWebView2").GetValue(popupWebView, null);
+                        complete(popupCore != null, popupCore, popupCore == null ? "Popup chưa có CoreWebView2." : null);
+                    }
+                    catch (Exception ex)
+                    {
+                        complete(false, null, ex.Message);
+                    }
+                });
+                initEvent.AddEventHandler(popupWebView, initHandler);
+
+                popup.FormClosed += delegate
+                {
+                    if (!completed) complete(false, null, "Cửa sổ popup đã đóng trước khi khởi tạo xong.");
+                };
+
+                Form owner = host.FindForm();
+                if (owner != null && owner.Visible) popup.Show(owner); else popup.Show();
+
+                MethodInfo ensure = FindEnsureCoreMethod(webViewType, environment.GetType());
+                if (ensure == null) throw new InvalidOperationException("Không tìm thấy EnsureCoreWebView2Async dùng cùng environment.");
+                ensure.Invoke(popupWebView, new object[] { environment });
+            }
+            catch (Exception ex)
+            {
+                try { if (handledProperty != null) handledProperty.SetValue(args, true, null); } catch { }
+                CompleteDeferral(deferral);
+                SafeClosePopup(popup);
+                statusCallback("Không thể mở popup WebView2: " + ex.Message);
+            }
+        }
+
+        private Form BuildPopupForm(string uri)
+        {
+            var popup = new Form
+            {
+                Text = "HNL QLTC • Đăng nhập / Liên kết",
+                StartPosition = FormStartPosition.CenterParent,
+                MinimumSize = new Size(720, 560),
+                Size = new Size(940, 760),
+                AutoScaleMode = AutoScaleMode.Dpi,
+                Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point)
+            };
+            Form owner = host.FindForm();
+            try { if (owner != null && owner.Icon != null) popup.Icon = owner.Icon; } catch { }
+            Program.DesktopUiTheme.ApplyToForm(popup, Program.DesktopUiTheme.ReadFromSystem());
+            return popup;
+        }
+
+        private void OnDownloadStarting(object sender, object args)
+        {
+            try
+            {
+                PropertyInfo pathProperty = args.GetType().GetProperty("ResultFilePath");
+                if (pathProperty == null || !pathProperty.CanWrite) return;
+
+                string existingPath = Convert.ToString(pathProperty.GetValue(args, null));
+                string fileName = SanitizeFileName(Path.GetFileName(existingPath));
+                if (string.IsNullOrWhiteSpace(fileName))
+                    fileName = "HNL-QLTC-download-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".bin";
+
+                string folder = GetDownloadFolder(fileName);
+                Directory.CreateDirectory(folder);
+                string target = GetUniqueDownloadPath(folder, fileName);
+                pathProperty.SetValue(args, target, null);
+
                 PropertyInfo handled = args.GetType().GetProperty("Handled");
-                if (handled != null) handled.SetValue(args, true, null);
-                if (!string.IsNullOrWhiteSpace(uri)) Navigate(uri);
+                if (handled != null && handled.CanWrite) handled.SetValue(args, true, null);
+                WriteRuntimeProbeMarker("DOWNLOAD|" + target);
+                statusCallback("Đang tải " + fileName + " vào " + folder + ".");
+            }
+            catch (Exception ex)
+            {
+                statusCallback("Không thể định tuyến file tải xuống: " + ex.Message);
+            }
+        }
+
+        private void OnPermissionRequested(object sender, object args)
+        {
+            try
+            {
+                string origin = ReadStringProperty(args, "Uri");
+                PropertyInfo kindProperty = args.GetType().GetProperty("PermissionKind");
+                PropertyInfo stateProperty = args.GetType().GetProperty("State");
+                if (kindProperty == null || stateProperty == null || !stateProperty.CanWrite) return;
+
+                string kind = Convert.ToString(kindProperty.GetValue(args, null));
+                if (!string.Equals(kind, "Camera", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(kind, "Microphone", StringComparison.OrdinalIgnoreCase)) return;
+                if (!IsHnlAppOrigin(origin)) return;
+
+                string label = string.Equals(kind, "Camera", StringComparison.OrdinalIgnoreCase) ? "camera" : "micro";
+                DialogResult result = MessageBox.Show(
+                    "HNL QLTC đang yêu cầu quyền sử dụng " + label + ".\n\nCho phép cho thao tác hiện tại?",
+                    "HNL QLTC",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question
+                );
+
+                object state = Enum.Parse(stateProperty.PropertyType, result == DialogResult.Yes ? "Allow" : "Deny", true);
+                stateProperty.SetValue(args, state, null);
+                PropertyInfo saves = args.GetType().GetProperty("SavesInProfile");
+                if (saves != null && saves.CanWrite) saves.SetValue(args, false, null);
             }
             catch { }
         }
@@ -865,17 +1081,12 @@ namespace QLTCAnPhu
         {
             try
             {
-                string uri = Convert.ToString(args.GetType().GetProperty("Uri").GetValue(args, null));
-                if (!string.IsNullOrWhiteSpace(uri) &&
-                    !uri.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
-                    !uri.StartsWith("https://", StringComparison.OrdinalIgnoreCase) &&
-                    !uri.StartsWith("about:", StringComparison.OrdinalIgnoreCase) &&
-                    !uri.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
-                {
-                    PropertyInfo cancel = args.GetType().GetProperty("Cancel");
-                    if (cancel != null) cancel.SetValue(args, true, null);
-                    Process.Start(new ProcessStartInfo { FileName = uri, UseShellExecute = true });
-                }
+                string uri = ReadStringProperty(args, "Uri");
+                if (CanHostInsideWebView(uri)) return;
+
+                PropertyInfo cancel = args.GetType().GetProperty("Cancel");
+                if (cancel != null) cancel.SetValue(args, true, null);
+                TryOpenAllowedExternalProtocol(uri);
             }
             catch { }
         }
@@ -889,13 +1100,190 @@ namespace QLTCAnPhu
                 statusCallback(success
                     ? "HNL QLTC đang chạy bên trong ứng dụng Windows."
                     : "Trang chưa tải hoàn tất; kiểm tra kết nối mạng hoặc bấm Tải lại.");
+                if (success) TryRunCiRuntimeProbe(sender);
             }
             catch { }
         }
 
         private void OnDocumentTitleChanged(object sender, object args)
         {
-            // Kept intentionally light: the native window title remains the stable HNL QLTC product name.
+            // Native window title stays stable as HNL QLTC; page title remains inside WebView2.
+        }
+
+        private void TryRunCiRuntimeProbe(object core)
+        {
+            string probeFile = Environment.GetEnvironmentVariable("HNL_QLTC_WEBVIEW2_PROBE_FILE");
+            if (runtimeProbeStarted || string.IsNullOrWhiteSpace(probeFile) || core == null) return;
+            runtimeProbeStarted = true;
+            try
+            {
+                MethodInfo execute = core.GetType().GetMethod("ExecuteScriptAsync", new[] { typeof(string) });
+                if (execute == null) throw new InvalidOperationException("ExecuteScriptAsync is unavailable.");
+                const string script = @"(function(){
+                    try {
+                        var popup = window.open('about:blank', '_blank');
+                        if (popup) setTimeout(function(){ try { popup.close(); } catch(e) {} }, 800);
+                        var blob = new Blob(['HNL QLTC WebView2 runtime probe'], {type:'text/plain'});
+                        var url = URL.createObjectURL(blob);
+                        var link = document.createElement('a');
+                        link.href = url;
+                        link.download = 'HNL-WebView2-Runtime-Probe.txt';
+                        document.body.appendChild(link);
+                        link.click();
+                        link.remove();
+                        setTimeout(function(){ URL.revokeObjectURL(url); }, 1500);
+                    } catch(e) {}
+                })();";
+                execute.Invoke(core, new object[] { script });
+                WriteRuntimeProbeMarker("SCRIPT_TRIGGERED");
+            }
+            catch (Exception ex)
+            {
+                WriteRuntimeProbeMarker("SCRIPT_FAIL|" + ex.GetType().Name + "|" + ex.Message);
+            }
+        }
+
+        private static void WriteRuntimeProbeMarker(string value)
+        {
+            string path = Environment.GetEnvironmentVariable("HNL_QLTC_WEBVIEW2_PROBE_FILE");
+            if (string.IsNullOrWhiteSpace(path)) return;
+            try
+            {
+                string directory = Path.GetDirectoryName(path);
+                if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
+                File.AppendAllText(path, DateTime.UtcNow.ToString("o") + "|" + value + Environment.NewLine);
+            }
+            catch { }
+        }
+
+        private static bool CanHostInsideWebView(string uri)
+        {
+            if (string.IsNullOrWhiteSpace(uri)) return true;
+            Uri parsed;
+            if (!Uri.TryCreate(uri, UriKind.Absolute, out parsed)) return false;
+            string scheme = parsed.Scheme == null ? string.Empty : parsed.Scheme.ToLowerInvariant();
+            return scheme == "http" || scheme == "https" || scheme == "about" || scheme == "data" || scheme == "blob";
+        }
+
+        private static bool TryOpenAllowedExternalProtocol(string uri)
+        {
+            if (string.IsNullOrWhiteSpace(uri)) return false;
+            Uri parsed;
+            if (!Uri.TryCreate(uri, UriKind.Absolute, out parsed)) return false;
+            string scheme = parsed.Scheme == null ? string.Empty : parsed.Scheme.ToLowerInvariant();
+            if (scheme != "tel" && scheme != "mailto" && scheme != "sms" && scheme != "zalo") return false;
+            try
+            {
+                Process.Start(new ProcessStartInfo { FileName = uri, UseShellExecute = true });
+                return true;
+            }
+            catch { return false; }
+        }
+
+        private static bool IsHnlAppOrigin(string uri)
+        {
+            try
+            {
+                Uri request;
+                Uri app;
+                if (!Uri.TryCreate(uri, UriKind.Absolute, out request)) return false;
+                if (!Uri.TryCreate(Program.BuildAppUrl(), UriKind.Absolute, out app)) return false;
+                return string.Equals(request.Scheme, app.Scheme, StringComparison.OrdinalIgnoreCase) &&
+                       string.Equals(request.Host, app.Host, StringComparison.OrdinalIgnoreCase);
+            }
+            catch { return false; }
+        }
+
+        private static string GetDownloadFolder(string fileName)
+        {
+            string extension = Path.GetExtension(fileName).ToLowerInvariant();
+            if (extension == ".pdf") return Program.DesktopPaths.Pdf;
+            if (extension == ".xlsx" || extension == ".xls" || extension == ".csv") return Program.DesktopPaths.Excel;
+            return Program.DesktopPaths.Exports;
+        }
+
+        private static string SanitizeFileName(string fileName)
+        {
+            if (string.IsNullOrWhiteSpace(fileName)) return fileName;
+            foreach (char invalid in Path.GetInvalidFileNameChars()) fileName = fileName.Replace(invalid, '_');
+            return fileName.Trim();
+        }
+
+        private static string GetUniqueDownloadPath(string folder, string fileName)
+        {
+            string baseName = Path.GetFileNameWithoutExtension(fileName);
+            string extension = Path.GetExtension(fileName);
+            string candidate = Path.Combine(folder, fileName);
+            int index = 2;
+            while (File.Exists(candidate))
+            {
+                candidate = Path.Combine(folder, baseName + " (" + index + ")" + extension);
+                index++;
+            }
+            return candidate;
+        }
+
+        private static MethodInfo FindEnsureCoreMethod(Type controlType, Type environmentType)
+        {
+            foreach (MethodInfo method in controlType.GetMethods(BindingFlags.Instance | BindingFlags.Public))
+            {
+                if (!string.Equals(method.Name, "EnsureCoreWebView2Async", StringComparison.Ordinal)) continue;
+                ParameterInfo[] parameters = method.GetParameters();
+                if (parameters.Length != 1) continue;
+                if (parameters[0].ParameterType.IsAssignableFrom(environmentType) || environmentType.IsAssignableFrom(parameters[0].ParameterType))
+                    return method;
+            }
+            return null;
+        }
+
+        private static bool ReadInitializationSuccess(object args)
+        {
+            if (args == null) return false;
+            PropertyInfo successProperty = args.GetType().GetProperty("IsSuccess");
+            return successProperty != null && (bool)successProperty.GetValue(args, null);
+        }
+
+        private static string ReadInitializationError(object args, string fallback)
+        {
+            try
+            {
+                PropertyInfo exceptionProperty = args == null ? null : args.GetType().GetProperty("InitializationException");
+                Exception error = exceptionProperty == null ? null : exceptionProperty.GetValue(args, null) as Exception;
+                return error == null ? fallback : error.Message;
+            }
+            catch { return fallback; }
+        }
+
+        private static string ReadStringProperty(object target, string propertyName)
+        {
+            try
+            {
+                PropertyInfo property = target == null ? null : target.GetType().GetProperty(propertyName);
+                return property == null ? null : Convert.ToString(property.GetValue(target, null));
+            }
+            catch { return null; }
+        }
+
+        private static void CompleteDeferral(object deferral)
+        {
+            if (deferral == null) return;
+            try
+            {
+                MethodInfo complete = deferral.GetType().GetMethod("Complete", Type.EmptyTypes);
+                if (complete != null) complete.Invoke(deferral, null);
+            }
+            catch { }
+        }
+
+        private static void SafeClosePopup(Form popup)
+        {
+            if (popup == null || popup.IsDisposed) return;
+            try
+            {
+                if (popup.InvokeRequired) popup.BeginInvoke((MethodInvoker)popup.Close);
+                else popup.Close();
+            }
+            catch { }
         }
 
         private void AddCoreEvent(object core, string eventName, Action<object, object> callback)
