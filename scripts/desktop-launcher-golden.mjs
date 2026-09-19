@@ -36,7 +36,8 @@ assert(launcher.includes('"QLTCAnPhu"') && launcher.includes('"EdgeProfile"'), '
 assert(!launcher.includes('Service Worker') && !launcher.includes('CacheStorage'), 'launcher no longer deletes service-worker offline cache on every start');
 assert(launcher.includes('Google') && launcher.includes('Chrome'), 'Chrome fallback is available when Edge is unavailable');
 assert(launcher.includes('--app='), 'desktop runtime is browser app-mode, so running Taskbar icon is web/PWA-owned');
-assert(launcher.includes('HNL QLTC Windows Desktop Suite'), 'launcher exposes the Windows Desktop Suite shell');
+assert(launcher.includes('HNL QLTC Desktop'), 'launcher exposes the user-facing HNL QLTC Desktop shell');
+assert(launcher.includes('AutoScaleMode.Dpi') && launcher.includes('PictureBox') && launcher.includes('Icon.ToBitmap()'), 'Desktop UI is DPI-aware and shows the embedded HNL logo in the header');
 assert(launcher.includes('Application.Run(new DesktopSuiteForm())'), 'EXE opens the native Desktop Suite dashboard before launching the web app');
 assert(launcher.includes('SpecialFolder.MyDocuments') && launcher.includes('\"HNL QLTC\"'), 'Desktop Suite creates a user-visible HNL QLTC workspace under Documents');
 for (const folder of ['Backup', 'Imports', 'Exports', 'Excel', 'PDF', 'Reports', 'Photos', 'Diagnostics', 'Logs']) {
@@ -44,9 +45,11 @@ for (const folder of ['Backup', 'Imports', 'Exports', 'Excel', 'PDF', 'Reports',
 }
 assert(launcher.includes('HNL-QLTC-DESKTOP-DIAGNOSTIC-'), 'Desktop Suite can export a diagnostic snapshot');
 assert(launcher.includes('HostingHealthUrl') && launcher.includes('R2HealthUrl') && launcher.includes('AiHealthUrl'), 'diagnostics cover Hosting, R2 and AI Gateway');
-assert(launcher.includes('NotifyIcon') && launcher.includes('Desktop Suite vẫn đang chạy ở khay hệ thống'), 'Desktop Suite supports Windows system tray');
+assert(launcher.includes('NotifyIcon') && launcher.includes('HNL QLTC vẫn đang chạy ở khay hệ thống'), 'HNL QLTC Desktop supports Windows system tray');
 assert(!launcher.includes('deletePhoto') && !launcher.includes('purgeBinary'), 'Desktop Suite shell has no destructive cloud-media operation');
-assert(launcher.includes('Local Workspace & Queue') && launcher.includes('Quét lại chỉ mục') && launcher.includes('Mở Sync Center'), 'Desktop Suite exposes local workspace indexing and Sync Center controls');
+assert(launcher.includes('Dữ liệu & Sao lưu') && launcher.includes('Ảnh hiện trường') && launcher.includes('Trạng thái hệ thống'), 'main Desktop UI uses user-facing cards');
+assert(launcher.includes('Công cụ nâng cao') && launcher.includes('Quét lại chỉ mục') && launcher.includes('Chẩn đoán hệ thống'), 'technical workspace/index/diagnostic controls remain available behind Advanced Tools');
+assert(!launcher.includes('Local Workspace & Queue'), 'technical Local Workspace & Queue label is removed from the main user UI');
 assert(launcher.includes('DesktopPaths.LocalDatabase') && launcher.includes('workspace.db'), 'Desktop Suite stores its local SQLite database under LocalAppData');
 assert(localStore.includes('winsqlite3.dll'), 'local workspace uses Windows inbox winsqlite3 without an external database DLL');
 assert(localStore.includes('CREATE TABLE IF NOT EXISTS workspace_files') && localStore.includes('CREATE TABLE IF NOT EXISTS sync_queue') && localStore.includes('CREATE TABLE IF NOT EXISTS sync_history'), 'SQLite schema contains workspace mirror, durable sync queue and audit history');
@@ -77,7 +80,7 @@ assert(webBridge.includes('BRIDGE_ATTEMPT_TOKEN_INVALID') && webBridge.includes(
 assert(!webBridge.includes('uploadProjectBinaryToR2') && !webBridge.includes('fetch('), 'Web bridge does not introduce a direct R2/network upload authority');
 assert(bridgeCard.includes('Windows Desktop Sync Bridge') && configTab.includes('WindowsDesktopSyncBridgeCard'), 'Settings exposes Windows App Sync Bridge controls');
 assert(build.includes('release-tag.txt'), 'build script uses release tag for cache/version isolation');
-assert(releaseTag === '6.3.0-rc2.2.22', 'desktop release tag matches RC2.2.22 replay-safe bridge hardening');
+assert(releaseTag === '6.3.0-rc2.2.23', 'desktop release tag matches RC2.2.23 installer and user-first desktop hardening');
 
 assert(iconSource.width >= 1024 && iconSource.height >= 1024 && iconSource.bytes > 1_000_000, 'HQ HNL logo source is retained at >=1024px');
 assert(taskbar192.width === 192 && taskbar192.height === 192, 'browser app-mode has dedicated 192x192 HNL icon');
@@ -124,5 +127,7 @@ assert(workflow.includes('npm run build'), 'EXE CI certifies web build before la
 assert(workflow.includes('windows-icon-golden.ps1'), 'EXE CI runs Windows icon golden gate after packaging');
 assert(workflow.includes('windows-desktop-local-store-golden.ps1'), 'EXE CI runs Windows SQLite workspace runtime golden');
 assert(workflow.includes('icon-golden-evidence'), 'EXE CI uploads icon visual evidence');
-assert(workflow.includes('HNL-QLTC-Windows.exe'), 'EXE artifact is uploaded');
+assert(workflow.includes('HNL-QLTC-Windows.exe'), 'portable EXE artifact is uploaded');
+assert(workflow.includes('build-installer.ps1') && workflow.includes('HNL-QLTC-Setup.exe'), 'Windows CI also builds the professional Setup EXE');
+await import('./windows-installer-golden.mjs');
 console.log('DESKTOP LAUNCHER GOLDEN PASS');

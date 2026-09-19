@@ -107,3 +107,42 @@ Windows Desktop Suite bổ sung Sync Center native, vẫn giữ nguyên cloud au
 - ACK chỉ hoàn tất queue khi khớp schema, queueKey, source SHA-256, projectId, attemptToken, deterministic photoId và `cloudVerified=true`.
 - Queue `ready_for_app_sync` legacy chưa có token được đưa về `pending` để chuẩn bị lại fail-closed; không tự đánh dấu hoàn tất.
 - Retry thủ công xóa token cũ; lần chuẩn bị kế tiếp sinh token mới, vì vậy ACK cũ không thể replay.
+
+## RC2.2.23 — Professional Windows Installer + User-first Desktop UI
+
+Windows release now has two packaging modes built from the **same launcher source**:
+
+- `HNL-QLTC-Windows.exe`: portable/DEV rescue artifact retained for engineering and recovery.
+- `HNL-QLTC-Setup.exe`: normal Windows installer for end users.
+- DEV CI builds the isolated pair `HNL-QLTC-Windows-DEV.exe` + `HNL-QLTC-DEV-Setup.exe`; DEV and PROD installation identities/folders are separate.
+
+### Installer behavior
+
+- Requests Windows administrator permission only for installing into Program Files.
+- Installs PROD under `C:\Program Files\HNL\HNL QLTC\` and DEV under `C:\Program Files\HNL\HNL QLTC DEV\`.
+- Installs the main app as `HNL QLTC.exe` (or `HNL QLTC DEV.exe` for DEV).
+- Creates `Start Menu > HNL > HNL QLTC` and, by default, a Desktop shortcut using the canonical HNL logo embedded in the installed EXE.
+- Registers an uninstaller in Windows Installed Apps / `Programs and Features`.
+- Detects an existing install and performs an in-place upgrade instead of creating another copy.
+- Refuses to overwrite the installed executable while HNL QLTC is still running; user must exit from the tray first.
+- Upgrade/uninstall never targets `Documents\HNL QLTC` or the existing `%LOCALAPPDATA%\QLTCAnPhu` data/cache tree, so local project workspace, backup, photos, SQLite cache and browser/offline profile are preserved.
+- No Firebase/R2/AI credentials are embedded into the installer; the installer only packages the already-built launcher.
+
+### User-first Desktop UI
+
+The default native Windows dashboard is simplified for normal site users:
+
+- Primary action: `Mở HNL QLTC`.
+- User-facing cards: `Dữ liệu & Sao lưu`, `Xuất hồ sơ`, `Ảnh hiện trường`, `Trạng thái hệ thống`.
+- Footer uses readable status such as `Dữ liệu cục bộ: Bình thường` and `Đồng bộ: Đã hoàn tất/Còn N mục` instead of raw SQLite/Queue counters.
+- Technical items (`Workspace`, `SQLite index`, `Sync Center`, diagnostics/log folders) remain available from `Công cụ nâng cao` and are not removed.
+- RC2.2.22 queue/ACK/attemptToken/photoId replay-safety remains unchanged; this release only changes Windows shell presentation and packaging around that certified engine.
+
+### CI gates
+
+Windows workflows now additionally:
+
+1. Build the exact portable launcher first.
+2. Package that exact EXE plus a dedicated uninstaller into the Setup EXE.
+3. Validate the installer source contract (Program Files, Desktop/Start Menu shortcuts, uninstall registration, upgrade-safe/user-data-preserving behavior, DEV/PROD isolation).
+4. Compile the installer on `windows-latest` and validate version/product metadata before artifact upload.

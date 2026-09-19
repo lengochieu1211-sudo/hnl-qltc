@@ -15,6 +15,8 @@ on:
       - 'scripts/desktop-launcher-golden.mjs'
       - 'scripts/windows-icon-golden.ps1'
       - 'scripts/windows-desktop-local-store-golden.ps1'
+      - 'scripts/windows-installer-golden.mjs'
+      - 'scripts/windows-installer-runtime-golden.ps1'
       - '.github/workflows/windows-exe.yml'
   push:
     branches:
@@ -31,6 +33,8 @@ on:
       - 'scripts/desktop-launcher-golden.mjs'
       - 'scripts/windows-icon-golden.ps1'
       - 'scripts/windows-desktop-local-store-golden.ps1'
+      - 'scripts/windows-installer-golden.mjs'
+      - 'scripts/windows-installer-runtime-golden.ps1'
       - '.github/workflows/windows-exe.yml'
 
 jobs:
@@ -96,6 +100,14 @@ jobs:
         shell: pwsh
         run: ./scripts/windows-desktop-local-store-golden.ps1
 
+      - name: Build professional Windows Setup EXE
+        shell: pwsh
+        run: ./desktop-wrapper/build-installer.ps1 -Channel PROD -LauncherPath './HNL-QLTC-Windows.exe' -OutputPath './HNL-QLTC-Setup.exe'
+
+      - name: Windows installer runtime golden
+        shell: pwsh
+        run: ./scripts/windows-installer-runtime-golden.ps1 -SetupPath './HNL-QLTC-Setup.exe' -LauncherPath './HNL-QLTC-Windows.exe' -Channel PROD
+
       - name: Verify EXE
         shell: pwsh
         run: |
@@ -115,6 +127,7 @@ jobs:
           name: HNL-QLTC-Windows-EXE-${{ github.run_number }}
           path: |
             HNL-QLTC-Windows.exe
+            HNL-QLTC-Setup.exe
             icon-golden-evidence/**
           if-no-files-found: error
           retention-days: 30

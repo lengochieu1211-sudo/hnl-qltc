@@ -12,7 +12,7 @@ namespace QLTCAnPhu
     internal static class Program
     {
         private const string AppBaseUrl = "https://hnlqltc.web.app/?app=desktop";
-        private const string ProductName = "HNL QLTC Windows Desktop Suite";
+        private const string ProductName = "HNL QLTC Desktop";
         private const string HostingHealthUrl = "https://hnlqltc.web.app/";
         private const string R2HealthUrl = "https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev/health";
         private const string AiHealthUrl = "https://hnl-qltc-ai-gateway.lengochieu1211.workers.dev/health";
@@ -180,6 +180,7 @@ namespace QLTCAnPhu
                 MinimumSize = new Size(780, 540);
                 Size = new Size(920, 640);
                 Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point);
+                AutoScaleMode = AutoScaleMode.Dpi;
                 BackColor = Color.FromArgb(246, 248, 251);
 
                 try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
@@ -201,30 +202,42 @@ namespace QLTCAnPhu
                 var header = new Panel { Dock = DockStyle.Fill, BackColor = Color.White, Padding = new Padding(18, 14, 18, 12) };
                 root.Controls.Add(header, 0, 0);
 
+                if (Icon != null)
+                {
+                    var logo = new PictureBox
+                    {
+                        Size = new Size(48, 48),
+                        Location = new Point(18, 18),
+                        SizeMode = PictureBoxSizeMode.Zoom,
+                        Image = Icon.ToBitmap()
+                    };
+                    header.Controls.Add(logo);
+                }
+
                 var title = new Label
                 {
                     AutoSize = true,
-                    Text = "HNL QLTC Windows Desktop Suite",
+                    Text = "HNL QLTC Desktop",
                     Font = new Font("Segoe UI", 20F, FontStyle.Bold),
                     ForeColor = Color.FromArgb(25, 46, 80),
-                    Location = new Point(18, 14)
+                    Location = new Point(80, 14)
                 };
                 header.Controls.Add(title);
 
                 var subtitle = new Label
                 {
                     AutoSize = true,
-                    Text = "Trung tâm Windows cho HNL Quản Lý Thi Công",
+                    Text = "Quản lý thi công trên Windows",
                     Font = new Font("Segoe UI", 10F, FontStyle.Regular),
                     ForeColor = Color.FromArgb(88, 99, 115),
-                    Location = new Point(21, 57)
+                    Location = new Point(83, 57)
                 };
                 header.Controls.Add(subtitle);
 
                 var version = new Label
                 {
                     AutoSize = true,
-                    Text = "Build " + Program.GetReleaseTag(),
+                    Text = "Phiên bản " + Program.GetReleaseTag(),
                     Font = new Font("Segoe UI", 9F, FontStyle.Bold),
                     ForeColor = Color.FromArgb(68, 78, 92),
                     Anchor = AnchorStyles.Top | AnchorStyles.Right
@@ -239,22 +252,22 @@ namespace QLTCAnPhu
                     ColumnCount = 3,
                     Padding = new Padding(0, 14, 0, 8)
                 };
-                openPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-                openPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
-                openPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
+                openPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 60));
+                openPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20));
+                openPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20));
                 root.Controls.Add(openPanel, 0, 1);
 
                 var openApp = MakePrimaryButton("Mở HNL QLTC");
                 openApp.Click += delegate { SafeAction(Program.OpenHnlQltc); };
                 openPanel.Controls.Add(openApp, 0, 0);
 
-                var openWorkspace = MakeSecondaryButton("Mở Workspace");
+                var openWorkspace = MakeSecondaryButton("Mở dữ liệu");
                 openWorkspace.Click += delegate { SafeAction(delegate { OpenFolder(DesktopPaths.WorkspaceRoot); }); };
                 openPanel.Controls.Add(openWorkspace, 1, 0);
 
-                var runDiagnostics = MakeSecondaryButton("Chẩn đoán hệ thống");
-                runDiagnostics.Click += delegate { RunDiagnostics(); };
-                openPanel.Controls.Add(runDiagnostics, 2, 0);
+                var advancedTools = MakeSecondaryButton("Công cụ nâng cao");
+                advancedTools.Click += delegate { OpenAdvancedTools(); };
+                openPanel.Controls.Add(advancedTools, 2, 0);
 
                 var cards = new TableLayoutPanel
                 {
@@ -270,49 +283,48 @@ namespace QLTCAnPhu
                 root.Controls.Add(cards, 0, 2);
 
                 cards.Controls.Add(BuildCard(
-                    "Đồng bộ & Backup",
-                    "Workspace cục bộ chỉ là vùng làm việc/cache. Firestore và R2 vẫn là nguồn dữ liệu cloud chính.",
+                    "Dữ liệu & Sao lưu",
+                    "Mở nhanh thư mục sao lưu và dữ liệu nhập. Dữ liệu cloud của dự án vẫn được giữ nguyên.",
                     new[] {
-                        new CardAction("Mở thư mục Backup", DesktopPaths.Backup),
-                        new CardAction("Mở thư mục Import", DesktopPaths.Imports)
+                        new CardAction("Sao lưu", DesktopPaths.Backup),
+                        new CardAction("Khôi phục / Nhập", DesktopPaths.Imports)
                     }), 0, 0);
 
                 cards.Controls.Add(BuildCard(
                     "Xuất hồ sơ",
-                    "Tách riêng thư mục Excel, PDF và báo cáo để dễ lưu trữ, bàn giao và kiểm soát phiên bản.",
+                    "Mở khu vực lưu Excel, PDF và báo cáo để bàn giao hoặc lưu trữ hồ sơ dự án.",
                     new[] {
                         new CardAction("Excel", DesktopPaths.Excel),
                         new CardAction("PDF", DesktopPaths.Pdf),
-                        new CardAction("Reports", DesktopPaths.Reports)
+                        new CardAction("Báo cáo", DesktopPaths.Reports)
                     }), 1, 0);
 
                 cards.Controls.Add(BuildCard(
-                    "Local Workspace & Queue",
-                    "SQLite mirror/cache có Sync Center lọc/tìm, chọn nhiều và retry batch có giới hạn. Ảnh vẫn bàn giao qua Web app Auth/RBAC; EXE không tự ghi cloud.",
+                    "Ảnh hiện trường",
+                    "Quản lý ảnh đã lưu trên máy và tiếp tục đồng bộ qua tài khoản HNL QLTC khi cần.",
                     new[] {
-                        new CardAction("Mở Sync Center", delegate { OpenSyncCenter(); }),
-                        new CardAction("Mở Photos", DesktopPaths.Photos),
-                        new CardAction("Quét lại chỉ mục", delegate { RefreshLocalIndex(true); })
+                        new CardAction("Mở ảnh", DesktopPaths.Photos),
+                        new CardAction("Xem đồng bộ", delegate { OpenSyncCenter(); })
                     }), 0, 1);
 
                 cards.Controls.Add(BuildCard(
-                    "Chẩn đoán & Nhật ký",
-                    "Kiểm tra Hosting, R2, AI Gateway, trình duyệt, ổ đĩa và xuất snapshot để gửi hỗ trợ kỹ thuật.",
+                    "Trạng thái hệ thống",
+                    "Theo dõi tình trạng dữ liệu cục bộ và đồng bộ. Công cụ kỹ thuật được ẩn trong mục nâng cao.",
                     new[] {
-                        new CardAction("Diagnostics", DesktopPaths.Diagnostics),
-                        new CardAction("Logs", DesktopPaths.Logs)
+                        new CardAction("Xem đồng bộ", delegate { OpenSyncCenter(); }),
+                        new CardAction("Hỗ trợ kỹ thuật", delegate { OpenAdvancedTools(); })
                     }), 1, 1);
 
                 var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2 };
-                footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 60));
-                footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 40));
+                footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 43));
+                footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 57));
                 root.Controls.Add(footer, 0, 3);
 
                 statusLabel = new Label
                 {
                     Dock = DockStyle.Fill,
                     TextAlign = ContentAlignment.MiddleLeft,
-                    Text = "Sẵn sàng. Chưa thực hiện thay đổi dữ liệu cloud.",
+                    Text = "Sẵn sàng.",
                     ForeColor = Color.FromArgb(75, 86, 101)
                 };
                 footer.Controls.Add(statusLabel, 0, 0);
@@ -335,13 +347,14 @@ namespace QLTCAnPhu
 
                 trayIcon = new NotifyIcon
                 {
-                    Text = "HNL QLTC Windows Desktop Suite",
+                    Text = "HNL QLTC Desktop",
                     Visible = true,
                     Icon = Icon
                 };
                 var menu = new ContextMenuStrip();
-                menu.Items.Add("Mở Desktop Suite", null, delegate { RestoreFromTray(); });
+                menu.Items.Add("Mở HNL QLTC Desktop", null, delegate { RestoreFromTray(); });
                 menu.Items.Add("Mở HNL QLTC", null, delegate { SafeAction(Program.OpenHnlQltc); });
+                menu.Items.Add("Công cụ nâng cao", null, delegate { RestoreFromTray(); OpenAdvancedTools(); });
                 menu.Items.Add(new ToolStripSeparator());
                 menu.Items.Add("Thoát", null, delegate { allowClose = true; Close(); });
                 trayIcon.ContextMenuStrip = menu;
@@ -352,7 +365,7 @@ namespace QLTCAnPhu
                     if (WindowState == FormWindowState.Minimized)
                     {
                         Hide();
-                        trayIcon.ShowBalloonTip(1500, "HNL QLTC", "Desktop Suite vẫn đang chạy ở khay hệ thống.", ToolTipIcon.Info);
+                        trayIcon.ShowBalloonTip(1500, "HNL QLTC", "HNL QLTC vẫn đang chạy ở khay hệ thống.", ToolTipIcon.Info);
                     }
                 };
 
@@ -471,6 +484,91 @@ namespace QLTCAnPhu
                 return card;
             }
 
+            private void OpenAdvancedTools()
+            {
+                using (var form = new Form())
+                {
+                    form.Text = "Công cụ nâng cao - HNL QLTC";
+                    form.StartPosition = FormStartPosition.CenterParent;
+                    form.FormBorderStyle = FormBorderStyle.FixedDialog;
+                    form.MaximizeBox = false;
+                    form.MinimizeBox = false;
+                    form.ClientSize = new Size(650, 390);
+                    form.BackColor = Color.FromArgb(246, 248, 251);
+                    form.Font = Font;
+                    try { form.Icon = Icon; } catch { }
+
+                    var title = new Label
+                    {
+                        AutoSize = true,
+                        Text = "Công cụ nâng cao",
+                        Font = new Font("Segoe UI", 18F, FontStyle.Bold),
+                        ForeColor = Color.FromArgb(25, 46, 80),
+                        Location = new Point(26, 22)
+                    };
+                    form.Controls.Add(title);
+
+                    var desc = new Label
+                    {
+                        AutoSize = false,
+                        Width = 595,
+                        Height = 48,
+                        Text = "Dành cho quản trị hoặc hỗ trợ kỹ thuật. Người dùng hằng ngày không cần thao tác các mục bên dưới.",
+                        ForeColor = Color.FromArgb(88, 99, 115),
+                        Location = new Point(29, 64)
+                    };
+                    form.Controls.Add(desc);
+
+                    var tools = new TableLayoutPanel
+                    {
+                        ColumnCount = 2,
+                        RowCount = 3,
+                        Location = new Point(26, 122),
+                        Size = new Size(598, 174)
+                    };
+                    tools.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+                    tools.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+                    for (int i = 0; i < 3; i++) tools.RowStyles.Add(new RowStyle(SizeType.Percent, 33.333F));
+                    form.Controls.Add(tools);
+
+                    AddAdvancedToolButton(tools, "Mở Workspace", delegate { OpenFolder(DesktopPaths.WorkspaceRoot); }, 0, 0);
+                    AddAdvancedToolButton(tools, "Trung tâm đồng bộ", delegate { OpenSyncCenter(); }, 1, 0);
+                    AddAdvancedToolButton(tools, "Quét lại chỉ mục", delegate { RefreshLocalIndex(true); }, 0, 1);
+                    AddAdvancedToolButton(tools, "Chẩn đoán hệ thống", delegate { RunDiagnostics(); }, 1, 1);
+                    AddAdvancedToolButton(tools, "Thư mục Diagnostics", delegate { OpenFolder(DesktopPaths.Diagnostics); }, 0, 2);
+                    AddAdvancedToolButton(tools, "Nhật ký kỹ thuật", delegate { OpenFolder(DesktopPaths.Logs); }, 1, 2);
+
+                    var note = new Label
+                    {
+                        AutoSize = false,
+                        Width = 595,
+                        Height = 40,
+                        Text = "SQLite, Queue, R2 và các chi tiết đồng bộ kỹ thuật vẫn được giữ nguyên ở lớp nền; màn hình chính chỉ hiển thị trạng thái dễ hiểu.",
+                        ForeColor = Color.FromArgb(93, 104, 119),
+                        Location = new Point(29, 314)
+                    };
+                    form.Controls.Add(note);
+
+                    form.ShowDialog(this);
+                }
+            }
+
+            private void AddAdvancedToolButton(TableLayoutPanel panel, string text, Action action, int column, int row)
+            {
+                var button = new Button
+                {
+                    Dock = DockStyle.Fill,
+                    Margin = new Padding(6),
+                    Text = text,
+                    FlatStyle = FlatStyle.Flat,
+                    BackColor = Color.White,
+                    ForeColor = Color.FromArgb(38, 61, 92),
+                    Cursor = Cursors.Hand
+                };
+                button.Click += delegate { SafeAction(action); };
+                panel.Controls.Add(button, column, row);
+            }
+
             private void OpenSyncCenter()
             {
                 if (localStore == null || !localStore.IsReady)
@@ -488,13 +586,16 @@ namespace QLTCAnPhu
             private void RefreshBrowserLabel()
             {
                 BrowserInfo browser = Program.FindBrowser();
-                string browserText = browser == null ? "Windows default" : browser.DisplayName;
+                string browserText = browser == null ? "Trình duyệt Windows" : browser.DisplayName;
                 if (localStore == null || !localStore.IsReady)
                 {
-                    browserLabel.Text = "SQLite: lỗi | " + browserText;
+                    browserLabel.Text = "Dữ liệu cục bộ: Cần kiểm tra • Đồng bộ: Chưa sẵn sàng • " + browserText;
                     return;
                 }
-                browserLabel.Text = "SQLite: " + localStore.CountIndexedFiles() + " file | Queue: " + localStore.CountQueuePending() + " chờ / " + localStore.CountQueueReady() + " Web / " + localStore.CountQueueCompleted() + " xong | " + browserText;
+
+                int waiting = localStore.CountQueuePending() + localStore.CountQueueReady();
+                string syncText = waiting == 0 ? "Đã hoàn tất" : "Còn " + waiting + " mục";
+                browserLabel.Text = "Dữ liệu cục bộ: Bình thường • Đồng bộ: " + syncText + " • " + browserText;
             }
 
             private void RefreshLocalIndex(bool showMessage)
@@ -508,7 +609,9 @@ namespace QLTCAnPhu
                 {
                     WorkspaceIndexResult result = localStore.RefreshIndex(DesktopPaths.WorkspaceRoot);
                     RefreshBrowserLabel();
-                    statusLabel.Text = "Local index: " + result.IndexedFiles + " file, queue mới " + result.EnqueuedFiles + (result.ScanIncomplete ? ". Scan chưa đầy đủ; giữ nguyên file/queue cũ để fail-safe." : ". Cloud chưa bị thay đổi.");
+                    statusLabel.Text = result.ScanIncomplete
+                        ? "Một số thư mục tạm thời chưa đọc được; dữ liệu cũ vẫn được giữ an toàn."
+                        : "Dữ liệu cục bộ đã cập nhật.";
                     if (showMessage)
                     {
                         MessageBox.Show(
