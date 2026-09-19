@@ -10,6 +10,8 @@ export interface WindowsDesktopBridgeItem {
   queueKey: string;
   relativePath: string;
   sourceSha256: string;
+  attemptToken: string;
+  photoId: string;
   projectId: string;
   entityType: BridgeEntityType;
   entityId: string;
@@ -46,6 +48,12 @@ async function sha256Hex(blob: Blob): Promise<string> {
   return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, '0')).join('');
 }
 
+async function deterministicBridgePhotoId(item: WindowsDesktopBridgeItem): Promise<string> {
+  const identity = [item.projectId, item.entityType, item.entityId, item.category, item.queueKey, item.sourceSha256.toLowerCase()].join('|');
+  const digest = await sha256Hex(new Blob([identity], { type: 'text/plain;charset=utf-8' }));
+  return `bridge-${digest}`;
+}
+
 async function getDirectory(root: any, parts: string[], create = false): Promise<any> {
   let current = root;
   for (const part of parts) current = await current.getDirectoryHandle(part, { create });
@@ -70,7 +78,7 @@ async function readManifest(root: any): Promise<WindowsDesktopBridgeManifest> {
 }
 
 function validateItem(item: WindowsDesktopBridgeItem): void {
-  if (!item?.queueKey || !item?.relativePath || !item?.sourceSha256 || !item?.projectId || !item?.entityId || !item?.ackName) throw new Error('BRIDGE_ITEM_INCOMPLETE');
+  if (!item?.queueKey || !item?.relativePath || !item?.sourceSha256 || !item?.attemptToken || !item?.photoId || !item?.projectId || !item?.entityId || !item?.ackName) throw new Error('BRIDGE_ITEM_INCOMPLETE');
   if (!['defect', 'crewRecord', 'chat'].includes(item.entityType)) throw new Error('BRIDGE_ENTITY_TYPE_INVALID');
   const allowedCategory: Record<BridgeEntityType, BridgeCategory[]> = {
     defect: ['defect_before', 'defect_after'],
@@ -79,6 +87,8 @@ function validateItem(item: WindowsDesktopBridgeItem): void {
   };
   if (!allowedCategory[item.entityType].includes(item.category)) throw new Error('BRIDGE_CATEGORY_INVALID');
   if (!/^[a-f0-9]{64}$/i.test(item.sourceSha256)) throw new Error('BRIDGE_SHA256_INVALID');
+  if (!/^[a-f0-9]{32}$/i.test(item.attemptToken)) throw new Error('BRIDGE_ATTEMPT_TOKEN_INVALID');
+  if (!/^bridge-[a-f0-9]{64}$/i.test(item.photoId)) throw new Error('BRIDGE_PHOTO_ID_INVALID');
   if (!/^[a-f0-9]{64}-[a-f0-9]{16}\.ack$/i.test(item.ackName)) throw new Error('BRIDGE_ACK_NAME_INVALID');
 }
 
@@ -91,6 +101,7 @@ async function writeAck(root: any, item: WindowsDesktopBridgeItem, photoId: stri
       schema: 'hnl-qltc-desktop-sync-ack-v1',
       queueKey: item.queueKey,
       sourceSha256: item.sourceSha256.toLowerCase(),
+      attemptToken: item.attemptToken.toLowerCase(),
       projectId: item.projectId,
       photoId,
       cloudVerified: true,
@@ -143,6 +154,8 @@ export async function runWindowsDesktopSyncBridge(
       const sourceSha256 = await sha256Hex(file);
       if (sourceSha256.toLowerCase() !== item.sourceSha256.toLowerCase()) throw new Error('BRIDGE_SOURCE_SHA256_MISMATCH');
 
+      const stablePhotoId = await deterministicBridgePhotoId(item);
+      if (stablePhotoId !== item.photoId) throw new Error('BRIDGE_PHOTO_ID_MISMATCH');
       const saved = await savePhotoAttachment({
         projectId: activeProjectId,
         entityType: item.entityType,
@@ -152,7 +165,7 @@ export async function runWindowsDesktopSyncBridge(
         mimeType: item.mimeType || file.type || 'image/jpeg',
         fileSize: file.size,
         createdByUid: user.uid,
-      }, file);
+      }, file, stablePhotoId);
 
       onProgress?.(`Windows Sync ${index + 1}/${projectItems.length}: upload Cloud ${item.fileName}`);
       await uploadPhotoToCloud(activeProjectId, saved);

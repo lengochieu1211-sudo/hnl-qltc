@@ -291,9 +291,10 @@ export async function getProjectPhotoDiagnosticSnapshot(projectId: string) {
 
 export async function savePhotoAttachment(
   photo: Omit<PhotoAttachment, 'id' | 'createdAt' | 'updatedAt'>,
-  imageSource: File | Blob | string
+  imageSource: File | Blob | string,
+  stablePhotoId?: string
 ): Promise<PhotoAttachment> {
-  const photoId = generatePhotoUUID();
+  const photoId = stablePhotoId?.trim() || generatePhotoUUID();
   
   // 1. Compress camera/gallery input directly to a Blob. Never create a large
   // Base64 copy of the main photo before storing it; this is critical on Android.

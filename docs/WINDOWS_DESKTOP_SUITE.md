@@ -79,4 +79,31 @@ Windows Desktop Suite bổ sung Sync Center native, vẫn giữ nguyên cloud au
 - Bổ sung `sync_history` trong SQLite để ghi `prepared`, `retry`, `manual_retry`, `cloud_verified`.
 - ACK Cloud-verified được ghi lịch sử trước khi queue chuyển `completed`.
 - Diagnostic bổ sung số queue completed và số bản ghi lịch sử.
-- Không xóa queue/history tự động, không chứa credential Cloud, không PUT trực tiếp R2/Firestore từ EXE.
+- Không chứa credential Cloud, không PUT trực tiếp R2/Firestore từ EXE.
+
+
+## RC2.2.21 — Sync Center Hardening + Batch Operations
+
+- Sync Center có bộ lọc trạng thái và tìm kiếm theo đường dẫn/lỗi gần nhất.
+- Queue hỗ trợ chọn nhiều và Retry batch, hard-cap 50 item/lần để tránh block UI hoặc tạo burst công việc.
+- Bảng queue hiển thị dung lượng từng file; header tổng hợp pending/retry/Web-ready/completed, tổng dung lượng và tỷ lệ audit completed.
+- SQLite operation-level lock serialize toàn bộ transaction/index/bridge/queue UI để tránh timer nền chen vào giữa `BEGIN IMMEDIATE` và `COMMIT`.
+- Quét thư mục dùng enumerator chịu lỗi `UnauthorizedAccess/DirectoryNotFound/IOException` và bỏ qua reparse point để tránh crash/cycle khi gặp thư mục bất thường.
+- Retention local chạy tối đa 1 lần/24 giờ: `sync_history` giữ tối đa 90 ngày và 5.000 sự kiện gần nhất; queue `completed` giữ 30 ngày. Đây chỉ là audit/cache local, không xóa Firestore/R2.
+- Sync Center tự refresh 5 giây nhưng mọi thao tác SQLite vẫn serialize qua operation gate.
+- Cloud authority không đổi: upload vẫn do Web app Firebase Auth/RBAC + pipeline R2 hiện hữu thực hiện; EXE không có đường ghi Cloud riêng.
+
+## RC2.2.21.1 — Fail-safe scan + ACK validation + idempotent bridge retry
+
+- Workspace scan đánh dấu lượt quét **incomplete** nếu gặp thư mục tạm mất quyền/truy cập; lượt đó không purge stale index/queue để tránh coi file chưa đọc được là file đã bị xóa.
+- Desktop chỉ chuyển queue sang `completed` khi ACK local có đúng schema, `queueKey`, `sourceSha256`, `projectId` và `cloudVerified=true`; tên file ACK một mình không đủ.
+- Web bridge tạo `stablePhotoId` xác định từ project/entity/category/queueKey/source SHA. Nếu Cloud upload đã thành công nhưng ghi ACK local bị gián đoạn, lần retry dùng lại cùng logical photo ID thay vì tạo ảnh metadata mới.
+- Luồng chụp/chọn ảnh thông thường vẫn dùng UUID ngẫu nhiên; stable ID chỉ được truyền bởi Windows bridge.
+
+### RC2.2.22 replay-safe bridge hardening
+
+- Mỗi lần queue chuyển sang `ready_for_app_sync` được cấp `attemptToken` 128-bit mới và lưu trong SQLite schema v4.
+- Manifest `DesktopBridge/ready.json` mang `attemptToken` + deterministic `photoId`; Web phải xác minh cả hai trước upload/ACK.
+- ACK chỉ hoàn tất queue khi khớp schema, queueKey, source SHA-256, projectId, attemptToken, deterministic photoId và `cloudVerified=true`.
+- Queue `ready_for_app_sync` legacy chưa có token được đưa về `pending` để chuẩn bị lại fail-closed; không tự đánh dấu hoàn tất.
+- Retry thủ công xóa token cũ; lần chuẩn bị kế tiếp sinh token mới, vì vậy ACK cũ không thể replay.

@@ -288,7 +288,7 @@ namespace QLTCAnPhu
 
                 cards.Controls.Add(BuildCard(
                     "Local Workspace & Queue",
-                    "SQLite chỉ lưu mirror/cache. Ảnh đúng cấu trúc Photos/<project>/<loại>/<entity>/<category>/... được bàn giao qua Web app Auth/RBAC; EXE không tự ghi cloud.",
+                    "SQLite mirror/cache có Sync Center lọc/tìm, chọn nhiều và retry batch có giới hạn. Ảnh vẫn bàn giao qua Web app Auth/RBAC; EXE không tự ghi cloud.",
                     new[] {
                         new CardAction("Mở Sync Center", delegate { OpenSyncCenter(); }),
                         new CardAction("Mở Photos", DesktopPaths.Photos),
@@ -508,13 +508,14 @@ namespace QLTCAnPhu
                 {
                     WorkspaceIndexResult result = localStore.RefreshIndex(DesktopPaths.WorkspaceRoot);
                     RefreshBrowserLabel();
-                    statusLabel.Text = "Local index: " + result.IndexedFiles + " file, queue mới " + result.EnqueuedFiles + ". Cloud chưa bị thay đổi.";
+                    statusLabel.Text = "Local index: " + result.IndexedFiles + " file, queue mới " + result.EnqueuedFiles + (result.ScanIncomplete ? ". Scan chưa đầy đủ; giữ nguyên file/queue cũ để fail-safe." : ". Cloud chưa bị thay đổi.");
                     if (showMessage)
                     {
                         MessageBox.Show(
                             "Đã cập nhật SQLite local index.\n\nFile: " + result.IndexedFiles +
                             "\nQueue mới: " + result.EnqueuedFiles +
                             "\nFile cũ đã loại khỏi index: " + result.RemovedFiles +
+                            (result.ScanIncomplete ? "\nCảnh báo: scan chưa đầy đủ; không xóa stale index/queue trong lượt này." : "") +
                             "\n\nKhông có dữ liệu cloud nào bị sửa.",
                             Program.ProductName,
                             MessageBoxButtons.OK,
@@ -540,6 +541,7 @@ namespace QLTCAnPhu
                         localStore.RefreshIndex(DesktopPaths.WorkspaceRoot);
                         localStore.ProcessOneQueueItem(DesktopPaths.WorkspaceRoot);
                         localStore.RefreshBridgeManifest(DesktopPaths.WorkspaceRoot);
+                        localStore.RunRetentionMaintenanceIfDue();
                     }
                     catch { }
                     finally
