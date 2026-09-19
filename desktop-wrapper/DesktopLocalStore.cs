@@ -145,7 +145,7 @@ CREATE INDEX IF NOT EXISTS idx_sync_history_occurred ON sync_history(occurred_ut
             {
             if (!IsReady) throw new InvalidOperationException("SQLite local workspace chưa sẵn sàng.");
             var result = new WorkspaceIndexResult();
-            string scanToken = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff", CultureInfo.InvariantCulture);
+            string scanToken = Guid.NewGuid().ToString("N");
             string now = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
             var roots = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {

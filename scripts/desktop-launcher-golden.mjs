@@ -72,6 +72,7 @@ assert(webShell.includes('BeginInvoke((MethodInvoker)delegate { ShowWebApp(); })
 assert(launcher.includes('DesktopPaths.LocalDatabase') && launcher.includes('workspace.db'), 'Desktop Suite stores its local SQLite database under LocalAppData');
 assert(localStore.includes('winsqlite3.dll'), 'local workspace uses Windows inbox winsqlite3 without an external database DLL');
 assert(localStore.includes('CREATE TABLE IF NOT EXISTS workspace_files') && localStore.includes('CREATE TABLE IF NOT EXISTS sync_queue') && localStore.includes('CREATE TABLE IF NOT EXISTS sync_history'), 'SQLite schema contains workspace mirror, durable sync queue and audit history');
+assert(localStore.includes('string scanToken = Guid.NewGuid().ToString("N")') && !localStore.includes('yyyyMMddHHmmssfff'), 'workspace index scan tokens are collision-safe across concurrent/rapid scans');
 assert(localStore.includes('ready_for_app_sync') && localStore.includes('prepare_binary'), 'background queue prepares changed Imports/Photos files before app sync');
 assert(localStore.includes('SHA256.Create()'), 'background preparation hashes staged files with SHA-256');
 assert(localStore.includes('Cloudflare R2 binary') && localStore.includes('SQLite is local mirror/cache only'), 'SQLite explicitly remains a local mirror/cache, not cloud authority');

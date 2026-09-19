@@ -139,12 +139,28 @@ jobs:
 
           git diff --name-status "$BASELINE_SHA" "$GITHUB_SHA" > "$OUT/changed-files.txt"
           git diff --name-only --diff-filter=ACMRT "$BASELINE_SHA" "$GITHUB_SHA" > "$OUT/patch-files.txt"
+          git diff --name-only --diff-filter=D "$BASELINE_SHA" "$GITHUB_SHA" > "$OUT/deleted-files.txt"
           while IFS= read -r file; do
             [ -n "$file" ] || continue
             [ -f "$file" ] || continue
             mkdir -p "$PATCH_DIR/$(dirname "$file")"
             cp -p "$file" "$PATCH_DIR/$file"
           done < "$OUT/patch-files.txt"
+
+          # PATCH must also represent delete-only commits. Always embed an exact-head manifest
+          # so the archive is never empty and consumers can remove files listed under
+          # [deleted-files] when applying the patch.
+          {
+            echo "HNL QLTC DEV PATCH MANIFEST"
+            echo "Base: $BASELINE_SHA"
+            echo "Head: $GITHUB_SHA"
+            echo
+            echo "[changed-files]"
+            cat "$OUT/changed-files.txt"
+            echo
+            echo "[deleted-files]"
+            cat "$OUT/deleted-files.txt"
+          } > "$PATCH_DIR/PATCH-MANIFEST.txt"
 
           PATCH_ZIP="$OUT/HNL-QLTC-DEV-${SHORT_SHA}-PATCH-${DATE_UTC}.zip"
           FULL_ZIP="$OUT/HNL-QLTC-DEV-${SHORT_SHA}-FULL-SOURCE-${DATE_UTC}.zip"
@@ -174,9 +190,14 @@ jobs:
             echo '- PATCH ZIP integrity: PASS'
             echo '- FULL SOURCE ZIP integrity: PASS'
             echo
-            echo '## Changed/added files from parent'
+            echo '## Changed files from parent'
             echo '```'
             cat "$OUT/changed-files.txt"
+            echo '```'
+            echo
+            echo '## Deleted files represented by PATCH manifest'
+            echo '```'
+            cat "$OUT/deleted-files.txt"
             echo '```'
           } > "$REPORT"
 
@@ -197,5 +218,6 @@ jobs:
             ${{ env.REPORT }}
             ${{ runner.temp }}/hnl-deliverables/SHA256SUMS.txt
             ${{ runner.temp }}/hnl-deliverables/changed-files.txt
+            ${{ runner.temp }}/hnl-deliverables/deleted-files.txt
           if-no-files-found: error
           retention-days: 30

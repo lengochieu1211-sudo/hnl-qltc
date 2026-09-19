@@ -13,11 +13,12 @@ const env = {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Keep the retry budget strictly below the 5-minute GitHub Actions step timeout.
-// A previous unrelated change raised one attempt from 75s to 180s, which meant the
-// first flaky Storage-emulator startup could consume most of the step and prevent
-// the retry strategy from ever completing. 75s is the last CI-proven bound.
-const ATTEMPT_TIMEOUT_MS = 75000;
-const MAX_ATTEMPTS = 3;
+// GitHub cold runners may need to download both Firestore and Storage emulator JARs;
+// 75s became too tight and produced false failures before behavior tests could finish.
+// Two 120s attempts still fit inside the guarded 5-minute step budget while preserving
+// one clean retry for a genuinely flaky emulator startup.
+const ATTEMPT_TIMEOUT_MS = 120000;
+const MAX_ATTEMPTS = 2;
 const RETRY_DELAY_MS = 2000;
 const TERMINATION_GRACE_MS = 5000;
 const WORKFLOW_STEP_BUDGET_MS = 5 * 60 * 1000;
