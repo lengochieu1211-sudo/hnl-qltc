@@ -28,7 +28,7 @@ namespace QLTCAnPhu
             try
             {
                 DesktopPaths.EnsureWorkspace();
-                Application.Run(new DesktopSuiteForm());
+                Application.Run(new DesktopWebShellForm());
             }
             catch (Exception ex)
             {
@@ -87,6 +87,17 @@ namespace QLTCAnPhu
         }
 
         internal static void OpenHnlQltc()
+        {
+            DesktopWebShellForm shell = DesktopWebShellForm.Current;
+            if (shell != null && !shell.IsDisposed)
+            {
+                shell.ShowWebApp();
+                return;
+            }
+            OpenHnlQltcExternal();
+        }
+
+        internal static void OpenHnlQltcExternal()
         {
             string appUrl = BuildAppUrl();
             BrowserInfo browser = FindBrowser();
@@ -157,10 +168,11 @@ namespace QLTCAnPhu
             internal static readonly string Logs = Path.Combine(LocalState, "Logs");
             internal static readonly string DesktopSuiteState = Path.Combine(LocalState, "DesktopSuite");
             internal static readonly string LocalDatabase = Path.Combine(DesktopSuiteState, "workspace.db");
+            internal static readonly string WebView2Profile = Path.Combine(LocalState, "WebView2Profile");
 
             internal static void EnsureWorkspace()
             {
-                string[] dirs = { WorkspaceRoot, Backup, Imports, Exports, Excel, Pdf, Reports, Photos, Diagnostics, DesktopBridge, DesktopBridgeAcks, LocalState, Logs, DesktopSuiteState };
+                string[] dirs = { WorkspaceRoot, Backup, Imports, Exports, Excel, Pdf, Reports, Photos, Diagnostics, DesktopBridge, DesktopBridgeAcks, LocalState, Logs, DesktopSuiteState, WebView2Profile };
                 foreach (string dir in dirs) Directory.CreateDirectory(dir);
             }
         }

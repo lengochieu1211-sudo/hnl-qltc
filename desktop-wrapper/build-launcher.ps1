@@ -30,6 +30,47 @@ $logoSource = Join-Path $projectRoot 'public\icon.png'
 $parts = $version.Split('.')
 $assemblyVersion = "$($parts[0]).$($parts[1]).$($parts[2]).0"
 
+
+$webViewVersionFile = Join-Path $root 'webview2-sdk-version.txt'
+if (-not (Test-Path -LiteralPath $webViewVersionFile)) { throw "Missing WebView2 SDK version pin: $webViewVersionFile" }
+$webViewVersion = (Get-Content -Raw -LiteralPath $webViewVersionFile).Trim()
+if ($webViewVersion -notmatch '^\d+\.\d+\.\d+\.\d+$') { throw "Invalid WebView2 SDK version: $webViewVersion" }
+$webViewCache = Join-Path $root ".webview2-sdk-$webViewVersion"
+$webViewPackage = Join-Path $root "Microsoft.Web.WebView2.$webViewVersion.nupkg"
+$webViewExtract = Join-Path $webViewCache 'package'
+
+function Get-WebView2SdkPayload {
+  if (-not (Test-Path -LiteralPath $webViewExtract)) {
+    Remove-Item -LiteralPath $webViewCache -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Path $webViewExtract -Force | Out-Null
+    $url = "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/$webViewVersion"
+    Write-Output "Downloading pinned Microsoft.Web.WebView2 SDK $webViewVersion..."
+    Invoke-WebRequest -Uri $url -OutFile $webViewPackage -UseBasicParsing
+    Expand-Archive -LiteralPath $webViewPackage -DestinationPath $webViewExtract -Force
+  }
+
+  $core = Get-ChildItem -LiteralPath $webViewExtract -Recurse -File -Filter 'Microsoft.Web.WebView2.Core.dll' |
+    Where-Object { $_.FullName -match '[\\/]lib[\\/]net462[\\/]' } | Select-Object -First 1
+  $winForms = Get-ChildItem -LiteralPath $webViewExtract -Recurse -File -Filter 'Microsoft.Web.WebView2.WinForms.dll' |
+    Where-Object { $_.FullName -match '[\\/]lib[\\/]net462[\\/]' } | Select-Object -First 1
+  $loaderX64 = Get-ChildItem -LiteralPath $webViewExtract -Recurse -File -Filter 'WebView2Loader.dll' |
+    Where-Object { $_.FullName -match '([\\/]x64[\\/]|[\\/]win-x64[\\/])' } | Select-Object -First 1
+  $loaderX86 = Get-ChildItem -LiteralPath $webViewExtract -Recurse -File -Filter 'WebView2Loader.dll' |
+    Where-Object { $_.FullName -match '([\\/]x86[\\/]|[\\/]win-x86[\\/])' } | Select-Object -First 1
+
+  if (-not $core) { throw 'WebView2 Core managed assembly not found in pinned NuGet package.' }
+  if (-not $winForms) { throw 'WebView2 WinForms managed assembly not found in pinned NuGet package.' }
+  if (-not $loaderX64) { throw 'WebView2 x64 loader not found in pinned NuGet package.' }
+  if (-not $loaderX86) { throw 'WebView2 x86 loader not found in pinned NuGet package.' }
+
+  return [PSCustomObject]@{
+    Core = $core.FullName
+    WinForms = $winForms.FullName
+    LoaderX64 = $loaderX64.FullName
+    LoaderX86 = $loaderX86.FullName
+  }
+}
+
 if (-not (Test-Path -LiteralPath $logoSource)) {
   throw "High-resolution HNL logo source was not found: $logoSource"
 }
@@ -155,8 +196,13 @@ try {
   $iconBytes = (Get-Item -LiteralPath $generatedIcon).Length
   if ($iconBytes -lt 20000) { throw "Generated ICO is unexpectedly small: $iconBytes bytes" }
 
-  $desktopSources = @((Join-Path $root 'QLTCAnPhuLauncher.cs'), (Join-Path $root 'DesktopLocalStore.cs'), (Join-Path $root 'DesktopSyncCenterForm.cs'))
-  & $csc /nologo /target:winexe /optimize+ /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.dll /win32icon:"$generatedIcon" /out:"$out" $desktopSources $assemblyInfo $releaseInfo
+  $webView = Get-WebView2SdkPayload
+  $desktopSources = @((Join-Path $root 'QLTCAnPhuLauncher.cs'), (Join-Path $root 'DesktopLocalStore.cs'), (Join-Path $root 'DesktopSyncCenterForm.cs'), (Join-Path $root 'DesktopWebShellForm.cs'))
+  $resourceCore = '/resource:"' + $webView.Core + '",HNL.QLTC.WebView2.Core'
+  $resourceWinForms = '/resource:"' + $webView.WinForms + '",HNL.QLTC.WebView2.WinForms'
+  $resourceLoaderX64 = '/resource:"' + $webView.LoaderX64 + '",HNL.QLTC.WebView2.Loader.x64'
+  $resourceLoaderX86 = '/resource:"' + $webView.LoaderX86 + '",HNL.QLTC.WebView2.Loader.x86'
+  & $csc /nologo /target:winexe /optimize+ /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.dll /reference:System.Core.dll /win32icon:"$generatedIcon" /out:"$out" $resourceCore $resourceWinForms $resourceLoaderX64 $resourceLoaderX86 $desktopSources $assemblyInfo $releaseInfo
   if ($LASTEXITCODE -ne 0) { throw "csc failed: $LASTEXITCODE" }
   if (-not (Test-Path -LiteralPath $out)) { throw 'Desktop EXE was not created.' }
 
@@ -166,6 +212,7 @@ try {
   Write-Output "Production URL: https://hnlqltc.web.app/?app=desktop&v=$releaseTag"
   Write-Output "Icon source: public/icon.png ($((Get-Item -LiteralPath $logoSource).Length) bytes)"
   Write-Output "Generated multi-resolution ICO: $iconBytes bytes (16,20,24,28,32,40,48,64,80,96,128,256; all frames derived directly from canonical HNL logo)"
+  Write-Output "Embedded WebView2 SDK: $webViewVersion (Core + WinForms + x64/x86 loader embedded into the EXE)"
 } finally {
   Remove-Item -LiteralPath $assemblyInfo -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $releaseInfo -Force -ErrorAction SilentlyContinue

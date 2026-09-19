@@ -146,3 +146,16 @@ Windows workflows now additionally:
 2. Package that exact EXE plus a dedicated uninstaller into the Setup EXE.
 3. Validate the installer source contract (Program Files, Desktop/Start Menu shortcuts, uninstall registration, upgrade-safe/user-data-preserving behavior, DEV/PROD isolation).
 4. Compile the installer on `windows-latest` and validate version/product metadata before artifact upload.
+
+## Embedded Web App Shell (RC2.2.26)
+
+Windows Desktop now opens HNL QLTC directly inside the EXE through an embedded Microsoft Edge WebView2 shell instead of launching a new Edge/Chrome app-mode window by default.
+
+- The native HNL toolbar remains visible with Home, HNL QLTC, Sync, Reload and More actions.
+- WebView2 user data is stored under `%LOCALAPPDATA%\\QLTCAnPhu\\WebView2Profile`, never under Program Files.
+- The pinned WebView2 SDK payload is embedded into the launcher EXE; x64 and x86 native loader payloads are included.
+- The Evergreen WebView2 Runtime provided by Microsoft Edge remains the runtime engine. If it is unavailable, the app shows an explicit retry/fallback screen rather than silently opening a browser.
+- `window.open` / popup requests are handled inside the same embedded view to avoid spawning a new browser tab/window during normal HNL QLTC navigation.
+- Non-HTTP schemes still hand off to Windows through `UseShellExecute=true`.
+- The previous Edge/Chrome app-mode launcher is retained only as an explicit fallback action.
+- Native Desktop light/dark mode continues to follow Windows system theme. The embedded web content can continue using its own existing theme/media-query behavior.

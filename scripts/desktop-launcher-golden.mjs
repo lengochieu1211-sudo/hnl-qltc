@@ -13,6 +13,7 @@ function readPngSize(path) {
 }
 
 const launcher = read('desktop-wrapper/QLTCAnPhuLauncher.cs');
+const webShell = read('desktop-wrapper/DesktopWebShellForm.cs');
 const localStore = read('desktop-wrapper/DesktopLocalStore.cs');
 const syncCenter = read('desktop-wrapper/DesktopSyncCenterForm.cs');
 const build = read('desktop-wrapper/build-launcher.ps1');
@@ -35,10 +36,11 @@ assert(!launcher.includes('https://com-example-qlct-61329.web.app/?app=desktop')
 assert(launcher.includes('"QLTCAnPhu"') && launcher.includes('"EdgeProfile"'), 'legacy Edge profile path is preserved for local/offline data continuity');
 assert(!launcher.includes('Service Worker') && !launcher.includes('CacheStorage'), 'launcher no longer deletes service-worker offline cache on every start');
 assert(launcher.includes('Google') && launcher.includes('Chrome'), 'Chrome fallback is available when Edge is unavailable');
-assert(launcher.includes('--app='), 'desktop runtime is browser app-mode, so running Taskbar icon is web/PWA-owned');
+assert(launcher.includes('--app='), 'browser app-mode remains available only as a fallback path');
+assert(launcher.includes('OpenHnlQltcExternal') && launcher.includes('DesktopWebShellForm.Current'), 'normal OpenHnlQltc routes into the embedded desktop shell before browser fallback');
 assert(launcher.includes('HNL QLTC Desktop'), 'launcher exposes the user-facing HNL QLTC Desktop shell');
 assert(launcher.includes('AutoScaleMode.Dpi') && launcher.includes('PictureBox') && launcher.includes('Icon.ToBitmap()'), 'Desktop UI is DPI-aware and shows the embedded HNL logo in the header');
-assert(launcher.includes('Application.Run(new DesktopSuiteForm())'), 'EXE opens the native Desktop Suite dashboard before launching the web app');
+assert(launcher.includes('Application.Run(new DesktopWebShellForm())'), 'EXE opens the embedded HNL QLTC desktop shell as its primary window');
 assert(launcher.includes('SpecialFolder.MyDocuments') && launcher.includes('\"HNL QLTC\"'), 'Desktop Suite creates a user-visible HNL QLTC workspace under Documents');
 for (const folder of ['Backup', 'Imports', 'Exports', 'Excel', 'PDF', 'Reports', 'Photos', 'Diagnostics', 'Logs']) {
   assert(launcher.includes(`\"${folder}\"`), `Desktop Suite declares ${folder} workspace area`);
@@ -55,6 +57,12 @@ assert(launcher.includes('AppsUseLightTheme') && launcher.includes('SystemEvents
 assert(launcher.includes('Giao diện: Tự động theo hệ thống'), 'Desktop EXE communicates automatic system-theme behavior');
 assert(syncCenter.includes('Program.DesktopUiTheme.ReadFromSystem()') && syncCenter.includes('Program.DesktopUiTheme.ApplyToForm(this, theme)'), 'Sync Center shares the professional Desktop light/dark theme');
 assert(launcher.includes('DataGridViewHeaderBorderStyle.Single') && launcher.includes('AlternatingRowsDefaultCellStyle'), 'shared Desktop theme includes professional data-grid styling');
+assert(webShell.includes('HNL.QLTC.WebView2.Core') && webShell.includes('HNL.QLTC.WebView2.WinForms'), 'desktop shell loads embedded WebView2 managed payloads');
+assert(webShell.includes('HNL.QLTC.WebView2.Loader.x64') && webShell.includes('HNL.QLTC.WebView2.Loader.x86'), 'desktop shell carries both x64 and x86 WebView2 native loaders');
+assert(webShell.includes('CoreWebView2InitializationCompleted') && webShell.includes('NewWindowRequested') && webShell.includes('Handled'), 'embedded WebView2 handles initialization and keeps popup/new-window navigation inside the EXE');
+assert(webShell.includes('WebView2Profile') && webShell.includes('UserDataFolder'), 'embedded WebView2 stores its writable browser profile under LocalAppData');
+assert(webShell.includes('Mở bằng trình duyệt') && webShell.includes('Program.OpenHnlQltcExternal()'), 'external browser remains an explicit fallback instead of the default launch path');
+assert(webShell.includes('BeginInvoke((MethodInvoker)delegate { ShowWebApp(); })'), 'desktop shell opens HNL QLTC inside the EXE automatically on startup');
 assert(launcher.includes('DesktopPaths.LocalDatabase') && launcher.includes('workspace.db'), 'Desktop Suite stores its local SQLite database under LocalAppData');
 assert(localStore.includes('winsqlite3.dll'), 'local workspace uses Windows inbox winsqlite3 without an external database DLL');
 assert(localStore.includes('CREATE TABLE IF NOT EXISTS workspace_files') && localStore.includes('CREATE TABLE IF NOT EXISTS sync_queue') && localStore.includes('CREATE TABLE IF NOT EXISTS sync_history'), 'SQLite schema contains workspace mirror, durable sync queue and audit history');
@@ -67,6 +75,10 @@ assert(localStore.includes('Photos/<projectId>/<defect|crewRecord|chat>/<entityI
 assert(build.includes('HNL-QLTC-Windows.exe'), 'build script creates one portable Windows EXE');
 assert(build.includes('/reference:System.Drawing.dll'), 'build script references System.Drawing for the native Desktop Suite UI');
 assert(build.includes('DesktopLocalStore.cs') && build.includes('DesktopSyncCenterForm.cs'), 'build compiles the SQLite engine and native Sync Center');
+assert(build.includes('DesktopWebShellForm.cs'), 'build compiles the embedded WebView2 desktop shell');
+assert(build.includes('webview2-sdk-version.txt') && build.includes('Microsoft.Web.WebView2'), 'build downloads a pinned Microsoft WebView2 SDK');
+assert(build.includes('HNL.QLTC.WebView2.Core') && build.includes('HNL.QLTC.WebView2.WinForms') && build.includes('HNL.QLTC.WebView2.Loader.x64') && build.includes('HNL.QLTC.WebView2.Loader.x86'), 'build embeds WebView2 managed assemblies and native loaders into the single EXE');
+assert(build.includes('/reference:System.Core.dll'), 'build references System.Core for reflection-safe WebView2 event delegation');
 assert(syncCenter.includes('Sync Center') && syncCenter.includes('Retry đã chọn (tối đa 50)') && syncCenter.includes('Mở file nguồn') && syncCenter.includes('Mở Web & đồng bộ'), 'native Sync Center exposes filtered batch retry, source navigation and Web handoff');
 assert(syncCenter.includes('DataGridView') && syncCenter.includes('Lịch sử') && syncCenter.includes('Tìm file/lỗi') && syncCenter.includes('Chọn tất cả đang lọc'), 'native Sync Center provides searchable multi-select queue and history tables');
 assert(localStore.includes('RetryQueueItem') && localStore.includes('RetryQueueItems') && localStore.includes('GetQueueRows') && localStore.includes('GetHistoryRows'), 'SQLite engine exposes controlled single and batch queue management APIs');
@@ -85,7 +97,7 @@ assert(webBridge.includes('BRIDGE_ATTEMPT_TOKEN_INVALID') && webBridge.includes(
 assert(!webBridge.includes('uploadProjectBinaryToR2') && !webBridge.includes('fetch('), 'Web bridge does not introduce a direct R2/network upload authority');
 assert(bridgeCard.includes('Windows Desktop Sync Bridge') && configTab.includes('WindowsDesktopSyncBridgeCard'), 'Settings exposes Windows App Sync Bridge controls');
 assert(build.includes('release-tag.txt'), 'build script uses release tag for cache/version isolation');
-assert(releaseTag === '6.3.0-rc2.2.25', 'desktop release tag matches RC2.2.25 professional desktop dark-mode refresh');
+assert(releaseTag === '6.3.0-rc2.2.26', 'desktop release tag matches RC2.2.26 embedded WebView2 desktop shell');
 
 assert(iconSource.width >= 1024 && iconSource.height >= 1024 && iconSource.bytes > 1_000_000, 'HQ HNL logo source is retained at >=1024px');
 assert(taskbar192.width === 192 && taskbar192.height === 192, 'browser app-mode has dedicated 192x192 HNL icon');
