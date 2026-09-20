@@ -943,6 +943,7 @@ namespace QLTCAnPhu
                 // Windows already shows HNL QLTC in the native title bar and the embedded
                 // web app owns its project/app identity. Repeating logo/title/version in
                 // this thin command strip creates a distracting third branding layer.
+                // RC2.2.26.9 keeps this native strip action-only on every Windows build.
                 if (brandLogo != null) brandLogo.Visible = false;
                 brandLabel.Visible = false;
                 releaseLabel.Visible = false;
