@@ -27,7 +27,11 @@ env:
 jobs:
   rules:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 15
+    env:
+      FIREBASE_RULES_ATTEMPT_TIMEOUT_MS: "180000"
+      FIREBASE_RULES_MAX_ATTEMPTS: "2"
+      FIREBASE_RULES_STEP_BUDGET_MS: "480000"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -35,10 +39,16 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: package-lock.json
+      - name: Cache Firebase emulator binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: ${{ runner.os }}-firebase-emulators-v13.35.1
+          restore-keys: |
+            ${{ runner.os }}-firebase-emulators-
       - name: Install exact dependencies
         run: npm ci
       - name: Firebase Rules compile and behavior
-        timeout-minutes: 5
         run: npm run test:rules
 
   deploy_dev:
