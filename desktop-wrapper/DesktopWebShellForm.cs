@@ -29,12 +29,15 @@ namespace QLTCAnPhu
         private readonly Label webStatusLabel;
         private readonly Label syncStatusLabel;
         private readonly Button syncButton;
+        private readonly Button reloadButton;
+        private readonly Button moreButton;
         private readonly Button compactButton;
         private readonly ToolTip chromeToolTip;
         private readonly DesktopLocalStore localStore;
         private readonly NotifyIcon trayIcon;
         private readonly System.Windows.Forms.Timer maintenanceTimer;
-        private readonly ContextMenuStrip moreMenu;
+        private ContextMenuStrip moreMenu;
+        private ContextMenuStrip syncMenu;
         private Program.DesktopUiTheme theme;
         private EmbeddedWebViewRuntime embeddedRuntime;
         private bool webInitializationStarted;
@@ -43,8 +46,8 @@ namespace QLTCAnPhu
         private FormWindowState restoreWindowState = FormWindowState.Normal;
         private int maintenanceRunning;
 
-        private const float NormalHeaderHeight = 54F;
-        private const float CompactHeaderHeight = 40F;
+        private const float NormalHeaderHeight = 46F;
+        private const float CompactHeaderHeight = 30F;
         private const float NormalFooterHeight = 0F;
 
         internal DesktopWebShellForm()
@@ -79,7 +82,7 @@ namespace QLTCAnPhu
             toolbarPanel = new Panel
             {
                 Dock = DockStyle.Fill,
-                Padding = new Padding(14, 8, 14, 8),
+                Padding = new Padding(10, 7, 10, 7),
                 Margin = new Padding(0),
                 Tag = "header"
             };
@@ -89,8 +92,8 @@ namespace QLTCAnPhu
             {
                 brandLogo = new PictureBox
                 {
-                    Size = new Size(32, 32),
-                    Location = new Point(14, 11),
+                    Size = new Size(28, 28),
+                    Location = new Point(10, 9),
                     SizeMode = PictureBoxSizeMode.Zoom,
                     Image = Icon.ToBitmap(),
                     BackColor = Color.Transparent
@@ -102,8 +105,8 @@ namespace QLTCAnPhu
             {
                 AutoSize = true,
                 Text = "HNL QLTC",
-                Font = new Font("Segoe UI", 12.5F, FontStyle.Bold),
-                Location = new Point(54, 8),
+                Font = new Font("Segoe UI", 11.5F, FontStyle.Bold),
+                Location = new Point(46, 5),
                 Tag = "title"
             };
             toolbarPanel.Controls.Add(brandLabel);
@@ -112,8 +115,8 @@ namespace QLTCAnPhu
             {
                 AutoSize = true,
                 Text = Program.GetReleaseTag(),
-                Font = new Font("Segoe UI", 8.25F, FontStyle.Bold),
-                Location = new Point(55, 31),
+                Font = new Font("Segoe UI", 8F, FontStyle.Bold),
+                Location = new Point(47, 25),
                 Tag = "subtle"
             };
             toolbarPanel.Controls.Add(releaseLabel);
@@ -121,10 +124,10 @@ namespace QLTCAnPhu
             navPanel = new FlowLayoutPanel
             {
                 AutoSize = true,
-                Height = 38,
+                Height = 34,
                 FlowDirection = FlowDirection.LeftToRight,
                 WrapContents = false,
-                Location = new Point(190, 8),
+                Location = new Point(190, 6),
                 Padding = new Padding(0),
                 Margin = new Padding(0),
                 Tag = "header"
@@ -133,13 +136,14 @@ namespace QLTCAnPhu
             toolbarPanel.Controls.Add(navPanel);
             toolbarPanel.Resize += delegate { PositionToolbarActions(); };
 
-            syncButton = MakeToolbarPrimaryButton("✓  Đồng bộ", 112);
+            syncButton = MakeToolbarPrimaryButton("Đồng bộ", 100);
+            SetToolbarGlyph(syncButton, ToolbarGlyph.SyncOk);
             syncButton.AccessibleName = "Trạng thái đồng bộ";
             syncButton.Click += delegate { ShowSyncMenu(); };
             navPanel.Controls.Add(syncButton);
 
-            var reloadButton = MakeToolbarButton("↻", 40);
-            reloadButton.Font = new Font("Segoe UI", 13F, FontStyle.Bold);
+            reloadButton = MakeToolbarButton(string.Empty, 34);
+            SetToolbarGlyph(reloadButton, ToolbarGlyph.Reload);
             reloadButton.AccessibleName = "Tải lại HNL QLTC";
             reloadButton.Click += delegate
             {
@@ -148,13 +152,13 @@ namespace QLTCAnPhu
             };
             navPanel.Controls.Add(reloadButton);
 
-            var moreButton = MakeToolbarButton("⋯", 40);
-            moreButton.Font = new Font("Segoe UI", 14F, FontStyle.Bold);
+            moreButton = MakeToolbarButton(string.Empty, 34);
+            SetToolbarGlyph(moreButton, ToolbarGlyph.More);
             moreButton.AccessibleName = "Tùy chọn khác";
             navPanel.Controls.Add(moreButton);
 
-            compactButton = MakeToolbarButton("▴", 38);
-            compactButton.Font = new Font("Segoe UI", 11F, FontStyle.Bold);
+            compactButton = MakeToolbarButton(string.Empty, 34);
+            SetToolbarGlyph(compactButton, ToolbarGlyph.Collapse);
             compactButton.AccessibleName = "Thu gọn thanh ứng dụng";
             compactButton.Click += delegate { SetCompactChrome(!compactChrome); };
             navPanel.Controls.Add(compactButton);
@@ -172,10 +176,8 @@ namespace QLTCAnPhu
             chromeToolTip.SetToolTip(compactButton, "Thu gọn thanh trên và ẩn thanh trạng thái dưới");
 
             moreMenu = BuildMoreMenu();
-            moreButton.Click += delegate
-            {
-                moreMenu.Show(moreButton, new Point(0, moreButton.Height + 2));
-            };
+            syncMenu = BuildSyncMenu();
+            moreButton.Click += delegate { ShowMoreMenu(moreButton); };
             PositionToolbarActions();
 
             contentHost = new Panel
@@ -302,7 +304,8 @@ namespace QLTCAnPhu
                 localStore.Dispose();
                 trayIcon.Visible = false;
                 trayIcon.Dispose();
-                moreMenu.Dispose();
+                if (syncMenu != null) syncMenu.Dispose();
+                if (moreMenu != null) moreMenu.Dispose();
                 chromeToolTip.Dispose();
                 SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
                 if (ReferenceEquals(Current, this)) Current = null;
@@ -594,16 +597,37 @@ namespace QLTCAnPhu
             return menu;
         }
 
+        private void ShowMoreMenu(Control owner)
+        {
+            if (owner == null || owner.IsDisposed || IsDisposed || Disposing) return;
+
+            if (moreMenu == null || moreMenu.IsDisposed)
+            {
+                moreMenu = BuildMoreMenu();
+            }
+
+            try
+            {
+                moreMenu.Show(owner, new Point(0, owner.Height + 2));
+            }
+            catch (ObjectDisposedException)
+            {
+                if (IsDisposed || Disposing) return;
+                moreMenu = BuildMoreMenu();
+                moreMenu.Show(owner, new Point(0, owner.Height + 2));
+            }
+        }
+
         private Button MakeToolbarButton(string text, int width)
         {
             var button = new RoundedToolbarButton
             {
                 Text = text,
-                Height = 38,
+                Height = 32,
                 FlatStyle = FlatStyle.Flat,
-                Font = new Font("Segoe UI", 9.25F, FontStyle.Bold),
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold),
                 Cursor = Cursors.Hand,
-                Margin = new Padding(3, 1, 3, 1),
+                Margin = new Padding(2, 1, 2, 1),
                 Padding = new Padding(8, 0, 8, 0),
                 Tag = "secondary",
                 TabStop = true
@@ -617,6 +641,12 @@ namespace QLTCAnPhu
             Button button = MakeToolbarButton(text, width);
             button.Tag = "primary";
             return button;
+        }
+
+        private static void SetToolbarGlyph(Button button, ToolbarGlyph glyph)
+        {
+            RoundedToolbarButton rounded = button as RoundedToolbarButton;
+            if (rounded != null) rounded.Glyph = glyph;
         }
 
         private void ShowHome()
@@ -635,10 +665,11 @@ namespace QLTCAnPhu
         private void PositionToolbarActions()
         {
             if (toolbarPanel == null || navPanel == null) return;
-            int right = 14;
+            navPanel.PerformLayout();
+            int right = compactChrome ? 8 : 10;
             int preferred = navPanel.PreferredSize.Width;
-            int x = Math.Max(180, toolbarPanel.ClientSize.Width - preferred - right);
-            navPanel.Location = new Point(x, compactChrome ? 2 : 8);
+            int x = Math.Max(170, toolbarPanel.ClientSize.Width - preferred - right);
+            navPanel.Location = new Point(x, compactChrome ? 1 : 6);
         }
 
         private void SetCompactChrome(bool compact)
@@ -657,21 +688,30 @@ namespace QLTCAnPhu
                 brandLabel.Visible = !compact;
                 releaseLabel.Visible = !compact;
 
-                navPanel.Height = compact ? 36 : 38;
-                PositionToolbarActions();
-                foreach (Control control in navPanel.Controls)
-                {
-                    Button button = control as Button;
-                    if (button == null) continue;
-                    button.Height = compact ? 34 : 38;
-                    button.Margin = compact ? new Padding(2, 1, 2, 1) : new Padding(3, 1, 3, 1);
-                }
+                // Collapsed mode is intentionally a real collapse: keep only a small
+                // expand affordance. The previous implementation merely shaved a few
+                // pixels from the row, which looked unchanged on high-DPI displays.
+                syncButton.Visible = !compact;
+                reloadButton.Visible = !compact;
+                moreButton.Visible = !compact;
+                compactButton.Visible = true;
 
-                compactButton.Text = compact ? "▾" : "▴";
+                navPanel.Height = compact ? 28 : 34;
+                compactButton.Size = compact ? new Size(30, 26) : new Size(34, 32);
+                compactButton.Margin = compact ? new Padding(1) : new Padding(2, 1, 2, 1);
+                syncButton.Height = 32;
+                reloadButton.Height = 32;
+                moreButton.Height = 32;
+
+                SetToolbarGlyph(compactButton, compact ? ToolbarGlyph.Expand : ToolbarGlyph.Collapse);
                 compactButton.AccessibleName = compact ? "Mở rộng thanh ứng dụng" : "Thu gọn thanh ứng dụng";
                 chromeToolTip.SetToolTip(compactButton, compact
                     ? "Mở rộng thanh ứng dụng"
                     : "Thu gọn thanh ứng dụng");
+
+                navPanel.PerformLayout();
+                PositionToolbarActions();
+                toolbarPanel.Invalidate();
             }
             finally
             {
@@ -681,23 +721,10 @@ namespace QLTCAnPhu
             }
         }
 
-        private void ShowSyncMenu()
+        private ContextMenuStrip BuildSyncMenu()
         {
-            int pending = 0;
-            int ready = 0;
-            if (localStore != null && localStore.IsReady)
-            {
-                pending = localStore.CountQueuePending();
-                ready = localStore.CountQueueReady();
-            }
-            int waiting = pending + ready;
-
             var menu = new ContextMenuStrip();
-            var status = new ToolStripMenuItem(waiting == 0 ? "✓ Tất cả đã đồng bộ" : "⚠ Còn " + waiting + " mục đang chờ")
-            {
-                Enabled = false
-            };
-            menu.Items.Add(status);
+            menu.Items.Add(new ToolStripMenuItem("Đang kiểm tra đồng bộ...") { Enabled = false });
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Đồng bộ ngay", null, delegate
             {
@@ -706,8 +733,49 @@ namespace QLTCAnPhu
                 RefreshSyncStatus();
             });
             menu.Items.Add("Xem chi tiết", null, delegate { OpenSyncCenter(); });
-            menu.Closed += delegate { menu.Dispose(); };
-            menu.Show(syncButton, new Point(0, syncButton.Height + 2));
+            menu.Opening += delegate { RefreshSyncMenuStatus(menu); };
+            return menu;
+        }
+
+        private void RefreshSyncMenuStatus(ContextMenuStrip menu)
+        {
+            if (menu == null || menu.IsDisposed || menu.Items.Count == 0) return;
+
+            int pending = 0;
+            int ready = 0;
+            if (localStore != null && localStore.IsReady)
+            {
+                pending = localStore.CountQueuePending();
+                ready = localStore.CountQueueReady();
+            }
+
+            int waiting = pending + ready;
+            menu.Items[0].Text = waiting == 0
+                ? "✓ Tất cả đã đồng bộ"
+                : "⚠ Còn " + waiting + " mục đang chờ";
+        }
+
+        private void ShowSyncMenu()
+        {
+            if (syncButton == null || syncButton.IsDisposed || IsDisposed || Disposing) return;
+
+            if (syncMenu == null || syncMenu.IsDisposed)
+            {
+                syncMenu = BuildSyncMenu();
+            }
+
+            RefreshSyncMenuStatus(syncMenu);
+            try
+            {
+                syncMenu.Show(syncButton, new Point(0, syncButton.Height + 2));
+            }
+            catch (ObjectDisposedException)
+            {
+                if (IsDisposed || Disposing) return;
+                syncMenu = BuildSyncMenu();
+                RefreshSyncMenuStatus(syncMenu);
+                syncMenu.Show(syncButton, new Point(0, syncButton.Height + 2));
+            }
         }
 
         private void OpenSyncCenter()
@@ -732,7 +800,8 @@ namespace QLTCAnPhu
                 syncStatusLabel.Text = "Dữ liệu cục bộ: cần kiểm tra";
                 if (syncButton != null)
                 {
-                    syncButton.Text = "⚠  Đồng bộ";
+                    syncButton.Text = "Đồng bộ";
+                    SetToolbarGlyph(syncButton, ToolbarGlyph.SyncWarning);
                     syncButton.Tag = "warning";
                 }
                 return;
@@ -746,7 +815,8 @@ namespace QLTCAnPhu
                 : "Dữ liệu cục bộ: Bình thường • Đồng bộ: Còn " + waiting + " mục";
             if (syncButton != null)
             {
-                syncButton.Text = waiting == 0 ? "✓  Đồng bộ" : "⚠  " + waiting + " chờ";
+                syncButton.Text = waiting == 0 ? "Đồng bộ" : waiting + " chờ";
+                SetToolbarGlyph(syncButton, waiting == 0 ? ToolbarGlyph.SyncOk : ToolbarGlyph.SyncWarning);
                 syncButton.Tag = waiting == 0 ? "success" : "warning";
                 chromeToolTip.SetToolTip(syncButton, waiting == 0
                     ? "Tất cả dữ liệu local đã xử lý xong"
@@ -863,11 +933,34 @@ namespace QLTCAnPhu
         }
 
 
+        private enum ToolbarGlyph
+        {
+            None,
+            SyncOk,
+            SyncWarning,
+            Reload,
+            More,
+            Collapse,
+            Expand
+        }
+
         private sealed class RoundedToolbarButton : Button
         {
             private bool hover;
             private bool pressed;
-            private const int Radius = 9;
+            private ToolbarGlyph glyph;
+            private const int Radius = 8;
+
+            internal ToolbarGlyph Glyph
+            {
+                get { return glyph; }
+                set
+                {
+                    if (glyph == value) return;
+                    glyph = value;
+                    Invalidate();
+                }
+            }
 
             internal RoundedToolbarButton()
             {
@@ -924,20 +1017,120 @@ namespace QLTCAnPhu
                     pevent.Graphics.DrawPath(pen, path);
                 }
 
-                Rectangle textRect = new Rectangle(Padding.Left, 0, Math.Max(1, Width - Padding.Horizontal), Height);
-                TextRenderer.DrawText(
-                    pevent.Graphics,
-                    Text,
-                    Font,
-                    textRect,
-                    ForeColor,
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis
-                );
+                bool hasText = !string.IsNullOrWhiteSpace(Text);
+                bool hasGlyph = glyph != ToolbarGlyph.None;
+                int iconSize = Math.Min(16, Math.Max(12, Height - 14));
+                Rectangle iconRect = Rectangle.Empty;
+                Rectangle textRect;
+
+                if (hasGlyph && hasText)
+                {
+                    int iconLeft = Math.Max(8, Padding.Left);
+                    iconRect = new Rectangle(iconLeft, (Height - iconSize) / 2, iconSize, iconSize);
+                    int textLeft = iconRect.Right + 6;
+                    textRect = new Rectangle(textLeft, 0, Math.Max(1, Width - textLeft - Padding.Right), Height);
+                }
+                else
+                {
+                    if (hasGlyph)
+                    {
+                        iconRect = new Rectangle((Width - iconSize) / 2, (Height - iconSize) / 2, iconSize, iconSize);
+                    }
+                    textRect = new Rectangle(Padding.Left, 0, Math.Max(1, Width - Padding.Horizontal), Height);
+                }
+
+                if (hasGlyph) DrawToolbarGlyph(pevent.Graphics, glyph, iconRect, ForeColor);
+
+                if (hasText)
+                {
+                    TextFormatFlags flags = TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine;
+                    flags |= hasGlyph ? TextFormatFlags.Left : TextFormatFlags.HorizontalCenter;
+                    TextRenderer.DrawText(pevent.Graphics, Text, Font, textRect, ForeColor, flags);
+                }
 
                 if (Focused && ShowFocusCues)
                 {
                     Rectangle focus = Rectangle.Inflate(rect, -4, -4);
                     ControlPaint.DrawFocusRectangle(pevent.Graphics, focus, ForeColor, fill);
+                }
+            }
+
+            private static void DrawToolbarGlyph(Graphics graphics, ToolbarGlyph glyph, Rectangle r, Color color)
+            {
+                if (r.Width <= 0 || r.Height <= 0) return;
+                int left = r.Left;
+                int top = r.Top;
+                int right = r.Right - 1;
+                int bottom = r.Bottom - 1;
+                int cx = left + r.Width / 2;
+                int cy = top + r.Height / 2;
+
+                using (var pen = new Pen(color, 1.8F))
+                using (var brush = new SolidBrush(color))
+                {
+                    pen.StartCap = LineCap.Round;
+                    pen.EndCap = LineCap.Round;
+                    pen.LineJoin = LineJoin.Round;
+
+                    switch (glyph)
+                    {
+                        case ToolbarGlyph.SyncOk:
+                            graphics.DrawLines(pen, new[]
+                            {
+                                new Point(left + 2, cy),
+                                new Point(left + r.Width / 2 - 1, bottom - 2),
+                                new Point(right - 1, top + 2)
+                            });
+                            break;
+
+                        case ToolbarGlyph.SyncWarning:
+                            graphics.DrawPolygon(pen, new[]
+                            {
+                                new Point(cx, top + 1),
+                                new Point(right - 1, bottom - 1),
+                                new Point(left + 1, bottom - 1)
+                            });
+                            graphics.DrawLine(pen, cx, top + 5, cx, cy + 2);
+                            graphics.FillEllipse(brush, cx - 1, bottom - 4, 2, 2);
+                            break;
+
+                        case ToolbarGlyph.Reload:
+                            graphics.DrawArc(pen, left + 2, top + 2, Math.Max(6, r.Width - 5), Math.Max(6, r.Height - 5), 35F, 285F);
+                            graphics.DrawLines(pen, new[]
+                            {
+                                new Point(right - 1, top + 2),
+                                new Point(right - 5, top + 2),
+                                new Point(right - 2, top + 6)
+                            });
+                            break;
+
+                        case ToolbarGlyph.More:
+                            float dot = Math.Max(2F, r.Width / 6F);
+                            float gap = r.Width / 4F;
+                            for (int i = -1; i <= 1; i++)
+                            {
+                                graphics.FillEllipse(brush, cx + i * gap - dot / 2F, cy - dot / 2F, dot, dot);
+                            }
+                            break;
+
+                        case ToolbarGlyph.Collapse:
+                            graphics.DrawLines(pen, new[]
+                            {
+                                new Point(left + 3, cy + 2),
+                                new Point(cx, cy - 2),
+                                new Point(right - 3, cy + 2)
+                            });
+                            break;
+
+                        case ToolbarGlyph.Expand:
+                            graphics.DrawLines(pen, new[]
+                            {
+                                new Point(left + 3, cy - 2),
+                                new Point(cx, cy + 2),
+                                new Point(right - 3, cy - 2)
+                            });
+                            break;
+                    }
                 }
             }
 
