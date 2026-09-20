@@ -1322,9 +1322,10 @@ namespace QLTCAnPhu
 
                 bool hasText = !string.IsNullOrWhiteSpace(Text);
                 bool hasGlyph = glyph != ToolbarGlyph.None;
-                int iconSize = string.Equals(Tag as string, "toolbar-icon", StringComparison.Ordinal)
-                    ? 14
-                    : Math.Min(15, Math.Max(12, Height - 14));
+                // Size glyphs from the actual scaled control height so 125–200% Windows
+                // DPI keeps the same visual weight instead of leaving 14px artwork floating
+                // inside a much larger auto-scaled button.
+                int iconSize = Math.Max(16, Math.Min(24, (int)Math.Round(Height * 0.56F)));
                 Rectangle iconRect = Rectangle.Empty;
                 Rectangle textRect;
 
@@ -1370,7 +1371,8 @@ namespace QLTCAnPhu
                 int cx = left + r.Width / 2;
                 int cy = top + r.Height / 2;
 
-                using (var pen = new Pen(color, 1.8F))
+                float stroke = Math.Max(1.8F, Math.Min(2.4F, r.Width / 8F));
+                using (var pen = new Pen(color, stroke))
                 using (var brush = new SolidBrush(color))
                 {
                     pen.StartCap = LineCap.Round;
@@ -1400,21 +1402,42 @@ namespace QLTCAnPhu
                             break;
 
                         case ToolbarGlyph.Reload:
-                            // Keep the refresh arrowhead visually distinct at 100–200% Windows DPI.
-                            // A filled head avoids the old "C"-shaped appearance caused by a tiny
-                            // two-segment outline disappearing after scaling/anti-aliasing.
-                            Rectangle reloadArc = new Rectangle(
-                                left + 2,
-                                top + 2,
-                                Math.Max(8, r.Width - 5),
-                                Math.Max(8, r.Height - 5)
+                            // Draw a true circular refresh arrow from geometry rather than a
+                            // Unicode glyph. The arc, stroke and filled tangent arrowhead scale
+                            // from the live button size, keeping the symbol readable at high DPI.
+                            float inset = Math.Max(1.5F, r.Width * 0.10F);
+                            RectangleF reloadArc = new RectangleF(
+                                r.Left + inset,
+                                r.Top + inset,
+                                Math.Max(1F, r.Width - inset * 2F),
+                                Math.Max(1F, r.Height - inset * 2F)
                             );
-                            graphics.DrawArc(pen, reloadArc, 55F, 275F);
+                            const float reloadStart = 40F;
+                            const float reloadSweep = 285F;
+                            graphics.DrawArc(pen, reloadArc, reloadStart, reloadSweep);
+
+                            float endAngle = (reloadStart + reloadSweep) * (float)Math.PI / 180F;
+                            float radiusX = reloadArc.Width / 2F;
+                            float radiusY = reloadArc.Height / 2F;
+                            float tipX = reloadArc.Left + radiusX + radiusX * (float)Math.Cos(endAngle);
+                            float tipY = reloadArc.Top + radiusY + radiusY * (float)Math.Sin(endAngle);
+                            float dirX = -(float)Math.Sin(endAngle);
+                            float dirY = (float)Math.Cos(endAngle);
+                            float normalX = -dirY;
+                            float normalY = dirX;
+                            float headLength = Math.Max(4.5F, r.Width * 0.34F);
+                            float headHalfWidth = Math.Max(2.4F, r.Width * 0.18F);
                             graphics.FillPolygon(brush, new[]
                             {
-                                new Point(right - 1, top + 1),
-                                new Point(right - 7, top + 2),
-                                new Point(right - 2, top + 7)
+                                Point.Round(new PointF(tipX, tipY)),
+                                Point.Round(new PointF(
+                                    tipX - dirX * headLength + normalX * headHalfWidth,
+                                    tipY - dirY * headLength + normalY * headHalfWidth
+                                )),
+                                Point.Round(new PointF(
+                                    tipX - dirX * headLength - normalX * headHalfWidth,
+                                    tipY - dirY * headLength - normalY * headHalfWidth
+                                ))
                             });
                             break;
 
