@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.IO;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -15,11 +16,21 @@ namespace QLTCAnPhu
     {
         internal static DesktopWebShellForm Current { get; private set; }
 
+        private readonly TableLayoutPanel rootLayout;
+        private readonly Panel toolbarPanel;
+        private readonly FlowLayoutPanel navPanel;
+        private readonly TableLayoutPanel footerPanel;
         private readonly Panel contentHost;
         private readonly Panel webHost;
         private readonly Panel homeHost;
+        private readonly PictureBox brandLogo;
+        private readonly Label brandLabel;
+        private readonly Label releaseLabel;
         private readonly Label webStatusLabel;
         private readonly Label syncStatusLabel;
+        private readonly Button syncButton;
+        private readonly Button compactButton;
+        private readonly ToolTip chromeToolTip;
         private readonly DesktopLocalStore localStore;
         private readonly NotifyIcon trayIcon;
         private readonly System.Windows.Forms.Timer maintenanceTimer;
@@ -28,8 +39,13 @@ namespace QLTCAnPhu
         private EmbeddedWebViewRuntime embeddedRuntime;
         private bool webInitializationStarted;
         private bool allowClose;
+        private bool compactChrome;
         private FormWindowState restoreWindowState = FormWindowState.Normal;
         private int maintenanceRunning;
+
+        private const float NormalHeaderHeight = 54F;
+        private const float CompactHeaderHeight = 40F;
+        private const float NormalFooterHeight = 0F;
 
         internal DesktopWebShellForm()
         {
@@ -44,7 +60,9 @@ namespace QLTCAnPhu
             AutoScaleMode = AutoScaleMode.Dpi;
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
 
-            var root = new TableLayoutPanel
+            KeyPreview = true;
+
+            rootLayout = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
@@ -53,99 +71,112 @@ namespace QLTCAnPhu
                 Margin = new Padding(0),
                 Tag = "root"
             };
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 68F));
-            root.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 34F));
-            Controls.Add(root);
+            rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, NormalHeaderHeight));
+            rootLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, NormalFooterHeight));
+            Controls.Add(rootLayout);
 
-            var toolbar = new Panel
+            toolbarPanel = new Panel
             {
                 Dock = DockStyle.Fill,
-                Padding = new Padding(16, 10, 16, 10),
+                Padding = new Padding(14, 8, 14, 8),
                 Margin = new Padding(0),
                 Tag = "header"
             };
-            root.Controls.Add(toolbar, 0, 0);
+            rootLayout.Controls.Add(toolbarPanel, 0, 0);
 
             if (Icon != null)
             {
-                toolbar.Controls.Add(new PictureBox
+                brandLogo = new PictureBox
                 {
-                    Size = new Size(42, 42),
-                    Location = new Point(16, 13),
+                    Size = new Size(32, 32),
+                    Location = new Point(14, 11),
                     SizeMode = PictureBoxSizeMode.Zoom,
                     Image = Icon.ToBitmap(),
                     BackColor = Color.Transparent
-                });
+                };
+                toolbarPanel.Controls.Add(brandLogo);
             }
 
-            var brand = new Label
+            brandLabel = new Label
             {
                 AutoSize = true,
                 Text = "HNL QLTC",
-                Font = new Font("Segoe UI", 15F, FontStyle.Bold),
-                Location = new Point(68, 12),
+                Font = new Font("Segoe UI", 12.5F, FontStyle.Bold),
+                Location = new Point(54, 8),
                 Tag = "title"
             };
-            toolbar.Controls.Add(brand);
+            toolbarPanel.Controls.Add(brandLabel);
 
-            var release = new Label
+            releaseLabel = new Label
             {
                 AutoSize = true,
                 Text = Program.GetReleaseTag(),
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
-                Location = new Point(70, 40),
+                Font = new Font("Segoe UI", 8.25F, FontStyle.Bold),
+                Location = new Point(55, 31),
                 Tag = "subtle"
             };
-            toolbar.Controls.Add(release);
+            toolbarPanel.Controls.Add(releaseLabel);
 
-            var nav = new FlowLayoutPanel
+            navPanel = new FlowLayoutPanel
             {
                 AutoSize = true,
-                Height = 46,
+                Height = 38,
                 FlowDirection = FlowDirection.LeftToRight,
                 WrapContents = false,
-                Location = new Point(220, 11),
+                Location = new Point(190, 8),
+                Padding = new Padding(0),
+                Margin = new Padding(0),
                 Tag = "header"
             };
-            toolbar.Controls.Add(nav);
+            navPanel.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            toolbarPanel.Controls.Add(navPanel);
+            toolbarPanel.Resize += delegate { PositionToolbarActions(); };
 
-            var backButton = MakeToolbarButton("←", 42);
-            backButton.Click += delegate { if (embeddedRuntime != null) embeddedRuntime.GoBack(); };
-            nav.Controls.Add(backButton);
+            syncButton = MakeToolbarPrimaryButton("✓  Đồng bộ", 112);
+            syncButton.AccessibleName = "Trạng thái đồng bộ";
+            syncButton.Click += delegate { ShowSyncMenu(); };
+            navPanel.Controls.Add(syncButton);
 
-            var forwardButton = MakeToolbarButton("→", 42);
-            forwardButton.Click += delegate { if (embeddedRuntime != null) embeddedRuntime.GoForward(); };
-            nav.Controls.Add(forwardButton);
-
-            var homeButton = MakeToolbarButton("Trang chủ", 100);
-            homeButton.Click += delegate { ShowHome(); };
-            nav.Controls.Add(homeButton);
-
-            var appButton = MakeToolbarPrimaryButton("HNL QLTC", 112);
-            appButton.Click += delegate { ShowWebApp(); };
-            nav.Controls.Add(appButton);
-
-            var syncButton = MakeToolbarButton("Đồng bộ", 100);
-            syncButton.Click += delegate { OpenSyncCenter(); };
-            nav.Controls.Add(syncButton);
-
-            var reloadButton = MakeToolbarButton("↻ Tải lại", 92);
+            var reloadButton = MakeToolbarButton("↻", 40);
+            reloadButton.Font = new Font("Segoe UI", 13F, FontStyle.Bold);
+            reloadButton.AccessibleName = "Tải lại HNL QLTC";
             reloadButton.Click += delegate
             {
                 ShowWebApp();
                 if (embeddedRuntime != null) embeddedRuntime.Reload();
             };
-            nav.Controls.Add(reloadButton);
+            navPanel.Controls.Add(reloadButton);
 
-            var moreButton = MakeToolbarButton("⋯", 46);
-            nav.Controls.Add(moreButton);
+            var moreButton = MakeToolbarButton("⋯", 40);
+            moreButton.Font = new Font("Segoe UI", 14F, FontStyle.Bold);
+            moreButton.AccessibleName = "Tùy chọn khác";
+            navPanel.Controls.Add(moreButton);
+
+            compactButton = MakeToolbarButton("▴", 38);
+            compactButton.Font = new Font("Segoe UI", 11F, FontStyle.Bold);
+            compactButton.AccessibleName = "Thu gọn thanh ứng dụng";
+            compactButton.Click += delegate { SetCompactChrome(!compactChrome); };
+            navPanel.Controls.Add(compactButton);
+
+            chromeToolTip = new ToolTip
+            {
+                AutoPopDelay = 6000,
+                InitialDelay = 400,
+                ReshowDelay = 150,
+                ShowAlways = true
+            };
+            chromeToolTip.SetToolTip(syncButton, "Xem trạng thái đồng bộ");
+            chromeToolTip.SetToolTip(reloadButton, "Tải lại HNL QLTC");
+            chromeToolTip.SetToolTip(moreButton, "Công cụ và tùy chọn khác");
+            chromeToolTip.SetToolTip(compactButton, "Thu gọn thanh trên và ẩn thanh trạng thái dưới");
 
             moreMenu = BuildMoreMenu();
             moreButton.Click += delegate
             {
-                moreMenu.Show(moreButton, new Point(0, moreButton.Height));
+                moreMenu.Show(moreButton, new Point(0, moreButton.Height + 2));
             };
+            PositionToolbarActions();
 
             contentHost = new Panel
             {
@@ -154,7 +185,7 @@ namespace QLTCAnPhu
                 Margin = new Padding(0),
                 Tag = "root"
             };
-            root.Controls.Add(contentHost, 0, 1);
+            rootLayout.Controls.Add(contentHost, 0, 1);
 
             webHost = new Panel
             {
@@ -169,7 +200,7 @@ namespace QLTCAnPhu
             homeHost.Dock = DockStyle.Fill;
             contentHost.Controls.Add(homeHost);
 
-            var footer = new TableLayoutPanel
+            footerPanel = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 2,
@@ -178,9 +209,9 @@ namespace QLTCAnPhu
                 Margin = new Padding(0),
                 Tag = "root"
             };
-            footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55F));
-            footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 45F));
-            root.Controls.Add(footer, 0, 2);
+            footerPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55F));
+            footerPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 45F));
+            rootLayout.Controls.Add(footerPanel, 0, 2);
 
             webStatusLabel = new Label
             {
@@ -189,7 +220,7 @@ namespace QLTCAnPhu
                 Text = "Đang chuẩn bị HNL QLTC...",
                 Tag = "muted"
             };
-            footer.Controls.Add(webStatusLabel, 0, 0);
+            footerPanel.Controls.Add(webStatusLabel, 0, 0);
 
             syncStatusLabel = new Label
             {
@@ -198,7 +229,8 @@ namespace QLTCAnPhu
                 Text = "Đồng bộ: đang kiểm tra",
                 Tag = "muted"
             };
-            footer.Controls.Add(syncStatusLabel, 1, 0);
+            footerPanel.Controls.Add(syncStatusLabel, 1, 0);
+            footerPanel.Visible = false;
 
             Program.DesktopPaths.EnsureWorkspace();
             localStore = DesktopLocalStore.TryOpen(Program.DesktopPaths.LocalDatabase);
@@ -212,8 +244,8 @@ namespace QLTCAnPhu
             };
             var trayMenu = new ContextMenuStrip();
             trayMenu.Items.Add("Mở HNL QLTC", null, delegate { RestoreFromTray(); ShowWebApp(); });
-            trayMenu.Items.Add("Trang chủ Windows", null, delegate { RestoreFromTray(); ShowHome(); });
-            trayMenu.Items.Add("Sync Center", null, delegate { RestoreFromTray(); OpenSyncCenter(); });
+            trayMenu.Items.Add("Công cụ máy tính", null, delegate { RestoreFromTray(); ShowHome(); });
+            trayMenu.Items.Add("Trung tâm đồng bộ", null, delegate { RestoreFromTray(); OpenSyncCenter(); });
             trayMenu.Items.Add(new ToolStripSeparator());
             trayMenu.Items.Add("Thoát", null, delegate { allowClose = true; Close(); });
             trayIcon.ContextMenuStrip = trayMenu;
@@ -222,6 +254,16 @@ namespace QLTCAnPhu
             maintenanceTimer = new System.Windows.Forms.Timer { Interval = 30000 };
             maintenanceTimer.Tick += delegate { RunBackgroundMaintenance(); };
             maintenanceTimer.Start();
+
+            KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                if (e.KeyCode == Keys.F11)
+                {
+                    SetCompactChrome(!compactChrome);
+                    e.Handled = true;
+                    e.SuppressKeyPress = true;
+                }
+            };
 
             Resize += delegate
             {
@@ -261,6 +303,7 @@ namespace QLTCAnPhu
                 trayIcon.Visible = false;
                 trayIcon.Dispose();
                 moreMenu.Dispose();
+                chromeToolTip.Dispose();
                 SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
                 if (ReferenceEquals(Current, this)) Current = null;
             };
@@ -275,6 +318,7 @@ namespace QLTCAnPhu
             }
 
             webHost.BringToFront();
+            SetNavigationState(true);
             if (!webInitializationStarted)
             {
                 InitializeEmbeddedWeb();
@@ -404,16 +448,16 @@ namespace QLTCAnPhu
             var panel = new Panel
             {
                 Dock = DockStyle.Fill,
-                Padding = new Padding(28),
+                Padding = new Padding(32),
                 Tag = "root"
             };
 
             var heading = new Label
             {
                 AutoSize = true,
-                Text = "Trung tâm Windows",
-                Font = new Font("Segoe UI", 22F, FontStyle.Bold),
-                Location = new Point(28, 24),
+                Text = "Công cụ máy tính",
+                Font = new Font("Segoe UI", 20F, FontStyle.Bold),
+                Location = new Point(32, 28),
                 Tag = "title"
             };
             panel.Controls.Add(heading);
@@ -421,57 +465,48 @@ namespace QLTCAnPhu
             var sub = new Label
             {
                 AutoSize = true,
-                Text = "Các công cụ local được giữ riêng; HNL QLTC Web chạy trực tiếp trong EXE.",
-                Location = new Point(31, 66),
+                Text = "Chỉ mở khi cần. HNL QLTC vẫn là màn hình làm việc chính.",
+                Location = new Point(35, 68),
                 Tag = "muted"
             };
             panel.Controls.Add(sub);
 
             var grid = new TableLayoutPanel
             {
-                Location = new Point(28, 112),
-                Size = new Size(1100, 430),
+                Location = new Point(32, 112),
+                Size = new Size(1050, 250),
                 ColumnCount = 2,
-                RowCount = 2,
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom,
+                RowCount = 1,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 Tag = "root"
             };
             grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
             grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
-            grid.RowStyles.Add(new RowStyle(SizeType.Percent, 50F));
-            grid.RowStyles.Add(new RowStyle(SizeType.Percent, 50F));
+            grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
             panel.Controls.Add(grid);
 
             panel.Resize += delegate
             {
-                grid.Size = new Size(Math.Max(600, panel.ClientSize.Width - 56), Math.Max(320, panel.ClientSize.Height - 150));
+                grid.Size = new Size(Math.Max(620, panel.ClientSize.Width - 64), 250);
             };
 
-            grid.Controls.Add(BuildHomeCard("Dữ liệu & Sao lưu", "Backup và Imports được lưu riêng trong Documents\\HNL QLTC.", new[]
+            grid.Controls.Add(BuildHomeCard("Dữ liệu HNL trên máy", "Các thư mục người dùng thường cần xem. Công cụ kỹ thuật được ẩn khỏi màn hình này.", new[]
             {
-                new HomeAction("Backup", delegate { OpenFolder(Program.DesktopPaths.Backup); }),
-                new HomeAction("Imports", delegate { OpenFolder(Program.DesktopPaths.Imports); })
+                new HomeAction("Mở Backup", delegate { OpenFolder(Program.DesktopPaths.Backup); }),
+                new HomeAction("File đã xuất", delegate { OpenFolder(Program.DesktopPaths.Exports); }),
+                new HomeAction("Ảnh local", delegate { OpenFolder(Program.DesktopPaths.Photos); })
             }), 0, 0);
 
-            grid.Controls.Add(BuildHomeCard("Xuất hồ sơ", "Mở nhanh Excel, PDF và Reports của HNL QLTC.", new[]
+            grid.Controls.Add(BuildHomeCard("Đồng bộ", "Theo dõi dữ liệu local chờ xử lý. Khi mọi thứ bình thường, bạn không cần mở phần chi tiết.", new[]
             {
-                new HomeAction("Excel", delegate { OpenFolder(Program.DesktopPaths.Excel); }),
-                new HomeAction("PDF", delegate { OpenFolder(Program.DesktopPaths.Pdf); }),
-                new HomeAction("Reports", delegate { OpenFolder(Program.DesktopPaths.Reports); })
+                new HomeAction("Trung tâm đồng bộ", delegate { OpenSyncCenter(); }),
+                new HomeAction("Đồng bộ ngay", delegate { ShowWebApp(); RefreshLocalIndex(false); })
             }), 1, 0);
 
-            grid.Controls.Add(BuildHomeCard("Ảnh hiện trường & đồng bộ", "Ảnh local, queue/history và thao tác retry được giữ trong Sync Center.", new[]
-            {
-                new HomeAction("Photos", delegate { OpenFolder(Program.DesktopPaths.Photos); }),
-                new HomeAction("Sync Center", delegate { OpenSyncCenter(); })
-            }), 0, 1);
-
-            grid.Controls.Add(BuildHomeCard("Hỗ trợ & chẩn đoán", "Công cụ kỹ thuật được gom riêng để không làm rối giao diện làm việc chính.", new[]
-            {
-                new HomeAction("Diagnostics", delegate { OpenFolder(Program.DesktopPaths.Diagnostics); }),
-                new HomeAction("Logs", delegate { OpenFolder(Program.DesktopPaths.Logs); }),
-                new HomeAction("Trình duyệt dự phòng", delegate { Program.OpenHnlQltcExternal(); })
-            }), 1, 1);
+            var back = MakeToolbarPrimaryButton("← Quay lại HNL QLTC", 180);
+            back.Location = new Point(32, 392);
+            back.Click += delegate { ShowWebApp(); };
+            panel.Controls.Add(back);
 
             return panel;
         }
@@ -528,29 +563,50 @@ namespace QLTCAnPhu
         private ContextMenuStrip BuildMoreMenu()
         {
             var menu = new ContextMenuStrip();
-            menu.Items.Add("Mở bằng trình duyệt", null, delegate { Program.OpenHnlQltcExternal(); });
-            menu.Items.Add("Mở Backup", null, delegate { OpenFolder(Program.DesktopPaths.Backup); });
-            menu.Items.Add("Mở Photos", null, delegate { OpenFolder(Program.DesktopPaths.Photos); });
-            menu.Items.Add("Mở Logs", null, delegate { OpenFolder(Program.DesktopPaths.Logs); });
+
+            var computer = new ToolStripMenuItem("Công cụ máy tính");
+            computer.DropDownItems.Add("Mở Backup", null, delegate { OpenFolder(Program.DesktopPaths.Backup); });
+            computer.DropDownItems.Add("File đã xuất", null, delegate { OpenFolder(Program.DesktopPaths.Exports); });
+            computer.DropDownItems.Add("Ảnh local", null, delegate { OpenFolder(Program.DesktopPaths.Photos); });
+            computer.DropDownItems.Add(new ToolStripSeparator());
+            computer.DropDownItems.Add("Mở màn hình công cụ", null, delegate { ShowHome(); });
+            menu.Items.Add(computer);
+
+            var sync = new ToolStripMenuItem("Đồng bộ nâng cao");
+            sync.DropDownItems.Add("Trung tâm đồng bộ", null, delegate { OpenSyncCenter(); });
+            sync.DropDownItems.Add("Quét lại dữ liệu HNL trên máy", null, delegate { RefreshLocalIndex(true); });
+            menu.Items.Add(sync);
+
+            var support = new ToolStripMenuItem("Hỗ trợ & kỹ thuật");
+            support.DropDownItems.Add("Chẩn đoán", null, delegate { OpenFolder(Program.DesktopPaths.Diagnostics); });
+            support.DropDownItems.Add("Logs", null, delegate { OpenFolder(Program.DesktopPaths.Logs); });
+            support.DropDownItems.Add("DesktopBridge", null, delegate { OpenFolder(Program.DesktopPaths.DesktopBridge); });
+            support.DropDownItems.Add(new ToolStripSeparator());
+            support.DropDownItems.Add("Mở bằng trình duyệt", null, delegate { Program.OpenHnlQltcExternal(); });
+            menu.Items.Add(support);
+
+            var appearance = new ToolStripMenuItem("Giao diện");
+            appearance.DropDownItems.Add("Chế độ gọn (F11)", null, delegate { SetCompactChrome(!compactChrome); });
+            menu.Items.Add(appearance);
+
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Sync Center", null, delegate { OpenSyncCenter(); });
-            menu.Items.Add("Quét lại dữ liệu local", null, delegate { RefreshLocalIndex(true); });
-            menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Thoát", null, delegate { allowClose = true; Close(); });
+            menu.Items.Add("Thoát HNL QLTC", null, delegate { allowClose = true; Close(); });
             return menu;
         }
 
         private Button MakeToolbarButton(string text, int width)
         {
-            var button = new Button
+            var button = new RoundedToolbarButton
             {
                 Text = text,
-                Height = 40,
+                Height = 38,
                 FlatStyle = FlatStyle.Flat,
-                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
+                Font = new Font("Segoe UI", 9.25F, FontStyle.Bold),
                 Cursor = Cursors.Hand,
-                Margin = new Padding(4, 1, 4, 1),
-                Tag = "secondary"
+                Margin = new Padding(3, 1, 3, 1),
+                Padding = new Padding(8, 0, 8, 0),
+                Tag = "secondary",
+                TabStop = true
             };
             if (width > 0) button.Width = width;
             return button;
@@ -566,7 +622,92 @@ namespace QLTCAnPhu
         private void ShowHome()
         {
             homeHost.BringToFront();
+            SetNavigationState(false);
             webStatusLabel.Text = "Trung tâm Windows • HNL QLTC Web vẫn được giữ sẵn ở nền.";
+        }
+
+        private void SetNavigationState(bool webActive)
+        {
+            // The web app is the primary destination. Native tools stay behind the More menu.
+            ApplyTheme();
+        }
+
+        private void PositionToolbarActions()
+        {
+            if (toolbarPanel == null || navPanel == null) return;
+            int right = 14;
+            int preferred = navPanel.PreferredSize.Width;
+            int x = Math.Max(180, toolbarPanel.ClientSize.Width - preferred - right);
+            navPanel.Location = new Point(x, compactChrome ? 2 : 8);
+        }
+
+        private void SetCompactChrome(bool compact)
+        {
+            compactChrome = compact;
+            rootLayout.SuspendLayout();
+            toolbarPanel.SuspendLayout();
+            navPanel.SuspendLayout();
+            try
+            {
+                rootLayout.RowStyles[0].Height = compact ? CompactHeaderHeight : NormalHeaderHeight;
+                rootLayout.RowStyles[2].Height = 0F;
+                footerPanel.Visible = false;
+
+                if (brandLogo != null) brandLogo.Visible = !compact;
+                brandLabel.Visible = !compact;
+                releaseLabel.Visible = !compact;
+
+                navPanel.Height = compact ? 36 : 38;
+                PositionToolbarActions();
+                foreach (Control control in navPanel.Controls)
+                {
+                    Button button = control as Button;
+                    if (button == null) continue;
+                    button.Height = compact ? 34 : 38;
+                    button.Margin = compact ? new Padding(2, 1, 2, 1) : new Padding(3, 1, 3, 1);
+                }
+
+                compactButton.Text = compact ? "▾" : "▴";
+                compactButton.AccessibleName = compact ? "Mở rộng thanh ứng dụng" : "Thu gọn thanh ứng dụng";
+                chromeToolTip.SetToolTip(compactButton, compact
+                    ? "Mở rộng thanh ứng dụng"
+                    : "Thu gọn thanh ứng dụng");
+            }
+            finally
+            {
+                navPanel.ResumeLayout(true);
+                toolbarPanel.ResumeLayout(true);
+                rootLayout.ResumeLayout(true);
+            }
+        }
+
+        private void ShowSyncMenu()
+        {
+            int pending = 0;
+            int ready = 0;
+            if (localStore != null && localStore.IsReady)
+            {
+                pending = localStore.CountQueuePending();
+                ready = localStore.CountQueueReady();
+            }
+            int waiting = pending + ready;
+
+            var menu = new ContextMenuStrip();
+            var status = new ToolStripMenuItem(waiting == 0 ? "✓ Tất cả đã đồng bộ" : "⚠ Còn " + waiting + " mục đang chờ")
+            {
+                Enabled = false
+            };
+            menu.Items.Add(status);
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add("Đồng bộ ngay", null, delegate
+            {
+                RefreshLocalIndex(false);
+                ShowWebApp();
+                RefreshSyncStatus();
+            });
+            menu.Items.Add("Xem chi tiết", null, delegate { OpenSyncCenter(); });
+            menu.Closed += delegate { menu.Dispose(); };
+            menu.Show(syncButton, new Point(0, syncButton.Height + 2));
         }
 
         private void OpenSyncCenter()
@@ -589,13 +730,28 @@ namespace QLTCAnPhu
             if (localStore == null || !localStore.IsReady)
             {
                 syncStatusLabel.Text = "Dữ liệu cục bộ: cần kiểm tra";
+                if (syncButton != null)
+                {
+                    syncButton.Text = "⚠  Đồng bộ";
+                    syncButton.Tag = "warning";
+                }
                 return;
             }
 
-            int waiting = localStore.CountQueuePending() + localStore.CountQueueReady();
+            int pending = localStore.CountQueuePending();
+            int ready = localStore.CountQueueReady();
+            int waiting = pending + ready;
             syncStatusLabel.Text = waiting == 0
                 ? "Dữ liệu cục bộ: Bình thường • Đồng bộ: Đã hoàn tất"
                 : "Dữ liệu cục bộ: Bình thường • Đồng bộ: Còn " + waiting + " mục";
+            if (syncButton != null)
+            {
+                syncButton.Text = waiting == 0 ? "✓  Đồng bộ" : "⚠  " + waiting + " chờ";
+                syncButton.Tag = waiting == 0 ? "success" : "warning";
+                chromeToolTip.SetToolTip(syncButton, waiting == 0
+                    ? "Tất cả dữ liệu local đã xử lý xong"
+                    : "Còn " + waiting + " mục đang chờ đồng bộ");
+            }
         }
 
         private void RefreshLocalIndex(bool showMessage)
@@ -706,6 +862,97 @@ namespace QLTCAnPhu
             catch { }
         }
 
+
+        private sealed class RoundedToolbarButton : Button
+        {
+            private bool hover;
+            private bool pressed;
+            private const int Radius = 9;
+
+            internal RoundedToolbarButton()
+            {
+                SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint, true);
+                FlatStyle = FlatStyle.Flat;
+                FlatAppearance.BorderSize = 0;
+                UseVisualStyleBackColor = false;
+            }
+
+            protected override void OnMouseEnter(EventArgs e)
+            {
+                hover = true;
+                Invalidate();
+                base.OnMouseEnter(e);
+            }
+
+            protected override void OnMouseLeave(EventArgs e)
+            {
+                hover = false;
+                pressed = false;
+                Invalidate();
+                base.OnMouseLeave(e);
+            }
+
+            protected override void OnMouseDown(MouseEventArgs mevent)
+            {
+                pressed = true;
+                Invalidate();
+                base.OnMouseDown(mevent);
+            }
+
+            protected override void OnMouseUp(MouseEventArgs mevent)
+            {
+                pressed = false;
+                Invalidate();
+                base.OnMouseUp(mevent);
+            }
+
+            protected override void OnPaint(PaintEventArgs pevent)
+            {
+                pevent.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                Rectangle rect = new Rectangle(0, 0, Math.Max(1, Width - 1), Math.Max(1, Height - 1));
+                Color fill = pressed && FlatAppearance.MouseDownBackColor != Color.Empty
+                    ? FlatAppearance.MouseDownBackColor
+                    : hover && FlatAppearance.MouseOverBackColor != Color.Empty
+                        ? FlatAppearance.MouseOverBackColor
+                        : BackColor;
+
+                using (GraphicsPath path = CreateRoundedPath(rect, Radius))
+                using (var brush = new SolidBrush(fill))
+                using (var pen = new Pen(FlatAppearance.BorderColor == Color.Empty ? fill : FlatAppearance.BorderColor))
+                {
+                    pevent.Graphics.FillPath(brush, path);
+                    pevent.Graphics.DrawPath(pen, path);
+                }
+
+                Rectangle textRect = new Rectangle(Padding.Left, 0, Math.Max(1, Width - Padding.Horizontal), Height);
+                TextRenderer.DrawText(
+                    pevent.Graphics,
+                    Text,
+                    Font,
+                    textRect,
+                    ForeColor,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis
+                );
+
+                if (Focused && ShowFocusCues)
+                {
+                    Rectangle focus = Rectangle.Inflate(rect, -4, -4);
+                    ControlPaint.DrawFocusRectangle(pevent.Graphics, focus, ForeColor, fill);
+                }
+            }
+
+            private static GraphicsPath CreateRoundedPath(Rectangle rect, int radius)
+            {
+                int diameter = Math.Max(2, radius * 2);
+                var path = new GraphicsPath();
+                path.AddArc(rect.Left, rect.Top, diameter, diameter, 180, 90);
+                path.AddArc(rect.Right - diameter, rect.Top, diameter, diameter, 270, 90);
+                path.AddArc(rect.Right - diameter, rect.Bottom - diameter, diameter, diameter, 0, 90);
+                path.AddArc(rect.Left, rect.Bottom - diameter, diameter, diameter, 90, 90);
+                path.CloseFigure();
+                return path;
+            }
+        }
 
         private sealed class HomeAction
         {

@@ -1132,6 +1132,22 @@ namespace QLTCAnPhu
                         button.FlatAppearance.MouseOverBackColor = theme.PrimaryHover;
                         button.FlatAppearance.MouseDownBackColor = theme.PrimaryHover;
                     }
+                    else if (tag == "success")
+                    {
+                        button.BackColor = theme.IsDark ? Color.FromArgb(28, 92, 66) : Color.FromArgb(229, 247, 239);
+                        button.ForeColor = theme.IsDark ? Color.FromArgb(214, 250, 233) : Color.FromArgb(22, 101, 69);
+                        button.FlatAppearance.BorderColor = theme.IsDark ? Color.FromArgb(48, 124, 93) : Color.FromArgb(175, 226, 204);
+                        button.FlatAppearance.MouseOverBackColor = theme.IsDark ? Color.FromArgb(34, 108, 77) : Color.FromArgb(218, 242, 231);
+                        button.FlatAppearance.MouseDownBackColor = button.FlatAppearance.MouseOverBackColor;
+                    }
+                    else if (tag == "warning")
+                    {
+                        button.BackColor = theme.IsDark ? Color.FromArgb(104, 75, 24) : Color.FromArgb(255, 246, 218);
+                        button.ForeColor = theme.IsDark ? Color.FromArgb(255, 235, 181) : Color.FromArgb(128, 81, 9);
+                        button.FlatAppearance.BorderColor = theme.IsDark ? Color.FromArgb(137, 103, 42) : Color.FromArgb(239, 212, 133);
+                        button.FlatAppearance.MouseOverBackColor = theme.IsDark ? Color.FromArgb(119, 87, 29) : Color.FromArgb(252, 239, 197);
+                        button.FlatAppearance.MouseDownBackColor = button.FlatAppearance.MouseOverBackColor;
+                    }
                     else
                     {
                         button.BackColor = theme.SurfaceAlt;

@@ -69,6 +69,14 @@ assert(webShell.includes('scheme == "blob"') && webShell.includes('scheme != "za
 assert(webShell.includes('WebView2Profile') && webShell.includes('UserDataFolder'), 'embedded WebView2 stores its writable browser profile under LocalAppData');
 assert(webShell.includes('Mở bằng trình duyệt') && webShell.includes('Program.OpenHnlQltcExternal()'), 'external browser remains an explicit fallback instead of the default launch path');
 assert(webShell.includes('BeginInvoke((MethodInvoker)delegate { ShowWebApp(); })'), 'desktop shell opens HNL QLTC inside the EXE automatically on startup');
+assert(webShell.includes('RoundedToolbarButton') && webShell.includes('SmoothingMode.AntiAlias') && webShell.includes('CreateRoundedPath'), 'native EXE toolbar buttons use rounded anti-aliased owner drawing');
+assert(webShell.includes('SetCompactChrome') && webShell.includes('CompactHeaderHeight') && webShell.includes('footerPanel.Visible = false'), 'native EXE supports explicit compact chrome while keeping the redundant footer hidden');
+assert(webShell.includes('Chế độ gọn (F11)') && webShell.includes('compactButton') && webShell.includes('Keys.F11'), 'compact chrome is accessible from a visible button, More menu and F11 shortcut');
+assert(!webShell.includes('MakeToolbarButton("‹"') && !webShell.includes('MakeToolbarButton("›"') && !webShell.includes('homeButton') && !webShell.includes('appButton'), 'native toolbar removes browser-like Back/Forward/Home/App duplication');
+assert(webShell.includes('ShowSyncMenu') && webShell.includes('✓  Đồng bộ') && webShell.includes('⚠  ') && webShell.includes('Đồng bộ ngay') && webShell.includes('Xem chi tiết'), 'native toolbar reduces sync to one status button with compact actions');
+assert(webShell.includes('Công cụ máy tính') && webShell.includes('Đồng bộ nâng cao') && webShell.includes('Hỗ trợ & kỹ thuật') && webShell.includes('Giao diện'), 'More menu groups secondary and technical tools instead of exposing them on the main toolbar');
+assert(webShell.includes('PositionToolbarActions') && webShell.includes('AnchorStyles.Top | AnchorStyles.Right'), 'minimal native actions stay aligned to the right at different window widths');
+assert(webShell.includes('ToolTip') && webShell.includes('AccessibleName'), 'native toolbar keeps tooltip and accessibility labels for icon-only actions');
 assert(launcher.includes('DesktopPaths.LocalDatabase') && launcher.includes('workspace.db'), 'Desktop Suite stores its local SQLite database under LocalAppData');
 assert(localStore.includes('winsqlite3.dll'), 'local workspace uses Windows inbox winsqlite3 without an external database DLL');
 assert(localStore.includes('CREATE TABLE IF NOT EXISTS workspace_files') && localStore.includes('CREATE TABLE IF NOT EXISTS sync_queue') && localStore.includes('CREATE TABLE IF NOT EXISTS sync_history'), 'SQLite schema contains workspace mirror, durable sync queue and audit history');
@@ -90,13 +98,14 @@ assert(webShell.includes('HNL_QLTC_WEBVIEW2_SMOKE_FILE') && webShell.includes('R
 assert(webShell.includes('HNL_QLTC_WEBVIEW2_PROBE_FILE') && webShell.includes('SCRIPT_TRIGGERED') && webShell.includes('POPUP_READY|') && webShell.includes('DOWNLOAD|'), 'embedded shell exposes CI-only popup/download runtime probes');
 assert(webViewRuntimeGolden.includes('WINDOWS EMBEDDED WEBVIEW2 RUNTIME GOLDEN PASS') && webViewRuntimeGolden.includes('Microsoft.Web.WebView2.Core.dll'), 'Windows runtime golden launches the real EXE and verifies embedded WebView2 extraction/readiness');
 assert(webViewRuntimeGolden.includes('POPUP_READY') && webViewRuntimeGolden.includes('DOWNLOAD') && webViewRuntimeGolden.includes('HNL_QLTC_WEBVIEW2_PROBE_FILE'), 'Windows runtime golden requires real embedded popup and download-routing probe evidence');
-assert(syncCenter.includes('Sync Center') && syncCenter.includes('Retry đã chọn (tối đa 50)') && syncCenter.includes('Mở file nguồn') && syncCenter.includes('Mở Web & đồng bộ'), 'native Sync Center exposes filtered batch retry, source navigation and Web handoff');
-assert(syncCenter.includes('DataGridView') && syncCenter.includes('Lịch sử') && syncCenter.includes('Tìm file/lỗi') && syncCenter.includes('Chọn tất cả đang lọc'), 'native Sync Center provides searchable multi-select queue and history tables');
+assert(syncCenter.includes('Trung tâm đồng bộ') && syncCenter.includes('Đồng bộ ngay') && syncCenter.includes('Xem chi tiết') && syncCenter.includes('Ẩn chi tiết'), 'native Sync Center defaults to a compact summary with progressive disclosure');
+assert(syncCenter.includes('Retry đã chọn') && syncCenter.includes('Mở file nguồn') && !syncCenter.includes('Mở DesktopBridge'), 'technical queue actions remain available only in detailed mode while DesktopBridge is hidden from normal Sync Center');
+assert(syncCenter.includes('DataGridView') && syncCenter.includes('Lịch sử') && syncCenter.includes('Tìm file/lỗi') && syncCenter.includes('Chọn tất cả'), 'native Sync Center keeps searchable multi-select queue/history behind the detail toggle');
 assert(localStore.includes('RetryQueueItem') && localStore.includes('RetryQueueItems') && localStore.includes('GetQueueRows') && localStore.includes('GetHistoryRows'), 'SQLite engine exposes controlled single and batch queue management APIs');
 assert(localStore.includes('operationGate') && localStore.includes('lock (operationGate)'), 'SQLite transaction and UI operations are serialized by an operation-level gate');
 assert(localStore.includes('EnumerateFilesSafe') && localStore.includes('FileAttributes.ReparsePoint'), 'workspace scanning tolerates inaccessible/transient folders and skips reparse cycles');
 assert(localStore.includes('RunRetentionMaintenanceIfDue') && localStore.includes('LIMIT 5000') && localStore.includes('AddDays(-90)') && localStore.includes('AddDays(-30)'), 'local queue/history retention is bounded and runs on a controlled schedule');
-assert(localStore.includes('GetQueueStats') && syncCenter.includes('FormatBytes') && syncCenter.includes('Tiến độ audit'), 'Sync Center exposes queue volume and progress statistics');
+assert(localStore.includes('GetQueueStats') && syncCenter.includes('FormatBytes') && syncCenter.includes('Tất cả đã đồng bộ') && syncCenter.includes('lỗi/retry'), 'Sync Center summarizes queue health in user-facing language');
 assert(syncCenter.includes('MultiSelect = true') && syncCenter.includes('RetryQueueItems(keys, 50)'), 'Sync Center supports capped multi-select retry');
 assert(localStore.includes('cloud_verified') && localStore.includes('manual_retry'), 'queue completion and manual retry are auditable');
 assert(localStore.includes('bridge_nonce') && localStore.includes('AttemptToken') && localStore.includes('BRIDGE') === false, 'SQLite bridge binds each ready queue item to a one-time attempt token without adding cloud transport');
@@ -108,7 +117,7 @@ assert(webBridge.includes('BRIDGE_ATTEMPT_TOKEN_INVALID') && webBridge.includes(
 assert(!webBridge.includes('uploadProjectBinaryToR2') && !webBridge.includes('fetch('), 'Web bridge does not introduce a direct R2/network upload authority');
 assert(bridgeCard.includes('Windows Desktop Sync Bridge') && configTab.includes('WindowsDesktopSyncBridgeCard'), 'Settings exposes Windows App Sync Bridge controls');
 assert(build.includes('release-tag.txt'), 'build script uses release tag for cache/version isolation');
-assert(releaseTag === '6.3.0-rc2.2.26.1', 'desktop release tag identifies the RC2.2.26.1 WebView2 runtime hardening build');
+assert(releaseTag === '6.3.0-rc2.2.26.4', 'desktop release tag identifies the RC2.2.26.4 minimal chrome + offline mirror candidate');
 
 assert(iconSource.width >= 1024 && iconSource.height >= 1024 && iconSource.bytes > 1_000_000, 'HQ HNL logo source is retained at >=1024px');
 assert(taskbar192.width === 192 && taskbar192.height === 192, 'browser app-mode has dedicated 192x192 HNL icon');

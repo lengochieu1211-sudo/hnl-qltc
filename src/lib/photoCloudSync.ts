@@ -25,12 +25,43 @@ import { downloadPhotoFromPrimaryDrive } from './primaryDriveBridge';
 import { LEGACY_DRIVE_READ_FALLBACK } from '../config/runtimeArchitecture';
 import { BINARY_STORAGE_PROVIDER, downloadBinaryBlob, uploadProjectBinaryToCloud, verifyBinaryObjectReady } from './binaryStorage';
 import { appendRuntimeDiagnostic } from './runtimeDiagnostics';
+import { shouldAutoMirrorProjectBinaries } from './offlineMirrorSettings';
 
 const photoSyncErrorCode = (err: unknown): string => {
   const message = err instanceof Error ? err.message : String(err || '');
   const match = message.match(/^(R2_[A-Z0-9_]+|PHOTO_[A-Z0-9_]+|[A-Z0-9_]+):?/);
   return match?.[1] || 'PHOTO_SYNC_FAILED';
 };
+
+const mirroredPhotoPrefetchInFlight = new Set<string>();
+
+async function prefetchOfflineMirrorPhotos(projectId: string, photos: PhotoAttachment[]): Promise<void> {
+  if (!projectId || !shouldAutoMirrorProjectBinaries(projectId)) return;
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+  const candidates = photos.filter((photo) => photo?.id && !photo.deleted && !photo.deletedAt && isPhotoSharedCloudReady(photo));
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(3, Math.max(1, candidates.length)) }, async () => {
+    while (true) {
+      const index = cursor++;
+      if (index >= candidates.length) return;
+      const photo = candidates[index];
+      const key = `${projectId}:${photo.id}`;
+      if (mirroredPhotoPrefetchInFlight.has(key)) continue;
+      mirroredPhotoPrefetchInFlight.add(key);
+      try {
+        const localBlob = await getPhotoBlob(photo.id, false).catch(() => null);
+        if (!localBlob || localBlob.size <= 0) {
+          await downloadPhotoBlobFromCloud(projectId, photo.id, photo.mimeType || 'image/jpeg');
+        }
+      } catch (err) {
+        console.warn('[Offline Mirror] photo prefetch warning:', photo.id, err);
+      } finally {
+        mirroredPhotoPrefetchInFlight.delete(key);
+      }
+    }
+  });
+  await Promise.all(workers);
+}
 
 // RC2.2.6: Firestore remains the realtime source of truth; binary media is routed
 // through a provider adapter. PROD uses private Cloudflare R2 via an authenticated
@@ -738,6 +769,9 @@ export function subscribeProjectPhotosRealtime(
         if (cancelled) return;
         await mergeCloudPhotoMetadata(projectId, cloudPhotos, changedPhotos);
         if (cancelled) return;
+        if (shouldAutoMirrorProjectBinaries(projectId)) {
+          void prefetchOfflineMirrorPhotos(projectId, snapshotIsInitial ? cloudPhotos : changedPhotos);
+        }
         console.debug('[photo snapshot]', projectId, 'docs=', snap.size, 'changes=', changes.length, 'initial=', snapshotIsInitial);
         const activeUid = getCurrentRealFirebaseUser()?.uid || '';
         const localAfterMerge = await getProjectPhotos(projectId, true);
