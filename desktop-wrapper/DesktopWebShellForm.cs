@@ -303,6 +303,7 @@ namespace QLTCAnPhu
                 trayIcon.Visible = false;
                 trayIcon.Dispose();
                 moreMenu.Dispose();
+                chromeToolTip.Dispose();
                 SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
                 if (ReferenceEquals(Current, this)) Current = null;
             };
@@ -317,6 +318,7 @@ namespace QLTCAnPhu
             }
 
             webHost.BringToFront();
+            SetNavigationState(true);
             if (!webInitializationStarted)
             {
                 InitializeEmbeddedWeb();
@@ -446,16 +448,16 @@ namespace QLTCAnPhu
             var panel = new Panel
             {
                 Dock = DockStyle.Fill,
-                Padding = new Padding(28),
+                Padding = new Padding(32),
                 Tag = "root"
             };
 
             var heading = new Label
             {
                 AutoSize = true,
-                Text = "Trung tâm Windows",
-                Font = new Font("Segoe UI", 22F, FontStyle.Bold),
-                Location = new Point(28, 24),
+                Text = "Công cụ máy tính",
+                Font = new Font("Segoe UI", 20F, FontStyle.Bold),
+                Location = new Point(32, 28),
                 Tag = "title"
             };
             panel.Controls.Add(heading);
@@ -463,57 +465,48 @@ namespace QLTCAnPhu
             var sub = new Label
             {
                 AutoSize = true,
-                Text = "Các công cụ local được giữ riêng; HNL QLTC Web chạy trực tiếp trong EXE.",
-                Location = new Point(31, 66),
+                Text = "Chỉ mở khi cần. HNL QLTC vẫn là màn hình làm việc chính.",
+                Location = new Point(35, 68),
                 Tag = "muted"
             };
             panel.Controls.Add(sub);
 
             var grid = new TableLayoutPanel
             {
-                Location = new Point(28, 112),
-                Size = new Size(1100, 430),
+                Location = new Point(32, 112),
+                Size = new Size(1050, 250),
                 ColumnCount = 2,
-                RowCount = 2,
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom,
+                RowCount = 1,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 Tag = "root"
             };
             grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
             grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
-            grid.RowStyles.Add(new RowStyle(SizeType.Percent, 50F));
-            grid.RowStyles.Add(new RowStyle(SizeType.Percent, 50F));
+            grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
             panel.Controls.Add(grid);
 
             panel.Resize += delegate
             {
-                grid.Size = new Size(Math.Max(600, panel.ClientSize.Width - 56), Math.Max(320, panel.ClientSize.Height - 150));
+                grid.Size = new Size(Math.Max(620, panel.ClientSize.Width - 64), 250);
             };
 
-            grid.Controls.Add(BuildHomeCard("Dữ liệu & Sao lưu", "Backup và Imports được lưu riêng trong Documents\\HNL QLTC.", new[]
+            grid.Controls.Add(BuildHomeCard("Dữ liệu HNL trên máy", "Các thư mục người dùng thường cần xem. Công cụ kỹ thuật được ẩn khỏi màn hình này.", new[]
             {
-                new HomeAction("Backup", delegate { OpenFolder(Program.DesktopPaths.Backup); }),
-                new HomeAction("Imports", delegate { OpenFolder(Program.DesktopPaths.Imports); })
+                new HomeAction("Mở Backup", delegate { OpenFolder(Program.DesktopPaths.Backup); }),
+                new HomeAction("File đã xuất", delegate { OpenFolder(Program.DesktopPaths.Exports); }),
+                new HomeAction("Ảnh local", delegate { OpenFolder(Program.DesktopPaths.Photos); })
             }), 0, 0);
 
-            grid.Controls.Add(BuildHomeCard("Xuất hồ sơ", "Mở nhanh Excel, PDF và Reports của HNL QLTC.", new[]
+            grid.Controls.Add(BuildHomeCard("Đồng bộ", "Theo dõi dữ liệu local chờ xử lý. Khi mọi thứ bình thường, bạn không cần mở phần chi tiết.", new[]
             {
-                new HomeAction("Excel", delegate { OpenFolder(Program.DesktopPaths.Excel); }),
-                new HomeAction("PDF", delegate { OpenFolder(Program.DesktopPaths.Pdf); }),
-                new HomeAction("Reports", delegate { OpenFolder(Program.DesktopPaths.Reports); })
+                new HomeAction("Trung tâm đồng bộ", delegate { OpenSyncCenter(); }),
+                new HomeAction("Đồng bộ ngay", delegate { ShowWebApp(); RefreshLocalIndex(false); })
             }), 1, 0);
 
-            grid.Controls.Add(BuildHomeCard("Ảnh hiện trường & đồng bộ", "Ảnh local, queue/history và thao tác retry được giữ trong Sync Center.", new[]
-            {
-                new HomeAction("Photos", delegate { OpenFolder(Program.DesktopPaths.Photos); }),
-                new HomeAction("Sync Center", delegate { OpenSyncCenter(); })
-            }), 0, 1);
-
-            grid.Controls.Add(BuildHomeCard("Hỗ trợ & chẩn đoán", "Công cụ kỹ thuật được gom riêng để không làm rối giao diện làm việc chính.", new[]
-            {
-                new HomeAction("Diagnostics", delegate { OpenFolder(Program.DesktopPaths.Diagnostics); }),
-                new HomeAction("Logs", delegate { OpenFolder(Program.DesktopPaths.Logs); }),
-                new HomeAction("Trình duyệt dự phòng", delegate { Program.OpenHnlQltcExternal(); })
-            }), 1, 1);
+            var back = MakeToolbarPrimaryButton("← Quay lại HNL QLTC", 180);
+            back.Location = new Point(32, 392);
+            back.Click += delegate { ShowWebApp(); };
+            panel.Controls.Add(back);
 
             return panel;
         }
