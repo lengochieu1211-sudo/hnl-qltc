@@ -714,9 +714,9 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           lazy
         >
           <div className="space-y-3">
-            {syncCenterContent}
             <ProjectOfflineMirrorCard activeProjectId={activeProjectId} floorPlans={floorPlans} />
             <WindowsDesktopSyncBridgeCard activeProjectId={activeProjectId} userRole={userRole} />
+            {syncCenterContent}
           </div>
         </SettingsAccordionCard>
       )}
