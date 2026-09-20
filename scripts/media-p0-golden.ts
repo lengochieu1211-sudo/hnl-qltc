@@ -49,8 +49,17 @@ check(cloudSync.includes('uploadProjectBinaryToCloud'), 'Photo Cloud sync must r
 check(cloudSync.includes("binaryUploadState: 'ready'"), 'Photo metadata must publish an explicit ready state only after upload.');
 
 const storageRules = read('storage.rules');
-check(storageRules.includes('match /projects/{projectId}/media/{entityType}/{entityId}/{assetId}/{fileName}'), 'Storage rules must preserve project/entity/asset isolation for versioned media paths.');
-check(storageRules.includes('request.resource.metadata.assetId == assetId'), 'Storage rules must bind metadata assetId to the immutable path segment.');
-check(storageRules.includes('request.resource.metadata.createdByUid == request.auth.uid'), 'Storage rules must bind object uploader metadata to Firebase auth uid.');
+check(storageRules.includes('match /projects/{projectId}/media/{entityType}/{entityId}/{assetId}/{fileName}'), 'Storage rules must preserve project/entity/asset isolation for legacy media paths.');
+check(storageRules.includes('allow create, update: if false;'), 'Firebase Storage must remain legacy read/purge only; new binary writes belong to R2.');
+check(storageRules.includes('allow delete: if isAdmin(projectId);'), 'Firebase Storage legacy binary purge must remain ADMIN-only.');
+for (const obsoleteHelper of ['function validSize(', 'function validContentType(', 'function identityMetadata(', 'function updateKeepsIdentity(']) {
+  check(!storageRules.includes(obsoleteHelper), `Storage rules must not retain obsolete write helper: ${obsoleteHelper}`);
+}
+
+const r2Gateway = read('cloudflare/r2-gateway/worker.js');
+check(r2Gateway.includes("const sha256 = await sha256Hex(arrayBuffer);"), 'R2 write authority must hash uploaded bytes.');
+check(r2Gateway.includes("customMetadata = { ...customMetadata, sha256 };"), 'R2 object metadata must persist content SHA-256.');
+check(r2Gateway.includes("IMMUTABLE_OBJECT_CONFLICT"), 'R2 write authority must reject same-key replacement with different bytes.');
+check(r2Gateway.includes("sameBytes = existingSha && existingSha === sha256"), 'R2 immutable retry must verify existing SHA-256 before accepting a repeated PUT.');
 
 console.log('Media P0 atomic publication golden PASS');
