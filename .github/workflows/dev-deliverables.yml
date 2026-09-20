@@ -14,6 +14,10 @@ jobs:
     name: Firebase Rules certification
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      FIREBASE_RULES_ATTEMPT_TIMEOUT_MS: "180000"
+      FIREBASE_RULES_MAX_ATTEMPTS: "2"
+      FIREBASE_RULES_STEP_BUDGET_MS: "480000"
     steps:
       - name: Checkout exact DEV head
         uses: actions/checkout@v4
@@ -24,6 +28,14 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: package-lock.json
+
+      - name: Cache Firebase emulator binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: ${{ runner.os }}-firebase-emulators-v13.35.1
+          restore-keys: |
+            ${{ runner.os }}-firebase-emulators-
 
       - name: Install exact locked dependencies
         run: npm ci
