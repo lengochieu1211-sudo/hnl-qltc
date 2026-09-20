@@ -71,99 +71,112 @@ namespace QLTCAnPhu
                 Margin = new Padding(0),
                 Tag = "root"
             };
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 68F));
-            root.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 34F));
-            Controls.Add(root);
+            rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, NormalHeaderHeight));
+            rootLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, NormalFooterHeight));
+            Controls.Add(rootLayout);
 
-            var toolbar = new Panel
+            toolbarPanel = new Panel
             {
                 Dock = DockStyle.Fill,
-                Padding = new Padding(16, 10, 16, 10),
+                Padding = new Padding(14, 8, 14, 8),
                 Margin = new Padding(0),
                 Tag = "header"
             };
-            root.Controls.Add(toolbar, 0, 0);
+            rootLayout.Controls.Add(toolbarPanel, 0, 0);
 
             if (Icon != null)
             {
-                toolbar.Controls.Add(new PictureBox
+                brandLogo = new PictureBox
                 {
-                    Size = new Size(42, 42),
-                    Location = new Point(16, 13),
+                    Size = new Size(32, 32),
+                    Location = new Point(14, 11),
                     SizeMode = PictureBoxSizeMode.Zoom,
                     Image = Icon.ToBitmap(),
                     BackColor = Color.Transparent
-                });
+                };
+                toolbarPanel.Controls.Add(brandLogo);
             }
 
-            var brand = new Label
+            brandLabel = new Label
             {
                 AutoSize = true,
                 Text = "HNL QLTC",
-                Font = new Font("Segoe UI", 15F, FontStyle.Bold),
-                Location = new Point(68, 12),
+                Font = new Font("Segoe UI", 12.5F, FontStyle.Bold),
+                Location = new Point(54, 8),
                 Tag = "title"
             };
-            toolbar.Controls.Add(brand);
+            toolbarPanel.Controls.Add(brandLabel);
 
-            var release = new Label
+            releaseLabel = new Label
             {
                 AutoSize = true,
                 Text = Program.GetReleaseTag(),
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
-                Location = new Point(70, 40),
+                Font = new Font("Segoe UI", 8.25F, FontStyle.Bold),
+                Location = new Point(55, 31),
                 Tag = "subtle"
             };
-            toolbar.Controls.Add(release);
+            toolbarPanel.Controls.Add(releaseLabel);
 
-            var nav = new FlowLayoutPanel
+            navPanel = new FlowLayoutPanel
             {
                 AutoSize = true,
-                Height = 46,
+                Height = 38,
                 FlowDirection = FlowDirection.LeftToRight,
                 WrapContents = false,
-                Location = new Point(220, 11),
+                Location = new Point(190, 8),
+                Padding = new Padding(0),
+                Margin = new Padding(0),
                 Tag = "header"
             };
-            toolbar.Controls.Add(nav);
+            navPanel.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            toolbarPanel.Controls.Add(navPanel);
+            toolbarPanel.Resize += delegate { PositionToolbarActions(); };
 
-            var backButton = MakeToolbarButton("←", 42);
-            backButton.Click += delegate { if (embeddedRuntime != null) embeddedRuntime.GoBack(); };
-            nav.Controls.Add(backButton);
+            syncButton = MakeToolbarPrimaryButton("✓  Đồng bộ", 112);
+            syncButton.AccessibleName = "Trạng thái đồng bộ";
+            syncButton.Click += delegate { ShowSyncMenu(); };
+            navPanel.Controls.Add(syncButton);
 
-            var forwardButton = MakeToolbarButton("→", 42);
-            forwardButton.Click += delegate { if (embeddedRuntime != null) embeddedRuntime.GoForward(); };
-            nav.Controls.Add(forwardButton);
-
-            var homeButton = MakeToolbarButton("Trang chủ", 100);
-            homeButton.Click += delegate { ShowHome(); };
-            nav.Controls.Add(homeButton);
-
-            var appButton = MakeToolbarPrimaryButton("HNL QLTC", 112);
-            appButton.Click += delegate { ShowWebApp(); };
-            nav.Controls.Add(appButton);
-
-            var syncButton = MakeToolbarButton("Đồng bộ", 100);
-            syncButton.Click += delegate { OpenSyncCenter(); };
-            nav.Controls.Add(syncButton);
-
-            var reloadButton = MakeToolbarButton("↻ Tải lại", 92);
+            var reloadButton = MakeToolbarButton("↻", 40);
+            reloadButton.Font = new Font("Segoe UI", 13F, FontStyle.Bold);
+            reloadButton.AccessibleName = "Tải lại HNL QLTC";
             reloadButton.Click += delegate
             {
                 ShowWebApp();
                 if (embeddedRuntime != null) embeddedRuntime.Reload();
             };
-            nav.Controls.Add(reloadButton);
+            navPanel.Controls.Add(reloadButton);
 
-            var moreButton = MakeToolbarButton("⋯", 46);
-            nav.Controls.Add(moreButton);
+            var moreButton = MakeToolbarButton("⋯", 40);
+            moreButton.Font = new Font("Segoe UI", 14F, FontStyle.Bold);
+            moreButton.AccessibleName = "Tùy chọn khác";
+            navPanel.Controls.Add(moreButton);
+
+            compactButton = MakeToolbarButton("▴", 38);
+            compactButton.Font = new Font("Segoe UI", 11F, FontStyle.Bold);
+            compactButton.AccessibleName = "Thu gọn thanh ứng dụng";
+            compactButton.Click += delegate { SetCompactChrome(!compactChrome); };
+            navPanel.Controls.Add(compactButton);
+
+            chromeToolTip = new ToolTip
+            {
+                AutoPopDelay = 6000,
+                InitialDelay = 400,
+                ReshowDelay = 150,
+                ShowAlways = true
+            };
+            chromeToolTip.SetToolTip(syncButton, "Xem trạng thái đồng bộ");
+            chromeToolTip.SetToolTip(reloadButton, "Tải lại HNL QLTC");
+            chromeToolTip.SetToolTip(moreButton, "Công cụ và tùy chọn khác");
+            chromeToolTip.SetToolTip(compactButton, "Thu gọn thanh trên và ẩn thanh trạng thái dưới");
 
             moreMenu = BuildMoreMenu();
             moreButton.Click += delegate
             {
-                moreMenu.Show(moreButton, new Point(0, moreButton.Height));
+                moreMenu.Show(moreButton, new Point(0, moreButton.Height + 2));
             };
+            PositionToolbarActions();
 
             contentHost = new Panel
             {
@@ -172,7 +185,7 @@ namespace QLTCAnPhu
                 Margin = new Padding(0),
                 Tag = "root"
             };
-            root.Controls.Add(contentHost, 0, 1);
+            rootLayout.Controls.Add(contentHost, 0, 1);
 
             webHost = new Panel
             {
@@ -187,7 +200,7 @@ namespace QLTCAnPhu
             homeHost.Dock = DockStyle.Fill;
             contentHost.Controls.Add(homeHost);
 
-            var footer = new TableLayoutPanel
+            footerPanel = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 2,
@@ -196,9 +209,9 @@ namespace QLTCAnPhu
                 Margin = new Padding(0),
                 Tag = "root"
             };
-            footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55F));
-            footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 45F));
-            root.Controls.Add(footer, 0, 2);
+            footerPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55F));
+            footerPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 45F));
+            rootLayout.Controls.Add(footerPanel, 0, 2);
 
             webStatusLabel = new Label
             {
