@@ -124,7 +124,7 @@ assert(webBridge.includes('BRIDGE_SOURCE_SHA256_MISMATCH') && webBridge.includes
 assert(webBridge.includes('showDirectoryPicker') && webBridge.includes('createWritable'), 'Web bridge uses explicit File System Access permission and writes local ACK only after verification');
 assert(webBridge.includes('BRIDGE_ATTEMPT_TOKEN_INVALID') && webBridge.includes('BRIDGE_PHOTO_ID_MISMATCH') && webBridge.includes('attemptToken'), 'Web bridge validates one-time attempt token and deterministic photo ID before ACK');
 assert(!webBridge.includes('uploadProjectBinaryToR2') && !webBridge.includes('fetch('), 'Web bridge does not introduce a direct R2/network upload authority');
-assert(bridgeCard.includes('Windows Desktop Sync Bridge') && configTab.includes('WindowsDesktopSyncBridgeCard'), 'Settings exposes Windows App Sync Bridge controls');
+assert(bridgeCard.includes('Windows Desktop Sync Bridge') && bridgeCard.includes('/Windows/i.test(navigator.userAgent') && configTab.includes('WindowsDesktopSyncBridgeCard'), 'Settings Sync Center exposes Windows-only App Sync Bridge controls');
 assert(build.includes('release-tag.txt'), 'build script uses release tag for cache/version isolation');
 assert(releaseTag === '6.3.0-rc2.2.26.13', 'desktop release tag identifies the RC2.2.26.13 certified Windows toolbar/runtime candidate');
 

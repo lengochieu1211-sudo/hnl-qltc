@@ -123,7 +123,7 @@ for (const marker of [
   if (!offlineMirrorSettings.includes(marker)) fail(`offline mirror settings missing ${marker}`);
 }
 for (const marker of [
-  'Dữ liệu offline trên PC',
+  'Dữ liệu offline trên thiết bị',
   'Giữ sẵn offline: Bật',
   'Đồng bộ offline ngay',
   'Cloud vẫn là nguồn chuẩn',
@@ -131,6 +131,13 @@ for (const marker of [
   if (!offlineMirrorCard.includes(marker)) fail(`offline mirror UI missing ${marker}`);
 }
 if (!googleConfigTab.includes('<ProjectOfflineMirrorCard activeProjectId={activeProjectId} floorPlans={floorPlans} />')) fail('offline mirror card is not integrated into Settings');
+const syncCenterStart = googleConfigTab.indexOf('title="Trung tâm đồng bộ & sao lưu"');
+const healthCenterStart = googleConfigTab.indexOf('title="HNL Health Center"');
+const offlineCardStart = googleConfigTab.indexOf('<ProjectOfflineMirrorCard');
+const bridgeCardStart = googleConfigTab.indexOf('<WindowsDesktopSyncBridgeCard');
+if (!(syncCenterStart >= 0 && offlineCardStart > syncCenterStart && bridgeCardStart > syncCenterStart && healthCenterStart > bridgeCardStart)) fail('offline/Windows sync controls must stay in Sync & Backup Center before Health Center');
+const healthCenterSource = googleConfigTab.slice(healthCenterStart);
+if (healthCenterSource.includes('<ProjectOfflineMirrorCard') || healthCenterSource.includes('<WindowsDesktopSyncBridgeCard') || healthCenterSource.includes('Mặt bằng offline:')) fail('Health Center must remain diagnostic-only');
 if (!photoCloudSync.includes('shouldAutoMirrorProjectBinaries(projectId)') || !photoCloudSync.includes('prefetchOfflineMirrorPhotos')) fail('realtime photo stream does not keep opted-in offline mirror warm');
 pass('project Offline Mirror reuses Firestore persistent cache + photo IndexedDB + floor-plan cache without creating a second Cloud authority');
 

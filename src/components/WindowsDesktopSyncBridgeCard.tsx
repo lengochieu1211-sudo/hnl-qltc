@@ -12,6 +12,7 @@ export const WindowsDesktopSyncBridgeCard: React.FC<Props> = ({ activeProjectId,
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [result, setResult] = useState<WindowsDesktopBridgeResult | null>(null);
+  const isWindowsDevice = useMemo(() => typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent || ''), []);
   const supported = useMemo(() => windowsDesktopBridgeSupported(), []);
   const canWrite = userRole !== 'VIEWER';
 
@@ -28,6 +29,8 @@ export const WindowsDesktopSyncBridgeCard: React.FC<Props> = ({ activeProjectId,
       setBusy(false);
     }
   };
+
+  if (!isWindowsDevice) return null;
 
   return (
     <div className="rounded-xl border border-sky-200 bg-sky-50/60 p-3 space-y-2.5">

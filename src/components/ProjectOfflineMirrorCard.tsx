@@ -104,7 +104,7 @@ export const ProjectOfflineMirrorCard: React.FC<Props> = ({ activeProjectId, flo
           <div className="flex items-center gap-1.5 text-[11px] font-extrabold text-slate-800">
             <Database className="h-4 w-4 text-emerald-700" /> Dữ liệu offline trên thiết bị
           </div>
-          <div className="mt-1 text-[10px] text-slate-600">Giữ dữ liệu dự án, ảnh và mặt bằng trong cache WebView2/IndexedDB để mở nhanh và tiếp tục làm việc khi mất mạng. Cloud vẫn là nguồn chuẩn.</div>
+          <div className="mt-1 text-[10px] text-slate-600">Giữ dữ liệu dự án, ảnh và mặt bằng trong cache local/IndexedDB để mở nhanh và tiếp tục làm việc khi mất mạng. Cloud vẫn là nguồn chuẩn.</div>
         </div>
         <span className={`shrink-0 rounded-lg border px-2 py-1 text-[9px] font-extrabold ${ready ? 'border-emerald-200 bg-white text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
           {ready ? 'Offline sẵn sàng' : `${totalReady}/${totalItems || 0} sẵn sàng`}

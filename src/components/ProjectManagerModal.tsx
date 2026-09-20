@@ -18,8 +18,6 @@ import {
   fetchProjectFromCloud,
   getCloudPayload,
   CloudBackupRecord,
-  signInWithGoogle,
-  signOutGoogle,
   onAuthUserChanged,
   subscribeProjectSharedSettings,
   saveProjectSharedSettings,
@@ -142,7 +140,6 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   // Google Auth state is declared before the Cloud project subscription so that
   // the subscription can restart whenever Firebase restores/switches accounts.
   const [googleUser, setGoogleUser] = useState<FirebaseUser | null>(null);
-  const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
 
   useEffect(() => {
     if (!isOpen || !googleUser?.uid || !googleUser?.email) return;
@@ -458,32 +455,6 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     });
     return () => unsub();
   }, []);
-
-  const handleGoogleSignIn = async () => {
-    try {
-      setIsGoogleSigningIn(true);
-      const user = await signInWithGoogle();
-      if (user) {
-        const { saveUserProfileToCloud } = await import('../lib/firebase');
-        await saveUserProfileToCloud(user).catch(() => {});
-      }
-      setCloudStatusMsg({ type: 'success', text: '✅ Đăng nhập Google thành công! Dữ liệu Cloud được bảo vệ an toàn.' });
-      await fetchCloudBackups();
-    } catch (err: any) {
-      setCloudStatusMsg({ type: 'error', text: 'Lỗi đăng nhập Google: ' + (err?.message || err) });
-    } finally {
-      setIsGoogleSigningIn(false);
-    }
-  };
-
-  const handleGoogleSignOut = async () => {
-    try {
-      await signOutGoogle();
-      setCloudStatusMsg({ type: 'success', text: 'Đã đăng xuất tài khoản Google.' });
-    } catch (err: any) {
-      setCloudStatusMsg({ type: 'error', text: 'Lỗi đăng xuất: ' + (err?.message || err) });
-    }
-  };
 
   // Encrypted Backup (AES-GCM) states
   const [exportEncrypt, setExportEncrypt] = useState(false);
@@ -3507,62 +3478,13 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                 <div className="flex items-center justify-between">
                   <span className="font-extrabold text-indigo-900 text-xs flex items-center gap-1.5">
                     <Cloud className="w-4 h-4 text-indigo-600" />
-                    Đồng bộ dữ liệu
+                    Đồng bộ dữ liệu dự án
                   </span>
                   <span className="text-[9px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-bold border border-indigo-200 flex items-center gap-1">
                     <Smartphone className="w-2.5 h-2.5" /> <Monitor className="w-2.5 h-2.5" /> Nhiều thiết bị
                   </span>
                 </div>
 
-                {/* Google Authentication Account Card */}
-                <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-                  <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex min-w-0 flex-1 items-center gap-2">
-                      <div className="w-7 h-7 rounded-full bg-white border border-slate-200 flex items-center justify-center overflow-hidden shrink-0 shadow-2xs">
-                        {googleUser?.photoURL ? (
-                          <img src={googleUser.photoURL} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                        ) : (
-                          <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                        )}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-[11px] font-bold text-slate-800 truncate">
-                          {googleUser?.displayName || (googleUser?.email ? googleUser.email.split('@')[0] : 'Phiên Ẩn Danh Firebase')}
-                        </p>
-                        <p className="text-[9px] text-slate-400 truncate font-mono">
-                          {googleUser?.email ? googleUser.email : 'Chưa liên kết tài khoản Google'}
-                        </p>
-                      </div>
-                    </div>
-
-                    {googleUser && !googleUser.isAnonymous ? (
-                      <button
-                        type="button"
-                        onClick={handleGoogleSignOut}
-                        className="w-full px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-[10px] font-bold rounded-lg transition-colors cursor-pointer sm:w-auto sm:shrink-0"
-                      >
-                        Đăng xuất
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={handleGoogleSignIn}
-                        disabled={isGoogleSigningIn}
-                        className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-[10.5px] font-bold text-white shadow-2xs transition-colors hover:bg-indigo-700 disabled:opacity-50 sm:w-auto sm:shrink-0"
-                      >
-                        {isGoogleSigningIn ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Key className="w-3 h-3" />}
-                        <span>Đăng nhập Google/Firebase</span>
-                      </button>
-                    )}
-                  </div>
-                  <p className="text-[9.5px] text-slate-500 italic">
-                    {googleUser && !googleUser.isAnonymous 
-                      ? '🔒 Đã xác thực. Dự án được nhận diện theo tài khoản và đồng bộ tự động giữa các thiết bị.' 
-                      : 'ℹ️ Đăng nhập Firebase một lần. Firestore là dữ liệu nghiệp vụ duy nhất; Firebase Storage là nguồn ảnh/file mới duy nhất.'}
-                  </p>
-                </div>
-
-                
                 {/* Cloud Status Message */}
                 {cloudStatusMsg && (
                   <div className={`p-3 rounded-xl border font-bold text-xs flex flex-col gap-2 animate-in fade-in duration-150 mb-2 ${
@@ -3594,15 +3516,15 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   </div>
                 )}
 
-                {/* Primary multi-device flow: account first, automatic sync by projectId. */}
+                {/* Primary multi-device flow: projectId + verified project permission. */}
                 <div className="bg-indigo-50/60 p-2.5 rounded-xl border border-indigo-100 space-y-2">
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <p className="font-bold text-indigo-950 text-[11px] flex items-center gap-1">
-                        <Share2 className="w-3.5 h-3.5 text-indigo-600" /> Đồng bộ tự động theo tài khoản
+                        <Share2 className="w-3.5 h-3.5 text-indigo-600" /> Đồng bộ dữ liệu dự án
                       </p>
                       <p className="text-[9.5px] text-indigo-800/80 mt-1 leading-relaxed">
-                        Dữ liệu dự án được tự động đồng bộ giữa các thiết bị bằng Firebase.
+                        Dữ liệu dự án được tự động đồng bộ giữa các thiết bị có quyền truy cập bằng Firebase.
                       </p>
                     </div>
                     <span className={`shrink-0 text-[9px] px-2 py-1 rounded-full font-bold border ${
@@ -3613,7 +3535,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                       dataCloudStatus?.phase === 'syncing' ? 'bg-blue-50 text-blue-700 border-blue-200' :
                       'bg-emerald-50 text-emerald-700 border-emerald-200'
                     }`}>
-                      {!googleUser || googleUser.isAnonymous ? 'Cần đăng nhập' :
+                      {!googleUser || googleUser.isAnonymous ? 'Chưa xác thực' :
                        typeof navigator !== 'undefined' && !navigator.onLine ? '● Offline' :
                        dataCloudStatus?.phase === 'conflict' ? '● Có xung đột' :
                        dataCloudStatus?.phase === 'error' ? '● Có lỗi đồng bộ' :
@@ -3631,17 +3553,19 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                       <p className="font-bold text-slate-800">Dữ liệu + ảnh đầy đủ</p>
                     </div>
                   </div>
-                  {googleUser && !googleUser.isAnonymous && (
-                    <div className="text-[9px] text-slate-500 space-y-1">
+                  <div className="text-[9px] text-slate-500 space-y-1">
+                    {googleUser && !googleUser.isAnonymous ? (
                       <p className="flex items-center justify-between gap-2">
-                        <span>Dữ liệu nghiệp vụ đồng bộ realtime bằng Firestore; ảnh/file mới lưu duy nhất trong Firebase Storage.</span>
+                        <span>Dữ liệu nghiệp vụ đồng bộ realtime bằng Firestore; ảnh/file mới lưu qua R2 theo quyền dự án.</span>
                         {dataCloudStatus?.lastSyncAt ? <span className="shrink-0">Lần cuối {new Date(dataCloudStatus.lastSyncAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</span> : null}
                       </p>
-                      {(dataCloudStatus?.phase === 'error' || dataCloudStatus?.phase === 'conflict') && dataCloudStatus.message ? (
-                        <p className="text-rose-600 font-semibold">Chưa ghi được lên Firebase: {dataCloudStatus.message}</p>
-                      ) : null}
-                    </div>
-                  )}
+                    ) : (
+                      <p className="font-semibold text-amber-700">Tài khoản chưa xác thực. Đăng nhập/đăng xuất được quản lý tại Trung tâm phân quyền.</p>
+                    )}
+                    {(dataCloudStatus?.phase === 'error' || dataCloudStatus?.phase === 'conflict') && dataCloudStatus.message ? (
+                      <p className="text-rose-600 font-semibold">Chưa ghi được lên Firebase: {dataCloudStatus.message}</p>
+                    ) : null}
+                  </div>
 
                   {canManage && <div className="group bg-white/70 border border-indigo-100 rounded-lg">
                     <div className="select-none px-2.5 py-2 text-[10px] font-bold text-indigo-700 flex items-center justify-between">
