@@ -628,9 +628,6 @@ namespace QLTCAnPhu
             support.DropDownItems.Add("Mở bằng trình duyệt", null, delegate { Program.OpenHnlQltcExternal(); });
             menu.Items.Add(support);
 
-            var versionInfo = new ToolStripMenuItem("HNL QLTC • " + Program.GetReleaseTag()) { Enabled = false };
-            menu.Items.Add(versionInfo);
-
             var appearance = new ToolStripMenuItem("Giao diện");
             appearance.DropDownItems.Add("Chế độ gọn (F11)", null, delegate { SetCompactChrome(!compactChrome); });
             menu.Items.Add(appearance);
