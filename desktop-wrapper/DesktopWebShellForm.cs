@@ -131,7 +131,7 @@ namespace QLTCAnPhu
 
             navPanel = new FlowLayoutPanel
             {
-                AutoSize = true,
+                AutoSize = false,
                 Height = 34,
                 FlowDirection = FlowDirection.LeftToRight,
                 WrapContents = false,
@@ -140,11 +140,13 @@ namespace QLTCAnPhu
                 Margin = new Padding(0),
                 Tag = "header"
             };
-            navPanel.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            // Width/right position are managed explicitly so WinForms DPI scaling cannot
+            // apply a second right-anchor adjustment and clip the native action group.
+            navPanel.Anchor = AnchorStyles.Top;
             toolbarPanel.Controls.Add(navPanel);
             toolbarPanel.Resize += delegate { PositionToolbarActions(); };
 
-            syncButton = MakeToolbarPrimaryButton("Đồng bộ", 92);
+            syncButton = MakeToolbarPrimaryButton("Đồng bộ", 108);
             syncButton.Height = 30;
             syncButton.Margin = new Padding(0, 1, 5, 1);
             syncButton.Padding = new Padding(9, 0, 9, 0);
@@ -894,14 +896,30 @@ namespace QLTCAnPhu
             ApplyTheme();
         }
 
+        private int CalculateToolbarActionsWidth()
+        {
+            if (navPanel == null) return 0;
+            int width = navPanel.Padding.Horizontal;
+            foreach (Control control in navPanel.Controls)
+            {
+                if (!control.Visible) continue;
+                width += control.Width + control.Margin.Horizontal;
+            }
+            return Math.Max(1, width);
+        }
+
         private void PositionToolbarActions()
         {
             if (toolbarPanel == null || navPanel == null) return;
-            navPanel.PerformLayout();
+
             int right = compactChrome ? 8 : 10;
-            int preferred = navPanel.PreferredSize.Width;
+            int preferred = CalculateToolbarActionsWidth();
+            navPanel.Width = preferred;
+            navPanel.Height = compactChrome ? 26 : 32;
+
             int x = Math.Max(170, toolbarPanel.ClientSize.Width - preferred - right);
             navPanel.Location = new Point(x, compactChrome ? 2 : 7);
+            navPanel.BringToFront();
         }
 
         private void SetCompactChrome(bool compact)
@@ -1196,7 +1214,7 @@ namespace QLTCAnPhu
 
             internal RoundedToolbarButton()
             {
-                SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint, true);
+                SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.SupportsTransparentBackColor, true);
                 FlatStyle = FlatStyle.Flat;
                 FlatAppearance.BorderSize = 0;
                 UseVisualStyleBackColor = false;
@@ -1233,7 +1251,13 @@ namespace QLTCAnPhu
 
             protected override void OnPaint(PaintEventArgs pevent)
             {
+                // Always paint the parent surface first. Owner-drawn rounded controls leave
+                // pixels outside the rounded path untouched otherwise; on some Windows DPI /
+                // compositor combinations those four corner pixels can show up black.
+                Color parentBack = Parent != null ? Parent.BackColor : SystemColors.Control;
+                pevent.Graphics.Clear(parentBack);
                 pevent.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                pevent.Graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
                 Rectangle rect = new Rectangle(0, 0, Math.Max(1, Width - 1), Math.Max(1, Height - 1));
                 Color fill = pressed && FlatAppearance.MouseDownBackColor != Color.Empty
                     ? FlatAppearance.MouseDownBackColor
@@ -1248,10 +1272,18 @@ namespace QLTCAnPhu
 
                 using (GraphicsPath path = CreateRoundedPath(rect, Radius))
                 using (var brush = new SolidBrush(fill))
-                using (var pen = new Pen(border))
                 {
                     pevent.Graphics.FillPath(brush, path);
-                    pevent.Graphics.DrawPath(pen, path);
+                    // Icon-only utility buttons are intentionally borderless at rest.
+                    // Drawing even a same-color anti-aliased outline can darken corner
+                    // pixels on some Windows renderers.
+                    if (!toolbarIcon)
+                    {
+                        using (var pen = new Pen(border))
+                        {
+                            pevent.Graphics.DrawPath(pen, path);
+                        }
+                    }
                 }
 
                 bool hasText = !string.IsNullOrWhiteSpace(Text);
