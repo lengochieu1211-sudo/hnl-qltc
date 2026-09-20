@@ -42,7 +42,7 @@ import { getImageQualityProfile, getImageQualitySettings, setImageQualitySetting
 import type { UserRole } from '../utils/securityUtils';
 import type { TrashOperation, TrashSettings, TrashRetentionDays } from '../lib/trash';
 import { buildDiagnosticBundle, clearRuntimeDiagnostics } from '../lib/runtimeDiagnostics';
-import { getFloorPlanImageCacheSnapshot, getFloorPlanImageOutboxSnapshot } from '../lib/floorPlanImageSync';
+import { cacheFloorPlansForOffline, getFloorPlanImageCacheSnapshot, getFloorPlanImageOutboxSnapshot } from '../lib/floorPlanImageSync';
 import { getProjectPhotoDiagnosticSnapshot } from '../utils/photoStorage';
 import { HealthCenterPanel } from '../healthCenter/HealthCenterPanel';
 import { SettingsAccordionCard } from './SettingsAccordionCard';
@@ -154,6 +154,8 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [photoDiagnosticSnapshot, setPhotoDiagnosticSnapshot] = useState<any>(null);
   const [floorPlanCacheRows, setFloorPlanCacheRows] = useState<any[]>([]);
+  const [floorPlanCacheBusy, setFloorPlanCacheBusy] = useState(false);
+  const [floorPlanCacheMsg, setFloorPlanCacheMsg] = useState<string | null>(null);
 
   const isIframe = typeof window !== 'undefined' && window.self !== window.top;
 
@@ -226,6 +228,28 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       .catch(() => { if (!cancelled) setFloorPlanCacheRows([]); });
     return () => { cancelled = true; };
   }, [activeProjectId, floorPlans]);
+
+  const handleCacheFloorPlansForOffline = async () => {
+    if (!activeProjectId || floorPlanCacheBusy) return;
+    setFloorPlanCacheBusy(true);
+    setFloorPlanCacheMsg('Đang chuẩn bị mặt bằng dùng offline…');
+    try {
+      const result = await cacheFloorPlansForOffline(activeProjectId, floorPlans, (progress) => {
+        setFloorPlanCacheMsg(`Đang tải mặt bằng offline ${progress.completed}/${progress.total}…`);
+      });
+      const rows = await getFloorPlanImageCacheSnapshot(activeProjectId);
+      setFloorPlanCacheRows(rows);
+      if (result.failed > 0) {
+        setFloorPlanCacheMsg(`Đã chuẩn bị ${result.cached + result.downloaded}/${result.total} mặt bằng; ${result.failed} mặt bằng chưa tải được.`);
+      } else {
+        setFloorPlanCacheMsg(`Đã sẵn sàng offline ${result.cached + result.downloaded}/${result.total} mặt bằng.`);
+      }
+    } catch (err) {
+      setFloorPlanCacheMsg(`Không thể chuẩn bị offline: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setFloorPlanCacheBusy(false);
+    }
+  };
 
   const buildFullDiagnosticBundle = async () => {
     const photoDiagnostics = activeProjectId
@@ -862,6 +886,24 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
         </div>
 
         <ProjectOfflineMirrorCard activeProjectId={activeProjectId} floorPlans={floorPlans} />
+
+        <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 px-3 py-2.5 space-y-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0 text-[10px] text-slate-600">
+              <b>Mặt bằng offline:</b> {floorPlanOfflineSummary.ready}/{floorPlanOfflineSummary.eligible} sẵn sàng · {formatTrashBytes(floorPlanOfflineSummary.cacheBytes)} local.
+              <span className="ml-1">Dùng khi cần ép làm mới riêng cache mặt bằng.</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleCacheFloorPlansForOffline()}
+              disabled={floorPlanCacheBusy || !activeProjectId || floorPlanOfflineSummary.eligible === 0}
+              className="shrink-0 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-[10px] font-extrabold text-indigo-700 transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {floorPlanCacheBusy ? 'Đang tải…' : 'Cập nhật tất cả mặt bằng offline ngay'}
+            </button>
+          </div>
+          {floorPlanCacheMsg && <div className="text-[10px] font-semibold text-indigo-700">{floorPlanCacheMsg}</div>}
+        </div>
 
         <HealthCenterPanel
           projectId={activeProjectId || 'default'}
