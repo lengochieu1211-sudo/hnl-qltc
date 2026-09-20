@@ -1400,12 +1400,21 @@ namespace QLTCAnPhu
                             break;
 
                         case ToolbarGlyph.Reload:
-                            graphics.DrawArc(pen, left + 2, top + 2, Math.Max(7, r.Width - 5), Math.Max(7, r.Height - 5), 40F, 280F);
-                            graphics.DrawLines(pen, new[]
+                            // Keep the refresh arrowhead visually distinct at 100–200% Windows DPI.
+                            // A filled head avoids the old "C"-shaped appearance caused by a tiny
+                            // two-segment outline disappearing after scaling/anti-aliasing.
+                            Rectangle reloadArc = new Rectangle(
+                                left + 2,
+                                top + 2,
+                                Math.Max(8, r.Width - 5),
+                                Math.Max(8, r.Height - 5)
+                            );
+                            graphics.DrawArc(pen, reloadArc, 55F, 275F);
+                            graphics.FillPolygon(brush, new[]
                             {
-                                new Point(right - 1, top + 2),
-                                new Point(right - 5, top + 2),
-                                new Point(right - 2, top + 6)
+                                new Point(right - 1, top + 1),
+                                new Point(right - 7, top + 2),
+                                new Point(right - 2, top + 7)
                             });
                             break;
 
