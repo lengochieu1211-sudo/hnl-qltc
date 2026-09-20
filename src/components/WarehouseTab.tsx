@@ -304,6 +304,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         let volumesAddedCount = 0;
 
         let newInventory = [...inventory];
+        const importedInventoryRows: InventoryItem[] = [];
         let newNorms = [...materialNorms];
         let newWorkVolumes = workVolumes ? [...workVolumes] : [];
 
@@ -360,7 +361,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               location: locationStr,
               handler: handlerStr,
               date: dateStr,
-              notes: notesStr || undefined,
+              notes: notesStr,
               sourceType: rawSourceType ? String(rawSourceType).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceType : undefined),
               sourceRoomId: rawSourceRoomId ? String(rawSourceRoomId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceRoomId : undefined),
               sourceFloorId: rawSourceFloorId ? String(rawSourceFloorId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceFloorId : undefined),
@@ -375,6 +376,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             } else {
               newInventory.unshift(invItem);
             }
+            importedInventoryRows.push(invItem);
             inCount++;
           });
         }
@@ -432,7 +434,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               location: locationStr,
               handler: handlerStr,
               date: dateStr,
-              notes: notesStr || undefined,
+              notes: notesStr,
               sourceType: rawSourceType ? String(rawSourceType).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceType : undefined),
               sourceRoomId: rawSourceRoomId ? String(rawSourceRoomId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceRoomId : undefined),
               sourceFloorId: rawSourceFloorId ? String(rawSourceFloorId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceFloorId : undefined),
@@ -447,6 +449,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             } else {
               newInventory.unshift(invItem);
             }
+            importedInventoryRows.push(invItem);
             outCount++;
           });
         }
@@ -625,7 +628,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         const confirmUpdate = await confirmAsync(confirmMsg);
         if (confirmUpdate) {
           if (onImportInventory && (inCount > 0 || outCount > 0)) {
-            await onImportInventory(newInventory);
+            await onImportInventory(importedInventoryRows);
           }
           if (onImportNorms && (normsUpdatedCount > 0 || normsAddedCount > 0)) {
             onImportNorms(newNorms);

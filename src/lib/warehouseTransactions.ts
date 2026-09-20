@@ -1,6 +1,6 @@
 import { doc, runTransaction } from 'firebase/firestore';
 import type { InventoryItem } from '../types';
-import { db, getCurrentRealFirebaseUser } from './firebase';
+import { db, getCurrentRealFirebaseUser, sanitizePayloadForCloud } from './firebase';
 
 export interface WarehouseBalanceRecord {
   id: string;
@@ -48,6 +48,13 @@ function assertOnlineForStrictStock(): void {
   }
 }
 
+function sanitizeWarehouseWritePayload<T extends Record<string, unknown>>(payload: T): T {
+  // Warehouse atomic transactions bypass the generic project-diff writer, so they must
+  // apply the same Cloud payload sanitation themselves. Firestore rejects any undefined
+  // field (for example blank Excel notes/source metadata) inside Transaction.set().
+  return sanitizePayloadForCloud(payload) as T;
+}
+
 function assertQuantity(item: Pick<InventoryItem, 'quantity'>): number {
   const quantity = Number(item.quantity || 0);
   if (!Number.isFinite(quantity) || quantity <= 0) throw new Error('Số lượng kho phải lớn hơn 0.');
@@ -93,7 +100,7 @@ export async function commitWarehouseTransactionAtomic(
     }
 
     const now = Date.now();
-    tx.set(transactionRef, {
+    tx.set(transactionRef, sanitizeWarehouseWritePayload({
       ...item,
       id: item.id,
       materialKey,
@@ -106,9 +113,9 @@ export async function commitWarehouseTransactionAtomic(
       deletedAt: null,
       deletedByUid: null,
       deletedBy: null,
-    }, { merge: true });
+    }), { merge: true });
 
-    tx.set(balanceRef, {
+    tx.set(balanceRef, sanitizeWarehouseWritePayload({
       id: materialKey,
       projectId,
       materialId: item.materialId || null,
@@ -118,7 +125,7 @@ export async function commitWarehouseTransactionAtomic(
       revision: Math.max(Number(balanceSnap.data()?.revision || 0) + 1, 1),
       updatedAt: now,
       updatedByUid: user.uid,
-    }, { merge: true });
+    }), { merge: true });
 
     return { transactionId: item.id, materialKey, onHand: Math.max(0, nextOnHand), duplicate: false };
   });
@@ -161,23 +168,23 @@ export async function updateWarehouseTransactionAtomic(
 
     const now = Date.now();
     if (oldKey === newKey) {
-      tx.set(oldBalanceRef, {
+      tx.set(oldBalanceRef, sanitizeWarehouseWritePayload({
         ...oldBalanceSnap.data(), id: oldKey, projectId, onHand: Math.max(0, sameKeyFinal),
         revision: Math.max(Number(oldBalanceSnap.data()?.revision || 0) + 1, 1), updatedAt: now, updatedByUid: user.uid,
-      }, { merge: true });
+      }), { merge: true });
     } else {
-      tx.set(oldBalanceRef, {
+      tx.set(oldBalanceRef, sanitizeWarehouseWritePayload({
         ...oldBalanceSnap.data(), id: oldKey, projectId, onHand: Math.max(0, reversedOld),
         revision: Math.max(Number(oldBalanceSnap.data()?.revision || 0) + 1, 1), updatedAt: now, updatedByUid: user.uid,
-      }, { merge: true });
-      tx.set(newBalanceRef, {
+      }), { merge: true });
+      tx.set(newBalanceRef, sanitizeWarehouseWritePayload({
         id: newKey, projectId, materialId: nextItem.materialId || null, materialName: nextItem.materialName, unit: nextItem.unit,
         onHand: Math.max(0, newKeyFinal), revision: Math.max(Number(newBalanceSnap.data()?.revision || 0) + 1, 1),
         updatedAt: now, updatedByUid: user.uid,
-      }, { merge: true });
+      }), { merge: true });
     }
 
-    tx.set(transactionRef, {
+    tx.set(transactionRef, sanitizeWarehouseWritePayload({
       ...nextItem,
       id: transactionId,
       materialKey: newKey,
@@ -190,7 +197,7 @@ export async function updateWarehouseTransactionAtomic(
       deletedAt: null,
       deletedByUid: null,
       deletedBy: null,
-    }, { merge: true });
+    }), { merge: true });
 
     return {
       transactionId,
@@ -220,11 +227,11 @@ export async function softDeleteWarehouseTransactionAtomic(projectId: string, tr
     if (nextOnHand < -1e-9) throw new Error('INVENTORY_LEDGER_INCONSISTENT: Không thể đảo giao dịch mà làm tồn kho âm.');
     const now = Date.now();
 
-    tx.set(balanceRef, {
+    tx.set(balanceRef, sanitizeWarehouseWritePayload({
       ...balanceSnap.data(), id: materialKey, projectId, onHand: Math.max(0, nextOnHand),
       revision: Math.max(Number(balanceSnap.data()?.revision || 0) + 1, 1), updatedAt: now, updatedByUid: user.uid,
-    }, { merge: true });
-    tx.set(transactionRef, {
+    }), { merge: true });
+    tx.set(transactionRef, sanitizeWarehouseWritePayload({
       deleted: true,
       deletedAt: now,
       deletedByUid: user.uid,
@@ -232,6 +239,6 @@ export async function softDeleteWarehouseTransactionAtomic(projectId: string, tr
       revision: Math.max(Number(current.revision || 0) + 1, 1),
       updatedAt: now,
       updatedByUid: user.uid,
-    }, { merge: true });
+    }), { merge: true });
   });
 }

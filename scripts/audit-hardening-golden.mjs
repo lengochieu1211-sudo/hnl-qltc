@@ -21,6 +21,9 @@ const viewer = read('src/components/ImageViewerModal.tsx');
 const devDeploy = read('.github/workflows/firebase-dev-environment.yml');
 const runtime = read('.github/workflows/dev-runtime-golden.yml');
 const deliverables = read('.github/workflows/dev-deliverables.yml');
+const warehouseTransactions = read('src/lib/warehouseTransactions.ts');
+const warehouseTab = read('src/components/WarehouseTab.tsx');
+const materialNormModal = read('src/components/MaterialNormModal.tsx');
 
 ok('deleted project is an explicit Firestore active-state gate', rules.includes('function projectIsActive(projectId)') && rules.includes('projectIsActive(projectId) && (isAdmin(projectId) || isEditor(projectId))'));
 ok('deleted project role resolves fail-closed for normal client', firebase.includes("pData?.deleted === true && !options.allowDeletedProject"));
@@ -44,5 +47,8 @@ ok('Runtime Golden has no path filter and waits exact deploy SHA', !runtime.incl
 ok('Deliverables have no hardcoded runtime certified SHA', !deliverables.includes('RUNTIME_CERTIFIED_SHA: 89174') && deliverables.includes('Wait for exact Runtime Golden'));
 ok('Deliverables report exact current SHA dynamically', deliverables.includes('Exact DEV source commit') && deliverables.includes('$GITHUB_SHA'));
 ok('App freezes local role when project root becomes deleted', app.includes('if (meta.deleted)') && app.includes("setCurrentUserRoleState('VIEWER')"));
+ok('warehouse atomic Firestore writes sanitize undefined optional fields', warehouseTransactions.includes('sanitizeWarehouseWritePayload') && warehouseTransactions.includes('sanitizePayloadForCloud') && (warehouseTransactions.match(/tx\\.set\\([^,]+, sanitizeWarehouseWritePayload\\(/g) || []).length >= 8);
+ok('warehouse Excel import keeps blank notes as explicit empty string', (warehouseTab.match(/notes: notesStr,/g) || []).length >= 2 && (materialNormModal.match(/notes: notesStr,/g) || []).length >= 2);
+ok('warehouse Excel import writes only parsed rows instead of rewriting unrelated ledger rows', warehouseTab.includes('const importedInventoryRows: InventoryItem[] = []') && materialNormModal.includes('const importedInventoryRows: InventoryItem[] = []') && warehouseTab.includes('onImportInventory(importedInventoryRows)') && materialNormModal.includes('onImportInventory(importedInventoryRows)') && !warehouseTab.includes('onImportInventory(newInventory)') && !materialNormModal.includes('onImportInventory(newInventory)'));
 
 console.log(`AUDIT HARDENING GOLDEN PASS — ${checks.length} checks`);
