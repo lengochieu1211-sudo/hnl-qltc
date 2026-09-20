@@ -253,7 +253,10 @@ requireAll(read('firebase.prod.json'), ['"site": "hnlqltc"', '"public": "dist"']
 pass('new binaries use private R2 as the single PROD write authority; legacy Storage Rules are deployed for read/purge policy parity');
 
 requireAll(firestoreRules, ['isCoreBusinessCollection', 'lifecycleUpdateIsMonotonic', 'allow delete: if false;', "role == 'EDITOR'", "role == 'ENGINEER'", 'inventory_balances'], 'Firestore Rules lifecycle/roles');
-requireAll(storageRules, ['canEdit(projectId)', 'isAdmin(projectId)', 'identityMetadata', 'updateKeepsIdentity', 'allow delete: if isAdmin(projectId)', 'allow read, write: if false'], 'Firebase Storage legacy compatibility Rules');
+requireAll(storageRules, ['isAdmin(projectId)', 'allow create, update: if false;', 'allow delete: if isAdmin(projectId)', 'allow read, write: if false'], 'Firebase Storage legacy read/purge Rules');
+for (const obsoleteHelper of ['function canEdit(', 'function validSize(', 'function validContentType(', 'function identityMetadata(', 'function updateKeepsIdentity(']) {
+  if (storageRules.includes(obsoleteHelper)) fail(`Firebase Storage legacy Rules reintroduced obsolete write helper: ${obsoleteHelper}`);
+}
 requireAll(security, ["if (FIREBASE_ONLY_RUNTIME) return 'VIEWER'", 'if (FIREBASE_ONLY_RUNTIME || !projectId) return'], 'client role hardening');
 pass('Firestore RBAC remains authoritative; R2 gateway mirrors member/role access and Firebase Storage legacy rules are retained');
 
