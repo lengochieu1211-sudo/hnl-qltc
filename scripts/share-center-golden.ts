@@ -43,7 +43,7 @@ mustContain(crew, 'Lưu ý: Sáng/Chiều/Tối là quân số theo ca', 'crew s
 mustContain(crew, 'triggerLabel="Chia sẻ báo cáo"', 'daily crew share entry');
 mustContain(config, 'id="system-sync-card"', 'Health Center settings accordion');
 mustContain(config, 'title="HNL Health Center"', 'Health Center accordion title');
-mustContain(config, 'Hệ thống · đồng bộ · ảnh · audit dữ liệu · xử lý liên kết trong một nơi.', 'Health Center collapsed hint');
+mustContain(config, 'Chẩn đoán hệ thống · cảnh báo đồng bộ/ảnh/quyền · audit dữ liệu & liên kết.', 'Health Center collapsed diagnostic hint');
 mustContain(config, 'HNL Health Center', 'unified Health Center title');
 mustContain(android, 'public boolean shareFiles(String title, String text, String attachmentsJson)', 'Android shareFiles bridge');
 mustContain(android, 'Intent.ACTION_SEND_MULTIPLE', 'Android multi-image share');
