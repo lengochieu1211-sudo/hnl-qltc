@@ -12,17 +12,24 @@ const env = {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Keep the retry budget strictly below the 5-minute GitHub Actions step timeout.
-// GitHub cold runners may need to download both Firestore and Storage emulator JARs;
-// 75s became too tight and produced false failures before behavior tests could finish.
-// Two 120s attempts still fit inside the guarded 5-minute step budget while preserving
-// one clean retry for a genuinely flaky emulator startup.
-const ATTEMPT_TIMEOUT_MS = 120000;
-const MAX_ATTEMPTS = 2;
-const RETRY_DELAY_MS = 2000;
-const TERMINATION_GRACE_MS = 5000;
-const WORKFLOW_STEP_BUDGET_MS = 5 * 60 * 1000;
-const WORKFLOW_SAFETY_MARGIN_MS = 30 * 1000;
+function readPositiveIntEnv(name, fallback) {
+  const raw = String(process.env[name] || '').trim();
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be a positive integer, got: ${raw}`);
+  }
+  return parsed;
+}
+
+// Defaults keep the normal certification path fast. Slow/cold GitHub runners can
+// explicitly raise only their own retry budget without weakening Rules behavior.
+const ATTEMPT_TIMEOUT_MS = readPositiveIntEnv('FIREBASE_RULES_ATTEMPT_TIMEOUT_MS', 120000);
+const MAX_ATTEMPTS = readPositiveIntEnv('FIREBASE_RULES_MAX_ATTEMPTS', 2);
+const RETRY_DELAY_MS = readPositiveIntEnv('FIREBASE_RULES_RETRY_DELAY_MS', 2000);
+const TERMINATION_GRACE_MS = readPositiveIntEnv('FIREBASE_RULES_TERMINATION_GRACE_MS', 5000);
+const WORKFLOW_STEP_BUDGET_MS = readPositiveIntEnv('FIREBASE_RULES_STEP_BUDGET_MS', 5 * 60 * 1000);
+const WORKFLOW_SAFETY_MARGIN_MS = readPositiveIntEnv('FIREBASE_RULES_SAFETY_MARGIN_MS', 30 * 1000);
 
 const worstCaseRetryBudgetMs =
   MAX_ATTEMPTS * (ATTEMPT_TIMEOUT_MS + TERMINATION_GRACE_MS)
@@ -33,6 +40,10 @@ if (worstCaseRetryBudgetMs > WORKFLOW_STEP_BUDGET_MS - WORKFLOW_SAFETY_MARGIN_MS
     `Firebase Rules retry budget ${worstCaseRetryBudgetMs}ms exceeds the safe GitHub step budget`,
   );
 }
+
+console.log(
+  `Firebase Rules runner budget: timeout=${ATTEMPT_TIMEOUT_MS}ms, attempts=${MAX_ATTEMPTS}, stepBudget=${WORKFLOW_STEP_BUDGET_MS}ms`,
+);
 
 function resolveNpx() {
   const npmExecPath = String(process.env.npm_execpath || '').trim();
