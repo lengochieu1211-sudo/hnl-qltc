@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.IO;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -15,11 +16,21 @@ namespace QLTCAnPhu
     {
         internal static DesktopWebShellForm Current { get; private set; }
 
+        private readonly TableLayoutPanel rootLayout;
+        private readonly Panel toolbarPanel;
+        private readonly FlowLayoutPanel navPanel;
+        private readonly TableLayoutPanel footerPanel;
         private readonly Panel contentHost;
         private readonly Panel webHost;
         private readonly Panel homeHost;
+        private readonly PictureBox brandLogo;
+        private readonly Label brandLabel;
+        private readonly Label releaseLabel;
         private readonly Label webStatusLabel;
         private readonly Label syncStatusLabel;
+        private readonly Button syncButton;
+        private readonly Button compactButton;
+        private readonly ToolTip chromeToolTip;
         private readonly DesktopLocalStore localStore;
         private readonly NotifyIcon trayIcon;
         private readonly System.Windows.Forms.Timer maintenanceTimer;
@@ -28,8 +39,13 @@ namespace QLTCAnPhu
         private EmbeddedWebViewRuntime embeddedRuntime;
         private bool webInitializationStarted;
         private bool allowClose;
+        private bool compactChrome;
         private FormWindowState restoreWindowState = FormWindowState.Normal;
         private int maintenanceRunning;
+
+        private const float NormalHeaderHeight = 54F;
+        private const float CompactHeaderHeight = 40F;
+        private const float NormalFooterHeight = 0F;
 
         internal DesktopWebShellForm()
         {
@@ -44,7 +60,9 @@ namespace QLTCAnPhu
             AutoScaleMode = AutoScaleMode.Dpi;
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
 
-            var root = new TableLayoutPanel
+            KeyPreview = true;
+
+            rootLayout = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
