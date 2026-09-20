@@ -65,8 +65,8 @@ assert(webShell.includes('CoreWebView2InitializationCompleted') && webShell.incl
 assert(webShell.includes('WindowCloseRequested') && webShell.includes('SafeClosePopup'), 'embedded auth/link popup closes through WebView2 window.close semantics');
 assert(webShell.includes('DownloadStarting') && webShell.includes('ResultFilePath') && webShell.includes('DesktopPaths.Pdf') && webShell.includes('DesktopPaths.Excel'), 'WebView2 downloads are routed into the HNL PDF/Excel/Exports workspace');
 assert(webShell.includes('DownloadOperation') && webShell.includes('StateChanged') && webShell.includes('InterruptReason'), 'WebView2 download routing tracks the real operation through completed/interrupted state');
-assert(webShell.includes('✓ Đã tải xong:') && webShell.includes('Lưu tại: ') && webShell.includes('Mở file') && webShell.includes('Mở thư mục') && webShell.includes('OpenLastDownloadLocation'), 'desktop download UX visibly confirms completion, destination path and one-click file/folder access');
-assert(webShell.includes('File vừa tải: ') && webShell.includes('recentDownloadMenuItem'), 'More menu retains the most recent completed download for later location lookup');
+assert(!webShell.includes('            BuildDownloadNotice();') && !webShell.includes('downloadNoticePanel.Visible = true') && webShell.includes('trayIcon.ShowBalloonTip') && webShell.includes('Lưu tại: ') && webShell.includes('Mở menu ... > File vừa tải'), 'desktop download feedback stays outside WebView content so report/modal UI cannot be covered');
+assert(webShell.includes('File vừa tải: ') && webShell.includes('recentDownloadMenuItem') && webShell.includes('recentDownloadMenuItem.DropDownItems.Add("Mở file"') && webShell.includes('recentDownloadMenuItem.DropDownItems.Add("Mở thư mục"') && webShell.includes('Lưu tại: " + folder'), 'More menu retains filename, destination folder, open-file and open-folder actions for the most recent download');
 assert(webShell.includes('PermissionRequested') && webShell.includes('Camera') && webShell.includes('Microphone') && webShell.includes('SavesInProfile'), 'camera/microphone access is explicitly user-approved for the HNL app origin');
 assert(webShell.includes('scheme == "blob"') && webShell.includes('scheme != "zalo"'), 'blob downloads stay inside WebView2 while external protocol launching is allowlisted');
 assert(webShell.includes('WebView2Profile') && webShell.includes('UserDataFolder'), 'embedded WebView2 stores its writable browser profile under LocalAppData');
@@ -124,7 +124,7 @@ assert(webBridge.includes('BRIDGE_ATTEMPT_TOKEN_INVALID') && webBridge.includes(
 assert(!webBridge.includes('uploadProjectBinaryToR2') && !webBridge.includes('fetch('), 'Web bridge does not introduce a direct R2/network upload authority');
 assert(bridgeCard.includes('Windows Desktop Sync Bridge') && configTab.includes('WindowsDesktopSyncBridgeCard'), 'Settings exposes Windows App Sync Bridge controls');
 assert(build.includes('release-tag.txt'), 'build script uses release tag for cache/version isolation');
-assert(releaseTag === '6.3.0-rc2.2.26.9', 'desktop release tag identifies the RC2.2.26.9 de-duplicated native branding + DPI-safe toolbar candidate');
+assert(releaseTag === '6.3.0-rc2.2.26.10', 'desktop release tag identifies the RC2.2.26.10 non-overlapping native download feedback candidate');
 
 assert(iconSource.width >= 1024 && iconSource.height >= 1024 && iconSource.bytes > 1_000_000, 'HQ HNL logo source is retained at >=1024px');
 assert(taskbar192.width === 192 && taskbar192.height === 192, 'browser app-mode has dedicated 192x192 HNL icon');

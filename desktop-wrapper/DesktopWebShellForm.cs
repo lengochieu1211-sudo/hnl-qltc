@@ -230,8 +230,10 @@ namespace QLTCAnPhu
             homeHost.Dock = DockStyle.Fill;
             contentHost.Controls.Add(homeHost);
 
-            BuildDownloadNotice();
-            contentHost.Resize += delegate { PositionDownloadNotice(); };
+            // Download feedback must never sit inside the WebView/content layer because it
+            // can cover report dialogs and mobile-style modals. RC2.2.26.10 surfaces
+            // completion through the Windows notification area and the persistent
+            // "... > File vừa tải" menu instead of mounting an in-content overlay.
 
             footerPanel = new TableLayoutPanel
             {
@@ -742,7 +744,11 @@ namespace QLTCAnPhu
                 try { BeginInvoke((MethodInvoker)delegate { ShowDownloadNotice(state, path, detail); }); } catch { }
                 return;
             }
-            if (IsDisposed || Disposing || downloadNoticePanel == null) return;
+            if (IsDisposed || Disposing) return;
+
+            // Defensive: older sessions/builds used an in-content native panel. Never let
+            // that surface cover the embedded web UI again.
+            if (downloadNoticePanel != null) downloadNoticePanel.Visible = false;
 
             string fileName = string.IsNullOrWhiteSpace(path) ? "file" : Path.GetFileName(path);
             bool completed = string.Equals(state, "completed", StringComparison.OrdinalIgnoreCase);
@@ -752,35 +758,35 @@ namespace QLTCAnPhu
             {
                 lastDownloadedPath = path;
                 UpdateRecentDownloadMenu();
-            }
+                chromeToolTip.SetToolTip(
+                    moreButton,
+                    "File vừa tải: " + fileName + "\n" + path + "\nMở menu ... để mở file hoặc thư mục."
+                );
 
-            downloadTitleLabel.Text = completed
-                ? "✓ Đã tải xong: " + fileName
-                : failed
-                    ? "⚠ Tải file chưa hoàn tất: " + fileName
-                    : "Đang tải: " + fileName;
-
-            string prefix = completed ? "Lưu tại: " : "Lưu dự kiến: ";
-            downloadPathLabel.Text = prefix + (path ?? string.Empty) +
-                (failed && !string.IsNullOrWhiteSpace(detail) ? " • " + detail : string.Empty);
-            chromeToolTip.SetToolTip(downloadPathLabel, downloadPathLabel.Text);
-
-            downloadOpenFileButton.Visible = completed;
-            downloadOpenFolderButton.Visible = completed;
-            downloadDismissButton.Visible = completed || failed;
-            downloadNoticePanel.Visible = true;
-            PositionDownloadNotice();
-            downloadNoticePanel.BringToFront();
-
-            if (completed)
-            {
                 try
                 {
                     trayIcon.ShowBalloonTip(
-                        2500,
+                        5000,
                         "HNL QLTC • Đã tải xong",
-                        fileName + "\n" + path,
+                        fileName + "\nLưu tại: " + path + "\nMở menu ... > File vừa tải để xem lại.",
                         ToolTipIcon.Info
+                    );
+                }
+                catch { }
+                return;
+            }
+
+            if (failed)
+            {
+                string message = fileName +
+                    (string.IsNullOrWhiteSpace(detail) ? string.Empty : "\n" + detail);
+                try
+                {
+                    trayIcon.ShowBalloonTip(
+                        5000,
+                        "HNL QLTC • Tải file chưa hoàn tất",
+                        message,
+                        ToolTipIcon.Warning
                     );
                 }
                 catch { }
@@ -790,15 +796,33 @@ namespace QLTCAnPhu
         private void UpdateRecentDownloadMenu()
         {
             if (recentDownloadMenuItem == null || recentDownloadMenuItem.IsDisposed) return;
+
+            recentDownloadMenuItem.DropDownItems.Clear();
             if (string.IsNullOrWhiteSpace(lastDownloadedPath))
             {
                 recentDownloadMenuItem.Text = "File vừa tải: chưa có";
+                recentDownloadMenuItem.ToolTipText = string.Empty;
                 recentDownloadMenuItem.Enabled = false;
                 return;
             }
-            recentDownloadMenuItem.Text = "File vừa tải: " + Path.GetFileName(lastDownloadedPath);
+
+            string fileName = Path.GetFileName(lastDownloadedPath);
+            string folder = Path.GetDirectoryName(lastDownloadedPath);
+            if (string.IsNullOrWhiteSpace(folder)) folder = Program.DesktopPaths.Exports;
+
+            recentDownloadMenuItem.Text = "File vừa tải: " + fileName;
             recentDownloadMenuItem.ToolTipText = lastDownloadedPath;
             recentDownloadMenuItem.Enabled = true;
+
+            var locationItem = new ToolStripMenuItem("Lưu tại: " + folder)
+            {
+                Enabled = false,
+                ToolTipText = lastDownloadedPath
+            };
+            recentDownloadMenuItem.DropDownItems.Add(locationItem);
+            recentDownloadMenuItem.DropDownItems.Add(new ToolStripSeparator());
+            recentDownloadMenuItem.DropDownItems.Add("Mở file", null, delegate { OpenLastDownloadedFile(); });
+            recentDownloadMenuItem.DropDownItems.Add("Mở thư mục", null, delegate { OpenLastDownloadLocation(); });
         }
 
         private void OpenLastDownloadedFile()
