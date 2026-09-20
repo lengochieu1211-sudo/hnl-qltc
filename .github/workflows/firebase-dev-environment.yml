@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: read
+  actions: read
+  checks: read
 
 concurrency:
   group: hnl-qltc-dev-release
@@ -26,30 +28,40 @@ env:
 
 jobs:
   rules:
+    name: Wait for exact Firebase Rules certification
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      FIREBASE_RULES_ATTEMPT_TIMEOUT_MS: "180000"
-      FIREBASE_RULES_MAX_ATTEMPTS: "2"
-      FIREBASE_RULES_STEP_BUDGET_MS: "480000"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: package-lock.json
-      - name: Cache Firebase emulator binaries
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/firebase/emulators
-          key: ${{ runner.os }}-firebase-emulators-v13.35.1
-          restore-keys: |
-            ${{ runner.os }}-firebase-emulators-
-      - name: Install exact dependencies
-        run: npm ci
-      - name: Firebase Rules compile and behavior
-        run: npm run test:rules
+      - name: Require Firebase Rules certification for exact DEV SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/check-runs?per_page=100"
+          for attempt in $(seq 1 75); do
+            JSON="$(curl --fail --silent --show-error \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "$API")"
+            INFO="$(printf '%s' "$JSON" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const r=(j.check_runs||[]).filter(x=>x.name==='Firebase Rules certification').sort((a,b)=>String(b.started_at||'').localeCompare(String(a.started_at||'')))[0];process.stdout.write(r?[String(r.status||''),String(r.conclusion||''),String(r.details_url||'')].join('|'):'missing||')})")"
+            STATUS="${INFO%%|*}"
+            REST="${INFO#*|}"; CONCLUSION="${REST%%|*}"; DETAILS="${REST#*|}"
+            if [ "$STATUS" = 'completed' ] && [ "$CONCLUSION" = 'success' ]; then
+              echo "Exact Firebase Rules certification: PASS (${GITHUB_SHA})"
+              echo "Evidence: $DETAILS"
+              exit 0
+            fi
+            if [ "$STATUS" = 'completed' ] && [ -n "$CONCLUSION" ] && [ "$CONCLUSION" != 'success' ]; then
+              echo "::error::Firebase Rules certification failed for ${GITHUB_SHA}: $INFO"
+              exit 1
+            fi
+            echo "Waiting exact Firebase Rules certification for ${GITHUB_SHA} ($attempt/75): $INFO"
+            sleep 10
+          done
+          echo "::error::Timed out waiting for exact Firebase Rules certification: ${GITHUB_SHA}"
+          exit 1
 
   deploy_dev:
     needs: rules
