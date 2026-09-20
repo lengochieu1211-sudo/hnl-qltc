@@ -36,6 +36,14 @@ namespace QLTCAnPhu
         private readonly DesktopLocalStore localStore;
         private readonly NotifyIcon trayIcon;
         private readonly System.Windows.Forms.Timer maintenanceTimer;
+        private Panel downloadNoticePanel;
+        private Label downloadTitleLabel;
+        private Label downloadPathLabel;
+        private Button downloadOpenFileButton;
+        private Button downloadOpenFolderButton;
+        private Button downloadDismissButton;
+        private ToolStripMenuItem recentDownloadMenuItem;
+        private string lastDownloadedPath;
         private ContextMenuStrip moreMenu;
         private ContextMenuStrip syncMenu;
         private Program.DesktopUiTheme theme;
@@ -136,13 +144,20 @@ namespace QLTCAnPhu
             toolbarPanel.Controls.Add(navPanel);
             toolbarPanel.Resize += delegate { PositionToolbarActions(); };
 
-            syncButton = MakeToolbarPrimaryButton("Đồng bộ", 100);
+            syncButton = MakeToolbarPrimaryButton("Đồng bộ", 92);
+            syncButton.Height = 30;
+            syncButton.Margin = new Padding(0, 1, 5, 1);
+            syncButton.Padding = new Padding(9, 0, 9, 0);
             SetToolbarGlyph(syncButton, ToolbarGlyph.SyncOk);
             syncButton.AccessibleName = "Trạng thái đồng bộ";
             syncButton.Click += delegate { ShowSyncMenu(); };
             navPanel.Controls.Add(syncButton);
 
-            reloadButton = MakeToolbarButton(string.Empty, 34);
+            reloadButton = MakeToolbarButton(string.Empty, 30);
+            reloadButton.Height = 30;
+            reloadButton.Margin = new Padding(0, 1, 1, 1);
+            reloadButton.Padding = new Padding(0);
+            reloadButton.Tag = "toolbar-icon";
             SetToolbarGlyph(reloadButton, ToolbarGlyph.Reload);
             reloadButton.AccessibleName = "Tải lại HNL QLTC";
             reloadButton.Click += delegate
@@ -152,12 +167,20 @@ namespace QLTCAnPhu
             };
             navPanel.Controls.Add(reloadButton);
 
-            moreButton = MakeToolbarButton(string.Empty, 34);
+            moreButton = MakeToolbarButton(string.Empty, 30);
+            moreButton.Height = 30;
+            moreButton.Margin = new Padding(0, 1, 1, 1);
+            moreButton.Padding = new Padding(0);
+            moreButton.Tag = "toolbar-icon";
             SetToolbarGlyph(moreButton, ToolbarGlyph.More);
             moreButton.AccessibleName = "Tùy chọn khác";
             navPanel.Controls.Add(moreButton);
 
-            compactButton = MakeToolbarButton(string.Empty, 34);
+            compactButton = MakeToolbarButton(string.Empty, 30);
+            compactButton.Height = 30;
+            compactButton.Margin = new Padding(0, 1, 0, 1);
+            compactButton.Padding = new Padding(0);
+            compactButton.Tag = "toolbar-icon";
             SetToolbarGlyph(compactButton, ToolbarGlyph.Collapse);
             compactButton.AccessibleName = "Thu gọn thanh ứng dụng";
             compactButton.Click += delegate { SetCompactChrome(!compactChrome); };
@@ -201,6 +224,9 @@ namespace QLTCAnPhu
             homeHost = BuildHomePanel();
             homeHost.Dock = DockStyle.Fill;
             contentHost.Controls.Add(homeHost);
+
+            BuildDownloadNotice();
+            contentHost.Resize += delegate { PositionDownloadNotice(); };
 
             footerPanel = new TableLayoutPanel
             {
@@ -371,6 +397,10 @@ namespace QLTCAnPhu
                             BeginInvoke((MethodInvoker)delegate { ShowWebViewFailure(error); });
                         }
                         catch { }
+                    },
+                    delegate(string state, string path, string detail)
+                    {
+                        ShowDownloadNotice(state, path, detail);
                     }
                 );
                 embeddedRuntime.Start();
@@ -570,6 +600,9 @@ namespace QLTCAnPhu
             var computer = new ToolStripMenuItem("Công cụ máy tính");
             computer.DropDownItems.Add("Mở Backup", null, delegate { OpenFolder(Program.DesktopPaths.Backup); });
             computer.DropDownItems.Add("File đã xuất", null, delegate { OpenFolder(Program.DesktopPaths.Exports); });
+            recentDownloadMenuItem = new ToolStripMenuItem("File vừa tải: chưa có") { Enabled = false };
+            recentDownloadMenuItem.Click += delegate { OpenLastDownloadLocation(); };
+            computer.DropDownItems.Add(recentDownloadMenuItem);
             computer.DropDownItems.Add("Ảnh local", null, delegate { OpenFolder(Program.DesktopPaths.Photos); });
             computer.DropDownItems.Add(new ToolStripSeparator());
             computer.DropDownItems.Add("Mở màn hình công cụ", null, delegate { ShowHome(); });
@@ -594,7 +627,206 @@ namespace QLTCAnPhu
 
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Thoát HNL QLTC", null, delegate { allowClose = true; Close(); });
+            UpdateRecentDownloadMenu();
             return menu;
+        }
+
+
+        private void BuildDownloadNotice()
+        {
+            downloadNoticePanel = new Panel
+            {
+                Visible = false,
+                Size = new Size(560, 96),
+                Padding = new Padding(12, 9, 12, 9),
+                Margin = new Padding(0),
+                BorderStyle = BorderStyle.FixedSingle,
+                Tag = "card"
+            };
+
+            var layout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 3,
+                Padding = new Padding(0),
+                Margin = new Padding(0),
+                Tag = "card"
+            };
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24F));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24F));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            downloadNoticePanel.Controls.Add(layout);
+
+            downloadTitleLabel = new Label
+            {
+                Dock = DockStyle.Fill,
+                AutoEllipsis = true,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Font = new Font("Segoe UI", 9.25F, FontStyle.Bold),
+                Text = "Đang tải file...",
+                Tag = "title"
+            };
+            layout.Controls.Add(downloadTitleLabel, 0, 0);
+
+            downloadPathLabel = new Label
+            {
+                Dock = DockStyle.Fill,
+                AutoEllipsis = true,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Text = string.Empty,
+                Tag = "subtle"
+            };
+            layout.Controls.Add(downloadPathLabel, 0, 1);
+
+            var actions = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.RightToLeft,
+                WrapContents = false,
+                Padding = new Padding(0, 2, 0, 0),
+                Margin = new Padding(0),
+                Tag = "card"
+            };
+            layout.Controls.Add(actions, 0, 2);
+
+            downloadDismissButton = MakeToolbarButton("Đóng", 0);
+            downloadDismissButton.AutoSize = true;
+            downloadDismissButton.Height = 28;
+            downloadDismissButton.Font = new Font("Segoe UI", 8.5F, FontStyle.Bold);
+            downloadDismissButton.Click += delegate { downloadNoticePanel.Visible = false; };
+            actions.Controls.Add(downloadDismissButton);
+
+            downloadOpenFolderButton = MakeToolbarButton("Mở thư mục", 0);
+            downloadOpenFolderButton.AutoSize = true;
+            downloadOpenFolderButton.Height = 28;
+            downloadOpenFolderButton.Font = new Font("Segoe UI", 8.5F, FontStyle.Bold);
+            downloadOpenFolderButton.Click += delegate { OpenLastDownloadLocation(); };
+            actions.Controls.Add(downloadOpenFolderButton);
+
+            downloadOpenFileButton = MakeToolbarPrimaryButton("Mở file", 0);
+            downloadOpenFileButton.AutoSize = true;
+            downloadOpenFileButton.Height = 28;
+            downloadOpenFileButton.Font = new Font("Segoe UI", 8.5F, FontStyle.Bold);
+            downloadOpenFileButton.Click += delegate { OpenLastDownloadedFile(); };
+            actions.Controls.Add(downloadOpenFileButton);
+
+            contentHost.Controls.Add(downloadNoticePanel);
+            PositionDownloadNotice();
+        }
+
+        private void PositionDownloadNotice()
+        {
+            if (downloadNoticePanel == null || contentHost == null) return;
+            int margin = 14;
+            int availableWidth = Math.Max(320, contentHost.ClientSize.Width - margin * 2);
+            downloadNoticePanel.Width = Math.Min(560, availableWidth);
+            downloadNoticePanel.Location = new Point(
+                Math.Max(margin, contentHost.ClientSize.Width - downloadNoticePanel.Width - margin),
+                Math.Max(margin, contentHost.ClientSize.Height - downloadNoticePanel.Height - margin)
+            );
+        }
+
+        private void ShowDownloadNotice(string state, string path, string detail)
+        {
+            if (InvokeRequired)
+            {
+                try { BeginInvoke((MethodInvoker)delegate { ShowDownloadNotice(state, path, detail); }); } catch { }
+                return;
+            }
+            if (IsDisposed || Disposing || downloadNoticePanel == null) return;
+
+            string fileName = string.IsNullOrWhiteSpace(path) ? "file" : Path.GetFileName(path);
+            bool completed = string.Equals(state, "completed", StringComparison.OrdinalIgnoreCase);
+            bool failed = string.Equals(state, "failed", StringComparison.OrdinalIgnoreCase);
+
+            if (completed && !string.IsNullOrWhiteSpace(path))
+            {
+                lastDownloadedPath = path;
+                UpdateRecentDownloadMenu();
+            }
+
+            downloadTitleLabel.Text = completed
+                ? "✓ Đã tải xong: " + fileName
+                : failed
+                    ? "⚠ Tải file chưa hoàn tất: " + fileName
+                    : "Đang tải: " + fileName;
+
+            string prefix = completed ? "Lưu tại: " : "Lưu dự kiến: ";
+            downloadPathLabel.Text = prefix + (path ?? string.Empty) +
+                (failed && !string.IsNullOrWhiteSpace(detail) ? " • " + detail : string.Empty);
+            chromeToolTip.SetToolTip(downloadPathLabel, downloadPathLabel.Text);
+
+            downloadOpenFileButton.Visible = completed;
+            downloadOpenFolderButton.Visible = completed;
+            downloadDismissButton.Visible = completed || failed;
+            downloadNoticePanel.Visible = true;
+            PositionDownloadNotice();
+            downloadNoticePanel.BringToFront();
+
+            if (completed)
+            {
+                try
+                {
+                    trayIcon.ShowBalloonTip(
+                        2500,
+                        "HNL QLTC • Đã tải xong",
+                        fileName + "\n" + path,
+                        ToolTipIcon.Info
+                    );
+                }
+                catch { }
+            }
+        }
+
+        private void UpdateRecentDownloadMenu()
+        {
+            if (recentDownloadMenuItem == null || recentDownloadMenuItem.IsDisposed) return;
+            if (string.IsNullOrWhiteSpace(lastDownloadedPath))
+            {
+                recentDownloadMenuItem.Text = "File vừa tải: chưa có";
+                recentDownloadMenuItem.Enabled = false;
+                return;
+            }
+            recentDownloadMenuItem.Text = "File vừa tải: " + Path.GetFileName(lastDownloadedPath);
+            recentDownloadMenuItem.ToolTipText = lastDownloadedPath;
+            recentDownloadMenuItem.Enabled = true;
+        }
+
+        private void OpenLastDownloadedFile()
+        {
+            if (string.IsNullOrWhiteSpace(lastDownloadedPath) || !File.Exists(lastDownloadedPath))
+            {
+                MessageBox.Show("Không tìm thấy file vừa tải.", "HNL QLTC", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            Process.Start(new ProcessStartInfo { FileName = lastDownloadedPath, UseShellExecute = true });
+        }
+
+        private void OpenLastDownloadLocation()
+        {
+            if (string.IsNullOrWhiteSpace(lastDownloadedPath))
+            {
+                OpenFolder(Program.DesktopPaths.Exports);
+                return;
+            }
+
+            string folder = Path.GetDirectoryName(lastDownloadedPath);
+            if (string.IsNullOrWhiteSpace(folder)) folder = Program.DesktopPaths.Exports;
+            Directory.CreateDirectory(folder);
+            if (File.Exists(lastDownloadedPath))
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = "explorer.exe",
+                    Arguments = "/select,\"" + lastDownloadedPath + "\"",
+                    UseShellExecute = true
+                });
+            }
+            else
+            {
+                OpenFolder(folder);
+            }
         }
 
         private void ShowMoreMenu(Control owner)
@@ -669,7 +901,7 @@ namespace QLTCAnPhu
             int right = compactChrome ? 8 : 10;
             int preferred = navPanel.PreferredSize.Width;
             int x = Math.Max(170, toolbarPanel.ClientSize.Width - preferred - right);
-            navPanel.Location = new Point(x, compactChrome ? 1 : 6);
+            navPanel.Location = new Point(x, compactChrome ? 2 : 7);
         }
 
         private void SetCompactChrome(bool compact)
@@ -696,12 +928,12 @@ namespace QLTCAnPhu
                 moreButton.Visible = !compact;
                 compactButton.Visible = true;
 
-                navPanel.Height = compact ? 28 : 34;
-                compactButton.Size = compact ? new Size(30, 26) : new Size(34, 32);
-                compactButton.Margin = compact ? new Padding(1) : new Padding(2, 1, 2, 1);
-                syncButton.Height = 32;
-                reloadButton.Height = 32;
-                moreButton.Height = 32;
+                navPanel.Height = compact ? 26 : 32;
+                compactButton.Size = compact ? new Size(28, 24) : new Size(30, 30);
+                compactButton.Margin = compact ? new Padding(0, 1, 0, 1) : new Padding(0, 1, 0, 1);
+                syncButton.Height = 30;
+                reloadButton.Height = 30;
+                moreButton.Height = 30;
 
                 SetToolbarGlyph(compactButton, compact ? ToolbarGlyph.Expand : ToolbarGlyph.Collapse);
                 compactButton.AccessibleName = compact ? "Mở rộng thanh ứng dụng" : "Thu gọn thanh ứng dụng";
@@ -949,7 +1181,7 @@ namespace QLTCAnPhu
             private bool hover;
             private bool pressed;
             private ToolbarGlyph glyph;
-            private const int Radius = 8;
+            private const int Radius = 7;
 
             internal ToolbarGlyph Glyph
             {
@@ -1009,9 +1241,14 @@ namespace QLTCAnPhu
                         ? FlatAppearance.MouseOverBackColor
                         : BackColor;
 
+                bool toolbarIcon = string.Equals(Tag as string, "toolbar-icon", StringComparison.Ordinal);
+                Color border = toolbarIcon
+                    ? fill
+                    : (FlatAppearance.BorderColor == Color.Empty ? fill : FlatAppearance.BorderColor);
+
                 using (GraphicsPath path = CreateRoundedPath(rect, Radius))
                 using (var brush = new SolidBrush(fill))
-                using (var pen = new Pen(FlatAppearance.BorderColor == Color.Empty ? fill : FlatAppearance.BorderColor))
+                using (var pen = new Pen(border))
                 {
                     pevent.Graphics.FillPath(brush, path);
                     pevent.Graphics.DrawPath(pen, path);
@@ -1019,7 +1256,9 @@ namespace QLTCAnPhu
 
                 bool hasText = !string.IsNullOrWhiteSpace(Text);
                 bool hasGlyph = glyph != ToolbarGlyph.None;
-                int iconSize = Math.Min(16, Math.Max(12, Height - 14));
+                int iconSize = string.Equals(Tag as string, "toolbar-icon", StringComparison.Ordinal)
+                    ? 14
+                    : Math.Min(15, Math.Max(12, Height - 14));
                 Rectangle iconRect = Rectangle.Empty;
                 Rectangle textRect;
 
@@ -1095,7 +1334,7 @@ namespace QLTCAnPhu
                             break;
 
                         case ToolbarGlyph.Reload:
-                            graphics.DrawArc(pen, left + 2, top + 2, Math.Max(6, r.Width - 5), Math.Max(6, r.Height - 5), 35F, 285F);
+                            graphics.DrawArc(pen, left + 2, top + 2, Math.Max(7, r.Width - 5), Math.Max(7, r.Height - 5), 40F, 280F);
                             graphics.DrawLines(pen, new[]
                             {
                                 new Point(right - 1, top + 2),
@@ -1172,6 +1411,7 @@ namespace QLTCAnPhu
         private readonly string initialUrl;
         private readonly Action<string> statusCallback;
         private readonly Action<string> failureCallback;
+        private readonly Action<string, string, string> downloadStatusCallback;
         private readonly System.Windows.Forms.Timer coreTimer;
         private Control webView;
         private object coreWebView2;
@@ -1182,13 +1422,14 @@ namespace QLTCAnPhu
 
         internal bool IsReady { get { return coreWebView2 != null; } }
 
-        internal EmbeddedWebViewRuntime(Panel host, string userDataFolder, string initialUrl, Action<string> statusCallback, Action<string> failureCallback)
+        internal EmbeddedWebViewRuntime(Panel host, string userDataFolder, string initialUrl, Action<string> statusCallback, Action<string> failureCallback, Action<string, string, string> downloadStatusCallback)
         {
             this.host = host;
             this.userDataFolder = userDataFolder;
             this.initialUrl = initialUrl;
             this.statusCallback = statusCallback;
             this.failureCallback = failureCallback;
+            this.downloadStatusCallback = downloadStatusCallback;
             coreTimer = new System.Windows.Forms.Timer { Interval = 250 };
             coreTimer.Tick += delegate { PollCore(); };
         }
@@ -1480,10 +1721,52 @@ namespace QLTCAnPhu
                 if (handled != null && handled.CanWrite) handled.SetValue(args, true, null);
                 WriteRuntimeProbeMarker("DOWNLOAD|" + target);
                 statusCallback("Đang tải " + fileName + " vào " + folder + ".");
+                if (downloadStatusCallback != null) downloadStatusCallback("started", target, null);
+                AttachDownloadStateWatcher(args, target, fileName);
             }
             catch (Exception ex)
             {
                 statusCallback("Không thể định tuyến file tải xuống: " + ex.Message);
+                if (downloadStatusCallback != null) downloadStatusCallback("failed", null, ex.Message);
+            }
+        }
+
+        private void AttachDownloadStateWatcher(object args, string target, string fileName)
+        {
+            try
+            {
+                PropertyInfo operationProperty = args == null ? null : args.GetType().GetProperty("DownloadOperation");
+                object operation = operationProperty == null ? null : operationProperty.GetValue(args, null);
+                if (operation == null) return;
+
+                EventInfo stateChanged = operation.GetType().GetEvent("StateChanged");
+                if (stateChanged == null) return;
+
+                bool terminalReported = false;
+                Action<object, object> callback = delegate
+                {
+                    if (terminalReported) return;
+                    string state = ReadStringProperty(operation, "State");
+                    if (string.Equals(state, "Completed", StringComparison.OrdinalIgnoreCase))
+                    {
+                        terminalReported = true;
+                        statusCallback("Đã tải xong " + fileName + " • " + target);
+                        if (downloadStatusCallback != null) downloadStatusCallback("completed", target, null);
+                    }
+                    else if (string.Equals(state, "Interrupted", StringComparison.OrdinalIgnoreCase))
+                    {
+                        terminalReported = true;
+                        string reason = ReadStringProperty(operation, "InterruptReason");
+                        statusCallback("Tải file chưa hoàn tất: " + fileName + (string.IsNullOrWhiteSpace(reason) ? "." : " • " + reason));
+                        if (downloadStatusCallback != null) downloadStatusCallback("failed", target, reason);
+                    }
+                };
+
+                stateChanged.AddEventHandler(operation, CreateEventDelegate(stateChanged.EventHandlerType, callback));
+            }
+            catch (Exception ex)
+            {
+                statusCallback("Không thể theo dõi trạng thái file tải xuống: " + ex.Message);
             }
         }
 
