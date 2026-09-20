@@ -220,7 +220,7 @@ namespace QLTCAnPhu
                 Text = "Đang chuẩn bị HNL QLTC...",
                 Tag = "muted"
             };
-            footer.Controls.Add(webStatusLabel, 0, 0);
+            footerPanel.Controls.Add(webStatusLabel, 0, 0);
 
             syncStatusLabel = new Label
             {
@@ -229,7 +229,8 @@ namespace QLTCAnPhu
                 Text = "Đồng bộ: đang kiểm tra",
                 Tag = "muted"
             };
-            footer.Controls.Add(syncStatusLabel, 1, 0);
+            footerPanel.Controls.Add(syncStatusLabel, 1, 0);
+            footerPanel.Visible = false;
 
             Program.DesktopPaths.EnsureWorkspace();
             localStore = DesktopLocalStore.TryOpen(Program.DesktopPaths.LocalDatabase);
@@ -243,8 +244,8 @@ namespace QLTCAnPhu
             };
             var trayMenu = new ContextMenuStrip();
             trayMenu.Items.Add("Mở HNL QLTC", null, delegate { RestoreFromTray(); ShowWebApp(); });
-            trayMenu.Items.Add("Trang chủ Windows", null, delegate { RestoreFromTray(); ShowHome(); });
-            trayMenu.Items.Add("Sync Center", null, delegate { RestoreFromTray(); OpenSyncCenter(); });
+            trayMenu.Items.Add("Công cụ máy tính", null, delegate { RestoreFromTray(); ShowHome(); });
+            trayMenu.Items.Add("Trung tâm đồng bộ", null, delegate { RestoreFromTray(); OpenSyncCenter(); });
             trayMenu.Items.Add(new ToolStripSeparator());
             trayMenu.Items.Add("Thoát", null, delegate { allowClose = true; Close(); });
             trayIcon.ContextMenuStrip = trayMenu;
@@ -253,6 +254,16 @@ namespace QLTCAnPhu
             maintenanceTimer = new System.Windows.Forms.Timer { Interval = 30000 };
             maintenanceTimer.Tick += delegate { RunBackgroundMaintenance(); };
             maintenanceTimer.Start();
+
+            KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                if (e.KeyCode == Keys.F11)
+                {
+                    SetCompactChrome(!compactChrome);
+                    e.Handled = true;
+                    e.SuppressKeyPress = true;
+                }
+            };
 
             Resize += delegate
             {
