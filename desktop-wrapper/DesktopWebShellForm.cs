@@ -563,29 +563,50 @@ namespace QLTCAnPhu
         private ContextMenuStrip BuildMoreMenu()
         {
             var menu = new ContextMenuStrip();
-            menu.Items.Add("Mở bằng trình duyệt", null, delegate { Program.OpenHnlQltcExternal(); });
-            menu.Items.Add("Mở Backup", null, delegate { OpenFolder(Program.DesktopPaths.Backup); });
-            menu.Items.Add("Mở Photos", null, delegate { OpenFolder(Program.DesktopPaths.Photos); });
-            menu.Items.Add("Mở Logs", null, delegate { OpenFolder(Program.DesktopPaths.Logs); });
+
+            var computer = new ToolStripMenuItem("Công cụ máy tính");
+            computer.DropDownItems.Add("Mở Backup", null, delegate { OpenFolder(Program.DesktopPaths.Backup); });
+            computer.DropDownItems.Add("File đã xuất", null, delegate { OpenFolder(Program.DesktopPaths.Exports); });
+            computer.DropDownItems.Add("Ảnh local", null, delegate { OpenFolder(Program.DesktopPaths.Photos); });
+            computer.DropDownItems.Add(new ToolStripSeparator());
+            computer.DropDownItems.Add("Mở màn hình công cụ", null, delegate { ShowHome(); });
+            menu.Items.Add(computer);
+
+            var sync = new ToolStripMenuItem("Đồng bộ nâng cao");
+            sync.DropDownItems.Add("Trung tâm đồng bộ", null, delegate { OpenSyncCenter(); });
+            sync.DropDownItems.Add("Quét lại dữ liệu HNL trên máy", null, delegate { RefreshLocalIndex(true); });
+            menu.Items.Add(sync);
+
+            var support = new ToolStripMenuItem("Hỗ trợ & kỹ thuật");
+            support.DropDownItems.Add("Chẩn đoán", null, delegate { OpenFolder(Program.DesktopPaths.Diagnostics); });
+            support.DropDownItems.Add("Logs", null, delegate { OpenFolder(Program.DesktopPaths.Logs); });
+            support.DropDownItems.Add("DesktopBridge", null, delegate { OpenFolder(Program.DesktopPaths.DesktopBridge); });
+            support.DropDownItems.Add(new ToolStripSeparator());
+            support.DropDownItems.Add("Mở bằng trình duyệt", null, delegate { Program.OpenHnlQltcExternal(); });
+            menu.Items.Add(support);
+
+            var appearance = new ToolStripMenuItem("Giao diện");
+            appearance.DropDownItems.Add("Chế độ gọn (F11)", null, delegate { SetCompactChrome(!compactChrome); });
+            menu.Items.Add(appearance);
+
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Sync Center", null, delegate { OpenSyncCenter(); });
-            menu.Items.Add("Quét lại dữ liệu local", null, delegate { RefreshLocalIndex(true); });
-            menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Thoát", null, delegate { allowClose = true; Close(); });
+            menu.Items.Add("Thoát HNL QLTC", null, delegate { allowClose = true; Close(); });
             return menu;
         }
 
         private Button MakeToolbarButton(string text, int width)
         {
-            var button = new Button
+            var button = new RoundedToolbarButton
             {
                 Text = text,
-                Height = 40,
+                Height = 38,
                 FlatStyle = FlatStyle.Flat,
-                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
+                Font = new Font("Segoe UI", 9.25F, FontStyle.Bold),
                 Cursor = Cursors.Hand,
-                Margin = new Padding(4, 1, 4, 1),
-                Tag = "secondary"
+                Margin = new Padding(3, 1, 3, 1),
+                Padding = new Padding(8, 0, 8, 0),
+                Tag = "secondary",
+                TabStop = true
             };
             if (width > 0) button.Width = width;
             return button;
@@ -601,7 +622,92 @@ namespace QLTCAnPhu
         private void ShowHome()
         {
             homeHost.BringToFront();
+            SetNavigationState(false);
             webStatusLabel.Text = "Trung tâm Windows • HNL QLTC Web vẫn được giữ sẵn ở nền.";
+        }
+
+        private void SetNavigationState(bool webActive)
+        {
+            // The web app is the primary destination. Native tools stay behind the More menu.
+            ApplyTheme();
+        }
+
+        private void PositionToolbarActions()
+        {
+            if (toolbarPanel == null || navPanel == null) return;
+            int right = 14;
+            int preferred = navPanel.PreferredSize.Width;
+            int x = Math.Max(180, toolbarPanel.ClientSize.Width - preferred - right);
+            navPanel.Location = new Point(x, compactChrome ? 2 : 8);
+        }
+
+        private void SetCompactChrome(bool compact)
+        {
+            compactChrome = compact;
+            rootLayout.SuspendLayout();
+            toolbarPanel.SuspendLayout();
+            navPanel.SuspendLayout();
+            try
+            {
+                rootLayout.RowStyles[0].Height = compact ? CompactHeaderHeight : NormalHeaderHeight;
+                rootLayout.RowStyles[2].Height = 0F;
+                footerPanel.Visible = false;
+
+                if (brandLogo != null) brandLogo.Visible = !compact;
+                brandLabel.Visible = !compact;
+                releaseLabel.Visible = !compact;
+
+                navPanel.Height = compact ? 36 : 38;
+                PositionToolbarActions();
+                foreach (Control control in navPanel.Controls)
+                {
+                    Button button = control as Button;
+                    if (button == null) continue;
+                    button.Height = compact ? 34 : 38;
+                    button.Margin = compact ? new Padding(2, 1, 2, 1) : new Padding(3, 1, 3, 1);
+                }
+
+                compactButton.Text = compact ? "▾" : "▴";
+                compactButton.AccessibleName = compact ? "Mở rộng thanh ứng dụng" : "Thu gọn thanh ứng dụng";
+                chromeToolTip.SetToolTip(compactButton, compact
+                    ? "Mở rộng thanh ứng dụng"
+                    : "Thu gọn thanh ứng dụng");
+            }
+            finally
+            {
+                navPanel.ResumeLayout(true);
+                toolbarPanel.ResumeLayout(true);
+                rootLayout.ResumeLayout(true);
+            }
+        }
+
+        private void ShowSyncMenu()
+        {
+            int pending = 0;
+            int ready = 0;
+            if (localStore != null && localStore.IsReady)
+            {
+                pending = localStore.CountQueuePending();
+                ready = localStore.CountQueueReady();
+            }
+            int waiting = pending + ready;
+
+            var menu = new ContextMenuStrip();
+            var status = new ToolStripMenuItem(waiting == 0 ? "✓ Tất cả đã đồng bộ" : "⚠ Còn " + waiting + " mục đang chờ")
+            {
+                Enabled = false
+            };
+            menu.Items.Add(status);
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add("Đồng bộ ngay", null, delegate
+            {
+                RefreshLocalIndex(false);
+                ShowWebApp();
+                RefreshSyncStatus();
+            });
+            menu.Items.Add("Xem chi tiết", null, delegate { OpenSyncCenter(); });
+            menu.Closed += delegate { menu.Dispose(); };
+            menu.Show(syncButton, new Point(0, syncButton.Height + 2));
         }
 
         private void OpenSyncCenter()
@@ -624,13 +730,28 @@ namespace QLTCAnPhu
             if (localStore == null || !localStore.IsReady)
             {
                 syncStatusLabel.Text = "Dữ liệu cục bộ: cần kiểm tra";
+                if (syncButton != null)
+                {
+                    syncButton.Text = "⚠  Đồng bộ";
+                    syncButton.Tag = "warning";
+                }
                 return;
             }
 
-            int waiting = localStore.CountQueuePending() + localStore.CountQueueReady();
+            int pending = localStore.CountQueuePending();
+            int ready = localStore.CountQueueReady();
+            int waiting = pending + ready;
             syncStatusLabel.Text = waiting == 0
                 ? "Dữ liệu cục bộ: Bình thường • Đồng bộ: Đã hoàn tất"
                 : "Dữ liệu cục bộ: Bình thường • Đồng bộ: Còn " + waiting + " mục";
+            if (syncButton != null)
+            {
+                syncButton.Text = waiting == 0 ? "✓  Đồng bộ" : "⚠  " + waiting + " chờ";
+                syncButton.Tag = waiting == 0 ? "success" : "warning";
+                chromeToolTip.SetToolTip(syncButton, waiting == 0
+                    ? "Tất cả dữ liệu local đã xử lý xong"
+                    : "Còn " + waiting + " mục đang chờ đồng bộ");
+            }
         }
 
         private void RefreshLocalIndex(bool showMessage)
@@ -741,6 +862,97 @@ namespace QLTCAnPhu
             catch { }
         }
 
+
+        private sealed class RoundedToolbarButton : Button
+        {
+            private bool hover;
+            private bool pressed;
+            private const int Radius = 9;
+
+            internal RoundedToolbarButton()
+            {
+                SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint, true);
+                FlatStyle = FlatStyle.Flat;
+                FlatAppearance.BorderSize = 0;
+                UseVisualStyleBackColor = false;
+            }
+
+            protected override void OnMouseEnter(EventArgs e)
+            {
+                hover = true;
+                Invalidate();
+                base.OnMouseEnter(e);
+            }
+
+            protected override void OnMouseLeave(EventArgs e)
+            {
+                hover = false;
+                pressed = false;
+                Invalidate();
+                base.OnMouseLeave(e);
+            }
+
+            protected override void OnMouseDown(MouseEventArgs mevent)
+            {
+                pressed = true;
+                Invalidate();
+                base.OnMouseDown(mevent);
+            }
+
+            protected override void OnMouseUp(MouseEventArgs mevent)
+            {
+                pressed = false;
+                Invalidate();
+                base.OnMouseUp(mevent);
+            }
+
+            protected override void OnPaint(PaintEventArgs pevent)
+            {
+                pevent.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                Rectangle rect = new Rectangle(0, 0, Math.Max(1, Width - 1), Math.Max(1, Height - 1));
+                Color fill = pressed && FlatAppearance.MouseDownBackColor != Color.Empty
+                    ? FlatAppearance.MouseDownBackColor
+                    : hover && FlatAppearance.MouseOverBackColor != Color.Empty
+                        ? FlatAppearance.MouseOverBackColor
+                        : BackColor;
+
+                using (GraphicsPath path = CreateRoundedPath(rect, Radius))
+                using (var brush = new SolidBrush(fill))
+                using (var pen = new Pen(FlatAppearance.BorderColor == Color.Empty ? fill : FlatAppearance.BorderColor))
+                {
+                    pevent.Graphics.FillPath(brush, path);
+                    pevent.Graphics.DrawPath(pen, path);
+                }
+
+                Rectangle textRect = new Rectangle(Padding.Left, 0, Math.Max(1, Width - Padding.Horizontal), Height);
+                TextRenderer.DrawText(
+                    pevent.Graphics,
+                    Text,
+                    Font,
+                    textRect,
+                    ForeColor,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis
+                );
+
+                if (Focused && ShowFocusCues)
+                {
+                    Rectangle focus = Rectangle.Inflate(rect, -4, -4);
+                    ControlPaint.DrawFocusRectangle(pevent.Graphics, focus, ForeColor, fill);
+                }
+            }
+
+            private static GraphicsPath CreateRoundedPath(Rectangle rect, int radius)
+            {
+                int diameter = Math.Max(2, radius * 2);
+                var path = new GraphicsPath();
+                path.AddArc(rect.Left, rect.Top, diameter, diameter, 180, 90);
+                path.AddArc(rect.Right - diameter, rect.Top, diameter, diameter, 270, 90);
+                path.AddArc(rect.Right - diameter, rect.Bottom - diameter, diameter, diameter, 0, 90);
+                path.AddArc(rect.Left, rect.Bottom - diameter, diameter, diameter, 90, 90);
+                path.CloseFigure();
+                return path;
+            }
+        }
 
         private sealed class HomeAction
         {
