@@ -13,6 +13,7 @@ import {
   setProjectOfflineMirrorEnabled,
 } from '../lib/offlineMirrorSettings';
 import { formatDateTime } from '../utils/dateFormatter';
+import { cacheFloorPlansForOffline } from '../lib/floorPlanImageSync';
 
 interface Props {
   activeProjectId?: string;
@@ -34,6 +35,8 @@ export const ProjectOfflineMirrorCard: React.FC<Props> = ({ activeProjectId, flo
   const [progress, setProgress] = useState<ProjectOfflineMirrorProgress | null>(null);
   const [snapshot, setSnapshot] = useState<ProjectOfflineMirrorSnapshot | null>(null);
   const [lastSyncAt, setLastSyncAt] = useState(() => getProjectOfflineMirrorLastSyncAt(projectId));
+  const [floorPlanBusy, setFloorPlanBusy] = useState(false);
+  const [floorPlanMessage, setFloorPlanMessage] = useState('');
 
   const refreshSnapshot = async () => {
     if (!projectId) {
@@ -60,7 +63,7 @@ export const ProjectOfflineMirrorCard: React.FC<Props> = ({ activeProjectId, flo
   }, [snapshot]);
 
   const run = async (keepEnabled = enabled) => {
-    if (!projectId || busy) return;
+    if (!projectId || busy || floorPlanBusy) return;
     setBusy(true);
     setMessage('Đang chuẩn bị dữ liệu offline…');
     try {
@@ -81,6 +84,27 @@ export const ProjectOfflineMirrorCard: React.FC<Props> = ({ activeProjectId, flo
       setBusy(false);
       setEnabled(isProjectOfflineMirrorEnabled(projectId));
       setLastSyncAt(getProjectOfflineMirrorLastSyncAt(projectId));
+    }
+  };
+
+  const refreshFloorPlans = async () => {
+    if (!projectId || busy || floorPlanBusy) return;
+    setFloorPlanBusy(true);
+    setFloorPlanMessage('Đang cập nhật riêng mặt bằng offline…');
+    try {
+      const result = await cacheFloorPlansForOffline(projectId, floorPlans, (next) => {
+        setFloorPlanMessage(`Mặt bằng offline ${next.completed}/${next.total}`);
+      });
+      await refreshSnapshot();
+      if (result.failed > 0) {
+        setFloorPlanMessage(`Đã cập nhật ${result.cached + result.downloaded}/${result.total} mặt bằng; còn ${result.failed} mục chưa tải được.`);
+      } else {
+        setFloorPlanMessage(`Mặt bằng offline đã sẵn sàng ${result.cached + result.downloaded}/${result.total}.`);
+      }
+    } catch (error) {
+      setFloorPlanMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setFloorPlanBusy(false);
     }
   };
 
@@ -127,7 +151,7 @@ export const ProjectOfflineMirrorCard: React.FC<Props> = ({ activeProjectId, flo
       <div className="flex flex-wrap gap-1.5">
         <button
           type="button"
-          disabled={!projectId || busy}
+          disabled={!projectId || busy || floorPlanBusy}
           onClick={() => void toggleEnabled()}
           className={`rounded-lg px-3 py-2 text-[10px] font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-50 ${enabled ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-slate-700 hover:bg-slate-800'}`}
         >
@@ -135,15 +159,24 @@ export const ProjectOfflineMirrorCard: React.FC<Props> = ({ activeProjectId, flo
         </button>
         <button
           type="button"
-          disabled={!projectId || busy || (typeof navigator !== 'undefined' && navigator.onLine === false)}
+          disabled={!projectId || busy || floorPlanBusy || (typeof navigator !== 'undefined' && navigator.onLine === false)}
           onClick={() => void run(enabled)}
           className="rounded-lg border border-emerald-200 bg-white px-3 py-2 text-[10px] font-extrabold text-emerald-800 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50 flex items-center gap-1.5"
         >
           <Download className="h-3.5 w-3.5" /> Đồng bộ offline ngay
         </button>
+        <button
+          type="button"
+          disabled={!projectId || busy || floorPlanBusy || (typeof navigator !== 'undefined' && navigator.onLine === false)}
+          onClick={() => void refreshFloorPlans()}
+          className="rounded-lg border border-indigo-200 bg-white px-3 py-2 text-[10px] font-extrabold text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50 flex items-center gap-1.5"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${floorPlanBusy ? 'animate-spin' : ''}`} /> {floorPlanBusy ? 'Đang cập nhật mặt bằng…' : 'Cập nhật riêng mặt bằng'}
+        </button>
       </div>
 
       {message && <div className="text-[10px] font-semibold text-emerald-900 break-words">{message}</div>}
+      {floorPlanMessage && <div className="text-[10px] font-semibold text-indigo-800 break-words">{floorPlanMessage}</div>}
       <div className="text-[9px] text-slate-500">Tắt chế độ offline không xóa cache local. Không có thao tác nào ở đây tự xóa dữ liệu Cloud/R2.</div>
     </div>
   );

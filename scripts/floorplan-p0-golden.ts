@@ -81,12 +81,13 @@ check(ui.includes('1 file Cloud/R2 dùng chung'), 'Bulk floor UI must explain th
 check(ui.includes('Defect, Căn/Phòng, highlight, tiến độ, checklist'), 'Bulk floor UI must warn that business data remains per-floor.');
 
 const config = read('src/components/GoogleConfigTab.tsx');
+const offlineMirrorCard = read('src/components/ProjectOfflineMirrorCard.tsx');
 for (const status of ['PENDING_OUTBOX', 'PENDING_LOCAL', 'MISSING_BINARY', 'CLOUD_POINTER_INCONSISTENT']) {
   check(config.includes(status), 'Diagnostic status missing: ' + status);
 }
 check(config.includes('getFloorPlanImageOutboxSnapshot'), 'Diagnostics must inspect the floor-plan outbox.');
 check(config.includes('getFloorPlanImageCacheSnapshot'), 'Health diagnostics must inspect persistent floor-plan cache.');
-check(config.includes('Cập nhật tất cả mặt bằng offline ngay'), 'Health Center must keep a manual force-refresh action for offline floor plans.');
+check(offlineMirrorCard.includes('cacheFloorPlansForOffline') && offlineMirrorCard.includes('Cập nhật riêng mặt bằng'), 'Sync & Backup offline card must keep a manual floor-plan refresh action.');
 check(config.includes('cacheByStoragePath'), 'Health Center offline readiness must recognize shared typical-floor assets.');
 check(config.includes('offlineReady') && config.includes('cachedRevision') && config.includes('cachedBytes'), 'Floor-plan diagnostics must report offline readiness and cached revision/bytes.');
 
