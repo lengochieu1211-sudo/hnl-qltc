@@ -54,8 +54,8 @@ namespace QLTCAnPhu
         private FormWindowState restoreWindowState = FormWindowState.Normal;
         private int maintenanceRunning;
 
-        private const float NormalHeaderHeight = 46F;
-        private const float CompactHeaderHeight = 30F;
+        private const float NormalHeaderHeight = 38F;
+        private const float CompactHeaderHeight = 28F;
         private const float NormalFooterHeight = 0F;
 
         internal DesktopWebShellForm()
@@ -90,7 +90,7 @@ namespace QLTCAnPhu
             toolbarPanel = new Panel
             {
                 Dock = DockStyle.Fill,
-                Padding = new Padding(10, 7, 10, 7),
+                Padding = new Padding(8, 3, 8, 3),
                 Margin = new Padding(0),
                 Tag = "header"
             };
@@ -104,7 +104,8 @@ namespace QLTCAnPhu
                     Location = new Point(10, 9),
                     SizeMode = PictureBoxSizeMode.Zoom,
                     Image = Icon.ToBitmap(),
-                    BackColor = Color.Transparent
+                    BackColor = Color.Transparent,
+                    Visible = false
                 };
                 toolbarPanel.Controls.Add(brandLogo);
             }
@@ -115,7 +116,8 @@ namespace QLTCAnPhu
                 Text = "HNL QLTC",
                 Font = new Font("Segoe UI", 11.5F, FontStyle.Bold),
                 Location = new Point(46, 5),
-                Tag = "title"
+                Tag = "title",
+                Visible = false
             };
             toolbarPanel.Controls.Add(brandLabel);
 
@@ -125,7 +127,8 @@ namespace QLTCAnPhu
                 Text = Program.GetReleaseTag(),
                 Font = new Font("Segoe UI", 8F, FontStyle.Bold),
                 Location = new Point(47, 25),
-                Tag = "subtle"
+                Tag = "subtle",
+                Visible = false
             };
             toolbarPanel.Controls.Add(releaseLabel);
 
@@ -135,7 +138,7 @@ namespace QLTCAnPhu
                 Height = 34,
                 FlowDirection = FlowDirection.LeftToRight,
                 WrapContents = false,
-                Location = new Point(190, 6),
+                Location = new Point(8, 3),
                 Padding = new Padding(0),
                 Margin = new Padding(0),
                 Tag = "header"
@@ -623,6 +626,9 @@ namespace QLTCAnPhu
             support.DropDownItems.Add("Mở bằng trình duyệt", null, delegate { Program.OpenHnlQltcExternal(); });
             menu.Items.Add(support);
 
+            var versionInfo = new ToolStripMenuItem("HNL QLTC • " + Program.GetReleaseTag()) { Enabled = false };
+            menu.Items.Add(versionInfo);
+
             var appearance = new ToolStripMenuItem("Giao diện");
             appearance.DropDownItems.Add("Chế độ gọn (F11)", null, delegate { SetCompactChrome(!compactChrome); });
             menu.Items.Add(appearance);
@@ -917,8 +923,8 @@ namespace QLTCAnPhu
             navPanel.Width = preferred;
             navPanel.Height = compactChrome ? 26 : 32;
 
-            int x = Math.Max(170, toolbarPanel.ClientSize.Width - preferred - right);
-            navPanel.Location = new Point(x, compactChrome ? 2 : 7);
+            int x = Math.Max(8, toolbarPanel.ClientSize.Width - preferred - right);
+            navPanel.Location = new Point(x, compactChrome ? 2 : 4);
             navPanel.BringToFront();
         }
 
@@ -934,9 +940,12 @@ namespace QLTCAnPhu
                 rootLayout.RowStyles[2].Height = 0F;
                 footerPanel.Visible = false;
 
-                if (brandLogo != null) brandLogo.Visible = !compact;
-                brandLabel.Visible = !compact;
-                releaseLabel.Visible = !compact;
+                // Windows already shows HNL QLTC in the native title bar and the embedded
+                // web app owns its project/app identity. Repeating logo/title/version in
+                // this thin command strip creates a distracting third branding layer.
+                if (brandLogo != null) brandLogo.Visible = false;
+                brandLabel.Visible = false;
+                releaseLabel.Visible = false;
 
                 // Collapsed mode is intentionally a real collapse: keep only a small
                 // expand affordance. The previous implementation merely shaved a few
@@ -946,7 +955,7 @@ namespace QLTCAnPhu
                 moreButton.Visible = !compact;
                 compactButton.Visible = true;
 
-                navPanel.Height = compact ? 26 : 32;
+                navPanel.Height = compact ? 24 : 32;
                 compactButton.Size = compact ? new Size(28, 24) : new Size(30, 30);
                 compactButton.Margin = compact ? new Padding(0, 1, 0, 1) : new Padding(0, 1, 0, 1);
                 syncButton.Height = 30;
