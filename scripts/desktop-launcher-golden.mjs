@@ -119,7 +119,7 @@ assert(webBridge.includes('BRIDGE_ATTEMPT_TOKEN_INVALID') && webBridge.includes(
 assert(!webBridge.includes('uploadProjectBinaryToR2') && !webBridge.includes('fetch('), 'Web bridge does not introduce a direct R2/network upload authority');
 assert(bridgeCard.includes('Windows Desktop Sync Bridge') && configTab.includes('WindowsDesktopSyncBridgeCard'), 'Settings exposes Windows App Sync Bridge controls');
 assert(build.includes('release-tag.txt'), 'build script uses release tag for cache/version isolation');
-assert(releaseTag === '6.3.0-rc2.2.26.5', 'desktop release tag identifies the RC2.2.26.5 compact toolbar + real-collapse hotfix candidate');
+assert(releaseTag === '6.3.0-rc2.2.26.6', 'desktop release tag identifies the RC2.2.26.6 warehouse Excel undefined-field hotfix candidate');
 
 assert(iconSource.width >= 1024 && iconSource.height >= 1024 && iconSource.bytes > 1_000_000, 'HQ HNL logo source is retained at >=1024px');
 assert(taskbar192.width === 192 && taskbar192.height === 192, 'browser app-mode has dedicated 192x192 HNL icon');

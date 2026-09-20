@@ -52,7 +52,7 @@ function sanitizeWarehouseWritePayload<T extends Record<string, unknown>>(payloa
   // Warehouse atomic transactions bypass the generic project-diff writer, so they must
   // apply the same Cloud payload sanitation themselves. Firestore rejects any undefined
   // field (for example blank Excel notes/source metadata) inside Transaction.set().
-  // RC2.2.26.6 keeps optional Excel/import metadata Firestore-safe across Web/EXE/APK.
+  // RC2.2.26.6 keeps optional Excel/import metadata Firestore-safe across Web/EXE/APK; exact-head CI certifies all wrappers.
   return sanitizePayloadForCloud(payload) as T;
 }
 
