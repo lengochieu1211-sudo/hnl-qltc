@@ -6947,13 +6947,30 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         />
                         <circle cx={x} cy={y} r={0.30 * svgZoomCompensation} fill={pinColor} />
                       </svg>
+                      {/* Existing Defect always wins hit-testing over room regions/drag handles.
+                          The visible SVG dot stays presentation-only; this screen-size hit target
+                          sits on the REAL defect coordinate so clicking inside a room never selects
+                          or moves the room by mistake. */}
+                      <button
+                        type="button"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveDefectDetail(defect);
+                        }}
+                        style={{ left: `${x}%`, top: `${y}%`, touchAction: 'manipulation' }}
+                        className="absolute -translate-x-1/2 -translate-y-1/2 z-50 pointer-events-auto w-7 h-7 sm:w-6 sm:h-6 rounded-full bg-transparent cursor-pointer"
+                        aria-label={`Mở Defect ${shortDefectCode}`}
+                        title={`${shortDefectCode} · ${defect.category}${defect.description ? ` · ${defect.description}` : ''}`}
+                      />
                       <div
+                        onPointerDown={(e) => e.stopPropagation()}
                         onClick={(e) => {
                           e.stopPropagation();
                           setActiveDefectDetail(defect);
                         }}
                         style={{ left: `${markerX}%`, top: `${markerY}%` }}
-                        className="absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer z-30 transition-transform hover:scale-110 active:scale-105"
+                        className="absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer z-50 pointer-events-auto transition-transform hover:scale-110 active:scale-105"
                         title={`${shortDefectCode} · ${defect.category}${defect.description ? ` · ${defect.description}` : ''}`}
                       >
                         <div
