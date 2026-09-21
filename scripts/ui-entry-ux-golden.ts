@@ -113,6 +113,8 @@ assert(!warehouse.includes('<ExpandCollapseButton'), 'Material Need must not act
 assert(warehouse.includes('defaultHandler?: string;') && warehouse.includes("defaultHandler = ''"), 'Warehouse must accept project engineer as its default handler.');
 assert(warehouse.includes('materialPickerSearch') && warehouse.includes('filteredMaterialNorms'), 'Warehouse create flow must provide searchable material selection.');
 assert(warehouse.includes('Tìm theo tên, nhóm hoặc đơn vị...'), 'Warehouse material search placeholder is missing.');
+assert(warehouse.includes('normalizeMaterialSearch') && warehouse.includes(".normalize('NFD')"), 'Warehouse material search must ignore Vietnamese accents/case.');
+assert(warehouse.includes('filteredMaterialNorms.slice(0, 20).map') && warehouse.includes('onClick={() => {') && warehouse.includes("setMaterialPickerSearch('');"), 'Warehouse material search must render clickable autocomplete results instead of only filtering a native select.');
 assert(warehouse.includes('Lưu & thêm tiếp') && warehouse.includes("value=\"continue\""), 'Warehouse create flow must support save-and-continue multi-item entry.');
 assert(warehouse.includes('const keepOpen = !editingInventory'), 'Warehouse save-and-continue must keep one create session open.');
 assert(!warehouse.includes("useState('Kho Tầng 1')"), 'Warehouse must not hard-code Kho Tầng 1 as a fake location default.');
