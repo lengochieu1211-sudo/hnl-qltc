@@ -204,7 +204,9 @@ try {
   $resourceWinForms = '/resource:' + $webView.WinForms + ',HNL.QLTC.WebView2.WinForms'
   $resourceLoaderX64 = '/resource:' + $webView.LoaderX64 + ',HNL.QLTC.WebView2.Loader.x64'
   $resourceLoaderX86 = '/resource:' + $webView.LoaderX86 + ',HNL.QLTC.WebView2.Loader.x86'
-  & $csc /nologo /target:winexe /optimize+ /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.dll /reference:System.Core.dll /win32icon:"$generatedIcon" /out:"$out" $resourceCore $resourceWinForms $resourceLoaderX64 $resourceLoaderX86 $desktopSources $assemblyInfo $releaseInfo
+  $resourceBrandIcon = '/resource:' + $generatedIcon + ',HNL.QLTC.Brand.Icon'
+  $resourceBrandPng = '/resource:' + $logoSource + ',HNL.QLTC.Brand.Png'
+  & $csc /nologo /target:winexe /optimize+ /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.dll /reference:System.Core.dll /win32icon:"$generatedIcon" /out:"$out" $resourceCore $resourceWinForms $resourceLoaderX64 $resourceLoaderX86 $resourceBrandIcon $resourceBrandPng $desktopSources $assemblyInfo $releaseInfo
   if ($LASTEXITCODE -ne 0) { throw "csc failed: $LASTEXITCODE" }
   if (-not (Test-Path -LiteralPath $out)) { throw 'Desktop EXE was not created.' }
 
