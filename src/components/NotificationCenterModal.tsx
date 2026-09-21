@@ -169,7 +169,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
 
   const markAllSystemRead = async () => {
     if (!activeProjectId || systemEventLogs.length === 0 || systemReadBusy) return;
-    const newest = Math.max(...systemEventLogs.map((log) => Number(log.clientTimestamp || log.timestamp || 0)), Date.now());
+    const newest = Math.max(...systemEventLogs.map((log) => Number(log.clientTimestamp || log.timestamp || 0)), 0);
     setSystemReadBusy(true);
     try {
       await markProjectSystemNotificationsRead(activeProjectId, newest);
