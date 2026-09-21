@@ -38,7 +38,7 @@ import {
   canManageSecurity
 } from '../utils/securityUtils';
 import { hashPin, verifyPin } from '../utils/cryptoUtils';
-import { signInWithGoogle, signOutFirebaseAccount, getCurrentFirebaseUser, fetchProjectUserRoleFromCloud, claimProjectOwnership, fetchProjectMembersFromCloud, fetchProjectAuditLogsFromCloud, subscribeProjectMembersRealtime, subscribeProjectAuditLogsRealtime, repairProjectAccessIndexForProject, subscribeProjectMemberContactsRealtime, saveProjectMemberContactToCloud, fetchAccessibleMemberContactDirectory, ProjectMemberContact } from '../lib/firebase';
+import { signInWithGoogle, signOutFirebaseAccount, getCurrentFirebaseUser, fetchProjectUserRoleFromCloud, claimProjectOwnership, fetchProjectMembersFromCloud, fetchProjectAuditLogsFromCloud, subscribeProjectMembersRealtime, subscribeProjectAuditLogsRealtime, repairProjectAccessIndexForProject, subscribeProjectMemberContactsRealtime, saveProjectMemberContactToCloud, fetchAccessibleMemberContactDirectory, saveProjectAuditLog, ProjectMemberContact } from '../lib/firebase';
 import { saveTextFile } from '../utils/fileExport';
 import { QuickSortBar } from './QuickSortBar';
 import { confirmAsync } from '../utils/confirmAsync';
@@ -147,6 +147,9 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
   const [memberSortOrder, setMemberSortOrder] = useState<'asc' | 'desc'>('asc');
   const [auditSortBy, setAuditSortBy] = useState<'date' | 'action' | 'user'>('date');
   const [auditSortOrder, setAuditSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [auditQuery, setAuditQuery] = useState('');
+  const [auditModuleFilter, setAuditModuleFilter] = useState('all');
+  const [auditClientFilter, setAuditClientFilter] = useState('all');
 
   const canManageProjectMembers = canManageMembers(currentRole);
   const canReadMemberContacts = currentRole === 'ADMIN' || currentRole === 'EDITOR';
@@ -266,6 +269,8 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
         details: log.description || log.details || log.action,
         userEmail: log.userEmail || log.actorEmail || '',
         userName: log.userName || log.actorName || '',
+        actorEmail: log.userEmail || log.actorEmail || '',
+        actorName: log.userName || log.actorName || '',
       }));
       setAuditLogs(normalized as any);
     }, 200);
@@ -530,7 +535,16 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
       if (res.success) {
         setClaimMsg({ type: 'success', text: res.message });
         await refreshCloudStatus(selectedPid);
-        logAuditAction('SECURITY_CONFIG_CHANGE', `Khôi phục/xác nhận quyền Chủ sở hữu dự án (${selectedPid}) bởi ${u.email}`);
+        const ownerDescription = `Khôi phục/xác nhận quyền Chủ sở hữu dự án bởi ${u.email}`;
+        logAuditAction('SECURITY_CONFIG_CHANGE', ownerDescription, selectedPid);
+        void saveProjectAuditLog(selectedPid, {
+          action: 'SECURITY_CONFIG_CHANGE',
+          module: 'security',
+          recordId: selectedPid,
+          description: ownerDescription,
+          details: ownerDescription,
+          actorRole: currentRole,
+        }).catch((err) => console.warn('Cloud owner audit warning:', err));
       } else {
         setClaimMsg({ type: 'error', text: res.message });
       }
@@ -666,7 +680,16 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
         setMemberMsg({ type: 'success', text: `Da luu quyen ${newMemberRole} cho ${email}.` });
         await refreshCloudStatus(pidAtSubmit);
       }
-      logAuditAction('ROLE_CHANGE', `Da gan quyen ${newMemberRole} cho email ${email} o du an ${pidAtSubmit}`, pidAtSubmit);
+      const roleDescription = `${existingMember ? 'Đổi' : 'Gán'} quyền ${newMemberRole} cho ${email}`;
+      logAuditAction('ROLE_CHANGE', roleDescription, pidAtSubmit);
+      void saveProjectAuditLog(pidAtSubmit, {
+        action: 'ROLE_CHANGE',
+        module: 'security',
+        recordId: email,
+        description: roleDescription,
+        details: roleDescription,
+        actorRole: currentRole,
+      }).catch((err) => console.warn('Cloud role audit warning:', err));
     } catch (err: any) {
       if (selectedPidRef.current === pidAtSubmit) {
         setMemberMsg({
@@ -706,7 +729,16 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
           setMemberMsg({ type: 'success', text: `Da xoa quyen cua ${email}.` });
           await refreshCloudStatus(pidAtSubmit);
         }
-        logAuditAction('ROLE_CHANGE', `Da xoa quyen thanh vien cua ${email} o du an ${pidAtSubmit}`, pidAtSubmit);
+        const revokeDescription = `Thu hồi quyền truy cập của ${email}`;
+        logAuditAction('ROLE_CHANGE', revokeDescription, pidAtSubmit);
+        void saveProjectAuditLog(pidAtSubmit, {
+          action: 'ROLE_CHANGE',
+          module: 'security',
+          recordId: email,
+          description: revokeDescription,
+          details: revokeDescription,
+          actorRole: currentRole,
+        }).catch((err) => console.warn('Cloud revoke-role audit warning:', err));
       } catch (err: any) {
         if (selectedPidRef.current === pidAtSubmit) {
           setMemberMsg({
@@ -759,7 +791,16 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
       setContactDrafts((prev) => ({ ...prev, [normalizedEmail]: phone }));
       setEditingContactEmail('');
       setMemberMsg({ type: 'success', text: phone ? `Đã lưu số liên hệ dùng chung theo email ${normalizedEmail}.` : `Đã xóa số liên hệ của ${normalizedEmail}.` });
-      logAuditAction('SECURITY_CONFIG_CHANGE', `Cập nhật danh bạ liên hệ thành viên ${normalizedEmail} ở dự án ${selectedPid}`, selectedPid);
+      const contactDescription = `Cập nhật danh bạ liên hệ thành viên ${normalizedEmail}`;
+      logAuditAction('SECURITY_CONFIG_CHANGE', contactDescription, selectedPid);
+      void saveProjectAuditLog(selectedPid, {
+        action: 'SECURITY_CONFIG_CHANGE',
+        module: 'security',
+        recordId: normalizedEmail,
+        description: contactDescription,
+        details: contactDescription,
+        actorRole: currentRole,
+      }).catch((err) => console.warn('Cloud contact audit warning:', err));
     } catch (err: any) {
       setMemberMsg({ type: 'error', text: `Không lưu được số liên hệ: ${err?.message || err}` });
     } finally {
@@ -813,7 +854,20 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
     return memberSortOrder === 'asc' ? comparison : -comparison;
   });
 
-  const sortedAuditLogs = [...auditLogs].sort((a, b) => {
+  const auditModules = Array.from(new Set(auditLogs.map((log) => String(log.module || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'vi'));
+  const auditClients = Array.from(new Set(auditLogs.map((log) => String(log.clientType || '').trim()).filter(Boolean))).sort();
+  const filteredAuditLogs = auditLogs.filter((log) => {
+    const q = auditQuery.trim().toLocaleLowerCase('vi');
+    if (auditModuleFilter !== 'all' && String(log.module || '') !== auditModuleFilter) return false;
+    if (auditClientFilter !== 'all' && String(log.clientType || '') !== auditClientFilter) return false;
+    if (!q) return true;
+    const haystack = [
+      log.actorName, log.actorEmail, log.action, log.details, log.module, log.recordId,
+      log.deviceName, log.platform, log.browser, log.clientType,
+    ].map((value) => String(value || '')).join(' ').toLocaleLowerCase('vi');
+    return haystack.includes(q);
+  });
+  const sortedAuditLogs = [...filteredAuditLogs].sort((a, b) => {
     let comparison = 0;
     if (auditSortBy === 'action') {
       comparison = String(a.action || '').localeCompare(String(b.action || ''), 'vi', { sensitivity: 'base' });
@@ -824,6 +878,29 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
     }
     return auditSortOrder === 'asc' ? comparison : -comparison;
   });
+
+  const auditClientLabel = (log: AuditLogEntry) => {
+    if (log.clientType === 'DESKTOP') return 'Windows EXE';
+    if (log.clientType === 'APK') return 'Android APK';
+    if (log.clientType === 'WEB') return log.browser ? `Web · ${log.browser}` : 'Web';
+    return log.platform || log.browser || 'Thiết bị';
+  };
+
+  const auditValuePreview = (value: any) => {
+    if (value === undefined) return '—';
+    if (value === null) return 'null';
+    if (typeof value === 'string') return value.length > 180 ? `${value.slice(0, 177)}…` : value;
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    try {
+      const text = JSON.stringify(value, (key, nested) => {
+        if (/image|base64|dataUrl|binary/i.test(key)) return '[binary omitted]';
+        return nested;
+      });
+      return text.length > 220 ? `${text.slice(0, 217)}…` : text;
+    } catch {
+      return String(value);
+    }
+  };
 
   return (
     <div className="fixed inset-0 bg-slate-900/65 backdrop-blur-xs z-[200] flex items-center justify-center p-3 md:p-4 animate-in fade-in duration-200">
