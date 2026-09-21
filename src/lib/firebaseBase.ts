@@ -2853,10 +2853,100 @@ export interface ProjectAuditCloudEntry {
 function getClientAuditContext() {
   const ua = typeof navigator !== 'undefined' ? navigator.userAgent : 'server';
   const w = typeof window !== 'undefined' ? (window as any) : {};
-  const clientType: 'WEB' | 'APK' | 'DESKTOP' = w.AndroidBridge ? 'APK' : (w.electronAPI || w.__TAURI__ ? 'DESKTOP' : 'WEB');
+  const search = typeof window !== 'undefined' ? String(window.location?.search || '') : '';
+  const isAndroidShell = Boolean(w.AndroidBridge);
+  const isDesktopShell = Boolean(
+    w.electronAPI
+    || w.__TAURI__
+    || w.chrome?.webview
+    || /(?:^|[?&])app=desktop(?:&|$)/i.test(search)
+  );
+  const clientType: 'WEB' | 'APK' | 'DESKTOP' = isAndroidShell ? 'APK' : (isDesktopShell ? 'DESKTOP' : 'WEB');
   const platform = typeof navigator !== 'undefined' ? (navigator.platform || (/Android/i.test(ua) ? 'Android' : 'Web')) : 'server';
   const browser = /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'Unknown';
   return { clientType, platform, browser, appVersion: String((import.meta as any).env?.VITE_APP_VERSION || 'web') };
+}
+
+export interface ProjectPresenceEntry {
+  projectId: string;
+  uid: string;
+  email: string;
+  displayName?: string;
+  role?: string;
+  module: string;
+  clientType: 'WEB' | 'APK' | 'DESKTOP';
+  platform?: string;
+  browser?: string;
+  deviceId: string;
+  deviceName?: string;
+  appVersion?: string;
+  lastSeen?: any;
+  clientLastSeen: number;
+  updatedAt: number;
+}
+
+export async function updateProjectPresence(projectId: string, module: string, role?: string): Promise<void> {
+  const normalizedProjectId = String(projectId || '').trim();
+  const user = getCurrentRealFirebaseUser();
+  if (!normalizedProjectId || !user || user.isAnonymous || !user.email) return;
+  const now = Date.now();
+  const ctx = getClientAuditContext();
+  await setDoc(
+    doc(db, 'projects', normalizedProjectId, 'presence', user.uid),
+    sanitizePayloadForCloud({
+      projectId: normalizedProjectId,
+      uid: user.uid,
+      email: normalizeEmail(user.email),
+      displayName: user.displayName || '',
+      role: String(role || ''),
+      module: String(module || 'unknown').slice(0, 48),
+      deviceId: getDeviceId(),
+      deviceName: getDeviceName(),
+      ...ctx,
+      lastSeen: serverTimestamp(),
+      clientLastSeen: now,
+      updatedAt: now,
+    }),
+    { merge: true },
+  );
+}
+
+export function subscribeProjectPresenceRealtime(
+  projectId: string,
+  onUpdate: (items: ProjectPresenceEntry[]) => void,
+): () => void {
+  const normalizedProjectId = String(projectId || '').trim();
+  if (!normalizedProjectId) return () => {};
+  let disposed = false;
+  let snapshotUnsub: (() => void) | null = null;
+
+  const attach = (user: User | null) => {
+    snapshotUnsub?.();
+    snapshotUnsub = null;
+    if (disposed || !user) {
+      if (!disposed) onUpdate([]);
+      return;
+    }
+    snapshotUnsub = onSnapshot(
+      collection(db, 'projects', normalizedProjectId, 'presence'),
+      (snap) => {
+        if (disposed) return;
+        onUpdate(snap.docs.map((row) => ({ id: row.id, ...row.data() } as any as ProjectPresenceEntry)));
+      },
+      (err) => {
+        console.warn('Project presence realtime error:', err);
+        if (!disposed) onUpdate([]);
+      },
+    );
+  };
+
+  attach(getCurrentRealFirebaseUser());
+  const authUnsub = onAuthStateChanged(auth, attach);
+  return () => {
+    disposed = true;
+    snapshotUnsub?.();
+    authUnsub();
+  };
 }
 
 export async function saveProjectAuditLog(projectId: string, entry: Omit<ProjectAuditCloudEntry, 'projectId' | 'id' | 'userUid' | 'userEmail' | 'userName' | 'deviceId' | 'deviceName' | 'clientTimestamp'> & { clientTimestamp?: number; timestamp?: number }): Promise<void> {
