@@ -22,13 +22,26 @@ for (const marker of [
   "const qualityKind: ImageQualityKind = imageKind === 'crew' ? 'crew' : 'defect';",
   'gestureBaseRef',
   'ctx.imageSmoothingQuality = \'high\'',
+  "useState<EditorTool>('pan')",
+  "setActiveTool('pan')",
+  'pointerMapRef',
+  'pinchRef',
+  "pointerMapRef.current.size >= 2",
+  'onWheel={onWheel}',
+  'ZoomIn',
+  'ZoomOut',
+  'Maximize2',
+  'Di chuyển / Zoom',
 ]) {
   if (!editor.includes(marker)) fail(`ImageEditorModal missing ${marker}`);
 }
 if (editor.includes('window.innerWidth * 0.9') || editor.includes('window.innerHeight * 0.65')) {
   fail('ImageEditorModal still downsizes working pixels to viewport dimensions');
 }
-pass('tool buttons are non-submit, geometry preview is stable, and Vietnamese IME is guarded');
+if (editor.includes("setActiveTool('draw');")) {
+  fail('ImageEditorModal still defaults to freehand drawing instead of pan/zoom');
+}
+pass('tool buttons are non-submit, Vietnamese IME is guarded, and editor opens in pinch-safe pan/zoom mode');
 
 for (const marker of [
   'preserveEncodedSource?: boolean',
