@@ -841,7 +841,7 @@ export default function App() {
         teams,
       };
       const recoveredState = useVerifiedOfflineSnapshot && verifiedOfflineWorkingDelta
-        ? applyVerifiedOfflineWorkingDelta(initialState, verifiedOfflineWorkingDelta) as AppData
+        ? applyVerifiedOfflineWorkingDelta(initialState as unknown as Record<string, any[]>, verifiedOfflineWorkingDelta) as unknown as AppData
         : initialState;
       localTombstonesRef.current = useVerifiedOfflineSnapshot && verifiedOfflineWorkingDelta
         ? { ...verifiedOfflineWorkingDelta.tombstones }
