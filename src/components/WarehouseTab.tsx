@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import { 
   ArrowDownLeft, 
@@ -660,6 +660,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
   const [quickAddMessage, setQuickAddMessage] = useState('');
+  const materialSearchRef = useRef<HTMLInputElement>(null);
 
   const liveQuantityCalc = useMemo(() => {
     if (/[+\-*/xX×:÷]/.test(quantityStr)) {
@@ -1032,6 +1033,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         setQuantity('');
         setQuantityStr('');
         setQuickAddMessage(`Đã lưu ${finalMaterialName}. Chọn vật tư tiếp theo để nhập cùng phiên.`);
+        requestAnimationFrame(() => materialSearchRef.current?.focus());
       } else {
         setShowAddForm(false);
         setEditingInventory(null);
@@ -1798,6 +1800,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                   <input
+                    ref={materialSearchRef}
                     type="search"
                     value={materialPickerSearch}
                     onChange={(e) => setMaterialPickerSearch(e.target.value)}
