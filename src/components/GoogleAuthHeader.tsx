@@ -120,7 +120,7 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
           {/* Top Header Row */}
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2 min-w-0">
-              <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center overflow-hidden shadow-md shrink-0 border border-slate-200/50 select-none">
+              <div className="w-10 h-10 flex items-center justify-center overflow-hidden shrink-0 select-none bg-transparent">
                 <img
                   src={logoUrl || `/icon.png?v=${APP_VERSION}-brand20260921`}
                   alt={appDisplayName || 'HNL Quản Lý Thi Công'}
