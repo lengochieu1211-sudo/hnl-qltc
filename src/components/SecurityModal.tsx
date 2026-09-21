@@ -38,7 +38,7 @@ import {
   canManageSecurity
 } from '../utils/securityUtils';
 import { hashPin, verifyPin } from '../utils/cryptoUtils';
-import { signInWithGoogle, signOutFirebaseAccount, getCurrentFirebaseUser, fetchProjectUserRoleFromCloud, claimProjectOwnership, fetchProjectMembersFromCloud, fetchProjectAuditLogsFromCloud, subscribeProjectMembersRealtime, subscribeProjectAuditLogsRealtime, repairProjectAccessIndexForProject, subscribeProjectMemberContactsRealtime, saveProjectMemberContactToCloud, fetchAccessibleMemberContactDirectory, saveProjectAuditLog, ProjectMemberContact } from '../lib/firebase';
+import { signInWithGoogle, signOutFirebaseAccount, getCurrentFirebaseUser, fetchProjectUserRoleFromCloud, claimProjectOwnership, fetchProjectMembersFromCloud, fetchProjectAuditLogsFromCloud, subscribeProjectMembersRealtime, subscribeProjectAuditLogsRealtime, repairProjectAccessIndexForProject, subscribeProjectMemberContactsRealtime, saveProjectMemberContactToCloud, fetchAccessibleMemberContactDirectory, saveProjectAuditLog, ProjectMemberContact, subscribeProjectPresenceRealtime, ProjectPresenceEntry } from '../lib/firebase';
 import { saveTextFile } from '../utils/fileExport';
 import { QuickSortBar } from './QuickSortBar';
 import { confirmAsync } from '../utils/confirmAsync';
@@ -128,6 +128,8 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
   // Project Members state
   const [selectedPid, setSelectedPid] = useState<string>(activeProjectId);
   const [projectMembers, setProjectMembers] = useState<any[]>([]);
+  const [projectPresence, setProjectPresence] = useState<ProjectPresenceEntry[]>([]);
+  const [presenceNow, setPresenceNow] = useState(() => Date.now());
   const [memberContacts, setMemberContacts] = useState<Record<string, ProjectMemberContact>>({});
   const [sharedMemberContacts, setSharedMemberContacts] = useState<Record<string, ProjectMemberContact>>({});
   const [contactDrafts, setContactDrafts] = useState<Record<string, string>>({});
@@ -253,6 +255,8 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
         .filter((m: any) => m && m.email && m.active !== false)
         .map((m: any) => ({
           email: String(m.email).trim().toLowerCase(),
+          uid: String(m.uid || (String(m.id || '').includes('@') ? '' : m.id || '')),
+          displayName: String(m.displayName || '').trim(),
           role: (m.role || 'VIEWER') as UserRole,
           assignedAt: Number(m.assignedAt || m.updatedAt || Date.now()),
           pinResetEpoch: Number(m.pinResetEpoch || 0),
@@ -277,6 +281,22 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
 
     return () => { cancelled = true; unsubMembers(); unsubAudit(); };
   }, [selectedPid]);
+
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'rbac' || !selectedPid) {
+      setProjectPresence([]);
+      return;
+    }
+    const unsubscribe = subscribeProjectPresenceRealtime(selectedPid, (items) => {
+      setProjectPresence(items);
+      setPresenceNow(Date.now());
+    });
+    const freshnessTimer = window.setInterval(() => setPresenceNow(Date.now()), 30_000);
+    return () => {
+      unsubscribe();
+      window.clearInterval(freshnessTimer);
+    };
+  }, [isOpen, activeTab, selectedPid]);
 
   useEffect(() => {
     setMemberContacts({});
