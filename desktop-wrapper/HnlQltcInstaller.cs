@@ -32,6 +32,34 @@ namespace HnlQltcSetup
         private readonly bool isUpgrade;
         private UiTheme theme;
 
+        private static Icon LoadBrandIcon()
+        {
+            try
+            {
+                using (Stream input = Assembly.GetExecutingAssembly().GetManifestResourceStream("HNL.QLTC.Brand.Icon"))
+                {
+                    if (input == null) return null;
+                    using (var icon = new Icon(input, 32, 32))
+                        return (Icon)icon.Clone();
+                }
+            }
+            catch { return null; }
+        }
+
+        private static Bitmap LoadBrandBitmap()
+        {
+            try
+            {
+                using (Stream input = Assembly.GetExecutingAssembly().GetManifestResourceStream("HNL.QLTC.Brand.Png"))
+                {
+                    if (input == null) return null;
+                    using (Image image = Image.FromStream(input))
+                        return new Bitmap(image);
+                }
+            }
+            catch { return null; }
+        }
+
         internal InstallerForm()
         {
             installDirectory = InstallLayout.GetInstallDirectory();
@@ -48,7 +76,12 @@ namespace HnlQltcSetup
             MinimumSize = new Size(720, 540);
             Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point);
             AutoScaleMode = AutoScaleMode.Dpi;
-            try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
+            try
+            {
+                Icon = LoadBrandIcon();
+                if (Icon == null) Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+            }
+            catch { }
             AcceptButton = installButton;
             CancelButton = cancelButton;
 
@@ -82,7 +115,7 @@ namespace HnlQltcSetup
                     Size = new Size(52, 52),
                     Location = new Point(28, 28),
                     SizeMode = PictureBoxSizeMode.Zoom,
-                    Image = Icon.ToBitmap(),
+                    Image = LoadBrandBitmap() ?? Icon.ToBitmap(),
                     BackColor = Color.Transparent
                 };
                 header.Controls.Add(logo);
@@ -358,21 +391,24 @@ namespace HnlQltcSetup
 
                 string uninstallPath = Path.Combine(installDirectory, InstallerBuildInfo.UninstallerExeName);
                 ExtractEmbeddedFile("HNL.QLTC.Payload.Uninstaller", uninstallPath);
+                string iconPath = Path.Combine(installDirectory, InstallerBuildInfo.IconFileName);
+                ExtractEmbeddedFile("HNL.QLTC.Brand.Icon", iconPath);
                 progress.Value = 60;
 
                 stateLabel.Text = "Đang tạo Start Menu và Desktop shortcut...";
                 Refresh();
                 Directory.CreateDirectory(InstallLayout.GetStartMenuFolder());
-                InstallLayout.CreateShortcut(InstallLayout.GetStartMenuShortcutPath(), exePath);
+                InstallLayout.CreateShortcut(InstallLayout.GetStartMenuShortcutPath(), exePath, iconPath);
                 if (desktopShortcut.Checked)
-                    InstallLayout.CreateShortcut(InstallLayout.GetDesktopShortcutPath(), exePath);
+                    InstallLayout.CreateShortcut(InstallLayout.GetDesktopShortcutPath(), exePath, iconPath);
                 else
                     InstallLayout.RemoveShortcut(InstallLayout.GetDesktopShortcutPath());
                 progress.Value = 78;
 
                 stateLabel.Text = "Đang đăng ký gỡ cài đặt và hoàn tất nâng cấp...";
                 Refresh();
-                RegisterUninstall(uninstallPath, exePath);
+                RegisterUninstall(uninstallPath, exePath, iconPath);
+                InstallLayout.RefreshShellIcons();
                 progress.Value = 100;
                 stateLabel.Text = "Hoàn tất. Dữ liệu người dùng được giữ nguyên.";
 
@@ -426,7 +462,7 @@ namespace HnlQltcSetup
             }
         }
 
-        private static void RegisterUninstall(string uninstallPath, string exePath)
+        private static void RegisterUninstall(string uninstallPath, string exePath, string iconPath)
         {
             const string uninstallRoot = @"Software\Microsoft\Windows\CurrentVersion\Uninstall";
             using (RegistryKey root = Registry.LocalMachine.CreateSubKey(uninstallRoot))
@@ -436,7 +472,7 @@ namespace HnlQltcSetup
                 key.SetValue("DisplayVersion", InstallerBuildInfo.ReleaseTag, RegistryValueKind.String);
                 key.SetValue("Publisher", "HNL", RegistryValueKind.String);
                 key.SetValue("InstallLocation", InstallLayout.GetInstallDirectory(), RegistryValueKind.String);
-                key.SetValue("DisplayIcon", "\"" + exePath + "\",0", RegistryValueKind.String);
+                key.SetValue("DisplayIcon", "\"" + iconPath + "\",0", RegistryValueKind.String);
                 key.SetValue("UninstallString", "\"" + uninstallPath + "\"", RegistryValueKind.String);
                 key.SetValue("NoModify", 1, RegistryValueKind.DWord);
                 key.SetValue("NoRepair", 1, RegistryValueKind.DWord);
@@ -611,6 +647,17 @@ namespace HnlQltcSetup
 
     internal static class InstallLayout
     {
+        private const uint SHCNE_UPDATEITEM = 0x00002000;
+        private const uint SHCNE_ASSOCCHANGED = 0x08000000;
+        private const uint SHCNF_IDLIST = 0x0000;
+        private const uint SHCNF_PATHW = 0x0005;
+
+        [DllImport("shell32.dll", EntryPoint = "SHChangeNotify", CharSet = CharSet.Unicode)]
+        private static extern void SHChangeNotifyPath(uint eventId, uint flags, string item1, IntPtr item2);
+
+        [DllImport("shell32.dll", EntryPoint = "SHChangeNotify")]
+        private static extern void SHChangeNotifyPtr(uint eventId, uint flags, IntPtr item1, IntPtr item2);
+
         internal static string GetProgramFilesRoot()
         {
             string programW6432 = Environment.GetEnvironmentVariable("ProgramW6432");
@@ -650,9 +697,10 @@ namespace HnlQltcSetup
             catch (UnauthorizedAccessException) { return true; }
         }
 
-        internal static void CreateShortcut(string shortcutPath, string targetPath)
+        internal static void CreateShortcut(string shortcutPath, string targetPath, string iconPath)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(shortcutPath));
+            if (File.Exists(shortcutPath)) File.Delete(shortcutPath);
             Type shellType = Type.GetTypeFromProgID("WScript.Shell");
             if (shellType == null) throw new InvalidOperationException("Windows Script Host không khả dụng để tạo shortcut.");
             object shell = Activator.CreateInstance(shellType);
@@ -664,8 +712,9 @@ namespace HnlQltcSetup
                 shortcutType.InvokeMember("TargetPath", BindingFlags.SetProperty, null, shortcut, new object[] { targetPath });
                 shortcutType.InvokeMember("WorkingDirectory", BindingFlags.SetProperty, null, shortcut, new object[] { Path.GetDirectoryName(targetPath) });
                 shortcutType.InvokeMember("Description", BindingFlags.SetProperty, null, shortcut, new object[] { InstallerBuildInfo.ProductLabel });
-                shortcutType.InvokeMember("IconLocation", BindingFlags.SetProperty, null, shortcut, new object[] { targetPath + ",0" });
+                shortcutType.InvokeMember("IconLocation", BindingFlags.SetProperty, null, shortcut, new object[] { iconPath + ",0" });
                 shortcutType.InvokeMember("Save", BindingFlags.InvokeMethod, null, shortcut, null);
+                try { SHChangeNotifyPath(SHCNE_UPDATEITEM, SHCNF_PATHW, shortcutPath, IntPtr.Zero); } catch { }
             }
             finally
             {
@@ -676,7 +725,20 @@ namespace HnlQltcSetup
 
         internal static void RemoveShortcut(string path)
         {
-            try { if (File.Exists(path)) File.Delete(path); } catch { }
+            try
+            {
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                    try { SHChangeNotifyPath(SHCNE_UPDATEITEM, SHCNF_PATHW, path, IntPtr.Zero); } catch { }
+                }
+            }
+            catch { }
+        }
+
+        internal static void RefreshShellIcons()
+        {
+            try { SHChangeNotifyPtr(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, IntPtr.Zero, IntPtr.Zero); } catch { }
         }
     }
 }
