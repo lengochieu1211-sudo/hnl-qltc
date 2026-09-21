@@ -41,6 +41,7 @@ if (promotedOnline.role !== 'EDITOR' || promotedOnline.source !== 'cloud') fail(
 pass('role decision matrix: EDITOR/ADMIN/VIEWER + legacy ENGINEER compatibility/offline/revoke/promote');
 
 const offlineAccess = read('src/utils/offlineAccess.ts');
+const verifiedBusinessSnapshot = read('src/lib/verifiedOfflineBusinessSnapshot.ts');
 const firebase = read('src/lib/firebase.ts');
 const app = read('src/App.tsx');
 
@@ -78,6 +79,30 @@ if (!app.includes("getProjectsList().filter((project) => getCachedVerifiedProjec
 if (!firebase.includes('persistentLocalCache()') || !firebase.includes('getDocsFromCache')) fail('official Firestore persistent cache hydrate missing');
 if (!app.includes("businessDataSource === 'legacy-migration-fallback'")) fail('legacy local migration fallback is not explicitly read-only');
 if (!app.includes('Legacy data is migration input only') || !app.includes('if (FIREBASE_ONLY_RUNTIME) return;')) fail('Firebase-only still auto-recovers legacy IndexedDB rows into live state');
+for (const marker of [
+  'hnl_verified_offline_business_v1:',
+  'VERIFIED_PROJECT_ROLE_MAX_AGE_MS',
+  'record.uid !== uid',
+  'normalizeEmail(record.email) !== email',
+  'Date.now() - capturedAt > VERIFIED_PROJECT_ROLE_MAX_AGE_MS',
+]) {
+  if (!verifiedBusinessSnapshot.includes(marker)) fail(`verified offline business snapshot missing ${marker}`);
+}
+for (const marker of [
+  'loadVerifiedOfflineBusinessSnapshot',
+  'saveVerifiedOfflineBusinessSnapshot',
+  "businessDataSource === 'verified-offline-snapshot'",
+  "setBusinessDataSource('verified-offline-snapshot')",
+  'Verified offline cold-start snapshot is read-only until Cloud reconnects.',
+]) {
+  if (!app.includes(marker)) fail(`App verified offline cold-start recovery missing ${marker}`);
+}
+const offlineBannerSource = read('src/components/OfflineSyncBanner.tsx');
+if (!offlineBannerSource.includes('Snapshot offline · chỉ đọc') || !offlineBannerSource.includes('bản chụp offline đã xác minh')) {
+  fail('offline banner does not disclose read-only verified snapshot fallback');
+}
+pass('identity-bound verified snapshot prevents empty-tab cold restart without becoming a second Cloud authority');
+
 pass('offline bootstrap uses Firestore persistent cache; legacy local business cache is read-only migration fallback');
 
 for (const marker of [
