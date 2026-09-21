@@ -1,6 +1,6 @@
 param(
   [string]$ExePath = './HNL-QLTC-Windows.exe',
-  [string]$SourcePng = './desktop-wrapper/HNL-QLTC-HQ-256.png',
+  [string]$SourcePng = './desktop-wrapper/HNL-QLTC-SHELL-ICON.png',
   [string]$EvidenceDir = './icon-golden-evidence'
 )
 
@@ -62,7 +62,7 @@ foreach ($size in $runtimeSizes) {
 
 $sourceImage = [System.Drawing.Image]::FromFile($source)
 try {
-  Assert-Hnl ($sourceImage.Width -eq 256 -and $sourceImage.Height -eq 256) "Windows HQ source is native 256x256 artwork ($($sourceImage.Width)x$($sourceImage.Height))"
+  Assert-Hnl ($sourceImage.Width -ge 1024 -and $sourceImage.Height -ge 1024) "Windows shell icon keeps the user-provided HQ artwork ($($sourceImage.Width)x$($sourceImage.Height))"
 } finally { $sourceImage.Dispose() }
 
 $availableGroups = [HnlIconNative]::PrivateExtractIcons($exe.Path, -1, 0, 0, $null, $null, 0, 0)
