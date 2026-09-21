@@ -704,13 +704,19 @@ export async function deletePhotoAttachment(projectId: string, photoId: string):
 export async function updatePhotoAttachmentBlob(
   projectId: string,
   photoId: string,
-  imageSource: File | Blob | string
+  imageSource: File | Blob | string,
+  options: { preserveEncodedSource?: boolean } = {}
 ): Promise<string> {
   const existingPhotos = await getProjectPhotos(projectId, true);
   const existingPhoto = existingPhotos.find((p) => p.id === photoId);
   const photoKind = existingPhoto?.entityType === 'defect' ? 'defect' : 'crew';
   const profile = getImageQualityProfile(photoKind);
-  const mainBlob = await compressImageToBlob(imageSource, profile.maxDimension, profile.quality);
+  // ImageEditorModal already renders at the configured quality dimension and performs
+  // one high-quality JPEG encode. Preserve that encoded Blob to avoid a second lossy
+  // canvas/JPEG pass that made annotations softer and increased save latency.
+  const mainBlob = options.preserveEncodedSource && imageSource instanceof Blob
+    ? imageSource
+    : await compressImageToBlob(imageSource, profile.maxDimension, profile.quality);
   if (!mainBlob || mainBlob.size <= 0) throw new Error('Không đọc được ảnh chỉnh sửa.');
 
   let thumbBlob: Blob | null = null;
