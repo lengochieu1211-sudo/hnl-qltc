@@ -7034,6 +7034,7 @@ export default function App() {
         <NotificationCenterModal
           isOpen={isNotificationCenterOpen}
           onClose={() => setIsNotificationCenterOpen(false)}
+          activeProjectId={activeProjectId}
           workVolumes={workVolumes}
           checklist={activeChecklist}
           defects={activeDefects}
