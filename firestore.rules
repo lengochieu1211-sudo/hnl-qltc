@@ -427,6 +427,29 @@ service cloud.firestore {
         allow update, delete: if false;
       }
 
+      // Per-user read watermark for the Notification Center "System" tab.
+      // One tiny document per project/user; it never grants access to project data.
+      match /notificationReads/{uid} {
+        allow read: if isMember(projectId) && uid == request.auth.uid;
+        allow create: if isMember(projectId)
+          && uid == request.auth.uid
+          && request.resource.data.projectId == projectId
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.readThrough is number
+          && request.resource.data.updatedAt is number;
+        allow update: if isMember(projectId)
+          && uid == request.auth.uid
+          && resource.data.projectId == projectId
+          && resource.data.uid == request.auth.uid
+          && request.resource.data.projectId == projectId
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.readThrough is number
+          && request.resource.data.readThrough >= resource.data.readThrough
+          && request.resource.data.updatedAt is number
+          && request.resource.data.updatedAt >= resource.data.updatedAt;
+        allow delete: if false;
+      }
+
       // Project chat is deliberately separated from construction records. VIEWER may chat,
       // but every message is identity-bound and hard delete is disabled.
       match /conversations/{conversationId} {
@@ -519,13 +542,13 @@ service cloud.firestore {
       // overwrites. Shared settings/trash metadata are ADMIN-owned structure; legacy
       // floor_plan_images Firestore fallback is read-only until verified purge.
       match /{collectionName}/{recordId} {
-        allow read: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials'
+        allow read: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials'
           && isMember(projectId)
           && (collectionName != 'work_volumes' || !('unitPrice' in resource.data) || isAdmin(projectId));
         // Master project structure is ADMIN-only. EDITOR may create operational records
         // (defect, warehouse transaction, crew log, photo metadata) and may update only
         // explicitly allowed operational fields on rooms/checklist. VIEWER remains read-only.
-        allow create: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials'
+        allow create: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials'
           && !isLegacyReadOnlyCollection(collectionName)
           && (collectionName != 'work_volumes' || !('unitPrice' in request.resource.data))
           && (
@@ -537,7 +560,7 @@ service cloud.firestore {
             ))
           )
           && (!isCoreBusinessCollection(collectionName) || coreCreateLifecycleIsValid(recordId));
-        allow update: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials'
+        allow update: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials'
           && !isLegacyReadOnlyCollection(collectionName)
           && (collectionName != 'work_volumes' || !('unitPrice' in request.resource.data))
           && (
@@ -551,7 +574,7 @@ service cloud.firestore {
             ))
           )
           && (!isCoreBusinessCollection(collectionName) || (coreIdentityUpdateIsValid(recordId) && lifecycleUpdateIsMonotonic()));
-        allow delete: if collectionName != 'activityLogs' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials'
+        allow delete: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials'
           && canAdminOperate(projectId)
           && !isCoreBusinessCollection(collectionName);
 
