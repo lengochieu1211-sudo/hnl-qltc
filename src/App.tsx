@@ -7,6 +7,7 @@ import { AppLockOverlay } from './components/AppLockOverlay';
 import { SecurityModal } from './components/SecurityModal';
 import { getStoredPinLockConfig, applyRemotePinReset, logAuditAction, getCurrentUserRole, setCurrentUserRole, UserRole, canEditProjectData, canManageProjects, canManageWorkVolumeStructure, canManageFloorPlanStructure, canManageMaterialNorms, canManageTeams, canManageChecklistStructure, canDeleteBusinessData, canDeleteCrewRecord, canManageBackups, canUseGlobalUndoRedo, canEditWarehouseData, canEditDefectData, canEditChecklistData, canEditCrewData, canImportData } from './utils/securityUtils';
 import { cacheVerifiedProjectRole, getCachedVerifiedProjectRole, getRememberedVerifiedAuthIdentity, rememberVerifiedAuthIdentity } from './utils/offlineAccess';
+import { loadVerifiedOfflineBusinessSnapshot, saveVerifiedOfflineBusinessSnapshot } from './lib/verifiedOfflineBusinessSnapshot';
 import { resolveVerifiedIdentityLabel } from './utils/authIdentityUtils';
 
 function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
@@ -331,7 +332,7 @@ export default function App() {
   // Firebase-only business data must come from Firestore/its official cache. Legacy
   // localforage may be displayed only as a migration candidate and is read-only until
   // an explicit online Import writes it through the Firestore validation path.
-  const [businessDataSource, setBusinessDataSource] = useState<'cloud' | 'firestore-cache' | 'legacy-migration-fallback' | 'empty'>('empty');
+  const [businessDataSource, setBusinessDataSource] = useState<'cloud' | 'firestore-cache' | 'verified-offline-snapshot' | 'legacy-migration-fallback' | 'empty'>('empty');
   const [isExportPdfOpen, setIsExportPdfOpen] = useState(false);
   const [isMaterialNormOpen, setIsMaterialNormOpen] = useState(false);
   const [isProjectManagerOpen, setIsProjectManagerOpen] = useState(false);
@@ -648,7 +649,30 @@ export default function App() {
             return null;
           })
         : null;
-      const shouldReadLegacy = !FIREBASE_ONLY_RUNTIME || Boolean(!firestoreCached?.found && LEGACY_LOCAL_IMPORT_ENABLED);
+
+      // Firestore persistence can fail closed to memory-only on some WebView2/IndexedDB
+      // states. Keep a separate identity-bound, read-only last-known-good snapshot so an
+      // offline cold restart never looks like the project was erased. It is never used
+      // online and is never uploaded back to Cloud automatically.
+      const offlineIdentity = FIREBASE_ONLY_RUNTIME && !isOnline
+        ? (getCurrentRealFirebaseUser() || getRememberedVerifiedAuthIdentity())
+        : null;
+      const verifiedOfflineSnapshot = offlineIdentity
+        ? await loadVerifiedOfflineBusinessSnapshot(projectId, offlineIdentity).catch((err) => {
+            console.warn('[Verified offline snapshot] unavailable:', err);
+            return null;
+          })
+        : null;
+      const useVerifiedOfflineSnapshot = Boolean(
+        verifiedOfflineSnapshot
+        && verifiedOfflineSnapshot.recordCount > 0
+        && (!firestoreCached?.found || Number(firestoreCached.recordCount || 0) === 0)
+      );
+      const shouldReadLegacy = !FIREBASE_ONLY_RUNTIME || Boolean(
+        !useVerifiedOfflineSnapshot
+        && !firestoreCached?.found
+        && LEGACY_LOCAL_IMPORT_ENABLED
+      );
       const parseSaved = async <T,>(key: string, fallback: T): Promise<T> => {
         if (!shouldReadLegacy) return fallback;
         return await getAsyncItem(getKey(key, projectId), fallback);
@@ -665,7 +689,18 @@ export default function App() {
       let rawTeams: any[] = [];
       let rawTombstones: Record<string, number> = {};
 
-      if (firestoreCached?.found) {
+      if (useVerifiedOfflineSnapshot && verifiedOfflineSnapshot) {
+        setBusinessDataSource('verified-offline-snapshot');
+        rawFloorPlans = verifiedOfflineSnapshot.data.floorPlans || [];
+        rawRooms = verifiedOfflineSnapshot.data.roomProgressList || [];
+        rawDefects = verifiedOfflineSnapshot.data.defects || [];
+        rawChecklist = verifiedOfflineSnapshot.data.checklist || [];
+        rawCrew = verifiedOfflineSnapshot.data.crewRecords || [];
+        rawMaterialNorms = verifiedOfflineSnapshot.data.materialNorms || [];
+        rawInventory = verifiedOfflineSnapshot.data.inventory || [];
+        rawWorkVolumes = verifiedOfflineSnapshot.data.workVolumes || [];
+        rawTeams = verifiedOfflineSnapshot.data.teams || [];
+      } else if (firestoreCached?.found) {
         setBusinessDataSource('firestore-cache');
         rawFloorPlans = firestoreCached.data.floorPlans || [];
         rawRooms = firestoreCached.data.roomProgressList || [];
@@ -705,7 +740,7 @@ export default function App() {
         }
       }
 
-      if (!firestoreCached?.found && !shouldReadLegacy) setBusinessDataSource('empty');
+      if (!useVerifiedOfflineSnapshot && !firestoreCached?.found && !shouldReadLegacy) setBusinessDataSource('empty');
 
       const tombstoneMap = (rawTombstones && typeof rawTombstones === 'object' && !Array.isArray(rawTombstones)) ? rawTombstones : {};
       const filterTombstoned = <T extends { id?: string; updatedAt?: any; deleted?: boolean; deletedAt?: any }>(stateKey: keyof AppData, list: T[] | undefined | null): T[] =>
@@ -765,10 +800,11 @@ export default function App() {
       const teams = deduplicateById(filterTombstoned('teams', rawTeams), 'TEAM');
 
       const isDefault = projectId === 'default';
-      const loadedProjectName = firestoreCached?.metadata.projectName || localStorage.getItem(getKey('construction_project_name', projectId)) || (isDefault ? 'Dự án chưa đặt tên' : `Dự án ${projectId}`);
-      const loadedContractor = firestoreCached?.metadata.contractorName || localStorage.getItem(getKey('construction_contractor', projectId)) || '';
-      const loadedInspector = firestoreCached?.metadata.inspectorName || localStorage.getItem(getKey('construction_inspector', projectId)) || '';
-      const loadedUpdatedAt = Number(firestoreCached?.metadata.updatedAt || localStorage.getItem(getKey('construction_updated_at', projectId)) || 0);
+      const offlineMetadata = useVerifiedOfflineSnapshot ? verifiedOfflineSnapshot?.metadata : null;
+      const loadedProjectName = offlineMetadata?.projectName || firestoreCached?.metadata.projectName || localStorage.getItem(getKey('construction_project_name', projectId)) || (isDefault ? 'Dự án chưa đặt tên' : `Dự án ${projectId}`);
+      const loadedContractor = offlineMetadata?.contractorName || firestoreCached?.metadata.contractorName || localStorage.getItem(getKey('construction_contractor', projectId)) || '';
+      const loadedInspector = offlineMetadata?.inspectorName || firestoreCached?.metadata.inspectorName || localStorage.getItem(getKey('construction_inspector', projectId)) || '';
+      const loadedUpdatedAt = Number((useVerifiedOfflineSnapshot ? verifiedOfflineSnapshot?.sourceUpdatedAt : 0) || firestoreCached?.metadata.updatedAt || localStorage.getItem(getKey('construction_updated_at', projectId)) || 0);
 
       setProjectName(loadedProjectName);
       setContractorName(loadedContractor);
@@ -793,12 +829,22 @@ export default function App() {
         contractorName: loadedContractor,
         inspectorName: loadedInspector
       };
-      // Only a real Firestore cache snapshot is eligible as the synchronized baseline.
-      // Legacy migration fallback must not be silently uploaded as if Cloud had approved it.
-      lastSyncedPresentRef.current = firestoreCached?.found ? initialState : null;
+      // Only the official Firestore cache is a writable synchronized baseline. The
+      // verified offline snapshot is intentionally read-only until Cloud reconnects.
+      lastSyncedPresentRef.current = firestoreCached?.found && !useVerifiedOfflineSnapshot ? initialState : null;
       hasUserEditedSinceHydrateRef.current = false;
       setIsHydrated(true);
-      console.log('[HYDRATED SUCCESS]', projectId, firestoreCached?.found ? 'firestore-cache' : shouldReadLegacy ? 'legacy-migration-fallback' : 'empty');
+      console.log(
+        '[HYDRATED SUCCESS]',
+        projectId,
+        useVerifiedOfflineSnapshot
+          ? 'verified-offline-snapshot'
+          : firestoreCached?.found
+            ? 'firestore-cache'
+            : shouldReadLegacy
+              ? 'legacy-migration-fallback'
+              : 'empty'
+      );
     } catch (err) {
       console.error(`Error loading project ${projectId}:`, err);
     } finally {
@@ -2609,6 +2655,11 @@ export default function App() {
 
   // Helper to push state changes to history (max 30 steps) and stamp item updatedAt
   const updateAppData = (updater: (prev: AppData) => AppData) => {
+    if (FIREBASE_ONLY_RUNTIME && businessDataSource === 'verified-offline-snapshot') {
+      console.warn('[Firebase-only] Verified offline cold-start snapshot is read-only until Cloud reconnects.');
+      alert('Đang dùng bản chụp offline đã xác minh để tránh mất hiển thị dữ liệu khi EXE khởi động không mạng. Kết nối mạng lại trước khi chỉnh sửa để tránh tạo thay đổi không bền vững.');
+      return;
+    }
     if (FIREBASE_ONLY_RUNTIME && businessDataSource === 'legacy-migration-fallback') {
       console.warn('[Firebase-only] Legacy local cache is read-only. Import/validate it online before editing.');
       alert('Dữ liệu đang hiển thị từ bộ nhớ legacy chỉ để cứu dữ liệu. Hãy kết nối mạng và Import/Khôi phục vào Firestore trước khi chỉnh sửa.');
@@ -3272,6 +3323,42 @@ export default function App() {
       if (unsubscribe) unsubscribe();
     };
   }, [activeProjectId, cloudUserKey, cloudBootstrapVersion, isHydrated, isLoadingProject, isRestoring, isInitializing, isProjectRoleResolved, currentUserRole, isOnline, projectRoleSource, projectRoleAllowed]);
+
+  // Keep one lightweight, identity-bound last-known-good business snapshot for
+  // offline cold start. This is captured only after all 9 Firestore collections have
+  // produced their initial Cloud baseline; it is display recovery, never Cloud authority.
+  useEffect(() => {
+    if (!FIREBASE_ONLY_RUNTIME || !cloudInitialReady || !isOnline || projectRoleSource !== 'cloud' || !projectRoleAllowed || !isProjectRoleResolved) return;
+    const user = getCurrentRealFirebaseUser();
+    const projectId = activeProjectId;
+    if (!user?.uid || !user.email || !projectId) return;
+
+    const timer = window.setTimeout(() => {
+      const cloudBaseline = lastSyncedPresentRef.current;
+      if (!cloudBaseline || activeProjectIdRef.current !== projectId) return;
+      void saveVerifiedOfflineBusinessSnapshot(
+        projectId,
+        user,
+        { projectName, contractorName, inspectorName },
+        cloudBaseline,
+        lastServerMetadataUpdatedAtRef.current || lastUpdatedAt,
+      ).catch((err) => console.warn('[Verified offline snapshot] save warning:', err));
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    present,
+    projectName,
+    contractorName,
+    inspectorName,
+    lastUpdatedAt,
+    activeProjectId,
+    cloudInitialReady,
+    isOnline,
+    projectRoleSource,
+    projectRoleAllowed,
+    isProjectRoleResolved,
+  ]);
 
   // Photo metadata is realtime; binary image chunks are downloaded lazily only when an image is displayed.
   // This keeps multi-device image sync complete without loading every photo into phone RAM at startup.
@@ -6390,7 +6477,7 @@ export default function App() {
         />
 
         {/* Offline & Sync Status Banner */}
-        <OfflineSyncBanner onAutoSync={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleSyncAll : undefined} isSyncing={isSyncing} userRole={currentUserRole} roleResolved={isProjectRoleResolved} roleSource={projectRoleSource} firestorePendingWriteCount={firestorePendingWriteCount} firebaseOnly={FIREBASE_ONLY_RUNTIME} />
+        <OfflineSyncBanner onAutoSync={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleSyncAll : undefined} isSyncing={isSyncing} userRole={currentUserRole} roleResolved={isProjectRoleResolved} roleSource={projectRoleSource} firestorePendingWriteCount={firestorePendingWriteCount} firebaseOnly={FIREBASE_ONLY_RUNTIME} verifiedSnapshotReadOnly={businessDataSource === 'verified-offline-snapshot'} />
 
         {/* Tab Content */}
         <main className="animate-in fade-in duration-150">
