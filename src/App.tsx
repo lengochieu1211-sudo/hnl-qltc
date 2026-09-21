@@ -6281,7 +6281,7 @@ export default function App() {
     <div className="min-h-screen bg-slate-100 text-slate-900 font-sans selection:bg-blue-200">
       {/* Mobile & Responsive Shell Frame */}
       <div
-        className="w-full max-w-lg md:max-w-3xl lg:max-w-5xl mx-auto bg-slate-50 min-h-screen shadow-2xl relative border-x border-slate-200 overflow-x-hidden"
+        className="w-full max-w-lg md:max-w-3xl lg:max-w-[calc(100vw-2rem)] xl:max-w-[calc(100vw-2.5rem)] 2xl:max-w-[calc(100vw-3rem)] mx-auto bg-slate-50 min-h-screen shadow-2xl relative border-x border-slate-200 overflow-x-hidden"
         style={{ paddingBottom: isSoftKeyboardOpen ? '0px' : 'calc(5rem + env(safe-area-inset-bottom))' }}
       >
         {/* Sticky Top Header */}
