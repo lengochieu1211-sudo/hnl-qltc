@@ -72,7 +72,7 @@ if (mergeWorkflow.includes('VITE_APP_VERSION') || prWorkflow.includes('VITE_APP_
 requireAll(read('android-wrapper/build-apk.ps1'), ['package.json', '$appVersion', '$versionCode', '$releaseTag', 'https://hnlqltc.web.app/?app=android'], 'Android version/source URL');
 requireAll(read('.github/workflows/android-apk.yml'), ['windows-latest', 'actions/upload-artifact@v4', 'QLCT_WEB_URL: https://hnlqltc.web.app/?app=android', 'QLCT_RELEASE_TAG: 6.3.0-rc2.2.16'], 'Android APK CI');
 requireAll(read('desktop-wrapper/build-launcher.ps1'), ['package.json', '$version', 'AssemblyInformationalVersion'], 'Windows version source');
-if (!authHeader.includes('logoUrl || `/icon.png?v=${APP_VERSION}`') || !authHeader.includes('e.currentTarget.src = `/icon.png?v=${APP_VERSION}`')) fail('header custom logo must retain canonical APP_VERSION fallback');
+if (!authHeader.includes('logoUrl || `/icon.png?v=${APP_VERSION}-brand20260921`') || !authHeader.includes('e.currentTarget.src = `/icon.png?v=${APP_VERSION}-brand20260921`')) fail('header custom logo must retain the unified canonical brand fallback with cache bust');
 if (!firebase.includes(`appId: '${PROD_FIREBASE_WEB_APP_ID}'`)) fail('PROD Firebase Web App ID fallback is missing or stale');
 requireAll(mergeWorkflow, [`VITE_FIREBASE_APP_ID: ${PROD_FIREBASE_WEB_APP_ID}`], 'PROD Hosting Firebase Web App ID');
 requireAll(read('.github/workflows/android-apk.yml'), [`VITE_FIREBASE_APP_ID: ${PROD_FIREBASE_WEB_APP_ID}`], 'Android Firebase Web App ID');
@@ -219,7 +219,8 @@ requireAll(app, ['? 250 : 150', 'Math.min(30000, 750 * Math.pow(2', 'photoOutbox
 requireAll(photoSync, ['PHOTO_INITIAL_SYNC_DELAY_MS = 1200', 'requestIdleCallback(run, { timeout: 1000 })', '}, 5000);'], 'photo initial reconciliation latency');
 requireAll(desktopBuild, ['HNL-QLTC-SHELL-ICON.png', 'Write-HnlIcoFromPng -PngPath $logoSource -IcoPath $generatedIcon', 'HNL.QLTC.Brand.Icon', 'HNL.QLTC.Brand.Png', 'Certified multi-resolution ICO'], 'Windows dedicated shell icon, embedded branding resources and multi-resolution icon generation');
 requireAll(androidBuild, ['desktop-wrapper\\HNL-QLTC-SHELL-ICON.png', "'mipmap-mdpi' = 48", "'mipmap-hdpi' = 72", "'mipmap-xhdpi' = 96", "'mipmap-xxhdpi' = 144", "'mipmap-xxxhdpi' = 192", 'ic_launcher.png', 'ic_launcher_round.png'], 'Android dedicated shell launcher icon generation');
-if (desktopBuild.includes('public\\icon.png') || androidBuild.includes('public\\icon.png')) fail('Windows/Android shell branding must stay separate from the in-app Web logo');
+requireAll(authHeader, ['/icon.png?v=${APP_VERSION}-brand20260921'], 'Web/in-app unified HNL brand fallback');
+if (!desktopBuild.includes('HNL-QLTC-SHELL-ICON.png') || !androidBuild.includes('HNL-QLTC-SHELL-ICON.png')) fail('Windows and Android must continue to use the same certified HNL master artwork');
 if (desktopBuild.includes('Optimize-HnlSmallIconFrame')) fail('Windows icon builder must not visually alter the certified HNL logo with custom sharpening/contrast');
 pass('photo pending binary retries sooner and Windows/Web runtime icons use certified HQ artwork with runtime extraction validation');
 

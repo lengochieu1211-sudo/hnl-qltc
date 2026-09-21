@@ -38,8 +38,8 @@ New-Item -ItemType Directory -Force -Path $EvidenceDir | Out-Null
 $runtimeFrames = @()
 foreach ($size in $runtimeSizes) {
   $runtimePath = Resolve-Path -LiteralPath ("./public/hnl-logo-original-{0}.png" -f $size)
-  Assert-Hnl ($indexHtml -match ("hnl-logo-original-{0}\.png\?v=20260909-original1" -f $size)) "HTML advertises exact ${size}x${size} browser runtime frame"
-  Assert-Hnl ($manifestJson -match ("hnl-logo-original-{0}\.png\?v=20260909-original1" -f $size)) "manifest advertises exact ${size}x${size} browser runtime frame"
+  Assert-Hnl ($indexHtml -match ("hnl-logo-original-{0}\.png\?v=20260921-unified1" -f $size)) "HTML advertises exact ${size}x${size} browser runtime frame"
+  Assert-Hnl ($manifestJson -match ("hnl-logo-original-{0}\.png\?v=20260921-unified1" -f $size)) "manifest advertises exact ${size}x${size} browser runtime frame"
   $bmp = [System.Drawing.Bitmap]::FromFile($runtimePath)
   try {
     Assert-Hnl ($bmp.Width -eq $size -and $bmp.Height -eq $size) "runtime PNG is exactly ${size}x${size}"
@@ -52,8 +52,8 @@ foreach ($size in $runtimeSizes) {
         [void]$colors.Add($c.ToArgb())
       }
     }
-    Assert-Hnl ($partialAlpha -gt 0) "${size}x${size} runtime frame preserves original-logo anti-aliased edges ($partialAlpha partial-alpha pixels)"
-    Assert-Hnl ($colors.Count -ge 16) "${size}x${size} runtime frame preserves original-logo color/detail ($($colors.Count) colors)"
+    Assert-Hnl ($partialAlpha -gt 0) "${size}x${size} runtime frame preserves unified-logo anti-aliased edges ($partialAlpha partial-alpha pixels)"
+    Assert-Hnl ($colors.Count -ge 16) "${size}x${size} runtime frame preserves unified-logo color/detail ($($colors.Count) colors)"
     $copyPath = Join-Path $EvidenceDir ("runtime-frame-{0}.png" -f $size)
     $bmp.Save($copyPath, [System.Drawing.Imaging.ImageFormat]::Png)
     $runtimeFrames += [PSCustomObject]@{ Size=$size; File=$copyPath }
@@ -148,7 +148,7 @@ try {
       $rg.DrawString($label,$rfont,[System.Drawing.Brushes]::Black,$x+25,128)
     } finally { $img.Dispose() }
   }
-  $runtimeSheet.Save((Join-Path $EvidenceDir 'runtime-original-logo-contact-sheet.png'),[System.Drawing.Imaging.ImageFormat]::Png)
+  $runtimeSheet.Save((Join-Path $EvidenceDir 'runtime-unified-logo-contact-sheet.png'),[System.Drawing.Imaging.ImageFormat]::Png)
 } finally {
   $rfont.Dispose(); $rg.Dispose(); $runtimeSheet.Dispose()
 }
@@ -161,7 +161,7 @@ try {
   "EXTRACTED_SIZES=$($requiredSizes -join ',')",
   "RUNTIME_ORIGINAL_LOGO_SIZES=$($runtimeSizes -join ',')",
   'CONTACT_SHEET=icon-contact-sheet.png',
-  'RUNTIME_ORIGINAL_LOGO_CONTACT_SHEET=runtime-original-logo-contact-sheet.png'
+  'RUNTIME_ORIGINAL_LOGO_CONTACT_SHEET=runtime-unified-logo-contact-sheet.png'
 ) | Set-Content -LiteralPath (Join-Path $EvidenceDir 'windows-icon-golden.txt') -Encoding UTF8
 
 Write-Host 'WINDOWS ICON GOLDEN PASS'

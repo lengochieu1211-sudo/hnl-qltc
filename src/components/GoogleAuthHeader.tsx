@@ -122,9 +122,9 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center overflow-hidden shadow-md shrink-0 border border-slate-200/50 select-none">
                 <img
-                  src={logoUrl || `/icon.png?v=${APP_VERSION}`}
+                  src={logoUrl || `/icon.png?v=${APP_VERSION}-brand20260921`}
                   alt={appDisplayName || 'HNL Quản Lý Thi Công'}
-                  onError={(e) => { if (!e.currentTarget.src.includes('/icon.png')) e.currentTarget.src = `/icon.png?v=${APP_VERSION}`; }}
+                  onError={(e) => { if (!e.currentTarget.src.includes('/icon.png')) e.currentTarget.src = `/icon.png?v=${APP_VERSION}-brand20260921`; }}
                   className="w-full h-full object-contain"
                   draggable={false}
                 />
