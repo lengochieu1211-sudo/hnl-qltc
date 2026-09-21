@@ -93,15 +93,20 @@ for (const marker of [
   'saveVerifiedOfflineBusinessSnapshot',
   "businessDataSource === 'verified-offline-snapshot'",
   "setBusinessDataSource('verified-offline-snapshot')",
-  'Verified offline cold-start snapshot is read-only until Cloud reconnects.',
+  "(firestoreCached?.found || useVerifiedOfflineSnapshot) ? initialState : null",
+  "businessDataSource === 'verified-offline-snapshot' && !getCurrentRealFirebaseUser()",
+  "businessDataSource === 'firestore-cache' || businessDataSource === 'cloud' || businessDataSource === 'verified-offline-snapshot'",
 ]) {
-  if (!app.includes(marker)) fail(`App verified offline cold-start recovery missing ${marker}`);
+  if (!app.includes(marker)) fail(`App verified offline cold-start recovery/edit queue missing ${marker}`);
+}
+if (app.includes('Verified offline cold-start snapshot is read-only until Cloud reconnects.')) {
+  fail('verified snapshot still blocks authorized offline edits');
 }
 const offlineBannerSource = read('src/components/OfflineSyncBanner.tsx');
-if (!offlineBannerSource.includes('Snapshot offline · chỉ đọc') || !offlineBannerSource.includes('bản chụp offline đã xác minh')) {
-  fail('offline banner does not disclose read-only verified snapshot fallback');
+if (!offlineBannerSource.includes('Snapshot + Firestore') || !offlineBannerSource.includes('Bản chụp offline đã xác minh') || !offlineBannerSource.includes('hàng chờ Firestore bền vững')) {
+  fail('offline banner does not disclose writable verified snapshot + Firestore queue behavior');
 }
-pass('identity-bound verified snapshot prevents empty-tab cold restart without becoming a second Cloud authority');
+pass('identity-bound verified snapshot prevents empty-tab cold restart and queues only authorized user diffs through Firestore');
 
 pass('offline bootstrap uses Firestore persistent cache; legacy local business cache is read-only migration fallback');
 
