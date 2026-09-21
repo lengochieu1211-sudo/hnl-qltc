@@ -18,15 +18,54 @@ for (const marker of [
   'auditQuery',
   'auditModuleFilter',
   'auditClientFilter',
-  'Thay đổi trước → sau',
-  'auditValuePreview',
-  'Windows EXE',
-  'Android APK',
+  'auditModuleLabels',
+  "crew_records: 'Quân số'",
+  "afternoonCount: 'Quân số buổi chiều'",
+  'auditActionLabel',
+  'auditRoleLabel',
+  'Nội dung thay đổi',
+  'auditTechnicalFields',
+  'Ứng dụng Windows',
+  'Ứng dụng Android',
   'saveProjectAuditLog(pidAtSubmit',
 ]) {
   if (!security.includes(marker)) fail(`Security audit UI missing ${marker}`);
 }
-pass('audit log shows actor identity, client, filters, and before/after detail');
+pass('audit log shows plain-Vietnamese actor, client, role, module, action and before/after detail');
+
+for (const marker of [
+  'updateProjectPresence',
+  'subscribeProjectPresenceRealtime',
+  'ProjectPresenceEntry',
+  'w.chrome?.webview',
+]) {
+  if (!firebase.includes(marker)) fail(`Firebase presence service missing ${marker}`);
+}
+for (const marker of [
+  'subscribeProjectPresenceRealtime',
+  'Đang hoạt động:',
+  'presenceModuleLabel',
+  'presenceRecencyLabel',
+  "m.role === 'ADMIN' ? 'Quản trị'",
+]) {
+  if (!security.includes(marker)) fail(`Member presence UI missing ${marker}`);
+}
+for (const marker of [
+  'updateProjectPresence(activeProjectId, activeTab, currentUserRole)',
+  '45_000',
+  "document.visibilityState === 'hidden'",
+]) {
+  if (!app.includes(marker)) fail(`App presence heartbeat missing ${marker}`);
+}
+for (const marker of [
+  'match /presence/{uid}',
+  "collectionName != 'presence'",
+  'request.resource.data.lastSeen == request.time',
+  'request.resource.data.clientLastSeen >= resource.data.clientLastSeen',
+]) {
+  if (!rules.includes(marker)) fail(`Firestore presence isolation missing ${marker}`);
+}
+pass('lightweight project presence is identity-bound, project-scoped and heartbeat-limited');
 
 for (const marker of [
   'subscribeProjectSystemNotificationReadState',
