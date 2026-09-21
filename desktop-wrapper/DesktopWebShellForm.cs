@@ -154,11 +154,13 @@ namespace QLTCAnPhu
             toolbarPanel.Controls.Add(navPanel);
             toolbarPanel.Resize += delegate { PositionToolbarActions(); };
 
-            syncButton = MakeToolbarPrimaryButton(string.Empty, 30);
+            syncButton = MakeToolbarButton(string.Empty, 30);
             syncButton.Height = 30;
-            syncButton.Margin = new Padding(0, 1, 2, 1);
+            syncButton.Margin = new Padding(0, 1, 1, 1);
             syncButton.Padding = new Padding(0);
+            syncButton.Tag = "toolbar-icon-success";
             SetToolbarGlyph(syncButton, ToolbarGlyph.SyncOk);
+            ((RoundedToolbarButton)syncButton).FallbackText = "ĐB";
             syncButton.AccessibleName = "Trạng thái đồng bộ";
             syncButton.Click += delegate { ShowSyncMenu(); };
             navPanel.Controls.Add(syncButton);
@@ -169,6 +171,7 @@ namespace QLTCAnPhu
             reloadButton.Padding = new Padding(0);
             reloadButton.Tag = "toolbar-icon";
             SetToolbarGlyph(reloadButton, ToolbarGlyph.Reload);
+            ((RoundedToolbarButton)reloadButton).FallbackText = "Tải";
             reloadButton.AccessibleName = "Tải lại HNL QLTC";
             reloadButton.Click += delegate
             {
@@ -183,6 +186,7 @@ namespace QLTCAnPhu
             moreButton.Padding = new Padding(0);
             moreButton.Tag = "toolbar-icon";
             SetToolbarGlyph(moreButton, ToolbarGlyph.More);
+            ((RoundedToolbarButton)moreButton).FallbackText = "Menu";
             moreButton.AccessibleName = "Tùy chọn khác";
             navPanel.Controls.Add(moreButton);
 
@@ -192,6 +196,7 @@ namespace QLTCAnPhu
             compactButton.Padding = new Padding(0);
             compactButton.Tag = "toolbar-icon";
             SetToolbarGlyph(compactButton, ToolbarGlyph.Collapse);
+            ((RoundedToolbarButton)compactButton).FallbackText = "Gọn";
             compactButton.AccessibleName = "Thu gọn thanh ứng dụng";
             compactButton.Click += delegate { SetCompactChrome(!compactChrome); };
             navPanel.Controls.Add(compactButton);
@@ -1088,7 +1093,7 @@ namespace QLTCAnPhu
                 {
                     syncButton.Text = string.Empty;
                     SetToolbarGlyph(syncButton, ToolbarGlyph.SyncWarning);
-                    syncButton.Tag = "warning";
+                    syncButton.Tag = "toolbar-icon-warning";
                 }
                 return;
             }
@@ -1103,7 +1108,7 @@ namespace QLTCAnPhu
             {
                 syncButton.Text = string.Empty;
                 SetToolbarGlyph(syncButton, waiting == 0 ? ToolbarGlyph.SyncOk : ToolbarGlyph.SyncWarning);
-                syncButton.Tag = waiting == 0 ? "success" : "warning";
+                syncButton.Tag = waiting == 0 ? "toolbar-icon-success" : "toolbar-icon-warning";
                 chromeToolTip.SetToolTip(syncButton, waiting == 0
                     ? "Tất cả dữ liệu local đã xử lý xong"
                     : "Còn " + waiting + " mục đang chờ đồng bộ");
@@ -1235,7 +1240,14 @@ namespace QLTCAnPhu
             private bool hover;
             private bool pressed;
             private ToolbarGlyph glyph;
+            private string fallbackText = string.Empty;
             private const int Radius = 7;
+
+            internal string FallbackText
+            {
+                get { return fallbackText; }
+                set { fallbackText = value ?? string.Empty; Invalidate(); }
+            }
 
             internal ToolbarGlyph Glyph
             {
@@ -1301,7 +1313,8 @@ namespace QLTCAnPhu
                         ? FlatAppearance.MouseOverBackColor
                         : BackColor;
 
-                bool toolbarIcon = string.Equals(Tag as string, "toolbar-icon", StringComparison.Ordinal);
+                string toolbarTag = Tag as string ?? string.Empty;
+                bool toolbarIcon = toolbarTag.StartsWith("toolbar-icon", StringComparison.Ordinal);
                 Color border = toolbarIcon
                     ? fill
                     : (FlatAppearance.BorderColor == Color.Empty ? fill : FlatAppearance.BorderColor);
@@ -1349,9 +1362,35 @@ namespace QLTCAnPhu
                     textRect = new Rectangle(Padding.Left, 0, Math.Max(1, Width - Padding.Horizontal), Height);
                 }
 
-                if (hasGlyph) DrawToolbarGlyph(pevent.Graphics, glyph, iconRect, ForeColor);
+                bool glyphDrawn = false;
+                if (hasGlyph)
+                {
+                    try
+                    {
+                        DrawToolbarGlyph(pevent.Graphics, glyph, iconRect, ForeColor);
+                        glyphDrawn = true;
+                    }
+                    catch
+                    {
+                        glyphDrawn = false;
+                    }
+                }
 
-                if (hasText)
+                if (hasGlyph && !glyphDrawn && !string.IsNullOrWhiteSpace(fallbackText))
+                {
+                    using (var fallbackFont = new Font("Segoe UI", 7.5F, FontStyle.Bold))
+                    {
+                        TextRenderer.DrawText(
+                            pevent.Graphics,
+                            fallbackText,
+                            fallbackFont,
+                            ClientRectangle,
+                            ForeColor,
+                            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis
+                        );
+                    }
+                }
+                else if (hasText)
                 {
                     TextFormatFlags flags = TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine;
                     flags |= hasGlyph ? TextFormatFlags.Left : TextFormatFlags.HorizontalCenter;
@@ -1406,10 +1445,10 @@ namespace QLTCAnPhu
                             break;
 
                         case ToolbarGlyph.Reload:
-                            // Chrome-style refresh: draw the ring and arrow head ourselves.
-                            // Do not use font glyphs or GDI AdjustableArrowCap; both have
-                            // rendered inconsistently at small sizes / high Windows DPI.
-                            float reloadInset = Math.Max(3F, r.Width * 0.17F);
+                            // Chrome-like refresh built only from simple GDI+ geometry.
+                            // The open arrow head remains recognizable at 100–200% DPI and
+                            // avoids font glyphs / custom caps that have rendered inconsistently.
+                            float reloadInset = Math.Max(2.5F, r.Width * 0.14F);
                             RectangleF reloadArc = new RectangleF(
                                 r.Left + reloadInset,
                                 r.Top + reloadInset,
@@ -1421,17 +1460,14 @@ namespace QLTCAnPhu
                                 reloadPen.StartCap = LineCap.Round;
                                 reloadPen.EndCap = LineCap.Round;
                                 reloadPen.LineJoin = LineJoin.Round;
-                                graphics.DrawArc(reloadPen, reloadArc, 42F, 282F);
+                                graphics.DrawArc(reloadPen, reloadArc, 48F, 292F);
+
+                                float tipX = reloadArc.Right - reloadArc.Width * 0.02F;
+                                float tipY = reloadArc.Top + reloadArc.Height * 0.20F;
+                                float arm = Math.Max(4F, r.Width * 0.23F);
+                                graphics.DrawLine(reloadPen, tipX, tipY, tipX - arm, tipY + arm * 0.02F);
+                                graphics.DrawLine(reloadPen, tipX, tipY, tipX - arm * 0.18F, tipY + arm);
                             }
-                            float tipX = r.Right - Math.Max(2.5F, r.Width * 0.10F);
-                            float tipY = r.Top + Math.Max(3.0F, r.Height * 0.18F);
-                            float head = Math.Max(4.5F, r.Width * 0.24F);
-                            graphics.FillPolygon(brush, new[]
-                            {
-                                new PointF(tipX, tipY),
-                                new PointF(tipX - head, tipY + head * 0.10F),
-                                new PointF(tipX - head * 0.38F, tipY + head)
-                            });
                             break;
 
                         case ToolbarGlyph.More:

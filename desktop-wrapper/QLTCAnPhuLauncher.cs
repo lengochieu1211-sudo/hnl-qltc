@@ -1165,10 +1165,14 @@ namespace QLTCAnPhu
                         button.FlatAppearance.MouseOverBackColor = theme.PrimaryHover;
                         button.FlatAppearance.MouseDownBackColor = theme.PrimaryHover;
                     }
-                    else if (tag == "toolbar-icon")
+                    else if (tag == "toolbar-icon" || tag == "toolbar-icon-success" || tag == "toolbar-icon-warning")
                     {
                         button.BackColor = theme.Surface;
-                        button.ForeColor = theme.TextMuted;
+                        button.ForeColor = tag == "toolbar-icon-success"
+                            ? (theme.IsDark ? Color.FromArgb(125, 225, 177) : Color.FromArgb(22, 126, 84))
+                            : tag == "toolbar-icon-warning"
+                                ? (theme.IsDark ? Color.FromArgb(255, 215, 128) : Color.FromArgb(175, 110, 12))
+                                : theme.TextMuted;
                         button.FlatAppearance.BorderColor = theme.Surface;
                         button.FlatAppearance.MouseOverBackColor = theme.IsDark ? Color.FromArgb(43, 51, 63) : Color.FromArgb(239, 244, 250);
                         button.FlatAppearance.MouseDownBackColor = theme.IsDark ? Color.FromArgb(49, 58, 71) : Color.FromArgb(228, 236, 246);
