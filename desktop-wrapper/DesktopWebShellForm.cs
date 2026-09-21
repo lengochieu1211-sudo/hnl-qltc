@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -1243,6 +1244,16 @@ namespace QLTCAnPhu
             private string fallbackText = string.Empty;
             private const int Radius = 7;
 
+            private const string ToolbarSyncOkAssetBase64 = "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAEXElEQVR42u2Yy09cVRzHv79zHzMDM0B51aiLmjRGk5q2idIWYwgbo1EKLQ6vtLGaSkxc1P/gdnYu3NSFkdRKoYUaRsDGFFo2yMaNJt26MHFlTFMGKDJT5p7Hz8UMiGlEU2aA4vnsZnIzcz6/xzm/cwGLxWKxWCwWi8VisVgsFovFYrFYLBbL/wPniVlpEAhchINzBwQOnAPm5niTp2lvpSkIxCPfcWkk3V0vP5Z00JXSDcNtB3XUOw8YeKt64B599ysYBAJv5ed3d6nMtrhonVO1V99qEhXRKUTdOgiAl/O/Cdd7+X4yfa9o8dhBELtdvu7a26+IishtgOrMcj5vlvIPURl5Rkv1JgiM71u2tI+J3Sy/f/jkMRHx74Bpnwm1IiKfCA6YwRq/AwDuN+6xFliTH+loMr64zUz7WBoFwGGwpCrfN0vh6OIvh88CAFIps3cCUJRvvNZ2nKPeFP+VeYeZJSU8X+fCG0s/HzmDiyneav+XvgWCQIADAYAwlnQeK/OjJ49x1J9mU5AH4DCzFFW+z1k1utR7sw9IoRTy5a+A/3pMrWV+qOMEVzhTzKhhaRQRHGMK8siqkfneiTOFgSjFpZAv3RwQQCAFUzdy+gURcT5h4FnW6usMTX5aqIhNFrxe9qeOI0rTbFDN0ihQMfOJiG+y4fWF3smzpZYvVQUQGDg4/Yb/4EHsR1ETe8msSFClC728einTM/kxxpIOkmnzyMKL8g1ftTcj7t5iRo2RhbInQFJV1OeVcDjTN/FuOeRLswcEAYHAf8wnngZwSC2sKiO1UourIVX4F+pGOi6hK62RToq/ja9rmR/pOIHEetlrInIASKqK+JwLh8opX/IKWFqM/oSYf4gfSgkiF4CiuOfxyuqlTN/NQiV0pQ1mWxy0zqmG66dfRQS32FA1S60hhGBjJMV9Hzl5NdM3+d6/ttDuuA0GYqH/iqrsePEHCO4k10lAsyaCC2mUSESbK9ufr811j09hoN/DOxOqYbi9GTFnyhhRDWk0hBAAq2LPDy70fft+ueVLewoEgUAqZRoG249w3LkDEo2cN4oEOQxWIuF5nFWfz3ePf9Rwo7OZPEyzoSodKk0kBKiw25ucupLpGj+/HfKlPwbXNrXhU4cREzNMopFDo0DsANCi0neRC9MMfg2e+xSvKl3ch6So9n2TlV9muic+2C758swBG4LAMWcGJBo5VKrYbkZUuA7nNVgbU/x/RYmIx9nwcqZnov8fT4wnJgAbglA/1HmUKmkGQL3OF0ZaMDQIgkDEYElx3+dseDnTu/3y5Z0E14Iw2nkUHs+AqJ7zXAhCQVBT3Pc4Fw7Md49/uBPy5b0Ot84pzLa4833jdyHV6wTMi5jrglkSkRHVEY+z8oudlN+e2+DGdohjnFz3OdYME5rPMj3fXNhJ+e19rwegerC9Zv9kV1vtSEfT+mWJ99ob3M3mhM0+7xDbG30GIZ0siHelNSwWi8VisVgsFovFsjP8CSdoPxHxIfdAAAAAAElFTkSuQmCC";
+            private const string ToolbarReloadAssetBase64 = "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";
+            private const string ToolbarMoreAssetBase64 = "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAACSElEQVR42u3WvWsUYRAG8Gfm3dtNwEaQa4yau5jCK7SwEGxOyH3EnCm3trARCyvBziVW/gP2polYB/HCiSmEKETBCDlQL0qwWxFsBO923xmLRDgC4kcuoDC/cnl2eGd2WF7AGGOMMcYYY4wxxhhjjDHGGGOMMcYYY8xfoziOXZIkvM8MkiThOI4dAPpvmt/bwK8yAPh3ao1yCHSAzWulUgmPlctnB3merrbbWz+eD2cAcLN56RwRfW23l1//rGCj0TojzOOP28vP97y/L3wAzTMA1OvzpYkTpXV4rBUo2Kw1WjcB6O4m0E6mXqzPtp5yQGtgbNSaF+8CoKEMV6vVoNGcu+cK7lXB0bPG7Nxqq9U6PKoPOPIBxHFMAJRYboeF8DSg3xxT5BzdqdXmTi0sLEgcxwUASi64MRZF50XRFxEfFsJrM83mzFBGwvFD82EUXQY0V5VBFI1f6Hu9DkCr1ar75wZQqVQUABRSFpGciNmL9JkZ6ujocFZB03meeVUFEWUgguOgBABpmu6cTfUkVFUVuShUxHtHPD3SdR2lbrdLAMDslpgoEJEwcEGUZfkW+f46AErTVHY3eAlEjoki59xYlg2+kOSd3dXOAcCTPBxkWZ+Zx5goEhEHkvsAUCwW9/0PcAcwAAVAW72368cnJzN27oiIvsyRX3nS6XwEwNvb2x4Ave+92yyVpz6R0oQq3gj81c7KykaSJLy4uOgB8IdeLy1NlV+I6CQIn/3A3+qsPHoAgLvdrthNwxhjjDHGGGOMMcaYP/Id/sPik2TFS0YAAAAASUVORK5CYII=";
+            private const string ToolbarCollapseAssetBase64 = "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAET0lEQVR42u3Xy2tcVRwH8N/vvG4mLfVRjGKxILoxUVSEKgW5QehCF5a2nE6SmU6Tph03bnzgQsXbi+BGwWI0i9g2TdLM0B5oUemTtnQEF/oHBBcu3AnZCL4m9zxdtBGKD6iZadP2fDZ3dznf3/md370HIIqiKIqiKIqiKIqiKIqiKIqiKIqi6A6Aq2ENUkoCAKCUcnf6BuAq2ZTuy7KMAABIKeno+CtbqqP7Nt+MziQ3I7yUkuZ57oeGhu7npXVfByDnCSHfjNT2HlkuzPLztpsBUkqqlHLl8uhDrIeeYYwPGKM1AmJPqcSLpeJkb4Llqakpk2UZyfPc3zYFSNOUtVotWy7XHqEJO8sZf9RYawgiAiIggOdCCF3o0xT0jpmZmaVuFwFvdHhZqfQL1nOGErrROmcIIqGM0xA8WGMsIvFcCGGMuaT/4FuVmvxtuWtu2RmQphlrtVp2ZGT3U4KWLlLKNnrvDSUERdJDdVEc0MZ8JZKEBQhgjTaC8xdEqTgn5fi9SiknpaS3ZAGuhM/tzsru54CzC5TRB7xzBgCAccGWdPFh8+jh1+67e43UujgruBAAELQuDON8s+jF89u2Vfu6VQRyI8KXK6PPM8rOEcD11loTICDnnBdF8X7jyOdv1et1PjExoU37163G6C8Y5wIQwBpjOOfPrL2rdFHWahu6UQTS7fBD1dEtlNIzCLDOe28QACllrFhqv92YPfhemqZsamrKZlmGSimj27/ssMYcEzzhAQCM1oYx/rjA5JKsVh9WSrk0TdmqHoJplrFWntuhyp6XOafHQwiJu3rmKWPMFMXrjaPTH18tkgOAsPztz/P9AQDDcHVsNkl6dhlrNARAxhi31v7YNubFE82Z75eH6krX2vEzJaWkpycn3VBlbCcX7DgAMEBwhCBSSplx+tXG3PQnaZax1kx+TYBWqxUA9mOWAfl04sCJxwae2CCSZJO/ilC6nhHcPvDk0xdOfXnyJyklXVhYCKvmCGRZRpRSbrg6VuOcHfPOow/BASASQpm1dl9jZvqz5Q75l6YMeZ6HLMtI8+h0XWs9KYTgAAG8c4YS+iBFcmG4Nr5JKeVW+seIndx5pZQb3jX+Euf0lHPeQQgeECkhBJ21uxtzh+f+O/zfb4lKKVep7f1IJOINo7UBACCUcufsz167Z5vNIz9kWYb/92epYx2wuLiIVyrq9xCkDiC0CaWMEOKddeXrDA8AEJRSXkpJ52cPvlksFR8wxngAgBD870nScw9yshUAwuUV5OhYAfr6+gIAQAC8RBmlnIu1AKCNszsac4dUvV7n1xH+miKkacoac4feKXTxLmOMcybWOOfAOf8tAEDfCuZAp78CCABhpDpWZ0IMmHZ7vtmc/a4DE/uv41AeGd2e9JZS1y7Oz88fPgUQEAADrFadvNb+w7uwEzvWlYvP4OAgLCwshE5fYqSUtL+/H7vx7iiKoiiKoiiKoii6Q/wJ9TwdrwLg1q4AAAAASUVORK5CYII=";
+
+            private static readonly Image ToolbarSyncOkAsset = LoadToolbarAsset(ToolbarSyncOkAssetBase64);
+            private static readonly Image ToolbarReloadAsset = LoadToolbarAsset(ToolbarReloadAssetBase64);
+            private static readonly Image ToolbarMoreAsset = LoadToolbarAsset(ToolbarMoreAssetBase64);
+            private static readonly Image ToolbarCollapseAsset = LoadToolbarAsset(ToolbarCollapseAssetBase64);
+
             internal string FallbackText
             {
                 get { return fallbackText; }
@@ -1404,9 +1415,86 @@ namespace QLTCAnPhu
                 }
             }
 
+            private static Image LoadToolbarAsset(string base64)
+            {
+                try
+                {
+                    byte[] bytes = Convert.FromBase64String(base64);
+                    using (var input = new MemoryStream(bytes))
+                    using (Image source = Image.FromStream(input))
+                        return new Bitmap(source);
+                }
+                catch { return null; }
+            }
+
+            private static bool TryDrawToolbarAsset(Graphics graphics, ToolbarGlyph glyph, Rectangle r, Color color)
+            {
+                Image source = null;
+                switch (glyph)
+                {
+                    case ToolbarGlyph.SyncOk: source = ToolbarSyncOkAsset; break;
+                    case ToolbarGlyph.Reload: source = ToolbarReloadAsset; break;
+                    case ToolbarGlyph.More: source = ToolbarMoreAsset; break;
+                    case ToolbarGlyph.Collapse:
+                    case ToolbarGlyph.Expand: source = ToolbarCollapseAsset; break;
+                }
+                if (source == null || r.Width <= 0 || r.Height <= 0) return false;
+
+                Image drawImage = source;
+                Image rotated = null;
+                if (glyph == ToolbarGlyph.Expand)
+                {
+                    rotated = (Image)source.Clone();
+                    rotated.RotateFlip(RotateFlipType.Rotate180FlipNone);
+                    drawImage = rotated;
+                }
+
+                float red = color.R / 255F;
+                float green = color.G / 255F;
+                float blue = color.B / 255F;
+                var matrix = new ColorMatrix(new[]
+                {
+                    new[] { 0F, 0F, 0F, 0F, 0F },
+                    new[] { 0F, 0F, 0F, 0F, 0F },
+                    new[] { 0F, 0F, 0F, 0F, 0F },
+                    new[] { 0F, 0F, 0F, 1F, 0F },
+                    new[] { red, green, blue, 0F, 1F }
+                });
+
+                InterpolationMode oldInterpolation = graphics.InterpolationMode;
+                try
+                {
+                    using (var attributes = new ImageAttributes())
+                    {
+                        attributes.SetColorMatrix(matrix, ColorMatrixFlag.Default, ColorAdjustType.Bitmap);
+                        graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                        graphics.DrawImage(
+                            drawImage,
+                            r,
+                            0,
+                            0,
+                            drawImage.Width,
+                            drawImage.Height,
+                            GraphicsUnit.Pixel,
+                            attributes
+                        );
+                    }
+                    return true;
+                }
+                finally
+                {
+                    graphics.InterpolationMode = oldInterpolation;
+                    if (rotated != null) rotated.Dispose();
+                }
+            }
+
             private static void DrawToolbarGlyph(Graphics graphics, ToolbarGlyph glyph, Rectangle r, Color color)
             {
                 if (r.Width <= 0 || r.Height <= 0) return;
+                // Preferred path: ChatGPT-generated toolbar artwork is rasterized once at
+                // high quality, then tinted/scaled by Windows. This avoids the malformed
+                // small-size reload arrow seen with direct 18-22px GDI+ construction.
+                if (glyph != ToolbarGlyph.SyncWarning && TryDrawToolbarAsset(graphics, glyph, r, color)) return;
                 int left = r.Left;
                 int top = r.Top;
                 int right = r.Right - 1;
