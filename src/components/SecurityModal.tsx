@@ -874,6 +874,54 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
     return memberSortOrder === 'asc' ? comparison : -comparison;
   });
 
+  const presenceLastSeenMs = (entry?: ProjectPresenceEntry) => {
+    if (!entry) return 0;
+    const rawLastSeen = entry.lastSeen as any;
+    const serverSeen = Number(rawLastSeen?.toMillis?.() || (Number(rawLastSeen?.seconds || 0) * 1000) || 0);
+    return Math.max(serverSeen, Number(entry.clientLastSeen || 0), Number(entry.updatedAt || 0));
+  };
+  const presenceModuleLabel = (module?: string) => {
+    const map: Record<string, string> = {
+      warehouse: 'Kho vật tư',
+      volume: 'Khối lượng',
+      floorplan: 'Mặt bằng / Defect',
+      checklist: 'Checklist',
+      crew: 'Quân số',
+      chat: 'Trao đổi',
+      ai: 'HNL AI',
+      config: 'Cài đặt',
+      superadmin: 'Quản trị hệ thống',
+    };
+    return map[String(module || '')] || 'Ứng dụng';
+  };
+  const presenceClientLabel = (entry?: ProjectPresenceEntry) => {
+    if (!entry) return '';
+    if (entry.clientType === 'DESKTOP') return 'Windows EXE';
+    if (entry.clientType === 'APK') return 'Android';
+    if (entry.clientType === 'WEB') return entry.browser && entry.browser !== 'Unknown' ? entry.browser : 'Trình duyệt';
+    return entry.platform || 'Thiết bị';
+  };
+  const presenceByEmail = new Map(
+    projectPresence
+      .filter((entry) => entry?.email)
+      .map((entry) => [String(entry.email).trim().toLowerCase(), entry] as const)
+  );
+  const activePresenceCount = projectPresence.filter((entry) => {
+    const seen = presenceLastSeenMs(entry);
+    return seen > 0 && presenceNow - seen <= 120_000;
+  }).length;
+  const presenceRecencyLabel = (entry?: ProjectPresenceEntry) => {
+    const seen = presenceLastSeenMs(entry);
+    if (!seen) return 'Chưa hoạt động gần đây';
+    const age = Math.max(0, presenceNow - seen);
+    if (age <= 120_000) return 'Đang hoạt động';
+    const minutes = Math.max(1, Math.floor(age / 60_000));
+    if (minutes < 60) return `${minutes} phút trước`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours} giờ trước`;
+    return 'Không hoạt động gần đây';
+  };
+
   const auditModuleLabels: Record<string, string> = {
     rooms: 'Căn / tiến độ',
     inventory: 'Kho vật tư',
