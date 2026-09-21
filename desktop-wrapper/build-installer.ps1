@@ -51,10 +51,10 @@ $buildInfo = Join-Path $root 'InstallerBuildInfo.generated.cs'
 $assemblyInfo = Join-Path $root 'InstallerAssemblyInfo.generated.cs'
 $uninstallerTemp = Join-Path $root 'HNL-QLTC-Uninstaller.generated.exe'
 $generatedIcon = Join-Path $root 'HNL-QLTC-Setup.generated.ico'
-$logoSource = Join-Path $projectRoot 'public\icon.png'
+$logoSource = Join-Path $root 'HNL-QLTC-HQ.ico'
 $manifest = Join-Path $root 'HnlQltcInstaller.manifest'
 
-if (-not (Test-Path -LiteralPath $logoSource)) { throw "HNL logo source not found: $logoSource" }
+if (-not (Test-Path -LiteralPath $logoSource)) { throw "HNL Windows icon source not found: $logoSource" }
 if (-not (Test-Path -LiteralPath $manifest)) { throw "Installer manifest not found: $manifest" }
 
 Add-Type -AssemblyName System.Drawing
@@ -137,8 +137,8 @@ using System.Reflection;
 "@ | Set-Content -LiteralPath $assemblyInfo -Encoding UTF8
 
 try {
-  Write-HnlIcoFromPng -PngPath $logoSource -IcoPath $generatedIcon
-  if ((Get-Item -LiteralPath $generatedIcon).Length -lt 20000) { throw 'Generated setup icon is unexpectedly small.' }
+  Copy-Item -LiteralPath $logoSource -Destination $generatedIcon -Force
+  if ((Get-Item -LiteralPath $generatedIcon).Length -lt 20000) { throw 'Certified setup icon is unexpectedly small.' }
 
   & $csc /nologo /target:winexe /optimize+ /platform:anycpu /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.dll /win32manifest:"$manifest" /win32icon:"$generatedIcon" /out:"$uninstallerTemp" (Join-Path $root 'HnlQltcUninstaller.cs') $buildInfo $assemblyInfo
   if ($LASTEXITCODE -ne 0) { throw "Uninstaller csc failed: $LASTEXITCODE" }

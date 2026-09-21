@@ -26,7 +26,7 @@ if ($releaseTag -match '[\r\n\"]') { throw 'Invalid release tag.' }
 $assemblyInfo = Join-Path $root 'AssemblyInfo.generated.cs'
 $releaseInfo = Join-Path $root 'ReleaseInfo.generated.cs'
 $generatedIcon = Join-Path $root 'HNL-QLTC.generated.ico'
-$logoSource = Join-Path $projectRoot 'public\icon.png'
+$logoSource = Join-Path $root 'HNL-QLTC-HQ.ico'
 $parts = $version.Split('.')
 $assemblyVersion = "$($parts[0]).$($parts[1]).$($parts[2]).0"
 
@@ -72,7 +72,7 @@ function Get-WebView2SdkPayload {
 }
 
 if (-not (Test-Path -LiteralPath $logoSource)) {
-  throw "High-resolution HNL logo source was not found: $logoSource"
+  throw "Certified HNL Windows icon source was not found: $logoSource"
 }
 
 Add-Type -AssemblyName System.Drawing
@@ -192,9 +192,9 @@ namespace QLTCAnPhu
 
 $out = Join-Path $projectRoot 'HNL-QLTC-Windows.exe'
 try {
-  Write-HnlIcoFromPng -PngPath $logoSource -IcoPath $generatedIcon
+  Copy-Item -LiteralPath $logoSource -Destination $generatedIcon -Force
   $iconBytes = (Get-Item -LiteralPath $generatedIcon).Length
-  if ($iconBytes -lt 20000) { throw "Generated ICO is unexpectedly small: $iconBytes bytes" }
+  if ($iconBytes -lt 20000) { throw "Certified ICO is unexpectedly small: $iconBytes bytes" }
 
   $webView = Get-WebView2SdkPayload
   $desktopSources = @((Join-Path $root 'QLTCAnPhuLauncher.cs'), (Join-Path $root 'DesktopLocalStore.cs'), (Join-Path $root 'DesktopSyncCenterForm.cs'), (Join-Path $root 'DesktopWebShellForm.cs'))
@@ -210,8 +210,8 @@ try {
   Write-Output "Version: $version"
   Write-Output "Release tag: $releaseTag"
   Write-Output "Production URL: https://hnlqltc.web.app/?app=desktop&v=$releaseTag"
-  Write-Output "Icon source: public/icon.png ($((Get-Item -LiteralPath $logoSource).Length) bytes)"
-  Write-Output "Generated multi-resolution ICO: $iconBytes bytes (16,20,24,28,32,40,48,64,80,96,128,256; all frames derived directly from canonical HNL logo)"
+  Write-Output "Icon source: desktop-wrapper/HNL-QLTC-HQ.ico ($((Get-Item -LiteralPath $logoSource).Length) bytes)"
+  Write-Output "Certified multi-resolution ICO: $iconBytes bytes (derived from the user-provided HQ HNL logo)"
   Write-Output "Embedded WebView2 SDK: $webViewVersion (Core + WinForms + x64/x86 loader embedded into the EXE)"
 } finally {
   Remove-Item -LiteralPath $assemblyInfo -Force -ErrorAction SilentlyContinue

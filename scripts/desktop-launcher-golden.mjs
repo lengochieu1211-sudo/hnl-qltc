@@ -85,7 +85,7 @@ assert(webShell.includes('CalculateToolbarActionsWidth') && webShell.includes('n
 assert(webShell.includes('brandLogo.Visible = false') && webShell.includes('brandLabel.Visible = false') && webShell.includes('releaseLabel.Visible = false') && !webShell.includes('new ToolStripMenuItem("HNL QLTC • " + Program.GetReleaseTag())') && webShell.includes('NormalHeaderHeight = 38F'), 'native shell does not duplicate Web-owned logo/title/version branding in the Windows command strip or More menu');
 assert(webShell.includes('ToolTip') && webShell.includes('AccessibleName') && webShell.includes('ToolbarGlyph.Reload') && webShell.includes('ToolbarGlyph.More') && webShell.includes('ToolbarGlyph.Collapse') && webShell.includes('ToolbarGlyph.Expand'), 'native toolbar keeps tooltip/accessibility labels and vector icons for icon-only actions');
 assert(webShell.includes('Height * 0.56F') && webShell.includes('Math.Max(16, Math.Min(24') && webShell.includes('float stroke = Math.Max(1.8F, Math.Min(2.4F, r.Width / 8F))'), 'all native toolbar glyphs scale from actual DPI-scaled control height with one consistent visual weight');
-assert(webShell.includes('RectangleF reloadArc') && webShell.includes('const float reloadSweep = 285F') && webShell.includes('float endAngle = (reloadStart + reloadSweep)') && webShell.includes('headLength = Math.Max(4.5F, r.Width * 0.34F)') && webShell.includes('graphics.FillPolygon(brush'), 'reload glyph is a DPI-scaled circular vector arrow with a filled tangent arrowhead rather than Unicode or a C-shaped arc');
+assert(webShell.includes('RectangleF reloadArc') && webShell.includes('new AdjustableArrowCap(reloadArrowWidth, reloadArrowHeight, true)') && webShell.includes('reloadPen.CustomEndCap = arrowCap') && webShell.includes('graphics.DrawArc(reloadPen, reloadArc, 45F, 285F)'), 'reload glyph uses a DPI-scaled circular vector arrow with a platform-rendered arrowhead rather than Unicode or a C-shaped arc');
 assert(launcher.includes('DesktopPaths.LocalDatabase') && launcher.includes('workspace.db'), 'Desktop Suite stores its local SQLite database under LocalAppData');
 assert(localStore.includes('winsqlite3.dll'), 'local workspace uses Windows inbox winsqlite3 without an external database DLL');
 assert(localStore.includes('CREATE TABLE IF NOT EXISTS workspace_files') && localStore.includes('CREATE TABLE IF NOT EXISTS sync_queue') && localStore.includes('CREATE TABLE IF NOT EXISTS sync_history'), 'SQLite schema contains workspace mirror, durable sync queue and audit history');
@@ -124,7 +124,7 @@ assert(webBridge.includes('BRIDGE_SOURCE_SHA256_MISMATCH') && webBridge.includes
 assert(webBridge.includes('showDirectoryPicker') && webBridge.includes('createWritable'), 'Web bridge uses explicit File System Access permission and writes local ACK only after verification');
 assert(webBridge.includes('BRIDGE_ATTEMPT_TOKEN_INVALID') && webBridge.includes('BRIDGE_PHOTO_ID_MISMATCH') && webBridge.includes('attemptToken'), 'Web bridge validates one-time attempt token and deterministic photo ID before ACK');
 assert(!webBridge.includes('uploadProjectBinaryToR2') && !webBridge.includes('fetch('), 'Web bridge does not introduce a direct R2/network upload authority');
-assert(bridgeCard.includes('Windows Desktop Sync Bridge') && bridgeCard.includes('/Windows/i.test(navigator.userAgent') && configTab.includes('WindowsDesktopSyncBridgeCard'), 'Settings Sync Center exposes Windows-only App Sync Bridge controls');
+assert(bridgeCard.includes('Windows – Đồng bộ file chờ') && bridgeCard.includes('Chọn thư mục HNL QLTC và đồng bộ file chờ') && bridgeCard.includes('Documents\\HNL QLTC') && bridgeCard.includes('/Windows/i.test(navigator.userAgent') && configTab.includes('WindowsDesktopSyncBridgeCard'), 'Settings Sync Center exposes clear Windows-only pending-file sync controls');
 assert(build.includes('release-tag.txt'), 'build script uses release tag for cache/version isolation');
 assert(releaseTag === '6.3.0-rc2.2.26.13', 'desktop release tag identifies the RC2.2.26.13 certified Windows toolbar/runtime candidate');
 
@@ -151,14 +151,13 @@ for (const size of runtimeTaskbarSizes) {
   assert(read('public/sw.js').includes(`/hnl-logo-original-${size}.png`), `service worker app shell pre-caches ${size}x${size} runtime icon`);
 }
 
-assert(build.includes("public\\icon.png"), 'EXE file icon is generated from the canonical HNL logo source');
-assert(build.includes('Write-HnlIcoFromPng'), 'build generates a native multi-resolution ICO from the HNL logo');
+assert(build.includes("HNL-QLTC-HQ.ico"), 'EXE file icon uses the certified HQ HNL Windows icon derived from the user-provided logo');
+assert(build.includes('Copy-Item -LiteralPath $logoSource -Destination $generatedIcon -Force'), 'build copies the certified multi-resolution ICO without regenerating lower-quality frames');
 for (const size of [16, 20, 24, 28, 32, 40, 48, 64, 80, 96, 128, 256]) {
-  assert(build.includes(String(size)), `ICO generation includes ${size}x${size} frame`);
   assert(iconGolden.includes(String(size)), `runtime EXE icon golden verifies ${size}x${size} extraction`);
 }
 assert(!build.includes('Optimize-HnlSmallIconFrame'), 'Windows EXE small frames are not visually altered by a custom sharpening/contrast pass');
-assert(build.includes('Generated multi-resolution ICO'), 'build reports generated HQ ICO evidence');
+assert(build.includes('Certified multi-resolution ICO'), 'build reports certified HQ ICO evidence');
 assert(!fs.existsSync('desktop-wrapper/QLTCAnPhu.ico'), 'obsolete 854-byte blurry launcher ICO is removed from source');
 assert(iconGolden.includes('PrivateExtractIcons'), 'runtime golden extracts icons directly from the built EXE using Win32');
 assert(iconGolden.includes('hnl-logo-original-') && iconGolden.includes('$runtimeSizes = @(16,20,24,28,32,40,48)'), 'Windows golden validates exact runtime frames derived from the canonical HNL logo');

@@ -1322,7 +1322,9 @@ namespace QLTCAnPhu
                 // Size glyphs from the actual scaled control height so 125–200% Windows
                 // DPI keeps the same visual weight instead of leaving 14px artwork floating
                 // inside a much larger auto-scaled button.
-                int iconSize = Math.Max(16, Math.Min(24, (int)Math.Round(Height * 0.56F)));
+                int iconSize = toolbarIcon
+                    ? Math.Max(18, Math.Min(22, (int)Math.Round(Height * 0.66F)))
+                    : Math.Max(16, Math.Min(24, (int)Math.Round(Height * 0.56F)));
                 Rectangle iconRect = Rectangle.Empty;
                 Rectangle textRect;
 
@@ -1399,43 +1401,26 @@ namespace QLTCAnPhu
                             break;
 
                         case ToolbarGlyph.Reload:
-                            // Draw a true circular refresh arrow from geometry rather than a
-                            // Unicode glyph. The arc, stroke and filled tangent arrowhead scale
-                            // from the live button size, keeping the symbol readable at high DPI.
-                            float inset = Math.Max(1.5F, r.Width * 0.10F);
+                            // Use the platform drawing primitive for the arrow cap so the
+                            // refresh symbol keeps a crisp, unmistakable arrow head at every
+                            // Windows DPI instead of degenerating into a C-shaped arc.
+                            float reloadInset = Math.Max(2F, r.Width * 0.13F);
                             RectangleF reloadArc = new RectangleF(
-                                r.Left + inset,
-                                r.Top + inset,
-                                Math.Max(1F, r.Width - inset * 2F),
-                                Math.Max(1F, r.Height - inset * 2F)
+                                r.Left + reloadInset,
+                                r.Top + reloadInset,
+                                Math.Max(1F, r.Width - reloadInset * 2F),
+                                Math.Max(1F, r.Height - reloadInset * 2F)
                             );
-                            const float reloadStart = 40F;
-                            const float reloadSweep = 285F;
-                            graphics.DrawArc(pen, reloadArc, reloadStart, reloadSweep);
-
-                            float endAngle = (reloadStart + reloadSweep) * (float)Math.PI / 180F;
-                            float radiusX = reloadArc.Width / 2F;
-                            float radiusY = reloadArc.Height / 2F;
-                            float tipX = reloadArc.Left + radiusX + radiusX * (float)Math.Cos(endAngle);
-                            float tipY = reloadArc.Top + radiusY + radiusY * (float)Math.Sin(endAngle);
-                            float dirX = -(float)Math.Sin(endAngle);
-                            float dirY = (float)Math.Cos(endAngle);
-                            float normalX = -dirY;
-                            float normalY = dirX;
-                            float headLength = Math.Max(4.5F, r.Width * 0.34F);
-                            float headHalfWidth = Math.Max(2.4F, r.Width * 0.18F);
-                            graphics.FillPolygon(brush, new[]
+                            float reloadArrowWidth = Math.Max(3.4F, r.Width * 0.20F);
+                            float reloadArrowHeight = Math.Max(4.2F, r.Width * 0.24F);
+                            using (var reloadPen = new Pen(color, stroke))
+                            using (var arrowCap = new AdjustableArrowCap(reloadArrowWidth, reloadArrowHeight, true))
                             {
-                                Point.Round(new PointF(tipX, tipY)),
-                                Point.Round(new PointF(
-                                    tipX - dirX * headLength + normalX * headHalfWidth,
-                                    tipY - dirY * headLength + normalY * headHalfWidth
-                                )),
-                                Point.Round(new PointF(
-                                    tipX - dirX * headLength - normalX * headHalfWidth,
-                                    tipY - dirY * headLength - normalY * headHalfWidth
-                                ))
-                            });
+                                reloadPen.StartCap = LineCap.Round;
+                                reloadPen.LineJoin = LineJoin.Round;
+                                reloadPen.CustomEndCap = arrowCap;
+                                graphics.DrawArc(reloadPen, reloadArc, 45F, 285F);
+                            }
                             break;
 
                         case ToolbarGlyph.More:

@@ -36,8 +36,8 @@ export const WindowsDesktopSyncBridgeCard: React.FC<Props> = ({ activeProjectId,
     <div className="rounded-xl border border-sky-200 bg-sky-50/60 p-3 space-y-2.5">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="text-[11px] font-extrabold text-slate-800 flex items-center gap-1.5"><FolderSync className="w-4 h-4 text-sky-700" /> Windows Desktop Sync Bridge</div>
-          <div className="text-[10px] text-slate-600 mt-1">Đọc queue từ <span className="font-mono">Documents\HNL QLTC\DesktopBridge</span>. Web app kiểm SHA-256 rồi dùng đúng Firebase Auth/RBAC + R2 upload hiện có; EXE không tự ghi Cloud.</div>
+          <div className="text-[11px] font-extrabold text-slate-800 flex items-center gap-1.5"><FolderSync className="w-4 h-4 text-sky-700" /> Windows – Đồng bộ file chờ</div>
+          <div className="text-[10px] text-slate-600 mt-1">Chỉ dùng khi Windows có ảnh/file đang chờ đồng bộ. Thư mục cần chọn: <span className="font-mono">Documents\HNL QLTC</span>. Web app kiểm SHA-256 rồi dùng đúng Firebase Auth/RBAC + R2 upload hiện có; EXE không tự ghi Cloud.</div>
         </div>
         <span className={`shrink-0 rounded-lg border px-2 py-1 text-[9px] font-extrabold ${supported ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
           {supported ? 'Edge/Chrome sẵn sàng' : 'Không hỗ trợ'}
@@ -60,7 +60,7 @@ export const WindowsDesktopSyncBridgeCard: React.FC<Props> = ({ activeProjectId,
         className="rounded-lg bg-sky-700 px-3 py-2 text-[10px] font-extrabold text-white hover:bg-sky-800 disabled:cursor-not-allowed disabled:opacity-50 flex items-center gap-1.5"
       >
         {busy ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
-        {busy ? 'Đang đồng bộ…' : 'Chọn HNL QLTC Workspace & đồng bộ'}
+        {busy ? 'Đang đồng bộ…' : 'Chọn thư mục HNL QLTC và đồng bộ file chờ'}
       </button>
 
       {message && <div className="text-[10px] font-semibold text-sky-900 break-words">{message}</div>}
