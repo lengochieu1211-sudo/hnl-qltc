@@ -450,6 +450,41 @@ service cloud.firestore {
         allow delete: if false;
       }
 
+      // Lightweight project presence. One identity-bound document per signed-in user.
+      // Presence is ephemeral UI state only: no business data, no typed text, no history.
+      match /presence/{uid} {
+        allow read: if isMember(projectId);
+        allow create: if isMember(projectId)
+          && uid == request.auth.uid
+          && request.resource.data.projectId == projectId
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.email is string
+          && request.resource.data.email.lower() == signedInEmail()
+          && request.resource.data.module is string
+          && request.resource.data.clientType is string
+          && request.resource.data.deviceId is string
+          && request.resource.data.clientLastSeen is number
+          && request.resource.data.updatedAt is number
+          && request.resource.data.lastSeen == request.time;
+        allow update: if isMember(projectId)
+          && uid == request.auth.uid
+          && resource.data.projectId == projectId
+          && resource.data.uid == request.auth.uid
+          && request.resource.data.projectId == projectId
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.email is string
+          && request.resource.data.email.lower() == signedInEmail()
+          && request.resource.data.module is string
+          && request.resource.data.clientType is string
+          && request.resource.data.deviceId is string
+          && request.resource.data.clientLastSeen is number
+          && request.resource.data.clientLastSeen >= resource.data.clientLastSeen
+          && request.resource.data.updatedAt is number
+          && request.resource.data.updatedAt >= resource.data.updatedAt
+          && request.resource.data.lastSeen == request.time;
+        allow delete: if isMember(projectId) && uid == request.auth.uid;
+      }
+
       // Project chat is deliberately separated from construction records. VIEWER may chat,
       // but every message is identity-bound and hard delete is disabled.
       match /conversations/{conversationId} {
@@ -542,13 +577,13 @@ service cloud.firestore {
       // overwrites. Shared settings/trash metadata are ADMIN-owned structure; legacy
       // floor_plan_images Firestore fallback is read-only until verified purge.
       match /{collectionName}/{recordId} {
-        allow read: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials'
+        allow read: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials'
           && isMember(projectId)
           && (collectionName != 'work_volumes' || !('unitPrice' in resource.data) || isAdmin(projectId));
         // Master project structure is ADMIN-only. EDITOR may create operational records
         // (defect, warehouse transaction, crew log, photo metadata) and may update only
         // explicitly allowed operational fields on rooms/checklist. VIEWER remains read-only.
-        allow create: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials'
+        allow create: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials'
           && !isLegacyReadOnlyCollection(collectionName)
           && (collectionName != 'work_volumes' || !('unitPrice' in request.resource.data))
           && (
@@ -560,7 +595,7 @@ service cloud.firestore {
             ))
           )
           && (!isCoreBusinessCollection(collectionName) || coreCreateLifecycleIsValid(recordId));
-        allow update: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials'
+        allow update: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials'
           && !isLegacyReadOnlyCollection(collectionName)
           && (collectionName != 'work_volumes' || !('unitPrice' in request.resource.data))
           && (
@@ -574,7 +609,7 @@ service cloud.firestore {
             ))
           )
           && (!isCoreBusinessCollection(collectionName) || (coreIdentityUpdateIsValid(recordId) && lifecycleUpdateIsMonotonic()));
-        allow delete: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials'
+        allow delete: if collectionName != 'activityLogs' && collectionName != 'notificationReads' && collectionName != 'presence' && collectionName != 'members' && collectionName != 'memberContacts' && collectionName != 'conversations' && collectionName != 'inventory_balances' && collectionName != 'work_volume_financials'
           && canAdminOperate(projectId)
           && !isCoreBusinessCollection(collectionName);
 
