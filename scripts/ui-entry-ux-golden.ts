@@ -110,6 +110,16 @@ const materialNeedSortBlock = warehouse.slice(materialNeedSortStart, materialNee
 assert(materialNeedSortBlock.includes("{ key: 'material', label: 'Vật tư', kind: 'alpha', defaultOrder: 'asc' }") && materialNeedSortBlock.includes("{ key: 'category', label: 'Nhóm vật tư', kind: 'alpha', defaultOrder: 'asc' }") && materialNeedSortBlock.includes("{ key: 'remaining', label: 'Còn cần', kind: 'number', defaultOrder: 'desc' }") && materialNeedSortBlock.includes("{ key: 'deficit', label: 'Thiếu', kind: 'number', defaultOrder: 'desc' }") && materialNeedSortBlock.includes("{ key: 'stock', label: 'Tồn kho', kind: 'number', defaultOrder: 'desc' }") && materialNeedSortBlock.includes("setMaterialNeedSortBy('default'); setMaterialNeedSortOrder('asc')"), 'Material Need QuickSortBar must use intrinsic need-line semantics: Vật tư · Nhóm vật tư · Còn cần · Thiếu · Tồn kho · Mặc định');
 assert(!materialNeedSortBlock.includes("key: 'date'") && !materialNeedSortBlock.includes("label: 'Ngày'") && !materialNeedSortBlock.includes("key: 'location'") && !materialNeedSortBlock.includes("label: 'Vị trí / Tầng'") && !materialNeedSortBlock.includes("key: 'handler'") && !materialNeedSortBlock.includes("label: 'Người thực hiện'") && !materialNeedSortBlock.includes("label: 'Mới nhất'"), 'Material Need must not sort aggregate need rows by unrelated warehouse transaction date/location/handler/latest metadata');
 assert(!warehouse.includes('<ExpandCollapseButton'), 'Material Need must not activate the legacy custom floating-sheet implementation');
+assert(warehouse.includes('defaultHandler?: string;') && warehouse.includes("defaultHandler = ''"), 'Warehouse must accept project engineer as its default handler.');
+assert(warehouse.includes('materialPickerSearch') && warehouse.includes('filteredMaterialNorms'), 'Warehouse create flow must provide searchable material selection.');
+assert(warehouse.includes('Tìm theo tên, nhóm hoặc đơn vị...'), 'Warehouse material search placeholder is missing.');
+assert(warehouse.includes('Lưu & thêm tiếp') && warehouse.includes("value=\"continue\""), 'Warehouse create flow must support save-and-continue multi-item entry.');
+assert(warehouse.includes('const keepOpen = !editingInventory'), 'Warehouse save-and-continue must keep one create session open.');
+assert(!warehouse.includes("useState('Kho Tầng 1')"), 'Warehouse must not hard-code Kho Tầng 1 as a fake location default.');
+assert(!warehouse.includes("useState('Nguyễn Văn Hùng (Thủ kho)')"), 'Warehouse must not hard-code a fake warehouse handler.');
+assert(warehouse.includes("row['handler'] || defaultHandler || ''"), 'Warehouse Excel import must fall back to the configured project engineer, not a fake keeper.');
+assert(appSourceForInlineSync.includes('defaultHandler={inspectorName}'), 'App must bind Cài đặt → Kỹ sư phụ trách to Warehouse Người Giao / Nhận.');
+
 
 const config = read('src/components/GoogleConfigTab.tsx');
 assert(config.includes('title="Trung tâm đồng bộ & sao lưu"'), 'Settings Sync Center title missing');
