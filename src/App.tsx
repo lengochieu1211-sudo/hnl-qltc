@@ -8,6 +8,7 @@ import { SecurityModal } from './components/SecurityModal';
 import { getStoredPinLockConfig, applyRemotePinReset, logAuditAction, getCurrentUserRole, setCurrentUserRole, UserRole, canEditProjectData, canManageProjects, canManageWorkVolumeStructure, canManageFloorPlanStructure, canManageMaterialNorms, canManageTeams, canManageChecklistStructure, canDeleteBusinessData, canDeleteCrewRecord, canManageBackups, canUseGlobalUndoRedo, canEditWarehouseData, canEditDefectData, canEditChecklistData, canEditCrewData, canImportData } from './utils/securityUtils';
 import { cacheVerifiedProjectRole, getCachedVerifiedProjectRole, getRememberedVerifiedAuthIdentity, rememberVerifiedAuthIdentity } from './utils/offlineAccess';
 import { loadVerifiedOfflineBusinessSnapshot, saveVerifiedOfflineBusinessSnapshot } from './lib/verifiedOfflineBusinessSnapshot';
+import { applyVerifiedOfflineWorkingDelta, buildVerifiedOfflineWorkingDelta, loadVerifiedOfflineWorkingDelta, saveVerifiedOfflineWorkingDelta } from './lib/verifiedOfflineWorkingState';
 import { resolveVerifiedIdentityLabel } from './utils/authIdentityUtils';
 
 function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
@@ -556,6 +557,9 @@ export default function App() {
   const hasUserEditedSinceHydrateRef = React.useRef<boolean>(false);
   const hasUnsavedAllBackupChangesRef = React.useRef<boolean>(false);
   const localTombstonesRef = React.useRef<Record<string, number>>({});
+  const verifiedOfflineBasePresentRef = React.useRef<AppData | null>(null);
+  const verifiedOfflineBaseMetadataRef = React.useRef<{ projectName: string; contractorName: string; inspectorName: string } | null>(null);
+  const verifiedOfflineBaseCapturedAtRef = React.useRef<number>(0);
 
   // V6.2.22: Persist only collections that the user actually changed. Rewriting all
   // nine large arrays on every small edit caused avoidable IndexedDB serialization
@@ -670,6 +674,12 @@ export default function App() {
         && verifiedOfflineSnapshot.recordCount > 0
         && (!firestoreCached?.found || Number(firestoreCached.recordCount || 0) === 0)
       );
+      const verifiedOfflineWorkingDelta = useVerifiedOfflineSnapshot && verifiedOfflineSnapshot && offlineIdentity
+        ? await loadVerifiedOfflineWorkingDelta(projectId, offlineIdentity, verifiedOfflineSnapshot.capturedAt).catch((err) => {
+            console.warn('[Verified offline working delta] unavailable:', err);
+            return null;
+          })
+        : null;
       const shouldReadLegacy = !FIREBASE_ONLY_RUNTIME || Boolean(
         !useVerifiedOfflineSnapshot
         && !firestoreCached?.found
@@ -803,18 +813,23 @@ export default function App() {
 
       const isDefault = projectId === 'default';
       const offlineMetadata = useVerifiedOfflineSnapshot ? verifiedOfflineSnapshot?.metadata : null;
-      const loadedProjectName = offlineMetadata?.projectName || firestoreCached?.metadata.projectName || localStorage.getItem(getKey('construction_project_name', projectId)) || (isDefault ? 'Dự án chưa đặt tên' : `Dự án ${projectId}`);
-      const loadedContractor = offlineMetadata?.contractorName || firestoreCached?.metadata.contractorName || localStorage.getItem(getKey('construction_contractor', projectId)) || '';
-      const loadedInspector = offlineMetadata?.inspectorName || firestoreCached?.metadata.inspectorName || localStorage.getItem(getKey('construction_inspector', projectId)) || '';
+      const baseProjectName = offlineMetadata?.projectName || firestoreCached?.metadata.projectName || localStorage.getItem(getKey('construction_project_name', projectId)) || (isDefault ? 'Dự án chưa đặt tên' : `Dự án ${projectId}`);
+      const baseContractor = offlineMetadata?.contractorName || firestoreCached?.metadata.contractorName || localStorage.getItem(getKey('construction_contractor', projectId)) || '';
+      const baseInspector = offlineMetadata?.inspectorName || firestoreCached?.metadata.inspectorName || localStorage.getItem(getKey('construction_inspector', projectId)) || '';
+      const recoveredMetadata = useVerifiedOfflineSnapshot && verifiedOfflineWorkingDelta?.metadataChanged
+        ? verifiedOfflineWorkingDelta.metadata
+        : null;
+      const loadedProjectName = recoveredMetadata?.projectName || baseProjectName;
+      const loadedContractor = recoveredMetadata?.contractorName || baseContractor;
+      const loadedInspector = recoveredMetadata?.inspectorName || baseInspector;
       const loadedUpdatedAt = Number((useVerifiedOfflineSnapshot ? verifiedOfflineSnapshot?.sourceUpdatedAt : 0) || firestoreCached?.metadata.updatedAt || localStorage.getItem(getKey('construction_updated_at', projectId)) || 0);
 
       setProjectName(loadedProjectName);
       setContractorName(loadedContractor);
       setInspectorName(loadedInspector);
       setLastUpdatedAt(loadedUpdatedAt);
-      localTombstonesRef.current = { ...tombstoneMap };
 
-      const initialState = {
+      const initialState: AppData = {
         materialNorms,
         inventory,
         workVolumes,
@@ -825,17 +840,35 @@ export default function App() {
         crewRecords,
         teams,
       };
-      setPresent(initialState);
-      lastSyncedMetadataRef.current = {
-        projectName: loadedProjectName,
-        contractorName: loadedContractor,
-        inspectorName: loadedInspector
+      const recoveredState = useVerifiedOfflineSnapshot && verifiedOfflineWorkingDelta
+        ? applyVerifiedOfflineWorkingDelta(initialState, verifiedOfflineWorkingDelta) as AppData
+        : initialState;
+      localTombstonesRef.current = useVerifiedOfflineSnapshot && verifiedOfflineWorkingDelta
+        ? { ...verifiedOfflineWorkingDelta.tombstones }
+        : { ...tombstoneMap };
+      setPresent(recoveredState);
+
+      const baselineMetadata = {
+        projectName: baseProjectName,
+        contractorName: baseContractor,
+        inspectorName: baseInspector
       };
+      lastSyncedMetadataRef.current = baselineMetadata;
       // Both the official Firestore cache and the identity-bound verified snapshot are
-      // valid diff baselines. Using the snapshot as a baseline is critical: offline edits
-      // queue only records changed by the user instead of re-uploading the whole snapshot.
+      // valid diff baselines. The working delta is applied only to React state; the
+      // snapshot stays immutable as the diff baseline so a cold restart re-queues only
+      // the user's offline mutations and never the whole project.
       lastSyncedPresentRef.current = (firestoreCached?.found || useVerifiedOfflineSnapshot) ? initialState : null;
-      hasUserEditedSinceHydrateRef.current = false;
+      if (useVerifiedOfflineSnapshot && verifiedOfflineSnapshot) {
+        verifiedOfflineBasePresentRef.current = initialState;
+        verifiedOfflineBaseMetadataRef.current = baselineMetadata;
+        verifiedOfflineBaseCapturedAtRef.current = Number(verifiedOfflineSnapshot.capturedAt || 0);
+      } else {
+        verifiedOfflineBasePresentRef.current = null;
+        verifiedOfflineBaseMetadataRef.current = null;
+        verifiedOfflineBaseCapturedAtRef.current = 0;
+      }
+      hasUserEditedSinceHydrateRef.current = Boolean(useVerifiedOfflineSnapshot && verifiedOfflineWorkingDelta?.changeCount);
       setIsHydrated(true);
       console.log(
         '[HYDRATED SUCCESS]',
@@ -954,6 +987,9 @@ export default function App() {
     activeProjectIdRef.current = newProjectId;
     lastSyncedPresentRef.current = null;
     lastSyncedMetadataRef.current = null;
+    verifiedOfflineBasePresentRef.current = null;
+    verifiedOfflineBaseMetadataRef.current = null;
+    verifiedOfflineBaseCapturedAtRef.current = 0;
     lastServerMetadataUpdatedAtRef.current = 0;
     setCloudInitialReady(false);
     receivedInitialSubcollectionsRef.current.clear();
@@ -993,6 +1029,47 @@ export default function App() {
     if (!isHydrated || isRestoring || isLoadingProject || !activeProjectIdRef.current) return;
     saveCurrentProject(activeProjectIdRef.current).catch(err => console.warn('Autosave error:', err));
   }, [present, projectName, contractorName, inspectorName, isHydrated, isRestoring, isLoadingProject]);
+
+  // WebView2 can occasionally start with Firestore persistence in memory-only mode.
+  // While using the verified snapshot fallback, persist only the user's working delta
+  // to localforage. This survives EXE close/reopen without turning local data into a
+  // second Cloud authority; reconnect still goes through Firestore Rules/revisions.
+  useEffect(() => {
+    if (!FIREBASE_ONLY_RUNTIME || businessDataSource !== 'verified-offline-snapshot') return;
+    if (!isHydrated || isLoadingProject || isRestoring || isOnline) return;
+    const projectId = activeProjectIdRef.current || activeProjectId;
+    const identity = getCurrentRealFirebaseUser() || getRememberedVerifiedAuthIdentity();
+    const basePresent = verifiedOfflineBasePresentRef.current;
+    const baseMetadata = verifiedOfflineBaseMetadataRef.current;
+    const baseCapturedAt = verifiedOfflineBaseCapturedAtRef.current;
+    if (!projectId || !identity?.uid || !identity.email || !basePresent || !baseMetadata || !baseCapturedAt) return;
+
+    const delta = buildVerifiedOfflineWorkingDelta(
+      projectId,
+      identity,
+      baseCapturedAt,
+      basePresent as unknown as Record<string, any[]>,
+      present as unknown as Record<string, any[]>,
+      baseMetadata,
+      { projectName, contractorName, inspectorName },
+      localTombstonesRef.current,
+    );
+    if (!delta) return;
+    void saveVerifiedOfflineWorkingDelta(delta).catch((err) =>
+      console.warn('[Verified offline working delta] save warning:', err)
+    );
+  }, [
+    present,
+    projectName,
+    contractorName,
+    inspectorName,
+    activeProjectId,
+    businessDataSource,
+    isHydrated,
+    isLoadingProject,
+    isRestoring,
+    isOnline,
+  ]);
 
   useEffect(() => {
     const handleBeforeUnload = () => {
@@ -2658,11 +2735,6 @@ export default function App() {
 
   // Helper to push state changes to history (max 30 steps) and stamp item updatedAt
   const updateAppData = (updater: (prev: AppData) => AppData) => {
-    if (FIREBASE_ONLY_RUNTIME && businessDataSource === 'verified-offline-snapshot' && !getCurrentRealFirebaseUser()) {
-      console.warn('[Firebase-only] Verified snapshot edit blocked because Firebase Auth session is unavailable.');
-      alert('Dữ liệu offline đã khôi phục nhưng phiên đăng nhập Firebase chưa sẵn sàng. Hãy mở ứng dụng một lần khi có mạng để xác minh tài khoản trước khi chỉnh sửa offline.');
-      return;
-    }
     if (FIREBASE_ONLY_RUNTIME && businessDataSource === 'legacy-migration-fallback') {
       console.warn('[Firebase-only] Legacy local cache is read-only. Import/validate it online before editing.');
       alert('Dữ liệu đang hiển thị từ bộ nhớ legacy chỉ để cứu dữ liệu. Hãy kết nối mạng và Import/Khôi phục vào Firestore trước khi chỉnh sửa.');
@@ -2672,7 +2744,7 @@ export default function App() {
       console.warn('[RBAC] Thao tác bị từ chối: Quyền VIEWER (Chỉ xem) không được phép sửa đổi dữ liệu.');
       return;
     }
-    const mutationActor = getCurrentRealFirebaseUser();
+    const mutationActor = getCurrentRealFirebaseUser() || getRememberedVerifiedAuthIdentity();
     hasUserEditedSinceHydrateRef.current = true;
     hasUnsavedAllBackupChangesRef.current = true;
     setPresent((prev) => {
@@ -2819,7 +2891,7 @@ export default function App() {
   };
 
   const stampStateChanges = (targetState: AppData, currentState: AppData, now: number): AppData => {
-    const mutationActor = getCurrentRealFirebaseUser();
+    const mutationActor = getCurrentRealFirebaseUser() || getRememberedVerifiedAuthIdentity();
     const collections: (keyof AppData)[] = [
       'roomProgressList', 'inventory', 'workVolumes', 'floorPlans',
       'defects', 'checklist', 'crewRecords', 'teams', 'materialNorms'
