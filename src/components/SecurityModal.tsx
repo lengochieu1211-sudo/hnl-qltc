@@ -901,10 +901,10 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
     if (entry.clientType === 'WEB') return entry.browser && entry.browser !== 'Unknown' ? entry.browser : 'Trình duyệt';
     return entry.platform || 'Thiết bị';
   };
-  const presenceByEmail = new Map(
+  const presenceByEmail = new Map<string, ProjectPresenceEntry>(
     projectPresence
       .filter((entry) => entry?.email)
-      .map((entry) => [String(entry.email).trim().toLowerCase(), entry] as const)
+      .map((entry): [string, ProjectPresenceEntry] => [String(entry.email).trim().toLowerCase(), entry])
   );
   const projectMemberEmails = new Set(projectMembers.map((member) => String(member?.email || '').trim().toLowerCase()).filter(Boolean));
   const activePresenceCount = projectPresence.filter((entry) => {
