@@ -118,7 +118,7 @@ assert(warehouse.includes('const keepOpen = !editingInventory'), 'Warehouse save
 assert(!warehouse.includes("useState('Kho Tầng 1')"), 'Warehouse must not hard-code Kho Tầng 1 as a fake location default.');
 assert(!warehouse.includes("useState('Nguyễn Văn Hùng (Thủ kho)')"), 'Warehouse must not hard-code a fake warehouse handler.');
 assert(warehouse.includes("row['handler'] || defaultHandler || ''"), 'Warehouse Excel import must fall back to the configured project engineer, not a fake keeper.');
-assert(appSourceForInlineSync.includes('defaultHandler={inspectorName}'), 'App must bind Cài đặt → Kỹ sư phụ trách to Warehouse Người Giao / Nhận.');
+assert(appSource.includes('defaultHandler={inspectorName}'), 'App must bind Cài đặt → Kỹ sư phụ trách to Warehouse Người Giao / Nhận.');
 
 
 const config = read('src/components/GoogleConfigTab.tsx');
