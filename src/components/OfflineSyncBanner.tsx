@@ -97,7 +97,7 @@ export const OfflineSyncBanner: React.FC<OfflineSyncBannerProps> = ({
                       : 'Đang dùng dữ liệu cache đã xác minh; tài khoản VIEWER chỉ được xem offline.')
                     : firebaseOnly
                       ? (verifiedSnapshotFallback
-                        ? `Bản chụp offline đã xác minh đã được khôi phục; quyền ${userRole} có thể chỉnh sửa và thay đổi được đưa vào hàng chờ Firestore bền vững để tự gửi khi có mạng lại.`
+                        ? `Bản chụp offline đã xác minh đã được khôi phục; quyền ${userRole} có thể chỉnh sửa và thay đổi được lưu bền vững trên máy trước khi tự gửi Firestore khi có mạng lại.`
                         : `Quyền ${userRole} đã xác minh trước đó; chỉnh sửa được đưa vào hàng chờ Firestore bền vững và tự gửi khi có mạng lại.`)
                       : `Quyền ${userRole} đã xác minh trước đó; chỉnh sửa sẽ lưu trên thiết bị và đồng bộ khi có mạng lại.`)
                   : 'Chưa có quyền offline đã xác minh cho đúng tài khoản + project; ứng dụng tạm thời chỉ cho xem an toàn.'}
@@ -107,7 +107,7 @@ export const OfflineSyncBanner: React.FC<OfflineSyncBannerProps> = ({
           <div className="flex items-center gap-1.5 shrink-0">
             <span className="bg-amber-900/90 text-amber-300 font-mono text-[10px] px-2 py-0.5 rounded-full border border-amber-700/60 flex items-center gap-1">
               <Database className="w-3 h-3 text-amber-400" />
-              <span>{verifiedSnapshotFallback ? `Snapshot + Firestore${firestorePendingWriteCount > 0 ? ` · ${firestorePendingWriteCount} chờ` : ''}` : firebaseOnly ? `Firestore${firestorePendingWriteCount > 0 ? ` · ${firestorePendingWriteCount} chờ` : ''}` : (roleSource === 'offline-cache' ? 'Offline cache' : 'Đã lưu máy')}</span>
+              <span>{verifiedSnapshotFallback ? `Snapshot + Local${firestorePendingWriteCount > 0 ? ` · ${firestorePendingWriteCount} chờ Firestore` : ''}` : firebaseOnly ? `Firestore${firestorePendingWriteCount > 0 ? ` · ${firestorePendingWriteCount} chờ` : ''}` : (roleSource === 'offline-cache' ? 'Offline cache' : 'Đã lưu máy')}</span>
             </span>
           </div>
         </div>
