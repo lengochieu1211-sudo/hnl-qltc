@@ -35,13 +35,25 @@ export interface AuditLogEntry {
   timestamp: number;
   actorEmail: string;
   actorRole: UserRole;
-  action: 'PROJECT_DELETE' | 'PROJECT_CREATE' | 'PROJECT_RECOVER_LOCAL' | 'FULL_RESTORE' | 'FULL_RESTORE_REPLACE' | 'ORPHAN_CLEANUP' | 'ROLE_CHANGE' | 'CATEGORY_DELETE' | 'BACKUP_EXPORT' | 'BACKUP_IMPORT_FIREBASE_ONLY' | 'SECURITY_CONFIG_CHANGE' | 'DATA_CHANGE' | 'PHOTO_CHANGE';
+  action: string;
   details: string;
   projectId?: string;
   actorUid?: string;
   actorName?: string;
+  userEmail?: string;
+  userName?: string;
   deviceId?: string;
   deviceName?: string;
+  module?: string;
+  recordId?: string;
+  clientType?: 'WEB' | 'APK' | 'DESKTOP';
+  platform?: string;
+  browser?: string;
+  appVersion?: string;
+  syncStatus?: 'SYNCED' | 'PENDING';
+  changedFields?: Record<string, { before: any; after: any }>;
+  beforeData?: any;
+  afterData?: any;
 }
 
 const PIN_LOCK_STORAGE_KEY = 'construction_pin_lock_config';
