@@ -8,6 +8,7 @@ on:
     branches: [dev]
     paths:
       - 'android-wrapper/**'
+      - 'desktop-wrapper/HNL-QLTC-SHELL-ICON.png'
       - 'src/**'
       - 'public/**'
       - 'index.html'
