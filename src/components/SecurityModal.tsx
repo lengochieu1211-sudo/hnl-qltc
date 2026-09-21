@@ -1142,7 +1142,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
               <div className="min-w-0">
                 <div className="text-[11px] font-extrabold text-slate-800">Tài khoản Google/Firebase</div>
                 <div className={`truncate text-[10px] font-semibold ${cloudUser ? 'text-emerald-700' : 'text-slate-500'}`}>
-                  {cloudUser ? `${cloudUser.email || cloudUser.displayName || 'Đã đăng nhập'} · ${currentRole}` : 'Chưa đăng nhập'}
+                  {cloudUser ? `${cloudUser.email || cloudUser.displayName || 'Đã đăng nhập'} · ${auditRoleLabel(currentRole)}` : 'Chưa đăng nhập'}
                 </div>
               </div>
             </div>
@@ -1717,7 +1717,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                     >
                       <option value="EDITOR">Kỹ sư</option>
                       <option value="VIEWER">Chỉ xem</option>
-                      <option value="ADMIN">Admin</option>
+                      <option value="ADMIN">Quản trị</option>
                     </select>
                     <button
                       type="submit"
@@ -1759,7 +1759,13 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                   summary={`${projectMembers.length} thành viên`}
                 />
 
-                <div className="space-y-1 pt-1 max-h-36 overflow-y-auto">
+                <div className="flex items-center gap-1.5 rounded-lg border border-emerald-100 bg-emerald-50/60 px-2.5 py-1.5 text-[10px] font-bold text-emerald-800">
+                  <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+                  Đang hoạt động: {activePresenceCount}/{projectMembers.length}
+                  <span className="font-medium text-emerald-700">· cập nhật khoảng 45 giây/lần</span>
+                </div>
+
+                <div className="space-y-1 pt-1 max-h-48 overflow-y-auto">
                   {projectMembers.length === 0 ? (
                     <p className="text-[10px] text-slate-400 italic py-2 text-center">
                       Chưa có thành viên riêng cho dự án này (Áp dụng quyền chung của thiết bị).
@@ -1769,6 +1775,8 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                       const email = String(m.email || '').trim().toLowerCase();
                       const contact = getEffectiveMemberContact(email);
                       const phoneValue = contactDrafts[email] ?? contact?.phone ?? '';
+                      const presence = presenceByEmail.get(email);
+                      const presenceActive = Boolean(presence && presenceNow - presenceLastSeenMs(presence) <= 120_000);
                       return (
                       <div
                         key={m.email}
@@ -1780,6 +1788,11 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                               {m.displayName && <div className="font-bold text-slate-800 truncate">{m.displayName}</div>}
                               <div className="font-semibold text-slate-600 truncate">{m.email}</div>
                               {canReadMemberContacts && contact?.phone && <div className="text-[10px] font-bold text-emerald-700 mt-0.5">☎ {contact.phone}</div>}
+                              <div className={`mt-0.5 flex flex-wrap items-center gap-1 text-[9.5px] font-semibold ${presenceActive ? 'text-emerald-700' : 'text-slate-400'}`}>
+                                <span className={`inline-block h-1.5 w-1.5 rounded-full ${presenceActive ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                                <span>{presenceRecencyLabel(presence)}</span>
+                                {presenceActive && presence && <span>· {presenceModuleLabel(presence.module)} · {presenceClientLabel(presence)}</span>}
+                              </div>
                             </div>
                             <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-extrabold uppercase ${
                               m.role === 'ADMIN'
@@ -1788,7 +1801,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                                 ? 'bg-blue-100 text-blue-700'
                                 : 'bg-slate-200 text-slate-700'
                             }`}>
-                              {m.role === 'ADMIN' ? 'Admin' : m.role === 'EDITOR' ? 'Kỹ sư' : 'Chỉ xem'}
+                              {m.role === 'ADMIN' ? 'Quản trị' : m.role === 'EDITOR' ? 'Kỹ sư' : 'Chỉ xem'}
                             </span>
                           </div>
                           <div className="flex items-center gap-1 shrink-0">
