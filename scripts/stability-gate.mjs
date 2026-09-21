@@ -217,7 +217,7 @@ pass('photo metadata is published cross-account only after durable R2 readiness;
 requireAll(photoPicker, ['retryDelays = [0, 400, 1200, 2500]'], 'photo immediate cloud confirmation retry');
 requireAll(app, ['? 250 : 150', 'Math.min(30000, 750 * Math.pow(2', 'photoOutboxRetryTimerRef'], 'photo near-realtime durable outbox scheduling');
 requireAll(photoSync, ['PHOTO_INITIAL_SYNC_DELAY_MS = 1200', 'requestIdleCallback(run, { timeout: 1000 })', '}, 5000);'], 'photo initial reconciliation latency');
-requireAll(desktopBuild, ['HNL-QLTC-SHELL-ICON.png', 'Write-HnlIcoFromPng -PngPath $logoSource -IcoPath $generatedIcon', 'Certified multi-resolution ICO'], 'Windows dedicated shell icon and multi-resolution icon generation');
+requireAll(desktopBuild, ['HNL-QLTC-SHELL-ICON.png', 'Write-HnlIcoFromPng -PngPath $logoSource -IcoPath $generatedIcon', 'HNL.QLTC.Brand.Icon', 'HNL.QLTC.Brand.Png', 'Certified multi-resolution ICO'], 'Windows dedicated shell icon, embedded branding resources and multi-resolution icon generation');
 requireAll(androidBuild, ['desktop-wrapper\\HNL-QLTC-SHELL-ICON.png', "'mipmap-mdpi' = 48", "'mipmap-hdpi' = 72", "'mipmap-xhdpi' = 96", "'mipmap-xxhdpi' = 144", "'mipmap-xxxhdpi' = 192", 'ic_launcher.png', 'ic_launcher_round.png'], 'Android dedicated shell launcher icon generation');
 if (desktopBuild.includes('public\\icon.png') || androidBuild.includes('public\\icon.png')) fail('Windows/Android shell branding must stay separate from the in-app Web logo');
 if (desktopBuild.includes('Optimize-HnlSmallIconFrame')) fail('Windows icon builder must not visually alter the certified HNL logo with custom sharpening/contrast');
