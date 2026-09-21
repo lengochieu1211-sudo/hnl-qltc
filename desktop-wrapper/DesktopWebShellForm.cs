@@ -69,7 +69,12 @@ namespace QLTCAnPhu
             Size = new Size(1280, 820);
             Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point);
             AutoScaleMode = AutoScaleMode.Dpi;
-            try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
+            try
+            {
+                Icon = Program.LoadBrandIcon(32);
+                if (Icon == null) Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+            }
+            catch { }
 
             KeyPreview = true;
 
@@ -103,7 +108,7 @@ namespace QLTCAnPhu
                     Size = new Size(28, 28),
                     Location = new Point(10, 9),
                     SizeMode = PictureBoxSizeMode.Zoom,
-                    Image = Icon.ToBitmap(),
+                    Image = Program.LoadBrandBitmap() ?? Icon.ToBitmap(),
                     BackColor = Color.Transparent,
                     Visible = false
                 };
