@@ -51,7 +51,7 @@ $buildInfo = Join-Path $root 'InstallerBuildInfo.generated.cs'
 $assemblyInfo = Join-Path $root 'InstallerAssemblyInfo.generated.cs'
 $uninstallerTemp = Join-Path $root 'HNL-QLTC-Uninstaller.generated.exe'
 $generatedIcon = Join-Path $root 'HNL-QLTC-Setup.generated.ico'
-$logoSource = Join-Path $root 'HNL-QLTC-HQ.ico'
+$logoSource = Join-Path $root 'HNL-QLTC-HQ-256.png'
 $manifest = Join-Path $root 'HnlQltcInstaller.manifest'
 
 if (-not (Test-Path -LiteralPath $logoSource)) { throw "HNL Windows icon source not found: $logoSource" }
@@ -82,81 +82,6 @@ function New-HnlPngFrame {
   } finally { $graphics.Dispose(); $bitmap.Dispose() }
 }
 
-
-function Get-HnlBigEndianUInt32 {
-  param([byte[]]$Bytes, [int]$Offset)
-  return [UInt32](($Bytes[$Offset] -shl 24) -bor ($Bytes[$Offset + 1] -shl 16) -bor ($Bytes[$Offset + 2] -shl 8) -bor $Bytes[$Offset + 3])
-}
-
-function Export-HnlLargestEmbeddedPng {
-  param([string]$SourcePath, [string]$PngPath)
-  $bytes = [System.IO.File]::ReadAllBytes($SourcePath)
-  $sig = [byte[]](0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A)
-  $bestStart = -1
-  $bestEnd = -1
-  [UInt64]$bestArea = 0
-
-  for ($i = 0; $i -le $bytes.Length - 24; $i++) {
-    $match = $true
-    for ($j = 0; $j -lt $sig.Length; $j++) {
-      if ($bytes[$i + $j] -ne $sig[$j]) { $match = $false; break }
-    }
-    if (-not $match) { continue }
-
-    $width = Get-HnlBigEndianUInt32 -Bytes $bytes -Offset ($i + 16)
-    $height = Get-HnlBigEndianUInt32 -Bytes $bytes -Offset ($i + 20)
-    $pos = $i + 8
-    $end = -1
-    while ($pos + 12 -le $bytes.Length) {
-      $length = [int](Get-HnlBigEndianUInt32 -Bytes $bytes -Offset $pos)
-      if ($length -lt 0 -or $pos + 12 + $length -gt $bytes.Length) { break }
-      $type = [System.Text.Encoding]::ASCII.GetString($bytes, $pos + 4, 4)
-      $next = $pos + 12 + $length
-      if ($type -eq 'IEND') { $end = $next; break }
-      $pos = $next
-    }
-    if ($end -gt $i) {
-      [UInt64]$area = [UInt64]$width * [UInt64]$height
-      if ($area -gt $bestArea) {
-        $bestArea = $area
-        $bestStart = $i
-        $bestEnd = $end
-      }
-    }
-  }
-
-  if ($bestStart -ge 0 -and $bestEnd -gt $bestStart) {
-    $count = $bestEnd - $bestStart
-    $png = New-Object byte[] $count
-    [Array]::Copy($bytes, $bestStart, $png, 0, $count)
-    [System.IO.File]::WriteAllBytes($PngPath, $png)
-  } else {
-    # Some Windows ICO files store their frames as classic DIB/BMP payloads rather
-    # than PNG chunks. Let the Windows icon decoder render the HQ frame, then use
-    # the same deterministic multi-resolution ICO writer below.
-    $icon = $null
-    $bitmap = $null
-    try {
-      $icon = New-Object System.Drawing.Icon($SourcePath, 256, 256)
-      $bitmap = $icon.ToBitmap()
-      $bitmap.Save($PngPath, [System.Drawing.Imaging.ImageFormat]::Png)
-    } catch {
-      throw "HQ HNL icon source cannot be decoded by Windows: $($_.Exception.Message)"
-    } finally {
-      if ($bitmap) { $bitmap.Dispose() }
-      if ($icon) { $icon.Dispose() }
-    }
-  }
-
-  $image = [System.Drawing.Image]::FromFile($PngPath)
-  try {
-    if ($image.Width -lt 256 -or $image.Height -lt 256) {
-      throw "Largest HQ icon frame is too small: $($image.Width)x$($image.Height)"
-    }
-  } finally {
-    $image.Dispose()
-  }
-}
 
 function Write-HnlIcoFromPng {
   param([string]$PngPath, [string]$IcoPath)
@@ -212,10 +137,8 @@ using System.Reflection;
 [assembly: AssemblyInformationalVersion("$releaseTag")]
 "@ | Set-Content -LiteralPath $assemblyInfo -Encoding UTF8
 
-$normalizedLogoPng = Join-Path $root 'HNL-QLTC-HQ-Setup.normalized.png'
 try {
-  Export-HnlLargestEmbeddedPng -SourcePath $logoSource -PngPath $normalizedLogoPng
-  Write-HnlIcoFromPng -PngPath $normalizedLogoPng -IcoPath $generatedIcon
+  Write-HnlIcoFromPng -PngPath $logoSource -IcoPath $generatedIcon
   if ((Get-Item -LiteralPath $generatedIcon).Length -lt 20000) { throw 'Certified setup icon is unexpectedly small.' }
 
   & $csc /nologo /target:winexe /optimize+ /platform:anycpu /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.dll /win32manifest:"$manifest" /win32icon:"$generatedIcon" /out:"$uninstallerTemp" (Join-Path $root 'HnlQltcUninstaller.cs') $buildInfo $assemblyInfo
@@ -242,5 +165,4 @@ try {
   Remove-Item -LiteralPath $assemblyInfo -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $uninstallerTemp -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $generatedIcon -Force -ErrorAction SilentlyContinue
-  Remove-Item -LiteralPath $normalizedLogoPng -Force -ErrorAction SilentlyContinue
 }

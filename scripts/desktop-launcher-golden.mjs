@@ -28,6 +28,7 @@ const bridgeCard = read('src/components/WindowsDesktopSyncBridgeCard.tsx');
 const photoStorage = read('src/utils/photoStorage.ts');
 const configTab = read('src/components/GoogleConfigTab.tsx');
 const iconSource = readPngSize('public/icon.png');
+const windowsHqIconSource = readPngSize('desktop-wrapper/HNL-QLTC-HQ-256.png');
 const taskbar192 = readPngSize('public/hnl-logo-original-192.png');
 const taskbar512 = readPngSize('public/hnl-logo-original-512.png');
 const runtimeTaskbarSizes = [16, 20, 24, 28, 32, 40, 48];
@@ -126,7 +127,7 @@ assert(webBridge.includes('BRIDGE_ATTEMPT_TOKEN_INVALID') && webBridge.includes(
 assert(!webBridge.includes('uploadProjectBinaryToR2') && !webBridge.includes('fetch('), 'Web bridge does not introduce a direct R2/network upload authority');
 assert(bridgeCard.includes('Windows – Đồng bộ file chờ') && bridgeCard.includes('Chọn thư mục HNL QLTC và đồng bộ file chờ') && bridgeCard.includes('Documents\\HNL QLTC') && bridgeCard.includes('/Windows/i.test(navigator.userAgent') && configTab.includes('WindowsDesktopSyncBridgeCard'), 'Settings Sync Center exposes clear Windows-only pending-file sync controls');
 assert(build.includes('release-tag.txt'), 'build script uses release tag for cache/version isolation');
-assert(releaseTag === '6.3.0-rc2.2.26.14', 'desktop release tag identifies the RC2.2.26.14 HQ icon + reload toolbar/runtime candidate');
+assert(releaseTag === '6.3.0-rc2.2.26.15', 'desktop release tag identifies the RC2.2.26.15 HQ source + reload toolbar/runtime candidate');
 
 assert(iconSource.width >= 1024 && iconSource.height >= 1024 && iconSource.bytes > 1_000_000, 'HQ HNL logo source is retained at >=1024px');
 assert(taskbar192.width === 192 && taskbar192.height === 192, 'browser app-mode has dedicated 192x192 HNL icon');
@@ -151,13 +152,14 @@ for (const size of runtimeTaskbarSizes) {
   assert(read('public/sw.js').includes(`/hnl-logo-original-${size}.png`), `service worker app shell pre-caches ${size}x${size} runtime icon`);
 }
 
-assert(build.includes("HNL-QLTC-HQ.ico"), 'EXE file icon uses the certified HQ HNL Windows icon derived from the user-provided logo');
-assert(build.includes('Export-HnlLargestEmbeddedPng') && build.includes('New-Object System.Drawing.Icon($SourcePath, 256, 256)') && build.includes('Write-HnlIcoFromPng -PngPath $normalizedLogoPng -IcoPath $generatedIcon'), 'build normalizes PNG- or DIB-backed user-provided HQ artwork into a compiler-compatible multi-resolution ICO');
+assert(build.includes("HNL-QLTC-HQ-256.png"), 'EXE file icon uses the certified 256px HQ HNL Windows artwork derived from the user-provided logo');
+assert(windowsHqIconSource.width === 256 && windowsHqIconSource.height === 256 && windowsHqIconSource.bytes > 50000, 'Windows HQ source is the user-provided artwork normalized to native 256x256 ICO resolution');
+assert(build.includes('Write-HnlIcoFromPng -PngPath $logoSource -IcoPath $generatedIcon'), 'build generates the compiler-compatible multi-resolution ICO directly from the HQ 256px PNG source');
 for (const size of [16, 20, 24, 28, 32, 40, 48, 64, 80, 96, 128, 256]) {
   assert(iconGolden.includes(String(size)), `runtime EXE icon golden verifies ${size}x${size} extraction`);
 }
 assert(!build.includes('Optimize-HnlSmallIconFrame'), 'Windows EXE small frames are not visually altered by a custom sharpening/contrast pass');
-assert(build.includes('Certified multi-resolution ICO') && build.includes('normalized from the user-provided HQ HNL artwork'), 'build reports certified HQ ICO normalization evidence');
+assert(build.includes('Certified multi-resolution ICO') && build.includes('generated from the user-provided HQ 256px HNL artwork'), 'build reports certified HQ ICO generation evidence');
 assert(!fs.existsSync('desktop-wrapper/QLTCAnPhu.ico'), 'obsolete 854-byte blurry launcher ICO is removed from source');
 assert(iconGolden.includes('PrivateExtractIcons'), 'runtime golden extracts icons directly from the built EXE using Win32');
 assert(iconGolden.includes('hnl-logo-original-') && iconGolden.includes('$runtimeSizes = @(16,20,24,28,32,40,48)'), 'Windows golden validates exact runtime frames derived from the canonical HNL logo');
