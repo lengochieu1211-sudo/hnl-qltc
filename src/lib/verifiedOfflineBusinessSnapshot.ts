@@ -48,8 +48,8 @@ const normalizeData = (data: object | null | undefined): Record<string, any[]> =
  * This is a cold-start safety net when Firestore persistent IndexedDB is
  * unavailable/empty after the EXE restarts offline. It is written only from a verified
  * Cloud baseline and is never treated as Cloud authority. For a previously verified
- * EDITOR/ADMIN it may become the local diff baseline; only subsequent user changes are
- * queued through Firestore's official persistent mutation queue.
+ * EDITOR/ADMIN it may become the immutable diff baseline; subsequent user changes are
+ * persisted separately as a working delta and later reconciled through Firestore.
  */
 export async function saveVerifiedOfflineBusinessSnapshot(
   projectId: string,
