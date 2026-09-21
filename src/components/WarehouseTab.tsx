@@ -68,6 +68,7 @@ interface WarehouseTabProps {
   roomProgressList?: RoomProgressItem[];
   teams?: TeamInfo[];
   floorPlans?: FloorPlan[];
+  defaultHandler?: string;
 }
 
 export const WarehouseTab: React.FC<WarehouseTabProps> = ({
@@ -94,6 +95,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   roomProgressList = [],
   teams = [],
   floorPlans = [],
+  defaultHandler = '',
 }) => {
   const { t } = useLanguage();
   const hasEditAccess = roleResolved && canEditWarehouseData(userRole);
@@ -329,8 +331,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             if (isNaN(quantityNum) || quantityNum <= 0) return;
 
             const unitStr = String(row['Đơn Vị Tính'] || row['unit'] || 'Tấm').trim();
-            const locationStr = String(row['Vị Trí Kho'] || row['Vị Trí Lưu Kho / Hạng Mục'] || row['location'] || 'Kho chính').trim();
-            const handlerStr = String(row['Người Thực Hiện'] || row['handler'] || 'Thủ kho').trim();
+            const locationStr = String(row['Vị Trí Kho'] || row['Vị Trí Lưu Kho / Hạng Mục'] || row['location'] || '').trim();
+            const handlerStr = String(row['Người Thực Hiện'] || row['handler'] || defaultHandler || '').trim();
             const rawDate = row['Ngày Thực Hiện'] || row['Ngày Lập Phiếu'] || row['date'];
             const dateStr = formatExcelDate(rawDate);
             const notesStr = String(row['Ghi Chú'] || row['notes'] || '').trim();
@@ -649,13 +651,15 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [type, setType] = useState<TransactionType>('in');
   const [materialName, setMaterialName] = useState(materialNorms[0]?.materialName || '');
   const [customMaterial, setCustomMaterial] = useState('');
+  const [materialPickerSearch, setMaterialPickerSearch] = useState('');
   const [unit, setUnit] = useState(materialNorms[0]?.unit || 'Tấm');
-  const [quantity, setQuantity] = useState<number | ''>(100);
-  const [quantityStr, setQuantityStr] = useState<string>('100');
-  const [location, setLocation] = useState('Kho Tầng 1');
-  const [handler, setHandler] = useState('Nguyễn Văn Hùng (Thủ kho)');
+  const [quantity, setQuantity] = useState<number | ''>('');
+  const [quantityStr, setQuantityStr] = useState<string>('');
+  const [location, setLocation] = useState('');
+  const [handler, setHandler] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
+  const [quickAddMessage, setQuickAddMessage] = useState('');
 
   const liveQuantityCalc = useMemo(() => {
     if (/[+\-*/xX×:÷]/.test(quantityStr)) {
@@ -663,6 +667,18 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     }
     return null;
   }, [quantityStr]);
+
+  const normalizedMaterialPickerSearch = materialPickerSearch.trim().toLocaleLowerCase('vi-VN');
+  const filteredMaterialNorms = useMemo(() => {
+    if (!normalizedMaterialPickerSearch) return materialNorms;
+    return materialNorms.filter((item) => {
+      const haystack = [item.materialName, item.category, item.unit]
+        .map((value) => String(value || '').toLocaleLowerCase('vi-VN'))
+        .join(' ');
+      return haystack.includes(normalizedMaterialPickerSearch);
+    });
+  }, [materialNorms, normalizedMaterialPickerSearch]);
+
 
   // Delete confirmation state
   const [deletingInventoryTarget, setDeletingInventoryTarget] = useState<InventoryItem | null>(null);
@@ -893,9 +909,13 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     setEditingInventory(null);
     setType('in');
     setCustomMaterial('');
-    setQuantity(100);
-    setQuantityStr('100');
+    setMaterialPickerSearch('');
+    setQuantity('');
+    setQuantityStr('');
+    setLocation('');
+    setHandler(String(defaultHandler || '').trim());
     setNotes('');
+    setQuickAddMessage('');
     setDate(new Date().toISOString().split('T')[0]);
     setShowAddForm(true);
   };
@@ -908,6 +928,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       || materialNorms.find((m) => m.materialName === item.materialName && (normalizeUnit(m.unit) || m.unit) === (normalizeUnit(item.unit) || item.unit));
     setMaterialName(matched?.materialName || item.materialName);
     setCustomMaterial(matched ? '' : item.materialName);
+    setMaterialPickerSearch('');
     setUnit(item.unit);
     setQuantity(item.quantity);
     setQuantityStr(String(item.quantity));
@@ -918,9 +939,11 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     setShowAddForm(true);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!hasEditAccess) return;
+    const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+    const keepOpen = !editingInventory && submitter?.value === 'continue';
     const finalMaterialName = customMaterial.trim() ? customMaterial.trim() : materialName;
     
     let finalQuantity = Number(quantity);
@@ -1000,11 +1023,24 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         await onAddInventory(payload);
       }
 
-      setShowAddForm(false);
-      setEditingInventory(null);
-      setCustomMaterial('');
-      setNotes('');
-      alert(editingInventory ? 'Đã cập nhật phiếu kho thành công!' : `Đã thêm phiếu ${type === 'in' ? 'NHẬP KHO' : 'XUẤT KHO'} thành công!`);
+      if (keepOpen) {
+        setEditingInventory(null);
+        setCustomMaterial('');
+        setMaterialPickerSearch('');
+        setMaterialName('');
+        setUnit(materialNorms[0]?.unit || 'Tấm');
+        setQuantity('');
+        setQuantityStr('');
+        setQuickAddMessage(`Đã lưu ${finalMaterialName}. Chọn vật tư tiếp theo để nhập cùng phiên.`);
+      } else {
+        setShowAddForm(false);
+        setEditingInventory(null);
+        setCustomMaterial('');
+        setMaterialPickerSearch('');
+        setQuickAddMessage('');
+        setNotes('');
+        alert(editingInventory ? 'Đã cập nhật phiếu kho thành công!' : `Đã thêm phiếu ${type === 'in' ? 'NHẬP KHO' : 'XUẤT KHO'} thành công!`);
+      }
     } catch (err: any) {
       alert(`Không thể ghi giao dịch kho: ${err?.message || String(err)}`);
     }
@@ -1756,9 +1792,19 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 </div>
               </div>
 
-              {/* Material Select */}
-              <div>
-                <label className="block text-slate-700 font-bold mb-1">Chọn vật tư</label>
+              {/* Material Search + Select */}
+              <div className="space-y-1.5">
+                <label className="block text-slate-700 font-bold">Chọn vật tư</label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                  <input
+                    type="search"
+                    value={materialPickerSearch}
+                    onChange={(e) => setMaterialPickerSearch(e.target.value)}
+                    placeholder="Tìm theo tên, nhóm hoặc đơn vị..."
+                    className="w-full bg-white border border-slate-200 rounded-xl py-2.5 pl-9 pr-3 text-slate-800"
+                  />
+                </div>
                 <select
                   value={materialName}
                   onChange={(e) => {
@@ -1768,12 +1814,16 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   }}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-medium text-slate-800"
                 >
-                  {materialNorms.map((m) => (
+                  <option value="">— Chọn vật tư —</option>
+                  {filteredMaterialNorms.map((m) => (
                     <option key={m.id} value={m.materialName}>
                       [{m.category}] {m.materialName} ({m.unit})
                     </option>
                   ))}
                 </select>
+                {normalizedMaterialPickerSearch && filteredMaterialNorms.length === 0 && (
+                  <p className="text-[10px] text-amber-700">Không tìm thấy vật tư phù hợp. Có thể nhập tên mới ở ô bên dưới.</p>
+                )}
               </div>
 
               {/* Custom Material Option */}
@@ -1852,6 +1902,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     type="text"
                     value={location}
                     onChange={(e) => setLocation(e.target.value)}
+                    placeholder="Ví dụ: Kho tầng trệt, Kho A..."
                     className="w-full border border-slate-200 rounded-xl p-2.5"
                     required
                   />
@@ -1862,6 +1913,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     type="text"
                     value={handler}
                     onChange={(e) => setHandler(e.target.value)}
+                    placeholder={defaultHandler ? 'Lấy từ Kỹ sư phụ trách · có thể sửa' : 'Nhập người giao / nhận'}
                     className="w-full border border-slate-200 rounded-xl p-2.5"
                     required
                   />
@@ -1891,22 +1943,40 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 />
               </div>
 
+              {quickAddMessage && !editingInventory && (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] font-semibold text-emerald-800">
+                  {quickAddMessage}
+                </div>
+              )}
+
               {/* Buttons */}
-              <div className="flex gap-2 pt-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowAddForm(false)}
-                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 rounded-xl font-bold text-slate-700"
+                  className="py-3 bg-slate-100 hover:bg-slate-200 rounded-xl font-bold text-slate-700"
                 >
                   Hủy
                 </button>
+                {!editingInventory && (
+                  <button
+                    type="submit"
+                    name="submitMode"
+                    value="continue"
+                    className="py-3 rounded-xl font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 active:scale-95 transition-all"
+                  >
+                    Lưu & thêm tiếp
+                  </button>
+                )}
                 <button
                   type="submit"
-                  className={`flex-1 py-3 rounded-xl font-bold text-white shadow-md active:scale-95 transition-all ${
+                  name="submitMode"
+                  value="close"
+                  className={`py-3 rounded-xl font-bold text-white shadow-md active:scale-95 transition-all ${
                     type === 'in' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-600 hover:bg-amber-700'
                   }`}
                 >
-                  Xác Nhận Tạo phiếu
+                  {editingInventory ? 'Lưu thay đổi' : 'Lưu & đóng'}
                 </button>
               </div>
             </form>
