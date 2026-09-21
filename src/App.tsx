@@ -108,7 +108,7 @@ function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
   }
   return merged;
 }
-import { subscribeToProjectRealtime, saveProjectDiffsToCloud, queueProjectDiffsToFirestoreOffline, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, subscribeProjectUserRoleRealtime, subscribeCurrentUserPinResetRealtime, signOutGoogle, fetchCurrentUserProjectsFromCloud, subscribeCurrentUserProjectsRealtime, refreshCurrentUserProjectDiscovery, subscribeProjectSharedSettings, saveProjectSharedSettings, saveProjectAuditLog, loadProjectFromFirestoreCache, fetchProjectFromCloud } from './lib/firebase';
+import { subscribeToProjectRealtime, saveProjectDiffsToCloud, queueProjectDiffsToFirestoreOffline, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, subscribeProjectUserRoleRealtime, subscribeCurrentUserPinResetRealtime, signOutGoogle, fetchCurrentUserProjectsFromCloud, subscribeCurrentUserProjectsRealtime, refreshCurrentUserProjectDiscovery, subscribeProjectSharedSettings, saveProjectSharedSettings, saveProjectAuditLog, loadProjectFromFirestoreCache, fetchProjectFromCloud, updateProjectPresence } from './lib/firebase';
 import { REALTIME_STATE_KEYS, STATE_KEY_TO_CLOUD_NAME } from './config/realtimeCollections';
 import { FIREBASE_ONLY_RUNTIME, LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED, LEGACY_LOCAL_IMPORT_ENABLED } from './config/runtimeArchitecture';
 import { CURRENT_DATA_SCHEMA_VERSION } from './config/dataSchema';
@@ -374,6 +374,34 @@ export default function App() {
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
+
+  // Lightweight presence heartbeat for the currently opened project only.
+  // No typed text or business payload is sent; hidden/background clients naturally
+  // become inactive after the UI timeout because heartbeat writes stop.
+  useEffect(() => {
+    if (!isOnline || !isProjectRoleResolved || !projectRoleAllowed || !activeProjectId) return;
+    let disposed = false;
+    const touchPresence = () => {
+      if (disposed || document.visibilityState === 'hidden') return;
+      void updateProjectPresence(activeProjectId, activeTab, currentUserRole).catch((err) =>
+        console.warn('Project presence heartbeat warning:', err)
+      );
+    };
+    touchPresence();
+    const heartbeat = window.setInterval(touchPresence, 45_000);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') touchPresence();
+    };
+    const handleFocus = () => touchPresence();
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      disposed = true;
+      window.clearInterval(heartbeat);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [activeProjectId, activeTab, currentUserRole, isOnline, isProjectRoleResolved, projectRoleAllowed]);
 
   useEffect(() => {
     const viewport = window.visualViewport;
