@@ -854,7 +854,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
     return memberSortOrder === 'asc' ? comparison : -comparison;
   });
 
-  const auditModules = Array.from(new Set(auditLogs.map((log) => String(log.module || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'vi'));
+  const auditModules: string[] = Array.from(new Set<string>(auditLogs.map((log) => String(log.module || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'vi'));
   const auditClients = Array.from(new Set(auditLogs.map((log) => String(log.clientType || '').trim()).filter(Boolean))).sort();
   const filteredAuditLogs = auditLogs.filter((log) => {
     const q = auditQuery.trim().toLocaleLowerCase('vi');
@@ -1742,7 +1742,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                 <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
                   {sortedAuditLogs.map(log => {
                     const userLabel = log.actorName || log.userName || log.actorEmail || log.userEmail || 'Không xác định';
-                    const changedEntries = Object.entries(log.changedFields || {});
+                    const changedEntries = Object.entries(log.changedFields || {}) as Array<[string, { before: any; after: any }]>;
                     return (
                     <details
                       key={log.id}
