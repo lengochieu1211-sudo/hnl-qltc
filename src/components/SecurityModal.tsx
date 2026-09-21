@@ -906,9 +906,11 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
       .filter((entry) => entry?.email)
       .map((entry) => [String(entry.email).trim().toLowerCase(), entry] as const)
   );
+  const projectMemberEmails = new Set(projectMembers.map((member) => String(member?.email || '').trim().toLowerCase()).filter(Boolean));
   const activePresenceCount = projectPresence.filter((entry) => {
+    const email = String(entry?.email || '').trim().toLowerCase();
     const seen = presenceLastSeenMs(entry);
-    return seen > 0 && presenceNow - seen <= 120_000;
+    return projectMemberEmails.has(email) && seen > 0 && presenceNow - seen <= 120_000;
   }).length;
   const presenceRecencyLabel = (entry?: ProjectPresenceEntry) => {
     const seen = presenceLastSeenMs(entry);
