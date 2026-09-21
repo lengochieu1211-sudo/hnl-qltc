@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Pencil, Type, Undo, Save, X, ArrowRight, Square, Cloud, Loader2 } from 'lucide-react';
+import { Pencil, Type, Undo, Save, X, ArrowRight, Square, Cloud, Loader2, Hand, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { getImageQualityProfile, type ImageQualityKind } from '../utils/imageQualitySettings';
 
-type EditorTool = 'draw' | 'text' | 'arrow' | 'rect' | 'cloud';
+type EditorTool = 'pan' | 'draw' | 'text' | 'arrow' | 'rect' | 'cloud';
 
 interface ImageEditorModalProps {
   isOpen: boolean;
@@ -23,8 +23,16 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gestureBaseRef = useRef<ImageData | null>(null);
   const isComposingRef = useRef(false);
+  const pointerMapRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinchRef = useRef<{
+    distance: number;
+    midpoint: { x: number; y: number };
+    zoom: number;
+    pan: { x: number; y: number };
+  } | null>(null);
+  const panStartRef = useRef<{ pointerId: number; x: number; y: number; panX: number; panY: number } | null>(null);
 
-  const [activeTool, setActiveTool] = useState<EditorTool>('draw');
+  const [activeTool, setActiveTool] = useState<EditorTool>('pan');
   const [startPos, setStartPos] = useState<{ x: number; y: number } | null>(null);
   const [color, setColor] = useState('#ef4444');
   const [isDrawing, setIsDrawing] = useState(false);
@@ -33,6 +41,8 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
   const [textPos, setTextPos] = useState<{ x: number; y: number } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isImageLoading, setIsImageLoading] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
 
   const getContext = (willReadFrequently = false) => {
     const canvas = canvasRef.current;
@@ -66,6 +76,11 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
       setIsImageLoading(false);
       gestureBaseRef.current = null;
       isComposingRef.current = false;
+      pointerMapRef.current.clear();
+      pinchRef.current = null;
+      panStartRef.current = null;
+      setZoom(1);
+      setPan({ x: 0, y: 0 });
       return;
     }
 
@@ -73,7 +88,12 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
 
     let cancelled = false;
     setIsImageLoading(true);
-    setActiveTool('draw');
+    setActiveTool('pan');
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+    pointerMapRef.current.clear();
+    pinchRef.current = null;
+    panStartRef.current = null;
     setTextPos(null);
     setTextInput('');
     setHistory([]);
@@ -163,11 +183,57 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
     return Math.max(3, Math.min(10, Math.max(canvas.width, canvas.height) / 450));
   };
 
+  const clampZoom = (value: number) => Math.max(0.5, Math.min(5, value));
+
+  const resetView = () => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+    pinchRef.current = null;
+    panStartRef.current = null;
+  };
+
+  const zoomBy = (factor: number) => {
+    setZoom((current) => clampZoom(current * factor));
+  };
+
+  const updatePinchState = () => {
+    const touches = Array.from(pointerMapRef.current.values());
+    if (touches.length < 2) {
+      pinchRef.current = null;
+      return;
+    }
+    const [a, b] = touches;
+    const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const distance = Math.max(1, Math.hypot(b.x - a.x, b.y - a.y));
+    if (!pinchRef.current) {
+      pinchRef.current = { distance, midpoint, zoom, pan };
+      setIsDrawing(false);
+      setStartPos(null);
+      gestureBaseRef.current = null;
+      panStartRef.current = null;
+    }
+  };
+
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 1) return;
     const canvas = canvasRef.current;
     const ctx = getContext(true);
     if (!canvas || !ctx || isImageLoading || isSaving) return;
+
+    pointerMapRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+
+    if (e.pointerType === 'touch' && pointerMapRef.current.size >= 2) {
+      updatePinchState();
+      e.preventDefault();
+      return;
+    }
+
+    if (activeTool === 'pan' || (e.pointerType === 'mouse' && e.button === 1)) {
+      panStartRef.current = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
+      e.preventDefault();
+      return;
+    }
 
     const { x, y } = getCoordinates(e);
     if (activeTool === 'text') {
@@ -195,10 +261,6 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
       ctx.beginPath();
       ctx.moveTo(x, y);
     }
-
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {}
   };
 
   const drawArrow = (
@@ -269,6 +331,38 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (pointerMapRef.current.has(e.pointerId)) {
+      pointerMapRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+
+    if (e.pointerType === 'touch' && pointerMapRef.current.size >= 2) {
+      updatePinchState();
+      const pinch = pinchRef.current;
+      if (pinch) {
+        const touches = Array.from(pointerMapRef.current.values());
+        const [a, b] = touches;
+        const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        const distance = Math.max(1, Math.hypot(b.x - a.x, b.y - a.y));
+        setZoom(clampZoom(pinch.zoom * (distance / pinch.distance)));
+        setPan({
+          x: pinch.pan.x + (midpoint.x - pinch.midpoint.x),
+          y: pinch.pan.y + (midpoint.y - pinch.midpoint.y),
+        });
+      }
+      e.preventDefault();
+      return;
+    }
+
+    const panStart = panStartRef.current;
+    if (panStart && panStart.pointerId === e.pointerId) {
+      setPan({
+        x: panStart.panX + (e.clientX - panStart.x),
+        y: panStart.panY + (e.clientY - panStart.y),
+      });
+      e.preventDefault();
+      return;
+    }
+
     if (!isDrawing) return;
     const ctx = getContext();
     if (!ctx) return;
@@ -300,18 +394,27 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
   };
 
   const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isDrawing) return;
+    pointerMapRef.current.delete(e.pointerId);
+    if (pointerMapRef.current.size < 2) pinchRef.current = null;
+    if (panStartRef.current?.pointerId === e.pointerId) panStartRef.current = null;
 
-    setIsDrawing(false);
-    setStartPos(null);
-    const ctx = getContext();
-    if (ctx) ctx.closePath();
-    rememberState();
-    gestureBaseRef.current = null;
+    if (isDrawing) {
+      setIsDrawing(false);
+      setStartPos(null);
+      const ctx = getContext();
+      if (ctx) ctx.closePath();
+      rememberState();
+      gestureBaseRef.current = null;
+    }
 
-    try {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    } catch {}
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
+  };
+
+  const onWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
+    if (isSaving || isImageLoading) return;
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+    setZoom((current) => clampZoom(current * factor));
   };
 
   const addTextToCanvas = () => {
@@ -381,15 +484,23 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
         </button>
       </div>
 
-      <div className="flex-1 flex flex-col items-center justify-center p-2 sm:p-4 overflow-hidden relative">
-        <div className="relative shadow-2xl rounded-xl overflow-hidden bg-slate-800 max-w-full">
+      <div className="flex-1 flex flex-col items-center justify-center p-2 sm:p-4 overflow-hidden relative w-full">
+        <div className="relative w-full h-full overflow-hidden flex items-center justify-center bg-slate-900/40 rounded-xl">
+          <div
+            className="relative shadow-2xl rounded-xl bg-slate-800 will-change-transform"
+            style={{
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+              transformOrigin: 'center center',
+            }}
+          >
           <canvas
             ref={canvasRef}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
             onPointerCancel={onPointerUp}
-            className="touch-none cursor-crosshair max-w-[95vw] max-h-[70vh] w-auto h-auto object-contain"
+            onWheel={onWheel}
+            className={`touch-none max-w-[95vw] max-h-[70vh] w-auto h-auto object-contain ${activeTool === 'pan' ? 'cursor-grab active:cursor-grabbing' : 'cursor-crosshair'}`}
           />
 
           {isImageLoading && (
@@ -442,6 +553,22 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
               </button>
             </div>
           )}
+          </div>
+
+          <div className="absolute top-2 right-2 z-20 flex items-center gap-1 rounded-xl bg-slate-950/85 p-1 text-white shadow-lg">
+            <button type="button" onClick={() => zoomBy(1 / 1.2)} disabled={isSaving || isImageLoading} className="p-1.5 rounded-lg hover:bg-slate-800 disabled:opacity-50" title="Thu nhỏ" aria-label="Thu nhỏ ảnh">
+              <ZoomOut className="w-4 h-4" />
+            </button>
+            <button type="button" onClick={resetView} disabled={isSaving || isImageLoading} className="min-w-14 px-1.5 py-1 text-[10px] font-bold rounded-lg hover:bg-slate-800 disabled:opacity-50" title="Vừa ảnh" aria-label="Đưa ảnh về vừa khung">
+              {Math.round(zoom * 100)}%
+            </button>
+            <button type="button" onClick={() => zoomBy(1.2)} disabled={isSaving || isImageLoading} className="p-1.5 rounded-lg hover:bg-slate-800 disabled:opacity-50" title="Phóng to" aria-label="Phóng to ảnh">
+              <ZoomIn className="w-4 h-4" />
+            </button>
+            <button type="button" onClick={resetView} disabled={isSaving || isImageLoading} className="p-1.5 rounded-lg hover:bg-slate-800 disabled:opacity-50" title="Vừa ảnh" aria-label="Vừa ảnh">
+              <Maximize2 className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -449,6 +576,9 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between overflow-x-auto no-scrollbar gap-2">
             <div className="flex gap-1 shrink-0">
+              <button type="button" disabled={isSaving || isImageLoading} onClick={() => selectTool('pan')} className={toolButtonClass('pan')} title="Di chuyển / Zoom" aria-label="Di chuyển / Zoom" aria-pressed={activeTool === 'pan'}>
+                <Hand className="w-5 h-5" />
+              </button>
               <button type="button" disabled={isSaving || isImageLoading} onClick={() => selectTool('draw')} className={toolButtonClass('draw')} title="Vẽ tự do" aria-label="Vẽ tự do" aria-pressed={activeTool === 'draw'}>
                 <Pencil className="w-5 h-5" />
               </button>
