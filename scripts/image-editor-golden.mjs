@@ -17,7 +17,7 @@ for (const marker of [
   'onCompositionStart',
   'onCompositionEnd',
   'nativeEvent.isComposing',
-  "imageKind?: Extract<ImageQualityKind, 'defect' | 'crew'>",
+  "imageKind?: 'defect' | 'crew'",
   'getImageQualityProfile(imageKind)',
   'gestureBaseRef',
   'ctx.imageSmoothingQuality = \'high\'',
