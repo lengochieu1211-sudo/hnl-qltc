@@ -79,6 +79,12 @@ check(ui.includes("floorPlanApplyMode === 'multiple'"), 'Floor-plan apply scope 
 check(ui.includes('Chọn nhanh khoảng tầng') && ui.includes('Chọn tất cả'), 'Bulk floor picker must support range/all selection.');
 check(ui.includes('1 file Cloud/R2 dùng chung'), 'Bulk floor UI must explain the single shared binary behavior.');
 check(ui.includes('Defect, Căn/Phòng, highlight, tiến độ, checklist'), 'Bulk floor UI must warn that business data remains per-floor.');
+check(ui.includes('aria-label={`Mở Defect ${shortDefectCode}`}'), 'Existing Defect real-position hit target is missing.');
+check(ui.includes('style={{ left: `${x}%`, top: `${y}%`, touchAction: \'manipulation\' }}'), 'Defect hit target must be anchored to the real defect coordinate.');
+check(ui.includes('z-50 pointer-events-auto w-7 h-7'), 'Defect hit target must stay above room drag controls with a touch-safe area.');
+check(ui.includes('cursor-pointer z-50 pointer-events-auto transition-transform'), 'Defect label must stay above room drag controls.');
+check(ui.includes('onPointerDown={(e) => e.stopPropagation()}'), 'Defect interaction must stop pointer propagation before room selection/drag.');
+
 
 const config = read('src/components/GoogleConfigTab.tsx');
 const offlineMirrorCard = read('src/components/ProjectOfflineMirrorCard.tsx');
