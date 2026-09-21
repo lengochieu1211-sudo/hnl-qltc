@@ -2931,6 +2931,87 @@ export async function fetchProjectAuditLogsFromCloud(projectId: string, maxItems
   }
 }
 
+
+export interface ProjectSystemNotificationReadState {
+  projectId: string;
+  uid: string;
+  email?: string;
+  readThrough: number;
+  updatedAt: number;
+}
+
+export function subscribeProjectSystemNotificationReadState(
+  projectId: string,
+  onUpdate: (state: ProjectSystemNotificationReadState | null) => void,
+): () => void {
+  if (!projectId) return () => {};
+  let disposed = false;
+  let snapshotUnsub: (() => void) | null = null;
+
+  const attach = (user: User | null) => {
+    snapshotUnsub?.();
+    snapshotUnsub = null;
+    if (disposed || !user) {
+      if (!disposed) onUpdate(null);
+      return;
+    }
+    snapshotUnsub = onSnapshot(
+      doc(db, 'projects', projectId, 'notificationReads', user.uid),
+      (snap) => {
+        if (disposed) return;
+        if (!snap.exists()) {
+          onUpdate({
+            projectId,
+            uid: user.uid,
+            email: normalizeEmail(user.email),
+            readThrough: 0,
+            updatedAt: 0,
+          });
+          return;
+        }
+        const data = snap.data() || {};
+        onUpdate({
+          projectId,
+          uid: user.uid,
+          email: normalizeEmail(data.email || user.email),
+          readThrough: Math.max(0, Number(data.readThrough || 0)),
+          updatedAt: Math.max(0, Number(data.updatedAt || 0)),
+        });
+      },
+      (err) => {
+        console.warn('System notification read-state realtime error:', err);
+        if (!disposed) onUpdate(null);
+      },
+    );
+  };
+
+  attach(getCurrentRealFirebaseUser());
+  const authUnsub = onAuthStateChanged(auth, attach);
+  return () => {
+    disposed = true;
+    snapshotUnsub?.();
+    authUnsub();
+  };
+}
+
+export async function markProjectSystemNotificationsRead(projectId: string, readThrough: number): Promise<void> {
+  if (!projectId) return;
+  const user = getCurrentRealFirebaseUser();
+  if (!user || user.isAnonymous || !user.email) throw new Error('AUTH_REQUIRED');
+  const normalizedReadThrough = Math.max(0, Math.floor(Number(readThrough || Date.now())));
+  await setDoc(
+    doc(db, 'projects', projectId, 'notificationReads', user.uid),
+    sanitizePayloadForCloud({
+      projectId,
+      uid: user.uid,
+      email: normalizeEmail(user.email),
+      readThrough: normalizedReadThrough,
+      updatedAt: Date.now(),
+    }),
+    { merge: true },
+  );
+}
+
 /**
  * Create a full system snapshot backup on Firebase Cloud
  */
