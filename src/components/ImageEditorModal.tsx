@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Pencil, Type, Undo, Save, X, ArrowRight, Square, Cloud, Loader2 } from 'lucide-react';
-import { getImageQualityProfile, ImageQualityKind } from '../utils/imageQualitySettings';
+import { getImageQualityProfile } from '../utils/imageQualitySettings';
 
 type EditorTool = 'draw' | 'text' | 'arrow' | 'rect' | 'cloud';
 
@@ -9,7 +9,7 @@ interface ImageEditorModalProps {
   onClose: () => void;
   imageUrl: string;
   onSave: (editedFile: File) => void | Promise<void>;
-  imageKind?: Extract<ImageQualityKind, 'defect' | 'crew'>;
+  imageKind?: 'defect' | 'crew';
 }
 
 export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
