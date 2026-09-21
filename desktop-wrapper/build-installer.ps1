@@ -51,7 +51,7 @@ $buildInfo = Join-Path $root 'InstallerBuildInfo.generated.cs'
 $assemblyInfo = Join-Path $root 'InstallerAssemblyInfo.generated.cs'
 $uninstallerTemp = Join-Path $root 'HNL-QLTC-Uninstaller.generated.exe'
 $generatedIcon = Join-Path $root 'HNL-QLTC-Setup.generated.ico'
-$logoSource = Join-Path $root 'HNL-QLTC-HQ-256.png'
+$logoSource = Join-Path $root 'HNL-QLTC-SHELL-ICON.png'
 $manifest = Join-Path $root 'HnlQltcInstaller.manifest'
 
 if (-not (Test-Path -LiteralPath $logoSource)) { throw "HNL Windows icon source not found: $logoSource" }

@@ -26,7 +26,7 @@ if ($releaseTag -match '[\r\n\"]') { throw 'Invalid release tag.' }
 $assemblyInfo = Join-Path $root 'AssemblyInfo.generated.cs'
 $releaseInfo = Join-Path $root 'ReleaseInfo.generated.cs'
 $generatedIcon = Join-Path $root 'HNL-QLTC.generated.ico'
-$logoSource = Join-Path $root 'HNL-QLTC-HQ-256.png'
+$logoSource = Join-Path $root 'HNL-QLTC-SHELL-ICON.png'
 $parts = $version.Split('.')
 $assemblyVersion = "$($parts[0]).$($parts[1]).$($parts[2]).0"
 
@@ -211,8 +211,8 @@ try {
   Write-Output "Version: $version"
   Write-Output "Release tag: $releaseTag"
   Write-Output "Production URL: https://hnlqltc.web.app/?app=desktop&v=$releaseTag"
-  Write-Output "Icon source: desktop-wrapper/HNL-QLTC-HQ-256.png ($((Get-Item -LiteralPath $logoSource).Length) bytes)"
-  Write-Output "Certified multi-resolution ICO: $iconBytes bytes (generated from the user-provided HQ 256px HNL artwork)"
+  Write-Output "Icon source: desktop-wrapper/HNL-QLTC-SHELL-ICON.png ($((Get-Item -LiteralPath $logoSource).Length) bytes)"
+  Write-Output "Certified multi-resolution ICO: $iconBytes bytes (generated from the dedicated user-provided HNL shell icon artwork)"
   Write-Output "Embedded WebView2 SDK: $webViewVersion (Core + WinForms + x64/x86 loader embedded into the EXE)"
 } finally {
   Remove-Item -LiteralPath $assemblyInfo -Force -ErrorAction SilentlyContinue
