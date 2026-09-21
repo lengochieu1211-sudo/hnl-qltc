@@ -152,7 +152,7 @@ for (const size of runtimeTaskbarSizes) {
 }
 
 assert(build.includes("HNL-QLTC-HQ.ico"), 'EXE file icon uses the certified HQ HNL Windows icon derived from the user-provided logo');
-assert(build.includes('Export-HnlLargestEmbeddedPng') && build.includes('Write-HnlIcoFromPng -PngPath $normalizedLogoPng -IcoPath $generatedIcon'), 'build normalizes the user-provided HQ artwork into a compiler-compatible multi-resolution ICO');
+assert(build.includes('Export-HnlLargestEmbeddedPng') && build.includes('New-Object System.Drawing.Icon($SourcePath, 256, 256)') && build.includes('Write-HnlIcoFromPng -PngPath $normalizedLogoPng -IcoPath $generatedIcon'), 'build normalizes PNG- or DIB-backed user-provided HQ artwork into a compiler-compatible multi-resolution ICO');
 for (const size of [16, 20, 24, 28, 32, 40, 48, 64, 80, 96, 128, 256]) {
   assert(iconGolden.includes(String(size)), `runtime EXE icon golden verifies ${size}x${size} extraction`);
 }

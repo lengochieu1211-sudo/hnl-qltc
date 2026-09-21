@@ -22,7 +22,7 @@ assert(build.includes("[ValidateSet('PROD','DEV')]") && build.includes("$Channel
 assert(build.includes("'HNL QLTC DEV'") && build.includes("'HNL QLTC'"), 'DEV and PROD install identities are isolated');
 assert(build.includes('$launcherResource = "/resource:$launcher,HNL.QLTC.Payload.Launcher"') && build.includes('$uninstallerResource = "/resource:$uninstallerTemp,HNL.QLTC.Payload.Uninstaller"'), 'setup builds csc resource arguments without PowerShell quote leakage');
 assert(build.includes('HNL.QLTC.Payload.Uninstaller'), 'setup embeds its uninstaller payload');
-assert(build.includes('HNL-QLTC-HQ.ico') && build.includes('Export-HnlLargestEmbeddedPng') && build.includes('Write-HnlIcoFromPng -PngPath $normalizedLogoPng -IcoPath $generatedIcon'), 'setup icon normalizes the certified HQ HNL artwork into a compiler-compatible multi-resolution icon');
+assert(build.includes('HNL-QLTC-HQ.ico') && build.includes('Export-HnlLargestEmbeddedPng') && build.includes('New-Object System.Drawing.Icon($SourcePath, 256, 256)') && build.includes('Write-HnlIcoFromPng -PngPath $normalizedLogoPng -IcoPath $generatedIcon'), 'setup icon normalizes PNG- or DIB-backed certified HQ HNL artwork into a compiler-compatible multi-resolution icon');
 assert(setup.includes('ProgramW6432') && setup.includes('"HNL"') && setup.includes('InstallerBuildInfo.InstallFolderName'), 'installer targets C:\\Program Files\\HNL\\<channel>');
 assert(setup.includes('CommonDesktopDirectory') && setup.includes('CommonPrograms'), 'installer creates Windows Desktop and Start Menu shortcuts');
 assert(setup.includes('WScript.Shell') && setup.includes('CreateShortcut'), 'shortcuts point to the installed executable');

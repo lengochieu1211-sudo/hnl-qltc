@@ -125,14 +125,28 @@ function Export-HnlLargestEmbeddedPng {
     }
   }
 
-  if ($bestStart -lt 0 -or $bestEnd -le $bestStart) {
-    throw 'HQ HNL icon source does not contain a readable embedded PNG frame.'
+  if ($bestStart -ge 0 -and $bestEnd -gt $bestStart) {
+    $count = $bestEnd - $bestStart
+    $png = New-Object byte[] $count
+    [Array]::Copy($bytes, $bestStart, $png, 0, $count)
+    [System.IO.File]::WriteAllBytes($PngPath, $png)
+  } else {
+    # Some Windows ICO files store their frames as classic DIB/BMP payloads rather
+    # than PNG chunks. Let the Windows icon decoder render the HQ frame, then use
+    # the same deterministic multi-resolution ICO writer below.
+    $icon = $null
+    $bitmap = $null
+    try {
+      $icon = New-Object System.Drawing.Icon($SourcePath, 256, 256)
+      $bitmap = $icon.ToBitmap()
+      $bitmap.Save($PngPath, [System.Drawing.Imaging.ImageFormat]::Png)
+    } catch {
+      throw "HQ HNL icon source cannot be decoded by Windows: $($_.Exception.Message)"
+    } finally {
+      if ($bitmap) { $bitmap.Dispose() }
+      if ($icon) { $icon.Dispose() }
+    }
   }
-
-  $count = $bestEnd - $bestStart
-  $png = New-Object byte[] $count
-  [Array]::Copy($bytes, $bestStart, $png, 0, $count)
-  [System.IO.File]::WriteAllBytes($PngPath, $png)
 
   $image = [System.Drawing.Image]::FromFile($PngPath)
   try {
