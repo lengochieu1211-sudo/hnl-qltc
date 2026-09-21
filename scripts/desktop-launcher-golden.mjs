@@ -14,6 +14,7 @@ function readPngSize(path) {
 
 const launcher = read('desktop-wrapper/QLTCAnPhuLauncher.cs');
 const webShell = read('desktop-wrapper/DesktopWebShellForm.cs');
+const app = read('src/App.tsx');
 const localStore = read('desktop-wrapper/DesktopLocalStore.cs');
 const syncCenter = read('desktop-wrapper/DesktopSyncCenterForm.cs');
 const build = read('desktop-wrapper/build-launcher.ps1');
@@ -86,7 +87,9 @@ assert(webShell.includes('CalculateToolbarActionsWidth') && webShell.includes('n
 assert(webShell.includes('brandLogo.Visible = false') && webShell.includes('brandLabel.Visible = false') && webShell.includes('releaseLabel.Visible = false') && !webShell.includes('new ToolStripMenuItem("HNL QLTC • " + Program.GetReleaseTag())') && webShell.includes('NormalHeaderHeight = 38F'), 'native shell does not duplicate Web-owned logo/title/version branding in the Windows command strip or More menu');
 assert(webShell.includes('ToolTip') && webShell.includes('AccessibleName') && webShell.includes('FallbackText') && webShell.includes('FallbackText = "ĐB"') && webShell.includes('FallbackText = "Tải"') && webShell.includes('FallbackText = "Menu"') && webShell.includes('FallbackText = "Gọn"') && webShell.includes('ToolbarGlyph.Reload') && webShell.includes('ToolbarGlyph.More') && webShell.includes('ToolbarGlyph.Collapse') && webShell.includes('ToolbarGlyph.Expand'), 'native toolbar keeps tooltip/accessibility labels, icon-only vectors and a readable text fallback if owner-drawing fails');
 assert(webShell.includes('Height * 0.56F') && webShell.includes('Math.Max(16, Math.Min(24') && webShell.includes('float stroke = Math.Max(1.8F, Math.Min(2.4F, r.Width / 8F))'), 'all native toolbar glyphs scale from actual DPI-scaled control height with one consistent visual weight');
+assert(webShell.includes('ToolbarReloadAssetBase64') && webShell.includes('TryDrawToolbarAsset') && webShell.includes('InterpolationMode.HighQualityBicubic') && webShell.includes('ColorMatrix'), 'native toolbar prefers ChatGPT-generated high-resolution icon artwork and tints/scales it through Windows instead of drawing reload at tiny runtime geometry');
 assert(webShell.includes('Chrome-like refresh') && webShell.includes('RectangleF reloadArc') && webShell.includes('graphics.DrawArc(reloadPen, reloadArc, 48F, 292F)') && webShell.includes('graphics.DrawLine(reloadPen, tipX, tipY'), 'reload glyph uses a font-independent Chrome-like circular arrow built from simple DPI-safe lines');
+assert(app.includes('lg:max-w-[calc(100vw-2rem)]') && app.includes('xl:max-w-[calc(100vw-2.5rem)]') && app.includes('2xl:max-w-[calc(100vw-3rem)]'), 'PC/laptop shell expands fluidly with the viewport while preserving mobile/tablet max widths');
 assert(launcher.includes('DesktopPaths.LocalDatabase') && launcher.includes('workspace.db'), 'Desktop Suite stores its local SQLite database under LocalAppData');
 assert(localStore.includes('winsqlite3.dll'), 'local workspace uses Windows inbox winsqlite3 without an external database DLL');
 assert(localStore.includes('CREATE TABLE IF NOT EXISTS workspace_files') && localStore.includes('CREATE TABLE IF NOT EXISTS sync_queue') && localStore.includes('CREATE TABLE IF NOT EXISTS sync_history'), 'SQLite schema contains workspace mirror, durable sync queue and audit history');
@@ -127,7 +130,7 @@ assert(webBridge.includes('BRIDGE_ATTEMPT_TOKEN_INVALID') && webBridge.includes(
 assert(!webBridge.includes('uploadProjectBinaryToR2') && !webBridge.includes('fetch('), 'Web bridge does not introduce a direct R2/network upload authority');
 assert(bridgeCard.includes('Windows – Đồng bộ file chờ') && bridgeCard.includes('Chọn thư mục HNL QLTC và đồng bộ file chờ') && bridgeCard.includes('Documents\\HNL QLTC') && bridgeCard.includes('/Windows/i.test(navigator.userAgent') && configTab.includes('WindowsDesktopSyncBridgeCard'), 'Settings Sync Center exposes clear Windows-only pending-file sync controls');
 assert(build.includes('release-tag.txt'), 'build script uses release tag for cache/version isolation');
-assert(releaseTag === '6.3.0-rc2.2.26.19', 'desktop release tag identifies the RC2.2.26.19 unified Chrome-style icon-only toolbar/runtime candidate');
+assert(releaseTag === '6.3.0-rc2.2.26.20', 'desktop release tag identifies the RC2.2.26.20 generated-icon + fluid desktop-width runtime candidate');
 
 assert(iconSource.width >= 1024 && iconSource.height >= 1024 && iconSource.bytes > 1_000_000, 'HQ HNL logo source is retained at >=1024px');
 assert(taskbar192.width === 192 && taskbar192.height === 192, 'browser app-mode has dedicated 192x192 HNL icon');
