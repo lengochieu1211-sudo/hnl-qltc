@@ -216,7 +216,7 @@ pass('photo metadata is published cross-account only after durable R2 readiness;
 requireAll(photoPicker, ['retryDelays = [0, 400, 1200, 2500]'], 'photo immediate cloud confirmation retry');
 requireAll(app, ['? 250 : 150', 'Math.min(30000, 750 * Math.pow(2', 'photoOutboxRetryTimerRef'], 'photo near-realtime durable outbox scheduling');
 requireAll(photoSync, ['PHOTO_INITIAL_SYNC_DELAY_MS = 1200', 'requestIdleCallback(run, { timeout: 1000 })', '}, 5000);'], 'photo initial reconciliation latency');
-requireAll(desktopBuild, ['HNL-QLTC-HQ.ico', 'Copy-Item -LiteralPath $logoSource -Destination $generatedIcon -Force', 'Certified multi-resolution ICO'], 'Windows certified HQ multi-resolution icon source');
+requireAll(desktopBuild, ['HNL-QLTC-HQ.ico', 'Export-HnlLargestEmbeddedPng', 'Write-HnlIcoFromPng -PngPath $normalizedLogoPng -IcoPath $generatedIcon', 'Certified multi-resolution ICO'], 'Windows certified HQ multi-resolution icon normalization');
 if (desktopBuild.includes('Optimize-HnlSmallIconFrame')) fail('Windows icon builder must not visually alter the certified HNL logo with custom sharpening/contrast');
 pass('photo pending binary retries sooner and Windows/Web runtime icons use certified HQ artwork with runtime extraction validation');
 

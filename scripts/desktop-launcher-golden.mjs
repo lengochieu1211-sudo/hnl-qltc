@@ -152,12 +152,12 @@ for (const size of runtimeTaskbarSizes) {
 }
 
 assert(build.includes("HNL-QLTC-HQ.ico"), 'EXE file icon uses the certified HQ HNL Windows icon derived from the user-provided logo');
-assert(build.includes('Copy-Item -LiteralPath $logoSource -Destination $generatedIcon -Force'), 'build copies the certified multi-resolution ICO without regenerating lower-quality frames');
+assert(build.includes('Export-HnlLargestEmbeddedPng') && build.includes('Write-HnlIcoFromPng -PngPath $normalizedLogoPng -IcoPath $generatedIcon'), 'build normalizes the user-provided HQ artwork into a compiler-compatible multi-resolution ICO');
 for (const size of [16, 20, 24, 28, 32, 40, 48, 64, 80, 96, 128, 256]) {
   assert(iconGolden.includes(String(size)), `runtime EXE icon golden verifies ${size}x${size} extraction`);
 }
 assert(!build.includes('Optimize-HnlSmallIconFrame'), 'Windows EXE small frames are not visually altered by a custom sharpening/contrast pass');
-assert(build.includes('Certified multi-resolution ICO'), 'build reports certified HQ ICO evidence');
+assert(build.includes('Certified multi-resolution ICO') && build.includes('normalized from the user-provided HQ HNL artwork'), 'build reports certified HQ ICO normalization evidence');
 assert(!fs.existsSync('desktop-wrapper/QLTCAnPhu.ico'), 'obsolete 854-byte blurry launcher ICO is removed from source');
 assert(iconGolden.includes('PrivateExtractIcons'), 'runtime golden extracts icons directly from the built EXE using Win32');
 assert(iconGolden.includes('hnl-logo-original-') && iconGolden.includes('$runtimeSizes = @(16,20,24,28,32,40,48)'), 'Windows golden validates exact runtime frames derived from the canonical HNL logo');

@@ -114,6 +114,68 @@ function New-HnlPngFrame {
   }
 }
 
+
+function Get-HnlBigEndianUInt32 {
+  param([byte[]]$Bytes, [int]$Offset)
+  return [UInt32](($Bytes[$Offset] -shl 24) -bor ($Bytes[$Offset + 1] -shl 16) -bor ($Bytes[$Offset + 2] -shl 8) -bor $Bytes[$Offset + 3])
+}
+
+function Export-HnlLargestEmbeddedPng {
+  param([string]$SourcePath, [string]$PngPath)
+  $bytes = [System.IO.File]::ReadAllBytes($SourcePath)
+  $sig = [byte[]](0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A)
+  $bestStart = -1
+  $bestEnd = -1
+  [UInt64]$bestArea = 0
+
+  for ($i = 0; $i -le $bytes.Length - 24; $i++) {
+    $match = $true
+    for ($j = 0; $j -lt $sig.Length; $j++) {
+      if ($bytes[$i + $j] -ne $sig[$j]) { $match = $false; break }
+    }
+    if (-not $match) { continue }
+
+    $width = Get-HnlBigEndianUInt32 -Bytes $bytes -Offset ($i + 16)
+    $height = Get-HnlBigEndianUInt32 -Bytes $bytes -Offset ($i + 20)
+    $pos = $i + 8
+    $end = -1
+    while ($pos + 12 -le $bytes.Length) {
+      $length = [int](Get-HnlBigEndianUInt32 -Bytes $bytes -Offset $pos)
+      if ($length -lt 0 -or $pos + 12 + $length -gt $bytes.Length) { break }
+      $type = [System.Text.Encoding]::ASCII.GetString($bytes, $pos + 4, 4)
+      $next = $pos + 12 + $length
+      if ($type -eq 'IEND') { $end = $next; break }
+      $pos = $next
+    }
+    if ($end -gt $i) {
+      [UInt64]$area = [UInt64]$width * [UInt64]$height
+      if ($area -gt $bestArea) {
+        $bestArea = $area
+        $bestStart = $i
+        $bestEnd = $end
+      }
+    }
+  }
+
+  if ($bestStart -lt 0 -or $bestEnd -le $bestStart) {
+    throw 'HQ HNL icon source does not contain a readable embedded PNG frame.'
+  }
+
+  $count = $bestEnd - $bestStart
+  $png = New-Object byte[] $count
+  [Array]::Copy($bytes, $bestStart, $png, 0, $count)
+  [System.IO.File]::WriteAllBytes($PngPath, $png)
+
+  $image = [System.Drawing.Image]::FromFile($PngPath)
+  try {
+    if ($image.Width -lt 256 -or $image.Height -lt 256) {
+      throw "Largest HQ icon frame is too small: $($image.Width)x$($image.Height)"
+    }
+  } finally {
+    $image.Dispose()
+  }
+}
+
 function Write-HnlIcoFromPng {
   param(
     [Parameter(Mandatory = $true)] [string] $PngPath,
@@ -125,8 +187,8 @@ function Write-HnlIcoFromPng {
   $sizes = @(16, 20, 24, 28, 32, 40, 48, 64, 80, 96, 128, 256)
   $source = [System.Drawing.Image]::FromFile($PngPath)
   try {
-    if ($source.Width -lt 1024 -or $source.Height -lt 1024) {
-      throw "HNL logo source is too small for HQ icon generation: $($source.Width)x$($source.Height)"
+    if ($source.Width -lt 256 -or $source.Height -lt 256) {
+      throw "HNL logo source is too small for Windows icon generation: $($source.Width)x$($source.Height)"
     }
 
     $frames = @()
@@ -191,8 +253,10 @@ namespace QLTCAnPhu
 "@ | Set-Content -LiteralPath $releaseInfo -Encoding UTF8
 
 $out = Join-Path $projectRoot 'HNL-QLTC-Windows.exe'
+$normalizedLogoPng = Join-Path $root 'HNL-QLTC-HQ.normalized.png'
 try {
-  Copy-Item -LiteralPath $logoSource -Destination $generatedIcon -Force
+  Export-HnlLargestEmbeddedPng -SourcePath $logoSource -PngPath $normalizedLogoPng
+  Write-HnlIcoFromPng -PngPath $normalizedLogoPng -IcoPath $generatedIcon
   $iconBytes = (Get-Item -LiteralPath $generatedIcon).Length
   if ($iconBytes -lt 20000) { throw "Certified ICO is unexpectedly small: $iconBytes bytes" }
 
@@ -211,10 +275,11 @@ try {
   Write-Output "Release tag: $releaseTag"
   Write-Output "Production URL: https://hnlqltc.web.app/?app=desktop&v=$releaseTag"
   Write-Output "Icon source: desktop-wrapper/HNL-QLTC-HQ.ico ($((Get-Item -LiteralPath $logoSource).Length) bytes)"
-  Write-Output "Certified multi-resolution ICO: $iconBytes bytes (derived from the user-provided HQ HNL logo)"
+  Write-Output "Certified multi-resolution ICO: $iconBytes bytes (normalized from the user-provided HQ HNL artwork)"
   Write-Output "Embedded WebView2 SDK: $webViewVersion (Core + WinForms + x64/x86 loader embedded into the EXE)"
 } finally {
   Remove-Item -LiteralPath $assemblyInfo -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $releaseInfo -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $generatedIcon -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $normalizedLogoPng -Force -ErrorAction SilentlyContinue
 }
