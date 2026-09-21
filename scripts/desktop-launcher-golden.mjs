@@ -41,7 +41,7 @@ assert(launcher.includes('Google') && launcher.includes('Chrome'), 'Chrome fallb
 assert(launcher.includes('--app='), 'browser app-mode remains available only as a fallback path');
 assert(launcher.includes('OpenHnlQltcExternal') && launcher.includes('DesktopWebShellForm.Current'), 'normal OpenHnlQltc routes into the embedded desktop shell before browser fallback');
 assert(launcher.includes('HNL QLTC Desktop'), 'launcher exposes the user-facing HNL QLTC Desktop shell');
-assert(launcher.includes('AutoScaleMode.Dpi') && launcher.includes('SetProcessDpiAwarenessContext') && launcher.includes('new IntPtr(-4)') && launcher.includes('PictureBox') && launcher.includes('Icon.ToBitmap()'), 'Desktop UI opts into Per-Monitor V2 DPI awareness and shows the embedded HNL logo in the header');
+assert(launcher.includes('AutoScaleMode.Dpi') && launcher.includes('SetProcessDpiAwarenessContext') && launcher.includes('new IntPtr(-4)') && launcher.includes('LoadBrandIcon(32)') && launcher.includes('LoadBrandBitmap()'), 'Desktop UI opts into Per-Monitor V2 DPI awareness and loads dedicated embedded HNL icon/PNG resources without shell-cache scaling');
 assert(launcher.indexOf('TryEnablePerMonitorV2DpiAwareness();') < launcher.indexOf('Application.EnableVisualStyles();'), 'Per-Monitor V2 DPI awareness is enabled before WinForms visual-style initialization');
 assert(launcher.includes('Application.Run(new DesktopWebShellForm())'), 'EXE opens the embedded HNL QLTC desktop shell as its primary window');
 assert(launcher.includes('SpecialFolder.MyDocuments') && launcher.includes('\"HNL QLTC\"'), 'Desktop Suite creates a user-visible HNL QLTC workspace under Documents');
@@ -127,7 +127,7 @@ assert(webBridge.includes('BRIDGE_ATTEMPT_TOKEN_INVALID') && webBridge.includes(
 assert(!webBridge.includes('uploadProjectBinaryToR2') && !webBridge.includes('fetch('), 'Web bridge does not introduce a direct R2/network upload authority');
 assert(bridgeCard.includes('Windows – Đồng bộ file chờ') && bridgeCard.includes('Chọn thư mục HNL QLTC và đồng bộ file chờ') && bridgeCard.includes('Documents\\HNL QLTC') && bridgeCard.includes('/Windows/i.test(navigator.userAgent') && configTab.includes('WindowsDesktopSyncBridgeCard'), 'Settings Sync Center exposes clear Windows-only pending-file sync controls');
 assert(build.includes('release-tag.txt'), 'build script uses release tag for cache/version isolation');
-assert(releaseTag === '6.3.0-rc2.2.26.16', 'desktop release tag identifies the RC2.2.26.16 dedicated shell icon + reload toolbar/runtime candidate');
+assert(releaseTag === '6.3.0-rc2.2.26.17', 'desktop release tag identifies the RC2.2.26.17 shell-icon cache refresh + crisp installer/runtime candidate');
 
 assert(iconSource.width >= 1024 && iconSource.height >= 1024 && iconSource.bytes > 1_000_000, 'HQ HNL logo source is retained at >=1024px');
 assert(taskbar192.width === 192 && taskbar192.height === 192, 'browser app-mode has dedicated 192x192 HNL icon');
@@ -152,7 +152,7 @@ for (const size of runtimeTaskbarSizes) {
   assert(read('public/sw.js').includes(`/hnl-logo-original-${size}.png`), `service worker app shell pre-caches ${size}x${size} runtime icon`);
 }
 
-assert(build.includes("HNL-QLTC-SHELL-ICON.png"), 'EXE file icon uses the dedicated user-provided HNL shell artwork');
+assert(build.includes("HNL-QLTC-SHELL-ICON.png") && build.includes('HNL.QLTC.Brand.Icon') && build.includes('HNL.QLTC.Brand.Png'), 'EXE embeds dedicated icon and PNG branding resources from the user-provided HNL shell artwork');
 assert(windowsHqIconSource.width >= 1024 && windowsHqIconSource.height >= 1024 && windowsHqIconSource.bytes > 1_000_000, 'Windows shell icon retains the user-provided HQ source at >=1024px');
 assert(build.includes('Write-HnlIcoFromPng -PngPath $logoSource -IcoPath $generatedIcon'), 'build generates the compiler-compatible multi-resolution ICO directly from the dedicated shell PNG source');
 for (const size of [16, 20, 24, 28, 32, 40, 48, 64, 80, 96, 128, 256]) {
