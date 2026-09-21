@@ -45,9 +45,11 @@ const normalizeData = (data: object | null | undefined): Record<string, any[]> =
 /**
  * Device-local, identity-bound last-known-good business snapshot.
  *
- * This is a read-only cold-start safety net when Firestore persistent IndexedDB is
+ * This is a cold-start safety net when Firestore persistent IndexedDB is
  * unavailable/empty after the EXE restarts offline. It is written only from a verified
- * Cloud baseline and is never treated as Cloud authority or auto-uploaded.
+ * Cloud baseline and is never treated as Cloud authority. For a previously verified
+ * EDITOR/ADMIN it may become the local diff baseline; only subsequent user changes are
+ * queued through Firestore's official persistent mutation queue.
  */
 export async function saveVerifiedOfflineBusinessSnapshot(
   projectId: string,
