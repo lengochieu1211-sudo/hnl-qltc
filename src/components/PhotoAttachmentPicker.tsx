@@ -419,25 +419,35 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
       closeEditingPhoto();
       notifyPhotoAttachmentsChanged({ operation: 'edit', entityType, entityId, category, photoId, originId: pickerInstanceIdRef.current });
       await loadPhotos();
-      setUploading(false);
 
-      // Local-first save: Cloud upload/verification continues in the background. The
-      // pending metadata created by updatePhotoAttachmentBlob remains the durable retry
-      // authority if network/R2 is slow or unavailable.
+      // Local-first remains the durability authority, but while online do not report
+      // an edited photo as finished until R2 + Firestore ready metadata are verified.
+      // This closes the edit -> immediate logout/navigation race that could leave the
+      // edited binary only in account A's local outbox and invisible to account B/backup.
       if (typeof navigator === 'undefined' || navigator.onLine) {
         const editedPhotoMeta = (await getProjectPhotos(projectId, true)).find((p) => p.id === photoId);
+        let cloudReady = false;
+        let lastCloudError: any = null;
         if (editedPhotoMeta) {
-          void uploadPhotoToCloud(projectId, editedPhotoMeta)
-            .then(async () => {
-              const cloudReady = await verifyPhotoBinaryReadyInCloud(projectId, photoId);
-              setSyncNotice(cloudReady
-                ? ''
-                : 'Ảnh chỉnh sửa đã lưu trên thiết bị nhưng Cloud chưa xác nhận; ứng dụng sẽ tự retry.');
-            })
-            .catch((err) => {
-              console.warn('[Photo Picker] edited photo background upload pending retry:', photoId, err);
-              setSyncNotice('Ảnh chỉnh sửa đã lưu trên thiết bị; đang chờ đồng bộ Cloud.');
-            });
+          const retryDelays = [0, 400, 1200, 2500];
+          for (let attempt = 0; attempt < retryDelays.length && !cloudReady; attempt += 1) {
+            if (retryDelays[attempt] > 0) await new Promise((resolve) => window.setTimeout(resolve, retryDelays[attempt]));
+            try {
+              await uploadPhotoToCloud(projectId, editedPhotoMeta);
+              cloudReady = await verifyPhotoBinaryReadyInCloud(projectId, photoId);
+              if (!cloudReady) lastCloudError = new Error('Cloud chưa xác nhận binary ảnh chỉnh sửa.');
+            } catch (err: any) {
+              lastCloudError = err;
+            }
+          }
+        }
+        if (cloudReady) {
+          setSyncNotice('');
+          await refreshProjectPhotoMetadataFromCloud(projectId).catch(() => {});
+          await loadPhotos();
+        } else {
+          console.warn('[Photo Picker] edited photo pending durable retry:', photoId, lastCloudError);
+          setSyncNotice('Ảnh chỉnh sửa đã lưu an toàn trên thiết bị nhưng Cloud chưa xác nhận; ứng dụng sẽ tự retry. Chưa nên đăng xuất nếu cần thấy ảnh ngay trên tài khoản khác.');
         }
       } else {
         setSyncNotice('Ảnh chỉnh sửa đã lưu trên thiết bị; sẽ đồng bộ khi có mạng.');
@@ -445,6 +455,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
     } catch (err) {
       console.error('Error saving edited photo:', err);
       alert('Không thể lưu ảnh đã chỉnh sửa');
+    } finally {
       setUploading(false);
     }
   };

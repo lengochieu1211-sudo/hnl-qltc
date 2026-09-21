@@ -471,7 +471,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
           setConfirmPin('');
           setCurrentPinInput('');
           logAuditAction('SECURITY_CONFIG_CHANGE', `Đã đặt lại PIN mới thành công qua xác thực Google Auth (${user.email})`);
-          setPinMsg({ type: 'success', text: `🎉 Đã đặt mã PIN mới thành công qua xác thực Google (${user.email})!` });
+          setPinMsg({ type: 'success', text: `Đã xác minh tài khoản Google (${user.email}) và đặt mã PIN mới thành công.` });
         } else {
           const updated = {
             ...pinConfig,
@@ -485,7 +485,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
           setPinConfig(updated);
           setCurrentPinInput('');
           logAuditAction('SECURITY_CONFIG_CHANGE', `Đã đặt lại/xóa mã PIN qua xác thực Google Auth (${user.email})`);
-          setPinMsg({ type: 'success', text: `🎉 Xác thực Google Auth thành công (${user.email})! Mã PIN cũ đã được xóa. Bạn có thể nhập Mã PIN mới và bấm "Lưu Mã PIN".` });
+          setPinMsg({ type: 'success', text: `Đã xác minh tài khoản Google (${user.email}). PIN cũ đã được xóa; bạn có thể nhập PIN mới và bấm “Lưu Mã PIN”.` });
         }
       } else {
         setPinMsg({ type: 'error', text: 'Đăng nhập Google thất bại hoặc bị hủy.' });
@@ -584,7 +584,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
         setAdminPinInput('');
         setAdminPinError('');
         await refreshCloudStatus(selectedPid);
-        alert(`🎉 Xác thực Google Auth thành công (${user.email}). Vai trò tài khoản của bạn được áp dụng theo phân quyền Cloud/Dự án.`);
+        alert(`Đã xác minh tài khoản Google (${user.email}). Quyền sử dụng được áp dụng theo phân quyền của dự án.`);
       } else {
         setAdminPinError('Xác thực Google thất bại.');
       }
@@ -1233,7 +1233,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                   <span>NGUYÊN TẮC BẢO MẬT MÃ PIN &amp; QUÊN PIN:</span>
                 </div>
                 <p className="leading-relaxed text-[10.5px] opacity-90">
-                  Mã PIN chỉ dùng để khóa màn hình ứng dụng trên thiết bị và được băm 1 chiều PBKDF2 SHA-256. <strong>Tuyệt đối không có mã PIN master</strong>. PIN cũ không thể khôi phục hay giải mã. Nếu quên mã PIN, bạn có thể nhấn nút <strong>"Đặt lại PIN bằng Google Auth"</strong> để đăng nhập lại tài khoản Google và thiết lập PIN mới.
+                  Mã PIN chỉ dùng để khóa ứng dụng trên thiết bị này. PIN được lưu theo dạng bảo mật một chiều nên hệ thống không lưu nguyên số và không thể xem lại PIN cũ. <strong>Không có mã PIN chung hoặc PIN đặc biệt để mở khóa.</strong> Nếu quên PIN, chọn <strong>“Quên PIN? Đặt lại bằng Google”</strong>, đăng nhập đúng tài khoản Google để xác minh rồi tạo PIN mới.
                 </p>
               </div>
 
@@ -1354,7 +1354,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                       type="button"
                       onClick={handleResetPinWithGoogleInModal}
                       className="px-3 py-1.5 bg-slate-200/80 hover:bg-slate-300 text-slate-800 rounded-xl font-bold text-[11px] transition-colors flex items-center gap-1 cursor-pointer"
-                      title="Xác thực Google Auth để đặt lại PIN mới mà không cần biết PIN cũ"
+                      title="Đăng nhập lại tài khoản Google để xác minh và tạo PIN mới"
                     >
                       <UserCheck className="w-3.5 h-3.5 text-indigo-600" />
                       <span>Quên PIN? Đặt lại bằng Google</span>

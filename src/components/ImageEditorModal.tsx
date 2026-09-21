@@ -224,6 +224,15 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
 
     if (e.pointerType === 'touch' && pointerMapRef.current.size >= 2) {
+      // PINCH_GESTURE_ROLLBACK: if the first finger started a drawing tool before
+      // the second finger arrived, restore the pre-gesture canvas so pinch/pan can
+      // never leave an accidental stroke/shape behind.
+      if (isDrawing && gestureBaseRef.current) {
+        ctx.putImageData(gestureBaseRef.current, 0, 0);
+      }
+      setIsDrawing(false);
+      setStartPos(null);
+      gestureBaseRef.current = null;
       updatePinchState();
       e.preventDefault();
       return;

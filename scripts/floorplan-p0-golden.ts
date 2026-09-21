@@ -84,6 +84,17 @@ check(ui.includes('style={{ left: `${x}%`, top: `${y}%`, touchAction: \'manipula
 check(ui.includes('z-50 pointer-events-auto w-7 h-7'), 'Defect hit target must stay above room drag controls with a touch-safe area.');
 check(ui.includes('cursor-pointer z-50 pointer-events-auto transition-transform'), 'Defect label must stay above room drag controls.');
 check(ui.includes('onPointerDown={(e) => e.stopPropagation()}'), 'Defect interaction must stop pointer propagation before room selection/drag.');
+check(ui.includes('if (tryHandleDefectPlacementEvent(e)) return;'), 'Room/Defect overlays must give armed Defect placement priority over room selection.');
+check(ui.includes('// Defect placement has the highest interaction priority on the drawing.') && ui.includes('if (tryHandleDefectPlacementEvent(e)) return;\n    if (!canManageStructure) return;'), 'Room move/resize handles must not steal an armed Defect placement.');
+check(ui.includes('if (isDefectPinPlacementMode || relocatingDefectId) return;\n    if (!canManageStructure || e.touches.length !== 1) return;'), 'Room long-press menu must stay disabled while adding/moving a Defect.');
+check(ui.includes('const [relocatingDefectId, setRelocatingDefectId]'), 'Explicit Defect relocation mode is missing.');
+check(ui.includes('Đang di chuyển') && ui.includes('Hủy di chuyển'), 'Defect relocation mode must be visibly announced and cancellable.');
+check(ui.includes('<span>Di chuyển ghim</span>'), 'Defect detail must expose an explicit move-pin action.');
+check(ui.includes("setMapLayers((prev) => ({ ...prev, defects: true, roomRegions: true, roomLabels: true }))"), 'Moving a Defect must show room highlights so the target room is visible.');
+check(ui.includes('const placement = getCandidateTeamsForDefect(') && ui.includes('const roomAtPoint = placement.roomAtPos;'), 'Defect relocation must resolve the destination room from pin geometry.');
+check(ui.includes('placement.roomAtPosTeam || defect.assignedTo'), 'Defect relocation must prefer the destination room/team linkage before the Defect legacy assignment.');
+check(ui.includes('...linkage,') && ui.includes('floorId: activeFloor.id') && ui.includes('floorName: activeFloor.floorName'), 'Defect relocation must persist coordinates/floor and recomputed room/team linkage.');
+check(ui.includes("Defect đang khóa vị trí. Mở khóa trước khi di chuyển ghim."), 'Locked Defect relocation must fail closed.');
 
 
 const config = read('src/components/GoogleConfigTab.tsx');

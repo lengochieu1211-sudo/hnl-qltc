@@ -722,7 +722,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                                 return (
                                   <span className="bg-rose-100 text-rose-800 px-2 py-0.5 rounded-md font-extrabold border border-rose-300 flex items-center gap-1">
                                     <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0 animate-bounce" />
-                                    🚨 Quá hạn {Math.abs(diffDays)} ngày ({formatDateVN(item.dueDate)})
+                                    Quá hạn {Math.abs(diffDays)} ngày ({formatDateVN(item.dueDate)})
                                   </span>
                                 );
                               }
@@ -730,7 +730,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                                 return (
                                   <span className="bg-amber-100 text-amber-900 px-2 py-0.5 rounded-md font-extrabold border border-amber-300 flex items-center gap-1">
                                     <Clock className="w-3 h-3 text-amber-600 shrink-0 animate-pulse" />
-                                    ⏰ Hạn hôm nay ({formatDateVN(item.dueDate)})
+                                    Hạn hôm nay ({formatDateVN(item.dueDate)})
                                   </span>
                                 );
                               }
@@ -738,7 +738,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                                 return (
                                   <span className="bg-amber-50 text-amber-800 px-2 py-0.5 rounded-md font-bold border border-amber-200 flex items-center gap-1">
                                     <Bell className="w-3 h-3 text-amber-600 shrink-0" />
-                                    🔔 Còn {diffDays} ngày ({formatDateVN(item.dueDate)})
+                                    Còn {diffDays} ngày ({formatDateVN(item.dueDate)})
                                   </span>
                                 );
                               }

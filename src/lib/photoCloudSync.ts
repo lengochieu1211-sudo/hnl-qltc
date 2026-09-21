@@ -81,6 +81,7 @@ function cleanPhotoMetadata(photo: PhotoAttachment) {
   delete copy.dataUrl;
   delete copy.localBlobKey;
   delete copy.cloudUrl;
+  delete copy.pendingOwnerUid;
   return copy;
 }
 

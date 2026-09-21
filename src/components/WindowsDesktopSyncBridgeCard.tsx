@@ -38,18 +38,18 @@ export const WindowsDesktopSyncBridgeCard: React.FC<Props> = ({ activeProjectId,
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="text-[11px] font-extrabold text-slate-800 flex items-center gap-1.5"><FolderSync className="w-4 h-4 text-sky-700" /> Windows – Đồng bộ file chờ</div>
-          <div className="text-[10px] text-slate-600 mt-1">Chỉ dùng khi Windows có ảnh/file đang chờ đồng bộ. Thư mục cần chọn: <span className="font-mono">Documents\HNL QLTC</span>. Web app kiểm SHA-256 rồi dùng đúng Firebase Auth/RBAC + R2 upload hiện có; EXE không tự ghi Cloud.</div>
+          <div className="text-[10px] text-slate-600 mt-1">Chỉ dùng khi máy tính còn ảnh hoặc file chưa tải lên hệ thống. Chọn thư mục <span className="font-mono">Documents\HNL QLTC</span>; ứng dụng sẽ tự kiểm tra đúng dự án, đúng tài khoản và file hợp lệ trước khi đồng bộ. EXE chỉ chuẩn bị file trên máy, không tự gửi dữ liệu lên hệ thống.</div>
         </div>
         <span className={`shrink-0 rounded-lg border px-2 py-1 text-[9px] font-extrabold ${supported ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
-          {supported ? 'Edge/Chrome sẵn sàng' : 'Không hỗ trợ'}
+          {supported ? 'Trình duyệt sẵn sàng' : 'Không hỗ trợ'}
         </span>
       </div>
 
       <div className="rounded-lg border border-sky-100 bg-white/80 px-2.5 py-2 text-[10px] text-slate-600 space-y-1">
-        <div><b>Cấu trúc staging:</b> <span className="font-mono break-all">Photos/&lt;projectId&gt;/&lt;defect|crewRecord|chat&gt;/&lt;entityId&gt;/&lt;category&gt;/ảnh.jpg</span></div>
-        <div><b>Category:</b> defect_before / defect_after / crew_progress / chat_attachment.</div>
-        <div><b>Fail-closed:</b> sai project, SHA-256, attemptToken/photoId, VIEWER, chưa đăng nhập hoặc Cloud chưa verify → không tạo ACK.</div>
-        <div><b>Quản lý queue:</b> dùng Sync Center trong Windows Desktop Suite để lọc/tìm queue, chọn nhiều, Retry batch tối đa 50 mục/lần, xem dung lượng/tiến độ và lịch sử Cloud-verified.</div>
+        <div><b>Cách dùng:</b> chọn đúng thư mục HNL QLTC, sau đó bấm đồng bộ.</div>
+        <div><b>Hệ thống tự kiểm tra:</b> đúng dự án, tài khoản có quyền và file không bị lỗi/thay đổi bất thường.</div>
+        <div><b>Nếu có lỗi:</b> file sẽ vẫn nằm trong danh sách chờ, không báo thành công nhầm.</div>
+        <div><b>Quản lý file chờ:</b> mở Sync Center để tìm/lọc file, chọn nhiều file, thử lại tối đa 50 mục mỗi lần và xem tiến độ/lịch sử đồng bộ.</div>
       </div>
 
       {!canWrite && <div className="flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[10px] font-semibold text-amber-800"><AlertTriangle className="w-3.5 h-3.5" /> VIEWER chỉ đọc nên Sync Bridge bị khóa.</div>}
@@ -67,9 +67,9 @@ export const WindowsDesktopSyncBridgeCard: React.FC<Props> = ({ activeProjectId,
       {message && <div className="text-[10px] font-semibold text-sky-900 break-words">{message}</div>}
       {result && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[9px]">
-          <span className="rounded-lg border border-slate-200 bg-white px-2 py-1.5"><b>Manifest:</b> {result.manifestItems}</span>
-          <span className="rounded-lg border border-slate-200 bg-white px-2 py-1.5"><b>Project:</b> {result.projectItems}</span>
-          <span className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-emerald-800"><b>Cloud-ready:</b> {result.uploaded}</span>
+          <span className="rounded-lg border border-slate-200 bg-white px-2 py-1.5"><b>Tổng file:</b> {result.manifestItems}</span>
+          <span className="rounded-lg border border-slate-200 bg-white px-2 py-1.5"><b>Đúng dự án:</b> {result.projectItems}</span>
+          <span className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-emerald-800"><b>Đã đồng bộ:</b> {result.uploaded}</span>
           <span className={`rounded-lg border px-2 py-1.5 ${result.failed ? 'border-rose-200 bg-rose-50 text-rose-800' : 'border-slate-200 bg-white'}`}><b>Lỗi:</b> {result.failed}</span>
         </div>
       )}

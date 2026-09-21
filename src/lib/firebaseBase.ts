@@ -1127,6 +1127,10 @@ export async function signInWithGoogle(): Promise<User | null> {
   if (isFirebaseConfigured) {
     try {
       const provider = new GoogleAuthProvider();
+      // Always force the Google account chooser, including Android/mobile redirect.
+      // Firebase signOut clears Firebase Auth, but the WebView/browser Google session
+      // can remain signed in; without this the next redirect may silently reuse it.
+      provider.setCustomParameters({ prompt: 'select_account' });
       const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
       const mobileLike = typeof navigator !== 'undefined' && (
         Boolean((navigator as any).userAgentData?.mobile) ||
@@ -1136,7 +1140,6 @@ export async function signInWithGoogle(): Promise<User | null> {
         await signInWithRedirect(auth, provider);
         return null;
       }
-      provider.setCustomParameters({ prompt: 'select_account' });
       const result = await signInWithPopup(auth, provider);
       await saveUserProfileToCloud(result.user).catch((profileErr) => {
         console.warn('Could not save Google profile after sign-in:', profileErr);

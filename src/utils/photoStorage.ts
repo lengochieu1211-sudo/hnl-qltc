@@ -47,6 +47,9 @@ export interface PhotoAttachment {
   deletedByUid?: string | null;
   deletedBy?: string | null;
   binaryUploadState?: 'pending' | 'ready' | 'deleted' | string;
+  // Local-only owner of the pending media mutation. This is intentionally distinct
+  // from createdByUid so another editor can safely edit media created by someone else.
+  pendingOwnerUid?: string;
   cloudSyncedAt?: number;
 }
 
@@ -117,7 +120,8 @@ async function getPendingPhotoMetadata(projectId: string): Promise<PhotoAttachme
       // same phone, account B must never inherit account A's pending-only metadata
       // and render a ghost placeholder before the Cloud binary is ready. Legacy
       // pending rows without createdByUid remain readable for one-time recovery.
-      if (item.createdByUid && item.createdByUid !== activeUid) continue;
+      const pendingOwnerUid = String(item.pendingOwnerUid || item.createdByUid || '');
+      if (pendingOwnerUid && pendingOwnerUid !== activeUid) continue;
       pending.push(item);
     }
     return pending;
@@ -128,7 +132,14 @@ async function getPendingPhotoMetadata(projectId: string): Promise<PhotoAttachme
 
 async function savePendingPhotoMetadata(photo: PhotoAttachment): Promise<void> {
   if (!photo?.id || !photo?.projectId) return;
-  const clean: PhotoAttachment = { ...photo, localUri: '', base64: undefined, dataUrl: undefined };
+  const pendingOwnerUid = getCurrentRealFirebaseUser()?.uid || photo.pendingOwnerUid || photo.createdByUid || '';
+  const clean: PhotoAttachment = {
+    ...photo,
+    pendingOwnerUid,
+    localUri: '',
+    base64: undefined,
+    dataUrl: undefined,
+  };
   await localforage.setItem(getPhotoPendingMetaKey(photo.id), clean);
 }
 

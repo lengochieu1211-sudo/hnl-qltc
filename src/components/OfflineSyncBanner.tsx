@@ -118,7 +118,7 @@ export const OfflineSyncBanner: React.FC<OfflineSyncBannerProps> = ({
         <div className="bg-emerald-950 text-emerald-200 border-b border-emerald-800 px-4 py-2 text-xs flex items-center justify-between gap-2 shadow-md animate-in slide-in-from-top-2">
           <div className="flex items-center gap-2">
             <Wifi className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span className="font-semibold text-white">{syncStatusMsg || '📶 Đã có kết nối Internet trở lại!'}</span>
+            <span className="font-semibold text-white">{syncStatusMsg || 'Đã có kết nối Internet trở lại!'}</span>
           </div>
           {onAutoSync && retryNeeded && (
             <button

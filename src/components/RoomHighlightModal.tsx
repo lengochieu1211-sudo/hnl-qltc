@@ -1939,7 +1939,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
               <div className="flex items-center gap-1.5 min-w-0">
                 <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
                 <span className="font-extrabold text-amber-950 text-xs truncate">
-                  📐 Tùy chỉnh kích thước &amp; tọa độ
+                  Tùy chỉnh kích thước &amp; tọa độ
                 </span>
               </div>
               <div className="flex items-center gap-1 text-amber-900 text-xs font-semibold shrink-0">

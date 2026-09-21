@@ -23,6 +23,8 @@ assert(!persistence.includes('indexedDBLocalPersistence'), 'Auth does not select
 assert(firebase.includes("export * from './firebaseBase'"), 'Firebase facade delegates all auth/data behavior to one implementation');
 assert(!firebase.includes('signInWithPopup(base.auth'), 'Firebase facade does not override Android browser transport separately');
 assert(firebaseBase.includes('signInWithRedirect(auth, provider)'), 'shared mobile auth implementation keeps redirect flow');
+assert(firebaseBase.includes("provider.setCustomParameters({ prompt: 'select_account' })"), 'Google sign-in always requests account chooser');
+assert(firebaseBase.indexOf("provider.setCustomParameters({ prompt: 'select_account' })") < firebaseBase.indexOf('signInWithRedirect(auth, provider)'), 'account chooser is configured before Android/mobile redirect starts');
 assert(firebaseBase.includes('signInWithPopup(auth, provider)'), 'shared desktop auth implementation keeps popup flow');
 assert(prodWorkflow.includes('VITE_FIREBASE_AUTH_DOMAIN: hnlqltc.web.app'), 'PROD Web Auth helper uses same Firebase Hosting origin');
 assert(prodWorkflow.includes('VITE_FIREBASE_PROJECT_ID: com-example-qlct-61329'), 'PROD Firebase project ID is unchanged');

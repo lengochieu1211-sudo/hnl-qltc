@@ -3333,7 +3333,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                           className="w-full py-2 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 rounded-xl font-extrabold flex items-center justify-center gap-1.5 text-[11px] transition-colors cursor-pointer shadow-xs active:scale-98"
                         >
                           <ArrowLeftRight className="w-3.5 h-3.5 text-indigo-600" />
-                          🔗 Chọn Tệp Trên Máy Để Liên Kết Auto-Save
+                          Chọn tệp trên máy để liên kết tự động lưu
                         </button>
                       </div>
                     )}

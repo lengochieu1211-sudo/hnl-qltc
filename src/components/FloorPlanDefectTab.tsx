@@ -922,6 +922,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     return saved;
   });
   const [activeDefectDetail, setActiveDefectDetail] = useState<DefectItem | null>(null);
+  const [relocatingDefectId, setRelocatingDefectId] = useState<string | null>(null);
 
   // Notification/deep-link navigation must work both when Mặt bằng is being mounted
   // and when it is ALREADY open. sessionStorage covers mount/reload; a custom event
@@ -999,6 +1000,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     if (!canEditDefects) {
       setShowDefectModal(false);
       setIsDefectPinPlacementMode(false);
+      setRelocatingDefectId(null);
       setPinPos(null);
     }
     if (!canDeleteDefects) {
@@ -1502,6 +1504,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   const handleRoomTouchStart = (e: React.TouchEvent, room: RoomProgressItem) => {
     e.stopPropagation();
+    // When Add/Move Defect is armed, room long-press/edit behavior must never
+    // compete with the pin placement click that follows this touch gesture.
+    if (isDefectPinPlacementMode || relocatingDefectId) return;
     if (!canManageStructure || e.touches.length !== 1) return;
     
     const touch = e.touches[0];
@@ -1614,7 +1619,80 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     touchStartPosRef.current = null;
   };
 
+  const commitDefectMapPlacement = (x: number, y: number): boolean => {
+    if (!canEditDefects) return false;
+
+    if (relocatingDefectId) {
+      const defect = defects.find((item) => item.id === relocatingDefectId && !item.archivedAt && !(item as any)?.deleted && !item.deletedAt);
+      if (!defect || !activeFloor || !onUpdateDefect) {
+        setRelocatingDefectId(null);
+        setCopyNotification('Không thể di chuyển Defect vì dữ liệu mục tiêu không còn sẵn sàng.');
+        window.setTimeout(() => setCopyNotification(null), 2200);
+        return true;
+      }
+      if (lockedDefectIds.has(defect.id)) {
+        setRelocatingDefectId(null);
+        setCopyNotification('🔒 Defect đang khóa vị trí. Mở khóa trước khi di chuyển ghim.');
+        window.setTimeout(() => setCopyNotification(null), 2200);
+        return true;
+      }
+
+      const placement = getCandidateTeamsForDefect(
+        { x, y },
+        floorRooms,
+        roomProgressList,
+        teams
+      );
+      const roomAtPoint = placement.roomAtPos;
+      // A moved pin should follow the destination room's durable team link first.
+      // This also covers legacy rooms where teamId exists but assignedTeam is blank,
+      // and rooms with exactly one uniquely assigned sub-item team.
+      const preferredTeam = String(placement.roomAtPosTeam || defect.assignedTo || '').trim();
+      const linkage = resolveDefectLinkageFromSelection(
+        { x, y },
+        preferredTeam,
+        floorRooms,
+        teams
+      );
+      const updated: DefectItem = {
+        ...defect,
+        floorId: activeFloor.id,
+        floorName: activeFloor.floorName,
+        x,
+        y,
+        ...linkage,
+      };
+      onUpdateDefect(updated);
+      setSelectedDefectIds([defect.id]);
+      setRelocatingDefectId(null);
+      setCopyNotification(`📍 Đã di chuyển ${getDefectShortCode(defect.id)}${roomAtPoint ? ` vào ${roomAtPoint.roomName}` : ''}.`);
+      window.setTimeout(() => setCopyNotification(null), 2200);
+      return true;
+    }
+
+    if (isDefectPinPlacementMode) {
+      setIsRoomPinPlacementMode(false);
+      setIsDefectPinPlacementMode(false);
+      openDefectModalForPin(x, y);
+      return true;
+    }
+
+    return false;
+  };
+
+  const tryHandleDefectPlacementEvent = (e: React.MouseEvent | React.PointerEvent): boolean => {
+    if (!isDefectPinPlacementMode && !relocatingDefectId) return false;
+    if (!imageContainerRef.current) return false;
+    e.stopPropagation();
+    const { x: rawX, y: rawY } = getMappedCoordinates(e, imageContainerRef.current, rotation);
+    const x = Math.min(100, Math.max(0, Math.round(rawX * 10) / 10));
+    const y = Math.min(100, Math.max(0, Math.round(rawY * 10) / 10));
+    lastPointerMapPosRef.current = { x, y };
+    return commitDefectMapPlacement(x, y);
+  };
+
   const handleRoomSelectClick = (e: React.MouseEvent | React.PointerEvent, room: RoomProgressItem) => {
+    if (tryHandleDefectPlacementEvent(e)) return;
     e.stopPropagation();
     if (touchHoldTimerRef.current) {
       clearTimeout(touchHoldTimerRef.current);
@@ -2908,6 +2986,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         if (e.key === 'Escape') {
           setDrawTool('none');
           setIsRoomPinPlacementMode(false);
+          setIsDefectPinPlacementMode(false);
+          setRelocatingDefectId(null);
           setSelectedRoomIds([]);
           setSelectedRoomForDragId(null);
         }
@@ -2985,6 +3065,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         setClickChoicePos(null);
         setIsRoomPinPlacementMode(false);
         setIsDefectPinPlacementMode(false);
+        setRelocatingDefectId(null);
         setSelectedRoomIds([]);
         setSelectedRoomForDragId(null);
       }
@@ -3471,6 +3552,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     room: RoomProgressItem,
     handle: 'move' | 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'w' | 'e' | number
   ) => {
+    // Defect placement has the highest interaction priority on the drawing.
+    // Even if a room was selected before entering Add/Move Defect mode, tapping
+    // one of its move/resize handles must place the Defect instead of dragging it.
+    if (tryHandleDefectPlacementEvent(e)) return;
     if (!canManageStructure) return;
     e.stopPropagation();
     if (e.cancelable) e.preventDefault();
@@ -3964,9 +4049,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       setClickChoicePos(null);
       setTouchMenu(null);
       setHoveredRoomId(null);
-      if (canEditDefects && isDefectPinPlacementMode) {
-        setIsDefectPinPlacementMode(false);
-        openDefectModalForPin(x, y);
+      if (canEditDefects && (isDefectPinPlacementMode || relocatingDefectId)) {
+        commitDefectMapPlacement(x, y);
       }
       return;
     }
@@ -3985,10 +4069,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
     // Defect pin placement is explicit: press "+ Defect" first, then tap the exact location.
     // This prevents accidental defect creation while panning/inspecting the drawing.
-    if (isDefectPinPlacementMode) {
-      setIsRoomPinPlacementMode(false);
-      setIsDefectPinPlacementMode(false);
-      openDefectModalForPin(x, y);
+    if (isDefectPinPlacementMode || relocatingDefectId) {
+      commitDefectMapPlacement(x, y);
       return;
     }
 
@@ -4736,7 +4818,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           <div className="flex items-start gap-2.5">
             <AlertTriangle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5 animate-pulse" />
             <div className="text-xs space-y-0.5">
-              <span className="font-extrabold block text-rose-800">⚠️ Phát hiện {orphanedRooms.length} mặt bằng phòng ẩn!</span>
+              <span className="font-extrabold block text-rose-800">Phát hiện {orphanedRooms.length} mặt bằng phòng ẩn!</span>
               <p className="text-rose-700 leading-relaxed font-medium">
                 Các phòng này bị mất liên kết (không thuộc về bất kỳ tầng hiện tại nào) do thay đổi tầng hoặc dữ liệu cũ.
               </p>
@@ -5136,8 +5218,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   type="button"
                   onClick={() => {
                     setIsRoomPinPlacementMode(false);
+                    setRelocatingDefectId(null);
                     setDrawTool('none');
                     setPinPos(null);
+                    setSelectedRoomIds([]);
+                    setSelectedRoomForDragId(null);
+                    setTouchMenu(null);
                     setIsDefectPinPlacementMode((active) => !active);
                   }}
                   className={`text-xs font-bold px-3 py-2 sm:py-1.5 rounded-xl flex items-center justify-center gap-1.5 shadow-xs active:scale-95 transition-all min-w-0 ${
@@ -5153,6 +5239,22 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               )}
             </div>
           </div>
+
+          {relocatingDefectId && (() => {
+            const movingDefect = defects.find((item) => item.id === relocatingDefectId);
+            return (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-900">
+                <span>📍 Đang di chuyển {movingDefect ? getDefectShortCode(movingDefect.id) : 'Defect'} · chạm đúng vị trí mới trên mặt bằng/Highlight Căn.</span>
+                <button
+                  type="button"
+                  onClick={() => setRelocatingDefectId(null)}
+                  className="rounded-lg border border-amber-300 bg-white px-2.5 py-1 font-black text-amber-800 hover:bg-amber-100"
+                >
+                  Hủy di chuyển
+                </button>
+              </div>
+            );
+          })()}
 
           {/* Dedicated Drawing & View Controls Toolbar */}
           {canManageStructure && (viewMode === 'highlight' || viewMode === 'all') && (
@@ -5536,7 +5638,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   className="bg-slate-950 hover:bg-slate-900 text-amber-300 text-xs font-black px-3 py-1.5 rounded-xl shadow transition-all active:scale-95 flex items-center justify-center gap-1 cursor-pointer flex-1 min-w-[160px] sm:flex-none"
                 >
                   <Edit2 className="w-3.5 h-3.5" />
-                  ✓ Bắt Đầu Cấu Hình
+                  Bắt đầu cấu hình
                 </button>
                 <button
                   type="button"
@@ -5700,8 +5802,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       <button
                         type="button"
                         onClick={() => {
+                          setIsRoomPinPlacementMode(false);
+                          setRelocatingDefectId(null);
                           setDrawTool('none');
                           setPinPos(null);
+                          setSelectedRoomIds([]);
+                          setSelectedRoomForDragId(null);
+                          setTouchMenu(null);
                           setIsDefectPinPlacementMode((active) => !active);
                         }}
                         className={`text-[11px] font-black px-2.5 py-1 rounded-xl flex items-center gap-1 shadow-xs shrink-0 ${
@@ -5841,7 +5948,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         className="bg-slate-950 hover:bg-slate-900 text-amber-300 text-xs font-black px-3 py-1.5 rounded-xl shadow transition-all active:scale-95 flex items-center justify-center gap-1 cursor-pointer flex-1 min-w-[160px] sm:flex-none"
                       >
                         <Edit2 className="w-3.5 h-3.5" />
-                        ✓ Bắt Đầu Cấu Hình
+                        Bắt đầu cấu hình
                       </button>
                       <button
                         type="button"
@@ -5882,7 +5989,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   <div className="bg-amber-500 text-slate-950 p-2 rounded-2xl text-xs font-bold flex items-center justify-between gap-2 border border-amber-300 shadow-xl">
                     <div className="flex items-center gap-1.5 w-full sm:w-auto">
                       <Pencil className="w-3.5 h-3.5 shrink-0" />
-                      <span>💡 <strong>Kéo Vẽ tự do:</strong> Nhấn giữ & rê chuột/ngón tay khoanh vùng bất kỳ. Nhả tay để chốt!</span>
+                      <span><strong>Kéo vẽ tự do:</strong> Nhấn giữ & rê chuột/ngón tay khoanh vùng bất kỳ. Nhả tay để chốt!</span>
                     </div>
                     <button
                       type="button"
@@ -5919,7 +6026,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       <div className="flex items-center gap-1.5">
                         <Sparkles className="w-3.5 h-3.5 shrink-0 animate-spin" />
                         <span>
-                          📐 <strong>Đang vẽ lại vùng cho căn "{redrawingRoomTarget.roomName}":</strong>{' '}
+                          <strong>Đang vẽ lại vùng cho căn "{redrawingRoomTarget.roomName}":</strong>{' '}
                           {drawTool === 'freehand' && 'Nhấn giữ & rê ngón tay/chuột để vẽ tự do. Nhả tay để lưu!'}
                           {drawTool === 'polygon' && `Chấm từng điểm góc đa giác mới (Đã chấm ${polygonPoints.length} góc). Bấm nút Chốt để lưu!`}
                           {drawTool === '2point' && 'Bấm 2 điểm đối góc trên mặt bằng để vẽ khung hình chữ nhật!'}
@@ -6955,6 +7062,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         type="button"
                         onPointerDown={(e) => e.stopPropagation()}
                         onClick={(e) => {
+                          if (tryHandleDefectPlacementEvent(e)) return;
                           e.stopPropagation();
                           setActiveDefectDetail(defect);
                         }}
@@ -6966,6 +7074,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       <div
                         onPointerDown={(e) => e.stopPropagation()}
                         onClick={(e) => {
+                          if (tryHandleDefectPlacementEvent(e)) return;
                           e.stopPropagation();
                           setActiveDefectDetail(defect);
                         }}
@@ -7034,8 +7143,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           onClick={() => handlePasteRoom(clickChoicePos.x, clickChoicePos.y, false)}
                           className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-xs font-black rounded-xl flex items-center justify-center gap-1.5 shadow-xs active:scale-95 transition-all border border-indigo-400 cursor-pointer"
                         >
-                          <Check className="w-3.5 h-3.5" />
-                          <span>📋 Dán thường (Tạo Bản Sao)</span>
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>Dán thường (tạo bản sao)</span>
                         </button>
                         <button
                           type="button"
@@ -7043,8 +7152,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white text-xs font-black rounded-xl flex items-center justify-center gap-1.5 shadow-xs active:scale-95 transition-all border border-emerald-400 cursor-pointer"
                           title="Giữ nguyên tên gốc, ghi đè/cập nhật nếu trùng tên"
                         >
-                          <Check className="w-3.5 h-3.5" />
-                          <span>📝 Dán đè (Giữ nguyên tên)</span>
+                          <Edit2 className="w-3.5 h-3.5" />
+                          <span>Dán đè (giữ nguyên tên)</span>
                         </button>
                       </div>
                     )}
@@ -8572,6 +8681,35 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       <MapPin className="w-3 h-3 text-indigo-600" />
                       <span>Xem vị trí trên mặt bằng</span>
                     </button>
+                    {canEditDefects && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (lockedDefectIds.has(activeDefectDetail.id)) {
+                            setCopyNotification('🔒 Defect đang khóa vị trí. Mở khóa trước khi di chuyển ghim.');
+                            window.setTimeout(() => setCopyNotification(null), 2200);
+                            return;
+                          }
+                          const targetFp = floorPlans.find(f => f.id === activeDefectDetail.floorId || f.floorName === activeDefectDetail.floorName);
+                          if (targetFp && targetFp.id !== selectedFloorId) setSelectedFloorId(targetFp.id);
+                          setViewMode('all');
+                          setMapLayers((prev) => ({ ...prev, defects: true, roomRegions: true, roomLabels: true }));
+                          setIsRoomPinPlacementMode(false);
+                          setIsDefectPinPlacementMode(false);
+                          setDrawTool('none');
+                          setSelectedRoomIds([]);
+                          setSelectedRoomForDragId(null);
+                          setSelectedDefectIds([activeDefectDetail.id]);
+                          setRelocatingDefectId(activeDefectDetail.id);
+                          setActiveDefectDetail(null);
+                        }}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-800 rounded-lg text-[11px] font-black transition-all shadow-2xs shrink-0"
+                        title="Chọn vị trí mới cho ghim; hệ thống tự cập nhật liên kết Căn/Phòng và Đội theo vị trí mới"
+                      >
+                        <Move className="w-3 h-3" />
+                        <span>Di chuyển ghim</span>
+                      </button>
+                    )}
                   </div>
                 </div>
 

@@ -11,6 +11,7 @@ const editor = read('src/components/ImageEditorModal.tsx');
 const picker = read('src/components/PhotoAttachmentPicker.tsx');
 const defect = read('src/components/FloorPlanDefectTab.tsx');
 const storage = read('src/utils/photoStorage.ts');
+const cloudSync = read('src/lib/photoCloudSync.ts');
 
 for (const marker of [
   'type="button"',
@@ -32,6 +33,7 @@ for (const marker of [
   'ZoomOut',
   'Maximize2',
   'Di chuyển / Zoom',
+  'PINCH_GESTURE_ROLLBACK',
 ]) {
   if (!editor.includes(marker)) fail(`ImageEditorModal missing ${marker}`);
 }
@@ -46,13 +48,20 @@ pass('tool buttons are non-submit, Vietnamese IME is guarded, and editor opens i
 for (const marker of [
   'preserveEncodedSource?: boolean',
   'options.preserveEncodedSource && imageSource instanceof Blob',
+  'pendingOwnerUid?: string',
+  "photo.pendingOwnerUid || photo.createdByUid",
 ]) {
   if (!storage.includes(marker)) fail(`photoStorage missing ${marker}`);
 }
 if (!picker.includes('preserveEncodedSource: true')) fail('PhotoAttachmentPicker still re-encodes edited attachment output');
-if (!picker.includes('void uploadPhotoToCloud(projectId, editedPhotoMeta)')) fail('PhotoAttachmentPicker edited Cloud upload is not background/local-first');
+if (picker.includes('void uploadPhotoToCloud(projectId, editedPhotoMeta)')) fail('PhotoAttachmentPicker edited Cloud upload is still fire-and-forget');
+if (!picker.includes('await uploadPhotoToCloud(projectId, editedPhotoMeta)')) fail('PhotoAttachmentPicker edited Cloud upload does not await durable upload');
+if (!picker.includes("const retryDelays = [0, 400, 1200, 2500]")) fail('PhotoAttachmentPicker edited Cloud upload lacks bounded retry');
+if (!picker.includes('cloudReady = await verifyPhotoBinaryReadyInCloud(projectId, photoId)')) fail('PhotoAttachmentPicker edited Cloud upload lacks ready verification');
+if (!picker.includes('} finally {\n      setUploading(false);')) fail('PhotoAttachmentPicker edited save can leave upload state stuck');
 if (!picker.includes("imageKind={entityType === 'defect' ? 'defect' : 'crew'}")) fail('PhotoAttachmentPicker does not pass Crew/Defect quality profile to editor');
-pass('edited attachment save is single-encode and local-first');
+if (!cloudSync.includes('delete copy.pendingOwnerUid')) fail('Local pending media owner must not leak into Firestore metadata');
+pass('edited attachment save is single-encode, account-safe local-first and waits for verified Cloud readiness while online');
 
 if (!defect.includes('let photoResultUrl = await readFileAsDataUrl(editedFile);')) {
   fail('legacy Defect editor still recompresses the already-edited file');

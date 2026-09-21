@@ -137,7 +137,8 @@ requireAll(photoStorage, [
   'downloadPhotoBlobFromCloud',
   'projectPhotoListMemoryCacheOwner',
   'getPhotoRuntimeAuthKey',
-  'item.createdByUid && item.createdByUid !== activeUid',
+  'item.pendingOwnerUid || item.createdByUid',
+  'pendingOwnerUid,',
   'Never hand an opaque `r2:` / `storage:` / `firestore:` reference to <img src>',
 ], 'cross-account photo binary resolver + same-phone account isolation');
 requireAll(photoSync, [
@@ -184,6 +185,7 @@ requireAll(photoSync, ['lastErrorPhotoId', 'photoSyncErrorCode', "area: 'photo-s
 requireAll(photoStorage, ['getProjectPhotoDiagnosticSnapshot', 'localBinaryCount', 'checksumPrefix', 'belongsToCurrentUploader'], 'photo diagnostics export contains metadata/outbox evidence without binary payload');
 requireAll(app, ['qlct-defect-navigation-request', "area: 'defect-navigation'", "code: 'REQUEST'"], 'Defect notification navigation dispatches same-tab event plus storage fallback');
 requireAll(floorPlanDefect, ['qlct-defect-navigation-request', "code: 'OPEN_TARGET'", 'requestedFloor=', 'pendingCount', "getEntityPhotos(projectId, 'defect', defect.id)"], 'Defect view consumes same-tab deep-link and opens defect-wide photo gallery with Cloud pending state');
+requireAll(floorPlanDefect, ['tryHandleDefectPlacementEvent', 'relocatingDefectId', '<span>Di chuyển ghim</span>', 'const placement = getCandidateTeamsForDefect(', 'const roomAtPoint = placement.roomAtPos;', 'placement.roomAtPosTeam || defect.assignedTo', '...linkage'], 'Defect pin placement wins over room highlight hit-testing and explicit relocation recomputes durable linkage');
 requireAll(imageViewer, ['swipeStartRef', 'Math.abs(dx) < 48', 'handleNext()', 'handlePrev()'], 'image viewer supports one-finger horizontal gallery swipe while preserving pinch zoom');
 requireAll(chatTab, ['ensureDraftAttachmentsCloudReady', 'verifyPhotoBinaryReadyInCloud', 'Ảnh đang chờ Cloud/R2', 'ImageViewerModal', 'openMessageImageGallery'], 'chat shows Cloud state, blocks message publication until photo is durable, and opens multi-image gallery');
 requireAll(imageViewer, ['Tải xuống', 'Chia sẻ', 'handleDownload', 'handleShare', 'saveBlobToDownloads', 'sharePreparedContent', 'allowTextFallback: false'], 'opened image viewer exposes download/share actions without cluttering thumbnails');

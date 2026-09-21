@@ -39,6 +39,21 @@ const security = read('src/components/SecurityModal.tsx');
 assert(security.includes('Tài khoản Google/Firebase'), 'Security Center must own Google/Firebase account entry');
 assert(security.includes('handleAccountSignIn'), 'Security Center sign-in handler missing');
 assert(security.includes('handleAccountSignOut'), 'Security Center sign-out handler missing');
+assert(security.includes('PIN được lưu theo dạng bảo mật một chiều'), 'PIN help text must explain one-way storage in plain Vietnamese.');
+assert(security.includes('Không có mã PIN chung hoặc PIN đặc biệt để mở khóa.'), 'PIN help text must clearly state there is no master/common PIN.');
+assert(security.includes('Quên PIN? Đặt lại bằng Google'), 'PIN recovery copy must use the plain Google-account wording.');
+assert(!security.includes('Mã PIN chỉ dùng để khóa màn hình ứng dụng trên thiết bị và được băm 1 chiều PBKDF2 SHA-256.'), 'User-facing PIN help must not expose PBKDF2/SHA-256 jargon.');
+const appLockOverlay = read('src/components/AppLockOverlay.tsx');
+assert(appLockOverlay.includes('Quên PIN? Đặt lại bằng Google'), 'Locked-screen PIN recovery must match Security Center wording.');
+assert(!appLockOverlay.includes('<span>Quên mã PIN? Đặt lại bằng Google Auth</span>'), 'Locked-screen PIN recovery must not expose Google Auth jargon.');
+
+const windowsSyncBridge = read('src/components/WindowsDesktopSyncBridgeCard.tsx');
+assert(windowsSyncBridge.includes('Hệ thống tự kiểm tra:'), 'Windows pending-file help must explain checks in plain language.');
+assert(windowsSyncBridge.includes('Nếu có lỗi:'), 'Windows pending-file help must explain fail-safe behavior in plain language.');
+assert(windowsSyncBridge.includes('thử lại tối đa 50 mục mỗi lần'), 'Windows pending-file help must retain the 50-item retry limit.');
+for (const jargon of ['Cấu trúc staging:', 'Fail-closed:', 'attemptToken/photoId', 'không tạo ACK', 'Cloud-verified', 'Firebase Auth/RBAC + R2 upload']) {
+  assert(!windowsSyncBridge.includes(jargon), `Windows user help still exposes technical jargon: ${jargon}`);
+}
 
 const signOutPrompt = 'Bạn có chắc muốn đăng xuất tài khoản Google/Firebase không?';
 const globalConfirm = read('src/components/GlobalConfirmModal.tsx');
@@ -116,6 +131,9 @@ assert(warehouse.includes('Tìm theo tên, nhóm hoặc đơn vị...'), 'Wareho
 assert(warehouse.includes('normalizeMaterialSearch') && warehouse.includes(".normalize('NFD')"), 'Warehouse material search must ignore Vietnamese accents/case.');
 assert(warehouse.includes('filteredMaterialNorms.slice(0, 20).map') && warehouse.includes('onClick={() => {') && warehouse.includes("setMaterialPickerSearch('');"), 'Warehouse material search must render clickable autocomplete results instead of only filtering a native select.');
 assert(warehouse.includes('Lưu & thêm tiếp') && warehouse.includes("value=\"continue\""), 'Warehouse create flow must support save-and-continue multi-item entry.');
+assert(warehouse.includes('Vị trí kho / tầng <span className="font-medium text-slate-400">(không bắt buộc)</span>'), 'Warehouse location is visibly optional and must not silently block submit.');
+assert(warehouse.includes('Người Giao / Nhận <span className="font-medium text-slate-400">(không bắt buộc)</span>'), 'Warehouse handler is visibly optional when no responsible engineer is configured.');
+assert(warehouse.includes('location: location.trim()') && warehouse.includes('handler: handler.trim()'), 'Warehouse optional text fields are normalized before persistence.');
 assert(warehouse.includes('const keepOpen = !editingInventory'), 'Warehouse save-and-continue must keep one create session open.');
 assert(!warehouse.includes("useState('Kho Tầng 1')"), 'Warehouse must not hard-code Kho Tầng 1 as a fake location default.');
 assert(!warehouse.includes("useState('Nguyễn Văn Hùng (Thủ kho)')"), 'Warehouse must not hard-code a fake warehouse handler.');
@@ -147,6 +165,23 @@ assert(!defectUi.includes('label="📷 Ảnh Báo Lỗi Ban Đầu (Trước S�
 assert(!defectUi.includes('label="🛠️ Ảnh Bằng Chứng Sau Khi Sửa (Tùy Chọn)"'), 'Defect after-photo label must not duplicate picker iconography with an emoji');
 assert((defectUi.match(/label="Ảnh Báo Lỗi Ban Đầu \(Trước Sửa\)"/g) || []).length >= 2, 'Defect before-photo label must remain available in create/detail flows');
 assert((defectUi.match(/label="Ảnh Bằng Chứng Sau Khi Sửa \(Tùy Chọn\)"/g) || []).length >= 2, 'Defect after-photo label must remain available in create/detail flows');
+
+assert(!defectUi.includes('✓ Bắt Đầu Cấu Hình'), 'Floor-plan action must not show a second check symbol beside the Edit icon.');
+assert(!defectUi.includes('<span>💡 <strong>Kéo Vẽ tự do:'), 'Freehand banner must not show a second leading symbol beside the Pencil icon.');
+assert(!defectUi.includes('📐 <strong>Đang vẽ lại vùng cho căn'), 'Redraw banner must not show a second leading symbol beside its Lucide icon.');
+assert(!defectUi.includes('<span>📋 Dán thường') && !defectUi.includes('<span>📝 Dán đè'), 'Paste actions must use one icon system, not Lucide plus emoji.');
+const checklistUi = read('src/components/ChecklistTab.tsx');
+const workVolumeUi = read('src/components/WorkVolumeTab.tsx');
+const warehouseUi = read('src/components/WarehouseTab.tsx');
+const offlineBannerUi = read('src/components/OfflineSyncBanner.tsx');
+const roomHighlightUi = read('src/components/RoomHighlightModal.tsx');
+for (const source of [checklistUi, workVolumeUi]) {
+  assert(!source.includes('🚨 Quá hạn') && !source.includes('⏰ Hạn hôm nay') && !source.includes('🔔 Còn {diffDays} ngày'), 'Due-date badges must not duplicate Lucide status icons with emoji.');
+}
+assert(!warehouseUi.includes('🚨 Cảnh Báo Vật Tư') && !warehouseUi.includes('⚠️ Cảnh báo định mức nhập kho'), 'Warehouse warning headings must not duplicate warning icons with emoji.');
+assert(!offlineBannerUi.includes("'📶 Đã có kết nối Internet trở lại!'"), 'Reconnect banner must not duplicate the Wifi icon with an emoji.');
+assert(!roomHighlightUi.includes('📐 Tùy chỉnh kích thước &amp; tọa độ'), 'Room dimension settings must not duplicate the section icon with an emoji.');
+assert(!projectManager.includes('🔗 Chọn Tệp Trên Máy Để Liên Kết Auto-Save'), 'Project Manager link action must not duplicate its Lucide icon with an emoji.');
 
 const hostedBrowserGolden = read('scripts/dev-hosted-browser-golden.mjs');
 assert(hostedBrowserGolden.includes('five Settings cards share one design system'), 'Hosted browser Golden must verify all five Settings cards share one design system');

@@ -1019,8 +1019,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       materialName: finalMaterialName,
       unit: normalizedFinalUnit,
       quantity: finalQuantity,
-      location,
-      handler,
+      location: location.trim(),
+      handler: handler.trim(),
       date,
       notes,
     };
@@ -1342,7 +1342,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           <div className="flex items-center gap-1.5 text-amber-800">
             <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 animate-pulse" />
             <span className="text-xs font-extrabold uppercase tracking-wider">
-              🚨 Cảnh Báo Vật Tư Thiếu So Với Nhu Cầu ({lowStockItems.length})
+              Cảnh báo vật tư thiếu so với nhu cầu ({lowStockItems.length})
             </span>
           </div>
           <p className="text-[11px] text-amber-700 leading-normal">
@@ -1387,7 +1387,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           <div className="flex items-center gap-1.5 text-indigo-800">
             <AlertTriangle className="w-5 h-5 text-indigo-600 shrink-0" />
             <span className="text-xs font-extrabold uppercase tracking-wider text-indigo-900">
-              ⚠️ Cảnh báo định mức nhập kho ({quotaWarnings.length})
+              Cảnh báo định mức nhập kho ({quotaWarnings.length})
             </span>
           </div>
           <p className="text-[11px] text-indigo-700 leading-normal">
@@ -1938,25 +1938,23 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               {/* Location & Handler */}
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-slate-700 font-bold mb-1">Vị trí kho / tầng</label>
+                  <label className="block text-slate-700 font-bold mb-1">Vị trí kho / tầng <span className="font-medium text-slate-400">(không bắt buộc)</span></label>
                   <input
                     type="text"
                     value={location}
                     onChange={(e) => setLocation(e.target.value)}
                     placeholder="Ví dụ: Kho tầng trệt, Kho A..."
                     className="w-full border border-slate-200 rounded-xl p-2.5"
-                    required
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-700 font-bold mb-1">Người Giao / Nhận</label>
+                  <label className="block text-slate-700 font-bold mb-1">Người Giao / Nhận <span className="font-medium text-slate-400">(không bắt buộc)</span></label>
                   <input
                     type="text"
                     value={handler}
                     onChange={(e) => setHandler(e.target.value)}
                     placeholder={defaultHandler ? 'Lấy từ Kỹ sư phụ trách · có thể sửa' : 'Nhập người giao / nhận'}
                     className="w-full border border-slate-200 rounded-xl p-2.5"
-                    required
                   />
                 </div>
               </div>
