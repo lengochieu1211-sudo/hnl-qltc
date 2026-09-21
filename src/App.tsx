@@ -651,9 +651,11 @@ export default function App() {
         : null;
 
       // Firestore persistence can fail closed to memory-only on some WebView2/IndexedDB
-      // states. Keep a separate identity-bound, read-only last-known-good snapshot so an
-      // offline cold restart never looks like the project was erased. It is never used
-      // online and is never uploaded back to Cloud automatically.
+      // states. Keep a separate identity-bound last-known-good snapshot so an offline
+      // cold restart never looks like the project was erased. When an already-verified
+      // EDITOR/ADMIN works from this fallback, only diffs relative to this snapshot are
+      // queued into Firestore's official persistent mutation queue; the snapshot itself
+      // never becomes a second Cloud authority.
       const offlineIdentity = FIREBASE_ONLY_RUNTIME && !isOnline
         ? (getCurrentRealFirebaseUser() || getRememberedVerifiedAuthIdentity())
         : null;
@@ -829,9 +831,10 @@ export default function App() {
         contractorName: loadedContractor,
         inspectorName: loadedInspector
       };
-      // Only the official Firestore cache is a writable synchronized baseline. The
-      // verified offline snapshot is intentionally read-only until Cloud reconnects.
-      lastSyncedPresentRef.current = firestoreCached?.found && !useVerifiedOfflineSnapshot ? initialState : null;
+      // Both the official Firestore cache and the identity-bound verified snapshot are
+      // valid diff baselines. Using the snapshot as a baseline is critical: offline edits
+      // queue only records changed by the user instead of re-uploading the whole snapshot.
+      lastSyncedPresentRef.current = (firestoreCached?.found || useVerifiedOfflineSnapshot) ? initialState : null;
       hasUserEditedSinceHydrateRef.current = false;
       setIsHydrated(true);
       console.log(
@@ -2655,9 +2658,9 @@ export default function App() {
 
   // Helper to push state changes to history (max 30 steps) and stamp item updatedAt
   const updateAppData = (updater: (prev: AppData) => AppData) => {
-    if (FIREBASE_ONLY_RUNTIME && businessDataSource === 'verified-offline-snapshot') {
-      console.warn('[Firebase-only] Verified offline cold-start snapshot is read-only until Cloud reconnects.');
-      alert('Đang dùng bản chụp offline đã xác minh để tránh mất hiển thị dữ liệu khi EXE khởi động không mạng. Kết nối mạng lại trước khi chỉnh sửa để tránh tạo thay đổi không bền vững.');
+    if (FIREBASE_ONLY_RUNTIME && businessDataSource === 'verified-offline-snapshot' && !getCurrentRealFirebaseUser()) {
+      console.warn('[Firebase-only] Verified snapshot edit blocked because Firebase Auth session is unavailable.');
+      alert('Dữ liệu offline đã khôi phục nhưng phiên đăng nhập Firebase chưa sẵn sàng. Hãy mở ứng dụng một lần khi có mạng để xác minh tài khoản trước khi chỉnh sửa offline.');
       return;
     }
     if (FIREBASE_ONLY_RUNTIME && businessDataSource === 'legacy-migration-fallback') {
@@ -4127,13 +4130,14 @@ export default function App() {
     if (!cloudUserKey) return;
 
     // Online writes wait for the full 9-dataset bootstrap. Offline writes are different:
-    // once the project was hydrated from Firestore cache and the exact user+project role
-    // lease is verified, mutations must be queued immediately into Firestore persistence.
-    // Otherwise an offline edit could exist only in React RAM and disappear on reload.
+    // once the project was hydrated from Firestore cache OR an identity-bound verified
+    // snapshot and the exact user+project role lease is verified, mutations must enter
+    // Firestore persistence immediately. Snapshot mode uses lastSyncedPresentRef as its
+    // baseline so only user diffs are queued, never the whole last-known-good snapshot.
     const canQueueOfflineFirestoreWrite = FIREBASE_ONLY_RUNTIME
       && !isOnline
       && (projectRoleSource === 'offline-cache' || projectRoleSource === 'cloud')
-      && (businessDataSource === 'firestore-cache' || businessDataSource === 'cloud');
+      && (businessDataSource === 'firestore-cache' || businessDataSource === 'cloud' || businessDataSource === 'verified-offline-snapshot');
     const canWriteOnline = isOnline && projectRoleSource === 'cloud' && cloudInitialReady;
     if (!canWriteOnline && !canQueueOfflineFirestoreWrite) return;
 
@@ -6477,7 +6481,7 @@ export default function App() {
         />
 
         {/* Offline & Sync Status Banner */}
-        <OfflineSyncBanner onAutoSync={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleSyncAll : undefined} isSyncing={isSyncing} userRole={currentUserRole} roleResolved={isProjectRoleResolved} roleSource={projectRoleSource} firestorePendingWriteCount={firestorePendingWriteCount} firebaseOnly={FIREBASE_ONLY_RUNTIME} verifiedSnapshotReadOnly={businessDataSource === 'verified-offline-snapshot'} />
+        <OfflineSyncBanner onAutoSync={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleSyncAll : undefined} isSyncing={isSyncing} userRole={currentUserRole} roleResolved={isProjectRoleResolved} roleSource={projectRoleSource} firestorePendingWriteCount={firestorePendingWriteCount} firebaseOnly={FIREBASE_ONLY_RUNTIME} verifiedSnapshotFallback={businessDataSource === 'verified-offline-snapshot'} />
 
         {/* Tab Content */}
         <main className="animate-in fade-in duration-150">
