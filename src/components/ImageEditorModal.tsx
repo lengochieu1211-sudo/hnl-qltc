@@ -197,7 +197,7 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
   };
 
   const updatePinchState = () => {
-    const touches = Array.from(pointerMapRef.current.values());
+    const touches = Array.from(pointerMapRef.current.values()) as Array<{ x: number; y: number }>;
     if (touches.length < 2) {
       pinchRef.current = null;
       return;
@@ -339,7 +339,7 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
       updatePinchState();
       const pinch = pinchRef.current;
       if (pinch) {
-        const touches = Array.from(pointerMapRef.current.values());
+        const touches = Array.from(pointerMapRef.current.values()) as Array<{ x: number; y: number }>;
         const [a, b] = touches;
         const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
         const distance = Math.max(1, Math.hypot(b.x - a.x, b.y - a.y));
