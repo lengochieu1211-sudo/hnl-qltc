@@ -449,19 +449,19 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between overflow-x-auto no-scrollbar gap-2">
             <div className="flex gap-1 shrink-0">
-              <button type="button" disabled={isSaving || isImageLoading} onClick={() => selectTool('draw')} className={toolButtonClass('draw')} title="Vẽ tự do" aria-label="Vẽ tự do">
+              <button type="button" disabled={isSaving || isImageLoading} onClick={() => selectTool('draw')} className={toolButtonClass('draw')} title="Vẽ tự do" aria-label="Vẽ tự do" aria-pressed={activeTool === 'draw'}>
                 <Pencil className="w-5 h-5" />
               </button>
-              <button type="button" disabled={isSaving || isImageLoading} onClick={() => selectTool('arrow')} className={toolButtonClass('arrow')} title="Mũi tên" aria-label="Mũi tên">
+              <button type="button" disabled={isSaving || isImageLoading} onClick={() => selectTool('arrow')} className={toolButtonClass('arrow')} title="Mũi tên" aria-label="Mũi tên" aria-pressed={activeTool === 'arrow'}>
                 <ArrowRight className="w-5 h-5" />
               </button>
-              <button type="button" disabled={isSaving || isImageLoading} onClick={() => selectTool('rect')} className={toolButtonClass('rect')} title="Khung chữ nhật" aria-label="Khung chữ nhật">
+              <button type="button" disabled={isSaving || isImageLoading} onClick={() => selectTool('rect')} className={toolButtonClass('rect')} title="Khung chữ nhật" aria-label="Khung chữ nhật" aria-pressed={activeTool === 'rect'}>
                 <Square className="w-5 h-5" />
               </button>
-              <button type="button" disabled={isSaving || isImageLoading} onClick={() => selectTool('cloud')} className={toolButtonClass('cloud')} title="Cloud đánh dấu" aria-label="Cloud đánh dấu">
+              <button type="button" disabled={isSaving || isImageLoading} onClick={() => selectTool('cloud')} className={toolButtonClass('cloud')} title="Cloud đánh dấu" aria-label="Cloud đánh dấu" aria-pressed={activeTool === 'cloud'}>
                 <Cloud className="w-5 h-5" />
               </button>
-              <button type="button" disabled={isSaving || isImageLoading} onClick={() => selectTool('text')} className={toolButtonClass('text')} title="Chèn chữ" aria-label="Chèn chữ">
+              <button type="button" disabled={isSaving || isImageLoading} onClick={() => selectTool('text')} className={toolButtonClass('text')} title="Chèn chữ" aria-label="Chèn chữ" aria-pressed={activeTool === 'text'}>
                 <Type className="w-5 h-5" />
               </button>
             </div>
