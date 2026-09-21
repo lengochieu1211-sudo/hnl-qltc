@@ -440,7 +440,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
             <div className="flex items-center justify-between gap-2">
               <div>
                 <div className="text-xs font-extrabold text-slate-800">Thông báo hệ thống</div>
-                <div className="text-[10px] text-slate-500">Chỉ hiển thị sự kiện thật từ nhật ký Cloud của dự án.</div>
+                <div className="text-[10px] text-slate-500">Chỉ hiển thị sự kiện thật từ nhật ký Cloud của dự án. Không tạo thông báo giả.</div>
               </div>
               <button
                 type="button"
