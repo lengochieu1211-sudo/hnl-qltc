@@ -669,12 +669,20 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     return null;
   }, [quantityStr]);
 
-  const normalizedMaterialPickerSearch = materialPickerSearch.trim().toLocaleLowerCase('vi-VN');
+  const normalizeMaterialSearch = (value: unknown) => String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLocaleLowerCase('vi-VN')
+    .trim();
+
+  const normalizedMaterialPickerSearch = normalizeMaterialSearch(materialPickerSearch);
   const filteredMaterialNorms = useMemo(() => {
     if (!normalizedMaterialPickerSearch) return materialNorms;
     return materialNorms.filter((item) => {
       const haystack = [item.materialName, item.category, item.unit]
-        .map((value) => String(value || '').toLocaleLowerCase('vi-VN'))
+        .map(normalizeMaterialSearch)
         .join(' ');
       return haystack.includes(normalizedMaterialPickerSearch);
     });
@@ -1798,7 +1806,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               <div className="space-y-1.5">
                 <label className="block text-slate-700 font-bold">Chọn vật tư</label>
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                  <Search className="absolute left-3 top-3 w-4 h-4 text-slate-400 pointer-events-none" />
                   <input
                     ref={materialSearchRef}
                     type="search"
@@ -1806,14 +1814,44 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     onChange={(e) => setMaterialPickerSearch(e.target.value)}
                     placeholder="Tìm theo tên, nhóm hoặc đơn vị..."
                     className="w-full bg-white border border-slate-200 rounded-xl py-2.5 pl-9 pr-3 text-slate-800"
+                    autoComplete="off"
                   />
+                  {normalizedMaterialPickerSearch && filteredMaterialNorms.length > 0 && (
+                    <div className="absolute left-0 right-0 top-full mt-1 z-30 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+                      {filteredMaterialNorms.slice(0, 20).map((m) => (
+                        <button
+                          type="button"
+                          key={m.id}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            setMaterialName(m.materialName);
+                            setUnit(m.unit);
+                            setCustomMaterial('');
+                            setMaterialPickerSearch('');
+                          }}
+                          className="w-full px-3 py-2 text-left hover:bg-indigo-50 border-b border-slate-100 last:border-b-0"
+                        >
+                          <div className="text-xs font-bold text-slate-800">{m.materialName}</div>
+                          <div className="text-[10px] text-slate-500">{m.category || 'Vật tư'} · {m.unit}</div>
+                        </button>
+                      ))}
+                      {filteredMaterialNorms.length > 20 && (
+                        <div className="px-3 py-2 text-[10px] text-slate-500 bg-slate-50">
+                          Còn {filteredMaterialNorms.length - 20} kết quả. Nhập thêm ký tự để lọc nhanh hơn.
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <select
                   value={materialName}
                   onChange={(e) => {
                     setMaterialName(e.target.value);
                     const matched = materialNorms.find((m) => m.materialName === e.target.value);
-                    if (matched) setUnit(matched.unit);
+                    if (matched) {
+                      setUnit(matched.unit);
+                      setCustomMaterial('');
+                    }
                   }}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-medium text-slate-800"
                 >
