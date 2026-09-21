@@ -91,6 +91,34 @@ namespace QLTCAnPhu
             return version != null ? version.ToString(3) : "0.0.0";
         }
 
+        internal static Icon LoadBrandIcon(int size)
+        {
+            try
+            {
+                using (Stream input = typeof(Program).Assembly.GetManifestResourceStream("HNL.QLTC.Brand.Icon"))
+                {
+                    if (input == null) return null;
+                    using (var icon = new Icon(input, size, size))
+                        return (Icon)icon.Clone();
+                }
+            }
+            catch { return null; }
+        }
+
+        internal static Bitmap LoadBrandBitmap()
+        {
+            try
+            {
+                using (Stream input = typeof(Program).Assembly.GetManifestResourceStream("HNL.QLTC.Brand.Png"))
+                {
+                    if (input == null) return null;
+                    using (Image image = Image.FromStream(input))
+                        return new Bitmap(image);
+                }
+            }
+            catch { return null; }
+        }
+
         internal static string BuildAppUrl()
         {
             return AppBaseUrl + "&v=" + Uri.EscapeDataString(GetReleaseTag());
@@ -235,7 +263,12 @@ namespace QLTCAnPhu
                 Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point);
                 AutoScaleMode = AutoScaleMode.Dpi;
 
-                try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
+                try
+                {
+                    Icon = Program.LoadBrandIcon(32);
+                    if (Icon == null) Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+                }
+                catch { }
 
                 var root = new TableLayoutPanel
                 {
@@ -268,7 +301,7 @@ namespace QLTCAnPhu
                         Size = new Size(56, 56),
                         Location = new Point(0, 7),
                         SizeMode = PictureBoxSizeMode.Zoom,
-                        Image = Icon.ToBitmap(),
+                        Image = Program.LoadBrandBitmap() ?? Icon.ToBitmap(),
                         BackColor = Color.Transparent
                     };
                     header.Controls.Add(logo);
