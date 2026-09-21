@@ -154,10 +154,10 @@ namespace QLTCAnPhu
             toolbarPanel.Controls.Add(navPanel);
             toolbarPanel.Resize += delegate { PositionToolbarActions(); };
 
-            syncButton = MakeToolbarPrimaryButton("Đồng bộ", 108);
+            syncButton = MakeToolbarPrimaryButton(string.Empty, 30);
             syncButton.Height = 30;
-            syncButton.Margin = new Padding(0, 1, 5, 1);
-            syncButton.Padding = new Padding(9, 0, 9, 0);
+            syncButton.Margin = new Padding(0, 1, 2, 1);
+            syncButton.Padding = new Padding(0);
             SetToolbarGlyph(syncButton, ToolbarGlyph.SyncOk);
             syncButton.AccessibleName = "Trạng thái đồng bộ";
             syncButton.Click += delegate { ShowSyncMenu(); };
@@ -985,9 +985,9 @@ namespace QLTCAnPhu
                 navPanel.Height = compact ? 24 : 32;
                 compactButton.Size = compact ? new Size(28, 24) : new Size(30, 30);
                 compactButton.Margin = compact ? new Padding(0, 1, 0, 1) : new Padding(0, 1, 0, 1);
-                syncButton.Height = 30;
-                reloadButton.Height = 30;
-                moreButton.Height = 30;
+                syncButton.Size = new Size(30, 30);
+                reloadButton.Size = new Size(30, 30);
+                moreButton.Size = new Size(30, 30);
 
                 SetToolbarGlyph(compactButton, compact ? ToolbarGlyph.Expand : ToolbarGlyph.Collapse);
                 compactButton.AccessibleName = compact ? "Mở rộng thanh ứng dụng" : "Thu gọn thanh ứng dụng";
@@ -1086,7 +1086,7 @@ namespace QLTCAnPhu
                 syncStatusLabel.Text = "Dữ liệu cục bộ: cần kiểm tra";
                 if (syncButton != null)
                 {
-                    syncButton.Text = "Đồng bộ";
+                    syncButton.Text = string.Empty;
                     SetToolbarGlyph(syncButton, ToolbarGlyph.SyncWarning);
                     syncButton.Tag = "warning";
                 }
@@ -1101,7 +1101,7 @@ namespace QLTCAnPhu
                 : "Dữ liệu cục bộ: Bình thường • Đồng bộ: Còn " + waiting + " mục";
             if (syncButton != null)
             {
-                syncButton.Text = waiting == 0 ? "Đồng bộ" : waiting + " chờ";
+                syncButton.Text = string.Empty;
                 SetToolbarGlyph(syncButton, waiting == 0 ? ToolbarGlyph.SyncOk : ToolbarGlyph.SyncWarning);
                 syncButton.Tag = waiting == 0 ? "success" : "warning";
                 chromeToolTip.SetToolTip(syncButton, waiting == 0
@@ -1406,26 +1406,32 @@ namespace QLTCAnPhu
                             break;
 
                         case ToolbarGlyph.Reload:
-                            // Use the platform drawing primitive for the arrow cap so the
-                            // refresh symbol keeps a crisp, unmistakable arrow head at every
-                            // Windows DPI instead of degenerating into a C-shaped arc.
-                            float reloadInset = Math.Max(2F, r.Width * 0.13F);
+                            // Chrome-style refresh: draw the ring and arrow head ourselves.
+                            // Do not use font glyphs or GDI AdjustableArrowCap; both have
+                            // rendered inconsistently at small sizes / high Windows DPI.
+                            float reloadInset = Math.Max(3F, r.Width * 0.17F);
                             RectangleF reloadArc = new RectangleF(
                                 r.Left + reloadInset,
                                 r.Top + reloadInset,
                                 Math.Max(1F, r.Width - reloadInset * 2F),
                                 Math.Max(1F, r.Height - reloadInset * 2F)
                             );
-                            float reloadArrowWidth = Math.Max(3.4F, r.Width * 0.20F);
-                            float reloadArrowHeight = Math.Max(4.2F, r.Width * 0.24F);
                             using (var reloadPen = new Pen(color, stroke))
-                            using (var arrowCap = new AdjustableArrowCap(reloadArrowWidth, reloadArrowHeight, true))
                             {
                                 reloadPen.StartCap = LineCap.Round;
+                                reloadPen.EndCap = LineCap.Round;
                                 reloadPen.LineJoin = LineJoin.Round;
-                                reloadPen.CustomEndCap = arrowCap;
-                                graphics.DrawArc(reloadPen, reloadArc, 45F, 285F);
+                                graphics.DrawArc(reloadPen, reloadArc, 42F, 282F);
                             }
+                            float tipX = r.Right - Math.Max(2.5F, r.Width * 0.10F);
+                            float tipY = r.Top + Math.Max(3.0F, r.Height * 0.18F);
+                            float head = Math.Max(4.5F, r.Width * 0.24F);
+                            graphics.FillPolygon(brush, new[]
+                            {
+                                new PointF(tipX, tipY),
+                                new PointF(tipX - head, tipY + head * 0.10F),
+                                new PointF(tipX - head * 0.38F, tipY + head)
+                            });
                             break;
 
                         case ToolbarGlyph.More:
