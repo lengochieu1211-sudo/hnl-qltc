@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Pencil, Type, Undo, Save, X, ArrowRight, Square, Cloud, Loader2 } from 'lucide-react';
-import { getImageQualityProfile } from '../utils/imageQualitySettings';
+import { getImageQualityProfile, type ImageQualityKind } from '../utils/imageQualitySettings';
 
 type EditorTool = 'draw' | 'text' | 'arrow' | 'rect' | 'cloud';
 
@@ -19,6 +19,7 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
   onSave,
   imageKind = 'defect',
 }) => {
+  const qualityKind: ImageQualityKind = imageKind === 'crew' ? 'crew' : 'defect';
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gestureBaseRef = useRef<ImageData | null>(null);
   const isComposingRef = useRef(false);
@@ -85,7 +86,7 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
       const ctx = getContext(true);
       if (!canvas || !ctx) return;
 
-      const profile = getImageQualityProfile(imageKind);
+      const profile = getImageQualityProfile(qualityKind);
       const naturalW = img.naturalWidth || img.width;
       const naturalH = img.naturalHeight || img.height;
       const maxDimension = Math.max(1280, Number(profile.maxDimension || 0));
@@ -117,7 +118,7 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
       img.onload = null;
       img.onerror = null;
     };
-  }, [isOpen, imageUrl, imageKind]);
+  }, [isOpen, imageUrl, qualityKind]);
 
   const handleUndo = () => {
     if (history.length <= 1) return;
@@ -340,7 +341,7 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
 
     setIsSaving(true);
     try {
-      const profile = getImageQualityProfile(imageKind);
+      const profile = getImageQualityProfile(qualityKind);
       // The source has already gone through the user's import quality profile. Re-encoding
       // annotations below that quality causes visible cumulative blur, so edited output
       // uses a high-quality single encode and downstream storage must preserve it.
