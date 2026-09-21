@@ -6608,6 +6608,7 @@ export default function App() {
               roomProgressList={roomProgressList}
               teams={teams}
               floorPlans={floorPlans}
+              defaultHandler={inspectorName}
               onImportInventory={handleImportInventory}
               onImportNorms={handleImportNorms}
               onImportWorkVolumes={handleImportWorkVolumes}
