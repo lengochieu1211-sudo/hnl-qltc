@@ -38,6 +38,7 @@ $installedExe = if ($isDev) { 'HNL QLTC DEV.exe' } else { 'HNL QLTC.exe' }
 $uninstallerExe = if ($isDev) { 'HNL QLTC DEV Uninstall.exe' } else { 'HNL QLTC Uninstall.exe' }
 $shortcutName = if ($isDev) { 'HNL QLTC DEV' } else { 'HNL QLTC' }
 $registryKey = if ($isDev) { 'HNL QLTC DEV' } else { 'HNL QLTC' }
+$iconFileName = "$productLabel Icon $($releaseTag -replace '[^A-Za-z0-9._-]','_').ico"
 if ([string]::IsNullOrWhiteSpace($OutputPath)) {
   $defaultOutputName = if ($isDev) { 'HNL-QLTC-DEV-Setup.exe' } else { 'HNL-QLTC-Setup.exe' }
   $OutputPath = Join-Path $projectRoot $defaultOutputName
@@ -123,6 +124,7 @@ namespace HnlQltcSetup
         public const string UninstallerExeName = "$uninstallerExe";
         public const string ShortcutName = "$shortcutName";
         public const string RegistryKeyName = "$registryKey";
+        public const string IconFileName = "$iconFileName";
     }
 }
 "@ | Set-Content -LiteralPath $buildInfo -Encoding UTF8
@@ -147,7 +149,9 @@ try {
 
   $launcherResource = "/resource:$launcher,HNL.QLTC.Payload.Launcher"
   $uninstallerResource = "/resource:$uninstallerTemp,HNL.QLTC.Payload.Uninstaller"
-  & $csc /nologo /target:winexe /optimize+ /platform:anycpu /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.dll /win32manifest:"$manifest" /win32icon:"$generatedIcon" $launcherResource $uninstallerResource /out:"$OutputPath" (Join-Path $root 'HnlQltcInstaller.cs') $buildInfo $assemblyInfo
+  $brandIconResource = "/resource:$generatedIcon,HNL.QLTC.Brand.Icon"
+  $brandPngResource = "/resource:$logoSource,HNL.QLTC.Brand.Png"
+  & $csc /nologo /target:winexe /optimize+ /platform:anycpu /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.dll /win32manifest:"$manifest" /win32icon:"$generatedIcon" $launcherResource $uninstallerResource $brandIconResource $brandPngResource /out:"$OutputPath" (Join-Path $root 'HnlQltcInstaller.cs') $buildInfo $assemblyInfo
   if ($LASTEXITCODE -ne 0) { throw "Installer csc failed: $LASTEXITCODE" }
   if (-not (Test-Path -LiteralPath $OutputPath)) { throw 'Setup EXE was not created.' }
 
