@@ -12,6 +12,7 @@ export const WindowsDesktopSyncBridgeCard: React.FC<Props> = ({ activeProjectId,
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [result, setResult] = useState<WindowsDesktopBridgeResult | null>(null);
+  // Windows-only pending-file bridge: never surface this control on Android/mobile.
   const isWindowsDevice = useMemo(() => typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent || ''), []);
   const supported = useMemo(() => windowsDesktopBridgeSupported(), []);
   const canWrite = userRole !== 'VIEWER';
