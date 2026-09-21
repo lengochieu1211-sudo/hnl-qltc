@@ -4364,7 +4364,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     setEditingPhotoUrl(null);
     try {
       setIsUploadingPhoto(true);
-      let photoResultUrl = await readDefectPhotoAsDataUrl(editedFile);
+      // ImageEditorModal already encodes the annotated image at the configured Defect
+      // quality. Re-use that exact file here instead of running compressDefectPhoto a
+      // second time, which previously added latency and cumulative JPEG blur.
+      let photoResultUrl = await readFileAsDataUrl(editedFile);
 
       if (hasApiBackend()) {
         const controller = new AbortController();
@@ -9339,6 +9342,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             if (photoInputRef.current) photoInputRef.current.value = '';
           }}
           imageUrl={editingPhotoUrl}
+          imageKind="defect"
           onSave={handleSaveEditedPhoto}
         />
       )}
