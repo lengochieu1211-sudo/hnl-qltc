@@ -34,7 +34,7 @@ const snapshotKey = (
   return `${SNAPSHOT_PREFIX}${safeEncode(uid)}__${safeEncode(email)}__${safeEncode(String(projectId || '').trim())}`;
 };
 
-const normalizeData = (data: Record<string, any[]> | null | undefined): Record<string, any[]> => {
+const normalizeData = (data: object | null | undefined): Record<string, any[]> => {
   const result: Record<string, any[]> = {};
   for (const [key, value] of Object.entries(data || {})) {
     result[key] = Array.isArray(value) ? value : [];
@@ -53,7 +53,7 @@ export async function saveVerifiedOfflineBusinessSnapshot(
   projectId: string,
   identity: { uid?: string | null; email?: string | null },
   metadata: { projectName?: string; contractorName?: string; inspectorName?: string },
-  data: Record<string, any[]>,
+  data: object,
   sourceUpdatedAt = 0,
 ): Promise<VerifiedOfflineBusinessSnapshot | null> {
   const normalizedProjectId = String(projectId || '').trim();
