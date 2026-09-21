@@ -26,6 +26,7 @@ if ($releaseTag -match '[\r\n\"]') { throw 'Invalid release tag.' }
 $assemblyInfo = Join-Path $root 'AssemblyInfo.generated.cs'
 $releaseInfo = Join-Path $root 'ReleaseInfo.generated.cs'
 $generatedIcon = Join-Path $root 'HNL-QLTC.generated.ico'
+# Dedicated outer-shell branding: keep separate from Web/in-app logo assets.
 $logoSource = Join-Path $root 'HNL-QLTC-SHELL-ICON.png'
 $parts = $version.Split('.')
 $assemblyVersion = "$($parts[0]).$($parts[1]).$($parts[2]).0"

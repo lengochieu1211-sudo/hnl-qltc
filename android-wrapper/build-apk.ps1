@@ -141,6 +141,7 @@ Copy-Item -Path (Join-Path $dist '*') -Destination $assets -Recurse -Force
 Get-ChildItem -LiteralPath $assets -Recurse -Filter '*.map' | Remove-Item -Force
 
 
+# Dedicated launcher branding: keep separate from Web/in-app logo assets.
 $launcherIconSource = Join-Path $projectRoot 'desktop-wrapper\HNL-QLTC-SHELL-ICON.png'
 if (-not (Test-Path -LiteralPath $launcherIconSource)) { throw "Missing HNL shell launcher icon source: $launcherIconSource" }
 
