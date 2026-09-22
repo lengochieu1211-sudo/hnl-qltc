@@ -21,6 +21,8 @@ const prWorkflow = read('.github/workflows/firebase-hosting-pull-request.yml');
 const buildWorkflow = read('.github/workflows/build.yml');
 const firebaseJson = read('firebase.json');
 const firebase = read('src/lib/firebase.ts');
+const firebaseBase = read('src/lib/firebaseBase.ts');
+const securityModal = read('src/components/SecurityModal.tsx');
 const app = read('src/App.tsx');
 const realtime = read('src/config/realtimeCollections.ts');
 const firestoreRules = read('firestore.rules');
@@ -78,6 +80,32 @@ requireAll(mergeWorkflow, [`VITE_FIREBASE_APP_ID: ${PROD_FIREBASE_WEB_APP_ID}`],
 requireAll(read('.github/workflows/android-apk.yml'), [`VITE_FIREBASE_APP_ID: ${PROD_FIREBASE_WEB_APP_ID}`], 'Android Firebase Web App ID');
 requireAll(read('.github/workflows/windows-exe.yml'), [`VITE_FIREBASE_APP_ID: ${PROD_FIREBASE_WEB_APP_ID}`], 'Windows Firebase Web App ID');
 pass('V6.3.0 single-source version/build metadata');
+
+requireAll(firebaseBase, [
+  'fetchProjectAuditLogsRangeFromCloud',
+  "where('clientTimestamp', '>=', startMs)",
+  "where('clientTimestamp', '<', endMs)",
+  'getDocsFromServer(q)',
+], 'on-demand Cloud audit history range query');
+requireAll(securityModal, [
+  "activeTab !== 'audit'",
+  'fetchProjectAuditLogsRangeFromCloud',
+  'Hôm nay · tự mở rộng 30 ngày',
+  'Tải thêm nhật ký cũ hơn',
+  'Chỉ đọc Cloud khi mở tab Nhật ký',
+  'Mọi tài khoản',
+  'Vị trí / đối tượng:',
+  'Hôm qua ·',
+  'Lần cuối ',
+  "logAuditAction('ROLE_CHANGE', roleDescription);",
+  "if (!isOpen || !selectedPid)",
+  "if (!isOpen || !selectedPid || !canReadMemberContacts)",
+], 'Security Center lazy audit history + detailed presence recency');
+if (securityModal.includes('subscribeProjectAuditLogsRealtime(selectedPid')) {
+  fail('Security Center must not keep the 200-row activityLogs realtime listener alive');
+}
+pass('Security Center reads audit history on demand and preserves precise presence recency');
+
 
 requireAll(runtimeArch, [
   "VITE_RUNTIME_BACKEND || 'firebase-only'",

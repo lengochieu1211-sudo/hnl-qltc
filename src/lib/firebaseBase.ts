@@ -3024,6 +3024,41 @@ export async function fetchProjectAuditLogsFromCloud(projectId: string, maxItems
   }
 }
 
+export interface ProjectAuditLogRangeOptions {
+  startMs: number;
+  endMs: number;
+  maxItems?: number;
+  beforeMs?: number;
+}
+
+/**
+ * Read an explicit audit-log time window from the authoritative Firestore server.
+ * Security Center uses this on demand instead of keeping a 200-row realtime listener
+ * alive while the audit tab is closed. This keeps cross-device history consistent and
+ * makes Firestore reads proportional to what the admin actually asks to inspect.
+ */
+export async function fetchProjectAuditLogsRangeFromCloud(
+  projectId: string,
+  options: ProjectAuditLogRangeOptions,
+): Promise<ProjectAuditCloudEntry[]> {
+  if (!projectId) return [];
+  const startMs = Math.max(0, Math.floor(Number(options?.startMs || 0)));
+  const requestedEndMs = Math.max(startMs + 1, Math.floor(Number(options?.endMs || Date.now() + 1)));
+  const beforeMs = Number(options?.beforeMs || 0);
+  const endMs = beforeMs > 0 ? Math.min(requestedEndMs, Math.floor(beforeMs)) : requestedEndMs;
+  if (endMs <= startMs) return [];
+  const maxItems = Math.max(1, Math.min(200, Math.floor(Number(options?.maxItems || 80))));
+  const q = query(
+    collection(db, 'projects', projectId, 'activityLogs'),
+    where('clientTimestamp', '>=', startMs),
+    where('clientTimestamp', '<', endMs),
+    orderBy('clientTimestamp', 'desc'),
+    limit(maxItems),
+  );
+  const snap = await getDocsFromServer(q);
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as ProjectAuditCloudEntry));
+}
+
 
 export interface ProjectSystemNotificationReadState {
   projectId: string;

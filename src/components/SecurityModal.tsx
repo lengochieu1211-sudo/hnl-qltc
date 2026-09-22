@@ -28,7 +28,6 @@ import {
   savePinLockConfig,
   getCurrentUserRole,
   setCurrentUserRole,
-  getAuditLogs,
   clearAuditLogs,
   logAuditAction,
   ProjectMember,
@@ -38,7 +37,7 @@ import {
   canManageSecurity
 } from '../utils/securityUtils';
 import { hashPin, verifyPin } from '../utils/cryptoUtils';
-import { signInWithGoogle, signOutFirebaseAccount, getCurrentFirebaseUser, fetchProjectUserRoleFromCloud, claimProjectOwnership, fetchProjectMembersFromCloud, fetchProjectAuditLogsFromCloud, subscribeProjectMembersRealtime, subscribeProjectAuditLogsRealtime, repairProjectAccessIndexForProject, subscribeProjectMemberContactsRealtime, saveProjectMemberContactToCloud, fetchAccessibleMemberContactDirectory, saveProjectAuditLog, ProjectMemberContact, subscribeProjectPresenceRealtime, ProjectPresenceEntry } from '../lib/firebase';
+import { signInWithGoogle, signOutFirebaseAccount, getCurrentFirebaseUser, fetchProjectUserRoleFromCloud, claimProjectOwnership, fetchProjectMembersFromCloud, fetchProjectAuditLogsRangeFromCloud, subscribeProjectMembersRealtime, repairProjectAccessIndexForProject, subscribeProjectMemberContactsRealtime, saveProjectMemberContactToCloud, fetchAccessibleMemberContactDirectory, saveProjectAuditLog, ProjectMemberContact, subscribeProjectPresenceRealtime, ProjectPresenceEntry } from '../lib/firebase';
 import { saveTextFile } from '../utils/fileExport';
 import { QuickSortBar } from './QuickSortBar';
 import { confirmAsync } from '../utils/confirmAsync';
@@ -93,6 +92,65 @@ interface SecurityModalProps {
   activeProjectId?: string;
   projects?: { id: string; name: string }[];
 }
+
+type AuditRangeMode = 'today' | 'yesterday' | '7d' | '30d' | 'date';
+const AUDIT_PAGE_SIZE = 80;
+const AUDIT_AUTO_MIN_ITEMS = 20;
+
+const toLocalDateInputValue = (value: Date) => {
+  const y = value.getFullYear();
+  const m = String(value.getMonth() + 1).padStart(2, '0');
+  const d = String(value.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+const localDayStartFromInput = (value: string, fallbackMs = Date.now()) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
+  const date = match
+    ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+    : new Date(fallbackMs);
+  date.setHours(0, 0, 0, 0);
+  return date.getTime();
+};
+
+const shiftLocalDays = (startMs: number, delta: number) => {
+  const date = new Date(startMs);
+  date.setDate(date.getDate() + delta);
+  return date.getTime();
+};
+
+const resolveAuditRange = (mode: AuditRangeMode, selectedDate: string) => {
+  const todayStart = localDayStartFromInput(toLocalDateInputValue(new Date()));
+  const tomorrowStart = shiftLocalDays(todayStart, 1);
+  if (mode === 'yesterday') {
+    return { startMs: shiftLocalDays(todayStart, -1), endMs: todayStart, label: 'Hôm qua' };
+  }
+  if (mode === '7d') {
+    return { startMs: shiftLocalDays(todayStart, -6), endMs: tomorrowStart, label: '7 ngày gần đây' };
+  }
+  if (mode === '30d') {
+    return { startMs: shiftLocalDays(todayStart, -29), endMs: tomorrowStart, label: '30 ngày gần đây' };
+  }
+  if (mode === 'date') {
+    const startMs = localDayStartFromInput(selectedDate);
+    return {
+      startMs,
+      endMs: shiftLocalDays(startMs, 1),
+      label: `Ngày ${new Date(startMs).toLocaleDateString('vi-VN')}`,
+    };
+  }
+  return { startMs: todayStart, endMs: tomorrowStart, label: 'Hôm nay' };
+};
+
+const normalizeAuditCloudLogs = (cloudLogs: any[]): AuditLogEntry[] => cloudLogs.map((log: any) => ({
+  ...log,
+  timestamp: Number(log.clientTimestamp || log.timestamp || 0),
+  details: log.description || log.details || log.action,
+  userEmail: log.userEmail || log.actorEmail || '',
+  userName: log.userName || log.actorName || '',
+  actorEmail: log.userEmail || log.actorEmail || '',
+  actorName: log.userName || log.actorName || '',
+})) as AuditLogEntry[];
 
 export const SecurityModal: React.FC<SecurityModalProps> = ({
   isOpen,
@@ -150,8 +208,16 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
   const [auditSortBy, setAuditSortBy] = useState<'date' | 'action' | 'user'>('date');
   const [auditSortOrder, setAuditSortOrder] = useState<'asc' | 'desc'>('desc');
   const [auditQuery, setAuditQuery] = useState('');
+  const [auditUserFilter, setAuditUserFilter] = useState('all');
   const [auditModuleFilter, setAuditModuleFilter] = useState('all');
   const [auditClientFilter, setAuditClientFilter] = useState('all');
+  const [auditRangeMode, setAuditRangeMode] = useState<AuditRangeMode>('today');
+  const [auditSelectedDate, setAuditSelectedDate] = useState(() => toLocalDateInputValue(new Date()));
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditLoadingMore, setAuditLoadingMore] = useState(false);
+  const [auditError, setAuditError] = useState('');
+  const [auditHasMore, setAuditHasMore] = useState(false);
+  const [auditLoadedRange, setAuditLoadedRange] = useState<{ startMs: number; endMs: number; label: string } | null>(null);
 
   const canManageProjectMembers = canManageMembers(currentRole);
   const canReadMemberContacts = currentRole === 'ADMIN' || currentRole === 'EDITOR';
@@ -224,7 +290,12 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
     if (isOpen) {
       setPinConfig(getStoredPinLockConfig());
       setRoleState(getCurrentUserRole());
-      setAuditLogs(getAuditLogs());
+      setAuditLogs([]);
+      setAuditRangeMode('today');
+      setAuditSelectedDate(toLocalDateInputValue(new Date()));
+      setAuditError('');
+      setAuditHasMore(false);
+      setAuditLoadedRange(null);
       const pid = activeProjectId || firstProjectId;
       setSelectedPid(pid);
       setPinMsg(null);
@@ -242,13 +313,17 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
   }, [isOpen, activeProjectId, firstProjectId]);
 
   useEffect(() => {
-    if (!selectedPid) return;
+    if (!isOpen || !selectedPid) {
+      setProjectMembers([]);
+      return;
+    }
     let cancelled = false;
     setProjectMembers([]);
     setMemberMsg(null);
     refreshCloudStatus(selectedPid);
 
-    // Firestore is the permission source of truth. Keep this screen live while it is open.
+    // Firestore is the permission source of truth, but this modal-specific member
+    // listener only needs to exist while Security Center is actually open.
     const unsubMembers = subscribeProjectMembersRealtime(selectedPid, (cloudMembers) => {
       if (cancelled || selectedPidRef.current !== selectedPid) return;
       const normalized = cloudMembers
@@ -265,22 +340,79 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
       refreshCloudStatus(selectedPid);
     });
 
-    const unsubAudit = subscribeProjectAuditLogsRealtime(selectedPid, (cloudLogs) => {
-      if (cancelled || selectedPidRef.current !== selectedPid) return;
-      const normalized = cloudLogs.map((log: any) => ({
-        ...log,
-        timestamp: Number(log.clientTimestamp || log.timestamp || 0),
-        details: log.description || log.details || log.action,
-        userEmail: log.userEmail || log.actorEmail || '',
-        userName: log.userName || log.actorName || '',
-        actorEmail: log.userEmail || log.actorEmail || '',
-        actorName: log.userName || log.actorName || '',
-      }));
-      setAuditLogs(normalized as any);
-    }, 200);
+    return () => { cancelled = true; unsubMembers(); };
+  }, [isOpen, selectedPid]);
 
-    return () => { cancelled = true; unsubMembers(); unsubAudit(); };
-  }, [selectedPid]);
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'audit' || !selectedPid || !canReadAudit) {
+      setAuditLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setAuditLoading(true);
+    setAuditLoadingMore(false);
+    setAuditError('');
+    setAuditHasMore(false);
+    setAuditLogs([]);
+
+    const loadRequestedRange = async () => {
+      const baseRange = resolveAuditRange(auditRangeMode, auditSelectedDate);
+      let effectiveStart = baseRange.startMs;
+      let label = baseRange.label;
+      let cloudLogs = await fetchProjectAuditLogsRangeFromCloud(selectedPid, {
+        startMs: baseRange.startMs,
+        endMs: baseRange.endMs,
+        maxItems: AUDIT_PAGE_SIZE,
+      });
+
+      // Default view favors "today", but an unusually quiet day should still be useful.
+      // Expand backwards without rereading today's documents: today -> 7 days -> 30 days.
+      if (auditRangeMode === 'today' && cloudLogs.length < AUDIT_AUTO_MIN_ITEMS && cloudLogs.length < AUDIT_PAGE_SIZE) {
+        const sevenDayStart = shiftLocalDays(baseRange.startMs, -6);
+        const olderWeek = await fetchProjectAuditLogsRangeFromCloud(selectedPid, {
+          startMs: sevenDayStart,
+          endMs: baseRange.startMs,
+          maxItems: AUDIT_PAGE_SIZE - cloudLogs.length,
+        });
+        cloudLogs = [...cloudLogs, ...olderWeek];
+        effectiveStart = sevenDayStart;
+        label = 'Hôm nay · tự mở rộng 7 ngày';
+
+        if (cloudLogs.length < AUDIT_AUTO_MIN_ITEMS && cloudLogs.length < AUDIT_PAGE_SIZE) {
+          const thirtyDayStart = shiftLocalDays(baseRange.startMs, -29);
+          const olderMonth = await fetchProjectAuditLogsRangeFromCloud(selectedPid, {
+            startMs: thirtyDayStart,
+            endMs: sevenDayStart,
+            maxItems: AUDIT_PAGE_SIZE - cloudLogs.length,
+          });
+          cloudLogs = [...cloudLogs, ...olderMonth];
+          effectiveStart = thirtyDayStart;
+          label = 'Hôm nay · tự mở rộng 30 ngày';
+        }
+      }
+
+      if (cancelled) return;
+      const normalized = normalizeAuditCloudLogs(cloudLogs);
+      const unique = Array.from(new Map(normalized.map((log: any) => [String(log.id || `${log.timestamp}-${log.action}`), log])).values())
+        .sort((a: any, b: any) => Number(b.timestamp || 0) - Number(a.timestamp || 0)) as AuditLogEntry[];
+      setAuditLogs(unique);
+      setAuditLoadedRange({ startMs: effectiveStart, endMs: baseRange.endMs, label });
+      setAuditHasMore(unique.length >= AUDIT_PAGE_SIZE);
+    };
+
+    void loadRequestedRange().catch((err: any) => {
+      if (cancelled) return;
+      console.warn('Security audit history load warning:', err);
+      setAuditError(String(err?.message || err || 'Không tải được nhật ký Cloud.'));
+      setAuditLogs([]);
+      setAuditLoadedRange(null);
+    }).finally(() => {
+      if (!cancelled) setAuditLoading(false);
+    });
+
+    return () => { cancelled = true; };
+  }, [isOpen, activeTab, selectedPid, canReadAudit, auditRangeMode, auditSelectedDate]);
 
   useEffect(() => {
     if (!isOpen || activeTab !== 'rbac' || !selectedPid) {
@@ -301,7 +433,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
   useEffect(() => {
     setMemberContacts({});
     setContactDrafts({});
-    if (!selectedPid || !canReadMemberContacts) return;
+    if (!isOpen || !selectedPid || !canReadMemberContacts) return;
     return subscribeProjectMemberContactsRealtime(selectedPid, (contacts) => {
       if (selectedPidRef.current !== selectedPid) return;
       const next: Record<string, ProjectMemberContact> = {};
@@ -314,7 +446,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
       if (String(error?.code || '').toLowerCase().includes('permission')) return;
       console.warn('Member contact realtime warning:', error);
     });
-  }, [selectedPid, canReadMemberContacts]);
+  }, [isOpen, selectedPid, canReadMemberContacts]);
 
   useEffect(() => {
     let cancelled = false;
@@ -556,7 +688,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
         setClaimMsg({ type: 'success', text: res.message });
         await refreshCloudStatus(selectedPid);
         const ownerDescription = `Khôi phục/xác nhận quyền Chủ sở hữu dự án bởi ${u.email}`;
-        logAuditAction('SECURITY_CONFIG_CHANGE', ownerDescription, selectedPid);
+        logAuditAction('SECURITY_CONFIG_CHANGE', ownerDescription);
         void saveProjectAuditLog(selectedPid, {
           action: 'SECURITY_CONFIG_CHANGE',
           module: 'security',
@@ -701,7 +833,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
         await refreshCloudStatus(pidAtSubmit);
       }
       const roleDescription = `${existingMember ? 'Đổi' : 'Gán'} quyền ${newMemberRole} cho ${email}`;
-      logAuditAction('ROLE_CHANGE', roleDescription, pidAtSubmit);
+      logAuditAction('ROLE_CHANGE', roleDescription);
       void saveProjectAuditLog(pidAtSubmit, {
         action: 'ROLE_CHANGE',
         module: 'security',
@@ -750,7 +882,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
           await refreshCloudStatus(pidAtSubmit);
         }
         const revokeDescription = `Thu hồi quyền truy cập của ${email}`;
-        logAuditAction('ROLE_CHANGE', revokeDescription, pidAtSubmit);
+        logAuditAction('ROLE_CHANGE', revokeDescription);
         void saveProjectAuditLog(pidAtSubmit, {
           action: 'ROLE_CHANGE',
           module: 'security',
@@ -812,7 +944,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
       setEditingContactEmail('');
       setMemberMsg({ type: 'success', text: phone ? `Đã lưu số liên hệ dùng chung theo email ${normalizedEmail}.` : `Đã xóa số liên hệ của ${normalizedEmail}.` });
       const contactDescription = `Cập nhật danh bạ liên hệ thành viên ${normalizedEmail}`;
-      logAuditAction('SECURITY_CONFIG_CHANGE', contactDescription, selectedPid);
+      logAuditAction('SECURITY_CONFIG_CHANGE', contactDescription);
       void saveProjectAuditLog(selectedPid, {
         action: 'SECURITY_CONFIG_CHANGE',
         module: 'security',
@@ -837,8 +969,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
     if (!canManageSecuritySettings) return;
     if (confirm('Chỉ xóa bộ nhớ đệm nhật ký trên thiết bị này? Nhật ký Cloud của dự án vẫn được giữ nguyên và không thể xóa từ ứng dụng.')) {
       clearAuditLogs();
-      // Cloud activityLogs are append-only. Keep the currently rendered realtime list;
-      // the Firestore listener remains the source of truth for the selected project.
+      // Cloud activityLogs are append-only and are loaded on demand by date/range.
     }
   };
 
@@ -860,6 +991,35 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
 
   const handleExportLogs = () => {
     void handleExportLogsSafe();
+  };
+
+  const handleLoadMoreAudit = async () => {
+    if (!auditLoadedRange || auditLoading || auditLoadingMore || !selectedPid || auditLogs.length === 0) return;
+    const oldestTimestamp = Math.min(...auditLogs.map((log) => Number(log.timestamp || 0)).filter((value) => value > 0));
+    if (!Number.isFinite(oldestTimestamp) || oldestTimestamp <= auditLoadedRange.startMs) {
+      setAuditHasMore(false);
+      return;
+    }
+    setAuditLoadingMore(true);
+    setAuditError('');
+    try {
+      const olderCloudLogs = await fetchProjectAuditLogsRangeFromCloud(selectedPid, {
+        startMs: auditLoadedRange.startMs,
+        endMs: auditLoadedRange.endMs,
+        beforeMs: oldestTimestamp,
+        maxItems: AUDIT_PAGE_SIZE,
+      });
+      const older = normalizeAuditCloudLogs(olderCloudLogs);
+      const merged = Array.from(new Map([...auditLogs, ...older].map((log: any) => [String(log.id || `${log.timestamp}-${log.action}`), log])).values())
+        .sort((a: any, b: any) => Number(b.timestamp || 0) - Number(a.timestamp || 0)) as AuditLogEntry[];
+      setAuditLogs(merged);
+      setAuditHasMore(older.length >= AUDIT_PAGE_SIZE && merged.length > auditLogs.length);
+    } catch (err: any) {
+      console.warn('Security audit history pagination warning:', err);
+      setAuditError(String(err?.message || err || 'Không tải thêm được nhật ký Cloud.'));
+    } finally {
+      setAuditLoadingMore(false);
+    }
   };
 
   const sortedProjectMembers = [...projectMembers].sort((a, b) => {
@@ -914,14 +1074,23 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
   }).length;
   const presenceRecencyLabel = (entry?: ProjectPresenceEntry) => {
     const seen = presenceLastSeenMs(entry);
-    if (!seen) return 'Chưa hoạt động gần đây';
+    if (!seen) return 'Chưa ghi nhận hoạt động';
     const age = Math.max(0, presenceNow - seen);
     if (age <= 120_000) return 'Đang hoạt động';
     const minutes = Math.max(1, Math.floor(age / 60_000));
     if (minutes < 60) return `${minutes} phút trước`;
     const hours = Math.floor(minutes / 60);
     if (hours < 24) return `${hours} giờ trước`;
-    return 'Không hoạt động gần đây';
+
+    const today = new Date(presenceNow);
+    today.setHours(0, 0, 0, 0);
+    const seenDay = new Date(seen);
+    seenDay.setHours(0, 0, 0, 0);
+    const calendarDays = Math.max(1, Math.round((today.getTime() - seenDay.getTime()) / 86_400_000));
+    const timeLabel = new Date(seen).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    if (calendarDays === 1) return `Hôm qua · ${timeLabel}`;
+    if (calendarDays < 7) return `${calendarDays} ngày trước · ${formatDateTime(seen)}`;
+    return `Lần cuối ${formatDateTime(seen)}`;
   };
 
   const auditModuleLabels: Record<string, string> = {
@@ -1048,10 +1217,44 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
     });
     return text;
   };
+  const auditContextSummary = (log: AuditLogEntry) => {
+    const anyLog = log as any;
+    const snapshots = [anyLog.afterData, anyLog.beforeData].filter((value) => value && typeof value === 'object' && !Array.isArray(value));
+    const snapshot = snapshots[0] || {};
+    const changed = (anyLog.changedFields || {}) as Record<string, { before?: any; after?: any }>;
+    const pick = (...keys: string[]) => {
+      for (const key of keys) {
+        const direct = snapshot?.[key];
+        if (direct !== undefined && direct !== null && String(direct).trim()) return String(direct);
+        const change = changed[key];
+        const candidate = change?.after ?? change?.before;
+        if (candidate !== undefined && candidate !== null && String(candidate).trim()) return String(candidate);
+      }
+      return '';
+    };
+    const parts = [
+      ['Tầng', pick('floorName', 'floorId')],
+      ['Căn', pick('roomName', 'roomId')],
+      ['Vị trí', pick('location', 'positionDetail', 'axisGrid')],
+      ['Đội', pick('teamName', 'assignedTeam', 'teamId')],
+      ['Vật tư', pick('materialName', 'materialId')],
+    ].filter(([, value]) => Boolean(value)) as string[][];
+    return parts.map(([label, value]) => `${label}: ${value}`).join(' · ');
+  };
   const auditModules: string[] = Array.from(new Set<string>(auditLogs.map((log) => String(log.module || '').trim()).filter(Boolean))).sort((a, b) => auditModuleLabel(a).localeCompare(auditModuleLabel(b), 'vi'));
   const auditClients = Array.from(new Set(auditLogs.map((log) => String(log.clientType || '').trim()).filter(Boolean))).sort();
+  const auditUsers = Array.from(new Map(auditLogs
+    .map((log) => {
+      const email = String(log.actorEmail || log.userEmail || '').trim().toLowerCase();
+      const name = String(log.actorName || log.userName || '').trim();
+      return email ? [email, name ? `${name} · ${email}` : email] : null;
+    })
+    .filter(Boolean) as Array<[string, string]>).entries())
+    .sort((a, b) => a[1].localeCompare(b[1], 'vi', { sensitivity: 'base' }));
   const filteredAuditLogs = auditLogs.filter((log) => {
     const q = auditQuery.trim().toLocaleLowerCase('vi');
+    const logEmail = String(log.actorEmail || log.userEmail || '').trim().toLowerCase();
+    if (auditUserFilter !== 'all' && logEmail !== auditUserFilter) return false;
     if (auditModuleFilter !== 'all' && String(log.module || '') !== auditModuleFilter) return false;
     if (auditClientFilter !== 'all' && String(log.clientType || '') !== auditClientFilter) return false;
     if (!q) return true;
@@ -1059,7 +1262,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
     const haystack = [
       log.actorName, log.actorEmail, log.action, auditActionLabel(log.action),
       log.details, auditFriendlyDetails(log), log.module, auditModuleLabel(log.module), log.recordId,
-      log.deviceName, log.platform, log.browser, log.clientType, auditRoleLabel(log.actorRole),
+      log.deviceName, log.platform, log.browser, log.clientType, auditRoleLabel(log.actorRole), auditContextSummary(log),
       ...translatedFields,
     ].map((value) => String(value || '')).join(' ').toLocaleLowerCase('vi');
     return haystack.includes(q);
@@ -1793,7 +1996,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                               <div className={`mt-0.5 flex flex-wrap items-center gap-1 text-[9.5px] font-semibold ${presenceActive ? 'text-emerald-700' : 'text-slate-400'}`}>
                                 <span className={`inline-block h-1.5 w-1.5 rounded-full ${presenceActive ? 'bg-emerald-500' : 'bg-slate-300'}`} />
                                 <span>{presenceRecencyLabel(presence)}</span>
-                                {presenceActive && presence && <span>· {presenceModuleLabel(presence.module)} · {presenceClientLabel(presence)}</span>}
+                                {presence && <span>· {presenceModuleLabel(presence.module)} · {presenceClientLabel(presence)}</span>}
                               </div>
                             </div>
                             <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-extrabold uppercase ${
@@ -1896,19 +2099,62 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                 </p>
               </div>
 
-              <div className="text-[9.5px] text-slate-500 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
-                Nhật ký được đồng bộ realtime theo đúng dự án đang mở.
+              <div className={`text-[9.5px] flex items-center gap-1 ${auditError ? 'text-rose-600' : 'text-slate-500'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full inline-block ${auditError ? 'bg-rose-500' : 'bg-emerald-500'}`} />
+                {auditLoading
+                  ? 'Đang tải nhật ký Cloud theo khoảng thời gian đã chọn...'
+                  : auditError
+                    ? `Không tải được nhật ký: ${auditError}`
+                    : `${auditLoadedRange?.label || 'Chưa tải'} · ${auditLogs.length} bản ghi. Chỉ đọc Cloud khi mở tab Nhật ký.`}
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {([
+                  ['today', 'Hôm nay'],
+                  ['yesterday', 'Hôm qua'],
+                  ['7d', '7 ngày'],
+                  ['30d', '30 ngày'],
+                  ['date', 'Chọn ngày'],
+                ] as Array<[AuditRangeMode, string]>).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setAuditRangeMode(mode)}
+                    className={`rounded-lg border px-2.5 py-1.5 text-[9.5px] font-extrabold transition-colors ${
+                      auditRangeMode === mode
+                        ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+                {auditRangeMode === 'date' && (
+                  <input
+                    type="date"
+                    value={auditSelectedDate}
+                    onChange={(event) => setAuditSelectedDate(event.target.value)}
+                    className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[9.5px] font-bold text-slate-700"
+                  />
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                 <input
                   type="search"
                   value={auditQuery}
                   onChange={(e) => setAuditQuery(e.target.value)}
-                  placeholder="Tìm người, thao tác, thiết bị, bản ghi..."
+                  placeholder="Tìm thao tác, vị trí, bản ghi..."
                   className="w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-semibold text-slate-700 outline-none focus:border-indigo-400"
                 />
+                <select
+                  value={auditUserFilter}
+                  onChange={(e) => setAuditUserFilter(e.target.value)}
+                  className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-bold text-slate-600"
+                >
+                  <option value="all">Mọi tài khoản</option>
+                  {auditUsers.map(([email, label]) => <option key={email} value={email}>{label}</option>)}
+                </select>
                 <select
                   value={auditModuleFilter}
                   onChange={(e) => setAuditModuleFilter(e.target.value)}
@@ -1945,7 +2191,11 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                 summary={`${filteredAuditLogs.length}/${auditLogs.length} bản ghi`}
               />
 
-              {auditLogs.length === 0 ? (
+              {auditLoading ? (
+                <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 text-center text-slate-500 text-[10px] font-semibold">
+                  Đang tải nhật ký từ Cloud...
+                </div>
+              ) : auditLogs.length === 0 ? (
                 <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 text-center text-slate-400 space-y-1">
                   <FileText className="w-8 h-8 mx-auto opacity-30 mb-1" />
                   <p className="font-bold text-xs">Chưa có bản ghi nhật ký nào</p>
@@ -1961,6 +2211,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                     const userLabel = log.actorName || log.userName || log.actorEmail || log.userEmail || 'Không xác định';
                     const changedEntries = Object.entries(log.changedFields || {}) as Array<[string, { before: any; after: any }]>;
                     const userChangedEntries = changedEntries.filter(([field]) => !auditTechnicalFields.has(field));
+                    const contextSummary = auditContextSummary(log);
                     return (
                     <details
                       key={log.id}
@@ -1995,10 +2246,16 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                           {log.appVersion && <span>Phiên bản: <strong className="text-slate-700">{log.appVersion}</strong></span>}
                         </div>
 
+                        {contextSummary && (
+                          <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 px-2 py-1.5 text-[9px] text-indigo-800">
+                            <span className="font-extrabold">Vị trí / đối tượng:</span> {contextSummary}
+                          </div>
+                        )}
+
                         {userChangedEntries.length > 0 && (
                           <div className="space-y-1 rounded-lg bg-slate-50 p-2 border border-slate-100">
                             <div className="text-[9px] font-extrabold uppercase tracking-wide text-slate-500">Nội dung thay đổi</div>
-                            {userChangedEntries.slice(0, 8).map(([field, change]) => (
+                            {userChangedEntries.map(([field, change]) => (
                               <div key={field} className="grid grid-cols-[120px_1fr] gap-2 text-[9px]">
                                 <span className="font-bold text-slate-600 break-words">{auditFieldLabel(field)}</span>
                                 <span className="text-slate-600 break-words">
@@ -2033,6 +2290,17 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                     </details>
                   )})}
                 </div>
+              )}
+
+              {auditHasMore && !auditLoading && (
+                <button
+                  type="button"
+                  onClick={() => void handleLoadMoreAudit()}
+                  disabled={auditLoadingMore}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-[10px] font-extrabold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  {auditLoadingMore ? 'Đang tải thêm...' : 'Tải thêm nhật ký cũ hơn'}
+                </button>
               )}
             </div>
           )}
