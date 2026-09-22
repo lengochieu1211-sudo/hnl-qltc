@@ -361,6 +361,13 @@ try {
   const editorIdToken = await editor.auth.currentUser.getIdToken(true);
   const viewerIdToken = await viewer.auth.currentUser.getIdToken(true);
   const adminIdToken = await admin.auth.currentUser.getIdToken(true);
+
+  await requireStatus('EDITOR Firestore REST reads live project root', await fetch(firestoreDocUrl(`projects/${pid}`), {
+    headers: { Authorization: `Bearer ${editorIdToken}` },
+  }), 200);
+  await requireStatus('EDITOR Firestore REST reads canonical member row', await fetch(firestoreDocUrl(`projects/${pid}/members/${editorEmail}`), {
+    headers: { Authorization: `Bearer ${editorIdToken}` },
+  }), 200);
   r2ObjectKey = `projects/${pid}/media/dev-live-golden.txt`;
   const r2Endpoint = `${r2Url}/v1/object?key=${encodeURIComponent(r2ObjectKey)}`;
   const payload = Buffer.from(`HNL-QLTC-DEV-R2-${nonce}`, 'utf8');
