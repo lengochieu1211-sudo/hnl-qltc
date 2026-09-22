@@ -69,11 +69,15 @@ async function waitForSettingsSheet(page, sheetKey, visible) {
 }
 
 async function verifySettingsFeatureSheets(page, label) {
+  const viewport = page.viewportSize();
+  const desktopRail = Boolean(viewport && viewport.width >= 1024);
   const moreButton = page.getByRole('button', { name: 'Thêm', exact: true });
-  assert(await moreButton.count() > 0, `${label}: Thêm bottom-nav button not found`);
-  await moreButton.click();
+  if (!desktopRail) {
+    assert(await moreButton.count() > 0, `${label}: Thêm mobile bottom-nav button not found`);
+    await moreButton.click();
+  }
 
-  const settingsButton = page.getByRole('button', { name: 'Cài đặt', exact: true });
+  const settingsButton = page.getByRole('button', { name: 'Cài đặt', exact: true }).first();
   await settingsButton.waitFor({ state: 'visible', timeout: 10000 });
   await settingsButton.click();
 
@@ -290,16 +294,21 @@ async function verifySettingsFeatureSheets(page, label) {
   pass(`${label} five Settings entries open in shared feature sheets`);
   pass(`${label} Settings sheet close contract`, 'X + Back + Escape + backdrop');
 
-  const bottomNavBox = await moreButton.boundingBox();
-  assert(bottomNavBox, `${label}: bottom navigation disappeared after closing Settings sheets`);
-  const viewport = page.viewportSize();
-  assert(!viewport || bottomNavBox.y + bottomNavBox.height <= viewport.height + 2, `${label}: bottom navigation is pushed behind viewport after closing Settings sheets`);
-  pass(`${label} Settings page returns to normal scroll/navigation after sheets close`);
+  if (desktopRail) {
+    const settingsRailBox = await settingsButton.boundingBox();
+    assert(settingsRailBox, `${label}: desktop left navigation disappeared after closing Settings sheets`);
+    assert(!viewport || settingsRailBox.x >= -2, `${label}: desktop left navigation moved outside the viewport after closing Settings sheets`);
+  } else {
+    const bottomNavBox = await moreButton.boundingBox();
+    assert(bottomNavBox, `${label}: mobile bottom navigation disappeared after closing Settings sheets`);
+    assert(!viewport || bottomNavBox.y + bottomNavBox.height <= viewport.height + 2, `${label}: mobile bottom navigation is pushed behind viewport after closing Settings sheets`);
+  }
+  pass(`${label} Settings page returns to normal responsive navigation after sheets close`);
 }
 
 async function verifyMaterialNeedFeatureSheet(page, label) {
   const warehouseButton = page.getByRole('button', { name: 'Kho vật tư', exact: true }).first();
-  assert(await warehouseButton.count() > 0, `${label}: Kho vật tư bottom-nav button not found`);
+  assert(await warehouseButton.count() > 0, `${label}: Kho vật tư navigation button not found`);
   await warehouseButton.click();
 
   const trigger = page.locator('[role="button"][aria-controls="material-need-details"]').first();
