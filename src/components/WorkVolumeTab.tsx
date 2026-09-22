@@ -471,9 +471,9 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
             type="button"
             onClick={() => exportWorkVolumesTemplate(workVolumes, projectName, hasFinancialAccess)}
             className="text-xs font-bold text-indigo-700 hover:text-indigo-900 bg-white hover:bg-slate-50 px-2.5 py-1.5 rounded-xl flex items-center gap-1 border border-slate-200 transition-all active:scale-95 shadow-2xs cursor-pointer"
-            title={hasStructureManageAccess ? 'Tải tệp Excel chứa dữ liệu hiện tại để chỉnh sửa' : 'Tải tệp Excel dữ liệu hiện tại (không kèm đơn giá)'}
+            title={hasStructureManageAccess ? 'Tải tệp Excel chứa dữ liệu hiện tại để chỉnh sửa' : 'Tải tệp Excel để chỉnh sửa ngoại tuyến (không kèm đơn giá)'}
           >
-            <Download className="w-3.5 h-3.5" /> {hasStructureManageAccess ? 'Tải Excel để chỉnh sửa' : 'Tải Excel'}
+            <Download className="w-3.5 h-3.5" /> Tải Excel để chỉnh sửa
           </button>
           {hasStructureManageAccess && (
             <>

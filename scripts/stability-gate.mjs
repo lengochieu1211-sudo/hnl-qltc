@@ -305,6 +305,19 @@ const warehouseTab = read('src/components/WarehouseTab.tsx');
 if (!warehouseTab.includes('FIREBASE_ONLY_RUNTIME') || !warehouseTab.includes('Không thể xuất vượt tồn kho')) fail('warehouse UI still offers a negative-stock override in Firebase-only runtime');
 pass('warehouse transaction/derived-balance safety engine is wired into runtime');
 
+requireAll(warehouseTab, [
+  "${hasImportAccess ? 'grid-cols-2' : 'grid-cols-1'}",
+  '<span>Tải Excel để chỉnh sửa</span>',
+  '{hasImportAccess && (',
+], 'warehouse role-aware Excel actions');
+if (warehouseTab.includes('<span>Chỉ ADMIN được nhập</span>')) fail('warehouse must hide unavailable import action instead of showing a disabled ADMIN-only placeholder');
+const workVolumeTab = read('src/components/WorkVolumeTab.tsx');
+requireAll(workVolumeTab, [
+  '<Download className="w-3.5 h-3.5" /> Tải Excel để chỉnh sửa',
+  '{hasStructureManageAccess && (',
+], 'work-volume role-aware Excel actions');
+pass('Excel action bars are visually consistent across ADMIN, ENGINEER and VIEWER without weakening RBAC');
+
 if (!floorPlanDefect.includes('operationalWorkCategoryCatalog') || !floorPlanDefect.includes('getOperationalRoomSubItems')) fail('floor-plan ghost-category filter missing');
 if (!roomHighlight.includes("const [workCategory, setWorkCategory] = useState('')") || !roomHighlight.includes('projectWorkCategoryTitles')) fail('room editor still seeds a deleted/hard-coded category');
 if (!photoSync.includes('snapshotIsInitial = firstSnapshot') || !photoSync.includes('firstSnapshot = false')) fail('photo realtime initial snapshot race guard missing');

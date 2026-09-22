@@ -109,6 +109,10 @@ assert(featureSheet.includes('<X className="h-6 w-6"'), 'Shared feature sheet cl
 assert(!featureSheet.includes('rounded-full border border-slate-200 bg-white'), 'Shared feature sheet X must not regress to a large circular button');
 
 const warehouse = read('src/components/WarehouseTab.tsx');
+
+assert(warehouse.includes("${hasImportAccess ? 'grid-cols-2' : 'grid-cols-1'}"), 'Warehouse Excel actions must collapse to one column when import is not allowed');
+assert(!warehouse.includes('<span>Chỉ ADMIN được nhập</span>'), 'Warehouse must hide unavailable bulk-import action instead of rendering a disabled ADMIN-only placeholder');
+assert(warehouse.includes('<span>Tải Excel để chỉnh sửa</span>'), 'Warehouse download action keeps one consistent user-facing label across roles');
 assert(warehouse.includes('aria-controls="material-need-details"'), 'Material Need row trigger missing');
 assert(warehouse.includes('role="button"'), 'Material Need heading row must be tappable');
 assert(warehouse.includes('Gợi ý vật tư tổng hợp'), 'Material Need summary card missing');
@@ -172,6 +176,9 @@ assert(!defectUi.includes('📐 <strong>Đang vẽ lại vùng cho căn'), 'Redr
 assert(!defectUi.includes('<span>📋 Dán thường') && !defectUi.includes('<span>📝 Dán đè'), 'Paste actions must use one icon system, not Lucide plus emoji.');
 const checklistUi = read('src/components/ChecklistTab.tsx');
 const workVolumeUi = read('src/components/WorkVolumeTab.tsx');
+
+assert(workVolumeUi.includes('<Download className="w-3.5 h-3.5" /> Tải Excel để chỉnh sửa'), 'Work Volume download action keeps one consistent label across roles');
+assert(workVolumeUi.includes('{hasStructureManageAccess && ('), 'Work Volume must hide ADMIN-only import/create actions from Engineer/Viewer');
 const warehouseUi = read('src/components/WarehouseTab.tsx');
 const offlineBannerUi = read('src/components/OfflineSyncBanner.tsx');
 const roomHighlightUi = read('src/components/RoomHighlightModal.tsx');

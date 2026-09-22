@@ -1118,7 +1118,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           </span>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 pt-0.5">
+        <div className={`grid gap-2 pt-0.5 ${hasImportAccess ? 'grid-cols-2' : 'grid-cols-1'}`}>
           <button
             type="button"
             onClick={() => exportWarehouseUpdateTemplate(materialNorms, workVolumes || [], inventory)}
@@ -1128,16 +1128,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             <span>Tải Excel để chỉnh sửa</span>
           </button>
 
-          {hasImportAccess ? (
+          {hasImportAccess && (
             <label className="flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-3 rounded-xl cursor-pointer transition-all shadow-3xs active:scale-95 text-xs text-center">
               <Upload className="w-4 h-4 text-white shrink-0" />
               <span>Nhập lại từ Excel</span>
               <input type="file" accept=".xlsx, .xls" onChange={handleFileChangeExcel} className="hidden" />
             </label>
-          ) : (
-            <div className="flex items-center justify-center gap-1.5 bg-slate-50 text-slate-400 border border-slate-200 font-bold py-2 px-3 rounded-xl text-xs text-center" title="Chỉ ADMIN được nhập dữ liệu hàng loạt">
-              <Upload className="w-4 h-4 shrink-0" /><span>Chỉ ADMIN được nhập</span>
-            </div>
           )}
         </div>
       </div>
