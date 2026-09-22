@@ -51,14 +51,26 @@ async function firestoreGet(env, token, documentPath) {
   return fetch(url, { headers: { Authorization: `Bearer ${token}` } });
 }
 
+function firestoreAccessFailure(response, source, projectDeleted = false) {
+  const status = Number(response?.status || 0);
+  const backendUnavailable = status === 429 || status >= 500;
+  return {
+    ok: false,
+    role: '',
+    projectDeleted,
+    backendUnavailable,
+    reason: `${source}_HTTP_${status || 'UNKNOWN'}`,
+  };
+}
+
 async function getRole(env, token, projectId) {
   const payload = decodeJwtPayload(token);
   const uid = String(payload?.user_id || payload?.sub || '');
   const email = String(payload?.email || '').toLowerCase();
-  if (!uid || !email) return { ok: false, role: '' };
+  if (!uid || !email) return { ok: false, role: '', reason: 'TOKEN_IDENTITY_MISSING' };
 
   const projectResp = await firestoreGet(env, token, `projects/${encodeURIComponent(projectId)}`);
-  if (!projectResp.ok) return { ok: false, role: '' };
+  if (!projectResp.ok) return firestoreAccessFailure(projectResp, 'PROJECT_ROOT');
   const projectDoc = await projectResp.json();
   const projectDeleted = fieldBool(projectDoc, 'deleted', false);
 
@@ -69,18 +81,27 @@ async function getRole(env, token, projectId) {
   }
 
   // Canonical email is authoritative whenever present. UID is legacy fallback only.
+  // A transient/denied canonical lookup must fail closed; only a confirmed 404 may
+  // fall back to a legacy UID row. This prevents stale UID roles from resurfacing
+  // when Firestore is quota-limited or temporarily unavailable.
   for (const memberId of [email, uid]) {
     if (!memberId) continue;
+    const canonicalEmailLookup = memberId === email;
     const response = await firestoreGet(env, token, `projects/${encodeURIComponent(projectId)}/members/${encodeURIComponent(memberId)}`);
-    if (!response.ok) continue;
+    if (!response.ok) {
+      if (response.status === 404) continue;
+      return firestoreAccessFailure(response, canonicalEmailLookup ? 'EMAIL_MEMBER' : 'UID_MEMBER', projectDeleted);
+    }
     const member = await response.json();
-    if (!fieldBool(member, 'active', true)) return { ok: false, role: '' };
+    if (!fieldBool(member, 'active', true)) {
+      return { ok: false, role: '', reason: canonicalEmailLookup ? 'EMAIL_MEMBER_INACTIVE' : 'UID_MEMBER_INACTIVE', projectDeleted };
+    }
     const role = fieldString(member, 'role').toUpperCase();
     return ['ADMIN', 'EDITOR', 'ENGINEER', 'VIEWER'].includes(role)
       ? { ok: true, role, projectDeleted }
-      : { ok: false, role: '', projectDeleted };
+      : { ok: false, role: '', reason: canonicalEmailLookup ? 'EMAIL_MEMBER_ROLE_INVALID' : 'UID_MEMBER_ROLE_INVALID', projectDeleted };
   }
-  return { ok: false, role: '', projectDeleted };
+  return { ok: false, role: '', reason: 'MEMBER_NOT_FOUND', projectDeleted };
 }
 
 function parseKey(key) {
@@ -114,7 +135,16 @@ export default {
     if (!parsed) return json({ error: 'INVALID_OBJECT_KEY' }, 400, cors);
 
     const access = await getRole(env, token, parsed.projectId);
-    if (!access.ok) return json({ error: 'PROJECT_ACCESS_DENIED' }, 403, cors);
+    if (!access.ok) {
+      if (access.backendUnavailable) {
+        return json(
+          { error: 'AUTH_BACKEND_UNAVAILABLE', reason: access.reason || 'FIRESTORE_UNAVAILABLE' },
+          503,
+          { ...cors, 'Retry-After': '60' },
+        );
+      }
+      return json({ error: 'PROJECT_ACCESS_DENIED', reason: access.reason || 'UNKNOWN' }, 403, cors);
+    }
     // Soft-deleted projects are frozen for normal media access. ADMIN DELETE remains
     // available for retention cleanup after server-side reference checks.
     if (access.projectDeleted && request.method !== 'DELETE') {

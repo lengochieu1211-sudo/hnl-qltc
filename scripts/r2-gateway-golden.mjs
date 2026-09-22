@@ -3,6 +3,8 @@ import worker from '../cloudflare/r2-gateway/worker.js';
 const originalFetch = globalThis.fetch;
 const objects = new Map();
 let projectDeleted = false;
+let projectAccessFailureStatus = 0;
+let canonicalMemberFailureStatus = 0;
 
 function jwt(payload) {
   const enc = (v) => Buffer.from(JSON.stringify(v)).toString('base64url');
@@ -37,11 +39,15 @@ globalThis.fetch = async (input, init = {}) => {
   try { payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8')); } catch {}
   if (!payload?.user_id || !payload?.email) return new Response('unauthorized', { status: 401 });
   if (/\/documents\/projects\/p1$/.test(url)) {
+    if (projectAccessFailureStatus) return new Response('firestore unavailable', { status: projectAccessFailureStatus });
     return Response.json(fsDoc({ ownerUid: 'uid-admin', ownerEmail: 'admin@example.com', deleted: projectDeleted }));
   }
   const memberMatch = url.match(/\/members\/([^/?]+)$/);
   if (memberMatch) {
     const id = decodeURIComponent(memberMatch[1]);
+    if (id === 'editor@example.com' && canonicalMemberFailureStatus) {
+      return new Response('member lookup unavailable', { status: canonicalMemberFailureStatus });
+    }
     const role = roles.get(id);
     if (!role) return new Response('missing', { status: 404 });
     return Response.json(fsDoc({ role, active: true }));
@@ -147,6 +153,23 @@ response = await call(identities.editor, 'PUT', mediaKey, new Uint8Array([6, 7])
 assert(response.status === 403, 'canonical email VIEWER overrides stale UID ADMIN');
 roles.set('uid-editor', 'EDITOR');
 roles.set('editor@example.com', 'EDITOR');
+
+projectAccessFailureStatus = 429;
+response = await call(identities.editor, 'PUT', 'projects/p1/media/defect/d1/quota-root.jpg', new Uint8Array([6, 7, 8]));
+assert(response.status === 503, 'Firestore quota exhaustion is surfaced as backend unavailable, not RBAC denial');
+let failure = await response.json();
+assert(failure.error === 'AUTH_BACKEND_UNAVAILABLE' && failure.reason === 'PROJECT_ROOT_HTTP_429', 'quota response identifies project-root backend exhaustion');
+projectAccessFailureStatus = 0;
+
+roles.set('uid-editor', 'ADMIN');
+canonicalMemberFailureStatus = 429;
+response = await call(identities.editor, 'PUT', 'projects/p1/media/defect/d1/quota-member.jpg', new Uint8Array([6, 8, 9]));
+assert(response.status === 503, 'canonical email lookup quota failure never falls through to stale UID role');
+failure = await response.json();
+assert(failure.error === 'AUTH_BACKEND_UNAVAILABLE' && failure.reason === 'EMAIL_MEMBER_HTTP_429', 'canonical email quota failure is explicit and fail-closed');
+canonicalMemberFailureStatus = 0;
+roles.set('uid-editor', 'EDITOR');
+
 response = await call(identities.admin, 'PUT', floorKey, new Uint8Array([7, 8]));
 assert(response.status === 200, 'ADMIN/owner may upload floor-plan structure');
 response = await call(identities.viewer, 'GET', mediaKey);
