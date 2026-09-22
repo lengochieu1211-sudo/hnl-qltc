@@ -2333,7 +2333,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
 
                         {userChangedEntries.length > 0 && (
                           <div className="space-y-1.5 rounded-lg bg-slate-50 p-2 border border-slate-100">
-                            <div className="text-[9px] font-extrabold uppercase tracking-wide text-slate-500">Đã thay đổi</div>
+                            <div className="text-[9px] font-extrabold uppercase tracking-wide text-slate-500">Nội dung thay đổi</div>
                             {userChangedEntries.map(([field, change]) => (
                               <div key={field} className="text-[9.5px] leading-relaxed text-slate-700">
                                 <span className="font-extrabold text-slate-700">{auditFieldLabel(field)}:</span>{' '}
