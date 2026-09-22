@@ -318,6 +318,29 @@ requireAll(workVolumeTab, [
 ], 'work-volume role-aware Excel actions');
 pass('Excel action bars are visually consistent across ADMIN, ENGINEER and VIEWER without weakening RBAC');
 
+const multiProjectAccess = read('src/components/MultiProjectAccessPanel.tsx');
+const multiProjectOverview = read('src/components/MultiProjectOverview.tsx');
+requireAll(multiProjectAccess, [
+  'Quản lý quyền nhiều dự án',
+  'fetchProjectEmailAccessFromCloud',
+  'saveProjectMemberToCloud',
+  'removeProjectMemberFromCloud',
+  "actorRole === 'ADMIN'",
+  'Không thể hạ quyền ADMIN cuối cùng',
+], 'central multi-project access manager');
+requireAll(multiProjectOverview, [
+  'Tổng quan dự án',
+  'Mở dự án',
+  'Quản trị dự án',
+  'Người xem',
+], 'multi-project startup overview');
+requireAll(appSource, [
+  'isMultiProjectOverviewOpen',
+  'authorizedChatProjects.length < 2',
+  '<MultiProjectOverview',
+], 'multi-project startup routing');
+pass('multi-project role management reuses project-scoped RBAC and startup overview without adding a fifth security role');
+
 if (!floorPlanDefect.includes('operationalWorkCategoryCatalog') || !floorPlanDefect.includes('getOperationalRoomSubItems')) fail('floor-plan ghost-category filter missing');
 if (!roomHighlight.includes("const [workCategory, setWorkCategory] = useState('')") || !roomHighlight.includes('projectWorkCategoryTitles')) fail('room editor still seeds a deleted/hard-coded category');
 if (!photoSync.includes('snapshotIsInitial = firstSnapshot') || !photoSync.includes('firstSnapshot = false')) fail('photo realtime initial snapshot race guard missing');

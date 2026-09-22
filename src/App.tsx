@@ -130,6 +130,7 @@ import { OfflineSyncBanner } from './components/OfflineSyncBanner';
 import { ExportPdfModal } from './components/ExportPdfModal';
 import { MaterialNormModal } from './components/MaterialNormModal';
 import { ProjectManagerModal } from './components/ProjectManagerModal';
+import { MultiProjectOverview } from './components/MultiProjectOverview';
 import { DueDateToastNotifier } from './components/DueDateToastNotifier';
 import { NotificationCenterModal } from './components/NotificationCenterModal';
 import { SuperAdminCenter, SuperAdminUiSettings } from './components/SuperAdminCenter';
@@ -1879,7 +1880,9 @@ export default function App() {
 
   // Chat must only list projects currently authorized by Firestore. Local recovery
   // projects remain available in Project Manager, but are never treated as chat access.
-  const [authorizedChatProjects, setAuthorizedChatProjects] = useState<Array<{ id: string; name: string }>>([]);
+  const [authorizedChatProjects, setAuthorizedChatProjects] = useState<Array<{ id: string; name: string; role?: UserRole }>>([]);
+  const [isMultiProjectOverviewOpen, setIsMultiProjectOverviewOpen] = useState(false);
+  const multiProjectOverviewOpenedForRef = useRef<string>('');
   const [cloudBootstrapVersion, setCloudBootstrapVersion] = useState<number>(0);
   const cloudBootstrapAttemptsRef = useRef<Set<string>>(new Set());
 
@@ -2346,7 +2349,11 @@ export default function App() {
       const cachedProjects = identity
         ? getProjectsList().filter((project) => getCachedVerifiedProjectRole(project.id, identity)?.allowed === true)
         : [];
-      setAuthorizedChatProjects(cachedProjects.map((project) => ({ id: project.id, name: project.name })));
+      setAuthorizedChatProjects(cachedProjects.map((project) => ({
+        id: project.id,
+        name: project.name,
+        role: identity ? getCachedVerifiedProjectRole(project.id, identity)?.role : undefined,
+      })));
       return;
     }
     if (!cloudUserKey) {
@@ -2364,7 +2371,11 @@ export default function App() {
 
     let firstCloudEmission = true;
     const unsubscribe = subscribeCurrentUserProjectsRealtime((remoteProjects) => {
-      setAuthorizedChatProjects(remoteProjects.map((project) => ({ id: project.id, name: project.name })));
+      setAuthorizedChatProjects(remoteProjects.map((project) => ({
+        id: project.id,
+        name: project.name,
+        role: project.role === 'ADMIN' || project.role === 'EDITOR' ? project.role : 'VIEWER',
+      })));
       const localProjects = getProjectsList();
       const localById = new Map(localProjects.map((p) => [p.id, p]));
       const cloudIds = new Set(remoteProjects.map((p) => p.id));
@@ -2450,6 +2461,18 @@ export default function App() {
 
     return unsubscribe;
   }, [cloudUserKey, isOnline]);
+
+  useEffect(() => {
+    if (!cloudUserKey) {
+      multiProjectOverviewOpenedForRef.current = '';
+      setIsMultiProjectOverviewOpen(false);
+      return;
+    }
+    if (!isOnline || authorizedChatProjects.length < 2) return;
+    if (multiProjectOverviewOpenedForRef.current === cloudUserKey) return;
+    multiProjectOverviewOpenedForRef.current = cloudUserKey;
+    setIsMultiProjectOverviewOpen(true);
+  }, [cloudUserKey, isOnline, authorizedChatProjects.length]);
 
   const [autosaveVersions, setAutosaveVersions] = useState<BackupVersion[]>([]);
 
@@ -6538,6 +6561,21 @@ export default function App() {
           </div>
         )}
         
+        <MultiProjectOverview
+          isOpen={isMultiProjectOverviewOpen}
+          projects={authorizedChatProjects}
+          activeProjectId={activeProjectId}
+          onClose={() => setIsMultiProjectOverviewOpen(false)}
+          onOpenProject={async (projectId) => {
+            await switchProject(projectId);
+            setIsMultiProjectOverviewOpen(false);
+          }}
+          onManageProjects={() => {
+            setIsMultiProjectOverviewOpen(false);
+            handleOpenProjectManager('projects');
+          }}
+        />
+
         <ProjectManagerModal 
           isOpen={isProjectManagerOpen} 
           onClose={() => setIsProjectManagerOpen(false)} 

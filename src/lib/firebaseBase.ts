@@ -1257,6 +1257,79 @@ export async function fetchProjectMembersFromCloud(projectId: string): Promise<a
   }
 }
 
+export interface ProjectEmailAccessInfo {
+  projectId: string;
+  email: string;
+  role: 'ADMIN' | 'EDITOR' | 'VIEWER' | null;
+  active: boolean;
+  isOwner: boolean;
+  ownerEmail?: string;
+}
+
+/**
+ * Read one target email across one project. The canonical email member is preferred;
+ * a narrow legacy email query is used only when old UID-only membership still exists.
+ */
+export async function fetchProjectEmailAccessFromCloud(
+  projectId: string,
+  email: string,
+): Promise<ProjectEmailAccessInfo> {
+  const normalizedEmail = normalizeEmail(email);
+  if (!projectId || !normalizedEmail) {
+    return { projectId, email: normalizedEmail, role: null, active: false, isOwner: false };
+  }
+
+  const projectSnap = await getDocFromServer(doc(db, 'projects', projectId));
+  if (!projectSnap.exists() || projectSnap.data()?.deleted === true) {
+    return { projectId, email: normalizedEmail, role: null, active: false, isOwner: false };
+  }
+
+  const projectData = projectSnap.data();
+  const ownerEmail = normalizeEmail(projectData?.ownerEmail);
+  if (ownerEmail && ownerEmail === normalizedEmail) {
+    return { projectId, email: normalizedEmail, role: 'ADMIN', active: true, isOwner: true, ownerEmail };
+  }
+
+  const canonicalSnap = await getDocFromServer(doc(db, 'projects', projectId, 'members', normalizedEmail));
+  if (canonicalSnap.exists()) {
+    const data = canonicalSnap.data();
+    if (data?.active === false) {
+      return { projectId, email: normalizedEmail, role: null, active: false, isOwner: false, ownerEmail: ownerEmail || undefined };
+    }
+    return {
+      projectId,
+      email: normalizedEmail,
+      role: normalizeProjectRole(data?.role),
+      active: true,
+      isOwner: false,
+      ownerEmail: ownerEmail || undefined,
+    };
+  }
+
+  const legacySnap = await getDocsFromServer(query(
+    collection(db, 'projects', projectId, 'members'),
+    where('email', '==', normalizedEmail),
+    limit(10),
+  ));
+  let legacy: any = null;
+  legacySnap.forEach((item) => {
+    const data = item.data();
+    if (data?.active === false) return;
+    if (!legacy || Number(data?.updatedAt || 0) >= Number(legacy?.updatedAt || 0)) {
+      legacy = data;
+    }
+  });
+
+  return {
+    projectId,
+    email: normalizedEmail,
+    role: legacy ? normalizeProjectRole(legacy.role) : null,
+    active: Boolean(legacy),
+    isOwner: false,
+    ownerEmail: ownerEmail || undefined,
+  };
+}
+
 
 function normalizeProjectRole(role?: string | null): 'ADMIN' | 'EDITOR' | 'VIEWER' {
   const value = String(role || 'VIEWER').toUpperCase();

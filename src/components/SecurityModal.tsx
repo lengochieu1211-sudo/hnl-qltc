@@ -45,6 +45,7 @@ import { confirmAsync } from '../utils/confirmAsync';
 import { formatDateTime } from '../utils/dateFormatter';
 import { isSuperAdminEmail } from '../config/superAdmin';
 import { ContactMenu } from './ContactMenu';
+import { MultiProjectAccessPanel } from './MultiProjectAccessPanel';
 
 const ContactPhoneEditor: React.FC<{
   initialValue: string;
@@ -1956,6 +1957,8 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                   </div>
                 </div>
               </div>
+
+              <MultiProjectAccessPanel />
 
               {/* Project-specific Members Whitelist */}
               <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200 space-y-3">

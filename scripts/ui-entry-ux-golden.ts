@@ -179,6 +179,14 @@ const workVolumeUi = read('src/components/WorkVolumeTab.tsx');
 
 assert(workVolumeUi.includes('<Download className="w-3.5 h-3.5" /> Tải Excel để chỉnh sửa'), 'Work Volume download action keeps one consistent label across roles');
 assert(workVolumeUi.includes('{hasStructureManageAccess && ('), 'Work Volume must hide ADMIN-only import/create actions from Engineer/Viewer');
+
+const multiProjectAccessUi = read('src/components/MultiProjectAccessPanel.tsx');
+const multiProjectOverviewUi = read('src/components/MultiProjectOverview.tsx');
+assert(multiProjectAccessUi.includes('Quản lý quyền nhiều dự án'), 'Security Center must expose central multi-project access management');
+assert(multiProjectAccessUi.includes('Không cấp quyền'), 'Central access manager must support explicit per-project revoke state');
+assert(multiProjectAccessUi.includes('Áp dụng cho dự án đã chọn'), 'Central access manager must support batch role drafting without visiting each project');
+assert(multiProjectOverviewUi.includes('Tổng quan dự án'), 'Users with multiple authorized projects need a startup project overview');
+assert(multiProjectOverviewUi.includes('Mở dự án'), 'Multi-project overview must offer an explicit project entry action');
 const warehouseUi = read('src/components/WarehouseTab.tsx');
 const offlineBannerUi = read('src/components/OfflineSyncBanner.tsx');
 const roomHighlightUi = read('src/components/RoomHighlightModal.tsx');
