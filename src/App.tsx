@@ -6673,6 +6673,7 @@ export default function App() {
               defectOpenCount={unhandledDefectsCount}
               dueAlertCount={dueDateAlerts.length}
               crewRecords={crewRecords}
+              teams={teams}
               lastUpdatedAt={lastUpdatedAt}
               isOnline={isOnline}
               isSyncing={isSyncing}

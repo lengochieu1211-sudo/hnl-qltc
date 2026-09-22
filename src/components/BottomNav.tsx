@@ -40,7 +40,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   const [showMore, setShowMore] = useState(false);
 
   const desktopTabs = [
-    { id: 'home' as TabType, label: 'Home', icon: LayoutDashboard },
+    { id: 'home' as TabType, label: 'Trang chủ', icon: LayoutDashboard },
     { id: 'floorplan' as TabType, label: t('floorplan'), icon: MapPin, badge: defectBadgeCount, badgeLabel: 'Defect chưa xử lý' },
     { id: 'crew' as TabType, label: t('crew'), icon: Users },
     { id: 'warehouse' as TabType, label: t('warehouse'), icon: PackageCheck },
@@ -48,7 +48,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   ];
 
   const mobileTabs = [
-    { id: 'home' as TabType, label: 'Home', icon: LayoutDashboard },
+    { id: 'home' as TabType, label: 'Trang chủ', icon: LayoutDashboard },
     { id: 'floorplan' as TabType, label: t('floorplan'), icon: MapPin, badge: defectBadgeCount, badgeLabel: 'Defect chưa xử lý' },
     { id: 'crew' as TabType, label: t('crew'), icon: Users },
     { id: 'warehouse' as TabType, label: t('warehouse'), icon: PackageCheck },
@@ -73,7 +73,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       {/* PC/Laptop: compact Zalo-style navigation rail. Business screens remain unchanged. */}
       <aside className="fixed inset-y-0 left-0 z-50 hidden w-[84px] flex-col border-r border-slate-800 bg-slate-950 text-white shadow-xl lg:flex">
         <div className="flex h-[78px] items-center justify-center border-b border-slate-800/90">
-          <button type="button" onClick={() => activate('home')} className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 hover:bg-slate-800" title="HNL QLTC · Home">
+          <button type="button" onClick={() => activate('home')} className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 hover:bg-slate-800" title="HNL QLTC · Trang chủ">
             <img
               src={`/icon.png?v=${APP_VERSION}-brand20260921`}
               alt="HNL QLTC"

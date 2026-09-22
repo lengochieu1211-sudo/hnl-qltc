@@ -47,6 +47,7 @@ import { findWorsenedTeamNameConflict, normalizeTeamDirectoryName, resolveUnique
 import { getCrewShiftCounts } from '../utils/crewUtils';
 import { ContactMenu } from './ContactMenu';
 import { ShareEntityMenu } from './ShareEntityMenu';
+import { CrewReportShareModal } from './CrewReportShareModal';
 
 const CrewPhotoCount: React.FC<{ projectId?: string; recordId: string }> = ({ projectId, recordId }) => {
   const [count, setCount] = useState(0);
@@ -393,6 +394,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [copySourceDate, setCopySourceDate] = useState('');
   const [showCopyDatePicker, setShowCopyDatePicker] = useState(false);
   const [copyDatePickerValue, setCopyDatePickerValue] = useState('');
+  const [showCrewReportShare, setShowCrewReportShare] = useState(false);
 
   useEffect(() => {
     if (!canOperate) {
@@ -1360,6 +1362,16 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             )}
             </>
           )}
+
+          <div className="mb-4">
+            <button
+              type="button"
+              onClick={() => setShowCrewReportShare(true)}
+              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 text-xs font-extrabold text-emerald-700 shadow-sm transition hover:bg-emerald-100"
+            >
+              <FileText className="h-4 w-4" /> Chia sẻ báo cáo quân số · 1 ngày / nhiều ngày · text / ảnh
+            </button>
+          </div>
 
           {/* Daily Records List */}
           <div className="space-y-3">
@@ -3201,6 +3213,16 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           </div>
         );
       })()}
+
+      <CrewReportShareModal
+        isOpen={showCrewReportShare}
+        onClose={() => setShowCrewReportShare(false)}
+        projects={[{ projectId, projectName: projectName || 'Dự án', records: crewRecords, teams }]}
+        initialStartDate={selectedDate}
+        initialEndDate={selectedDate}
+        maxDate={getTodayString()}
+        title={`HNL QLTC – Báo cáo quân số – ${projectName || 'Dự án'}`}
+      />
 
     </div>
   );

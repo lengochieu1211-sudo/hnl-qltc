@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { buildCrewReportRows, buildCrewReportText } from '../src/utils/crewReportUtils';
 
 // Regression contract for the unified project/sync/security/settings entry UX.
 const read = (path: string) => fs.readFileSync(path, 'utf8');
@@ -198,6 +199,32 @@ assert(homeDashboardUi.includes('không hiển thị số liệu giả'), 'Home 
 assert(appSource.includes("useState<TabType>('home')"), 'Home must be the default navigation destination');
 assert(navSource.includes("'home' | 'warehouse'"), 'Navigation type must include Home');
 assert(navSource.includes('hidden w-[84px]') && navSource.includes('lg:hidden'), 'Desktop must use a compact left rail while mobile keeps bottom navigation');
+assert(navSource.includes("label: 'Trang chủ'"), 'Visible Home navigation label must be Vietnamese: Trang chủ');
+assert(homeDashboardUi.includes('Báo cáo quân số nhiều dự án'), 'Trang chủ must expose multi-project manpower reporting');
+assert(homeDashboardUi.includes('fetchProjectCrewReportData'), 'Trang chủ must load only targeted manpower/team data for other projects');
+assert(homeDashboardUi.includes('Chia sẻ text / ảnh'), 'Trang chủ manpower report must expose quick text/image sharing');
+const crewUi = read('src/components/CrewTabBase.tsx');
+const crewShareUi = read('src/components/CrewReportShareModal.tsx');
+assert(crewUi.includes('Chia sẻ báo cáo quân số · 1 ngày / nhiều ngày · text / ảnh'), 'Crew screen must expose the consolidated share-report entry');
+assert(crewShareUi.includes('Sao chép text') && crewShareUi.includes('Chia sẻ ảnh') && crewShareUi.includes('Tải ảnh PNG'), 'Crew report sharing must support text, image share and image download');
+
+const crewReportRows = buildCrewReportRows([{
+  projectId: 'p1', projectName: 'DA 1',
+  teams: [
+    { id: 't1', name: 'Đội A', leader: '', defaultCount: 0 },
+    { id: 't2', name: 'Đội B', leader: '', defaultCount: 0 },
+  ],
+  records: [{
+    id: 'r1', teamId: 't1', teamName: 'Đội A', leaderName: '', date: '2026-09-22',
+    workerCount: 0, morningCount: 0, afternoonCount: 0, eveningCount: 0, taskDescription: '',
+  }],
+}], '2026-09-22', '2026-09-22');
+const zeroReport = crewReportRows.find((row) => row.teamId === 't1');
+const missingReport = crewReportRows.find((row) => row.teamId === 't2');
+assert(Boolean(zeroReport?.reported) && zeroReport?.morning === 0 && zeroReport?.dailyHeadcount === 0, 'Crew report must preserve an explicit zero as reported, not missing');
+assert(missingReport?.reported === false && missingReport?.morning === null, 'Crew report must distinguish missing daily report from zero');
+const crewReportText = buildCrewReportText({ rows: crewReportRows, startDate: '2026-09-22', endDate: '2026-09-22' });
+assert(crewReportText.includes('Đội A: Sáng 0') && crewReportText.includes('Đội B: Chưa báo'), 'Crew report text must preserve 0 vs Chưa báo semantics');
 const warehouseUi = read('src/components/WarehouseTab.tsx');
 const offlineBannerUi = read('src/components/OfflineSyncBanner.tsx');
 const roomHighlightUi = read('src/components/RoomHighlightModal.tsx');

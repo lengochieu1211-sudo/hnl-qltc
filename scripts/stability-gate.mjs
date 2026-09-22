@@ -321,6 +321,8 @@ pass('Excel action bars are visually consistent across ADMIN, ENGINEER and VIEWE
 const multiProjectAccess = read('src/components/MultiProjectAccessPanel.tsx');
 const multiProjectOverview = read('src/components/MultiProjectOverview.tsx');
 const homeDashboard = read('src/components/HomeDashboard.tsx');
+const crewReportShare = read('src/components/CrewReportShareModal.tsx');
+const crewReportUtils = read('src/utils/crewReportUtils.ts');
 requireAll(multiProjectAccess, [
   'Quản lý quyền nhiều dự án',
   'fetchProjectEmailAccessFromCloud',
@@ -345,13 +347,42 @@ requireAll(multiProjectOverview, [
 ], 'secondary multi-project overview');
 requireAll(homeDashboard, [
   'Trung tâm điều hành HNL QLTC',
+  'Trang chủ · Tổng quan công trường',
   'Mở thẳng dự án này khi khởi động',
   'Dự án của tôi',
-  'Báo cáo quân số',
+  'Báo cáo quân số nhiều dự án',
+  'Hôm nay',
+  'Hôm qua',
+  '7 ngày',
+  'Tháng này',
+  'Khoảng ngày',
+  'Chia sẻ text / ảnh',
   'không hiển thị số liệu giả',
-], 'Home dashboard');
+], 'Trang chủ dashboard');
+requireAll(crewReportShare, [
+  '1 ngày',
+  'Nhiều ngày',
+  'Sao chép text',
+  'Chia sẻ text',
+  'Chia sẻ ảnh',
+  'Tải ảnh PNG',
+  'Chưa báo',
+], 'crew report share center');
+requireAll(crewReportUtils, [
+  'buildCrewReportRows',
+  'buildCrewReportText',
+  'reported: false',
+  'dailyHeadcount',
+], 'crew report aggregation engine');
+requireAll(firebaseBase, [
+  'fetchProjectCrewReportData',
+  "'crew_records'",
+  "'teams'",
+  'CREW_REPORT_ACCESS_DENIED',
+], 'targeted multi-project crew report reader');
 requireAll(bottomNav, [
   "'home' | 'warehouse'",
+  "label: 'Trang chủ'",
   "hidden w-[84px]",
   'lg:flex',
   'lg:hidden',

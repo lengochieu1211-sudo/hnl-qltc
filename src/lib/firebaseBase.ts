@@ -2647,6 +2647,74 @@ export async function saveProjectDiffsToCloud(
   }
 }
 
+export interface ProjectCrewReportData {
+  projectId: string;
+  projectName: string;
+  records: any[];
+  teams: any[];
+  updatedAt: number;
+}
+
+/**
+ * Read only the two collections needed by the multi-project manpower report.
+ * This intentionally avoids hydrating Defect/photos/work volumes for every project on Home.
+ * The caller supplies an already-authorized project id, while this helper still performs a
+ * live role verification so a revoked account fails closed before report data is returned.
+ */
+export async function fetchProjectCrewReportData(
+  projectId: string,
+  startDate: string,
+  endDate: string,
+  options: { serverOnly?: boolean } = {},
+): Promise<ProjectCrewReportData> {
+  if (!projectId) throw new Error('CREW_REPORT_PROJECT_REQUIRED');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate) || startDate > endDate) {
+    throw new Error('CREW_REPORT_DATE_RANGE_INVALID');
+  }
+
+  await ensureAuth();
+  const actor = getCurrentRealFirebaseUser();
+  if (!actor) throw new Error('CREW_REPORT_AUTH_REQUIRED');
+  const roleInfo = await fetchProjectUserRoleFromCloud(projectId, actor);
+  if (roleInfo.verification !== 'verified' || !roleInfo.allowed) {
+    throw new Error('CREW_REPORT_ACCESS_DENIED');
+  }
+
+  const projectRef = doc(db, 'projects', projectId);
+  const crewQuery = query(
+    collection(db, 'projects', projectId, 'crew_records'),
+    where('date', '>=', startDate),
+    where('date', '<=', endDate),
+    orderBy('date', 'asc'),
+  );
+  const teamsRef = collection(db, 'projects', projectId, 'teams');
+  const readDocs = options.serverOnly ? getDocsFromServer : getDocs;
+  const readDoc = options.serverOnly ? getDocFromServer : getDoc;
+
+  const [projectSnap, crewSnap, teamsSnap] = await Promise.all([
+    readDoc(projectRef),
+    readDocs(crewQuery),
+    readDocs(teamsRef),
+  ]);
+  if (!projectSnap.exists()) throw new Error('CREW_REPORT_PROJECT_NOT_FOUND');
+
+  const projectMeta = projectSnap.data();
+  const records = crewSnap.docs
+    .map((item) => ({ id: item.id, ...item.data() }))
+    .filter((item: any) => item?.deleted !== true && !item?.deletedAt);
+  const teams = teamsSnap.docs
+    .map((item) => ({ id: item.id, ...item.data() }))
+    .filter((item: any) => item?.deleted !== true && !item?.deletedAt);
+
+  return {
+    projectId,
+    projectName: String(projectMeta?.name || projectId),
+    records,
+    teams,
+    updatedAt: cloudTimestampToMillis(projectMeta?.updatedAt),
+  };
+}
+
 /**
  * Fetch a single project from Cloud by ID
  */
