@@ -131,6 +131,7 @@ import { ExportPdfModal } from './components/ExportPdfModal';
 import { MaterialNormModal } from './components/MaterialNormModal';
 import { ProjectManagerModal } from './components/ProjectManagerModal';
 import { MultiProjectOverview } from './components/MultiProjectOverview';
+import { HomeDashboard } from './components/HomeDashboard';
 import { DueDateToastNotifier } from './components/DueDateToastNotifier';
 import { NotificationCenterModal } from './components/NotificationCenterModal';
 import { SuperAdminCenter, SuperAdminUiSettings } from './components/SuperAdminCenter';
@@ -200,6 +201,7 @@ interface AppData {
 
 const ANDROID_AUTO_SAVE_HANDLE_FLAG = '__qlctAndroidAutoSave';
 const ANDROID_ALL_AUTOSAVE_ENABLED_KEY = 'qlct_android_all_autosave_enabled';
+const STARTUP_PROJECT_ID_KEY = 'qlct_startup_project_id_v1';
 const getAndroidSingleAutosaveKey = (projectId: string) => `qlct_android_single_autosave_enabled_${projectId || 'default'}`;
 const makeAndroidAutoSaveHandle = (scope: string, name: string) => ({
   [ANDROID_AUTO_SAVE_HANDLE_FLAG]: true,
@@ -305,7 +307,7 @@ const normalizeSuperAdminUiSettings = (raw: any): SuperAdminUiSettings => {
 };
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<TabType>('floorplan');
+  const [activeTab, setActiveTab] = useState<TabType>('home');
 
   // Diagnostic navigation stays decoupled from individual screens. The source screen
   // stores the entity request in sessionStorage, while App only switches modules.
@@ -1882,7 +1884,10 @@ export default function App() {
   // projects remain available in Project Manager, but are never treated as chat access.
   const [authorizedChatProjects, setAuthorizedChatProjects] = useState<Array<{ id: string; name: string; role?: UserRole }>>([]);
   const [isMultiProjectOverviewOpen, setIsMultiProjectOverviewOpen] = useState(false);
-  const multiProjectOverviewOpenedForRef = useRef<string>('');
+  const [startupProjectId, setStartupProjectId] = useState<string>(() => {
+    try { return localStorage.getItem(STARTUP_PROJECT_ID_KEY) || ''; } catch (_) { return ''; }
+  });
+  const startupNavigationAppliedForRef = useRef<string>('');
   const [cloudBootstrapVersion, setCloudBootstrapVersion] = useState<number>(0);
   const cloudBootstrapAttemptsRef = useRef<Set<string>>(new Set());
 
@@ -2463,16 +2468,52 @@ export default function App() {
   }, [cloudUserKey, isOnline]);
 
   useEffect(() => {
-    if (!cloudUserKey) {
-      multiProjectOverviewOpenedForRef.current = '';
+    const remembered = !isOnline ? getRememberedVerifiedAuthIdentity() : null;
+    const identityKey = cloudUserKey || (remembered ? `${remembered.uid || ''}:${remembered.email || ''}` : '');
+    if (!identityKey) {
+      startupNavigationAppliedForRef.current = '';
       setIsMultiProjectOverviewOpen(false);
+      setActiveTab('home');
       return;
     }
-    if (authorizedChatProjects.length < 2) return;
-    if (multiProjectOverviewOpenedForRef.current === cloudUserKey) return;
-    multiProjectOverviewOpenedForRef.current = cloudUserKey;
-    setIsMultiProjectOverviewOpen(true);
-  }, [cloudUserKey, authorizedChatProjects.length]);
+    if (authorizedChatProjects.length === 0) return;
+    if (startupNavigationAppliedForRef.current === identityKey) return;
+    startupNavigationAppliedForRef.current = identityKey;
+
+    const quickProject = startupProjectId
+      ? authorizedChatProjects.find((project) => project.id === startupProjectId)
+      : undefined;
+    if (!startupProjectId) {
+      setActiveTab('home');
+      return;
+    }
+    if (!quickProject) {
+      try { localStorage.removeItem(STARTUP_PROJECT_ID_KEY); } catch (_) {}
+      setStartupProjectId('');
+      setActiveTab('home');
+      return;
+    }
+
+    const openQuickProject = async () => {
+      try {
+        if (activeProjectIdRef.current !== quickProject.id) await switchProject(quickProject.id);
+        setActiveTab('floorplan');
+      } catch (err) {
+        console.warn('Quick-start project switch warning:', err);
+        setActiveTab('home');
+      }
+    };
+    void openQuickProject();
+  }, [cloudUserKey, isOnline, authorizedChatProjects, startupProjectId]);
+
+  const handleStartupProjectChange = (projectId: string) => {
+    const next = String(projectId || '').trim();
+    setStartupProjectId(next);
+    try {
+      if (next) safeSetLocalStorageItem(STARTUP_PROJECT_ID_KEY, next);
+      else localStorage.removeItem(STARTUP_PROJECT_ID_KEY);
+    } catch (_) {}
+  };
 
   const [autosaveVersions, setAutosaveVersions] = useState<BackupVersion[]>([]);
 
@@ -6492,11 +6533,10 @@ export default function App() {
   const hasExcelExport = ['warehouse', 'volume', 'floorplan', 'checklist', 'crew'].includes(activeTab);
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900 font-sans selection:bg-blue-200">
+    <div className="min-h-screen bg-slate-100 text-slate-900 font-sans selection:bg-blue-200 lg:pl-[84px]">
       {/* Mobile & Responsive Shell Frame */}
       <div
-        className="w-full max-w-lg md:max-w-3xl lg:max-w-[calc(100vw-2rem)] xl:max-w-[calc(100vw-2.5rem)] 2xl:max-w-[calc(100vw-3rem)] mx-auto bg-slate-50 min-h-screen shadow-2xl relative border-x border-slate-200 overflow-x-hidden"
-        style={{ paddingBottom: isSoftKeyboardOpen ? '0px' : 'calc(5rem + env(safe-area-inset-bottom))' }}
+        className={`w-full max-w-lg md:max-w-3xl lg:max-w-none mx-auto bg-slate-50 min-h-screen shadow-2xl relative border-x border-slate-200 overflow-x-hidden ${isSoftKeyboardOpen ? 'pb-0' : 'pb-[calc(5rem+env(safe-area-inset-bottom))] lg:pb-4'}`}
       >
         {/* Sticky Top Header */}
         <GoogleAuthHeader
@@ -6624,6 +6664,31 @@ export default function App() {
         {/* Tab Content */}
         <main className="animate-in fade-in duration-150">
           <React.Suspense fallback={<div className="p-8 text-center text-sm text-slate-500"><RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />Đang tải mục...</div>}>
+          {activeTab === 'home' && (
+            <HomeDashboard
+              projects={authorizedChatProjects}
+              activeProjectId={activeProjectId}
+              activeProjectName={projectName}
+              currentRole={currentUserRole}
+              defectOpenCount={unhandledDefectsCount}
+              dueAlertCount={dueDateAlerts.length}
+              crewRecords={crewRecords}
+              lastUpdatedAt={lastUpdatedAt}
+              isOnline={isOnline}
+              isSyncing={isSyncing}
+              startupProjectId={startupProjectId}
+              onStartupProjectChange={handleStartupProjectChange}
+              onOpenProject={async (projectId) => {
+                await switchProject(projectId);
+                setActiveTab('floorplan');
+              }}
+              onManageProjects={() => handleOpenProjectManager('projects')}
+              onOpenNotifications={() => setIsNotificationCenterOpen(true)}
+              onOpenCrew={() => setActiveTab('crew')}
+              onOpenFloorPlan={() => setActiveTab('floorplan')}
+            />
+          )}
+
           {activeTab === 'warehouse' && (
             <WarehouseTab
               inventory={inventory}

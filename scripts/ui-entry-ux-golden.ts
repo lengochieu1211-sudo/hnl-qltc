@@ -182,14 +182,22 @@ assert(workVolumeUi.includes('{hasStructureManageAccess && ('), 'Work Volume mus
 
 const multiProjectAccessUi = read('src/components/MultiProjectAccessPanel.tsx');
 const multiProjectOverviewUi = read('src/components/MultiProjectOverview.tsx');
+const homeDashboardUi = read('src/components/HomeDashboard.tsx');
+const navSource = read('src/components/BottomNav.tsx');
 assert(multiProjectAccessUi.includes('Quản lý quyền nhiều dự án'), 'Security Center must expose central multi-project access management');
 assert(multiProjectAccessUi.includes('Không cấp quyền'), 'Central access manager must support explicit per-project revoke state');
 assert(multiProjectAccessUi.includes('Áp dụng cho dự án đã chọn'), 'Central access manager must support batch role drafting without visiting each project');
 assert(multiProjectAccessUi.includes('applyProjectMemberAccessChangesAtomically'), 'Central access manager must commit canonical membership through the atomic multi-project engine');
 assert(multiProjectAccessUi.includes("liveActorRole.verification !== 'verified'"), 'Central access manager must fail closed when live ADMIN verification is unavailable');
 assert(!appSource.includes('!isOnline || authorizedChatProjects.length < 2'), 'Verified cached multi-project overview must remain available during offline startup');
-assert(multiProjectOverviewUi.includes('Tổng quan dự án'), 'Users with multiple authorized projects need a startup project overview');
+assert(multiProjectOverviewUi.includes('Tổng quan dự án'), 'Secondary multi-project overview must remain available');
 assert(multiProjectOverviewUi.includes('Mở dự án'), 'Multi-project overview must offer an explicit project entry action');
+assert(homeDashboardUi.includes('Trung tâm điều hành HNL QLTC'), 'Home must provide the professional multi-project command center');
+assert(homeDashboardUi.includes('Mở thẳng dự án này khi khởi động'), 'Home must expose an explicit quick-start project preference');
+assert(homeDashboardUi.includes('không hiển thị số liệu giả'), 'Home must never invent metrics for projects whose business data is not loaded');
+assert(appSource.includes("useState<TabType>('home')"), 'Home must be the default navigation destination');
+assert(navSource.includes("'home' | 'warehouse'"), 'Navigation type must include Home');
+assert(navSource.includes('hidden w-[84px]') && navSource.includes('lg:hidden'), 'Desktop must use a compact left rail while mobile keeps bottom navigation');
 const warehouseUi = read('src/components/WarehouseTab.tsx');
 const offlineBannerUi = read('src/components/OfflineSyncBanner.tsx');
 const roomHighlightUi = read('src/components/RoomHighlightModal.tsx');

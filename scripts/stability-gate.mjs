@@ -320,6 +320,7 @@ pass('Excel action bars are visually consistent across ADMIN, ENGINEER and VIEWE
 
 const multiProjectAccess = read('src/components/MultiProjectAccessPanel.tsx');
 const multiProjectOverview = read('src/components/MultiProjectOverview.tsx');
+const homeDashboard = read('src/components/HomeDashboard.tsx');
 requireAll(multiProjectAccess, [
   'Quản lý quyền nhiều dự án',
   'fetchProjectEmailAccessFromCloud',
@@ -335,19 +336,34 @@ requireAll(firebaseBase, [
   'MEMBER_REVOKE_VERIFY_FAILED',
   'MEMBER_ROLE_VERIFY_FAILED',
 ], 'atomic multi-project membership engine');
-if (app.includes('!isOnline || authorizedChatProjects.length < 2')) fail('multi-project overview is incorrectly disabled for verified offline project cache');
+if (app.includes('!isOnline || authorizedChatProjects.length < 2')) fail('multi-project UI is incorrectly disabled for verified offline project cache');
 requireAll(multiProjectOverview, [
   'Tổng quan dự án',
   'Mở dự án',
   'Quản trị dự án',
   'Người xem',
-], 'multi-project startup overview');
+], 'secondary multi-project overview');
+requireAll(homeDashboard, [
+  'Trung tâm điều hành HNL QLTC',
+  'Mở thẳng dự án này khi khởi động',
+  'Dự án của tôi',
+  'Báo cáo quân số',
+  'không hiển thị số liệu giả',
+], 'Home dashboard');
+requireAll(bottomNav, [
+  "'home' | 'warehouse'",
+  "hidden w-[84px]",
+  'lg:flex',
+  'lg:hidden',
+], 'responsive desktop-left/mobile-bottom navigation');
 requireAll(app, [
-  'isMultiProjectOverviewOpen',
-  'authorizedChatProjects.length < 2',
-  '<MultiProjectOverview',
-], 'multi-project startup routing');
-pass('multi-project role management reuses project-scoped RBAC and startup overview without adding a fifth security role');
+  'STARTUP_PROJECT_ID_KEY',
+  "useState<TabType>('home')",
+  '<HomeDashboard',
+  'startupNavigationAppliedForRef',
+  "setActiveTab('floorplan')",
+], 'Home + quick-start routing');
+pass('multi-project RBAC is preserved while startup now routes through Home or the explicitly pinned project');
 
 if (!floorPlanDefect.includes('operationalWorkCategoryCatalog') || !floorPlanDefect.includes('getOperationalRoomSubItems')) fail('floor-plan ghost-category filter missing');
 if (!roomHighlight.includes("const [workCategory, setWorkCategory] = useState('')") || !roomHighlight.includes('projectWorkCategoryTitles')) fail('room editor still seeds a deleted/hard-coded category');

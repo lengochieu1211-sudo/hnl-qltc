@@ -89,7 +89,7 @@ assert(webShell.includes('ToolTip') && webShell.includes('AccessibleName') && we
 assert(webShell.includes('Height * 0.56F') && webShell.includes('Math.Max(16, Math.Min(24') && webShell.includes('float stroke = Math.Max(1.8F, Math.Min(2.4F, r.Width / 8F))'), 'all native toolbar glyphs scale from actual DPI-scaled control height with one consistent visual weight');
 assert(webShell.includes('ToolbarReloadAssetBase64') && webShell.includes('TryDrawToolbarAsset') && webShell.includes('InterpolationMode.HighQualityBicubic') && webShell.includes('ColorMatrix'), 'native toolbar prefers ChatGPT-generated high-resolution icon artwork and tints/scales it through Windows instead of drawing reload at tiny runtime geometry');
 assert(webShell.includes('Chrome-like refresh') && webShell.includes('RectangleF reloadArc') && webShell.includes('graphics.DrawArc(reloadPen, reloadArc, 48F, 292F)') && webShell.includes('graphics.DrawLine(reloadPen, tipX, tipY'), 'reload glyph uses a font-independent Chrome-like circular arrow built from simple DPI-safe lines');
-assert(app.includes('lg:max-w-[calc(100vw-2rem)]') && app.includes('xl:max-w-[calc(100vw-2.5rem)]') && app.includes('2xl:max-w-[calc(100vw-3rem)]'), 'PC/laptop shell expands fluidly with the viewport while preserving mobile/tablet max widths');
+assert(app.includes('lg:pl-[84px]') && app.includes('lg:max-w-none') && app.includes('md:max-w-3xl'), 'PC/laptop shell reserves the compact left navigation rail while preserving mobile/tablet max widths');
 assert(launcher.includes('DesktopPaths.LocalDatabase') && launcher.includes('workspace.db'), 'Desktop Suite stores its local SQLite database under LocalAppData');
 assert(localStore.includes('winsqlite3.dll'), 'local workspace uses Windows inbox winsqlite3 without an external database DLL');
 assert(localStore.includes('CREATE TABLE IF NOT EXISTS workspace_files') && localStore.includes('CREATE TABLE IF NOT EXISTS sync_queue') && localStore.includes('CREATE TABLE IF NOT EXISTS sync_history'), 'SQLite schema contains workspace mirror, durable sync queue and audit history');
@@ -130,7 +130,7 @@ assert(webBridge.includes('BRIDGE_ATTEMPT_TOKEN_INVALID') && webBridge.includes(
 assert(!webBridge.includes('uploadProjectBinaryToR2') && !webBridge.includes('fetch('), 'Web bridge does not introduce a direct R2/network upload authority');
 assert(bridgeCard.includes('Windows – Đồng bộ file chờ') && bridgeCard.includes('Chọn thư mục HNL QLTC và đồng bộ file chờ') && bridgeCard.includes('Documents\\HNL QLTC') && bridgeCard.includes('/Windows/i.test(navigator.userAgent') && configTab.includes('WindowsDesktopSyncBridgeCard'), 'Settings Sync Center exposes clear Windows-only pending-file sync controls');
 assert(build.includes('release-tag.txt'), 'build script uses release tag for cache/version isolation');
-assert(releaseTag === '6.3.0-rc2.2.26.37', 'desktop release tag identifies the RC2.2.26.37 multi-project access candidate');
+assert(releaseTag === '6.3.0-rc2.2.26.38', 'desktop release tag identifies the RC2.2.26.38 Home dashboard candidate');
 
 assert(iconSource.width >= 1024 && iconSource.height >= 1024 && iconSource.bytes > 1_000_000, 'HQ HNL logo source is retained at >=1024px');
 assert(taskbar192.width === 192 && taskbar192.height === 192, 'browser app-mode has dedicated 192x192 HNL icon');
