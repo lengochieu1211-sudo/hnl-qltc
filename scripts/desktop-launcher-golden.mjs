@@ -130,7 +130,7 @@ assert(webBridge.includes('BRIDGE_ATTEMPT_TOKEN_INVALID') && webBridge.includes(
 assert(!webBridge.includes('uploadProjectBinaryToR2') && !webBridge.includes('fetch('), 'Web bridge does not introduce a direct R2/network upload authority');
 assert(bridgeCard.includes('Windows – Đồng bộ file chờ') && bridgeCard.includes('Chọn thư mục HNL QLTC và đồng bộ file chờ') && bridgeCard.includes('Documents\\HNL QLTC') && bridgeCard.includes('/Windows/i.test(navigator.userAgent') && configTab.includes('WindowsDesktopSyncBridgeCard'), 'Settings Sync Center exposes clear Windows-only pending-file sync controls');
 assert(build.includes('release-tag.txt'), 'build script uses release tag for cache/version isolation');
-assert(releaseTag === '6.3.0-rc2.2.26.33', 'desktop release tag identifies the RC2.2.26.33 Security Center audit/presence candidate');
+assert(releaseTag === '6.3.0-rc2.2.26.34', 'desktop release tag identifies the RC2.2.26.34 human-readable Security Center audit candidate');
 
 assert(iconSource.width >= 1024 && iconSource.height >= 1024 && iconSource.bytes > 1_000_000, 'HQ HNL logo source is retained at >=1024px');
 assert(taskbar192.width === 192 && taskbar192.height === 192, 'browser app-mode has dedicated 192x192 HNL icon');

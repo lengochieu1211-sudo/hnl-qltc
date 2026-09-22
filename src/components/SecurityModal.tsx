@@ -1185,7 +1185,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
     active: 'Đang hoạt động',
   };
   const auditTechnicalFields = new Set([
-    'revision', 'updatedAt', 'createdAt', 'updatedByUid', 'createdByUid',
+    'id', 'revision', 'updatedAt', 'createdAt', 'updatedByUid', 'createdByUid',
     'deleted', 'deletedAt', 'deletedByUid', 'deletedBy',
     'updatedByEmail', 'updatedByDeviceId', 'updatedByDeviceName',
     'imageRevision', 'imageCloudRevision', 'imageCloudSyncedAt',
@@ -1217,12 +1217,31 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
     });
     return text;
   };
+  const auditActionSentence = (log: AuditLogEntry) => {
+    const moduleLabel = auditModuleLabel(log.module);
+    const action = String(log.action || '').trim().toUpperCase();
+    if (action === 'CREATE') return `đã thêm ${moduleLabel}`;
+    if (action === 'UPDATE' || action === 'DATA_CHANGE') return `đã cập nhật ${moduleLabel}`;
+    if (action === 'DELETE') return `đã xóa ${moduleLabel}`;
+    if (action === 'PHOTO_CHANGE') return `đã thay đổi hình ảnh ${moduleLabel}`;
+    if (action === 'ROLE_CHANGE') return 'đã thay đổi quyền truy cập';
+    if (action === 'MEMBER_ADD') return 'đã thêm thành viên';
+    if (action === 'MEMBER_UPDATE') return 'đã cập nhật thành viên';
+    if (action === 'MEMBER_REMOVE') return 'đã thu hồi thành viên';
+    if (action === 'PROJECT_INVITE') return 'đã mời thành viên vào dự án';
+    if (action === 'BACKUP') return 'đã sao lưu dữ liệu';
+    if (action === 'RESTORE') return 'đã khôi phục dữ liệu';
+    if (action === 'SYNC') return 'đã đồng bộ dữ liệu';
+    if (action === 'BATCH_UPDATE') return 'đã đồng bộ nhiều thay đổi';
+    if (action === 'SECURITY_CONFIG_CHANGE') return 'đã thay đổi bảo mật / phân quyền';
+    return `${auditActionLabel(log.action).toLocaleLowerCase('vi')} · ${moduleLabel}`;
+  };
   const auditContextSummary = (log: AuditLogEntry) => {
     const anyLog = log as any;
     const snapshots = [anyLog.afterData, anyLog.beforeData].filter((value) => value && typeof value === 'object' && !Array.isArray(value));
     const snapshot = snapshots[0] || {};
     const changed = (anyLog.changedFields || {}) as Record<string, { before?: any; after?: any }>;
-    const pick = (...keys: string[]) => {
+    const pickFriendly = (...keys: string[]) => {
       for (const key of keys) {
         const direct = snapshot?.[key];
         if (direct !== undefined && direct !== null && String(direct).trim()) return String(direct);
@@ -1232,14 +1251,22 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
       }
       return '';
     };
+    // Never surface raw relationship IDs in the human summary. If an old log only has
+    // roomId/teamId/materialId, the readable change sentence below explains the relation
+    // while the raw ID stays available under "Chi tiết kỹ thuật".
+    const floor = pickFriendly('floorName');
+    const room = pickFriendly('roomName');
+    const location = pickFriendly('location', 'positionDetail', 'axisGrid');
+    const team = pickFriendly('teamName', 'assignedTeam');
+    const material = pickFriendly('materialName');
     const parts = [
-      ['Tầng', pick('floorName', 'floorId')],
-      ['Căn', pick('roomName', 'roomId')],
-      ['Vị trí', pick('location', 'positionDetail', 'axisGrid')],
-      ['Đội', pick('teamName', 'assignedTeam', 'teamId')],
-      ['Vật tư', pick('materialName', 'materialId')],
-    ].filter(([, value]) => Boolean(value)) as string[][];
-    return parts.map(([label, value]) => `${label}: ${value}`).join(' · ');
+      floor,
+      room ? `Căn/phòng: ${room}` : '',
+      location ? `Vị trí: ${location}` : '',
+      team ? `Đội: ${team}` : '',
+      material ? `Vật tư: ${material}` : '',
+    ].filter(Boolean);
+    return parts.join(' · ');
   };
   const auditModules: string[] = Array.from(new Set<string>(auditLogs.map((log) => String(log.module || '').trim()).filter(Boolean))).sort((a, b) => auditModuleLabel(a).localeCompare(auditModuleLabel(b), 'vi'));
   const auditClients = Array.from(new Set(auditLogs.map((log) => String(log.clientType || '').trim()).filter(Boolean))).sort();
@@ -1307,6 +1334,51 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
     if (typeof value === 'number') return String(value);
     if (typeof value === 'object') return 'Dữ liệu chi tiết';
     return String(value);
+  };
+
+  const auditValueIsEmpty = (value: any) => value === undefined || value === null || value === '';
+  const auditSnapshotLabel = (log: AuditLogEntry, side: 'beforeData' | 'afterData', keys: string[]) => {
+    const snapshot = (log as any)?.[side];
+    if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return '';
+    for (const key of keys) {
+      const value = snapshot?.[key];
+      if (!auditValueIsEmpty(value)) return String(value);
+    }
+    return '';
+  };
+  const auditReadableChange = (log: AuditLogEntry, field: string, change: { before: any; after: any }) => {
+    const relations: Record<string, { label: string; nameKeys: string[] }> = {
+      roomId: { label: 'căn/phòng', nameKeys: ['roomName'] },
+      floorId: { label: 'tầng', nameKeys: ['floorName'] },
+      teamId: { label: 'đội phụ trách', nameKeys: ['teamName', 'assignedTeam'] },
+      materialId: { label: 'vật tư', nameKeys: ['materialName'] },
+      workCategoryId: { label: 'hạng mục thi công', nameKeys: ['workCategory'] },
+    };
+    const relation = relations[field];
+    if (relation) {
+      const beforeEmpty = auditValueIsEmpty(change?.before);
+      const afterEmpty = auditValueIsEmpty(change?.after);
+      const beforeName = auditSnapshotLabel(log, 'beforeData', relation.nameKeys);
+      const afterName = auditSnapshotLabel(log, 'afterData', relation.nameKeys);
+      if (!beforeEmpty && afterEmpty) {
+        return `Đã bỏ liên kết ${relation.label}${beforeName ? ` “${beforeName}”` : ' trước đó'}.`;
+      }
+      if (beforeEmpty && !afterEmpty) {
+        return `Đã gán ${relation.label}${afterName ? ` “${afterName}”` : ''}.`;
+      }
+      if (!beforeEmpty && !afterEmpty) {
+        if (beforeName && afterName && beforeName !== afterName) return `Đã chuyển ${relation.label} từ “${beforeName}” sang “${afterName}”.`;
+        return `Đã thay đổi liên kết ${relation.label}.`;
+      }
+      return `Đã cập nhật liên kết ${relation.label}.`;
+    }
+    return `${auditValuePreview(change?.before, field)} → ${auditValuePreview(change?.after, field)}`;
+  };
+  const auditClientShortLabel = (log: AuditLogEntry) => {
+    if (log.clientType === 'DESKTOP') return 'Windows';
+    if (log.clientType === 'APK') return 'Android';
+    if (log.clientType === 'WEB') return 'Web';
+    return 'Thiết bị';
   };
 
   return (
@@ -2212,80 +2284,92 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                     const changedEntries = Object.entries(log.changedFields || {}) as Array<[string, { before: any; after: any }]>;
                     const userChangedEntries = changedEntries.filter(([field]) => !auditTechnicalFields.has(field));
                     const contextSummary = auditContextSummary(log);
+                    const primaryChange = userChangedEntries[0];
                     return (
                     <details
                       key={log.id}
                       className="group p-2.5 bg-white border border-slate-200 rounded-xl text-xs hover:bg-slate-50/50 transition-colors"
                     >
                       <summary className="cursor-pointer list-none">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0 space-y-0.5">
-                            <div className="flex flex-wrap items-center gap-1">
-                              <span className="font-extrabold text-indigo-800 text-[10.5px]">{auditActionLabel(log.action)}</span>
-                              {log.module && <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-[8.5px] font-bold text-indigo-700">{auditModuleLabel(log.module)}</span>}
-                              <span className={`rounded px-1.5 py-0.5 text-[8.5px] font-bold ${log.syncStatus === 'PENDING' ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'}`}>
-                                {log.syncStatus === 'PENDING' ? 'Chờ đồng bộ' : 'Đã đồng bộ'}
-                              </span>
+                        <div className="space-y-1">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="text-[10.5px] text-slate-800 leading-relaxed">
+                                <span className="font-extrabold">{userLabel}</span>{' '}
+                                <span className="font-semibold">{auditActionSentence(log)}</span>
+                              </div>
+                              <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[9px] text-slate-500">
+                                <span>{formatDateTime(log.timestamp)}</span>
+                                <span>·</span>
+                                <span>{auditClientShortLabel(log)}</span>
+                                <span className={`rounded px-1.5 py-0.5 font-bold ${log.syncStatus === 'PENDING' ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                                  {log.syncStatus === 'PENDING' ? 'Chờ đồng bộ' : 'Đã đồng bộ'}
+                                </span>
+                              </div>
                             </div>
-                            <div className="text-[10px] font-bold text-slate-800 truncate">{userLabel}</div>
-                            <div className="text-[10px] text-slate-700 line-clamp-2">{auditFriendlyDetails(log)}</div>
+                            <ChevronDown className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform group-open:rotate-180" />
                           </div>
-                          <span className="text-[9px] text-slate-400 font-mono shrink-0">
-                            {formatDateTime(log.timestamp)}
-                          </span>
+                          {contextSummary && (
+                            <div className="text-[9.5px] text-indigo-800 line-clamp-2">
+                              <span className="font-extrabold">Liên quan:</span> {contextSummary}
+                            </div>
+                          )}
+                          {primaryChange && (
+                            <div className="text-[9.5px] text-slate-700 line-clamp-2">
+                              <span className="font-extrabold">{auditFieldLabel(primaryChange[0])}:</span>{' '}
+                              {auditReadableChange(log, primaryChange[0], primaryChange[1])}
+                              {userChangedEntries.length > 1 && <span className="text-slate-400"> · +{userChangedEntries.length - 1} thay đổi khác</span>}
+                            </div>
+                          )}
                         </div>
                       </summary>
-                      <div className="pt-2 mt-2 border-t border-slate-100 space-y-2">
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[9px] text-slate-500">
-                          {(log.actorEmail || log.userEmail) && <span>Email: <strong className="text-slate-700">{log.actorEmail || log.userEmail}</strong></span>}
-                          <span>Vai trò: <strong className="text-slate-700">{auditRoleLabel(log.actorRole)}</strong></span>
-                          <span>Ứng dụng: <strong className="text-slate-700">{auditClientLabel(log)}</strong></span>
-                          {log.deviceName && <span>Thiết bị: <strong className="text-slate-700">{log.deviceName}</strong></span>}
-                          {log.deviceId && <span className="font-mono">ID …{String(log.deviceId).slice(-8)}</span>}
-                          {log.recordId && <span>Bản ghi: <strong className="font-mono text-slate-700">{log.recordId}</strong></span>}
-                          {log.appVersion && <span>Phiên bản: <strong className="text-slate-700">{log.appVersion}</strong></span>}
-                        </div>
 
+                      <div className="pt-2 mt-2 border-t border-slate-100 space-y-2">
                         {contextSummary && (
-                          <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 px-2 py-1.5 text-[9px] text-indigo-800">
-                            <span className="font-extrabold">Vị trí / đối tượng:</span> {contextSummary}
+                          <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 px-2 py-1.5 text-[9.5px] text-indigo-800">
+                            <span className="font-extrabold">Liên quan:</span> {contextSummary}
                           </div>
                         )}
 
                         {userChangedEntries.length > 0 && (
-                          <div className="space-y-1 rounded-lg bg-slate-50 p-2 border border-slate-100">
-                            <div className="text-[9px] font-extrabold uppercase tracking-wide text-slate-500">Nội dung thay đổi</div>
+                          <div className="space-y-1.5 rounded-lg bg-slate-50 p-2 border border-slate-100">
+                            <div className="text-[9px] font-extrabold uppercase tracking-wide text-slate-500">Đã thay đổi</div>
                             {userChangedEntries.map(([field, change]) => (
-                              <div key={field} className="grid grid-cols-[120px_1fr] gap-2 text-[9px]">
-                                <span className="font-bold text-slate-600 break-words">{auditFieldLabel(field)}</span>
-                                <span className="text-slate-600 break-words">
-                                  <span className="text-rose-600">{auditValuePreview(change?.before, field)}</span>
-                                  <span className="px-1 text-slate-400">→</span>
-                                  <span className="text-emerald-700">{auditValuePreview(change?.after, field)}</span>
-                                </span>
+                              <div key={field} className="text-[9.5px] leading-relaxed text-slate-700">
+                                <span className="font-extrabold text-slate-700">{auditFieldLabel(field)}:</span>{' '}
+                                <span>{auditReadableChange(log, field, change)}</span>
                               </div>
                             ))}
                           </div>
                         )}
 
                         {userChangedEntries.length === 0 && changedEntries.length > 0 && (
-                          <div className="rounded-lg border border-slate-100 bg-slate-50 p-2 text-[9px] text-slate-500">
-                            Thao tác này chỉ thay đổi thông tin kỹ thuật đồng bộ; không có nội dung nghiệp vụ cần hiển thị.
+                          <div className="rounded-lg border border-slate-100 bg-slate-50 p-2 text-[9.5px] text-slate-500">
+                            Chỉ cập nhật thông tin đồng bộ hệ thống; không có thay đổi nghiệp vụ cần hiển thị.
                           </div>
                         )}
 
                         {changedEntries.length === 0 && (log.beforeData !== undefined || log.afterData !== undefined) && (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[9px]">
-                            <div className="rounded-lg border border-rose-100 bg-rose-50/40 p-2">
-                              <div className="font-extrabold text-rose-700 mb-1">Trước</div>
-                              <div className="break-words text-slate-600">{auditValuePreview(log.beforeData)}</div>
-                            </div>
-                            <div className="rounded-lg border border-emerald-100 bg-emerald-50/40 p-2">
-                              <div className="font-extrabold text-emerald-700 mb-1">Sau</div>
-                              <div className="break-words text-slate-600">{auditValuePreview(log.afterData)}</div>
-                            </div>
+                          <div className="rounded-lg border border-slate-100 bg-slate-50 p-2 text-[9.5px] text-slate-600">
+                            Đã cập nhật dữ liệu của bản ghi này.
                           </div>
                         )}
+
+                        <details className="rounded-lg border border-slate-200 bg-white px-2 py-1.5">
+                          <summary className="cursor-pointer text-[9px] font-bold text-slate-500">
+                            Chi tiết kỹ thuật
+                          </summary>
+                          <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[8.5px] text-slate-500">
+                            {(log.actorEmail || log.userEmail) && <span>Email: <strong className="text-slate-700">{log.actorEmail || log.userEmail}</strong></span>}
+                            <span>Vai trò: <strong className="text-slate-700">{auditRoleLabel(log.actorRole)}</strong></span>
+                            <span>Ứng dụng: <strong className="text-slate-700">{auditClientLabel(log)}</strong></span>
+                            {log.deviceName && <span>Thiết bị: <strong className="text-slate-700">{log.deviceName}</strong></span>}
+                            {log.deviceId && <span className="font-mono">ID thiết bị …{String(log.deviceId).slice(-8)}</span>}
+                            {log.recordId && <span>Mã bản ghi: <strong className="font-mono text-slate-700">{log.recordId}</strong></span>}
+                            {log.appVersion && <span>Phiên bản: <strong className="text-slate-700">{log.appVersion}</strong></span>}
+                            {log.details && <span>Mô tả gốc: <strong className="text-slate-700">{auditFriendlyDetails(log)}</strong></span>}
+                          </div>
+                        </details>
                       </div>
                     </details>
                   )})}

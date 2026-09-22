@@ -94,7 +94,12 @@ requireAll(securityModal, [
   'Tải thêm nhật ký cũ hơn',
   'Chỉ đọc Cloud khi mở tab Nhật ký',
   'Mọi tài khoản',
-  'Vị trí / đối tượng:',
+  'Chi tiết kỹ thuật',
+  'Never surface raw relationship IDs',
+  'Đã bỏ liên kết',
+  'auditActionSentence',
+  'auditReadableChange',
+  'ID thiết bị',
   'Hôm qua ·',
   'Lần cuối ',
   "logAuditAction('ROLE_CHANGE', roleDescription);",
@@ -104,7 +109,7 @@ requireAll(securityModal, [
 if (securityModal.includes('subscribeProjectAuditLogsRealtime(selectedPid')) {
   fail('Security Center must not keep the 200-row activityLogs realtime listener alive');
 }
-pass('Security Center reads audit history on demand and preserves precise presence recency');
+pass('Security Center reads audit history on demand, preserves precise presence recency, and keeps technical IDs behind progressive disclosure');
 
 
 requireAll(runtimeArch, [
