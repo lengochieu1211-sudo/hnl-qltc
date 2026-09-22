@@ -218,7 +218,7 @@ assert(hostedBrowserGolden.includes('data-hnl-settings-sheet'), 'Hosted browser 
 assert(hostedBrowserGolden.includes('data-hnl-settings-sheet-backdrop'), 'Hosted browser Golden must inspect the Settings backdrop');
 assert(hostedBrowserGolden.includes('must open as a fixed feature sheet'), 'Hosted browser Golden must lock feature-sheet geometry');
 assert(hostedBrowserGolden.includes('Sync Center feature sheet keeps existing business controls'), 'Hosted browser Golden must retain Sync Center business/RBAC coverage');
-assert(hostedBrowserGolden.includes('Settings page returns to normal scroll/navigation after sheets close'), 'Hosted browser Golden must restore Settings page scroll/navigation after close');
+assert(hostedBrowserGolden.includes('Settings page returns to normal responsive navigation after sheets close'), 'Hosted browser Golden must restore the correct desktop-left/mobile-bottom navigation after close');
 assert(hostedBrowserGolden.includes("const syncSelector = '#sync-backup-card'"), 'Hosted browser Golden must target the stable Sync Center card');
 assert(hostedBrowserGolden.includes("const restrictedBackupNotice = sheet.getByText('Sao lưu/khôi phục dữ liệu:'"), 'Hosted browser Golden must keep VIEWER fail-closed RBAC coverage inside the Sync Center sheet');
 assert(!hostedBrowserGolden.includes('must expand inline, not become a fixed page/sheet'), 'Hosted browser Golden must not regress to the removed inline-expansion contract');
