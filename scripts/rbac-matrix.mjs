@@ -114,7 +114,7 @@ check('Firestore core identity/revision guard is retained', has(src.firestore, '
 check('Viewer project data remains read-only via isMember/canEdit split', has(src.firestore, 'allow read:', 'isMember(projectId)', 'function canEdit(projectId)'));
 check('Firestore canonical email role overrides UID alias', has(src.firestore, 'function canonicalMemberActive', 'function canonicalMemberRole', 'hasEmailMember(projectId) ? emailMemberActive(projectId) : uidMemberActive(projectId)'));
 check('Storage canonical email role overrides UID alias', has(src.storage, 'function canonicalMemberActive', 'function canonicalMemberRole', 'emailMemberExists(projectId) ? emailMemberActive(projectId) : uidMemberActive(projectId)'));
-check('R2 canonical email role is checked before UID', has(src.r2, 'for (const memberId of [email, uid])', "return { ok: false, role: '' }"));
+check('R2 canonical email role is checked before UID', has(src.r2, 'for (const memberId of [email, uid])', 'canonicalEmailLookup', "response.status === 404", "canonicalEmailLookup ? 'EMAIL_MEMBER' : 'UID_MEMBER'", 'AUTH_BACKEND_UNAVAILABLE'));
 check('Viewer chat exception is explicit and identity-bound', has(src.firestore, 'VIEWER may chat', 'allow create: if isMember(projectId)', 'request.resource.data.senderUid == request.auth.uid'));
 
 // Storage enforcement.
