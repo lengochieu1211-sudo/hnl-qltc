@@ -98,7 +98,9 @@ export const BottomNav: React.FC<BottomNavProps> = ({
               >
                 <span className="relative">
                   <Icon className={`h-5 w-5 ${active ? 'scale-110' : 'group-hover:scale-105'} transition-transform`} />
-                  {renderBadge(tab.badge, tab.badgeLabel)}
+                  {tab.badge !== undefined && tab.badge > 0 ? (
+                    <span className="absolute -top-1.5 -right-2 min-w-4 rounded-full border border-slate-900 bg-rose-600 px-1 text-center text-[8px] font-black leading-4 text-white" title={`${tab.badge} ${tab.badgeLabel || 'Defect chưa xử lý'}`}>D{tab.badge}</span>
+                  ) : null}
                 </span>
                 <span className="max-w-full truncate text-[9px] font-bold leading-3">{tab.label}</span>
               </button>
@@ -152,7 +154,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                 aria-label={tab.badge !== undefined && tab.badge > 0 ? `${tab.label}: ${tab.badge} ${tab.badgeLabel || 'thông báo'}` : tab.label}
                 className={`relative flex flex-col items-center justify-center transition-all ${isActive ? 'font-bold text-blue-600' : 'font-medium text-slate-500 hover:text-slate-800'}`}
               >
-                <div className="relative"><Icon className={`h-5 w-5 ${isActive ? 'scale-110' : ''}`} />{renderBadge(tab.badge, tab.badgeLabel)}</div>
+                <div className="relative"><Icon className={`h-5 w-5 ${isActive ? 'scale-110' : ''}`} />{tab.badge !== undefined && tab.badge > 0 ? <span className="absolute -top-1.5 -right-2 min-w-4 rounded-full border border-white bg-rose-600 px-1 text-center text-[8px] font-black leading-4 text-white" title={`${tab.badge} ${tab.badgeLabel || 'Defect chưa xử lý'}`}>D{tab.badge}</span> : null}</div>
                 <span className="mt-1 max-w-full truncate px-1 text-[9.5px]">{tab.label}</span>
                 {isActive && <span className="absolute top-0 h-1 w-8 rounded-b-full bg-blue-600" />}
               </button>
