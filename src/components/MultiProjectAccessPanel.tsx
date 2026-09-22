@@ -2,14 +2,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Building2, CheckSquare, RefreshCw, Save, Search, Square, UsersRound } from 'lucide-react';
 import {
   CloudProjectSummary,
+  applyProjectMemberAccessChangesAtomically,
   fetchProjectEmailAccessFromCloud,
-  fetchProjectMembersFromCloud,
   fetchProjectUserRoleFromCloud,
   getCurrentRealFirebaseUser,
   refreshCurrentUserProjectDiscovery,
-  removeProjectMemberFromCloud,
   saveProjectAuditLog,
-  saveProjectMemberToCloud,
   subscribeCurrentUserProjectsRealtime,
 } from '../lib/firebase';
 import { UserRole, logAuditAction } from '../utils/securityUtils';
@@ -20,7 +18,6 @@ type AccessChoice = UserRole | 'NONE';
 
 interface AccessRow {
   project: CloudProjectSummary;
-  actorRole: UserRole;
   current: AccessChoice;
   draft: AccessChoice;
   isOwner: boolean;
@@ -41,12 +38,6 @@ const roleLabel = (role: AccessChoice) => {
   return 'Không cấp quyền';
 };
 
-const activeAdminCount = (members: any[]) => new Set(
-  members
-    .filter((member) => member?.active !== false && normalizeRole(member?.role) === 'ADMIN')
-    .map((member) => String(member?.email || '').trim().toLowerCase())
-    .filter(Boolean),
-).size;
 
 export const MultiProjectAccessPanel: React.FC = () => {
   const [projects, setProjects] = useState<CloudProjectSummary[]>([]);
@@ -120,7 +111,6 @@ export const MultiProjectAccessPanel: React.FC = () => {
         const current: AccessChoice = access.role || 'NONE';
         next.push({
           project,
-          actorRole: 'ADMIN',
           current,
           draft: current,
           isOwner: access.isOwner,
@@ -162,7 +152,7 @@ export const MultiProjectAccessPanel: React.FC = () => {
     try {
       for (const row of changedRows) {
         const liveActorRole = await fetchProjectUserRoleFromCloud(row.project.id, actor);
-        if (!liveActorRole.allowed || liveActorRole.role !== 'ADMIN') {
+        if (liveActorRole.verification !== 'verified' || !liveActorRole.allowed || liveActorRole.role !== 'ADMIN') {
           throw new Error('Bạn không còn quyền ADMIN tại "' + row.project.name + '". Chưa ghi thay đổi nào.');
         }
         if (row.isOwner && row.draft !== 'ADMIN') {
@@ -171,31 +161,23 @@ export const MultiProjectAccessPanel: React.FC = () => {
         if (loadedEmail === String(actor.email || '').trim().toLowerCase() && row.draft !== 'ADMIN') {
           throw new Error('Không hạ/thu hồi chính tài khoản đang thao tác trong bảng nhiều dự án. Hãy dùng luồng quản lý từng dự án để tránh tự khóa quyền.');
         }
-        if (row.current === 'ADMIN' && row.draft !== 'ADMIN') {
-          const members = (await fetchProjectMembersFromCloud(row.project.id)).filter((member) => member?.email && member?.active !== false);
-          if (activeAdminCount(members) <= 1) {
-            throw new Error('Không thể hạ quyền ADMIN cuối cùng tại "' + row.project.name + '". Hãy thêm/chuyển một ADMIN khác trước.');
-          }
-        }
       }
 
       const confirmed = await confirmAsync(
-        'Lưu ' + changedRows.length + ' thay đổi quyền cho ' + loadedEmail + '?\n\nMỗi dự án vẫn được Firebase Rules kiểm tra độc lập.',
+        'Lưu ' + changedRows.length + ' thay đổi quyền cho ' + loadedEmail + '?\n\nCác membership chính sẽ được ghi cùng một giao dịch; Firebase Rules vẫn kiểm tra từng dự án độc lập.',
         { title: 'Xác nhận phân quyền nhiều dự án', confirmLabel: 'Lưu thay đổi', cancelLabel: 'Hủy' },
       );
       if (!confirmed) return;
 
-      let saved = 0;
+      const result = await applyProjectMemberAccessChangesAtomically(changedRows.map((row) => ({
+        projectId: row.project.id,
+        projectName: row.project.name,
+        email: loadedEmail,
+        role: row.draft === 'NONE' ? null : row.draft,
+        assignedAt: Date.now(),
+      })));
+
       for (const row of changedRows) {
-        if (row.draft === 'NONE') {
-          await removeProjectMemberFromCloud(row.project.id, loadedEmail);
-        } else {
-          await saveProjectMemberToCloud(row.project.id, {
-            email: loadedEmail,
-            role: row.draft,
-            assignedAt: Date.now(),
-          });
-        }
         const description = row.draft === 'NONE'
           ? 'Thu hồi quyền nhiều dự án của ' + loadedEmail
           : 'Đặt quyền ' + row.draft + ' cho ' + loadedEmail + ' từ bảng nhiều dự án';
@@ -208,11 +190,16 @@ export const MultiProjectAccessPanel: React.FC = () => {
           details: description,
           actorRole: 'ADMIN',
         }).catch((err) => console.warn('Multi-project role audit warning:', err));
-        saved += 1;
       }
 
       await loadAccess();
-      setMessage({ type: 'success', text: 'Đã cập nhật ' + saved + '/' + changedRows.length + ' dự án cho ' + loadedEmail + '.' });
+      const warningCount = result.verificationWarnings + result.cleanupWarnings;
+      setMessage(warningCount > 0
+        ? {
+            type: 'info',
+            text: 'Đã ghi nguyên tử ' + result.changed + ' dự án. Có ' + warningCount + ' bước xác minh/chỉ mục phụ chưa hoàn tất; quyền chính vẫn do membership + Firebase Rules quyết định.',
+          }
+        : { type: 'success', text: 'Đã cập nhật ' + result.changed + '/' + changedRows.length + ' dự án cho ' + loadedEmail + '.' });
     } catch (err: any) {
       await loadAccess().catch(() => {});
       setMessage({ type: 'error', text: String(err?.message || err || 'Không lưu được phân quyền nhiều dự án.') });

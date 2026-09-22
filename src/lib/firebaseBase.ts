@@ -3481,6 +3481,257 @@ export async function removeProjectMemberFromCloud(projectId: string, email: str
   }
 }
 
+
+export type MultiProjectMemberAccessRole = 'ADMIN' | 'EDITOR' | 'VIEWER' | null;
+
+export interface MultiProjectMemberAccessChange {
+  projectId: string;
+  projectName?: string;
+  email: string;
+  role: MultiProjectMemberAccessRole;
+  assignedAt?: number;
+}
+
+export interface MultiProjectMemberAccessResult {
+  changed: number;
+  verified: number;
+  verificationWarnings: number;
+  cleanupWarnings: number;
+}
+
+/**
+ * Apply one target account's access changes across several projects as one canonical
+ * Firestore batch. The batch contains every canonical email member document and any
+ * legacy UID aliases for that email, so a failure on one project cannot leave another
+ * project's authoritative membership half-updated.
+ *
+ * Discovery indexes are deliberately NOT authorization sources. Grant invitations are
+ * included in the atomic batch because older clients need them to discover access.
+ * projectAccess and revoke-index cleanup happen after commit as best-effort metadata;
+ * Firestore Rules still resolve access from projects/{projectId}/members.
+ */
+export async function applyProjectMemberAccessChangesAtomically(
+  changes: MultiProjectMemberAccessChange[],
+): Promise<MultiProjectMemberAccessResult> {
+  if (!Array.isArray(changes) || changes.length === 0) {
+    return { changed: 0, verified: 0, verificationWarnings: 0, cleanupWarnings: 0 };
+  }
+
+  const actor = getCurrentRealFirebaseUser();
+  if (!actor?.uid || !actor.email) {
+    throw new Error('Cần đăng nhập Google để lưu phân quyền nhiều dự án.');
+  }
+
+  const actorEmail = normalizeEmail(actor.email);
+  const seenProjects = new Set<string>();
+  const prepared: Array<{
+    projectId: string;
+    projectName: string;
+    email: string;
+    role: MultiProjectMemberAccessRole;
+    assignedAt: number;
+    aliasIds: string[];
+  }> = [];
+
+  for (const change of changes) {
+    const projectId = String(change?.projectId || '').trim();
+    const email = normalizeEmail(change?.email);
+    if (!projectId || !email) throw new Error('Thiếu projectId hoặc email khi lưu quyền nhiều dự án.');
+    if (seenProjects.has(projectId)) throw new Error('Một dự án bị lặp trong giao dịch phân quyền nhiều dự án.');
+    seenProjects.add(projectId);
+    if (isSuperAdminEmail(email)) {
+      throw new Error('SUPER ADMIN dùng quyền hệ thống riêng và không được đổi role dự án tại bảng này.');
+    }
+
+    const requestedRole = change.role === null ? null : String(change.role || '').toUpperCase();
+    if (requestedRole !== null && requestedRole !== 'ADMIN' && requestedRole !== 'EDITOR' && requestedRole !== 'VIEWER') {
+      throw new Error('Role dự án không hợp lệ.');
+    }
+
+    const [liveActorRole, projectSnap, membersSnap] = await Promise.all([
+      fetchProjectUserRoleFromCloud(projectId, actor),
+      getDocFromServer(doc(db, 'projects', projectId)),
+      getDocsFromServer(collection(db, 'projects', projectId, 'members')),
+    ]);
+
+    if (
+      liveActorRole.verification !== 'verified'
+      || !liveActorRole.allowed
+      || liveActorRole.role !== 'ADMIN'
+    ) {
+      throw new Error('Bạn không còn quyền ADMIN trên một dự án trong giao dịch. Chưa ghi thay đổi nào.');
+    }
+    if (!projectSnap.exists() || projectSnap.data()?.deleted === true) {
+      throw new Error('Một dự án không còn tồn tại hoặc đã nằm trong Thùng rác. Chưa ghi thay đổi nào.');
+    }
+
+    const projectData = projectSnap.data();
+    const ownerEmail = normalizeEmail(projectData?.ownerEmail);
+    if (ownerEmail && ownerEmail === email && requestedRole !== 'ADMIN') {
+      throw new Error('Không thể hạ quyền Project Owner. Chưa ghi thay đổi nào.');
+    }
+    if (email === actorEmail && requestedRole !== 'ADMIN') {
+      throw new Error('Không thể hạ/thu hồi chính tài khoản đang thao tác trong bảng nhiều dự án.');
+    }
+
+    const byEmail = new Map<string, { id: string; data: any }>();
+    const aliasIds: string[] = [];
+    membersSnap.docs.forEach((memberDoc) => {
+      const data = memberDoc.data();
+      const rowEmail = normalizeEmail(data?.email || (memberDoc.id.includes('@') ? memberDoc.id : ''));
+      if (!rowEmail) return;
+      const existing = byEmail.get(rowEmail);
+      const canonical = memberDoc.id.toLowerCase() === rowEmail;
+      const existingCanonical = String(existing?.id || '').toLowerCase() === rowEmail;
+      if (!existing || canonical || (!existingCanonical && Number(data?.updatedAt || 0) >= Number(existing?.data?.updatedAt || 0))) {
+        byEmail.set(rowEmail, { id: memberDoc.id, data });
+      }
+      if (rowEmail === email && memberDoc.id.toLowerCase() !== email) aliasIds.push(memberDoc.id);
+    });
+
+    const adminEmails = new Set<string>();
+    byEmail.forEach(({ data }, memberEmail) => {
+      if (data?.active !== false && normalizeProjectRole(data?.role) === 'ADMIN') adminEmails.add(memberEmail);
+    });
+    if (ownerEmail) adminEmails.add(ownerEmail);
+
+    const currentTarget = byEmail.get(email)?.data;
+    if (
+      currentTarget?.active !== false
+      && normalizeProjectRole(currentTarget?.role) === 'ADMIN'
+      && requestedRole !== 'ADMIN'
+      && adminEmails.size <= 1
+    ) {
+      throw new Error('Không thể hạ quyền ADMIN cuối cùng. Hãy thêm/chuyển một ADMIN khác trước.');
+    }
+
+    prepared.push({
+      projectId,
+      projectName: String(projectData?.name || change.projectName || projectId),
+      email,
+      role: requestedRole as MultiProjectMemberAccessRole,
+      assignedAt: Number(change.assignedAt || Date.now()),
+      aliasIds: Array.from(new Set(aliasIds)),
+    });
+  }
+
+  const actorNow = getCurrentRealFirebaseUser();
+  if (!actorNow?.uid || normalizeEmail(actorNow.email) !== actorEmail) {
+    throw new Error('Phiên đăng nhập đã thay đổi trước khi ghi quyền. Chưa ghi thay đổi nào.');
+  }
+
+  const batch = writeBatch(db);
+  const now = Date.now();
+  let operationCount = 0;
+  for (const row of prepared) {
+    const canonicalRef = doc(db, 'projects', row.projectId, 'members', row.email);
+    if (row.role === null) {
+      const revokePayload = {
+        email: row.email,
+        role: 'VIEWER',
+        active: false,
+        revokedAt: now,
+        revokedByUid: actor.uid,
+        revokedByEmail: actorEmail,
+        updatedAt: now,
+      };
+      batch.set(canonicalRef, revokePayload, { merge: true });
+      operationCount++;
+      for (const aliasId of row.aliasIds) {
+        batch.set(doc(db, 'projects', row.projectId, 'members', aliasId), revokePayload, { merge: true });
+        operationCount++;
+      }
+    } else {
+      const memberPayload = {
+        email: row.email,
+        role: row.role,
+        active: true,
+        assignedAt: row.assignedAt,
+        updatedAt: now,
+      };
+      batch.set(canonicalRef, memberPayload, { merge: true });
+      operationCount++;
+      for (const aliasId of row.aliasIds) {
+        batch.set(doc(db, 'projects', row.projectId, 'members', aliasId), {
+          email: row.email,
+          role: row.role,
+          active: true,
+          updatedAt: now,
+        }, { merge: true });
+        operationCount++;
+      }
+
+      batch.set(doc(db, 'projectInvitations', row.projectId + '_' + row.email), {
+        projectId: row.projectId,
+        projectName: row.projectName,
+        email: row.email,
+        invitedEmail: row.email,
+        role: row.role,
+        createdByUid: actor.uid,
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+      operationCount++;
+    }
+  }
+
+  if (operationCount > 450) {
+    throw new Error('Giao dịch có quá nhiều bản ghi. Hãy chia thành ít dự án hơn; chưa ghi thay đổi nào.');
+  }
+
+  await batch.commit();
+
+  let verified = 0;
+  let verificationWarnings = 0;
+  for (const row of prepared) {
+    try {
+      const snap = await getDocFromServer(doc(db, 'projects', row.projectId, 'members', row.email));
+      if (!snap.exists()) throw new Error('MEMBER_VERIFY_MISSING');
+      const data = snap.data();
+      if (row.role === null) {
+        if (data?.active !== false) throw new Error('MEMBER_REVOKE_VERIFY_FAILED');
+      } else if (data?.active === false || normalizeProjectRole(data?.role) !== row.role) {
+        throw new Error('MEMBER_ROLE_VERIFY_FAILED');
+      }
+      verified++;
+    } catch (err) {
+      verificationWarnings++;
+      console.warn('Multi-project member server verification warning:', row.projectId, err);
+    }
+  }
+
+  let cleanupWarnings = 0;
+  for (const row of prepared) {
+    if (row.role === null) {
+      await deleteDoc(doc(db, 'projectAccess', projectAccessDocId(row.projectId, row.email))).catch((err) => {
+        cleanupWarnings++;
+        console.warn('Multi-project projectAccess revoke cleanup warning:', row.projectId, err);
+      });
+      const invitationIds = new Set([
+        row.projectId + '_' + row.email,
+        row.projectId + '_' + row.email.replace(/[^a-zA-Z0-9]/g, '_'),
+      ]);
+      for (const invitationId of invitationIds) {
+        await deleteDoc(doc(db, 'projectInvitations', invitationId)).catch((err) => {
+          cleanupWarnings++;
+          console.warn('Multi-project invitation revoke cleanup warning:', row.projectId, err);
+        });
+      }
+    } else {
+      await writeProjectAccessIndex(row.projectId, row.email, row.role, row.projectName, true).catch((err) => {
+        cleanupWarnings++;
+        console.warn('Multi-project projectAccess sync warning:', row.projectId, err);
+      });
+    }
+  }
+
+  return {
+    changed: prepared.length,
+    verified,
+    verificationWarnings,
+    cleanupWarnings,
+  };
+}
+
 export interface ProjectTrashServerState {
   projectId: string;
   exists: boolean;

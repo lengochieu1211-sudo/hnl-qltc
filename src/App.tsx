@@ -2468,11 +2468,11 @@ export default function App() {
       setIsMultiProjectOverviewOpen(false);
       return;
     }
-    if (!isOnline || authorizedChatProjects.length < 2) return;
+    if (authorizedChatProjects.length < 2) return;
     if (multiProjectOverviewOpenedForRef.current === cloudUserKey) return;
     multiProjectOverviewOpenedForRef.current = cloudUserKey;
     setIsMultiProjectOverviewOpen(true);
-  }, [cloudUserKey, isOnline, authorizedChatProjects.length]);
+  }, [cloudUserKey, authorizedChatProjects.length]);
 
   const [autosaveVersions, setAutosaveVersions] = useState<BackupVersion[]>([]);
 

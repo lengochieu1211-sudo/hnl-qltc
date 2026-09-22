@@ -323,18 +323,26 @@ const multiProjectOverview = read('src/components/MultiProjectOverview.tsx');
 requireAll(multiProjectAccess, [
   'Quản lý quyền nhiều dự án',
   'fetchProjectEmailAccessFromCloud',
-  'saveProjectMemberToCloud',
-  'removeProjectMemberFromCloud',
-  "actorRole === 'ADMIN'",
-  'Không thể hạ quyền ADMIN cuối cùng',
+  'applyProjectMemberAccessChangesAtomically',
+  "liveActorRole.role !== 'ADMIN'",
+  'Không hạ/thu hồi chính tài khoản đang thao tác',
 ], 'central multi-project access manager');
+requireAll(firebaseBase, [
+  'applyProjectMemberAccessChangesAtomically',
+  'writeBatch(db)',
+  'Không thể hạ quyền ADMIN cuối cùng',
+  'Không thể hạ quyền Project Owner',
+  'MEMBER_REVOKE_VERIFY_FAILED',
+  'MEMBER_ROLE_VERIFY_FAILED',
+], 'atomic multi-project membership engine');
+if (app.includes('!isOnline || authorizedChatProjects.length < 2')) fail('multi-project overview is incorrectly disabled for verified offline project cache');
 requireAll(multiProjectOverview, [
   'Tổng quan dự án',
   'Mở dự án',
   'Quản trị dự án',
   'Người xem',
 ], 'multi-project startup overview');
-requireAll(appSource, [
+requireAll(app, [
   'isMultiProjectOverviewOpen',
   'authorizedChatProjects.length < 2',
   '<MultiProjectOverview',
