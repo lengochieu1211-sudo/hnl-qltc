@@ -58,7 +58,10 @@ includesAll(r2Worker, [
   "policyVersion: 'immutable-deleted-project-v2'",
   "if (access.projectDeleted && request.method !== 'DELETE')",
   "error: 'IMMUTABLE_OBJECT_CONFLICT'",
-  "return { ok: false, role: '', projectDeleted }",
+  "AUTH_BACKEND_UNAVAILABLE",
+  "backendUnavailable",
+  "response.status === 404",
+  "canonicalEmailLookup ? 'EMAIL_MEMBER' : 'UID_MEMBER'",
 ], 'R2 hardening');
 
 const excelUtils = read('src/utils/excelImportUtils.ts');
