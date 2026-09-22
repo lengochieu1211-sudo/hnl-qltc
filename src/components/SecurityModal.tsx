@@ -21,7 +21,8 @@ import {
   Crown,
   HardDrive,
   LogIn,
-  LogOut
+  LogOut,
+  ChevronDown
 } from 'lucide-react';
 import {
   getStoredPinLockConfig,
