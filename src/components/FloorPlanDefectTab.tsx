@@ -663,12 +663,6 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     setSelectedStructureGroupId((current) => current === 'all' || validGroupIds.has(current) ? current : 'all');
   }, [normalizedStructureConfig]);
 
-  useEffect(() => {
-    if (!normalizedStructureConfig.enabled || selectedStructureGroupId === 'all') return;
-    if (visibleFloorPlans.some((floor) => floor.id === selectedFloorId)) return;
-    const first = visibleFloorPlans[0];
-    if (first) setSelectedFloorId(first.id);
-  }, [normalizedStructureConfig.enabled, selectedStructureGroupId, visibleFloorPlans, selectedFloorId]);
   const getDraftKey = (base: string) => (currentProjectId === 'default' ? base : `${base}_${currentProjectId}`);
   const readIdSet = (storageKey: string): Set<string> => {
     try {
@@ -687,6 +681,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     }
     return floorPlans[0]?.id || 'fp-1';
   });
+
+  useEffect(() => {
+    if (!normalizedStructureConfig.enabled || selectedStructureGroupId === 'all') return;
+    if (visibleFloorPlans.some((floor) => floor.id === selectedFloorId)) return;
+    const first = visibleFloorPlans[0];
+    if (first) setSelectedFloorId(first.id);
+  }, [normalizedStructureConfig.enabled, selectedStructureGroupId, visibleFloorPlans, selectedFloorId]);
   useFormatSettings();
   const [selectedDefectIds, setSelectedDefectIds] = useState<string[]>([]);
   const [showFloorProgressPanel, setShowFloorProgressPanel] = useState(false);
