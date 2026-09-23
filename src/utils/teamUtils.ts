@@ -177,6 +177,7 @@ export interface FloorGroupDetail {
   floorName: string;
   rooms: RoomProgressItem[];
   totalVol: number;
+  doneConstructedVol: number;
   doneFrameVol: number;
   doneBoardVol: number;
   doneInspectedVol: number;
@@ -299,6 +300,7 @@ export function calculateTeamStatistics(params: {
       floorGroupMap[floorName].rooms.push(room);
 
       let roomAssigned = 0;
+      let roomConstructed = 0;
       let roomFrame = 0;
       let roomBoard = 0;
       let roomInspected = 0;
@@ -344,6 +346,7 @@ export function calculateTeamStatistics(params: {
         board = Math.min(assigned, board);
 
         roomAssigned += assigned;
+        roomConstructed += constructed;
         roomFrame += frame;
         roomBoard += board;
         roomInspected += inspected;
@@ -410,6 +413,7 @@ export function calculateTeamStatistics(params: {
       });
 
       floorGroupMap[floorName].totalVol += roomAssigned;
+      floorGroupMap[floorName].doneConstructedVol += roomConstructed;
       floorGroupMap[floorName].doneFrameVol += roomFrame;
       floorGroupMap[floorName].doneBoardVol += roomBoard;
       floorGroupMap[floorName].doneInspectedVol += roomInspected;
