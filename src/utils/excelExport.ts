@@ -43,6 +43,14 @@ function autoFitColumns(ws: XLSX.WorkSheet) {
   ws['!views'] = [{ state: 'frozen', ySplit: 1 }];
 }
 
+const inventoryIssuePurposeLabel = (item: InventoryItem): string => {
+  if (item.type !== 'out') return '';
+  if (item.issuePurpose === 'external-project') return 'Xuất ngoài dự án';
+  if (item.issuePurpose === 'other') return 'Mục đích khác';
+  if (item.issuePurpose === 'project-work' || item.sourceRoomId || item.sourceFloorId || item.sourceTeamId || item.sourceWorkCategoryId || item.sourceStructureGroupId) return 'Thi công trong dự án';
+  return 'Chưa phân loại';
+};
+
 function prependProjectInfoSheet(wb: XLSX.WorkBook, projectName: string, projectLocation?: string) {
   const rows: Array<[string, string]> = [
     ['Tên công trình', String(projectName || 'Công trình')],
@@ -245,6 +253,8 @@ export function exportAllToExcel(params: {
       'Mã Phiếu': item.id,
       '__materialId': item.materialId || '',
       '__sourceType': item.sourceType || '',
+      '__issuePurpose': item.issuePurpose || '',
+      '__sourceStructureGroupId': item.sourceStructureGroupId || '',
       '__sourceRoomId': item.sourceRoomId || '',
       '__sourceFloorId': item.sourceFloorId || '',
       '__sourceTeamId': item.sourceTeamId || '',
@@ -252,6 +262,7 @@ export function exportAllToExcel(params: {
       '__sourceNormId': item.sourceNormId || '',
       '__sourceIssueKey': item.sourceIssueKey || '',
       'Loại Phiếu': item.type === 'in' ? 'NHẬP KHO' : 'XUẤT KHO',
+      'Mục đích xuất': inventoryIssuePurposeLabel(item),
       'Tên Vật Tư': item.materialName,
       'Đơn Vị Tính': item.unit,
       'Số Lượng': item.quantity,
@@ -462,6 +473,8 @@ export function exportAllToExcelBase64(params: {
       'Mã Phiếu': item.id,
       '__materialId': item.materialId || '',
       '__sourceType': item.sourceType || '',
+      '__issuePurpose': item.issuePurpose || '',
+      '__sourceStructureGroupId': item.sourceStructureGroupId || '',
       '__sourceRoomId': item.sourceRoomId || '',
       '__sourceFloorId': item.sourceFloorId || '',
       '__sourceTeamId': item.sourceTeamId || '',
@@ -469,6 +482,7 @@ export function exportAllToExcelBase64(params: {
       '__sourceNormId': item.sourceNormId || '',
       '__sourceIssueKey': item.sourceIssueKey || '',
       'Loại Phiếu': item.type === 'in' ? 'NHẬP KHO' : 'XUẤT KHO',
+      'Mục đích xuất': inventoryIssuePurposeLabel(item),
       'Tên Vật Tư': item.materialName,
       'Đơn Vị Tính': item.unit,
       'Số Lượng': item.quantity,
@@ -936,7 +950,13 @@ export function exportWarehouseUpdateTemplate(
   materialNorms: MaterialNorm[],
   workVolumes: WorkVolume[],
   inventory?: InventoryItem[],
-  projectName?: string
+  projectName?: string,
+  context?: {
+    floorPlans?: FloorPlan[];
+    roomProgressList?: RoomProgressItem[];
+    teams?: TeamInfo[];
+    structureConfig?: ProjectStructureConfig;
+  },
 ) {
   const wb = XLSX.utils.book_new();
 
@@ -953,6 +973,12 @@ export function exportWarehouseUpdateTemplate(
     '__sourceWorkCategoryId': item.sourceWorkCategoryId || '',
     '__sourceNormId': item.sourceNormId || '',
     '__sourceIssueKey': item.sourceIssueKey || '',
+    'Mục đích xuất': inventoryIssuePurposeLabel(item),
+    [exportStructure.label || 'Khu / Khối']: item.issuePurpose === 'project-work' && groupId ? getStructureGroupName(groupId, exportStructure) : '',
+    'Tầng': floor?.floorName || '',
+    'Căn / Phòng': room?.roomName || '',
+    'Đội thi công': team?.name || '',
+    'Hạng mục thi công': work?.title || '',
     'Tên Vật Tư': item.materialName,
     'Đơn Vị Tính': item.unit,
     'Số Lượng': item.quantity,
@@ -960,14 +986,22 @@ export function exportWarehouseUpdateTemplate(
     'Người Thực Hiện': item.handler || '-',
     'Ngày Thực Hiện': item.date ? formatDateDDMMYYYY(item.date) : '',
     'Ghi Chú': item.notes || ''
-  }));
+  };
+  });
   const wsIn = XLSX.utils.json_to_sheet(inSource);
   autoFitColumns(wsIn);
   XLSX.utils.book_append_sheet(wb, wsIn, 'Nhập Kho');
 
   // 2. Sheet "Xuất Kho"
   const outItems = (inventory || []).filter(i => i.type === 'out');
-  const outSource = outItems.map((item, idx) => ({
+  const exportStructure = normalizeStructureGroupConfig(context?.structureConfig);
+  const outSource = outItems.map((item, idx) => {
+    const floor = item.sourceFloorId ? context?.floorPlans?.find((fp) => fp.id === item.sourceFloorId) : undefined;
+    const room = item.sourceRoomId ? context?.roomProgressList?.find((entry) => entry.id === item.sourceRoomId) : undefined;
+    const team = item.sourceTeamId ? context?.teams?.find((entry) => entry.id === item.sourceTeamId) : undefined;
+    const work = item.sourceWorkCategoryId ? workVolumes.find((entry) => (entry.workCategoryId || entry.id) === item.sourceWorkCategoryId || entry.id === item.sourceWorkCategoryId) : undefined;
+    const groupId = item.sourceStructureGroupId || (floor ? resolveFloorStructureGroupId(floor, exportStructure) : '');
+    return {
     'STT': idx + 1,
     'Mã Phiếu': item.id,
     '__materialId': item.materialId || '',
