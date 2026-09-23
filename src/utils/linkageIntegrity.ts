@@ -386,6 +386,9 @@ export function validateInventoryOutProvenance(params: {
 }): InventoryOutProvenanceResult {
   const { tx, workVolumes, materialNorms } = params;
   if (tx.type !== 'out') return { state: 'resolved' };
+  // OUT transactions used outside the active project must remain in the physical
+  // warehouse ledger but never be forced into project/team/category provenance.
+  if (tx.issuePurpose === 'external-project' || tx.issuePurpose === 'other') return { state: 'resolved' };
   const room = tx.sourceRoomId ? params.rooms.find((item) => item.id === tx.sourceRoomId && isActiveRecord(item)) : undefined;
   if (tx.sourceRoomId && !room) return { state: 'invalid', reason: 'sourceRoomId không tồn tại/hoạt động' };
   const floorId = String(tx.sourceFloorId || room?.floorId || '').trim() || undefined;
@@ -418,14 +421,16 @@ export function validateInventoryOutProvenance(params: {
     let candidates = roomCategoryIds;
     if (normScope.length > 0) candidates = candidates.length > 0 ? candidates.filter((id) => normScope.includes(id)) : normScope;
     candidates = Array.from(new Set(candidates));
+    // Partial manual scope is valid. Infer a category only when exactly one candidate
+    // exists; otherwise keep the OUT unallocated at category level instead of rejecting
+    // a legitimate floor/team/project issue.
     if (candidates.length === 1) categoryId = candidates[0];
-    else return { state: 'ambiguous', ambiguityAt: 'workCategory', room, floorId, normId: norm?.id, reason: 'không suy ra duy nhất hạng mục nguồn' };
   }
 
   let teamId = String(tx.sourceTeamId || '').trim() || undefined;
   if (teamId && params.teams && !params.teams.some((team) => team.id === teamId && isActiveRecord(team))) return { state: 'invalid', room, floorId, workCategoryId: categoryId, teamId, normId: norm?.id, reason: 'sourceTeamId không tồn tại' };
   if (room) {
-    const categoryTeams = Array.from(new Set((room.subItems || []).filter((sub) => {
+    const categoryTeams = categoryId ? Array.from(new Set((room.subItems || []).filter((sub) => {
       if (sub.workCategoryId) {
         const resolved = resolveAuthoritativeWorkVolumeRef({ workVolumes, workCategoryId: sub.workCategoryId, floorId: room.floorId, floorName: room.floorName });
         return resolved.state === 'resolved' && canonicalWorkCategoryId(resolved.work) === categoryId;
@@ -433,10 +438,19 @@ export function validateInventoryOutProvenance(params: {
       if (!sub.category) return false;
       const resolved = resolveWorkVolumeRef({ workVolumes, workCategoryName: sub.category, floorId: room.floorId, floorName: room.floorName });
       return resolved.state === 'resolved' && canonicalWorkCategoryId(resolved.work) === categoryId;
-    }).map((sub) => String(sub.teamId || '').trim()).filter(Boolean)));
-    if (teamId && categoryTeams.length > 0 && !categoryTeams.includes(teamId)) return { state: 'invalid', room, floorId, workCategoryId: categoryId, teamId, normId: norm?.id, reason: 'sourceTeamId không phụ trách hạng mục trong sourceRoomId' };
+    }).map((sub) => String(sub.teamId || '').trim()).filter(Boolean))) : [];
+    const anyRoomTeams = Array.from(new Set([
+      String(room.teamId || '').trim(),
+      ...(room.subItems || []).map((sub) => String(sub.teamId || '').trim()),
+    ].filter(Boolean)));
+    if (teamId && categoryId && categoryTeams.length > 0 && !categoryTeams.includes(teamId)) {
+      return { state: 'invalid', room, floorId, workCategoryId: categoryId, teamId, normId: norm?.id, reason: 'sourceTeamId không phụ trách hạng mục trong sourceRoomId' };
+    }
+    if (teamId && !categoryId && anyRoomTeams.length > 0 && !anyRoomTeams.includes(teamId)) {
+      return { state: 'invalid', room, floorId, teamId, normId: norm?.id, reason: 'sourceTeamId không liên kết với sourceRoomId' };
+    }
     if (!teamId) {
-      const fallbackTeams = categoryTeams.length > 0 ? categoryTeams : (room.teamId ? [room.teamId] : []);
+      const fallbackTeams = categoryTeams.length > 0 ? categoryTeams : anyRoomTeams;
       if (fallbackTeams.length === 1) teamId = fallbackTeams[0];
       // Multiple candidate teams are acceptable for floor/project allocation, but
       // remain unallocated for team-scoped Material Need because teamId stays empty.
