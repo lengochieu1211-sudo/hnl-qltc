@@ -346,8 +346,7 @@ requireAll(multiProjectOverview, [
   'Người xem',
 ], 'secondary multi-project overview');
 requireAll(homeDashboard, [
-  'Trung tâm điều hành HNL QLTC',
-  'Trang chủ · Tổng quan công trường',
+  'Tổng quan công trường',
   'Mở thẳng dự án này khi khởi động',
   'Dự án của tôi',
   'Báo cáo quân số nhiều dự án',
@@ -356,8 +355,8 @@ requireAll(homeDashboard, [
   '7 ngày',
   'Tháng này',
   'Khoảng ngày',
-  'Chia sẻ báo cáo',
-  'không hiển thị số giả',
+  'Chia sẻ báo cáo quân số',
+  'Chưa tải được dữ liệu quân số',
   'buildCrewReportMatrices',
 ], 'Trang chủ dashboard');
 requireAll(crewReportShare, [
@@ -387,9 +386,12 @@ requireAll(bottomNav, [
   "'home' | 'warehouse'",
   "label: 'Trang chủ'",
   "hidden w-[84px]",
+  'bg-white text-slate-700',
+  'bg-blue-50 text-blue-700',
   'lg:flex',
   'lg:hidden',
 ], 'responsive desktop-left/mobile-bottom navigation');
+if (bottomNav.includes('APP_VERSION') || bottomNav.includes('HNL QLTC · Trang chủ')) fail('desktop rail must not duplicate header branding/version');
 requireAll(app, [
   'STARTUP_PROJECT_ID_KEY',
   "useState<TabType>('home')",
