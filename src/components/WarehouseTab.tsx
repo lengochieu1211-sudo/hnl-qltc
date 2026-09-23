@@ -25,7 +25,7 @@ import {
   ChevronDown,
   PackageSearch
 } from 'lucide-react';
-import { InventoryItem, TransactionType, MaterialNorm, WorkVolume, RoomProgressItem, TeamInfo, FloorPlan } from '../types';
+import { InventoryItem, InventoryIssuePurpose, TransactionType, MaterialNorm, WorkVolume, RoomProgressItem, TeamInfo, FloorPlan } from '../types';
 import { formatDateDDMMYYYY, formatExcelDate } from '../utils/dateFormatter';
 import { formatDecimal, evaluateMathExpression, useFormatSettings, parseVietnameseNumber, parseExcelNumber } from '../utils/numberUtils';
 import * as XLSX from 'xlsx';
@@ -716,6 +716,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [handler, setHandler] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
+  const [issuePurpose, setIssuePurpose] = useState<InventoryIssuePurpose>('project-work');
+  const [issueStructureGroupId, setIssueStructureGroupId] = useState('');
+  const [issueFloorId, setIssueFloorId] = useState('');
+  const [issueRoomId, setIssueRoomId] = useState('');
+  const [issueTeamId, setIssueTeamId] = useState('');
+  const [issueWorkCategoryId, setIssueWorkCategoryId] = useState('');
   const [quickAddMessage, setQuickAddMessage] = useState('');
   const materialSearchRef = useRef<HTMLInputElement>(null);
 
@@ -744,6 +750,37 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       return haystack.includes(normalizedMaterialPickerSearch);
     });
   }, [materialNorms, normalizedMaterialPickerSearch]);
+
+
+  const issueFloorOptions = useMemo(() => {
+    return floorPlans
+      .filter((floor) => !issueStructureGroupId || resolveFloorStructureGroupId(floor, normalizedStructureConfig) === issueStructureGroupId)
+      .slice()
+      .sort((a, b) => naturalCompare(a.floorName, b.floorName));
+  }, [floorPlans, issueStructureGroupId, normalizedStructureConfig]);
+
+  const issueRoomOptions = useMemo(() => {
+    return roomProgressList
+      .filter((room) => !issueFloorId || room.floorId === issueFloorId)
+      .filter((room) => {
+        if (!issueStructureGroupId) return true;
+        const floor = floorPlans.find((item) => item.id === room.floorId);
+        return Boolean(floor && resolveFloorStructureGroupId(floor, normalizedStructureConfig) === issueStructureGroupId);
+      })
+      .slice()
+      .sort((a, b) => naturalCompare(a.roomName, b.roomName));
+  }, [roomProgressList, issueFloorId, issueStructureGroupId, floorPlans, normalizedStructureConfig]);
+
+  const issueWorkCategoryOptions = useMemo(() => {
+    const list = (workVolumes || []).filter((item) => item.deletedAt === undefined || item.deletedAt === null);
+    if (!issueFloorId) return list.slice().sort((a, b) => naturalCompare(a.title, b.title));
+    return list.filter((item) => {
+      const ids = Array.isArray(item.floorIds) ? item.floorIds : [];
+      return !item.floorId && ids.length === 0
+        ? true
+        : item.floorId === issueFloorId || ids.includes(issueFloorId);
+    }).sort((a, b) => naturalCompare(a.title, b.title));
+  }, [workVolumes, issueFloorId]);
 
 
   // Delete confirmation state
@@ -981,6 +1018,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     setLocation('');
     setHandler(String(defaultHandler || '').trim());
     setNotes('');
+    setIssuePurpose('project-work');
+    setIssueStructureGroupId('');
+    setIssueFloorId('');
+    setIssueRoomId('');
+    setIssueTeamId('');
+    setIssueWorkCategoryId('');
     setQuickAddMessage('');
     setDate(new Date().toISOString().split('T')[0]);
     setShowAddForm(true);
@@ -1002,6 +1045,15 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     setHandler(item.handler || '');
     setDate(item.date || new Date().toISOString().split('T')[0]);
     setNotes(item.notes || '');
+    setIssuePurpose(item.issuePurpose || (item.sourceRoomId || item.sourceFloorId || item.sourceTeamId || item.sourceWorkCategoryId || item.sourceStructureGroupId ? 'project-work' : 'other'));
+    setIssueStructureGroupId(item.sourceStructureGroupId || (() => {
+      const floor = item.sourceFloorId ? floorPlans.find((fp) => fp.id === item.sourceFloorId) : undefined;
+      return floor ? resolveFloorStructureGroupId(floor, normalizedStructureConfig) : '';
+    })());
+    setIssueFloorId(item.sourceFloorId || '');
+    setIssueRoomId(item.sourceRoomId || '');
+    setIssueTeamId(item.sourceTeamId || '');
+    setIssueWorkCategoryId(item.sourceWorkCategoryId || '');
     setShowAddForm(true);
   };
 
@@ -1080,6 +1132,15 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       handler: handler.trim(),
       date,
       notes,
+      ...(type === 'out' ? {
+        issuePurpose,
+        sourceType: 'manual',
+        ...(issuePurpose === 'project-work' && issueStructureGroupId ? { sourceStructureGroupId: issueStructureGroupId } : {}),
+        ...(issuePurpose === 'project-work' && issueFloorId ? { sourceFloorId: issueFloorId } : {}),
+        ...(issuePurpose === 'project-work' && issueRoomId ? { sourceRoomId: issueRoomId } : {}),
+        ...(issuePurpose === 'project-work' && issueTeamId ? { sourceTeamId: issueTeamId } : {}),
+        ...(issuePurpose === 'project-work' && issueWorkCategoryId ? { sourceWorkCategoryId: issueWorkCategoryId } : {}),
+      } : {}),
     };
 
     try {
@@ -1835,7 +1896,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       {/* Add Form Modal */}
       {hasEditAccess && showAddForm && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto animate-in slide-in-from-bottom duration-200">
+          <div className="bg-white w-full sm:max-w-xl md:max-w-2xl lg:max-w-3xl rounded-t-3xl sm:rounded-2xl p-5 lg:p-6 space-y-4 max-h-[90vh] overflow-y-auto animate-in slide-in-from-bottom duration-200">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <PackageCheck className="w-5 h-5 text-blue-600" />
@@ -1878,6 +1939,115 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   </button>
                 </div>
               </div>
+
+              {type === 'out' && (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-3 space-y-3">
+                  <div>
+                    <label className="block text-slate-700 font-bold mb-1">Mục đích xuất</label>
+                    <select
+                      value={issuePurpose}
+                      onChange={(e) => {
+                        const next = e.target.value as InventoryIssuePurpose;
+                        setIssuePurpose(next);
+                        if (next !== 'project-work') {
+                          setIssueStructureGroupId('');
+                          setIssueFloorId('');
+                          setIssueRoomId('');
+                          setIssueTeamId('');
+                          setIssueWorkCategoryId('');
+                        }
+                      }}
+                      className="w-full rounded-xl border border-slate-200 bg-white p-2.5 font-semibold text-slate-800"
+                    >
+                      <option value="project-work">Thi công trong dự án</option>
+                      <option value="external-project">Xuất ngoài dự án</option>
+                      <option value="other">Mục đích khác</option>
+                    </select>
+                  </div>
+
+                  {issuePurpose === 'project-work' && (
+                    <>
+                      <p className="text-[10px] text-slate-500">
+                        Phạm vi dưới đây không bắt buộc nhập đủ. Chọn càng chi tiết thì thống kê vật tư theo Khu/Khối, Tầng, Căn/Phòng, Đội và Hạng mục càng chính xác.
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                        {normalizedStructureConfig.enabled && (
+                          <label className="space-y-1">
+                            <span className="block text-[10px] font-bold text-slate-600">{normalizedStructureConfig.label} <span className="font-medium text-slate-400">(không bắt buộc)</span></span>
+                            <select
+                              value={issueStructureGroupId}
+                              onChange={(e) => {
+                                setIssueStructureGroupId(e.target.value);
+                                setIssueFloorId('');
+                                setIssueRoomId('');
+                              }}
+                              className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-semibold"
+                            >
+                              <option value="">— Chưa phân bổ —</option>
+                              {normalizedStructureConfig.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
+                            </select>
+                          </label>
+                        )}
+
+                        <label className="space-y-1">
+                          <span className="block text-[10px] font-bold text-slate-600">Tầng <span className="font-medium text-slate-400">(không bắt buộc)</span></span>
+                          <select
+                            value={issueFloorId}
+                            onChange={(e) => {
+                              const floorId = e.target.value;
+                              setIssueFloorId(floorId);
+                              setIssueRoomId('');
+                              const floor = floorPlans.find((item) => item.id === floorId);
+                              if (floor && normalizedStructureConfig.enabled) setIssueStructureGroupId(resolveFloorStructureGroupId(floor, normalizedStructureConfig));
+                            }}
+                            className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-semibold"
+                          >
+                            <option value="">— Chưa phân bổ —</option>
+                            {issueFloorOptions.map((floor) => <option key={floor.id} value={floor.id}>{floor.floorName}</option>)}
+                          </select>
+                        </label>
+
+                        <label className="space-y-1">
+                          <span className="block text-[10px] font-bold text-slate-600">Căn / Phòng <span className="font-medium text-slate-400">(không bắt buộc)</span></span>
+                          <select
+                            value={issueRoomId}
+                            onChange={(e) => {
+                              const roomId = e.target.value;
+                              setIssueRoomId(roomId);
+                              const room = roomProgressList.find((item) => item.id === roomId);
+                              if (room?.floorId) {
+                                setIssueFloorId(room.floorId);
+                                const floor = floorPlans.find((item) => item.id === room.floorId);
+                                if (floor && normalizedStructureConfig.enabled) setIssueStructureGroupId(resolveFloorStructureGroupId(floor, normalizedStructureConfig));
+                              }
+                            }}
+                            className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-semibold"
+                          >
+                            <option value="">— Chưa phân bổ —</option>
+                            {issueRoomOptions.map((room) => <option key={room.id} value={room.id}>{room.roomName}</option>)}
+                          </select>
+                        </label>
+
+                        <label className="space-y-1">
+                          <span className="block text-[10px] font-bold text-slate-600">Đội thi công <span className="font-medium text-slate-400">(không bắt buộc)</span></span>
+                          <select value={issueTeamId} onChange={(e) => setIssueTeamId(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-semibold">
+                            <option value="">— Chưa phân bổ —</option>
+                            {teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+                          </select>
+                        </label>
+
+                        <label className="space-y-1 sm:col-span-2">
+                          <span className="block text-[10px] font-bold text-slate-600">Hạng mục thi công <span className="font-medium text-slate-400">(không bắt buộc, nên chọn khi đối chiếu định mức)</span></span>
+                          <select value={issueWorkCategoryId} onChange={(e) => setIssueWorkCategoryId(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-semibold">
+                            <option value="">— Chưa phân bổ —</option>
+                            {issueWorkCategoryOptions.map((item) => <option key={item.id} value={item.workCategoryId || item.id}>{item.title}</option>)}
+                          </select>
+                        </label>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
 
               {/* Material Search + Select */}
               <div className="space-y-1.5">
