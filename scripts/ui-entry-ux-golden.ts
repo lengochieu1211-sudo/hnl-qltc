@@ -201,20 +201,23 @@ assert(homeDashboardUi.includes('Mở thẳng dự án này khi khởi động')
 assert(homeDashboardUi.includes('Chưa tải được dữ liệu quân số'), 'Home must clearly mark unavailable project manpower data without inventing metrics');
 assert(!homeDashboardUi.includes('Firebase / R2 / projectId / RBAC không thay đổi.'), 'Home must not expose implementation/audit notes to end users');
 assert(appSource.includes("useState<TabType>('home')"), 'Home must be the default navigation destination');
+assert(appSource.includes("new URLSearchParams(window.location.search).get('app') === 'desktop'") && appSource.includes("isDesktopRuntime ? 'pl-[84px]' : 'lg:pl-[84px]'") && appSource.includes('forceDesktopRail={isDesktopRuntime}'), 'Windows EXE runtime must reserve the left rail even when its viewport becomes narrower than the browser desktop breakpoint');
 assert(navSource.includes("'home' | 'warehouse'"), 'Navigation type must include Home');
-assert(navSource.includes('hidden w-[84px]') && navSource.includes('bg-white text-slate-700') && navSource.includes('lg:hidden'), 'Desktop must use the agreed light compact left rail while mobile keeps bottom navigation');
+assert(navSource.includes('forceDesktopRail') && navSource.includes("forceDesktopRail ? 'flex' : 'hidden lg:flex'") && navSource.includes("forceDesktopRail ? 'hidden' : 'lg:hidden'") && navSource.includes('bg-white text-slate-700'), 'Windows EXE must keep the desktop left rail at narrow widths while browser/mobile keeps responsive bottom navigation');
 assert(!navSource.includes('APP_VERSION') && !navSource.includes('HNL QLTC · Trang chủ'), 'Desktop rail must not duplicate the header logo or persistent version label');
 assert(navSource.includes("label: 'Trang chủ'"), 'Visible Home navigation label must be Vietnamese: Trang chủ');
 assert(homeDashboardUi.includes('Báo cáo quân số nhiều dự án'), 'Trang chủ must expose multi-project manpower reporting');
 assert(homeDashboardUi.includes('fetchProjectCrewReportData'), 'Trang chủ must load only targeted manpower/team data for other projects');
 assert(homeDashboardUi.includes('Chia sẻ báo cáo quân số'), 'Trang chủ manpower report must expose the agreed share-report action');
 assert(homeDashboardUi.includes('buildCrewReportMatrices') && homeDashboardUi.includes('colSpan={4}') && homeDashboardUi.includes('Tổng QS/ngày') && homeDashboardUi.includes('TỔNG'), 'Trang chủ manpower report must render date rows, team column groups, daily totals and a final column-total row');
+assert(homeDashboardUi.includes('relative isolate max-h-[440px] overflow-auto overscroll-contain') && homeDashboardUi.includes('sticky top-[33px]'), 'Trang chủ crew table sticky header must stay contained inside its own scroll viewport');
 const crewUi = read('src/components/CrewTabBase.tsx');
 const crewShareUi = read('src/components/CrewReportShareModal.tsx');
 assert(crewUi.includes('Chia sẻ báo cáo quân số') && !crewUi.includes('1 ngày / nhiều ngày · nội dung / ảnh'), 'Crew screen must expose the concise consolidated share-report entry');
 assert(crewShareUi.includes('Sao chép nội dung') && crewShareUi.includes('Chia sẻ ảnh') && crewShareUi.includes('Tải ảnh'), 'Crew report sharing must support content, image share and image download');
 assert(!crewShareUi.includes('Tải ảnh PNG') && !crewShareUi.includes('JPEG'), 'Crew report UI must not expose image file-format jargon');
 assert(crewShareUi.includes('colSpan={4}') && crewShareUi.includes('— = chưa báo') && crewShareUi.includes('Tổng QS/ngày') && crewShareUi.includes('TỔNG'), 'Crew report preview must preserve matrix semantics and expose daily/column totals');
+assert(crewShareUi.includes('relative isolate max-h-[42vh] overflow-auto overscroll-contain') && crewShareUi.includes('sticky top-[33px]'), 'Crew share preview sticky header must stay contained inside its own scroll viewport');
 
 const crewReportRows = buildCrewReportRows([{
   projectId: 'p1', projectName: 'DA 1',
