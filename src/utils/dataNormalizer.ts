@@ -322,6 +322,31 @@ export function normalizeImportedData(rawInput: any, activeProjectId?: string, s
 
   const normalized: any = { ...targetObj };
 
+  const extractObject = (candidateKeys: string[]): any | null => {
+    const tryValue = (value: any): any | null => {
+      if (value === undefined || value === null) return null;
+      let parsed = value;
+      if (typeof parsed === 'string') {
+        try { parsed = JSON.parse(parsed); } catch (_) { return null; }
+      }
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+    };
+
+    if (effectiveProjectId) {
+      for (const cand of candidateKeys) {
+        const scopedKey = projectKey(cand, effectiveProjectId);
+        const parsed = tryValue(targetObj[scopedKey]);
+        if (parsed) return parsed;
+      }
+    }
+    for (const key of candidateKeys) {
+      if (isDump && effectiveProjectId && effectiveProjectId !== 'default') continue;
+      const parsed = tryValue(targetObj[key]);
+      if (parsed) return parsed;
+    }
+    return null;
+  };
+
   // Collection normalization
   const defects = extractArray(['defects', 'defectList', 'defectsList', 'construction_defects']);
   if (defects !== null) normalized.defects = defects;
@@ -369,6 +394,9 @@ export function normalizeImportedData(rawInput: any, activeProjectId?: string, s
   const projectLocation = extractString(['projectLocation', 'project_location', 'location', 'construction_project_location']);
   if (projectLocation !== null) normalized.projectLocation = projectLocation;
 
+  const structureGrouping = extractObject(['structureGrouping', 'construction_structure_grouping']);
+  if (structureGrouping !== null) normalized.structureGrouping = structureGrouping;
+
   return normalized;
 }
 
@@ -376,6 +404,7 @@ export interface ProjectImportCandidate {
   id: string;
   name: string;
   contractorName?: string;
+  structureGrouping?: any;
   inspectorName?: string;
   projectLocation?: string;
   updatedAt: number;
@@ -453,6 +482,7 @@ export function extractProjectsFromImportData(rawInput: any): ProjectImportCandi
       contractorName: normalized.contractorName,
       inspectorName: normalized.inspectorName,
       projectLocation: normalized.projectLocation,
+      structureGrouping: normalized.structureGrouping,
       updatedAt,
       normalizedData: normalized,
       itemCounts: countItems(normalized),
@@ -479,6 +509,7 @@ export function extractProjectsFromImportData(rawInput: any): ProjectImportCandi
         contractorName: normalized.contractorName,
         inspectorName: normalized.inspectorName,
         projectLocation: normalized.projectLocation,
+        structureGrouping: normalized.structureGrouping,
         updatedAt,
         normalizedData: normalized,
         itemCounts: countItems(normalized),
@@ -500,6 +531,7 @@ export function extractProjectsFromImportData(rawInput: any): ProjectImportCandi
     contractorName: normalized.contractorName,
     inspectorName: normalized.inspectorName,
     projectLocation: normalized.projectLocation,
+    structureGrouping: normalized.structureGrouping,
     updatedAt,
     normalizedData: normalized,
     itemCounts: countItems(normalized),
