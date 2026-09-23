@@ -363,6 +363,22 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     [crewRecords, selectedStructureGroupId, floorPlans, normalizedStructureConfig],
   );
 
+  const structureScopedInventory = useMemo(
+    () => selectedStructureGroupId === 'all'
+      ? inventory
+      : inventory.filter((item) => {
+          if (item.type !== 'out') return true;
+          if (item.sourceStructureGroupId) return item.sourceStructureGroupId === selectedStructureGroupId;
+          if (item.sourceFloorId) {
+            const floor = floorById.get(item.sourceFloorId);
+            return Boolean(floor && resolveFloorStructureGroupId(floor, normalizedStructureConfig) === selectedStructureGroupId);
+          }
+          // Team-only/project-only issues cannot be proven to belong to one Khu/Khối.
+          return false;
+        }),
+    [inventory, selectedStructureGroupId, floorById, normalizedStructureConfig],
+  );
+
   const logFloorPlans = useMemo(
     () => !normalizedStructureConfig.enabled
       ? floorPlans
@@ -969,11 +985,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     return computeTeamMaterialReconciliation({
       team: selectedTeamForDetail,
       stats: stat,
-      inventory,
+      inventory: structureScopedInventory,
       materialNorms,
       workVolumes,
     });
-  }, [selectedTeamForDetail, allTeamStatsMap, inventory, materialNorms, workVolumes]);
+  }, [selectedTeamForDetail, allTeamStatsMap, structureScopedInventory, materialNorms, workVolumes]);
 
   // Handle Daily Log Submission
   const handleLogSubmit = (e: React.FormEvent) => {
