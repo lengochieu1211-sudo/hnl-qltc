@@ -538,7 +538,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [floorWorks, setFloorWorks] = useState<CrewFloorWork[]>([]);
 
   const addFloorWork = () => {
-    const defaultFp = floorPlans[0];
+    const defaultFp = logFloorPlans[0];
     setFloorWorks(prev => [
       ...prev,
       {
@@ -559,7 +559,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   };
 
   const updateFloorWorkFloor = (floorIndex: number, floorId: string) => {
-    const fp = floorPlans.find(f => f.id === floorId);
+    const fp = logFloorPlans.find(f => f.id === floorId) || floorPlans.find(f => f.id === floorId);
     setFloorWorks(prev => prev.map((fw, idx) => {
       if (idx === floorIndex) {
         return {
@@ -684,6 +684,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   useEffect(() => {
     if (editingRecord) {
       setActiveLogEntityId(editingRecord.id);
+      const editingGroupId = getRecordStructureGroupIds(editingRecord)[0] || normalizedStructureConfig.defaultGroupId;
+      setLogStructureGroupId(editingGroupId);
       setTeamName(editingRecord.teamName);
       setTeamId(editingRecord.teamId || '');
       setLeaderName(editingRecord.leaderName);
@@ -714,6 +716,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       setNotes(editingRecord.notes || '');
     } else {
       setActiveLogEntityId(`crew_${Date.now()}`);
+      setLogStructureGroupId(normalizedStructureConfig.defaultGroupId);
       // Set to first team in directory if available, otherwise blank
       if (teams.length > 0) {
         setTeamName(teams[0].name);
@@ -732,16 +735,19 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         setAfternoonCount(5);
         setEveningCount(0);
       }
-      if (floorPlans.length > 0) {
+      const defaultGroupFloors = normalizedStructureConfig.enabled
+        ? floorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === normalizedStructureConfig.defaultGroupId)
+        : floorPlans;
+      if (defaultGroupFloors.length > 0) {
         setFloorWorks([{
-          floorId: floorPlans[0].id,
-          floorName: floorPlans[0].floorName,
+          floorId: defaultGroupFloors[0].id,
+          floorName: defaultGroupFloors[0].floorName,
           categories: [{
             categoryName: 'Thi công thạch cao',
             subItems: ['Bắn tấm khung chìm', 'Bả matit 2 lớp']
           }]
         }]);
-        setSelectedFloorId(floorPlans[0].id);
+        setSelectedFloorId(defaultGroupFloors[0].id);
       } else {
         setFloorWorks([]);
         setSelectedFloorId('');
@@ -749,7 +755,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       setTaskDescription(COMMON_TASKS[0]);
       setNotes('');
     }
-  }, [editingRecord, showAddLogModal, floorPlans, teams]);
+  }, [editingRecord, showAddLogModal, floorPlans, teams, normalizedStructureConfig]);
 
   // Synchronize Manage Team Form values
   useEffect(() => {
