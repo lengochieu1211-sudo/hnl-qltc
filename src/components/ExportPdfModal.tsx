@@ -1599,6 +1599,10 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
       checklist: filteredChecklist,
       floorPlans: scopedFloorPlans,
       structureConfig: normalizedStructureConfig,
+      workVolumeTeamFilter: selectedTeamForScope
+        ? { id: selectedTeamForScope.id, name: selectedTeamForScope.name, leader: selectedTeamForScope.leader }
+        : undefined,
+      includeWorkVolumeDetails,
       crewRecords: filteredCrew,
       canViewFinancials: hasFinancialAccess,
       selectedModules: {
@@ -1630,6 +1634,10 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
         checklist: filteredChecklist,
         floorPlans: scopedFloorPlans,
       structureConfig: normalizedStructureConfig,
+        workVolumeTeamFilter: selectedTeamForScope
+          ? { id: selectedTeamForScope.id, name: selectedTeamForScope.name, leader: selectedTeamForScope.leader }
+          : undefined,
+        includeWorkVolumeDetails,
         crewRecords: filteredCrew,
         canViewFinancials: hasFinancialAccess,
         selectedModules: {
