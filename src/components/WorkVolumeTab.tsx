@@ -1231,30 +1231,44 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               </button>
             </div>
 
-            <div className="p-3 sm:p-4 border-b border-slate-200 bg-slate-50/80 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-              {normalizedStructureConfig.enabled && (
-                <select
-                  value={detailStructureGroupId}
-                  onChange={(event) => setDetailStructureGroupId(event.target.value)}
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700"
-                >
-                  <option value="all">Tất cả {normalizedStructureConfig.label}</option>
-                  {normalizedStructureConfig.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
-                </select>
-              )}
-              <select
-                value={detailFloorId}
-                onChange={(event) => setDetailFloorId(event.target.value)}
-                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700"
-              >
-                <option value="all">Tất cả tầng</option>
-                {detailVisibleFloorOptions.map((floor) => <option key={floor.id} value={floor.id}>{floor.floorName}</option>)}
-              </select>
-              <input
-                value={detailSearch}
-                onChange={(event) => setDetailSearch(event.target.value)}
-                placeholder="Tìm Căn/Phòng hoặc đội..."
-                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 lg:col-span-2"
+            <div className="p-3 sm:p-4 border-b border-slate-200 bg-slate-50/80 space-y-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                {normalizedStructureConfig.enabled && (
+                  <details className="rounded-xl border border-slate-200 bg-white p-2 text-xs">
+                    <summary className="cursor-pointer font-bold text-slate-700">{normalizedStructureConfig.label} · {detailStructureGroupIds.length || 'Tất cả'}</summary>
+                    <div className="mt-2 max-h-36 overflow-auto space-y-1">{normalizedStructureConfig.groups.map((group) => <label key={group.id} className="flex gap-2"><input type="checkbox" checked={detailStructureGroupIds.includes(group.id)} onChange={() => setDetailStructureGroupIds((ids) => ids.includes(group.id) ? ids.filter((id) => id !== group.id) : [...ids, group.id])} />{group.name}</label>)}</div>
+                  </details>
+                )}
+                <details className="rounded-xl border border-slate-200 bg-white p-2 text-xs">
+                  <summary className="cursor-pointer font-bold text-slate-700">Tầng · {detailFloorIds.length || 'Tất cả'}</summary>
+                  <div className="mt-2 max-h-36 overflow-auto space-y-1">{detailVisibleFloorOptions.map((floor) => <label key={floor.id} className="flex gap-2"><input type="checkbox" checked={detailFloorIds.includes(floor.id)} onChange={() => setDetailFloorIds((ids) => ids.includes(floor.id) ? ids.filter((id) => id !== floor.id) : [...ids, floor.id])} />{floor.floorName}</label>)}</div>
+                </details>
+                <details className="rounded-xl border border-slate-200 bg-white p-2 text-xs">
+                  <summary className="cursor-pointer font-bold text-slate-700">Căn/Phòng · {detailRoomIds.length || 'Tất cả'}</summary>
+                  <div className="mt-2 max-h-36 overflow-auto space-y-1">{detailVisibleRoomOptions.map((row) => <label key={row.roomId} className="flex gap-2"><input type="checkbox" checked={detailRoomIds.includes(row.roomId)} onChange={() => setDetailRoomIds((ids) => ids.includes(row.roomId) ? ids.filter((id) => id !== row.roomId) : [...ids, row.roomId])} />{row.roomName}</label>)}</div>
+                </details>
+                <details className="rounded-xl border border-slate-200 bg-white p-2 text-xs">
+                  <summary className="cursor-pointer font-bold text-slate-700">Đội · {detailTeamNames.length || 'Tất cả'}</summary>
+                  <div className="mt-2 max-h-36 overflow-auto space-y-1">{detailVisibleTeamOptions.map((name) => <label key={name} className="flex gap-2"><input type="checkbox" checked={detailTeamNames.includes(name)} onChange={() => setDetailTeamNames((names) => names.includes(name) ? names.filter((item) => item !== name) : [...names, name])} />{name}</label>)}</div>
+                </details>
+              </div>
+              <input value={detailSearch} onChange={(event) => setDetailSearch(event.target.value)} placeholder="Tìm Căn/Phòng hoặc đội..." className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700" />
+              <QuickSortBar
+                itemCount={detailRows.length}
+                minItems={0}
+                options={[
+                  { key: 'floor', label: 'Tầng', kind: 'floor' },
+                  { key: 'room', label: 'Căn/Phòng', kind: 'alpha' },
+                  { key: 'team', label: 'Đội', kind: 'alpha' },
+                  { key: 'assigned', label: 'Khối lượng', kind: 'number' },
+                  { key: 'actual', label: 'Đã làm', kind: 'number' },
+                  { key: 'progress', label: 'Tiến độ', kind: 'number' },
+                ]}
+                activeKey={detailSortBy}
+                order={detailSortOrder}
+                onChange={(key, order) => { setDetailSortBy(key as typeof detailSortBy); setDetailSortOrder(order); }}
+                onReset={() => { setDetailSortBy('floor'); setDetailSortOrder('asc'); }}
+                summary={`${detailRows.length} Căn/Phòng`}
               />
             </div>
 
