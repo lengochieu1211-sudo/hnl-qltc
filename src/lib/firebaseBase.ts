@@ -43,6 +43,7 @@ import { REALTIME_COLLECTIONS } from '../config/realtimeCollections';
 import { formatDateTime } from '../utils/dateFormatter';
 import { CURRENT_DATA_SCHEMA_VERSION, getPendingDataSchemaMigrations, readDataSchemaVersion } from '../config/dataSchema';
 import { clearRememberedVerifiedAuthIdentity } from '../utils/offlineAccess';
+import type { ProjectStructureConfig } from '../utils/structureGroupUtils';
 const env = (import.meta as any).env || {};
 export const APP_ENVIRONMENT: 'DEV' | 'PROD' = String(env.VITE_APP_ENV || (env.DEV || env.MODE === 'development' ? 'DEV' : 'PROD')).toUpperCase() === 'PROD' ? 'PROD' : 'DEV';
 const isDev = APP_ENVIRONMENT === 'DEV';
@@ -1981,6 +1982,8 @@ export interface ProjectSharedSettings {
     enabled?: boolean;
     retentionDays?: number;
   };
+  /** Shared project hierarchy: Dự án → Khu/Khối → Tầng → Căn/Phòng. */
+  structure?: ProjectStructureConfig;
   updatedAt?: number;
   updatedByUid?: string;
   updatedByEmail?: string;
