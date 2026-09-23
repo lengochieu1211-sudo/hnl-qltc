@@ -29,6 +29,7 @@ export async function persistHealthCenterRepairToCloud<TData extends Record<stri
     input.projectName || String(input.beforeData?.projectName || ''),
     String(input.beforeData?.contractorName || ''),
     String(input.beforeData?.inspectorName || ''),
+    String(input.beforeData?.projectLocation || ''),
     {
       addedOrModified: plan.addedOrModified,
       deletedIds: plan.deletedIds,

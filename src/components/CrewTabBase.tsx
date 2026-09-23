@@ -133,6 +133,7 @@ interface CrewTabProps {
   roleResolved: boolean;
   currentUserUid?: string;
   projectName?: string;
+  projectLocation?: string;
   crewRecords: CrewRecord[];
   floorPlans: FloorPlan[];
   roomProgressList?: RoomProgressItem[];
@@ -149,7 +150,7 @@ interface CrewTabProps {
   onUpdateTeams?: (teams: TeamInfo[]) => void;
 }
 
-const buildCrewRecordShareText = (record: CrewRecord, projectName?: string) => {
+const buildCrewRecordShareText = (record: CrewRecord, projectName?: string, projectLocation?: string) => {
   const counts = getCrewShiftCounts(record);
   const floors = Array.from(new Set([
     record.floorName,
@@ -163,8 +164,9 @@ const buildCrewRecordShareText = (record: CrewRecord, projectName?: string) => {
     ])),
   ].map((value) => String(value || '').trim()).filter(Boolean)));
   return [
-    'HNL QLTC – Báo cáo quân số theo ngày',
+    'Báo cáo quân số theo ngày',
     projectName ? `Dự án: ${projectName}` : '',
+    projectLocation ? `Địa điểm: ${projectLocation}` : '',
     `Ngày: ${formatDateDDMMYYYY(record.date)}`,
     `Đội: ${record.teamName || 'Chưa cập nhật'}`,
     record.leaderName ? `Đội trưởng: ${record.leaderName}` : '',
@@ -260,6 +262,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   roleResolved,
   currentUserUid = '',
   projectName,
+  projectLocation,
   crewRecords,
   floorPlans,
   roomProgressList = [],
@@ -1369,7 +1372,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               onClick={() => setShowCrewReportShare(true)}
               className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 text-xs font-extrabold text-emerald-700 shadow-sm transition hover:bg-emerald-100"
             >
-              <FileText className="h-4 w-4" /> Chia sẻ báo cáo quân số · 1 ngày / nhiều ngày · text / ảnh
+              <FileText className="h-4 w-4" /> Chia sẻ báo cáo quân số · 1 ngày / nhiều ngày · nội dung / ảnh
             </button>
           </div>
 
@@ -1543,7 +1546,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                           entityType="crewRecord"
                           entityId={record.id}
                           title={`Quân số ${record.teamName || 'Đội thi công'} · ${formatDateDDMMYYYY(record.date)}`}
-                          text={buildCrewRecordShareText(record, projectName)}
+                          text={buildCrewRecordShareText(record, projectName, projectLocation)}
                           triggerLabel="Chia sẻ báo cáo"
                         />
                       </div>
@@ -3217,11 +3220,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       <CrewReportShareModal
         isOpen={showCrewReportShare}
         onClose={() => setShowCrewReportShare(false)}
-        projects={[{ projectId, projectName: projectName || 'Dự án', records: crewRecords, teams }]}
+        projects={[{ projectId, projectName: projectName || 'Dự án', projectLocation, records: crewRecords, teams }]}
         initialStartDate={selectedDate}
         initialEndDate={selectedDate}
         maxDate={getTodayString()}
-        title={`HNL QLTC – Báo cáo quân số – ${projectName || 'Dự án'}`}
+        title="Báo cáo quân số"
       />
 
     </div>

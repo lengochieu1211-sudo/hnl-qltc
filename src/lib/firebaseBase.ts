@@ -841,6 +841,10 @@ export function subscribeCurrentUserProjectsRealtime(onUpdate: (projects: CloudP
   const emit = async (source: string) => {
     const startedAt = Date.now();
     const seq = ++refreshSeq;
+    // Local project metadata is only a discovery candidate, never authorization.
+    // Re-read it for every emission so a project created while this subscription is
+    // already mounted is verified immediately instead of waiting for a remount.
+    localCandidateProjects = readLocalProjectDiscoveryCandidates();
     const ids = new Set<string>([
       ...Object.keys(userProjects),
       ...Object.keys(invitationProjects),
@@ -909,10 +913,14 @@ export function subscribeCurrentUserProjectsRealtime(onUpdate: (projects: CloudP
         result.push(summary);
       } catch (err: any) {
         if (cancelled || seq !== refreshSeq) return;
-        // No cached/index fallback here: backend/rules failure means discovery is
-        // temporarily unavailable, not permission granted.
+        // A denied/stale local candidate is an individual rejection, not a reason to
+        // hide every other project that was verified successfully in the same pass.
+        // Transport/backend failures still defer the whole emission so an incomplete
+        // list is never presented as authoritative.
         discoveryProjectCache.delete(cacheKey);
-        verificationUnavailable = true;
+        const code = String(err?.code || err?.name || '').toLowerCase();
+        const candidateRejected = code.includes('permission-denied') || code.includes('not-found');
+        if (!candidateRejected) verificationUnavailable = true;
         console.warn('[Project discovery] server verification failed closed:', id, err);
         continue;
       }
@@ -1775,6 +1783,7 @@ export interface FirestoreCachedProjectSnapshot {
     projectName: string;
     contractorName: string;
     inspectorName: string;
+    projectLocation: string;
     updatedAt: number;
   };
   data: Record<string, any[]>;
@@ -1794,7 +1803,7 @@ export async function loadProjectFromFirestoreCache(projectId: string): Promise<
     return {
       projectId,
       found: false,
-      metadata: { projectName: '', contractorName: '', inspectorName: '', updatedAt: 0 },
+      metadata: { projectName: '', contractorName: '', inspectorName: '', projectLocation: '', updatedAt: 0 },
       data: emptyData,
       recordCount: 0,
     };
@@ -1829,6 +1838,7 @@ export async function loadProjectFromFirestoreCache(projectId: string): Promise<
       projectName: String(meta?.name || ''),
       contractorName: String(meta?.contractorName || ''),
       inspectorName: String(meta?.inspectorName || ''),
+      projectLocation: String(meta?.projectLocation || ''),
       updatedAt: cloudTimestampToMillis(meta?.updatedAt),
     },
     data,
@@ -2016,7 +2026,7 @@ export function subscribeProjectSharedSettings(projectId: string, onUpdate: (set
 /**
  * Save / sync a single project to Firebase Cloud using modern subcollections
  */
-export async function saveProjectMetadataToCloud(projectId: string, name: string, extra: { contractorName?: string; inspectorName?: string } = {}): Promise<void> {
+export async function saveProjectMetadataToCloud(projectId: string, name: string, extra: { contractorName?: string; inspectorName?: string; projectLocation?: string } = {}): Promise<void> {
   if (!projectId || !name.trim()) return;
   const user = getCurrentRealFirebaseUser();
   if (!user || !user.email) throw new Error('Cần đăng nhập Google/Firebase để đồng bộ dự án.');
@@ -2031,6 +2041,7 @@ export async function saveProjectMetadataToCloud(projectId: string, name: string
       ownerEmail: normalizeEmail(user.email),
       contractorName: extra.contractorName || '',
       inspectorName: extra.inspectorName || '',
+      projectLocation: extra.projectLocation || '',
       syncCode: projectId.slice(0, 8).toUpperCase(),
       // New projects are canonical by definition. Existing legacy projects keep
       // their current identity until an ADMIN explicitly merges them.
@@ -2055,6 +2066,7 @@ export async function saveProjectMetadataToCloud(projectId: string, name: string
     name: name.trim(),
     ...(extra.contractorName !== undefined ? { contractorName: extra.contractorName } : {}),
     ...(extra.inspectorName !== undefined ? { inspectorName: extra.inspectorName } : {}),
+    ...(extra.projectLocation !== undefined ? { projectLocation: extra.projectLocation } : {}),
     updatedAt: now,
     updatedByUid: user.uid,
     updatedByEmail: normalizeEmail(user.email),
@@ -2065,7 +2077,7 @@ export async function saveProjectMetadataToCloud(projectId: string, name: string
   await registerProjectForCurrentUser(projectId, name.trim(), roleInfo?.allowed ? roleInfo.role : 'VIEWER');
 }
 
-export async function saveProjectToCloud(project: { id: string; name: string; syncCode?: string; payload?: any; contractorName?: string; inspectorName?: string; [key: string]: any }): Promise<void> {
+export async function saveProjectToCloud(project: { id: string; name: string; syncCode?: string; payload?: any; contractorName?: string; inspectorName?: string; projectLocation?: string; [key: string]: any }): Promise<void> {
   try {
     await ensureAuth();
     const financialActor = getCurrentRealFirebaseUser();
@@ -2096,6 +2108,7 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
       delete copy.updatedBy;
       delete copy.contractorName;
       delete copy.inspectorName;
+      delete copy.projectLocation;
       payloadData = copy;
     }
 
@@ -2124,6 +2137,7 @@ export async function saveProjectToCloud(project: { id: string; name: string; sy
         updatedBy: typeof window !== 'undefined' ? window.navigator.userAgent : 'device',
         contractorName: project.contractorName || '',
         inspectorName: project.inspectorName || '',
+        ...(project.projectLocation !== undefined ? { projectLocation: project.projectLocation } : {}),
         ...(finalOwnerUid ? { ownerUid: finalOwnerUid } : {}),
         ...(finalOwnerEmail ? { ownerEmail: finalOwnerEmail } : {}),
       }, { merge: true });
@@ -2295,6 +2309,7 @@ export function queueProjectDiffsToFirestoreOffline(
   projectName: string,
   contractorName: string,
   inspectorName: string,
+  projectLocation: string,
   diffs: {
     addedOrModified: { [subcollection: string]: any[] };
     deletedIds: { [subcollection: string]: Array<string | { id: string; deletedAt?: number; revision?: number }> };
@@ -2324,6 +2339,7 @@ export function queueProjectDiffsToFirestoreOffline(
       name: projectName,
       contractorName,
       inspectorName,
+      projectLocation,
       updatedAt: Date.now(),
       dataSchemaVersion: CURRENT_DATA_SCHEMA_VERSION,
       updatedByUid: currentUser?.uid || '',
@@ -2415,6 +2431,7 @@ export async function saveProjectDiffsToCloud(
   projectName: string,
   contractorName: string,
   inspectorName: string,
+  projectLocation: string,
   diffs: {
     addedOrModified: { [subcollection: string]: any[] };
     deletedIds: { [subcollection: string]: Array<string | { id: string; deletedAt?: number; revision?: number }> };
@@ -2446,6 +2463,7 @@ export async function saveProjectDiffsToCloud(
         name: projectName,
         contractorName,
         inspectorName,
+        projectLocation,
         updatedAt: Date.now(),
         schemaVersion: 3,
         dataSchemaVersion: CURRENT_DATA_SCHEMA_VERSION,
@@ -2650,6 +2668,7 @@ export async function saveProjectDiffsToCloud(
 export interface ProjectCrewReportData {
   projectId: string;
   projectName: string;
+  projectLocation?: string;
   records: any[];
   teams: any[];
   updatedAt: number;
@@ -2709,6 +2728,7 @@ export async function fetchProjectCrewReportData(
   return {
     projectId,
     projectName: String(projectMeta?.name || projectId),
+    projectLocation: String(projectMeta?.projectLocation || ''),
     records,
     teams,
     updatedAt: cloudTimestampToMillis(projectMeta?.updatedAt),
@@ -2734,6 +2754,7 @@ export async function fetchProjectFromCloud(projectId: string, options?: { serve
         projectName: meta.name,
         contractorName: meta.contractorName || '',
         inspectorName: meta.inspectorName || '',
+        projectLocation: meta.projectLocation || '',
         updatedAt: meta.updatedAt || 0,
       };
 
@@ -2801,7 +2822,7 @@ export async function fetchProjectFromCloud(projectId: string, options?: { serve
  */
 export function subscribeToProjectRealtime(
   projectId: string,
-  onMetadataUpdate: (metadata: { projectName: string; contractorName: string; inspectorName: string; updatedAt: number; deleted: boolean }) => void,
+  onMetadataUpdate: (metadata: { projectName: string; contractorName: string; inspectorName: string; projectLocation: string; updatedAt: number; deleted: boolean }) => void,
   onSubcollectionUpdate: (subcollectionName: string, items: any[], isInitial: boolean, isPatch?: boolean) => void,
   onError?: (err: any) => void,
   options: { includeFinancials?: boolean } = {},
@@ -2834,6 +2855,7 @@ export function subscribeToProjectRealtime(
             projectName: data.name || '',
             contractorName: data.contractorName || '',
             inspectorName: data.inspectorName || '',
+            projectLocation: data.projectLocation || '',
             updatedAt: data.updatedAt || 0,
             deleted: data.deleted === true,
           });

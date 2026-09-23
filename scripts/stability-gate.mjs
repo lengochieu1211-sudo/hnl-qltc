@@ -356,21 +356,24 @@ requireAll(homeDashboard, [
   '7 ngày',
   'Tháng này',
   'Khoảng ngày',
-  'Chia sẻ text / ảnh',
-  'không hiển thị số liệu giả',
+  'Chia sẻ báo cáo',
+  'không hiển thị số giả',
+  'buildCrewReportMatrices',
 ], 'Trang chủ dashboard');
 requireAll(crewReportShare, [
   '1 ngày',
   'Nhiều ngày',
-  'Sao chép text',
-  'Chia sẻ text',
+  'Sao chép nội dung',
+  'Chia sẻ nội dung',
   'Chia sẻ ảnh',
-  'Tải ảnh PNG',
-  'Chưa báo',
+  'Tải ảnh',
+  '— = chưa báo',
 ], 'crew report share center');
 requireAll(crewReportUtils, [
   'buildCrewReportRows',
   'buildCrewReportText',
+  'buildCrewReportMatrices',
+  'projectLocation',
   'reported: false',
   'dailyHeadcount',
 ], 'crew report aggregation engine');

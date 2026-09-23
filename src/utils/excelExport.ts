@@ -36,6 +36,17 @@ function autoFitColumns(ws: XLSX.WorkSheet) {
   ws['!views'] = [{ state: 'frozen', ySplit: 1 }];
 }
 
+function prependProjectInfoSheet(wb: XLSX.WorkBook, projectName: string, projectLocation?: string) {
+  const rows: Array<[string, string]> = [
+    ['Tên công trình', String(projectName || 'Công trình')],
+  ];
+  if (String(projectLocation || '').trim()) rows.push(['Địa điểm', String(projectLocation).trim()]);
+  const ws = XLSX.utils.aoa_to_sheet([['THÔNG TIN DỰ ÁN', 'GIÁ TRỊ'], ...rows]);
+  autoFitColumns(ws);
+  XLSX.utils.book_append_sheet(wb, ws, 'Thong Tin Du An');
+  wb.SheetNames = ['Thong Tin Du An', ...wb.SheetNames.filter((name) => name !== 'Thong Tin Du An')];
+}
+
 
 export function exportWarehouseToExcel(inventory: InventoryItem[], materialNorms: MaterialNorm[], projectName: string, workVolumes?: WorkVolume[]) {
   exportWarehouseUpdateTemplate(materialNorms, workVolumes || [], inventory, projectName);
@@ -136,6 +147,7 @@ export function exportChecklistToExcel(checklist: ChecklistItem[], projectName: 
 
 export function exportAllToExcel(params: {
   projectName: string;
+  projectLocation?: string;
   inventory: InventoryItem[];
   materialNorms: MaterialNorm[];
   workVolumes: WorkVolume[];
@@ -338,11 +350,13 @@ export function exportAllToExcel(params: {
     alert('Không có dữ liệu nào được chọn để xuất báo cáo.');
     return;
   }
+  prependProjectInfoSheet(wb, params.projectName, params.projectLocation);
   return saveWorkbookFile(wb, `Bao_Cao_Tong_Hop_${safeName}_${Date.now()}.xlsx`);
 }
 
 export function exportAllToExcelBase64(params: {
   projectName: string;
+  projectLocation?: string;
   inventory: InventoryItem[];
   materialNorms: MaterialNorm[];
   workVolumes: WorkVolume[];
@@ -520,6 +534,7 @@ export function exportAllToExcelBase64(params: {
     XLSX.utils.book_append_sheet(wb, wsCrew, 'Quan So Hang Ngay');
   }
 
+  prependProjectInfoSheet(wb, params.projectName, params.projectLocation);
   return XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
 }
 

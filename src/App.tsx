@@ -235,6 +235,7 @@ const isEditableTextTarget = (target: EventTarget | null): boolean => {
 export interface ProjectInfo {
   id: string;
   name: string;
+  projectLocation?: string;
   createdAt: string | number;
   updatedAt?: number;
   createdAtSource?: 'cloud' | 'local' | 'migrating';
@@ -568,6 +569,7 @@ export default function App() {
 
   const [contractorName, setContractorName] = useState<string>('');
   const [inspectorName, setInspectorName] = useState<string>('');
+  const [projectLocation, setProjectLocation] = useState<string>('');
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number>(Date.now());
 
   // App Data State with Undo/Redo support
@@ -583,13 +585,13 @@ export default function App() {
     materialNorms: [], inventory: [], workVolumes: [], floorPlans: [], defects: [], roomProgressList: [], checklist: [], crewRecords: [], teams: []
   });
   const lastSyncedPresentRef = React.useRef<AppData | null>(null);
-  const lastSyncedMetadataRef = React.useRef<{ projectName: string; contractorName: string; inspectorName: string } | null>(null);
+  const lastSyncedMetadataRef = React.useRef<{ projectName: string; contractorName: string; inspectorName: string; projectLocation: string } | null>(null);
   const lastServerMetadataUpdatedAtRef = React.useRef<number>(0);
   const hasUserEditedSinceHydrateRef = React.useRef<boolean>(false);
   const hasUnsavedAllBackupChangesRef = React.useRef<boolean>(false);
   const localTombstonesRef = React.useRef<Record<string, number>>({});
   const verifiedOfflineBasePresentRef = React.useRef<AppData | null>(null);
-  const verifiedOfflineBaseMetadataRef = React.useRef<{ projectName: string; contractorName: string; inspectorName: string } | null>(null);
+  const verifiedOfflineBaseMetadataRef = React.useRef<{ projectName: string; contractorName: string; inspectorName: string; projectLocation: string } | null>(null);
   const verifiedOfflineBaseCapturedAtRef = React.useRef<number>(0);
 
   // V6.2.22: Persist only collections that the user actually changed. Rewriting all
@@ -847,17 +849,20 @@ export default function App() {
       const baseProjectName = offlineMetadata?.projectName || firestoreCached?.metadata.projectName || localStorage.getItem(getKey('construction_project_name', projectId)) || (isDefault ? 'Dự án chưa đặt tên' : `Dự án ${projectId}`);
       const baseContractor = offlineMetadata?.contractorName || firestoreCached?.metadata.contractorName || localStorage.getItem(getKey('construction_contractor', projectId)) || '';
       const baseInspector = offlineMetadata?.inspectorName || firestoreCached?.metadata.inspectorName || localStorage.getItem(getKey('construction_inspector', projectId)) || '';
+      const baseProjectLocation = offlineMetadata?.projectLocation || firestoreCached?.metadata.projectLocation || localStorage.getItem(getKey('construction_project_location', projectId)) || '';
       const recoveredMetadata = useVerifiedOfflineSnapshot && verifiedOfflineWorkingDelta?.metadataChanged
         ? verifiedOfflineWorkingDelta.metadata
         : null;
       const loadedProjectName = recoveredMetadata?.projectName || baseProjectName;
       const loadedContractor = recoveredMetadata?.contractorName || baseContractor;
       const loadedInspector = recoveredMetadata?.inspectorName || baseInspector;
+      const loadedProjectLocation = recoveredMetadata?.projectLocation || baseProjectLocation;
       const loadedUpdatedAt = Number((useVerifiedOfflineSnapshot ? verifiedOfflineSnapshot?.sourceUpdatedAt : 0) || firestoreCached?.metadata.updatedAt || localStorage.getItem(getKey('construction_updated_at', projectId)) || 0);
 
       setProjectName(loadedProjectName);
       setContractorName(loadedContractor);
       setInspectorName(loadedInspector);
+      setProjectLocation(loadedProjectLocation);
       setLastUpdatedAt(loadedUpdatedAt);
 
       const initialState: AppData = {
@@ -882,7 +887,8 @@ export default function App() {
       const baselineMetadata = {
         projectName: baseProjectName,
         contractorName: baseContractor,
-        inspectorName: baseInspector
+        inspectorName: baseInspector,
+        projectLocation: baseProjectLocation
       };
       lastSyncedMetadataRef.current = baselineMetadata;
       // Both the official Firestore cache and the identity-bound verified snapshot are
@@ -968,6 +974,7 @@ export default function App() {
           safeSetLocalStorageItem(getKey('construction_project_name', frozenProjectId), projectName);
           safeSetLocalStorageItem(getKey('construction_contractor', frozenProjectId), contractorName);
           safeSetLocalStorageItem(getKey('construction_inspector', frozenProjectId), inspectorName);
+          safeSetLocalStorageItem(getKey('construction_project_location', frozenProjectId), projectLocation);
         }
         safeSetLocalStorageItem(getKey('construction_updated_at', frozenProjectId), String(lastUpdatedAt));
 
@@ -1059,7 +1066,7 @@ export default function App() {
   useEffect(() => {
     if (!isHydrated || isRestoring || isLoadingProject || !activeProjectIdRef.current) return;
     saveCurrentProject(activeProjectIdRef.current).catch(err => console.warn('Autosave error:', err));
-  }, [present, projectName, contractorName, inspectorName, isHydrated, isRestoring, isLoadingProject]);
+  }, [present, projectName, contractorName, inspectorName, projectLocation, isHydrated, isRestoring, isLoadingProject]);
 
   // WebView2 can occasionally start with Firestore persistence in memory-only mode.
   // While using the verified snapshot fallback, persist only the user's working delta
@@ -1082,7 +1089,7 @@ export default function App() {
       basePresent as unknown as Record<string, any[]>,
       present as unknown as Record<string, any[]>,
       baseMetadata,
-      { projectName, contractorName, inspectorName },
+      { projectName, contractorName, inspectorName, projectLocation },
       localTombstonesRef.current,
     );
     if (!delta) return;
@@ -1121,7 +1128,7 @@ export default function App() {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [isHydrated, isRestoring, isLoadingProject, present, projectName, contractorName, inspectorName]);
+  }, [isHydrated, isRestoring, isLoadingProject, present, projectName, contractorName, inspectorName, projectLocation]);
 
   const [future, setFuture] = useState<AppData[]>([]);
 
@@ -1445,12 +1452,14 @@ export default function App() {
         name: projectName,
         contractorName,
         inspectorName,
+        projectLocation,
         updatedAt: lastUpdatedAt,
       },
       data: {
         projectName,
         contractorName,
         inspectorName,
+        projectLocation,
         materialNorms,
         inventory,
         workVolumes,
@@ -1499,7 +1508,7 @@ export default function App() {
         let payload: any;
         if (projectId === activeProjectIdRef.current) {
           payload = {
-            projectName, contractorName, inspectorName,
+            projectName, contractorName, inspectorName, projectLocation,
             materialNorms, inventory, workVolumes, floorPlans, defects,
             roomProgressList, checklist, crewRecords, teams, updatedAt: lastUpdatedAt,
           };
@@ -1515,6 +1524,7 @@ export default function App() {
         allData[getKey('construction_project_name', projectId)] = payload.projectName || projectInfo?.name || projectId;
         allData[getKey('construction_contractor', projectId)] = payload.contractorName || '';
         allData[getKey('construction_inspector', projectId)] = payload.inspectorName || '';
+        allData[getKey('construction_project_location', projectId)] = payload.projectLocation || '';
         allData[getKey('construction_material_norms', projectId)] = JSON.stringify(payload.materialNorms || []);
         allData[getKey('construction_inventory', projectId)] = JSON.stringify(payload.inventory || []);
         allData[getKey('construction_work_volumes', projectId)] = JSON.stringify(payload.workVolumes || []);
@@ -1640,6 +1650,7 @@ export default function App() {
     projectName,
     contractorName,
     inspectorName,
+    projectLocation,
     materialNorms,
     inventory,
     workVolumes,
@@ -1712,6 +1723,16 @@ export default function App() {
     }
     return pending;
   }, [present, cloudInitialReady, dataCloudStatus.phase]);
+  const syncDiagnosticPendingMetadata = useMemo(() => {
+    const synced = lastSyncedMetadataRef.current;
+    if (!cloudInitialReady || !synced) return 0;
+    return (
+      synced.projectName !== projectName
+      || synced.contractorName !== contractorName
+      || synced.inspectorName !== inspectorName
+      || synced.projectLocation !== projectLocation
+    ) ? 1 : 0;
+  }, [cloudInitialReady, projectName, contractorName, inspectorName, projectLocation, dataCloudStatus.phase]);
   const [cloudDataRetryTick, setCloudDataRetryTick] = useState(0);
   const cloudDataRetryAttemptRef = useRef(0);
   const cloudDataRetryTimerRef = useRef<number | null>(null);
@@ -3172,6 +3193,7 @@ export default function App() {
           name: projectName || `Du an ${projectId}`,
           contractorName,
           inspectorName,
+          projectLocation,
           syncCode: projectId.slice(0, 8).toUpperCase(),
           payload
         });
@@ -3255,11 +3277,19 @@ export default function App() {
           syncLockRef.current = true;
           if (meta.projectName) setProjectName(meta.projectName);
           if (meta.contractorName) setContractorName(meta.contractorName);
-          if (meta.inspectorName) setInspectorName(meta.inspectorName);
+          if (meta.inspectorName !== undefined) setInspectorName(meta.inspectorName);
+          if (meta.projectLocation !== undefined) setProjectLocation(meta.projectLocation);
           
           localStorage.setItem(getKey('construction_project_name', subscribedProjectId), meta.projectName);
           localStorage.setItem(getKey('construction_contractor', subscribedProjectId), meta.contractorName);
           localStorage.setItem(getKey('construction_inspector', subscribedProjectId), meta.inspectorName);
+          localStorage.setItem(getKey('construction_project_location', subscribedProjectId), meta.projectLocation || '');
+          lastSyncedMetadataRef.current = {
+            projectName: meta.projectName || '',
+            contractorName: meta.contractorName || '',
+            inspectorName: meta.inspectorName || '',
+            projectLocation: meta.projectLocation || '',
+          };
           
           setLastUpdatedAt(serverTime);
           localStorage.setItem(getKey('construction_updated_at', subscribedProjectId), String(serverTime));
@@ -3506,7 +3536,7 @@ export default function App() {
       void saveVerifiedOfflineBusinessSnapshot(
         projectId,
         user,
-        { projectName, contractorName, inspectorName },
+        { projectName, contractorName, inspectorName, projectLocation },
         cloudBaseline,
         lastServerMetadataUpdatedAtRef.current || lastUpdatedAt,
       ).catch((err) => console.warn('[Verified offline snapshot] save warning:', err));
@@ -3575,6 +3605,17 @@ export default function App() {
     localStorage.setItem(getKey('construction_updated_at'), String(now));
   };
 
+  const handleUpdateProjectLocation = (val: string) => {
+    if (!isProjectRoleResolved || currentUserRole !== 'ADMIN') return;
+    hasUserEditedSinceHydrateRef.current = true;
+    hasUnsavedAllBackupChangesRef.current = true;
+    localMetadataDirtyRevisionRef.current += 1;
+    setProjectLocation(val);
+    const now = Date.now();
+    setLastUpdatedAt(now);
+    localStorage.setItem(getKey('construction_updated_at'), String(now));
+  };
+
   // Persistence to localStorage
   useEffect(() => {
     if (!isHydrated || isLoadingProject || isRestoring || syncLockRef.current) return;
@@ -3599,6 +3640,11 @@ export default function App() {
     if (!isHydrated || isLoadingProject || isRestoring || syncLockRef.current) return;
     localStorage.setItem(getKey('construction_inspector'), inspectorName);
   }, [inspectorName, isHydrated, isLoadingProject, isRestoring]);
+
+  useEffect(() => {
+    if (!isHydrated || isLoadingProject || isRestoring || syncLockRef.current) return;
+    localStorage.setItem(getKey('construction_project_location'), projectLocation);
+  }, [projectLocation, isHydrated, isLoadingProject, isRestoring]);
 
   useEffect(() => {
     if (!isHydrated || isLoadingProject) return;
@@ -3646,6 +3692,11 @@ export default function App() {
         if (!FIREBASE_ONLY_RUNTIME || LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED) await setAsyncItem(getKey('construction_inspector', pid), data.inspectorName || '');
         safeSetLocalStorageItem(getKey('construction_inspector', pid), data.inspectorName || '');
       }
+      if (data.projectLocation !== undefined) {
+        if (isCurrentActive) setProjectLocation(data.projectLocation || '');
+        if (!FIREBASE_ONLY_RUNTIME || LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED) await setAsyncItem(getKey('construction_project_location', pid), data.projectLocation || '');
+        safeSetLocalStorageItem(getKey('construction_project_location', pid), data.projectLocation || '');
+      }
       const nextState = {
         materialNorms: Array.isArray(data.materialNorms) ? data.materialNorms : (isCurrentActive ? present.materialNorms : []),
         inventory: Array.isArray(data.inventory) ? data.inventory : (isCurrentActive ? present.inventory : []),
@@ -3686,6 +3737,7 @@ export default function App() {
           name: data.projectName || projectName || `Dự án ${pid}`,
           contractorName: data.contractorName || '',
           inspectorName: data.inspectorName || '',
+          projectLocation: data.projectLocation || '',
           syncCode: pid.slice(0, 8).toUpperCase(),
           payload: nextState,
         });
@@ -4158,7 +4210,8 @@ export default function App() {
           if (activeProjectIdRef.current === pid) {
             if (remoteData.projectName) setProjectName(remoteData.projectName);
             if (remoteData.contractorName) setContractorName(remoteData.contractorName);
-            if (remoteData.inspectorName) setInspectorName(remoteData.inspectorName);
+            if (remoteData.inspectorName !== undefined) setInspectorName(remoteData.inspectorName);
+            if (remoteData.projectLocation !== undefined) setProjectLocation(remoteData.projectLocation || '');
             setLastUpdatedAt(remoteUpdatedAt);
           }
           if (remoteData.projectName) {
@@ -4176,7 +4229,8 @@ export default function App() {
             } catch (_) {}
           }
           if (remoteData.contractorName) safeSetLocalStorageItem(getKey('construction_contractor', pid), remoteData.contractorName);
-          if (remoteData.inspectorName) safeSetLocalStorageItem(getKey('construction_inspector', pid), remoteData.inspectorName);
+          if (remoteData.inspectorName !== undefined) safeSetLocalStorageItem(getKey('construction_inspector', pid), remoteData.inspectorName || '');
+          if (remoteData.projectLocation !== undefined) safeSetLocalStorageItem(getKey('construction_project_location', pid), remoteData.projectLocation || '');
 
           const nextPresent = {
             materialNorms: Array.isArray(remoteData.materialNorms) ? remoteData.materialNorms : present.materialNorms,
@@ -4390,14 +4444,15 @@ export default function App() {
           const metadataChanged = !lastSyncedMetadataRef.current ||
             lastSyncedMetadataRef.current.projectName !== projectName ||
             lastSyncedMetadataRef.current.contractorName !== contractorName ||
-            lastSyncedMetadataRef.current.inspectorName !== inspectorName;
+            lastSyncedMetadataRef.current.inspectorName !== inspectorName ||
+            lastSyncedMetadataRef.current.projectLocation !== projectLocation;
 
           if (hasChanges || metadataChanged || !lastSyncedPresentRef.current) {
             // Save metadata and only changed records
             const snapshotForSave = present;
 
             if (canQueueOfflineFirestoreWrite) {
-              const queued = queueProjectDiffsToFirestoreOffline(activeId, projectName, contractorName, inspectorName, {
+              const queued = queueProjectDiffsToFirestoreOffline(activeId, projectName, contractorName, inspectorName, projectLocation, {
                 addedOrModified,
                 deletedIds
               }, {
@@ -4410,7 +4465,7 @@ export default function App() {
                 // its persistence layer. This prevents repeatedly enqueuing the same local
                 // revision while offline; server rejection is reconciled by realtime later.
                 lastSyncedPresentRef.current = snapshotForSave;
-                lastSyncedMetadataRef.current = { projectName, contractorName, inspectorName };
+                lastSyncedMetadataRef.current = { projectName, contractorName, inspectorName, projectLocation };
                 flushedPriorityCloudSyncRevisionRef.current = Math.max(flushedPriorityCloudSyncRevisionRef.current, priorityRevisionAtSchedule);
                 if (queued.queuedRecords > 0) adjustFirestorePendingWriteCount(queued.queuedRecords);
                 setDataCloudStatus({
@@ -4444,7 +4499,7 @@ export default function App() {
             }
 
             queueCloudSave(async () => {
-              await saveProjectDiffsToCloud(activeId, projectName, contractorName, inspectorName, {
+              await saveProjectDiffsToCloud(activeId, projectName, contractorName, inspectorName, projectLocation, {
                 addedOrModified,
                 deletedIds
               }, {
@@ -4457,7 +4512,7 @@ export default function App() {
               // A single FIFO queue prevents an older request finishing after a newer one.
               if (!switchingProjectRef.current && activeProjectIdRef.current === activeId) {
                 lastSyncedPresentRef.current = snapshotForSave;
-                lastSyncedMetadataRef.current = { projectName, contractorName, inspectorName };
+                lastSyncedMetadataRef.current = { projectName, contractorName, inspectorName, projectLocation };
                 flushedPriorityCloudSyncRevisionRef.current = Math.max(flushedPriorityCloudSyncRevisionRef.current, priorityRevisionAtSchedule);
                 cloudDataRetryAttemptRef.current = 0;
                 if (cloudDataRetryTimerRef.current !== null) {
@@ -4500,7 +4555,27 @@ export default function App() {
     }, cloudSaveDelayMs); // V6.2.25: Defect/crew priority flush 300ms; other edits retain 6s batching.
 
     return () => clearTimeout(timer);
-  }, [present, projectName, contractorName, inspectorName, autoSyncEnabled, isHydrated, isLoadingProject, isRestoring, isInitializing, activeProjectId, cloudUserKey, cloudInitialReady, currentUserRole, isProjectRoleResolved, cloudDataRetryTick, isOnline, projectRoleSource, projectRoleAllowed, businessDataSource]);
+  }, [present, projectName, contractorName, inspectorName, projectLocation, autoSyncEnabled, isHydrated, isLoadingProject, isRestoring, isInitializing, activeProjectId, cloudUserKey, cloudInitialReady, currentUserRole, isProjectRoleResolved, cloudDataRetryTick, isOnline, projectRoleSource, projectRoleAllowed, businessDataSource]);
+
+  // A rejected stale revision is expected to be resolved by the realtime listener.
+  // Do not leave Health Center permanently red after the authoritative Cloud state has
+  // fully reconciled and there are no local/pending writes left.
+  useEffect(() => {
+    if (dataCloudStatus.phase !== 'conflict') return;
+    if (!cloudInitialReady || !isProjectRoleResolved || !projectRoleAllowed) return;
+    if (syncDiagnosticPendingData !== 0 || syncDiagnosticPendingMetadata !== 0 || firestorePendingWriteCount !== 0) return;
+    const projectId = activeProjectId;
+    const timer = window.setTimeout(() => {
+      if (activeProjectIdRef.current !== projectId) return;
+      if (firestorePendingWriteCountRef.current !== 0) return;
+      setDataCloudStatus({
+        phase: 'synced',
+        lastSyncAt: Date.now(),
+        message: 'Realtime đã hòa giải xung đột; dữ liệu Cloud hiện tại đã được giữ nguyên.',
+      });
+    }, 1800);
+    return () => window.clearTimeout(timer);
+  }, [dataCloudStatus.phase, cloudInitialReady, isProjectRoleResolved, projectRoleAllowed, syncDiagnosticPendingData, syncDiagnosticPendingMetadata, firestorePendingWriteCount, activeProjectId]);
 
   // Local File Auto-Save Debounced Effect
   useEffect(() => {
@@ -4558,7 +4633,7 @@ export default function App() {
     }, 2000); // 2 seconds debounce for local file updates
 
     return () => clearTimeout(timer);
-  }, [localFileHandle, present, projectName, contractorName, inspectorName, lastUpdatedAt, activeProjectId]);
+  }, [localFileHandle, present, projectName, contractorName, inspectorName, projectLocation, lastUpdatedAt, activeProjectId]);
 
   const saveAutoSaveVersion = async (allData: any) => {
     try {
@@ -4815,7 +4890,7 @@ export default function App() {
     }, 2000); // 2 seconds debounce
 
     return () => clearTimeout(timer);
-  }, [localAllFileHandle, present, projectName, contractorName, inspectorName, lastUpdatedAt, isProjectRoleResolved, currentUserRole]);
+  }, [localAllFileHandle, present, projectName, contractorName, inspectorName, projectLocation, lastUpdatedAt, isProjectRoleResolved, currentUserRole]);
 
   // Background version backup: gate cheaply BEFORE building any backup object.
   useEffect(() => {
@@ -6640,6 +6715,7 @@ export default function App() {
             projectName,
             contractorName,
             inspectorName,
+            projectLocation,
             materialNorms,
             inventory,
             workVolumes,
@@ -6669,6 +6745,7 @@ export default function App() {
               projects={authorizedChatProjects}
               activeProjectId={activeProjectId}
               activeProjectName={projectName}
+              activeProjectLocation={projectLocation}
               currentRole={currentUserRole}
               defectOpenCount={unhandledDefectsCount}
               dueAlertCount={dueDateAlerts.length}
@@ -6817,6 +6894,7 @@ export default function App() {
               roleResolved={isProjectRoleResolved}
               currentUserUid={getCurrentRealFirebaseUser()?.uid || ''}
               projectName={projectName}
+              projectLocation={projectLocation}
               crewRecords={crewRecords}
               floorPlans={floorPlans}
               roomProgressList={roomProgressList}
@@ -6993,6 +7071,8 @@ export default function App() {
               setContractorName={handleUpdateContractorName}
               inspectorName={inspectorName}
               setInspectorName={handleUpdateInspectorName}
+              projectLocation={projectLocation}
+              setProjectLocation={handleUpdateProjectLocation}
               floorPlans={floorPlans}
               onUpdateFloorPlan={handleUpdateFloorPlan}
               onSyncAll={handleSyncAll}
@@ -7038,6 +7118,7 @@ export default function App() {
                     projectName,
                     contractorName,
                     inspectorName,
+                    projectLocation,
                     materialNorms,
                     inventory,
                     workVolumes,
@@ -7070,7 +7151,7 @@ export default function App() {
                 roleSource: projectRoleSource,
                 online: isOnline,
                 dataCloudPhase: dataCloudStatus.phase,
-                pendingData: syncDiagnosticPendingData,
+                pendingData: syncDiagnosticPendingData + syncDiagnosticPendingMetadata,
                 photoPending: Number(photoCloudStatus.pending || 0),
                 photoPhase: String(photoCloudStatus.phase || 'idle'),
                 pendingDriveUploads: Number(photoCloudStatus.pending || 0) + floorPlanImageSyncPendingRef.current.size + floorPlanImageSyncInFlightRef.current.size,
@@ -7120,6 +7201,7 @@ export default function App() {
           projectName={projectName}
           contractorName={contractorName}
           inspectorName={inspectorName}
+          projectLocation={projectLocation}
           activeProjectId={activeProjectId}
           userRole={currentUserRole}
           inventory={inventory}

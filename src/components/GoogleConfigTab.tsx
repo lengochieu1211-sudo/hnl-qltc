@@ -13,6 +13,7 @@ import {
   LogOut,
   Save,
   Building2,
+  MapPin,
   User,
   Download,
   Upload,
@@ -58,6 +59,8 @@ interface GoogleConfigTabProps {
   setContractorName: (name: string) => void;
   inspectorName: string;
   setInspectorName: (name: string) => void;
+  projectLocation: string;
+  setProjectLocation: (location: string) => void;
   floorPlans: FloorPlan[];
   onUpdateFloorPlan?: (id: string, updates: Partial<FloorPlan>) => void;
   onSyncAll: () => Promise<{ success: boolean; url?: string; message?: string }>;
@@ -117,6 +120,8 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   setContractorName,
   inspectorName,
   setInspectorName,
+  projectLocation,
+  setProjectLocation,
   floorPlans,
   onUpdateFloorPlan,
   onSyncAll,
@@ -160,6 +165,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   const [localProjectName, setLocalProjectName] = useState(projectName);
   const [localContractorName, setLocalContractorName] = useState(contractorName);
   const [localInspectorName, setLocalInspectorName] = useState(inspectorName);
+  const [localProjectLocation, setLocalProjectLocation] = useState(projectLocation);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
 
   // App Format Preferences State
@@ -435,6 +441,10 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
     setLocalInspectorName(inspectorName);
   }, [inspectorName]);
 
+  useEffect(() => {
+    setLocalProjectLocation(projectLocation);
+  }, [projectLocation]);
+
   // Handle data comparison between device and cloud
   const handleCompareData = async () => {
     if (!hasApiBackend()) {
@@ -608,6 +618,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
     setProjectName(cleanName);
     setContractorName(localContractorName.trim());
     setInspectorName(localInspectorName.trim());
+    setProjectLocation(localProjectLocation.trim());
 
     setSaveSuccessMsg('🎉 Đã lưu cài đặt dự án thành công!');
     setTimeout(() => setSaveSuccessMsg(null), 4000);
@@ -650,6 +661,19 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
               placeholder="Ví dụ: LTIA Sân bay Long Thành"
               required
             />
+          </div>
+
+          <div>
+            <label className="mb-1 flex items-center gap-1.5 font-bold text-slate-700"><MapPin className="h-3.5 w-3.5 text-indigo-500" /> Địa điểm</label>
+            <input
+              type="text"
+              value={localProjectLocation}
+              onChange={(e) => setLocalProjectLocation(e.target.value)}
+              disabled={userRole !== 'ADMIN'}
+              className="w-full border border-slate-200 rounded-xl p-2.5 font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+              placeholder="Ví dụ: Long Thành, Đồng Nai"
+            />
+            <p className="mt-1 text-[9.5px] text-slate-400">Tự chèn vào báo cáo/ảnh liên quan; để trống thì không hiển thị dòng địa điểm.</p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
