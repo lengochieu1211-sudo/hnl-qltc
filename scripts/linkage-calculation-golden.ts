@@ -14,6 +14,7 @@ import { resolveNormMaterialId } from '../src/utils/inventoryUtils';
 import { computeDerivedWorkVolumes } from '../src/utils/workVolumeComputation';
 import { computeMaterialNeeds } from '../src/utils/materialNeedEngine';
 import { calculateTeamStatistics } from '../src/utils/teamUtils';
+import { computeTeamMaterialReconciliation } from '../src/utils/teamMaterialReconciliation';
 import { reconcileMaterialNormWorkCategoryLinks } from '../src/utils/projectReconciliation';
 
 const work = (id: string, floorId: string, title = 'Trần tiêu chuẩn', unit = 'm²', planned = 100): WorkVolume => ({
@@ -109,9 +110,15 @@ console.log('PASS provenance: Room↔Floor conflict is invalid');
 
 const catB = work('CAT-B', 'F1', 'Vách', 'm²');
 const multiRoom = room('R-MULTI', 'F1', { 'CAT-F1': 5, 'CAT-B': 5 });
-const ambiguousOut: InventoryItem = { id: 'X2', type: 'out', materialId: 'MAT-P', materialName: 'Tấm A', unit: 'tấm', quantity: 1, location: '', handler: '', date: '2026-09-14', sourceRoomId: 'R-MULTI', sourceFloorId: 'F1' };
-assert.equal(validateInventoryOutProvenance({ tx: ambiguousOut, rooms: [multiRoom], workVolumes: [w1, catB], materialNorms: [provNorm] }).state, 'ambiguous');
-console.log('PASS provenance: missing category on multi-category room is UNALLOCATED/ambiguous');
+const partialOut: InventoryItem = { id: 'X2', type: 'out', materialId: 'MAT-P', materialName: 'Tấm A', unit: 'tấm', quantity: 1, location: '', handler: '', date: '2026-09-14', issuePurpose: 'project-work', sourceRoomId: 'R-MULTI', sourceFloorId: 'F1' };
+const partialOutResult = validateInventoryOutProvenance({ tx: partialOut, rooms: [multiRoom], workVolumes: [w1, catB], materialNorms: [provNorm] });
+assert.equal(partialOutResult.state, 'resolved');
+assert.equal(partialOutResult.workCategoryId, undefined, 'partial manual OUT must remain category-unallocated instead of guessing one');
+console.log('PASS provenance: partial manual OUT may omit category without guessing');
+
+const externalOut: InventoryItem = { id: 'X-EXT', type: 'out', materialId: 'MAT-P', materialName: 'Tấm A', unit: 'tấm', quantity: 2, location: '', handler: '', date: '2026-09-14', issuePurpose: 'external-project' };
+assert.equal(validateInventoryOutProvenance({ tx: externalOut, rooms: [multiRoom], workVolumes: [w1, catB], materialNorms: [provNorm] }).state, 'resolved');
+console.log('PASS provenance: external-project OUT is valid warehouse movement without project allocation');
 
 const tinyNorm: MaterialNorm = { ...norm('N-TINY', 'MAT-TINY', ['CAT-F1'], 'Keo', 'kg'), workCategoryNormsById: { 'CAT-F1': 0.004 } };
 const tinyRoom = room('R-TINY', 'F1', { 'CAT-F1': 1 }, { workCategoryId: 'CAT-F1', workCategory: w1.title });
@@ -120,6 +127,23 @@ const tinyNeed = computeMaterialNeeds({ rooms: [tinyRoom], materialNorms: [tinyN
 assert.equal(tinyNeed.lines[0].rawRemainingQty, 0.004);
 assert.equal(tinyNeed.lines[0].sufficient, false, 'raw 0.003 stock must not satisfy raw 0.004 need even when display rounds');
 console.log('PASS material need: sufficiency uses raw quantities, rounding is display-only');
+
+const externalNeedNorm: MaterialNorm = { ...norm('N-EXT', 'MAT-EXT', ['CAT-F1'], 'Vít ngoài', 'hộp'), workCategoryNormsById: { 'CAT-F1': 1 } };
+const externalNeedRoom = room('R-EXT', 'F1', { 'CAT-F1': 10 }, { workCategoryId: 'CAT-F1', workCategory: w1.title });
+const externalNeed = computeMaterialNeeds({
+  rooms: [externalNeedRoom],
+  materialNorms: [externalNeedNorm],
+  inventory: [
+    { id: 'IN-EXT', type: 'in', materialId: 'MAT-EXT', materialName: 'Vít ngoài', unit: 'hộp', quantity: 20, location: 'Kho', handler: '', date: '2026-09-14' },
+    { id: 'OUT-EXT', type: 'out', materialId: 'MAT-EXT', materialName: 'Vít ngoài', unit: 'hộp', quantity: 3, location: '', handler: '', date: '2026-09-14', issuePurpose: 'external-project' },
+  ],
+  workVolumes: [w1],
+  scope: { roomId: 'R-EXT' },
+});
+assert.equal(externalNeed.lines[0].estimatedQty, 10);
+assert.equal(externalNeed.lines[0].alreadyIssued, 0, 'external-project OUT must not count as issued to project demand');
+assert.equal(externalNeed.lines[0].stockQty, 17, 'external-project OUT must still reduce physical warehouse stock');
+console.log('PASS material need: external/other OUT affects stock but not project consumption');
 
 const teamA: TeamInfo = { id: 'TEAM-A', name: 'Đội A', leader: 'A', defaultCount: 1 };
 const teamB: TeamInfo = { id: 'TEAM-B', name: 'Đội B', leader: 'B', defaultCount: 1 };
@@ -136,6 +160,26 @@ assert.equal(stats['TEAM-B'].volumeByUnit['m²'], 50);
 assert.equal(stats['TEAM-A'].volumeByUnit['m²'] + stats['TEAM-B'].volumeByUnit['m²'], 100);
 assert.equal(stats['TEAM-A'].teamRoomDetails[0].workCategoryId, 'CAT-F1');
 console.log('PASS teams: denominator keeps team allocations <= canonical category total');
+
+const teamMaterialNorm: MaterialNorm = {
+  ...norm('N-TEAM', 'MAT-TEAM', ['CAT-F1'], 'Vít đội', 'hộp'),
+  workCategoryNormsById: { 'CAT-F1': 0.2 },
+};
+const teamMaterial = computeTeamMaterialReconciliation({
+  team: teamA,
+  stats: stats['TEAM-A'],
+  inventory: [
+    { id: 'OUT-TEAM', type: 'out', materialId: 'MAT-TEAM', materialName: 'Vít đội', unit: 'hộp', quantity: 8, location: '', handler: '', date: '2026-09-14', issuePurpose: 'project-work', sourceTeamId: 'TEAM-A', sourceWorkCategoryId: 'CAT-F1' },
+    { id: 'OUT-OTHER', type: 'out', materialId: 'MAT-TEAM', materialName: 'Vít đội', unit: 'hộp', quantity: 2, location: '', handler: '', date: '2026-09-14', issuePurpose: 'other', sourceTeamId: 'TEAM-A' },
+  ],
+  materialNorms: [teamMaterialNorm],
+  workVolumes: [w1],
+});
+assert.equal(teamMaterial[0].expectedAssignedQty, 10);
+assert.equal(teamMaterial[0].expectedConstructedQty, 10);
+assert.equal(teamMaterial[0].issuedQty, 8);
+assert.equal(teamMaterial[0].varianceQty, -2);
+console.log('PASS teams: material reconciliation compares issued project stock against constructed volume × norm');
 
 const zeroQuantityAssignedRoom = room('R-TEAM-ZERO', 'F1', {}, {
   workCategoryId: 'CAT-F1', workCategory: w1.title, workVolume: 0,
