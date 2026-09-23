@@ -29,7 +29,7 @@ import {
   CheckCircle,
   ArrowUpDown
 } from 'lucide-react';
-import { CrewRecord, FloorPlan, TeamInfo, RoomProgressItem, DefectItem, CrewFloorWork, CrewFloorCategoryWork, AcceptanceStatus, RoomInspectionResult, WorkVolume } from '../types';
+import { CrewRecord, FloorPlan, TeamInfo, RoomProgressItem, DefectItem, CrewFloorWork, CrewFloorCategoryWork, AcceptanceStatus, RoomInspectionResult, WorkVolume, StructureGroupingConfig } from '../types';
 import { formatDateDDMMYYYY } from '../utils/dateFormatter';
 import { exportTeamStatisticsToExcel } from '../utils/excelExport';
 import { confirmAsync } from '../utils/confirmAsync';
@@ -47,6 +47,7 @@ import { findWorsenedTeamNameConflict, normalizeTeamDirectoryName, resolveUnique
 import { getCrewShiftCounts } from '../utils/crewUtils';
 import { ContactMenu } from './ContactMenu';
 import { ShareEntityMenu } from './ShareEntityMenu';
+import { MIXED_STRUCTURE_GROUP_ID, normalizeStructureGrouping, resolveCrewRecordStructureGroup, structureGroupIdForFloor, structureGroupName, UNGROUPED_STRUCTURE_GROUP_ID } from '../utils/structureGrouping';
 import { CrewReportShareModal } from './CrewReportShareModal';
 
 const CrewPhotoCount: React.FC<{ projectId?: string; recordId: string }> = ({ projectId, recordId }) => {
@@ -136,6 +137,7 @@ interface CrewTabProps {
   projectLocation?: string;
   crewRecords: CrewRecord[];
   floorPlans: FloorPlan[];
+  structureGrouping?: StructureGroupingConfig;
   roomProgressList?: RoomProgressItem[];
   defects?: DefectItem[];
   workVolumes?: WorkVolume[];
@@ -265,6 +267,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   projectLocation,
   crewRecords,
   floorPlans,
+  structureGrouping,
   roomProgressList = [],
   defects = [],
   workVolumes = [],
@@ -460,13 +463,45 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [morningCount, setMorningCount] = useState<number>(5);
   const [afternoonCount, setAfternoonCount] = useState<number>(5);
   const [eveningCount, setEveningCount] = useState<number>(0);
+  const normalizedStructureGrouping = useMemo(() => normalizeStructureGrouping(structureGrouping), [structureGrouping]);
+  const defaultStructureGroupId = normalizedStructureGrouping.enabled
+    ? (normalizedStructureGrouping.groups[0]?.id || UNGROUPED_STRUCTURE_GROUP_ID)
+    : '';
+  const [selectedStructureGroupId, setSelectedStructureGroupId] = useState(defaultStructureGroupId);
   const [selectedFloorId, setSelectedFloorId] = useState('');
   const [taskDescription, setTaskDescription] = useState('');
   const [notes, setNotes] = useState('');
   const [floorWorks, setFloorWorks] = useState<CrewFloorWork[]>([]);
 
+  const selectableFloorPlans = useMemo(() => {
+    if (!normalizedStructureGrouping.enabled) return floorPlans;
+    return floorPlans.filter((floor) => structureGroupIdForFloor(floor, normalizedStructureGrouping) === selectedStructureGroupId);
+  }, [floorPlans, normalizedStructureGrouping, selectedStructureGroupId]);
+
+  useEffect(() => {
+    if (!normalizedStructureGrouping.enabled) {
+      setSelectedStructureGroupId('');
+      return;
+    }
+    const validIds = new Set([
+      ...normalizedStructureGrouping.groups.map((group) => group.id),
+      UNGROUPED_STRUCTURE_GROUP_ID,
+    ]);
+    setSelectedStructureGroupId((current) => validIds.has(current) ? current : defaultStructureGroupId);
+  }, [normalizedStructureGrouping, defaultStructureGroupId]);
+
+  const changeCrewStructureGroup = (groupId: string) => {
+    setSelectedStructureGroupId(groupId);
+    setFloorWorks((current) => current.filter((work) => {
+      const floor = floorPlans.find((item) => item.id === work.floorId);
+      return floor && structureGroupIdForFloor(floor, normalizedStructureGrouping) === groupId;
+    }));
+    const firstFloor = floorPlans.find((floor) => structureGroupIdForFloor(floor, normalizedStructureGrouping) === groupId);
+    setSelectedFloorId(firstFloor?.id || '');
+  };
+
   const addFloorWork = () => {
-    const defaultFp = floorPlans[0];
+    const defaultFp = selectableFloorPlans[0];
     setFloorWorks(prev => [
       ...prev,
       {
@@ -636,6 +671,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       } else {
         setFloorWorks([]);
       }
+      const resolvedGroup = resolveCrewRecordStructureGroup(editingRecord, floorPlans, normalizedStructureGrouping);
+      setSelectedStructureGroupId(resolvedGroup.id === MIXED_STRUCTURE_GROUP_ID ? defaultStructureGroupId : resolvedGroup.id);
       setSelectedFloorId(editingRecord.floorId || '');
       setTaskDescription(editingRecord.taskDescription);
       
@@ -661,15 +698,23 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         setEveningCount(0);
       }
       if (floorPlans.length > 0) {
+        const defaultGroup = normalizedStructureGrouping.enabled
+          ? (normalizedStructureGrouping.groups[0]?.id || UNGROUPED_STRUCTURE_GROUP_ID)
+          : '';
+        const candidateFloors = normalizedStructureGrouping.enabled
+          ? floorPlans.filter((floor) => structureGroupIdForFloor(floor, normalizedStructureGrouping) === defaultGroup)
+          : floorPlans;
+        const defaultFloor = candidateFloors[0] || floorPlans[0];
+        setSelectedStructureGroupId(defaultGroup);
         setFloorWorks([{
-          floorId: floorPlans[0].id,
-          floorName: floorPlans[0].floorName,
+          floorId: defaultFloor.id,
+          floorName: defaultFloor.floorName,
           categories: [{
             categoryName: 'Thi công thạch cao',
             subItems: ['Bắn tấm khung chìm', 'Bả matit 2 lớp']
           }]
         }]);
-        setSelectedFloorId(floorPlans[0].id);
+        setSelectedFloorId(defaultFloor.id);
       } else {
         setFloorWorks([]);
         setSelectedFloorId('');
@@ -878,12 +923,24 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     }
 
     const normalizedTeamName = teamName.trim();
-    const existingRecord = crewRecords.find(
-      (r) => r.date === selectedDate && r.teamName.toLowerCase() === normalizedTeamName.toLowerCase()
-    );
+    const effectiveGroupId = normalizedStructureGrouping.enabled
+      ? (selectedStructureGroupId || UNGROUPED_STRUCTURE_GROUP_ID)
+      : '';
+    if (normalizedStructureGrouping.enabled && effectiveGroupId === MIXED_STRUCTURE_GROUP_ID) {
+      alert(`Không thể lưu quân số vào nhiều ${normalizedStructureGrouping.label} cùng lúc. Hãy chọn đúng một ${normalizedStructureGrouping.label}.`);
+      return;
+    }
+    const existingRecord = crewRecords.find((record) => {
+      if (record.date !== selectedDate || record.teamName.toLowerCase() !== normalizedTeamName.toLowerCase()) return false;
+      if (!normalizedStructureGrouping.enabled) return true;
+      const recordGroup = resolveCrewRecordStructureGroup(record, floorPlans, normalizedStructureGrouping);
+      return recordGroup.id === effectiveGroupId;
+    });
 
     if (existingRecord && (!editingRecord || existingRecord.id !== editingRecord.id)) {
-      alert(`Đội "${normalizedTeamName}" đã được ghi nhận quân số trong ngày hôm nay!`);
+      alert(normalizedStructureGrouping.enabled
+        ? `Đội "${normalizedTeamName}" đã được ghi nhận quân số trong ngày tại ${structureGroupName(effectiveGroupId, normalizedStructureGrouping)}!`
+        : `Đội "${normalizedTeamName}" đã được ghi nhận quân số trong ngày hôm nay!`);
       return;
     }
 
@@ -916,6 +973,17 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       });
     });
 
+    if (normalizedStructureGrouping.enabled) {
+      const incompatible = finalFloorWorks.filter((work) => {
+        const floor = floorPlans.find((item) => item.id === work.floorId);
+        return !floor || structureGroupIdForFloor(floor, normalizedStructureGrouping) !== effectiveGroupId;
+      });
+      if (incompatible.length > 0) {
+        alert(`Có tầng không thuộc ${structureGroupName(effectiveGroupId, normalizedStructureGrouping)}. Hãy chọn lại tầng trước khi lưu.`);
+        return;
+      }
+    }
+
     const firstFw = finalFloorWorks[0];
     const floorId = firstFw ? firstFw.floorId : selectedFloorId;
     const floorName = finalFloorWorks.length > 0
@@ -938,6 +1006,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     const recordData = {
       date: selectedDate,
       teamId: finalTeamId || undefined,
+      structureGroupId: normalizedStructureGrouping.enabled
+        ? (effectiveGroupId === UNGROUPED_STRUCTURE_GROUP_ID ? '' : effectiveGroupId)
+        : undefined,
       teamName: teamName.trim(),
       leaderName: leaderName.trim(),
       workerCount: Math.max(0, morningCount, afternoonCount, eveningCount),
@@ -2099,6 +2170,25 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                 <div className="mt-1.5 text-[10px] text-slate-400">Quân số ngày dùng giá trị lớn nhất giữa các ca: <strong>{formatDecimal(workerCount)}</strong> người.</div>
               </div>
 
+              {normalizedStructureGrouping.enabled && (
+                <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3">
+                  <label className="block text-xs font-bold text-indigo-700 uppercase tracking-wider mb-1">
+                    {normalizedStructureGrouping.label}
+                  </label>
+                  <select
+                    value={selectedStructureGroupId}
+                    onChange={(event) => changeCrewStructureGroup(event.target.value)}
+                    className="w-full rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-extrabold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  >
+                    {normalizedStructureGrouping.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
+                    <option value={UNGROUPED_STRUCTURE_GROUP_ID}>Chưa phân {normalizedStructureGrouping.label.toLocaleLowerCase('vi-VN')}</option>
+                  </select>
+                  <div className="mt-1 text-[10px] text-indigo-600">
+                    Một dòng quân số thuộc đúng một {normalizedStructureGrouping.label}. Có thể thêm nhiều tầng bên dưới nhưng các tầng phải cùng {normalizedStructureGrouping.label}.
+                  </div>
+                </div>
+              )}
+
               {/* Multi-floor & Multi-category Work Configuration */}
               <div className="space-y-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
                 <div className="flex items-center justify-between">
@@ -2131,7 +2221,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                               onChange={(e) => updateFloorWorkFloor(fIdx, e.target.value)}
                               className="w-full text-xs bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                             >
-                              {floorPlans.map(fp => (
+                              {selectableFloorPlans.map(fp => (
                                 <option key={fp.id} value={fp.id}>{fp.floorName}</option>
                               ))}
                             </select>
