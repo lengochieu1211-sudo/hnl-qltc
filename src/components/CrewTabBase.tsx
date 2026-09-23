@@ -1221,9 +1221,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     const currentProjName = projectName || 'Công Trình';
     exportTeamStatisticsToExcel({
       teams,
-      roomProgressList: roomProgressList || [],
-      defects: defects || [],
-      crewRecords,
+      roomProgressList: structureScopedRooms || [],
+      defects: structureScopedDefects || [],
+      crewRecords: structureScopedCrewRecords || [],
       floorPlans,
       projectName: currentProjName,
       selectedTeamName: teamName,
@@ -2719,8 +2719,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           categoryBreakdown
         } = stat;
         
-        const teamDefects = (defects || []).filter(d => !d.archivedAt && isTeamMatch(d.assignedTo, team, d.teamId));
-        const teamLogs = (crewRecords || []).filter(l => isTeamMatch(l.teamName, team, l.teamId));
+        const teamDefects = (structureScopedDefects || []).filter(d => !d.archivedAt && isTeamMatch(d.assignedTo, team, d.teamId));
+        const teamLogs = (structureScopedCrewRecords || []).filter(l => isTeamMatch(l.teamName, team, l.teamId));
         
         const openDefectsList = teamDefects.filter(d => d.status === 'Mới phát hiện' || d.status === 'Đang sửa');
         const resolvedDefectsList = teamDefects.filter(d => d.status === 'Đã khắc phục' || d.status === 'Đã nghiệm thu');
@@ -3458,7 +3458,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       <CrewReportShareModal
         isOpen={showCrewReportShare}
         onClose={() => setShowCrewReportShare(false)}
-        projects={[{ projectId, projectName: projectName || 'Dự án', projectLocation, records: crewRecords, teams }]}
+        projects={[{
+          projectId,
+          projectName: projectName || 'Dự án',
+          projectLocation,
+          records: structureScopedCrewRecords,
+          teams,
+        }]}
         initialStartDate={selectedDate}
         initialEndDate={selectedDate}
         maxDate={getTodayString()}
