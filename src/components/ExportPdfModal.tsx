@@ -2012,6 +2012,19 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 <span className="text-[11px]">Khối lượng</span>
               </label>
 
+              {includeWorkVolumes && (
+                <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${includeWorkVolumeDetails ? 'bg-blue-50 border-blue-300 text-blue-900 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
+                  <input
+                    type="checkbox"
+                    checked={includeWorkVolumeDetails}
+                    onChange={(e) => setIncludeWorkVolumeDetails(e.target.checked)}
+                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                  />
+                  <FileSpreadsheet className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span className="text-[11px]">Chi tiết Khối lượng</span>
+                </label>
+              )}
+
               <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${includeFloorPlan ? 'bg-indigo-50/70 border-indigo-300 text-indigo-900 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
                 <input
                   type="checkbox"
