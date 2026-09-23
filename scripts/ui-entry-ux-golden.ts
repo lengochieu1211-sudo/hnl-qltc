@@ -229,7 +229,7 @@ assert(Boolean(zeroReport?.reported) && zeroReport?.morning === 0 && zeroReport?
 assert(missingReport?.reported === false && missingReport?.morning === null, 'Crew report must distinguish missing daily report from zero');
 const matrices = buildCrewReportMatrices(crewReportRows);
 assert(matrices.length === 1 && matrices[0].teams.length === 2 && matrices[0].dates.length === 1, 'Crew report matrix must group teams into columns and dates into rows');
-assert(matrices[0].dates[0].cells.t1?.reported === true && matrices[0].dates[0].cells.t2?.reported === false, 'Crew report matrix must preserve reported-zero versus missing semantics');
+assert(matrices[0].dates[0].cells['id:t1']?.reported === true && matrices[0].dates[0].cells['id:t2']?.reported === false, 'Crew report matrix must preserve reported-zero versus missing semantics');
 const crewReportText = buildCrewReportText({ rows: crewReportRows, startDate: '2026-09-22', endDate: '2026-09-22' });
 assert(crewReportText.includes('Đội A: Sáng 0') && crewReportText.includes('Đội B: Chưa báo'), 'Crew report text must preserve 0 vs Chưa báo semantics');
 const warehouseUi = read('src/components/WarehouseTab.tsx');
