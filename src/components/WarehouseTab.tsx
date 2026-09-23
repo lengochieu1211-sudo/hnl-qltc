@@ -1259,7 +1259,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         <div className={`grid gap-2 pt-0.5 ${hasImportAccess ? 'grid-cols-2' : 'grid-cols-1'}`}>
           <button
             type="button"
-            onClick={() => exportWarehouseUpdateTemplate(materialNorms, workVolumes || [], inventory)}
+            onClick={() => exportWarehouseUpdateTemplate(materialNorms, workVolumes || [], inventory, undefined, {
+              floorPlans,
+              roomProgressList,
+              teams,
+              structureConfig: normalizedStructureConfig,
+            })}
             className="flex items-center justify-center gap-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 font-bold py-2 px-3 rounded-xl transition-all text-xs active:scale-95 cursor-pointer"
           >
             <Download className="w-4 h-4 text-emerald-600 shrink-0" />
