@@ -396,6 +396,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             const rawId = row['Mã Phiếu'] || row['id'] || row['ID'];
             const rawMaterialId = row['__materialId'] || row['Mã Vật Tư'] || row['materialId'] || row['Mã định mức'];
             const rawSourceType = row['__sourceType'] || row['sourceType'];
+            const rawIssuePurpose = row['__issuePurpose'] || row['Mục đích xuất'] || row['issuePurpose'];
+            const rawSourceStructureGroupId = row['__sourceStructureGroupId'] || row['sourceStructureGroupId'];
             const rawSourceRoomId = row['__sourceRoomId'] || row['sourceRoomId'];
             const rawSourceFloorId = row['__sourceFloorId'] || row['sourceFloorId'];
             const rawSourceTeamId = row['__sourceTeamId'] || row['sourceTeamId'];
@@ -422,6 +424,14 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               date: dateStr,
               notes: notesStr,
               sourceType: rawSourceType ? String(rawSourceType).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceType : undefined),
+              issuePurpose: rawIssuePurpose
+                ? (String(rawIssuePurpose).trim() === 'external-project' || String(rawIssuePurpose).trim().toLocaleLowerCase('vi-VN').includes('ngoài dự án')
+                    ? 'external-project'
+                    : String(rawIssuePurpose).trim() === 'other' || String(rawIssuePurpose).trim().toLocaleLowerCase('vi-VN').includes('khác')
+                      ? 'other'
+                      : 'project-work')
+                : (existingIdx >= 0 ? newInventory[existingIdx].issuePurpose : undefined),
+              sourceStructureGroupId: rawSourceStructureGroupId ? String(rawSourceStructureGroupId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceStructureGroupId : undefined),
               sourceRoomId: rawSourceRoomId ? String(rawSourceRoomId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceRoomId : undefined),
               sourceFloorId: rawSourceFloorId ? String(rawSourceFloorId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceFloorId : undefined),
               sourceTeamId: rawSourceTeamId ? String(rawSourceTeamId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceTeamId : undefined),
@@ -469,6 +479,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             const rawId = row['Mã Phiếu'] || row['id'] || row['ID'];
             const rawMaterialId = row['__materialId'] || row['Mã Vật Tư'] || row['materialId'] || row['Mã định mức'];
             const rawSourceType = row['__sourceType'] || row['sourceType'];
+            const rawIssuePurpose = row['__issuePurpose'] || row['Mục đích xuất'] || row['issuePurpose'];
+            const rawSourceStructureGroupId = row['__sourceStructureGroupId'] || row['sourceStructureGroupId'];
             const rawSourceRoomId = row['__sourceRoomId'] || row['sourceRoomId'];
             const rawSourceFloorId = row['__sourceFloorId'] || row['sourceFloorId'];
             const rawSourceTeamId = row['__sourceTeamId'] || row['sourceTeamId'];
@@ -495,6 +507,14 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               date: dateStr,
               notes: notesStr,
               sourceType: rawSourceType ? String(rawSourceType).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceType : undefined),
+              issuePurpose: rawIssuePurpose
+                ? (String(rawIssuePurpose).trim() === 'external-project' || String(rawIssuePurpose).trim().toLocaleLowerCase('vi-VN').includes('ngoài dự án')
+                    ? 'external-project'
+                    : String(rawIssuePurpose).trim() === 'other' || String(rawIssuePurpose).trim().toLocaleLowerCase('vi-VN').includes('khác')
+                      ? 'other'
+                      : 'project-work')
+                : (existingIdx >= 0 ? newInventory[existingIdx].issuePurpose : undefined),
+              sourceStructureGroupId: rawSourceStructureGroupId ? String(rawSourceStructureGroupId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceStructureGroupId : undefined),
               sourceRoomId: rawSourceRoomId ? String(rawSourceRoomId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceRoomId : undefined),
               sourceFloorId: rawSourceFloorId ? String(rawSourceFloorId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceFloorId : undefined),
               sourceTeamId: rawSourceTeamId ? String(rawSourceTeamId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceTeamId : undefined),
