@@ -241,6 +241,39 @@ async function probeUserFirestoreRest(name, token, path, includeApiKey) {
   return response;
 }
 
+async function probeUserFirestoreBatchGet(name, token, path, includeApiKey) {
+  const encodedDatabase = `projects/${encodeURIComponent(projectId)}/databases/(default)`;
+  const fullDocumentName = `projects/${projectId}/databases/(default)/documents/${path}`;
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json',
+  };
+  if (includeApiKey) headers['X-Goog-Api-Key'] = apiKey;
+  const response = await fetch(`https://firestore.googleapis.com/v1/${encodedDatabase}/documents:batchGet`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ documents: [fullDocumentName] }),
+  });
+  const raw = await response.clone().text().catch(() => '');
+  let body = null;
+  try { body = raw ? JSON.parse(raw) : null; } catch {}
+  const diagnostic = summarizeGoogleError(body);
+  report.firestoreRestProbes = Array.isArray(report.firestoreRestProbes) ? report.firestoreRestProbes : [];
+  report.firestoreRestProbes.push({
+    name,
+    method: 'batchGet',
+    includeApiKey,
+    httpStatus: response.status,
+    ...diagnostic,
+  });
+  const suffix = diagnostic.googleStatus ? ` / ${diagnostic.googleStatus}` : '';
+  console.log(`FIRESTORE REST PROBE: ${name} — HTTP ${response.status}${suffix}`);
+  if (!response.ok && (diagnostic.message || diagnostic.details.length)) {
+    console.warn('FIRESTORE REST DIAGNOSTIC:', JSON.stringify({ name, method: 'batchGet', httpStatus: response.status, ...diagnostic }));
+  }
+  return response;
+}
+
 async function adminDeleteDoc(oauthToken, path) {
   const response = await fetch(firestoreDocUrl(path), {
     method: 'DELETE',
@@ -447,17 +480,24 @@ try {
   const viewerIdToken = await viewer.auth.currentUser.getIdToken(true);
   const adminIdToken = await admin.auth.currentUser.getIdToken(true);
 
-  const directRestNoKey = await probeUserFirestoreRest('EDITOR project-root direct REST without API key', editorIdToken, `projects/${pid}`, false);
-  const directRestWithKey = await probeUserFirestoreRest('EDITOR project-root direct REST with API key', editorIdToken, `projects/${pid}`, true);
+  const directRestNoKey = await probeUserFirestoreRest('EDITOR project-root direct REST GET without API key', editorIdToken, `projects/${pid}`, false);
+  const directRestWithKey = await probeUserFirestoreRest('EDITOR project-root direct REST GET with API key', editorIdToken, `projects/${pid}`, true);
+  const batchGetNoKey = await probeUserFirestoreBatchGet('EDITOR project-root batchGet without API key', editorIdToken, `projects/${pid}`, false);
+  const batchGetWithKey = await probeUserFirestoreBatchGet('EDITOR project-root batchGet with API key', editorIdToken, `projects/${pid}`, true);
   if (directRestNoKey.status === 200 && directRestWithKey.status === 200) {
-    pass('EDITOR direct Firestore REST project-root reads', 'token-only + X-Goog-Api-Key both HTTP 200');
+    pass('EDITOR direct Firestore REST GET project-root reads', 'token-only + X-Goog-Api-Key both HTTP 200');
   } else {
     report.directFirestoreRestDiagnostic = {
       status: 'NON_BLOCKING_FAILURE',
-      noKeyHttpStatus: directRestNoKey.status,
-      apiKeyHttpStatus: directRestWithKey.status,
+      getNoKeyHttpStatus: directRestNoKey.status,
+      getApiKeyHttpStatus: directRestWithKey.status,
+      batchGetNoKeyHttpStatus: batchGetNoKey.status,
+      batchGetApiKeyHttpStatus: batchGetWithKey.status,
     };
-    console.warn(`DIRECT FIRESTORE REST diagnostic is non-blocking so the actual R2 gateway path can still be tested: no-key=${directRestNoKey.status}, api-key=${directRestWithKey.status}`);
+    console.warn(`DIRECT FIRESTORE REST diagnostic is non-blocking so the actual R2 gateway path can still be tested: GET no-key=${directRestNoKey.status}, GET api-key=${directRestWithKey.status}, batchGet no-key=${batchGetNoKey.status}, batchGet api-key=${batchGetWithKey.status}`);
+  }
+  if (batchGetNoKey.status === 200 && batchGetWithKey.status === 200) {
+    pass('EDITOR Firestore REST batchGet project-root reads', 'token-only + X-Goog-Api-Key both HTTP 200');
   }
 
   r2ObjectKey = `projects/${pid}/media/dev-live-golden.txt`;
