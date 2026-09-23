@@ -574,15 +574,17 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       const restoredName = String(normalized.projectName || orphan.name || `Dự án ${orphan.id}`).trim();
       const contractorName = String(normalized.contractorName || '');
       const inspectorName = String(normalized.inspectorName || '');
+      const projectLocation = String(normalized.projectLocation || '');
 
       // Preserve the original projectId. This either repairs the old Cloud project
       // index or creates the missing metadata for a genuinely local-only legacy project.
-      await saveProjectMetadataToCloud(orphan.id, restoredName, { contractorName, inspectorName });
+      await saveProjectMetadataToCloud(orphan.id, restoredName, { contractorName, inspectorName, projectLocation });
       await saveProjectToCloud({
         id: orphan.id,
         name: restoredName,
         contractorName,
         inspectorName,
+        projectLocation,
         syncCode: orphan.id.toUpperCase().slice(0, 8),
         payload: normalized,
       });
@@ -600,7 +602,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       const nextProjects: ProjectInfo[] = current.some((project) => project.id === orphan.id)
         ? current.map((project) =>
             project.id === orphan.id
-              ? { ...project, name: restoredName, updatedAt: Date.now() }
+              ? { ...project, name: restoredName, projectLocation, updatedAt: Date.now() }
               : project
           )
         : [
@@ -608,6 +610,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             {
               id: orphan.id,
               name: restoredName,
+              projectLocation,
               createdAt: 0,
               createdAtSource: 'migrating' as const,
               updatedAt: Date.now(),
@@ -1441,6 +1444,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             projectName: normalized.projectName || curName,
             contractorName: normalized.contractorName || '',
             inspectorName: normalized.inspectorName || '',
+            projectLocation: normalized.projectLocation || '',
             materialNorms: normalized.materialNorms || [],
             inventory: normalized.inventory || [],
             workVolumes: normalized.workVolumes || [],
@@ -1799,6 +1803,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             setAsyncItem(getKey('construction_project_name', targetId), candidate.name),
             setAsyncItem(getKey('construction_contractor', targetId), candidate.contractorName || ''),
             setAsyncItem(getKey('construction_inspector', targetId), candidate.inspectorName || ''),
+            setAsyncItem(getKey('construction_project_location', targetId), candidate.projectLocation || candData.projectLocation || ''),
             setAsyncItem(getKey('construction_material_norms', targetId), candData.materialNorms || []),
             setAsyncItem(getKey('construction_inventory', targetId), candData.inventory || []),
             setAsyncItem(getKey('construction_work_volumes', targetId), candData.workVolumes || []),
@@ -1815,6 +1820,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           safeSetLocalStorageItem(getKey('construction_project_name', targetId), candidate.name);
           safeSetLocalStorageItem(getKey('construction_contractor', targetId), candidate.contractorName || '');
           safeSetLocalStorageItem(getKey('construction_inspector', targetId), candidate.inspectorName || '');
+          safeSetLocalStorageItem(getKey('construction_project_location', targetId), candidate.projectLocation || candData.projectLocation || '');
           safeSetLocalStorageItem(getKey('construction_updated_at', targetId), String(candidate.updatedAt || Date.now()));
           if (candData.tombstones) {
             safeSetLocalStorageItem(getKey('construction_tombstones', targetId), JSON.stringify(candData.tombstones));
@@ -1842,6 +1848,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             setAsyncItem(getKey('construction_project_name', targetId), candidate.name),
             setAsyncItem(getKey('construction_contractor', targetId), candidate.contractorName || ''),
             setAsyncItem(getKey('construction_inspector', targetId), candidate.inspectorName || ''),
+            setAsyncItem(getKey('construction_project_location', targetId), candidate.projectLocation || candData.projectLocation || ''),
             setAsyncItem(getKey('construction_material_norms', targetId), candData.materialNorms || []),
             setAsyncItem(getKey('construction_inventory', targetId), candData.inventory || []),
             setAsyncItem(getKey('construction_work_volumes', targetId), candData.workVolumes || []),
@@ -1858,6 +1865,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           safeSetLocalStorageItem(getKey('construction_project_name', targetId), candidate.name);
           safeSetLocalStorageItem(getKey('construction_contractor', targetId), candidate.contractorName || '');
           safeSetLocalStorageItem(getKey('construction_inspector', targetId), candidate.inspectorName || '');
+          safeSetLocalStorageItem(getKey('construction_project_location', targetId), candidate.projectLocation || candData.projectLocation || '');
           safeSetLocalStorageItem(getKey('construction_updated_at', targetId), String(candidate.updatedAt || Date.now()));
           if (candData.tombstones) {
             safeSetLocalStorageItem(getKey('construction_tombstones', targetId), JSON.stringify(candData.tombstones));
@@ -1878,7 +1886,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           if (targetId === activeId && fullAppData) {
             localData = fullAppData;
           } else {
-            const [norms, inv, vols, plans, defs, rooms, chk, crew, teams, pName, cName, iName, uTime, tombstones] = await Promise.all([
+            const [norms, inv, vols, plans, defs, rooms, chk, crew, teams, pName, cName, iName, pLocation, uTime, tombstones] = await Promise.all([
               getAsyncItem(getKey('construction_material_norms', targetId), []),
               getAsyncItem(getKey('construction_inventory', targetId), []),
               getAsyncItem(getKey('construction_work_volumes', targetId), []),
@@ -1891,6 +1899,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
               getAsyncItem(getKey('construction_project_name', targetId), candidate.name),
               getAsyncItem(getKey('construction_contractor', targetId), ''),
               getAsyncItem(getKey('construction_inspector', targetId), ''),
+              getAsyncItem(getKey('construction_project_location', targetId), ''),
               getAsyncItem(getKey('construction_updated_at', targetId), '0'),
               getAsyncItem(getKey('construction_tombstones', targetId), {}),
             ]);
@@ -1898,6 +1907,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
               projectName: pName,
               contractorName: cName,
               inspectorName: iName,
+              projectLocation: pLocation,
               materialNorms: norms,
               inventory: inv,
               workVolumes: vols,
@@ -1918,6 +1928,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             setAsyncItem(getKey('construction_project_name', targetId), merged.projectName || candidate.name),
             setAsyncItem(getKey('construction_contractor', targetId), merged.contractorName || ''),
             setAsyncItem(getKey('construction_inspector', targetId), merged.inspectorName || ''),
+            setAsyncItem(getKey('construction_project_location', targetId), merged.projectLocation || ''),
             setAsyncItem(getKey('construction_material_norms', targetId), merged.materialNorms || []),
             setAsyncItem(getKey('construction_inventory', targetId), merged.inventory || []),
             setAsyncItem(getKey('construction_work_volumes', targetId), merged.workVolumes || []),
@@ -1934,6 +1945,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           safeSetLocalStorageItem(getKey('construction_project_name', targetId), merged.projectName || candidate.name);
           safeSetLocalStorageItem(getKey('construction_contractor', targetId), merged.contractorName || '');
           safeSetLocalStorageItem(getKey('construction_inspector', targetId), merged.inspectorName || '');
+          safeSetLocalStorageItem(getKey('construction_project_location', targetId), merged.projectLocation || '');
           safeSetLocalStorageItem(getKey('construction_updated_at', targetId), String(merged.updatedAt || Date.now()));
           if (merged.tombstones) {
             safeSetLocalStorageItem(getKey('construction_tombstones', targetId), JSON.stringify(merged.tombstones));
@@ -1952,6 +1964,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             setAsyncItem(getKey('construction_project_name', newTargetId), copyName),
             setAsyncItem(getKey('construction_contractor', newTargetId), candidate.contractorName || ''),
             setAsyncItem(getKey('construction_inspector', newTargetId), candidate.inspectorName || ''),
+            setAsyncItem(getKey('construction_project_location', newTargetId), candidate.projectLocation || candData.projectLocation || ''),
             setAsyncItem(getKey('construction_material_norms', newTargetId), candData.materialNorms || []),
             setAsyncItem(getKey('construction_inventory', newTargetId), candData.inventory || []),
             setAsyncItem(getKey('construction_work_volumes', newTargetId), candData.workVolumes || []),
@@ -1968,6 +1981,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           safeSetLocalStorageItem(getKey('construction_project_name', newTargetId), copyName);
           safeSetLocalStorageItem(getKey('construction_contractor', newTargetId), candidate.contractorName || '');
           safeSetLocalStorageItem(getKey('construction_inspector', newTargetId), candidate.inspectorName || '');
+          safeSetLocalStorageItem(getKey('construction_project_location', newTargetId), candidate.projectLocation || candData.projectLocation || '');
           safeSetLocalStorageItem(getKey('construction_updated_at', newTargetId), String(Date.now()));
           if (candData.tombstones) {
             safeSetLocalStorageItem(getKey('construction_tombstones', newTargetId), JSON.stringify(candData.tombstones));
@@ -2341,6 +2355,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         name: normalized.projectName || currentProj.name,
         contractorName: normalized.contractorName || '',
         inspectorName: normalized.inspectorName || '',
+        projectLocation: normalized.projectLocation || '',
         syncCode: curId.toUpperCase().slice(0, 8),
         payload: normalized
       });
@@ -2570,6 +2585,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
       const sourceContractor = duplicateFromCurrent ? String(fullAppData?.contractorName || '') : '';
       const sourceInspector = duplicateFromCurrent ? String(fullAppData?.inspectorName || '') : '';
+      const sourceLocation = duplicateFromCurrent ? String(fullAppData?.projectLocation || '') : '';
       let hadQuotaIssue = false;
 
       if (FIREBASE_ONLY_RUNTIME) {
@@ -2639,6 +2655,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             projectName: trimmedName,
             contractorName: sourceContractor,
             inspectorName: sourceInspector,
+            projectLocation: sourceLocation,
             materialNorms: (Array.isArray(fullAppData.materialNorms) ? fullAppData.materialNorms : []).map(resetLifecycle),
             inventory: [],
             workVolumes: [],
@@ -2657,6 +2674,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             name: trimmedName,
             contractorName: sourceContractor,
             inspectorName: sourceInspector,
+            projectLocation: sourceLocation,
             syncCode: newProjectId.slice(0, 8).toUpperCase(),
             payload: templatePayload,
           });
@@ -2664,6 +2682,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           await saveProjectMetadataToCloud(newProjectId, trimmedName, {
             contractorName: '',
             inspectorName: '',
+            projectLocation: '',
           });
         }
       } else {
@@ -2717,6 +2736,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             setAsyncItem(getKey('construction_project_name', newProjectId), trimmedName),
             setAsyncItem(getKey('construction_contractor', newProjectId), ''),
             setAsyncItem(getKey('construction_inspector', newProjectId), ''),
+            setAsyncItem(getKey('construction_project_location', newProjectId), ''),
             setAsyncItem(getKey('construction_updated_at', newProjectId), String(now)),
           ]);
         }
@@ -2724,6 +2744,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         await saveProjectMetadataToCloud(newProjectId, trimmedName, {
           contractorName: duplicateFromCurrent ? (localStorage.getItem(getKey('construction_contractor', activeId)) || '') : '',
           inspectorName: duplicateFromCurrent ? (localStorage.getItem(getKey('construction_inspector', activeId)) || '') : '',
+          projectLocation: duplicateFromCurrent ? (localStorage.getItem(getKey('construction_project_location', activeId)) || '') : '',
         });
       }
 
@@ -2731,6 +2752,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       safeSetLocalStorageItem(getKey('construction_project_name', newProjectId), trimmedName);
       safeSetLocalStorageItem(getKey('construction_contractor', newProjectId), FIREBASE_ONLY_RUNTIME ? sourceContractor : (duplicateFromCurrent ? (localStorage.getItem(getKey('construction_contractor', activeId)) || '') : ''));
       safeSetLocalStorageItem(getKey('construction_inspector', newProjectId), FIREBASE_ONLY_RUNTIME ? sourceInspector : (duplicateFromCurrent ? (localStorage.getItem(getKey('construction_inspector', activeId)) || '') : ''));
+      safeSetLocalStorageItem(getKey('construction_project_location', newProjectId), FIREBASE_ONLY_RUNTIME ? sourceLocation : (duplicateFromCurrent ? (localStorage.getItem(getKey('construction_project_location', activeId)) || '') : ''));
       safeSetLocalStorageItem(getKey('construction_updated_at', newProjectId), String(now));
 
       const updated = [...projects, newProject];
@@ -2971,6 +2993,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         name: target.name,
         contractorName: mergedPayload.contractorName || '',
         inspectorName: mergedPayload.inspectorName || '',
+        projectLocation: mergedPayload.projectLocation || '',
         payload: mergedPayload,
       });
 

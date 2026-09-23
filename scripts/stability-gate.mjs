@@ -324,12 +324,19 @@ const homeDashboard = read('src/components/HomeDashboard.tsx');
 const crewReportShare = read('src/components/CrewReportShareModal.tsx');
 const crewReportUtils = read('src/utils/crewReportUtils.ts');
 requireAll(multiProjectAccess, [
-  'Quản lý quyền nhiều dự án',
+  'Nhiều dự án',
   'fetchProjectEmailAccessFromCloud',
   'applyProjectMemberAccessChangesAtomically',
   "liveActorRole.role !== 'ADMIN'",
   'Không hạ/thu hồi chính tài khoản đang thao tác',
 ], 'central multi-project access manager');
+requireAll(securityModal, [
+  'Thành viên & phân quyền',
+  'Theo dự án',
+  'Nhiều dự án',
+  'value={selectedPid}',
+  'setSelectedPid',
+], 'unified project/member access tabs');
 requireAll(firebaseBase, [
   'applyProjectMemberAccessChangesAtomically',
   'writeBatch(db)',
@@ -346,8 +353,7 @@ requireAll(multiProjectOverview, [
   'Người xem',
 ], 'secondary multi-project overview');
 requireAll(homeDashboard, [
-  'Trung tâm điều hành HNL QLTC',
-  'Trang chủ · Tổng quan công trường',
+  'Tổng quan công trường',
   'Mở thẳng dự án này khi khởi động',
   'Dự án của tôi',
   'Báo cáo quân số nhiều dự án',
@@ -356,21 +362,24 @@ requireAll(homeDashboard, [
   '7 ngày',
   'Tháng này',
   'Khoảng ngày',
-  'Chia sẻ text / ảnh',
-  'không hiển thị số liệu giả',
+  'Chia sẻ báo cáo quân số',
+  'Chưa tải được dữ liệu quân số',
+  'buildCrewReportMatrices',
 ], 'Trang chủ dashboard');
 requireAll(crewReportShare, [
   '1 ngày',
   'Nhiều ngày',
-  'Sao chép text',
-  'Chia sẻ text',
+  'Sao chép nội dung',
+  'Chia sẻ nội dung',
   'Chia sẻ ảnh',
-  'Tải ảnh PNG',
-  'Chưa báo',
+  'Tải ảnh',
+  '— = chưa báo',
 ], 'crew report share center');
 requireAll(crewReportUtils, [
   'buildCrewReportRows',
   'buildCrewReportText',
+  'buildCrewReportMatrices',
+  'projectLocation',
   'reported: false',
   'dailyHeadcount',
 ], 'crew report aggregation engine');
@@ -384,9 +393,12 @@ requireAll(bottomNav, [
   "'home' | 'warehouse'",
   "label: 'Trang chủ'",
   "hidden w-[84px]",
+  'bg-white text-slate-700',
+  'bg-blue-50 text-blue-700',
   'lg:flex',
   'lg:hidden',
 ], 'responsive desktop-left/mobile-bottom navigation');
+if (bottomNav.includes('APP_VERSION') || bottomNav.includes('HNL QLTC · Trang chủ')) fail('desktop rail must not duplicate header branding/version');
 requireAll(app, [
   'STARTUP_PROJECT_ID_KEY',
   "useState<TabType>('home')",

@@ -366,6 +366,9 @@ export function normalizeImportedData(rawInput: any, activeProjectId?: string, s
   const inspectorName = extractString(['inspectorName', 'inspector_name', 'inspector', 'construction_inspector']);
   if (inspectorName !== null) normalized.inspectorName = inspectorName;
 
+  const projectLocation = extractString(['projectLocation', 'project_location', 'location', 'construction_project_location']);
+  if (projectLocation !== null) normalized.projectLocation = projectLocation;
+
   return normalized;
 }
 
@@ -374,6 +377,7 @@ export interface ProjectImportCandidate {
   name: string;
   contractorName?: string;
   inspectorName?: string;
+  projectLocation?: string;
   updatedAt: number;
   normalizedData: any;
   photoData?: Record<string, string>;
@@ -448,6 +452,7 @@ export function extractProjectsFromImportData(rawInput: any): ProjectImportCandi
       name: projName,
       contractorName: normalized.contractorName,
       inspectorName: normalized.inspectorName,
+      projectLocation: normalized.projectLocation,
       updatedAt,
       normalizedData: normalized,
       itemCounts: countItems(normalized),
@@ -473,6 +478,7 @@ export function extractProjectsFromImportData(rawInput: any): ProjectImportCandi
         name: projName,
         contractorName: normalized.contractorName,
         inspectorName: normalized.inspectorName,
+        projectLocation: normalized.projectLocation,
         updatedAt,
         normalizedData: normalized,
         itemCounts: countItems(normalized),
@@ -493,6 +499,7 @@ export function extractProjectsFromImportData(rawInput: any): ProjectImportCandi
     name: projName,
     contractorName: normalized.contractorName,
     inspectorName: normalized.inspectorName,
+    projectLocation: normalized.projectLocation,
     updatedAt,
     normalizedData: normalized,
     itemCounts: countItems(normalized),
@@ -521,6 +528,9 @@ export function smartMergeProjectData(localData: any, incomingData: any): any {
   }
   if (incomingData.inspectorName && !localData.inspectorName) {
     merged.inspectorName = incomingData.inspectorName;
+  }
+  if (incomingData.projectLocation && !localData.projectLocation) {
+    merged.projectLocation = incomingData.projectLocation;
   }
 
   // Tombstones map (key -> deletion timestamp)

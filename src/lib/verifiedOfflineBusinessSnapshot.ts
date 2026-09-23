@@ -12,6 +12,7 @@ export interface VerifiedOfflineBusinessSnapshot {
     projectName: string;
     contractorName: string;
     inspectorName: string;
+    projectLocation: string;
   };
   data: Record<string, any[]>;
   recordCount: number;
@@ -54,7 +55,7 @@ const normalizeData = (data: object | null | undefined): Record<string, any[]> =
 export async function saveVerifiedOfflineBusinessSnapshot(
   projectId: string,
   identity: { uid?: string | null; email?: string | null },
-  metadata: { projectName?: string; contractorName?: string; inspectorName?: string },
+  metadata: { projectName?: string; contractorName?: string; inspectorName?: string; projectLocation?: string },
   data: object,
   sourceUpdatedAt = 0,
 ): Promise<VerifiedOfflineBusinessSnapshot | null> {
@@ -76,6 +77,7 @@ export async function saveVerifiedOfflineBusinessSnapshot(
       projectName: String(metadata.projectName || ''),
       contractorName: String(metadata.contractorName || ''),
       inspectorName: String(metadata.inspectorName || ''),
+      projectLocation: String(metadata.projectLocation || ''),
     },
     data: normalizedData,
     recordCount,

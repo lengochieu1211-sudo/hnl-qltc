@@ -32,6 +32,7 @@ interface ExportPdfModalProps {
   isOpen: boolean;
   onClose: () => void;
   projectName: string;
+  projectLocation?: string;
   contractorName?: string;
   inspectorName?: string;
   activeProjectId?: string;
@@ -51,6 +52,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   isOpen,
   onClose,
   projectName,
+  projectLocation,
   contractorName,
   inspectorName,
   activeProjectId,
@@ -498,6 +500,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   const passRate = filteredChecklist.length > 0 ? Math.round((passedCount / filteredChecklist.length) * 100) : 0;
   const openDefectsCount = filteredDefects.filter((d) => d.status !== 'Đã nghiệm thu').length;
 
+  const displayProjectLocation = projectLocation && projectLocation.trim() ? projectLocation.trim() : '';
   const displayContractor = contractorName && contractorName.trim() ? contractorName.trim() : '—';
   const displayInspector = inspectorName && inspectorName.trim() ? inspectorName.trim() : '—';
 
@@ -584,6 +587,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
           <div>
             <h1>Báo cáo tổng hợp thi công &amp; nghiệm thu</h1>
             <p><strong>Dự án:</strong> ${h(projectName || '—')} | <strong>Khu vực:</strong> ${h(areaText)}</p>
+            ${displayProjectLocation ? `<p><strong>Địa điểm:</strong> ${h(displayProjectLocation)}</p>` : ''}
             ${displayContractor !== '—' ? `<p><strong>Đơn vị thi công:</strong> ${h(displayContractor)}</p>` : ''}
             ${displayInspector !== '—' ? `<p><strong>Kỹ sư phụ trách:</strong> ${h(displayInspector)}</p>` : ''}
           </div>
@@ -1372,7 +1376,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     const areaText = isAllSelected ? 'Toàn bộ công trình' : selectedFloors.join(', ');
     const text = `
 📋 *BÁO CÁO THI CÔNG & NGHIỆM THU - ${projectName.toUpperCase()}*
-📍 *Khu vực:* ${areaText}
+${displayProjectLocation ? `📍 *Địa điểm:* ${displayProjectLocation}\n` : ''}📍 *Khu vực:* ${areaText}
 📅 *Thời gian:* ${formatDateTime(new Date())}
 
 📊 *TỔNG QUAN:*
@@ -1409,6 +1413,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
   const handleExportExcel = () => {
     exportAllToExcel({
       projectName,
+      projectLocation: displayProjectLocation,
       inventory,
       materialNorms,
       workVolumes,
@@ -1438,6 +1443,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
 
       const base64 = exportAllToExcelBase64({
         projectName,
+        projectLocation: displayProjectLocation,
         inventory,
         materialNorms,
         workVolumes,

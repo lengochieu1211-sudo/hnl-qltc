@@ -187,6 +187,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
 
   // Project Members state
   const [selectedPid, setSelectedPid] = useState<string>(activeProjectId);
+  const [memberAccessView, setMemberAccessView] = useState<'project' | 'multi'>('project');
   const [projectMembers, setProjectMembers] = useState<any[]>([]);
   const [projectPresence, setProjectPresence] = useState<ProjectPresenceEntry[]>([]);
   const [presenceNow, setPresenceNow] = useState(() => Date.now());
@@ -1958,15 +1959,48 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                 </div>
               </div>
 
-              <MultiProjectAccessPanel />
+              <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                  <div>
+                    <h4 className="font-extrabold text-slate-800 text-xs flex items-center gap-1.5">
+                      <Shield className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>Thành viên & phân quyền</span>
+                    </h4>
+                    <p className="mt-1 text-[10px] text-slate-500">Xem theo từng dự án hoặc cập nhật quyền cho nhiều dự án.</p>
+                  </div>
+                  <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1" role="tablist" aria-label="Phạm vi phân quyền">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={memberAccessView === 'project'}
+                      onClick={() => setMemberAccessView('project')}
+                      className={`min-h-9 rounded-lg px-3 text-[10.5px] font-extrabold transition ${memberAccessView === 'project' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                    >
+                      Theo dự án
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={memberAccessView === 'multi'}
+                      onClick={() => setMemberAccessView('multi')}
+                      className={`min-h-9 rounded-lg px-3 text-[10.5px] font-extrabold transition ${memberAccessView === 'multi' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                    >
+                      Nhiều dự án
+                    </button>
+                  </div>
+                </div>
+              </div>
 
-              {/* Project-specific Members Whitelist */}
+              {memberAccessView === 'multi' ? (
+                <MultiProjectAccessPanel />
+              ) : (
+              /* Project-specific Members Whitelist */
               <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200 space-y-3">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <h4 className="font-extrabold text-slate-800 text-xs flex items-center gap-1.5">
+                  <div className="font-extrabold text-slate-800 text-xs flex items-center gap-1.5">
                     <Shield className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>Thành viên & phân quyền dự án</span>
-                  </h4>
+                    <span>Theo dự án</span>
+                  </div>
                   {projects.length > 0 && (
                     <select
                       value={selectedPid}
@@ -2136,6 +2170,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị online. User sẽ phải đăng nh
                   )}
                 </div>
               </div>
+              )}
             </div>
           )}
 

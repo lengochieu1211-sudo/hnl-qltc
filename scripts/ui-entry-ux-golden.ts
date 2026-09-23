@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { buildCrewReportRows, buildCrewReportText } from '../src/utils/crewReportUtils';
+import { buildCrewReportMatrices, buildCrewReportRows, buildCrewReportText } from '../src/utils/crewReportUtils';
 
 // Regression contract for the unified project/sync/security/settings entry UX.
 const read = (path: string) => fs.readFileSync(path, 'utf8');
@@ -182,10 +182,13 @@ assert(workVolumeUi.includes('<Download className="w-3.5 h-3.5" /> Tải Excel �
 assert(workVolumeUi.includes('{hasStructureManageAccess && ('), 'Work Volume must hide ADMIN-only import/create actions from Engineer/Viewer');
 
 const multiProjectAccessUi = read('src/components/MultiProjectAccessPanel.tsx');
+const securityModalUi = read('src/components/SecurityModal.tsx');
 const multiProjectOverviewUi = read('src/components/MultiProjectOverview.tsx');
 const homeDashboardUi = read('src/components/HomeDashboard.tsx');
 const navSource = read('src/components/BottomNav.tsx');
-assert(multiProjectAccessUi.includes('Quản lý quyền nhiều dự án'), 'Security Center must expose central multi-project access management');
+assert(multiProjectAccessUi.includes('Nhiều dự án'), 'Security Center must expose central multi-project access management');
+assert(securityModalUi.includes('Thành viên & phân quyền') && securityModalUi.includes('Theo dự án') && securityModalUi.includes('Nhiều dự án'), 'Security Center must unify member access under project and multi-project tabs');
+assert(securityModalUi.includes('value={selectedPid}') && securityModalUi.includes('setSelectedPid'), 'Per-project member view must retain project switching');
 assert(multiProjectAccessUi.includes('Không cấp quyền'), 'Central access manager must support explicit per-project revoke state');
 assert(multiProjectAccessUi.includes('Áp dụng cho dự án đã chọn'), 'Central access manager must support batch role drafting without visiting each project');
 assert(multiProjectAccessUi.includes('applyProjectMemberAccessChangesAtomically'), 'Central access manager must commit canonical membership through the atomic multi-project engine');
@@ -193,20 +196,25 @@ assert(multiProjectAccessUi.includes("liveActorRole.verification !== 'verified'"
 assert(!appSource.includes('!isOnline || authorizedChatProjects.length < 2'), 'Verified cached multi-project overview must remain available during offline startup');
 assert(multiProjectOverviewUi.includes('Tổng quan dự án'), 'Secondary multi-project overview must remain available');
 assert(multiProjectOverviewUi.includes('Mở dự án'), 'Multi-project overview must offer an explicit project entry action');
-assert(homeDashboardUi.includes('Trung tâm điều hành HNL QLTC'), 'Home must provide the professional multi-project command center');
+assert(homeDashboardUi.includes('Tổng quan công trường') && !homeDashboardUi.includes('Trung tâm điều hành HNL QLTC'), 'Home must use the compact non-duplicated command-center heading');
 assert(homeDashboardUi.includes('Mở thẳng dự án này khi khởi động'), 'Home must expose an explicit quick-start project preference');
-assert(homeDashboardUi.includes('không hiển thị số liệu giả'), 'Home must never invent metrics for projects whose business data is not loaded');
+assert(homeDashboardUi.includes('Chưa tải được dữ liệu quân số'), 'Home must clearly mark unavailable project manpower data without inventing metrics');
+assert(!homeDashboardUi.includes('Firebase / R2 / projectId / RBAC không thay đổi.'), 'Home must not expose implementation/audit notes to end users');
 assert(appSource.includes("useState<TabType>('home')"), 'Home must be the default navigation destination');
 assert(navSource.includes("'home' | 'warehouse'"), 'Navigation type must include Home');
-assert(navSource.includes('hidden w-[84px]') && navSource.includes('lg:hidden'), 'Desktop must use a compact left rail while mobile keeps bottom navigation');
+assert(navSource.includes('hidden w-[84px]') && navSource.includes('bg-white text-slate-700') && navSource.includes('lg:hidden'), 'Desktop must use the agreed light compact left rail while mobile keeps bottom navigation');
+assert(!navSource.includes('APP_VERSION') && !navSource.includes('HNL QLTC · Trang chủ'), 'Desktop rail must not duplicate the header logo or persistent version label');
 assert(navSource.includes("label: 'Trang chủ'"), 'Visible Home navigation label must be Vietnamese: Trang chủ');
 assert(homeDashboardUi.includes('Báo cáo quân số nhiều dự án'), 'Trang chủ must expose multi-project manpower reporting');
 assert(homeDashboardUi.includes('fetchProjectCrewReportData'), 'Trang chủ must load only targeted manpower/team data for other projects');
-assert(homeDashboardUi.includes('Chia sẻ text / ảnh'), 'Trang chủ manpower report must expose quick text/image sharing');
+assert(homeDashboardUi.includes('Chia sẻ báo cáo quân số'), 'Trang chủ manpower report must expose the agreed share-report action');
+assert(homeDashboardUi.includes('buildCrewReportMatrices') && homeDashboardUi.includes('colSpan={4}'), 'Trang chủ manpower report must render date rows with team column groups');
 const crewUi = read('src/components/CrewTabBase.tsx');
 const crewShareUi = read('src/components/CrewReportShareModal.tsx');
-assert(crewUi.includes('Chia sẻ báo cáo quân số · 1 ngày / nhiều ngày · text / ảnh'), 'Crew screen must expose the consolidated share-report entry');
-assert(crewShareUi.includes('Sao chép text') && crewShareUi.includes('Chia sẻ ảnh') && crewShareUi.includes('Tải ảnh PNG'), 'Crew report sharing must support text, image share and image download');
+assert(crewUi.includes('Chia sẻ báo cáo quân số') && !crewUi.includes('1 ngày / nhiều ngày · nội dung / ảnh'), 'Crew screen must expose the concise consolidated share-report entry');
+assert(crewShareUi.includes('Sao chép nội dung') && crewShareUi.includes('Chia sẻ ảnh') && crewShareUi.includes('Tải ảnh'), 'Crew report sharing must support content, image share and image download');
+assert(!crewShareUi.includes('Tải ảnh PNG') && !crewShareUi.includes('JPEG'), 'Crew report UI must not expose image file-format jargon');
+assert(crewShareUi.includes('colSpan={4}') && crewShareUi.includes('— = chưa báo'), 'Crew report preview must use team-column/date-row matrix semantics');
 
 const crewReportRows = buildCrewReportRows([{
   projectId: 'p1', projectName: 'DA 1',
@@ -223,6 +231,9 @@ const zeroReport = crewReportRows.find((row) => row.teamId === 't1');
 const missingReport = crewReportRows.find((row) => row.teamId === 't2');
 assert(Boolean(zeroReport?.reported) && zeroReport?.morning === 0 && zeroReport?.dailyHeadcount === 0, 'Crew report must preserve an explicit zero as reported, not missing');
 assert(missingReport?.reported === false && missingReport?.morning === null, 'Crew report must distinguish missing daily report from zero');
+const matrices = buildCrewReportMatrices(crewReportRows);
+assert(matrices.length === 1 && matrices[0].teams.length === 2 && matrices[0].dates.length === 1, 'Crew report matrix must group teams into columns and dates into rows');
+assert(matrices[0].dates[0].cells['id:t1']?.reported === true && matrices[0].dates[0].cells['id:t2']?.reported === false, 'Crew report matrix must preserve reported-zero versus missing semantics');
 const crewReportText = buildCrewReportText({ rows: crewReportRows, startDate: '2026-09-22', endDate: '2026-09-22' });
 assert(crewReportText.includes('Đội A: Sáng 0') && crewReportText.includes('Đội B: Chưa báo'), 'Crew report text must preserve 0 vs Chưa báo semantics');
 const warehouseUi = read('src/components/WarehouseTab.tsx');

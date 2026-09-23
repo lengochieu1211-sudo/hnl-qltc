@@ -348,6 +348,7 @@ export interface ProjectInfo {
   name: string;
   contractorName?: string;
   inspectorName?: string;
+  projectLocation?: string;
   createdAt: string | number;
   updatedAt?: string | number;
   createdAtSource?: 'cloud' | 'local' | 'migrating';
@@ -365,6 +366,7 @@ export interface SingleProjectBackup {
     projectName?: string;
     contractorName?: string;
     inspectorName?: string;
+    projectLocation?: string;
     materialNorms: MaterialNorm[];
     inventory: InventoryItem[];
     workVolumes: WorkVolume[];

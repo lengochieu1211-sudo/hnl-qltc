@@ -12,6 +12,7 @@ export interface VerifiedOfflineWorkingDelta {
     projectName: string;
     contractorName: string;
     inspectorName: string;
+    projectLocation: string;
   };
   metadataChanged: boolean;
   upserts: Record<string, any[]>;
@@ -54,8 +55,8 @@ export function buildVerifiedOfflineWorkingDelta(
   baseCapturedAt: number,
   baseData: Record<string, any[]>,
   currentData: Record<string, any[]>,
-  baseMetadata: { projectName?: string; contractorName?: string; inspectorName?: string },
-  currentMetadata: { projectName?: string; contractorName?: string; inspectorName?: string },
+  baseMetadata: { projectName?: string; contractorName?: string; inspectorName?: string; projectLocation?: string },
+  currentMetadata: { projectName?: string; contractorName?: string; inspectorName?: string; projectLocation?: string },
   tombstones: Record<string, number> = {},
 ): VerifiedOfflineWorkingDelta | null {
   const normalizedProjectId = String(projectId || '').trim();
@@ -113,11 +114,13 @@ export function buildVerifiedOfflineWorkingDelta(
     projectName: String(currentMetadata.projectName || ''),
     contractorName: String(currentMetadata.contractorName || ''),
     inspectorName: String(currentMetadata.inspectorName || ''),
+    projectLocation: String(currentMetadata.projectLocation || ''),
   };
   const metadataChanged =
     String(baseMetadata.projectName || '') !== metadata.projectName ||
     String(baseMetadata.contractorName || '') !== metadata.contractorName ||
-    String(baseMetadata.inspectorName || '') !== metadata.inspectorName;
+    String(baseMetadata.inspectorName || '') !== metadata.inspectorName ||
+    String(baseMetadata.projectLocation || '') !== metadata.projectLocation;
 
   return {
     version: 1,

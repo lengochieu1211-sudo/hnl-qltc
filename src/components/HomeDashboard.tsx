@@ -5,11 +5,9 @@ import {
   ArrowRight,
   Bell,
   Building2,
-  CalendarDays,
   CheckCircle2,
   Clock3,
   FileText,
-  HardHat,
   MapPin,
   RefreshCw,
   Settings2,
@@ -23,6 +21,7 @@ import { UserRole } from '../utils/securityUtils';
 import { formatDateDDMMYYYY, formatDateTime } from '../utils/dateFormatter';
 import { fetchProjectCrewReportData } from '../lib/firebase';
 import {
+  buildCrewReportMatrices,
   buildCrewReportRows,
   filterCrewReportRows,
   summarizeCrewReportRows,
@@ -40,6 +39,7 @@ interface HomeDashboardProps {
   projects: HomeProjectSummary[];
   activeProjectId: string;
   activeProjectName: string;
+  activeProjectLocation: string;
   currentRole: UserRole;
   defectOpenCount: number;
   dueAlertCount: number;
@@ -82,12 +82,11 @@ const currentMonthStart = () => {
   return toLocalDateKey(new Date(now.getFullYear(), now.getMonth(), 1));
 };
 
-const reportCell = (value: number | null, reported: boolean) => reported ? String(value ?? 0) : 'Chưa báo';
-
 export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   projects,
   activeProjectId,
   activeProjectName,
+  activeProjectLocation,
   currentRole,
   defectOpenCount,
   dueAlertCount,
@@ -124,6 +123,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
     const activeFallback: CrewReportProjectInput = {
       projectId: activeProjectId,
       projectName: activeProjectName || activeProject?.name || 'Dự án đang mở',
+      projectLocation: activeProjectLocation,
       records: crewRecords,
       teams,
     };
@@ -154,6 +154,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         return {
           projectId: project.id,
           projectName: snapshot.projectName || project.name,
+          projectLocation: snapshot.projectLocation,
           records: snapshot.records,
           teams: snapshot.teams,
         } satisfies CrewReportProjectInput;
@@ -179,7 +180,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
       setReportLoading(false);
     });
     return () => { cancelled = true; };
-  }, [activeProjectId, activeProjectName, activeProject?.name, crewRecords, teams, isOnline, projects, reportStartDate, reportEndDate]);
+  }, [activeProjectId, activeProjectName, activeProjectLocation, activeProject?.name, crewRecords, teams, isOnline, projects, reportStartDate, reportEndDate]);
 
   const reportRows = useMemo(
     () => buildCrewReportRows(reportProjects, reportStartDate, reportEndDate),
@@ -198,6 +199,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
     [reportRows, reportProjectFilter, reportTeamFilter],
   );
   const dailySummaries = useMemo(() => summarizeCrewReportRows(filteredReportRows), [filteredReportRows]);
+  const reportMatrices = useMemo(() => buildCrewReportMatrices(filteredReportRows), [filteredReportRows]);
   const endDateSummary = dailySummaries.find((item) => item.date === reportEndDate);
 
   const setPreset = (preset: 'today' | 'yesterday' | '7days' | 'month') => {
@@ -236,12 +238,9 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             <div className="relative overflow-hidden p-4 sm:p-5 lg:p-6">
               <div className="absolute inset-y-0 right-0 hidden w-[46%] bg-[linear-gradient(135deg,transparent_0%,rgba(59,130,246,0.08)_46%,rgba(14,165,233,0.14)_100%)] lg:block" />
               <div className="relative z-10 max-w-3xl">
-                <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[11px] font-extrabold text-blue-700">
-                  <HardHat className="h-3.5 w-3.5" /> Trung tâm điều hành HNL QLTC
-                </div>
-                <h1 className="mt-3 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">Trang chủ · Tổng quan công trường</h1>
+                <h1 className="text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">Tổng quan công trường</h1>
                 <p className="mt-1.5 max-w-2xl text-xs font-medium leading-5 text-slate-500 sm:text-sm">
-                  Chọn dự án cần làm việc, xem quân số nhiều dự án theo ngày/đội, defect và cảnh báo. Trang chủ chỉ hiển thị dữ liệu đã được xác minh theo quyền của tài khoản.
+                  Chọn dự án, theo dõi quân số, Defect và các việc cần chú ý.
                 </p>
                 <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px] font-bold text-slate-600">
                   <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 ${isOnline ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
@@ -258,6 +257,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                 <div>
                   <div className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Dự án đang làm</div>
                   <div className="mt-1 max-w-[270px] truncate text-base font-black text-slate-900">{activeProjectName || activeProject?.name || 'Chưa chọn dự án'}</div>
+                  {activeProjectLocation && <div className="mt-0.5 flex max-w-[300px] items-center gap-1 truncate text-[9.5px] font-semibold text-slate-500"><MapPin className="h-3 w-3 shrink-0" /> {activeProjectLocation}</div>}
                 </div>
                 <span className={`rounded-full border px-2 py-1 text-[9px] font-black ${roleClass(currentRole)}`}>{roleLabel(currentRole)}</span>
               </div>
@@ -313,6 +313,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-blue-100 bg-blue-50 text-blue-700"><Building2 className="h-5 w-5" /></div>
                           <div className="min-w-0">
                             <div className="truncate text-sm font-black text-slate-900">{project.name}</div>
+                            {reportProjects.find((item) => item.projectId === project.id)?.projectLocation && <div className="mt-0.5 truncate text-[9px] font-semibold text-slate-400">{reportProjects.find((item) => item.projectId === project.id)?.projectLocation}</div>}
                             <div className="mt-1 flex items-center gap-1.5"><span className={`rounded-full border px-1.5 py-0.5 text-[8.5px] font-black ${roleClass(project.role)}`}>{roleLabel(project.role)}</span>{active && <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[8.5px] font-black text-white">ĐANG MỞ</span>}</div>
                           </div>
                         </div>
@@ -320,7 +321,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                       </div>
                       <div className="mt-3 grid grid-cols-3 gap-1.5">
                         {projectFailed ? (
-                          <div className="col-span-3 rounded-lg bg-amber-50 px-2 py-2.5 text-center text-[9.5px] font-semibold text-amber-700">Không tải được quân số · không hiển thị số giả</div>
+                          <div className="col-span-3 rounded-lg bg-amber-50 px-2 py-2.5 text-center text-[9.5px] font-semibold text-amber-700">Chưa tải được dữ liệu quân số</div>
                         ) : projectSummary ? (
                           <>
                             <div className="rounded-lg bg-slate-50 px-2 py-2 text-center"><div className="text-sm font-black text-slate-900">{projectSummary.dailyHeadcount}</div><div className="text-[8.5px] text-slate-400">QS ngày</div></div>
@@ -346,10 +347,10 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="flex items-center gap-2 text-sm font-black text-slate-900"><Users className="h-4.5 w-4.5 text-emerald-600" /> Báo cáo quân số nhiều dự án</div>
-              <p className="mt-0.5 text-[10px] text-slate-400">Theo ngày → dự án → đội → Sáng / Chiều / Tối. Chỉ tải `crew_records` + danh bạ đội, không tải ảnh/Defect/khối lượng của các dự án khác.</p>
+              <p className="mt-0.5 text-[10px] text-slate-400">Tổng hợp quân số theo ngày và theo đội.</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={() => setShowReportShare(true)} disabled={filteredReportRows.length === 0 || reportLoading} className="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-[10px] font-extrabold text-emerald-700 hover:bg-emerald-100 disabled:opacity-40"><FileText className="h-3.5 w-3.5" /> Chia sẻ text / ảnh</button>
+              <button type="button" onClick={() => setShowReportShare(true)} disabled={filteredReportRows.length === 0 || reportLoading} className="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-[10px] font-extrabold text-emerald-700 hover:bg-emerald-100 disabled:opacity-40"><FileText className="h-3.5 w-3.5" /> Chia sẻ báo cáo quân số</button>
               <button type="button" onClick={onOpenCrew} className="min-h-9 rounded-xl border border-slate-200 bg-slate-50 px-3 text-[10px] font-extrabold text-slate-700 hover:bg-slate-100">Mở mục Quân số</button>
             </div>
           </div>
@@ -383,30 +384,46 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             <div className="rounded-xl border border-blue-200 bg-blue-50 p-3"><div className="text-[9px] font-bold text-blue-700">Dòng báo cáo</div><div className="mt-1 text-xl font-black text-blue-800">{filteredReportRows.length}</div></div>
           </div>
 
-          <div className="mt-3 overflow-hidden rounded-2xl border border-slate-200">
-            <div className="max-h-[440px] overflow-auto">
-              <table className="w-full min-w-[850px] text-left text-xs">
-                <thead className="sticky top-0 z-[1] bg-slate-100 text-[9.5px] font-black uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-2">Ngày</th><th className="px-3 py-2">Dự án</th><th className="px-3 py-2">Đội</th><th className="px-3 py-2 text-center">Sáng</th><th className="px-3 py-2 text-center">Chiều</th><th className="px-3 py-2 text-center">Tối</th><th className="px-3 py-2 text-center">QS ngày</th><th className="px-3 py-2">Tình trạng</th></tr></thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredReportRows.slice(0, 500).map((row) => (
-                    <tr key={`${row.projectId}-${row.date}-${row.teamKey}`} className="bg-white hover:bg-slate-50">
-                      <td className="px-3 py-2 font-bold text-slate-700">{formatDateDDMMYYYY(row.date)}</td>
-                      <td className="px-3 py-2"><button type="button" onClick={() => void onOpenProject(row.projectId)} className="font-extrabold text-blue-700 hover:underline">{row.projectName}</button></td>
-                      <td className="px-3 py-2 font-extrabold text-slate-800">{row.teamName}</td>
-                      <td className="px-3 py-2 text-center tabular-nums">{reportCell(row.morning, row.reported)}</td>
-                      <td className="px-3 py-2 text-center tabular-nums">{reportCell(row.afternoon, row.reported)}</td>
-                      <td className="px-3 py-2 text-center tabular-nums">{reportCell(row.evening, row.reported)}</td>
-                      <td className="px-3 py-2 text-center font-black tabular-nums text-slate-900">{reportCell(row.dailyHeadcount, row.reported)}</td>
-                      <td className={`px-3 py-2 font-extrabold ${row.reported ? 'text-emerald-700' : 'text-amber-700'}`}>{row.reported ? 'Đã báo' : 'Chưa báo'}</td>
-                    </tr>
-                  ))}
-                  {!reportLoading && filteredReportRows.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-slate-400">Chưa có đội hoặc dữ liệu phù hợp phạm vi đã chọn.</td></tr>}
-                </tbody>
-              </table>
-            </div>
+          <div className="mt-3 space-y-3">
+            {reportMatrices.map((matrix) => (
+              <section key={matrix.projectId} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2.5">
+                  <div className="min-w-0">
+                    <button type="button" onClick={() => void onOpenProject(matrix.projectId)} className="truncate text-xs font-black text-blue-700 hover:underline">{matrix.projectName}</button>
+                    {matrix.projectLocation && <div className="mt-0.5 flex items-center gap-1 truncate text-[9px] font-semibold text-slate-400"><MapPin className="h-3 w-3 shrink-0" /> {matrix.projectLocation}</div>}
+                  </div>
+                  <div className="text-[9px] font-bold text-slate-400">{matrix.teams.length} đội · {matrix.dates.length} ngày</div>
+                </div>
+                <div className="max-h-[440px] overflow-auto">
+                  <table className="w-full text-left text-xs" style={{ minWidth: `${Math.max(460, 120 + matrix.teams.length * 248)}px` }}>
+                    <thead className="sticky top-0 z-[1] bg-slate-100 text-[9px] font-black text-slate-500">
+                      <tr>
+                        <th rowSpan={2} className="sticky left-0 z-[2] min-w-[118px] border-r border-slate-200 bg-slate-100 px-3 py-2 align-middle">Ngày</th>
+                        {matrix.teams.map((team) => <th key={team.teamKey} colSpan={4} className="border-r border-slate-200 px-2 py-2 text-center text-slate-700">{team.teamName}</th>)}
+                      </tr>
+                      <tr>
+                        {matrix.teams.flatMap((team) => ['Sáng', 'Chiều', 'Tối', 'QS ngày'].map((label) => <th key={`${team.teamKey}-${label}`} className="min-w-[62px] border-r border-slate-200 px-2 py-1.5 text-center">{label}</th>))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {matrix.dates.map((dateRow) => (
+                        <tr key={`${matrix.projectId}-${dateRow.date}`} className="bg-white hover:bg-slate-50">
+                          <td className="sticky left-0 z-[1] border-r border-slate-100 bg-white px-3 py-2 font-bold text-slate-700">{formatDateDDMMYYYY(dateRow.date)}</td>
+                          {matrix.teams.flatMap((team) => {
+                            const row = dateRow.cells[team.teamKey];
+                            const values = row?.reported ? [row.morning ?? 0, row.afternoon ?? 0, row.evening ?? 0, row.dailyHeadcount ?? 0] : ['—', '—', '—', '—'];
+                            return values.map((value, index) => <td key={`${team.teamKey}-${index}`} className={`border-r border-slate-100 px-2 py-2 text-center tabular-nums ${index === 3 ? 'font-black text-slate-900' : ''}`}>{value}</td>);
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            ))}
+            {!reportLoading && filteredReportRows.length === 0 && <div className="rounded-2xl border border-slate-200 px-4 py-8 text-center text-xs text-slate-400">Chưa có đội hoặc dữ liệu phù hợp phạm vi đã chọn.</div>}
           </div>
-          {filteredReportRows.length > 500 && <div className="mt-2 text-[9.5px] font-semibold text-slate-400">Trang chủ chỉ hiển thị 500 dòng đầu để giữ hiệu năng; chức năng Chia sẻ báo cáo vẫn dùng toàn bộ dữ liệu đã tải.</div>}
-          <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-[9.5px] leading-4 text-blue-700">`0` = đội đã báo bằng 0. `Chưa báo` = chưa có bản ghi ngày đó. Quân số ngày lấy mức cao nhất của từng đội, không cộng Sáng + Chiều + Tối.</div>
+          <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-[9.5px] leading-4 text-blue-700">0 = đã báo bằng 0. — = chưa báo. QS ngày lấy mức cao nhất của từng đội, không cộng Sáng/Chiều/Tối.</div>
         </section>
 
         <section className="rounded-3xl border border-slate-200 bg-white p-3.5 shadow-sm sm:p-4">
@@ -418,10 +435,6 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
           </div>
         </section>
 
-        <div className="flex flex-wrap items-center justify-between gap-2 px-1 pb-1 text-[9px] font-semibold text-slate-400">
-          <span className="inline-flex items-center gap-1"><CalendarDays className="h-3 w-3" /> Trang chủ dùng dữ liệu thật đã tải theo quyền; không hiển thị số liệu giả cho dự án lỗi/chưa tải.</span>
-          <span className="inline-flex items-center gap-1"><ShieldCheck className="h-3 w-3" /> Firebase / R2 / projectId / RBAC không thay đổi.</span>
-        </div>
       </div>
 
       <CrewReportShareModal
@@ -432,7 +445,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         initialEndDate={reportEndDate}
         maxDate={todayKey}
         rangeLocked
-        title="HNL QLTC – Báo cáo quân số nhiều dự án"
+        title="Báo cáo quân số"
       />
     </div>
   );

@@ -5,6 +5,7 @@ import { formatDateDDMMYYYY } from './dateFormatter';
 export interface CrewReportProjectInput {
   projectId: string;
   projectName: string;
+  projectLocation?: string;
   records: CrewRecord[];
   teams?: TeamInfo[];
 }
@@ -12,6 +13,7 @@ export interface CrewReportProjectInput {
 export interface CrewReportRow {
   projectId: string;
   projectName: string;
+  projectLocation?: string;
   date: string;
   teamKey: string;
   teamId?: string;
@@ -141,6 +143,7 @@ export function buildCrewReportRows(
           rows.push({
             projectId: project.projectId,
             projectName: project.projectName,
+            projectLocation: project.projectLocation,
             date,
             teamKey,
             teamId: team.teamId,
@@ -159,6 +162,7 @@ export function buildCrewReportRows(
         rows.push({
           projectId: project.projectId,
           projectName: project.projectName,
+          projectLocation: project.projectLocation,
           date,
           teamKey,
           teamId: team.teamId,
@@ -220,6 +224,61 @@ export function filterCrewReportRows(
   );
 }
 
+export interface CrewReportMatrixTeam {
+  teamKey: string;
+  teamName: string;
+}
+
+export interface CrewReportMatrixDateRow {
+  date: string;
+  cells: Record<string, CrewReportRow>;
+}
+
+export interface CrewReportProjectMatrix {
+  projectId: string;
+  projectName: string;
+  projectLocation?: string;
+  teams: CrewReportMatrixTeam[];
+  dates: CrewReportMatrixDateRow[];
+}
+
+export function buildCrewReportMatrices(rows: CrewReportRow[]): CrewReportProjectMatrix[] {
+  const projectOrder: string[] = [];
+  const byProject = new Map<string, CrewReportRow[]>();
+  for (const row of rows) {
+    if (!byProject.has(row.projectId)) projectOrder.push(row.projectId);
+    const bucket = byProject.get(row.projectId) || [];
+    bucket.push(row);
+    byProject.set(row.projectId, bucket);
+  }
+
+  return projectOrder.map((projectId) => {
+    const projectRows = byProject.get(projectId) || [];
+    const first = projectRows[0];
+    const teamMap = new Map<string, string>();
+    const dateSet = new Set<string>();
+    projectRows.forEach((row) => {
+      teamMap.set(row.teamKey, row.teamName);
+      dateSet.add(row.date);
+    });
+    const teams = Array.from(teamMap.entries())
+      .map(([teamKey, teamName]) => ({ teamKey, teamName }))
+      .sort((a, b) => a.teamName.localeCompare(b.teamName, 'vi-VN', { numeric: true, sensitivity: 'base' }));
+    const dates = Array.from(dateSet).sort().map((date) => {
+      const cells: Record<string, CrewReportRow> = {};
+      projectRows.filter((row) => row.date === date).forEach((row) => { cells[row.teamKey] = row; });
+      return { date, cells };
+    });
+    return {
+      projectId,
+      projectName: first?.projectName || projectId,
+      projectLocation: first?.projectLocation,
+      teams,
+      dates,
+    };
+  });
+}
+
 const formatCount = (value: number | null, reported: boolean) => reported ? String(value ?? 0) : 'Chưa báo';
 
 export function buildCrewReportText(params: {
@@ -228,39 +287,42 @@ export function buildCrewReportText(params: {
   endDate: string;
   title?: string;
 }): string {
-  const rows = params.rows;
-  const dates = Array.from(new Set(rows.map((row) => row.date))).sort();
-  const projects = Array.from(new Set(rows.map((row) => row.projectName)));
-  const lines: string[] = [
-    params.title || 'HNL QLTC – Báo cáo quân số',
-    `Phạm vi: ${params.startDate === params.endDate ? formatDateDDMMYYYY(params.startDate) : `${formatDateDDMMYYYY(params.startDate)} → ${formatDateDDMMYYYY(params.endDate)}`}`,
-    projects.length > 1 ? `Dự án: ${projects.join(' · ')}` : projects.length === 1 ? `Dự án: ${projects[0]}` : '',
-    '',
-  ].filter((line) => line !== '');
+  const matrices = buildCrewReportMatrices(params.rows);
+  const lines: string[] = [];
+  const multiProject = matrices.length > 1;
 
-  for (const date of dates) {
-    lines.push(`Ngày ${formatDateDDMMYYYY(date)}`);
-    const dateRows = rows.filter((row) => row.date === date);
-    const projectNames = Array.from(new Set(dateRows.map((row) => row.projectName)));
-    for (const projectName of projectNames) {
-      if (projects.length > 1) lines.push(`• ${projectName}`);
-      for (const row of dateRows.filter((item) => item.projectName === projectName)) {
-        if (!row.reported) {
-          lines.push(`  - ${row.teamName}: Chưa báo`);
+  matrices.forEach((matrix, projectIndex) => {
+    const heading = multiProject
+      ? `${params.title || 'Báo cáo quân số'} – ${matrix.projectName}`
+      : `${params.title || 'Báo cáo quân số'}${matrix.projectName ? ` – ${matrix.projectName}` : ''}`;
+    lines.push(heading);
+    if (matrix.projectLocation) lines.push(`Địa điểm: ${matrix.projectLocation}`);
+    lines.push(params.startDate === params.endDate
+      ? `Ngày ${formatDateDDMMYYYY(params.startDate)}`
+      : `Từ ${formatDateDDMMYYYY(params.startDate)} đến ${formatDateDDMMYYYY(params.endDate)}`);
+    lines.push('');
+
+    for (const dateRow of matrix.dates) {
+      lines.push(`Ngày ${formatDateDDMMYYYY(dateRow.date)}`);
+      for (const team of matrix.teams) {
+        const row = dateRow.cells[team.teamKey];
+        if (!row?.reported) {
+          lines.push(`  - ${team.teamName}: Chưa báo`);
           continue;
         }
-        lines.push(
-          `  - ${row.teamName}: Sáng ${formatCount(row.morning, true)} | Chiều ${formatCount(row.afternoon, true)} | Tối ${formatCount(row.evening, true)} | Quân số ngày ${formatCount(row.dailyHeadcount, true)}`
-        );
+        lines.push(`  - ${team.teamName}: Sáng ${formatCount(row.morning, true)} | Chiều ${formatCount(row.afternoon, true)} | Tối ${formatCount(row.evening, true)} | QS ngày ${formatCount(row.dailyHeadcount, true)}`);
       }
+      const dayRows = Object.values(dateRow.cells);
+      const summary = summarizeCrewReportRows(dayRows)[0];
+      if (summary) {
+        lines.push(`Tổng ngày: ${summary.dailyHeadcount} người | Sáng ${summary.morning} | Chiều ${summary.afternoon} | Tối ${summary.evening} | Đã báo ${summary.reportedTeams} đội${summary.missingTeams ? ` | Chưa báo ${summary.missingTeams} đội` : ''}`);
+      }
+      lines.push('');
     }
-    const summary = summarizeCrewReportRows(dateRows)[0];
-    if (summary) {
-      lines.push(`Tổng ngày: ${summary.dailyHeadcount} người | Sáng ${summary.morning} | Chiều ${summary.afternoon} | Tối ${summary.evening} | Đã báo ${summary.reportedTeams} đội${summary.missingTeams ? ` | Chưa báo ${summary.missingTeams} đội` : ''}`);
-    }
-    lines.push('');
-  }
+    if (projectIndex < matrices.length - 1) lines.push('--------------------', '');
+  });
 
-  lines.push('Lưu ý: Sáng/Chiều/Tối là quân số theo ca; Quân số ngày lấy mức cao nhất của từng đội, không cộng chồng các ca.');
+  lines.push('Lưu ý: Sáng/Chiều/Tối là quân số theo ca; QS ngày lấy mức cao nhất của từng đội, không cộng chồng các ca.');
   return lines.join('\n').trim();
 }
+
