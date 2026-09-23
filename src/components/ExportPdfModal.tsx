@@ -588,19 +588,20 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   const displayProjectLocation = projectLocation && projectLocation.trim() ? projectLocation.trim() : '';
   const displayContractor = contractorName && contractorName.trim() ? contractorName.trim() : '—';
   const displayInspector = inspectorName && inspectorName.trim() ? inspectorName.trim() : '—';
+  const reportScopeParts = [
+    normalizedStructureConfig.enabled && selectedStructureGroupId !== 'all'
+      ? `${normalizedStructureConfig.label}: ${getStructureGroupName(selectedStructureGroupId, normalizedStructureConfig)}`
+      : '',
+    !isAllSelected ? scopedFloorPlans.map((floor) => floor.floorName).join(', ') : '',
+    selectedRoomId !== 'all' ? `Căn/Phòng: ${roomProgressList.find((room) => room.id === selectedRoomId)?.roomName || selectedRoomId}` : '',
+    selectedTeamId !== 'all' ? `Đội: ${teams.find((team) => team.id === selectedTeamId)?.name || selectedTeamId}` : '',
+  ].filter(Boolean);
+  const reportScopeLabel = reportScopeParts.length > 0 ? reportScopeParts.join(' · ') : 'Toàn bộ công trình';
 
   // High-fidelity HTML Report Generator
   const getReportHtml = (): string => {
     const h = escapeHtml;
-    const areaParts = [
-      normalizedStructureConfig.enabled && selectedStructureGroupId !== 'all'
-        ? `${normalizedStructureConfig.label}: ${getStructureGroupName(selectedStructureGroupId, normalizedStructureConfig)}`
-        : '',
-      !isAllSelected ? scopedFloorPlans.map((floor) => floor.floorName).join(', ') : '',
-      selectedRoomId !== 'all' ? `Căn/Phòng: ${roomProgressList.find((room) => room.id === selectedRoomId)?.roomName || selectedRoomId}` : '',
-      selectedTeamId !== 'all' ? `Đội: ${teams.find((team) => team.id === selectedTeamId)?.name || selectedTeamId}` : '',
-    ].filter(Boolean);
-    const areaText = areaParts.length > 0 ? areaParts.join(' · ') : 'Toàn bộ công trình';
+    const areaText = reportScopeLabel;
 
     // Target floor plans to include
     const targetFloorPlans = scopedFloorPlans
@@ -1466,7 +1467,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   };
 
   const handleCopySummaryText = () => {
-    const areaText = isAllSelected ? 'Toàn bộ công trình' : selectedFloors.join(', ');
+    const areaText = reportScopeLabel;
     const text = `
 📋 *BÁO CÁO THI CÔNG & NGHIỆM THU - ${projectName.toUpperCase()}*
 ${displayProjectLocation ? `📍 *Địa điểm:* ${displayProjectLocation}\n` : ''}📍 *Khu vực:* ${areaText}
@@ -1513,7 +1514,8 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
       roomProgressList: filteredRooms,
       defects: filteredDefects,
       checklist: filteredChecklist,
-      floorPlans: isAllSelected ? effectiveFloorPlans : effectiveFloorPlans.filter(fp => selectedFloors.includes(fp.floorName)),
+      floorPlans: scopedFloorPlans,
+      structureConfig: normalizedStructureConfig,
       crewRecords: filteredCrew,
       canViewFinancials: hasFinancialAccess,
       selectedModules: {
@@ -1543,7 +1545,8 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
         roomProgressList: filteredRooms,
         defects: filteredDefects,
         checklist: filteredChecklist,
-        floorPlans: isAllSelected ? effectiveFloorPlans : effectiveFloorPlans.filter(fp => selectedFloors.includes(fp.floorName)),
+        floorPlans: scopedFloorPlans,
+      structureConfig: normalizedStructureConfig,
         crewRecords: filteredCrew,
         canViewFinancials: hasFinancialAccess,
         selectedModules: {
