@@ -158,6 +158,7 @@ import { reconcileMaterialNormWorkCategoryLinks } from './utils/projectReconcili
 import { createEntityId, createShortToken } from './utils/idUtils';
 import { normalizeUnit, areSameUnit } from './utils/unitUtils';
 import { buildMaterialAliasMap, resolveNormMaterialId, normalizeMaterialNameKey } from './utils/inventoryUtils';
+import { DEFAULT_STRUCTURE_CONFIG, normalizeStructureGroupConfig, type ProjectStructureConfig } from './utils/structureGroupUtils';
 import { apiFetch, hasApiBackend } from './utils/api';
 import {
   getAndroidAutoSaveFolderName,
@@ -353,6 +354,7 @@ export default function App() {
   const [isSoftKeyboardOpen, setIsSoftKeyboardOpen] = useState(false);
   const [cloudDefectIndex, setCloudDefectIndex] = useState<{ projectId: string; ids: Set<string> } | null>(null);
   const [trashSettings, setTrashSettings] = useState<TrashSettings>(DEFAULT_TRASH_SETTINGS);
+  const [structureConfig, setStructureConfig] = useState<ProjectStructureConfig>(DEFAULT_STRUCTURE_CONFIG);
   const [superAdminUiSettings, setSuperAdminUiSettings] = useState<SuperAdminUiSettings>(DEFAULT_SUPER_ADMIN_UI_SETTINGS);
   const trashSettingsRef = useRef<TrashSettings>(DEFAULT_TRASH_SETTINGS);
   const [trashOperations, setTrashOperations] = useState<TrashOperation[]>([]);
@@ -1292,6 +1294,13 @@ export default function App() {
     trashSettingsRef.current = initialTrash;
     setTrashSettings(initialTrash);
 
+    const savedStructureRaw = localStorage.getItem(getKey('construction_structure_config', activeProjectId));
+    let initialStructure = DEFAULT_STRUCTURE_CONFIG;
+    if (savedStructureRaw) {
+      try { initialStructure = normalizeStructureGroupConfig(JSON.parse(savedStructureRaw)); } catch (_) {}
+    }
+    setStructureConfig(initialStructure);
+
     // Project-level setting follows the project across PC/Web/APK. LocalStorage is only the offline cache.
     const unsubscribe = subscribeProjectSharedSettings(activeProjectId, (settings) => {
       if (typeof settings.driveAutoSyncEnabled === 'boolean') {
@@ -1308,6 +1317,11 @@ export default function App() {
         const nextUi = normalizeSuperAdminUiSettings(settings.superAdminUi);
         setSuperAdminUiSettings(nextUi);
         localStorage.setItem(getKey('construction_superadmin_ui', activeProjectId), JSON.stringify(nextUi));
+      }
+      if (settings.structure && typeof settings.structure === 'object') {
+        const nextStructure = normalizeStructureGroupConfig(settings.structure);
+        setStructureConfig(nextStructure);
+        localStorage.setItem(getKey('construction_structure_config', activeProjectId), JSON.stringify(nextStructure));
       }
     });
     return unsubscribe;
@@ -2742,7 +2756,20 @@ export default function App() {
     await saveSuperAdminUiSettings(DEFAULT_SUPER_ADMIN_UI_SETTINGS);
   };
 
-  const handleTrashSettingsChange = (nextInput: TrashSettings) => {
+  const handleStructureConfigChange = (nextInput: ProjectStructureConfig) => {
+    if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) {
+      alert('Chỉ ADMIN được thay đổi cấu trúc Khu/Khối của dự án.');
+      return;
+    }
+    const next = normalizeStructureGroupConfig(nextInput);
+    setStructureConfig(next);
+    localStorage.setItem(getKey('construction_structure_config', activeProjectIdRef.current), JSON.stringify(next));
+    void saveProjectSharedSettings(activeProjectIdRef.current, { structure: next }).catch((err) =>
+      console.warn('Structure shared settings save warning:', err)
+    );
+  };
+
+    const handleTrashSettingsChange = (nextInput: TrashSettings) => {
     if (!isProjectRoleResolved || currentUserRole !== 'ADMIN') {
       alert('Chỉ ADMIN được thay đổi cài đặt Thùng rác.');
       return;
