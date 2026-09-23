@@ -6929,6 +6929,7 @@ export default function App() {
               projectLocation={projectLocation}
               crewRecords={crewRecords}
               floorPlans={floorPlans}
+              structureConfig={structureConfig}
               roomProgressList={roomProgressList}
               defects={activeDefects}
               workVolumes={computedWorkVolumes}
