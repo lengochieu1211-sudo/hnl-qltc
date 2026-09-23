@@ -956,16 +956,31 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     }
 
     const normalizedTeamName = teamName.trim();
+    const currentGroupId = normalizedStructureConfig.enabled
+      ? logStructureGroupId
+      : normalizedStructureConfig.defaultGroupId;
     const existingRecord = crewRecords.find(
-      (r) => r.date === selectedDate && r.teamName.toLowerCase() === normalizedTeamName.toLowerCase()
+      (r) => r.date === selectedDate
+        && r.teamName.toLowerCase() === normalizedTeamName.toLowerCase()
+        && recordMatchesStructureGroup(r, currentGroupId)
     );
 
     if (existingRecord && (!editingRecord || existingRecord.id !== editingRecord.id)) {
-      alert(`Đội "${normalizedTeamName}" đã được ghi nhận quân số trong ngày hôm nay!`);
+      const groupName = normalizedStructureConfig.enabled
+        ? getStructureGroupName(currentGroupId, normalizedStructureConfig)
+        : '';
+      alert(`Đội "${normalizedTeamName}" đã được ghi nhận quân số trong ngày này${groupName ? ` tại ${groupName}` : ''}!`);
       return;
     }
 
     // Auto-commit any currently typed but unadded sub-items / work categories
+    if (normalizedStructureConfig.enabled) {
+      const crossGroupFloor = floorWorks.find((work) => !floorMatchesStructureGroup(work.floorId, currentGroupId));
+      if (crossGroupFloor) {
+        alert(`Tầng "${crossGroupFloor.floorName}" không thuộc ${normalizedStructureConfig.label} đang chọn. Hãy chọn lại trước khi lưu.`);
+        return;
+      }
+    }
     let finalFloorWorks = [...floorWorks];
     floorWorks.forEach((fw, fIdx) => {
       fw.categories.forEach((cat, cIdx) => {
@@ -1024,6 +1039,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       eveningCount: Math.max(0, eveningCount),
       floorId,
       floorName,
+      structureGroupId: normalizedStructureConfig.enabled ? currentGroupId : undefined,
       floorWorks: finalFloorWorks,
       taskDescription: taskDesc,
       shift: shiftValue,
