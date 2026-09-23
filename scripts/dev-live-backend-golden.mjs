@@ -178,6 +178,25 @@ const firestoreDocUrl = (path) => {
   return `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/databases/(default)/documents/${encoded}`;
 };
 
+async function probeUserFirestoreRest(name, token, path, includeApiKey) {
+  const headers = { Authorization: `Bearer ${token}` };
+  if (includeApiKey) headers['X-Goog-Api-Key'] = apiKey;
+  const response = await fetch(firestoreDocUrl(path), { headers });
+  const body = await response.clone().json().catch(() => null);
+  const safeStatus = String(body?.error?.status || '').trim();
+  const safeCode = Number(body?.error?.code || 0) || response.status;
+  report.firestoreRestProbes = Array.isArray(report.firestoreRestProbes) ? report.firestoreRestProbes : [];
+  report.firestoreRestProbes.push({
+    name,
+    includeApiKey,
+    httpStatus: response.status,
+    googleStatus: safeStatus || null,
+    googleCode: safeCode || null,
+  });
+  console.log(`FIRESTORE REST PROBE: ${name} — HTTP ${response.status}${safeStatus ? ` / ${safeStatus}` : ''}`);
+  return response;
+}
+
 async function adminDeleteDoc(oauthToken, path) {
   const response = await fetch(firestoreDocUrl(path), {
     method: 'DELETE',
@@ -383,6 +402,13 @@ try {
   const editorIdToken = await editor.auth.currentUser.getIdToken(true);
   const viewerIdToken = await viewer.auth.currentUser.getIdToken(true);
   const adminIdToken = await admin.auth.currentUser.getIdToken(true);
+
+  const directRestNoKey = await probeUserFirestoreRest('EDITOR project-root direct REST without API key', editorIdToken, `projects/${pid}`, false);
+  const directRestWithKey = await probeUserFirestoreRest('EDITOR project-root direct REST with API key', editorIdToken, `projects/${pid}`, true);
+  if (directRestNoKey.status !== 200 || directRestWithKey.status !== 200) {
+    throw new Error(`DIRECT_FIRESTORE_REST_DIAGNOSTIC_FAILED: no-key=${directRestNoKey.status}, api-key=${directRestWithKey.status}`);
+  }
+  pass('EDITOR direct Firestore REST project-root reads', 'token-only + X-Goog-Api-Key both HTTP 200');
 
   r2ObjectKey = `projects/${pid}/media/dev-live-golden.txt`;
   const r2Endpoint = `${r2Url}/v1/object?key=${encodeURIComponent(r2ObjectKey)}`;
