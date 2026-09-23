@@ -158,7 +158,7 @@ import { reconcileMaterialNormWorkCategoryLinks } from './utils/projectReconcili
 import { createEntityId, createShortToken } from './utils/idUtils';
 import { normalizeUnit, areSameUnit } from './utils/unitUtils';
 import { buildMaterialAliasMap, resolveNormMaterialId, normalizeMaterialNameKey } from './utils/inventoryUtils';
-import { DEFAULT_STRUCTURE_CONFIG, normalizeStructureGroupConfig, type ProjectStructureConfig } from './utils/structureGroupUtils';
+import { DEFAULT_STRUCTURE_CONFIG, normalizeStructureGroupConfig, resolveFloorStructureGroupId, type ProjectStructureConfig } from './utils/structureGroupUtils';
 import { apiFetch, hasApiBackend } from './utils/api';
 import {
   getAndroidAutoSaveFolderName,
@@ -5342,8 +5342,31 @@ export default function App() {
     if (!(normalized.quantity > 0)) throw new Error(`Số lượng phiếu ${normalized.id} phải > 0.`);
 
     if (normalized.type === 'out') {
+      const purpose = normalized.issuePurpose
+        || (normalized.sourceRoomId || normalized.sourceFloorId || normalized.sourceTeamId || normalized.sourceWorkCategoryId || normalized.sourceStructureGroupId ? 'project-work' : undefined);
+      normalized = { ...normalized, ...(purpose ? { issuePurpose: purpose } : {}) };
+
+      if (purpose === 'project-work') {
+        const sourceFloor = normalized.sourceFloorId
+          ? present.floorPlans.find((floor) => floor.id === normalized.sourceFloorId && (floor.deletedAt === undefined || floor.deletedAt === null))
+          : undefined;
+        if (normalized.sourceFloorId && !sourceFloor) {
+          throw new Error('sourceFloorId không tồn tại/hoạt động.');
+        }
+        if (normalized.sourceStructureGroupId) {
+          const structure = normalizeStructureGroupConfig(structureConfig);
+          if (!structure.groups.some((group) => group.id === normalized.sourceStructureGroupId)) {
+            throw new Error('sourceStructureGroupId không tồn tại trong cấu trúc dự án.');
+          }
+          if (sourceFloor && resolveFloorStructureGroupId(sourceFloor, structure) !== normalized.sourceStructureGroupId) {
+            throw new Error('Khu/Khối mâu thuẫn với Tầng đã chọn.');
+          }
+        }
+      }
+
       const hasProvenance = Boolean(
         normalized.sourceType === 'room-auto'
+        || normalized.sourceStructureGroupId
         || normalized.sourceRoomId
         || normalized.sourceFloorId
         || normalized.sourceWorkCategoryId
