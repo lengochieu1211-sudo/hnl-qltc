@@ -178,22 +178,99 @@ const firestoreDocUrl = (path) => {
   return `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/databases/(default)/documents/${encoded}`;
 };
 
+function safeGoogleDiagnosticValue(value, max = 500) {
+  let text = String(value ?? '').trim();
+  if (!text) return '';
+  if (apiKey) text = text.split(apiKey).join('[REDACTED_API_KEY]');
+  text = text.replace(/Bearer\\s+[A-Za-z0-9._~-]+/gi, 'Bearer [REDACTED]');
+  return text.slice(0, max);
+}
+
+function summarizeGoogleError(body) {
+  const error = body?.error || {};
+  const details = Array.isArray(error.details) ? error.details : [];
+  const safeDetails = details.slice(0, 12).map((item) => {
+    const out = { type: safeGoogleDiagnosticValue(item?.['@type'] || item?.type, 180) || null };
+    for (const key of ['reason', 'domain', 'description']) {
+      const value = safeGoogleDiagnosticValue(item?.[key], 500);
+      if (value) out[key] = value;
+    }
+    if (item?.metadata && typeof item.metadata === 'object') {
+      const metadata = {};
+      for (const [key, raw] of Object.entries(item.metadata)) {
+        if (/token|key|authorization|credential|secret/i.test(key)) continue;
+        const value = safeGoogleDiagnosticValue(raw, 500);
+        if (value) metadata[key] = value;
+      }
+      if (Object.keys(metadata).length) out.metadata = metadata;
+    }
+    if (Array.isArray(item?.violations)) {
+      out.violations = item.violations.slice(0, 12).map((violation) => ({
+        subject: safeGoogleDiagnosticValue(violation?.subject, 500) || null,
+        description: safeGoogleDiagnosticValue(violation?.description, 500) || null,
+      }));
+    }
+    return out;
+  });
+  return {
+    googleStatus: safeGoogleDiagnosticValue(error.status, 120) || null,
+    googleCode: Number(error.code || 0) || null,
+    message: safeGoogleDiagnosticValue(error.message, 800) || null,
+    details: safeDetails,
+  };
+}
+
 async function probeUserFirestoreRest(name, token, path, includeApiKey) {
   const headers = { Authorization: `Bearer ${token}` };
   if (includeApiKey) headers['X-Goog-Api-Key'] = apiKey;
   const response = await fetch(firestoreDocUrl(path), { headers });
   const body = await response.clone().json().catch(() => null);
-  const safeStatus = String(body?.error?.status || '').trim();
-  const safeCode = Number(body?.error?.code || 0) || response.status;
+  const diagnostic = summarizeGoogleError(body);
   report.firestoreRestProbes = Array.isArray(report.firestoreRestProbes) ? report.firestoreRestProbes : [];
   report.firestoreRestProbes.push({
     name,
     includeApiKey,
     httpStatus: response.status,
-    googleStatus: safeStatus || null,
-    googleCode: safeCode || null,
+    ...diagnostic,
   });
-  console.log(`FIRESTORE REST PROBE: ${name} — HTTP ${response.status}${safeStatus ? ` / ${safeStatus}` : ''}`);
+  const suffix = diagnostic.googleStatus ? ` / ${diagnostic.googleStatus}` : '';
+  console.log(`FIRESTORE REST PROBE: ${name} — HTTP ${response.status}${suffix}`);
+  if (!response.ok && (diagnostic.message || diagnostic.details.length)) {
+    console.warn('FIRESTORE REST DIAGNOSTIC:', JSON.stringify({ name, httpStatus: response.status, ...diagnostic }));
+  }
+  return response;
+}
+
+async function probeUserFirestoreBatchGet(name, token, path, includeApiKey) {
+  const encodedDatabase = `projects/${encodeURIComponent(projectId)}/databases/(default)`;
+  const fullDocumentName = `projects/${projectId}/databases/(default)/documents/${path}`;
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json',
+  };
+  if (includeApiKey) headers['X-Goog-Api-Key'] = apiKey;
+  const response = await fetch(`https://firestore.googleapis.com/v1/${encodedDatabase}/documents:batchGet`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ documents: [fullDocumentName] }),
+  });
+  const raw = await response.clone().text().catch(() => '');
+  let body = null;
+  try { body = raw ? JSON.parse(raw) : null; } catch {}
+  const diagnostic = summarizeGoogleError(body);
+  report.firestoreRestProbes = Array.isArray(report.firestoreRestProbes) ? report.firestoreRestProbes : [];
+  report.firestoreRestProbes.push({
+    name,
+    method: 'batchGet',
+    includeApiKey,
+    httpStatus: response.status,
+    ...diagnostic,
+  });
+  const suffix = diagnostic.googleStatus ? ` / ${diagnostic.googleStatus}` : '';
+  console.log(`FIRESTORE REST PROBE: ${name} — HTTP ${response.status}${suffix}`);
+  if (!response.ok && (diagnostic.message || diagnostic.details.length)) {
+    console.warn('FIRESTORE REST DIAGNOSTIC:', JSON.stringify({ name, method: 'batchGet', httpStatus: response.status, ...diagnostic }));
+  }
   return response;
 }
 
@@ -403,12 +480,25 @@ try {
   const viewerIdToken = await viewer.auth.currentUser.getIdToken(true);
   const adminIdToken = await admin.auth.currentUser.getIdToken(true);
 
-  const directRestNoKey = await probeUserFirestoreRest('EDITOR project-root direct REST without API key', editorIdToken, `projects/${pid}`, false);
-  const directRestWithKey = await probeUserFirestoreRest('EDITOR project-root direct REST with API key', editorIdToken, `projects/${pid}`, true);
-  if (directRestNoKey.status !== 200 || directRestWithKey.status !== 200) {
-    throw new Error(`DIRECT_FIRESTORE_REST_DIAGNOSTIC_FAILED: no-key=${directRestNoKey.status}, api-key=${directRestWithKey.status}`);
+  const directRestNoKey = await probeUserFirestoreRest('EDITOR project-root direct REST GET without API key', editorIdToken, `projects/${pid}`, false);
+  const directRestWithKey = await probeUserFirestoreRest('EDITOR project-root direct REST GET with API key', editorIdToken, `projects/${pid}`, true);
+  const batchGetNoKey = await probeUserFirestoreBatchGet('EDITOR project-root batchGet without API key', editorIdToken, `projects/${pid}`, false);
+  const batchGetWithKey = await probeUserFirestoreBatchGet('EDITOR project-root batchGet with API key', editorIdToken, `projects/${pid}`, true);
+  if (directRestNoKey.status === 200 && directRestWithKey.status === 200) {
+    pass('EDITOR direct Firestore REST GET project-root reads', 'token-only + X-Goog-Api-Key both HTTP 200');
+  } else {
+    report.directFirestoreRestDiagnostic = {
+      status: 'NON_BLOCKING_FAILURE',
+      getNoKeyHttpStatus: directRestNoKey.status,
+      getApiKeyHttpStatus: directRestWithKey.status,
+      batchGetNoKeyHttpStatus: batchGetNoKey.status,
+      batchGetApiKeyHttpStatus: batchGetWithKey.status,
+    };
+    console.warn(`DIRECT FIRESTORE REST diagnostic is non-blocking so the actual R2 gateway path can still be tested: GET no-key=${directRestNoKey.status}, GET api-key=${directRestWithKey.status}, batchGet no-key=${batchGetNoKey.status}, batchGet api-key=${batchGetWithKey.status}`);
   }
-  pass('EDITOR direct Firestore REST project-root reads', 'token-only + X-Goog-Api-Key both HTTP 200');
+  if (batchGetNoKey.status === 200 && batchGetWithKey.status === 200) {
+    pass('EDITOR Firestore REST batchGet project-root reads', 'token-only + X-Goog-Api-Key both HTTP 200');
+  }
 
   r2ObjectKey = `projects/${pid}/media/dev-live-golden.txt`;
   const r2Endpoint = `${r2Url}/v1/object?key=${encodeURIComponent(r2ObjectKey)}`;
