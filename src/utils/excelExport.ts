@@ -6,6 +6,13 @@ import { calculateStockSummary, resolveNormMaterialId } from './inventoryUtils';
 import { formatDateDDMMYYYY, formatDateTime } from './dateFormatter';
 import { saveWorkbookFile } from './fileExport';
 import { getCrewShiftCounts } from './crewUtils';
+import { computeWorkVolumeDetailBreakdown } from './workVolumeComputation';
+import {
+  getStructureGroupName,
+  normalizeStructureGroupConfig,
+  resolveFloorStructureGroupId,
+  type ProjectStructureConfig,
+} from './structureGroupUtils';
 
 function autoFitColumns(ws: XLSX.WorkSheet) {
   if (!ws || !ws['!ref']) return;
@@ -45,6 +52,65 @@ function prependProjectInfoSheet(wb: XLSX.WorkBook, projectName: string, project
   autoFitColumns(ws);
   XLSX.utils.book_append_sheet(wb, ws, 'Thong Tin Du An');
   wb.SheetNames = ['Thong Tin Du An', ...wb.SheetNames.filter((name) => name !== 'Thong Tin Du An')];
+}
+
+
+function appendWorkVolumeDetailSheet(
+  wb: XLSX.WorkBook,
+  params: {
+    workVolumes: WorkVolume[];
+    roomProgressList: RoomProgressItem[];
+    floorPlans: FloorPlan[];
+    structureConfig?: ProjectStructureConfig;
+    teamFilter?: { id?: string; name?: string; leader?: string };
+  },
+  canFinancials: boolean,
+) {
+  if (!params.workVolumes?.length || !params.roomProgressList?.length) return;
+  const structure = normalizeStructureGroupConfig(params.structureConfig);
+  const rows: Array<Record<string, any>> = [];
+
+  params.workVolumes.forEach((item) => {
+    const detail = computeWorkVolumeDetailBreakdown(
+      item,
+      params.workVolumes,
+      params.roomProgressList,
+      params.floorPlans || [],
+      params.teamFilter,
+    );
+    detail.rows.forEach((row) => {
+      const floor = params.floorPlans.find((candidate) => candidate.id === row.floorId);
+      const groupId = floor ? resolveFloorStructureGroupId(floor, structure) : structure.defaultGroupId;
+      const remaining = Math.max(0, Number(row.assignedVolume || 0) - Number(row.actualVolume || 0));
+      const record: Record<string, any> = {
+        '__workVolumeId': item.id,
+        '__workCategoryId': item.workCategoryId || item.id,
+        '__structureGroupId': groupId,
+        '__floorId': row.floorId,
+        '__roomId': row.roomId,
+        'Hạng Mục Công Việc': item.title,
+        [structure.label || 'Khu / Khối']: structure.enabled ? getStructureGroupName(groupId, structure) : '',
+        'Tầng': row.floorName,
+        'Căn / Phòng': row.roomName,
+        'Đội Thi Công': row.teamNames.length > 0 ? row.teamNames.join(', ') : 'Chưa gán đội',
+        'Đơn Vị': item.unit,
+        'KL Phân Bổ': row.assignedVolume,
+        'KL Thực Hiện': row.actualVolume,
+        'KL Còn Lại': remaining,
+        'Tiến Độ (%)': row.progressPercent,
+      };
+      if (canFinancials) {
+        record['Đơn Giá (VNĐ)'] = item.unitPrice || 0;
+        record['Thành Tiền Thực Hiện (VNĐ)'] = (row.actualVolume || 0) * (item.unitPrice || 0);
+      }
+      rows.push(record);
+    });
+  });
+
+  if (rows.length === 0) return;
+  const ws = XLSX.utils.json_to_sheet(rows);
+  autoFitColumns(ws);
+  XLSX.utils.book_append_sheet(wb, ws, 'Chi Tiet Khoi Luong');
 }
 
 
