@@ -123,7 +123,8 @@ import {
   MaterialNorm,
   RoomProgressItem,
   CrewRecord,
-  TeamInfo
+  TeamInfo,
+  StructureGroupingConfig
 } from './types';
 import { GoogleAuthHeader } from './components/GoogleAuthHeader';
 import { OfflineSyncBanner } from './components/OfflineSyncBanner';
@@ -156,6 +157,7 @@ import { computeDerivedWorkVolumes } from './utils/workVolumeComputation';
 import { canonicalNormCategoryIds, canonicalWorkCategoryId, resolveUniqueMaterialIdentity, resolveWorkVolumeRef, validateInventoryOutProvenance, validateMaterialNormCatalog, validateWorkVolumeCatalog } from './utils/linkageIntegrity';
 import { reconcileMaterialNormWorkCategoryLinks } from './utils/projectReconciliation';
 import { createEntityId, createShortToken } from './utils/idUtils';
+import { DEFAULT_STRUCTURE_GROUPING, normalizeStructureGrouping } from './utils/structureGrouping';
 import { normalizeUnit, areSameUnit } from './utils/unitUtils';
 import { buildMaterialAliasMap, resolveNormMaterialId, normalizeMaterialNameKey } from './utils/inventoryUtils';
 import { apiFetch, hasApiBackend } from './utils/api';
@@ -353,6 +355,7 @@ export default function App() {
   const [isSoftKeyboardOpen, setIsSoftKeyboardOpen] = useState(false);
   const [cloudDefectIndex, setCloudDefectIndex] = useState<{ projectId: string; ids: Set<string> } | null>(null);
   const [trashSettings, setTrashSettings] = useState<TrashSettings>(DEFAULT_TRASH_SETTINGS);
+  const [structureGrouping, setStructureGrouping] = useState<StructureGroupingConfig>(DEFAULT_STRUCTURE_GROUPING);
   const [superAdminUiSettings, setSuperAdminUiSettings] = useState<SuperAdminUiSettings>(DEFAULT_SUPER_ADMIN_UI_SETTINGS);
   const trashSettingsRef = useRef<TrashSettings>(DEFAULT_TRASH_SETTINGS);
   const [trashOperations, setTrashOperations] = useState<TrashOperation[]>([]);
@@ -1292,6 +1295,13 @@ export default function App() {
     trashSettingsRef.current = initialTrash;
     setTrashSettings(initialTrash);
 
+    let initialStructure = DEFAULT_STRUCTURE_GROUPING;
+    const savedStructureRaw = localStorage.getItem(getKey('construction_structure_grouping', activeProjectId));
+    if (savedStructureRaw) {
+      try { initialStructure = normalizeStructureGrouping(JSON.parse(savedStructureRaw)); } catch (_) {}
+    }
+    setStructureGrouping(initialStructure);
+
     // Project-level setting follows the project across PC/Web/APK. LocalStorage is only the offline cache.
     const unsubscribe = subscribeProjectSharedSettings(activeProjectId, (settings) => {
       if (typeof settings.driveAutoSyncEnabled === 'boolean') {
@@ -1303,6 +1313,11 @@ export default function App() {
         trashSettingsRef.current = nextTrash;
         setTrashSettings(nextTrash);
         localStorage.setItem(getKey('construction_trash_settings', activeProjectId), JSON.stringify(nextTrash));
+      }
+      if (settings.structureGrouping && typeof settings.structureGrouping === 'object') {
+        const nextStructure = normalizeStructureGrouping(settings.structureGrouping);
+        setStructureGrouping(nextStructure);
+        localStorage.setItem(getKey('construction_structure_grouping', activeProjectId), JSON.stringify(nextStructure));
       }
       if (settings.superAdminUi && typeof settings.superAdminUi === 'object') {
         const nextUi = normalizeSuperAdminUiSettings(settings.superAdminUi);
@@ -1456,12 +1471,14 @@ export default function App() {
         inspectorName,
         projectLocation,
         updatedAt: lastUpdatedAt,
+        structureGrouping,
       },
       data: {
         projectName,
         contractorName,
         inspectorName,
         projectLocation,
+        structureGrouping,
         materialNorms,
         inventory,
         workVolumes,
@@ -1510,7 +1527,7 @@ export default function App() {
         let payload: any;
         if (projectId === activeProjectIdRef.current) {
           payload = {
-            projectName, contractorName, inspectorName, projectLocation,
+            projectName, contractorName, inspectorName, projectLocation, structureGrouping,
             materialNorms, inventory, workVolumes, floorPlans, defects,
             roomProgressList, checklist, crewRecords, teams, updatedAt: lastUpdatedAt,
           };
@@ -1527,6 +1544,7 @@ export default function App() {
         allData[getKey('construction_contractor', projectId)] = payload.contractorName || '';
         allData[getKey('construction_inspector', projectId)] = payload.inspectorName || '';
         allData[getKey('construction_project_location', projectId)] = payload.projectLocation || '';
+        allData[getKey('construction_structure_grouping', projectId)] = JSON.stringify(normalizeStructureGrouping(payload.structureGrouping));
         allData[getKey('construction_material_norms', projectId)] = JSON.stringify(payload.materialNorms || []);
         allData[getKey('construction_inventory', projectId)] = JSON.stringify(payload.inventory || []);
         allData[getKey('construction_work_volumes', projectId)] = JSON.stringify(payload.workVolumes || []);
@@ -3648,6 +3666,18 @@ export default function App() {
     localStorage.setItem(getKey('construction_project_location'), projectLocation);
   }, [projectLocation, isHydrated, isLoadingProject, isRestoring]);
 
+  const handleUpdateStructureGrouping = async (next: StructureGroupingConfig) => {
+    if (!isProjectRoleResolved || currentUserRole !== 'ADMIN') {
+      alert('Chỉ ADMIN được quản lý Khu/Khối và phân tầng vào Khu/Khối.');
+      return;
+    }
+    const normalized = normalizeStructureGrouping(next);
+    setStructureGrouping(normalized);
+    localStorage.setItem(getKey('construction_structure_grouping', activeProjectId), JSON.stringify(normalized));
+    await saveProjectSharedSettings(activeProjectId, { structureGrouping: normalized });
+    logAuditAction('PROJECT_STRUCTURE_GROUPING_UPDATE', `Cập nhật ${normalized.label}: ${normalized.groups.length} nhóm · ${normalized.enabled ? 'bật' : 'tắt'}`, activeProjectId);
+  };
+
   useEffect(() => {
     if (!isHydrated || isLoadingProject) return;
     localStorage.setItem(getKey('construction_drive_auto_sync_enabled', activeProjectId), String(autoSyncEnabled));
@@ -3698,6 +3728,14 @@ export default function App() {
         if (isCurrentActive) setProjectLocation(data.projectLocation || '');
         if (!FIREBASE_ONLY_RUNTIME || LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED) await setAsyncItem(getKey('construction_project_location', pid), data.projectLocation || '');
         safeSetLocalStorageItem(getKey('construction_project_location', pid), data.projectLocation || '');
+      }
+      if (data.structureGrouping !== undefined) {
+        const restoredStructure = normalizeStructureGrouping(data.structureGrouping);
+        if (isCurrentActive) setStructureGrouping(restoredStructure);
+        localStorage.setItem(getKey('construction_structure_grouping', pid), JSON.stringify(restoredStructure));
+        if (FIREBASE_ONLY_RUNTIME) {
+          await saveProjectSharedSettings(pid, { structureGrouping: restoredStructure });
+        }
       }
       const nextState = {
         materialNorms: Array.isArray(data.materialNorms) ? data.materialNorms : (isCurrentActive ? present.materialNorms : []),
@@ -6753,6 +6791,8 @@ export default function App() {
               dueAlertCount={dueDateAlerts.length}
               crewRecords={crewRecords}
               teams={teams}
+              floorPlans={floorPlans}
+              structureGrouping={structureGrouping}
               lastUpdatedAt={lastUpdatedAt}
               isOnline={isOnline}
               isSyncing={isSyncing}
@@ -6791,6 +6831,7 @@ export default function App() {
               roomProgressList={roomProgressList}
               teams={teams}
               floorPlans={floorPlans}
+              structureGrouping={structureGrouping}
               defaultHandler={inspectorName}
               onImportInventory={handleImportInventory}
               onImportNorms={handleImportNorms}
@@ -6803,6 +6844,7 @@ export default function App() {
               workVolumes={computedWorkVolumes}
               floorPlans={floorPlans}
               roomProgressList={roomProgressList}
+              structureGrouping={structureGrouping}
               projectName={projectName}
               userRole={currentUserRole}
               onAddWorkVolume={handleAddWorkVolume}
@@ -6824,6 +6866,8 @@ export default function App() {
             <FloorPlanDefectTab
               projectId={activeProjectId}
               floorPlans={floorPlans}
+              structureGrouping={structureGrouping}
+              onUpdateStructureGrouping={handleUpdateStructureGrouping}
               defects={activeDefects}
               roomProgressList={roomProgressList}
               checklistItems={activeChecklist}
@@ -6899,6 +6943,7 @@ export default function App() {
               projectLocation={projectLocation}
               crewRecords={crewRecords}
               floorPlans={floorPlans}
+              structureGrouping={structureGrouping}
               roomProgressList={roomProgressList}
               defects={activeDefects}
               workVolumes={computedWorkVolumes}
@@ -7212,6 +7257,7 @@ export default function App() {
           defects={activeDefects}
           checklist={activeChecklist}
           floorPlans={floorPlans}
+          structureGrouping={structureGrouping}
           roomProgressList={roomProgressList}
           crewRecords={crewRecords}
           teams={teams}
