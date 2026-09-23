@@ -178,7 +178,30 @@ const firestoreDocUrl = (path) => {
   return `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/databases/(default)/documents/${encoded}`;
 };
 
-async function probeUserFirestoreRest(name, token, path, options = {}) {
+function safeGoogleErrorDetails(body) {
+  const details = Array.isArray(body?.error?.details) ? body.error.details : [];
+  return details.slice(0, 8).map((item) => {
+    const raw = item && typeof item === 'object' ? item : {};
+    const out = {};
+    for (const [key, value] of Object.entries(raw)) {
+      if (key === '@type' || key === 'reason' || key === 'domain' || key === 'metadata') {
+        out[key] = value;
+        continue;
+      }
+      if (key === 'violations' && Array.isArray(value)) {
+        out.violations = value.slice(0, 8).map((violation) => ({
+          subject: String(violation?.subject || '').slice(0, 240),
+          description: String(violation?.description || '').slice(0, 320),
+          quotaMetric: String(violation?.quotaMetric || violation?.quota_metric || '').slice(0, 240),
+          quotaId: String(violation?.quotaId || violation?.quota_id || '').slice(0, 240),
+        }));
+      }
+    }
+    return out;
+  });
+}
+
+async function probeFirestoreRest(name, token, path, options = {}) {
   const includeApiKey = Boolean(options.includeApiKey);
   const quotaUser = String(options.quotaUser || '').trim();
   const headers = { Authorization: `Bearer ${token}` };
@@ -188,7 +211,8 @@ async function probeUserFirestoreRest(name, token, path, options = {}) {
   const body = await response.clone().json().catch(() => null);
   const safeStatus = String(body?.error?.status || '').trim();
   const safeCode = Number(body?.error?.code || 0) || response.status;
-  const safeMessage = String(body?.error?.message || '').replace(/[\r\n]+/g, ' ').slice(0, 240);
+  const safeMessage = String(body?.error?.message || '').replace(/[\r\n]+/g, ' ').slice(0, 320);
+  const safeDetails = safeGoogleErrorDetails(body);
   report.firestoreRestProbes = Array.isArray(report.firestoreRestProbes) ? report.firestoreRestProbes : [];
   report.firestoreRestProbes.push({
     name,
@@ -198,8 +222,10 @@ async function probeUserFirestoreRest(name, token, path, options = {}) {
     googleStatus: safeStatus || null,
     googleCode: safeCode || null,
     googleMessage: safeMessage || null,
+    googleDetails: safeDetails,
   });
   console.log(`FIRESTORE REST PROBE: ${name} — HTTP ${response.status}${safeStatus ? ` / ${safeStatus}` : ''}${safeMessage ? ` — ${safeMessage}` : ''}`);
+  if (safeDetails.length) console.log(`FIRESTORE REST DETAILS: ${name} — ${JSON.stringify(safeDetails)}`);
   return response;
 }
 
@@ -410,18 +436,24 @@ try {
   const adminIdToken = await admin.auth.currentUser.getIdToken(true);
 
   const editorQuotaUser = crypto.createHash('sha256').update(editorUid).digest('hex').slice(0, 32);
-  const directRestNoKey = await probeUserFirestoreRest('EDITOR project-root direct REST without API key', editorIdToken, `projects/${pid}`);
-  const directRestWithKey = await probeUserFirestoreRest('EDITOR project-root direct REST with API key', editorIdToken, `projects/${pid}`, { includeApiKey: true });
-  const directRestWithQuotaUser = await probeUserFirestoreRest(
+  const directRestNoKey = await probeFirestoreRest('EDITOR project-root direct REST without API key', editorIdToken, `projects/${pid}`);
+  const directRestWithKey = await probeFirestoreRest('EDITOR project-root direct REST with API key', editorIdToken, `projects/${pid}`, { includeApiKey: true });
+  const directRestWithQuotaUser = await probeFirestoreRest(
     'EDITOR project-root direct REST with API key + quota user',
     editorIdToken,
     `projects/${pid}`,
     { includeApiKey: true, quotaUser: editorQuotaUser },
   );
+  const diagnosticAdminOAuthToken = await adminAccessToken();
+  const directRestServiceAccount = await probeFirestoreRest(
+    'SERVICE ACCOUNT project-root direct REST OAuth',
+    diagnosticAdminOAuthToken,
+    `projects/${pid}`,
+  );
   if (directRestWithQuotaUser.status !== 200) {
-    throw new Error(`DIRECT_FIRESTORE_REST_QUOTA_PARTITION_FAILED: no-key=${directRestNoKey.status}, api-key=${directRestWithKey.status}, quota-user=${directRestWithQuotaUser.status}`);
+    throw new Error(`DIRECT_FIRESTORE_REST_QUOTA_PARTITION_FAILED: no-key=${directRestNoKey.status}, api-key=${directRestWithKey.status}, quota-user=${directRestWithQuotaUser.status}, service-account=${directRestServiceAccount.status}`);
   }
-  pass('EDITOR direct Firestore REST project-root read with per-user quota partition', `HTTP 200; baseline no-key=${directRestNoKey.status}, api-key=${directRestWithKey.status}`);
+  pass('EDITOR direct Firestore REST project-root read with per-user quota partition', `HTTP 200; baseline no-key=${directRestNoKey.status}, api-key=${directRestWithKey.status}, service-account=${directRestServiceAccount.status}`);
 
   r2ObjectKey = `projects/${pid}/media/dev-live-golden.txt`;
   const r2Endpoint = `${r2Url}/v1/object?key=${encodeURIComponent(r2ObjectKey)}`;
