@@ -100,13 +100,56 @@ function matchesExpected(actualSize: number, actualSha256: string | undefined, e
   return actualSize > 0 && sizeMatches && checksumMatches;
 }
 
+const R2_AUTH_BACKEND_RETRY_ATTEMPTS = 4;
+const sleep = (ms: number) => ms > 0 ? new Promise<void>((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
+
+function retryAfterDelayMs(response: Response, fallbackMs: number): number {
+  const raw = String(response.headers.get('Retry-After') || '').trim();
+  let hinted = 0;
+  if (/^\d+(?:\.\d+)?$/.test(raw)) hinted = Number(raw) * 1000;
+  else if (raw) {
+    const at = Date.parse(raw);
+    if (Number.isFinite(at)) hinted = Math.max(0, at - Date.now());
+  }
+  return Math.min(5000, Math.max(fallbackMs, hinted));
+}
+
+async function fetchR2WithAuthBackendRetry(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  context?: { projectId?: string; area?: string; storagePath?: string },
+): Promise<Response> {
+  let response: Response | null = null;
+  for (let attempt = 0; attempt < R2_AUTH_BACKEND_RETRY_ATTEMPTS; attempt += 1) {
+    response = await fetch(input, init);
+    if (response.status !== 503) return response;
+
+    const detail = await response.clone().text().catch(() => '');
+    if (detail && !detail.includes('AUTH_BACKEND_UNAVAILABLE')) return response;
+    if (attempt === R2_AUTH_BACKEND_RETRY_ATTEMPTS - 1) return response;
+
+    const delayMs = retryAfterDelayMs(response, Math.min(5000, 750 * (2 ** attempt)));
+    if (context?.projectId) {
+      appendRuntimeDiagnostic({
+        level: 'warn',
+        area: context.area || 'r2-auth-backend',
+        projectId: context.projectId,
+        code: 'AUTH_BACKEND_UNAVAILABLE',
+        message: `${context.storagePath || ''} | retry ${attempt + 1}/${R2_AUTH_BACKEND_RETRY_ATTEMPTS} sau ${delayMs}ms`,
+      });
+    }
+    await sleep(delayMs);
+  }
+  return response!;
+}
+
 async function verifyR2ObjectViaAuthenticatedGet(
   url: string,
   authorization: string,
   expectedSize?: number,
   expectedSha256?: string,
 ): Promise<R2ObjectVerification> {
-  const fallback = await fetch(url, {
+  const fallback = await fetchR2WithAuthBackendRetry(url, {
     method: 'GET',
     headers: { Authorization: authorization },
     cache: 'no-store',
@@ -139,11 +182,12 @@ export async function verifyR2ObjectReady(
 ): Promise<R2ObjectVerification> {
   let authorization = await authHeader();
   const url = gatewayUrl('/v1/object', storagePath);
-  const requestHead = () => fetch(url, {
+  const projectId = storagePath.match(/^projects\/([^/]+)\//)?.[1] || '';
+  const requestHead = () => fetchR2WithAuthBackendRetry(url, {
     method: 'HEAD',
     headers: { Authorization: authorization },
     cache: 'no-store',
-  });
+  }, { projectId, area: 'r2-verify', storagePath });
 
   let response: Response;
   try {
@@ -199,7 +243,7 @@ async function putObject(storagePath: string, blob: Blob, metadata: Record<strin
   const projectId = String(metadata.projectId || '');
   const url = gatewayUrl('/v1/object', storagePath);
   let authorization = await authHeader();
-  const requestPut = () => fetch(url, {
+  const requestPut = () => fetchR2WithAuthBackendRetry(url, {
     method: 'PUT',
     headers: {
       Authorization: authorization,
@@ -207,7 +251,7 @@ async function putObject(storagePath: string, blob: Blob, metadata: Record<strin
       'X-HNL-Metadata': encodeURIComponent(JSON.stringify(metadata)),
     },
     body: blob,
-  });
+  }, { projectId, area: 'r2-upload', storagePath });
 
   let response: Response;
   try {
@@ -298,11 +342,11 @@ export async function purgeR2Object(storagePath?: string | null): Promise<void> 
   const projectId = path.match(/^projects\/([^/]+)\//)?.[1] || '';
   const url = gatewayUrl('/v1/object', path);
   let authorization = await authHeader();
-  const requestDelete = () => fetch(url, {
+  const requestDelete = () => fetchR2WithAuthBackendRetry(url, {
     method: 'DELETE',
     headers: { Authorization: authorization },
     cache: 'no-store',
-  });
+  }, { projectId, area: 'r2-purge', storagePath: path });
 
   let response: Response;
   try {
@@ -335,11 +379,11 @@ export async function downloadR2Blob(storagePath?: string | null): Promise<Blob 
   if (!path) return null;
   const projectId = path.match(/^projects\/([^/]+)\//)?.[1] || '';
 
-  const requestObject = async (forceRefresh = false) => fetch(gatewayUrl('/v1/object', path), {
+  const requestObject = async (forceRefresh = false) => fetchR2WithAuthBackendRetry(gatewayUrl('/v1/object', path), {
     method: 'GET',
     headers: { Authorization: await authHeader(forceRefresh) },
     cache: 'no-store',
-  });
+  }, { projectId, area: 'r2-download', storagePath: path });
 
   try {
     let response = await requestObject(false);
