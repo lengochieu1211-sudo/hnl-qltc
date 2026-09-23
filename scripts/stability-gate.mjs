@@ -355,7 +355,8 @@ requireAll(multiProjectOverview, [
 requireAll(homeDashboard, [
   'Tổng quan công trường',
   'relative isolate max-h-[440px] overflow-auto overscroll-contain',
-  'sticky top-[33px]',
+  '<tr className="h-8">',
+  'sticky top-[31px]',
   'Mở thẳng dự án này khi khởi động',
   'Dự án của tôi',
   'Báo cáo quân số nhiều dự án',
@@ -373,7 +374,8 @@ requireAll(homeDashboard, [
 requireAll(crewReportShare, [
   '1 ngày',
   'relative isolate max-h-[42vh] overflow-auto overscroll-contain',
-  'sticky top-[33px]',
+  '<tr className="h-8">',
+  'sticky top-[31px]',
   'Nhiều ngày',
   'Sao chép nội dung',
   'Chia sẻ nội dung',
