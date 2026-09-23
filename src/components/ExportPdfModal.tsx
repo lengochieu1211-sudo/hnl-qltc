@@ -581,6 +581,26 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     return dateDesc || teamCmp || floorCmp;
   });
 
+  const selectedTeamForScope = selectedTeamId === 'all' ? undefined : teams.find((team) => team.id === selectedTeamId);
+  const hasScopedLocationFilter = selectedStructureGroupId !== 'all'
+    || !isAllSelected
+    || selectedRoomId !== 'all'
+    || selectedTeamId !== 'all';
+  const workVolumeReportItems = sortedWorkVolumes
+    .map((item) => {
+      const detail = computeWorkVolumeDetailBreakdown(
+        item,
+        workVolumes,
+        filteredRooms,
+        scopedFloorPlans,
+        selectedTeamForScope
+          ? { id: selectedTeamForScope.id, name: selectedTeamForScope.name, leader: selectedTeamForScope.leader }
+          : undefined,
+      );
+      return { item, detail };
+    })
+    .filter(({ detail }) => !hasScopedLocationFilter || detail.rows.length > 0);
+
   const passedCount = filteredChecklist.filter((c) => c.status === 'passed').length;
   const passRate = filteredChecklist.length > 0 ? Math.round((passedCount / filteredChecklist.length) * 100) : 0;
   const openDefectsCount = filteredDefects.filter((d) => d.status !== 'Đã nghiệm thu').length;
