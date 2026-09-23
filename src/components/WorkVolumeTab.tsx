@@ -20,7 +20,10 @@ import {
   Calendar,
   AlertTriangle,
   Bell,
-  ArrowUpDown
+  ArrowUpDown,
+  Eye,
+  X,
+  Layers3
 } from 'lucide-react';
 import { WorkVolume, CategoryType, FloorPlan, RoomProgressItem } from '../types';
 import { exportWorkVolumesTemplate } from '../utils/excelExport';
@@ -31,6 +34,13 @@ import { getCurrentUserRole, canViewFinancials, canManageWorkVolumeStructure, Us
 import { normalizeUnit, unitKey } from '../utils/unitUtils';
 import { createEntityId } from '../utils/idUtils';
 import { canonicalWorkCategoryId, validateWorkVolumeCatalog } from '../utils/linkageIntegrity';
+import { computeWorkVolumeDetailBreakdown } from '../utils/workVolumeComputation';
+import {
+  getStructureGroupName,
+  normalizeStructureGroupConfig,
+  resolveFloorStructureGroupId,
+  type ProjectStructureConfig,
+} from '../utils/structureGroupUtils';
 
 import { QuickSortBar } from './QuickSortBar';
 
@@ -38,6 +48,7 @@ interface WorkVolumeTabProps {
   workVolumes: WorkVolume[];
   floorPlans?: FloorPlan[];
   roomProgressList?: RoomProgressItem[];
+  structureConfig: ProjectStructureConfig;
   projectName?: string;
   userRole?: UserRole;
   onAddWorkVolume: (item: Omit<WorkVolume, 'id'>) => void;
@@ -58,6 +69,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   workVolumes,
   floorPlans = [],
   roomProgressList = [],
+  structureConfig,
   projectName,
   userRole,
   onAddWorkVolume,
@@ -105,6 +117,11 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [isImportFromRoomsOpen, setIsImportFromRoomsOpen] = useState(false);
   const [selectedRoomIdsForImport, setSelectedRoomIdsForImport] = useState<string[]>([]);
+  const normalizedStructureConfig = useMemo(() => normalizeStructureGroupConfig(structureConfig), [structureConfig]);
+  const [detailVolumeTarget, setDetailVolumeTarget] = useState<WorkVolume | null>(null);
+  const [detailStructureGroupId, setDetailStructureGroupId] = useState<string>('all');
+  const [detailFloorId, setDetailFloorId] = useState<string>('all');
+  const [detailSearch, setDetailSearch] = useState<string>('');
 
   // Role changes can happen without remounting this tab. Never leave an ADMIN-only
   // modal/selection open after switching to EDITOR/VIEWER in the same browser session.
@@ -205,7 +222,45 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     return workVolumes.filter((item) => item.category === selectedCategory);
   }, [workVolumes, selectedCategory]);
 
-  const sortedFilteredVolumes = useMemo(() => {
+  const detailBreakdown = useMemo(() => {
+    if (!detailVolumeTarget) return null;
+    return computeWorkVolumeDetailBreakdown(detailVolumeTarget, workVolumes, roomProgressList, floorPlans);
+  }, [detailVolumeTarget, workVolumes, roomProgressList, floorPlans]);
+
+  const detailRows = useMemo(() => {
+    if (!detailBreakdown) return [];
+    const query = detailSearch.trim().toLocaleLowerCase('vi-VN');
+    return detailBreakdown.rows.filter((row) => {
+      const floor = floorPlans.find((item) => item.id === row.floorId);
+      const groupId = floor ? resolveFloorStructureGroupId(floor, normalizedStructureConfig) : normalizedStructureConfig.defaultGroupId;
+      if (detailStructureGroupId !== 'all' && groupId !== detailStructureGroupId) return false;
+      if (detailFloorId !== 'all' && row.floorId !== detailFloorId) return false;
+      if (query) {
+        const haystack = [
+          row.roomName,
+          row.floorName,
+          ...row.teamNames,
+        ].join(' ').toLocaleLowerCase('vi-VN');
+        if (!haystack.includes(query)) return false;
+      }
+      return true;
+    });
+  }, [detailBreakdown, detailSearch, detailStructureGroupId, detailFloorId, floorPlans, normalizedStructureConfig]);
+
+  const detailVisibleFloorOptions = useMemo(() => {
+    if (!detailBreakdown) return [];
+    const ids = new Set(detailBreakdown.rows.map((row) => row.floorId));
+    return floorPlans
+      .filter((floor) => ids.has(floor.id))
+      .filter((floor) => detailStructureGroupId === 'all' || resolveFloorStructureGroupId(floor, normalizedStructureConfig) === detailStructureGroupId);
+  }, [detailBreakdown, floorPlans, detailStructureGroupId, normalizedStructureConfig]);
+
+  useEffect(() => {
+    if (detailFloorId === 'all') return;
+    if (!detailVisibleFloorOptions.some((floor) => floor.id === detailFloorId)) setDetailFloorId('all');
+  }, [detailFloorId, detailVisibleFloorOptions]);
+
+    const sortedFilteredVolumes = useMemo(() => {
     const volumes = [...filteredVolumes];
     if (volSortBy === 'none') return volumes;
     
@@ -810,7 +865,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                     )}
 
                     {/* Action and financial details */}
-                    <div className="flex items-center justify-between border-t border-slate-100 pt-2 text-xs">
+                    <div className="flex items-center justify-between border-t border-slate-100 pt-2 text-xs gap-2 flex-wrap">
                       {hasFinancialAccess ? (
                         <span className="text-[11px] text-slate-500">
                           Thành tiền: <strong className="text-slate-800">{formatVND((item.actual ?? 0) * (item.unitPrice ?? 0))}</strong>
@@ -820,6 +875,20 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                           Hạng mục: {item.category || 'Chung'}
                         </span>
                       )}
+                      <div className="flex items-center gap-2 ml-auto">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDetailVolumeTarget(item);
+                            setDetailStructureGroupId('all');
+                            setDetailFloorId('all');
+                            setDetailSearch('');
+                          }}
+                          className="text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-extrabold text-[11px]"
+                          title="Xem chi tiết khối lượng theo Khu/Khối, Tầng, Căn/Phòng và đội"
+                        >
+                          <Eye className="w-3.5 h-3.5" /> Xem chi tiết
+                        </button>
                       {hasStructureManageAccess && (
                         <div className="flex items-center gap-2">
                           <button
@@ -850,6 +919,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                           </button>
                         </div>
                       )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -862,7 +932,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       {/* Add / Edit Work Volume Modal */}
       {hasStructureManageAccess && (showAddForm || editingVolume !== null) && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white w-full sm:max-w-xl md:max-w-2xl rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
               <h3 className="text-base font-bold text-slate-900">
                 {editingVolume ? 'Sửa hạng mục khối lượng' : 'Thêm hạng mục khối lượng'}
@@ -1123,7 +1193,107 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         </div>
       )}
 
-      {/* Delete Volume Confirmation Modal */}
+      {detailVolumeTarget && detailBreakdown && (
+        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-slate-900/65 backdrop-blur-sm p-0 sm:p-4">
+          <div className="bg-white w-full sm:max-w-2xl md:max-w-3xl lg:max-w-5xl rounded-t-3xl sm:rounded-3xl shadow-2xl max-h-[94vh] overflow-hidden flex flex-col">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-200 p-4 sm:p-5">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <Layers3 className="w-4 h-4 text-indigo-600 shrink-0" />
+                  <h3 className="font-extrabold text-slate-900 truncate">Chi tiết khối lượng · {detailVolumeTarget.title}</h3>
+                </div>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Tổng danh mục: <strong>{formatDecimal(detailVolumeTarget.actual)}</strong> / {formatDecimal(detailVolumeTarget.planned)} {detailVolumeTarget.unit}
+                  {' · '}Phân bổ qua Căn/Phòng: <strong>{formatDecimal(detailBreakdown.totalActual)}</strong> / {formatDecimal(detailBreakdown.totalAssigned)} {detailVolumeTarget.unit}
+                </p>
+              </div>
+              <button type="button" onClick={() => setDetailVolumeTarget(null)} className="p-2 rounded-xl hover:bg-slate-100 text-slate-500" aria-label="Đóng chi tiết khối lượng">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3 sm:p-4 border-b border-slate-200 bg-slate-50/80 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+              {normalizedStructureConfig.enabled && (
+                <select
+                  value={detailStructureGroupId}
+                  onChange={(event) => setDetailStructureGroupId(event.target.value)}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700"
+                >
+                  <option value="all">Tất cả {normalizedStructureConfig.label}</option>
+                  {normalizedStructureConfig.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
+                </select>
+              )}
+              <select
+                value={detailFloorId}
+                onChange={(event) => setDetailFloorId(event.target.value)}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700"
+              >
+                <option value="all">Tất cả tầng</option>
+                {detailVisibleFloorOptions.map((floor) => <option key={floor.id} value={floor.id}>{floor.floorName}</option>)}
+              </select>
+              <input
+                value={detailSearch}
+                onChange={(event) => setDetailSearch(event.target.value)}
+                placeholder="Tìm Căn/Phòng hoặc đội..."
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 lg:col-span-2"
+              />
+            </div>
+
+            <div className="flex-1 overflow-auto p-3 sm:p-4">
+              {detailRows.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-xs text-slate-500">Không có Căn/Phòng phù hợp phạm vi lọc.</div>
+              ) : (
+                <div className="min-w-[760px] overflow-hidden rounded-2xl border border-slate-200">
+                  <table className="w-full text-[11px]">
+                    <thead className="bg-slate-100 text-slate-700">
+                      <tr>
+                        {normalizedStructureConfig.enabled && <th className="px-3 py-2 text-left">{normalizedStructureConfig.label}</th>}
+                        <th className="px-3 py-2 text-left">Tầng</th>
+                        <th className="px-3 py-2 text-left">Căn / Phòng</th>
+                        <th className="px-3 py-2 text-left">Đội thi công</th>
+                        <th className="px-3 py-2 text-right">Khối lượng</th>
+                        <th className="px-3 py-2 text-right">Đã thực hiện</th>
+                        <th className="px-3 py-2 text-right">Tiến độ</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {detailRows.map((row) => {
+                        const floor = floorPlans.find((item) => item.id === row.floorId);
+                        const groupId = floor ? resolveFloorStructureGroupId(floor, normalizedStructureConfig) : normalizedStructureConfig.defaultGroupId;
+                        return (
+                          <tr key={row.roomId} className="bg-white hover:bg-indigo-50/40">
+                            {normalizedStructureConfig.enabled && <td className="px-3 py-2 font-bold text-indigo-700">{getStructureGroupName(groupId, normalizedStructureConfig)}</td>}
+                            <td className="px-3 py-2 font-semibold text-slate-700">{row.floorName}</td>
+                            <td className="px-3 py-2 font-extrabold text-slate-900">{row.roomName}</td>
+                            <td className="px-3 py-2 text-slate-600">{row.teamNames.length > 0 ? row.teamNames.join(', ') : 'Chưa gán đội'}</td>
+                            <td className="px-3 py-2 text-right font-semibold">{formatDecimal(row.assignedVolume)} {detailVolumeTarget.unit}</td>
+                            <td className="px-3 py-2 text-right font-extrabold text-emerald-700">{formatDecimal(row.actualVolume)} {detailVolumeTarget.unit}</td>
+                            <td className="px-3 py-2 text-right">
+                              <span className={`inline-flex min-w-[48px] justify-center rounded-full px-2 py-1 font-extrabold ${row.progressPercent >= 100 ? 'bg-emerald-100 text-emerald-800' : row.progressPercent > 0 ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-500'}`}>
+                                {row.progressPercent}%
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot className="bg-slate-50 font-extrabold text-slate-800">
+                      <tr>
+                        <td colSpan={normalizedStructureConfig.enabled ? 4 : 3} className="px-3 py-2">TỔNG TRONG PHẠM VI ĐANG XEM · {detailRows.length} Căn/Phòng</td>
+                        <td className="px-3 py-2 text-right">{formatDecimal(detailRows.reduce((sum, row) => sum + row.assignedVolume, 0))} {detailVolumeTarget.unit}</td>
+                        <td className="px-3 py-2 text-right text-emerald-700">{formatDecimal(detailRows.reduce((sum, row) => sum + row.actualVolume, 0))} {detailVolumeTarget.unit}</td>
+                        <td className="px-3 py-2 text-right">—</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+            {/* Delete Volume Confirmation Modal */}
       {hasStructureManageAccess && deletingVolumeTarget && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-5 max-w-xs w-full space-y-4 border border-slate-100 shadow-2xl text-center">
