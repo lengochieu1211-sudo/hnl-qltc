@@ -565,7 +565,9 @@ export function computeMaterialNeeds(params: {
 
     const provenance = validateInventoryOutProvenance({ tx, rooms, workVolumes, materialNorms, teams });
     if (provenance.state === 'resolved' && !provenance.teamId && provenance.room) { const normalizeTeamName = (value: unknown) => String(value || '').trim().toLocaleLowerCase('vi'); const ids = new Set<string>(); const collect = (idValue?: string, nameValue?: string) => { const directId = String(idValue || '').trim(); if (directId && teams.some((team) => team.id === directId)) ids.add(directId); const name = normalizeTeamName(nameValue); if (!name) return; const matches = teams.filter((team) => normalizeTeamName(team.name) === name); if (matches.length === 1) ids.add(matches[0].id); else if (matches.length > 1) matches.forEach((team) => ids.add(team.id)); }; collect(provenance.room.teamId, provenance.room.assignedTeam); (provenance.room.subItems || []).forEach((item) => collect(item.teamId, item.assignedTeam)); if (ids.size === 1) provenance.teamId = Array.from(ids)[0]; }
-    const categoryAmbiguousButMaterialAllocatable = provenance.state === 'ambiguous' && provenance.ambiguityAt === 'workCategory';
+    const categoryAmbiguousButMaterialAllocatable =
+      (provenance.state === 'ambiguous' && provenance.ambiguityAt === 'workCategory')
+      || (provenance.state === 'resolved' && !provenance.workCategoryId);
     if (provenance.state !== 'resolved' && !categoryAmbiguousButMaterialAllocatable) {
       unallocated.set(key, (unallocated.get(key) || 0) + qty);
       warnings.push({
@@ -589,7 +591,7 @@ export function computeMaterialNeeds(params: {
         roomId: tx.sourceRoomId,
         floorId: provenance.floorId || tx.sourceFloorId,
         teamId: tx.sourceTeamId,
-        message: `Phiếu ${tx.id} chưa suy ra duy nhất hạng mục nguồn. Chỉ tính vào tổng vật tư khi phạm vi không lọc theo hạng mục/đội.`,
+        message: `Phiếu ${tx.id} chưa có/suy ra duy nhất hạng mục nguồn. Chỉ tính vào tổng vật tư khi phạm vi không lọc theo hạng mục/đội.`,
       });
       if (hasWorkCategoryScope || hasTeamScope) return;
     }
