@@ -7244,6 +7244,7 @@ export default function App() {
           defects={activeDefects}
           checklist={activeChecklist}
           floorPlans={floorPlans}
+          structureConfig={structureConfig}
           roomProgressList={roomProgressList}
           crewRecords={crewRecords}
           teams={teams}
