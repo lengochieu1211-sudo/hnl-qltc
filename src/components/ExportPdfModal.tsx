@@ -618,6 +618,66 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   ].filter(Boolean);
   const reportScopeLabel = reportScopeParts.length > 0 ? reportScopeParts.join(' · ') : 'Toàn bộ công trình';
 
+  const getWorkVolumeDetailHtml = (): string => {
+    if (!includeWorkVolumeDetails) return '';
+    const detailed = workVolumeReportItems.filter(({ detail }) => detail.rows.length > 0);
+    if (detailed.length === 0) return '';
+    const h = escapeHtml;
+    const blocks = detailed.map(({ item, detail }) => {
+      const body = detail.rows.map((row) => {
+        const floor = effectiveFloorPlans.find((candidate) => candidate.id === row.floorId);
+        const groupName = normalizedStructureConfig.enabled && floor
+          ? getStructureGroupName(resolveFloorStructureGroupId(floor, normalizedStructureConfig), normalizedStructureConfig)
+          : '';
+        const remaining = Math.max(0, Number(row.assignedVolume || 0) - Number(row.actualVolume || 0));
+        return `
+          <tr>
+            ${normalizedStructureConfig.enabled ? `<td>${h(groupName)}</td>` : ''}
+            <td>${h(row.floorName)}</td>
+            <td><strong>${h(row.roomName)}</strong></td>
+            <td>${h(row.teamNames.length > 0 ? row.teamNames.join(', ') : 'Chưa gán đội')}</td>
+            <td style="text-align:right;">${formatDecimal(row.assignedVolume)}</td>
+            <td style="text-align:right;color:#166534;font-weight:bold;">${formatDecimal(row.actualVolume)}</td>
+            <td style="text-align:right;">${formatDecimal(remaining)}</td>
+            <td style="text-align:right;font-weight:bold;">${row.progressPercent}%</td>
+          </tr>
+        `;
+      }).join('');
+      return `
+        <div class="page-break-avoid" style="margin:10px 0 14px;">
+          <div style="font-size:10.5px;font-weight:800;color:#1e1b4b;margin:0 0 5px;">
+            ${h(item.title)} · ${h(item.unit || '')}
+          </div>
+          <table>
+            <thead>
+              <tr>
+                ${normalizedStructureConfig.enabled ? `<th>${h(normalizedStructureConfig.label)}</th>` : ''}
+                <th>Tầng</th>
+                <th>Căn / Phòng</th>
+                <th>Đội thi công</th>
+                <th style="text-align:right;">KL phân bổ</th>
+                <th style="text-align:right;">Đã thực hiện</th>
+                <th style="text-align:right;">Còn lại</th>
+                <th style="text-align:right;">Tiến độ</th>
+              </tr>
+            </thead>
+            <tbody>${body}</tbody>
+            <tfoot>
+              <tr>
+                <td colspan="${normalizedStructureConfig.enabled ? 4 : 3}"><strong>TỔNG · ${detail.rows.length} Căn/Phòng</strong></td>
+                <td style="text-align:right;"><strong>${formatDecimal(detail.totalAssigned)}</strong></td>
+                <td style="text-align:right;color:#166534;"><strong>${formatDecimal(detail.totalActual)}</strong></td>
+                <td style="text-align:right;"><strong>${formatDecimal(Math.max(0, detail.totalAssigned - detail.totalActual))}</strong></td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      `;
+    }).join('');
+    return `<div class="section-title">📑 CHI TIẾT KHỐI LƯỢNG THEO ${h(normalizedStructureConfig.enabled ? normalizedStructureConfig.label + ' / ' : '')}TẦNG / CĂN / ĐỘI</div>${blocks}`;
+  };
+
   // High-fidelity HTML Report Generator
   const getReportHtml = (): string => {
     const h = escapeHtml;
@@ -779,7 +839,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
           <p style="color: #64748b; font-style: italic; margin-bottom: 16px;">Không có dữ liệu kho vật tư.</p>
         `) : ''}
 
-        ${includeWorkVolumes ? (workVolumes.length > 0 ? `
+        ${includeWorkVolumes ? (workVolumeReportItems.length > 0 ? `
           <div class="section-title">📊 KHỐI LƯỢNG THI CÔNG &amp; SẢN LƯỢNG</div>
           <table>
             <thead>
@@ -788,8 +848,9 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                 <th>Hạng mục công việc</th>
                 <th style="width: 90px;">Phân Loại</th>
                 <th style="width: 55px; text-align: center;">ĐVT</th>
-                <th style="width: 80px; text-align: right;">KL Kế Hoạch</th>
-                <th style="width: 80px; text-align: right;">KL Thực Hiện</th>
+                <th style="width: 75px; text-align: right;">KL Kế Hoạch</th>
+                <th style="width: 75px; text-align: right;">KL Phân Bổ</th>
+                <th style="width: 75px; text-align: right;">KL Thực Hiện</th>
                 ${hasFinancialAccess ? `
                 <th style="width: 85px; text-align: right;">Đơn Giá (đ)</th>
                 <th style="width: 95px; text-align: right;">Thành Tiền (đ)</th>
@@ -797,22 +858,24 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
               </tr>
             </thead>
             <tbody>
-              ${sortedWorkVolumes.map((wv, idx) => `
+              ${workVolumeReportItems.map(({ item: wv, detail }, idx) => `
                 <tr>
                   <td style="text-align: center;">${idx + 1}</td>
                   <td><strong>${wv.title || ''}</strong></td>
                   <td>${wv.category || ''}</td>
                   <td style="text-align: center;">${wv.unit || ''}</td>
                   <td style="text-align: right;">${formatDecimal(wv.planned)}</td>
-                  <td style="text-align: right; color: #2563eb; font-weight: bold;">${formatDecimal(wv.actual)}</td>
+                  <td style="text-align: right;">${formatDecimal(detail.totalAssigned)}</td>
+                  <td style="text-align: right; color: #2563eb; font-weight: bold;">${formatDecimal(detail.totalActual)}</td>
                   ${hasFinancialAccess ? `
                   <td style="text-align: right;">${formatDecimal(wv.unitPrice)}</td>
-                  <td style="text-align: right; font-weight: bold;">${formatDecimal((wv.actual ?? 0) * (wv.unitPrice ?? 0))}</td>
+                  <td style="text-align: right; font-weight: bold;">${formatDecimal((detail.totalActual ?? 0) * (wv.unitPrice ?? 0))}</td>
                   ` : ''}
                 </tr>
               `).join('')}
             </tbody>
           </table>
+          ${getWorkVolumeDetailHtml()}
         ` : `
           <div class="section-title">📊 KHỐI LƯỢNG THI CÔNG &amp; SẢN LƯỢNG</div>
           <p style="color: #64748b; font-style: italic; margin-bottom: 16px;">Không có dữ liệu khối lượng thi công.</p>
