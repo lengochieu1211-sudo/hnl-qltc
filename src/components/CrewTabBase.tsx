@@ -305,6 +305,65 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     () => normalizeStructureGroupConfig(structureConfig).defaultGroupId,
   );
 
+  const floorById = useMemo(
+    () => new Map(floorPlans.map((floor) => [floor.id, floor] as const)),
+    [floorPlans],
+  );
+
+  const getRecordStructureGroupIds = (record: CrewRecord): string[] => {
+    const ids = new Set<string>();
+    if (record.structureGroupId && normalizedStructureConfig.groups.some((group) => group.id === record.structureGroupId)) {
+      ids.add(record.structureGroupId);
+    }
+    const floorRefs = [
+      ...(record.floorId ? [record.floorId] : []),
+      ...((record.floorWorks || []).map((work) => work.floorId)),
+    ].filter(Boolean);
+    floorRefs.forEach((floorId) => {
+      const floor = floorById.get(floorId);
+      if (floor) ids.add(resolveFloorStructureGroupId(floor, normalizedStructureConfig));
+    });
+    if (ids.size === 0) ids.add(normalizedStructureConfig.defaultGroupId);
+    return Array.from(ids);
+  };
+
+  const recordMatchesStructureGroup = (record: CrewRecord, groupId: string): boolean =>
+    groupId === 'all' || getRecordStructureGroupIds(record).includes(groupId);
+
+  const floorMatchesStructureGroup = (floorId?: string, groupId = selectedStructureGroupId): boolean => {
+    if (groupId === 'all') return true;
+    const floor = floorId ? floorById.get(floorId) : undefined;
+    return Boolean(floor && resolveFloorStructureGroupId(floor, normalizedStructureConfig) === groupId);
+  };
+
+  const structureScopedRooms = useMemo(
+    () => selectedStructureGroupId === 'all'
+      ? roomProgressList
+      : roomProgressList.filter((room) => floorMatchesStructureGroup(room.floorId)),
+    [roomProgressList, selectedStructureGroupId, floorPlans, normalizedStructureConfig],
+  );
+
+  const structureScopedDefects = useMemo(
+    () => selectedStructureGroupId === 'all'
+      ? defects
+      : defects.filter((defect) => floorMatchesStructureGroup(defect.floorId)),
+    [defects, selectedStructureGroupId, floorPlans, normalizedStructureConfig],
+  );
+
+  const structureScopedCrewRecords = useMemo(
+    () => selectedStructureGroupId === 'all'
+      ? crewRecords
+      : crewRecords.filter((record) => recordMatchesStructureGroup(record, selectedStructureGroupId)),
+    [crewRecords, selectedStructureGroupId, floorPlans, normalizedStructureConfig],
+  );
+
+  const logFloorPlans = useMemo(
+    () => !normalizedStructureConfig.enabled
+      ? floorPlans
+      : floorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === logStructureGroupId),
+    [floorPlans, normalizedStructureConfig, logStructureGroupId],
+  );
+
   // Load custom teams list from props
   const [teams, setTeams] = useState<TeamInfo[]>(() => propTeams || []);
 
