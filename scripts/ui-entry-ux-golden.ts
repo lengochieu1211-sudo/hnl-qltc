@@ -182,10 +182,13 @@ assert(workVolumeUi.includes('<Download className="w-3.5 h-3.5" /> Tải Excel �
 assert(workVolumeUi.includes('{hasStructureManageAccess && ('), 'Work Volume must hide ADMIN-only import/create actions from Engineer/Viewer');
 
 const multiProjectAccessUi = read('src/components/MultiProjectAccessPanel.tsx');
+const securityModalUi = read('src/components/SecurityModal.tsx');
 const multiProjectOverviewUi = read('src/components/MultiProjectOverview.tsx');
 const homeDashboardUi = read('src/components/HomeDashboard.tsx');
 const navSource = read('src/components/BottomNav.tsx');
-assert(multiProjectAccessUi.includes('Quản lý quyền nhiều dự án'), 'Security Center must expose central multi-project access management');
+assert(multiProjectAccessUi.includes('Nhiều dự án'), 'Security Center must expose central multi-project access management');
+assert(securityModalUi.includes('Thành viên & phân quyền') && securityModalUi.includes('Theo dự án') && securityModalUi.includes('Nhiều dự án'), 'Security Center must unify member access under project and multi-project tabs');
+assert(securityModalUi.includes('value={selectedPid}') && securityModalUi.includes('setSelectedPid'), 'Per-project member view must retain project switching');
 assert(multiProjectAccessUi.includes('Không cấp quyền'), 'Central access manager must support explicit per-project revoke state');
 assert(multiProjectAccessUi.includes('Áp dụng cho dự án đã chọn'), 'Central access manager must support batch role drafting without visiting each project');
 assert(multiProjectAccessUi.includes('applyProjectMemberAccessChangesAtomically'), 'Central access manager must commit canonical membership through the atomic multi-project engine');
