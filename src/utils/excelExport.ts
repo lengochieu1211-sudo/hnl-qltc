@@ -2,6 +2,7 @@ import * as XLSX from 'xlsx';
 import { InventoryItem, WorkVolume, DefectItem, ChecklistItem, FloorPlan, RoomProgressItem, MaterialNorm, CrewRecord, TeamInfo } from '../types';
 import { getDefectOverdueInfo } from './defectUtils';
 import { isTeamMatch, calculateTeamStatistics } from './teamUtils';
+import { computeTeamMaterialReconciliation } from './teamMaterialReconciliation';
 import { calculateStockSummary, resolveNormMaterialId } from './inventoryUtils';
 import { formatDateDDMMYYYY, formatDateTime } from './dateFormatter';
 import { saveWorkbookFile } from './fileExport';
@@ -743,6 +744,8 @@ export function exportTeamStatisticsToExcel(params: {
   projectName?: string;
   selectedTeamName?: string;
   workVolumes?: WorkVolume[];
+  inventory?: InventoryItem[];
+  materialNorms?: MaterialNorm[];
 }) {
   const wb = XLSX.utils.book_new();
   const projectNameStr = params.projectName || 'Cong_Trinh';
@@ -761,7 +764,7 @@ export function exportTeamStatisticsToExcel(params: {
     workVolumes: params.workVolumes || []
   });
 
-  // If a single team is selected ("Xuất Excel Đội Này"), export 5 detailed sheets
+  // If a single team is selected ("Xuất Excel Đội Này"), export detailed operational sheets
   if (params.selectedTeamName && activeTeams.length === 1) {
     const team = activeTeams[0];
     const stat = teamStatsMap[team.id] || calculateTeamStatistics({
@@ -908,6 +911,43 @@ export function exportTeamStatisticsToExcel(params: {
     const ws5 = XLSX.utils.json_to_sheet(logRows);
     autoFitColumns(ws5);
     XLSX.utils.book_append_sheet(wb, ws5, '05-Nhat ky quan so');
+
+    // Sheet 6: material issued vs constructed-volume norm.
+    const materialLines = computeTeamMaterialReconciliation({
+      team,
+      stats: stat,
+      inventory: params.inventory || [],
+      materialNorms: params.materialNorms || [],
+      workVolumes: params.workVolumes || [],
+    });
+    const materialRows: any[] = materialLines.length > 0
+      ? materialLines.map((line, idx) => ({
+          'STT': idx + 1,
+          '__materialId': line.materialId || '',
+          'Tên Vật Tư': line.materialName,
+          'Nhóm Vật Tư': line.category,
+          'ĐVT': line.unit,
+          'ĐM Theo KL Giao': line.expectedAssignedQty,
+          'ĐM Theo KL Đã Thi Công': line.expectedConstructedQty,
+          'Đã Xuất Cho Đội': line.issuedQty,
+          'Chênh Lệch Xuất - ĐM Thi Công': line.varianceQty,
+          'Tỷ Lệ Xuất / ĐM Thi Công (%)': line.issuedVsConstructedPercent ?? '',
+        }))
+      : [{
+          'STT': 1,
+          '__materialId': '',
+          'Tên Vật Tư': 'Chưa có dữ liệu vật tư/định mức để đối chiếu',
+          'Nhóm Vật Tư': '',
+          'ĐVT': '',
+          'ĐM Theo KL Giao': 0,
+          'ĐM Theo KL Đã Thi Công': 0,
+          'Đã Xuất Cho Đội': 0,
+          'Chênh Lệch Xuất - ĐM Thi Công': 0,
+          'Tỷ Lệ Xuất / ĐM Thi Công (%)': '',
+        }];
+    const ws6 = XLSX.utils.json_to_sheet(materialRows);
+    autoFitColumns(ws6);
+    XLSX.utils.book_append_sheet(wb, ws6, '06-Vat tu doi chieu');
 
     const safeProj = projectNameStr.replace(/[^a-zA-Z0-9_ -]/g, '');
     const safeTeam = team.name.replace(/[^a-zA-Z0-9_ -]/g, '');
