@@ -47,7 +47,7 @@ import { findWorsenedTeamNameConflict, normalizeTeamDirectoryName, resolveUnique
 import { getCrewShiftCounts } from '../utils/crewUtils';
 import { ContactMenu } from './ContactMenu';
 import { ShareEntityMenu } from './ShareEntityMenu';
-import { MIXED_STRUCTURE_GROUP_ID, normalizeStructureGrouping, resolveCrewRecordStructureGroup, structureGroupIdForFloor, structureGroupName, UNGROUPED_STRUCTURE_GROUP_ID } from '../utils/structureGrouping';
+import { MIXED_STRUCTURE_GROUP_ID, normalizeStructureGrouping, resolveCrewRecordStructureGroup, structureGroupForFloor, structureGroupIdForFloor, structureGroupName, UNGROUPED_STRUCTURE_GROUP_ID } from '../utils/structureGrouping';
 import { CrewReportShareModal } from './CrewReportShareModal';
 
 const CrewPhotoCount: React.FC<{ projectId?: string; recordId: string }> = ({ projectId, recordId }) => {
@@ -901,9 +901,10 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       defects: defects || [],
       crewRecords: crewRecords || [],
       floorPlans: floorPlans || [],
-      workVolumes
+      workVolumes,
+      structureGrouping: normalizedStructureGrouping,
     });
-  }, [teams, roomProgressList, defects, crewRecords, floorPlans, workVolumes]);
+  }, [teams, roomProgressList, defects, crewRecords, floorPlans, workVolumes, normalizedStructureGrouping]);
 
   // Handle Daily Log Submission
   const handleLogSubmit = (e: React.FormEvent) => {
@@ -2631,7 +2632,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           inspectedVol,
           floorGroupMap,
           totalMandays: totalWorkdays,
-          categoryBreakdown
+          categoryBreakdown,
+          structureGroupMap
         } = stat;
         
         const teamDefects = (defects || []).filter(d => !d.archivedAt && isTeamMatch(d.assignedTo, team, d.teamId));
@@ -2754,6 +2756,21 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                       </span>
                     )}
                   </div>
+
+                  {normalizedStructureGrouping.enabled && Object.values(structureGroupMap || {}).length > 0 && (
+                    <div className="mt-2.5 border-t border-slate-800 pt-2">
+                      <div className="mb-1 text-[9px] font-black uppercase tracking-wider text-slate-400">
+                        Khối lượng theo {normalizedStructureGrouping.label}
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {Object.values(structureGroupMap).map((group) => (
+                          <span key={group.structureGroupId} className="rounded-lg border border-cyan-800/70 bg-cyan-950/50 px-2 py-1 text-[9.5px] font-bold text-cyan-100">
+                            {group.structureGroupName}: {group.floorNames.length} tầng · {group.roomCount} căn · KL {formatDecimal(group.totalVol)} · NT {formatDecimal(group.doneInspectedVol)}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {teamWorkCategories.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mt-2.5 pt-2 border-t border-slate-800">
