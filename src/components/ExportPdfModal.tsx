@@ -555,13 +555,20 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     return floorCmp || categoryCmp || compareTextVi(a.title, b.title);
   });
 
-  const filteredCrew = crewRecords.filter((c) => {
-    if (!c.floorName) return true;
-    const cFloors = c.floorName.split(',').map(s => s.trim()).filter(Boolean);
-    const hasAnyValidFloor = cFloors.some(f => floorNames.includes(f));
-    if (cFloors.length > 0 && !hasAnyValidFloor) return false;
-    if (isAllSelected) return true;
-    return cFloors.some(f => selectedFloors.includes(f));
+  const filteredCrew = crewRecords.filter((record) => {
+    if (!teamMatchesScope(record.teamId, record.teamName)) return false;
+    const floorRefs = [
+      ...(record.floorId ? [{ floorId: record.floorId, floorName: record.floorName }] : []),
+      ...((record.floorWorks || []).map((work) => ({ floorId: work.floorId, floorName: work.floorName }))),
+    ];
+    if (floorRefs.length === 0 && record.floorName) {
+      record.floorName.split(',').map((name) => name.trim()).filter(Boolean)
+        .forEach((name) => floorRefs.push({ floorId: '', floorName: name }));
+    }
+    if (floorRefs.length === 0) {
+      return selectedStructureGroupId === 'all' && isAllSelected;
+    }
+    return floorRefs.some((ref) => floorMatchesScope(ref.floorId, ref.floorName));
   }).sort((a, b) => {
     const dateAsc = compareTextVi(a.date, b.date);
     const dateDesc = compareTextVi(b.date, a.date);
@@ -585,10 +592,18 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   // High-fidelity HTML Report Generator
   const getReportHtml = (): string => {
     const h = escapeHtml;
-    const areaText = isAllSelected ? 'Toàn bộ công trình' : selectedFloors.join(', ');
+    const areaParts = [
+      normalizedStructureConfig.enabled && selectedStructureGroupId !== 'all'
+        ? `${normalizedStructureConfig.label}: ${getStructureGroupName(selectedStructureGroupId, normalizedStructureConfig)}`
+        : '',
+      !isAllSelected ? scopedFloorPlans.map((floor) => floor.floorName).join(', ') : '',
+      selectedRoomId !== 'all' ? `Căn/Phòng: ${roomProgressList.find((room) => room.id === selectedRoomId)?.roomName || selectedRoomId}` : '',
+      selectedTeamId !== 'all' ? `Đội: ${teams.find((team) => team.id === selectedTeamId)?.name || selectedTeamId}` : '',
+    ].filter(Boolean);
+    const areaText = areaParts.length > 0 ? areaParts.join(' · ') : 'Toàn bộ công trình';
 
     // Target floor plans to include
-    const targetFloorPlans = (isAllSelected ? effectiveFloorPlans : effectiveFloorPlans.filter(fp => selectedFloors.includes(fp.floorName)))
+    const targetFloorPlans = scopedFloorPlans
       .filter(fp => {
         if (!skipEmptyFloors) return true;
         const fpRooms = roomProgressList.filter(r => r.floorId === fp.id);
