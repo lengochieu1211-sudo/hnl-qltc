@@ -551,6 +551,9 @@ export function computeMaterialNeeds(params: {
 
   inventory.forEach((tx) => {
     if (tx.type !== 'out') return;
+    // External/other issues reduce physical stock but are not project consumption and
+    // must never be compared against project/team material norms.
+    if (tx.issuePurpose === 'external-project' || tx.issuePurpose === 'other') return;
 
     let key = canonicalKey(tx.materialId, tx.materialName, tx.unit);
     if (!tx.materialId) {
