@@ -1095,7 +1095,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       });
       return acc;
     }, {});
-    ws['!cols'] = Object.keys(maxLens).map((key) => ({ wch: maxLens[key] }));
+    const excelColumnKeys = Object.keys(maxLens);
+    ws['!cols'] = excelColumnKeys.map((key) => ({
+      wch: maxLens[key],
+      ...(key === '__teamId' ? { hidden: true } : {}),
+    }));
 
     XLSX.utils.book_append_sheet(wb, ws, 'Danh Sach Doi Thi Cong');
     return saveWorkbookFile(wb, 'Mau_Danh_Sach_Doi_Thi_Cong.xlsx');
@@ -1139,12 +1143,25 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           return;
         }
 
-        // Validate that we can find the team name column
+        // Resolve the human-facing team-name column exactly. The old "contains team"
+        // matcher could select __teamId before "Tên Đội Thi Công", then overwrite
+        // the visible team name with the technical ID during re-import.
         const firstRow = jsonData[0];
         const foundHeaders = Object.keys(firstRow);
-        const nameMatchKey = foundHeaders.find(h => 
-          ['Tên Đội Thi Công', 'teamName', 'Tên Đội', 'Đội Thi Công', 'team'].some(rk => h.toLowerCase().includes(rk.toLowerCase()))
-        );
+        const normalizeExcelHeader = (value: unknown) => String(value || '').trim().toLocaleLowerCase('vi-VN').replace(/\s+/g, ' ');
+        const teamNameAliases = new Set([
+          'tên đội thi công',
+          'teamname',
+          'tên đội',
+          'đội thi công',
+          'team',
+        ]);
+        const nameMatchKey = foundHeaders.find((header) => {
+          const normalized = normalizeExcelHeader(header);
+          if (!normalized || normalized.startsWith('__')) return false;
+          if (normalized === 'teamid' || normalized === 'team id' || normalized === 'id' || normalized === 'mã đội') return false;
+          return teamNameAliases.has(normalized);
+        });
 
         if (!nameMatchKey) {
           alert(
@@ -1169,6 +1186,12 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           const notesStr = String(row['Ghi Chú'] || row['notes'] || '').trim();
 
           if (!nameStr || !leaderStr || countNum <= 0) {
+            skippedCount++;
+            return;
+          }
+          // Fail closed for workbooks already damaged by the previous header bug.
+          // A human-facing team name must never be silently replaced by its technical ID.
+          if (rawTeamId && nameStr === rawTeamId) {
             skippedCount++;
             return;
           }
@@ -1213,7 +1236,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           `🎉 Nhập Đội Thi Công từ Excel thành công!\n\n` +
           `• Đã cập nhật/chỉnh sửa: ${updatedCount} đội\n` +
           `• Đã thêm mới: ${addedCount} đội\n` +
-          `• Bỏ qua do thiếu thông tin hoặc tên đội legacy bị trùng/không đủ teamId: ${skippedCount} dòng`
+          `• Bỏ qua do thiếu thông tin, tên đội trùng ID kỹ thuật hoặc tên đội legacy bị trùng/không đủ teamId: ${skippedCount} dòng`
         );
       } catch (err: any) {
         alert(`❌ Lỗi đọc hoặc phân tích tệp Excel:\n${err.message || err}`);
