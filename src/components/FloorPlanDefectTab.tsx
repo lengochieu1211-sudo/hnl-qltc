@@ -60,6 +60,13 @@ import {
   GripVertical
 } from 'lucide-react';
 import { FloorPlan, DefectItem, DefectCategory, DefectSeverity, DefectStatus, RoomProgressItem, RoomSubItem, Point2D, ChecklistItem, TeamInfo, MaterialNorm, InventoryItem, WorkVolume } from '../types';
+import {
+  getFloorStructureGroupName,
+  getStructureGroupName,
+  normalizeStructureGroupConfig,
+  resolveFloorStructureGroupId,
+  type ProjectStructureConfig,
+} from '../utils/structureGroupUtils';
 import { UndoRedoControls } from './UndoRedoControls';
 import { getRoomColorStyle, ROOM_COLOR_PALETTE } from '../utils/colorPalette';
 import { getDefectOverdueInfo, getDefectShortCode } from '../utils/defectUtils';
@@ -399,6 +406,7 @@ const TeamSelectorInput: React.FC<TeamSelectorInputProps> = ({
 interface FloorPlanDefectTabProps {
   projectId?: string;
   floorPlans: FloorPlan[];
+  structureConfig: ProjectStructureConfig;
   defects: DefectItem[];
   roomProgressList: RoomProgressItem[];
   checklistItems?: ChecklistItem[];
@@ -459,6 +467,7 @@ type SortOrder = 'asc' | 'desc';
 interface PendingSmartPdfImport {
   floorId: string;
   floorName: string;
+  structureGroupId?: string;
   fileName: string;
   imageUrl: string;
   pageNumber: number;
@@ -672,6 +681,7 @@ const DefectPhotoStrip: React.FC<DefectPhotoStripProps> = ({
 export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   projectId,
   floorPlans,
+  structureConfig,
   defects,
   roomProgressList,
   checklistItems = [],
@@ -718,6 +728,33 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const canManageStructure = roleResolved && canManageFloorPlanStructure(normalizedUserRole);
   const canEditDefects = roleResolved && canEditDefectData(normalizedUserRole);
   const canDeleteDefects = roleResolved && canDeleteBusinessData(normalizedUserRole);
+  const normalizedStructureConfig = React.useMemo(
+    () => normalizeStructureGroupConfig(structureConfig),
+    [structureConfig],
+  );
+  const [selectedStructureGroupId, setSelectedStructureGroupId] = useState<string>('all');
+  const [newFloorStructureGroupId, setNewFloorStructureGroupId] = useState<string>(
+    () => normalizeStructureGroupConfig(structureConfig).defaultGroupId,
+  );
+  const visibleFloorPlans = React.useMemo(
+    () => !normalizedStructureConfig.enabled || selectedStructureGroupId === 'all'
+      ? floorPlans
+      : floorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === selectedStructureGroupId),
+    [floorPlans, normalizedStructureConfig, selectedStructureGroupId],
+  );
+
+  useEffect(() => {
+    const validGroupIds = new Set(normalizedStructureConfig.groups.map((group) => group.id));
+    setNewFloorStructureGroupId((current) => validGroupIds.has(current) ? current : normalizedStructureConfig.defaultGroupId);
+    setSelectedStructureGroupId((current) => current === 'all' || validGroupIds.has(current) ? current : 'all');
+  }, [normalizedStructureConfig]);
+
+  useEffect(() => {
+    if (!normalizedStructureConfig.enabled || selectedStructureGroupId === 'all') return;
+    if (visibleFloorPlans.some((floor) => floor.id === selectedFloorId)) return;
+    const first = visibleFloorPlans[0];
+    if (first) setSelectedFloorId(first.id);
+  }, [normalizedStructureConfig.enabled, selectedStructureGroupId, visibleFloorPlans, selectedFloorId]);
   const getDraftKey = (base: string) => (currentProjectId === 'default' ? base : `${base}_${currentProjectId}`);
   const readIdSet = (storageKey: string): Set<string> => {
     try {
@@ -3252,6 +3289,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
     onAddFloorPlan({
       floorName,
+      structureGroupId: normalizedStructureConfig.enabled ? newFloorStructureGroupId : undefined,
       imageUrl: '',
       uploadedAt: new Date().toISOString().split('T')[0],
     });
@@ -3484,6 +3522,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       onAddFloorPlan({
         id: newFloorId,
         floorName: `Mặt bằng PDF - ${floorNameClean}`,
+        structureGroupId: normalizedStructureConfig.enabled ? newFloorStructureGroupId : undefined,
         imageUrl: planUrl,
         uploadedAt: new Date().toISOString().split('T')[0],
       });
@@ -4274,6 +4313,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     onAddFloorPlan({
       id: pending.floorId,
       floorName: pending.floorName,
+      structureGroupId: pending.structureGroupId,
       imageUrl: pending.imageUrl,
       uploadedAt: new Date().toISOString().split('T')[0],
     });
@@ -4364,6 +4404,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               setPendingSmartPdfImport({
                 floorId: newFloorId,
                 floorName: savedFloorName,
+                structureGroupId: normalizedStructureConfig.enabled ? newFloorStructureGroupId : undefined,
                 fileName: file.name,
                 imageUrl: planUrl,
                 pageNumber,
@@ -4376,7 +4417,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               console.warn('Smart PDF room detection failed; keeping normal PDF upload:', detectErr);
               // Detection is an optional accelerator. A valid PDF must still be usable
               // even when an unusual annotation/text layer cannot be analyzed.
-              onAddFloorPlan({ id: newFloorId, floorName: savedFloorName, imageUrl: planUrl, uploadedAt: new Date().toISOString().split('T')[0] });
+              onAddFloorPlan({ id: newFloorId, floorName: savedFloorName, structureGroupId: normalizedStructureConfig.enabled ? newFloorStructureGroupId : undefined, imageUrl: planUrl, uploadedAt: new Date().toISOString().split('T')[0] });
               setSelectedFloorId(newFloorId);
               setShowAddFloorModal(false);
               setNewFloorName('');
@@ -4387,7 +4428,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             }
           }
 
-          onAddFloorPlan({ id: newFloorId, floorName: savedFloorName, imageUrl: planUrl, uploadedAt: new Date().toISOString().split('T')[0] });
+          onAddFloorPlan({ id: newFloorId, floorName: savedFloorName, structureGroupId: normalizedStructureConfig.enabled ? newFloorStructureGroupId : undefined, imageUrl: planUrl, uploadedAt: new Date().toISOString().split('T')[0] });
           setSelectedFloorId(newFloorId);
           setShowAddFloorModal(false);
           setNewFloorName('');
@@ -4400,7 +4441,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
       const planUrl = await renderFloorPlanFile(file);
       if (!planUrl) return;
-      onAddFloorPlan({ id: newFloorId, floorName: savedFloorName, imageUrl: planUrl, uploadedAt: new Date().toISOString().split('T')[0] });
+      onAddFloorPlan({ id: newFloorId, floorName: savedFloorName, structureGroupId: normalizedStructureConfig.enabled ? newFloorStructureGroupId : undefined, imageUrl: planUrl, uploadedAt: new Date().toISOString().split('T')[0] });
       setSelectedFloorId(newFloorId);
       setShowAddFloorModal(false);
       setNewFloorName('');
@@ -4695,11 +4736,30 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             <Building2 className="w-5 h-5 text-indigo-600" />
             {t('floorplan_title')}
           </h2>
-          <p className="text-xs text-slate-500 font-medium">
-            Đang xem: <span className="font-extrabold text-indigo-600">{activeFloor?.floorName}</span> ({floorPlans.length} tầng)
+          <p className="text-xs text-slate-500 font-medium flex flex-wrap items-center gap-1">
+            <span>Đang xem: <span className="font-extrabold text-indigo-600">{activeFloor?.floorName}</span></span>
+            {normalizedStructureConfig.enabled && activeFloor && (
+              <span className="rounded-md bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-700">
+                {normalizedStructureConfig.label}: {getFloorStructureGroupName(activeFloor, normalizedStructureConfig)}
+              </span>
+            )}
+            <span>({visibleFloorPlans.length}/{floorPlans.length} tầng)</span>
           </p>
         </div>
         <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+          {normalizedStructureConfig.enabled && (
+            <select
+              value={selectedStructureGroupId}
+              onChange={(event) => setSelectedStructureGroupId(event.target.value)}
+              className="max-w-[180px] rounded-xl border border-slate-200 bg-white px-2 py-2 text-[11px] font-bold text-slate-700"
+              title={`Lọc tầng theo ${normalizedStructureConfig.label}`}
+            >
+              <option value="all">Tất cả {normalizedStructureConfig.label}</option>
+              {normalizedStructureConfig.groups.map((group) => (
+                <option key={group.id} value={group.id}>{group.name}</option>
+              ))}
+            </select>
+          )}
           {canManageStructure && <button
             type="button"
             onClick={() => setShowManageFloorsModal(true)}
@@ -8051,6 +8111,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             </div>
 
             <div className="space-y-3 text-xs">
+              {normalizedStructureConfig.enabled && (
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">{normalizedStructureConfig.label}</label>
+                  <select
+                    value={newFloorStructureGroupId}
+                    onChange={(event) => setNewFloorStructureGroupId(event.target.value)}
+                    className="w-full border border-slate-200 rounded-xl p-2.5 font-bold"
+                  >
+                    {normalizedStructureConfig.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="block text-slate-700 font-bold mb-1">Tên tầng / khu vực</label>
                 <input
@@ -9138,16 +9210,34 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           </div>
                         )}
 
-                        <div className="flex items-center gap-2 text-[11px] text-slate-500 font-medium">
+                        <div className="flex items-center gap-2 text-[11px] text-slate-500 font-medium flex-wrap">
                           <span>🎨 {roomCount} Căn / Phòng</span>
                           <span>•</span>
                           <span>📌 {defectCount} ghim lỗi</span>
+                          {normalizedStructureConfig.enabled && (
+                            <>
+                              <span>•</span>
+                              <span className="font-bold text-indigo-600">{getFloorStructureGroupName(fp, normalizedStructureConfig)}</span>
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>
 
                     {/* Floor Action Buttons */}
                     <div className="flex items-center gap-1.5 self-end sm:self-center flex-wrap">
+                      {normalizedStructureConfig.enabled && (
+                        <select
+                          value={resolveFloorStructureGroupId(fp, normalizedStructureConfig)}
+                          onChange={(event) => onUpdateFloorPlan?.(fp.id, { structureGroupId: event.target.value })}
+                          className="max-w-[150px] rounded-xl border border-indigo-200 bg-indigo-50 px-2 py-1.5 text-[10px] font-bold text-indigo-700"
+                          title={`Gán tầng vào ${normalizedStructureConfig.label}`}
+                        >
+                          {normalizedStructureConfig.groups.map((group) => (
+                            <option key={group.id} value={group.id}>{group.name}</option>
+                          ))}
+                        </select>
+                      )}
                       {floorSortBy === 'none' && (
                         <MoveOrderControls
                           disableUp={index === 0}
@@ -9263,6 +9353,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             </div>
 
             <form onSubmit={handleQuickAddFloorSubmit} className="space-y-3 text-xs">
+              {normalizedStructureConfig.enabled && (
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">{normalizedStructureConfig.label}</label>
+                  <select
+                    value={newFloorStructureGroupId}
+                    onChange={(event) => setNewFloorStructureGroupId(event.target.value)}
+                    className="w-full border border-slate-300 rounded-xl p-2.5 font-bold text-slate-900"
+                  >
+                    {normalizedStructureConfig.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="block text-slate-700 font-bold mb-1">Tên tầng / khu vực mới</label>
                 <input
