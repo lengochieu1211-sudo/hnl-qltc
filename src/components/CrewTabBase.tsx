@@ -394,7 +394,10 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [detailModalTab, setDetailModalTab] = useState<'rooms' | 'materials' | 'defects' | 'logs'>('rooms');
   const [defectFilter, setDefectFilter] = useState<'all' | 'open' | 'resolved'>('all');
   const [teamFloorSortOrder, setTeamFloorSortOrder] = useState<TeamSortOrder>('asc');
-  const [teamDefectFloorSortOrder, setTeamDefectFloorSortOrder] = useState<TeamSortOrder>('asc');
+  const [teamDefectSortBy, setTeamDefectSortBy] = useState<'floor' | 'room' | 'status' | 'due'>('floor');
+  const [teamDefectSortOrder, setTeamDefectSortOrder] = useState<TeamSortOrder>('asc');
+  const [teamMaterialSortBy, setTeamMaterialSortBy] = useState<'name' | 'issued' | 'expected' | 'variance'>('name');
+  const [teamMaterialSortOrder, setTeamMaterialSortOrder] = useState<TeamSortOrder>('asc');
   const [teamLogSortMode, setTeamLogSortMode] = useState<TeamLogSortMode>('date');
   const [teamLogDateSortOrder, setTeamLogDateSortOrder] = useState<TeamSortOrder>('desc');
   const [teamLogFloorSortOrder, setTeamLogFloorSortOrder] = useState<TeamSortOrder>('asc');
@@ -2787,26 +2790,33 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           return true;
         });
 
-        const displayedDefects = [...unsortedDisplayedDefects].sort((a, b) =>
-        {
-          const floorComparison = applySortOrder(
-            compareFloorValues(
+        const displayedDefects = [...unsortedDisplayedDefects].sort((a, b) => {
+          let comparison = 0;
+          if (teamDefectSortBy === 'room') {
+            comparison = naturalCompare(getDefectRoomSortLabel(a, roomProgressList), getDefectRoomSortLabel(b, roomProgressList));
+          } else if (teamDefectSortBy === 'status') {
+            comparison = naturalCompare(a.status || '', b.status || '');
+          } else if (teamDefectSortBy === 'due') {
+            comparison = compareDateValues(a.dueDate, b.dueDate);
+          } else {
+            comparison = compareFloorValues(
               { floorId: a.floorId, floorName: a.floorName },
               { floorId: b.floorId, floorName: b.floorName }
-            ),
-            teamDefectFloorSortOrder
-          );
-          if (floorComparison !== 0) return floorComparison;
-
-          const roomComparison = naturalCompare(
-            getDefectRoomSortLabel(a, roomProgressList),
-            getDefectRoomSortLabel(b, roomProgressList)
-          );
+            );
+          }
+          if (comparison !== 0) return applySortOrder(comparison, teamDefectSortOrder);
+          const roomComparison = naturalCompare(getDefectRoomSortLabel(a, roomProgressList), getDefectRoomSortLabel(b, roomProgressList));
           if (roomComparison !== 0) return roomComparison;
-
-          const dateComparison = compareDateValues(a.createdAt, b.createdAt);
-          if (dateComparison !== 0) return dateComparison;
           return naturalCompare(a.id, b.id);
+        });
+
+        const displayedMaterials = [...selectedTeamMaterialReconciliation].sort((a, b) => {
+          let comparison = 0;
+          if (teamMaterialSortBy === 'issued') comparison = a.issuedQty - b.issuedQty;
+          else if (teamMaterialSortBy === 'expected') comparison = a.expectedConstructedQty - b.expectedConstructedQty;
+          else if (teamMaterialSortBy === 'variance') comparison = a.varianceQty - b.varianceQty;
+          else comparison = naturalCompare(a.materialName, b.materialName);
+          return applySortOrder(comparison, teamMaterialSortOrder);
         });
 
         const displayedTeamLogs = [...teamLogs].sort((a, b) => {
@@ -3276,6 +3286,20 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                 {/* SUB TAB 2: MATERIAL RECONCILIATION */}
                 {detailModalTab === 'materials' && (
                   <div className="space-y-3">
+                    <QuickSortBar
+                      itemCount={selectedTeamMaterialReconciliation.length}
+                      options={[
+                        { key: 'name', label: 'Tên vật tư', kind: 'alpha' },
+                        { key: 'issued', label: 'Đã xuất', kind: 'number' },
+                        { key: 'expected', label: 'Theo định mức', kind: 'number' },
+                        { key: 'variance', label: 'Chênh lệch', kind: 'number' },
+                      ]}
+                      activeKey={teamMaterialSortBy}
+                      order={teamMaterialSortOrder}
+                      onChange={(key, order) => { setTeamMaterialSortBy(key as typeof teamMaterialSortBy); setTeamMaterialSortOrder(order); }}
+                      onReset={() => { setTeamMaterialSortBy('name'); setTeamMaterialSortOrder('asc'); }}
+                      summary={`${selectedTeamMaterialReconciliation.length} loại vật tư`}
+                    />
                     <div className="rounded-xl border border-cyan-200 bg-cyan-50/70 p-3 text-[11px] text-cyan-900 leading-relaxed">
                       <strong>Đối chiếu:</strong> Định mức theo KL đã thi công = khối lượng hạng mục có trạng thái <strong>Đã hoàn thành</strong> × định mức vật tư.
                       Phiếu xuất có <strong>Đội thi công</strong> đúng teamId được cộng vào “Đã xuất”. Phiếu <strong>Xuất ngoài dự án / Mục đích khác</strong> không được tính vào tiêu hao dự án.
@@ -3301,7 +3325,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
-                            {selectedTeamMaterialReconciliation.map((line) => {
+                            {displayedMaterials.map((line) => {
                               const over = line.varianceQty > 0.01;
                               const under = line.varianceQty < -0.01;
                               return (
@@ -3372,12 +3396,16 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     <div className="flex justify-end px-1">
                       <QuickSortBar
                         itemCount={teamDefects.length}
-                        options={[{ key: 'floor', label: 'Tầng', kind: 'floor' }]}
-                        activeKey="floor"
-                        order={teamDefectFloorSortOrder}
-                        onChange={(_key, order) => setTeamDefectFloorSortOrder(order)}
-                        onToggleOrder={() => setTeamDefectFloorSortOrder((order) => order === 'asc' ? 'desc' : 'asc')}
-                        onReset={() => setTeamDefectFloorSortOrder('asc')}
+                        options={[
+                          { key: 'floor', label: 'Tầng', kind: 'floor' },
+                          { key: 'room', label: 'Căn / Phòng', kind: 'alpha' },
+                          { key: 'status', label: 'Trạng thái', kind: 'alpha' },
+                          { key: 'due', label: 'Hạn xử lý', kind: 'date' },
+                        ]}
+                        activeKey={teamDefectSortBy}
+                        order={teamDefectSortOrder}
+                        onChange={(key, order) => { setTeamDefectSortBy(key as typeof teamDefectSortBy); setTeamDefectSortOrder(order); }}
+                        onReset={() => { setTeamDefectSortBy('floor'); setTeamDefectSortOrder('asc'); }}
                       />
                     </div>
 
