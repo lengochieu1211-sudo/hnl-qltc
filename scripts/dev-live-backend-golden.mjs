@@ -118,6 +118,28 @@ async function requireStatus(name, response, expected) {
   return response;
 }
 
+async function fetchR2(input, init = {}) {
+  const maxAttempts = 6;
+  let response = null;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    response = await fetch(input, init);
+    if (response.status !== 503) return response;
+
+    const body = await response.clone().text().catch(() => '');
+    const authBackendUnavailable = !body || body.includes('AUTH_BACKEND_UNAVAILABLE');
+    if (!authBackendUnavailable || attempt === maxAttempts - 1) return response;
+
+    const retryAfter = String(response.headers.get('retry-after') || '').trim();
+    const retryAfterSeconds = /^\d+(?:\.\d+)?$/.test(retryAfter) ? Number(retryAfter) : 0;
+    const fallbackMs = Math.min(5000, 1500 * (2 ** attempt));
+    const delayMs = Math.min(5000, Math.max(fallbackMs, retryAfterSeconds * 1000));
+    report.r2AuthBackendRetries = Number(report.r2AuthBackendRetries || 0) + 1;
+    console.warn(`R2 auth backend unavailable (attempt ${attempt + 1}/${maxAttempts}); retrying in ${delayMs}ms`);
+    await sleep(delayMs);
+  }
+  return response;
+}
+
 function waitForSnapshot(ref, predicate, label, timeoutMs = 15000) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -367,7 +389,7 @@ try {
   const payload = Buffer.from(`HNL-QLTC-DEV-R2-${nonce}`, 'utf8');
   const metadata = encodeURIComponent(JSON.stringify({ projectId: pid, entityType: 'defect', entityId: defectId, golden: 'true' }));
 
-  await requireStatus('EDITOR uploads operational media to DEV R2', await fetch(r2Endpoint, {
+  await requireStatus('EDITOR uploads operational media to DEV R2', await fetchR2(r2Endpoint, {
     method: 'PUT',
     headers: {
       Authorization: `Bearer ${editorIdToken}`,
@@ -378,7 +400,7 @@ try {
     body: payload,
   }), 200);
 
-  const viewerHead = await requireStatus('VIEWER HEADs durable DEV R2 media', await fetch(r2Endpoint, {
+  const viewerHead = await requireStatus('VIEWER HEADs durable DEV R2 media', await fetchR2(r2Endpoint, {
     method: 'HEAD',
     headers: { Authorization: `Bearer ${viewerIdToken}`, Origin: hostingUrl },
   }), 200);
@@ -386,20 +408,20 @@ try {
   if (!viewerHead.headers.get('x-hnl-sha256')) throw new Error('R2 HEAD missing X-HNL-SHA256');
   pass('R2 durability exposes byte size + SHA256');
 
-  const viewerGet = await requireStatus('VIEWER reads DEV R2 media cross-account', await fetch(r2Endpoint, {
+  const viewerGet = await requireStatus('VIEWER reads DEV R2 media cross-account', await fetchR2(r2Endpoint, {
     headers: { Authorization: `Bearer ${viewerIdToken}`, Origin: hostingUrl },
   }), 200);
   const downloaded = Buffer.from(await viewerGet.arrayBuffer());
   if (!downloaded.equals(payload)) throw new Error('Cross-account R2 binary payload mismatch');
   pass('cross-account R2 binary byte parity');
 
-  await requireStatus('VIEWER cannot upload DEV R2 media', await fetch(`${r2Url}/v1/object?key=${encodeURIComponent(`projects/${pid}/media/viewer-denied.txt`)}`, {
+  await requireStatus('VIEWER cannot upload DEV R2 media', await fetchR2(`${r2Url}/v1/object?key=${encodeURIComponent(`projects/${pid}/media/viewer-denied.txt`)}`, {
     method: 'PUT',
     headers: { Authorization: `Bearer ${viewerIdToken}`, Origin: hostingUrl, 'Content-Type': 'text/plain' },
     body: Buffer.from('deny-me'),
   }), 403);
 
-  await requireStatus('EDITOR cannot upload floor-plan structure to DEV R2', await fetch(`${r2Url}/v1/object?key=${encodeURIComponent(`projects/${pid}/floor-plans/editor-denied.txt`)}`, {
+  await requireStatus('EDITOR cannot upload floor-plan structure to DEV R2', await fetchR2(`${r2Url}/v1/object?key=${encodeURIComponent(`projects/${pid}/floor-plans/editor-denied.txt`)}`, {
     method: 'PUT',
     headers: { Authorization: `Bearer ${editorIdToken}`, Origin: hostingUrl, 'Content-Type': 'text/plain' },
     body: Buffer.from('deny-floor'),
@@ -423,7 +445,7 @@ try {
     golden: 'true',
   }));
 
-  const floorPlanUploadResponse = await requireStatus('ADMIN uploads floor-plan image to DEV R2', await fetch(floorPlanEndpoint, {
+  const floorPlanUploadResponse = await requireStatus('ADMIN uploads floor-plan image to DEV R2', await fetchR2(floorPlanEndpoint, {
     method: 'PUT',
     headers: {
       Authorization: `Bearer ${adminIdToken}`,
@@ -441,7 +463,7 @@ try {
   if (!floorPlanUploadSha) throw new Error('Floor-plan R2 upload missing sha256');
   pass('floor-plan R2 upload returns exact byte size + SHA256', `${floorPlanPayload.length} bytes`);
 
-  const viewerFloorPlanHead = await requireStatus('VIEWER HEADs ADMIN floor-plan image cross-account', await fetch(floorPlanEndpoint, {
+  const viewerFloorPlanHead = await requireStatus('VIEWER HEADs ADMIN floor-plan image cross-account', await fetchR2(floorPlanEndpoint, {
     method: 'HEAD',
     headers: { Authorization: `Bearer ${viewerIdToken}`, Origin: hostingUrl },
   }), 200);
@@ -498,25 +520,25 @@ try {
     updatedAt: now + 11,
   }));
 
-  const viewerFloorPlanGet = await requireStatus('VIEWER downloads floor-plan image cross-account', await fetch(floorPlanEndpoint, {
+  const viewerFloorPlanGet = await requireStatus('VIEWER downloads floor-plan image cross-account', await fetchR2(floorPlanEndpoint, {
     headers: { Authorization: `Bearer ${viewerIdToken}`, Origin: hostingUrl },
   }), 200);
   const viewerFloorPlanBytes = Buffer.from(await viewerFloorPlanGet.arrayBuffer());
   if (!viewerFloorPlanBytes.equals(floorPlanPayload)) throw new Error('Cross-account floor-plan R2 byte parity mismatch');
   pass('cross-account floor-plan R2 binary byte parity');
 
-  await requireStatus('ADMIN purges DEV R2 golden floor-plan image', await fetch(floorPlanEndpoint, {
+  await requireStatus('ADMIN purges DEV R2 golden floor-plan image', await fetchR2(floorPlanEndpoint, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${adminIdToken}`, Origin: hostingUrl },
   }), 200);
   floorPlanR2ObjectKey = '';
 
-  await requireStatus('EDITOR cannot purge DEV R2 media', await fetch(r2Endpoint, {
+  await requireStatus('EDITOR cannot purge DEV R2 media', await fetchR2(r2Endpoint, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${editorIdToken}`, Origin: hostingUrl },
   }), 403);
 
-  await requireStatus('ADMIN purges DEV R2 golden media', await fetch(r2Endpoint, {
+  await requireStatus('ADMIN purges DEV R2 golden media', await fetchR2(r2Endpoint, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${adminIdToken}`, Origin: hostingUrl },
   }), 200);
@@ -532,7 +554,7 @@ try {
   if (floorPlanR2ObjectKey && admin?.auth?.currentUser) {
     try {
       const token = await admin.auth.currentUser.getIdToken(true);
-      await fetch(`${r2Url}/v1/object?key=${encodeURIComponent(floorPlanR2ObjectKey)}`, {
+      await fetchR2(`${r2Url}/v1/object?key=${encodeURIComponent(floorPlanR2ObjectKey)}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}`, Origin: hostingUrl },
       });
@@ -543,7 +565,7 @@ try {
   if (r2ObjectKey && admin?.auth?.currentUser) {
     try {
       const token = await admin.auth.currentUser.getIdToken(true);
-      await fetch(`${r2Url}/v1/object?key=${encodeURIComponent(r2ObjectKey)}`, {
+      await fetchR2(`${r2Url}/v1/object?key=${encodeURIComponent(r2ObjectKey)}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}`, Origin: hostingUrl },
       });
