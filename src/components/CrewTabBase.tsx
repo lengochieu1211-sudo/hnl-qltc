@@ -537,21 +537,39 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [notes, setNotes] = useState('');
   const [floorWorks, setFloorWorks] = useState<CrewFloorWork[]>([]);
 
+  const createDefaultFloorWork = (floor?: FloorPlan): CrewFloorWork | null => floor ? ({
+    floorId: floor.id,
+    floorName: floor.floorName,
+    categories: [
+      {
+        categoryName: 'Thi công thạch cao',
+        subItems: ['Bắn tấm khung trần']
+      }
+    ]
+  }) : null;
+
   const addFloorWork = () => {
     const defaultFp = logFloorPlans[0];
-    setFloorWorks(prev => [
-      ...prev,
-      {
-        floorId: defaultFp ? defaultFp.id : 'floor-1',
-        floorName: defaultFp ? defaultFp.floorName : 'Tầng 1',
-        categories: [
-          {
-            categoryName: 'Thi công thạch cao',
-            subItems: ['Bắn tấm khung trần']
-          }
-        ]
-      }
-    ]);
+    const next = createDefaultFloorWork(defaultFp);
+    if (!next) {
+      alert(`Chưa có tầng nào trong ${normalizedStructureConfig.enabled ? getStructureGroupName(logStructureGroupId, normalizedStructureConfig) : 'dự án'}.`);
+      return;
+    }
+    setFloorWorks(prev => [...prev, next]);
+  };
+
+  const handleLogStructureGroupChange = async (nextGroupId: string) => {
+    if (nextGroupId === logStructureGroupId) return;
+    if (floorWorks.length > 0) {
+      const ok = await confirmAsync(`Đổi ${normalizedStructureConfig.label} sẽ đặt lại danh sách tầng/hạng mục đang nhập trong biểu mẫu này. Tiếp tục?`);
+      if (!ok) return;
+    }
+    setLogStructureGroupId(nextGroupId);
+    const nextFloors = floorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === nextGroupId);
+    const first = nextFloors[0];
+    const nextWork = createDefaultFloorWork(first);
+    setFloorWorks(nextWork ? [nextWork] : []);
+    setSelectedFloorId(first?.id || '');
   };
 
   const removeFloorWork = async (floorIndex: number) => {
