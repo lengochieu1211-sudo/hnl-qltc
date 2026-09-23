@@ -43,6 +43,7 @@ import { REALTIME_COLLECTIONS } from '../config/realtimeCollections';
 import { formatDateTime } from '../utils/dateFormatter';
 import { CURRENT_DATA_SCHEMA_VERSION, getPendingDataSchemaMigrations, readDataSchemaVersion } from '../config/dataSchema';
 import { clearRememberedVerifiedAuthIdentity } from '../utils/offlineAccess';
+import type { StructureGroupingConfig } from '../types';
 const env = (import.meta as any).env || {};
 export const APP_ENVIRONMENT: 'DEV' | 'PROD' = String(env.VITE_APP_ENV || (env.DEV || env.MODE === 'development' ? 'DEV' : 'PROD')).toUpperCase() === 'PROD' ? 'PROD' : 'DEV';
 const isDev = APP_ENVIRONMENT === 'DEV';
@@ -1964,6 +1965,7 @@ export interface ProjectSharedSettings {
     logoUrl?: string;
   };
   driveAutoSyncEnabled?: boolean;
+  structureGrouping?: StructureGroupingConfig;
   syncOptions?: {
     norms?: boolean;
     inventory?: boolean;
@@ -2671,6 +2673,8 @@ export interface ProjectCrewReportData {
   projectLocation?: string;
   records: any[];
   teams: any[];
+  floors: any[];
+  structureGrouping?: StructureGroupingConfig;
   updatedAt: number;
 }
 
@@ -2707,13 +2711,17 @@ export async function fetchProjectCrewReportData(
     orderBy('date', 'asc'),
   );
   const teamsRef = collection(db, 'projects', projectId, 'teams');
+  const floorsRef = collection(db, 'projects', projectId, 'floor_plans');
+  const sharedSettingsRef = doc(db, 'projects', projectId, 'settings', 'shared');
   const readDocs = options.serverOnly ? getDocsFromServer : getDocs;
   const readDoc = options.serverOnly ? getDocFromServer : getDoc;
 
-  const [projectSnap, crewSnap, teamsSnap] = await Promise.all([
+  const [projectSnap, crewSnap, teamsSnap, floorsSnap, sharedSettingsSnap] = await Promise.all([
     readDoc(projectRef),
     readDocs(crewQuery),
     readDocs(teamsRef),
+    readDocs(floorsRef),
+    readDoc(sharedSettingsRef),
   ]);
   if (!projectSnap.exists()) throw new Error('CREW_REPORT_PROJECT_NOT_FOUND');
 
@@ -2724,6 +2732,11 @@ export async function fetchProjectCrewReportData(
   const teams = teamsSnap.docs
     .map((item) => ({ id: item.id, ...item.data() }))
     .filter((item: any) => item?.deleted !== true && !item?.deletedAt);
+  const floors = floorsSnap.docs
+    .map((item) => ({ id: item.id, ...item.data() }))
+    .filter((item: any) => item?.deleted !== true && !item?.deletedAt)
+    .sort((a: any, b: any) => Number(a.order || 0) - Number(b.order || 0));
+  const sharedSettings = sharedSettingsSnap.exists() ? sharedSettingsSnap.data() as ProjectSharedSettings : {};
 
   return {
     projectId,
@@ -2731,6 +2744,8 @@ export async function fetchProjectCrewReportData(
     projectLocation: String(projectMeta?.projectLocation || ''),
     records,
     teams,
+    floors,
+    structureGrouping: sharedSettings.structureGrouping,
     updatedAt: cloudTimestampToMillis(projectMeta?.updatedAt),
   };
 }
