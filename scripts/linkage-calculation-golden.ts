@@ -175,10 +175,12 @@ const teamMaterial = computeTeamMaterialReconciliation({
   materialNorms: [teamMaterialNorm],
   workVolumes: [w1],
 });
-assert.equal(teamMaterial[0].expectedAssignedQty, 10);
-assert.equal(teamMaterial[0].expectedConstructedQty, 10);
-assert.equal(teamMaterial[0].issuedQty, 8);
-assert.equal(teamMaterial[0].varianceQty, -2);
+const teamMaterialLine = teamMaterial.find((line) => line.materialId === 'MAT-TEAM' && line.materialName === 'Vít đội');
+assert.ok(teamMaterialLine, 'team material reconciliation must produce the norm-backed material line');
+assert.equal(teamMaterialLine.expectedAssignedQty, 10);
+assert.equal(teamMaterialLine.expectedConstructedQty, 10);
+assert.equal(teamMaterialLine.issuedQty, 8);
+assert.equal(teamMaterialLine.varianceQty, -2);
 console.log('PASS teams: material reconciliation compares issued project stock against constructed volume × norm');
 
 const zeroQuantityAssignedRoom = room('R-TEAM-ZERO', 'F1', {}, {
