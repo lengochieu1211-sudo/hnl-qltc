@@ -102,7 +102,8 @@ assert.match(floorPlanSource, /teamNameById = new Map/, 'Defect team picker must
 assert.match(floorPlanSource, /roomAtPosTeamNames/, 'Defect team picker must collect room-specific teams');
 assert.match(floorPlanSource, /roomAtPos\.subItems/, 'Defect team picker must include teams assigned on current-room sub-items');
 assert.match(floorPlanSource, /Đội đang làm Căn \/ Phòng hiện tại/, 'Defect picker must prioritize current-room teams before floor-wide teams');
-assert.match(floorPlanSource, /Đội Defect đang chọn:/, 'Defect form must visibly confirm the team selected for the Defect');
+assert.match(floorPlanSource, /-- Chọn đội từ danh sách ở đây --/, 'Defect form must retain the canonical team selector');
+assert.doesNotMatch(floorPlanSource, /Đội Defect đang chọn:/, 'Defect form must not duplicate the selected team in a second quick-pick block');
 assert.doesNotMatch(floorPlanSource, />Căn này chưa có đội</, 'ambiguous legacy room-team warning must not hide a valid Defect team selection');
 
 console.log('Defect Linkage Golden: PASS');

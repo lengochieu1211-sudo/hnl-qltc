@@ -13,10 +13,12 @@ export function resolveDefectTeam(defect: Pick<DefectItem, 'teamId' | 'assignedT
   return teams.find((team) => String(team.name || '').trim().toLocaleLowerCase('vi-VN') === assigned);
 }
 
-export function buildDefectShareText(defect: DefectItem): string {
+export function buildDefectShareText(defect: DefectItem, roomName = ''): string {
+  const resolvedRoomName = String(roomName || '').trim();
   const lines = [
     `HNL QLTC – Defect [${getDefectShortCode(defect.id)}]`,
     `Tầng: ${defect.floorName || 'Chưa cập nhật'}`,
+    ...(resolvedRoomName ? [`Căn/Phòng: ${resolvedRoomName}`] : []),
     `Loại lỗi: ${defect.category}`,
     `Mức độ: ${defect.severity}`,
     `Mô tả: ${defect.description || 'Chưa cập nhật'}`,

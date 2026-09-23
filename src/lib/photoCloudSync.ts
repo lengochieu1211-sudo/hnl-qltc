@@ -256,14 +256,26 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
   const localRepairBlob = !photo.deleted && currentProviderBacked
     ? await getPhotoBlob(photo.id, false).catch(() => null)
     : null;
-  const currentProviderVerified = localRepairBlob && currentProviderBacked
+
+  // An image edited in PhotoAttachmentPicker deliberately clears the old Cloud pointer,
+  // keeps the replacement Blob locally and marks metadata as pending. That local outbox
+  // is a new binary version even when this device had a stale numeric revision before
+  // editing. Never classify it as stale merely because the previous Cloud revision is
+  // greater/equal; otherwise the old R2 metadata wins and the edited Defect/Crew photo
+  // is never uploaded.
+  const localPendingBinaryReplacement = Boolean(
+    !photo.deleted
+    && localRepairBlob
+    && String(photo.binaryUploadState || '') === 'pending'
+  );
+  const currentProviderVerified = localRepairBlob && currentProviderBacked && !localPendingBinaryReplacement
     ? await verifyCurrentProviderCloudBinary(cloudData)
     : true;
-  const currentProviderRepairMode = Boolean(localRepairBlob && currentProviderBacked && !currentProviderVerified);
+  const currentProviderRepairMode = Boolean(localRepairBlob && currentProviderBacked && !localPendingBinaryReplacement && !currentProviderVerified);
   const binaryRepairMode = legacyMigrationMode || currentProviderRepairMode;
 
   const cloudIsAuthoritative = Boolean(cloudData?.deleted) || cloudHasResolvedBinaryState;
-  const localIsStale = Boolean(cloudData) && cloudIsAuthoritative && (
+  const localIsStale = !localPendingBinaryReplacement && Boolean(cloudData) && cloudIsAuthoritative && (
     (cloudRevision > 0 && localRevision > 0 && localRevision <= cloudRevision) ||
     (cloudRevision <= 0 && cloudUpdatedAt > 0 && localUpdatedAt > 0 && localUpdatedAt < cloudUpdatedAt)
   );
@@ -283,7 +295,7 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
     return;
   }
 
-  if (cloudData && cloudUpdatedAt >= localUpdatedAt && cloudDeleteStateMatches && cloudHasResolvedBinaryState && (photo.deleted || currentProviderBacked) && !currentProviderRepairMode) {
+  if (!localPendingBinaryReplacement && cloudData && cloudUpdatedAt >= localUpdatedAt && cloudDeleteStateMatches && cloudHasResolvedBinaryState && (photo.deleted || currentProviderBacked) && !currentProviderRepairMode) {
     await reconcileCloudIntoLocal();
     return;
   }
@@ -291,7 +303,7 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
     await reconcileCloudIntoLocal();
     return;
   }
-  if (cloudData && !cloudDeleteStateMatches && cloudUpdatedAt >= localUpdatedAt) {
+  if (!localPendingBinaryReplacement && cloudData && !cloudDeleteStateMatches && cloudUpdatedAt >= localUpdatedAt) {
     await reconcileCloudIntoLocal();
     return;
   }

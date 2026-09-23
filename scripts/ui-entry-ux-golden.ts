@@ -119,7 +119,11 @@ assert(warehouse.includes('role="button"'), 'Material Need heading row must be t
 assert(warehouse.includes('Gợi ý vật tư tổng hợp'), 'Material Need summary card missing');
 assert(warehouse.includes("import { SettingsFeatureSheet } from './SettingsFeatureSheet';"), 'Material Need must use the same SettingsFeatureSheet shell as Settings');
 assert(warehouse.includes('sheetKey="material-need-details"'), 'Material Need shared sheet key missing');
-assert(warehouse.includes('description="Theo tầng · Theo căn · Theo hạng mục đã khai · Theo đội"'), 'Material Need shared sheet subtitle contract missing');
+assert(
+  warehouse.includes('description={normalizedStructureConfig.enabled ?')
+  && warehouse.includes("'Theo tầng · Theo căn · Theo hạng mục đã khai · Theo đội'"),
+  'Material Need shared sheet subtitle must retain the legacy fallback and add Khu/Khối only when enabled'
+);
 assert(warehouse.includes('icon={PackageSearch}'), 'Material Need shared sheet icon contract missing');
 assert(warehouse.includes('materialNeedRoomIds') && warehouse.includes('roomIds: materialNeedRoomIds'), 'Material Need multi-room filter contract missing');
 assert(warehouse.includes('materialNeedWorkCategoryIds') && warehouse.includes('workCategoryIds: materialNeedWorkCategoryIds'), 'Material Need declared work-category filter contract missing');
@@ -219,6 +223,8 @@ assert(crewUi.includes('Xem các Căn/Phòng đội đang làm') && crewUi.inclu
 assert(crewUi.includes("'__teamId': item.id") && crewUi.includes("'Tên Đội Thi Công': item.name") && crewUi.includes("key === '__teamId' ? { hidden: true } : {}"), 'Team Excel download must keep human team name visible and technical teamId hidden');
 assert(crewUi.includes("const teamNameAliases = new Set([") && crewUi.includes("if (!normalized || normalized.startsWith('__')) return false;") && crewUi.includes("if (rawTeamId && nameStr === rawTeamId)"), 'Team Excel re-import must never resolve __teamId as the human-facing team-name column');
 assert(defectUi.includes('activeDefectRoomName') && defectUi.includes('🏠 Căn/Phòng:'), 'Defect list/detail must show linked Căn/Phòng when roomId resolves');
+assert(!defectUi.includes('⚡ Chọn Nhanh Bằng 1 Click:') && !defectUi.includes('✅ Đội Defect đang chọn:') && !defectUi.includes('🏢 Đội trên mặt bằng tầng:') && !defectUi.includes('📋 Đội đã khai báo:'), 'Defect assignee editor must not duplicate the canonical team selector with repeated quick-pick blocks');
+assert(defectUi.includes('buildDefectShareText(defect, defectRoomName)') && defectUi.includes('buildDefectShareText(activeDefectDetail, activeDefectRoomName)'), 'Defect share must use the linked Căn/Phòng name in list and detail flows');
 assert(crewShareUi.includes('Sao chép nội dung') && crewShareUi.includes('Chia sẻ ảnh') && crewShareUi.includes('Tải ảnh'), 'Crew report sharing must support content, image share and image download');
 assert(!crewShareUi.includes('Tải ảnh PNG') && !crewShareUi.includes('JPEG'), 'Crew report UI must not expose image file-format jargon');
 assert(crewShareUi.includes('colSpan={4}') && crewShareUi.includes('— = chưa báo') && crewShareUi.includes('Tổng QS/ngày') && crewShareUi.includes('TỔNG'), 'Crew report preview must preserve matrix semantics and expose daily/column totals');
