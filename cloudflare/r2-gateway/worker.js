@@ -60,13 +60,20 @@ function retryDelayMs(response, fallbackMs) {
   return Math.min(5000, chosen);
 }
 
-async function firestoreGet(env, token, documentPath) {
+async function quotaUserKey(uid) {
+  const bytes = new TextEncoder().encode(String(uid || ''));
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(digest)].slice(0, 16).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function firestoreGet(env, token, documentPath, quotaUser = '') {
   const project = String(env.FIREBASE_PROJECT_ID || '').trim();
   if (!project) return new Response('firebase project config missing', { status: 503 });
   const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(project)}/databases/(default)/documents/${documentPath}`;
   const apiKey = String(env.FIREBASE_WEB_API_KEY || '').trim();
   const headers = { Authorization: `Bearer ${token}` };
   if (apiKey) headers['X-Goog-Api-Key'] = apiKey;
+  if (apiKey && quotaUser) headers['X-Goog-Quota-User'] = quotaUser;
   const attempts = Math.max(1, Math.min(5, Number(env.FIRESTORE_AUTH_RETRY_ATTEMPTS || 4)));
   const baseDelayMs = Math.max(0, Math.min(2000, Number(env.FIRESTORE_AUTH_RETRY_BASE_MS ?? 750)));
   let response = null;
@@ -98,8 +105,9 @@ async function getRole(env, token, projectId) {
   const uid = String(payload?.user_id || payload?.sub || '');
   const email = String(payload?.email || '').toLowerCase();
   if (!uid || !email) return { ok: false, role: '', reason: 'TOKEN_IDENTITY_MISSING' };
+  const quotaUser = await quotaUserKey(uid);
 
-  const projectResp = await firestoreGet(env, token, `projects/${encodeURIComponent(projectId)}`);
+  const projectResp = await firestoreGet(env, token, `projects/${encodeURIComponent(projectId)}`, quotaUser);
   if (!projectResp.ok) return firestoreAccessFailure(projectResp, 'PROJECT_ROOT');
   const projectDoc = await projectResp.json();
   const projectDeleted = fieldBool(projectDoc, 'deleted', false);
@@ -117,7 +125,7 @@ async function getRole(env, token, projectId) {
   for (const memberId of [email, uid]) {
     if (!memberId) continue;
     const canonicalEmailLookup = memberId === email;
-    const response = await firestoreGet(env, token, `projects/${encodeURIComponent(projectId)}/members/${encodeURIComponent(memberId)}`);
+    const response = await firestoreGet(env, token, `projects/${encodeURIComponent(projectId)}/members/${encodeURIComponent(memberId)}`, quotaUser);
     if (!response.ok) {
       if (response.status === 404) continue;
       return firestoreAccessFailure(response, canonicalEmailLookup ? 'EMAIL_MEMBER' : 'UID_MEMBER', projectDeleted);
@@ -163,6 +171,7 @@ export default {
       policyVersion: 'immutable-deleted-project-v2',
       firebaseProjectId: String(env.FIREBASE_PROJECT_ID || ''),
       quotaAttribution: String(env.FIREBASE_WEB_API_KEY || '').trim() ? 'api-key' : 'token-only',
+      quotaUserPartitioning: String(env.FIREBASE_WEB_API_KEY || '').trim() ? 'sha256-uid' : 'disabled',
       firestoreAuthRetryAttempts: Math.max(1, Math.min(5, Number(env.FIRESTORE_AUTH_RETRY_ATTEMPTS || 4))),
     }, 200, cors);
     if (url.pathname !== '/v1/object') return json({ error: 'NOT_FOUND' }, 404, cors);

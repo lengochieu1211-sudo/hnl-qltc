@@ -8,6 +8,8 @@ let canonicalMemberFailureStatus = 0;
 let projectRootFetchCount = 0;
 let canonicalMemberFetchCount = 0;
 let firestoreApiKeyHeaderCount = 0;
+let firestoreQuotaUserHeaderCount = 0;
+const firestoreQuotaUsers = new Set();
 
 function jwt(payload) {
   const enc = (v) => Buffer.from(JSON.stringify(v)).toString('base64url');
@@ -39,6 +41,11 @@ globalThis.fetch = async (input, init = {}) => {
   if (!url.startsWith('https://firestore.googleapis.com/')) return originalFetch(input, init);
   const requestHeaders = new Headers(init.headers || {});
   if (requestHeaders.get('x-goog-api-key') === 'golden-web-api-key') firestoreApiKeyHeaderCount += 1;
+  const quotaUser = String(requestHeaders.get('x-goog-quota-user') || '');
+  if (/^[0-9a-f]{32}$/.test(quotaUser)) {
+    firestoreQuotaUserHeaderCount += 1;
+    firestoreQuotaUsers.add(quotaUser);
+  }
   const token = String(requestHeaders.get('authorization') || '').replace(/^Bearer\s+/i, '');
   let payload = null;
   try { payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8')); } catch {}
@@ -127,6 +134,7 @@ assert(health.accessPolicy === 'canonical-email-first', 'gateway health exposes 
 assert(health.policyVersion === 'immutable-deleted-project-v2', 'gateway health proves immutable/deleted-project policy generation');
 assert(health.firebaseProjectId === 'com-example-qlct-61329', 'gateway health exposes the configured Firebase project');
 assert(health.quotaAttribution === 'api-key', 'gateway health proves Google API quota attribution is enabled');
+assert(health.quotaUserPartitioning === 'sha256-uid', 'gateway health proves per-user quota partitioning is enabled');
 
 const envWithoutCorsVar = { ...env, ALLOWED_ORIGINS: '' };
 const preflight = await worker.fetch(new Request('https://gateway.example/v1/object?key=projects/p1/media/diagnostics/probe/original.jpg', {
@@ -149,6 +157,7 @@ const floorKey = 'projects/p1/floor-plans/f1/original.jpg';
 let response = await call(identities.editor, 'PUT', mediaKey, new Uint8Array([1, 2, 3]));
 assert(response.status === 200, 'EDITOR may upload operational media');
 assert(firestoreApiKeyHeaderCount >= 2, 'Firestore REST authorization calls carry X-Goog-Api-Key quota attribution');
+assert(firestoreQuotaUserHeaderCount >= 2 && firestoreQuotaUsers.size >= 1, 'Firestore REST authorization calls carry hashed X-Goog-Quota-User partitioning');
 response = await call(identities.editor, 'PUT', mediaKey, new Uint8Array([1, 2, 3]));
 assert(response.status === 200, 'same-key same-bytes PUT is idempotent');
 assert((await response.json()).immutableRetry === true, 'idempotent retry is explicitly reported');
