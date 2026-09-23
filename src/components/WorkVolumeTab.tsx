@@ -119,8 +119,12 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   const [selectedRoomIdsForImport, setSelectedRoomIdsForImport] = useState<string[]>([]);
   const normalizedStructureConfig = useMemo(() => normalizeStructureGroupConfig(structureConfig), [structureConfig]);
   const [detailVolumeTarget, setDetailVolumeTarget] = useState<WorkVolume | null>(null);
-  const [detailStructureGroupId, setDetailStructureGroupId] = useState<string>('all');
-  const [detailFloorId, setDetailFloorId] = useState<string>('all');
+  const [detailStructureGroupIds, setDetailStructureGroupIds] = useState<string[]>([]);
+  const [detailFloorIds, setDetailFloorIds] = useState<string[]>([]);
+  const [detailRoomIds, setDetailRoomIds] = useState<string[]>([]);
+  const [detailTeamNames, setDetailTeamNames] = useState<string[]>([]);
+  const [detailSortBy, setDetailSortBy] = useState<'floor' | 'room' | 'team' | 'assigned' | 'actual' | 'progress'>('floor');
+  const [detailSortOrder, setDetailSortOrder] = useState<'asc' | 'desc'>('asc');
   const [detailSearch, setDetailSearch] = useState<string>('');
 
   // Role changes can happen without remounting this tab. Never leave an ADMIN-only
@@ -227,38 +231,49 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     return computeWorkVolumeDetailBreakdown(detailVolumeTarget, workVolumes, roomProgressList, floorPlans);
   }, [detailVolumeTarget, workVolumes, roomProgressList, floorPlans]);
 
+  const detailVisibleFloorOptions = useMemo(() => {
+    if (!detailBreakdown) return [];
+    const ids = new Set(detailBreakdown.rows.map((row) => row.floorId));
+    return floorPlans.filter((floor) => ids.has(floor.id)).filter((floor) => detailStructureGroupIds.length === 0 || detailStructureGroupIds.includes(resolveFloorStructureGroupId(floor, normalizedStructureConfig)));
+  }, [detailBreakdown, floorPlans, detailStructureGroupIds, normalizedStructureConfig]);
+
+  const detailVisibleRoomOptions = useMemo(() => {
+    if (!detailBreakdown) return [];
+    return detailBreakdown.rows.filter((row) => {
+      const floor = floorPlans.find((item) => item.id === row.floorId);
+      const groupId = floor ? resolveFloorStructureGroupId(floor, normalizedStructureConfig) : normalizedStructureConfig.defaultGroupId;
+      return (detailStructureGroupIds.length === 0 || detailStructureGroupIds.includes(groupId)) && (detailFloorIds.length === 0 || detailFloorIds.includes(row.floorId));
+    });
+  }, [detailBreakdown, detailStructureGroupIds, detailFloorIds, floorPlans, normalizedStructureConfig]);
+
+  const detailVisibleTeamOptions = useMemo<string[]>(() => Array.from(new Set<string>(detailVisibleRoomOptions.flatMap((row) => row.teamNames.map((name) => String(name))))).sort((a, b) => a.localeCompare(b, 'vi-VN', { numeric: true, sensitivity: 'base' })), [detailVisibleRoomOptions]);
+
   const detailRows = useMemo(() => {
     if (!detailBreakdown) return [];
     const query = detailSearch.trim().toLocaleLowerCase('vi-VN');
     return detailBreakdown.rows.filter((row) => {
       const floor = floorPlans.find((item) => item.id === row.floorId);
       const groupId = floor ? resolveFloorStructureGroupId(floor, normalizedStructureConfig) : normalizedStructureConfig.defaultGroupId;
-      if (detailStructureGroupId !== 'all' && groupId !== detailStructureGroupId) return false;
-      if (detailFloorId !== 'all' && row.floorId !== detailFloorId) return false;
-      if (query) {
-        const haystack = [
-          row.roomName,
-          row.floorName,
-          ...row.teamNames,
-        ].join(' ').toLocaleLowerCase('vi-VN');
-        if (!haystack.includes(query)) return false;
-      }
-      return true;
+      if (detailStructureGroupIds.length > 0 && !detailStructureGroupIds.includes(groupId)) return false;
+      if (detailFloorIds.length > 0 && !detailFloorIds.includes(row.floorId)) return false;
+      if (detailRoomIds.length > 0 && !detailRoomIds.includes(row.roomId)) return false;
+      if (detailTeamNames.length > 0 && !row.teamNames.some((name) => detailTeamNames.includes(name))) return false;
+      return !query || [row.roomName, row.floorName, ...row.teamNames].join(' ').toLocaleLowerCase('vi-VN').includes(query);
+    }).sort((a, b) => {
+      let comparison = 0;
+      if (detailSortBy === 'room') comparison = a.roomName.localeCompare(b.roomName, 'vi-VN', { numeric: true, sensitivity: 'base' });
+      else if (detailSortBy === 'team') comparison = (a.teamNames[0] || '').localeCompare(b.teamNames[0] || '', 'vi-VN', { numeric: true, sensitivity: 'base' });
+      else if (detailSortBy === 'assigned') comparison = a.assignedVolume - b.assignedVolume;
+      else if (detailSortBy === 'actual') comparison = a.actualVolume - b.actualVolume;
+      else if (detailSortBy === 'progress') comparison = a.progressPercent - b.progressPercent;
+      else comparison = a.floorName.localeCompare(b.floorName, 'vi-VN', { numeric: true, sensitivity: 'base' });
+      return detailSortOrder === 'asc' ? comparison : -comparison;
     });
-  }, [detailBreakdown, detailSearch, detailStructureGroupId, detailFloorId, floorPlans, normalizedStructureConfig]);
+  }, [detailBreakdown, detailSearch, detailStructureGroupIds, detailFloorIds, detailRoomIds, detailTeamNames, detailSortBy, detailSortOrder, floorPlans, normalizedStructureConfig]);
 
-  const detailVisibleFloorOptions = useMemo(() => {
-    if (!detailBreakdown) return [];
-    const ids = new Set(detailBreakdown.rows.map((row) => row.floorId));
-    return floorPlans
-      .filter((floor) => ids.has(floor.id))
-      .filter((floor) => detailStructureGroupId === 'all' || resolveFloorStructureGroupId(floor, normalizedStructureConfig) === detailStructureGroupId);
-  }, [detailBreakdown, floorPlans, detailStructureGroupId, normalizedStructureConfig]);
-
-  useEffect(() => {
-    if (detailFloorId === 'all') return;
-    if (!detailVisibleFloorOptions.some((floor) => floor.id === detailFloorId)) setDetailFloorId('all');
-  }, [detailFloorId, detailVisibleFloorOptions]);
+  useEffect(() => { setDetailFloorIds((ids) => ids.filter((id) => detailVisibleFloorOptions.some((floor) => floor.id === id))); }, [detailVisibleFloorOptions]);
+  useEffect(() => { setDetailRoomIds((ids) => ids.filter((id) => detailVisibleRoomOptions.some((row) => row.roomId === id))); }, [detailVisibleRoomOptions]);
+  useEffect(() => { setDetailTeamNames((names) => names.filter((name) => detailVisibleTeamOptions.includes(name))); }, [detailVisibleTeamOptions]);
 
     const sortedFilteredVolumes = useMemo(() => {
     const volumes = [...filteredVolumes];
@@ -880,8 +895,12 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                           type="button"
                           onClick={() => {
                             setDetailVolumeTarget(item);
-                            setDetailStructureGroupId('all');
-                            setDetailFloorId('all');
+                            setDetailStructureGroupIds([]);
+                            setDetailFloorIds([]);
+                            setDetailRoomIds([]);
+                            setDetailTeamNames([]);
+                            setDetailSortBy('floor');
+                            setDetailSortOrder('asc');
                             setDetailSearch('');
                           }}
                           className="text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-extrabold text-[11px]"
@@ -1212,30 +1231,44 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               </button>
             </div>
 
-            <div className="p-3 sm:p-4 border-b border-slate-200 bg-slate-50/80 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-              {normalizedStructureConfig.enabled && (
-                <select
-                  value={detailStructureGroupId}
-                  onChange={(event) => setDetailStructureGroupId(event.target.value)}
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700"
-                >
-                  <option value="all">Tất cả {normalizedStructureConfig.label}</option>
-                  {normalizedStructureConfig.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
-                </select>
-              )}
-              <select
-                value={detailFloorId}
-                onChange={(event) => setDetailFloorId(event.target.value)}
-                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700"
-              >
-                <option value="all">Tất cả tầng</option>
-                {detailVisibleFloorOptions.map((floor) => <option key={floor.id} value={floor.id}>{floor.floorName}</option>)}
-              </select>
-              <input
-                value={detailSearch}
-                onChange={(event) => setDetailSearch(event.target.value)}
-                placeholder="Tìm Căn/Phòng hoặc đội..."
-                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 lg:col-span-2"
+            <div className="p-3 sm:p-4 border-b border-slate-200 bg-slate-50/80 space-y-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                {normalizedStructureConfig.enabled && (
+                  <details className="rounded-xl border border-slate-200 bg-white p-2 text-xs">
+                    <summary className="cursor-pointer font-bold text-slate-700">{normalizedStructureConfig.label} · {detailStructureGroupIds.length || 'Tất cả'}</summary>
+                    <div className="mt-2 max-h-36 overflow-auto space-y-1">{normalizedStructureConfig.groups.map((group) => <label key={group.id} className="flex gap-2"><input type="checkbox" checked={detailStructureGroupIds.includes(group.id)} onChange={() => setDetailStructureGroupIds((ids) => ids.includes(group.id) ? ids.filter((id) => id !== group.id) : [...ids, group.id])} />{group.name}</label>)}</div>
+                  </details>
+                )}
+                <details className="rounded-xl border border-slate-200 bg-white p-2 text-xs">
+                  <summary className="cursor-pointer font-bold text-slate-700">Tầng · {detailFloorIds.length || 'Tất cả'}</summary>
+                  <div className="mt-2 max-h-36 overflow-auto space-y-1">{detailVisibleFloorOptions.map((floor) => <label key={floor.id} className="flex gap-2"><input type="checkbox" checked={detailFloorIds.includes(floor.id)} onChange={() => setDetailFloorIds((ids) => ids.includes(floor.id) ? ids.filter((id) => id !== floor.id) : [...ids, floor.id])} />{floor.floorName}</label>)}</div>
+                </details>
+                <details className="rounded-xl border border-slate-200 bg-white p-2 text-xs">
+                  <summary className="cursor-pointer font-bold text-slate-700">Căn/Phòng · {detailRoomIds.length || 'Tất cả'}</summary>
+                  <div className="mt-2 max-h-36 overflow-auto space-y-1">{detailVisibleRoomOptions.map((row) => <label key={row.roomId} className="flex gap-2"><input type="checkbox" checked={detailRoomIds.includes(row.roomId)} onChange={() => setDetailRoomIds((ids) => ids.includes(row.roomId) ? ids.filter((id) => id !== row.roomId) : [...ids, row.roomId])} />{row.roomName}</label>)}</div>
+                </details>
+                <details className="rounded-xl border border-slate-200 bg-white p-2 text-xs">
+                  <summary className="cursor-pointer font-bold text-slate-700">Đội · {detailTeamNames.length || 'Tất cả'}</summary>
+                  <div className="mt-2 max-h-36 overflow-auto space-y-1">{detailVisibleTeamOptions.map((name) => <label key={name} className="flex gap-2"><input type="checkbox" checked={detailTeamNames.includes(name)} onChange={() => setDetailTeamNames((names) => names.includes(name) ? names.filter((item) => item !== name) : [...names, name])} />{name}</label>)}</div>
+                </details>
+              </div>
+              <input value={detailSearch} onChange={(event) => setDetailSearch(event.target.value)} placeholder="Tìm Căn/Phòng hoặc đội..." className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700" />
+              <QuickSortBar
+                itemCount={detailRows.length}
+                minItems={0}
+                options={[
+                  { key: 'floor', label: 'Tầng', kind: 'floor' },
+                  { key: 'room', label: 'Căn/Phòng', kind: 'alpha' },
+                  { key: 'team', label: 'Đội', kind: 'alpha' },
+                  { key: 'assigned', label: 'Khối lượng', kind: 'number' },
+                  { key: 'actual', label: 'Đã làm', kind: 'number' },
+                  { key: 'progress', label: 'Tiến độ', kind: 'number' },
+                ]}
+                activeKey={detailSortBy}
+                order={detailSortOrder}
+                onChange={(key, order) => { setDetailSortBy(key as typeof detailSortBy); setDetailSortOrder(order); }}
+                onReset={() => { setDetailSortBy('floor'); setDetailSortOrder('asc'); }}
+                summary={`${detailRows.length} Căn/Phòng`}
               />
             </div>
 

@@ -293,8 +293,6 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     return () => { isMounted = false; };
   }, [isOpen, activeProjectId]);
 
-  if (!isOpen) return null;
-
   const floorNames: string[] = Array.from(new Set(effectiveFloorPlans.map((fp) => String(fp.floorName || '')).filter(Boolean)));
   const groupScopedFloorPlans = normalizedStructureConfig.enabled && selectedStructureGroupId !== 'all'
     ? effectiveFloorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === selectedStructureGroupId)
@@ -329,6 +327,8 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     });
     setSelectedRoomId('all');
   }, [selectedStructureGroupId, effectiveFloorPlans.length]);
+
+  if (!isOpen) return null;
 
   const floorMatchesScope = (floorId?: string, floorName?: string): boolean => {
     if (effectiveFloorPlans.length === 0) return true;
