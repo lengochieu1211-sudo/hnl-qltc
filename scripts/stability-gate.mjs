@@ -53,6 +53,7 @@ const offlineAccess = read('src/utils/offlineAccess.ts');
 const diagnostics = read('src/lib/runtimeDiagnostics.ts');
 const authHeader = read('src/components/GoogleAuthHeader.tsx');
 const floorPlanDefect = read('src/components/FloorPlanDefectTab.tsx');
+const crewTabBase = read('src/components/CrewTabBase.tsx');
 const chatTab = read('src/features/chat/ChatTab.tsx');
 const imageViewer = read('src/components/ImageViewerModal.tsx');
 const shareUtils = read('src/utils/shareUtils.ts');
@@ -217,7 +218,8 @@ requireAll(imageCompressor, [
 requireAll(photoSync, ['lastErrorPhotoId', 'photoSyncErrorCode', "area: 'photo-sync'", 'ảnh đang chờ Cloud/R2', 'isPhotoSharedCloudReady(photo)'], 'photo outbox exposes exact R2 failure and preserves pending status through realtime hydration');
 requireAll(photoStorage, ['getProjectPhotoDiagnosticSnapshot', 'localBinaryCount', 'checksumPrefix', 'belongsToCurrentUploader'], 'photo diagnostics export contains metadata/outbox evidence without binary payload');
 requireAll(app, ['qlct-defect-navigation-request', "area: 'defect-navigation'", "code: 'REQUEST'"], 'Defect notification navigation dispatches same-tab event plus storage fallback');
-requireAll(floorPlanDefect, ['qlct-defect-navigation-request', "code: 'OPEN_TARGET'", 'requestedFloor=', 'pendingCount', "getEntityPhotos(projectId, 'defect', defect.id)"], 'Defect view consumes same-tab deep-link and opens defect-wide photo gallery with Cloud pending state');
+requireAll(floorPlanDefect, ['qlct-defect-navigation-request', "code: 'OPEN_TARGET'", 'requestedFloor=', 'pendingCount', "getEntityPhotos(projectId, 'defect', defect.id)", 'activeDefectRoomName', '🏠 Căn/Phòng:'], 'Defect view consumes deep-link, shows linked room and opens defect-wide photo gallery with Cloud pending state');
+requireAll(crewTabBase, ['openRoomOnFloorPlan', 'openDefectOnFloorPlan', 'qlct_diagnostic_navigation_request', 'qlct_pending_defect_navigation', 'Mở Defect trên mặt bằng', 'Căn/Phòng:'], 'Team statistics can drill down from room/defect summaries to the exact floor-plan entity');
 requireAll(floorPlanDefect, ['tryHandleDefectPlacementEvent', 'relocatingDefectId', '<span>Di chuyển ghim</span>', 'const placement = getCandidateTeamsForDefect(', 'const roomAtPoint = placement.roomAtPos;', 'placement.roomAtPosTeam || defect.assignedTo', '...linkage'], 'Defect pin placement wins over room highlight hit-testing and explicit relocation recomputes durable linkage');
 requireAll(imageViewer, ['swipeStartRef', 'Math.abs(dx) < 48', 'handleNext()', 'handlePrev()'], 'image viewer supports one-finger horizontal gallery swipe while preserving pinch zoom');
 requireAll(chatTab, ['ensureDraftAttachmentsCloudReady', 'verifyPhotoBinaryReadyInCloud', 'Ảnh đang chờ Cloud/R2', 'ImageViewerModal', 'openMessageImageGallery'], 'chat shows Cloud state, blocks message publication until photo is durable, and opens multi-image gallery');
