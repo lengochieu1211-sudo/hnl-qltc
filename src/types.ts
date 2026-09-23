@@ -403,6 +403,7 @@ export interface TeamRoomDetail {
   teamId: string;
   teamName: string;
   assignedVolume: number;
+  constructedVolume: number;
   frameVolume: number;
   boardVolume: number;
   inspectedVolume: number;
