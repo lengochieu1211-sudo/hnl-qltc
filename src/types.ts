@@ -45,6 +45,19 @@ export interface InventoryItem {
 
 export type CategoryType = string;
 
+export interface StructureGroup {
+  id: string;
+  name: string;
+  order?: number;
+}
+
+export interface StructureGroupingConfig {
+  enabled: boolean;
+  /** Project-specific display noun: Khu/Khối, Tháp, Xưởng, Dãy, Block... */
+  label: string;
+  groups: StructureGroup[];
+}
+
 export interface WorkVolume {
   id: string;
   workCategoryId?: string;
@@ -73,6 +86,8 @@ export interface WorkVolume {
 export interface FloorPlan {
   id: string;
   floorName: string;
+  /** Optional structural group. Missing means legacy/unassigned and is resolved virtually. */
+  structureGroupId?: string;
   imageUrl: string;
   uploadedAt: string;
   order?: number;
@@ -317,6 +332,8 @@ export interface CrewFloorWork {
 export interface CrewRecord {
   id: string;
   teamId?: string;
+  /** Explicit group scope for new manpower rows. Legacy rows may omit it. */
+  structureGroupId?: string;
   date: string;
   teamName: string;
   leaderName: string;
@@ -346,6 +363,7 @@ export interface CrewRecord {
 export interface ProjectInfo {
   id: string;
   name: string;
+  structureGrouping?: StructureGroupingConfig;
   contractorName?: string;
   inspectorName?: string;
   projectLocation?: string;
@@ -388,6 +406,8 @@ export interface TeamRoomDetail {
   roomName: string;
   floorId: string;
   floorName: string;
+  structureGroupId?: string;
+  structureGroupName?: string;
   workCategoryId?: string;
   workCategoryName: string;
   unit: string;
