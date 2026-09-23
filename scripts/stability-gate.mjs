@@ -319,7 +319,6 @@ requireAll(workVolumeTab, [
 pass('Excel action bars are visually consistent across ADMIN, ENGINEER and VIEWER without weakening RBAC');
 
 const multiProjectAccess = read('src/components/MultiProjectAccessPanel.tsx');
-const securityModal = read('src/components/SecurityModal.tsx');
 const multiProjectOverview = read('src/components/MultiProjectOverview.tsx');
 const homeDashboard = read('src/components/HomeDashboard.tsx');
 const crewReportShare = read('src/components/CrewReportShareModal.tsx');
