@@ -395,11 +395,12 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                   <div className="text-[9px] font-bold text-slate-400">{matrix.teams.length} đội · {matrix.dates.length} ngày</div>
                 </div>
                 <div className="max-h-[440px] overflow-auto">
-                  <table className="w-full text-left text-xs" style={{ minWidth: `${Math.max(460, 120 + matrix.teams.length * 248)}px` }}>
+                  <table className="w-full text-left text-xs" style={{ minWidth: `${Math.max(570, 230 + matrix.teams.length * 248)}px` }}>
                     <thead className="sticky top-0 z-[1] bg-slate-100 text-[9px] font-black text-slate-500">
                       <tr>
                         <th rowSpan={2} className="sticky left-0 z-[2] min-w-[118px] border-r border-slate-200 bg-slate-100 px-3 py-2 align-middle">Ngày</th>
                         {matrix.teams.map((team) => <th key={team.teamKey} colSpan={4} className="border-r border-slate-200 px-2 py-2 text-center text-slate-700">{team.teamName}</th>)}
+                        <th rowSpan={2} className="min-w-[110px] border-r border-slate-200 bg-blue-50 px-2 py-2 text-center align-middle text-blue-800">Tổng QS/ngày</th>
                       </tr>
                       <tr>
                         {matrix.teams.flatMap((team) => ['Sáng', 'Chiều', 'Tối', 'QS ngày'].map((label) => <th key={`${team.teamKey}-${label}`} className="min-w-[62px] border-r border-slate-200 px-2 py-1.5 text-center">{label}</th>))}
@@ -414,16 +415,29 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                             const values = row?.reported ? [row.morning ?? 0, row.afternoon ?? 0, row.evening ?? 0, row.dailyHeadcount ?? 0] : ['—', '—', '—', '—'];
                             return values.map((value, index) => <td key={`${team.teamKey}-${index}`} className={`border-r border-slate-100 px-2 py-2 text-center tabular-nums ${index === 3 ? 'font-black text-slate-900' : ''}`}>{value}</td>);
                           })}
+                          <td className="border-r border-blue-100 bg-blue-50/60 px-2 py-2 text-center font-black tabular-nums text-blue-900">{dateRow.totalDailyHeadcount}</td>
                         </tr>
                       ))}
                     </tbody>
+                    <tfoot>
+                      <tr className="border-t-2 border-blue-200 bg-blue-50 font-black text-blue-950">
+                        <td className="sticky left-0 z-[1] border-r border-blue-200 bg-blue-50 px-3 py-2">TỔNG</td>
+                        {matrix.teams.flatMap((team) => {
+                          const total = matrix.teamTotals[team.teamKey] || { morning: 0, afternoon: 0, evening: 0, dailyHeadcount: 0 };
+                          return [total.morning, total.afternoon, total.evening, total.dailyHeadcount].map((value, index) => (
+                            <td key={`${team.teamKey}-total-${index}`} className="border-r border-blue-100 px-2 py-2 text-center tabular-nums">{value}</td>
+                          ));
+                        })}
+                        <td className="border-r border-blue-200 bg-blue-100 px-2 py-2 text-center tabular-nums">{matrix.grandDailyHeadcount}</td>
+                      </tr>
+                    </tfoot>
                   </table>
                 </div>
               </section>
             ))}
             {!reportLoading && filteredReportRows.length === 0 && <div className="rounded-2xl border border-slate-200 px-4 py-8 text-center text-xs text-slate-400">Chưa có đội hoặc dữ liệu phù hợp phạm vi đã chọn.</div>}
           </div>
-          <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-[9.5px] leading-4 text-blue-700">0 = đã báo bằng 0. — = chưa báo. QS ngày lấy mức cao nhất của từng đội, không cộng Sáng/Chiều/Tối.</div>
+          <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-[9.5px] leading-4 text-blue-700">0 = đã báo bằng 0. — = chưa báo. Tổng QS/ngày = tổng QS ngày của các đội trong ngày. Dòng TỔNG cộng theo cột; ô cuối là tổng lượt người-ngày của cả khoảng, không phải số người duy nhất.</div>
         </section>
 
         <section className="rounded-3xl border border-slate-200 bg-white p-3.5 shadow-sm sm:p-4">

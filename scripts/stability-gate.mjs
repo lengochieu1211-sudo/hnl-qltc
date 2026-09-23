@@ -157,9 +157,9 @@ if (!exists('storage.rules') || !firebaseJson.includes('"storage"') || !firebase
 requireAll(firebaseStorage, ['uploadProjectBinary', 'uploadFloorPlanBinary', 'thumbnailPath', 'deleteObject'], 'Firebase Storage fallback client');
 requireAll(binaryStorage, ['BINARY_STORAGE_PROVIDER', "'r2'", "'firebase-storage'", 'uploadProjectBinaryToCloud', 'uploadFloorPlanBinaryToCloud', 'downloadBinaryBlob'], 'binary storage provider adapter');
 requireAll(r2Storage, ['VITE_R2_GATEWAY_URL', 'Authorization', 'uploadProjectBinaryToR2', 'uploadFloorPlanBinaryToR2', 'downloadR2Blob'], 'R2 client');
-requireAll(r2Storage, ['verifyR2ObjectReady', 'verifyR2ObjectViaAuthenticatedGet', "method: 'HEAD'", "method: 'GET'", 'HEAD durability check unavailable', 'HEAD metadata is incomplete or mismatched', 'X-HNL-SHA256', 'R2_UPLOAD_NOT_DURABLE', 'getIdToken(forceRefresh)', 'response.status === 401 || response.status === 403', 'requestPut', 'PUT bị từ chối; refresh Firebase token và thử lại', "cache: 'no-store'", 'download denied/missing', "area: 'r2-upload'", "area: 'r2-download'"], 'R2 durable PUT + legacy HEAD compatibility + upload/download token recovery + diagnostics');
+requireAll(r2Storage, ['verifyR2ObjectReady', 'verifyR2ObjectViaAuthenticatedGet', "method: 'HEAD'", "method: 'GET'", 'HEAD durability check unavailable', 'HEAD metadata is incomplete or mismatched', 'X-HNL-SHA256', 'R2_UPLOAD_NOT_DURABLE', 'getIdToken(forceRefresh)', 'response.status === 401 || response.status === 403', 'requestPut', 'PUT bị từ chối; refresh Firebase token và thử lại', "cache: 'no-store'", 'download denied/missing', "area: 'r2-upload'", "area: 'r2-download'", 'fetchR2WithAuthBackendRetry', 'AUTH_BACKEND_UNAVAILABLE', 'Retry-After'], 'R2 durable PUT + legacy HEAD compatibility + token recovery + bounded transient auth-backend retry + diagnostics');
 requireAll(r2Worker, ['HNL_QLTC_MEDIA', 'FIREBASE_PROJECT_ID', 'firestore.googleapis.com', 'canWrite', "area === 'floor-plans'", "role === 'ADMIN'", "role === 'EDITOR'"], 'R2 gateway RBAC');
-requireAll(r2Worker, ["request.method === 'HEAD'", 'HNL_QLTC_MEDIA.head', 'X-HNL-SHA256', 'Content-Length', "GATEWAY_VERSION = '6.3.0-rc2.2.16'", "accessPolicy: 'canonical-email-first'", "for (const memberId of [email, uid])", "response.status === 404", 'AUTH_BACKEND_UNAVAILABLE', "'Retry-After': '60'", "canonicalEmailLookup ? 'EMAIL_MEMBER' : 'UID_MEMBER'", "'https://hnlqltc.web.app'", 'Access-Control-Allow-Methods'], 'R2 gateway durable object HEAD + canonical cross-account RBAC/version/CORS defaults + quota-safe fail-closed auth backend handling');
+requireAll(r2Worker, ["request.method === 'HEAD'", 'HNL_QLTC_MEDIA.head', 'X-HNL-SHA256', 'Content-Length', "GATEWAY_VERSION = '6.3.0-rc2.2.16'", "accessPolicy: 'canonical-email-first'", "for (const memberId of [email, uid])", "response.status === 404", 'AUTH_BACKEND_UNAVAILABLE', "'Retry-After': '60'", "canonicalEmailLookup ? 'EMAIL_MEMBER' : 'UID_MEMBER'", "'https://hnlqltc.web.app'", 'Access-Control-Allow-Methods', "'X-Goog-Api-Key'", 'quotaAttribution', 'firebaseProjectId', 'FIRESTORE_AUTH_RETRY_BASE_MS'], 'R2 gateway durable object HEAD + canonical cross-account RBAC/version/CORS defaults + explicit Firebase quota attribution + fail-closed auth backend handling');
 requireAll(r2DeployWorkflow, ['workflow_dispatch:', 'CLOUDFLARE_API_TOKEN', 'Resolve Cloudflare Account ID automatically', 'api.cloudflare.com/client/v4/accounts?per_page=50', 'CLOUDFLARE_ACCOUNT_ID=$ACCOUNT_ID', 'wrangler@4.33.0 deploy', '/health', '"version":"6.3.0-rc2.2.16"', '"accessPolicy":"canonical-email-first"', 'Smoke browser PUT CORS preflight', 'Access-Control-Request-Method: PUT'], 'manual one-button R2 Worker deploy workflow + auto account resolve + exact runtime/CORS verification');
 if (r2DeployWorkflow.includes('on:\n  push:') || r2DeployWorkflow.includes('on:\n  pull_request:')) fail('R2 Worker deploy workflow must never auto-deploy on push/PR');
 requireAll(photoSync, ['uploadProjectBinaryToCloud', 'BINARY_STORAGE_PROVIDER', 'storagePath:', 'thumbnailPath:', 'photoSnapshotMergeQueue'], 'photo object-storage pipeline');
@@ -365,6 +365,8 @@ requireAll(homeDashboard, [
   'Chia sẻ báo cáo quân số',
   'Chưa tải được dữ liệu quân số',
   'buildCrewReportMatrices',
+  'Tổng QS/ngày',
+  'TỔNG',
 ], 'Trang chủ dashboard');
 requireAll(crewReportShare, [
   '1 ngày',
@@ -374,6 +376,8 @@ requireAll(crewReportShare, [
   'Chia sẻ ảnh',
   'Tải ảnh',
   '— = chưa báo',
+  'Tổng QS/ngày',
+  'TỔNG',
 ], 'crew report share center');
 requireAll(crewReportUtils, [
   'buildCrewReportRows',
@@ -382,6 +386,9 @@ requireAll(crewReportUtils, [
   'projectLocation',
   'reported: false',
   'dailyHeadcount',
+  'totalDailyHeadcount',
+  'teamTotals',
+  'grandDailyHeadcount',
 ], 'crew report aggregation engine');
 requireAll(firebaseBase, [
   'fetchProjectCrewReportData',

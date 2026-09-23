@@ -208,13 +208,13 @@ assert(navSource.includes("label: 'Trang chủ'"), 'Visible Home navigation labe
 assert(homeDashboardUi.includes('Báo cáo quân số nhiều dự án'), 'Trang chủ must expose multi-project manpower reporting');
 assert(homeDashboardUi.includes('fetchProjectCrewReportData'), 'Trang chủ must load only targeted manpower/team data for other projects');
 assert(homeDashboardUi.includes('Chia sẻ báo cáo quân số'), 'Trang chủ manpower report must expose the agreed share-report action');
-assert(homeDashboardUi.includes('buildCrewReportMatrices') && homeDashboardUi.includes('colSpan={4}'), 'Trang chủ manpower report must render date rows with team column groups');
+assert(homeDashboardUi.includes('buildCrewReportMatrices') && homeDashboardUi.includes('colSpan={4}') && homeDashboardUi.includes('Tổng QS/ngày') && homeDashboardUi.includes('TỔNG'), 'Trang chủ manpower report must render date rows, team column groups, daily totals and a final column-total row');
 const crewUi = read('src/components/CrewTabBase.tsx');
 const crewShareUi = read('src/components/CrewReportShareModal.tsx');
 assert(crewUi.includes('Chia sẻ báo cáo quân số') && !crewUi.includes('1 ngày / nhiều ngày · nội dung / ảnh'), 'Crew screen must expose the concise consolidated share-report entry');
 assert(crewShareUi.includes('Sao chép nội dung') && crewShareUi.includes('Chia sẻ ảnh') && crewShareUi.includes('Tải ảnh'), 'Crew report sharing must support content, image share and image download');
 assert(!crewShareUi.includes('Tải ảnh PNG') && !crewShareUi.includes('JPEG'), 'Crew report UI must not expose image file-format jargon');
-assert(crewShareUi.includes('colSpan={4}') && crewShareUi.includes('— = chưa báo'), 'Crew report preview must use team-column/date-row matrix semantics');
+assert(crewShareUi.includes('colSpan={4}') && crewShareUi.includes('— = chưa báo') && crewShareUi.includes('Tổng QS/ngày') && crewShareUi.includes('TỔNG'), 'Crew report preview must preserve matrix semantics and expose daily/column totals');
 
 const crewReportRows = buildCrewReportRows([{
   projectId: 'p1', projectName: 'DA 1',
@@ -222,20 +222,35 @@ const crewReportRows = buildCrewReportRows([{
     { id: 't1', name: 'Đội A', leader: '', defaultCount: 0 },
     { id: 't2', name: 'Đội B', leader: '', defaultCount: 0 },
   ],
-  records: [{
-    id: 'r1', teamId: 't1', teamName: 'Đội A', leaderName: '', date: '2026-09-22',
-    workerCount: 0, morningCount: 0, afternoonCount: 0, eveningCount: 0, taskDescription: '',
-  }],
-}], '2026-09-22', '2026-09-22');
-const zeroReport = crewReportRows.find((row) => row.teamId === 't1');
-const missingReport = crewReportRows.find((row) => row.teamId === 't2');
+  records: [
+    {
+      id: 'r1', teamId: 't1', teamName: 'Đội A', leaderName: '', date: '2026-09-22',
+      workerCount: 0, morningCount: 0, afternoonCount: 0, eveningCount: 0, taskDescription: '',
+    },
+    {
+      id: 'r2', teamId: 't1', teamName: 'Đội A', leaderName: '', date: '2026-09-23',
+      workerCount: 3, morningCount: 3, afternoonCount: 2, eveningCount: 1, taskDescription: '',
+    },
+    {
+      id: 'r3', teamId: 't2', teamName: 'Đội B', leaderName: '', date: '2026-09-23',
+      workerCount: 2, morningCount: 2, afternoonCount: 2, eveningCount: 0, taskDescription: '',
+    },
+  ],
+}], '2026-09-22', '2026-09-23');
+const zeroReport = crewReportRows.find((row) => row.teamId === 't1' && row.date === '2026-09-22');
+const missingReport = crewReportRows.find((row) => row.teamId === 't2' && row.date === '2026-09-22');
 assert(Boolean(zeroReport?.reported) && zeroReport?.morning === 0 && zeroReport?.dailyHeadcount === 0, 'Crew report must preserve an explicit zero as reported, not missing');
 assert(missingReport?.reported === false && missingReport?.morning === null, 'Crew report must distinguish missing daily report from zero');
 const matrices = buildCrewReportMatrices(crewReportRows);
-assert(matrices.length === 1 && matrices[0].teams.length === 2 && matrices[0].dates.length === 1, 'Crew report matrix must group teams into columns and dates into rows');
+assert(matrices.length === 1 && matrices[0].teams.length === 2 && matrices[0].dates.length === 2, 'Crew report matrix must group teams into columns and dates into rows');
 assert(matrices[0].dates[0].cells['id:t1']?.reported === true && matrices[0].dates[0].cells['id:t2']?.reported === false, 'Crew report matrix must preserve reported-zero versus missing semantics');
-const crewReportText = buildCrewReportText({ rows: crewReportRows, startDate: '2026-09-22', endDate: '2026-09-22' });
+assert(matrices[0].dates[0].totalDailyHeadcount === 0 && matrices[0].dates[1].totalDailyHeadcount === 5, 'Crew report matrix must sum QS ngày across teams for each date');
+assert(matrices[0].teamTotals['id:t1']?.morning === 3 && matrices[0].teamTotals['id:t1']?.afternoon === 2 && matrices[0].teamTotals['id:t1']?.evening === 1 && matrices[0].teamTotals['id:t1']?.dailyHeadcount === 3, 'Crew report final row must sum every Team A shift/QS-day column');
+assert(matrices[0].teamTotals['id:t2']?.morning === 2 && matrices[0].teamTotals['id:t2']?.afternoon === 2 && matrices[0].teamTotals['id:t2']?.dailyHeadcount === 2, 'Crew report final row must sum Team B independently');
+assert(matrices[0].grandDailyHeadcount === 5, 'Crew report bottom-right total must equal total person-days across the selected range');
+const crewReportText = buildCrewReportText({ rows: crewReportRows, startDate: '2026-09-22', endDate: '2026-09-23' });
 assert(crewReportText.includes('Đội A: Sáng 0') && crewReportText.includes('Đội B: Chưa báo'), 'Crew report text must preserve 0 vs Chưa báo semantics');
+assert(crewReportText.includes('Tổng QS/ngày: 5 người') && crewReportText.includes('TỔNG') && crewReportText.includes('Tổng lượt người-ngày: 5'), 'Crew report text must include per-day totals and the final multi-day total block');
 const warehouseUi = read('src/components/WarehouseTab.tsx');
 const offlineBannerUi = read('src/components/OfflineSyncBanner.tsx');
 const roomHighlightUi = read('src/components/RoomHighlightModal.tsx');
