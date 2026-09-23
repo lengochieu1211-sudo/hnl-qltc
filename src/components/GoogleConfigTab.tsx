@@ -30,7 +30,9 @@ import {
   Hash,
   Trash2,
   RotateCcw,
-  Eraser
+  Eraser,
+  Plus,
+  Layers3
 } from 'lucide-react';
 import { GoogleAuthStatus, FloorPlan } from '../types';
 import { ConflictMergeModal } from './ConflictMergeModal';
@@ -49,6 +51,12 @@ import { HealthCenterPanel } from '../healthCenter/HealthCenterPanel';
 import { SettingsAccordionCard } from './SettingsAccordionCard';
 import { WindowsDesktopSyncBridgeCard } from './WindowsDesktopSyncBridgeCard';
 import { ProjectOfflineMirrorCard } from './ProjectOfflineMirrorCard';
+import {
+  createStructureGroupId,
+  normalizeStructureGroupConfig,
+  resolveFloorStructureGroupId,
+  type ProjectStructureConfig,
+} from '../utils/structureGroupUtils';
 
 declare const __BUILD_TIME__: string;
 
@@ -62,6 +70,8 @@ interface GoogleConfigTabProps {
   projectLocation: string;
   setProjectLocation: (location: string) => void;
   floorPlans: FloorPlan[];
+  structureConfig: ProjectStructureConfig;
+  onStructureConfigChange?: (config: ProjectStructureConfig) => void;
   onUpdateFloorPlan?: (id: string, updates: Partial<FloorPlan>) => void;
   onSyncAll: () => Promise<{ success: boolean; url?: string; message?: string }>;
   isSyncing: boolean;
@@ -123,6 +133,8 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   projectLocation,
   setProjectLocation,
   floorPlans,
+  structureConfig,
+  onStructureConfigChange,
   onUpdateFloorPlan,
   onSyncAll,
   isSyncing,
@@ -166,6 +178,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   const [localContractorName, setLocalContractorName] = useState(contractorName);
   const [localInspectorName, setLocalInspectorName] = useState(inspectorName);
   const [localProjectLocation, setLocalProjectLocation] = useState(projectLocation);
+  const [localStructureConfig, setLocalStructureConfig] = useState<ProjectStructureConfig>(() => normalizeStructureGroupConfig(structureConfig));
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
 
   // App Format Preferences State
@@ -445,6 +458,10 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
     setLocalProjectLocation(projectLocation);
   }, [projectLocation]);
 
+  useEffect(() => {
+    setLocalStructureConfig(normalizeStructureGroupConfig(structureConfig));
+  }, [structureConfig]);
+
   // Handle data comparison between device and cloud
   const handleCompareData = async () => {
     if (!hasApiBackend()) {
@@ -619,6 +636,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
     setContractorName(localContractorName.trim());
     setInspectorName(localInspectorName.trim());
     setProjectLocation(localProjectLocation.trim());
+    onStructureConfigChange?.(normalizeStructureGroupConfig(localStructureConfig));
 
     setSaveSuccessMsg('🎉 Đã lưu cài đặt dự án thành công!');
     setTimeout(() => setSaveSuccessMsg(null), 4000);
@@ -700,6 +718,122 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
                 placeholder="Họ tên người duyệt"
               />
             </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-1.5 font-bold text-slate-800">
+                  <Layers3 className="h-4 w-4 text-indigo-600" />
+                  Cấp Khu / Khối
+                </div>
+                <p className="mt-0.5 text-[10px] text-slate-500">
+                  Dùng chung cho Tháp, Khối, Xưởng, Dãy, Block… theo cấu trúc Dự án → Khu/Khối → Tầng → Căn/Phòng.
+                </p>
+              </div>
+              <label className="inline-flex items-center gap-2 text-[11px] font-bold text-slate-700 shrink-0">
+                <input
+                  type="checkbox"
+                  checked={localStructureConfig.enabled}
+                  disabled={userRole !== 'ADMIN'}
+                  onChange={(event) => setLocalStructureConfig((prev) => normalizeStructureGroupConfig({ ...prev, enabled: event.target.checked }))}
+                />
+                Bật
+              </label>
+            </div>
+
+            {localStructureConfig.enabled && (
+              <>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-600 mb-1">Tên cấp hiển thị</label>
+                  <input
+                    type="text"
+                    value={localStructureConfig.label}
+                    disabled={userRole !== 'ADMIN'}
+                    onChange={(event) => setLocalStructureConfig((prev) => normalizeStructureGroupConfig({ ...prev, label: event.target.value }))}
+                    placeholder="Ví dụ: Tháp, Khối, Xưởng, Dãy, Block"
+                    className="w-full border border-slate-200 rounded-xl p-2 font-semibold text-slate-800 disabled:bg-slate-100 disabled:text-slate-500"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  {localStructureConfig.groups.map((group, index) => {
+                    const floorCount = floorPlans.filter((floor) => resolveFloorStructureGroupId(floor, localStructureConfig) === group.id).length;
+                    const isDefault = localStructureConfig.defaultGroupId === group.id;
+                    return (
+                      <div key={group.id} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white p-2">
+                        <input
+                          type="radio"
+                          name="default-structure-group"
+                          checked={isDefault}
+                          disabled={userRole !== 'ADMIN'}
+                          onChange={() => setLocalStructureConfig((prev) => normalizeStructureGroupConfig({ ...prev, defaultGroupId: group.id }))}
+                          title="Khu/Khối mặc định cho tầng cũ chưa có liên kết"
+                        />
+                        <input
+                          type="text"
+                          value={group.name}
+                          disabled={userRole !== 'ADMIN'}
+                          onChange={(event) => {
+                            const name = event.target.value;
+                            setLocalStructureConfig((prev) => normalizeStructureGroupConfig({
+                              ...prev,
+                              groups: prev.groups.map((item) => item.id === group.id ? { ...item, name } : item),
+                            }));
+                          }}
+                          className="min-w-0 flex-1 border border-slate-200 rounded-lg px-2 py-1.5 font-semibold text-slate-800 disabled:bg-slate-100"
+                        />
+                        <span className="text-[9px] text-slate-500 whitespace-nowrap">{floorCount} tầng</span>
+                        {isDefault && <span className="text-[9px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded">Mặc định</span>}
+                        {userRole === 'ADMIN' && (
+                          <button
+                            type="button"
+                            disabled={floorCount > 0 || localStructureConfig.groups.length <= 1}
+                            onClick={() => {
+                              setLocalStructureConfig((prev) => {
+                                const remaining = prev.groups.filter((item) => item.id !== group.id);
+                                return normalizeStructureGroupConfig({
+                                  ...prev,
+                                  groups: remaining,
+                                  defaultGroupId: prev.defaultGroupId === group.id ? remaining[0]?.id : prev.defaultGroupId,
+                                });
+                              });
+                            }}
+                            className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 disabled:text-slate-300 disabled:cursor-not-allowed"
+                            title={floorCount > 0 ? 'Không thể xóa: Khu/Khối này còn tầng' : 'Xóa Khu/Khối'}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {userRole === 'ADMIN' && (
+                    <button
+                      type="button"
+                      onClick={() => setLocalStructureConfig((prev) => normalizeStructureGroupConfig({
+                        ...prev,
+                        groups: [
+                          ...prev.groups,
+                          {
+                            id: createStructureGroupId(),
+                            name: `${prev.label || 'Khu / Khối'} ${prev.groups.length + 1}`,
+                            order: prev.groups.length,
+                          },
+                        ],
+                      }))}
+                      className="w-full rounded-xl border border-dashed border-indigo-300 bg-indigo-50/50 py-2 text-[11px] font-bold text-indigo-700 hover:bg-indigo-50 flex items-center justify-center gap-1.5"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> Thêm {localStructureConfig.label || 'Khu / Khối'}
+                    </button>
+                  )}
+                </div>
+                <p className="text-[9.5px] text-slate-500">
+                  Tầng cũ chưa có ID Khu/Khối sẽ được hiểu thuộc nhóm “Mặc định” mà không ghi lại hàng loạt dữ liệu.
+                </p>
+              </>
+            )}
           </div>
 
           <button
