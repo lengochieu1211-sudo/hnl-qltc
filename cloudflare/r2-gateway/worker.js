@@ -45,10 +45,22 @@ function fieldBool(doc, name, fallback = true) {
   return typeof value === 'boolean' ? value : fallback;
 }
 
+const sleep = (ms) => ms > 0 ? new Promise(resolve => setTimeout(resolve, ms)) : Promise.resolve();
+
 async function firestoreGet(env, token, documentPath) {
   const project = env.FIREBASE_PROJECT_ID || 'com-example-qlct-61329';
   const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(project)}/databases/(default)/documents/${documentPath}`;
-  return fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  const attempts = Math.max(1, Math.min(5, Number(env.FIRESTORE_AUTH_RETRY_ATTEMPTS || 4)));
+  const baseDelayMs = Math.max(0, Math.min(1000, Number(env.FIRESTORE_AUTH_RETRY_BASE_MS ?? 250)));
+  let response = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    const status = Number(response?.status || 0);
+    const transient = status === 429 || status >= 500;
+    if (!transient || attempt === attempts - 1) return response;
+    await sleep(Math.min(2000, baseDelayMs * (2 ** attempt)));
+  }
+  return response;
 }
 
 function firestoreAccessFailure(response, source, projectDeleted = false) {
