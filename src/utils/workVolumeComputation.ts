@@ -65,6 +65,7 @@ export function computeWorkVolumeDetailBreakdown(
   workVolumes: WorkVolume[],
   rooms: RoomProgressItem[],
   floorPlans: FloorPlan[] = [],
+  teamFilter?: { id?: string; name?: string; leader?: string },
 ): WorkVolumeDetailBreakdown {
   const categoryId = canonicalWorkCategoryId(item);
   if (!categoryId) {
@@ -73,6 +74,14 @@ export function computeWorkVolumeDetailBreakdown(
 
   const activeRooms = rooms.filter((room) => room.deletedAt === undefined || room.deletedAt === null);
   const rows: WorkVolumeRoomDetail[] = [];
+  const normalizedTeamName = String(teamFilter?.name || '').trim().toLocaleLowerCase('vi-VN');
+  const normalizedLeaderName = String(teamFilter?.leader || '').trim().toLocaleLowerCase('vi-VN');
+  const matchesTeam = (teamId?: string, teamName?: string): boolean => {
+    if (!teamFilter?.id && !normalizedTeamName && !normalizedLeaderName) return true;
+    if (teamFilter?.id && teamId === teamFilter.id) return true;
+    const normalized = String(teamName || '').trim().toLocaleLowerCase('vi-VN');
+    return Boolean(normalized && (normalized === normalizedTeamName || normalized === normalizedLeaderName));
+  };
 
   activeRooms.forEach((room) => {
     const floorName = roomFloorName(room, floorPlans);
@@ -85,18 +94,26 @@ export function computeWorkVolumeDetailBreakdown(
       subItemBelongsToCategory(sub, room, categoryId, workVolumes, floorName),
     );
 
+    let scopedAssignedVolume = assignedVolume;
     let actualVolume = 0;
     if (assignedVolume > 0 && categorySubItems.length > 0) {
       const totalWeight = categorySubItems.reduce(
         (sum, sub) => sum + getSubItemGroupWeight(categorySubItems, sub),
         0,
       );
-      const completedWeight = categorySubItems.reduce((sum, sub) => {
+      const scopedSubItems = teamFilter
+        ? categorySubItems.filter((sub) => matchesTeam(sub.teamId, sub.assignedTeam))
+        : categorySubItems;
+      if (teamFilter && scopedSubItems.length === 0) return;
+      const scopedWeight = scopedSubItems.reduce((sum, sub) => sum + getSubItemGroupWeight(categorySubItems, sub), 0);
+      const completedWeight = scopedSubItems.reduce((sum, sub) => {
         if (sub.status !== 'Đã hoàn thành') return sum;
         return sum + getSubItemGroupWeight(categorySubItems, sub);
       }, 0);
-      actualVolume = assignedVolume * (totalWeight > 0 ? Math.min(1, completedWeight / totalWeight) : 0);
+      scopedAssignedVolume = totalWeight > 0 ? assignedVolume * Math.min(1, scopedWeight / totalWeight) : 0;
+      actualVolume = totalWeight > 0 ? assignedVolume * Math.min(1, completedWeight / totalWeight) : 0;
     } else if (assignedVolume > 0) {
+      if (teamFilter && !matchesTeam(room.teamId, room.assignedTeam)) return;
       const title = String(item.title || '').toLocaleLowerCase('vi-VN');
       const isFrame = title.includes('khung') || title.includes('xương');
       const isBoard = title.includes('tấm');
@@ -118,15 +135,16 @@ export function computeWorkVolumeDetailBreakdown(
       ...categorySubItems.map((sub) => sub.assignedTeam),
     ].map((value) => String(value || '').trim()).filter(Boolean)));
 
+    const roundedAssigned = Math.round(scopedAssignedVolume * 100) / 100;
     const roundedActual = Math.round(actualVolume * 100) / 100;
     rows.push({
       roomId: room.id,
       roomName: room.roomName || room.id,
       floorId: room.floorId,
       floorName: floorName || room.floorId || 'Mặt bằng',
-      assignedVolume,
+      assignedVolume: roundedAssigned,
       actualVolume: roundedActual,
-      progressPercent: assignedVolume > 0 ? Math.min(100, Math.round((roundedActual / assignedVolume) * 100)) : 0,
+      progressPercent: roundedAssigned > 0 ? Math.min(100, Math.round((roundedActual / roundedAssigned) * 100)) : 0,
       teamIds,
       teamNames,
       hasDetailedStages: categorySubItems.length > 0,
