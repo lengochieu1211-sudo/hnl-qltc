@@ -47,18 +47,36 @@ function fieldBool(doc, name, fallback = true) {
 
 const sleep = (ms) => ms > 0 ? new Promise(resolve => setTimeout(resolve, ms)) : Promise.resolve();
 
+function retryDelayMs(response, fallbackMs) {
+  const raw = String(response?.headers?.get?.('Retry-After') || '').trim();
+  let hintedMs = NaN;
+  if (/^\d+(?:\.\d+)?$/.test(raw)) hintedMs = Number(raw) * 1000;
+  else if (raw) {
+    const at = Date.parse(raw);
+    if (Number.isFinite(at)) hintedMs = Math.max(0, at - Date.now());
+  }
+  const fallback = Math.max(0, Number(fallbackMs || 0));
+  const chosen = Number.isFinite(hintedMs) ? Math.max(fallback, hintedMs) : fallback;
+  return Math.min(5000, chosen);
+}
+
 async function firestoreGet(env, token, documentPath) {
-  const project = env.FIREBASE_PROJECT_ID || 'com-example-qlct-61329';
+  const project = String(env.FIREBASE_PROJECT_ID || '').trim();
+  if (!project) return new Response('firebase project config missing', { status: 503 });
   const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(project)}/databases/(default)/documents/${documentPath}`;
+  const apiKey = String(env.FIREBASE_WEB_API_KEY || '').trim();
+  const headers = { Authorization: `Bearer ${token}` };
+  if (apiKey) headers['X-Goog-Api-Key'] = apiKey;
   const attempts = Math.max(1, Math.min(5, Number(env.FIRESTORE_AUTH_RETRY_ATTEMPTS || 4)));
-  const baseDelayMs = Math.max(0, Math.min(1000, Number(env.FIRESTORE_AUTH_RETRY_BASE_MS ?? 250)));
+  const baseDelayMs = Math.max(0, Math.min(2000, Number(env.FIRESTORE_AUTH_RETRY_BASE_MS ?? 750)));
   let response = null;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    response = await fetch(url, { headers });
     const status = Number(response?.status || 0);
     const transient = status === 429 || status >= 500;
     if (!transient || attempt === attempts - 1) return response;
-    await sleep(Math.min(2000, baseDelayMs * (2 ** attempt)));
+    const fallbackMs = Math.min(5000, baseDelayMs * (2 ** attempt));
+    await sleep(retryDelayMs(response, fallbackMs));
   }
   return response;
 }
@@ -137,7 +155,16 @@ export default {
     const cors = corsHeaders(request, env);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     const url = new URL(request.url);
-    if (url.pathname === '/health') return json({ ok: true, service: 'hnl-qltc-r2-gateway', version: GATEWAY_VERSION, accessPolicy: 'canonical-email-first', policyVersion: 'immutable-deleted-project-v2' }, 200, cors);
+    if (url.pathname === '/health') return json({
+      ok: true,
+      service: 'hnl-qltc-r2-gateway',
+      version: GATEWAY_VERSION,
+      accessPolicy: 'canonical-email-first',
+      policyVersion: 'immutable-deleted-project-v2',
+      firebaseProjectId: String(env.FIREBASE_PROJECT_ID || ''),
+      quotaAttribution: String(env.FIREBASE_WEB_API_KEY || '').trim() ? 'api-key' : 'token-only',
+      firestoreAuthRetryAttempts: Math.max(1, Math.min(5, Number(env.FIRESTORE_AUTH_RETRY_ATTEMPTS || 4))),
+    }, 200, cors);
     if (url.pathname !== '/v1/object') return json({ error: 'NOT_FOUND' }, 404, cors);
 
     const auth = request.headers.get('Authorization') || '';

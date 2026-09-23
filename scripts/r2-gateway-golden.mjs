@@ -7,6 +7,7 @@ let projectAccessFailureStatus = 0;
 let canonicalMemberFailureStatus = 0;
 let projectRootFetchCount = 0;
 let canonicalMemberFetchCount = 0;
+let firestoreApiKeyHeaderCount = 0;
 
 function jwt(payload) {
   const enc = (v) => Buffer.from(JSON.stringify(v)).toString('base64url');
@@ -36,7 +37,9 @@ function fsDoc(fields) {
 globalThis.fetch = async (input, init = {}) => {
   const url = String(input);
   if (!url.startsWith('https://firestore.googleapis.com/')) return originalFetch(input, init);
-  const token = String(init.headers?.Authorization || '').replace(/^Bearer\s+/i, '');
+  const requestHeaders = new Headers(init.headers || {});
+  if (requestHeaders.get('x-goog-api-key') === 'golden-web-api-key') firestoreApiKeyHeaderCount += 1;
+  const token = String(requestHeaders.get('authorization') || '').replace(/^Bearer\s+/i, '');
   let payload = null;
   try { payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8')); } catch {}
   if (!payload?.user_id || !payload?.email) return new Response('unauthorized', { status: 401 });
@@ -63,6 +66,7 @@ globalThis.fetch = async (input, init = {}) => {
 
 const env = {
   FIREBASE_PROJECT_ID: 'com-example-qlct-61329',
+  FIREBASE_WEB_API_KEY: 'golden-web-api-key',
   SUPER_ADMIN_EMAIL: 'super@example.com',
   ALLOWED_ORIGINS: 'https://hnlqltc.web.app,https://com-example-qlct-61329.web.app,https://com-example-qlct-61329.firebaseapp.com',
   MAX_UPLOAD_BYTES: '26214400',
@@ -121,6 +125,8 @@ assert(healthResponse.status === 200 && health.ok === true, 'gateway health is a
 assert(health.version === '6.3.0-rc2.2.16', 'gateway health exposes RC2.2.16 runtime version');
 assert(health.accessPolicy === 'canonical-email-first', 'gateway health exposes canonical email-first RBAC policy');
 assert(health.policyVersion === 'immutable-deleted-project-v2', 'gateway health proves immutable/deleted-project policy generation');
+assert(health.firebaseProjectId === 'com-example-qlct-61329', 'gateway health exposes the configured Firebase project');
+assert(health.quotaAttribution === 'api-key', 'gateway health proves Google API quota attribution is enabled');
 
 const envWithoutCorsVar = { ...env, ALLOWED_ORIGINS: '' };
 const preflight = await worker.fetch(new Request('https://gateway.example/v1/object?key=projects/p1/media/diagnostics/probe/original.jpg', {
@@ -142,6 +148,7 @@ const floorKey = 'projects/p1/floor-plans/f1/original.jpg';
 
 let response = await call(identities.editor, 'PUT', mediaKey, new Uint8Array([1, 2, 3]));
 assert(response.status === 200, 'EDITOR may upload operational media');
+assert(firestoreApiKeyHeaderCount >= 2, 'Firestore REST authorization calls carry X-Goog-Api-Key quota attribution');
 response = await call(identities.editor, 'PUT', mediaKey, new Uint8Array([1, 2, 3]));
 assert(response.status === 200, 'same-key same-bytes PUT is idempotent');
 assert((await response.json()).immutableRetry === true, 'idempotent retry is explicitly reported');
