@@ -2772,6 +2772,16 @@ export async function fetchProjectFromCloud(projectId: string, options?: { serve
         projectLocation: meta.projectLocation || '',
         updatedAt: meta.updatedAt || 0,
       };
+      try {
+        const settingsSnap = options?.serverOnly
+          ? await getDocFromServer(doc(db, 'projects', projectId, 'settings', 'shared'))
+          : await getDoc(doc(db, 'projects', projectId, 'settings', 'shared'));
+        if (settingsSnap.exists() && settingsSnap.data()?.structureGrouping) {
+          payload.structureGrouping = settingsSnap.data().structureGrouping;
+        }
+      } catch (err) {
+        console.warn('[Cloud Sync] Shared Khu/Khối settings unavailable while reconstructing project:', err);
+      }
 
       const subNames = REALTIME_COLLECTIONS;
 
