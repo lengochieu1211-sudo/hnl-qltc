@@ -1372,7 +1372,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               onClick={() => setShowCrewReportShare(true)}
               className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 text-xs font-extrabold text-emerald-700 shadow-sm transition hover:bg-emerald-100"
             >
-              <FileText className="h-4 w-4" /> Chia sẻ báo cáo quân số · 1 ngày / nhiều ngày · nội dung / ảnh
+              <FileText className="h-4 w-4" /> Chia sẻ báo cáo quân số
             </button>
           </div>
 
