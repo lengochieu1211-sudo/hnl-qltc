@@ -210,14 +210,14 @@ assert(homeDashboardUi.includes('Báo cáo quân số nhiều dự án'), 'Trang
 assert(homeDashboardUi.includes('fetchProjectCrewReportData'), 'Trang chủ must load only targeted manpower/team data for other projects');
 assert(homeDashboardUi.includes('Chia sẻ báo cáo quân số'), 'Trang chủ manpower report must expose the agreed share-report action');
 assert(homeDashboardUi.includes('buildCrewReportMatrices') && homeDashboardUi.includes('colSpan={4}') && homeDashboardUi.includes('Tổng QS/ngày') && homeDashboardUi.includes('TỔNG'), 'Trang chủ manpower report must render date rows, team column groups, daily totals and a final column-total row');
-assert(homeDashboardUi.includes('relative isolate max-h-[440px] overflow-auto overscroll-contain') && homeDashboardUi.includes('sticky top-[33px]'), 'Trang chủ crew table sticky header must stay contained inside its own scroll viewport');
+assert(homeDashboardUi.includes('relative isolate max-h-[440px] overflow-auto overscroll-contain') && homeDashboardUi.includes('<tr className="h-8">') && homeDashboardUi.includes('sticky top-[31px]'), 'Trang chủ crew table sticky header must stay contained and overlap by 1px so no scroll seam can show through');
 const crewUi = read('src/components/CrewTabBase.tsx');
 const crewShareUi = read('src/components/CrewReportShareModal.tsx');
 assert(crewUi.includes('Chia sẻ báo cáo quân số') && !crewUi.includes('1 ngày / nhiều ngày · nội dung / ảnh'), 'Crew screen must expose the concise consolidated share-report entry');
 assert(crewShareUi.includes('Sao chép nội dung') && crewShareUi.includes('Chia sẻ ảnh') && crewShareUi.includes('Tải ảnh'), 'Crew report sharing must support content, image share and image download');
 assert(!crewShareUi.includes('Tải ảnh PNG') && !crewShareUi.includes('JPEG'), 'Crew report UI must not expose image file-format jargon');
 assert(crewShareUi.includes('colSpan={4}') && crewShareUi.includes('— = chưa báo') && crewShareUi.includes('Tổng QS/ngày') && crewShareUi.includes('TỔNG'), 'Crew report preview must preserve matrix semantics and expose daily/column totals');
-assert(crewShareUi.includes('relative isolate max-h-[42vh] overflow-auto overscroll-contain') && crewShareUi.includes('sticky top-[33px]'), 'Crew share preview sticky header must stay contained inside its own scroll viewport');
+assert(crewShareUi.includes('relative isolate max-h-[42vh] overflow-auto overscroll-contain') && crewShareUi.includes('<tr className="h-8">') && crewShareUi.includes('sticky top-[31px]'), 'Crew share preview sticky header must stay contained and overlap by 1px so no scroll seam can show through');
 
 const crewReportRows = buildCrewReportRows([{
   projectId: 'p1', projectName: 'DA 1',
