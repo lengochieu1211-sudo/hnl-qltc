@@ -18,6 +18,7 @@ export type TabType = 'home' | 'warehouse' | 'volume' | 'floorplan' | 'checklist
 
 interface BottomNavProps {
   activeTab: TabType;
+  forceDesktopRail?: boolean;
   setActiveTab: (tab: TabType) => void;
   defectBadgeCount: number;
   chatBadgeCount?: number;
@@ -28,6 +29,7 @@ interface BottomNavProps {
 
 export const BottomNav: React.FC<BottomNavProps> = ({
   activeTab,
+  forceDesktopRail = false,
   setActiveTab,
   defectBadgeCount,
   chatBadgeCount = 0,
@@ -70,7 +72,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   return (
     <>
       {/* PC/Laptop: same light navigation language as the mobile bottom bar, moved to the left rail. */}
-      <aside className="fixed inset-y-0 left-0 z-50 hidden w-[84px] flex-col border-r border-slate-200 bg-white text-slate-700 shadow-sm lg:flex">
+      <aside className={`fixed inset-y-0 left-0 z-50 w-[84px] flex-col border-r border-slate-200 bg-white text-slate-700 shadow-sm ${forceDesktopRail ? 'flex' : 'hidden lg:flex'}`}>
         <nav className="flex flex-1 flex-col items-center gap-1 overflow-y-auto px-1.5 py-2 no-scrollbar" aria-label="Điều hướng chính HNL QLTC">
           {desktopTabs.map((tab) => {
             const Icon = tab.icon;
@@ -126,7 +128,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
 
       {/* Phone/tablet: keep a thumb-friendly bottom bar. */}
       <div
-        className="fixed bottom-0 left-0 right-0 z-40 border-t border-slate-200 bg-white shadow-2xl lg:hidden"
+        className={`fixed bottom-0 left-0 right-0 z-40 border-t border-slate-200 bg-white shadow-2xl ${forceDesktopRail ? 'hidden' : 'lg:hidden'}`}
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         <div className="relative mx-auto grid h-16 max-w-lg grid-cols-5 md:max-w-3xl">

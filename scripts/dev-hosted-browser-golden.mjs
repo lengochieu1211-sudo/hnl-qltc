@@ -575,12 +575,38 @@ async function verifyColdStartOffline(browser) {
   await context.close();
 }
 
+async function verifyNarrowDesktopRuntime(browser) {
+  const context = await browser.newContext({ viewport: { width: 820, height: 720 } });
+  const page = await context.newPage();
+  const response = await page.goto(`${hostingUrl}/?app=desktop&runtimeGoldenDesktopNarrow=${Date.now()}`, {
+    waitUntil: 'domcontentloaded',
+    timeout: 30000,
+  });
+  assert(response && response.status() === 200, 'desktop EXE narrow runtime navigation failed');
+  await page.waitForSelector('#root', { timeout: 15000 });
+  await page.waitForFunction(() => document.querySelector('#root')?.children.length > 0, null, { timeout: 20000 });
+
+  const rail = page.locator('aside').first();
+  await rail.waitFor({ state: 'visible', timeout: 10000 });
+  const railBox = await rail.boundingBox();
+  assert(railBox && railBox.x >= -1 && railBox.width >= 80, 'desktop EXE narrow runtime left rail moved out of viewport');
+
+  const moreButton = page.getByRole('button', { name: 'Thêm', exact: true });
+  assert(await moreButton.count() > 0, 'desktop EXE narrow runtime mobile-nav probe missing');
+  assert(!(await moreButton.isVisible()), 'desktop EXE narrow runtime incorrectly switched to mobile bottom navigation');
+
+  await page.screenshot({ path: 'runtime-evidence/desktop-exe-narrow.png', fullPage: false });
+  pass('desktop EXE narrow viewport keeps fixed left navigation rail', `${Math.round(railBox.width)}px rail at x=${Math.round(railBox.x)}`);
+  await context.close();
+}
+
 let browser;
 try {
   browser = await chromium.launch({ headless: true });
   await runViewport(browser, 'desktop', { width: 1440, height: 900 }, 'runtime-evidence/desktop.png');
   await runViewport(browser, 'desktop-720p', { width: 1280, height: 720 }, 'runtime-evidence/desktop-720p.png');
   await runViewport(browser, 'desktop-compact', { width: 1088, height: 610 }, 'runtime-evidence/desktop-compact.png');
+  await verifyNarrowDesktopRuntime(browser);
   await runViewport(browser, 'mobile', { width: 393, height: 852 }, 'runtime-evidence/mobile.png');
   await verifyColdStartOffline(browser);
 

@@ -354,6 +354,8 @@ requireAll(multiProjectOverview, [
 ], 'secondary multi-project overview');
 requireAll(homeDashboard, [
   'Tổng quan công trường',
+  'relative isolate max-h-[440px] overflow-auto overscroll-contain',
+  'sticky top-[33px]',
   'Mở thẳng dự án này khi khởi động',
   'Dự án của tôi',
   'Báo cáo quân số nhiều dự án',
@@ -370,6 +372,8 @@ requireAll(homeDashboard, [
 ], 'Trang chủ dashboard');
 requireAll(crewReportShare, [
   '1 ngày',
+  'relative isolate max-h-[42vh] overflow-auto overscroll-contain',
+  'sticky top-[33px]',
   'Nhiều ngày',
   'Sao chép nội dung',
   'Chia sẻ nội dung',
@@ -399,15 +403,18 @@ requireAll(firebaseBase, [
 requireAll(bottomNav, [
   "'home' | 'warehouse'",
   "label: 'Trang chủ'",
-  "hidden w-[84px]",
+  'forceDesktopRail',
+  "forceDesktopRail ? 'flex' : 'hidden lg:flex'",
+  "forceDesktopRail ? 'hidden' : 'lg:hidden'",
   'bg-white text-slate-700',
   'bg-blue-50 text-blue-700',
-  'lg:flex',
-  'lg:hidden',
 ], 'responsive desktop-left/mobile-bottom navigation');
 if (bottomNav.includes('APP_VERSION') || bottomNav.includes('HNL QLTC · Trang chủ')) fail('desktop rail must not duplicate header branding/version');
 requireAll(app, [
   'STARTUP_PROJECT_ID_KEY',
+  "new URLSearchParams(window.location.search).get('app') === 'desktop'",
+  "isDesktopRuntime ? 'pl-[84px]' : 'lg:pl-[84px]'",
+  'forceDesktopRail={isDesktopRuntime}',
   "useState<TabType>('home')",
   '<HomeDashboard',
   'startupNavigationAppliedForRef',
