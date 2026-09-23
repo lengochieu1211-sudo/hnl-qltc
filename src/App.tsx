@@ -308,6 +308,8 @@ const normalizeSuperAdminUiSettings = (raw: any): SuperAdminUiSettings => {
 };
 
 export default function App() {
+  const isDesktopRuntime = typeof window !== 'undefined'
+    && new URLSearchParams(window.location.search).get('app') === 'desktop';
   const [activeTab, setActiveTab] = useState<TabType>('home');
 
   // Diagnostic navigation stays decoupled from individual screens. The source screen
@@ -6608,7 +6610,7 @@ export default function App() {
   const hasExcelExport = ['warehouse', 'volume', 'floorplan', 'checklist', 'crew'].includes(activeTab);
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900 font-sans selection:bg-blue-200 lg:pl-[84px]">
+    <div className={`min-h-screen bg-slate-100 text-slate-900 font-sans selection:bg-blue-200 ${isDesktopRuntime ? 'pl-[84px]' : 'lg:pl-[84px]'}`}>
       {/* Mobile & Responsive Shell Frame */}
       <div
         className={`w-full max-w-lg md:max-w-3xl lg:max-w-none mx-auto bg-slate-50 min-h-screen shadow-2xl relative border-x border-slate-200 overflow-x-hidden ${isSoftKeyboardOpen ? 'pb-0' : 'pb-[calc(5rem+env(safe-area-inset-bottom))] lg:pb-4'}`}
@@ -7276,6 +7278,7 @@ export default function App() {
         {!isSoftKeyboardOpen && (
           <BottomNav
             activeTab={activeTab}
+            forceDesktopRail={isDesktopRuntime}
             setActiveTab={setActiveTab}
             defectBadgeCount={unhandledDefectsCount}
             chatBadgeCount={chatUnreadCount}
