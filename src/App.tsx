@@ -6956,6 +6956,8 @@ export default function App() {
               roomProgressList={roomProgressList}
               defects={activeDefects}
               workVolumes={computedWorkVolumes}
+              inventory={inventory}
+              materialNorms={computedMaterialNorms}
               onAddCrewRecord={handleAddCrewRecord}
               onUpdateCrewRecord={handleUpdateCrewRecord}
               onDeleteCrewRecord={handleDeleteCrewRecord}
