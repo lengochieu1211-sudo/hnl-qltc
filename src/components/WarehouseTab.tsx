@@ -41,6 +41,11 @@ import { SettingsFeatureSheet } from './SettingsFeatureSheet';
 import { FIREBASE_ONLY_RUNTIME } from '../config/runtimeArchitecture';
 import { computeMaterialNeeds } from '../utils/materialNeedEngine';
 import { UserRole, canEditWarehouseData, canDeleteBusinessData, canImportData, canManageMaterialNorms } from '../utils/securityUtils';
+import {
+  normalizeStructureGroupConfig,
+  resolveFloorStructureGroupId,
+  type ProjectStructureConfig,
+} from '../utils/structureGroupUtils';
 
 type MaterialNeedSortKey = 'default' | 'material' | 'category' | 'remaining' | 'deficit' | 'stock';
 
@@ -68,6 +73,7 @@ interface WarehouseTabProps {
   roomProgressList?: RoomProgressItem[];
   teams?: TeamInfo[];
   floorPlans?: FloorPlan[];
+  structureConfig: ProjectStructureConfig;
   defaultHandler?: string;
 }
 
@@ -95,6 +101,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   roomProgressList = [],
   teams = [],
   floorPlans = [],
+  structureConfig,
   defaultHandler = '',
 }) => {
   const { t } = useLanguage();
@@ -110,6 +117,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingInventory, setEditingInventory] = useState<InventoryItem | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
+  const normalizedStructureConfig = useMemo(() => normalizeStructureGroupConfig(structureConfig), [structureConfig]);
+  const [materialNeedStructureGroupIds, setMaterialNeedStructureGroupIds] = useState<string[]>([]);
   const [materialNeedFloorIds, setMaterialNeedFloorIds] = useState<string[]>([]);
   const [materialNeedRoomIds, setMaterialNeedRoomIds] = useState<string[]>([]);
   const [materialNeedTeamIds, setMaterialNeedTeamIds] = useState<string[]>([]);
@@ -117,6 +126,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [materialNeedSortBy, setMaterialNeedSortBy] = useState<MaterialNeedSortKey>('default');
   const [materialNeedSortOrder, setMaterialNeedSortOrder] = useState<'asc' | 'desc'>('asc');
   const [isMaterialNeedExpanded, setIsMaterialNeedExpanded] = useState(false);
+  const [showMaterialStructureGroupPicker, setShowMaterialStructureGroupPicker] = useState(false);
   const [showMaterialFloorPicker, setShowMaterialFloorPicker] = useState(false);
   const [showMaterialRoomPicker, setShowMaterialRoomPicker] = useState(false);
   const [showMaterialTeamPicker, setShowMaterialTeamPicker] = useState(false);
@@ -150,7 +160,29 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       .sort((a, b) => naturalCompare(a.name, b.name));
   }, [floorPlans, roomProgressList]);
 
-  const materialNeedRooms = useMemo(() => {
+  const materialNeedStructureGroups = useMemo(
+    () => normalizedStructureConfig.enabled ? normalizedStructureConfig.groups : [],
+    [normalizedStructureConfig],
+  );
+
+  const materialNeedGroupFloorIdSet = useMemo(() => {
+    if (!normalizedStructureConfig.enabled || materialNeedStructureGroupIds.length === 0) return null;
+    const selected = new Set(materialNeedStructureGroupIds);
+    return new Set(
+      floorPlans
+        .filter((floor) => selected.has(resolveFloorStructureGroupId(floor, normalizedStructureConfig)))
+        .map((floor) => floor.id),
+    );
+  }, [floorPlans, materialNeedStructureGroupIds, normalizedStructureConfig]);
+
+  const materialNeedVisibleFloors = useMemo(
+    () => materialNeedGroupFloorIdSet
+      ? materialNeedFloors.filter((floor) => materialNeedGroupFloorIdSet.has(floor.id))
+      : materialNeedFloors,
+    [materialNeedFloors, materialNeedGroupFloorIdSet],
+  );
+
+    const materialNeedRooms = useMemo(() => {
     const floorNameById = new Map(materialNeedFloors.map((floor) => [floor.id, floor.name]));
     const map = new Map<string, { id: string; name: string; floorId: string; floorName: string }>();
     roomProgressList.filter((room) => room.deletedAt === undefined || room.deletedAt === null).forEach((room) => {
@@ -160,10 +192,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       const floorName = String(floorNameById.get(floorId) || room.floorName || floorId).trim();
       map.set(id, { id, name: String(room.roomName || id).trim() || id, floorId, floorName });
     });
-    return Array.from(map.values()).sort((a, b) =>
-      naturalCompare(a.floorName, b.floorName) || naturalCompare(a.name, b.name) || naturalCompare(a.id, b.id)
-    );
-  }, [materialNeedFloors, roomProgressList]);
+    return Array.from(map.values())
+      .filter((room) => !materialNeedGroupFloorIdSet || materialNeedGroupFloorIdSet.has(room.floorId))
+      .sort((a, b) =>
+        naturalCompare(a.floorName, b.floorName) || naturalCompare(a.name, b.name) || naturalCompare(a.id, b.id)
+      );
+  }, [materialNeedFloors, roomProgressList, materialNeedGroupFloorIdSet]);
 
   const materialNeedTeams = useMemo(() => teams
     .filter((team) => team.deletedAt === undefined || team.deletedAt === null)
@@ -183,19 +217,34 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     return Array.from(map.values()).sort((a, b) => naturalCompare(a.name, b.name) || naturalCompare(a.id, b.id));
   }, [workVolumes]);
 
-  const materialNeedResult = useMemo(() => computeMaterialNeeds({
+  useEffect(() => {
+    if (!materialNeedGroupFloorIdSet) return;
+    setMaterialNeedFloorIds((current) => current.filter((id) => materialNeedGroupFloorIdSet.has(id)));
+    setMaterialNeedRoomIds((current) => current.filter((id) => {
+      const room = roomProgressList.find((item) => item.id === id);
+      return Boolean(room?.floorId && materialNeedGroupFloorIdSet.has(room.floorId));
+    }));
+  }, [materialNeedGroupFloorIdSet, roomProgressList]);
+
+  const effectiveMaterialNeedFloorIds = useMemo(() => {
+    if (materialNeedFloorIds.length > 0) return materialNeedFloorIds;
+    if (materialNeedGroupFloorIdSet) return Array.from(materialNeedGroupFloorIdSet);
+    return [];
+  }, [materialNeedFloorIds, materialNeedGroupFloorIdSet]);
+
+    const materialNeedResult = useMemo(() => computeMaterialNeeds({
     rooms: roomProgressList,
     materialNorms,
     inventory,
     workVolumes: workVolumes || [],
     teams,
     scope: {
-      floorIds: materialNeedFloorIds.length > 0 ? materialNeedFloorIds : undefined,
+      floorIds: effectiveMaterialNeedFloorIds.length > 0 ? effectiveMaterialNeedFloorIds : undefined,
       roomIds: materialNeedRoomIds.length > 0 ? materialNeedRoomIds : undefined,
       teamIds: materialNeedTeamIds.length > 0 ? materialNeedTeamIds : undefined,
       workCategoryIds: materialNeedWorkCategoryIds.length > 0 ? materialNeedWorkCategoryIds : undefined,
     },
-  }), [roomProgressList, materialNorms, inventory, workVolumes, teams, materialNeedFloorIds, materialNeedRoomIds, materialNeedTeamIds, materialNeedWorkCategoryIds]);
+  }), [roomProgressList, materialNorms, inventory, workVolumes, teams, effectiveMaterialNeedFloorIds, materialNeedRoomIds, materialNeedTeamIds, materialNeedWorkCategoryIds]);
 
   const materialNeedLines = useMemo(() => {
     return [...materialNeedResult.lines].sort((a, b) => {
@@ -226,7 +275,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     });
   }, [materialNeedResult.lines, materialNeedSortBy, materialNeedSortOrder]);
 
-  const toggleMaterialNeedFloor = (id: string) => {
+  const toggleMaterialNeedStructureGroup = (id: string) => {
+    setMaterialNeedStructureGroupIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
+  };
+    const toggleMaterialNeedFloor = (id: string) => {
     setMaterialNeedFloorIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
   };
   const toggleMaterialNeedRoom = (id: string) => {
@@ -238,7 +290,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const toggleMaterialNeedWorkCategory = (id: string) => {
     setMaterialNeedWorkCategoryIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
   };
-  const materialNeedFloorSummary = materialNeedFloorIds.length === 0 ? 'Tất cả tầng' : materialNeedFloorIds.length === 1 ? (materialNeedFloors.find((item) => item.id === materialNeedFloorIds[0])?.name || '1 tầng') : `${materialNeedFloorIds.length} tầng`;
+  const materialNeedStructureGroupSummary = !normalizedStructureConfig.enabled || materialNeedStructureGroupIds.length === 0
+    ? `Tất cả ${normalizedStructureConfig.label}`
+    : materialNeedStructureGroupIds.length === 1
+      ? (materialNeedStructureGroups.find((item) => item.id === materialNeedStructureGroupIds[0])?.name || `1 ${normalizedStructureConfig.label}`)
+      : `${materialNeedStructureGroupIds.length} ${normalizedStructureConfig.label}`;
+  const materialNeedFloorSummary = materialNeedFloorIds.length === 0 ? (materialNeedGroupFloorIdSet ? `${materialNeedVisibleFloors.length} tầng trong phạm vi` : 'Tất cả tầng') : materialNeedFloorIds.length === 1 ? (materialNeedFloors.find((item) => item.id === materialNeedFloorIds[0])?.name || '1 tầng') : `${materialNeedFloorIds.length} tầng`;
   const materialNeedRoomSummary = materialNeedRoomIds.length === 0 ? 'Tất cả căn' : materialNeedRoomIds.length === 1 ? (materialNeedRooms.find((item) => item.id === materialNeedRoomIds[0])?.name || '1 căn') : `${materialNeedRoomIds.length} căn`;
   const materialNeedTeamSummary = materialNeedTeamIds.length === 0 ? 'Tất cả đội' : materialNeedTeamIds.length === 1 ? (materialNeedTeams.find((item) => item.id === materialNeedTeamIds[0])?.name || '1 đội') : `${materialNeedTeamIds.length} đội`;
   const materialNeedWorkCategorySummary = materialNeedWorkCategoryIds.length === 0 ? 'Tất cả hạng mục đã khai' : materialNeedWorkCategoryIds.length === 1 ? (materialNeedWorkCategories.find((item) => item.id === materialNeedWorkCategoryIds[0])?.name || '1 hạng mục') : `${materialNeedWorkCategoryIds.length} hạng mục`;
@@ -1158,7 +1215,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             <div className="min-w-0">
               <h3 className="text-sm font-extrabold text-slate-900">Gợi ý vật tư tổng hợp</h3>
               <p className="text-[11px] leading-relaxed text-slate-600">
-                {materialNeedFloorSummary} · {materialNeedRoomSummary} · {materialNeedWorkCategorySummary} · {materialNeedTeamSummary} · {materialNeedResult.lines.length} loại vật tư
+                {normalizedStructureConfig.enabled ? `${materialNeedStructureGroupSummary} · ` : ''}{materialNeedFloorSummary} · {materialNeedRoomSummary} · {materialNeedWorkCategorySummary} · {materialNeedTeamSummary} · {materialNeedResult.lines.length} loại vật tư
               </p>
             </div>
             <span aria-hidden="true" className="shrink-0 inline-flex h-9 w-9 items-center justify-center rounded-xl text-indigo-600 transition-all group-hover:bg-indigo-50">
@@ -1170,6 +1227,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             open={isMaterialNeedExpanded}
             onClose={() => {
               setIsMaterialNeedExpanded(false);
+              setShowMaterialStructureGroupPicker(false);
               setShowMaterialFloorPicker(false);
               setShowMaterialRoomPicker(false);
               setShowMaterialTeamPicker(false);
@@ -1179,15 +1237,34 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             icon={PackageSearch}
             iconClassName="text-indigo-600"
             title="Gợi ý vật tư tổng hợp"
-            description="Theo tầng · Theo căn · Theo hạng mục đã khai · Theo đội"
+            description={normalizedStructureConfig.enabled ? `Theo ${normalizedStructureConfig.label} · Tầng · Căn · Hạng mục · Đội` : 'Theo tầng · Theo căn · Theo hạng mục đã khai · Theo đội'}
             bodyClassName="space-y-3"
           >
             <div id="material-need-details" className="flex min-w-0 flex-col gap-3">
               <p className="text-[11px] text-slate-600">
-                Có thể chọn một hoặc nhiều tầng, căn, hạng mục thi công đã khai và đội. Không chọn nghĩa là Tất cả. Một Material Need Engine duy nhất tính từ dữ liệu gốc rồi mới lọc/tổng hợp để chống double-count.
+                Có thể chọn {normalizedStructureConfig.enabled ? `${normalizedStructureConfig.label}, ` : ''}một hoặc nhiều tầng, căn, hạng mục thi công đã khai và đội. Không chọn nghĩa là Tất cả. Một Material Need Engine duy nhất tính từ dữ liệu gốc rồi mới lọc/tổng hợp để chống double-count.
               </p>
 
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+              <div className={`grid grid-cols-1 gap-2 sm:grid-cols-2 ${normalizedStructureConfig.enabled ? 'xl:grid-cols-5' : 'xl:grid-cols-4'}`}>
+                {normalizedStructureConfig.enabled && (
+                  <div className="relative">
+                    <button type="button" onClick={() => setShowMaterialStructureGroupPicker((value) => !value)} className="flex w-full items-center justify-between rounded-xl border border-indigo-200 bg-white p-2.5 text-left text-xs font-semibold">
+                      <span className="truncate">{materialNeedStructureGroupSummary}</span><ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                    </button>
+                    {showMaterialStructureGroupPicker && (
+                      <div className="mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
+                        <label className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs font-semibold hover:bg-slate-50">
+                          <input type="checkbox" checked={materialNeedStructureGroupIds.length === 0} onChange={() => setMaterialNeedStructureGroupIds([])} /> Tất cả {normalizedStructureConfig.label}
+                        </label>
+                        {materialNeedStructureGroups.map((group) => (
+                          <label key={group.id} className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs hover:bg-slate-50">
+                            <input type="checkbox" checked={materialNeedStructureGroupIds.includes(group.id)} onChange={() => toggleMaterialNeedStructureGroup(group.id)} /> {group.name}
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="relative">
                   <button type="button" onClick={() => setShowMaterialFloorPicker((value) => !value)} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold">
                     <span className="truncate">{materialNeedFloorSummary}</span><ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
@@ -1197,7 +1274,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                       <label className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs font-semibold hover:bg-slate-50">
                         <input type="checkbox" checked={materialNeedFloorIds.length === 0} onChange={() => setMaterialNeedFloorIds([])} /> Tất cả tầng
                       </label>
-                      {materialNeedFloors.map((floor) => (
+                      {materialNeedVisibleFloors.map((floor) => (
                         <label key={floor.id} className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs hover:bg-slate-50">
                           <input type="checkbox" checked={materialNeedFloorIds.includes(floor.id)} onChange={() => toggleMaterialNeedFloor(floor.id)} /> {floor.name}
                         </label>
@@ -1262,8 +1339,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 </div>
               </div>
 
-              {(materialNeedFloorIds.length > 0 || materialNeedRoomIds.length > 0 || materialNeedTeamIds.length > 0 || materialNeedWorkCategoryIds.length > 0) && (
+              {(materialNeedStructureGroupIds.length > 0 || materialNeedFloorIds.length > 0 || materialNeedRoomIds.length > 0 || materialNeedTeamIds.length > 0 || materialNeedWorkCategoryIds.length > 0) && (
                 <div className="flex flex-wrap gap-1.5">
+                  {materialNeedStructureGroupIds.map((id) => {
+                    const group = materialNeedStructureGroups.find((item) => item.id === id);
+                    return <button key={`group-${id}`} type="button" onClick={() => toggleMaterialNeedStructureGroup(id)} className="rounded-full bg-fuchsia-100 px-2 py-1 text-[10px] font-bold text-fuchsia-700">{group?.name || id} ×</button>;
+                  })}
                   {materialNeedFloorIds.map((id) => {
                     const floor = materialNeedFloors.find((item) => item.id === id);
                     return <button key={`floor-${id}`} type="button" onClick={() => toggleMaterialNeedFloor(id)} className="rounded-full bg-indigo-100 px-2 py-1 text-[10px] font-bold text-indigo-700">{floor?.name || id} ×</button>;
