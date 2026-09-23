@@ -164,7 +164,7 @@ export const MultiProjectAccessPanel: React.FC = () => {
       }
 
       const confirmed = await confirmAsync(
-        'Lưu ' + changedRows.length + ' thay đổi quyền cho ' + loadedEmail + '?\n\nCác membership chính sẽ được ghi cùng một giao dịch; Firebase Rules vẫn kiểm tra từng dự án độc lập.',
+        'Lưu ' + changedRows.length + ' thay đổi quyền cho ' + loadedEmail + '?',
         { title: 'Xác nhận phân quyền nhiều dự án', confirmLabel: 'Lưu thay đổi', cancelLabel: 'Hủy' },
       );
       if (!confirmed) return;
@@ -197,7 +197,7 @@ export const MultiProjectAccessPanel: React.FC = () => {
       setMessage(warningCount > 0
         ? {
             type: 'info',
-            text: 'Đã ghi nguyên tử ' + result.changed + ' dự án. Có ' + warningCount + ' bước xác minh/chỉ mục phụ chưa hoàn tất; quyền chính vẫn do membership + Firebase Rules quyết định.',
+            text: 'Đã cập nhật ' + result.changed + ' dự án. Có ' + warningCount + ' mục cần đồng bộ lại; ứng dụng sẽ tiếp tục xác minh tự động.',
           }
         : { type: 'success', text: 'Đã cập nhật ' + result.changed + '/' + changedRows.length + ' dự án cho ' + loadedEmail + '.' });
     } catch (err: any) {
@@ -220,14 +220,20 @@ export const MultiProjectAccessPanel: React.FC = () => {
         <div>
           <h4 className="font-extrabold text-slate-800 text-xs flex items-center gap-1.5">
             <UsersRound className="w-4 h-4 text-indigo-600" />
-            <span>Quản lý quyền nhiều dự án</span>
+            <span>Nhiều dự án</span>
           </h4>
           <p className="mt-1 text-[10.5px] text-slate-500 leading-relaxed">
-            Nhập một email rồi gán ADMIN / EDITOR / VIEWER cho nhiều dự án tại một chỗ. Quyền thật vẫn nằm ở membership từng dự án và Firebase Rules vẫn là lớp chặn cuối.
+            Nhập email, chọn các dự án cần áp dụng rồi đặt vai trò phù hợp.
           </p>
         </div>
         <div className="text-[10px] font-bold text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 whitespace-nowrap">
-          Quản trị được {manageableProjects.length}/{projects.length} dự án
+          {loadingProjects
+            ? 'Đang tải danh sách dự án...'
+            : projects.length === 0
+              ? 'Chưa có dự án'
+              : manageableProjects.length === 0
+                ? 'Không có dự án có thể quản trị'
+                : `${manageableProjects.length} dự án có thể quản trị`}
         </div>
       </div>
 
@@ -247,7 +253,7 @@ export const MultiProjectAccessPanel: React.FC = () => {
           className="min-h-11 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold flex items-center justify-center gap-1.5 disabled:opacity-50"
         >
           {loadingAccess ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-          {loadingAccess ? 'Đang tải...' : 'Tải quyền'}
+          {loadingAccess ? 'Đang tải...' : 'Xem quyền'}
         </button>
       </div>
 
