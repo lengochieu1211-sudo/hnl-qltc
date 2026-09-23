@@ -161,8 +161,12 @@ export function getTeamCategoriesForRoom(
 
 export interface TeamCategoryBreakdown {
   categoryName: string;
+  workCategoryId?: string;
   unit: string;
   assignedVol: number;
+  /** Construction-complete volume regardless of inspection result. */
+  constructedVol: number;
+  /** Backwards-compatible inspected/accepted completion volume. */
   completedVol: number;
   completedFrameVol: number;
   completedBoardVol: number;
@@ -185,6 +189,7 @@ export interface FloorGroupDetail {
       workCategoryId?: string;
       unit: string;
       totalVol: number;
+      doneConstructedVol: number;
       doneFrameVol: number;
       doneBoardVol: number;
       doneInspectedVol: number;
@@ -282,6 +287,7 @@ export function calculateTeamStatistics(params: {
           floorName,
           rooms: [],
           totalVol: 0,
+          doneConstructedVol: 0,
           doneFrameVol: 0,
           doneBoardVol: 0,
           doneInspectedVol: 0,
@@ -309,6 +315,7 @@ export function calculateTeamStatistics(params: {
           assigned = totalWeight > 0 ? catTotal * (teamWeight / totalWeight) : 0;
         }
 
+        let constructed = 0;
         let frame = 0;
         let board = 0;
         let inspected = 0;
@@ -317,15 +324,21 @@ export function calculateTeamStatistics(params: {
           const doneWeight = (predicate: (sub: RoomSubItem) => boolean) => teamSubItems
             .filter(predicate)
             .reduce((sum, sub) => sum + getSubItemGroupWeight(allSubItems, sub), 0);
+          constructed = totalWeight > 0 ? catTotal * (doneWeight((sub) => sub.status === 'Đã hoàn thành') / totalWeight) : 0;
           inspected = totalWeight > 0 ? catTotal * (doneWeight((sub) => sub.status === 'Đã hoàn thành' && sub.inspectionStatus === 'Đạt nghiệm thu') / totalWeight) : 0;
           frame = totalWeight > 0 ? catTotal * (doneWeight((sub) => sub.name.toLocaleLowerCase('vi-VN').includes('khung') && sub.status === 'Đã hoàn thành') / totalWeight) : 0;
           board = totalWeight > 0 ? catTotal * (doneWeight((sub) => (sub.name.toLocaleLowerCase('vi-VN').includes('tấm') || sub.name.toLocaleLowerCase('vi-VN').includes('bắn')) && sub.status === 'Đã hoàn thành') / totalWeight) : 0;
         } else if (assignment.isMain) {
+          const title = assignment.name.toLocaleLowerCase('vi-VN');
+          if (title.includes('khung') || title.includes('xương')) constructed = room.frameStatus === 'Đã hoàn thành' ? assigned : 0;
+          else if (title.includes('tấm') || title.includes('bắn')) constructed = room.boardStatus === 'Đã hoàn thành' ? assigned : 0;
+          else constructed = room.inspectionStatus === 'Đạt nghiệm thu' ? assigned : 0;
           inspected = room.inspectionStatus === 'Đạt nghiệm thu' ? assigned : 0;
           frame = room.frameStatus === 'Đã hoàn thành' ? assigned : 0;
           board = room.boardStatus === 'Đã hoàn thành' ? assigned : 0;
         }
         // Never let progress exceed the exact team allocation for this category.
+        constructed = Math.min(assigned, constructed);
         inspected = Math.min(assigned, inspected);
         frame = Math.min(assigned, frame);
         board = Math.min(assigned, board);
@@ -352,6 +365,7 @@ export function calculateTeamStatistics(params: {
         }
         const detail = floorGroupMap[floorName].categoryDetails[categoryKey];
         detail.totalVol += assigned;
+        detail.doneConstructedVol += constructed;
         detail.doneFrameVol += frame;
         detail.doneBoardVol += board;
         detail.doneInspectedVol += inspected;
@@ -381,6 +395,7 @@ export function calculateTeamStatistics(params: {
           teamId: team.id,
           teamName: team.name,
           assignedVolume: assigned,
+          constructedVolume: constructed,
           frameVolume: frame,
           boardVolume: board,
           inspectedVolume: inspected,
@@ -409,14 +424,17 @@ export function calculateTeamStatistics(params: {
       Object.entries(floor.categoryDetails).forEach(([key, detail]) => {
         const existing = categoryBreakdownMap.get(key) || {
           categoryName: detail.categoryName || key,
+          workCategoryId: detail.workCategoryId,
           unit: detail.unit || 'm²',
           assignedVol: 0,
+          constructedVol: 0,
           completedVol: 0,
           completedFrameVol: 0,
           completedBoardVol: 0,
           inspectedVol: 0,
         };
         existing.assignedVol += detail.totalVol;
+        existing.constructedVol += detail.doneConstructedVol;
         existing.completedVol += detail.doneInspectedVol;
         existing.completedFrameVol += detail.doneFrameVol;
         existing.completedBoardVol += detail.doneBoardVol;
