@@ -239,12 +239,9 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             <div className="relative overflow-hidden p-4 sm:p-5 lg:p-6">
               <div className="absolute inset-y-0 right-0 hidden w-[46%] bg-[linear-gradient(135deg,transparent_0%,rgba(59,130,246,0.08)_46%,rgba(14,165,233,0.14)_100%)] lg:block" />
               <div className="relative z-10 max-w-3xl">
-                <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[11px] font-extrabold text-blue-700">
-                  <HardHat className="h-3.5 w-3.5" /> Trung tâm điều hành HNL QLTC
-                </div>
-                <h1 className="mt-3 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">Trang chủ · Tổng quan công trường</h1>
+                <h1 className="text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">Tổng quan công trường</h1>
                 <p className="mt-1.5 max-w-2xl text-xs font-medium leading-5 text-slate-500 sm:text-sm">
-                  Chọn dự án cần làm việc, xem quân số nhiều dự án theo ngày/đội, defect và cảnh báo. Trang chủ chỉ hiển thị dữ liệu đã được xác minh theo quyền của tài khoản.
+                  Chọn dự án, theo dõi quân số, Defect và các việc cần chú ý.
                 </p>
                 <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px] font-bold text-slate-600">
                   <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 ${isOnline ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
@@ -351,10 +348,10 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="flex items-center gap-2 text-sm font-black text-slate-900"><Users className="h-4.5 w-4.5 text-emerald-600" /> Báo cáo quân số nhiều dự án</div>
-              <p className="mt-0.5 text-[10px] text-slate-400">Theo ngày → dự án → đội → Sáng / Chiều / Tối. Chỉ tải `crew_records` + danh bạ đội, không tải ảnh/Defect/khối lượng của các dự án khác.</p>
+              <p className="mt-0.5 text-[10px] text-slate-400">Tổng hợp quân số theo ngày và theo đội.</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={() => setShowReportShare(true)} disabled={filteredReportRows.length === 0 || reportLoading} className="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-[10px] font-extrabold text-emerald-700 hover:bg-emerald-100 disabled:opacity-40"><FileText className="h-3.5 w-3.5" /> Chia sẻ báo cáo</button>
+              <button type="button" onClick={() => setShowReportShare(true)} disabled={filteredReportRows.length === 0 || reportLoading} className="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-[10px] font-extrabold text-emerald-700 hover:bg-emerald-100 disabled:opacity-40"><FileText className="h-3.5 w-3.5" /> Chia sẻ báo cáo quân số</button>
               <button type="button" onClick={onOpenCrew} className="min-h-9 rounded-xl border border-slate-200 bg-slate-50 px-3 text-[10px] font-extrabold text-slate-700 hover:bg-slate-100">Mở mục Quân số</button>
             </div>
           </div>
