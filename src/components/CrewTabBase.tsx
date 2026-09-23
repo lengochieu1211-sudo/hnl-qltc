@@ -27,9 +27,10 @@ import {
   BarChart3,
   Home,
   CheckCircle,
-  ArrowUpDown
+  ArrowUpDown,
+  PackageSearch
 } from 'lucide-react';
-import { CrewRecord, FloorPlan, TeamInfo, RoomProgressItem, DefectItem, CrewFloorWork, CrewFloorCategoryWork, AcceptanceStatus, RoomInspectionResult, WorkVolume } from '../types';
+import { CrewRecord, FloorPlan, TeamInfo, RoomProgressItem, DefectItem, CrewFloorWork, CrewFloorCategoryWork, AcceptanceStatus, RoomInspectionResult, WorkVolume, InventoryItem, MaterialNorm } from '../types';
 import { formatDateDDMMYYYY } from '../utils/dateFormatter';
 import { exportTeamStatisticsToExcel } from '../utils/excelExport';
 import { confirmAsync } from '../utils/confirmAsync';
@@ -48,6 +49,7 @@ import { getCrewShiftCounts } from '../utils/crewUtils';
 import { ContactMenu } from './ContactMenu';
 import { ShareEntityMenu } from './ShareEntityMenu';
 import { CrewReportShareModal } from './CrewReportShareModal';
+import { computeTeamMaterialReconciliation } from '../utils/teamMaterialReconciliation';
 import {
   getStructureGroupName,
   normalizeStructureGroupConfig,
@@ -146,6 +148,8 @@ interface CrewTabProps {
   roomProgressList?: RoomProgressItem[];
   defects?: DefectItem[];
   workVolumes?: WorkVolume[];
+  inventory?: InventoryItem[];
+  materialNorms?: MaterialNorm[];
   onAddCrewRecord: (record: Omit<CrewRecord, 'id'> & { id?: string }) => void;
   onUpdateCrewRecord: (id: string, record: Partial<CrewRecord>) => void;
   onDeleteCrewRecord: (id: string) => void;
@@ -276,6 +280,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   roomProgressList = [],
   defects = [],
   workVolumes = [],
+  inventory = [],
+  materialNorms = [],
   onAddCrewRecord,
   onUpdateCrewRecord,
   onDeleteCrewRecord,
@@ -369,7 +375,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
   // Team detail & statistics modal state
   const [selectedTeamForDetail, setSelectedTeamForDetail] = useState<TeamInfo | null>(null);
-  const [detailModalTab, setDetailModalTab] = useState<'rooms' | 'defects' | 'logs'>('rooms');
+  const [detailModalTab, setDetailModalTab] = useState<'rooms' | 'materials' | 'defects' | 'logs'>('rooms');
   const [defectFilter, setDefectFilter] = useState<'all' | 'open' | 'resolved'>('all');
   const [teamFloorSortOrder, setTeamFloorSortOrder] = useState<TeamSortOrder>('asc');
   const [teamDefectFloorSortOrder, setTeamDefectFloorSortOrder] = useState<TeamSortOrder>('asc');
@@ -955,6 +961,19 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       workVolumes
     });
   }, [teams, structureScopedRooms, structureScopedDefects, structureScopedCrewRecords, floorPlans, workVolumes]);
+
+  const selectedTeamMaterialReconciliation = useMemo(() => {
+    if (!selectedTeamForDetail) return [];
+    const stat = allTeamStatsMap[selectedTeamForDetail.id];
+    if (!stat) return [];
+    return computeTeamMaterialReconciliation({
+      team: selectedTeamForDetail,
+      stats: stat,
+      inventory,
+      materialNorms,
+      workVolumes,
+    });
+  }, [selectedTeamForDetail, allTeamStatsMap, inventory, materialNorms, workVolumes]);
 
   // Handle Daily Log Submission
   const handleLogSubmit = (e: React.FormEvent) => {
@@ -2803,7 +2822,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top))', paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}
           >
             <div 
-              className="bg-slate-50 rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[calc(100dvh-1rem)] sm:max-h-[92vh] border border-slate-200 animate-in fade-in zoom-in-95 duration-200"
+              className="bg-slate-50 rounded-2xl shadow-2xl w-full sm:max-w-3xl lg:max-w-5xl overflow-hidden flex flex-col max-h-[calc(100dvh-1rem)] sm:max-h-[92vh] border border-slate-200 animate-in fade-in zoom-in-95 duration-200"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Header */}
@@ -2861,7 +2880,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
 
               {/* KPI Summary Strip */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-3 bg-white border-b border-slate-200 text-xs">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 p-3 bg-white border-b border-slate-200 text-xs">
                 <button type="button" onClick={() => setDetailModalTab('rooms')} className="bg-indigo-50/80 border border-indigo-100 p-2 rounded-xl text-center hover:bg-indigo-100/80 transition cursor-pointer" title="Xem các Căn/Phòng đội đang làm">
                   <div className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider">Căn / Phòng & Tầng</div>
                   <div className="text-sm sm:text-base font-black text-indigo-900 mt-0.5 flex items-center justify-center gap-1">
@@ -2887,6 +2906,17 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     {stat.completedVolumeByUnit && Object.keys(stat.completedVolumeByUnit).length > 0
                       ? `NT: ${Object.entries(stat.completedVolumeByUnit).map(([unit, val]) => `${formatDecimal(Number(val))} ${unit}`).join(' + ')}`
                       : (inspectedVol > 0 ? `NT: ${formatDecimal(inspectedVol)} m²` : `Khung: ${formatDecimal(completedFrameVol)} m² | Tấm: ${formatDecimal(completedBoardVol)} m²`)}
+                  </div>
+                </button>
+
+                <button type="button" onClick={() => setDetailModalTab('materials')} className="bg-cyan-50/80 border border-cyan-200 p-2 rounded-xl text-center hover:bg-cyan-100/80 transition cursor-pointer" title="Đối chiếu vật tư đã xuất với khối lượng thi công × định mức">
+                  <div className="text-[10px] font-bold text-cyan-700 uppercase tracking-wider">Vật tư đối chiếu</div>
+                  <div className="text-sm sm:text-base font-black text-cyan-950 mt-0.5 flex items-center justify-center gap-1">
+                    <PackageSearch className="w-3.5 h-3.5 text-cyan-700" />
+                    <span>{selectedTeamMaterialReconciliation.length} loại</span>
+                  </div>
+                  <div className="text-[10px] text-cyan-700 mt-0.5 font-medium">
+                    {selectedTeamMaterialReconciliation.filter((line) => line.issuedQty > 0).length} loại đã xuất cho đội
                   </div>
                 </button>
 
@@ -2935,6 +2965,18 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                 >
                   <Home className="w-3.5 h-3.5" />
                   <span>Căn / Phòng đang làm ({teamRooms.length})</span>
+                </button>
+
+                <button
+                  onClick={() => setDetailModalTab('materials')}
+                  className={`flex items-center gap-1.5 py-2 px-3 text-xs font-bold border-b-2 transition whitespace-nowrap ${
+                    detailModalTab === 'materials'
+                      ? 'border-cyan-600 text-cyan-700'
+                      : 'border-transparent text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <PackageSearch className="w-3.5 h-3.5" />
+                  <span>Vật tư đối chiếu ({selectedTeamMaterialReconciliation.length})</span>
                 </button>
 
                 <button
@@ -3213,7 +3255,66 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   </div>
                 )}
 
-                {/* SUB TAB 2: DEFECTS */}
+                {/* SUB TAB 2: MATERIAL RECONCILIATION */}
+                {detailModalTab === 'materials' && (
+                  <div className="space-y-3">
+                    <div className="rounded-xl border border-cyan-200 bg-cyan-50/70 p-3 text-[11px] text-cyan-900 leading-relaxed">
+                      <strong>Đối chiếu:</strong> Định mức theo KL đã thi công = khối lượng hạng mục có trạng thái <strong>Đã hoàn thành</strong> × định mức vật tư.
+                      Phiếu xuất có <strong>Đội thi công</strong> đúng teamId được cộng vào “Đã xuất”. Phiếu <strong>Xuất ngoài dự án / Mục đích khác</strong> không được tính vào tiêu hao dự án.
+                    </div>
+
+                    {selectedTeamMaterialReconciliation.length === 0 ? (
+                      <div className="bg-white border border-dashed border-slate-300 rounded-xl p-6 text-center">
+                        <PackageSearch className="w-9 h-9 text-slate-300 mx-auto mb-2" />
+                        <h4 className="text-xs font-bold text-slate-700">Chưa có dữ liệu vật tư để đối chiếu</h4>
+                        <p className="text-[11px] text-slate-500 mt-1">Cần có định mức vật tư hoặc phiếu xuất kho đã gán đúng Đội thi công.</p>
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                        <table className="w-full min-w-[820px] text-[11px]">
+                          <thead className="bg-slate-100 text-slate-700">
+                            <tr>
+                              <th className="p-2 text-left">Vật tư</th>
+                              <th className="p-2 text-right">ĐM theo KL giao</th>
+                              <th className="p-2 text-right">ĐM theo KL đã thi công</th>
+                              <th className="p-2 text-right">Đã xuất cho đội</th>
+                              <th className="p-2 text-right">Chênh lệch Xuất - ĐM</th>
+                              <th className="p-2 text-right">Tỷ lệ</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {selectedTeamMaterialReconciliation.map((line) => {
+                              const over = line.varianceQty > 0.01;
+                              const under = line.varianceQty < -0.01;
+                              return (
+                                <tr key={line.materialKey} className="hover:bg-slate-50">
+                                  <td className="p-2">
+                                    <div className="font-extrabold text-slate-900">{line.materialName}</div>
+                                    <div className="text-[10px] text-slate-500">{line.category} · {line.unit}</div>
+                                  </td>
+                                  <td className="p-2 text-right font-semibold">{formatDecimal(line.expectedAssignedQty)} {line.unit}</td>
+                                  <td className="p-2 text-right font-extrabold text-indigo-700">{formatDecimal(line.expectedConstructedQty)} {line.unit}</td>
+                                  <td className="p-2 text-right font-extrabold text-cyan-700">{formatDecimal(line.issuedQty)} {line.unit}</td>
+                                  <td className={`p-2 text-right font-extrabold ${over ? 'text-rose-700' : under ? 'text-amber-700' : 'text-emerald-700'}`}>
+                                    {line.varianceQty > 0 ? '+' : ''}{formatDecimal(line.varianceQty)} {line.unit}
+                                  </td>
+                                  <td className="p-2 text-right">
+                                    {line.issuedVsConstructedPercent !== undefined ? `${line.issuedVsConstructedPercent}%` : '—'}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                    <p className="text-[10px] text-slate-500">
+                      “ĐM theo KL giao” là nhu cầu lý thuyết nếu đội thi công hết toàn bộ khối lượng được giao; dùng để tham khảo kế hoạch cấp vật tư. Cột đối chiếu chính là “ĐM theo KL đã thi công”.
+                    </p>
+                  </div>
+                )}
+
+                {/* SUB TAB 3: DEFECTS */}
                 {detailModalTab === 'defects' && (
                   <div className="space-y-3">
                     {/* Defect Filter Pills */}
@@ -3360,7 +3461,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   </div>
                 )}
 
-                {/* SUB TAB 3: DAILY LOGS */}
+                {/* SUB TAB 4: DAILY LOGS */}
                 {detailModalTab === 'logs' && (
                   <div>
                     {teamLogs.length === 0 ? (
