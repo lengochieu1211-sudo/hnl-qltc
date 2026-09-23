@@ -1,5 +1,5 @@
 import { downloadOrShareFile } from '../utils/downloadUtils';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { FileText, Download, Printer, X, CheckCircle2, Filter, Mail, Package, BarChart3, Building2, ClipboardCheck, FileSpreadsheet, Users, Copy, HelpCircle, Camera, Image as ImageIcon } from 'lucide-react';
 import { InventoryItem, WorkVolume, DefectItem, ChecklistItem, FloorPlan, RoomProgressItem, MaterialNorm, CrewRecord, TeamInfo } from '../types';
 import { exportAllToExcel, exportAllToExcelBase64, exportTeamStatisticsToExcel } from '../utils/excelExport';
@@ -15,6 +15,13 @@ import { apiFetch, hasApiBackend } from '../utils/api';
 import { saveHtmlPdf } from '../utils/fileExport';
 import { calculateStockSummary } from '../utils/inventoryUtils';
 import { isDisplayableFloorPlanUrl, loadFloorPlanImageFromCloud } from '../lib/floorPlanImageSync';
+import { computeWorkVolumeDetailBreakdown } from '../utils/workVolumeComputation';
+import {
+  getStructureGroupName,
+  normalizeStructureGroupConfig,
+  resolveFloorStructureGroupId,
+  type ProjectStructureConfig,
+} from '../utils/structureGroupUtils';
 
 const escapeHtml = (value: unknown): string => String(value ?? '')
   .replace(/&/g, '&amp;')
@@ -43,6 +50,7 @@ interface ExportPdfModalProps {
   defects: DefectItem[];
   checklist: ChecklistItem[];
   floorPlans: FloorPlan[];
+  structureConfig?: ProjectStructureConfig;
   roomProgressList?: RoomProgressItem[];
   crewRecords?: CrewRecord[];
   teams?: TeamInfo[];
@@ -63,6 +71,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   defects = [],
   checklist = [],
   floorPlans = [],
+  structureConfig,
   roomProgressList = [],
   crewRecords = [],
   teams = [],
@@ -70,7 +79,11 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   const effectiveRole = userRole || getCurrentUserRole();
   const hasFinancialAccess = canViewFinancials(effectiveRole);
   const stockSummary = calculateStockSummary(inventory, materialNorms);
-  const [selectedFloors, setSelectedFloors] = useState<string[]>(['all']);
+  const normalizedStructureConfig = useMemo(() => normalizeStructureGroupConfig(structureConfig), [structureConfig]);
+  const [selectedStructureGroupId, setSelectedStructureGroupId] = useState<string>('all');
+  const [selectedFloorIds, setSelectedFloorIds] = useState<string[]>(['all']);
+  const [selectedRoomId, setSelectedRoomId] = useState<string>('all');
+  const [selectedTeamId, setSelectedTeamId] = useState<string>('all');
   useFormatSettings();
   const [copiedText, setCopiedText] = useState(false);
   const [copiedExcelBase64, setCopiedExcelBase64] = useState(false);
@@ -192,6 +205,11 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   const [defectStatusFilter, setDefectStatusFilter] = useState<string>('all');
   const [defectCategoryFilter, setDefectCategoryFilter] = useState<string>('all');
   const [defectCreatorFilter, setDefectCreatorFilter] = useState<string>('all');
+  const [defectCreatedFrom, setDefectCreatedFrom] = useState<string>('');
+  const [defectCreatedTo, setDefectCreatedTo] = useState<string>('');
+  const [defectCompletedFrom, setDefectCompletedFrom] = useState<string>('');
+  const [defectCompletedTo, setDefectCompletedTo] = useState<string>('');
+  const [includeWorkVolumeDetails, setIncludeWorkVolumeDetails] = useState(true);
 
   // Report/PDF images must be self-contained. In Android, saveHtmlPdf() renders the
   // generated HTML in a SECOND WebView, so a blob: URL created by the application
