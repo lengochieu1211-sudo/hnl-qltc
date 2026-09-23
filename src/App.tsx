@@ -6818,6 +6818,7 @@ export default function App() {
               roomProgressList={roomProgressList}
               teams={teams}
               floorPlans={floorPlans}
+              structureConfig={structureConfig}
               defaultHandler={inspectorName}
               onImportInventory={handleImportInventory}
               onImportNorms={handleImportNorms}
@@ -6830,6 +6831,7 @@ export default function App() {
               workVolumes={computedWorkVolumes}
               floorPlans={floorPlans}
               roomProgressList={roomProgressList}
+              structureConfig={structureConfig}
               projectName={projectName}
               userRole={currentUserRole}
               onAddWorkVolume={handleAddWorkVolume}
@@ -6851,6 +6853,7 @@ export default function App() {
             <FloorPlanDefectTab
               projectId={activeProjectId}
               floorPlans={floorPlans}
+              structureConfig={structureConfig}
               defects={activeDefects}
               roomProgressList={roomProgressList}
               checklistItems={activeChecklist}
@@ -7103,6 +7106,8 @@ export default function App() {
               projectLocation={projectLocation}
               setProjectLocation={handleUpdateProjectLocation}
               floorPlans={floorPlans}
+              structureConfig={structureConfig}
+              onStructureConfigChange={handleStructureConfigChange}
               onUpdateFloorPlan={handleUpdateFloorPlan}
               onSyncAll={handleSyncAll}
               isSyncing={isSyncing}
