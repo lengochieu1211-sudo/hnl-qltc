@@ -312,92 +312,6 @@ const TeamSelectorInput: React.FC<TeamSelectorInputProps> = ({
         />
       </div>
 
-      {/* 3. Inline Quick Click Badges (For instant 1-tap experience) */}
-      <div className="space-y-1.5 pt-1 text-[11px] border-t border-slate-200/60 mt-1">
-        <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">⚡ Chọn Nhanh Bằng 1 Click:</span>
-        
-        {/* Room at Pin Location */}
-        {roomAtPos && (
-          <div className="bg-amber-50 border border-amber-200/60 p-2 rounded-xl flex items-center justify-between gap-2">
-            <span className="font-semibold text-amber-900 truncate">
-              📍 Vị trí: <strong>{roomAtPos.roomName}</strong>
-            </span>
-            {roomAtPosTeamNames.length > 0 ? (
-    <div className="flex flex-wrap justify-end gap-1">
-      {roomAtPosTeamNames.map((tName) => (
-        <button
-          type="button"
-          key={tName}
-          onClick={() => onChange(tName)}
-          className={`px-2 py-1 rounded-lg text-[10px] font-bold shrink-0 transition-all ${
-            value === tName
-              ? 'bg-amber-600 text-white shadow-xs'
-              : 'bg-white border border-amber-300 text-amber-900 hover:bg-amber-100'
-          }`}
-        >
-          {tName}
-        </button>
-      ))}
-    </div>
-  ) : (
-    <span className="text-[10px] text-amber-700 italic shrink-0">Căn chưa gán đội ở cấp căn / hạng mục</span>
-  )}
-          </div>
-        )}
-
-        {value?.trim() && (
-          <div className="bg-sky-50 border border-sky-200 p-2 rounded-xl flex items-center justify-between gap-2">
-            <span className="text-sky-900 font-semibold truncate">✅ Đội Defect đang chọn: <strong>{value.trim()}</strong></span>
-            <span className="text-[10px] text-sky-700 shrink-0">Sẽ lưu liên kết đội</span>
-          </div>
-        )}
-
-        {/* Floor Plan Teams */}
-        {currentFloorTeams.length > 0 && (
-          <div className="bg-slate-50 border border-slate-200 p-2 rounded-xl">
-            <span className="text-slate-500 font-bold block mb-1">🏢 Đội trên mặt bằng tầng:</span>
-            <div className="flex flex-wrap gap-1">
-              {currentFloorTeams.map((tName) => (
-                <button
-                  type="button"
-                  key={tName}
-                  onClick={() => onChange(tName)}
-                  className={`px-2 py-1 rounded-lg border text-[10px] font-bold transition-all ${
-                    value === tName
-                      ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
-                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                  }`}
-                >
-                  {tName}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Declared Teams */}
-        {declaredTeamNames.length > 0 && (
-          <div className="bg-emerald-50 border border-emerald-200 p-2 rounded-xl">
-            <span className="text-emerald-800 font-bold block mb-1">📋 Đội đã khai báo:</span>
-            <div className="flex flex-wrap gap-1">
-              {declaredTeamNames.map((tName) => (
-                <button
-                  type="button"
-                  key={tName}
-                  onClick={() => onChange(tName)}
-                  className={`px-2 py-1 rounded-lg border text-[10px] font-bold transition-all ${
-                    value === tName
-                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
-                      : 'bg-white text-emerald-800 border-emerald-300 hover:bg-emerald-100'
-                  }`}
-                >
-                  {tName}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
     </div>
   );
 };
@@ -7927,7 +7841,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             filteredDefects.map((defect) => {
               const overdueInfo = getDefectOverdueInfo(defect);
               const contactTeam = resolveDefectTeam(defect, teams);
-              const defectShareText = buildDefectShareText(defect);
+              const defectRoomName = defect.roomId
+                ? roomProgressList.find((room) => room.id === defect.roomId)?.roomName || ''
+                : '';
+              const defectShareText = buildDefectShareText(defect, defectRoomName);
               return (
                 <div
                   key={defect.id}
@@ -8628,10 +8545,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       {activeDefectDetail && (() => {
         const overdueInfo = getDefectOverdueInfo(activeDefectDetail);
         const activeContactTeam = resolveDefectTeam(activeDefectDetail, teams);
-        const activeDefectShareText = buildDefectShareText(activeDefectDetail);
         const activeDefectRoomName = activeDefectDetail.roomId
           ? roomProgressList.find((room) => room.id === activeDefectDetail.roomId)?.roomName || ''
           : '';
+        const activeDefectShareText = buildDefectShareText(activeDefectDetail, activeDefectRoomName);
         const closeDefectDetail = () => {
           setActiveDefectDetail(null);
           try {
