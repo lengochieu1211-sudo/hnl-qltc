@@ -8,7 +8,6 @@ import {
   CheckCircle2,
   Clock3,
   FileText,
-  HardHat,
   MapPin,
   RefreshCw,
   Settings2,
@@ -322,7 +321,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                       </div>
                       <div className="mt-3 grid grid-cols-3 gap-1.5">
                         {projectFailed ? (
-                          <div className="col-span-3 rounded-lg bg-amber-50 px-2 py-2.5 text-center text-[9.5px] font-semibold text-amber-700">Không tải được quân số · không hiển thị số giả</div>
+                          <div className="col-span-3 rounded-lg bg-amber-50 px-2 py-2.5 text-center text-[9.5px] font-semibold text-amber-700">Chưa tải được dữ liệu quân số</div>
                         ) : projectSummary ? (
                           <>
                             <div className="rounded-lg bg-slate-50 px-2 py-2 text-center"><div className="text-sm font-black text-slate-900">{projectSummary.dailyHeadcount}</div><div className="text-[8.5px] text-slate-400">QS ngày</div></div>
