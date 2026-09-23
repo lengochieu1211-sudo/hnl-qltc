@@ -852,10 +852,10 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     setSelectedDate(nextDate);
   };
 
-  // Filter records for the selected date
+  // Filter records for the selected date and optional Khu/Khối scope.
   const filteredRecords = useMemo(() => {
-    return crewRecords.filter((record) => record.date === selectedDate);
-  }, [crewRecords, selectedDate]);
+    return structureScopedCrewRecords.filter((record) => record.date === selectedDate);
+  }, [structureScopedCrewRecords, selectedDate]);
 
   const sortedFilteredRecords = useMemo(() => {
     const list = [...filteredRecords];
@@ -930,13 +930,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const allTeamStatsMap = useMemo(() => {
     return calculateTeamStatistics({
       teams,
-      roomProgressList: roomProgressList || [],
-      defects: defects || [],
-      crewRecords: crewRecords || [],
+      roomProgressList: structureScopedRooms || [],
+      defects: structureScopedDefects || [],
+      crewRecords: structureScopedCrewRecords || [],
       floorPlans: floorPlans || [],
       workVolumes
     });
-  }, [teams, roomProgressList, defects, crewRecords, floorPlans, workVolumes]);
+  }, [teams, structureScopedRooms, structureScopedDefects, structureScopedCrewRecords, floorPlans, workVolumes]);
 
   // Handle Daily Log Submission
   const handleLogSubmit = (e: React.FormEvent) => {
