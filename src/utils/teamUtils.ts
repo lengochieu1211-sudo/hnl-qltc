@@ -358,6 +358,7 @@ export function calculateTeamStatistics(params: {
             workCategoryId: assignment.workCategoryId,
             unit,
             totalVol: 0,
+            doneConstructedVol: 0,
             doneFrameVol: 0,
             doneBoardVol: 0,
             doneInspectedVol: 0,
