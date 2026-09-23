@@ -59,7 +59,7 @@ import {
   ArrowUpDown,
   GripVertical
 } from 'lucide-react';
-import { FloorPlan, DefectItem, DefectCategory, DefectSeverity, DefectStatus, RoomProgressItem, RoomSubItem, Point2D, ChecklistItem, TeamInfo, MaterialNorm, InventoryItem, WorkVolume } from '../types';
+import { FloorPlan, DefectItem, DefectCategory, DefectSeverity, DefectStatus, RoomProgressItem, RoomSubItem, Point2D, ChecklistItem, TeamInfo, MaterialNorm, InventoryItem, WorkVolume, StructureGroupingConfig } from '../types';
 import { UndoRedoControls } from './UndoRedoControls';
 import { getRoomColorStyle, ROOM_COLOR_PALETTE } from '../utils/colorPalette';
 import { getDefectOverdueInfo, getDefectShortCode } from '../utils/defectUtils';
@@ -89,6 +89,7 @@ import { ContactMenu } from './ContactMenu';
 import { ShareEntityMenu } from './ShareEntityMenu';
 import { buildDefectShareText, resolveDefectTeam } from '../utils/defectContactUtils';
 import { isPointInsideRoom, reconcileDefectLinkage, resolveDefectLinkageFromSelection } from '../utils/defectLinkageUtils';
+import { normalizeStructureGrouping, structureGroupForFloor, UNGROUPED_STRUCTURE_GROUP_ID } from '../utils/structureGrouping';
 
 const getMappedCoordinates = (e: React.PointerEvent | React.MouseEvent | Touch, element: HTMLElement, currentRotation: number) => {
   const rect = element.getBoundingClientRect();
@@ -399,6 +400,8 @@ const TeamSelectorInput: React.FC<TeamSelectorInputProps> = ({
 interface FloorPlanDefectTabProps {
   projectId?: string;
   floorPlans: FloorPlan[];
+  structureGrouping?: StructureGroupingConfig;
+  onUpdateStructureGrouping?: (next: StructureGroupingConfig) => void | Promise<void>;
   defects: DefectItem[];
   roomProgressList: RoomProgressItem[];
   checklistItems?: ChecklistItem[];
@@ -672,6 +675,8 @@ const DefectPhotoStrip: React.FC<DefectPhotoStripProps> = ({
 export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   projectId,
   floorPlans,
+  structureGrouping,
+  onUpdateStructureGrouping,
   defects,
   roomProgressList,
   checklistItems = [],
@@ -718,6 +723,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const canManageStructure = roleResolved && canManageFloorPlanStructure(normalizedUserRole);
   const canEditDefects = roleResolved && canEditDefectData(normalizedUserRole);
   const canDeleteDefects = roleResolved && canDeleteBusinessData(normalizedUserRole);
+  const normalizedStructureGrouping = React.useMemo(() => normalizeStructureGrouping(structureGrouping), [structureGrouping]);
   const getDraftKey = (base: string) => (currentProjectId === 'default' ? base : `${base}_${currentProjectId}`);
   const readIdSet = (storageKey: string): Set<string> => {
     try {
@@ -868,9 +874,65 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   // Floor Customization & Management State
   const [showManageFloorsModal, setShowManageFloorsModal] = useState(false);
+  const [newStructureGroupName, setNewStructureGroupName] = useState('');
   const [floorSortBy, setFloorSortBy] = useState<'none' | 'name' | 'rooms' | 'defects'>('none');
   const [floorSortOrder, setFloorSortOrder] = useState<'asc' | 'desc'>('asc');
   const [editingFloorId, setEditingFloorId] = useState<string | null>(null);
+
+  const persistStructureGrouping = async (next: StructureGroupingConfig) => {
+    if (!canManageStructure || !onUpdateStructureGrouping) return;
+    await onUpdateStructureGrouping(normalizeStructureGrouping(next));
+  };
+
+  const addStructureGroup = async () => {
+    const name = newStructureGroupName.trim();
+    if (!name || !onUpdateStructureGrouping) return;
+    if (normalizedStructureGrouping.groups.some((group) => group.name.toLocaleLowerCase('vi-VN') === name.toLocaleLowerCase('vi-VN'))) {
+      alert(`${normalizedStructureGrouping.label} “${name}” đã tồn tại.`);
+      return;
+    }
+    const next = {
+      ...normalizedStructureGrouping,
+      enabled: true,
+      groups: [...normalizedStructureGrouping.groups, {
+        id: createEntityId('group'),
+        name,
+        order: normalizedStructureGrouping.groups.length,
+      }],
+    };
+    await persistStructureGrouping(next);
+    setNewStructureGroupName('');
+  };
+
+  const renameStructureGroup = async (groupId: string) => {
+    const current = normalizedStructureGrouping.groups.find((group) => group.id === groupId);
+    if (!current) return;
+    const name = window.prompt(`Đổi tên ${normalizedStructureGrouping.label}`, current.name)?.trim();
+    if (!name || name === current.name) return;
+    if (normalizedStructureGrouping.groups.some((group) => group.id !== groupId && group.name.toLocaleLowerCase('vi-VN') === name.toLocaleLowerCase('vi-VN'))) {
+      alert(`Tên ${normalizedStructureGrouping.label} đã tồn tại.`);
+      return;
+    }
+    await persistStructureGrouping({
+      ...normalizedStructureGrouping,
+      groups: normalizedStructureGrouping.groups.map((group) => group.id === groupId ? { ...group, name } : group),
+    });
+  };
+
+  const deleteStructureGroup = async (groupId: string) => {
+    const current = normalizedStructureGrouping.groups.find((group) => group.id === groupId);
+    if (!current) return;
+    const assignedFloors = floorPlans.filter((floor) => floor.structureGroupId === groupId);
+    if (assignedFloors.length > 0) {
+      alert(`Không thể xóa ${normalizedStructureGrouping.label} “${current.name}” vì còn ${assignedFloors.length} tầng đang thuộc nhóm này. Hãy chuyển các tầng sang nhóm khác trước.`);
+      return;
+    }
+    if (!(await confirmAsync(`Xóa ${normalizedStructureGrouping.label} “${current.name}”? Dữ liệu tầng/căn không bị xóa.`))) return;
+    await persistStructureGrouping({
+      ...normalizedStructureGrouping,
+      groups: normalizedStructureGrouping.groups.filter((group) => group.id !== groupId),
+    });
+  };
   const [editingFloorName, setEditingFloorName] = useState<string>('');
   const [inlineEditingFloorId, setInlineEditingFloorId] = useState<string | null>(null);
   const [inlineEditingName, setInlineEditingName] = useState<string>('');
@@ -4975,6 +5037,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   <Layers className="w-3.5 h-3.5 shrink-0" />
                 )}
 
+                {normalizedStructureGrouping.enabled && (
+                  <span className={`rounded-md px-1.5 py-0.5 text-[9px] font-black ${isSelected ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                    {structureGroupForFloor(fp, normalizedStructureGrouping).name}
+                  </span>
+                )}
+
                 {/* Direct Inline Edit or Name Display */}
                 {isEditingInline ? (
                   <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
@@ -9051,6 +9119,60 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <button onClick={() => setShowManageFloorsModal(false)} className="font-bold text-slate-400 hover:text-slate-600 text-lg">✕</button>
             </div>
 
+            <div className="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-3 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-xs font-extrabold text-slate-900">Phân cấp Dự án → {normalizedStructureGrouping.label} → Tầng</div>
+                  <div className="text-[10px] text-slate-500">Dùng chung cho Tháp, Xưởng, Khối, Dãy, Block… Dự án cũ không cần migrate dữ liệu.</div>
+                </div>
+                <label className="inline-flex items-center gap-2 text-[10px] font-extrabold text-indigo-700">
+                  <input
+                    type="checkbox"
+                    checked={normalizedStructureGrouping.enabled}
+                    onChange={(event) => void persistStructureGrouping({ ...normalizedStructureGrouping, enabled: event.target.checked })}
+                    className="h-4 w-4 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  Bật phân {normalizedStructureGrouping.label}
+                </label>
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-[160px_1fr_auto]">
+                <input
+                  value={normalizedStructureGrouping.label}
+                  onChange={(event) => void persistStructureGrouping({ ...normalizedStructureGrouping, label: event.target.value || 'Khu/Khối' })}
+                  placeholder="Tên cấp: Xưởng / Tháp..."
+                  className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-bold text-slate-700"
+                />
+                <input
+                  value={newStructureGroupName}
+                  onChange={(event) => setNewStructureGroupName(event.target.value)}
+                  onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void addStructureGroup(); } }}
+                  placeholder={`Thêm ${normalizedStructureGrouping.label}, ví dụ CN1 / Tháp 1...`}
+                  className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-700"
+                />
+                <button type="button" onClick={() => void addStructureGroup()} className="rounded-xl bg-indigo-600 px-3 py-2 text-[10px] font-extrabold text-white hover:bg-indigo-700">
+                  + Thêm
+                </button>
+              </div>
+
+              {normalizedStructureGrouping.groups.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {normalizedStructureGrouping.groups.map((group) => {
+                    const count = floorPlans.filter((floor) => floor.structureGroupId === group.id).length;
+                    return (
+                      <div key={group.id} className="inline-flex items-center gap-1 rounded-xl border border-indigo-100 bg-white px-2 py-1.5 text-[10px] font-bold text-slate-700">
+                        <span>{group.name} · {count} tầng</span>
+                        <button type="button" onClick={() => void renameStructureGroup(group.id)} className="rounded px-1 text-indigo-600 hover:bg-indigo-50" title="Đổi tên">✎</button>
+                        <button type="button" onClick={() => void deleteStructureGroup(group.id)} className="rounded px-1 text-rose-500 hover:bg-rose-50" title="Xóa nếu chưa có tầng">×</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-[10px] text-slate-500">Chưa khai báo {normalizedStructureGrouping.label}. Các tầng hiện tại được hiểu là “Chưa phân {normalizedStructureGrouping.label.toLocaleLowerCase('vi-VN')}”.</div>
+              )}
+            </div>
+
             {/* Quick Sort Floors Controls */}
             <QuickSortBar
               itemCount={floorPlans.length}
@@ -9143,6 +9265,23 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           <span>•</span>
                           <span>📌 {defectCount} ghim lỗi</span>
                         </div>
+                        {normalizedStructureGrouping.enabled && (
+                          <label className="mt-1 flex items-center gap-1.5 text-[10px] font-bold text-slate-500">
+                            <span>{normalizedStructureGrouping.label}:</span>
+                            <select
+                              value={fp.structureGroupId || UNGROUPED_STRUCTURE_GROUP_ID}
+                              onChange={(event) => {
+                                if (!onUpdateFloorPlan) return;
+                                const value = event.target.value;
+                                onUpdateFloorPlan(fp.id, { structureGroupId: value === UNGROUPED_STRUCTURE_GROUP_ID ? undefined : value });
+                              }}
+                              className="max-w-[180px] rounded-lg border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold text-slate-700"
+                            >
+                              <option value={UNGROUPED_STRUCTURE_GROUP_ID}>Chưa phân {normalizedStructureGrouping.label.toLocaleLowerCase('vi-VN')}</option>
+                              {normalizedStructureGrouping.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
+                            </select>
+                          </label>
+                        )}
                       </div>
                     </div>
 
