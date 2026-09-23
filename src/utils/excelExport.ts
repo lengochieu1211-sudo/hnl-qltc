@@ -223,6 +223,7 @@ export function exportAllToExcel(params: {
   floorPlans: FloorPlan[];
   structureConfig?: ProjectStructureConfig;
   workVolumeTeamFilter?: { id?: string; name?: string; leader?: string };
+  includeWorkVolumeDetails?: boolean;
   crewRecords?: CrewRecord[];
   canViewFinancials?: boolean;
   selectedModules?: {
@@ -294,7 +295,7 @@ export function exportAllToExcel(params: {
     const wsVolumes = XLSX.utils.json_to_sheet(volumeData);
     autoFitColumns(wsVolumes);
     XLSX.utils.book_append_sheet(wb, wsVolumes, 'Khoi Luong Thi Cong');
-    appendWorkVolumeDetailSheet(wb, {
+    if (params.includeWorkVolumeDetails !== false) appendWorkVolumeDetailSheet(wb, {
       workVolumes: params.workVolumes,
       roomProgressList: params.roomProgressList,
       floorPlans: params.floorPlans,
@@ -507,7 +508,7 @@ export function exportAllToExcelBase64(params: {
     const wsVolumes = XLSX.utils.json_to_sheet(volumeData);
     autoFitColumns(wsVolumes);
     XLSX.utils.book_append_sheet(wb, wsVolumes, 'Khoi Luong Thi Cong');
-    appendWorkVolumeDetailSheet(wb, {
+    if (params.includeWorkVolumeDetails !== false) appendWorkVolumeDetailSheet(wb, {
       workVolumes: params.workVolumes,
       roomProgressList: params.roomProgressList,
       floorPlans: params.floorPlans,
