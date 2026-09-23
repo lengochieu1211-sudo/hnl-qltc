@@ -1,7 +1,8 @@
-import { TeamInfo, RoomProgressItem, DefectItem, CrewRecord, FloorPlan, TeamRoomDetail, RoomSubItem, WorkVolume } from '../types';
+import { TeamInfo, RoomProgressItem, DefectItem, CrewRecord, FloorPlan, TeamRoomDetail, RoomSubItem, WorkVolume, StructureGroupingConfig } from '../types';
 import { normalizeUnit } from './unitUtils';
 import { getCrewShiftCounts } from './crewUtils';
 import { canonicalWorkCategoryId, getCanonicalRoomCategoryEntries, resolveAuthoritativeWorkVolumeRef, resolveWorkVolumeRef } from './linkageIntegrity';
+import { normalizeStructureGrouping, structureGroupForFloor } from './structureGrouping';
 
 /**
  * Unified helper to get effective weight or volume of a subitem across the whole system.
@@ -192,6 +193,17 @@ export interface FloorGroupDetail {
   >;
 }
 
+export interface StructureGroupDetail {
+  structureGroupId: string;
+  structureGroupName: string;
+  floorNames: string[];
+  roomCount: number;
+  totalVol: number;
+  doneFrameVol: number;
+  doneBoardVol: number;
+  doneInspectedVol: number;
+}
+
 export interface TeamStatistics {
   team: TeamInfo;
   teamRooms: RoomProgressItem[];
@@ -214,6 +226,7 @@ export interface TeamStatistics {
   totalAssignedRoomsCount: number;
   categoryBreakdown: TeamCategoryBreakdown[];
   floorGroupMap: Record<string, FloorGroupDetail>;
+  structureGroupMap: Record<string, StructureGroupDetail>;
   teamRoomDetails: TeamRoomDetail[];
 }
 
@@ -243,8 +256,10 @@ export function calculateTeamStatistics(params: {
   crewRecords: CrewRecord[];
   floorPlans?: FloorPlan[];
   workVolumes?: WorkVolume[];
+  structureGrouping?: StructureGroupingConfig;
 }): Record<string, TeamStatistics> {
-  const { teams, roomProgressList = [], defects = [], crewRecords = [], floorPlans = [], workVolumes = [] } = params;
+  const { teams, roomProgressList = [], defects = [], crewRecords = [], floorPlans = [], workVolumes = [], structureGrouping } = params;
+  const normalizedStructureGrouping = normalizeStructureGrouping(structureGrouping);
   const statsMap: Record<string, TeamStatistics> = {};
   const floorNameById = new Map(
     floorPlans
@@ -277,6 +292,7 @@ export function calculateTeamStatistics(params: {
     teamRooms.forEach((room) => {
       const fp = floorPlans.find((floor) => floor.id === room.floorId);
       const floorName = room.floorName || fp?.floorName || 'Mặt bằng';
+      const structureGroup = structureGroupForFloor(fp, normalizedStructureGrouping);
       if (!floorGroupMap[floorName]) {
         floorGroupMap[floorName] = {
           floorName,
@@ -375,6 +391,8 @@ export function calculateTeamStatistics(params: {
           roomName: room.roomName,
           floorId: room.floorId || fp?.id || '',
           floorName,
+          structureGroupId: structureGroup.id || undefined,
+          structureGroupName: structureGroup.name || undefined,
           workCategoryId: assignment.workCategoryId,
           workCategoryName: assignment.name,
           unit,
@@ -425,6 +443,33 @@ export function calculateTeamStatistics(params: {
       });
     });
     const categoryBreakdown = Array.from(categoryBreakdownMap.values());
+
+    const structureGroupMap: Record<string, StructureGroupDetail> = {};
+    if (normalizedStructureGrouping.enabled) {
+      Object.values(floorGroupMap).forEach((floorDetail) => {
+        const floorId = floorDetail.rooms[0]?.floorId || '';
+        const floor = floorPlans.find((item) => item.id === floorId);
+        const group = structureGroupForFloor(floor, normalizedStructureGrouping);
+        const key = group.id || '__ungrouped__';
+        const current = structureGroupMap[key] || {
+          structureGroupId: key,
+          structureGroupName: group.name || 'Chưa phân khu/khối',
+          floorNames: [],
+          roomCount: 0,
+          totalVol: 0,
+          doneFrameVol: 0,
+          doneBoardVol: 0,
+          doneInspectedVol: 0,
+        };
+        if (!current.floorNames.includes(floorDetail.floorName)) current.floorNames.push(floorDetail.floorName);
+        current.roomCount += floorDetail.rooms.length;
+        current.totalVol += floorDetail.totalVol;
+        current.doneFrameVol += floorDetail.doneFrameVol;
+        current.doneBoardVol += floorDetail.doneBoardVol;
+        current.doneInspectedVol += floorDetail.doneInspectedVol;
+        structureGroupMap[key] = current;
+      });
+    }
 
     const totalDefectsCount = teamDefects.length;
     const openDefectsCount = teamDefects.filter((defect) => defect.status === 'Mới phát hiện' || defect.status === 'Đang sửa').length;
@@ -479,6 +524,7 @@ export function calculateTeamStatistics(params: {
       totalAssignedRoomsCount: teamRooms.length,
       categoryBreakdown,
       floorGroupMap,
+      structureGroupMap,
       teamRoomDetails,
     };
   });
