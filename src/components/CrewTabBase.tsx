@@ -2254,6 +2254,26 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                 <div className="mt-1.5 text-[10px] text-slate-400">Quân số ngày dùng giá trị lớn nhất giữa các ca: <strong>{formatDecimal(workerCount)}</strong> người.</div>
               </div>
 
+              {normalizedStructureConfig.enabled && (
+                <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-3">
+                  <label className="block text-[10px] font-extrabold uppercase tracking-wider text-indigo-700 mb-1">
+                    {normalizedStructureConfig.label}
+                  </label>
+                  <select
+                    value={logStructureGroupId}
+                    onChange={(e) => { void handleLogStructureGroupChange(e.target.value); }}
+                    className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs font-bold text-slate-800"
+                  >
+                    {normalizedStructureConfig.groups.map((group) => (
+                      <option key={group.id} value={group.id}>{group.name}</option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-[9.5px] text-indigo-600">
+                    Một bản ghi quân số chỉ thuộc một {normalizedStructureConfig.label}; các tầng bên dưới phải cùng nhóm.
+                  </p>
+                </div>
+              )}
+
               {/* Multi-floor & Multi-category Work Configuration */}
               <div className="space-y-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
                 <div className="flex items-center justify-between">
@@ -2286,7 +2306,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                               onChange={(e) => updateFloorWorkFloor(fIdx, e.target.value)}
                               className="w-full text-xs bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                             >
-                              {floorPlans.map(fp => (
+                              {logFloorPlans.map(fp => (
                                 <option key={fp.id} value={fp.id}>{fp.floorName}</option>
                               ))}
                             </select>
