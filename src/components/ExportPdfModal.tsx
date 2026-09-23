@@ -480,7 +480,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     if (item.archivedAt) return false;
     if (!floorMatchesScope(item.floorId, item.floorName)) return false;
     if (selectedRoomId !== 'all' && item.roomId !== selectedRoomId) return false;
-    if (!teamMatchesScope(item.teamId, item.assignedTo)) return false;
+    if (selectedTeamId !== 'all' && item.teamId !== selectedTeamId) return false;
     return true;
   });
 
