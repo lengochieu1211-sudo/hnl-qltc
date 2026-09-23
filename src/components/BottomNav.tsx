@@ -13,7 +13,6 @@ import {
   Users,
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
-import { APP_VERSION } from '../config/appVersion';
 
 export type TabType = 'home' | 'warehouse' | 'volume' | 'floorplan' | 'checklist' | 'crew' | 'chat' | 'ai' | 'config' | 'superadmin';
 
@@ -61,7 +60,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
 
   const renderBadge = (badge?: number, badgeLabel?: string) => badge !== undefined && badge > 0 ? (
     <span
-      className="absolute -top-1.5 -right-2 rounded-full border border-slate-900 bg-rose-600 px-1 text-[8px] font-black leading-4 text-white min-w-4 text-center"
+      className="absolute -top-1.5 -right-2 rounded-full border border-white bg-rose-600 px-1 text-[8px] font-black leading-4 text-white min-w-4 text-center"
       title={`${badge} ${badgeLabel || 'thông báo'}`}
     >
       {badge > 99 ? '99+' : badge}
@@ -70,19 +69,8 @@ export const BottomNav: React.FC<BottomNavProps> = ({
 
   return (
     <>
-      {/* PC/Laptop: compact Zalo-style navigation rail. Business screens remain unchanged. */}
-      <aside className="fixed inset-y-0 left-0 z-50 hidden w-[84px] flex-col border-r border-slate-800 bg-slate-950 text-white shadow-xl lg:flex">
-        <div className="flex h-[78px] items-center justify-center border-b border-slate-800/90">
-          <button type="button" onClick={() => activate('home')} className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 hover:bg-slate-800" title="HNL QLTC · Trang chủ">
-            <img
-              src={`/icon.png?v=${APP_VERSION}-brand20260921`}
-              alt="HNL QLTC"
-              className="h-10 w-10 object-contain"
-              draggable={false}
-            />
-          </button>
-        </div>
-
+      {/* PC/Laptop: same light navigation language as the mobile bottom bar, moved to the left rail. */}
+      <aside className="fixed inset-y-0 left-0 z-50 hidden w-[84px] flex-col border-r border-slate-200 bg-white text-slate-700 shadow-sm lg:flex">
         <nav className="flex flex-1 flex-col items-center gap-1 overflow-y-auto px-1.5 py-2 no-scrollbar" aria-label="Điều hướng chính HNL QLTC">
           {desktopTabs.map((tab) => {
             const Icon = tab.icon;
@@ -94,7 +82,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                 onClick={() => activate(tab.id)}
                 title={tab.badge !== undefined && tab.badge > 0 ? `${tab.label}: ${tab.badge} ${tab.badgeLabel || ''}` : tab.label}
                 aria-label={tab.label}
-                className={`group relative flex min-h-[62px] w-full flex-col items-center justify-center gap-1 rounded-2xl px-1 transition ${active ? 'bg-blue-600 text-white shadow-lg shadow-blue-950/25' : 'text-slate-400 hover:bg-slate-900 hover:text-white'}`}
+                className={`group relative flex min-h-[62px] w-full flex-col items-center justify-center gap-1 rounded-2xl px-1 transition ${active ? 'bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}
               >
                 <span className="relative">
                   <Icon className={`h-5 w-5 ${active ? 'scale-110' : 'group-hover:scale-105'} transition-transform`} />
@@ -108,32 +96,31 @@ export const BottomNav: React.FC<BottomNavProps> = ({
           })}
 
           {showChecklist && (
-            <button type="button" onClick={() => activate('checklist')} className={`group relative flex min-h-[62px] w-full flex-col items-center justify-center gap-1 rounded-2xl px-1 transition ${activeTab === 'checklist' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-900 hover:text-white'}`} title="Checklist">
+            <button type="button" onClick={() => activate('checklist')} className={`group relative flex min-h-[62px] w-full flex-col items-center justify-center gap-1 rounded-2xl px-1 transition ${activeTab === 'checklist' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`} title="Checklist">
               <ClipboardCheck className="h-5 w-5" /><span className="text-[9px] font-bold">Checklist</span>
             </button>
           )}
 
-          <button type="button" onClick={() => activate('chat')} className={`group relative flex min-h-[62px] w-full flex-col items-center justify-center gap-1 rounded-2xl px-1 transition ${activeTab === 'chat' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-900 hover:text-white'}`} title="Trao đổi">
+          <button type="button" onClick={() => activate('chat')} className={`group relative flex min-h-[62px] w-full flex-col items-center justify-center gap-1 rounded-2xl px-1 transition ${activeTab === 'chat' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`} title="Trao đổi">
             <span className="relative"><MessageCircle className="h-5 w-5" />{renderBadge(chatBadgeCount, 'tin chưa đọc')}</span><span className="text-[9px] font-bold">Trao đổi</span>
           </button>
 
           {showAi && (
-            <button type="button" onClick={() => activate('ai')} className={`group relative flex min-h-[62px] w-full flex-col items-center justify-center gap-1 rounded-2xl px-1 transition ${activeTab === 'ai' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-900 hover:text-white'}`} title="HNL AI Assistant">
+            <button type="button" onClick={() => activate('ai')} className={`group relative flex min-h-[62px] w-full flex-col items-center justify-center gap-1 rounded-2xl px-1 transition ${activeTab === 'ai' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`} title="HNL AI Assistant">
               <Sparkles className="h-5 w-5" /><span className="text-[9px] font-bold">HNL AI</span>
             </button>
           )}
         </nav>
 
-        <div className="space-y-1 border-t border-slate-800 px-1.5 py-2">
+        <div className="space-y-1 border-t border-slate-200 px-1.5 py-2">
           {showSuperAdmin && (
-            <button type="button" onClick={() => activate('superadmin')} className={`flex min-h-[58px] w-full flex-col items-center justify-center gap-1 rounded-2xl transition ${activeTab === 'superadmin' ? 'bg-amber-500 text-slate-950' : 'text-amber-300 hover:bg-slate-900'}`} title="Quản trị hệ thống">
+            <button type="button" onClick={() => activate('superadmin')} className={`flex min-h-[58px] w-full flex-col items-center justify-center gap-1 rounded-2xl transition ${activeTab === 'superadmin' ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-200' : 'text-amber-700 hover:bg-amber-50'}`} title="Quản trị hệ thống">
               <ShieldCheck className="h-5 w-5" /><span className="text-[8.5px] font-bold">Hệ thống</span>
             </button>
           )}
-          <button type="button" onClick={() => activate('config')} className={`flex min-h-[58px] w-full flex-col items-center justify-center gap-1 rounded-2xl transition ${activeTab === 'config' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-900 hover:text-white'}`} title={t('config')}>
+          <button type="button" onClick={() => activate('config')} className={`flex min-h-[58px] w-full flex-col items-center justify-center gap-1 rounded-2xl transition ${activeTab === 'config' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`} title={t('config')}>
             <Settings className="h-5 w-5" /><span className="text-[9px] font-bold">{t('config')}</span>
           </button>
-          <div className="pb-1 pt-1 text-center text-[7.5px] font-bold tracking-wide text-slate-600">v{APP_VERSION}</div>
         </div>
       </aside>
 
