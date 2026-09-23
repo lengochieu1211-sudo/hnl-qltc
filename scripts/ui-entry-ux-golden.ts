@@ -214,6 +214,9 @@ assert(homeDashboardUi.includes('relative isolate max-h-[440px] overflow-auto ov
 const crewUi = read('src/components/CrewTabBase.tsx');
 const crewShareUi = read('src/components/CrewReportShareModal.tsx');
 assert(crewUi.includes('Chia sẻ báo cáo quân số') && !crewUi.includes('1 ngày / nhiều ngày · nội dung / ảnh'), 'Crew screen must expose the concise consolidated share-report entry');
+assert(crewUi.includes('openRoomOnFloorPlan') && crewUi.includes('openDefectOnFloorPlan') && crewUi.includes('qlct_diagnostic_navigation_request') && crewUi.includes('qlct_pending_defect_navigation'), 'Team detail must drill down to exact room/defect entities on the floor plan');
+assert(crewUi.includes('Xem các Căn/Phòng đội đang làm') && crewUi.includes('Mở Defect trên mặt bằng') && crewUi.includes('Căn/Phòng:'), 'Team KPI, room and defect cards must expose direct-view affordances and linked room labels');
+assert(defectUi.includes('activeDefectRoomName') && defectUi.includes('🏠 Căn/Phòng:'), 'Defect list/detail must show linked Căn/Phòng when roomId resolves');
 assert(crewShareUi.includes('Sao chép nội dung') && crewShareUi.includes('Chia sẻ ảnh') && crewShareUi.includes('Tải ảnh'), 'Crew report sharing must support content, image share and image download');
 assert(!crewShareUi.includes('Tải ảnh PNG') && !crewShareUi.includes('JPEG'), 'Crew report UI must not expose image file-format jargon');
 assert(crewShareUi.includes('colSpan={4}') && crewShareUi.includes('— = chưa báo') && crewShareUi.includes('Tổng QS/ngày') && crewShareUi.includes('TỔNG'), 'Crew report preview must preserve matrix semantics and expose daily/column totals');

@@ -310,6 +310,38 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [teamListSortBy, setTeamListSortBy] = useState<'name' | 'leader' | 'count'>('name');
   const [teamListSortOrder, setTeamListSortOrder] = useState<TeamSortOrder>('asc');
 
+  const openRoomOnFloorPlan = (room: RoomProgressItem) => {
+    const request = {
+      entityType: 'room',
+      projectId: projectId || '',
+      entityId: room.id,
+      roomId: room.id,
+      floorId: room.floorId,
+    };
+    try {
+      sessionStorage.setItem('qlct_diagnostic_navigation_request', JSON.stringify(request));
+    } catch (_) {}
+    setSelectedTeamForDetail(null);
+    window.dispatchEvent(new CustomEvent('qlct-diagnostic-open-entity', { detail: request }));
+  };
+
+  const openDefectOnFloorPlan = (defect: DefectItem) => {
+    const request = {
+      entityType: 'defect',
+      projectId: projectId || '',
+      defectId: defect.id,
+      floorId: defect.floorId,
+      roomId: defect.roomId,
+      x: defect.x,
+      y: defect.y,
+    };
+    try {
+      sessionStorage.setItem('qlct_pending_defect_navigation', JSON.stringify(request));
+    } catch (_) {}
+    setSelectedTeamForDetail(null);
+    window.dispatchEvent(new CustomEvent('qlct-diagnostic-open-entity', { detail: request }));
+  };
+
   // Sync state if prop changes
   useEffect(() => {
     if (propTeams) {
@@ -2655,7 +2687,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
               {/* KPI Summary Strip */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-3 bg-white border-b border-slate-200 text-xs">
-                <div className="bg-indigo-50/80 border border-indigo-100 p-2 rounded-xl text-center">
+                <button type="button" onClick={() => setDetailModalTab('rooms')} className="bg-indigo-50/80 border border-indigo-100 p-2 rounded-xl text-center hover:bg-indigo-100/80 transition cursor-pointer" title="Xem các Căn/Phòng đội đang làm">
                   <div className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider">Căn / Phòng & Tầng</div>
                   <div className="text-sm sm:text-base font-black text-indigo-900 mt-0.5 flex items-center justify-center gap-1">
                     <Home className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
@@ -2664,9 +2696,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   <div className="text-[10px] text-indigo-600 mt-0.5 font-medium">
                     {completedRooms.length}/{teamRooms.length} Căn / Phòng nghiệm thu
                   </div>
-                </div>
+                </button>
 
-                <div className="bg-emerald-50/80 border border-emerald-100 p-2 rounded-xl text-center">
+                <button type="button" onClick={() => setDetailModalTab('rooms')} className="bg-emerald-50/80 border border-emerald-100 p-2 rounded-xl text-center hover:bg-emerald-100/80 transition cursor-pointer" title="Xem chi tiết khối lượng theo Căn/Phòng và tầng">
                   <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Khối lượng thi công</div>
                   <div className="text-sm sm:text-base font-black text-emerald-900 mt-0.5 flex items-center justify-center gap-1 min-w-0">
                     <BarChart3 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
@@ -2681,9 +2713,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                       ? `NT: ${Object.entries(stat.completedVolumeByUnit).map(([unit, val]) => `${formatDecimal(Number(val))} ${unit}`).join(' + ')}`
                       : (inspectedVol > 0 ? `NT: ${formatDecimal(inspectedVol)} m²` : `Khung: ${formatDecimal(completedFrameVol)} m² | Tấm: ${formatDecimal(completedBoardVol)} m²`)}
                   </div>
-                </div>
+                </button>
 
-                <div className={`border p-2 rounded-xl text-center ${
+                <button type="button" onClick={() => setDetailModalTab('defects')} className={`border p-2 rounded-xl text-center cursor-pointer transition ${
                   openDefectsList.length > 0 ? 'bg-rose-50/80 border-rose-200' : 'bg-slate-50 border-slate-200'
                 }`}>
                   <div className={`text-[10px] font-bold uppercase tracking-wider ${
@@ -2702,9 +2734,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   }`}>
                     {teamDefects.length} tổng defect
                   </div>
-                </div>
+                </button>
 
-                <div className="bg-slate-100/80 border border-slate-200 p-2 rounded-xl text-center">
+                <button type="button" onClick={() => setDetailModalTab('logs')} className="bg-slate-100/80 border border-slate-200 p-2 rounded-xl text-center hover:bg-slate-200/80 transition cursor-pointer" title="Xem lịch sử nhật ký và quân số">
                   <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Tổng công đã làm</div>
                   <div className="text-sm sm:text-base font-black text-slate-800 mt-0.5 flex items-center justify-center gap-1">
                     <Users className="w-3.5 h-3.5 text-slate-600" />
@@ -2713,7 +2745,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   <div className="text-[10px] text-slate-500 mt-0.5 font-medium">
                     {teamLogs.length} lượt nhật ký
                   </div>
-                </div>
+                </button>
               </div>
 
               {/* Modal Tabs */}
@@ -2871,7 +2903,17 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                     return (
                                       <div 
                                         key={room.id}
-                                        className="bg-white border border-slate-200/80 rounded-lg p-3 hover:border-indigo-200 transition flex flex-col justify-between shadow-xs"
+                                        role="button"
+                                        tabIndex={0}
+                                        onClick={() => openRoomOnFloorPlan(room)}
+                                        onKeyDown={(event) => {
+                                          if (event.key === 'Enter' || event.key === ' ') {
+                                            event.preventDefault();
+                                            openRoomOnFloorPlan(room);
+                                          }
+                                        }}
+                                        className="bg-white border border-slate-200/80 rounded-lg p-3 hover:border-indigo-300 hover:shadow-sm transition flex flex-col justify-between shadow-xs cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                                        title={`Mở ${room.roomName} trên mặt bằng`}
                                       >
                                         <div>
                                           {/* Room Title */}
@@ -3059,10 +3101,24 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                       </div>
                     ) : (
                       <div className="space-y-2.5">
-                        {displayedDefects.map((defect) => (
+                        {displayedDefects.map((defect) => {
+                          const defectRoomName = defect.roomId
+                            ? roomProgressList.find((room) => room.id === defect.roomId)?.roomName
+                            : '';
+                          return (
                           <div 
                             key={defect.id}
-                            className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs hover:border-rose-200 transition"
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => openDefectOnFloorPlan(defect)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault();
+                                openDefectOnFloorPlan(defect);
+                              }
+                            }}
+                            className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs hover:border-rose-300 hover:shadow-sm transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-rose-200"
+                            title="Mở Defect trên mặt bằng"
                           >
                             <div className="flex justify-between items-start gap-2 mb-1.5">
                               <div>
@@ -3078,9 +3134,15 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                     {defect.severity}
                                   </span>
                                 </div>
-                                <p className="text-[11px] text-slate-500 font-medium mt-0.5 flex items-center gap-1">
+                                <p className="text-[11px] text-slate-500 font-medium mt-0.5 flex items-center gap-1 flex-wrap">
                                   <MapPin className="w-3 h-3 text-indigo-500" />
                                   Tầng: <strong className="text-slate-700">{defect.floorName}</strong>
+                                  {defectRoomName && (
+                                    <>
+                                      <span className="text-slate-300">·</span>
+                                      <span>Căn/Phòng: <strong className="text-slate-700">{defectRoomName}</strong></span>
+                                    </>
+                                  )}
                                 </p>
                               </div>
 
@@ -3116,7 +3178,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                               <span>Tạo: {formatDateDDMMYYYY(defect.createdAt)}</span>
                             </div>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>

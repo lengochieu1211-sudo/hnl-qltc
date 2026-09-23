@@ -7933,6 +7933,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
                       <p className="text-xs font-medium text-slate-700 line-clamp-2 leading-relaxed">{defect.description}</p>
 
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-semibold text-slate-500">
+                        <span>📍 Tầng: <strong className="text-slate-700">{defect.floorName || activeFloor?.floorName || 'Chưa rõ'}</strong></span>
+                        {defect.roomId && floorRooms.find((room) => room.id === defect.roomId)?.roomName && (
+                          <span>🏠 Căn/Phòng: <strong className="text-slate-700">{floorRooms.find((room) => room.id === defect.roomId)?.roomName}</strong></span>
+                        )}
+                      </div>
+
                       {/* Enhanced Metadata Grid */}
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[11px] bg-slate-50 p-2 rounded-xl border border-slate-100 text-slate-600">
                         <div>
@@ -8550,6 +8557,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         const overdueInfo = getDefectOverdueInfo(activeDefectDetail);
         const activeContactTeam = resolveDefectTeam(activeDefectDetail, teams);
         const activeDefectShareText = buildDefectShareText(activeDefectDetail);
+        const activeDefectRoomName = activeDefectDetail.roomId
+          ? roomProgressList.find((room) => room.id === activeDefectDetail.roomId)?.roomName || ''
+          : '';
         const closeDefectDetail = () => {
           setActiveDefectDetail(null);
           try {
@@ -8655,7 +8665,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     className="w-full border border-slate-200 rounded-xl p-2.5 font-medium text-slate-800"
                   />
                   <div className="flex items-center justify-between gap-2 mt-1 flex-wrap">
-                    <p className="text-[10px] text-slate-500 font-medium">📍 Vị trí trên mặt bằng: {activeDefectDetail.floorName || 'Mặt bằng'} ({Math.round(activeDefectDetail.x)}%, {Math.round(activeDefectDetail.y)}%)</p>
+                    <p className="text-[10px] text-slate-500 font-medium">
+                      📍 Vị trí trên mặt bằng: {activeDefectDetail.floorName || 'Mặt bằng'}
+                      {activeDefectRoomName ? <> · 🏠 Căn/Phòng: <strong className="text-slate-700">{activeDefectRoomName}</strong></> : null}
+                      {' '}({Math.round(activeDefectDetail.x)}%, {Math.round(activeDefectDetail.y)}%)
+                    </p>
                     <button
                       type="button"
                       onClick={() => {
