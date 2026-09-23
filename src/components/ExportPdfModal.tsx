@@ -1641,7 +1641,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
 
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
-      <div className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[92vh] overflow-y-auto border border-slate-100 shadow-2xl">
+      <div className="bg-white w-full sm:max-w-2xl md:max-w-3xl lg:max-w-5xl rounded-t-3xl sm:rounded-2xl p-5 lg:p-6 space-y-4 max-h-[94vh] overflow-y-auto border border-slate-100 shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <div className="flex items-center gap-2">
@@ -1663,46 +1663,152 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
 
         {/* Options */}
         <div className="space-y-4 text-xs">
-          {/* Select Floor (Multi-Select) */}
-          <div className="space-y-1.5">
-            <label className="block text-slate-700 font-bold flex items-center gap-1.5">
-              <Filter className="w-3.5 h-3.5 text-indigo-600" />
-              Lọc khu vực / tầng đã khai báo
-            </label>
-            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 max-h-36 overflow-y-auto space-y-2.5">
-              {/* Option: All */}
-              <label className="flex items-center gap-2.5 font-bold text-slate-800 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={isAllSelected}
-                  onChange={() => handleToggleFloor('all')}
-                  className="w-4 h-4 rounded text-indigo-600 border-slate-300 focus:ring-indigo-500 cursor-pointer"
-                />
-                <span className="text-xs">🌐 Tất cả các tầng / Toàn bộ dự án</span>
+          {/* Unified report scope + Defect filters */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-slate-700 font-bold flex items-center gap-1.5">
+                <Filter className="w-3.5 h-3.5 text-indigo-600" />
+                Phạm vi &amp; bộ lọc báo cáo
               </label>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedStructureGroupId('all');
+                  setSelectedFloorIds(['all']);
+                  setSelectedRoomId('all');
+                  setSelectedTeamId('all');
+                  setDefectStatusFilter('all');
+                  setDefectCategoryFilter('all');
+                  setDefectCreatorFilter('all');
+                  setDefectCreatedFrom('');
+                  setDefectCreatedTo('');
+                  setDefectCompletedFrom('');
+                  setDefectCompletedTo('');
+                }}
+                className="text-[10px] font-extrabold text-indigo-600 hover:text-indigo-800"
+              >
+                Xóa bộ lọc
+              </button>
+            </div>
 
-              {/* Individual declared floors */}
-              {floorNames.length > 0 ? (
-                <div className="border-t border-slate-200 pt-2.5 space-y-2">
-                  {floorNames.map((f) => {
-                    const isChecked = isAllSelected || selectedFloors.includes(f);
-                    return (
-                      <label key={f} className="flex items-center gap-2.5 font-semibold text-slate-700 hover:text-slate-900 cursor-pointer select-none ml-1">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          disabled={isAllSelected}
-                          onChange={() => handleToggleFloor(f)}
-                          className="w-4 h-4 rounded text-indigo-600 border-slate-300 focus:ring-indigo-500 cursor-pointer disabled:opacity-50"
-                        />
-                        <span className="text-xs">📍 {f}</span>
-                      </label>
-                    );
-                  })}
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 space-y-3">
+              <div className={`grid grid-cols-1 gap-2 ${normalizedStructureConfig.enabled ? 'sm:grid-cols-2 lg:grid-cols-4' : 'sm:grid-cols-2 lg:grid-cols-3'}`}>
+                {normalizedStructureConfig.enabled && (
+                  <label className="space-y-1">
+                    <span className="block text-[10px] font-bold text-slate-600">{normalizedStructureConfig.label}</span>
+                    <select
+                      value={selectedStructureGroupId}
+                      onChange={(e) => {
+                        setSelectedStructureGroupId(e.target.value);
+                        setSelectedFloorIds(['all']);
+                        setSelectedRoomId('all');
+                      }}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700"
+                    >
+                      <option value="all">Tất cả {normalizedStructureConfig.label}</option>
+                      {normalizedStructureConfig.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
+                    </select>
+                  </label>
+                )}
+
+                <label className="space-y-1">
+                  <span className="block text-[10px] font-bold text-slate-600">Tầng</span>
+                  <div className="max-h-28 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 space-y-1.5">
+                    <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer">
+                      <input type="checkbox" checked={isAllSelected} onChange={() => handleToggleFloor('all')} className="w-3.5 h-3.5 rounded text-indigo-600" />
+                      <span className="text-[10.5px]">Tất cả tầng</span>
+                    </label>
+                    {groupScopedFloorPlans.map((floor) => {
+                      const checked = isAllSelected || selectedFloorIds.includes(floor.id);
+                      return (
+                        <label key={floor.id} className="flex items-center gap-2 text-slate-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={isAllSelected}
+                            onChange={() => handleToggleFloor(floor.id)}
+                            className="w-3.5 h-3.5 rounded text-indigo-600 disabled:opacity-50"
+                          />
+                          <span className="text-[10.5px]">{floor.floorName}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </label>
+
+                <label className="space-y-1">
+                  <span className="block text-[10px] font-bold text-slate-600">Căn / Phòng</span>
+                  <select
+                    value={selectedRoomId}
+                    onChange={(e) => setSelectedRoomId(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700"
+                  >
+                    <option value="all">Tất cả Căn / Phòng</option>
+                    {roomScopeOptions.map((room) => {
+                      const floorName = effectiveFloorPlans.find((floor) => floor.id === room.floorId)?.floorName || room.floorName || '';
+                      return <option key={room.id} value={room.id}>{floorName ? `${floorName} · ` : ''}{room.roomName}</option>;
+                    })}
+                  </select>
+                </label>
+
+                <label className="space-y-1">
+                  <span className="block text-[10px] font-bold text-slate-600">Đội thi công</span>
+                  <select
+                    value={selectedTeamId}
+                    onChange={(e) => {
+                      setSelectedTeamId(e.target.value);
+                      setSelectedRoomId('all');
+                    }}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700"
+                  >
+                    <option value="all">Tất cả đội</option>
+                    {teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+                  </select>
+                </label>
+              </div>
+
+              <div className="border-t border-slate-200 pt-3">
+                <div className="mb-2 text-[10px] font-extrabold text-slate-600">Defect trong phạm vi trên</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  <select value={defectStatusFilter} onChange={(e) => setDefectStatusFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700">
+                    <option value="all">Tất cả trạng thái Defect</option>
+                    <option value="Mới phát hiện">Mới phát hiện</option>
+                    <option value="Đang sửa">Đang sửa</option>
+                    <option value="Đã khắc phục">Đã khắc phục</option>
+                    <option value="Đã nghiệm thu">Đã nghiệm thu</option>
+                  </select>
+                  <select value={defectCategoryFilter} onChange={(e) => setDefectCategoryFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700">
+                    <option value="all">Tất cả hạng mục lỗi</option>
+                    {defectCategoryOptions.map((category) => <option key={category} value={category}>{category}</option>)}
+                  </select>
+                  <select value={defectCreatorFilter} onChange={(e) => setDefectCreatorFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700">
+                    <option value="all">Tất cả người tạo</option>
+                    {defectCreatorOptions.map((creator) => <option key={creator} value={creator}>{creator}</option>)}
+                  </select>
+                  <label className="space-y-1">
+                    <span className="block text-[9.5px] font-bold text-slate-500">Defect tạo từ ngày</span>
+                    <input type="date" value={defectCreatedFrom} onChange={(e) => setDefectCreatedFrom(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px]" />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="block text-[9.5px] font-bold text-slate-500">Defect tạo đến ngày</span>
+                    <input type="date" value={defectCreatedTo} onChange={(e) => setDefectCreatedTo(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px]" />
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="space-y-1">
+                      <span className="block text-[9.5px] font-bold text-slate-500">Xong từ</span>
+                      <input type="date" value={defectCompletedFrom} onChange={(e) => setDefectCompletedFrom(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-2 py-2 text-[11px]" />
+                    </label>
+                    <label className="space-y-1">
+                      <span className="block text-[9.5px] font-bold text-slate-500">Xong đến</span>
+                      <input type="date" value={defectCompletedTo} onChange={(e) => setDefectCompletedTo(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-2 py-2 text-[11px]" />
+                    </label>
+                  </div>
                 </div>
-              ) : (
-                <p className="text-[11px] text-slate-400 italic">Chưa khai báo tầng nào.</p>
-              )}
+              </div>
+
+              <p className="text-[10px] text-slate-500">
+                Khu/Khối → Tầng → Căn/Phòng → Đội là phạm vi chung. Bộ lọc trạng thái/hạng mục/người tạo/ngày chỉ thu hẹp phần Defect và phụ lục ảnh Defect.
+              </p>
             </div>
           </div>
 
@@ -1788,29 +1894,6 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
             </div>
             <p className="px-3 pb-3 text-[10px] text-slate-500">Phụ lục ảnh Defect đi đúng thứ tự Defect đã chọn; phụ lục ảnh nhân công đi theo đúng thứ tự Nhật ký nhân công.</p>
           </details>
-
-          {/* Defect filters - sorting lives in the shared per-section PDF sorting panel above. */}
-          <div className="space-y-1.5">
-            <label className="block text-slate-700 font-bold">Bộ lọc Defect</label>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <select value={defectStatusFilter} onChange={(e) => setDefectStatusFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700">
-                <option value="all">Tất cả trạng thái</option>
-                <option value="Mới phát hiện">Mới phát hiện</option>
-                <option value="Đang sửa">Đang sửa</option>
-                <option value="Đã khắc phục">Đã khắc phục</option>
-                <option value="Đã nghiệm thu">Đã nghiệm thu</option>
-              </select>
-              <select value={defectCategoryFilter} onChange={(e) => setDefectCategoryFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700">
-                <option value="all">Tất cả hạng mục</option>
-                {defectCategoryOptions.map((category) => <option key={category} value={category}>{category}</option>)}
-              </select>
-              <select value={defectCreatorFilter} onChange={(e) => setDefectCreatorFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700">
-                <option value="all">Tất cả người tạo</option>
-                {defectCreatorOptions.map((creator) => <option key={creator} value={creator}>{creator}</option>)}
-              </select>
-            </div>
-            <p className="text-[10px] text-slate-400">Bộ lọc chỉ áp dụng cho Defect trong báo cáo. Vị trí marker Defect và tên phòng trên bản vẽ giữ nguyên thuật toán hiện tại.</p>
-          </div>
 
           {/* Report Content Checkboxes */}
           <div>
