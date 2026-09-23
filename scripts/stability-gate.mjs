@@ -365,6 +365,8 @@ requireAll(homeDashboard, [
   'Chia sẻ báo cáo quân số',
   'Chưa tải được dữ liệu quân số',
   'buildCrewReportMatrices',
+  'Tổng QS/ngày',
+  'TỔNG',
 ], 'Trang chủ dashboard');
 requireAll(crewReportShare, [
   '1 ngày',
@@ -374,6 +376,8 @@ requireAll(crewReportShare, [
   'Chia sẻ ảnh',
   'Tải ảnh',
   '— = chưa báo',
+  'Tổng QS/ngày',
+  'TỔNG',
 ], 'crew report share center');
 requireAll(crewReportUtils, [
   'buildCrewReportRows',
@@ -382,6 +386,9 @@ requireAll(crewReportUtils, [
   'projectLocation',
   'reported: false',
   'dailyHeadcount',
+  'totalDailyHeadcount',
+  'teamTotals',
+  'grandDailyHeadcount',
 ], 'crew report aggregation engine');
 requireAll(firebaseBase, [
   'fetchProjectCrewReportData',
