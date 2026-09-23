@@ -1,11 +1,12 @@
 import * as XLSX from 'xlsx';
-import { InventoryItem, WorkVolume, DefectItem, ChecklistItem, FloorPlan, RoomProgressItem, MaterialNorm, CrewRecord, TeamInfo } from '../types';
+import { InventoryItem, WorkVolume, DefectItem, ChecklistItem, FloorPlan, RoomProgressItem, MaterialNorm, CrewRecord, TeamInfo, StructureGroupingConfig } from '../types';
 import { getDefectOverdueInfo } from './defectUtils';
 import { isTeamMatch, calculateTeamStatistics } from './teamUtils';
 import { calculateStockSummary, resolveNormMaterialId } from './inventoryUtils';
 import { formatDateDDMMYYYY, formatDateTime } from './dateFormatter';
 import { saveWorkbookFile } from './fileExport';
 import { getCrewShiftCounts } from './crewUtils';
+import { normalizeStructureGrouping, resolveCrewRecordStructureGroup, structureGroupForFloor } from './structureGrouping';
 
 function autoFitColumns(ws: XLSX.WorkSheet) {
   if (!ws || !ws['!ref']) return;
@@ -644,9 +645,16 @@ export function exportTeamStatisticsToExcel(params: {
   projectName?: string;
   selectedTeamName?: string;
   workVolumes?: WorkVolume[];
+  structureGrouping?: StructureGroupingConfig;
 }) {
   const wb = XLSX.utils.book_new();
   const projectNameStr = params.projectName || 'Cong_Trinh';
+  const structureGrouping = normalizeStructureGrouping(params.structureGrouping);
+  const floorById = new Map(params.floorPlans.map((floor) => [floor.id, floor] as const));
+  const roomById = new Map(params.roomProgressList.map((room) => [room.id, room] as const));
+  const groupNameForFloorId = (floorId?: string) => structureGrouping.enabled
+    ? structureGroupForFloor(floorById.get(String(floorId || '')), structureGrouping).name
+    : '';
 
   const targetTeams = params.selectedTeamName
     ? params.teams.filter(t => isTeamMatch(params.selectedTeamName, t))
@@ -659,7 +667,8 @@ export function exportTeamStatisticsToExcel(params: {
     defects: params.defects,
     crewRecords: params.crewRecords,
     floorPlans: params.floorPlans,
-    workVolumes: params.workVolumes || []
+    workVolumes: params.workVolumes || [],
+    structureGrouping,
   });
 
   // If a single team is selected ("Xuất Excel Đội Này"), export 5 detailed sheets
@@ -671,7 +680,8 @@ export function exportTeamStatisticsToExcel(params: {
       defects: params.defects,
       crewRecords: params.crewRecords,
       floorPlans: params.floorPlans,
-      workVolumes: params.workVolumes || []
+      workVolumes: params.workVolumes || [],
+      structureGrouping,
     })[team.id];
 
     // Sheet 1: 01-Tong quan
@@ -679,6 +689,7 @@ export function exportTeamStatisticsToExcel(params: {
       { 'THÔNG TIN BÁO CÁO': 'CÔNG TRÌNH', 'GIÁ TRỊ': projectNameStr },
       { 'THÔNG TIN BÁO CÁO': 'ĐỘI THI CÔNG', 'GIÁ TRỊ': team.name },
       { 'THÔNG TIN BÁO CÁO': 'ĐỘI TRƯỞNG', 'GIÁ TRỊ': team.leader || '-' },
+      ...(structureGrouping.enabled ? [{ 'THÔNG TIN BÁO CÁO': `SỐ ${structureGrouping.label.toLocaleUpperCase('vi-VN')} PHỤ TRÁCH`, 'GIÁ TRỊ': Object.keys(stat.structureGroupMap || {}).length }] : []),
       { 'THÔNG TIN BÁO CÁO': 'SỐ ĐIỆN THOẠI', 'GIÁ TRỊ': team.phone || '-' },
       { 'THÔNG TIN BÁO CÁO': 'NGÀY XUẤT', 'GIÁ TRỊ': formatDateDDMMYYYY(new Date().toISOString().slice(0, 10)) },
       { 'THÔNG TIN BÁO CÁO': '', 'GIÁ TRỊ': '' },
@@ -705,8 +716,10 @@ export function exportTeamStatisticsToExcel(params: {
     let fIdx = 1;
     Object.entries(stat.floorGroupMap || {}).forEach(([fName, fg]) => {
       Object.entries(fg.categoryDetails || {}).forEach(([catName, det]) => {
+        const sourceFloorId = fg.rooms[0]?.floorId;
         floorRows.push({
           'STT': fIdx++,
+          ...(structureGrouping.enabled ? { [structureGrouping.label]: groupNameForFloorId(sourceFloorId) } : {}),
           'Tầng': fName,
           'Hạng Mục': det.categoryName || catName,
           'ĐVT': det.unit || 'm²',
@@ -721,7 +734,7 @@ export function exportTeamStatisticsToExcel(params: {
     });
     if (floorRows.length === 0) {
       floorRows.push({
-        'STT': 1, 'Tầng': 'Chưa có dữ liệu', 'Hạng Mục': '-', 'ĐVT': '-', 'Số Phòng/Khu Vực': 0, 'KL Phụ Trách': 0, 'KL Xong Khung': 0, 'KL Xong Tấm': 0, 'KL Nghiệm Thu': 0, 'KL Còn Lại': 0
+        'STT': 1, ...(structureGrouping.enabled ? { [structureGrouping.label]: '-' } : {}), 'Tầng': 'Chưa có dữ liệu', 'Hạng Mục': '-', 'ĐVT': '-', 'Số Phòng/Khu Vực': 0, 'KL Phụ Trách': 0, 'KL Xong Khung': 0, 'KL Xong Tấm': 0, 'KL Nghiệm Thu': 0, 'KL Còn Lại': 0
       });
     }
     const ws2 = XLSX.utils.json_to_sheet(floorRows);
@@ -734,6 +747,7 @@ export function exportTeamStatisticsToExcel(params: {
       '__roomId': det.roomId,
       '__floorId': det.floorId,
       '__teamId': det.teamId,
+      ...(structureGrouping.enabled ? { [structureGrouping.label]: det.structureGroupName || groupNameForFloorId(det.floorId) } : {}),
       'Tầng': det.floorName,
       'Phòng/Khu Vực': det.roomName,
       'Hạng Mục Đội Phụ Trách': det.workCategoryName,
@@ -751,7 +765,7 @@ export function exportTeamStatisticsToExcel(params: {
     }));
     if (roomRows.length === 0) {
       roomRows.push({
-        'STT': 1, '__roomId': '', '__floorId': '', '__teamId': '', 'Tầng': '-', 'Phòng/Khu Vực': '-', 'Hạng Mục Đội Phụ Trách': '-', 'ĐVT': '-', 'KL Phụ Trách': 0, 'KL Xong Khung': 0, 'KL Xong Tấm': 0, 'KL Nghiệm Thu': 0, 'Tiến Độ (%)': '0%', 'Trạng Thái Khung': '-', 'Trạng Thái Tấm': '-', 'Trạng Thái Nghiệm Thu': '-', 'Hạn Hoàn Thành': '-', 'Ghi Chú': ''
+        'STT': 1, '__roomId': '', '__floorId': '', '__teamId': '', ...(structureGrouping.enabled ? { [structureGrouping.label]: '-' } : {}), 'Tầng': '-', 'Phòng/Khu Vực': '-', 'Hạng Mục Đội Phụ Trách': '-', 'ĐVT': '-', 'KL Phụ Trách': 0, 'KL Xong Khung': 0, 'KL Xong Tấm': 0, 'KL Nghiệm Thu': 0, 'Tiến Độ (%)': '0%', 'Trạng Thái Khung': '-', 'Trạng Thái Tấm': '-', 'Trạng Thái Nghiệm Thu': '-', 'Hạn Hoàn Thành': '-', 'Ghi Chú': ''
       });
     }
     const ws3 = XLSX.utils.json_to_sheet(roomRows);
@@ -760,20 +774,25 @@ export function exportTeamStatisticsToExcel(params: {
 
     // Sheet 4: 04-Defect
     const teamDefects = (params.defects || []).filter(d => !d.archivedAt && isTeamMatch(d.assignedTo, team, d.teamId));
-    const defectRows: any[] = teamDefects.map((d, idx) => ({
+    const defectRows: any[] = teamDefects.map((d, idx) => {
+      const linkedRoom = d.roomId ? roomById.get(d.roomId) : undefined;
+      return ({
       'STT': idx + 1,
       '__defectId': d.id,
       'Ngày Tạo': d.createdAt ? formatDateDDMMYYYY(d.createdAt) : '',
+      ...(structureGrouping.enabled ? { [structureGrouping.label]: groupNameForFloorId(d.floorId || linkedRoom?.floorId) } : {}),
       'Tầng': d.floorName,
+      'Căn/Phòng': linkedRoom?.roomName || '',
       'Mô Tả Lỗi': d.description,
       'Mức Độ': d.severity,
       'Trạng Thái': d.status,
       'Ngày Khắc Phục': d.completedAt || '-',
       'Ghi Chú': d.assignedTo
-    }));
+      });
+    });
     if (defectRows.length === 0) {
       defectRows.push({
-        'STT': 1, '__defectId': '', 'Ngày Tạo': '-', 'Tầng': '-', 'Mô Tả Lỗi': 'Không có defect phát sinh', 'Mức Độ': '-', 'Trạng Thái': '-', 'Ngày Khắc Phục': '-', 'Ghi Chú': ''
+        'STT': 1, '__defectId': '', 'Ngày Tạo': '-', ...(structureGrouping.enabled ? { [structureGrouping.label]: '-' } : {}), 'Tầng': '-', 'Căn/Phòng': '-', 'Mô Tả Lỗi': 'Không có defect phát sinh', 'Mức Độ': '-', 'Trạng Thái': '-', 'Ngày Khắc Phục': '-', 'Ghi Chú': ''
       });
     }
     defectRows.push(
@@ -786,10 +805,13 @@ export function exportTeamStatisticsToExcel(params: {
     // Sheet 5: 05-Nhat ky quan so
     const teamLogs = (params.crewRecords || []).filter(l => isTeamMatch(l.teamName, team, l.teamId));
     const sortedLogs = [...teamLogs].sort((a, b) => a.date.localeCompare(b.date));
-    const logRows: any[] = sortedLogs.map((l, idx) => ({
+    const logRows: any[] = sortedLogs.map((l, idx) => {
+      const resolvedGroup = resolveCrewRecordStructureGroup(l, params.floorPlans, structureGrouping);
+      return ({
       'STT': idx + 1,
       '__recordId': l.id,
       'Ngày': l.date,
+      ...(structureGrouping.enabled ? { [structureGrouping.label]: resolvedGroup.name } : {}),
       'Tầng/Khu Vực': l.floorName || 'Công trình',
       'Quân Số (Người)': l.workerCount || ((l.workersInside || 0) + (l.workersOutside || 0)) || 0,
       'Ca Sáng (Người)': getCrewShiftCounts(l).morning,
@@ -797,7 +819,8 @@ export function exportTeamStatisticsToExcel(params: {
       'Ca Tối (Người)': getCrewShiftCounts(l).evening,
       'Nhiệm Vụ / Công Việc': l.taskDescription,
       'Ghi Chú': l.notes || ''
-    }));
+      });
+    });
     if (logRows.length === 0) {
       logRows.push({
         'STT': 1, '__recordId': '', 'Ngày': '-', 'Tầng/Khu Vực': '-', 'Quân Số (Người)': 0, 'Nhiệm Vụ / Công Việc': 'Chưa có nhật ký', 'Ghi Chú': ''
@@ -827,6 +850,7 @@ export function exportTeamStatisticsToExcel(params: {
       'Số Điện Thoại': team.phone || '',
       'Số Phòng Phụ Trách': stat?.totalAssignedRoomsCount || 0,
       'Số Phòng Hoàn Thành': stat?.completedRoomsCount || 0,
+      ...(structureGrouping.enabled ? { [`Số ${structureGrouping.label} Phụ Trách`]: Object.keys(stat?.structureGroupMap || {}).length } : {}),
       'Tổng Công Tích Lũy (Công)': stat?.totalMandays || 0,
       'Số Ngày Làm Việc': stat?.daysWorked || 0,
       'Quân Số Trung Bình (Người/Ngày)': stat?.avgWorkers || 0,
