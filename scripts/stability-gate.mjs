@@ -319,17 +319,25 @@ requireAll(workVolumeTab, [
 pass('Excel action bars are visually consistent across ADMIN, ENGINEER and VIEWER without weakening RBAC');
 
 const multiProjectAccess = read('src/components/MultiProjectAccessPanel.tsx');
+const securityModal = read('src/components/SecurityModal.tsx');
 const multiProjectOverview = read('src/components/MultiProjectOverview.tsx');
 const homeDashboard = read('src/components/HomeDashboard.tsx');
 const crewReportShare = read('src/components/CrewReportShareModal.tsx');
 const crewReportUtils = read('src/utils/crewReportUtils.ts');
 requireAll(multiProjectAccess, [
-  'Quản lý quyền nhiều dự án',
+  'Nhiều dự án',
   'fetchProjectEmailAccessFromCloud',
   'applyProjectMemberAccessChangesAtomically',
   "liveActorRole.role !== 'ADMIN'",
   'Không hạ/thu hồi chính tài khoản đang thao tác',
 ], 'central multi-project access manager');
+requireAll(securityModal, [
+  'Thành viên & phân quyền',
+  'Theo dự án',
+  'Nhiều dự án',
+  'value={selectedPid}',
+  'setSelectedPid',
+], 'unified project/member access tabs');
 requireAll(firebaseBase, [
   'applyProjectMemberAccessChangesAtomically',
   'writeBatch(db)',
