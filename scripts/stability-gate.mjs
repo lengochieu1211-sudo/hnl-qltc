@@ -53,6 +53,7 @@ const offlineAccess = read('src/utils/offlineAccess.ts');
 const diagnostics = read('src/lib/runtimeDiagnostics.ts');
 const authHeader = read('src/components/GoogleAuthHeader.tsx');
 const floorPlanDefect = read('src/components/FloorPlanDefectTab.tsx');
+const defectContactUtils = read('src/utils/defectContactUtils.ts');
 const crewTabBase = read('src/components/CrewTabBase.tsx');
 const chatTab = read('src/features/chat/ChatTab.tsx');
 const imageViewer = read('src/components/ImageViewerModal.tsx');
@@ -188,6 +189,12 @@ requireAll(photoSync, [
   'r2-object-missing-or-mismatched',
   'localRepairCandidate',
 ], 'same-phone/cross-account photo server refresh + upload/download confirmation + broken R2 pointer self-heal');
+requireAll(photoSync, [
+  'localPendingBinaryReplacement',
+  "String(photo.binaryUploadState || '') === 'pending'",
+  '!localPendingBinaryReplacement && Boolean(cloudData)',
+  '!localPendingBinaryReplacement && cloudData && cloudUpdatedAt >= localUpdatedAt',
+], 'edited Defect/Crew photo pending binary must beat stale Cloud revision until replacement upload completes');
 requireAll(photoPicker, [
   'getPhotoDataUrl(p.id, p.cloudUrl || p.cloudFileId, true, projectId)',
   'getPhotoDataUrl(photo.id, photo.cloudUrl || photo.cloudFileId, false, projectId)',
@@ -219,6 +226,9 @@ requireAll(photoSync, ['lastErrorPhotoId', 'photoSyncErrorCode', "area: 'photo-s
 requireAll(photoStorage, ['getProjectPhotoDiagnosticSnapshot', 'localBinaryCount', 'checksumPrefix', 'belongsToCurrentUploader'], 'photo diagnostics export contains metadata/outbox evidence without binary payload');
 requireAll(app, ['qlct-defect-navigation-request', "area: 'defect-navigation'", "code: 'REQUEST'"], 'Defect notification navigation dispatches same-tab event plus storage fallback');
 requireAll(floorPlanDefect, ['qlct-defect-navigation-request', "code: 'OPEN_TARGET'", 'requestedFloor=', 'pendingCount', "getEntityPhotos(projectId, 'defect', defect.id)", 'activeDefectRoomName', '🏠 Căn/Phòng:'], 'Defect view consumes deep-link, shows linked room and opens defect-wide photo gallery with Cloud pending state');
+if (floorPlanDefect.includes('⚡ Chọn Nhanh Bằng 1 Click:') || floorPlanDefect.includes('✅ Đội Defect đang chọn:') || floorPlanDefect.includes('🏢 Đội trên mặt bằng tầng:') || floorPlanDefect.includes('📋 Đội đã khai báo:')) fail('Defect team selector still renders duplicate quick-pick blocks below the canonical selector');
+requireAll(floorPlanDefect, ['buildDefectShareText(defect, defectRoomName)', 'buildDefectShareText(activeDefectDetail, activeDefectRoomName)'], 'Defect share resolves linked room name in list and detail flows');
+requireAll(defectContactUtils, ['buildDefectShareText(defect: DefectItem, roomName =', 'Căn/Phòng:'], 'Defect share text includes resolved Căn/Phòng name');
 requireAll(crewTabBase, ['openRoomOnFloorPlan', 'openDefectOnFloorPlan', 'qlct_diagnostic_navigation_request', 'qlct_pending_defect_navigation', 'Mở Defect trên mặt bằng', 'Căn/Phòng:'], 'Team statistics can drill down from room/defect summaries to the exact floor-plan entity');
 requireAll(crewTabBase, [
   "'__teamId': item.id",
