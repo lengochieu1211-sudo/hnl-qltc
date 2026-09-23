@@ -1262,7 +1262,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       floorPlans,
       projectName: currentProjName,
       selectedTeamName: teamName,
-      workVolumes
+      workVolumes,
+      inventory: structureScopedInventory,
+      materialNorms,
     });
   };
 
