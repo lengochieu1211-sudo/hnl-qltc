@@ -119,7 +119,11 @@ assert(warehouse.includes('role="button"'), 'Material Need heading row must be t
 assert(warehouse.includes('Gợi ý vật tư tổng hợp'), 'Material Need summary card missing');
 assert(warehouse.includes("import { SettingsFeatureSheet } from './SettingsFeatureSheet';"), 'Material Need must use the same SettingsFeatureSheet shell as Settings');
 assert(warehouse.includes('sheetKey="material-need-details"'), 'Material Need shared sheet key missing');
-assert(warehouse.includes('description="Theo tầng · Theo căn · Theo hạng mục đã khai · Theo đội"'), 'Material Need shared sheet subtitle contract missing');
+assert(
+  warehouse.includes('description={normalizedStructureConfig.enabled ?')
+  && warehouse.includes("'Theo tầng · Theo căn · Theo hạng mục đã khai · Theo đội'"),
+  'Material Need shared sheet subtitle must retain the legacy fallback and add Khu/Khối only when enabled'
+);
 assert(warehouse.includes('icon={PackageSearch}'), 'Material Need shared sheet icon contract missing');
 assert(warehouse.includes('materialNeedRoomIds') && warehouse.includes('roomIds: materialNeedRoomIds'), 'Material Need multi-room filter contract missing');
 assert(warehouse.includes('materialNeedWorkCategoryIds') && warehouse.includes('workCategoryIds: materialNeedWorkCategoryIds'), 'Material Need declared work-category filter contract missing');
