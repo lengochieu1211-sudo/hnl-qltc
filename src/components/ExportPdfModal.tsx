@@ -295,30 +295,86 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Only take declared floor names (from floorPlans list)
   const floorNames: string[] = Array.from(new Set(effectiveFloorPlans.map((fp) => String(fp.floorName || '')).filter(Boolean)));
-  const isAllSelected = selectedFloors.includes('all');
+  const groupScopedFloorPlans = normalizedStructureConfig.enabled && selectedStructureGroupId !== 'all'
+    ? effectiveFloorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === selectedStructureGroupId)
+    : effectiveFloorPlans;
+  const isAllSelected = selectedFloorIds.includes('all');
+  const scopedFloorPlans = isAllSelected
+    ? groupScopedFloorPlans
+    : groupScopedFloorPlans.filter((floor) => selectedFloorIds.includes(floor.id));
+  const scopedFloorIdSet = new Set(scopedFloorPlans.map((floor) => floor.id));
+  const scopedFloorNameSet = new Set(scopedFloorPlans.map((floor) => String(floor.floorName || '')).filter(Boolean));
 
-  const handleToggleFloor = (floorName: string) => {
-    if (floorName === 'all') {
-      if (isAllSelected) {
-        setSelectedFloors(floorNames.length > 0 ? [floorNames[0]] : []);
-      } else {
-        setSelectedFloors(['all']);
-      }
-    } else {
-      let next = selectedFloors.filter((f) => f !== 'all');
-      if (next.includes(floorName)) {
-        next = next.filter((f) => f !== floorName);
-      } else {
-        next.push(floorName);
-      }
-      if (next.length === 0 || next.length === floorNames.length) {
-        setSelectedFloors(['all']);
-      } else {
-        setSelectedFloors(next);
-      }
+  const handleToggleFloor = (floorId: string) => {
+    if (floorId === 'all') {
+      setSelectedFloorIds(['all']);
+      return;
     }
+    let next = selectedFloorIds.filter((id) => id !== 'all');
+    if (next.includes(floorId)) next = next.filter((id) => id !== floorId);
+    else next.push(floorId);
+    const availableIds = groupScopedFloorPlans.map((floor) => floor.id);
+    const normalized = next.filter((id) => availableIds.includes(id));
+    setSelectedFloorIds(normalized.length === 0 || normalized.length === availableIds.length ? ['all'] : normalized);
+  };
+
+  useEffect(() => {
+    const availableIds = new Set(groupScopedFloorPlans.map((floor) => floor.id));
+    setSelectedFloorIds((current) => {
+      if (current.includes('all')) return current;
+      const next = current.filter((id) => availableIds.has(id));
+      if (next.length === 0 || next.length === availableIds.size) return ['all'];
+      return next;
+    });
+    setSelectedRoomId('all');
+  }, [selectedStructureGroupId, effectiveFloorPlans.length]);
+
+  const floorMatchesScope = (floorId?: string, floorName?: string): boolean => {
+    if (effectiveFloorPlans.length === 0) return true;
+    const byId = floorId ? effectiveFloorPlans.find((floor) => floor.id === floorId) : undefined;
+    const byNameCandidates = floorName ? effectiveFloorPlans.filter((floor) => floor.floorName === floorName) : [];
+    const candidates = byId ? [byId] : byNameCandidates;
+    if (candidates.length === 0) return false;
+    return candidates.some((floor) => scopedFloorIdSet.has(floor.id));
+  };
+
+  const teamMatchesScope = (teamId?: string, teamName?: string): boolean => {
+    if (selectedTeamId === 'all') return true;
+    const selectedTeam = teams.find((team) => team.id === selectedTeamId);
+    if (teamId && teamId === selectedTeamId) return true;
+    if (!selectedTeam || !teamName) return false;
+    const normalizedName = teamName.trim().toLocaleLowerCase('vi-VN');
+    return normalizedName === selectedTeam.name.trim().toLocaleLowerCase('vi-VN')
+      || normalizedName === String(selectedTeam.leader || '').trim().toLocaleLowerCase('vi-VN');
+  };
+
+  const roomMatchesTeamScope = (room: RoomProgressItem): boolean => {
+    if (selectedTeamId === 'all') return true;
+    if (teamMatchesScope(room.teamId, room.assignedTeam)) return true;
+    return (room.subItems || []).some((sub) => teamMatchesScope(sub.teamId, sub.assignedTeam));
+  };
+
+  const roomScopeOptions = roomProgressList
+    .filter((room) => floorMatchesScope(room.floorId, room.floorName))
+    .filter((room) => roomMatchesTeamScope(room))
+    .slice()
+    .sort((a, b) => {
+      const floorA = effectiveFloorPlans.find((floor) => floor.id === a.floorId)?.floorName || a.floorName || '';
+      const floorB = effectiveFloorPlans.find((floor) => floor.id === b.floorId)?.floorName || b.floorName || '';
+      return floorA.localeCompare(floorB, 'vi', { numeric: true, sensitivity: 'base' })
+        || String(a.roomName || '').localeCompare(String(b.roomName || ''), 'vi', { numeric: true, sensitivity: 'base' });
+    });
+
+  const dateInRange = (value: unknown, from: string, to: string): boolean => {
+    if (!from && !to) return true;
+    const timestamp = parseLegacyTimestamp(value, 0);
+    if (!timestamp) return false;
+    const date = new Date(timestamp);
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    if (from && key < from) return false;
+    if (to && key > to) return false;
+    return true;
   };
 
   const getRoomMapCode = (index: number) => {
