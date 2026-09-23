@@ -221,6 +221,8 @@ export function exportAllToExcel(params: {
   defects: DefectItem[];
   checklist: ChecklistItem[];
   floorPlans: FloorPlan[];
+  structureConfig?: ProjectStructureConfig;
+  workVolumeTeamFilter?: { id?: string; name?: string; leader?: string };
   crewRecords?: CrewRecord[];
   canViewFinancials?: boolean;
   selectedModules?: {
@@ -292,6 +294,13 @@ export function exportAllToExcel(params: {
     const wsVolumes = XLSX.utils.json_to_sheet(volumeData);
     autoFitColumns(wsVolumes);
     XLSX.utils.book_append_sheet(wb, wsVolumes, 'Khoi Luong Thi Cong');
+    appendWorkVolumeDetailSheet(wb, {
+      workVolumes: params.workVolumes,
+      roomProgressList: params.roomProgressList,
+      floorPlans: params.floorPlans,
+      structureConfig: params.structureConfig,
+      teamFilter: params.workVolumeTeamFilter,
+    }, canFinancials);
   }
 
   // 3. Tien do can ho & defect
@@ -430,6 +439,8 @@ export function exportAllToExcelBase64(params: {
   defects: DefectItem[];
   checklist: ChecklistItem[];
   floorPlans: FloorPlan[];
+  structureConfig?: ProjectStructureConfig;
+  workVolumeTeamFilter?: { id?: string; name?: string; leader?: string };
   crewRecords?: CrewRecord[];
   canViewFinancials?: boolean;
   selectedModules?: {
@@ -496,6 +507,13 @@ export function exportAllToExcelBase64(params: {
     const wsVolumes = XLSX.utils.json_to_sheet(volumeData);
     autoFitColumns(wsVolumes);
     XLSX.utils.book_append_sheet(wb, wsVolumes, 'Khoi Luong Thi Cong');
+    appendWorkVolumeDetailSheet(wb, {
+      workVolumes: params.workVolumes,
+      roomProgressList: params.roomProgressList,
+      floorPlans: params.floorPlans,
+      structureConfig: params.structureConfig,
+      teamFilter: params.workVolumeTeamFilter,
+    }, canFinancials);
   }
 
   if (mods.floorPlan) {
