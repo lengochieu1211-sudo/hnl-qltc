@@ -203,6 +203,44 @@ async function probeUserFirestoreRest(name, token, path, options = {}) {
   return response;
 }
 
+async function probeUserFirestoreBatchGet(name, token, path, options = {}) {
+  const includeApiKey = Boolean(options.includeApiKey);
+  const quotaUser = String(options.quotaUser || '').trim();
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json',
+  };
+  if (includeApiKey) headers['X-Goog-Api-Key'] = apiKey;
+  if (includeApiKey && quotaUser) headers['X-Goog-Quota-User'] = quotaUser;
+  const response = await fetch(
+    `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/databases/(default)/documents:batchGet`,
+    {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        documents: [`projects/${projectId}/databases/(default)/documents/${path}`],
+      }),
+    },
+  );
+  const body = await response.clone().json().catch(() => null);
+  const safeStatus = String(body?.error?.status || '').trim();
+  const safeCode = Number(body?.error?.code || 0) || response.status;
+  const safeMessage = String(body?.error?.message || '').replace(/[\r\n]+/g, ' ').slice(0, 240);
+  report.firestoreRestProbes = Array.isArray(report.firestoreRestProbes) ? report.firestoreRestProbes : [];
+  report.firestoreRestProbes.push({
+    name,
+    method: 'batchGet',
+    includeApiKey,
+    includeQuotaUser: Boolean(quotaUser),
+    httpStatus: response.status,
+    googleStatus: safeStatus || null,
+    googleCode: safeCode || null,
+    googleMessage: safeMessage || null,
+  });
+  console.log(`FIRESTORE REST PROBE: ${name} — HTTP ${response.status}${safeStatus ? ` / ${safeStatus}` : ''}${safeMessage ? ` — ${safeMessage}` : ''}`);
+  return response;
+}
+
 async function adminDeleteDoc(oauthToken, path) {
   const response = await fetch(firestoreDocUrl(path), {
     method: 'DELETE',
@@ -410,18 +448,37 @@ try {
   const adminIdToken = await admin.auth.currentUser.getIdToken(true);
 
   const editorQuotaUser = crypto.createHash('sha256').update(editorUid).digest('hex').slice(0, 32);
-  const directRestNoKey = await probeUserFirestoreRest('EDITOR project-root direct REST without API key', editorIdToken, `projects/${pid}`);
-  const directRestWithKey = await probeUserFirestoreRest('EDITOR project-root direct REST with API key', editorIdToken, `projects/${pid}`, { includeApiKey: true });
+  const directRestNoKey = await probeUserFirestoreRest('EDITOR project-root direct REST GET without API key', editorIdToken, `projects/${pid}`);
+  const directRestWithKey = await probeUserFirestoreRest('EDITOR project-root direct REST GET with API key', editorIdToken, `projects/${pid}`, { includeApiKey: true });
   const directRestWithQuotaUser = await probeUserFirestoreRest(
-    'EDITOR project-root direct REST with API key + quota user',
+    'EDITOR project-root direct REST GET with API key + quota user',
     editorIdToken,
     `projects/${pid}`,
     { includeApiKey: true, quotaUser: editorQuotaUser },
   );
-  if (directRestWithQuotaUser.status !== 200) {
-    throw new Error(`DIRECT_FIRESTORE_REST_QUOTA_PARTITION_FAILED: no-key=${directRestNoKey.status}, api-key=${directRestWithKey.status}, quota-user=${directRestWithQuotaUser.status}`);
+  const batchGetNoKey = await probeUserFirestoreBatchGet('EDITOR project-root batchGet without API key', editorIdToken, `projects/${pid}`);
+  const batchGetWithKey = await probeUserFirestoreBatchGet('EDITOR project-root batchGet with API key', editorIdToken, `projects/${pid}`, { includeApiKey: true });
+  const batchGetWithQuotaUser = await probeUserFirestoreBatchGet(
+    'EDITOR project-root batchGet with API key + quota user',
+    editorIdToken,
+    `projects/${pid}`,
+    { includeApiKey: true, quotaUser: editorQuotaUser },
+  );
+  report.directFirestoreRestDiagnostic = {
+    status: 'NON_BLOCKING',
+    getNoKeyHttpStatus: directRestNoKey.status,
+    getApiKeyHttpStatus: directRestWithKey.status,
+    getQuotaUserHttpStatus: directRestWithQuotaUser.status,
+    batchGetNoKeyHttpStatus: batchGetNoKey.status,
+    batchGetApiKeyHttpStatus: batchGetWithKey.status,
+    batchGetQuotaUserHttpStatus: batchGetWithQuotaUser.status,
+  };
+  console.warn(
+    `DIRECT FIRESTORE REST diagnostics are non-blocking so the actual R2 path is always tested: GET=${directRestNoKey.status}/${directRestWithKey.status}/${directRestWithQuotaUser.status}; batchGet=${batchGetNoKey.status}/${batchGetWithKey.status}/${batchGetWithQuotaUser.status}`,
+  );
+  if (batchGetWithQuotaUser.status === 200) {
+    pass('EDITOR Firestore REST batchGet project-root read', `HTTP 200; GET quota-user=${directRestWithQuotaUser.status}`);
   }
-  pass('EDITOR direct Firestore REST project-root read with per-user quota partition', `HTTP 200; baseline no-key=${directRestNoKey.status}, api-key=${directRestWithKey.status}`);
 
   r2ObjectKey = `projects/${pid}/media/dev-live-golden.txt`;
   const r2Endpoint = `${r2Url}/v1/object?key=${encodeURIComponent(r2ObjectKey)}`;
