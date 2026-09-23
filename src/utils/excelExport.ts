@@ -454,6 +454,7 @@ export function exportAllToExcelBase64(params: {
   floorPlans: FloorPlan[];
   structureConfig?: ProjectStructureConfig;
   workVolumeTeamFilter?: { id?: string; name?: string; leader?: string };
+  includeWorkVolumeDetails?: boolean;
   crewRecords?: CrewRecord[];
   canViewFinancials?: boolean;
   selectedModules?: {
