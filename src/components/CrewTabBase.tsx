@@ -2687,7 +2687,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
               {/* KPI Summary Strip */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-3 bg-white border-b border-slate-200 text-xs">
-                <div className="bg-indigo-50/80 border border-indigo-100 p-2 rounded-xl text-center">
+                <button type="button" onClick={() => setDetailModalTab('rooms')} className="bg-indigo-50/80 border border-indigo-100 p-2 rounded-xl text-center hover:bg-indigo-100/80 transition cursor-pointer" title="Xem các Căn/Phòng đội đang làm">
                   <div className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider">Căn / Phòng & Tầng</div>
                   <div className="text-sm sm:text-base font-black text-indigo-900 mt-0.5 flex items-center justify-center gap-1">
                     <Home className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
@@ -2696,9 +2696,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   <div className="text-[10px] text-indigo-600 mt-0.5 font-medium">
                     {completedRooms.length}/{teamRooms.length} Căn / Phòng nghiệm thu
                   </div>
-                </div>
+                </button>
 
-                <div className="bg-emerald-50/80 border border-emerald-100 p-2 rounded-xl text-center">
+                <button type="button" onClick={() => setDetailModalTab('rooms')} className="bg-emerald-50/80 border border-emerald-100 p-2 rounded-xl text-center hover:bg-emerald-100/80 transition cursor-pointer" title="Xem chi tiết khối lượng theo Căn/Phòng và tầng">
                   <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Khối lượng thi công</div>
                   <div className="text-sm sm:text-base font-black text-emerald-900 mt-0.5 flex items-center justify-center gap-1 min-w-0">
                     <BarChart3 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
@@ -2713,9 +2713,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                       ? `NT: ${Object.entries(stat.completedVolumeByUnit).map(([unit, val]) => `${formatDecimal(Number(val))} ${unit}`).join(' + ')}`
                       : (inspectedVol > 0 ? `NT: ${formatDecimal(inspectedVol)} m²` : `Khung: ${formatDecimal(completedFrameVol)} m² | Tấm: ${formatDecimal(completedBoardVol)} m²`)}
                   </div>
-                </div>
+                </button>
 
-                <div className={`border p-2 rounded-xl text-center ${
+                <button type="button" onClick={() => setDetailModalTab('defects')} className={`border p-2 rounded-xl text-center cursor-pointer transition ${
                   openDefectsList.length > 0 ? 'bg-rose-50/80 border-rose-200' : 'bg-slate-50 border-slate-200'
                 }`}>
                   <div className={`text-[10px] font-bold uppercase tracking-wider ${
@@ -2734,9 +2734,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   }`}>
                     {teamDefects.length} tổng defect
                   </div>
-                </div>
+                </button>
 
-                <div className="bg-slate-100/80 border border-slate-200 p-2 rounded-xl text-center">
+                <button type="button" onClick={() => setDetailModalTab('logs')} className="bg-slate-100/80 border border-slate-200 p-2 rounded-xl text-center hover:bg-slate-200/80 transition cursor-pointer" title="Xem lịch sử nhật ký và quân số">
                   <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Tổng công đã làm</div>
                   <div className="text-sm sm:text-base font-black text-slate-800 mt-0.5 flex items-center justify-center gap-1">
                     <Users className="w-3.5 h-3.5 text-slate-600" />
@@ -2745,7 +2745,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   <div className="text-[10px] text-slate-500 mt-0.5 font-medium">
                     {teamLogs.length} lượt nhật ký
                   </div>
-                </div>
+                </button>
               </div>
 
               {/* Modal Tabs */}
