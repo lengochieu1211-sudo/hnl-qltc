@@ -229,9 +229,17 @@ export interface CrewReportMatrixTeam {
   teamName: string;
 }
 
+export interface CrewReportMatrixTeamTotal {
+  morning: number;
+  afternoon: number;
+  evening: number;
+  dailyHeadcount: number;
+}
+
 export interface CrewReportMatrixDateRow {
   date: string;
   cells: Record<string, CrewReportRow>;
+  totalDailyHeadcount: number;
 }
 
 export interface CrewReportProjectMatrix {
@@ -240,6 +248,8 @@ export interface CrewReportProjectMatrix {
   projectLocation?: string;
   teams: CrewReportMatrixTeam[];
   dates: CrewReportMatrixDateRow[];
+  teamTotals: Record<string, CrewReportMatrixTeamTotal>;
+  grandDailyHeadcount: number;
 }
 
 export function buildCrewReportMatrices(rows: CrewReportRow[]): CrewReportProjectMatrix[] {
@@ -264,17 +274,37 @@ export function buildCrewReportMatrices(rows: CrewReportRow[]): CrewReportProjec
     const teams = Array.from(teamMap.entries())
       .map(([teamKey, teamName]) => ({ teamKey, teamName }))
       .sort((a, b) => a.teamName.localeCompare(b.teamName, 'vi-VN', { numeric: true, sensitivity: 'base' }));
+    const teamTotals: Record<string, CrewReportMatrixTeamTotal> = {};
+    for (const team of teams) {
+      teamTotals[team.teamKey] = { morning: 0, afternoon: 0, evening: 0, dailyHeadcount: 0 };
+    }
+    for (const row of projectRows) {
+      if (!row.reported) continue;
+      const total = teamTotals[row.teamKey] || { morning: 0, afternoon: 0, evening: 0, dailyHeadcount: 0 };
+      total.morning += row.morning || 0;
+      total.afternoon += row.afternoon || 0;
+      total.evening += row.evening || 0;
+      total.dailyHeadcount += row.dailyHeadcount || 0;
+      teamTotals[row.teamKey] = total;
+    }
     const dates = Array.from(dateSet).sort().map((date) => {
       const cells: Record<string, CrewReportRow> = {};
       projectRows.filter((row) => row.date === date).forEach((row) => { cells[row.teamKey] = row; });
-      return { date, cells };
+      const totalDailyHeadcount = Object.values(cells).reduce(
+        (sum, row) => sum + (row.reported ? (row.dailyHeadcount || 0) : 0),
+        0,
+      );
+      return { date, cells, totalDailyHeadcount };
     });
+    const grandDailyHeadcount = dates.reduce((sum, item) => sum + item.totalDailyHeadcount, 0);
     return {
       projectId,
       projectName: first?.projectName || projectId,
       projectLocation: first?.projectLocation,
       teams,
       dates,
+      teamTotals,
+      grandDailyHeadcount,
     };
   });
 }
@@ -315,14 +345,22 @@ export function buildCrewReportText(params: {
       const dayRows = Object.values(dateRow.cells);
       const summary = summarizeCrewReportRows(dayRows)[0];
       if (summary) {
-        lines.push(`Tổng ngày: ${summary.dailyHeadcount} người | Sáng ${summary.morning} | Chiều ${summary.afternoon} | Tối ${summary.evening} | Đã báo ${summary.reportedTeams} đội${summary.missingTeams ? ` | Chưa báo ${summary.missingTeams} đội` : ''}`);
+        lines.push(`Tổng QS/ngày: ${dateRow.totalDailyHeadcount} người | Sáng ${summary.morning} | Chiều ${summary.afternoon} | Tối ${summary.evening} | Đã báo ${summary.reportedTeams} đội${summary.missingTeams ? ` | Chưa báo ${summary.missingTeams} đội` : ''}`);
       }
       lines.push('');
     }
+
+    lines.push('TỔNG');
+    for (const team of matrix.teams) {
+      const total = matrix.teamTotals[team.teamKey] || { morning: 0, afternoon: 0, evening: 0, dailyHeadcount: 0 };
+      lines.push(`  - ${team.teamName}: Sáng ${total.morning} | Chiều ${total.afternoon} | Tối ${total.evening} | Tổng QS ngày ${total.dailyHeadcount}`);
+    }
+    lines.push(`Tổng lượt người-ngày: ${matrix.grandDailyHeadcount}`, '');
+
     if (projectIndex < matrices.length - 1) lines.push('--------------------', '');
   });
 
-  lines.push('Lưu ý: Sáng/Chiều/Tối là quân số theo ca; QS ngày lấy mức cao nhất của từng đội, không cộng chồng các ca.');
+  lines.push('Lưu ý: Sáng/Chiều/Tối là quân số theo ca; QS ngày lấy mức cao nhất của từng đội. Dòng TỔNG cộng QS ngày qua nhiều ngày nên là tổng lượt người-ngày, không phải số người duy nhất.');
   return lines.join('\n').trim();
 }
 
