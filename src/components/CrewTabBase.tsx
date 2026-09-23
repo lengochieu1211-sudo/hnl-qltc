@@ -1363,6 +1363,26 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         </button>
       </div>
 
+      {normalizedStructureConfig.enabled && (
+        <div className="mb-3 flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/70 px-3 py-2">
+          <MapPin className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+          <span className="text-[10px] font-extrabold text-indigo-800 whitespace-nowrap">{normalizedStructureConfig.label}</span>
+          <select
+            value={selectedStructureGroupId}
+            onChange={(e) => setSelectedStructureGroupId(e.target.value)}
+            className="min-w-0 flex-1 rounded-lg border border-indigo-200 bg-white px-2 py-1.5 text-xs font-bold text-slate-800"
+          >
+            <option value="all">Tất cả {normalizedStructureConfig.label}</option>
+            {normalizedStructureConfig.groups.map((group) => (
+              <option key={group.id} value={group.id}>{group.name}</option>
+            ))}
+          </select>
+          <span className="hidden sm:inline text-[9.5px] text-indigo-600">
+            Áp dụng cho quân số, thống kê đội, Defect và Căn/Phòng
+          </span>
+        </div>
+      )}
+
       {activeSubTab === 'logs' ? (
         <>
           {/* Daily Date Header Controller */}
