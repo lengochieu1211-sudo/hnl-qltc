@@ -73,6 +73,8 @@ export interface WorkVolume {
 export interface FloorPlan {
   id: string;
   floorName: string;
+  /** Optional project-level Khu/Khối membership. Legacy floors omit it and resolve to the configured default group. */
+  structureGroupId?: string;
   imageUrl: string;
   uploadedAt: string;
   order?: number;
@@ -329,6 +331,8 @@ export interface CrewRecord {
   workersOutside?: number;
   floorId?: string;
   floorName?: string;
+  /** Optional explicit Khu/Khối for records without a single floor. Legacy records derive it from floorId/floorWorks. */
+  structureGroupId?: string;
   floorWorks?: CrewFloorWork[];
   taskDescription: string;
   shift?: string;
