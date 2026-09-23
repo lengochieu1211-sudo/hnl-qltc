@@ -48,6 +48,12 @@ import { getCrewShiftCounts } from '../utils/crewUtils';
 import { ContactMenu } from './ContactMenu';
 import { ShareEntityMenu } from './ShareEntityMenu';
 import { CrewReportShareModal } from './CrewReportShareModal';
+import {
+  getStructureGroupName,
+  normalizeStructureGroupConfig,
+  resolveFloorStructureGroupId,
+  type ProjectStructureConfig,
+} from '../utils/structureGroupUtils';
 
 const CrewPhotoCount: React.FC<{ projectId?: string; recordId: string }> = ({ projectId, recordId }) => {
   const [count, setCount] = useState(0);
@@ -136,6 +142,7 @@ interface CrewTabProps {
   projectLocation?: string;
   crewRecords: CrewRecord[];
   floorPlans: FloorPlan[];
+  structureConfig: ProjectStructureConfig;
   roomProgressList?: RoomProgressItem[];
   defects?: DefectItem[];
   workVolumes?: WorkVolume[];
@@ -265,6 +272,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   projectLocation,
   crewRecords,
   floorPlans,
+  structureConfig,
   roomProgressList = [],
   defects = [],
   workVolumes = [],
@@ -291,6 +299,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [activeSubTab, setActiveSubTab] = useState<'logs' | 'teams'>('logs');
   useFormatSettings();
   const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
+  const normalizedStructureConfig = useMemo(() => normalizeStructureGroupConfig(structureConfig), [structureConfig]);
+  const [selectedStructureGroupId, setSelectedStructureGroupId] = useState<string>('all');
+  const [logStructureGroupId, setLogStructureGroupId] = useState<string>(
+    () => normalizeStructureGroupConfig(structureConfig).defaultGroupId,
+  );
 
   // Load custom teams list from props
   const [teams, setTeams] = useState<TeamInfo[]>(() => propTeams || []);
