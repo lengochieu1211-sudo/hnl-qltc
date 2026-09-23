@@ -246,7 +246,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     });
   }, [detailBreakdown, detailStructureGroupIds, detailFloorIds, floorPlans, normalizedStructureConfig]);
 
-  const detailVisibleTeamOptions = useMemo(() => Array.from(new Set(detailVisibleRoomOptions.flatMap((row) => row.teamNames))).sort((a, b) => a.localeCompare(b, 'vi-VN', { numeric: true, sensitivity: 'base' })), [detailVisibleRoomOptions]);
+  const detailVisibleTeamOptions = useMemo<string[]>(() => Array.from(new Set<string>(detailVisibleRoomOptions.flatMap((row) => row.teamNames.map((name) => String(name))))).sort((a, b) => a.localeCompare(b, 'vi-VN', { numeric: true, sensitivity: 'base' })), [detailVisibleRoomOptions]);
 
   const detailRows = useMemo(() => {
     if (!detailBreakdown) return [];
