@@ -48,17 +48,16 @@ async function renderCrewReportImages(params: {
   if (typeof document === 'undefined') return [];
   const matrices = buildCrewReportMatrices(params.rows);
   const TEAM_CHUNK = 4;
-  const DATE_CHUNK = 22;
   const pageSpecs: Array<{ matrix: ReturnType<typeof buildCrewReportMatrices>[number]; teams: ReturnType<typeof buildCrewReportMatrices>[number]['teams']; dates: ReturnType<typeof buildCrewReportMatrices>[number]['dates'] }> = [];
 
   matrices.forEach((matrix) => {
     const teamChunks = matrix.teams.length > 0
       ? Array.from({ length: Math.ceil(matrix.teams.length / TEAM_CHUNK) }, (_, i) => matrix.teams.slice(i * TEAM_CHUNK, (i + 1) * TEAM_CHUNK))
       : [[]];
-    const dateChunks = matrix.dates.length > 0
-      ? Array.from({ length: Math.ceil(matrix.dates.length / DATE_CHUNK) }, (_, i) => matrix.dates.slice(i * DATE_CHUNK, (i + 1) * DATE_CHUNK))
-      : [[]];
-    dateChunks.forEach((dates) => teamChunks.forEach((teams) => pageSpecs.push({ matrix, teams, dates })));
+    // Keep the full selected date range on each image page so the final TỔNG row
+    // always represents the whole report range. Only split horizontally by team.
+    const dates = matrix.dates.length > 0 ? matrix.dates : [];
+    teamChunks.forEach((teams) => pageSpecs.push({ matrix, teams, dates }));
   });
 
   const attachments: ShareAttachmentPayload[] = [];
