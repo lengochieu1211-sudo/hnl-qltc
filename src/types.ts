@@ -1,4 +1,5 @@
 export type TransactionType = 'in' | 'out';
+export type InventoryIssuePurpose = 'project-work' | 'external-project' | 'other';
 
 /** Canonical Firestore lifecycle fields for Firebase-only records.
  * Legacy rows may omit them; migration/normalization must treat missing deletedAt as active. */
@@ -26,6 +27,10 @@ export interface InventoryItem {
   updatedAt?: number;
   /** Optional provenance for automatically generated warehouse transactions. */
   sourceType?: 'room-auto' | 'manual' | string;
+  /** OUT purpose. Legacy rows may omit it; scoped legacy OUT is treated as project work. */
+  issuePurpose?: InventoryIssuePurpose;
+  /** Optional project hierarchy scope. All fields are independently optional. */
+  sourceStructureGroupId?: string;
   sourceRoomId?: string;
   sourceFloorId?: string;
   /** Durable team provenance for new warehouse issues. Legacy rows may omit it. */
