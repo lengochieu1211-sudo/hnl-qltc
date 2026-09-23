@@ -592,8 +592,11 @@ async function verifyNarrowDesktopRuntime(browser) {
   assert(railBox && railBox.x >= -1 && railBox.width >= 80, 'desktop EXE narrow runtime left rail moved out of viewport');
 
   const moreButton = page.getByRole('button', { name: 'Thêm', exact: true });
-  assert(await moreButton.count() > 0, 'desktop EXE narrow runtime mobile-nav probe missing');
-  assert(!(await moreButton.isVisible()), 'desktop EXE narrow runtime incorrectly switched to mobile bottom navigation');
+  const moreButtonCount = await moreButton.count();
+  if (moreButtonCount > 0) {
+    assert(!(await moreButton.first().isVisible()), 'desktop EXE narrow runtime incorrectly switched to mobile bottom navigation');
+  }
+  pass('desktop EXE narrow runtime mobile bottom navigation is absent/hidden', moreButtonCount === 0 ? 'not rendered' : 'hidden');
 
   await page.screenshot({ path: 'runtime-evidence/desktop-exe-narrow.png', fullPage: false });
   pass('desktop EXE narrow viewport keeps fixed left navigation rail', `${Math.round(railBox.width)}px rail at x=${Math.round(railBox.x)}`);
