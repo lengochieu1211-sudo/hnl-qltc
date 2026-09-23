@@ -398,11 +398,14 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
 
   const filteredDefects = defects.filter((d) => {
     if (d.archivedAt) return false;
-    if (floorNames.length > 0 && !floorNames.includes(d.floorName)) return false;
-    if (!isAllSelected && !selectedFloors.includes(d.floorName)) return false;
+    if (!floorMatchesScope(d.floorId, d.floorName)) return false;
+    if (selectedRoomId !== 'all' && d.roomId !== selectedRoomId) return false;
+    if (!teamMatchesScope(d.teamId, d.assignedTo)) return false;
     if (defectStatusFilter !== 'all' && d.status !== defectStatusFilter) return false;
     if (defectCategoryFilter !== 'all' && d.category !== defectCategoryFilter) return false;
     if (defectCreatorFilter !== 'all' && String(d.createdBy || '').trim() !== defectCreatorFilter) return false;
+    if (!dateInRange(d.createdAt, defectCreatedFrom, defectCreatedTo)) return false;
+    if ((defectCompletedFrom || defectCompletedTo) && !dateInRange(d.completedAt, defectCompletedFrom, defectCompletedTo)) return false;
     return true;
   });
 
@@ -473,18 +476,19 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     return `${formatFloorName(defect.floorName)} · ${getDefectRoomName(defect)}`;
   };
 
-  const filteredChecklist = checklist.filter((c) => {
-    if (c.archivedAt) return false;
-    if (floorNames.length > 0 && !floorNames.includes(c.floorName)) return false;
-    if (isAllSelected) return true;
-    return selectedFloors.includes(c.floorName);
+  const filteredChecklist = checklist.filter((item) => {
+    if (item.archivedAt) return false;
+    if (!floorMatchesScope(item.floorId, item.floorName)) return false;
+    if (selectedRoomId !== 'all' && item.roomId !== selectedRoomId) return false;
+    if (!teamMatchesScope(item.teamId, item.assignedTo)) return false;
+    return true;
   });
 
-  const filteredRooms = roomProgressList.filter((r) => {
-    const fp = effectiveFloorPlans.find(f => f.id === r.floorId);
-    if (!fp) return false;
-    if (isAllSelected) return true;
-    return selectedFloors.includes(fp.floorName);
+  const filteredRooms = roomProgressList.filter((room) => {
+    if (!floorMatchesScope(room.floorId, room.floorName)) return false;
+    if (selectedRoomId !== 'all' && room.id !== selectedRoomId) return false;
+    if (!roomMatchesTeamScope(room)) return false;
+    return true;
   });
 
   const getRoomSortCategory = (room: RoomProgressItem): string => String(
