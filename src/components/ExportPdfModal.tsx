@@ -341,23 +341,51 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     ));
   };
   const roomMatchesTeamScope = (room: RoomProgressItem): boolean => allTeamsSelected || teamMatchesScope(room.teamId, room.assignedTeam) || (room.subItems || []).some((sub) => teamMatchesScope(sub.teamId, sub.assignedTeam));
-  const roomScopeOptions = baseRoomScopeOptions.filter(roomMatchesTeamScope).slice().sort((a, b) => {
+
+  // Cascading options are strictly upstream -> downstream:
+  // Khu/Khối -> Tầng -> Căn/Phòng -> Đội. A selected team may filter report rows,
+  // but it must never remove room options and create a cyclic/stale selection graph.
+  const roomScopeOptions = baseRoomScopeOptions.slice().sort((a, b) => {
     const floorA = effectiveFloorPlans.find((floor) => floor.id === a.floorId)?.floorName || a.floorName || '';
     const floorB = effectiveFloorPlans.find((floor) => floor.id === b.floorId)?.floorName || b.floorName || '';
     return floorA.localeCompare(floorB, 'vi', { numeric: true, sensitivity: 'base' }) || String(a.roomName || '').localeCompare(String(b.roomName || ''), 'vi', { numeric: true, sensitivity: 'base' });
   });
   const allRoomsSelected = selectedRoomIds.includes('all');
 
+  const availableStructureGroupIdsKey = normalizedStructureConfig.enabled
+    ? normalizedStructureConfig.groups.map((group) => group.id).sort().join('|')
+    : '';
+  const groupScopedFloorIdsKey = groupScopedFloorPlans.map((floor) => floor.id).sort().join('|');
+  const roomScopeOptionIdsKey = roomScopeOptions.map((room) => room.id).sort().join('|');
+  const availableTeamOptionIdsKey = availableTeamOptions.map((team) => team.id).sort().join('|');
+
+  useEffect(() => {
+    if (!normalizedStructureConfig.enabled) {
+      setSelectedStructureGroupIds(['all']);
+      return;
+    }
+    const availableGroups = new Set(normalizedStructureConfig.groups.map((group) => group.id));
+    setSelectedStructureGroupIds((current) => {
+      if (current.includes('all')) return current;
+      const valid = current.filter((id) => availableGroups.has(id));
+      return valid.length > 0 ? valid : ['all'];
+    });
+  }, [normalizedStructureConfig.enabled, availableStructureGroupIdsKey]);
+
   useEffect(() => {
     const availableFloors = new Set(groupScopedFloorPlans.map((floor) => floor.id));
     setSelectedFloorIds((current) => current.includes('all') ? current : (current.filter((id) => availableFloors.has(id)).length ? current.filter((id) => availableFloors.has(id)) : ['all']));
-  }, [selectedStructureGroupIds.join('|'), effectiveFloorPlans.length]);
+  }, [groupScopedFloorIdsKey]);
+
   useEffect(() => {
     const availableRooms = new Set(roomScopeOptions.map((room) => room.id));
     setSelectedRoomIds((current) => current.includes('all') ? current : (current.filter((id) => availableRooms.has(id)).length ? current.filter((id) => availableRooms.has(id)) : ['all']));
+  }, [roomScopeOptionIdsKey]);
+
+  useEffect(() => {
     const availableTeams = new Set(availableTeamOptions.map((team) => team.id));
     setSelectedTeamIds((current) => current.includes('all') ? current : (current.filter((id) => availableTeams.has(id)).length ? current.filter((id) => availableTeams.has(id)) : ['all']));
-  }, [selectedFloorIds.join('|'), selectedStructureGroupIds.join('|'), roomProgressList.length, teams.length]);
+  }, [availableTeamOptionIdsKey]);
 
   if (!isOpen) return null;
 

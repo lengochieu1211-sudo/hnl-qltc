@@ -218,14 +218,36 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     return Array.from(map.values()).sort((a, b) => naturalCompare(a.name, b.name) || naturalCompare(a.id, b.id));
   }, [workVolumes]);
 
+  const materialNeedStructureGroupIdsKey = materialNeedStructureGroups.map((group) => group.id).sort().join('|');
+  const materialNeedVisibleFloorIdsKey = materialNeedVisibleFloors.map((floor) => floor.id).sort().join('|');
+  const materialNeedRoomIdsKey = materialNeedRooms.map((room) => room.id).sort().join('|');
+  const materialNeedTeamIdsKey = materialNeedTeams.map((team) => team.id).sort().join('|');
+  const materialNeedWorkCategoryIdsKey = materialNeedWorkCategories.map((item) => item.id).sort().join('|');
+
   useEffect(() => {
-    if (!materialNeedGroupFloorIdSet) return;
-    setMaterialNeedFloorIds((current) => current.filter((id) => materialNeedGroupFloorIdSet.has(id)));
-    setMaterialNeedRoomIds((current) => current.filter((id) => {
-      const room = roomProgressList.find((item) => item.id === id);
-      return Boolean(room?.floorId && materialNeedGroupFloorIdSet.has(room.floorId));
-    }));
-  }, [materialNeedGroupFloorIdSet, roomProgressList]);
+    const available = new Set(materialNeedStructureGroups.map((group) => group.id));
+    setMaterialNeedStructureGroupIds((current) => current.filter((id) => available.has(id)));
+  }, [materialNeedStructureGroupIdsKey]);
+
+  useEffect(() => {
+    const available = new Set(materialNeedVisibleFloors.map((floor) => floor.id));
+    setMaterialNeedFloorIds((current) => current.filter((id) => available.has(id)));
+  }, [materialNeedVisibleFloorIdsKey]);
+
+  useEffect(() => {
+    const available = new Set(materialNeedRooms.map((room) => room.id));
+    setMaterialNeedRoomIds((current) => current.filter((id) => available.has(id)));
+  }, [materialNeedRoomIdsKey]);
+
+  useEffect(() => {
+    const available = new Set(materialNeedTeams.map((team) => team.id));
+    setMaterialNeedTeamIds((current) => current.filter((id) => available.has(id)));
+  }, [materialNeedTeamIdsKey]);
+
+  useEffect(() => {
+    const available = new Set(materialNeedWorkCategories.map((item) => item.id));
+    setMaterialNeedWorkCategoryIds((current) => current.filter((id) => available.has(id)));
+  }, [materialNeedWorkCategoryIdsKey]);
 
   const effectiveMaterialNeedFloorIds = useMemo(() => {
     if (materialNeedFloorIds.length > 0) return materialNeedFloorIds;
@@ -233,19 +255,26 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     return [];
   }, [materialNeedFloorIds, materialNeedGroupFloorIdSet]);
 
-    const materialNeedResult = useMemo(() => computeMaterialNeeds({
-    rooms: roomProgressList,
-    materialNorms,
-    inventory,
-    workVolumes: workVolumes || [],
-    teams,
-    scope: {
-      floorIds: effectiveMaterialNeedFloorIds.length > 0 ? effectiveMaterialNeedFloorIds : undefined,
-      roomIds: materialNeedRoomIds.length > 0 ? materialNeedRoomIds : undefined,
-      teamIds: materialNeedTeamIds.length > 0 ? materialNeedTeamIds : undefined,
-      workCategoryIds: materialNeedWorkCategoryIds.length > 0 ? materialNeedWorkCategoryIds : undefined,
-    },
-  }), [roomProgressList, materialNorms, inventory, workVolumes, teams, effectiveMaterialNeedFloorIds, materialNeedRoomIds, materialNeedTeamIds, materialNeedWorkCategoryIds]);
+  const materialNeedResult = useMemo(() => {
+    // An explicitly selected Khu/Khối with zero linked floors is an empty scope,
+    // never "all floors". This prevents a stale/deleted group from failing open.
+    if (materialNeedGroupFloorIdSet && materialNeedGroupFloorIdSet.size === 0) {
+      return { lines: [], warnings: [], failClosed: false };
+    }
+    return computeMaterialNeeds({
+      rooms: roomProgressList,
+      materialNorms,
+      inventory,
+      workVolumes: workVolumes || [],
+      teams,
+      scope: {
+        floorIds: effectiveMaterialNeedFloorIds.length > 0 ? effectiveMaterialNeedFloorIds : undefined,
+        roomIds: materialNeedRoomIds.length > 0 ? materialNeedRoomIds : undefined,
+        teamIds: materialNeedTeamIds.length > 0 ? materialNeedTeamIds : undefined,
+        workCategoryIds: materialNeedWorkCategoryIds.length > 0 ? materialNeedWorkCategoryIds : undefined,
+      },
+    });
+  }, [roomProgressList, materialNorms, inventory, workVolumes, teams, materialNeedGroupFloorIdSet, effectiveMaterialNeedFloorIds, materialNeedRoomIds, materialNeedTeamIds, materialNeedWorkCategoryIds]);
 
   const materialNeedLines = useMemo(() => {
     const query = materialNeedSearchTerm.trim().toLocaleLowerCase('vi-VN');
@@ -808,6 +837,57 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     }).sort((a, b) => naturalCompare(a.title, b.title));
   }, [workVolumes, issueFloorId]);
 
+  const activeIssueGroupIdsKey = normalizedStructureConfig.groups.map((group) => group.id).sort().join('|');
+  const activeIssueTeamIdsKey = teams.filter((team) => team.deletedAt === undefined || team.deletedAt === null).map((team) => team.id).sort().join('|');
+  const activeIssueWorkCategoryIdsKey = issueWorkCategoryOptions.map((item) => item.workCategoryId || item.id).sort().join('|');
+
+  useEffect(() => {
+    if (!showAddForm || issuePurpose !== 'project-work') return;
+    const linkedRoom = issueRoomId ? roomProgressList.find((room) => room.id === issueRoomId && (room.deletedAt === undefined || room.deletedAt === null)) : undefined;
+    if (issueRoomId && !linkedRoom) {
+      setIssueRoomId('');
+    }
+    const authoritativeFloorId = linkedRoom?.floorId || issueFloorId;
+    if (linkedRoom?.floorId && linkedRoom.floorId !== issueFloorId) {
+      setIssueFloorId(linkedRoom.floorId);
+      setIssueWorkCategoryId('');
+    }
+    if (!authoritativeFloorId) return;
+    const floor = floorPlans.find((item) => item.id === authoritativeFloorId);
+    if (!floor) {
+      setIssueFloorId('');
+      setIssueRoomId('');
+      setIssueWorkCategoryId('');
+      return;
+    }
+    if (normalizedStructureConfig.enabled) {
+      const groupId = resolveFloorStructureGroupId(floor, normalizedStructureConfig);
+      if (issueStructureGroupId !== groupId) setIssueStructureGroupId(groupId);
+    }
+  }, [showAddForm, issuePurpose, issueRoomId, issueFloorId, roomProgressList, floorPlans, normalizedStructureConfig, activeIssueGroupIdsKey]);
+
+  useEffect(() => {
+    if (!showAddForm || issuePurpose !== 'project-work' || !issueStructureGroupId) return;
+    if (!normalizedStructureConfig.groups.some((group) => group.id === issueStructureGroupId)) {
+      setIssueStructureGroupId('');
+      setIssueFloorId('');
+      setIssueRoomId('');
+      setIssueWorkCategoryId('');
+    }
+  }, [showAddForm, issuePurpose, issueStructureGroupId, activeIssueGroupIdsKey]);
+
+  useEffect(() => {
+    if (!issueTeamId) return;
+    const activeTeams = new Set(teams.filter((team) => team.deletedAt === undefined || team.deletedAt === null).map((team) => team.id));
+    if (!activeTeams.has(issueTeamId)) setIssueTeamId('');
+  }, [issueTeamId, activeIssueTeamIdsKey]);
+
+  useEffect(() => {
+    if (!issueWorkCategoryId) return;
+    const available = new Set(issueWorkCategoryOptions.map((item) => item.workCategoryId || item.id));
+    if (!available.has(issueWorkCategoryId)) setIssueWorkCategoryId('');
+  }, [issueWorkCategoryId, activeIssueWorkCategoryIdsKey]);
+
 
   // Delete confirmation state
   const [deletingInventoryTarget, setDeletingInventoryTarget] = useState<InventoryItem | null>(null);
@@ -1072,13 +1152,18 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     setDate(item.date || new Date().toISOString().split('T')[0]);
     setNotes(item.notes || '');
     setIssuePurpose(item.issuePurpose || (item.sourceRoomId || item.sourceFloorId || item.sourceTeamId || item.sourceWorkCategoryId || item.sourceStructureGroupId ? 'project-work' : 'other'));
-    setIssueStructureGroupId(item.sourceStructureGroupId || (() => {
-      const floor = item.sourceFloorId ? floorPlans.find((fp) => fp.id === item.sourceFloorId) : undefined;
-      return floor ? resolveFloorStructureGroupId(floor, normalizedStructureConfig) : '';
-    })());
-    setIssueFloorId(item.sourceFloorId || '');
-    setIssueRoomId(item.sourceRoomId || '');
-    setIssueTeamId(item.sourceTeamId || '');
+    const linkedRoom = item.sourceRoomId
+      ? roomProgressList.find((room) => room.id === item.sourceRoomId && (room.deletedAt === undefined || room.deletedAt === null))
+      : undefined;
+    const resolvedIssueFloorId = linkedRoom?.floorId || item.sourceFloorId || '';
+    const resolvedIssueFloor = resolvedIssueFloorId ? floorPlans.find((fp) => fp.id === resolvedIssueFloorId) : undefined;
+    const resolvedIssueStructureGroupId = resolvedIssueFloor && normalizedStructureConfig.enabled
+      ? resolveFloorStructureGroupId(resolvedIssueFloor, normalizedStructureConfig)
+      : (normalizedStructureConfig.groups.some((group) => group.id === item.sourceStructureGroupId) ? String(item.sourceStructureGroupId || '') : '');
+    setIssueStructureGroupId(resolvedIssueStructureGroupId);
+    setIssueFloorId(resolvedIssueFloor ? resolvedIssueFloorId : '');
+    setIssueRoomId(linkedRoom ? linkedRoom.id : '');
+    setIssueTeamId(teams.some((team) => team.id === item.sourceTeamId && (team.deletedAt === undefined || team.deletedAt === null)) ? String(item.sourceTeamId) : '');
     setIssueWorkCategoryId(item.sourceWorkCategoryId || '');
     setShowAddForm(true);
   };
@@ -1146,6 +1231,21 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       && editingInventory.materialName.trim().toLocaleLowerCase('vi-VN') === finalMaterialName.trim().toLocaleLowerCase('vi-VN')
       && (normalizeUnit(editingInventory.unit) || editingInventory.unit) === normalizedFinalUnit);
 
+    const linkedIssueRoom = issueRoomId
+      ? roomProgressList.find((room) => room.id === issueRoomId && (room.deletedAt === undefined || room.deletedAt === null))
+      : undefined;
+    const finalIssueFloorId = linkedIssueRoom?.floorId || issueFloorId;
+    const finalIssueFloor = finalIssueFloorId ? floorPlans.find((floor) => floor.id === finalIssueFloorId) : undefined;
+    const finalIssueStructureGroupId = finalIssueFloor && normalizedStructureConfig.enabled
+      ? resolveFloorStructureGroupId(finalIssueFloor, normalizedStructureConfig)
+      : (normalizedStructureConfig.groups.some((group) => group.id === issueStructureGroupId) ? issueStructureGroupId : '');
+    const finalIssueTeamId = teams.some((team) => team.id === issueTeamId && (team.deletedAt === undefined || team.deletedAt === null))
+      ? issueTeamId
+      : '';
+    const finalIssueWorkCategoryId = issueWorkCategoryOptions.some((item) => (item.workCategoryId || item.id) === issueWorkCategoryId)
+      ? issueWorkCategoryId
+      : '';
+
     const payload = {
       type,
       materialId: exactNormMaterialIds.length === 1
@@ -1161,11 +1261,11 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       ...(type === 'out' ? {
         issuePurpose,
         sourceType: 'manual',
-        ...(issuePurpose === 'project-work' && issueStructureGroupId ? { sourceStructureGroupId: issueStructureGroupId } : {}),
-        ...(issuePurpose === 'project-work' && issueFloorId ? { sourceFloorId: issueFloorId } : {}),
-        ...(issuePurpose === 'project-work' && issueRoomId ? { sourceRoomId: issueRoomId } : {}),
-        ...(issuePurpose === 'project-work' && issueTeamId ? { sourceTeamId: issueTeamId } : {}),
-        ...(issuePurpose === 'project-work' && issueWorkCategoryId ? { sourceWorkCategoryId: issueWorkCategoryId } : {}),
+        ...(issuePurpose === 'project-work' && finalIssueStructureGroupId ? { sourceStructureGroupId: finalIssueStructureGroupId } : {}),
+        ...(issuePurpose === 'project-work' && finalIssueFloor ? { sourceFloorId: finalIssueFloor.id } : {}),
+        ...(issuePurpose === 'project-work' && linkedIssueRoom ? { sourceRoomId: linkedIssueRoom.id } : {}),
+        ...(issuePurpose === 'project-work' && finalIssueTeamId ? { sourceTeamId: finalIssueTeamId } : {}),
+        ...(issuePurpose === 'project-work' && finalIssueWorkCategoryId ? { sourceWorkCategoryId: finalIssueWorkCategoryId } : {}),
       } : {}),
     };
 
@@ -2040,6 +2140,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                                 setIssueStructureGroupId(e.target.value);
                                 setIssueFloorId('');
                                 setIssueRoomId('');
+                                setIssueWorkCategoryId('');
                               }}
                               className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-semibold"
                             >
@@ -2057,6 +2158,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                               const floorId = e.target.value;
                               setIssueFloorId(floorId);
                               setIssueRoomId('');
+                              setIssueWorkCategoryId('');
                               const floor = floorPlans.find((item) => item.id === floorId);
                               if (floor && normalizedStructureConfig.enabled) setIssueStructureGroupId(resolveFloorStructureGroupId(floor, normalizedStructureConfig));
                             }}
@@ -2074,6 +2176,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                             onChange={(e) => {
                               const roomId = e.target.value;
                               setIssueRoomId(roomId);
+                              setIssueWorkCategoryId('');
                               const room = roomProgressList.find((item) => item.id === roomId);
                               if (room?.floorId) {
                                 setIssueFloorId(room.floorId);
