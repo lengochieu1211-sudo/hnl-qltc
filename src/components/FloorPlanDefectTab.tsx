@@ -4648,51 +4648,59 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   return (
     <div className="p-4 space-y-4 pb-24 w-full max-w-6xl mx-auto">
       {/* Title Header */}
-      <div className="space-y-2 sm:space-y-0 sm:flex sm:items-start sm:justify-between sm:gap-3">
-        <div className="min-w-0">
-          <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2 whitespace-nowrap">
-            <Building2 className="w-5 h-5 shrink-0 text-indigo-600" />
-            {t('floorplan_title')}
-          </h2>
-          <div className="mt-1 text-xs text-slate-500 font-medium">
-            <span>Đang xem: <span className="font-extrabold text-indigo-600">{activeFloor?.floorName}</span></span>
-          </div>
-          {normalizedStructureConfig.enabled && activeFloor && (
-            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px]">
-              <span className="rounded-md bg-indigo-50 px-1.5 py-0.5 font-bold text-indigo-700">
-                {normalizedStructureConfig.label}: {getFloorStructureGroupName(activeFloor, normalizedStructureConfig)}
-              </span>
-              <span className="font-semibold text-slate-500">({visibleFloorPlans.length}/{floorPlans.length} tầng)</span>
-            </div>
-          )}
-          {!normalizedStructureConfig.enabled && (
-            <div className="mt-1 text-[10px] font-semibold text-slate-500">({visibleFloorPlans.length}/{floorPlans.length} tầng)</div>
-          )}
-        </div>
+      <div className="space-y-2">
+        <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2 whitespace-nowrap">
+          <Building2 className="w-5 h-5 shrink-0 text-indigo-600" />
+          {t('floorplan_title')}
+        </h2>
 
-        <div className="grid grid-cols-1 gap-2 sm:flex sm:items-center sm:justify-end sm:gap-1.5 sm:shrink-0">
-          {normalizedStructureConfig.enabled && (
-            <select
-              value={selectedStructureGroupId}
-              onChange={(event) => setSelectedStructureGroupId(event.target.value)}
-              className="w-full sm:w-auto sm:max-w-[180px] rounded-xl border border-slate-200 bg-white px-3 py-2.5 sm:px-2 sm:py-2 text-xs sm:text-[11px] font-bold text-slate-700"
-              title={`Lọc tầng theo ${normalizedStructureConfig.label}`}
+        <div className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-3 sm:gap-y-1">
+            <div className="text-xs font-medium text-slate-500 whitespace-nowrap">
+              Đang xem: <span className="font-extrabold text-indigo-600">{activeFloor?.floorName}</span>
+            </div>
+
+            {normalizedStructureConfig.enabled && (
+              <div className="flex min-w-0 items-center gap-1.5 text-xs text-slate-600">
+                <span className="font-bold whitespace-nowrap">{normalizedStructureConfig.label}:</span>
+                {normalizedStructureConfig.groups.length > 1 ? (
+                  <select
+                    value={selectedStructureGroupId}
+                    onChange={(event) => setSelectedStructureGroupId(event.target.value)}
+                    className="min-w-0 max-w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-700 sm:w-auto sm:max-w-[220px]"
+                    title={`Lọc tầng theo ${normalizedStructureConfig.label}`}
+                    aria-label={`Lọc tầng theo ${normalizedStructureConfig.label}`}
+                  >
+                    <option value="all">Tất cả {normalizedStructureConfig.label}</option>
+                    {normalizedStructureConfig.groups.map((group) => (
+                      <option key={group.id} value={group.id}>{group.name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="min-w-0 truncate font-extrabold text-slate-800">
+                    {normalizedStructureConfig.groups[0]?.name || getFloorStructureGroupName(activeFloor, normalizedStructureConfig)}
+                  </span>
+                )}
+              </div>
+            )}
+
+            <div className="text-[11px] font-semibold text-slate-500 whitespace-nowrap">
+              {visibleFloorPlans.length}/{floorPlans.length} tầng
+            </div>
+          </div>
+
+          {canManageStructure && (
+            <button
+              type="button"
+              onClick={() => setShowManageFloorsModal(true)}
+              className="w-full shrink-0 flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-3 py-2 rounded-xl text-xs font-bold active:scale-[0.99] transition-all shadow-xs whitespace-nowrap sm:w-auto"
+              title="Quản lý Khu/Khối, đổi tên, sắp xếp và quản lý tầng"
             >
-              <option value="all">Tất cả {normalizedStructureConfig.label}</option>
-              {normalizedStructureConfig.groups.map((group) => (
-                <option key={group.id} value={group.id}>{group.name}</option>
-              ))}
-            </select>
+              <Settings className="w-3.5 h-3.5 shrink-0" />
+              Quản lý Khu/Khối & Tầng
+            </button>
           )}
-          {canManageStructure && <button
-            type="button"
-            onClick={() => setShowManageFloorsModal(true)}
-            className="w-full sm:w-auto flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-3 py-2.5 sm:px-2.5 sm:py-2 rounded-xl text-xs font-bold active:scale-[0.99] transition-all shadow-xs whitespace-nowrap"
-            title="Quản lý Khu/Khối, đổi tên, sắp xếp và quản lý tầng"
-          >
-            <Settings className="w-3.5 h-3.5 shrink-0" />
-            Quản lý Khu/Khối & Tầng
-          </button>}
+
           <input
             type="file"
             ref={updatePlanInputRef}
