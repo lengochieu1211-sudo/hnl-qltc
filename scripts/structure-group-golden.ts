@@ -51,4 +51,16 @@ assert.ok(floorPlanSource.includes("visibleFloorPlans.map((floor) =>"), 'floor p
 assert.ok(floorPlanSource.includes("changeFloorStructureGroupStable"), 'moving a floor to another Khu/Khối must preserve a stable persisted order');
 assert.ok(floorPlanSource.includes("changeFloorStructureGroupStable(fp.id, event.target.value)"), 'management Khu/Khối reassignment must use stable move helper');
 
+assert.ok(floorPlanSource.includes("const [editingStructureLabel"), 'structure level label must use explicit edit state');
+assert.ok(floorPlanSource.includes('title="Lưu tên cấp Khu/Khối"'), 'structure level label must require explicit save');
+assert.equal(floorPlanSource.includes('value={normalizedStructureConfig.label}\n                    onChange={(e) => onStructureConfigChange'), false, 'structure level label must not save on every keystroke');
+assert.ok(floorPlanSource.includes('normalizedStructureConfig.groups.length >= 6'), 'Khu/Khối quick sort must follow the 6-item rule');
+assert.equal(floorPlanSource.includes('minItems={0}'), false, 'Khu/Khối/Tầng quick sort must not bypass the global 6-item threshold');
+
+assert.ok(exportSource.includes("if (current.includes('all')) return [value];"), 'report multi-select must allow switching from Tất cả to one item');
+assert.equal(exportSource.includes('disabled={allStructureGroupsSelected}'), false, 'report Khu/Khối options must stay selectable while Tất cả is active');
+assert.equal(exportSource.includes('disabled={isAllSelected}'), false, 'report floor options must stay selectable while Tất cả is active');
+assert.equal(exportSource.includes('disabled={allRoomsSelected}'), false, 'report room options must stay selectable while Tất cả is active');
+assert.equal(exportSource.includes('disabled={allTeamsSelected}'), false, 'report team options must stay selectable while Tất cả is active');
+
 console.log('structure-group-golden: PASS');

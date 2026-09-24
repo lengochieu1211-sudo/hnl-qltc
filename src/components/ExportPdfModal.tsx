@@ -308,10 +308,13 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
 
   const toggleMulti = (current: string[], value: string, available: string[]): string[] => {
     if (value === 'all') return ['all'];
-    const base = current.filter((id) => id !== 'all');
+    if (!available.includes(value)) return current;
+    // "Tất cả" is a sentinel, not a lock. Tapping one item while all is active
+    // switches immediately to that single item; more items can then be added.
+    if (current.includes('all')) return [value];
+    const base = current.filter((id) => id !== 'all' && available.includes(id));
     const next = base.includes(value) ? base.filter((id) => id !== value) : [...base, value];
-    const valid = next.filter((id) => available.includes(id));
-    return valid.length === 0 || valid.length === available.length ? ['all'] : valid;
+    return next.length === 0 || next.length === available.length ? ['all'] : next;
   };
   const handleToggleStructureGroup = (id: string) => {
     const available = normalizedStructureConfig.groups.map((group) => group.id);
@@ -1859,7 +1862,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                         </label>
                         {normalizedStructureConfig.groups.map((group) => (
                           <label key={group.id} className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs hover:bg-slate-50">
-                            <input type="checkbox" checked={allStructureGroupsSelected || selectedStructureGroupIds.includes(group.id)} disabled={allStructureGroupsSelected} onChange={() => handleToggleStructureGroup(group.id)} /> {group.name}
+                            <input type="checkbox" checked={allStructureGroupsSelected || selectedStructureGroupIds.includes(group.id)} onChange={() => handleToggleStructureGroup(group.id)} /> {group.name}
                           </label>
                         ))}
                       </div>
@@ -1888,7 +1891,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                       </label>
                       {groupScopedFloorPlans.map((floor) => (
                         <label key={floor.id} className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs hover:bg-slate-50">
-                          <input type="checkbox" checked={isAllSelected || selectedFloorIds.includes(floor.id)} disabled={isAllSelected} onChange={() => handleToggleFloor(floor.id)} /> {floor.floorName}
+                          <input type="checkbox" checked={isAllSelected || selectedFloorIds.includes(floor.id)} onChange={() => handleToggleFloor(floor.id)} /> {floor.floorName}
                         </label>
                       ))}
                     </div>
@@ -1918,7 +1921,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                         const floorName = effectiveFloorPlans.find((floor) => floor.id === room.floorId)?.floorName || room.floorName || '';
                         return (
                           <label key={room.id} className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs hover:bg-slate-50">
-                            <input type="checkbox" checked={allRoomsSelected || selectedRoomIds.includes(room.id)} disabled={allRoomsSelected} onChange={() => setSelectedRoomIds((current) => toggleMulti(current, room.id, roomScopeOptions.map((item) => item.id)))} />
+                            <input type="checkbox" checked={allRoomsSelected || selectedRoomIds.includes(room.id)} onChange={() => setSelectedRoomIds((current) => toggleMulti(current, room.id, roomScopeOptions.map((item) => item.id)))} />
                             <span className="min-w-0 truncate">{floorName ? `${floorName} · ` : ''}{room.roomName}</span>
                           </label>
                         );
@@ -1948,7 +1951,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                       </label>
                       {availableTeamOptions.map((team) => (
                         <label key={team.id} className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs hover:bg-slate-50">
-                          <input type="checkbox" checked={allTeamsSelected || selectedTeamIds.includes(team.id)} disabled={allTeamsSelected} onChange={() => setSelectedTeamIds((current) => toggleMulti(current, team.id, availableTeamOptions.map((item) => item.id)))} /> {team.name}
+                          <input type="checkbox" checked={allTeamsSelected || selectedTeamIds.includes(team.id)} onChange={() => setSelectedTeamIds((current) => toggleMulti(current, team.id, availableTeamOptions.map((item) => item.id)))} /> {team.name}
                         </label>
                       ))}
                     </div>

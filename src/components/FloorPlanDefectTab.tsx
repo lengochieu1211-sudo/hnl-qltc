@@ -830,6 +830,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const [groupSortOrder, setGroupSortOrder] = useState<'asc' | 'desc'>('asc');
   const [floorSortBy, setFloorSortBy] = useState<'none' | 'name' | 'rooms' | 'defects'>('none');
   const [floorSortOrder, setFloorSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [editingStructureLabel, setEditingStructureLabel] = useState(false);
+  const [editingStructureLabelValue, setEditingStructureLabelValue] = useState('');
   const [editingStructureGroupId, setEditingStructureGroupId] = useState<string | null>(null);
   const [editingStructureGroupName, setEditingStructureGroupName] = useState('');
   const [editingFloorId, setEditingFloorId] = useState<string | null>(null);
@@ -9205,7 +9207,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 </h3>
                 <p className="text-xs text-slate-500 font-medium">Quản lý cấu trúc Khu/Khối → Tầng và các mặt bằng liên quan</p>
               </div>
-              <button onClick={() => { setEditingStructureGroupId(null); setEditingStructureGroupName(''); setEditingFloorId(null); setShowManageFloorsModal(false); }} className="font-bold text-slate-400 hover:text-slate-600 text-lg">✕</button>
+              <button onClick={() => { setEditingStructureLabel(false); setEditingStructureLabelValue(''); setEditingStructureGroupId(null); setEditingStructureGroupName(''); setEditingFloorId(null); setShowManageFloorsModal(false); }} className="font-bold text-slate-400 hover:text-slate-600 text-lg">✕</button>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-[minmax(260px,0.34fr)_minmax(0,0.66fr)] gap-4 items-start">
@@ -9228,33 +9230,91 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 </div>
 
                 {normalizedStructureConfig.enabled && <>
-                  <input
-                    value={normalizedStructureConfig.label}
-                    onChange={(e) => onStructureConfigChange(normalizeStructureGroupConfig({ ...normalizedStructureConfig, label: e.target.value }))}
-                    className="w-full rounded-xl border border-indigo-200 bg-white px-2.5 py-2 text-xs font-bold"
-                    placeholder="Tên cấp: Tháp, Khối, Xưởng..."
-                  />
-
-                  <div className="space-y-1">
-                    <div className="text-[10px] font-extrabold uppercase tracking-wide text-indigo-800">Sắp xếp Khu/Khối</div>
-                    <QuickSortBar
-                      itemCount={normalizedStructureConfig.groups.length}
-                      minItems={0}
-                      options={[
-                        { key: 'name', label: 'Tên Khu/Khối', kind: 'alpha' },
-                        { key: 'floors', label: 'Số tầng', kind: 'number' },
-                      ]}
-                      activeKey={groupSortBy === 'none' ? null : groupSortBy}
-                      order={groupSortOrder}
-                      onChange={(key, order) => applyGroupQuickSort(key, order)}
-                      onToggleOrder={() => {
-                        if (groupSortBy === 'none') return;
-                        applyGroupQuickSort(groupSortBy, groupSortOrder === 'asc' ? 'desc' : 'asc');
-                      }}
-                      onReset={() => { setGroupSortBy('none'); setGroupSortOrder('asc'); }}
-                      resetLabel="Thứ tự đã lưu"
-                    />
+                  <div className="rounded-xl border border-indigo-200 bg-white p-2">
+                    {editingStructureLabel ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          value={editingStructureLabelValue}
+                          onChange={(event) => setEditingStructureLabelValue(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Escape') {
+                              setEditingStructureLabel(false);
+                              setEditingStructureLabelValue('');
+                            }
+                          }}
+                          className="min-w-0 flex-1 rounded-lg border border-indigo-300 px-2 py-1.5 text-xs font-bold"
+                          placeholder="Tên cấp: Tháp, Khối, Xưởng..."
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextLabel = editingStructureLabelValue.trim();
+                            if (nextLabel && nextLabel !== normalizedStructureConfig.label) {
+                              onStructureConfigChange(normalizeStructureGroupConfig({
+                                ...normalizedStructureConfig,
+                                label: nextLabel,
+                              }));
+                            }
+                            setEditingStructureLabel(false);
+                            setEditingStructureLabelValue('');
+                          }}
+                          className="bg-emerald-600 text-white p-1.5 rounded-lg hover:bg-emerald-700"
+                          title="Lưu tên cấp Khu/Khối"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setEditingStructureLabel(false); setEditingStructureLabelValue(''); }}
+                          className="bg-slate-200 text-slate-700 p-1.5 rounded-lg hover:bg-slate-300"
+                          title="Hủy"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[9px] font-bold text-slate-500">Tên cấp Khu/Khối</div>
+                          <div className="truncate text-xs font-extrabold text-slate-900">{normalizedStructureConfig.label}</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingStructureLabel(true);
+                            setEditingStructureLabelValue(normalizedStructureConfig.label);
+                          }}
+                          className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1.5 rounded-lg text-[10px] font-bold flex items-center gap-1"
+                          title="Sửa tên cấp Khu/Khối"
+                        >
+                          <Edit3 className="w-3.5 h-3.5 text-indigo-600" /> Sửa
+                        </button>
+                      </div>
+                    )}
                   </div>
+
+                  {normalizedStructureConfig.groups.length >= 6 && (
+                    <div className="space-y-1">
+                      <div className="text-[10px] font-extrabold uppercase tracking-wide text-indigo-800">Sắp xếp Khu/Khối</div>
+                      <QuickSortBar
+                        itemCount={normalizedStructureConfig.groups.length}
+                        options={[
+                          { key: 'name', label: 'Tên Khu/Khối', kind: 'alpha' },
+                          { key: 'floors', label: 'Số tầng', kind: 'number' },
+                        ]}
+                        activeKey={groupSortBy === 'none' ? null : groupSortBy}
+                        order={groupSortOrder}
+                        onChange={(key, order) => applyGroupQuickSort(key, order)}
+                        onToggleOrder={() => {
+                          if (groupSortBy === 'none') return;
+                          applyGroupQuickSort(groupSortBy, groupSortOrder === 'asc' ? 'desc' : 'asc');
+                        }}
+                        onReset={() => { setGroupSortBy('none'); setGroupSortOrder('asc'); }}
+                        resetLabel="Thứ tự đã lưu"
+                      />
+                    </div>
+                  )}
 
                   <div className="space-y-2">
                     {normalizedStructureConfig.groups.map((group, groupIndex) => {
@@ -9383,29 +9443,38 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             </div>
             <div className="min-w-0 space-y-4">
             {/* Quick Sort Floors Controls */}
-            <div className="space-y-1">
-              <div className="text-[10px] font-extrabold uppercase tracking-wide text-indigo-800">
-                Sắp xếp Tầng trong từng Khu/Khối
+            {(normalizedStructureConfig.enabled
+              ? Math.max(0, ...normalizedStructureConfig.groups.map((group) =>
+                  floorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === group.id).length
+                ))
+              : floorPlans.length) >= 6 && (
+              <div className="space-y-1">
+                <div className="text-[10px] font-extrabold uppercase tracking-wide text-indigo-800">
+                  Sắp xếp Tầng trong từng Khu/Khối
+                </div>
+                <QuickSortBar
+                  itemCount={normalizedStructureConfig.enabled
+                    ? Math.max(0, ...normalizedStructureConfig.groups.map((group) =>
+                        floorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === group.id).length
+                      ))
+                    : floorPlans.length}
+                  options={[
+                    { key: 'name', label: 'Tên tầng', kind: 'floor' },
+                    { key: 'rooms', label: 'Số Căn / Phòng', kind: 'number' },
+                    { key: 'defects', label: 'Số Defect', kind: 'number' },
+                  ]}
+                  activeKey={floorSortBy === 'none' ? null : floorSortBy}
+                  order={floorSortOrder}
+                  onChange={(key, order) => applyFloorQuickSortWithinGroups(key, order)}
+                  onToggleOrder={() => {
+                    if (floorSortBy === 'none') return;
+                    applyFloorQuickSortWithinGroups(floorSortBy, floorSortOrder === 'asc' ? 'desc' : 'asc');
+                  }}
+                  onReset={() => { setFloorSortBy('none'); setFloorSortOrder('asc'); }}
+                  resetLabel="Thứ tự đã lưu"
+                />
               </div>
-              <QuickSortBar
-                itemCount={floorPlans.length}
-                minItems={0}
-                options={[
-                  { key: 'name', label: 'Tên tầng', kind: 'floor' },
-                  { key: 'rooms', label: 'Số Căn / Phòng', kind: 'number' },
-                  { key: 'defects', label: 'Số Defect', kind: 'number' },
-                ]}
-                activeKey={floorSortBy === 'none' ? null : floorSortBy}
-                order={floorSortOrder}
-                onChange={(key, order) => applyFloorQuickSortWithinGroups(key, order)}
-                onToggleOrder={() => {
-                  if (floorSortBy === 'none') return;
-                  applyFloorQuickSortWithinGroups(floorSortBy, floorSortOrder === 'asc' ? 'desc' : 'asc');
-                }}
-                onReset={() => { setFloorSortBy('none'); setFloorSortOrder('asc'); }}
-                resetLabel="Thứ tự đã lưu"
-              />
-            </div>
+            )}
 
             {/* List of Floor Plans */}
             <div className="space-y-2.5">
@@ -9603,6 +9672,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <button
                 type="button"
                 onClick={async () => {
+                  setEditingStructureLabel(false);
+                  setEditingStructureLabelValue('');
                   setEditingStructureGroupId(null);
                   setEditingStructureGroupName('');
                   setShowManageFloorsModal(false);
@@ -9617,6 +9688,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <button
                 type="button"
                 onClick={async () => {
+                  setEditingStructureLabel(false);
+                  setEditingStructureLabelValue('');
                   setEditingStructureGroupId(null);
                   setEditingStructureGroupName('');
                   setShowManageFloorsModal(false);
