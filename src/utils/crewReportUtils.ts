@@ -561,6 +561,6 @@ export function buildCrewReportText(params: {
     if (projectIndex < matrices.length - 1) lines.push('--------------------', '');
   });
 
-  lines.push('Lưu ý: QS ngày của mỗi đội = ca đông nhất. Tổng ngày = cộng QS các đội. Hàng TỔNG = cộng từng cột; ô cuối = tổng lượt người-ngày.');
+  lines.push('Lưu ý: QS ngày mỗi đội = ca đông nhất. Tổng ngày = cộng QS các đội. TỔNG = cộng từng cột; ô cuối = tổng lượt người-ngày.');
   return lines.join('\n').trim();
 }
