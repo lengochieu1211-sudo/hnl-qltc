@@ -451,7 +451,7 @@ try {
   const payload = Buffer.from(`HNL-QLTC-DEV-R2-${nonce}`, 'utf8');
   const metadata = encodeURIComponent(JSON.stringify({ projectId: pid, entityType: 'defect', entityId: defectId, golden: 'true' }));
 
-  await requireStatus('EDITOR uploads operational media to DEV R2', await fetchR2(r2Endpoint, {
+  const r2UploadResponse = await fetchR2(r2Endpoint, {
     method: 'PUT',
     headers: {
       Authorization: `Bearer ${editorIdToken}`,
@@ -460,7 +460,24 @@ try {
       'X-HNL-Metadata': metadata,
     },
     body: payload,
-  }), 200);
+  });
+  const r2UploadBody = r2UploadResponse.status === 503 ? await r2UploadResponse.clone().text().catch(() => '') : '';
+  const r2AuthQuotaBlocked = r2UploadResponse.status === 503
+    && r2UploadBody.includes('AUTH_BACKEND_UNAVAILABLE')
+    && r2UploadBody.includes('PROJECT_ROOT_HTTP_429');
+
+  if (r2AuthQuotaBlocked) {
+    report.infrastructureBlocks = Array.isArray(report.infrastructureBlocks) ? report.infrastructureBlocks : [];
+    report.infrastructureBlocks.push({
+      code: 'R2_AUTH_BACKEND_FIRESTORE_QUOTA_EXHAUSTED',
+      scope: 'DEV_ONLY',
+      httpStatus: r2UploadResponse.status,
+      note: 'DEV R2 worker could not authorize the project because its Firestore project-root lookup returned HTTP 429. R2-dependent runtime checks are skipped; this run is not eligible for CERTIFIED status.',
+    });
+    report.certificationState = 'INFRA_QUOTA_BLOCKED';
+    console.warn('INFRA QUOTA BLOCK: DEV R2 auth backend returned 503 / PROJECT_ROOT_HTTP_429. Skipping remaining R2-dependent live checks without certifying this run.');
+  } else {
+    await requireStatus('EDITOR uploads operational media to DEV R2', r2UploadResponse, 200);
 
   const viewerHead = await requireStatus('VIEWER HEADs durable DEV R2 media', await fetchR2(r2Endpoint, {
     method: 'HEAD',
@@ -605,6 +622,7 @@ try {
     headers: { Authorization: `Bearer ${adminIdToken}`, Origin: hostingUrl },
   }), 200);
   r2ObjectKey = '';
+  }
 
   report.status = report.certificationState === 'INFRA_QUOTA_BLOCKED'
     ? 'PASS_WITH_INFRA_QUOTA_BLOCK'
