@@ -9055,7 +9055,33 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   <div className="space-y-2">{normalizedStructureConfig.groups.map((group) => {
                     const count = floorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === group.id).length;
                     return <div key={group.id} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white p-2">
-                      <input className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-bold" value={group.name} onChange={(e) => onStructureConfigChange(normalizeStructureGroupConfig({ ...normalizedStructureConfig, groups: normalizedStructureConfig.groups.map((item) => item.id === group.id ? { ...item, name: e.target.value } : item) }))} />
+                      <input
+                        className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-bold"
+                        defaultValue={group.name}
+                        key={`${group.id}:${group.name}`}
+                        onCompositionStart={(event) => { event.currentTarget.dataset.composing = 'true'; }}
+                        onCompositionEnd={(event) => { event.currentTarget.dataset.composing = 'false'; }}
+                        onBlur={(event) => {
+                          const nextName = event.currentTarget.value.trim();
+                          if (!nextName || nextName === group.name) {
+                            event.currentTarget.value = group.name;
+                            return;
+                          }
+                          onStructureConfigChange(normalizeStructureGroupConfig({
+                            ...normalizedStructureConfig,
+                            groups: normalizedStructureConfig.groups.map((item) => item.id === group.id ? { ...item, name: nextName } : item),
+                          }));
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' && event.currentTarget.dataset.composing !== 'true' && !(event.nativeEvent as KeyboardEvent).isComposing) {
+                            event.preventDefault();
+                            event.currentTarget.blur();
+                          }
+                        }}
+                        placeholder="Ví dụ: Tháp 1, Khối A"
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
                       <span className="text-[9px] text-slate-500 whitespace-nowrap">{count} tầng</span>
                       <button type="button" disabled={count > 0 || normalizedStructureConfig.groups.length <= 1} onClick={() => {
                         if (!window.confirm(`Xóa "${group.name}"? Thao tác này chỉ thực hiện khi Khu/Khối không còn tầng.`)) return;
