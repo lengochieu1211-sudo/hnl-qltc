@@ -1619,8 +1619,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                     {itemsInCat.map((item) => {
                       const originalIndex = subItems.findIndex(s => s.id === item.id);
                       return (
-                        <div key={`${item.id}-${originalIndex}`} className="bg-white p-2.5 sm:p-3 rounded-xl border border-slate-200 shadow-2xs space-y-2.5 overflow-x-hidden">
-                          <div className="flex items-center justify-between gap-1.5 min-w-0">
+                        <div key={`${item.id}-${originalIndex}`} className="bg-white p-2.5 sm:p-3 rounded-xl border border-slate-200 shadow-2xs space-y-2.5 lg:space-y-0 lg:grid lg:grid-cols-12 lg:gap-2.5 lg:items-start overflow-x-hidden">
+                          <div className="flex items-center justify-between gap-1.5 min-w-0 lg:col-span-3">
                             <div className="flex items-center gap-2 shrink-0">
                               <input
                                 type="checkbox"
@@ -1688,7 +1688,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                           </div>
 
                           {/* Team & Volume per Sub-Item */}
-                          <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 text-[10.5px]">
+                          <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 text-[10.5px] lg:col-span-3">
                             <div className="flex items-center gap-1.5 min-w-0">
                               <User className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
                               <span className="font-bold text-slate-600 shrink-0">Đội thi công:</span>
@@ -1724,7 +1724,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                           </div>
 
                           {/* Status buttons: Thi công */}
-                          <div>
+                          <div className="lg:col-span-2">
                             <span className="text-[10.5px] font-bold text-slate-500 block mb-1">▶ Tiến độ thi công:</span>
                             <div className="grid grid-cols-3 gap-1.5 mb-1.5">
                               {(['Chưa làm', 'Đang làm', 'Đã hoàn thành'] as AcceptanceStatus[]).map((st) => (
@@ -1749,7 +1749,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                           </div>
 
                           {/* Status buttons: Nghiệm thu */}
-                          <div className="pt-1.5 border-t border-slate-100">
+                          <div className="pt-1.5 border-t border-slate-100 lg:col-span-4 lg:border-t-0 lg:pt-0">
                             <span className="text-[10.5px] font-bold text-indigo-700 block mb-1">▶ Nghiệm thu hạng mục này:</span>
                             <div className="grid grid-cols-3 gap-1.5 mb-1.5">
                               {(['Chưa nghiệm thu', 'Đạt nghiệm thu', 'Chưa đạt (Cần sửa)'] as RoomInspectionResult[]).map((st) => (
@@ -1906,8 +1906,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
           </div>
 
           {/* Inspector & Notes */}
-          <div className="space-y-2">
-            <div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
+            <div className="lg:col-span-1">
               <label className="block font-bold text-slate-700 mb-1">Kỹ sư phụ trách nghiệm thu</label>
               <input
                 type="text"
@@ -1917,7 +1917,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                 className="w-full border border-slate-200 rounded-xl p-2.5 font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500"
               />
             </div>
-            <div>
+            <div className="lg:col-span-2">
               <label className="block font-bold text-slate-700 mb-1">Ghi chú nghiệm thu Căn / Phòng</label>
               <textarea
                 value={notes}
@@ -2073,7 +2073,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                 </div>
 
                 {/* Geometry Sliders */}
-                <div className="grid grid-cols-2 gap-3 text-[11px]">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-[11px]">
                   <div>
                     <label className="text-slate-600 font-semibold block mb-0.5">Vị trí X: {Number(x.toFixed(1))}%</label>
                     <input

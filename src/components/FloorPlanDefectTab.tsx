@@ -8577,7 +8577,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       {/* New Defect Form Modal */}
       {canEditDefects && showDefectModal && pinPos && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white w-full sm:max-w-2xl lg:max-w-3xl rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
               <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5 text-rose-600" />
@@ -8586,8 +8586,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <button onClick={handleCancelDefectModal} className="font-bold text-slate-500 hover:text-slate-700">✕</button>
             </div>
 
-            <form onSubmit={handleCreateDefect} className="space-y-3.5 text-xs">
-              <div>
+            <form onSubmit={handleCreateDefect} className="grid grid-cols-1 lg:grid-cols-6 gap-3.5 text-xs">
+              <div className="lg:col-span-2">
                 <label className="block text-slate-700 font-bold mb-1">Nhóm lỗi / hạng mục lỗi</label>
                 <select
                   value={category}
@@ -8600,7 +8600,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 </select>
               </div>
 
-              <div>
+              <div className="lg:col-span-4">
                 <label className="block text-slate-700 font-bold mb-1">Mô tả lỗi chi tiết</label>
                 <textarea
                   placeholder="Ví dụ: Bắn thiếu vít khoảng cách >30cm, khung trần bị võng 10mm..."
@@ -8623,7 +8623,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               </div>
 
               {/* 5 Key Control Fields */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-slate-50 p-3 rounded-2xl border border-slate-200/80">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 bg-slate-50 p-3 rounded-2xl border border-slate-200/80 lg:col-span-6">
                 <div>
                   <label className="block text-slate-700 font-bold mb-1">👤 Người Tạo</label>
                   <input
@@ -8674,7 +8674,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               </div>
 
               {/* PhotoAttachmentPicker for multiple photo management during creation */}
-              <div className="space-y-3 pt-1">
+              <div className="space-y-3 lg:space-y-0 pt-1 lg:col-span-6 lg:grid lg:grid-cols-2 lg:gap-3">
                 <PhotoAttachmentPicker
                   projectId={currentProjectId}
                   entityType="defect"
@@ -8691,7 +8691,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 />
               </div>
 
-              <div className="flex gap-2 pt-2 border-t border-slate-100">
+              <div className="flex gap-2 pt-2 border-t border-slate-100 lg:col-span-6">
                 <button
                   type="button"
                   onClick={handleCancelDefectModal}

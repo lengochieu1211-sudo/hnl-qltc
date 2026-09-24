@@ -807,7 +807,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
       {/* Add Checklist Modal */}
       {canManageStructure && showAddForm && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-white w-full sm:max-w-2xl lg:max-w-3xl rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-1.5">
                 <Plus className="w-4 h-4 text-emerald-600" />
@@ -816,7 +816,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
               <button onClick={() => setShowAddForm(false)} className="font-bold text-slate-500 cursor-pointer">✕</button>
             </div>
 
-            <form onSubmit={handleAddSubmit} className="space-y-3 text-xs">
+            <form onSubmit={handleAddSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
               <div>
                 <label className="block text-slate-700 font-bold mb-1">Loại hạng mục</label>
                 <select
@@ -832,7 +832,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
                 </select>
               </div>
 
-              <div>
+              <div className="md:col-span-1 lg:col-span-2">
                 <label className="block text-slate-700 font-bold mb-1">Nội Dung Tiêu Chuẩn Kiểm Tra</label>
                 <input
                   type="text"
@@ -855,7 +855,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
                 />
               </div>
 
-              <div>
+              <div className="md:col-span-1 lg:col-span-2">
                 <label className="block text-slate-700 font-bold mb-1">Ghi chú ban đầu</label>
                 <textarea
                   placeholder="Ghi chú cụ thể..."
@@ -867,7 +867,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
               </div>
 
               {/* Ngày Hạn Định (DueDate) */}
-              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/80 space-y-1.5">
+              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/80 space-y-1.5 md:col-span-2 lg:col-span-3">
                 <div className="flex items-center justify-between">
                   <label className="text-slate-800 font-extrabold text-xs flex items-center gap-1.5">
                     <Calendar className="w-4 h-4 text-indigo-600" />
@@ -922,7 +922,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
                 </div>
               </div>
 
-              <div className="flex gap-2 pt-2">
+              <div className="flex gap-2 pt-2 md:col-span-2 lg:col-span-3">
                 <button
                   type="button"
                   onClick={() => setShowAddForm(false)}
@@ -945,7 +945,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
       {/* Edit Checklist Modal (Cho phép chỉnh sửa checklist đã tạo) */}
       {canManageStructure && editingChecklistItem && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-white w-full sm:max-w-2xl lg:max-w-3xl rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-1.5">
                 <Edit className="w-4 h-4 text-indigo-600" />
@@ -954,7 +954,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
               <button onClick={() => setEditingChecklistItem(null)} className="font-bold text-slate-500 cursor-pointer">✕</button>
             </div>
 
-            <form onSubmit={handleEditSubmit} className="space-y-3 text-xs">
+            <form onSubmit={handleEditSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
               <div>
                 <label className="block text-slate-700 font-bold mb-1">Vị Trí (Tầng)</label>
                 <select
@@ -983,7 +983,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
                 </select>
               </div>
 
-              <div>
+              <div className="md:col-span-1 lg:col-span-2">
                 <label className="block text-slate-700 font-bold mb-1">Nội Dung Tiêu Chuẩn Kiểm Tra</label>
                 <input
                   type="text"
@@ -1017,7 +1017,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
                 />
               </div>
 
-              <div>
+              <div className="md:col-span-1 lg:col-span-2">
                 <label className="block text-slate-700 font-bold mb-1">Ghi chú</label>
                 <textarea
                   value={editingChecklistItem.notes || ''}
@@ -1028,7 +1028,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
               </div>
 
               {/* Ngày Hạn Định (DueDate) */}
-              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/80 space-y-1.5">
+              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/80 space-y-1.5 md:col-span-2 lg:col-span-3">
                 <div className="flex items-center justify-between">
                   <label className="text-slate-800 font-extrabold text-xs flex items-center gap-1.5">
                     <Calendar className="w-4 h-4 text-indigo-600" />
@@ -1083,7 +1083,7 @@ export const ChecklistTab: React.FC<ChecklistTabProps> = ({
                 </div>
               </div>
 
-              <div className="flex gap-2 pt-2">
+              <div className="flex gap-2 pt-2 md:col-span-2 lg:col-span-3">
                 <button
                   type="button"
                   onClick={() => setEditingChecklistItem(null)}

@@ -2176,7 +2176,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       {canOperate && showAddLogModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
           <div 
-            className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200"
+            className="bg-white rounded-xl shadow-xl w-full max-w-sm sm:max-w-2xl lg:max-w-4xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
@@ -2202,7 +2202,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             </div>
 
             {/* Modal Form */}
-            <form onSubmit={handleLogSubmit} className="p-4 space-y-3.5 overflow-y-auto max-h-[80vh]">
+            <form onSubmit={handleLogSubmit} className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 overflow-y-auto max-h-[80vh]">
               {/* Date (Informative) */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Ngày Ghi Nhận</label>
@@ -2277,7 +2277,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
 
               {/* Per-shift Worker Count */}
-              <div>
+              <div className="md:col-span-2 lg:col-span-3">
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Quân số theo ca</label>
                 <div className="grid grid-cols-3 gap-2">
                   {([
@@ -2321,7 +2321,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               )}
 
               {/* Multi-floor & Multi-category Work Configuration */}
-              <div className="space-y-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+              <div className="space-y-3 bg-slate-50 p-3 rounded-xl border border-slate-200 md:col-span-2 lg:col-span-3">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
                     <MapPin className="w-3.5 h-3.5 text-indigo-600" />
@@ -2460,7 +2460,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
 
               {/* Ghi chú */}
-              <div>
+              <div className="md:col-span-2 lg:col-span-2">
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Ghi chú thêm (tùy chọn)</label>
                 <textarea 
                   placeholder="Ví dụ: Đã nhận đủ vật tư, tăng ca hoàn thành trần phòng A102..."
@@ -2471,7 +2471,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
 
               {/* Hình ảnh đính kèm */}
-              <div className="pt-1">
+              <div className="pt-1 md:col-span-2 lg:col-span-3">
                 <PhotoAttachmentPicker
                   projectId={projectId}
                   entityType="crewRecord"
@@ -2482,7 +2482,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
 
               {/* Buttons */}
-              <div className="flex gap-2.5 pt-2">
+              <div className="flex gap-2.5 pt-2 md:col-span-2 lg:col-span-3">
                 <button
                   type="button"
                   onClick={async () => {
@@ -2515,7 +2515,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       {canManageTeamDirectory && showTeamModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
           <div 
-            className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200"
+            className="bg-white rounded-xl shadow-xl w-full max-w-sm sm:max-w-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
@@ -2535,7 +2535,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             </div>
 
             {/* Modal Form */}
-            <form onSubmit={handleTeamSubmit} className="p-4 space-y-3.5">
+            <form onSubmit={handleTeamSubmit} className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3.5">
               {/* Team Name */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Tên Đội Thi Công</label>
@@ -2621,7 +2621,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
 
               {/* Notes */}
-              <div>
+              <div className="sm:col-span-2">
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Mô tả / Ghi chú</label>
                 <textarea 
                   placeholder="Ví dụ: Đội chuyên thạch cao trần giật cấp, khoán khối lượng..."
@@ -2632,7 +2632,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
 
               {/* Buttons */}
-              <div className="flex gap-2.5 pt-2">
+              <div className="flex gap-2.5 pt-2 sm:col-span-2">
                 <button
                   type="button"
                   onClick={async () => {

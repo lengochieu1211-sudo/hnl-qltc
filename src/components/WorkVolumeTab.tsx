@@ -880,7 +880,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                           </span>
                         )}
                         {hasFinancialAccess && (
-                          <div>
+                          <div className="lg:col-span-3">
                             <span className="text-slate-500 text-[11px]">Đơn giá: </span>
                             <span className="font-semibold text-slate-700">{formatVND(item.unitPrice)}</span>
                           </div>
@@ -972,7 +972,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       {/* Add / Edit Work Volume Modal */}
       {hasStructureManageAccess && (showAddForm || editingVolume !== null) && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="bg-white w-full sm:max-w-xl md:max-w-2xl rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white w-full sm:max-w-xl md:max-w-2xl lg:max-w-3xl rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
               <h3 className="text-base font-bold text-slate-900">
                 {editingVolume ? 'Sửa hạng mục khối lượng' : 'Thêm hạng mục khối lượng'}
@@ -985,8 +985,8 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleAddSubmit} className="space-y-3 text-xs">
-              <div>
+            <form onSubmit={handleAddSubmit} className="grid grid-cols-1 lg:grid-cols-6 gap-3 text-xs">
+              <div className="lg:col-span-6">
                 <label className="block text-slate-700 font-bold mb-1">Tên hạng mục Công Việc *</label>
                 <input
                   type="text"
@@ -998,7 +998,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 lg:col-span-6">
                 <div>
                   <label className="block text-slate-700 font-bold mb-1 flex items-center justify-between">
                     <span>Vị trí tầng</span>
@@ -1069,7 +1069,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end lg:col-span-6">
                 <div>
                   <div className="h-6 flex items-center justify-between text-slate-700 font-bold text-[11px] sm:text-xs truncate mb-1">
                     <span>Khối lượng định mức *</span>
@@ -1158,7 +1158,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               )}
 
               {/* Ngày Hạn Định (DueDate) */}
-              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/80 space-y-1.5">
+              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/80 space-y-1.5 lg:col-span-3">
                 <div className="flex items-center justify-between">
                   <label className="text-slate-800 font-extrabold text-xs flex items-center gap-1.5">
                     <Calendar className="w-4 h-4 text-indigo-600" />
@@ -1213,7 +1213,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                 </div>
               </div>
 
-              <div className="flex gap-2 pt-2">
+              <div className="flex gap-2 pt-2 lg:col-span-6">
                 <button
                   type="button"
                   onClick={handleCloseModal}

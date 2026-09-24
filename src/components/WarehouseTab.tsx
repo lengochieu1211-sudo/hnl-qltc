@@ -2070,9 +2070,9 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-3 text-xs">
+            <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-6 gap-3 text-xs">
               {/* Type Toggle */}
-              <div>
+              <div className="lg:col-span-2">
                 <label className="block text-slate-700 font-bold mb-1">Loại Phiếu</label>
                 <div className="grid grid-cols-2 gap-2">
                   <button
@@ -2101,7 +2101,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               </div>
 
               {type === 'out' && (
-                <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-3 space-y-3">
+                <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-3 space-y-3 lg:col-span-6">
                   <div>
                     <label className="block text-slate-700 font-bold mb-1">Mục đích xuất</label>
                     <select
@@ -2213,7 +2213,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               )}
 
               {/* Material Search + Select */}
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 lg:col-span-3">
                 <label className="block text-slate-700 font-bold">Chọn vật tư</label>
                 <div className="relative">
                   <Search className="absolute left-3 top-3 w-4 h-4 text-slate-400 pointer-events-none" />
@@ -2278,7 +2278,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               </div>
 
               {/* Custom Material Option */}
-              <div>
+              <div className="lg:col-span-3">
                 <label className="block text-slate-500 font-medium mb-1">Hoặc Nhập Tên Vật Tư Khác</label>
                 <input
                   type="text"
@@ -2290,7 +2290,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               </div>
 
               {/* Quantity & Unit */}
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 lg:col-span-3">
                 <div>
                   <label className="block text-slate-700 font-bold mb-1 flex items-center justify-between">
                     <span>Số Lượng *</span>
@@ -2333,7 +2333,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               </div>
 
               {formQuotaWarning && (
-                <div className={`p-2.5 rounded-xl border text-[11px] font-medium leading-relaxed ${
+                <div className={`p-2.5 rounded-xl border text-[11px] font-medium leading-relaxed lg:col-span-6 ${
                   formQuotaWarning.status === 'exceeded'
                     ? 'bg-rose-50 border-rose-200 text-rose-800'
                     : 'bg-indigo-50 border-indigo-200 text-indigo-800'
@@ -2346,7 +2346,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               )}
 
               {/* Location & Handler */}
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 lg:col-span-3">
                 <div>
                   <label className="block text-slate-700 font-bold mb-1">Vị trí kho / tầng <span className="font-medium text-slate-400">(không bắt buộc)</span></label>
                   <input
@@ -2370,7 +2370,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               </div>
 
               {/* Date & Notes */}
-              <div>
+              <div className="lg:col-span-2">
                 <label className="block text-slate-700 font-bold mb-1">Ngày Thực Hiện</label>
                 <input
                   type="date"
@@ -2381,7 +2381,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 />
               </div>
 
-              <div>
+              <div className="lg:col-span-4">
                 <label className="block text-slate-700 font-bold mb-1">Ghi chú chi tiết</label>
                 <textarea
                   placeholder="Ghi chú xuất cho tổ đội nào, hóa đơn đi kèm..."
@@ -2393,13 +2393,13 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               </div>
 
               {quickAddMessage && !editingInventory && (
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] font-semibold text-emerald-800">
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] font-semibold text-emerald-800 lg:col-span-6">
                   {quickAddMessage}
                 </div>
               )}
 
               {/* Buttons */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 lg:col-span-6">
                 <button
                   type="button"
                   onClick={() => setShowAddForm(false)}
