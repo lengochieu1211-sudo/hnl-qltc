@@ -1615,12 +1615,19 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                     <span>Thêm hạng mục con</span>
                   </button>}
 
+                  <div className="hidden xl:grid xl:grid-cols-[minmax(0,1.55fr)_minmax(260px,0.85fr)_minmax(330px,1fr)] gap-3 px-3 py-2 rounded-xl border border-slate-200 bg-slate-100/80 text-[10px] font-extrabold uppercase tracking-wide text-slate-500">
+                    <div>Hạng mục con &amp; đội thi công</div>
+                    <div>Tiến độ</div>
+                    <div>Nghiệm thu &amp; hạn hoàn thành</div>
+                  </div>
+
                   <div className="space-y-3">
                     {itemsInCat.map((item) => {
                       const originalIndex = subItems.findIndex(s => s.id === item.id);
                       return (
-                        <div key={`${item.id}-${originalIndex}`} className="bg-white p-2.5 sm:p-3 rounded-xl border border-slate-200 shadow-2xs space-y-2.5 lg:space-y-0 lg:grid lg:grid-cols-12 lg:gap-2.5 lg:items-start overflow-x-hidden">
-                          <div className="flex items-center justify-between gap-1.5 min-w-0 lg:col-span-3">
+                        <div key={`${item.id}-${originalIndex}`} className="bg-white p-2.5 sm:p-3 rounded-xl border border-slate-200 shadow-2xs space-y-2.5 xl:space-y-0 xl:grid xl:grid-cols-[minmax(0,1.55fr)_minmax(260px,0.85fr)_minmax(330px,1fr)] xl:gap-3 xl:items-start overflow-x-hidden">
+                          <div className="min-w-0 space-y-2 xl:min-h-[104px]">
+                            <div className="flex items-center justify-between gap-1.5 min-w-0">
                             <div className="flex items-center gap-2 shrink-0">
                               <input
                                 type="checkbox"
@@ -1685,17 +1692,17 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                 <Trash2 className="w-4 h-4" />
                               </button>
                             ))}
-                          </div>
+                            </div>
 
-                          {/* Team & Volume per Sub-Item */}
-                          <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 text-[10.5px] lg:col-span-3">
+                            {/* Team stays directly below the sub-item name on PC/laptop/EXE so long team names remain visible. */}
+                            <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 text-[10.5px]">
                             <div className="flex items-center gap-1.5 min-w-0">
                               <User className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
                               <span className="font-bold text-slate-600 shrink-0">Đội thi công:</span>
                               <select
                                 value={item.assignedTeam || ''}
                                 onChange={(e) => handleUpdateSubItem(item.id, { assignedTeam: e.target.value })}
-                                className="flex-1 font-bold border border-slate-200 rounded-lg px-2 py-1 text-xs focus:ring-1 focus:ring-indigo-500 outline-none bg-white min-w-0 truncate"
+                                className="flex-1 font-bold border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:ring-1 focus:ring-indigo-500 outline-none bg-white min-w-0"
                               >
                                 <option value="">-- Chọn đội (Quân số) --</option>
                                 {displayTeams.map((t) => (
@@ -1720,11 +1727,12 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                 }
                                 return null;
                               })()}
+                              </div>
                             </div>
                           </div>
 
                           {/* Status buttons: Thi công */}
-                          <div className="lg:col-span-3">
+                          <div className="xl:min-h-[104px]">
                             <span className="text-[10.5px] font-bold text-slate-500 block mb-1">▶ Tiến độ thi công:</span>
                             <div className="grid grid-cols-3 gap-1.5 mb-1.5">
                               {(['Chưa làm', 'Đang làm', 'Đã hoàn thành'] as AcceptanceStatus[]).map((st) => (
@@ -1749,7 +1757,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                           </div>
 
                           {/* Status buttons: Nghiệm thu */}
-                          <div className="pt-1.5 border-t border-slate-100 lg:col-span-3 lg:border-t-0 lg:pt-0">
+                          <div className="pt-1.5 border-t border-slate-100 xl:border-t-0 xl:pt-0 xl:min-h-[104px]">
                             <span className="text-[10.5px] font-bold text-indigo-700 block mb-1">▶ Nghiệm thu hạng mục này:</span>
                             <div className="grid grid-cols-3 gap-1.5 mb-1.5">
                               {(['Chưa nghiệm thu', 'Đạt nghiệm thu', 'Chưa đạt (Cần sửa)'] as RoomInspectionResult[]).map((st) => (

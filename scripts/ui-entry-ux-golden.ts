@@ -202,12 +202,12 @@ assert(
   'Crew add/edit modal must fit the real viewport height and scroll only its body on laptop/EXE'
 );
 assert(
-  roomHighlightUiForPc.includes('min-w-0 lg:col-span-3'),
-  'PC room inspection row must keep the four desktop regions balanced'
+  roomHighlightUiForPc.includes('xl:grid-cols-[minmax(0,1.55fr)_minmax(260px,0.85fr)_minmax(330px,1fr)]'),
+  'PC/laptop room inspection rows must use the aligned three-region desktop layout'
 );
 assert(
-  roomHighlightUiForPc.includes('lg:col-span-3 lg:border-t-0 lg:pt-0'),
-  'PC room inspection status block must stay compact enough to preserve the wider item name'
+  roomHighlightUiForPc.includes('Team stays directly below the sub-item name on PC/laptop/EXE') && roomHighlightUiForPc.includes('Hạng mục con &amp; đội thi công'),
+  'PC/laptop room inspection must place the construction team directly below the sub-item name so long team names remain visible'
 );
 
 assert(workVolumeUi.includes('lg:max-w-[1100px]') && workVolumeUi.includes('left-0 lg:left-[84px]'), 'Work Volume editor must use desktop width while reserving the left rail');
