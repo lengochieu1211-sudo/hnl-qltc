@@ -3617,6 +3617,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           projectLocation,
           records: structureScopedCrewRecords,
           teams,
+          floorPlans,
+          structureConfig: normalizedStructureConfig,
         }]}
         initialStartDate={selectedDate}
         initialEndDate={selectedDate}
