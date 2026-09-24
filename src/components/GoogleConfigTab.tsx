@@ -720,9 +720,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
             </div>
           </div>
 
-          <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-2.5 text-[10px] text-indigo-800">
-            Cấu trúc Khu/Khối và việc gán Tầng được quản lý tại <b>Mặt bằng → Quản lý Khu/Khối & Tầng</b> để tránh cấu hình trùng ở nhiều nơi.
-          </div>
+
 
           <button
             type="submit"
