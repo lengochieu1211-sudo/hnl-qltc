@@ -485,18 +485,18 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
     }`;
 
   return (
-    <div className="fixed inset-0 bg-slate-900/90 z-[200] flex flex-col animate-in fade-in" role="dialog" aria-modal="true">
-      <div className="flex items-center justify-between p-4 bg-slate-950 text-white">
+    <div className="fixed inset-0 h-[100dvh] max-h-[100dvh] min-h-0 overflow-hidden bg-slate-900/90 z-[200] flex flex-col animate-in fade-in" role="dialog" aria-modal="true">
+      <div className="shrink-0 flex items-center justify-between px-3 py-2 sm:px-4 sm:py-2.5 bg-slate-950 text-white">
         <h3 className="font-bold text-sm">Chỉnh sửa ảnh</h3>
         <button type="button" onClick={onClose} className="p-1 hover:bg-slate-800 rounded-full transition-colors" aria-label="Đóng">
           <X className="w-6 h-6" />
         </button>
       </div>
 
-      <div className="flex-1 flex flex-col items-center justify-center p-2 sm:p-4 overflow-hidden relative w-full">
-        <div className="relative w-full h-full overflow-hidden flex items-center justify-center bg-slate-900/40 rounded-xl">
+      <div className="flex-1 min-h-0 flex flex-col items-center justify-center p-1.5 sm:p-2 overflow-hidden relative w-full">
+        <div className="relative w-full h-full min-h-0 overflow-hidden flex items-center justify-center bg-slate-900/40 rounded-xl">
           <div
-            className="relative shadow-2xl rounded-xl bg-slate-800 will-change-transform"
+            className="relative max-w-full max-h-full shadow-2xl rounded-xl bg-slate-800 will-change-transform"
             style={{
               transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
               transformOrigin: 'center center',
@@ -509,7 +509,7 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
             onPointerUp={onPointerUp}
             onPointerCancel={onPointerUp}
             onWheel={onWheel}
-            className={`touch-none max-w-[95vw] max-h-[70vh] w-auto h-auto object-contain ${activeTool === 'pan' ? 'cursor-grab active:cursor-grabbing' : 'cursor-crosshair'}`}
+            className={`block touch-none max-w-full max-h-full w-auto h-auto object-contain ${activeTool === 'pan' ? 'cursor-grab active:cursor-grabbing' : 'cursor-crosshair'}`}
           />
 
           {isImageLoading && (
@@ -581,9 +581,9 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
         </div>
       </div>
 
-      <div className="bg-slate-950 p-2 sm:p-3 pb-safe border-t border-slate-800" onPointerDown={(e) => e.stopPropagation()}>
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between overflow-x-auto no-scrollbar gap-2">
+      <div className="shrink-0 bg-slate-950 p-2 pb-safe border-t border-slate-800" onPointerDown={(e) => e.stopPropagation()}>
+        <div className="flex min-w-0 flex-col gap-2 md:flex-row md:items-center">
+          <div className="min-w-0 flex-1 flex items-center justify-between overflow-x-auto no-scrollbar gap-2">
             <div className="flex gap-1 shrink-0">
               <button type="button" disabled={isSaving || isImageLoading} onClick={() => selectTool('pan')} className={toolButtonClass('pan')} title="Di chuyển / Zoom" aria-label="Di chuyển / Zoom" aria-pressed={activeTool === 'pan'}>
                 <Hand className="w-5 h-5" />
@@ -640,7 +640,7 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
             type="button"
             onClick={handleSave}
             disabled={isSaving || isImageLoading}
-            className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold py-2.5 rounded-xl flex items-center justify-center gap-2 shadow-lg"
+            className="w-full md:w-auto md:min-w-48 md:shrink-0 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 shadow-lg"
           >
             {isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
             {isSaving ? 'Đang lưu...' : 'Lưu ảnh đã chỉnh sửa'}

@@ -37,11 +37,20 @@ for (const marker of [
   'Maximize2',
   'Di chuyển / Zoom',
   'PINCH_GESTURE_ROLLBACK',
+  'h-[100dvh]',
+  'max-h-[100dvh]',
+  'flex-1 min-h-0',
+  'max-w-full max-h-full',
+  'md:flex-row md:items-center',
+  'md:min-w-48 md:shrink-0',
 ]) {
   if (!editor.includes(marker)) fail(`ImageEditorModal missing ${marker}`);
 }
 if (editor.includes('window.innerWidth * 0.9') || editor.includes('window.innerHeight * 0.65')) {
   fail('ImageEditorModal still downsizes working pixels to viewport dimensions');
+}
+if (editor.includes('max-h-[70vh]')) {
+  fail('ImageEditorModal still sizes canvas against whole viewport instead of remaining editor stage height');
 }
 if (editor.includes("setActiveTool('draw');")) {
   fail('ImageEditorModal still defaults to freehand drawing instead of pan/zoom');
@@ -65,6 +74,20 @@ if (!picker.includes('} finally {\n      setUploading(false);')) fail('PhotoAtta
 if (!picker.includes("imageKind={entityType === 'defect' ? 'defect' : 'crew'}")) fail('PhotoAttachmentPicker does not pass Crew/Defect quality profile to editor');
 if (!cloudSync.includes('delete copy.pendingOwnerUid')) fail('Local pending media owner must not leak into Firestore metadata');
 pass('edited attachment save is single-encode, account-safe local-first and waits for verified Cloud readiness while online');
+
+for (const marker of [
+  'const invalidateViewerFullImages = () => {',
+  "if (detail.source === 'cloud') invalidateViewerFullImages();",
+  "const currentViewerPhotoId = viewablePhotos[viewerCurrentIndex]?.id || '';",
+  "const viewablePhotoIdsKey = viewablePhotos.map((photo) => photo.id).join('|');",
+  'viewerActivePhotoIdRef.current = photo.id;',
+  'const nextIndex = viewablePhotos.findIndex((photo) => photo.id === viewerActivePhotoIdRef.current);',
+  'if (viewingIndex === null || !currentViewerPhotoId || currentViewerFullUrl) return;',
+  'void ensureViewerFullImage(viewerCurrentIndex);',
+]) {
+  if (!picker.includes(marker)) fail(`PhotoAttachmentPicker open-viewer realtime refresh missing ${marker}`);
+}
+pass('already-open full-resolution viewer preserves the active photo identity, drops stale object URLs and reloads after relevant Cloud photo changes');
 
 for (const marker of ['photo_cache_version_', 'PhotoBinaryCacheVersion', 'isPhotoCachedBinaryCurrent', 'invalidatePhotoBinaryCache', 'staleLocalCache', 'cloudAcknowledgesOwnPending', 'pendingOwnedByCurrent && !cloudAcknowledgesOwnPending', "setPhotoBinaryCacheVersion(cleanCloud, 'cloud')"]) {
   if (!storage.includes(marker)) fail(`photoStorage stale edited-binary cache guard missing ${marker}`);

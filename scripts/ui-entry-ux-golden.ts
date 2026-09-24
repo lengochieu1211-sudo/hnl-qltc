@@ -192,6 +192,16 @@ assert(
   'PC crew shift/work blocks must span the full four-column form width'
 );
 assert(
+  crewUiForPc.includes("const crewModalRailInsetClass = isDesktopRuntime ? 'left-[84px]' : 'left-0 lg:left-[84px]'"),
+  'Crew modals must reserve the 84px desktop/EXE navigation rail instead of being covered by it'
+);
+assert(
+  crewUiForPc.includes('max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)]')
+    && crewUiForPc.includes('flex-1 min-h-0 p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4')
+    && !crewUiForPc.includes('overflow-y-auto max-h-[80vh]'),
+  'Crew add/edit modal must fit the real viewport height and scroll only its body on laptop/EXE'
+);
+assert(
   roomHighlightUiForPc.includes('min-w-0 lg:col-span-4'),
   'PC room inspection row must reserve enough width for sub-item name/edit controls'
 );

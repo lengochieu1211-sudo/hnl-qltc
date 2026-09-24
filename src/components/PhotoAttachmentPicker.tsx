@@ -73,10 +73,24 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
   const viewerFullUrlsRef = useRef<Record<string, string>>({});
   const viewerLoadingPhotoIdsRef = useRef<Set<string>>(new Set());
   const viewerSessionRef = useRef(0);
+  const viewerActivePhotoIdRef = useRef('');
   const loadSeqRef = useRef(0);
   
   // Image editor state
   const [editingPhoto, setEditingPhoto] = useState<{ id: string; url: string } | null>(null);
+
+  const invalidateViewerFullImages = () => {
+    // Realtime metadata may advance while the full-screen viewer is still holding an
+    // object URL for the previous binary revision. Revoke those URLs immediately so
+    // an already-open viewer cannot pin stale bytes after another account edits the
+    // same photo. The current image is loaded again below from the latest cache/Cloud.
+    viewerSessionRef.current += 1;
+    Object.values(viewerFullUrlsRef.current).forEach(revokeBlobUrl);
+    viewerFullUrlsRef.current = {};
+    viewerLoadingPhotoIdsRef.current.clear();
+    setViewerFullUrls({});
+    setViewerLoadingIds({});
+  };
 
   const loadPhotos = async () => {
     const loadSeq = ++loadSeqRef.current;
@@ -174,6 +188,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
         if (detail.entityId && detail.entityId !== entityId) return;
         if (detail.category && detail.category !== category) return;
       }
+      if (detail.source === 'cloud') invalidateViewerFullImages();
       loadPhotos().catch(() => {});
     };
     if (typeof window !== 'undefined') {
@@ -477,16 +492,8 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
     || (isDirectPhotoUrl(photo.cloudUrl) ? photo.cloudUrl! : '')
   );
   const viewablePhotos = sortedPhotos.filter((photo) => Boolean(previewUrlForPhoto(photo)));
+  const viewablePhotoIdsKey = viewablePhotos.map((photo) => photo.id).join('|');
   const imageUrls = viewablePhotos.map((photo) => viewerFullUrls[photo.id] || previewUrlForPhoto(photo));
-
-  const clearViewerFullImages = () => {
-    viewerSessionRef.current += 1;
-    Object.values(viewerFullUrlsRef.current).forEach(revokeBlobUrl);
-    viewerFullUrlsRef.current = {};
-    viewerLoadingPhotoIdsRef.current.clear();
-    setViewerFullUrls({});
-    setViewerLoadingIds({});
-  };
 
   const ensureViewerFullImage = async (viewerIndex: number) => {
     const photo = viewablePhotos[viewerIndex];
@@ -526,10 +533,29 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
     }
   };
 
+  const currentViewerPhotoId = viewablePhotos[viewerCurrentIndex]?.id || '';
+  const currentViewerFullUrl = currentViewerPhotoId ? (viewerFullUrls[currentViewerPhotoId] || '') : '';
+  const currentViewerPreviewUrl = currentViewerPhotoId ? (photoDataUrls[currentViewerPhotoId] || '') : '';
+
+  useEffect(() => {
+    if (viewingIndex === null || !viewerActivePhotoIdRef.current) return;
+    const nextIndex = viewablePhotos.findIndex((photo) => photo.id === viewerActivePhotoIdRef.current);
+    if (nextIndex < 0) return;
+    if (nextIndex !== viewerCurrentIndex) setViewerCurrentIndex(nextIndex);
+    if (nextIndex !== viewingIndex) setViewingIndex(nextIndex);
+  }, [viewingIndex, viewerCurrentIndex, viewablePhotoIdsKey]);
+
+  useEffect(() => {
+    if (viewingIndex === null || !currentViewerPhotoId || currentViewerFullUrl) return;
+    if (viewerLoadingPhotoIdsRef.current.has(currentViewerPhotoId)) return;
+    void ensureViewerFullImage(viewerCurrentIndex);
+  }, [viewingIndex, viewerCurrentIndex, currentViewerPhotoId, currentViewerFullUrl, currentViewerPreviewUrl]);
+
   const closeViewer = () => {
+    viewerActivePhotoIdRef.current = '';
     setViewingIndex(null);
     setViewerCurrentIndex(0);
-    clearViewerFullImages();
+    invalidateViewerFullImages();
   };
 
   return (
@@ -619,6 +645,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
                   }
                   const viewableIndex = viewablePhotos.findIndex((item) => item.id === photo.id);
                   if (viewableIndex >= 0) {
+                    viewerActivePhotoIdRef.current = photo.id;
                     setViewerCurrentIndex(viewableIndex);
                     setViewingIndex(viewableIndex);
                     void ensureViewerFullImage(viewableIndex);
@@ -724,7 +751,9 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
           images={imageUrls}
           initialIndex={viewingIndex}
           onIndexChange={(index) => {
+            viewerActivePhotoIdRef.current = viewablePhotos[index]?.id || '';
             setViewerCurrentIndex(index);
+            setViewingIndex(index);
             void ensureViewerFullImage(index);
           }}
           isImageLoading={Boolean(viewerLoadingIds[viewablePhotos[viewerCurrentIndex]?.id || ''])}

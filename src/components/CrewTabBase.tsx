@@ -293,6 +293,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   onUpdateTeams,
 }) => {
   const { t } = useLanguage();
+  const isDesktopRuntime = typeof window !== 'undefined'
+    && new URLSearchParams(window.location.search).get('app') === 'desktop';
+  const crewModalRailInsetClass = isDesktopRuntime ? 'left-[84px]' : 'left-0 lg:left-[84px]';
   const canOperate = roleResolved && canEditCrewData(userRole);
   // Bulk deletion remains ADMIN-only. EDITOR can remove only a record they created,
   // and that record still goes through the normal Trash / soft-delete sync pipeline.
@@ -2174,13 +2177,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
       {/* Ghi nhận quân số Modal */}
       {canOperate && showAddLogModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+        <div className={`fixed inset-y-0 right-0 ${crewModalRailInsetClass} z-50 flex items-center justify-center px-2 py-2 sm:p-4 bg-slate-900/60 backdrop-blur-sm`}>
           <div 
-            className="bg-white rounded-xl shadow-xl w-full max-w-sm sm:max-w-2xl lg:max-w-4xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200"
+            className="bg-white rounded-xl shadow-xl w-full max-w-sm sm:max-w-2xl lg:max-w-4xl max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
-            <div className="flex justify-between items-center bg-slate-900 px-4 py-3 text-white">
+            <div className="shrink-0 flex justify-between items-center bg-slate-900 px-4 py-3 text-white">
               <h3 className="font-bold text-sm">
                 {editingRecord ? '✍️ Sửa Ghi Nhận Quân Số' : '👷 Ghi Nhận Quân Số Mới'}
               </h3>
@@ -2202,7 +2205,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             </div>
 
             {/* Modal Form */}
-            <form onSubmit={handleLogSubmit} className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3.5 overflow-y-auto max-h-[80vh]">
+            <form onSubmit={handleLogSubmit} className="flex-1 min-h-0 p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3.5 overflow-y-auto overscroll-contain">
               {/* Date (Informative) */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Ngày Ghi Nhận</label>
@@ -2513,13 +2516,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
       {/* Thêm / Sửa thông tin Đội thi công Modal */}
       {canManageTeamDirectory && showTeamModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+        <div className={`fixed inset-y-0 right-0 ${crewModalRailInsetClass} z-50 flex items-center justify-center px-2 py-2 sm:p-4 bg-slate-900/60 backdrop-blur-sm`}>
           <div 
-            className="bg-white rounded-xl shadow-xl w-full max-w-sm sm:max-w-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200"
+            className="bg-white rounded-xl shadow-xl w-full max-w-sm sm:max-w-2xl max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
-            <div className="flex justify-between items-center bg-slate-900 px-4 py-3 text-white">
+            <div className="shrink-0 flex justify-between items-center bg-slate-900 px-4 py-3 text-white">
               <h3 className="font-bold text-sm">
                 {editingTeam ? '✍️ Sửa Thông Tin Đội' : '👥 Thêm Đội Thi Công Mới'}
               </h3>
@@ -2535,7 +2538,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             </div>
 
             {/* Modal Form */}
-            <form onSubmit={handleTeamSubmit} className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <form onSubmit={handleTeamSubmit} className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 grid grid-cols-1 sm:grid-cols-2 gap-3.5">
               {/* Team Name */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Tên Đội Thi Công</label>
@@ -2657,7 +2660,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
       {/* CONFIRM DELETE DAILY LOG RECORD MODAL */}
       {deletingRecordTarget && canDeleteRecord(deletingRecordTarget) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+        <div className={`fixed inset-y-0 right-0 ${crewModalRailInsetClass} z-50 flex items-center justify-center px-2 py-2 sm:p-4 bg-slate-900/60 backdrop-blur-sm`}>
           <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <div className="p-5 text-center">
               <div className="w-12 h-12 bg-rose-50 rounded-full flex items-center justify-center mx-auto mb-3 border border-rose-100">
@@ -2688,7 +2691,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
       {/* CONFIRM DELETE TEAM FROM DIRECTORY MODAL */}
       {canManageTeamDirectory && deletingTeamTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+        <div className={`fixed inset-y-0 right-0 ${crewModalRailInsetClass} z-50 flex items-center justify-center px-2 py-2 sm:p-4 bg-slate-900/60 backdrop-blur-sm`}>
           <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <div className="p-5 text-center">
               <div className="w-12 h-12 bg-rose-50 rounded-full flex items-center justify-center mx-auto mb-3 border border-rose-100">
@@ -2719,7 +2722,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
       {/* CONFIRM OVERWRITE COPY MODAL */}
       {canOperate && showCopyConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+        <div className={`fixed inset-y-0 right-0 ${crewModalRailInsetClass} z-50 flex items-center justify-center px-2 py-2 sm:p-4 bg-slate-900/60 backdrop-blur-sm`}>
           <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <div className="p-5 text-center">
               <div className="w-12 h-12 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-3 border border-amber-100">
@@ -2860,7 +2863,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
         return (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center px-2 sm:p-4 bg-slate-900/70 backdrop-blur-md"
+            className={`fixed inset-y-0 right-0 ${crewModalRailInsetClass} z-50 flex items-center justify-center px-2 py-2 sm:p-4 bg-slate-900/70 backdrop-blur-md`}
             style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top))', paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}
           >
             <div 
