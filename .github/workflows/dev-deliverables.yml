@@ -22,6 +22,30 @@ jobs:
       - name: Checkout exact DEV head
         uses: actions/checkout@v4
 
+      - name: Classify exact Runtime Golden evidence
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          EVIDENCE_DIR="$RUNNER_TEMP/runtime-golden"
+          rm -rf "$EVIDENCE_DIR"
+          mkdir -p "$EVIDENCE_DIR"
+          gh run download "$RUNTIME_RUN_ID" --repo "$GITHUB_REPOSITORY" -D "$EVIDENCE_DIR"
+          REPORT_JSON="$(find "$EVIDENCE_DIR" -type f -name live-backend-report.json | head -n 1)"
+          test -n "$REPORT_JSON" && test -f "$REPORT_JSON" || { echo '::error::Missing live-backend-report.json from exact Runtime Golden'; exit 1; }
+          CLASSIFICATION="$(REPORT_JSON="$REPORT_JSON" node -e "const fs=require('fs');const r=JSON.parse(fs.readFileSync(process.env.REPORT_JSON,'utf8'));const s=String(r.status||'');const c=String(r.certificationState||'');if(s==='PASS'&&c==='CERTIFIED_ELIGIBLE')process.stdout.write('CERTIFIED');else if(s==='PASS_WITH_INFRA_QUOTA_BLOCK'&&c==='INFRA_QUOTA_BLOCKED')process.stdout.write('VERIFIED_INFRA_QUOTA_BLOCKED');else {console.error('Unexpected runtime evidence state: '+s+' / '+c);process.exit(2)}")"
+          echo "RUNTIME_CLASSIFICATION=$CLASSIFICATION" >> "$GITHUB_ENV"
+          if [ "$CLASSIFICATION" = 'CERTIFIED' ]; then
+            echo "RUNTIME_CERTIFIED_SHA=$GITHUB_SHA" >> "$GITHUB_ENV"
+            echo "DELIVERABLE_LABEL=CERTIFIED" >> "$GITHUB_ENV"
+            echo "Runtime evidence: CERTIFIED eligible"
+          else
+            echo "DELIVERABLE_LABEL=VERIFIED-INFRA-BLOCKED" >> "$GITHUB_ENV"
+            echo "::warning::Runtime evidence completed all available checks but direct Firestore REST remained blocked by DEV quota; deliverables must NOT be labeled CERTIFIED."
+          fi
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -94,13 +118,14 @@ jobs:
           API="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/dev-runtime-golden.yml/runs?branch=dev&event=push&per_page=20"
           for attempt in $(seq 1 105); do
             JSON="$(curl --fail --silent --show-error -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' "$API")"
-            INFO="$(printf '%s' "$JSON" | TARGET_SHA="$GITHUB_SHA" node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const r=(j.workflow_runs||[]).find(x=>x.head_sha===process.env.TARGET_SHA);process.stdout.write(r?[r.status,String(r.conclusion||''),String(r.id||'')].join('|'):'missing||')})")"
+            INFO="$(printf '%s' "$JSON" | TARGET_SHA="$GITHUB_SHA" node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const r=(j.workflow_runs||[]).find(x=>x.head_sha===process.env.TARGET_SHA);process.stdout.write(r?[r.status,String(r.conclusion||''),String(r.id||''),String(r.run_number||'')].join('|'):'missing|||')})")"
             STATUS="${INFO%%|*}"
-            REST="${INFO#*|}"; CONCLUSION="${REST%%|*}"; RUN_ID="${REST##*|}"
+            REST="${INFO#*|}"; CONCLUSION="${REST%%|*}"; REST="${REST#*|}"; RUN_ID="${REST%%|*}"; RUN_NUMBER="${REST##*|}"
             if [ "$STATUS" = 'completed' ] && [ "$CONCLUSION" = 'success' ]; then
-              echo "RUNTIME_CERTIFIED_SHA=$GITHUB_SHA" >> "$GITHUB_ENV"
+              echo "RUNTIME_VERIFIED_SHA=$GITHUB_SHA" >> "$GITHUB_ENV"
               echo "RUNTIME_RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
-              echo "Exact Runtime Golden PASS: run $RUN_ID / $GITHUB_SHA"
+              echo "RUNTIME_RUN_NUMBER=$RUN_NUMBER" >> "$GITHUB_ENV"
+              echo "Exact Runtime Golden completed successfully: run $RUN_ID / $GITHUB_SHA"
               break
             fi
             if [ "$STATUS" = 'completed' ] && [ "$CONCLUSION" != 'success' ]; then
@@ -176,16 +201,26 @@ jobs:
 
           PATCH_ZIP="$OUT/HNL-QLTC-DEV-${SHORT_SHA}-PATCH-${DATE_UTC}.zip"
           FULL_ZIP="$OUT/HNL-QLTC-DEV-${SHORT_SHA}-FULL-SOURCE-${DATE_UTC}.zip"
-          REPORT="$OUT/HNL-QLTC-DEV-${SHORT_SHA}-CERTIFICATION-REPORT-${DATE_UTC}.md"
+          REPORT_KIND="$([ "${RUNTIME_CLASSIFICATION:-CERTIFIED}" = 'CERTIFIED' ] && echo CERTIFICATION || echo VERIFICATION)"
+          REPORT="$OUT/HNL-QLTC-DEV-${SHORT_SHA}-${REPORT_KIND}-REPORT-${DATE_UTC}.md"
           (cd "$PATCH_DIR" && zip -qr "$PATCH_ZIP" .)
           git archive --format=zip --output="$FULL_ZIP" "$GITHUB_SHA"
 
           {
-            echo "# HNL QLTC DEV Certification Report — ${DATE_UTC}"
+            if [ "${RUNTIME_CLASSIFICATION:-CERTIFIED}" = 'CERTIFIED' ]; then
+              echo "# HNL QLTC DEV Certification Report — ${DATE_UTC}"
+            else
+              echo "# HNL QLTC DEV Verification Report — ${DATE_UTC}"
+            fi
             echo
             echo "- Exact DEV source commit: \`$GITHUB_SHA\`"
             echo "- Parent/baseline commit: \`$BASELINE_SHA\`"
-            echo "- Runtime-certified commit: \`${RUNTIME_CERTIFIED_SHA:-$GITHUB_SHA}\`"
+            echo "- Runtime-verified commit: \`${RUNTIME_VERIFIED_SHA:-$GITHUB_SHA}\`"
+            if [ "${RUNTIME_CLASSIFICATION:-CERTIFIED}" = 'CERTIFIED' ]; then
+              echo "- Runtime-certified commit: \`${RUNTIME_CERTIFIED_SHA:-$GITHUB_SHA}\`"
+            else
+              echo "- Runtime certification: NOT GRANTED — DEV Firestore direct REST quota blocked."
+            fi
             echo "- Runtime Golden workflow run: \`${RUNTIME_RUN_ID:-manual-dispatch}\`"
             echo '- PROD/main: NOT merged or deployed by this workflow.'
             echo '- Firebase/R2/AI certification endpoints: DEV only.'
@@ -198,7 +233,12 @@ jobs:
             echo '- Firebase Rules compile/behavior: PASS'
             echo '- Production dependency critical security audit: PASS'
             echo '- Build: PASS'
-            echo '- Runtime Golden exact SHA: PASS'
+            if [ "${RUNTIME_CLASSIFICATION:-CERTIFIED}" = 'CERTIFIED' ]; then
+              echo '- Runtime Golden exact SHA: PASS / certification eligible'
+            else
+              echo '- Runtime Golden exact SHA: PASS WITH INFRA QUOTA BLOCK — not certification eligible'
+              echo '- Direct Firestore REST probe: BLOCKED by DEV HTTP 429 RESOURCE_EXHAUSTED; SDK multi-user/realtime/offline and remaining runtime checks completed.'
+            fi
             echo '- PATCH ZIP integrity: PASS'
             echo '- FULL SOURCE ZIP integrity: PASS'
             echo
@@ -223,7 +263,7 @@ jobs:
       - name: Upload final deliverables
         uses: actions/upload-artifact@v4
         with:
-          name: HNL-QLTC-DEV-CERTIFIED-${{ github.run_number }}
+          name: HNL-QLTC-DEV-${{ env.DELIVERABLE_LABEL }}-${{ github.run_number }}
           path: |
             ${{ env.PATCH_ZIP }}
             ${{ env.FULL_ZIP }}
