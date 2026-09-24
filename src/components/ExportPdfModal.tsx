@@ -1,6 +1,6 @@
 import { downloadOrShareFile } from '../utils/downloadUtils';
 import React, { useState, useEffect, useMemo } from 'react';
-import { FileText, Download, Printer, X, CheckCircle2, Filter, Mail, Package, BarChart3, Building2, ClipboardCheck, FileSpreadsheet, Users, Copy, HelpCircle, Camera, Image as ImageIcon } from 'lucide-react';
+import { FileText, Download, Printer, X, CheckCircle2, Filter, Mail, Package, BarChart3, Building2, ClipboardCheck, FileSpreadsheet, Users, Copy, HelpCircle, Camera, Image as ImageIcon, ChevronDown } from 'lucide-react';
 import { InventoryItem, WorkVolume, DefectItem, ChecklistItem, FloorPlan, RoomProgressItem, MaterialNorm, CrewRecord, TeamInfo } from '../types';
 import { exportAllToExcel, exportAllToExcelBase64, exportTeamStatisticsToExcel } from '../utils/excelExport';
 import { formatDateDDMMYYYY, formatDateTime, formatFloorName, parseLegacyTimestamp } from '../utils/dateFormatter';
@@ -84,6 +84,10 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   const [selectedFloorIds, setSelectedFloorIds] = useState<string[]>(['all']);
   const [selectedRoomIds, setSelectedRoomIds] = useState<string[]>(['all']);
   const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>(['all']);
+  const [showReportStructureGroupPicker, setShowReportStructureGroupPicker] = useState(false);
+  const [showReportFloorPicker, setShowReportFloorPicker] = useState(false);
+  const [showReportRoomPicker, setShowReportRoomPicker] = useState(false);
+  const [showReportTeamPicker, setShowReportTeamPicker] = useState(false);
   useFormatSettings();
   const [copiedText, setCopiedText] = useState(false);
   const [copiedExcelBase64, setCopiedExcelBase64] = useState(false);
@@ -386,6 +390,27 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     const availableTeams = new Set(availableTeamOptions.map((team) => team.id));
     setSelectedTeamIds((current) => current.includes('all') ? current : (current.filter((id) => availableTeams.has(id)).length ? current.filter((id) => availableTeams.has(id)) : ['all']));
   }, [availableTeamOptionIdsKey]);
+
+  const reportStructureGroupSummary = allStructureGroupsSelected
+    ? `Tất cả ${normalizedStructureConfig.label}`
+    : selectedStructureGroupIds.length === 1
+      ? (normalizedStructureConfig.groups.find((group) => group.id === selectedStructureGroupIds[0])?.name || `1 ${normalizedStructureConfig.label}`)
+      : `${selectedStructureGroupIds.length} ${normalizedStructureConfig.label}`;
+  const reportFloorSummary = isAllSelected
+    ? 'Tất cả tầng'
+    : selectedFloorIds.length === 1
+      ? (groupScopedFloorPlans.find((floor) => floor.id === selectedFloorIds[0])?.floorName || '1 tầng')
+      : `${selectedFloorIds.length} tầng`;
+  const reportRoomSummary = allRoomsSelected
+    ? 'Tất cả Căn / Phòng'
+    : selectedRoomIds.length === 1
+      ? (roomScopeOptions.find((room) => room.id === selectedRoomIds[0])?.roomName || '1 Căn / Phòng')
+      : `${selectedRoomIds.length} Căn / Phòng`;
+  const reportTeamSummary = allTeamsSelected
+    ? 'Tất cả đội'
+    : selectedTeamIds.length === 1
+      ? (availableTeamOptions.find((team) => team.id === selectedTeamIds[0])?.name || '1 đội')
+      : `${selectedTeamIds.length} đội`;
 
   if (!isOpen) return null;
 
@@ -1792,6 +1817,10 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                   setSelectedFloorIds(['all']);
                   setSelectedRoomIds(['all']);
                   setSelectedTeamIds(['all']);
+                  setShowReportStructureGroupPicker(false);
+                  setShowReportFloorPicker(false);
+                  setShowReportRoomPicker(false);
+                  setShowReportTeamPicker(false);
                   setDefectStatusFilter('all');
                   setDefectCategoryFilter('all');
                   setDefectCreatorFilter('all');
@@ -1807,13 +1836,124 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 space-y-3">
-              <div className={`grid grid-cols-1 gap-2 ${normalizedStructureConfig.enabled ? 'sm:grid-cols-2 lg:grid-cols-4' : 'sm:grid-cols-3'}`}>
+              <div className={`grid grid-cols-1 gap-2 sm:grid-cols-2 ${normalizedStructureConfig.enabled ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
                 {normalizedStructureConfig.enabled && (
-                  <label className="space-y-1"><span className="block text-[10px] font-bold text-slate-600">{normalizedStructureConfig.label}</span><div className="max-h-32 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 space-y-1.5"><label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer"><input type="checkbox" checked={allStructureGroupsSelected} onChange={() => handleToggleStructureGroup('all')} className="w-3.5 h-3.5 rounded text-indigo-600" /><span className="text-[10.5px]">Tất cả {normalizedStructureConfig.label}</span></label>{normalizedStructureConfig.groups.map((group) => <label key={group.id} className="flex items-center gap-2 text-slate-700 cursor-pointer"><input type="checkbox" checked={allStructureGroupsSelected || selectedStructureGroupIds.includes(group.id)} disabled={allStructureGroupsSelected} onChange={() => handleToggleStructureGroup(group.id)} className="w-3.5 h-3.5 rounded text-indigo-600 disabled:opacity-50" /><span className="text-[10.5px]">{group.name}</span></label>)}</div></label>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowReportStructureGroupPicker((value) => !value);
+                        setShowReportFloorPicker(false);
+                        setShowReportRoomPicker(false);
+                        setShowReportTeamPicker(false);
+                      }}
+                      className="flex w-full items-center justify-between rounded-xl border border-indigo-200 bg-white p-2.5 text-left text-xs font-semibold"
+                    >
+                      <span className="truncate">{reportStructureGroupSummary}</span>
+                      <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                    </button>
+                    {showReportStructureGroupPicker && (
+                      <div className="absolute left-0 right-0 z-40 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+                        <label className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs font-semibold hover:bg-slate-50">
+                          <input type="checkbox" checked={allStructureGroupsSelected} onChange={() => handleToggleStructureGroup('all')} /> Tất cả {normalizedStructureConfig.label}
+                        </label>
+                        {normalizedStructureConfig.groups.map((group) => (
+                          <label key={group.id} className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs hover:bg-slate-50">
+                            <input type="checkbox" checked={allStructureGroupsSelected || selectedStructureGroupIds.includes(group.id)} disabled={allStructureGroupsSelected} onChange={() => handleToggleStructureGroup(group.id)} /> {group.name}
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 )}
-                <label className="space-y-1"><span className="block text-[10px] font-bold text-slate-600">Tầng</span><div className="max-h-32 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 space-y-1.5"><label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer"><input type="checkbox" checked={isAllSelected} onChange={() => handleToggleFloor('all')} className="w-3.5 h-3.5 rounded text-indigo-600" /><span className="text-[10.5px]">Tất cả tầng</span></label>{groupScopedFloorPlans.map((floor) => <label key={floor.id} className="flex items-center gap-2 text-slate-700 cursor-pointer"><input type="checkbox" checked={isAllSelected || selectedFloorIds.includes(floor.id)} disabled={isAllSelected} onChange={() => handleToggleFloor(floor.id)} className="w-3.5 h-3.5 rounded text-indigo-600 disabled:opacity-50" /><span className="text-[10.5px]">{floor.floorName}</span></label>)}</div></label>
-                <label className="space-y-1"><span className="block text-[10px] font-bold text-slate-600">Căn / Phòng</span><div className="max-h-32 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 space-y-1.5"><label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer"><input type="checkbox" checked={allRoomsSelected} onChange={() => (id) => setSelectedRoomIds((current) => toggleMulti(current, id, roomScopeOptions.map((room) => room.id)))('all')} className="w-3.5 h-3.5 rounded text-indigo-600" /><span className="text-[10.5px]">Tất cả Căn / Phòng</span></label>{roomScopeOptions.map((room) => { const floorName = effectiveFloorPlans.find((floor) => floor.id === room.floorId)?.floorName || room.floorName || ''; return <label key={room.id} className="flex items-center gap-2 text-slate-700 cursor-pointer"><input type="checkbox" checked={allRoomsSelected || selectedRoomIds.includes(room.id)} disabled={allRoomsSelected} onChange={() => setSelectedRoomIds((current) => toggleMulti(current, room.id, roomScopeOptions.map((item) => item.id)))} className="w-3.5 h-3.5 rounded text-indigo-600 disabled:opacity-50" /><span className="text-[10.5px]">{floorName ? `${floorName} · ` : ''}{room.roomName}</span></label>; })}</div></label>
-                <label className="space-y-1"><span className="block text-[10px] font-bold text-slate-600">Đội thi công</span><div className="max-h-32 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 space-y-1.5"><label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer"><input type="checkbox" checked={allTeamsSelected} onChange={() => (id) => setSelectedTeamIds((current) => toggleMulti(current, id, availableTeamOptions.map((team) => team.id)))('all')} className="w-3.5 h-3.5 rounded text-indigo-600" /><span className="text-[10.5px]">Tất cả đội</span></label>{availableTeamOptions.map((team) => <label key={team.id} className="flex items-center gap-2 text-slate-700 cursor-pointer"><input type="checkbox" checked={allTeamsSelected || selectedTeamIds.includes(team.id)} disabled={allTeamsSelected} onChange={() => setSelectedTeamIds((current) => toggleMulti(current, team.id, availableTeamOptions.map((item) => item.id)))} className="w-3.5 h-3.5 rounded text-indigo-600 disabled:opacity-50" /><span className="text-[10.5px]">{team.name}</span></label>)}</div></label>
+
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowReportFloorPicker((value) => !value);
+                      setShowReportStructureGroupPicker(false);
+                      setShowReportRoomPicker(false);
+                      setShowReportTeamPicker(false);
+                    }}
+                    className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold"
+                  >
+                    <span className="truncate">{reportFloorSummary}</span>
+                    <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                  </button>
+                  {showReportFloorPicker && (
+                    <div className="absolute left-0 right-0 z-40 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+                      <label className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs font-semibold hover:bg-slate-50">
+                        <input type="checkbox" checked={isAllSelected} onChange={() => handleToggleFloor('all')} /> Tất cả tầng
+                      </label>
+                      {groupScopedFloorPlans.map((floor) => (
+                        <label key={floor.id} className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs hover:bg-slate-50">
+                          <input type="checkbox" checked={isAllSelected || selectedFloorIds.includes(floor.id)} disabled={isAllSelected} onChange={() => handleToggleFloor(floor.id)} /> {floor.floorName}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowReportRoomPicker((value) => !value);
+                      setShowReportStructureGroupPicker(false);
+                      setShowReportFloorPicker(false);
+                      setShowReportTeamPicker(false);
+                    }}
+                    className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold"
+                  >
+                    <span className="truncate">{reportRoomSummary}</span>
+                    <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                  </button>
+                  {showReportRoomPicker && (
+                    <div className="absolute left-0 right-0 z-40 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+                      <label className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs font-semibold hover:bg-slate-50">
+                        <input type="checkbox" checked={allRoomsSelected} onChange={() => setSelectedRoomIds(['all'])} /> Tất cả Căn / Phòng
+                      </label>
+                      {roomScopeOptions.map((room) => {
+                        const floorName = effectiveFloorPlans.find((floor) => floor.id === room.floorId)?.floorName || room.floorName || '';
+                        return (
+                          <label key={room.id} className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs hover:bg-slate-50">
+                            <input type="checkbox" checked={allRoomsSelected || selectedRoomIds.includes(room.id)} disabled={allRoomsSelected} onChange={() => setSelectedRoomIds((current) => toggleMulti(current, room.id, roomScopeOptions.map((item) => item.id)))} />
+                            <span className="min-w-0 truncate">{floorName ? `${floorName} · ` : ''}{room.roomName}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowReportTeamPicker((value) => !value);
+                      setShowReportStructureGroupPicker(false);
+                      setShowReportFloorPicker(false);
+                      setShowReportRoomPicker(false);
+                    }}
+                    className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold"
+                  >
+                    <span className="truncate">{reportTeamSummary}</span>
+                    <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                  </button>
+                  {showReportTeamPicker && (
+                    <div className="absolute left-0 right-0 z-40 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+                      <label className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs font-semibold hover:bg-slate-50">
+                        <input type="checkbox" checked={allTeamsSelected} onChange={() => setSelectedTeamIds(['all'])} /> Tất cả đội
+                      </label>
+                      {availableTeamOptions.map((team) => (
+                        <label key={team.id} className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs hover:bg-slate-50">
+                          <input type="checkbox" checked={allTeamsSelected || selectedTeamIds.includes(team.id)} disabled={allTeamsSelected} onChange={() => setSelectedTeamIds((current) => toggleMulti(current, team.id, availableTeamOptions.map((item) => item.id)))} /> {team.name}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="border-t border-slate-200 pt-3">

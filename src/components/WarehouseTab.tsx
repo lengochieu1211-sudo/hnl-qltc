@@ -1440,11 +1440,11 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               <div className={`grid grid-cols-1 gap-2 sm:grid-cols-2 ${normalizedStructureConfig.enabled ? 'xl:grid-cols-5' : 'xl:grid-cols-4'}`}>
                 {normalizedStructureConfig.enabled && (
                   <div className="relative">
-                    <button type="button" onClick={() => setShowMaterialStructureGroupPicker((value) => !value)} className="flex w-full items-center justify-between rounded-xl border border-indigo-200 bg-white p-2.5 text-left text-xs font-semibold">
+                    <button type="button" onClick={() => { setShowMaterialStructureGroupPicker((value) => !value); setShowMaterialFloorPicker(false); setShowMaterialRoomPicker(false); setShowMaterialWorkCategoryPicker(false); setShowMaterialTeamPicker(false); }} className="flex w-full items-center justify-between rounded-xl border border-indigo-200 bg-white p-2.5 text-left text-xs font-semibold">
                       <span className="truncate">{materialNeedStructureGroupSummary}</span><ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
                     </button>
                     {showMaterialStructureGroupPicker && (
-                      <div className="mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
+                      <div className="absolute left-0 right-0 z-40 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
                         <label className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs font-semibold hover:bg-slate-50">
                           <input type="checkbox" checked={materialNeedStructureGroupIds.length === 0} onChange={() => setMaterialNeedStructureGroupIds([])} /> Tất cả {normalizedStructureConfig.label}
                         </label>
@@ -1458,11 +1458,11 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   </div>
                 )}
                 <div className="relative">
-                  <button type="button" onClick={() => setShowMaterialFloorPicker((value) => !value)} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold">
+                  <button type="button" onClick={() => { setShowMaterialFloorPicker((value) => !value); setShowMaterialStructureGroupPicker(false); setShowMaterialRoomPicker(false); setShowMaterialWorkCategoryPicker(false); setShowMaterialTeamPicker(false); }} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold">
                     <span className="truncate">{materialNeedFloorSummary}</span><ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
                   </button>
                   {showMaterialFloorPicker && (
-                    <div className="mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
+                    <div className="absolute left-0 right-0 z-40 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
                       <label className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs font-semibold hover:bg-slate-50">
                         <input type="checkbox" checked={materialNeedFloorIds.length === 0} onChange={() => setMaterialNeedFloorIds([])} /> Tất cả tầng
                       </label>
@@ -1476,11 +1476,11 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 </div>
 
                 <div className="relative">
-                  <button type="button" onClick={() => setShowMaterialRoomPicker((value) => !value)} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold">
+                  <button type="button" onClick={() => { setShowMaterialRoomPicker((value) => !value); setShowMaterialStructureGroupPicker(false); setShowMaterialFloorPicker(false); setShowMaterialWorkCategoryPicker(false); setShowMaterialTeamPicker(false); }} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold">
                     <span className="truncate">{materialNeedRoomSummary}</span><ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
                   </button>
                   {showMaterialRoomPicker && (
-                    <div className="mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
+                    <div className="absolute left-0 right-0 z-40 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
                       <label className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs font-semibold hover:bg-slate-50">
                         <input type="checkbox" checked={materialNeedRoomIds.length === 0} onChange={() => setMaterialNeedRoomIds([])} /> Tất cả căn
                       </label>
@@ -1495,11 +1495,11 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 </div>
 
                 <div className="relative">
-                  <button type="button" onClick={() => setShowMaterialWorkCategoryPicker((value) => !value)} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold">
+                  <button type="button" onClick={() => { setShowMaterialWorkCategoryPicker((value) => !value); setShowMaterialStructureGroupPicker(false); setShowMaterialFloorPicker(false); setShowMaterialRoomPicker(false); setShowMaterialTeamPicker(false); }} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold">
                     <span className="truncate">{materialNeedWorkCategorySummary}</span><ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
                   </button>
                   {showMaterialWorkCategoryPicker && (
-                    <div className="mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
+                    <div className="absolute left-0 right-0 z-40 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
                       <label className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs font-semibold hover:bg-slate-50">
                         <input type="checkbox" checked={materialNeedWorkCategoryIds.length === 0} onChange={() => setMaterialNeedWorkCategoryIds([])} /> Tất cả hạng mục đã khai
                       </label>
@@ -1513,11 +1513,11 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 </div>
 
                 <div className="relative">
-                  <button type="button" onClick={() => setShowMaterialTeamPicker((value) => !value)} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold">
+                  <button type="button" onClick={() => { setShowMaterialTeamPicker((value) => !value); setShowMaterialStructureGroupPicker(false); setShowMaterialFloorPicker(false); setShowMaterialRoomPicker(false); setShowMaterialWorkCategoryPicker(false); }} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold">
                     <span className="truncate">{materialNeedTeamSummary}</span><ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
                   </button>
                   {showMaterialTeamPicker && (
-                    <div className="mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
+                    <div className="absolute left-0 right-0 z-40 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
                       <label className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs font-semibold hover:bg-slate-50">
                         <input type="checkbox" checked={materialNeedTeamIds.length === 0} onChange={() => setMaterialNeedTeamIds([])} /> Tất cả đội
                       </label>

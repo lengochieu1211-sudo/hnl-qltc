@@ -27,4 +27,11 @@ assert.ok(warehouseSource.includes('linkedRoom?.floorId || item.sourceFloorId ||
 assert.ok(warehouseSource.includes('const finalIssueStructureGroupId = finalIssueFloor && normalizedStructureConfig.enabled'), 'warehouse submit must derive Khu/Khối from the authoritative floor');
 assert.ok(warehouseSource.includes('materialNeedGroupFloorIdSet && materialNeedGroupFloorIdSet.size === 0'), 'empty Khu/Khối material scope must not fail open to all floors');
 
+assert.ok(warehouseSource.includes('absolute left-0 right-0 z-40 mt-1 max-h-52'), 'material-need pickers must open as compact floating dropdowns');
+assert.ok(warehouseSource.includes('setShowMaterialFloorPicker(false); setShowMaterialRoomPicker(false);'), 'material-need picker must close sibling dropdowns');
+
+assert.ok(exportSource.includes('showReportStructureGroupPicker'), 'report scope must use compact dropdown picker state');
+assert.ok(exportSource.includes('reportFloorSummary'), 'report scope must render compact summaries instead of always-open checkbox columns');
+assert.ok(exportSource.includes('absolute left-0 right-0 z-40 mt-1 max-h-52'), 'report scope pickers must open as floating dropdowns');
+
 console.log('structure-group-golden: PASS');
