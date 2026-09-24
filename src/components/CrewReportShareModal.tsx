@@ -39,6 +39,16 @@ const dateSpanDays = (startDate: string, endDate: string): number => {
   return Math.floor((end - start) / 86400000) + 1;
 };
 
+const formatCrewRowDetail = (row?: CrewReportRow): string => {
+  if (!row?.reported) return '';
+  return [
+    row.floorSummary ? `Tầng: ${row.floorSummary}` : '',
+    row.workCategorySummary ? `Hạng mục: ${row.workCategorySummary}` : '',
+    row.workSubItemSummary ? `HM con: ${row.workSubItemSummary}` : '',
+    row.notesSummary ? `Ghi chú: ${row.notesSummary}` : '',
+  ].filter(Boolean).join(' · ');
+};
+
 async function renderCrewReportImages(params: {
   rows: CrewReportRow[];
   startDate: string;
@@ -272,6 +282,10 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
   const [endDate, setEndDate] = useState(initialEndDate || initialStartDate);
   const [projectFilter, setProjectFilter] = useState('all');
   const [teamFilter, setTeamFilter] = useState('all');
+  const [showUnreportedDates, setShowUnreportedDates] = useState(true);
+  const [showZeroDates, setShowZeroDates] = useState(true);
+  const [showSerialNumber, setShowSerialNumber] = useState(false);
+  const [showWorkDetails, setShowWorkDetails] = useState(false);
   const [busy, setBusy] = useState<'text' | 'image' | 'download' | ''>('');
   const [message, setMessage] = useState('');
 
@@ -282,6 +296,10 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
     setMode(initialStartDate === (initialEndDate || initialStartDate) ? 'single' : 'range');
     setProjectFilter('all');
     setTeamFilter('all');
+    setShowUnreportedDates(true);
+    setShowZeroDates(true);
+    setShowSerialNumber(false);
+    setShowWorkDetails(false);
     setMessage('');
   }, [isOpen, initialStartDate, initialEndDate]);
 
@@ -300,13 +318,27 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
     }
     return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1], 'vi-VN', { numeric: true, sensitivity: 'base' }));
   }, [allRows, projectFilter]);
-  const rows = useMemo(
-    () => filterCrewReportRows(allRows, projectFilter, teamFilter),
-    [allRows, projectFilter, teamFilter],
-  );
+  const rows = useMemo(() => {
+    const scopedRows = filterCrewReportRows(allRows, projectFilter, teamFilter);
+    const dateStats = new Map<string, { reported: number; headcount: number }>();
+    scopedRows.forEach((row) => {
+      const stat = dateStats.get(row.date) || { reported: 0, headcount: 0 };
+      if (row.reported) {
+        stat.reported += 1;
+        stat.headcount += row.dailyHeadcount || 0;
+      }
+      dateStats.set(row.date, stat);
+    });
+    return scopedRows.filter((row) => {
+      const stat = dateStats.get(row.date) || { reported: 0, headcount: 0 };
+      if (!showUnreportedDates && stat.reported === 0) return false;
+      if (!showZeroDates && stat.reported > 0 && stat.headcount === 0) return false;
+      return true;
+    });
+  }, [allRows, projectFilter, teamFilter, showUnreportedDates, showZeroDates]);
   const dailySummary = useMemo(() => summarizeCrewReportRows(rows), [rows]);
   const reportMatrices = useMemo(() => buildCrewReportMatrices(rows), [rows]);
-  const reportText = useMemo(() => buildCrewReportText({ rows, startDate, endDate: effectiveEndDate, title }), [rows, startDate, effectiveEndDate, title]);
+  const reportText = useMemo(() => buildCrewReportText({ rows, startDate, endDate: effectiveEndDate, title, includeSerial: showSerialNumber, includeDetails: showWorkDetails }), [rows, startDate, effectiveEndDate, title, showSerialNumber, showWorkDetails]);
 
   if (!isOpen) return null;
 
@@ -331,7 +363,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
     }
   };
 
-  const makeImages = async () => renderCrewReportImages({ rows, startDate, endDate: effectiveEndDate, title });
+  const makeImages = async () => renderCrewReportImages({ rows, startDate, endDate: effectiveEndDate, title, showSerialNumber, showWorkDetails });
 
   const shareImages = async () => {
     setBusy('image');
@@ -408,6 +440,16 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
                 {teamOptions.map(([key, name]) => <option key={key} value={key}>{name}</option>)}
               </select>
             </label>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3">
+            <div className="mb-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Tùy chọn hiển thị báo cáo</div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={showUnreportedDates} onChange={(event) => setShowUnreportedDates(event.target.checked)} /> Hiện ngày chưa báo</label>
+              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={showZeroDates} onChange={(event) => setShowZeroDates(event.target.checked)} /> Hiện ngày quân số = 0</label>
+              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={showSerialNumber} onChange={(event) => setShowSerialNumber(event.target.checked)} /> Thêm cột STT</label>
+              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><input type="checkbox" checked={showWorkDetails} onChange={(event) => setShowWorkDetails(event.target.checked)} /> Chi tiết Tầng / Hạng mục / HM con / Ghi chú</label>
+            </div>
           </div>
 
           {!rangeValid && <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">Khoảng ngày không hợp lệ hoặc vượt quá 93 ngày.</div>}
