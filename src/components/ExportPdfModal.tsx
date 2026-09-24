@@ -561,7 +561,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
         .forEach((name) => floorRefs.push({ floorId: '', floorName: name }));
     }
     if (floorRefs.length === 0) {
-      return selectedStructureGroupId === 'all' && isAllSelected;
+      return allStructureGroupsSelected && isAllSelected;
     }
     return floorRefs.some((ref) => floorMatchesScope(ref.floorId, ref.floorName));
   }).sort((a, b) => {
@@ -576,11 +576,8 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     return dateDesc || teamCmp || floorCmp;
   });
 
-  const selectedTeamForScope = selectedTeamId === 'all' ? undefined : teams.find((team) => team.id === selectedTeamId);
-  const hasScopedLocationFilter = selectedStructureGroupId !== 'all'
-    || !isAllSelected
-    || selectedRoomId !== 'all'
-    || selectedTeamId !== 'all';
+  const selectedTeamForScope = !allTeamsSelected && selectedTeamIds.length === 1 ? teams.find((team) => team.id === selectedTeamIds[0]) : undefined;
+  const hasScopedLocationFilter = !allStructureGroupsSelected || !isAllSelected || !allRoomsSelected || !allTeamsSelected;
   const workVolumeReportItems = sortedWorkVolumes
     .map((item) => {
       const detail = computeWorkVolumeDetailBreakdown(
@@ -604,12 +601,12 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   const displayContractor = contractorName && contractorName.trim() ? contractorName.trim() : '—';
   const displayInspector = inspectorName && inspectorName.trim() ? inspectorName.trim() : '—';
   const reportScopeParts = [
-    normalizedStructureConfig.enabled && selectedStructureGroupId !== 'all'
-      ? `${normalizedStructureConfig.label}: ${getStructureGroupName(selectedStructureGroupId, normalizedStructureConfig)}`
+    normalizedStructureConfig.enabled && !allStructureGroupsSelected
+      ? `${normalizedStructureConfig.label}: ${selectedStructureGroupIds.map((id) => getStructureGroupName(id, normalizedStructureConfig)).join(', ')}`
       : '',
     !isAllSelected ? scopedFloorPlans.map((floor) => floor.floorName).join(', ') : '',
-    selectedRoomId !== 'all' ? `Căn/Phòng: ${roomProgressList.find((room) => room.id === selectedRoomId)?.roomName || selectedRoomId}` : '',
-    selectedTeamId !== 'all' ? `Đội: ${teams.find((team) => team.id === selectedTeamId)?.name || selectedTeamId}` : '',
+    !allRoomsSelected ? `Căn/Phòng: ${selectedRoomIds.map((id) => roomProgressList.find((room) => room.id === id)?.roomName || id).join(', ')}` : '',
+    !allTeamsSelected ? `Đội: ${selectedTeamIds.map((id) => teams.find((team) => team.id === id)?.name || id).join(', ')}` : '',
   ].filter(Boolean);
   const reportScopeLabel = reportScopeParts.length > 0 ? reportScopeParts.join(' · ') : 'Toàn bộ công trình';
 
@@ -1759,10 +1756,10 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
               <button
                 type="button"
                 onClick={() => {
-                  setSelectedStructureGroupId('all');
+                  setSelectedStructureGroupIds(['all']);
                   setSelectedFloorIds(['all']);
-                  setSelectedRoomId('all');
-                  setSelectedTeamId('all');
+                  setSelectedRoomIds(['all']);
+                  setSelectedTeamIds(['all']);
                   setDefectStatusFilter('all');
                   setDefectCategoryFilter('all');
                   setDefectCreatorFilter('all');
@@ -1778,79 +1775,13 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 space-y-3">
-              <div className={`grid grid-cols-1 gap-2 ${normalizedStructureConfig.enabled ? 'sm:grid-cols-2 lg:grid-cols-4' : 'sm:grid-cols-2 lg:grid-cols-3'}`}>
+              <div className={`grid grid-cols-1 gap-2 ${normalizedStructureConfig.enabled ? 'sm:grid-cols-2 lg:grid-cols-4' : 'sm:grid-cols-3'}`}>
                 {normalizedStructureConfig.enabled && (
-                  <label className="space-y-1">
-                    <span className="block text-[10px] font-bold text-slate-600">{normalizedStructureConfig.label}</span>
-                    <select
-                      value={selectedStructureGroupId}
-                      onChange={(e) => {
-                        setSelectedStructureGroupId(e.target.value);
-                        setSelectedFloorIds(['all']);
-                        setSelectedRoomId('all');
-                      }}
-                      className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700"
-                    >
-                      <option value="all">Tất cả {normalizedStructureConfig.label}</option>
-                      {normalizedStructureConfig.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
-                    </select>
-                  </label>
+                  <label className="space-y-1"><span className="block text-[10px] font-bold text-slate-600">{normalizedStructureConfig.label}</span><div className="max-h-32 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 space-y-1.5"><label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer"><input type="checkbox" checked={allStructureGroupsSelected} onChange={() => handleToggleStructureGroup('all')} className="w-3.5 h-3.5 rounded text-indigo-600" /><span className="text-[10.5px]">Tất cả {normalizedStructureConfig.label}</span></label>{normalizedStructureConfig.groups.map((group) => <label key={group.id} className="flex items-center gap-2 text-slate-700 cursor-pointer"><input type="checkbox" checked={allStructureGroupsSelected || selectedStructureGroupIds.includes(group.id)} disabled={allStructureGroupsSelected} onChange={() => handleToggleStructureGroup(group.id)} className="w-3.5 h-3.5 rounded text-indigo-600 disabled:opacity-50" /><span className="text-[10.5px]">{group.name}</span></label>)}</div></label>
                 )}
-
-                <label className="space-y-1">
-                  <span className="block text-[10px] font-bold text-slate-600">Tầng</span>
-                  <div className="max-h-28 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 space-y-1.5">
-                    <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer">
-                      <input type="checkbox" checked={isAllSelected} onChange={() => handleToggleFloor('all')} className="w-3.5 h-3.5 rounded text-indigo-600" />
-                      <span className="text-[10.5px]">Tất cả tầng</span>
-                    </label>
-                    {groupScopedFloorPlans.map((floor) => {
-                      const checked = isAllSelected || selectedFloorIds.includes(floor.id);
-                      return (
-                        <label key={floor.id} className="flex items-center gap-2 text-slate-700 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            disabled={isAllSelected}
-                            onChange={() => handleToggleFloor(floor.id)}
-                            className="w-3.5 h-3.5 rounded text-indigo-600 disabled:opacity-50"
-                          />
-                          <span className="text-[10.5px]">{floor.floorName}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </label>
-
-                <label className="space-y-1">
-                  <span className="block text-[10px] font-bold text-slate-600">Căn / Phòng</span>
-                  <select
-                    value={selectedRoomId}
-                    onChange={(e) => setSelectedRoomId(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700"
-                  >
-                    <option value="all">Tất cả Căn / Phòng</option>
-                    {roomScopeOptions.map((room) => {
-                      const floorName = effectiveFloorPlans.find((floor) => floor.id === room.floorId)?.floorName || room.floorName || '';
-                      return <option key={room.id} value={room.id}>{floorName ? `${floorName} · ` : ''}{room.roomName}</option>;
-                    })}
-                  </select>
-                </label>
-
-                <label className="space-y-1">
-                  <span className="block text-[10px] font-bold text-slate-600">Đội thi công</span>
-                  <select
-                    value={selectedTeamId}
-                    onChange={(e) => {
-                      setSelectedTeamId(e.target.value);
-                      setSelectedRoomId('all');
-                    }}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700"
-                  >
-                    <option value="all">Tất cả đội</option>
-                    {teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
-                  </select>
-                </label>
+                <label className="space-y-1"><span className="block text-[10px] font-bold text-slate-600">Tầng</span><div className="max-h-32 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 space-y-1.5"><label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer"><input type="checkbox" checked={isAllSelected} onChange={() => handleToggleFloor('all')} className="w-3.5 h-3.5 rounded text-indigo-600" /><span className="text-[10.5px]">Tất cả tầng</span></label>{groupScopedFloorPlans.map((floor) => <label key={floor.id} className="flex items-center gap-2 text-slate-700 cursor-pointer"><input type="checkbox" checked={isAllSelected || selectedFloorIds.includes(floor.id)} disabled={isAllSelected} onChange={() => handleToggleFloor(floor.id)} className="w-3.5 h-3.5 rounded text-indigo-600 disabled:opacity-50" /><span className="text-[10.5px]">{floor.floorName}</span></label>)}</div></label>
+                <label className="space-y-1"><span className="block text-[10px] font-bold text-slate-600">Căn / Phòng</span><div className="max-h-32 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 space-y-1.5"><label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer"><input type="checkbox" checked={allRoomsSelected} onChange={() => (id) => setSelectedRoomIds((current) => toggleMulti(current, id, roomScopeOptions.map((room) => room.id)))('all')} className="w-3.5 h-3.5 rounded text-indigo-600" /><span className="text-[10.5px]">Tất cả Căn / Phòng</span></label>{roomScopeOptions.map((room) => { const floorName = effectiveFloorPlans.find((floor) => floor.id === room.floorId)?.floorName || room.floorName || ''; return <label key={room.id} className="flex items-center gap-2 text-slate-700 cursor-pointer"><input type="checkbox" checked={allRoomsSelected || selectedRoomIds.includes(room.id)} disabled={allRoomsSelected} onChange={() => setSelectedRoomIds((current) => toggleMulti(current, room.id, roomScopeOptions.map((item) => item.id)))} className="w-3.5 h-3.5 rounded text-indigo-600 disabled:opacity-50" /><span className="text-[10.5px]">{floorName ? `${floorName} · ` : ''}{room.roomName}</span></label>; })}</div></label>
+                <label className="space-y-1"><span className="block text-[10px] font-bold text-slate-600">Đội thi công</span><div className="max-h-32 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 space-y-1.5"><label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer"><input type="checkbox" checked={allTeamsSelected} onChange={() => (id) => setSelectedTeamIds((current) => toggleMulti(current, id, availableTeamOptions.map((team) => team.id)))('all')} className="w-3.5 h-3.5 rounded text-indigo-600" /><span className="text-[10.5px]">Tất cả đội</span></label>{availableTeamOptions.map((team) => <label key={team.id} className="flex items-center gap-2 text-slate-700 cursor-pointer"><input type="checkbox" checked={allTeamsSelected || selectedTeamIds.includes(team.id)} disabled={allTeamsSelected} onChange={() => setSelectedTeamIds((current) => toggleMulti(current, team.id, availableTeamOptions.map((item) => item.id)))} className="w-3.5 h-3.5 rounded text-indigo-600 disabled:opacity-50" /><span className="text-[10.5px]">{team.name}</span></label>)}</div></label>
               </div>
 
               <div className="border-t border-slate-200 pt-3">
