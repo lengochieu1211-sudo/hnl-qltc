@@ -1902,7 +1902,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             Không tìm thấy lịch sử giao dịch kho phù hợp
           </div>
         ) : (
-          filteredInventory.map((item) => (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
+          {filteredInventory.map((item) => (
             <div
               key={item.id}
               className={`bg-white rounded-2xl p-3.5 border transition-all duration-150 space-y-2 hover:border-slate-300 ${
@@ -2008,7 +2009,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 </div>
               </div>
             </div>
-          ))
+          ))}
+          </div>
         )}
       </div>
 

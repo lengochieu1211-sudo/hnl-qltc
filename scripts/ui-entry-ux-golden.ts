@@ -215,6 +215,13 @@ assert(warehouse.includes('lg:max-w-[1100px]') && warehouse.includes('left-0 lg:
 assert(roomHighlightUiForPc.includes('lg:max-w-[1200px]') && roomHighlightUiForPc.includes('left-0 lg:left-[84px]'), 'Room inspection editor must use the wide desktop/EXE sheet without covering the navigation rail');
 assert(defectUi.includes('title="Thao tác khác"') && defectUi.includes('Mặt bằng</span>'), 'Floor manager must group secondary actions and show a safe thumbnail fallback');
 
+assert((defectUi.match(/grid grid-cols-1 lg:grid-cols-2 gap-3 items-start/g) || []).length >= 2, 'PC/laptop floor-plan room and defect lists must use two columns while mobile stays one column');
+assert((crewUiForPc.match(/grid grid-cols-1 lg:grid-cols-2 gap-3 items-start/g) || []).length >= 2, 'PC/laptop crew daily logs and team directory must use two columns while mobile stays one column');
+assert(!crewUiForPc.includes('Lọc đội theo ${normalizedStructureConfig.label}'), 'Team directory must not show the redundant Khu/Khối selector on web/mobile/APK');
+assert(crewUiForPc.includes("setActiveSubTab('teams');") && crewUiForPc.includes("setSelectedStructureGroupId('all');"), 'Entering Team Directory must clear any prior crew Khu/Khối scope');
+assert(warehouse.includes('grid grid-cols-1 lg:grid-cols-2 gap-3 items-start'), 'PC/laptop warehouse transaction history must use two columns while mobile stays one column');
+assert(workVolumeUi.includes('grid grid-cols-1 lg:grid-cols-2 gap-3 items-start'), 'PC/laptop work-volume cards must use two columns while mobile stays one column');
+
 assert(workVolumeUi.includes('<Download className="w-3.5 h-3.5" /> Tải Excel để chỉnh sửa'), 'Work Volume download action keeps one consistent label across roles');
 assert(workVolumeUi.includes('{hasStructureManageAccess && ('), 'Work Volume must hide ADMIN-only import/create actions from Engineer/Viewer');
 

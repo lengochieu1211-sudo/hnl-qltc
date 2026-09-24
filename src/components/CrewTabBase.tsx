@@ -1470,7 +1470,10 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           <Calendar className="w-4 h-4" /> {t('daily_diary')}
         </button>
         <button
-          onClick={() => setActiveSubTab('teams')}
+          onClick={() => {
+            setActiveSubTab('teams');
+            setSelectedStructureGroupId('all');
+          }}
           className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-bold rounded-lg transition-all ${
             activeSubTab === 'teams' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
           }`}
@@ -1478,16 +1481,6 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           <Users className="w-4 h-4" /> {t('team_directory')}
         </button>
       </div>
-
-      {activeSubTab === 'teams' && normalizedStructureConfig.enabled && (
-        <div className="mb-3 relative sm:max-w-xs">
-          <MapPin className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-600 z-10" />
-          <select value={selectedStructureGroupId} onChange={(e) => setSelectedStructureGroupId(e.target.value)} aria-label={`Lọc đội theo ${normalizedStructureConfig.label}`} className="w-full rounded-xl border border-indigo-200 bg-white pl-9 pr-9 py-2.5 text-xs font-extrabold text-slate-800 shadow-sm">
-            <option value="all">Tất cả {normalizedStructureConfig.label}</option>
-            {normalizedStructureConfig.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
-          </select>
-        </div>
-      )}
 
       {activeSubTab === 'logs' ? (
         <>
@@ -1749,7 +1742,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                 <p className="text-[10px] text-slate-400 mt-1">Ấn nút "Ghi nhận quân số" hoặc "Sao chép quân số" để điền nhanh.</p>
               </div>
             ) : (
-              sortedFilteredRecords.map((record) => (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
+              {sortedFilteredRecords.map((record) => (
                 <div 
                   key={record.id}
                   data-crew-record-id={record.id}
@@ -1863,7 +1857,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     </div>
                   </div>
                 </div>
-              ))
+              ))}
+              </div>
             )}
           </div>
         </>
@@ -1991,7 +1986,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                 <p className="text-[10px] text-slate-400 mt-1">{canManageTeamDirectory ? 'Bấm Thêm đội để bắt đầu.' : 'Chỉ ADMIN được quản lý danh mục đội thi công.'}</p>
               </div>
             ) : (
-              sortedTeams.map((team) => {
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
+              {sortedTeams.map((team) => {
                 const stat = allTeamStatsMap[team.id];
                 if (!stat) return null;
                 const {
@@ -2217,7 +2213,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     </div>}
                   </div>
                 );
-              })
+              })}
+              </div>
             )}
           </div>
         </div>

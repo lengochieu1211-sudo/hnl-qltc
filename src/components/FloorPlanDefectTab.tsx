@@ -7546,6 +7546,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 </div>
                 )}
 
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
                 {sortedFloorRooms.map((room, index) => {
                   const roomExpanded = expandedRoomIds.has(room.id);
                   const operationalSubItems = getOperationalRoomSubItems(room);
@@ -7908,6 +7909,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 </div>
                   );
                 })}
+                </div>
               </>
             )}
           </div>
@@ -8008,7 +8010,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               Chưa có Defect nào được ghi nhận trên mặt bằng này 🎉
             </div>
           ) : (
-            filteredDefects.map((defect) => {
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
+            {filteredDefects.map((defect) => {
               const overdueInfo = getDefectOverdueInfo(defect);
               const contactTeam = resolveDefectTeam(defect, teams);
               const defectRoomName = defect.roomId
@@ -8152,7 +8155,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   </div>
                 </div>
               );
-            })
+            })}
+            </div>
           )}
         </div>
       )}

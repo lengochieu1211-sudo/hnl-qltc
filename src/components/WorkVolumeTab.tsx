@@ -764,7 +764,8 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
             Chưa có hạng mục khối lượng nào phù hợp
           </div>
         ) : (
-          sortedFilteredVolumes.map((item) => {
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
+          {sortedFilteredVolumes.map((item) => {
             const itemPercent = item.planned > 0 ? Math.min(100, Math.round((item.actual / item.planned) * 100)) : 0;
             const isDone = item.planned > 0 && item.actual >= item.planned;
 
@@ -981,7 +982,8 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                 </div>
               </div>
             );
-          })
+          })}
+          </div>
         )}
       </div>
 
