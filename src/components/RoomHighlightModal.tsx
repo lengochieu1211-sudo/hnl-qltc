@@ -1105,8 +1105,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
-      <div className="bg-white w-full sm:max-w-2xl md:max-w-3xl lg:max-w-4xl rounded-t-3xl sm:rounded-2xl p-4 sm:p-5 lg:p-6 space-y-4 max-h-[92vh] flex flex-col border border-slate-100 shadow-2xl">
+    <div className="fixed inset-y-0 right-0 left-0 lg:left-[84px] bg-slate-900/60 backdrop-blur-xs z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
+      <div className="bg-white w-full sm:max-w-3xl lg:max-w-[1200px] xl:max-w-[1280px] rounded-t-3xl sm:rounded-2xl p-4 sm:p-5 lg:p-6 space-y-4 max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] flex flex-col border border-slate-100 shadow-2xl overflow-hidden">
         
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-100 pb-3 shrink-0">
@@ -1130,7 +1130,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
         </div>
 
         {/* Form Body */}
-        <form ref={formRef} onSubmit={handleSubmit} className="flex-1 overflow-y-auto overflow-x-hidden space-y-3.5 pr-1 text-xs">
+        <form ref={formRef} onSubmit={handleSubmit} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain space-y-3.5 pr-1 text-xs">
           {structureReadOnly && (
             <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-[11px] font-semibold text-indigo-800">
               Kỹ sư chỉ cập nhật tiến độ, nghiệm thu, đội thi công, hạn hoàn thành và ghi chú. Tên Căn/Phòng, khối lượng và hình học mặt bằng do Admin quản lý.
@@ -1620,7 +1620,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                       const originalIndex = subItems.findIndex(s => s.id === item.id);
                       return (
                         <div key={`${item.id}-${originalIndex}`} className="bg-white p-2.5 sm:p-3 rounded-xl border border-slate-200 shadow-2xs space-y-2.5 lg:space-y-0 lg:grid lg:grid-cols-12 lg:gap-2.5 lg:items-start overflow-x-hidden">
-                          <div className="flex items-center justify-between gap-1.5 min-w-0 lg:col-span-4">
+                          <div className="flex items-center justify-between gap-1.5 min-w-0 lg:col-span-3">
                             <div className="flex items-center gap-2 shrink-0">
                               <input
                                 type="checkbox"
@@ -1724,7 +1724,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                           </div>
 
                           {/* Status buttons: Thi công */}
-                          <div className="lg:col-span-2">
+                          <div className="lg:col-span-3">
                             <span className="text-[10.5px] font-bold text-slate-500 block mb-1">▶ Tiến độ thi công:</span>
                             <div className="grid grid-cols-3 gap-1.5 mb-1.5">
                               {(['Chưa làm', 'Đang làm', 'Đã hoàn thành'] as AcceptanceStatus[]).map((st) => (

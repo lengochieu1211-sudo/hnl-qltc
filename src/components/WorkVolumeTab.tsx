@@ -987,9 +987,9 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
 
       {/* Add / Edit Work Volume Modal */}
       {hasStructureManageAccess && (showAddForm || editingVolume !== null) && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="bg-white w-full sm:max-w-xl md:max-w-2xl lg:max-w-3xl rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+        <div className="fixed inset-y-0 right-0 left-0 lg:left-[84px] bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white w-full sm:max-w-2xl lg:max-w-[1100px] rounded-t-3xl sm:rounded-2xl max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col shadow-2xl">
+            <div className="shrink-0 flex items-center justify-between border-b border-slate-100 px-5 pt-5 pb-3">
               <h3 className="text-base font-bold text-slate-900">
                 {editingVolume ? 'Sửa hạng mục khối lượng' : 'Thêm hạng mục khối lượng'}
               </h3>
@@ -1001,7 +1001,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleAddSubmit} className="grid grid-cols-1 lg:grid-cols-6 gap-3 text-xs">
+            <form onSubmit={handleAddSubmit} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-5 pt-4 grid grid-cols-1 lg:grid-cols-6 gap-3 text-xs">
               <div className="lg:col-span-6">
                 <label className="block text-slate-700 font-bold mb-1">Tên hạng mục Công Việc *</label>
                 <input
@@ -1014,7 +1014,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 lg:col-span-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 lg:col-span-6">
                 <div>
                   <label className="block text-slate-700 font-bold mb-1 flex items-center justify-between">
                     <span>Vị trí tầng</span>
@@ -1143,7 +1143,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               </div>
 
               {hasFinancialAccess && (
-                <div>
+                <div className="lg:col-span-3">
                   <label className="block text-slate-700 font-bold mb-1 flex items-center justify-between">
                     <span>Đơn giá VNĐ / {unit}</span>
                     {liveUnitPriceCalc !== null && (
@@ -1174,7 +1174,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               )}
 
               {/* Ngày Hạn Định (DueDate) */}
-              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/80 space-y-1.5 lg:col-span-3">
+              <div className={`bg-slate-50 p-3 rounded-2xl border border-slate-200/80 space-y-1.5 ${hasFinancialAccess ? 'lg:col-span-3' : 'lg:col-span-6'}`}>
                 <div className="flex items-center justify-between">
                   <label className="text-slate-800 font-extrabold text-xs flex items-center gap-1.5">
                     <Calendar className="w-4 h-4 text-indigo-600" />
@@ -1229,17 +1229,17 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                 </div>
               </div>
 
-              <div className="flex gap-2 pt-2 lg:col-span-6">
+              <div className="sticky bottom-0 z-10 -mx-5 -mb-5 mt-1 flex gap-2 border-t border-slate-100 bg-white px-5 py-4 lg:col-span-6">
                 <button
                   type="button"
                   onClick={handleCloseModal}
-                  className="flex-1 py-3 bg-slate-100 rounded-xl font-bold text-slate-600"
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 rounded-xl font-bold text-slate-600 transition"
                 >
                   Hủy
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-md"
+                  className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-md"
                 >
                   {editingVolume ? 'Cập nhật hạng mục' : 'Tạo hạng mục'}
                 </button>

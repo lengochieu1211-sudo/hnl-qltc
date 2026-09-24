@@ -2229,7 +2229,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       {canOperate && showAddLogModal && (
         <div className={`fixed inset-y-0 right-0 ${crewModalRailInsetClass} z-50 flex items-center justify-center px-2 py-2 sm:p-4 bg-slate-900/60 backdrop-blur-sm`}>
           <div 
-            className="bg-white rounded-xl shadow-xl w-full max-w-sm sm:max-w-2xl lg:max-w-4xl max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200"
+            className="bg-white rounded-xl shadow-xl w-full max-w-sm sm:max-w-2xl lg:max-w-[1180px] xl:max-w-[1240px] max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
@@ -2255,7 +2255,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             </div>
 
             {/* Modal Form */}
-            <form onSubmit={handleLogSubmit} className="flex-1 min-h-0 p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3.5 overflow-y-auto overscroll-contain">
+            <form onSubmit={handleLogSubmit} className="flex-1 min-h-0 p-4 lg:p-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 overflow-y-auto overscroll-contain">
               {/* Date (Informative) */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Ngày Ghi Nhận</label>
@@ -2329,6 +2329,26 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                 />
               </div>
 
+              {normalizedStructureConfig.enabled && (
+                <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-3">
+                  <label className="block text-[10px] font-extrabold uppercase tracking-wider text-indigo-700 mb-1">
+                    {normalizedStructureConfig.label}
+                  </label>
+                  <select
+                    value={logStructureGroupId}
+                    onChange={(e) => { void handleLogStructureGroupChange(e.target.value); }}
+                    className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs font-bold text-slate-800"
+                  >
+                    {normalizedStructureConfig.groups.map((group) => (
+                      <option key={group.id} value={group.id}>{group.name}</option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-[9.5px] text-indigo-600">
+                    Một bản ghi quân số chỉ thuộc một {normalizedStructureConfig.label}; các tầng bên dưới phải cùng nhóm.
+                  </p>
+                </div>
+              )}
+
               {/* Per-shift Worker Count */}
               <div className="md:col-span-2 lg:col-span-4">
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Quân số theo ca</label>
@@ -2352,26 +2372,6 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                 </div>
                 <div className="mt-1.5 text-[10px] text-slate-400">Quân số ngày dùng giá trị lớn nhất giữa các ca: <strong>{formatDecimal(workerCount)}</strong> người.</div>
               </div>
-
-              {normalizedStructureConfig.enabled && (
-                <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-3">
-                  <label className="block text-[10px] font-extrabold uppercase tracking-wider text-indigo-700 mb-1">
-                    {normalizedStructureConfig.label}
-                  </label>
-                  <select
-                    value={logStructureGroupId}
-                    onChange={(e) => { void handleLogStructureGroupChange(e.target.value); }}
-                    className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs font-bold text-slate-800"
-                  >
-                    {normalizedStructureConfig.groups.map((group) => (
-                      <option key={group.id} value={group.id}>{group.name}</option>
-                    ))}
-                  </select>
-                  <p className="mt-1 text-[9.5px] text-indigo-600">
-                    Một bản ghi quân số chỉ thuộc một {normalizedStructureConfig.label}; các tầng bên dưới phải cùng nhóm.
-                  </p>
-                </div>
-              )}
 
               {/* Multi-floor & Multi-category Work Configuration */}
               <div className="space-y-3 bg-slate-50 p-3 rounded-xl border border-slate-200 md:col-span-2 lg:col-span-4">
@@ -2547,7 +2547,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
 
               {/* Buttons */}
-              <div className="flex gap-2.5 pt-2 md:col-span-2 lg:col-span-4">
+              <div className="sticky bottom-0 z-10 -mx-4 lg:-mx-5 -mb-4 lg:-mb-5 mt-1 flex gap-2.5 border-t border-slate-100 bg-white px-4 lg:px-5 py-3 md:col-span-2 lg:col-span-4">
                 <button
                   type="button"
                   onClick={async () => {
@@ -2929,7 +2929,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top))', paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}
           >
             <div 
-              className="bg-slate-50 rounded-2xl shadow-2xl w-full sm:max-w-3xl lg:max-w-5xl overflow-hidden flex flex-col max-h-[calc(100dvh-1rem)] sm:max-h-[92vh] border border-slate-200 animate-in fade-in zoom-in-95 duration-200"
+              className="bg-slate-50 rounded-2xl shadow-2xl w-full sm:max-w-3xl lg:max-w-[1180px] xl:max-w-[1280px] overflow-hidden flex flex-col max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] border border-slate-200 animate-in fade-in zoom-in-95 duration-200"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Header */}

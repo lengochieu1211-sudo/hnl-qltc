@@ -2055,9 +2055,9 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
       {/* Add Form Modal */}
       {hasEditAccess && showAddForm && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="bg-white w-full sm:max-w-xl md:max-w-2xl lg:max-w-3xl rounded-t-3xl sm:rounded-2xl p-5 lg:p-6 space-y-4 max-h-[90vh] overflow-y-auto animate-in slide-in-from-bottom duration-200">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div className="fixed inset-y-0 right-0 left-0 lg:left-[84px] bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white w-full sm:max-w-2xl lg:max-w-[1100px] rounded-t-3xl sm:rounded-2xl max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-200">
+            <div className="shrink-0 flex items-center justify-between border-b border-slate-100 px-5 lg:px-6 pt-5 lg:pt-6 pb-3">
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <PackageCheck className="w-5 h-5 text-blue-600" />
                 {editingInventory ? 'Chỉnh Sửa Phiếu Kho' : 'Tạo phiếu Nhập / Xuất kho'}
@@ -2070,7 +2070,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-6 gap-3 text-xs">
+            <form onSubmit={handleSubmit} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 lg:px-6 pb-5 lg:pb-6 pt-4 grid grid-cols-1 lg:grid-cols-6 gap-3 text-xs">
               {/* Type Toggle */}
               <div className="lg:col-span-2">
                 <label className="block text-slate-700 font-bold mb-1">Loại Phiếu</label>
@@ -2399,11 +2399,11 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               )}
 
               {/* Buttons */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 lg:col-span-6">
+              <div className="sticky bottom-0 z-10 -mx-5 lg:-mx-6 -mb-5 lg:-mb-6 mt-1 grid grid-cols-1 sm:grid-cols-3 gap-2 border-t border-slate-100 bg-white px-5 lg:px-6 py-4 lg:col-span-6">
                 <button
                   type="button"
                   onClick={() => setShowAddForm(false)}
-                  className="py-3 bg-slate-100 hover:bg-slate-200 rounded-xl font-bold text-slate-700"
+                  className="py-2.5 bg-slate-100 hover:bg-slate-200 rounded-xl font-bold text-slate-700"
                 >
                   Hủy
                 </button>
@@ -2412,7 +2412,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     type="submit"
                     name="submitMode"
                     value="continue"
-                    className="py-3 rounded-xl font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 active:scale-95 transition-all"
+                    className="py-2.5 rounded-xl font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 active:scale-95 transition-all"
                   >
                     Lưu & thêm tiếp
                   </button>
@@ -2421,7 +2421,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   type="submit"
                   name="submitMode"
                   value="close"
-                  className={`py-3 rounded-xl font-bold text-white shadow-md active:scale-95 transition-all ${
+                  className={`py-2.5 rounded-xl font-bold text-white shadow-md active:scale-95 transition-all ${
                     type === 'in' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-600 hover:bg-amber-700'
                   }`}
                 >

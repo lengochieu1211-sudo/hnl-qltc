@@ -4797,8 +4797,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <span className="font-extrabold text-indigo-600">
                 {activeFloor
                   ? normalizedStructureConfig.enabled
-                    ? `${getFloorStructureGroupName(activeFloor, normalizedStructureConfig)} → ${activeFloor.floorName} → Mặt bằng`
-                    : `${activeFloor.floorName} → Mặt bằng`
+                    ? `${getFloorStructureGroupName(activeFloor, normalizedStructureConfig)} → ${activeFloor.floorName}`
+                    : `${activeFloor.floorName}`
                   : 'Chưa có tầng'}
               </span>
             </div>
@@ -5319,8 +5319,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   : '📌 Mặt bằng Defect'}{' '}
                 · <span className="text-indigo-700">
                   {normalizedStructureConfig.enabled
-                    ? `${getFloorStructureGroupName(activeFloor, normalizedStructureConfig)} → ${activeFloor.floorName} → Mặt bằng`
-                    : `${activeFloor.floorName} → Mặt bằng`}
+                    ? `${getFloorStructureGroupName(activeFloor, normalizedStructureConfig)} → ${activeFloor.floorName}`
+                    : `${activeFloor.floorName}`}
                 </span>
               </span>
             </div>
@@ -9198,7 +9198,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       {/* MANAGE FLOORS MODAL (Tùy Chỉnh, Đổi Tên, Nhân bản, Xóa tầng) */}
       {canManageStructure && showManageFloorsModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
-          <div className="bg-white w-full sm:w-[90vw] lg:w-[88vw] max-w-7xl rounded-t-3xl sm:rounded-2xl p-4 sm:p-5 space-y-4 max-h-[92vh] overflow-y-auto shadow-2xl">
+          <div className="bg-white w-full sm:w-[92vw] lg:w-[90vw] max-w-[1360px] rounded-t-3xl sm:rounded-2xl p-4 sm:p-5 space-y-4 max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
@@ -9210,7 +9210,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <button onClick={() => { setEditingStructureLabel(false); setEditingStructureLabelValue(''); setEditingStructureGroupId(null); setEditingStructureGroupName(''); setEditingFloorId(null); setShowManageFloorsModal(false); }} className="font-bold text-slate-400 hover:text-slate-600 text-lg">✕</button>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-[minmax(260px,0.34fr)_minmax(0,0.66fr)] gap-4 items-start">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pr-1 grid grid-cols-1 lg:grid-cols-[minmax(280px,0.30fr)_minmax(0,0.70fr)] gap-4 items-start">
             <div className="lg:sticky lg:top-0">
             {onStructureConfigChange && (
               <div className="rounded-2xl border border-indigo-200 bg-indigo-50/50 p-3 space-y-3">
@@ -9514,12 +9514,17 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   >
                     <div className="flex items-center gap-3">
                       <div className="w-12 h-12 rounded-xl bg-slate-100 border border-slate-200 overflow-hidden shrink-0 relative group">
-                        {fp.imageUrl ? (
-                          <img src={fp.imageUrl} alt={fp.floorName} className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-[10px] text-slate-400 font-bold bg-slate-100">
-                            No img
-                          </div>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-0.5 text-[9px] text-slate-400 font-bold bg-slate-100">
+                          <ImageIcon className="w-4 h-4" />
+                          <span>Mặt bằng</span>
+                        </div>
+                        {fp.imageUrl && (
+                          <img
+                            src={fp.imageUrl}
+                            alt={fp.floorName}
+                            className="relative z-10 w-full h-full object-cover"
+                            onError={(event) => { event.currentTarget.style.display = 'none'; }}
+                          />
                         )}
                       </div>
 
@@ -9629,37 +9634,44 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         Bản vẽ
                       </button>
 
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          setEditingFloorId(fp.id);
-                          setEditingFloorName(fp.floorName);
-                        }}
-                        className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-all"
-                        title="Đổi tên tầng"
-                      >
-                        <Edit3 className="w-3.5 h-3.5 text-indigo-600" />
-                        Tên
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleDuplicateFloor(fp.id, fp.floorName)}
-                        className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-all"
-                        title="Sao chép nhân bản mặt bằng tầng kèm các vùng highlight"
-                      >
-                        <Copy className="w-3.5 h-3.5 text-indigo-600" />
-                        Nhân bản
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteFloor(fp.id, fp.floorName)}
-                        className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-all"
-                        title="Xóa tầng này"
-                      >
-                        <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-                      </button>
+                      <details className="relative group">
+                        <summary className="list-none cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all select-none" title="Thao tác khác">
+                          •••
+                        </summary>
+                        <div className="absolute right-0 top-full z-30 mt-1 w-40 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl">
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              setEditingFloorId(fp.id);
+                              setEditingFloorName(fp.floorName);
+                              event.currentTarget.closest('details')?.removeAttribute('open');
+                            }}
+                            className="w-full rounded-lg px-2.5 py-2 text-left text-xs font-bold text-slate-700 hover:bg-slate-100 flex items-center gap-2"
+                          >
+                            <Edit3 className="w-3.5 h-3.5 text-indigo-600" /> Đổi tên
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              handleDuplicateFloor(fp.id, fp.floorName);
+                              event.currentTarget.closest('details')?.removeAttribute('open');
+                            }}
+                            className="w-full rounded-lg px-2.5 py-2 text-left text-xs font-bold text-indigo-700 hover:bg-indigo-50 flex items-center gap-2"
+                          >
+                            <Copy className="w-3.5 h-3.5" /> Nhân bản
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              handleDeleteFloor(fp.id, fp.floorName);
+                              event.currentTarget.closest('details')?.removeAttribute('open');
+                            }}
+                            className="w-full rounded-lg px-2.5 py-2 text-left text-xs font-bold text-rose-700 hover:bg-rose-50 flex items-center gap-2"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" /> Xóa tầng
+                          </button>
+                        </div>
+                      </details>
                     </div>
                   </div>
                   </div>

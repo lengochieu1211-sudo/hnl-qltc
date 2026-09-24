@@ -184,7 +184,7 @@ const workVolumeUi = read('src/components/WorkVolumeTab.tsx');
 const crewUiForPc = read('src/components/CrewTabBase.tsx');
 const roomHighlightUiForPc = read('src/components/RoomHighlightModal.tsx');
 assert(
-  crewUiForPc.includes('handleLogSubmit} className="flex-1 min-h-0 p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3.5 overflow-y-auto overscroll-contain'),
+  crewUiForPc.includes('handleLogSubmit} className="flex-1 min-h-0 p-4 lg:p-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 overflow-y-auto overscroll-contain'),
   'PC crew log must use the fourth column for Khu/Khối and keep the body scrollable inside the viewport'
 );
 assert(
@@ -197,18 +197,23 @@ assert(
 );
 assert(
   crewUiForPc.includes('max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)]')
-    && crewUiForPc.includes('flex-1 min-h-0 p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4')
+    && crewUiForPc.includes('flex-1 min-h-0 p-4 lg:p-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4')
     && !crewUiForPc.includes('overflow-y-auto max-h-[80vh]'),
   'Crew add/edit modal must fit the real viewport height and scroll only its body on laptop/EXE'
 );
 assert(
-  roomHighlightUiForPc.includes('min-w-0 lg:col-span-4'),
-  'PC room inspection row must reserve enough width for sub-item name/edit controls'
+  roomHighlightUiForPc.includes('min-w-0 lg:col-span-3'),
+  'PC room inspection row must keep the four desktop regions balanced'
 );
 assert(
   roomHighlightUiForPc.includes('lg:col-span-3 lg:border-t-0 lg:pt-0'),
   'PC room inspection status block must stay compact enough to preserve the wider item name'
 );
+
+assert(workVolumeUi.includes('lg:max-w-[1100px]') && workVolumeUi.includes('left-0 lg:left-[84px]'), 'Work Volume editor must use desktop width while reserving the left rail');
+assert(warehouse.includes('lg:max-w-[1100px]') && warehouse.includes('left-0 lg:left-[84px]'), 'Warehouse editor must use desktop width while reserving the left rail');
+assert(roomHighlightUiForPc.includes('lg:max-w-[1200px]') && roomHighlightUiForPc.includes('left-0 lg:left-[84px]'), 'Room inspection editor must use the wide desktop/EXE sheet without covering the navigation rail');
+assert(defectUi.includes('title="Thao tác khác"') && defectUi.includes('Mặt bằng</span>'), 'Floor manager must group secondary actions and show a safe thumbnail fallback');
 
 assert(workVolumeUi.includes('<Download className="w-3.5 h-3.5" /> Tải Excel để chỉnh sửa'), 'Work Volume download action keeps one consistent label across roles');
 assert(workVolumeUi.includes('{hasStructureManageAccess && ('), 'Work Volume must hide ADMIN-only import/create actions from Engineer/Viewer');
