@@ -2846,6 +2846,14 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
           return naturalCompare(a.id, b.id);
         });
+        const latestTeamLog = [...teamLogs].sort((a, b) => compareDateValues(b.date, a.date))[0];
+        const latestTeamShifts = latestTeamLog ? getCrewShiftCounts(latestTeamLog) : { morning: 0, afternoon: 0, evening: 0 };
+        const latestTeamHeadcount = latestTeamLog
+          ? Math.max(Number(latestTeamLog.workerCount) || 0, latestTeamShifts.morning, latestTeamShifts.afternoon, latestTeamShifts.evening)
+          : 0;
+        const issuedMaterialCount = selectedTeamMaterialReconciliation.filter((line) => line.issuedQty > 0).length;
+        const materialVarianceCount = selectedTeamMaterialReconciliation.filter((line) => Math.abs(line.varianceQty) > 0.01).length;
+
 
         // Collect unique floors where this team worked from daily logs
         const loggedFloors = Array.from(new Set(teamLogs.map(l => l.floorName).filter(Boolean)));
@@ -2914,7 +2922,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
 
               {/* KPI Summary Strip */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 p-3 bg-white border-b border-slate-200 text-xs">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 p-3 bg-white border-b border-slate-200 text-xs">
                 <button type="button" onClick={() => setDetailModalTab('rooms')} className="bg-indigo-50/80 border border-indigo-100 p-2 rounded-xl text-center hover:bg-indigo-100/80 transition cursor-pointer" title="Xem các Căn/Phòng đội đang làm">
                   <div className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider">Căn / Phòng & Tầng</div>
                   <div className="text-sm sm:text-base font-black text-indigo-900 mt-0.5 flex items-center justify-center gap-1">
@@ -2940,17 +2948,6 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     {stat.completedVolumeByUnit && Object.keys(stat.completedVolumeByUnit).length > 0
                       ? `NT: ${Object.entries(stat.completedVolumeByUnit).map(([unit, val]) => `${formatDecimal(Number(val))} ${unit}`).join(' + ')}`
                       : (inspectedVol > 0 ? `NT: ${formatDecimal(inspectedVol)} m²` : `Khung: ${formatDecimal(completedFrameVol)} m² | Tấm: ${formatDecimal(completedBoardVol)} m²`)}
-                  </div>
-                </button>
-
-                <button type="button" onClick={() => setDetailModalTab('materials')} className="bg-cyan-50/80 border border-cyan-200 p-2 rounded-xl text-center hover:bg-cyan-100/80 transition cursor-pointer" title="Đối chiếu vật tư đã xuất với khối lượng thi công × định mức">
-                  <div className="text-[10px] font-bold text-cyan-700 uppercase tracking-wider">Vật tư đối chiếu</div>
-                  <div className="text-sm sm:text-base font-black text-cyan-950 mt-0.5 flex items-center justify-center gap-1">
-                    <PackageSearch className="w-3.5 h-3.5 text-cyan-700" />
-                    <span>{selectedTeamMaterialReconciliation.length} loại</span>
-                  </div>
-                  <div className="text-[10px] text-cyan-700 mt-0.5 font-medium">
-                    {selectedTeamMaterialReconciliation.filter((line) => line.issuedQty > 0).length} loại đã xuất cho đội
                   </div>
                 </button>
 
@@ -2983,6 +2980,41 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   </div>
                   <div className="text-[10px] text-slate-500 mt-0.5 font-medium">
                     {teamLogs.length} lượt nhật ký
+                  </div>
+                </button>
+              </div>
+
+              {/* Crew overview: manpower on the left, material reconciliation on the right */}
+              <div className="grid grid-cols-1 gap-2 border-b border-slate-200 bg-slate-50/70 p-3 lg:grid-cols-2">
+                <button type="button" onClick={() => setDetailModalTab('logs')} className="rounded-xl border border-indigo-200 bg-white p-3 text-left transition hover:bg-indigo-50/60">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider text-indigo-700">
+                      <Users className="h-4 w-4" /> Thống kê quân số
+                    </div>
+                    <span className="text-[10px] font-bold text-slate-400">{teamLogs.length} lượt nhật ký</span>
+                  </div>
+                  {latestTeamLog ? (
+                    <div className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
+                      <span className="text-slate-500">Gần nhất</span><span className="font-extrabold text-slate-900">{formatDateDDMMYYYY(latestTeamLog.date)} · {latestTeamHeadcount} người</span>
+                      <span className="text-slate-500">Theo ca</span><span className="font-semibold text-slate-700">Sáng {latestTeamShifts.morning} · Chiều {latestTeamShifts.afternoon} · Tối {latestTeamShifts.evening}</span>
+                      <span className="text-slate-500">Tổng công</span><span className="font-extrabold text-indigo-700">{formatDecimal(totalWorkdays)} công</span>
+                    </div>
+                  ) : (
+                    <div className="mt-2 text-[11px] font-semibold text-slate-500">Chưa có bản ghi quân số của đội trong phạm vi đang xem.</div>
+                  )}
+                </button>
+
+                <button type="button" onClick={() => setDetailModalTab('materials')} className="rounded-xl border border-cyan-200 bg-white p-3 text-left transition hover:bg-cyan-50/60">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider text-cyan-700">
+                      <PackageSearch className="h-4 w-4" /> Vật tư đối chiếu
+                    </div>
+                    <span className="text-[10px] font-bold text-slate-400">{selectedTeamMaterialReconciliation.length} loại</span>
+                  </div>
+                  <div className="mt-2 grid grid-cols-3 gap-2 text-center text-[10px]">
+                    <div className="rounded-lg bg-cyan-50 p-2"><div className="font-black text-cyan-900">{issuedMaterialCount}</div><div className="mt-0.5 text-cyan-700">Đã xuất</div></div>
+                    <div className="rounded-lg bg-slate-50 p-2"><div className="font-black text-slate-900">{selectedTeamMaterialReconciliation.length}</div><div className="mt-0.5 text-slate-600">Theo dõi</div></div>
+                    <div className={`rounded-lg p-2 ${materialVarianceCount > 0 ? 'bg-amber-50' : 'bg-emerald-50'}`}><div className={`font-black ${materialVarianceCount > 0 ? 'text-amber-800' : 'text-emerald-800'}`}>{materialVarianceCount}</div><div className={`mt-0.5 ${materialVarianceCount > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>Có chênh lệch</div></div>
                   </div>
                 </button>
               </div>
