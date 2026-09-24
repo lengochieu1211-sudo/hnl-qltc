@@ -217,7 +217,7 @@ assert(defectUi.includes('title="Thao tác khác"') && defectUi.includes('Mặt 
 
 assert((defectUi.match(/grid grid-cols-1 lg:grid-cols-2 gap-3 items-start/g) || []).length >= 2, 'PC/laptop floor-plan room and defect lists must use two columns while mobile stays one column');
 assert((crewUiForPc.match(/grid grid-cols-1 lg:grid-cols-2 gap-3 items-start/g) || []).length >= 3, 'PC/laptop crew daily logs, team directory, and team room cards must use two columns while mobile stays one column');
-assert((crewUiForPc.match(/grid grid-cols-1 lg:grid-cols-2 gap-2\\.5 items-start/g) || []).length >= 2, 'PC/laptop Team Info defect and work-log lists must use two columns while mobile/APK stays one column');
+assert(crewUiForPc.split('grid grid-cols-1 lg:grid-cols-2 gap-2.5 items-start').length - 1 >= 2, 'PC/laptop Team Info defect and work-log lists must use two columns while mobile/APK stays one column');
 assert(crewUiForPc.includes('hidden 2xl:grid 2xl:grid-cols-2 gap-2 border-b'), 'Team Info overview widgets must stay hidden on ordinary laptop/EXE widths so tabs are not pushed below the fold');
 assert(!crewUiForPc.includes('Lọc đội theo ${normalizedStructureConfig.label}'), 'Team directory must not show the redundant Khu/Khối selector on web/mobile/APK');
 assert(crewUiForPc.includes("setActiveSubTab('teams');") && crewUiForPc.includes("setSelectedStructureGroupId('all');"), 'Entering Team Directory must clear any prior crew Khu/Khối scope');
