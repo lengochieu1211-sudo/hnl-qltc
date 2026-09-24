@@ -318,9 +318,6 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
   const getRecordStructureGroupIds = (record: CrewRecord): string[] => {
     const ids = new Set<string>();
-    if (record.structureGroupId && normalizedStructureConfig.groups.some((group) => group.id === record.structureGroupId)) {
-      ids.add(record.structureGroupId);
-    }
     const floorRefs = [
       ...(record.floorId ? [record.floorId] : []),
       ...((record.floorWorks || []).map((work) => work.floorId)),
@@ -329,6 +326,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       const floor = floorById.get(floorId);
       if (floor) ids.add(resolveFloorStructureGroupId(floor, normalizedStructureConfig));
     });
+    // Floor linkage is authoritative after Khu/Khối is introduced. An explicit
+    // structureGroupId is only a fallback for records that have no resolvable floor.
+    // This prevents a stale legacy group id from making one record appear in two groups
+    // after its floor is moved to another Khu/Khối.
+    if (ids.size === 0 && record.structureGroupId && normalizedStructureConfig.groups.some((group) => group.id === record.structureGroupId)) {
+      ids.add(record.structureGroupId);
+    }
     if (ids.size === 0) ids.add(normalizedStructureConfig.defaultGroupId);
     return Array.from(ids);
   };
@@ -949,18 +953,19 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     const totalWorkers = Object.values(teamMaxMap).reduce((sum, count) => sum + count, 0);
     const totalTeams = teamSet.size;
 
-    // Distribution by floor
-    const floorDistribution: { [key: string]: { name: string; count: number } } = {};
+    // Distribution by floor must use the same daily headcount semantics as the total:
+    // max headcount per team/floor, not a raw sum of repeated shift records.
+    const floorTeamMax = new Map<string, { name: string; teams: Map<string, number> }>();
     filteredRecords.forEach((r) => {
-      if (r.floorId) {
-        if (!floorDistribution[r.floorId]) {
-          floorDistribution[r.floorId] = { name: r.floorName || 'Tầng', count: 0 };
-        }
-        floorDistribution[r.floorId].count += r.workerCount;
-      }
+      if (!r.floorId) return;
+      const teamKey = r.teamId || r.teamName.trim().toLowerCase();
+      const bucket = floorTeamMax.get(r.floorId) || { name: r.floorName || 'Tầng', teams: new Map<string, number>() };
+      bucket.teams.set(teamKey, Math.max(bucket.teams.get(teamKey) || 0, Number(r.workerCount) || 0));
+      floorTeamMax.set(r.floorId, bucket);
     });
-
-    const activeFloorsList = Object.values(floorDistribution).sort((a, b) => b.count - a.count);
+    const activeFloorsList = Array.from(floorTeamMax.values())
+      .map((floor) => ({ name: floor.name, count: Array.from(floor.teams.values()).reduce((sum, count) => sum + count, 0) }))
+      .sort((a, b) => b.count - a.count);
 
     return {
       totalWorkers,
@@ -1421,27 +1426,30 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         </button>
       </div>
 
-      {normalizedStructureConfig.enabled && (
-        <div className="mb-3 relative">
+      {activeSubTab === 'teams' && normalizedStructureConfig.enabled && (
+        <div className="mb-3 relative sm:max-w-xs">
           <MapPin className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-600 z-10" />
-          <select
-            value={selectedStructureGroupId}
-            onChange={(e) => setSelectedStructureGroupId(e.target.value)}
-            aria-label={`Lọc quân số theo ${normalizedStructureConfig.label}`}
-            className="w-full rounded-xl border border-indigo-200 bg-indigo-50/70 pl-9 pr-9 py-2.5 text-xs font-extrabold text-slate-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 sm:max-w-xs sm:bg-white"
-          >
+          <select value={selectedStructureGroupId} onChange={(e) => setSelectedStructureGroupId(e.target.value)} aria-label={`Lọc đội theo ${normalizedStructureConfig.label}`} className="w-full rounded-xl border border-indigo-200 bg-white pl-9 pr-9 py-2.5 text-xs font-extrabold text-slate-800 shadow-sm">
             <option value="all">Tất cả {normalizedStructureConfig.label}</option>
-            {normalizedStructureConfig.groups.map((group) => (
-              <option key={group.id} value={group.id}>{group.name}</option>
-            ))}
+            {normalizedStructureConfig.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
           </select>
         </div>
       )}
 
       {activeSubTab === 'logs' ? (
         <>
-          {/* Daily Date Header Controller */}
-          <div className="flex items-center justify-between bg-white px-3 py-2.5 rounded-xl border border-slate-200 shadow-sm mb-4">
+          {/* Daily scope + date controller: stacked on mobile, compact single row on desktop */}
+          <div className="grid grid-cols-1 sm:grid-cols-[minmax(210px,280px)_minmax(0,1fr)] gap-2 mb-4">
+            {normalizedStructureConfig.enabled && (
+              <div className="relative">
+                <MapPin className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-600 z-10" />
+                <select value={selectedStructureGroupId} onChange={(e) => setSelectedStructureGroupId(e.target.value)} aria-label={`Lọc quân số theo ${normalizedStructureConfig.label}`} className="w-full h-full min-h-11 rounded-xl border border-indigo-200 bg-white pl-9 pr-9 py-2.5 text-xs font-extrabold text-slate-800 shadow-sm">
+                  <option value="all">Tất cả {normalizedStructureConfig.label}</option>
+                  {normalizedStructureConfig.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
+                </select>
+              </div>
+            )}
+            <div className={`flex items-center justify-between bg-white px-3 py-2.5 rounded-xl border border-slate-200 shadow-sm ${normalizedStructureConfig.enabled ? '' : 'sm:col-span-2'}`}>
             <button 
               onClick={handlePrevDay}
               className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition"
@@ -1477,6 +1485,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             >
               <ChevronRight className="w-5 h-5" />
             </button>
+            </div>
           </div>
 
           {/* Statistics widgets */}
