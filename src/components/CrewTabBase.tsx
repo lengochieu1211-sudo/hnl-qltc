@@ -318,9 +318,6 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
   const getRecordStructureGroupIds = (record: CrewRecord): string[] => {
     const ids = new Set<string>();
-    if (record.structureGroupId && normalizedStructureConfig.groups.some((group) => group.id === record.structureGroupId)) {
-      ids.add(record.structureGroupId);
-    }
     const floorRefs = [
       ...(record.floorId ? [record.floorId] : []),
       ...((record.floorWorks || []).map((work) => work.floorId)),
@@ -329,6 +326,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       const floor = floorById.get(floorId);
       if (floor) ids.add(resolveFloorStructureGroupId(floor, normalizedStructureConfig));
     });
+    // Floor linkage is authoritative after Khu/Khối is introduced. An explicit
+    // structureGroupId is only a fallback for records that have no resolvable floor.
+    // This prevents a stale legacy group id from making one record appear in two groups
+    // after its floor is moved to another Khu/Khối.
+    if (ids.size === 0 && record.structureGroupId && normalizedStructureConfig.groups.some((group) => group.id === record.structureGroupId)) {
+      ids.add(record.structureGroupId);
+    }
     if (ids.size === 0) ids.add(normalizedStructureConfig.defaultGroupId);
     return Array.from(ids);
   };
