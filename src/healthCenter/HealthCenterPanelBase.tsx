@@ -20,6 +20,7 @@ interface HealthCenterPanelProps {
   accessVerified: boolean;
   fullAppData?: any;
   freshness?: 'live' | 'cache';
+  photoDiagnostics?: any;
   onApplyRepair?: (nextData: any, context: { auditSnapshotId: string; operationCount: number; backup: HealthCenterRepairBackupPayload }) => void | Promise<void>;
   getSystemDiagnostics?: () => Promise<Record<string, unknown>>;
   onClearSystemDiagnostics?: () => void | Promise<void>;
@@ -65,6 +66,7 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
   accessVerified,
   fullAppData,
   freshness = 'live',
+  photoDiagnostics,
   onApplyRepair,
   getSystemDiagnostics,
   onClearSystemDiagnostics,
@@ -118,8 +120,9 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = ({
     return buildHealthCenterReport({
       context: { projectId, role: userRole, accessVerified, screen: 'health-center', timeZone: 'Asia/Ho_Chi_Minh' },
       snapshot,
+      photoDiagnostics,
     });
-  }, [accessVerified, freshness, fullAppData, projectId, projectName, runAt, userRole]);
+  }, [accessVerified, freshness, fullAppData, photoDiagnostics, projectId, projectName, runAt, userRole]);
 
   const filtered = useMemo(() => {
     if (!report) return [];

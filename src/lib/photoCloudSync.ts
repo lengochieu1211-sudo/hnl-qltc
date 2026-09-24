@@ -17,6 +17,7 @@ import {
   cachePhotoBlob,
   getPhotoBlob,
   getProjectPhotos,
+  isPhotoCachedBinaryCurrent,
   isPhotoSharedCloudReady,
   mergeCloudPhotoMetadata,
 } from '../utils/photoStorage';
@@ -50,9 +51,8 @@ async function prefetchOfflineMirrorPhotos(projectId: string, photos: PhotoAttac
       mirroredPhotoPrefetchInFlight.add(key);
       try {
         const localBlob = await getPhotoBlob(photo.id, false).catch(() => null);
-        if (!localBlob || localBlob.size <= 0) {
-          await downloadPhotoBlobFromCloud(projectId, photo.id, photo.mimeType || 'image/jpeg');
-        }
+        const cacheCurrent = localBlob && localBlob.size > 0 ? await isPhotoCachedBinaryCurrent(photo).catch(() => false) : false;
+        if (!cacheCurrent) await downloadPhotoBlobFromCloud(projectId, photo.id, photo.mimeType || 'image/jpeg');
       } catch (err) {
         console.warn('[Offline Mirror] photo prefetch warning:', photo.id, err);
       } finally {
@@ -562,7 +562,7 @@ async function downloadPhotoBlobFromFirestoreChunks(projectId: string, photoId: 
   });
   if (parts.length === 0) return null;
   const blob = new Blob(parts, { type: metaSnap.data()?.mimeType || mimeType });
-  await cachePhotoBlob(photoId, blob, true);
+  await cachePhotoBlob(photoId, blob, true, { id: photoId, projectId, ...metaSnap.data() } as PhotoAttachment);
   return blob;
 }
 
@@ -611,7 +611,7 @@ export async function downloadPhotoBlobFromCloud(projectId: string, photoId: str
     if (!storagePath || !['r2', 'firebase-storage'].includes(provider)) return null;
     const storageBlob = await downloadBinaryBlob(provider, storagePath);
     if (!storageBlob || storageBlob.size <= 0) return null;
-    await cachePhotoBlob(photoId, storageBlob, true).catch(() => {});
+    await cachePhotoBlob(photoId, storageBlob, true, { id: photoId, projectId, ...meta } as PhotoAttachment).catch(() => {});
     return storageBlob;
   };
 

@@ -12,6 +12,9 @@ const picker = read('src/components/PhotoAttachmentPicker.tsx');
 const defect = read('src/components/FloorPlanDefectTab.tsx');
 const storage = read('src/utils/photoStorage.ts');
 const cloudSync = read('src/lib/photoCloudSync.ts');
+const healthEngine = read('src/healthCenter/healthCenterEngine.ts');
+const healthPanel = read('src/healthCenter/HealthCenterPanelBase.tsx');
+const googleConfig = read('src/components/GoogleConfigTab.tsx');
 
 for (const marker of [
   'type="button"',
@@ -62,6 +65,18 @@ if (!picker.includes('} finally {\n      setUploading(false);')) fail('PhotoAtta
 if (!picker.includes("imageKind={entityType === 'defect' ? 'defect' : 'crew'}")) fail('PhotoAttachmentPicker does not pass Crew/Defect quality profile to editor');
 if (!cloudSync.includes('delete copy.pendingOwnerUid')) fail('Local pending media owner must not leak into Firestore metadata');
 pass('edited attachment save is single-encode, account-safe local-first and waits for verified Cloud readiness while online');
+
+for (const marker of ['photo_cache_version_', 'PhotoBinaryCacheVersion', 'isPhotoCachedBinaryCurrent', 'invalidatePhotoBinaryCache', 'staleLocalCache', 'cloudAcknowledgesOwnPending', 'pendingOwnedByCurrent && !cloudAcknowledgesOwnPending', "setPhotoBinaryCacheVersion(cleanCloud, 'cloud')"]) {
+  if (!storage.includes(marker)) fail(`photoStorage stale edited-binary cache guard missing ${marker}`);
+}
+if (!cloudSync.includes('await isPhotoCachedBinaryCurrent(photo)')) fail('offline mirror still trusts any existing Blob without revision validation');
+if (!cloudSync.includes('cachePhotoBlob(photoId, storageBlob, true, { id: photoId, projectId, ...meta } as PhotoAttachment)')) fail('Cloud download does not stamp cache provenance');
+for (const marker of ['PHOTO_LOCAL_CACHE_STALE', 'PHOTO_BINARY_VERSION_MISMATCH', 'PHOTO_EDIT_PENDING_UPLOAD', 'PHOTO_CLOUD_BINARY_NOT_READY', 'PHOTO_LEGACY_BINARY_UNRECOVERABLE']) {
+  if (!healthEngine.includes(marker)) fail(`Health Center photo rule missing ${marker}`);
+}
+if (!healthPanel.includes('photoDiagnostics')) fail('Health Center does not accept photo diagnostics');
+if (!googleConfig.includes('photoDiagnostics={photoDiagnosticSnapshot}')) fail('Config does not feed photo diagnostics into Health Center');
+pass('receiving devices invalidate stale edited-photo cache by Cloud revision/checksum while protecting pending edits, and Health surfaces photo sync state');
 
 if (!defect.includes('let photoResultUrl = await readFileAsDataUrl(editedFile);')) {
   fail('legacy Defect editor still recompresses the already-edited file');

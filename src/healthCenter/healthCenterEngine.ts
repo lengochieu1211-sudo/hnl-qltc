@@ -71,6 +71,7 @@ export interface BuildHealthCenterParams {
   context: AiQueryContext;
   snapshot: HnlAiProjectSnapshot;
   runtimeLog?: RuntimeDiagnosticEntry[];
+  photoDiagnostics?: any;
 }
 
 function active<T extends { deletedAt?: number | null }>(items: readonly T[]): T[] {
@@ -515,6 +516,55 @@ function runtimeIssues(runtimeLog: RuntimeDiagnosticEntry[]): HealthCenterIssue[
   });
 }
 
+function photoDiagnosticIssues(photoDiagnostics: any): HealthCenterIssue[] {
+  const rows = Array.isArray(photoDiagnostics?.photos) ? photoDiagnostics.photos : [];
+  const issues: HealthCenterIssue[] = [];
+  rows.forEach((row: any) => {
+    if (!row?.id || row.deleted) return;
+    const entityType = String(row.entityType || 'photo');
+    const entityId = String(row.entityId || row.id);
+    const evidenceIds = [String(row.id)];
+    const details = {
+      photoId: String(row.id), category: String(row.category || ''), binaryUploadState: String(row.binaryUploadState || ''),
+      storageProvider: String(row.storageProvider || ''), storagePath: String(row.storagePath || ''),
+      cloudRevision: Number(row.cloudRevision || 0), cachedRevision: Number(row.cachedRevision || 0),
+      cloudContentVersion: Number(row.cloudContentVersion || 0), cachedContentVersion: Number(row.cachedContentVersion || 0),
+      cacheSource: String(row.cacheSource || ''), pendingAgeMs: Number(row.pendingAgeMs || 0),
+    };
+    if (row.staleLocalCache) {
+      const hasVersionMarker = Number(row.cachedRevision || row.cachedContentVersion || 0) > 0;
+      issues.push(makeIssue({
+        ruleId: hasVersionMarker ? 'PHOTO_BINARY_VERSION_MISMATCH' : 'PHOTO_LOCAL_CACHE_STALE', severity: 'WARNING', module: 'r2',
+        entityType, entityId, message: 'Cache ảnh trên thiết bị không khớp phiên bản Cloud/R2; ứng dụng sẽ bỏ cache cũ và tải lại ảnh đã xác minh.',
+        actionClass: 'READ_ONLY', evidenceIds, location: { floorId: row.floorId || undefined, roomId: row.roomId || undefined },
+        details: { ...details, autoRepair: 'invalidate-local-cache-and-redownload' },
+      }));
+    }
+    if (String(row.binaryUploadState || '') === 'pending' && row.localBinary && Number(row.pendingAgeMs || 0) >= 30_000) {
+      issues.push(makeIssue({
+        ruleId: 'PHOTO_EDIT_PENDING_UPLOAD', severity: 'WARNING', module: 'r2', entityType, entityId,
+        message: `Ảnh đã chỉnh/chụp đang chờ đồng bộ Cloud/R2 ${Math.max(1, Math.floor(Number(row.pendingAgeMs || 0) / 1000))} giây; binary local vẫn được giữ để tự retry.`,
+        actionClass: 'READ_ONLY', evidenceIds, location: { floorId: row.floorId || undefined, roomId: row.roomId || undefined }, details,
+      }));
+    }
+    if (String(row.binaryUploadState || '') === 'ready' && row.cloudReady !== true) {
+      issues.push(makeIssue({
+        ruleId: 'PHOTO_CLOUD_BINARY_NOT_READY', severity: 'ERROR', module: 'r2', entityType, entityId,
+        message: 'Metadata ảnh đang ở trạng thái ready nhưng chưa có Cloud/R2 pointer hợp lệ.', actionClass: 'MANUAL_REPAIR',
+        evidenceIds, location: { floorId: row.floorId || undefined, roomId: row.roomId || undefined }, details,
+      }));
+    }
+    if (String(row.storageProvider || '') === 'firestore-fallback' && !row.localBinary && row.cloudReady !== true) {
+      issues.push(makeIssue({
+        ruleId: 'PHOTO_LEGACY_BINARY_UNRECOVERABLE', severity: 'WARNING', module: 'r2', entityType, entityId,
+        message: 'Ảnh legacy không có binary local và chưa có Cloud/R2 pointer hiện đại; cần kiểm tra nguồn legacy trước khi sửa/xóa.',
+        actionClass: 'MANUAL_REPAIR', evidenceIds, location: { floorId: row.floorId || undefined, roomId: row.roomId || undefined }, details,
+      }));
+    }
+  });
+  return issues;
+}
+
 function dedupeIssues(items: HealthCenterIssue[]): HealthCenterIssue[] {
   const seen = new Set<string>();
   const out: HealthCenterIssue[] = [];
@@ -528,7 +578,7 @@ function dedupeIssues(items: HealthCenterIssue[]): HealthCenterIssue[] {
 }
 
 export function buildHealthCenterReport(params: BuildHealthCenterParams): HealthCenterSummary {
-  const { context, snapshot, runtimeLog = [] } = params;
+  const { context, snapshot, runtimeLog = [], photoDiagnostics } = params;
   const core = auditProjectIntegrity({ context, snapshot });
   const coreIssues = (core.data?.issues || [])
     .filter((issue) => !suppressCoreIssue(issue, snapshot))
@@ -540,6 +590,7 @@ export function buildHealthCenterReport(params: BuildHealthCenterParams): Health
     ...roomQualityIssues([...snapshot.rooms]),
     ...lightweightBusinessQualityIssues(snapshot),
     ...runtimeIssues(runtimeLog),
+    ...photoDiagnosticIssues(photoDiagnostics),
     ...(snapshot.freshness === 'cache' ? [makeIssue({
       ruleId: 'HEALTH_CENTER_USING_CACHED_SNAPSHOT', severity: 'WARNING', module: 'sync', entityType: 'project', entityId: snapshot.projectId,
       message: 'Health Center đang kiểm tra snapshot cache; nên đồng bộ lại trước khi dùng kết quả làm báo cáo cuối.', actionClass: 'READ_ONLY', evidenceIds: [], location: {},
