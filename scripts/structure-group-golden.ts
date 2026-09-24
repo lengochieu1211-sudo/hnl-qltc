@@ -45,4 +45,10 @@ assert.ok(floorPlanSource.includes("visibleFloorPlans.map((fp)"), 'project floor
 assert.ok(floorPlanSource.includes("getFloorStructureGroupName(activeFloor, normalizedStructureConfig)"), 'active floor breadcrumb must show its Khu/Khối');
 assert.ok(floorPlanSource.includes("getFloorStructureGroupName(fp, normalizedStructureConfig)} → ${fp.floorName}"), 'floor chips must disambiguate duplicate floor names by Khu/Khối');
 
+assert.ok(floorPlanSource.includes("visibleFloorPlans.find((fp) => fp.id === selectedFloorId)"), 'active floor must stay inside selected Khu/Khối filter');
+assert.ok(floorPlanSource.includes("Never carry hidden bulk-delete targets across Khu/Khối filters"), 'Khu/Khối filter must clear hidden bulk-delete targets');
+assert.ok(floorPlanSource.includes("visibleFloorPlans.map((floor) =>"), 'floor progress list must honor the Khu/Khối filter');
+assert.ok(floorPlanSource.includes("changeFloorStructureGroupStable"), 'moving a floor to another Khu/Khối must preserve a stable persisted order');
+assert.ok(floorPlanSource.includes("changeFloorStructureGroupStable(fp.id, event.target.value)"), 'management Khu/Khối reassignment must use stable move helper');
+
 console.log('structure-group-golden: PASS');

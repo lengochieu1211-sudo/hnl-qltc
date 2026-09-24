@@ -1217,6 +1217,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const [selectedApartmentIds, setSelectedApartmentIds] = useState<string[]>([]);
   const [selectedFloorIdsForBulk, setSelectedFloorIdsForBulk] = useState<string[]>([]);
   const [isSelectingMultipleFloors, setIsSelectingMultipleFloors] = useState<boolean>(false);
+
+  useEffect(() => {
+    // Never carry hidden bulk-delete targets across Khu/Khối filters.
+    // A filter change is view-only and must not make floors from the previous scope deletable invisibly.
+    setSelectedFloorIdsForBulk([]);
+    setIsSelectingMultipleFloors(false);
+  }, [selectedStructureGroupId]);
   const [copiedRoomsState, setCopiedRoomsState] = useState<RoomProgressItem[]>([]);
   const [copyNotification, setCopyNotification] = useState<string | null>(null);
   const lastPointerMapPosRef = useRef<{ x: number; y: number }>({ x: 50, y: 50 });
@@ -1349,6 +1356,30 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const next = [...flattened, ...floorPlansInSavedOrder.filter((floor) => !included.has(floor.id))];
     if (onReorderFloorPlans) persistFloorOrder(next);
     else onMoveFloorPlan?.(floorId, direction === 'up' ? 'left' : 'right');
+  };
+
+  const changeFloorStructureGroupStable = (floorId: string, nextGroupId: string) => {
+    const target = floorPlansInSavedOrder.find((floor) => floor.id === floorId);
+    if (!target || !normalizedStructureConfig.groups.some((group) => group.id === nextGroupId)) return;
+    const currentGroupId = resolveFloorStructureGroupId(target, normalizedStructureConfig);
+    if (currentGroupId === nextGroupId) return;
+
+    if (onReorderFloorPlans) {
+      const changedTarget = { ...target, structureGroupId: nextGroupId };
+      const withoutTarget = floorPlansInSavedOrder.filter((floor) => floor.id !== floorId);
+      const next = normalizedStructureConfig.groups.flatMap((group) => {
+        const groupFloors = withoutTarget.filter((floor) =>
+          resolveFloorStructureGroupId(floor, normalizedStructureConfig) === group.id
+        );
+        return group.id === nextGroupId ? [...groupFloors, changedTarget] : groupFloors;
+      });
+      const included = new Set(next.map((floor) => floor.id));
+      persistFloorOrder([...next, ...withoutTarget.filter((floor) => !included.has(floor.id))]);
+      return;
+    }
+
+    // Legacy callback fallback keeps IDs/links intact even when reorder callback is unavailable.
+    onUpdateFloorPlan?.(floorId, { structureGroupId: nextGroupId });
   };
 
   const applyGroupQuickSort = (key: 'name' | 'floors', order: 'asc' | 'desc') => {
@@ -2500,7 +2531,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const parentRef = useRef<HTMLDivElement>(null);
   const [parentSize, setParentSize] = useState({ w: 0, h: 0 });
 
-  const activeFloor = floorPlans.find((fp) => fp.id === selectedFloorId) || floorPlans[0];
+  const activeFloor = visibleFloorPlans.find((fp) => fp.id === selectedFloorId)
+    || visibleFloorPlans[0]
+    || (!normalizedStructureConfig.enabled || selectedStructureGroupId === 'all' ? floorPlans[0] : undefined);
 
   const getFloorTargetState = (dateStr?: string) => {
     if (!dateStr) return { label: 'Chưa đặt hạn', className: 'bg-slate-100 text-slate-600 border-slate-200' };
@@ -4879,7 +4912,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     <tr><th className="text-left px-2">Tầng</th><th className="text-left px-2">Xong Khung</th><th className="text-left px-2">Xong Tấm</th></tr>
                   </thead>
                   <tbody>
-                    {floorPlans.map((floor) => {
+                    {visibleFloorPlans.map((floor) => {
                       const frameState = getFloorTargetState(floor.targetFrameDate);
                       const boardState = getFloorTargetState(floor.targetBoardDate);
                       return (
@@ -9483,7 +9516,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       {normalizedStructureConfig.enabled && (
                         <select
                           value={resolveFloorStructureGroupId(fp, normalizedStructureConfig)}
-                          onChange={(event) => onUpdateFloorPlan?.(fp.id, { structureGroupId: event.target.value })}
+                          onChange={(event) => changeFloorStructureGroupStable(fp.id, event.target.value)}
                           className="max-w-[150px] rounded-xl border border-indigo-200 bg-indigo-50 px-2 py-1.5 text-[10px] font-bold text-indigo-700"
                           title={`Gán tầng vào ${normalizedStructureConfig.label}`}
                         >
