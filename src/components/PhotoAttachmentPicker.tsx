@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Camera, Image as ImageIcon, Images, Eye, Loader2, X, Pencil, AlertTriangle } from 'lucide-react';
-import { PhotoAttachment, getEntityPhotos, getProjectPhotos, savePhotoAttachment, deletePhotoAttachment, getPhotoDataUrl, updatePhotoAttachmentBlob, resetPhotoRuntimeMemoryCache } from '../utils/photoStorage';
+import { PhotoAttachment, getEntityPhotos, getProjectPhotos, savePhotoAttachment, deletePhotoAttachment, getPhotoDataUrl, updatePhotoAttachmentBlob, resetPhotoRuntimeMemoryCache, isPhotoSharedCloudReady } from '../utils/photoStorage';
 import { refreshProjectPhotoMetadataFromCloud, uploadPhotoToCloud, verifyPhotoBinaryReadyInCloud } from '../lib/photoCloudSync';
 import { getCurrentRealFirebaseUser, onAuthUserChanged } from '../lib/firebase';
 import { ImageViewerModal } from './ImageViewerModal';
@@ -16,6 +16,8 @@ interface PhotoAttachmentPickerProps {
   label?: string;
   maxPhotos?: number;
   readOnly?: boolean;
+  /** Compact Crew count button that opens the same full-screen viewer as Defect photos. */
+  compactViewerButton?: boolean;
   onPhotosChanged?: (photos: PhotoAttachment[]) => void;
 }
 
@@ -51,6 +53,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
   label = 'HÌNH ẢNH HIỆN TRƯỜNG',
   maxPhotos = 10,
   readOnly = false,
+  compactViewerButton = false,
   onPhotosChanged
 }) => {
   const [photos, setPhotos] = useState<PhotoAttachment[]>([]);
@@ -557,6 +560,59 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
     setViewerCurrentIndex(0);
     invalidateViewerFullImages();
   };
+
+  if (compactViewerButton) {
+    const pendingCount = photos.filter((photoItem) => !isPhotoSharedCloudReady(photoItem)).length;
+    const canOpenViewer = viewablePhotos.length > 0;
+    const openViewer = () => {
+      if (!canOpenViewer) return;
+      viewerActivePhotoIdRef.current = viewablePhotos[0].id;
+      setViewerCurrentIndex(0);
+      setViewingIndex(0);
+      void ensureViewerFullImage(0);
+    };
+
+    return (
+      <>
+        <button
+          type="button"
+          onClick={openViewer}
+          disabled={loading || !canOpenViewer}
+          className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[10px] font-extrabold transition ${
+            pendingCount > 0
+              ? 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'
+              : photos.length > 0
+                ? 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
+                : 'bg-slate-50 border-slate-200 text-slate-500'
+          } disabled:cursor-default`}
+          title={photos.length > 0 ? 'Mở ảnh hiện trường toàn màn hình' : 'Chưa có ảnh hiện trường'}
+        >
+          <Images className="w-3.5 h-3.5" />
+          {loading
+            ? 'Đang kiểm tra ảnh...'
+            : photos.length > 0
+              ? `${photos.length} ảnh hiện trường${pendingCount > 0 ? ` · ${pendingCount} chờ Cloud` : ''} · Bấm để xem`
+              : 'Chưa có ảnh hiện trường'}
+        </button>
+
+        {viewingIndex !== null && (
+          <ImageViewerModal
+            isOpen={viewingIndex !== null}
+            onClose={closeViewer}
+            images={imageUrls}
+            initialIndex={viewingIndex}
+            onIndexChange={(index) => {
+              viewerActivePhotoIdRef.current = viewablePhotos[index]?.id || '';
+              setViewerCurrentIndex(index);
+              setViewingIndex(index);
+              void ensureViewerFullImage(index);
+            }}
+            isImageLoading={Boolean(viewerLoadingIds[viewablePhotos[viewerCurrentIndex]?.id || ''])}
+          />
+        )}
+      </>
+    );
+  }
 
   return (
     <div className="space-y-2">

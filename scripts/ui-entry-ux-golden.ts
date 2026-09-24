@@ -183,6 +183,7 @@ const checklistUi = read('src/components/ChecklistTab.tsx');
 const workVolumeUi = read('src/components/WorkVolumeTab.tsx');
 const crewUiForPc = read('src/components/CrewTabBase.tsx');
 const roomHighlightUiForPc = read('src/components/RoomHighlightModal.tsx');
+const photoAttachmentUiForPc = read('src/components/PhotoAttachmentPicker.tsx');
 assert(
   crewUiForPc.includes('handleLogSubmit} className="flex-1 min-h-0 p-4 lg:p-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 overflow-y-auto overscroll-contain'),
   'PC crew log must use the fourth column for Khu/Khối and keep the body scrollable inside the viewport'
@@ -220,17 +221,22 @@ assert(roomHighlightUiForPc.includes('lg:max-w-[1200px]') && roomHighlightUiForP
 assert(defectUi.includes('title="Thao tác khác"') && defectUi.includes('Mặt bằng</span>'), 'Floor manager must group secondary actions and show a safe thumbnail fallback');
 
 assert((defectUi.match(/grid grid-cols-1 lg:grid-cols-2 gap-3 items-start/g) || []).length >= 2, 'PC/laptop floor-plan room and defect lists must use two columns while mobile stays one column');
-assert((crewUiForPc.match(/grid grid-cols-1 lg:grid-cols-2 gap-3 items-start/g) || []).length >= 3, 'PC/laptop crew daily logs, team directory, and team room cards must use two columns while mobile stays one column');
+assert((crewUiForPc.match(/grid grid-cols-1 lg:grid-cols-2 gap-3 items-start/g) || []).length >= 2, 'PC/laptop crew daily logs and team room cards must use two columns while mobile stays one column');
+assert(crewUiForPc.includes('grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch'), 'Team directory paired cards must stretch to equal height on PC/laptop/EXE');
+assert(crewUiForPc.includes('h-full flex flex-col bg-white border border-slate-200') && crewUiForPc.includes('className="w-full mt-auto flex items-center justify-center'), 'Team directory actions must align at the card bottom when paired cards have different content lengths');
 assert(crewUiForPc.split('grid grid-cols-1 lg:grid-cols-2 gap-2.5 items-start').length - 1 >= 2, 'PC/laptop Team Info defect and work-log lists must use two columns while mobile/APK stays one column');
 assert(crewUiForPc.includes('hidden 2xl:grid 2xl:grid-cols-2 gap-2 border-b'), 'Team Info overview widgets must stay hidden on ordinary laptop/EXE widths so tabs are not pushed below the fold');
 assert(!crewUiForPc.includes('Lọc đội theo ${normalizedStructureConfig.label}'), 'Team directory must not show the redundant Khu/Khối selector on web/mobile/APK');
-assert(crewUiForPc.includes("setActiveSubTab('teams');") && crewUiForPc.includes("setSelectedStructureGroupId('all');"), 'Entering Team Directory must clear any prior crew Khu/Khối scope');
+assert(!crewUiForPc.includes('aria-label={`Lọc quân số theo ${normalizedStructureConfig.label}`}'), 'Crew daily view must not expose a global Khu/Khối filter');
+assert(crewUiForPc.includes("const selectedStructureGroupId = 'all';"), 'Crew stats and reports must stay project-wide after hiding the global Khu/Khối filter');
+assert(crewUiForPc.includes("{ key: 'structure', label: normalizedStructureConfig.enabled ? normalizedStructureConfig.label : 'Khu/Khối', kind: 'alpha' }"), 'Team Quick Sort must retain Khu/Khối ordering when the team list reaches the six-item threshold');
 assert(warehouse.includes('grid grid-cols-1 lg:grid-cols-2 gap-3 items-start'), 'PC/laptop warehouse transaction history must use two columns while mobile stays one column');
 assert(workVolumeUi.includes('grid grid-cols-1 lg:grid-cols-2 gap-3 items-start'), 'PC/laptop work-volume cards must use two columns while mobile stays one column');
 assert(workVolumeUi.includes('h-6 text-slate-700 font-bold mb-1 flex items-center') && workVolumeUi.includes('min-h-11 border border-slate-200 rounded-xl'), 'PC/laptop Work Volume floor and category fields must align to the same label/control row height');
 assert(warehouse.indexOf('Chọn vật tư') < warehouse.indexOf("type === 'out'") && warehouse.includes('space-y-1.5 lg:col-span-6') && warehouse.includes('grid grid-cols-1 lg:grid-cols-2 gap-3 items-end'), 'Warehouse material search and material dropdown must sit directly below receipt type in one aligned desktop row');
 
 assert(!defectUi.includes('text-[9px] font-bold text-slate-500">Tên cấp Khu/Khối</div>'), 'Floor manager must not repeat the Khu/Khối level name in a separate card');
+assert(photoAttachmentUiForPc.includes('compactViewerButton?: boolean;') && photoAttachmentUiForPc.includes('Mở ảnh hiện trường toàn màn hình'), 'Crew field-photo button must open the shared full-screen viewer directly without expanding thumbnails');
 assert(workVolumeUi.includes('<Download className="w-3.5 h-3.5" /> Tải Excel để chỉnh sửa'), 'Work Volume download action keeps one consistent label across roles');
 assert(workVolumeUi.includes('{hasStructureManageAccess && ('), 'Work Volume must hide ADMIN-only import/create actions from Engineer/Viewer');
 

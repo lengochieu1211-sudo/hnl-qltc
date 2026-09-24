@@ -39,7 +39,7 @@ import { isTeamMatch, getTeamCategoriesForRoom, calculateTeamStatistics, isTeamW
 import { SortOrder, applySortOrder, compareDateValues, compareFloorValues, naturalCompare } from '../utils/sortUtils';
 import { PhotoAttachmentPicker } from './PhotoAttachmentPicker';
 import { MathNumberInput } from './MathNumberInput';
-import { deleteEntityPhotos, getEntityPhotos, isPhotoSharedCloudReady } from '../utils/photoStorage';
+import { deleteEntityPhotos } from '../utils/photoStorage';
 import { saveWorkbookFile } from '../utils/fileExport';
 import { createEntityId } from '../utils/idUtils';
 import { QuickSortBar } from './QuickSortBar';
@@ -59,79 +59,28 @@ import {
 } from '../utils/structureGroupUtils';
 
 const CrewPhotoCount: React.FC<{ projectId?: string; recordId: string }> = ({ projectId, recordId }) => {
-  const [count, setCount] = useState(0);
-  const [pendingCount, setPendingCount] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      if (!projectId || !recordId) return;
-      setLoading(true);
-      try {
-        const photos = await getEntityPhotos(projectId, 'crewRecord', recordId, 'crew_progress');
-        if (!cancelled) {
-          setCount(photos.length);
-          setPendingCount(photos.filter((photo) => !isPhotoSharedCloudReady(photo)).length);
-        }
-      } catch (_) {
-        if (!cancelled) {
-          setCount(0);
-          setPendingCount(0);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-    const onPhotosChanged = (event: Event) => {
-      const detail = (event as CustomEvent)?.detail || {};
-      if (detail.source === 'cloud' && Array.isArray(detail.entities)) {
-        const relevant = detail.entities.some((item: any) =>
-          item?.entityType === 'crewRecord' && item?.entityId === recordId && (!item?.category || item.category === 'crew_progress')
-        );
-        if (!relevant) return;
-      } else {
-        if (detail.entityType && detail.entityType !== 'crewRecord') return;
-        if (detail.entityId && detail.entityId !== recordId) return;
-        if (detail.category && detail.category !== 'crew_progress') return;
-      }
-      void load();
-    };
-    void load();
-    window.addEventListener('qlct-photo-attachments-changed', onPhotosChanged);
-    return () => {
-      cancelled = true;
-      window.removeEventListener('qlct-photo-attachments-changed', onPhotosChanged);
-    };
-  }, [projectId, recordId]);
+  if (!projectId) {
+    return (
+      <div className="mt-2.5 pt-2 border-t border-slate-100">
+        <span className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[10px] font-extrabold text-slate-500">
+          <FileText className="w-3.5 h-3.5" />
+          Chưa có ảnh hiện trường
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div className="mt-2.5 pt-2 border-t border-slate-100">
-      <button
-        type="button"
-        onClick={() => count > 0 && setExpanded((value) => !value)}
-        className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[10px] font-extrabold ${pendingCount > 0 ? 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100' : count > 0 ? 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100' : 'bg-slate-50 border-slate-200 text-slate-500'}`}
-      >
-        <FileText className="w-3.5 h-3.5" />
-        {loading
-          ? 'Đang kiểm tra ảnh...'
-          : count > 0
-            ? `${count} ảnh hiện trường${pendingCount > 0 ? ` · ${pendingCount} chờ Cloud` : ''} · ${expanded ? 'Ẩn' : 'Xem'}`
-            : 'Chưa có ảnh hiện trường'}
-      </button>
-      {expanded && count > 0 && projectId && (
-        <div className="mt-2">
-          <PhotoAttachmentPicker
-            projectId={projectId}
-            entityType="crewRecord"
-            entityId={recordId}
-            category="crew_progress"
-            label="HÌNH ẢNH HIỆN TRƯỜNG"
-            readOnly
-          />
-        </div>
-      )}
+      <PhotoAttachmentPicker
+        projectId={projectId}
+        entityType="crewRecord"
+        entityId={recordId}
+        category="crew_progress"
+        label="Ảnh hiện trường"
+        readOnly
+        compactViewerButton
+      />
     </div>
   );
 };
@@ -310,7 +259,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   useFormatSettings();
   const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
   const normalizedStructureConfig = useMemo(() => normalizeStructureGroupConfig(structureConfig), [structureConfig]);
-  const [selectedStructureGroupId, setSelectedStructureGroupId] = useState<string>('all');
+  // Khu/Khối remains in persisted data; Crew lists/statistics stay project-wide and show location per item.
+  const selectedStructureGroupId = 'all';
   const [logStructureGroupId, setLogStructureGroupId] = useState<string>(
     () => normalizeStructureGroupConfig(structureConfig).defaultGroupId,
   );
@@ -412,7 +362,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
   const [dailyRecordSortBy, setDailyRecordSortBy] = useState<'team' | 'floor' | 'workers'>('team');
   const [dailyRecordSortOrder, setDailyRecordSortOrder] = useState<TeamSortOrder>('asc');
-  const [teamListSortBy, setTeamListSortBy] = useState<'name' | 'leader' | 'count'>('name');
+  const [teamListSortBy, setTeamListSortBy] = useState<'structure' | 'name' | 'leader' | 'count'>('structure');
   const [teamListSortOrder, setTeamListSortOrder] = useState<TeamSortOrder>('asc');
 
   const openRoomOnFloorPlan = (room: RoomProgressItem) => {
@@ -973,11 +923,45 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     return list;
   }, [filteredRecords, dailyRecordSortBy, dailyRecordSortOrder]);
 
-  const sortedTeams = useMemo(() => {
+  const getTeamStructureGroupNames = (team: TeamInfo): string[] => {
+    if (!normalizedStructureConfig.enabled) return [];
+    const groupIds = new Set<string>();
+
+    crewRecords.forEach((record) => {
+      if (!isTeamMatch(record.teamName, team, record.teamId)) return;
+      getRecordStructureGroupIds(record).forEach((groupId) => groupIds.add(groupId));
+    });
+    roomProgressList.forEach((room) => {
+      if (room.deletedAt !== undefined && room.deletedAt !== null) return;
+      const assigned = isTeamMatch(room.assignedTeam, team, room.teamId)
+        || (room.subItems || []).some((sub) => isTeamMatch(sub.assignedTeam, team, sub.teamId));
+      if (!assigned || !room.floorId) return;
+      const floor = floorById.get(room.floorId);
+      if (floor) groupIds.add(resolveFloorStructureGroupId(floor, normalizedStructureConfig));
+    });
+    defects.forEach((defect) => {
+      if (defect.archivedAt || !isTeamMatch(defect.assignedTo, team, defect.teamId) || !defect.floorId) return;
+      const floor = floorById.get(defect.floorId);
+      if (floor) groupIds.add(resolveFloorStructureGroupId(floor, normalizedStructureConfig));
+    });
+
+    return Array.from(groupIds)
+      .map((groupId) => getStructureGroupName(groupId, normalizedStructureConfig))
+      .filter(Boolean)
+      .sort((a, b) => naturalCompare(a, b));
+  };
+
+  const sortedTeams = (() => {
     const list = [...teams];
     list.sort((a, b) => {
       let comparison = 0;
-      if (teamListSortBy === 'name') {
+      if (teamListSortBy === 'structure') {
+        comparison = naturalCompare(
+          getTeamStructureGroupNames(a).join(' · ') || 'zzzz',
+          getTeamStructureGroupNames(b).join(' · ') || 'zzzz',
+        );
+        if (comparison === 0) comparison = naturalCompare(a.name || '', b.name || '');
+      } else if (teamListSortBy === 'name') {
         comparison = (a.name || '').localeCompare(b.name || '', 'vi', { numeric: true, sensitivity: 'base' });
       } else if (teamListSortBy === 'leader') {
         comparison = (a.leader || '').localeCompare(b.leader || '', 'vi', { numeric: true, sensitivity: 'base' });
@@ -987,7 +971,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       return teamListSortOrder === 'asc' ? comparison : -comparison;
     });
     return list;
-  }, [teams, teamListSortBy, teamListSortOrder]);
+  })();
 
   // Statistics for the selected date
   const stats = useMemo(() => {
@@ -1470,10 +1454,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           <Calendar className="w-4 h-4" /> {t('daily_diary')}
         </button>
         <button
-          onClick={() => {
-            setActiveSubTab('teams');
-            setSelectedStructureGroupId('all');
-          }}
+          onClick={() => setActiveSubTab('teams')}
           className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-bold rounded-lg transition-all ${
             activeSubTab === 'teams' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
           }`}
@@ -1484,18 +1465,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
       {activeSubTab === 'logs' ? (
         <>
-          {/* Daily scope + date controller: stacked on mobile, compact single row on desktop */}
-          <div className="grid grid-cols-1 sm:grid-cols-[minmax(210px,280px)_minmax(0,1fr)] gap-2 mb-4">
-            {normalizedStructureConfig.enabled && (
-              <div className="relative">
-                <MapPin className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-600 z-10" />
-                <select value={selectedStructureGroupId} onChange={(e) => setSelectedStructureGroupId(e.target.value)} aria-label={`Lọc quân số theo ${normalizedStructureConfig.label}`} className="w-full h-full min-h-11 rounded-xl border border-indigo-200 bg-white pl-9 pr-9 py-2.5 text-xs font-extrabold text-slate-800 shadow-sm">
-                  <option value="all">Tất cả {normalizedStructureConfig.label}</option>
-                  {normalizedStructureConfig.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
-                </select>
-              </div>
-            )}
-            <div className={`flex items-center justify-between bg-white px-3 py-2.5 rounded-xl border border-slate-200 shadow-sm ${normalizedStructureConfig.enabled ? '' : 'sm:col-span-2'}`}>
+          {/* Date controller. Khu/Khối is shown on each log/team card instead of a global filter. */}
+          <div className="mb-4">
+            <div className="flex items-center justify-between bg-white px-3 py-2.5 rounded-xl border border-slate-200 shadow-sm">
             <button 
               onClick={handlePrevDay}
               className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition"
@@ -1775,6 +1747,16 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                             <User className="w-3.5 h-3.5 text-slate-300" />
                             <span>Đội trưởng: <strong>{record.leaderName}</strong></span>
                           </div>
+                          {normalizedStructureConfig.enabled && (
+                            <div className="mt-1.5 flex flex-wrap gap-1">
+                              {getRecordStructureGroupIds(record).map((groupId) => (
+                                <span key={groupId} className="inline-flex items-center gap-1 rounded-md border border-indigo-100 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-extrabold text-indigo-700">
+                                  <MapPin className="h-3 w-3" />
+                                  {getStructureGroupName(groupId, normalizedStructureConfig)}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
 
                         <div className="flex flex-col items-end gap-1 shrink-0">
@@ -1929,6 +1911,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             <QuickSortBar
               itemCount={teams.length}
               options={[
+                { key: 'structure', label: normalizedStructureConfig.enabled ? normalizedStructureConfig.label : 'Khu/Khối', kind: 'alpha' },
                 { key: 'name', label: 'Tên đội', kind: 'alpha' },
                 { key: 'leader', label: 'Đội trưởng', kind: 'alpha' },
                 { key: 'count', label: 'Quân số định biên', kind: 'number' },
@@ -1936,7 +1919,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               activeKey={teamListSortBy}
               order={teamListSortOrder}
               onChange={(key, order) => { setTeamListSortBy(key); setTeamListSortOrder(order); }}
-              onReset={() => { setTeamListSortBy('name'); setTeamListSortOrder('asc'); }}
+              onReset={() => { setTeamListSortBy('structure'); setTeamListSortOrder('asc'); }}
               summary={`${teams.length} đội thi công`}
             />
 
@@ -1986,7 +1969,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                 <p className="text-[10px] text-slate-400 mt-1">{canManageTeamDirectory ? 'Bấm Thêm đội để bắt đầu.' : 'Chỉ ADMIN được quản lý danh mục đội thi công.'}</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
               {sortedTeams.map((team) => {
                 const stat = allTeamStatsMap[team.id];
                 if (!stat) return null;
@@ -1999,12 +1982,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                 } = stat;
 
                 const teamFloorNames = Array.from(new Set(assignedRooms.map(r => r.floorName || (floorPlans || []).find(f => f.id === r.floorId)?.floorName || 'Mặt bằng')));
+                const teamStructureGroupNames = getTeamStructureGroupNames(team);
                 const teamWorkCategories = categoryBreakdown.map(cb => cb.categoryName);
 
                 return (
                   <div 
                     key={team.id}
-                    className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:border-indigo-300 transition-all duration-200 hover:shadow-md"
+                    className="h-full flex flex-col bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:border-indigo-300 transition-all duration-200 hover:shadow-md"
                   >
                     <div className="flex justify-between items-start gap-4 mb-2">
                       <div className="flex items-start gap-2.5 min-w-0">
@@ -2045,6 +2029,20 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                         Định biên: {team.defaultCount} thợ
                       </div>
                     </div>
+
+                    {teamStructureGroupNames.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-2">
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-500">
+                          <MapPin className="h-3 w-3 text-indigo-500" />
+                          {normalizedStructureConfig.label}:
+                        </span>
+                        {teamStructureGroupNames.map((groupName) => (
+                          <span key={groupName} className="rounded-md border border-indigo-100 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-extrabold text-indigo-700">
+                            {groupName}
+                          </span>
+                        ))}
+                      </div>
+                    )}
 
                     {/* Quick Stat Pill Widgets */}
                     <div className="grid grid-cols-3 gap-2 my-2.5 pt-2 border-t border-slate-100 text-xs">
@@ -2183,7 +2181,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                         setSelectedTeamForDetail(team);
                         setDetailModalTab('rooms');
                       }}
-                      className="w-full mt-3 flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-3 rounded-xl transition text-xs shadow-xs active:scale-98"
+                      className="w-full mt-auto flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-3 rounded-xl transition text-xs shadow-xs active:scale-98"
                     >
                       <BarChart3 className="w-4 h-4 text-indigo-400" />
                       <span>Xem thống kê Căn / Phòng & Defect</span>
