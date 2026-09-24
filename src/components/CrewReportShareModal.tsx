@@ -59,20 +59,17 @@ async function renderCrewReportImages(params: {
 }): Promise<ShareAttachmentPayload[]> {
   if (typeof document === 'undefined') return [];
   const matrices = buildCrewReportMatrices(params.rows);
-  const TEAM_CHUNK = 4;
+  // Share one compact image per project matrix. Do not split a project's teams into multiple images;
+  // this keeps the report continuous and easier to read/share on phones.
   const pageSpecs: Array<{
     matrix: ReturnType<typeof buildCrewReportMatrices>[number];
     teams: ReturnType<typeof buildCrewReportMatrices>[number]['teams'];
     dates: ReturnType<typeof buildCrewReportMatrices>[number]['dates'];
-  }> = [];
-
-  matrices.forEach((matrix) => {
-    const teamChunks = matrix.teams.length > 0
-      ? Array.from({ length: Math.ceil(matrix.teams.length / TEAM_CHUNK) }, (_, i) => matrix.teams.slice(i * TEAM_CHUNK, (i + 1) * TEAM_CHUNK))
-      : [[]];
-    const dates = matrix.dates.length > 0 ? matrix.dates : [];
-    teamChunks.forEach((teams) => pageSpecs.push({ matrix, teams, dates }));
-  });
+  }> = matrices.map((matrix) => ({
+    matrix,
+    teams: matrix.teams,
+    dates: matrix.dates.length > 0 ? matrix.dates : [],
+  }));
 
   const attachments: ShareAttachmentPayload[] = [];
   for (let pageIndex = 0; pageIndex < pageSpecs.length; pageIndex += 1) {
@@ -82,16 +79,16 @@ async function renderCrewReportImages(params: {
       .map((group) => ({ ...group, teams: group.teams.filter((team) => teamKeySet.has(team.teamKey)) }))
       .filter((group) => group.teams.length > 0);
 
-    const left = 42;
-    const right = 42;
-    const serialWidth = params.showSerialNumber ? 54 : 0;
-    const dateWidth = 150;
-    const metricWidth = 72;
+    const left = 30;
+    const right = 30;
+    const serialWidth = params.showSerialNumber ? 46 : 0;
+    const dateWidth = 132;
+    const metricWidth = teams.length >= 8 ? 48 : teams.length >= 5 ? 54 : 62;
     const teamWidth = metricWidth * 4;
-    const totalWidth = 118;
-    const detailWidth = params.showWorkDetails ? 360 : 0;
+    const totalWidth = 100;
+    const detailWidth = params.showWorkDetails ? 300 : 0;
     const tableWidth = serialWidth + dateWidth + Math.max(1, teams.length) * teamWidth + totalWidth + detailWidth;
-    const width = Math.max(920, left + tableWidth + right);
+    const width = Math.max(860, left + tableWidth + right);
     const headerHeight = matrix.projectLocation ? 180 : 154;
     const groupHeaderHeight = 36;
     const teamHeaderHeight = 42;
@@ -271,7 +268,7 @@ async function renderCrewReportImages(params: {
     teams.forEach((team, teamIndex) => {
       const total = matrix.teamTotals[team.teamKey] || { morning: 0, afternoon: 0, evening: 0, dailyHeadcount: 0 };
       [total.morning, total.afternoon, total.evening, total.dailyHeadcount].forEach((value, metricIndex) => {
-        const x = tableLeft + dateWidth + teamIndex * teamWidth + metricIndex * metricWidth;
+        const x = teamStartX + teamIndex * teamWidth + metricIndex * metricWidth;
         ctx.strokeRect(x, totalRowY, metricWidth, rowHeight);
         const text = String(value);
         ctx.fillText(text, x + (metricWidth - ctx.measureText(text).width) / 2, totalRowY + 28);

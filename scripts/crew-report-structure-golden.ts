@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { buildCrewReportMatrices, buildCrewReportRows } from '../src/utils/crewReportUtils';
 
 const projects = [{
@@ -36,5 +37,20 @@ assert.equal(matrix.groups.length, 2);
 assert.equal(matrix.groups[0].structureGroupName, 'Tháp 1');
 assert.equal(matrix.groups[1].structureGroupName, 'Tháp 2');
 assert.equal(matrix.dates[0].totalDailyHeadcount, 13, 'daily total must sum group-scoped team headcounts once');
+
+// Source-level UI regression guards: sharing must stay on one image per project matrix,
+// the total row must use the same X-origin as header/body, and the duplicated overview
+// must remain hidden on mobile/tablet while staying available on desktop/EXE.
+const shareModalSource = readFileSync(new URL('../src/components/CrewReportShareModal.tsx', import.meta.url), 'utf8');
+assert.equal(shareModalSource.includes('TEAM_CHUNK'), false, 'crew share must not split one project every four teams');
+assert.ok(
+  shareModalSource.includes('const x = teamStartX + teamIndex * teamWidth + metricIndex * metricWidth;'),
+  'crew share total row must align from teamStartX',
+);
+const crewTabSource = readFileSync(new URL('../src/components/CrewTabBase.tsx', import.meta.url), 'utf8');
+assert.ok(
+  crewTabSource.includes('className="hidden lg:grid lg:grid-cols-2 gap-2 border-b border-slate-200 bg-slate-50/70 p-3"'),
+  'team detail duplicate overview must be hidden below desktop breakpoint',
+);
 
 console.log('crew-report-structure-golden: PASS');

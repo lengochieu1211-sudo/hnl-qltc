@@ -2984,8 +2984,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                 </button>
               </div>
 
-              {/* Crew overview: manpower on the left, material reconciliation on the right */}
-              <div className="grid grid-cols-1 gap-2 border-b border-slate-200 bg-slate-50/70 p-3 lg:grid-cols-2">
+              {/* Crew overview: desktop/EXE only. Mobile already has the KPI strip and tabs below, so avoid duplicating content and consuming vertical space. */}
+              <div className="hidden lg:grid lg:grid-cols-2 gap-2 border-b border-slate-200 bg-slate-50/70 p-3">
                 <button type="button" onClick={() => setDetailModalTab('logs')} className="rounded-xl border border-indigo-200 bg-white p-3 text-left transition hover:bg-indigo-50/60">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider text-indigo-700">
