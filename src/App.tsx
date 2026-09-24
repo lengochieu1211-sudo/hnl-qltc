@@ -6804,6 +6804,8 @@ export default function App() {
               dueAlertCount={dueDateAlerts.length}
               crewRecords={crewRecords}
               teams={teams}
+              floorPlans={floorPlans}
+              structureConfig={structureConfig}
               lastUpdatedAt={lastUpdatedAt}
               isOnline={isOnline}
               isSyncing={isSyncing}
