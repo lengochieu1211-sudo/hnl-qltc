@@ -289,7 +289,7 @@ async function renderCrewReportImages(params: {
 
     ctx.font = '500 13px Arial, sans-serif';
     ctx.fillStyle = '#64748b';
-    ctx.fillText('Khu/Khối nằm trên nhóm đội · 0 = đã báo bằng 0 · — = chưa báo · Dòng TỔNG cộng theo cột.', left, height - 28);
+    ctx.fillText('0 = đã báo nhưng quân số bằng 0 · — = chưa báo · Tổng ngày = tổng quân số các đội · Dòng TỔNG = cộng từng cột.', left, height - 28);
 
     const dataUrl = canvas.toDataURL('image/png');
     attachments.push({
@@ -582,7 +582,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
           </div>
 
           <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-[10.5px] leading-4 text-blue-700">
-            <Users className="mr-1 inline h-3.5 w-3.5" /> Khu/Khối nằm trên nhóm đội. 0 = đã báo bằng 0. — = chưa báo. Tổng QS/ngày cộng QS ngày của các đội; dòng TỔNG cộng theo cột. Ô tổng cuối là lượt người-ngày của cả khoảng.
+            <Users className="mr-1 inline h-3.5 w-3.5" /> 0 = đã báo nhưng quân số bằng 0 · — = chưa báo · Tổng ngày = tổng quân số các đội trong ngày · Dòng TỔNG = cộng từng cột; ô cuối = tổng lượt người-ngày trong khoảng.
           </div>
 
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">

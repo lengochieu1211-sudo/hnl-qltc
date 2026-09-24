@@ -453,7 +453,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             ))}
             {!reportLoading && filteredReportRows.length === 0 && <div className="rounded-2xl border border-slate-200 px-4 py-8 text-center text-xs text-slate-400">Chưa có đội hoặc dữ liệu phù hợp phạm vi đã chọn.</div>}
           </div>
-          <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-[9.5px] leading-4 text-blue-700">0 = đã báo bằng 0. — = chưa báo. Tổng QS/ngày = tổng QS ngày của các đội trong ngày. Dòng TỔNG cộng theo cột; ô cuối là tổng lượt người-ngày của cả khoảng, không phải số người duy nhất.</div>
+          <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-[9.5px] leading-4 text-blue-700">0 = đã báo nhưng quân số bằng 0 · — = chưa báo · Tổng ngày = tổng quân số các đội trong ngày · Dòng TỔNG = cộng từng cột; ô cuối = tổng lượt người-ngày trong khoảng.</div>
         </section>
 
         <section className="rounded-3xl border border-slate-200 bg-white p-3.5 shadow-sm sm:p-4">

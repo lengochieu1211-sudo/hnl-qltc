@@ -209,7 +209,10 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         : 0;
     }
 
-    return { plannedValue, actualValue, byUnit, percent };
+    const plannedItemCount = plannedItems.length;
+    const pricedItemCount = plannedItems.filter((item) => (item.unitPrice || 0) > 0).length;
+
+    return { plannedValue, actualValue, byUnit, percent, plannedItemCount, pricedItemCount };
   }, [workVolumes]);
 
   const livePlannedCalc = useMemo(() => {
@@ -606,7 +609,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
         <div className="flex items-center justify-between border-b border-slate-700/80 pb-2">
           <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
             <TrendingUp className="w-4 h-4 text-emerald-400" />
-            {hasFinancialAccess ? 'Tổng giá trị & tiến độ sản lượng' : 'Tổng hợp tiến độ khối lượng'}
+            {hasFinancialAccess ? 'Tổng hợp tiến độ khối lượng & giá trị' : 'Tổng hợp tiến độ khối lượng'}
           </span>
           <span className="text-[11px] font-extrabold bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/40">
             {totals.percent}% Hoàn Thành
@@ -623,35 +626,48 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           </div>
         </div>
 
-        {hasFinancialAccess ? (
-          <div className="grid grid-cols-2 gap-2 text-xs pt-1">
-            <div className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/60">
-              <p className="text-[10px] text-slate-400">Giá trị định mức</p>
-              <p className="text-sm font-extrabold text-slate-100">{formatVND(totals.plannedValue)}</p>
-            </div>
-            <div className="bg-emerald-950/60 p-2.5 rounded-xl border border-emerald-700/40">
-              <p className="text-[10px] text-emerald-300">Khối lượng đã thực hiện</p>
-              <p className="text-sm font-extrabold text-emerald-400">{formatVND(totals.actualValue)}</p>
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs pt-1">
-            {Object.entries(totals.byUnit).length > 0 ? (Object.entries(totals.byUnit) as Array<[string, { planned: number; actual: number; displayUnit: string }]>).map(([unitName, values]) => (
-              <div key={unitName} className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/60">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-[10px] text-slate-400">Khối lượng · {unitName}</p>
-                  <span className="text-[10px] font-extrabold text-emerald-300">
-                    {values.planned > 0 ? Math.min(100, Math.round((values.actual / values.planned) * 100)) : 0}%
-                  </span>
-                </div>
-                <p className="text-sm font-extrabold text-slate-100">
-                  <span className="text-emerald-400">{formatDecimal(values.actual)}</span> / {formatDecimal(values.planned)} {values.displayUnit}
-                </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs pt-1">
+          {Object.entries(totals.byUnit).length > 0 ? (Object.entries(totals.byUnit) as Array<[string, { planned: number; actual: number; displayUnit: string }]>).map(([unitName, values]) => (
+            <div key={unitName} className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/60">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] text-slate-400">Khối lượng · {unitName}</p>
+                <span className="text-[10px] font-extrabold text-emerald-300">
+                  {values.planned > 0 ? Math.min(100, Math.round((values.actual / values.planned) * 100)) : 0}%
+                </span>
               </div>
-            )) : (
-              <div className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/60 text-slate-400">Chưa có dữ liệu khối lượng.</div>
-            )}
-          </div>
+              <p className="text-sm font-extrabold text-slate-100">
+                <span className="text-emerald-400">{formatDecimal(values.actual)}</span> / {formatDecimal(values.planned)} {values.displayUnit}
+              </p>
+            </div>
+          )) : (
+            <div className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/60 text-slate-400">Chưa có dữ liệu khối lượng.</div>
+          )}
+        </div>
+
+        {hasFinancialAccess && (
+          totals.pricedItemCount > 0 ? (
+            <div className="space-y-1.5 pt-1">
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/60">
+                  <p className="text-[10px] text-slate-400">Giá trị định mức</p>
+                  <p className="text-sm font-extrabold text-slate-100">{formatVND(totals.plannedValue)}</p>
+                </div>
+                <div className="bg-emerald-950/60 p-2.5 rounded-xl border border-emerald-700/40">
+                  <p className="text-[10px] text-emerald-300">Giá trị đã thực hiện</p>
+                  <p className="text-sm font-extrabold text-emerald-400">{formatVND(totals.actualValue)}</p>
+                </div>
+              </div>
+              {totals.pricedItemCount < totals.plannedItemCount && (
+                <p className="text-[10px] font-semibold text-amber-300">
+                  Giá trị đang tạm tính theo {totals.pricedItemCount}/{totals.plannedItemCount} hạng mục có đơn giá; khối lượng phía trên vẫn là số liệu đầy đủ.
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[10px] font-semibold text-amber-200">
+              Chưa khai báo đơn giá. Khối lượng và tiến độ phía trên vẫn hiển thị đầy đủ; tổng giá trị tiền chưa được tính.
+            </div>
+          )
         )}
       </div>
 

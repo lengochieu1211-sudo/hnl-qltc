@@ -45,6 +45,7 @@ import { createEntityId } from '../utils/idUtils';
 import { QuickSortBar } from './QuickSortBar';
 import { UserRole, canEditCrewData, canDeleteBusinessData, canDeleteCrewRecord, canManageTeams, canImportData } from '../utils/securityUtils';
 import { findWorsenedTeamNameConflict, normalizeTeamDirectoryName, resolveUniqueTeamByDirectoryName } from '../utils/teamDirectoryIntegrity';
+import { canonicalWorkCategoryId, isActiveRecord, normalizeLinkText, resolveWorkVolumeRef, workVolumeAppliesToFloor } from '../utils/linkageIntegrity';
 import { getCrewShiftCounts } from '../utils/crewUtils';
 import { ContactMenu } from './ContactMenu';
 import { ShareEntityMenu } from './ShareEntityMenu';
@@ -569,16 +570,60 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [notes, setNotes] = useState('');
   const [floorWorks, setFloorWorks] = useState<CrewFloorWork[]>([]);
 
-  const createDefaultFloorWork = (floor?: FloorPlan): CrewFloorWork | null => floor ? ({
-    floorId: floor.id,
-    floorName: floor.floorName,
-    categories: [
-      {
-        categoryName: 'Thi công thạch cao',
-        subItems: ['Bắn tấm khung trần']
-      }
-    ]
-  }) : null;
+  const activeWorkVolumeCatalog = useMemo(
+    () => workVolumes.filter((item) => isActiveRecord(item) && String(item.title || '').trim()),
+    [workVolumes],
+  );
+
+  const getWorkVolumeOptionsForFloor = (floorId?: string, floorName?: string) => (
+    [...activeWorkVolumeCatalog].sort((a, b) => {
+      const aScoped = workVolumeAppliesToFloor(a, floorId, floorName) ? 1 : 0;
+      const bScoped = workVolumeAppliesToFloor(b, floorId, floorName) ? 1 : 0;
+      if (aScoped !== bScoped) return bScoped - aScoped;
+      return naturalCompare(String(a.title || ''), String(b.title || ''));
+    })
+  );
+
+  const getSubItemSuggestions = (floorId: string | undefined, floorName: string | undefined, categoryName: string) => {
+    const resolved = resolveWorkVolumeRef({
+      workVolumes: activeWorkVolumeCatalog,
+      workCategoryName: categoryName,
+      floorId,
+      floorName,
+    });
+    const categoryId = resolved.state === 'resolved' ? canonicalWorkCategoryId(resolved.work) : '';
+    const normalizedCategory = normalizeLinkText(categoryName);
+    const suggestions = new Set<string>();
+    roomProgressList.forEach((room) => {
+      (room.subItems || []).forEach((sub) => {
+        const subId = String(sub.workCategoryId || '').trim();
+        const sameById = Boolean(categoryId && subId && subId === categoryId);
+        const sameByName = Boolean(normalizedCategory && normalizeLinkText(sub.category) === normalizedCategory);
+        if (sameById || sameByName) {
+          const name = String(sub.name || '').trim();
+          if (name) suggestions.add(name);
+        }
+      });
+    });
+    return Array.from(suggestions).sort((a, b) => naturalCompare(a, b));
+  };
+
+  const createDefaultFloorWork = (floor?: FloorPlan): CrewFloorWork | null => {
+    if (!floor) return null;
+    const firstCatalogItem = getWorkVolumeOptionsForFloor(floor.id, floor.floorName)[0];
+    const categoryName = String(firstCatalogItem?.title || 'Thi công thạch cao').trim();
+    const suggestedSubItems = getSubItemSuggestions(floor.id, floor.floorName, categoryName);
+    return {
+      floorId: floor.id,
+      floorName: floor.floorName,
+      categories: [
+        {
+          categoryName,
+          subItems: suggestedSubItems.length > 0 ? [suggestedSubItems[0]] : []
+        }
+      ]
+    };
+  };
 
   const addFloorWork = () => {
     const defaultFp = logFloorPlans[0];
@@ -625,13 +670,18 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const addCategoryToFloor = (floorIndex: number) => {
     setFloorWorks(prev => prev.map((fw, idx) => {
       if (idx === floorIndex) {
+        const usedNames = new Set(fw.categories.map((item) => normalizeLinkText(item.categoryName)));
+        const nextCatalogItem = getWorkVolumeOptionsForFloor(fw.floorId, fw.floorName)
+          .find((item) => !usedNames.has(normalizeLinkText(item.title)));
+        const categoryName = String(nextCatalogItem?.title || 'Hạng mục mới').trim();
+        const suggestedSubItems = getSubItemSuggestions(fw.floorId, fw.floorName, categoryName);
         return {
           ...fw,
           categories: [
             ...fw.categories,
             {
-              categoryName: 'Hạng mục mới',
-              subItems: ['Công đoạn 1']
+              categoryName,
+              subItems: suggestedSubItems.length > 0 ? [suggestedSubItems[0]] : []
             }
           ]
         };
@@ -2390,11 +2440,17 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                               <div className="flex items-center gap-2">
                                 <input
                                   type="text"
-                                  placeholder="Tên hạng mục (VD: Trần thạch cao, Vách ngăn...)"
+                                  list={`crew-category-options-${fIdx}`}
+                                  placeholder="Chọn hạng mục đã khai báo hoặc nhập khác..."
                                   value={cat.categoryName}
                                   onChange={(e) => updateCategoryName(fIdx, cIdx, e.target.value)}
                                   className="flex-1 text-xs bg-white border border-slate-200 px-2 py-1 rounded font-medium focus:outline-none focus:ring-1 focus:ring-indigo-500"
                                 />
+                                <datalist id={`crew-category-options-${fIdx}`}>
+                                  {getWorkVolumeOptionsForFloor(fw.floorId, fw.floorName).map((item) => (
+                                    <option key={item.id} value={item.title} />
+                                  ))}
+                                </datalist>
                                 {fw.categories.length > 1 && (
                                   <button
                                     type="button"
@@ -2427,7 +2483,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                     <input
                                       id={`sub-input-${fIdx}-${cIdx}`}
                                       type="text"
-                                      placeholder="+ Thêm hạng mục phụ (Enter)..."
+                                      list={`crew-subitem-options-${fIdx}-${cIdx}`}
+                                      placeholder="Chọn công đoạn đã khai báo hoặc nhập khác..."
                                       onKeyDown={(e) => {
                                         if (e.key === 'Enter') {
                                           e.preventDefault();
@@ -2435,8 +2492,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                           (e.target as HTMLInputElement).value = '';
                                         }
                                       }}
-                                      className="text-[10px] bg-white border border-slate-200 px-2 py-0.5 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500 w-36"
+                                      className="text-[10px] bg-white border border-slate-200 px-2 py-0.5 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500 w-52 max-w-full"
                                     />
+                                    <datalist id={`crew-subitem-options-${fIdx}-${cIdx}`}>
+                                      {getSubItemSuggestions(fw.floorId, fw.floorName, cat.categoryName).map((name) => (
+                                        <option key={name} value={name} />
+                                      ))}
+                                    </datalist>
                                     <button
                                       type="button"
                                       onClick={() => {

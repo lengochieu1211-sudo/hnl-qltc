@@ -561,6 +561,6 @@ export function buildCrewReportText(params: {
     if (projectIndex < matrices.length - 1) lines.push('--------------------', '');
   });
 
-  lines.push('Lưu ý: Sáng/Chiều/Tối là quân số theo ca; QS ngày lấy mức cao nhất của từng đội trong từng Khu/Khối. Dòng TỔNG cộng QS ngày qua nhiều ngày nên là tổng lượt người-ngày, không phải số người duy nhất.');
+  lines.push('Lưu ý: QS ngày của mỗi đội lấy mức cao nhất giữa các ca. Tổng ngày = tổng QS ngày của các đội. Dòng TỔNG cộng từng cột; ô cuối là tổng lượt người-ngày trong khoảng.');
   return lines.join('\n').trim();
 }
