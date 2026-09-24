@@ -35,6 +35,10 @@ export interface CrewReportRow {
   afternoon: number | null;
   evening: number | null;
   dailyHeadcount: number | null;
+  floorSummary?: string;
+  workCategorySummary?: string;
+  workSubItemSummary?: string;
+  notesSummary?: string;
 }
 
 export interface CrewReportDailySummary {
@@ -82,6 +86,34 @@ const resolveTeamKey = (team: TeamInfo): string => {
 };
 
 const maxFinite = (values: number[]): number => values.reduce((max, value) => Number.isFinite(value) ? Math.max(max, value) : max, 0);
+
+const uniqueJoined = (values: unknown[]): string => Array.from(new Set(
+  values.map((value) => String(value || '').trim()).filter(Boolean)
+)).join(', ');
+
+const buildCrewWorkSummaries = (records: CrewRecord[]) => {
+  const floorNames: string[] = [];
+  const categories: string[] = [];
+  const subItems: string[] = [];
+  const notes: string[] = [];
+  records.forEach((record) => {
+    if (record.floorName) floorNames.push(record.floorName);
+    if (record.notes) notes.push(record.notes);
+    (record.floorWorks || []).forEach((work) => {
+      if (work.floorName) floorNames.push(work.floorName);
+      (work.categories || []).forEach((category) => {
+        if (category.categoryName) categories.push(category.categoryName);
+        (category.subItems || []).forEach((item) => subItems.push(item));
+      });
+    });
+  });
+  return {
+    floorSummary: uniqueJoined(floorNames),
+    workCategorySummary: uniqueJoined(categories),
+    workSubItemSummary: uniqueJoined(subItems),
+    notesSummary: uniqueJoined(notes),
+  };
+};
 
 type ReportGroup = {
   id: string;
@@ -273,8 +305,10 @@ export function buildCrewReportRows(
         }
 
         const shifts = bucket.map(getCrewShiftCounts);
+        const workSummaries = buildCrewWorkSummaries(bucket);
         rows.push({
           ...base,
+          ...workSummaries,
           leaderName: team.leaderName || bucket.find((record) => record.leaderName)?.leaderName,
           reported: true,
           morning: maxFinite(shifts.map((item) => item.morning)),
