@@ -49,8 +49,8 @@ assert.ok(
 );
 const crewTabSource = readFileSync(new URL('../src/components/CrewTabBase.tsx', import.meta.url), 'utf8');
 assert.ok(
-  crewTabSource.includes('className="hidden lg:grid lg:grid-cols-2 gap-2 border-b border-slate-200 bg-slate-50/70 p-3"'),
-  'team detail duplicate overview must be hidden below desktop breakpoint',
+  crewTabSource.includes('className="hidden 2xl:grid 2xl:grid-cols-2 gap-2 border-b border-slate-200 bg-slate-50/70 p-3"'),
+  'team detail duplicate overview must stay hidden on ordinary laptop/EXE widths',
 );
 assert.equal(
   crewTabSource.includes('<strong>Đối chiếu:</strong> Định mức theo KL đã thi công'),
