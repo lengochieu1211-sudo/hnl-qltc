@@ -22,30 +22,6 @@ jobs:
       - name: Checkout exact DEV head
         uses: actions/checkout@v4
 
-      - name: Classify exact Runtime Golden evidence
-        if: github.event_name == 'push'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          EVIDENCE_DIR="$RUNNER_TEMP/runtime-golden"
-          rm -rf "$EVIDENCE_DIR"
-          mkdir -p "$EVIDENCE_DIR"
-          gh run download "$RUNTIME_RUN_ID" --repo "$GITHUB_REPOSITORY" -D "$EVIDENCE_DIR"
-          REPORT_JSON="$(find "$EVIDENCE_DIR" -type f -name live-backend-report.json | head -n 1)"
-          test -n "$REPORT_JSON" && test -f "$REPORT_JSON" || { echo '::error::Missing live-backend-report.json from exact Runtime Golden'; exit 1; }
-          CLASSIFICATION="$(REPORT_JSON="$REPORT_JSON" node -e "const fs=require('fs');const r=JSON.parse(fs.readFileSync(process.env.REPORT_JSON,'utf8'));const s=String(r.status||'');const c=String(r.certificationState||'');if(s==='PASS'&&c==='CERTIFIED_ELIGIBLE')process.stdout.write('CERTIFIED');else if(s==='PASS_WITH_INFRA_QUOTA_BLOCK'&&c==='INFRA_QUOTA_BLOCKED')process.stdout.write('VERIFIED_INFRA_QUOTA_BLOCKED');else {console.error('Unexpected runtime evidence state: '+s+' / '+c);process.exit(2)}")"
-          echo "RUNTIME_CLASSIFICATION=$CLASSIFICATION" >> "$GITHUB_ENV"
-          if [ "$CLASSIFICATION" = 'CERTIFIED' ]; then
-            echo "RUNTIME_CERTIFIED_SHA=$GITHUB_SHA" >> "$GITHUB_ENV"
-            echo "DELIVERABLE_LABEL=CERTIFIED" >> "$GITHUB_ENV"
-            echo "Runtime evidence: CERTIFIED eligible"
-          else
-            echo "DELIVERABLE_LABEL=VERIFIED-INFRA-BLOCKED" >> "$GITHUB_ENV"
-            echo "::warning::Runtime evidence completed all available checks but direct Firestore REST remained blocked by DEV quota; deliverables must NOT be labeled CERTIFIED."
-          fi
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -135,6 +111,30 @@ jobs:
             sleep 20
             if [ "$attempt" -eq 105 ]; then echo '::error::Timed out waiting for Runtime Golden'; exit 1; fi
           done
+
+      - name: Classify exact Runtime Golden evidence
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          EVIDENCE_DIR="$RUNNER_TEMP/runtime-golden"
+          rm -rf "$EVIDENCE_DIR"
+          mkdir -p "$EVIDENCE_DIR"
+          gh run download "$RUNTIME_RUN_ID" --repo "$GITHUB_REPOSITORY" -D "$EVIDENCE_DIR"
+          REPORT_JSON="$(find "$EVIDENCE_DIR" -type f -name live-backend-report.json | head -n 1)"
+          test -n "$REPORT_JSON" && test -f "$REPORT_JSON" || { echo '::error::Missing live-backend-report.json from exact Runtime Golden'; exit 1; }
+          CLASSIFICATION="$(REPORT_JSON="$REPORT_JSON" node -e "const fs=require('fs');const r=JSON.parse(fs.readFileSync(process.env.REPORT_JSON,'utf8'));const s=String(r.status||'');const c=String(r.certificationState||'');if(s==='PASS'&&c==='CERTIFIED_ELIGIBLE')process.stdout.write('CERTIFIED');else if(s==='PASS_WITH_INFRA_QUOTA_BLOCK'&&c==='INFRA_QUOTA_BLOCKED')process.stdout.write('VERIFIED_INFRA_QUOTA_BLOCKED');else {console.error('Unexpected runtime evidence state: '+s+' / '+c);process.exit(2)}")"
+          echo "RUNTIME_CLASSIFICATION=$CLASSIFICATION" >> "$GITHUB_ENV"
+          if [ "$CLASSIFICATION" = 'CERTIFIED' ]; then
+            echo "RUNTIME_CERTIFIED_SHA=$GITHUB_SHA" >> "$GITHUB_ENV"
+            echo "DELIVERABLE_LABEL=CERTIFIED" >> "$GITHUB_ENV"
+            echo "Runtime evidence: CERTIFIED eligible"
+          else
+            echo "DELIVERABLE_LABEL=VERIFIED-INFRA-BLOCKED" >> "$GITHUB_ENV"
+            echo "::warning::Runtime evidence completed all available checks but direct Firestore REST remained blocked by DEV quota; deliverables must NOT be labeled CERTIFIED."
+          fi
 
       - name: Setup Node
         uses: actions/setup-node@v4
