@@ -37,7 +37,7 @@ check(photoPicker.includes("getPhotoDataUrl(p.id, p.cloudUrl || p.cloudFileId, t
 check(photoPicker.includes("getPhotoDataUrl(photo.id, photo.cloudUrl || photo.cloudFileId, false, projectId)"), 'Photo viewer must lazy-load the full stored binary, not the 320px thumbnail.');
 check((photoPicker.match(/onChange=\{handleFileChange\}/g) || []).length >= 2, 'Camera and gallery inputs must share the same current-quality upload pipeline.');
 check(photoPicker.includes('onIndexChange={(index) =>'), 'Photo viewer navigation must request full-resolution binaries lazily per image.');
-check(photoPicker.includes('clearViewerFullImages'), 'Photo viewer must release full-resolution Blob URLs when closed.');
+check(photoPicker.includes('const invalidateViewerFullImages = () => {') && photoPicker.includes('invalidateViewerFullImages();'), 'Photo viewer must release/invalidate full-resolution Blob URLs when closed or Cloud revisions advance.');
 
 const imageViewer = read('src/components/ImageViewerModal.tsx');
 check(imageViewer.includes('onIndexChange?: (index: number) => void;'), 'Image viewer full-resolution navigation callback missing.');
