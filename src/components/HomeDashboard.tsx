@@ -407,12 +407,19 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                   <table className="w-full text-left text-xs" style={{ minWidth: `${Math.max(570, 230 + matrix.teams.length * 248)}px` }}>
                     <thead className="bg-slate-100 text-[9px] font-black text-slate-500">
                       <tr className="h-8">
-                        <th rowSpan={2} className="sticky left-0 top-0 z-[4] min-w-[118px] border-r border-slate-200 bg-slate-100 px-3 py-2 align-middle">Ngày</th>
-                        {matrix.teams.map((team) => <th key={team.teamKey} colSpan={4} className="sticky top-0 z-[3] h-8 border-r border-slate-200 bg-slate-100 px-2 py-0 text-center text-slate-700">{team.teamName}</th>)}
-                        <th rowSpan={2} className="sticky top-0 z-[3] min-w-[110px] border-r border-slate-200 bg-blue-50 px-2 py-2 text-center align-middle text-blue-800">Tổng QS/ngày</th>
+                        <th rowSpan={3} className="sticky left-0 top-0 z-[5] min-w-[118px] border-r border-slate-200 bg-slate-100 px-3 py-2 align-middle">Ngày</th>
+                        {matrix.groups.map((group) => (
+                          <th key={group.structureGroupId} colSpan={Math.max(1, group.teams.length * 4)} className="sticky top-0 z-[4] h-8 border-r border-indigo-200 bg-indigo-50 px-2 py-0 text-center text-indigo-800">
+                            {group.structureGroupName}
+                          </th>
+                        ))}
+                        <th rowSpan={3} className="sticky top-0 z-[4] min-w-[110px] border-r border-slate-200 bg-blue-50 px-2 py-2 text-center align-middle text-blue-800">Tổng QS/ngày</th>
+                      </tr>
+                      <tr className="h-8">
+                        {matrix.teams.map((team) => <th key={team.teamKey} colSpan={4} className="sticky top-[31px] z-[3] h-8 border-r border-slate-200 bg-slate-100 px-2 py-0 text-center text-slate-700">{team.teamName}</th>)}
                       </tr>
                       <tr>
-                        {matrix.teams.flatMap((team) => ['Sáng', 'Chiều', 'Tối', 'QS ngày'].map((label) => <th key={`${team.teamKey}-${label}`} className="sticky top-[31px] z-[3] min-w-[62px] border-r border-slate-200 bg-slate-100 px-2 py-1.5 text-center">{label}</th>))}
+                        {matrix.teams.flatMap((team) => ['Sáng', 'Chiều', 'Tối', 'QS ngày'].map((label) => <th key={`${team.teamKey}-${label}`} className="sticky top-[62px] z-[3] min-w-[62px] border-r border-slate-200 bg-slate-100 px-2 py-1.5 text-center">{label}</th>))}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
