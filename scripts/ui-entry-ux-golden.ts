@@ -184,8 +184,8 @@ const workVolumeUi = read('src/components/WorkVolumeTab.tsx');
 const crewUiForPc = read('src/components/CrewTabBase.tsx');
 const roomHighlightUiForPc = read('src/components/RoomHighlightModal.tsx');
 assert(
-  crewUiForPc.includes('handleLogSubmit} className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4'),
-  'PC crew log must use the fourth column for Khu/Khối instead of leaving 2/3 of the row blank'
+  crewUiForPc.includes('handleLogSubmit} className="flex-1 min-h-0 p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3.5 overflow-y-auto overscroll-contain'),
+  'PC crew log must use the fourth column for Khu/Khối and keep the body scrollable inside the viewport'
 );
 assert(
   crewUiForPc.includes('md:col-span-2 lg:col-span-4') && crewUiForPc.includes('Quân số theo ca'),
