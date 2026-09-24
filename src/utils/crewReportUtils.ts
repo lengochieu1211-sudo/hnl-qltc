@@ -1,6 +1,12 @@
-import type { CrewRecord, TeamInfo } from '../types';
+import type { CrewRecord, FloorPlan, TeamInfo } from '../types';
 import { getCrewDailyHeadcount, getCrewShiftCounts } from './crewUtils';
 import { formatDateDDMMYYYY } from './dateFormatter';
+import {
+  getStructureGroupName,
+  normalizeStructureGroupConfig,
+  resolveFloorStructureGroupId,
+  type ProjectStructureConfig,
+} from './structureGroupUtils';
 
 export interface CrewReportProjectInput {
   projectId: string;
@@ -8,6 +14,8 @@ export interface CrewReportProjectInput {
   projectLocation?: string;
   records: CrewRecord[];
   teams?: TeamInfo[];
+  floorPlans?: FloorPlan[];
+  structureConfig?: ProjectStructureConfig;
 }
 
 export interface CrewReportRow {
@@ -15,6 +23,9 @@ export interface CrewReportRow {
   projectName: string;
   projectLocation?: string;
   date: string;
+  structureGroupId: string;
+  structureGroupName: string;
+  structureGroupOrder: number;
   teamKey: string;
   teamId?: string;
   teamName: string;
@@ -72,6 +83,70 @@ const resolveTeamKey = (team: TeamInfo): string => {
 
 const maxFinite = (values: number[]): number => values.reduce((max, value) => Number.isFinite(value) ? Math.max(max, value) : max, 0);
 
+type ReportGroup = {
+  id: string;
+  name: string;
+  order: number;
+};
+
+const PROJECT_SCOPE_GROUP: ReportGroup = { id: '__project__', name: 'Toàn dự án', order: 0 };
+const MULTI_GROUP: ReportGroup = { id: '__multi__', name: 'Nhiều Khu/Khối', order: 9998 };
+const UNASSIGNED_GROUP: ReportGroup = { id: '__unassigned__', name: 'Chưa xác định Khu/Khối', order: 9999 };
+
+function buildProjectGroupResolver(project: CrewReportProjectInput) {
+  const normalized = normalizeStructureGroupConfig(project.structureConfig);
+  const structureEnabled = Boolean(project.structureConfig && normalized.enabled);
+  const floorPlans = project.floorPlans || [];
+  const floorById = new Map(floorPlans.map((floor) => [floor.id, floor] as const));
+  const floorNameMap = new Map<string, FloorPlan[]>();
+  floorPlans.forEach((floor) => {
+    const key = normalizeKey(floor.floorName);
+    const bucket = floorNameMap.get(key) || [];
+    bucket.push(floor);
+    floorNameMap.set(key, bucket);
+  });
+
+  const groupMeta = (id: string): ReportGroup => {
+    const group = normalized.groups.find((item) => item.id === id);
+    if (!group) return UNASSIGNED_GROUP;
+    return {
+      id: group.id,
+      name: group.name,
+      order: Number.isFinite(Number(group.order)) ? Number(group.order) : normalized.groups.indexOf(group),
+    };
+  };
+
+  const resolveFloorGroup = (floorId?: string, floorName?: string): string | null => {
+    const floor = floorId ? floorById.get(floorId) : undefined;
+    if (floor) return resolveFloorStructureGroupId(floor, normalized);
+    const candidates = floorName ? (floorNameMap.get(normalizeKey(floorName)) || []) : [];
+    if (candidates.length === 1) return resolveFloorStructureGroupId(candidates[0], normalized);
+    return null;
+  };
+
+  const resolveRecordGroup = (record: CrewRecord): ReportGroup => {
+    if (!structureEnabled) return PROJECT_SCOPE_GROUP;
+    const floorGroupIds = new Set<string>();
+    const direct = resolveFloorGroup(record.floorId, record.floorName);
+    if (direct) floorGroupIds.add(direct);
+    for (const work of record.floorWorks || []) {
+      const id = resolveFloorGroup(work.floorId, work.floorName);
+      if (id) floorGroupIds.add(id);
+    }
+    if (floorGroupIds.size === 1) return groupMeta(Array.from(floorGroupIds)[0]);
+    if (floorGroupIds.size > 1) return MULTI_GROUP;
+    const explicit = String(record.structureGroupId || '').trim();
+    if (explicit && normalized.groups.some((group) => group.id === explicit)) return groupMeta(explicit);
+    return groupMeta(normalized.defaultGroupId);
+  };
+
+  return {
+    normalized,
+    structureEnabled,
+    resolveRecordGroup,
+  };
+}
+
 export function buildCrewReportRows(
   projects: CrewReportProjectInput[],
   startDate: string,
@@ -84,71 +159,110 @@ export function buildCrewReportRows(
 
   for (const project of projects) {
     const records = (project.records || []).filter((record) => dateSet.has(String(record.date || '').slice(0, 10)));
-    const teamDirectory = new Map<string, { teamId?: string; teamName: string; leaderName?: string }>();
-    const teamNameToKey = new Map<string, string>();
+    const { structureEnabled, resolveRecordGroup } = buildProjectGroupResolver(project);
+    const baseTeamDirectory = new Map<string, { teamId?: string; teamName: string; leaderName?: string }>();
+    const teamNameToBaseKey = new Map<string, string>();
 
     for (const team of project.teams || []) {
       if (team.deletedAt) continue;
       const key = resolveTeamKey(team);
       if (!key || key.endsWith('name:')) continue;
       const teamName = String(team.name || '').trim() || 'Đội chưa đặt tên';
-      teamDirectory.set(key, {
+      baseTeamDirectory.set(key, {
         teamId: team.id || undefined,
         teamName,
         leaderName: String(team.leader || '').trim() || undefined,
       });
       const normalizedName = normalizeKey(teamName);
-      if (normalizedName) teamNameToKey.set(normalizedName, key);
+      if (normalizedName) teamNameToBaseKey.set(normalizedName, key);
     }
+
     const canonicalRecordTeamKey = (record: CrewRecord): string => {
       const recordId = String(record.teamId || '').trim();
       if (recordId) return `id:${recordId}`;
       const normalizedName = normalizeKey(record.teamName);
-      return teamNameToKey.get(normalizedName) || resolveRecordTeamKey(record);
+      return teamNameToBaseKey.get(normalizedName) || resolveRecordTeamKey(record);
     };
+
+    type GroupTeamDirectoryValue = {
+      group: ReportGroup;
+      teamId?: string;
+      teamName: string;
+      leaderName?: string;
+      baseTeamKey: string;
+    };
+    const groupTeamDirectory = new Map<string, GroupTeamDirectoryValue>();
+    const baseTeamsWithRecords = new Set<string>();
+    const recordsByDateGroupTeam = new Map<string, CrewRecord[]>();
+
     for (const record of records) {
       if (record.deletedAt) continue;
-      const key = canonicalRecordTeamKey(record);
-      if (!teamDirectory.has(key)) {
-        const teamName = String(record.teamName || '').trim() || 'Đội chưa đặt tên';
-        teamDirectory.set(key, {
-          teamId: record.teamId || undefined,
+      const baseTeamKey = canonicalRecordTeamKey(record);
+      const group = resolveRecordGroup(record);
+      const scopedTeamKey = `${group.id}|${baseTeamKey}`;
+      baseTeamsWithRecords.add(baseTeamKey);
+
+      const baseTeam = baseTeamDirectory.get(baseTeamKey);
+      if (!groupTeamDirectory.has(scopedTeamKey)) {
+        const teamName = baseTeam?.teamName || String(record.teamName || '').trim() || 'Đội chưa đặt tên';
+        groupTeamDirectory.set(scopedTeamKey, {
+          group,
+          baseTeamKey,
+          teamId: baseTeam?.teamId || record.teamId || undefined,
           teamName,
-          leaderName: String(record.leaderName || '').trim() || undefined,
+          leaderName: baseTeam?.leaderName || String(record.leaderName || '').trim() || undefined,
         });
-        const normalizedName = normalizeKey(teamName);
-        if (normalizedName) teamNameToKey.set(normalizedName, key);
       }
-    }
 
-    const recordsByDateTeam = new Map<string, CrewRecord[]>();
-    for (const record of records) {
-      if (record.deletedAt) continue;
       const date = String(record.date || '').slice(0, 10);
-      const teamKey = canonicalRecordTeamKey(record);
-      const key = `${date}|${teamKey}`;
-      const bucket = recordsByDateTeam.get(key) || [];
+      const key = `${date}|${scopedTeamKey}`;
+      const bucket = recordsByDateGroupTeam.get(key) || [];
       bucket.push(record);
-      recordsByDateTeam.set(key, bucket);
+      recordsByDateGroupTeam.set(key, bucket);
     }
 
-    const teams = Array.from(teamDirectory.entries()).sort((a, b) =>
-      a[1].teamName.localeCompare(b[1].teamName, 'vi-VN', { numeric: true, sensitivity: 'base' })
-    );
+    // Keep directory teams with no report in the selected range visible once, but never
+    // clone them into every Khu/Khối because TeamInfo has no authoritative group field.
+    for (const [baseTeamKey, team] of baseTeamDirectory.entries()) {
+      if (baseTeamsWithRecords.has(baseTeamKey)) continue;
+      const group = structureEnabled ? UNASSIGNED_GROUP : PROJECT_SCOPE_GROUP;
+      const scopedTeamKey = `${group.id}|${baseTeamKey}`;
+      groupTeamDirectory.set(scopedTeamKey, {
+        group,
+        baseTeamKey,
+        teamId: team.teamId,
+        teamName: team.teamName,
+        leaderName: team.leaderName,
+      });
+    }
+
+    const teams = Array.from(groupTeamDirectory.entries()).sort((a, b) => {
+      const orderCmp = a[1].group.order - b[1].group.order;
+      if (orderCmp !== 0) return orderCmp;
+      const groupCmp = a[1].group.name.localeCompare(b[1].group.name, 'vi-VN', { numeric: true, sensitivity: 'base' });
+      if (groupCmp !== 0) return groupCmp;
+      return a[1].teamName.localeCompare(b[1].teamName, 'vi-VN', { numeric: true, sensitivity: 'base' });
+    });
 
     for (const date of dates) {
       for (const [teamKey, team] of teams) {
-        const bucket = recordsByDateTeam.get(`${date}|${teamKey}`) || [];
+        const bucket = recordsByDateGroupTeam.get(`${date}|${teamKey}`) || [];
+        const base = {
+          projectId: project.projectId,
+          projectName: project.projectName,
+          projectLocation: project.projectLocation,
+          date,
+          structureGroupId: team.group.id,
+          structureGroupName: team.group.name,
+          structureGroupOrder: team.group.order,
+          teamKey,
+          teamId: team.teamId,
+          teamName: team.teamName,
+          leaderName: team.leaderName,
+        };
         if (bucket.length === 0) {
           rows.push({
-            projectId: project.projectId,
-            projectName: project.projectName,
-            projectLocation: project.projectLocation,
-            date,
-            teamKey,
-            teamId: team.teamId,
-            teamName: team.teamName,
-            leaderName: team.leaderName,
+            ...base,
             reported: false,
             morning: null,
             afternoon: null,
@@ -160,13 +274,7 @@ export function buildCrewReportRows(
 
         const shifts = bucket.map(getCrewShiftCounts);
         rows.push({
-          projectId: project.projectId,
-          projectName: project.projectName,
-          projectLocation: project.projectLocation,
-          date,
-          teamKey,
-          teamId: team.teamId,
-          teamName: team.teamName,
+          ...base,
           leaderName: team.leaderName || bucket.find((record) => record.leaderName)?.leaderName,
           reported: true,
           morning: maxFinite(shifts.map((item) => item.morning)),
@@ -183,6 +291,10 @@ export function buildCrewReportRows(
     if (byDate !== 0) return byDate;
     const byProject = a.projectName.localeCompare(b.projectName, 'vi-VN', { numeric: true, sensitivity: 'base' });
     if (byProject !== 0) return byProject;
+    const byGroupOrder = a.structureGroupOrder - b.structureGroupOrder;
+    if (byGroupOrder !== 0) return byGroupOrder;
+    const byGroup = a.structureGroupName.localeCompare(b.structureGroupName, 'vi-VN', { numeric: true, sensitivity: 'base' });
+    if (byGroup !== 0) return byGroup;
     return a.teamName.localeCompare(b.teamName, 'vi-VN', { numeric: true, sensitivity: 'base' });
   });
 }
@@ -227,6 +339,16 @@ export function filterCrewReportRows(
 export interface CrewReportMatrixTeam {
   teamKey: string;
   teamName: string;
+  structureGroupId: string;
+  structureGroupName: string;
+  structureGroupOrder: number;
+}
+
+export interface CrewReportMatrixGroup {
+  structureGroupId: string;
+  structureGroupName: string;
+  structureGroupOrder: number;
+  teams: CrewReportMatrixTeam[];
 }
 
 export interface CrewReportMatrixTeamTotal {
@@ -246,6 +368,7 @@ export interface CrewReportProjectMatrix {
   projectId: string;
   projectName: string;
   projectLocation?: string;
+  groups: CrewReportMatrixGroup[];
   teams: CrewReportMatrixTeam[];
   dates: CrewReportMatrixDateRow[];
   teamTotals: Record<string, CrewReportMatrixTeamTotal>;
@@ -265,15 +388,42 @@ export function buildCrewReportMatrices(rows: CrewReportRow[]): CrewReportProjec
   return projectOrder.map((projectId) => {
     const projectRows = byProject.get(projectId) || [];
     const first = projectRows[0];
-    const teamMap = new Map<string, string>();
+    const teamMap = new Map<string, CrewReportMatrixTeam>();
     const dateSet = new Set<string>();
     projectRows.forEach((row) => {
-      teamMap.set(row.teamKey, row.teamName);
+      teamMap.set(row.teamKey, {
+        teamKey: row.teamKey,
+        teamName: row.teamName,
+        structureGroupId: row.structureGroupId,
+        structureGroupName: row.structureGroupName,
+        structureGroupOrder: row.structureGroupOrder,
+      });
       dateSet.add(row.date);
     });
-    const teams = Array.from(teamMap.entries())
-      .map(([teamKey, teamName]) => ({ teamKey, teamName }))
-      .sort((a, b) => a.teamName.localeCompare(b.teamName, 'vi-VN', { numeric: true, sensitivity: 'base' }));
+    const teams = Array.from(teamMap.values()).sort((a, b) => {
+      const orderCmp = a.structureGroupOrder - b.structureGroupOrder;
+      if (orderCmp !== 0) return orderCmp;
+      const groupCmp = a.structureGroupName.localeCompare(b.structureGroupName, 'vi-VN', { numeric: true, sensitivity: 'base' });
+      if (groupCmp !== 0) return groupCmp;
+      return a.teamName.localeCompare(b.teamName, 'vi-VN', { numeric: true, sensitivity: 'base' });
+    });
+
+    const groupMap = new Map<string, CrewReportMatrixGroup>();
+    for (const team of teams) {
+      const existing = groupMap.get(team.structureGroupId) || {
+        structureGroupId: team.structureGroupId,
+        structureGroupName: team.structureGroupName,
+        structureGroupOrder: team.structureGroupOrder,
+        teams: [],
+      };
+      existing.teams.push(team);
+      groupMap.set(team.structureGroupId, existing);
+    }
+    const groups = Array.from(groupMap.values()).sort((a, b) =>
+      (a.structureGroupOrder - b.structureGroupOrder)
+      || a.structureGroupName.localeCompare(b.structureGroupName, 'vi-VN', { numeric: true, sensitivity: 'base' })
+    );
+
     const teamTotals: Record<string, CrewReportMatrixTeamTotal> = {};
     for (const team of teams) {
       teamTotals[team.teamKey] = { morning: 0, afternoon: 0, evening: 0, dailyHeadcount: 0 };
@@ -301,6 +451,7 @@ export function buildCrewReportMatrices(rows: CrewReportRow[]): CrewReportProjec
       projectId,
       projectName: first?.projectName || projectId,
       projectLocation: first?.projectLocation,
+      groups,
       teams,
       dates,
       teamTotals,
@@ -334,13 +485,16 @@ export function buildCrewReportText(params: {
 
     for (const dateRow of matrix.dates) {
       lines.push(`Ngày ${formatDateDDMMYYYY(dateRow.date)}`);
-      for (const team of matrix.teams) {
-        const row = dateRow.cells[team.teamKey];
-        if (!row?.reported) {
-          lines.push(`  - ${team.teamName}: Chưa báo`);
-          continue;
+      for (const group of matrix.groups) {
+        if (group.structureGroupName) lines.push(`  ${group.structureGroupName}`);
+        for (const team of group.teams) {
+          const row = dateRow.cells[team.teamKey];
+          if (!row?.reported) {
+            lines.push(`    - ${team.teamName}: Chưa báo`);
+            continue;
+          }
+          lines.push(`    - ${team.teamName}: Sáng ${formatCount(row.morning, true)} | Chiều ${formatCount(row.afternoon, true)} | Tối ${formatCount(row.evening, true)} | QS ngày ${formatCount(row.dailyHeadcount, true)}`);
         }
-        lines.push(`  - ${team.teamName}: Sáng ${formatCount(row.morning, true)} | Chiều ${formatCount(row.afternoon, true)} | Tối ${formatCount(row.evening, true)} | QS ngày ${formatCount(row.dailyHeadcount, true)}`);
       }
       const dayRows = Object.values(dateRow.cells);
       const summary = summarizeCrewReportRows(dayRows)[0];
@@ -351,16 +505,18 @@ export function buildCrewReportText(params: {
     }
 
     lines.push('TỔNG');
-    for (const team of matrix.teams) {
-      const total = matrix.teamTotals[team.teamKey] || { morning: 0, afternoon: 0, evening: 0, dailyHeadcount: 0 };
-      lines.push(`  - ${team.teamName}: Sáng ${total.morning} | Chiều ${total.afternoon} | Tối ${total.evening} | Tổng QS ngày ${total.dailyHeadcount}`);
+    for (const group of matrix.groups) {
+      if (group.structureGroupName) lines.push(`  ${group.structureGroupName}`);
+      for (const team of group.teams) {
+        const total = matrix.teamTotals[team.teamKey] || { morning: 0, afternoon: 0, evening: 0, dailyHeadcount: 0 };
+        lines.push(`    - ${team.teamName}: Sáng ${total.morning} | Chiều ${total.afternoon} | Tối ${total.evening} | Tổng QS ngày ${total.dailyHeadcount}`);
+      }
     }
     lines.push(`Tổng lượt người-ngày: ${matrix.grandDailyHeadcount}`, '');
 
     if (projectIndex < matrices.length - 1) lines.push('--------------------', '');
   });
 
-  lines.push('Lưu ý: Sáng/Chiều/Tối là quân số theo ca; QS ngày lấy mức cao nhất của từng đội. Dòng TỔNG cộng QS ngày qua nhiều ngày nên là tổng lượt người-ngày, không phải số người duy nhất.');
+  lines.push('Lưu ý: Sáng/Chiều/Tối là quân số theo ca; QS ngày lấy mức cao nhất của từng đội trong từng Khu/Khối. Dòng TỔNG cộng QS ngày qua nhiều ngày nên là tổng lượt người-ngày, không phải số người duy nhất.');
   return lines.join('\n').trim();
 }
-
