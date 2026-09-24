@@ -2674,14 +2674,16 @@ export interface ProjectCrewReportData {
   projectLocation?: string;
   records: any[];
   teams: any[];
+  floorPlans: any[];
+  structureConfig?: ProjectStructureConfig;
   updatedAt: number;
 }
 
 /**
- * Read only the two collections needed by the multi-project manpower report.
- * This intentionally avoids hydrating Defect/photos/work volumes for every project on Home.
- * The caller supplies an already-authorized project id, while this helper still performs a
- * live role verification so a revoked account fails closed before report data is returned.
+ * Read the lightweight collections needed by the multi-project manpower report.
+ * Floor/Khu-Khối metadata is included so one team working in different structures
+ * never gets silently merged into one column on Home/share reports.
+ * Defect/photos/work volumes are still intentionally not hydrated here.
  */
 export async function fetchProjectCrewReportData(
   projectId: string,
@@ -2710,6 +2712,8 @@ export async function fetchProjectCrewReportData(
     orderBy('date', 'asc'),
   );
   const teamsRef = collection(db, 'projects', projectId, 'teams');
+  const floorPlansRef = collection(db, 'projects', projectId, 'floor_plans');
+  const sharedSettingsRef = doc(db, 'projects', projectId, 'settings', 'shared');
   const readDocs = options.serverOnly ? getDocsFromServer : getDocs;
   const readDoc = options.serverOnly ? getDocFromServer : getDoc;
 
@@ -2720,6 +2724,19 @@ export async function fetchProjectCrewReportData(
   ]);
   if (!projectSnap.exists()) throw new Error('CREW_REPORT_PROJECT_NOT_FOUND');
 
+  // Structure metadata is additive for reporting. If an older Ruleset/project cannot
+  // read it, keep the verified crew report available instead of fabricating values.
+  const [floorPlansSnap, sharedSettingsSnap] = await Promise.all([
+    readDocs(floorPlansRef).catch((err) => {
+      console.warn('Crew report floor structure read warning:', err);
+      return null;
+    }),
+    readDoc(sharedSettingsRef).catch((err) => {
+      console.warn('Crew report shared settings read warning:', err);
+      return null;
+    }),
+  ]);
+
   const projectMeta = projectSnap.data();
   const records = crewSnap.docs
     .map((item) => ({ id: item.id, ...item.data() }))
@@ -2727,6 +2744,13 @@ export async function fetchProjectCrewReportData(
   const teams = teamsSnap.docs
     .map((item) => ({ id: item.id, ...item.data() }))
     .filter((item: any) => item?.deleted !== true && !item?.deletedAt);
+  const floorPlans = floorPlansSnap
+    ? floorPlansSnap.docs
+        .map((item) => ({ id: item.id, ...item.data() }))
+        .filter((item: any) => item?.deleted !== true && !item?.deletedAt)
+        .sort((a: any, b: any) => Number(a?.order || 0) - Number(b?.order || 0))
+    : [];
+  const sharedSettings = sharedSettingsSnap?.exists() ? sharedSettingsSnap.data() : undefined;
 
   return {
     projectId,
@@ -2734,6 +2758,8 @@ export async function fetchProjectCrewReportData(
     projectLocation: String(projectMeta?.projectLocation || ''),
     records,
     teams,
+    floorPlans,
+    structureConfig: sharedSettings?.structure as ProjectStructureConfig | undefined,
     updatedAt: cloudTimestampToMillis(projectMeta?.updatedAt),
   };
 }
