@@ -80,10 +80,10 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   const hasFinancialAccess = canViewFinancials(effectiveRole);
   const stockSummary = calculateStockSummary(inventory, materialNorms);
   const normalizedStructureConfig = useMemo(() => normalizeStructureGroupConfig(structureConfig), [structureConfig]);
-  const [selectedStructureGroupId, setSelectedStructureGroupId] = useState<string>('all');
+  const [selectedStructureGroupIds, setSelectedStructureGroupIds] = useState<string[]>(['all']);
   const [selectedFloorIds, setSelectedFloorIds] = useState<string[]>(['all']);
-  const [selectedRoomId, setSelectedRoomId] = useState<string>('all');
-  const [selectedTeamId, setSelectedTeamId] = useState<string>('all');
+  const [selectedRoomIds, setSelectedRoomIds] = useState<string[]>(['all']);
+  const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>(['all']);
   useFormatSettings();
   const [copiedText, setCopiedText] = useState(false);
   const [copiedExcelBase64, setCopiedExcelBase64] = useState(false);
@@ -294,77 +294,72 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   }, [isOpen, activeProjectId]);
 
   const floorNames: string[] = Array.from(new Set(effectiveFloorPlans.map((fp) => String(fp.floorName || '')).filter(Boolean)));
-  const groupScopedFloorPlans = normalizedStructureConfig.enabled && selectedStructureGroupId !== 'all'
-    ? effectiveFloorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === selectedStructureGroupId)
+  const allStructureGroupsSelected = selectedStructureGroupIds.includes('all');
+  const groupScopedFloorPlans = normalizedStructureConfig.enabled && !allStructureGroupsSelected
+    ? effectiveFloorPlans.filter((floor) => selectedStructureGroupIds.includes(resolveFloorStructureGroupId(floor, normalizedStructureConfig)))
     : effectiveFloorPlans;
   const isAllSelected = selectedFloorIds.includes('all');
-  const scopedFloorPlans = isAllSelected
-    ? groupScopedFloorPlans
-    : groupScopedFloorPlans.filter((floor) => selectedFloorIds.includes(floor.id));
+  const scopedFloorPlans = isAllSelected ? groupScopedFloorPlans : groupScopedFloorPlans.filter((floor) => selectedFloorIds.includes(floor.id));
   const scopedFloorIdSet = new Set(scopedFloorPlans.map((floor) => floor.id));
-  const scopedFloorNameSet = new Set(scopedFloorPlans.map((floor) => String(floor.floorName || '')).filter(Boolean));
 
-  const handleToggleFloor = (floorId: string) => {
-    if (floorId === 'all') {
-      setSelectedFloorIds(['all']);
-      return;
-    }
-    let next = selectedFloorIds.filter((id) => id !== 'all');
-    if (next.includes(floorId)) next = next.filter((id) => id !== floorId);
-    else next.push(floorId);
-    const availableIds = groupScopedFloorPlans.map((floor) => floor.id);
-    const normalized = next.filter((id) => availableIds.includes(id));
-    setSelectedFloorIds(normalized.length === 0 || normalized.length === availableIds.length ? ['all'] : normalized);
+  const toggleMulti = (current: string[], value: string, available: string[]): string[] => {
+    if (value === 'all') return ['all'];
+    const base = current.filter((id) => id !== 'all');
+    const next = base.includes(value) ? base.filter((id) => id !== value) : [...base, value];
+    const valid = next.filter((id) => available.includes(id));
+    return valid.length === 0 || valid.length === available.length ? ['all'] : valid;
   };
-
-  useEffect(() => {
-    const availableIds = new Set(groupScopedFloorPlans.map((floor) => floor.id));
-    setSelectedFloorIds((current) => {
-      if (current.includes('all')) return current;
-      const next = current.filter((id) => availableIds.has(id));
-      if (next.length === 0 || next.length === availableIds.size) return ['all'];
-      return next;
-    });
-    setSelectedRoomId('all');
-  }, [selectedStructureGroupId, effectiveFloorPlans.length]);
-
-  if (!isOpen) return null;
+  const handleToggleStructureGroup = (id: string) => {
+    const available = normalizedStructureConfig.groups.map((group) => group.id);
+    setSelectedStructureGroupIds((current) => toggleMulti(current, id, available));
+  };
+  const handleToggleFloor = (id: string) => setSelectedFloorIds((current) => toggleMulti(current, id, groupScopedFloorPlans.map((floor) => floor.id)));
 
   const floorMatchesScope = (floorId?: string, floorName?: string): boolean => {
     if (effectiveFloorPlans.length === 0) return true;
     const byId = floorId ? effectiveFloorPlans.find((floor) => floor.id === floorId) : undefined;
-    const byNameCandidates = floorName ? effectiveFloorPlans.filter((floor) => floor.floorName === floorName) : [];
-    const candidates = byId ? [byId] : byNameCandidates;
-    if (candidates.length === 0) return false;
+    const candidates = byId ? [byId] : (floorName ? effectiveFloorPlans.filter((floor) => floor.floorName === floorName) : []);
     return candidates.some((floor) => scopedFloorIdSet.has(floor.id));
   };
 
+  const baseRoomScopeOptions = roomProgressList.filter((room) => floorMatchesScope(room.floorId, room.floorName));
+  const roomTeamIds = (room: RoomProgressItem): string[] => Array.from(new Set([room.teamId, ...(room.subItems || []).map((sub) => sub.teamId)].filter(Boolean) as string[]));
+  const roomTeamNames = (room: RoomProgressItem): string[] => Array.from(new Set([room.assignedTeam, ...(room.subItems || []).map((sub) => sub.assignedTeam)].map((v) => String(v || '').trim()).filter(Boolean)));
+  const availableTeamOptions = teams.filter((team) => baseRoomScopeOptions.filter((room) => selectedRoomIds.includes('all') || selectedRoomIds.includes(room.id)).some((room) =>
+    roomTeamIds(room).includes(team.id) || roomTeamNames(room).some((name) => {
+      const normalized = name.toLocaleLowerCase('vi-VN');
+      return normalized === team.name.trim().toLocaleLowerCase('vi-VN') || normalized === String(team.leader || '').trim().toLocaleLowerCase('vi-VN');
+    })
+  ));
+  const allTeamsSelected = selectedTeamIds.includes('all');
   const teamMatchesScope = (teamId?: string, teamName?: string): boolean => {
-    if (selectedTeamId === 'all') return true;
-    const selectedTeam = teams.find((team) => team.id === selectedTeamId);
-    if (teamId && teamId === selectedTeamId) return true;
-    if (!selectedTeam || !teamName) return false;
-    const normalizedName = teamName.trim().toLocaleLowerCase('vi-VN');
-    return normalizedName === selectedTeam.name.trim().toLocaleLowerCase('vi-VN')
-      || normalizedName === String(selectedTeam.leader || '').trim().toLocaleLowerCase('vi-VN');
+    if (allTeamsSelected) return true;
+    if (teamId && selectedTeamIds.includes(teamId)) return true;
+    const normalizedName = String(teamName || '').trim().toLocaleLowerCase('vi-VN');
+    return availableTeamOptions.some((team) => selectedTeamIds.includes(team.id) && (
+      normalizedName === team.name.trim().toLocaleLowerCase('vi-VN') || normalizedName === String(team.leader || '').trim().toLocaleLowerCase('vi-VN')
+    ));
   };
+  const roomMatchesTeamScope = (room: RoomProgressItem): boolean => allTeamsSelected || teamMatchesScope(room.teamId, room.assignedTeam) || (room.subItems || []).some((sub) => teamMatchesScope(sub.teamId, sub.assignedTeam));
+  const roomScopeOptions = baseRoomScopeOptions.filter(roomMatchesTeamScope).slice().sort((a, b) => {
+    const floorA = effectiveFloorPlans.find((floor) => floor.id === a.floorId)?.floorName || a.floorName || '';
+    const floorB = effectiveFloorPlans.find((floor) => floor.id === b.floorId)?.floorName || b.floorName || '';
+    return floorA.localeCompare(floorB, 'vi', { numeric: true, sensitivity: 'base' }) || String(a.roomName || '').localeCompare(String(b.roomName || ''), 'vi', { numeric: true, sensitivity: 'base' });
+  });
+  const allRoomsSelected = selectedRoomIds.includes('all');
 
-  const roomMatchesTeamScope = (room: RoomProgressItem): boolean => {
-    if (selectedTeamId === 'all') return true;
-    if (teamMatchesScope(room.teamId, room.assignedTeam)) return true;
-    return (room.subItems || []).some((sub) => teamMatchesScope(sub.teamId, sub.assignedTeam));
-  };
+  useEffect(() => {
+    const availableFloors = new Set(groupScopedFloorPlans.map((floor) => floor.id));
+    setSelectedFloorIds((current) => current.includes('all') ? current : (current.filter((id) => availableFloors.has(id)).length ? current.filter((id) => availableFloors.has(id)) : ['all']));
+  }, [selectedStructureGroupIds.join('|'), effectiveFloorPlans.length]);
+  useEffect(() => {
+    const availableRooms = new Set(roomScopeOptions.map((room) => room.id));
+    setSelectedRoomIds((current) => current.includes('all') ? current : (current.filter((id) => availableRooms.has(id)).length ? current.filter((id) => availableRooms.has(id)) : ['all']));
+    const availableTeams = new Set(availableTeamOptions.map((team) => team.id));
+    setSelectedTeamIds((current) => current.includes('all') ? current : (current.filter((id) => availableTeams.has(id)).length ? current.filter((id) => availableTeams.has(id)) : ['all']));
+  }, [selectedFloorIds.join('|'), selectedStructureGroupIds.join('|'), roomProgressList.length, teams.length]);
 
-  const roomScopeOptions = roomProgressList
-    .filter((room) => floorMatchesScope(room.floorId, room.floorName))
-    .filter((room) => roomMatchesTeamScope(room))
-    .slice()
-    .sort((a, b) => {
-      const floorA = effectiveFloorPlans.find((floor) => floor.id === a.floorId)?.floorName || a.floorName || '';
-      const floorB = effectiveFloorPlans.find((floor) => floor.id === b.floorId)?.floorName || b.floorName || '';
-      return floorA.localeCompare(floorB, 'vi', { numeric: true, sensitivity: 'base' })
-        || String(a.roomName || '').localeCompare(String(b.roomName || ''), 'vi', { numeric: true, sensitivity: 'base' });
-    });
+  if (!isOpen) return null;
 
   const dateInRange = (value: unknown, from: string, to: string): boolean => {
     if (!from && !to) return true;
@@ -393,13 +388,17 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     return pdfDefectCodeStyle === 'df' ? `DF-${shortNumber}` : shortNumber;
   };
 
-  const defectCategoryOptions = Array.from(new Set(defects.filter((d) => !d.archivedAt).map((d) => String(d.category || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
-  const defectCreatorOptions = Array.from(new Set(defects.filter((d) => !d.archivedAt).map((d) => String(d.createdBy || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
+  const defectsInSelectedScope = defects.filter((d) => !d.archivedAt)
+    .filter((d) => floorMatchesScope(d.floorId, d.floorName))
+    .filter((d) => allRoomsSelected || selectedRoomIds.includes(String(d.roomId || '')))
+    .filter((d) => teamMatchesScope(d.teamId, d.assignedTo));
+  const defectCategoryOptions = Array.from(new Set(defectsInSelectedScope.map((d) => String(d.category || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
+  const defectCreatorOptions = Array.from(new Set(defectsInSelectedScope.map((d) => String(d.createdBy || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
 
   const filteredDefects = defects.filter((d) => {
     if (d.archivedAt) return false;
     if (!floorMatchesScope(d.floorId, d.floorName)) return false;
-    if (selectedRoomId !== 'all' && d.roomId !== selectedRoomId) return false;
+    if (!allRoomsSelected && !selectedRoomIds.includes(String(d.roomId || ''))) return false;
     if (!teamMatchesScope(d.teamId, d.assignedTo)) return false;
     if (defectStatusFilter !== 'all' && d.status !== defectStatusFilter) return false;
     if (defectCategoryFilter !== 'all' && d.category !== defectCategoryFilter) return false;
@@ -479,14 +478,14 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   const filteredChecklist = checklist.filter((item) => {
     if (item.archivedAt) return false;
     if (!floorMatchesScope(item.floorId, item.floorName)) return false;
-    if (selectedRoomId !== 'all' && item.roomId !== selectedRoomId) return false;
-    if (selectedTeamId !== 'all' && item.teamId !== selectedTeamId) return false;
+    if (!allRoomsSelected && !selectedRoomIds.includes(String(item.roomId || ''))) return false;
+    if (!allTeamsSelected && !selectedTeamIds.includes(String(item.teamId || ''))) return false;
     return true;
   });
 
   const filteredRooms = roomProgressList.filter((room) => {
     if (!floorMatchesScope(room.floorId, room.floorName)) return false;
-    if (selectedRoomId !== 'all' && room.id !== selectedRoomId) return false;
+    if (!allRoomsSelected && !selectedRoomIds.includes(room.id)) return false;
     if (!roomMatchesTeamScope(room)) return false;
     return true;
   });
@@ -566,7 +565,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
         .forEach((name) => floorRefs.push({ floorId: '', floorName: name }));
     }
     if (floorRefs.length === 0) {
-      return selectedStructureGroupId === 'all' && isAllSelected;
+      return allStructureGroupsSelected && isAllSelected;
     }
     return floorRefs.some((ref) => floorMatchesScope(ref.floorId, ref.floorName));
   }).sort((a, b) => {
@@ -581,11 +580,8 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     return dateDesc || teamCmp || floorCmp;
   });
 
-  const selectedTeamForScope = selectedTeamId === 'all' ? undefined : teams.find((team) => team.id === selectedTeamId);
-  const hasScopedLocationFilter = selectedStructureGroupId !== 'all'
-    || !isAllSelected
-    || selectedRoomId !== 'all'
-    || selectedTeamId !== 'all';
+  const selectedTeamForScope = !allTeamsSelected && selectedTeamIds.length === 1 ? teams.find((team) => team.id === selectedTeamIds[0]) : undefined;
+  const hasScopedLocationFilter = !allStructureGroupsSelected || !isAllSelected || !allRoomsSelected || !allTeamsSelected;
   const workVolumeReportItems = sortedWorkVolumes
     .map((item) => {
       const detail = computeWorkVolumeDetailBreakdown(
@@ -609,12 +605,12 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   const displayContractor = contractorName && contractorName.trim() ? contractorName.trim() : '—';
   const displayInspector = inspectorName && inspectorName.trim() ? inspectorName.trim() : '—';
   const reportScopeParts = [
-    normalizedStructureConfig.enabled && selectedStructureGroupId !== 'all'
-      ? `${normalizedStructureConfig.label}: ${getStructureGroupName(selectedStructureGroupId, normalizedStructureConfig)}`
+    normalizedStructureConfig.enabled && !allStructureGroupsSelected
+      ? `${normalizedStructureConfig.label}: ${selectedStructureGroupIds.map((id) => getStructureGroupName(id, normalizedStructureConfig)).join(', ')}`
       : '',
     !isAllSelected ? scopedFloorPlans.map((floor) => floor.floorName).join(', ') : '',
-    selectedRoomId !== 'all' ? `Căn/Phòng: ${roomProgressList.find((room) => room.id === selectedRoomId)?.roomName || selectedRoomId}` : '',
-    selectedTeamId !== 'all' ? `Đội: ${teams.find((team) => team.id === selectedTeamId)?.name || selectedTeamId}` : '',
+    !allRoomsSelected ? `Căn/Phòng: ${selectedRoomIds.map((id) => roomProgressList.find((room) => room.id === id)?.roomName || id).join(', ')}` : '',
+    !allTeamsSelected ? `Đội: ${selectedTeamIds.map((id) => teams.find((team) => team.id === id)?.name || id).join(', ')}` : '',
   ].filter(Boolean);
   const reportScopeLabel = reportScopeParts.length > 0 ? reportScopeParts.join(' · ') : 'Toàn bộ công trình';
 
@@ -1764,10 +1760,10 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
               <button
                 type="button"
                 onClick={() => {
-                  setSelectedStructureGroupId('all');
+                  setSelectedStructureGroupIds(['all']);
                   setSelectedFloorIds(['all']);
-                  setSelectedRoomId('all');
-                  setSelectedTeamId('all');
+                  setSelectedRoomIds(['all']);
+                  setSelectedTeamIds(['all']);
                   setDefectStatusFilter('all');
                   setDefectCategoryFilter('all');
                   setDefectCreatorFilter('all');
@@ -1783,79 +1779,13 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 space-y-3">
-              <div className={`grid grid-cols-1 gap-2 ${normalizedStructureConfig.enabled ? 'sm:grid-cols-2 lg:grid-cols-4' : 'sm:grid-cols-2 lg:grid-cols-3'}`}>
+              <div className={`grid grid-cols-1 gap-2 ${normalizedStructureConfig.enabled ? 'sm:grid-cols-2 lg:grid-cols-4' : 'sm:grid-cols-3'}`}>
                 {normalizedStructureConfig.enabled && (
-                  <label className="space-y-1">
-                    <span className="block text-[10px] font-bold text-slate-600">{normalizedStructureConfig.label}</span>
-                    <select
-                      value={selectedStructureGroupId}
-                      onChange={(e) => {
-                        setSelectedStructureGroupId(e.target.value);
-                        setSelectedFloorIds(['all']);
-                        setSelectedRoomId('all');
-                      }}
-                      className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700"
-                    >
-                      <option value="all">Tất cả {normalizedStructureConfig.label}</option>
-                      {normalizedStructureConfig.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
-                    </select>
-                  </label>
+                  <label className="space-y-1"><span className="block text-[10px] font-bold text-slate-600">{normalizedStructureConfig.label}</span><div className="max-h-32 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 space-y-1.5"><label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer"><input type="checkbox" checked={allStructureGroupsSelected} onChange={() => handleToggleStructureGroup('all')} className="w-3.5 h-3.5 rounded text-indigo-600" /><span className="text-[10.5px]">Tất cả {normalizedStructureConfig.label}</span></label>{normalizedStructureConfig.groups.map((group) => <label key={group.id} className="flex items-center gap-2 text-slate-700 cursor-pointer"><input type="checkbox" checked={allStructureGroupsSelected || selectedStructureGroupIds.includes(group.id)} disabled={allStructureGroupsSelected} onChange={() => handleToggleStructureGroup(group.id)} className="w-3.5 h-3.5 rounded text-indigo-600 disabled:opacity-50" /><span className="text-[10.5px]">{group.name}</span></label>)}</div></label>
                 )}
-
-                <label className="space-y-1">
-                  <span className="block text-[10px] font-bold text-slate-600">Tầng</span>
-                  <div className="max-h-28 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 space-y-1.5">
-                    <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer">
-                      <input type="checkbox" checked={isAllSelected} onChange={() => handleToggleFloor('all')} className="w-3.5 h-3.5 rounded text-indigo-600" />
-                      <span className="text-[10.5px]">Tất cả tầng</span>
-                    </label>
-                    {groupScopedFloorPlans.map((floor) => {
-                      const checked = isAllSelected || selectedFloorIds.includes(floor.id);
-                      return (
-                        <label key={floor.id} className="flex items-center gap-2 text-slate-700 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            disabled={isAllSelected}
-                            onChange={() => handleToggleFloor(floor.id)}
-                            className="w-3.5 h-3.5 rounded text-indigo-600 disabled:opacity-50"
-                          />
-                          <span className="text-[10.5px]">{floor.floorName}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </label>
-
-                <label className="space-y-1">
-                  <span className="block text-[10px] font-bold text-slate-600">Căn / Phòng</span>
-                  <select
-                    value={selectedRoomId}
-                    onChange={(e) => setSelectedRoomId(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700"
-                  >
-                    <option value="all">Tất cả Căn / Phòng</option>
-                    {roomScopeOptions.map((room) => {
-                      const floorName = effectiveFloorPlans.find((floor) => floor.id === room.floorId)?.floorName || room.floorName || '';
-                      return <option key={room.id} value={room.id}>{floorName ? `${floorName} · ` : ''}{room.roomName}</option>;
-                    })}
-                  </select>
-                </label>
-
-                <label className="space-y-1">
-                  <span className="block text-[10px] font-bold text-slate-600">Đội thi công</span>
-                  <select
-                    value={selectedTeamId}
-                    onChange={(e) => {
-                      setSelectedTeamId(e.target.value);
-                      setSelectedRoomId('all');
-                    }}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700"
-                  >
-                    <option value="all">Tất cả đội</option>
-                    {teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
-                  </select>
-                </label>
+                <label className="space-y-1"><span className="block text-[10px] font-bold text-slate-600">Tầng</span><div className="max-h-32 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 space-y-1.5"><label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer"><input type="checkbox" checked={isAllSelected} onChange={() => handleToggleFloor('all')} className="w-3.5 h-3.5 rounded text-indigo-600" /><span className="text-[10.5px]">Tất cả tầng</span></label>{groupScopedFloorPlans.map((floor) => <label key={floor.id} className="flex items-center gap-2 text-slate-700 cursor-pointer"><input type="checkbox" checked={isAllSelected || selectedFloorIds.includes(floor.id)} disabled={isAllSelected} onChange={() => handleToggleFloor(floor.id)} className="w-3.5 h-3.5 rounded text-indigo-600 disabled:opacity-50" /><span className="text-[10.5px]">{floor.floorName}</span></label>)}</div></label>
+                <label className="space-y-1"><span className="block text-[10px] font-bold text-slate-600">Căn / Phòng</span><div className="max-h-32 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 space-y-1.5"><label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer"><input type="checkbox" checked={allRoomsSelected} onChange={() => (id) => setSelectedRoomIds((current) => toggleMulti(current, id, roomScopeOptions.map((room) => room.id)))('all')} className="w-3.5 h-3.5 rounded text-indigo-600" /><span className="text-[10.5px]">Tất cả Căn / Phòng</span></label>{roomScopeOptions.map((room) => { const floorName = effectiveFloorPlans.find((floor) => floor.id === room.floorId)?.floorName || room.floorName || ''; return <label key={room.id} className="flex items-center gap-2 text-slate-700 cursor-pointer"><input type="checkbox" checked={allRoomsSelected || selectedRoomIds.includes(room.id)} disabled={allRoomsSelected} onChange={() => setSelectedRoomIds((current) => toggleMulti(current, room.id, roomScopeOptions.map((item) => item.id)))} className="w-3.5 h-3.5 rounded text-indigo-600 disabled:opacity-50" /><span className="text-[10.5px]">{floorName ? `${floorName} · ` : ''}{room.roomName}</span></label>; })}</div></label>
+                <label className="space-y-1"><span className="block text-[10px] font-bold text-slate-600">Đội thi công</span><div className="max-h-32 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 space-y-1.5"><label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer"><input type="checkbox" checked={allTeamsSelected} onChange={() => (id) => setSelectedTeamIds((current) => toggleMulti(current, id, availableTeamOptions.map((team) => team.id)))('all')} className="w-3.5 h-3.5 rounded text-indigo-600" /><span className="text-[10.5px]">Tất cả đội</span></label>{availableTeamOptions.map((team) => <label key={team.id} className="flex items-center gap-2 text-slate-700 cursor-pointer"><input type="checkbox" checked={allTeamsSelected || selectedTeamIds.includes(team.id)} disabled={allTeamsSelected} onChange={() => setSelectedTeamIds((current) => toggleMulti(current, team.id, availableTeamOptions.map((item) => item.id)))} className="w-3.5 h-3.5 rounded text-indigo-600 disabled:opacity-50" /><span className="text-[10.5px]">{team.name}</span></label>)}</div></label>
               </div>
 
               <div className="border-t border-slate-200 pt-3">

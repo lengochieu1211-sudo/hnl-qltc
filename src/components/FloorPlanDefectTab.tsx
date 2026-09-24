@@ -9038,7 +9038,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       {/* MANAGE FLOORS MODAL (Tùy Chỉnh, Đổi Tên, Nhân bản, Xóa tầng) */}
       {canManageStructure && showManageFloorsModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[85vh] overflow-y-auto shadow-2xl">
+          <div className="bg-white w-full sm:w-[90vw] lg:w-[88vw] max-w-7xl rounded-t-3xl sm:rounded-2xl p-4 sm:p-5 space-y-4 max-h-[92vh] overflow-y-auto shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
@@ -9050,6 +9050,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <button onClick={() => setShowManageFloorsModal(false)} className="font-bold text-slate-400 hover:text-slate-600 text-lg">✕</button>
             </div>
 
+            <div className="grid grid-cols-1 lg:grid-cols-[minmax(260px,0.34fr)_minmax(0,0.66fr)] gap-4 items-start">
+            <div className="lg:sticky lg:top-0">
             {onStructureConfigChange && (
               <div className="rounded-2xl border border-indigo-200 bg-indigo-50/50 p-3 space-y-3">
                 <div className="flex items-start justify-between gap-3">
@@ -9101,6 +9103,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               </div>
             )}
 
+            </div>
+            <div className="min-w-0 space-y-4">
             {/* Quick Sort Floors Controls */}
             <QuickSortBar
               itemCount={floorPlans.length}
@@ -9313,6 +9317,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 <Upload className="w-4 h-4" aria-hidden="true" />
                 Tải bản vẽ ảnh / PDF
               </button>
+            </div>
+            </div>
             </div>
           </div>
         </div>
