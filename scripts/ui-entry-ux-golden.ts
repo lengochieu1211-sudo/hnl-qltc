@@ -181,6 +181,24 @@ assert(!defectUi.includes('📐 <strong>Đang vẽ lại vùng cho căn'), 'Redr
 assert(!defectUi.includes('<span>📋 Dán thường') && !defectUi.includes('<span>📝 Dán đè'), 'Paste actions must use one icon system, not Lucide plus emoji.');
 const checklistUi = read('src/components/ChecklistTab.tsx');
 const workVolumeUi = read('src/components/WorkVolumeTab.tsx');
+const crewUiForPc = read('src/components/CrewTabBase.tsx');
+const roomHighlightUiForPc = read('src/components/RoomHighlightModal.tsx');
+assert(
+  crewUiForPc.includes('handleLogSubmit} className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4'),
+  'PC crew log must use the fourth column for Khu/Khối instead of leaving 2/3 of the row blank'
+);
+assert(
+  crewUiForPc.includes('md:col-span-2 lg:col-span-4') && crewUiForPc.includes('Quân số theo ca'),
+  'PC crew shift/work blocks must span the full four-column form width'
+);
+assert(
+  roomHighlightUiForPc.includes('min-w-0 lg:col-span-4'),
+  'PC room inspection row must reserve enough width for sub-item name/edit controls'
+);
+assert(
+  roomHighlightUiForPc.includes('lg:col-span-3 lg:border-t-0 lg:pt-0'),
+  'PC room inspection status block must stay compact enough to preserve the wider item name'
+);
 
 assert(workVolumeUi.includes('<Download className="w-3.5 h-3.5" /> Tải Excel để chỉnh sửa'), 'Work Volume download action keeps one consistent label across roles');
 assert(workVolumeUi.includes('{hasStructureManageAccess && ('), 'Work Volume must hide ADMIN-only import/create actions from Engineer/Viewer');

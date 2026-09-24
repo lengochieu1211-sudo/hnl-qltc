@@ -1620,7 +1620,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                       const originalIndex = subItems.findIndex(s => s.id === item.id);
                       return (
                         <div key={`${item.id}-${originalIndex}`} className="bg-white p-2.5 sm:p-3 rounded-xl border border-slate-200 shadow-2xs space-y-2.5 lg:space-y-0 lg:grid lg:grid-cols-12 lg:gap-2.5 lg:items-start overflow-x-hidden">
-                          <div className="flex items-center justify-between gap-1.5 min-w-0 lg:col-span-3">
+                          <div className="flex items-center justify-between gap-1.5 min-w-0 lg:col-span-4">
                             <div className="flex items-center gap-2 shrink-0">
                               <input
                                 type="checkbox"
@@ -1749,7 +1749,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                           </div>
 
                           {/* Status buttons: Nghiệm thu */}
-                          <div className="pt-1.5 border-t border-slate-100 lg:col-span-4 lg:border-t-0 lg:pt-0">
+                          <div className="pt-1.5 border-t border-slate-100 lg:col-span-3 lg:border-t-0 lg:pt-0">
                             <span className="text-[10.5px] font-bold text-indigo-700 block mb-1">▶ Nghiệm thu hạng mục này:</span>
                             <div className="grid grid-cols-3 gap-1.5 mb-1.5">
                               {(['Chưa nghiệm thu', 'Đạt nghiệm thu', 'Chưa đạt (Cần sửa)'] as RoomInspectionResult[]).map((st) => (

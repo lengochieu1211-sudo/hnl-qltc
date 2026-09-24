@@ -2202,7 +2202,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             </div>
 
             {/* Modal Form */}
-            <form onSubmit={handleLogSubmit} className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 overflow-y-auto max-h-[80vh]">
+            <form onSubmit={handleLogSubmit} className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3.5 overflow-y-auto max-h-[80vh]">
               {/* Date (Informative) */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Ngày Ghi Nhận</label>
@@ -2277,7 +2277,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
 
               {/* Per-shift Worker Count */}
-              <div className="md:col-span-2 lg:col-span-3">
+              <div className="md:col-span-2 lg:col-span-4">
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Quân số theo ca</label>
                 <div className="grid grid-cols-3 gap-2">
                   {([
@@ -2321,7 +2321,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               )}
 
               {/* Multi-floor & Multi-category Work Configuration */}
-              <div className="space-y-3 bg-slate-50 p-3 rounded-xl border border-slate-200 md:col-span-2 lg:col-span-3">
+              <div className="space-y-3 bg-slate-50 p-3 rounded-xl border border-slate-200 md:col-span-2 lg:col-span-4">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
                     <MapPin className="w-3.5 h-3.5 text-indigo-600" />
@@ -2471,7 +2471,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
 
               {/* Hình ảnh đính kèm */}
-              <div className="pt-1 md:col-span-2 lg:col-span-3">
+              <div className="pt-1 md:col-span-2 lg:col-span-4">
                 <PhotoAttachmentPicker
                   projectId={projectId}
                   entityType="crewRecord"
@@ -2482,7 +2482,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
 
               {/* Buttons */}
-              <div className="flex gap-2.5 pt-2 md:col-span-2 lg:col-span-3">
+              <div className="flex gap-2.5 pt-2 md:col-span-2 lg:col-span-4">
                 <button
                   type="button"
                   onClick={async () => {
