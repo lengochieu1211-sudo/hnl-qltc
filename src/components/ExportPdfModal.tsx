@@ -80,10 +80,10 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   const hasFinancialAccess = canViewFinancials(effectiveRole);
   const stockSummary = calculateStockSummary(inventory, materialNorms);
   const normalizedStructureConfig = useMemo(() => normalizeStructureGroupConfig(structureConfig), [structureConfig]);
-  const [selectedStructureGroupId, setSelectedStructureGroupId] = useState<string>('all');
+  const [selectedStructureGroupIds, setSelectedStructureGroupIds] = useState<string[]>(['all']);
   const [selectedFloorIds, setSelectedFloorIds] = useState<string[]>(['all']);
-  const [selectedRoomId, setSelectedRoomId] = useState<string>('all');
-  const [selectedTeamId, setSelectedTeamId] = useState<string>('all');
+  const [selectedRoomIds, setSelectedRoomIds] = useState<string[]>(['all']);
+  const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>(['all']);
   useFormatSettings();
   const [copiedText, setCopiedText] = useState(false);
   const [copiedExcelBase64, setCopiedExcelBase64] = useState(false);
@@ -294,77 +294,72 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   }, [isOpen, activeProjectId]);
 
   const floorNames: string[] = Array.from(new Set(effectiveFloorPlans.map((fp) => String(fp.floorName || '')).filter(Boolean)));
-  const groupScopedFloorPlans = normalizedStructureConfig.enabled && selectedStructureGroupId !== 'all'
-    ? effectiveFloorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === selectedStructureGroupId)
+  const allStructureGroupsSelected = selectedStructureGroupIds.includes('all');
+  const groupScopedFloorPlans = normalizedStructureConfig.enabled && !allStructureGroupsSelected
+    ? effectiveFloorPlans.filter((floor) => selectedStructureGroupIds.includes(resolveFloorStructureGroupId(floor, normalizedStructureConfig)))
     : effectiveFloorPlans;
   const isAllSelected = selectedFloorIds.includes('all');
-  const scopedFloorPlans = isAllSelected
-    ? groupScopedFloorPlans
-    : groupScopedFloorPlans.filter((floor) => selectedFloorIds.includes(floor.id));
+  const scopedFloorPlans = isAllSelected ? groupScopedFloorPlans : groupScopedFloorPlans.filter((floor) => selectedFloorIds.includes(floor.id));
   const scopedFloorIdSet = new Set(scopedFloorPlans.map((floor) => floor.id));
-  const scopedFloorNameSet = new Set(scopedFloorPlans.map((floor) => String(floor.floorName || '')).filter(Boolean));
 
-  const handleToggleFloor = (floorId: string) => {
-    if (floorId === 'all') {
-      setSelectedFloorIds(['all']);
-      return;
-    }
-    let next = selectedFloorIds.filter((id) => id !== 'all');
-    if (next.includes(floorId)) next = next.filter((id) => id !== floorId);
-    else next.push(floorId);
-    const availableIds = groupScopedFloorPlans.map((floor) => floor.id);
-    const normalized = next.filter((id) => availableIds.includes(id));
-    setSelectedFloorIds(normalized.length === 0 || normalized.length === availableIds.length ? ['all'] : normalized);
+  const toggleMulti = (current: string[], value: string, available: string[]): string[] => {
+    if (value === 'all') return ['all'];
+    const base = current.filter((id) => id !== 'all');
+    const next = base.includes(value) ? base.filter((id) => id !== value) : [...base, value];
+    const valid = next.filter((id) => available.includes(id));
+    return valid.length === 0 || valid.length === available.length ? ['all'] : valid;
   };
-
-  useEffect(() => {
-    const availableIds = new Set(groupScopedFloorPlans.map((floor) => floor.id));
-    setSelectedFloorIds((current) => {
-      if (current.includes('all')) return current;
-      const next = current.filter((id) => availableIds.has(id));
-      if (next.length === 0 || next.length === availableIds.size) return ['all'];
-      return next;
-    });
-    setSelectedRoomId('all');
-  }, [selectedStructureGroupId, effectiveFloorPlans.length]);
-
-  if (!isOpen) return null;
+  const handleToggleStructureGroup = (id: string) => {
+    const available = normalizedStructureConfig.groups.map((group) => group.id);
+    setSelectedStructureGroupIds((current) => toggleMulti(current, id, available));
+  };
+  const handleToggleFloor = (id: string) => setSelectedFloorIds((current) => toggleMulti(current, id, groupScopedFloorPlans.map((floor) => floor.id)));
 
   const floorMatchesScope = (floorId?: string, floorName?: string): boolean => {
     if (effectiveFloorPlans.length === 0) return true;
     const byId = floorId ? effectiveFloorPlans.find((floor) => floor.id === floorId) : undefined;
-    const byNameCandidates = floorName ? effectiveFloorPlans.filter((floor) => floor.floorName === floorName) : [];
-    const candidates = byId ? [byId] : byNameCandidates;
-    if (candidates.length === 0) return false;
+    const candidates = byId ? [byId] : (floorName ? effectiveFloorPlans.filter((floor) => floor.floorName === floorName) : []);
     return candidates.some((floor) => scopedFloorIdSet.has(floor.id));
   };
 
+  const baseRoomScopeOptions = roomProgressList.filter((room) => floorMatchesScope(room.floorId, room.floorName));
+  const roomTeamIds = (room: RoomProgressItem): string[] => Array.from(new Set([room.teamId, ...(room.subItems || []).map((sub) => sub.teamId)].filter(Boolean) as string[]));
+  const roomTeamNames = (room: RoomProgressItem): string[] => Array.from(new Set([room.assignedTeam, ...(room.subItems || []).map((sub) => sub.assignedTeam)].map((v) => String(v || '').trim()).filter(Boolean)));
+  const availableTeamOptions = teams.filter((team) => baseRoomScopeOptions.some((room) =>
+    roomTeamIds(room).includes(team.id) || roomTeamNames(room).some((name) => {
+      const normalized = name.toLocaleLowerCase('vi-VN');
+      return normalized === team.name.trim().toLocaleLowerCase('vi-VN') || normalized === String(team.leader || '').trim().toLocaleLowerCase('vi-VN');
+    })
+  ));
+  const allTeamsSelected = selectedTeamIds.includes('all');
   const teamMatchesScope = (teamId?: string, teamName?: string): boolean => {
-    if (selectedTeamId === 'all') return true;
-    const selectedTeam = teams.find((team) => team.id === selectedTeamId);
-    if (teamId && teamId === selectedTeamId) return true;
-    if (!selectedTeam || !teamName) return false;
-    const normalizedName = teamName.trim().toLocaleLowerCase('vi-VN');
-    return normalizedName === selectedTeam.name.trim().toLocaleLowerCase('vi-VN')
-      || normalizedName === String(selectedTeam.leader || '').trim().toLocaleLowerCase('vi-VN');
+    if (allTeamsSelected) return true;
+    if (teamId && selectedTeamIds.includes(teamId)) return true;
+    const normalizedName = String(teamName || '').trim().toLocaleLowerCase('vi-VN');
+    return availableTeamOptions.some((team) => selectedTeamIds.includes(team.id) && (
+      normalizedName === team.name.trim().toLocaleLowerCase('vi-VN') || normalizedName === String(team.leader || '').trim().toLocaleLowerCase('vi-VN')
+    ));
   };
+  const roomMatchesTeamScope = (room: RoomProgressItem): boolean => allTeamsSelected || teamMatchesScope(room.teamId, room.assignedTeam) || (room.subItems || []).some((sub) => teamMatchesScope(sub.teamId, sub.assignedTeam));
+  const roomScopeOptions = baseRoomScopeOptions.filter(roomMatchesTeamScope).slice().sort((a, b) => {
+    const floorA = effectiveFloorPlans.find((floor) => floor.id === a.floorId)?.floorName || a.floorName || '';
+    const floorB = effectiveFloorPlans.find((floor) => floor.id === b.floorId)?.floorName || b.floorName || '';
+    return floorA.localeCompare(floorB, 'vi', { numeric: true, sensitivity: 'base' }) || String(a.roomName || '').localeCompare(String(b.roomName || ''), 'vi', { numeric: true, sensitivity: 'base' });
+  });
+  const allRoomsSelected = selectedRoomIds.includes('all');
 
-  const roomMatchesTeamScope = (room: RoomProgressItem): boolean => {
-    if (selectedTeamId === 'all') return true;
-    if (teamMatchesScope(room.teamId, room.assignedTeam)) return true;
-    return (room.subItems || []).some((sub) => teamMatchesScope(sub.teamId, sub.assignedTeam));
-  };
+  useEffect(() => {
+    const availableFloors = new Set(groupScopedFloorPlans.map((floor) => floor.id));
+    setSelectedFloorIds((current) => current.includes('all') ? current : (current.filter((id) => availableFloors.has(id)).length ? current.filter((id) => availableFloors.has(id)) : ['all']));
+  }, [selectedStructureGroupIds.join('|'), effectiveFloorPlans.length]);
+  useEffect(() => {
+    const availableRooms = new Set(roomScopeOptions.map((room) => room.id));
+    setSelectedRoomIds((current) => current.includes('all') ? current : (current.filter((id) => availableRooms.has(id)).length ? current.filter((id) => availableRooms.has(id)) : ['all']));
+    const availableTeams = new Set(availableTeamOptions.map((team) => team.id));
+    setSelectedTeamIds((current) => current.includes('all') ? current : (current.filter((id) => availableTeams.has(id)).length ? current.filter((id) => availableTeams.has(id)) : ['all']));
+  }, [selectedFloorIds.join('|'), selectedStructureGroupIds.join('|'), roomProgressList.length, teams.length]);
 
-  const roomScopeOptions = roomProgressList
-    .filter((room) => floorMatchesScope(room.floorId, room.floorName))
-    .filter((room) => roomMatchesTeamScope(room))
-    .slice()
-    .sort((a, b) => {
-      const floorA = effectiveFloorPlans.find((floor) => floor.id === a.floorId)?.floorName || a.floorName || '';
-      const floorB = effectiveFloorPlans.find((floor) => floor.id === b.floorId)?.floorName || b.floorName || '';
-      return floorA.localeCompare(floorB, 'vi', { numeric: true, sensitivity: 'base' })
-        || String(a.roomName || '').localeCompare(String(b.roomName || ''), 'vi', { numeric: true, sensitivity: 'base' });
-    });
+  if (!isOpen) return null;
 
   const dateInRange = (value: unknown, from: string, to: string): boolean => {
     if (!from && !to) return true;
@@ -399,7 +394,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   const filteredDefects = defects.filter((d) => {
     if (d.archivedAt) return false;
     if (!floorMatchesScope(d.floorId, d.floorName)) return false;
-    if (selectedRoomId !== 'all' && d.roomId !== selectedRoomId) return false;
+    if (!allRoomsSelected && !selectedRoomIds.includes(String(d.roomId || ''))) return false;
     if (!teamMatchesScope(d.teamId, d.assignedTo)) return false;
     if (defectStatusFilter !== 'all' && d.status !== defectStatusFilter) return false;
     if (defectCategoryFilter !== 'all' && d.category !== defectCategoryFilter) return false;
@@ -479,14 +474,14 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   const filteredChecklist = checklist.filter((item) => {
     if (item.archivedAt) return false;
     if (!floorMatchesScope(item.floorId, item.floorName)) return false;
-    if (selectedRoomId !== 'all' && item.roomId !== selectedRoomId) return false;
-    if (selectedTeamId !== 'all' && item.teamId !== selectedTeamId) return false;
+    if (!allRoomsSelected && !selectedRoomIds.includes(String(item.roomId || ''))) return false;
+    if (!allTeamsSelected && !selectedTeamIds.includes(String(item.teamId || ''))) return false;
     return true;
   });
 
   const filteredRooms = roomProgressList.filter((room) => {
     if (!floorMatchesScope(room.floorId, room.floorName)) return false;
-    if (selectedRoomId !== 'all' && room.id !== selectedRoomId) return false;
+    if (!allRoomsSelected && !selectedRoomIds.includes(room.id)) return false;
     if (!roomMatchesTeamScope(room)) return false;
     return true;
   });
