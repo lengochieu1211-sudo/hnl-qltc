@@ -35,6 +35,10 @@ export interface CrewReportRow {
   afternoon: number | null;
   evening: number | null;
   dailyHeadcount: number | null;
+  floorSummary?: string;
+  workCategorySummary?: string;
+  workSubItemSummary?: string;
+  notesSummary?: string;
 }
 
 export interface CrewReportDailySummary {
@@ -82,6 +86,34 @@ const resolveTeamKey = (team: TeamInfo): string => {
 };
 
 const maxFinite = (values: number[]): number => values.reduce((max, value) => Number.isFinite(value) ? Math.max(max, value) : max, 0);
+
+const uniqueJoined = (values: unknown[]): string => Array.from(new Set(
+  values.map((value) => String(value || '').trim()).filter(Boolean)
+)).join(', ');
+
+const buildCrewWorkSummaries = (records: CrewRecord[]) => {
+  const floorNames: string[] = [];
+  const categories: string[] = [];
+  const subItems: string[] = [];
+  const notes: string[] = [];
+  records.forEach((record) => {
+    if (record.floorName) floorNames.push(record.floorName);
+    if (record.notes) notes.push(record.notes);
+    (record.floorWorks || []).forEach((work) => {
+      if (work.floorName) floorNames.push(work.floorName);
+      (work.categories || []).forEach((category) => {
+        if (category.categoryName) categories.push(category.categoryName);
+        (category.subItems || []).forEach((item) => subItems.push(item));
+      });
+    });
+  });
+  return {
+    floorSummary: uniqueJoined(floorNames),
+    workCategorySummary: uniqueJoined(categories),
+    workSubItemSummary: uniqueJoined(subItems),
+    notesSummary: uniqueJoined(notes),
+  };
+};
 
 type ReportGroup = {
   id: string;
@@ -273,8 +305,10 @@ export function buildCrewReportRows(
         }
 
         const shifts = bucket.map(getCrewShiftCounts);
+        const workSummaries = buildCrewWorkSummaries(bucket);
         rows.push({
           ...base,
+          ...workSummaries,
           leaderName: team.leaderName || bucket.find((record) => record.leaderName)?.leaderName,
           reported: true,
           morning: maxFinite(shifts.map((item) => item.morning)),
@@ -467,6 +501,8 @@ export function buildCrewReportText(params: {
   startDate: string;
   endDate: string;
   title?: string;
+  includeSerial?: boolean;
+  includeDetails?: boolean;
 }): string {
   const matrices = buildCrewReportMatrices(params.rows);
   const lines: string[] = [];
@@ -483,8 +519,8 @@ export function buildCrewReportText(params: {
       : `Từ ${formatDateDDMMYYYY(params.startDate)} đến ${formatDateDDMMYYYY(params.endDate)}`);
     lines.push('');
 
-    for (const dateRow of matrix.dates) {
-      lines.push(`Ngày ${formatDateDDMMYYYY(dateRow.date)}`);
+    for (const [dateIndex, dateRow] of matrix.dates.entries()) {
+      lines.push(`${params.includeSerial ? `${dateIndex + 1}. ` : ''}Ngày ${formatDateDDMMYYYY(dateRow.date)}`);
       for (const group of matrix.groups) {
         if (group.structureGroupName) lines.push(`  ${group.structureGroupName}`);
         for (const team of group.teams) {
@@ -493,7 +529,15 @@ export function buildCrewReportText(params: {
             lines.push(`    - ${team.teamName}: Chưa báo`);
             continue;
           }
-          lines.push(`    - ${team.teamName}: Sáng ${formatCount(row.morning, true)} | Chiều ${formatCount(row.afternoon, true)} | Tối ${formatCount(row.evening, true)} | QS ngày ${formatCount(row.dailyHeadcount, true)}`);
+          const detailParts = params.includeDetails
+            ? [
+                row.floorSummary ? `Tầng: ${row.floorSummary}` : '',
+                row.workCategorySummary ? `Hạng mục: ${row.workCategorySummary}` : '',
+                row.workSubItemSummary ? `HM con: ${row.workSubItemSummary}` : '',
+                row.notesSummary ? `Ghi chú: ${row.notesSummary}` : '',
+              ].filter(Boolean)
+            : [];
+          lines.push(`    - ${team.teamName}: Sáng ${formatCount(row.morning, true)} | Chiều ${formatCount(row.afternoon, true)} | Tối ${formatCount(row.evening, true)} | QS ngày ${formatCount(row.dailyHeadcount, true)}${detailParts.length ? ` | ${detailParts.join(' | ')}` : ''}`);
         }
       }
       const dayRows = Object.values(dateRow.cells);
