@@ -3047,7 +3047,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
 
               {/* Crew overview: desktop/EXE only. Mobile already has the KPI strip and tabs below, so avoid duplicating content and consuming vertical space. */}
-              <div className="hidden lg:grid lg:grid-cols-2 gap-2 border-b border-slate-200 bg-slate-50/70 p-3">
+              <div className="hidden 2xl:grid 2xl:grid-cols-2 gap-2 border-b border-slate-200 bg-slate-50/70 p-3">
                 <button type="button" onClick={() => setDetailModalTab('logs')} className="rounded-xl border border-indigo-200 bg-white p-3 text-left transition hover:bg-indigo-50/60">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider text-indigo-700">
@@ -3213,7 +3213,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                 </div>
 
                                 {/* Rooms list inside this floor */}
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
                                   {f.rooms.map((room) => {
                                     const canonicalDetails = stat.teamRoomDetails.filter((detail) => detail.roomId === room.id);
                                     const byUnit: Record<string, number> = {};
@@ -3517,7 +3517,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                         </p>
                       </div>
                     ) : (
-                      <div className="space-y-2.5">
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5 items-start">
                         {displayedDefects.map((defect) => {
                           const defectRoomName = defect.roomId
                             ? roomProgressList.find((room) => room.id === defect.roomId)?.roomName
@@ -3643,6 +3643,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                             }}
                           />
                         </div>
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5 items-start">
                         {displayedTeamLogs.map((log) => (
                           <div 
                             key={log.id}
@@ -3670,6 +3671,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                             )}
                           </div>
                         ))}
+                        </div>
                       </div>
                     )}
                   </div>
