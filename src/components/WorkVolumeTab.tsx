@@ -23,7 +23,8 @@ import {
   ArrowUpDown,
   Eye,
   X,
-  Layers3
+  Layers3,
+  Search
 } from 'lucide-react';
 import { WorkVolume, CategoryType, FloorPlan, RoomProgressItem } from '../types';
 import { exportWorkVolumesTemplate } from '../utils/excelExport';
@@ -126,6 +127,10 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   const [detailSortBy, setDetailSortBy] = useState<'floor' | 'room' | 'team' | 'assigned' | 'actual' | 'progress'>('floor');
   const [detailSortOrder, setDetailSortOrder] = useState<'asc' | 'desc'>('asc');
   const [detailSearch, setDetailSearch] = useState<string>('');
+  const [showDetailStructureGroupPicker, setShowDetailStructureGroupPicker] = useState(false);
+  const [showDetailFloorPicker, setShowDetailFloorPicker] = useState(false);
+  const [showDetailRoomPicker, setShowDetailRoomPicker] = useState(false);
+  const [showDetailTeamPicker, setShowDetailTeamPicker] = useState(false);
 
   // Role changes can happen without remounting this tab. Never leave an ADMIN-only
   // modal/selection open after switching to EDITOR/VIEWER in the same browser session.
@@ -246,7 +251,13 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
     });
   }, [detailBreakdown, detailStructureGroupIds, detailFloorIds, floorPlans, normalizedStructureConfig]);
 
-  const detailVisibleTeamOptions = useMemo<string[]>(() => Array.from(new Set<string>(detailVisibleRoomOptions.flatMap((row) => row.teamNames.map((name) => String(name))))).sort((a, b) => a.localeCompare(b, 'vi-VN', { numeric: true, sensitivity: 'base' })), [detailVisibleRoomOptions]);
+  const detailVisibleTeamOptions = useMemo<string[]>(() => {
+    const sourceRows = detailRoomIds.length > 0
+      ? detailVisibleRoomOptions.filter((row) => detailRoomIds.includes(row.roomId))
+      : detailVisibleRoomOptions;
+    return Array.from(new Set<string>(sourceRows.flatMap((row) => row.teamNames.map((name) => String(name)))))
+      .sort((a, b) => a.localeCompare(b, 'vi-VN', { numeric: true, sensitivity: 'base' }));
+  }, [detailVisibleRoomOptions, detailRoomIds]);
 
   const detailRows = useMemo(() => {
     if (!detailBreakdown) return [];
@@ -274,6 +285,16 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
   useEffect(() => { setDetailFloorIds((ids) => ids.filter((id) => detailVisibleFloorOptions.some((floor) => floor.id === id))); }, [detailVisibleFloorOptions]);
   useEffect(() => { setDetailRoomIds((ids) => ids.filter((id) => detailVisibleRoomOptions.some((row) => row.roomId === id))); }, [detailVisibleRoomOptions]);
   useEffect(() => { setDetailTeamNames((names) => names.filter((name) => detailVisibleTeamOptions.includes(name))); }, [detailVisibleTeamOptions]);
+
+  const detailStructureSummary = detailStructureGroupIds.length === 0
+    ? `Tất cả ${normalizedStructureConfig.label}`
+    : detailStructureGroupIds.length === 1
+      ? (normalizedStructureConfig.groups.find((group) => group.id === detailStructureGroupIds[0])?.name || `1 ${normalizedStructureConfig.label}`)
+      : `${detailStructureGroupIds.length} ${normalizedStructureConfig.label}`;
+  const detailFloorSummary = detailFloorIds.length === 0 ? 'Tất cả tầng' : detailFloorIds.length === 1 ? (detailVisibleFloorOptions.find((floor) => floor.id === detailFloorIds[0])?.floorName || '1 tầng') : `${detailFloorIds.length} tầng`;
+  const detailRoomSummary = detailRoomIds.length === 0 ? 'Tất cả Căn/Phòng' : detailRoomIds.length === 1 ? (detailVisibleRoomOptions.find((row) => row.roomId === detailRoomIds[0])?.roomName || '1 Căn/Phòng') : `${detailRoomIds.length} Căn/Phòng`;
+  const detailTeamSummary = detailTeamNames.length === 0 ? 'Tất cả đội' : detailTeamNames.length === 1 ? detailTeamNames[0] : `${detailTeamNames.length} đội`;
+  const hasDetailFilters = detailSearch.trim().length > 0 || detailStructureGroupIds.length > 0 || detailFloorIds.length > 0 || detailRoomIds.length > 0 || detailTeamNames.length > 0;
 
     const sortedFilteredVolumes = useMemo(() => {
     const volumes = [...filteredVolumes];
@@ -1232,27 +1253,69 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
             </div>
 
             <div className="p-3 sm:p-4 border-b border-slate-200 bg-slate-50/80 space-y-2">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+              <div className={`grid grid-cols-1 gap-2 sm:grid-cols-2 ${normalizedStructureConfig.enabled ? 'xl:grid-cols-4' : 'xl:grid-cols-3'}`}>
                 {normalizedStructureConfig.enabled && (
-                  <details className="rounded-xl border border-slate-200 bg-white p-2 text-xs">
-                    <summary className="cursor-pointer font-bold text-slate-700">{normalizedStructureConfig.label} · {detailStructureGroupIds.length || 'Tất cả'}</summary>
-                    <div className="mt-2 max-h-36 overflow-auto space-y-1">{normalizedStructureConfig.groups.map((group) => <label key={group.id} className="flex gap-2"><input type="checkbox" checked={detailStructureGroupIds.includes(group.id)} onChange={() => setDetailStructureGroupIds((ids) => ids.includes(group.id) ? ids.filter((id) => id !== group.id) : [...ids, group.id])} />{group.name}</label>)}</div>
-                  </details>
+                  <div className="relative">
+                    <button type="button" onClick={() => { setShowDetailStructureGroupPicker((value) => !value); setShowDetailFloorPicker(false); setShowDetailRoomPicker(false); setShowDetailTeamPicker(false); }} className="flex w-full items-center justify-between rounded-xl border border-indigo-200 bg-white p-2.5 text-left text-xs font-semibold">
+                      <span className="truncate">{detailStructureSummary}</span><ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                    </button>
+                    {showDetailStructureGroupPicker && (
+                      <div className="absolute left-0 right-0 z-30 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+                        <label className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs font-semibold hover:bg-slate-50">
+                          <input type="checkbox" checked={detailStructureGroupIds.length === 0} onChange={() => setDetailStructureGroupIds([])} /> Tất cả {normalizedStructureConfig.label}
+                        </label>
+                        {normalizedStructureConfig.groups.map((group) => (
+                          <label key={group.id} className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs hover:bg-slate-50">
+                            <input type="checkbox" checked={detailStructureGroupIds.includes(group.id)} onChange={() => setDetailStructureGroupIds((ids) => ids.includes(group.id) ? ids.filter((id) => id !== group.id) : [...ids, group.id])} /> {group.name}
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 )}
-                <details className="rounded-xl border border-slate-200 bg-white p-2 text-xs">
-                  <summary className="cursor-pointer font-bold text-slate-700">Tầng · {detailFloorIds.length || 'Tất cả'}</summary>
-                  <div className="mt-2 max-h-36 overflow-auto space-y-1">{detailVisibleFloorOptions.map((floor) => <label key={floor.id} className="flex gap-2"><input type="checkbox" checked={detailFloorIds.includes(floor.id)} onChange={() => setDetailFloorIds((ids) => ids.includes(floor.id) ? ids.filter((id) => id !== floor.id) : [...ids, floor.id])} />{floor.floorName}</label>)}</div>
-                </details>
-                <details className="rounded-xl border border-slate-200 bg-white p-2 text-xs">
-                  <summary className="cursor-pointer font-bold text-slate-700">Căn/Phòng · {detailRoomIds.length || 'Tất cả'}</summary>
-                  <div className="mt-2 max-h-36 overflow-auto space-y-1">{detailVisibleRoomOptions.map((row) => <label key={row.roomId} className="flex gap-2"><input type="checkbox" checked={detailRoomIds.includes(row.roomId)} onChange={() => setDetailRoomIds((ids) => ids.includes(row.roomId) ? ids.filter((id) => id !== row.roomId) : [...ids, row.roomId])} />{row.roomName}</label>)}</div>
-                </details>
-                <details className="rounded-xl border border-slate-200 bg-white p-2 text-xs">
-                  <summary className="cursor-pointer font-bold text-slate-700">Đội · {detailTeamNames.length || 'Tất cả'}</summary>
-                  <div className="mt-2 max-h-36 overflow-auto space-y-1">{detailVisibleTeamOptions.map((name) => <label key={name} className="flex gap-2"><input type="checkbox" checked={detailTeamNames.includes(name)} onChange={() => setDetailTeamNames((names) => names.includes(name) ? names.filter((item) => item !== name) : [...names, name])} />{name}</label>)}</div>
-                </details>
+                <div className="relative">
+                  <button type="button" onClick={() => { setShowDetailFloorPicker((value) => !value); setShowDetailStructureGroupPicker(false); setShowDetailRoomPicker(false); setShowDetailTeamPicker(false); }} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold">
+                    <span className="truncate">{detailFloorSummary}</span><ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                  </button>
+                  {showDetailFloorPicker && (
+                    <div className="absolute left-0 right-0 z-30 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+                      <label className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs font-semibold hover:bg-slate-50"><input type="checkbox" checked={detailFloorIds.length === 0} onChange={() => setDetailFloorIds([])} /> Tất cả tầng</label>
+                      {detailVisibleFloorOptions.map((floor) => <label key={floor.id} className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs hover:bg-slate-50"><input type="checkbox" checked={detailFloorIds.includes(floor.id)} onChange={() => setDetailFloorIds((ids) => ids.includes(floor.id) ? ids.filter((id) => id !== floor.id) : [...ids, floor.id])} /> {floor.floorName}</label>)}
+                    </div>
+                  )}
+                </div>
+                <div className="relative">
+                  <button type="button" onClick={() => { setShowDetailRoomPicker((value) => !value); setShowDetailStructureGroupPicker(false); setShowDetailFloorPicker(false); setShowDetailTeamPicker(false); }} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold">
+                    <span className="truncate">{detailRoomSummary}</span><ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                  </button>
+                  {showDetailRoomPicker && (
+                    <div className="absolute left-0 right-0 z-30 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+                      <label className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs font-semibold hover:bg-slate-50"><input type="checkbox" checked={detailRoomIds.length === 0} onChange={() => setDetailRoomIds([])} /> Tất cả Căn/Phòng</label>
+                      {detailVisibleRoomOptions.map((row) => <label key={row.roomId} className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs hover:bg-slate-50"><input type="checkbox" checked={detailRoomIds.includes(row.roomId)} onChange={() => setDetailRoomIds((ids) => ids.includes(row.roomId) ? ids.filter((id) => id !== row.roomId) : [...ids, row.roomId])} /><span className="min-w-0 truncate"><span className="font-semibold">{row.roomName}</span><span className="text-slate-500"> · {row.floorName}</span></span></label>)}
+                    </div>
+                  )}
+                </div>
+                <div className="relative">
+                  <button type="button" onClick={() => { setShowDetailTeamPicker((value) => !value); setShowDetailStructureGroupPicker(false); setShowDetailFloorPicker(false); setShowDetailRoomPicker(false); }} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold">
+                    <span className="truncate">{detailTeamSummary}</span><ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                  </button>
+                  {showDetailTeamPicker && (
+                    <div className="absolute left-0 right-0 z-30 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+                      <label className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs font-semibold hover:bg-slate-50"><input type="checkbox" checked={detailTeamNames.length === 0} onChange={() => setDetailTeamNames([])} /> Tất cả đội</label>
+                      {detailVisibleTeamOptions.map((name) => <label key={name} className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs hover:bg-slate-50"><input type="checkbox" checked={detailTeamNames.includes(name)} onChange={() => setDetailTeamNames((names) => names.includes(name) ? names.filter((item) => item !== name) : [...names, name])} /> {name}</label>)}
+                    </div>
+                  )}
+                </div>
               </div>
-              <input value={detailSearch} onChange={(event) => setDetailSearch(event.target.value)} placeholder="Tìm Căn/Phòng hoặc đội..." className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700" />
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <div className="relative min-w-0 flex-1">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input value={detailSearch} onChange={(event) => setDetailSearch(event.target.value)} placeholder="Tìm Căn/Phòng, tầng hoặc đội..." className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-xs font-semibold text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
+                </div>
+                {hasDetailFilters && (
+                  <button type="button" onClick={() => { setDetailSearch(''); setDetailStructureGroupIds([]); setDetailFloorIds([]); setDetailRoomIds([]); setDetailTeamNames([]); }} className="min-h-10 rounded-xl border border-slate-200 bg-white px-3 text-[11px] font-extrabold text-indigo-700 hover:bg-indigo-50">Đặt lại bộ lọc</button>
+                )}
+              </div>
               <QuickSortBar
                 itemCount={detailRows.length}
                 minItems={0}
