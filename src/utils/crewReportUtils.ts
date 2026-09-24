@@ -501,6 +501,8 @@ export function buildCrewReportText(params: {
   startDate: string;
   endDate: string;
   title?: string;
+  includeSerial?: boolean;
+  includeDetails?: boolean;
 }): string {
   const matrices = buildCrewReportMatrices(params.rows);
   const lines: string[] = [];
@@ -517,8 +519,8 @@ export function buildCrewReportText(params: {
       : `Từ ${formatDateDDMMYYYY(params.startDate)} đến ${formatDateDDMMYYYY(params.endDate)}`);
     lines.push('');
 
-    for (const dateRow of matrix.dates) {
-      lines.push(`Ngày ${formatDateDDMMYYYY(dateRow.date)}`);
+    for (const [dateIndex, dateRow] of matrix.dates.entries()) {
+      lines.push(`${params.includeSerial ? `${dateIndex + 1}. ` : ''}Ngày ${formatDateDDMMYYYY(dateRow.date)}`);
       for (const group of matrix.groups) {
         if (group.structureGroupName) lines.push(`  ${group.structureGroupName}`);
         for (const team of group.teams) {
@@ -527,7 +529,15 @@ export function buildCrewReportText(params: {
             lines.push(`    - ${team.teamName}: Chưa báo`);
             continue;
           }
-          lines.push(`    - ${team.teamName}: Sáng ${formatCount(row.morning, true)} | Chiều ${formatCount(row.afternoon, true)} | Tối ${formatCount(row.evening, true)} | QS ngày ${formatCount(row.dailyHeadcount, true)}`);
+          const detailParts = params.includeDetails
+            ? [
+                row.floorSummary ? `Tầng: ${row.floorSummary}` : '',
+                row.workCategorySummary ? `Hạng mục: ${row.workCategorySummary}` : '',
+                row.workSubItemSummary ? `HM con: ${row.workSubItemSummary}` : '',
+                row.notesSummary ? `Ghi chú: ${row.notesSummary}` : '',
+              ].filter(Boolean)
+            : [];
+          lines.push(`    - ${team.teamName}: Sáng ${formatCount(row.morning, true)} | Chiều ${formatCount(row.afternoon, true)} | Tối ${formatCount(row.evening, true)} | QS ngày ${formatCount(row.dailyHeadcount, true)}${detailParts.length ? ` | ${detailParts.join(' | ')}` : ''}`);
         }
       }
       const dayRows = Object.values(dateRow.cells);
