@@ -16,7 +16,7 @@ import {
   Wifi,
   WifiOff,
 } from 'lucide-react';
-import { CrewRecord, TeamInfo } from '../types';
+import { CrewRecord, FloorPlan, TeamInfo } from '../types';
 import { UserRole } from '../utils/securityUtils';
 import { formatDateDDMMYYYY, formatDateTime } from '../utils/dateFormatter';
 import { fetchProjectCrewReportData } from '../lib/firebase';
@@ -28,6 +28,7 @@ import {
   type CrewReportProjectInput,
 } from '../utils/crewReportUtils';
 import { CrewReportShareModal } from './CrewReportShareModal';
+import type { ProjectStructureConfig } from '../utils/structureGroupUtils';
 
 export interface HomeProjectSummary {
   id: string;
@@ -45,6 +46,8 @@ interface HomeDashboardProps {
   dueAlertCount: number;
   crewRecords: CrewRecord[];
   teams: TeamInfo[];
+  floorPlans: FloorPlan[];
+  structureConfig: ProjectStructureConfig;
   lastUpdatedAt?: number;
   isOnline: boolean;
   isSyncing: boolean;
@@ -92,6 +95,8 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   dueAlertCount,
   crewRecords,
   teams,
+  floorPlans,
+  structureConfig,
   lastUpdatedAt,
   isOnline,
   isSyncing,
@@ -126,6 +131,8 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
       projectLocation: activeProjectLocation,
       records: crewRecords,
       teams,
+      floorPlans,
+      structureConfig,
     };
 
     if (!isOnline) {
@@ -157,6 +164,8 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
           projectLocation: snapshot.projectLocation,
           records: snapshot.records,
           teams: snapshot.teams,
+          floorPlans: snapshot.floorPlans,
+          structureConfig: snapshot.structureConfig,
         } satisfies CrewReportProjectInput;
       }));
       if (cancelled) return;
@@ -180,7 +189,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
       setReportLoading(false);
     });
     return () => { cancelled = true; };
-  }, [activeProjectId, activeProjectName, activeProjectLocation, activeProject?.name, crewRecords, teams, isOnline, projects, reportStartDate, reportEndDate]);
+  }, [activeProjectId, activeProjectName, activeProjectLocation, activeProject?.name, crewRecords, teams, floorPlans, structureConfig, isOnline, projects, reportStartDate, reportEndDate]);
 
   const reportRows = useMemo(
     () => buildCrewReportRows(reportProjects, reportStartDate, reportEndDate),
@@ -190,7 +199,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
     const map = new Map<string, string>();
     for (const row of reportRows) {
       if (reportProjectFilter !== 'all' && row.projectId !== reportProjectFilter) continue;
-      map.set(row.teamKey, row.teamName);
+      map.set(row.teamKey, `${row.structureGroupName ? `${row.structureGroupName} · ` : ''}${row.teamName}`);
     }
     return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1], 'vi-VN', { numeric: true, sensitivity: 'base' }));
   }, [reportRows, reportProjectFilter]);
