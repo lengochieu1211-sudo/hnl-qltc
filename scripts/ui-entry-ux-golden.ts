@@ -233,7 +233,13 @@ assert(crewUiForPc.includes("{ key: 'structure', label: normalizedStructureConfi
 assert(warehouse.includes('grid grid-cols-1 lg:grid-cols-2 gap-3 items-start'), 'PC/laptop warehouse transaction history must use two columns while mobile stays one column');
 assert(workVolumeUi.includes('grid grid-cols-1 lg:grid-cols-2 gap-3 items-start'), 'PC/laptop work-volume cards must use two columns while mobile stays one column');
 assert(workVolumeUi.includes('h-6 text-slate-700 font-bold mb-1 flex items-center') && workVolumeUi.includes('min-h-11 border border-slate-200 rounded-xl'), 'PC/laptop Work Volume floor and category fields must align to the same label/control row height');
-assert(warehouse.indexOf('Chọn vật tư') < warehouse.indexOf("type === 'out'") && warehouse.includes('space-y-1.5 lg:col-span-6') && warehouse.includes('grid grid-cols-1 lg:grid-cols-2 gap-3 items-end'), 'Warehouse material search and material dropdown must sit directly below receipt type in one aligned desktop row');
+assert(
+  warehouse.indexOf('{/* Material Search + Select */}', warehouse.indexOf('{/* Type Toggle */}')) > warehouse.indexOf('{/* Type Toggle */}') &&
+  warehouse.indexOf('{/* Material Search + Select */}', warehouse.indexOf('{/* Type Toggle */}')) < warehouse.indexOf("{type === 'out' && (", warehouse.indexOf('{/* Type Toggle */}')) &&
+  warehouse.includes('space-y-1.5 lg:col-span-6') &&
+  warehouse.includes('grid grid-cols-1 lg:grid-cols-2 gap-3 items-end'),
+  'Warehouse material search and material dropdown must sit directly below receipt type in one aligned desktop row'
+);
 
 assert(!defectUi.includes('text-[9px] font-bold text-slate-500">Tên cấp Khu/Khối</div>'), 'Floor manager must not repeat the Khu/Khối level name in a separate card');
 assert(photoAttachmentUiForPc.includes('compactViewerButton?: boolean;') && photoAttachmentUiForPc.includes('Mở ảnh hiện trường toàn màn hình'), 'Crew field-photo button must open the shared full-screen viewer directly without expanding thumbnails');
