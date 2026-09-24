@@ -65,6 +65,7 @@ import {
   getStructureGroupName,
   normalizeStructureGroupConfig,
   resolveFloorStructureGroupId,
+  createStructureGroupId,
   type ProjectStructureConfig,
 } from '../utils/structureGroupUtils';
 import { UndoRedoControls } from './UndoRedoControls';
@@ -321,6 +322,7 @@ interface FloorPlanDefectTabProps {
   projectId?: string;
   floorPlans: FloorPlan[];
   structureConfig: ProjectStructureConfig;
+  onStructureConfigChange?: (next: ProjectStructureConfig) => void;
   defects: DefectItem[];
   roomProgressList: RoomProgressItem[];
   checklistItems?: ChecklistItem[];
@@ -596,6 +598,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   projectId,
   floorPlans,
   structureConfig,
+  onStructureConfigChange,
   defects,
   roomProgressList,
   checklistItems = [],
@@ -4682,7 +4685,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             title="Quản lý, đổi tên, sao chép hoặc xóa các tầng"
           >
             <Settings className="w-3.5 h-3.5" />
-            Tùy chỉnh tầng
+            Quản lý Khu/Khối & Tầng
           </button>}
           <input
             type="file"
@@ -9034,12 +9037,37 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <div>
                 <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
                   <Settings className="w-5 h-5 text-indigo-600" />
-                  Quản lý &amp; tùy chỉnh tầng ({floorPlans.length})
+                  Quản lý Khu/Khối &amp; Tầng
                 </h3>
-                <p className="text-xs text-slate-500 font-medium">Thêm, xóa, đổi tên, hoặc sao chép nhân bản thiết kế tầng</p>
+                <p className="text-xs text-slate-500 font-medium">Quản lý cấu trúc Khu/Khối → Tầng và các mặt bằng liên quan</p>
               </div>
               <button onClick={() => setShowManageFloorsModal(false)} className="font-bold text-slate-400 hover:text-slate-600 text-lg">✕</button>
             </div>
+
+            {onStructureConfigChange && (
+              <div className="rounded-2xl border border-indigo-200 bg-indigo-50/50 p-3 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div><div className="text-xs font-extrabold text-slate-900">Khu / Khối</div><div className="text-[10px] text-slate-500">Đổi tên giữ nguyên ID. Khu/Khối còn tầng sẽ không được xóa.</div></div>
+                  <label className="flex items-center gap-1.5 text-[10px] font-bold"><input type="checkbox" checked={normalizedStructureConfig.enabled} onChange={(e) => onStructureConfigChange(normalizeStructureGroupConfig({ ...normalizedStructureConfig, enabled: e.target.checked }))} /> Bật</label>
+                </div>
+                {normalizedStructureConfig.enabled && <>
+                  <input value={normalizedStructureConfig.label} onChange={(e) => onStructureConfigChange(normalizeStructureGroupConfig({ ...normalizedStructureConfig, label: e.target.value }))} className="w-full rounded-xl border border-indigo-200 bg-white px-2.5 py-2 text-xs font-bold" placeholder="Tên cấp: Tháp, Khối, Xưởng..." />
+                  <div className="space-y-2">{normalizedStructureConfig.groups.map((group) => {
+                    const count = floorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === group.id).length;
+                    return <div key={group.id} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white p-2">
+                      <input className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-bold" value={group.name} onChange={(e) => onStructureConfigChange(normalizeStructureGroupConfig({ ...normalizedStructureConfig, groups: normalizedStructureConfig.groups.map((item) => item.id === group.id ? { ...item, name: e.target.value } : item) }))} />
+                      <span className="text-[9px] text-slate-500 whitespace-nowrap">{count} tầng</span>
+                      <button type="button" disabled={count > 0 || normalizedStructureConfig.groups.length <= 1} onClick={() => {
+                        if (!window.confirm(`Xóa "${group.name}"? Thao tác này chỉ thực hiện khi Khu/Khối không còn tầng.`)) return;
+                        const groups = normalizedStructureConfig.groups.filter((item) => item.id !== group.id);
+                        onStructureConfigChange(normalizeStructureGroupConfig({ ...normalizedStructureConfig, groups, defaultGroupId: normalizedStructureConfig.defaultGroupId === group.id ? groups[0]?.id : normalizedStructureConfig.defaultGroupId }));
+                      }} className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 disabled:text-slate-300 disabled:cursor-not-allowed" title={count > 0 ? 'Hãy chuyển các tầng sang Khu/Khối khác trước khi xóa' : 'Xóa Khu/Khối'}><Trash2 className="w-3.5 h-3.5" /></button>
+                    </div>;
+                  })}</div>
+                  <button type="button" onClick={() => onStructureConfigChange(normalizeStructureGroupConfig({ ...normalizedStructureConfig, groups: [...normalizedStructureConfig.groups, { id: createStructureGroupId(), name: `${normalizedStructureConfig.label || 'Khu / Khối'} ${normalizedStructureConfig.groups.length + 1}`, order: normalizedStructureConfig.groups.length }] }))} className="w-full rounded-xl border border-dashed border-indigo-300 bg-white py-2 text-[11px] font-bold text-indigo-700"><Plus className="inline w-3.5 h-3.5 mr-1" />Thêm {normalizedStructureConfig.label || 'Khu / Khối'}</button>
+                </>}
+              </div>
+            )}
 
             {/* Quick Sort Floors Controls */}
             <QuickSortBar
