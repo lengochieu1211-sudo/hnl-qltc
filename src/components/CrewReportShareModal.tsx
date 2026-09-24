@@ -54,6 +54,8 @@ async function renderCrewReportImages(params: {
   startDate: string;
   endDate: string;
   title: string;
+  showSerialNumber?: boolean;
+  showWorkDetails?: boolean;
 }): Promise<ShareAttachmentPayload[]> {
   if (typeof document === 'undefined') return [];
   const matrices = buildCrewReportMatrices(params.rows);
@@ -82,11 +84,13 @@ async function renderCrewReportImages(params: {
 
     const left = 42;
     const right = 42;
+    const serialWidth = params.showSerialNumber ? 54 : 0;
     const dateWidth = 150;
     const metricWidth = 72;
     const teamWidth = metricWidth * 4;
     const totalWidth = 118;
-    const tableWidth = dateWidth + Math.max(1, teams.length) * teamWidth + totalWidth;
+    const detailWidth = params.showWorkDetails ? 360 : 0;
+    const tableWidth = serialWidth + dateWidth + Math.max(1, teams.length) * teamWidth + totalWidth + detailWidth;
     const width = Math.max(920, left + tableWidth + right);
     const headerHeight = matrix.projectLocation ? 180 : 154;
     const groupHeaderHeight = 36;
@@ -135,12 +139,18 @@ async function renderCrewReportImages(params: {
 
     ctx.fillStyle = '#334155';
     ctx.font = '700 15px Arial, sans-serif';
-    ctx.strokeRect(tableLeft, tableTop, dateWidth, totalHeaderHeight);
-    ctx.fillText('Ngày', tableLeft + 10, tableTop + Math.round(totalHeaderHeight / 2) + 5);
+    if (params.showSerialNumber) {
+      ctx.strokeRect(tableLeft, tableTop, serialWidth, totalHeaderHeight);
+      ctx.fillText('STT', tableLeft + 12, tableTop + Math.round(totalHeaderHeight / 2) + 5);
+    }
+    const dateX = tableLeft + serialWidth;
+    ctx.strokeRect(dateX, tableTop, dateWidth, totalHeaderHeight);
+    ctx.fillText('Ngày', dateX + 10, tableTop + Math.round(totalHeaderHeight / 2) + 5);
+    const teamStartX = dateX + dateWidth;
 
     let teamOffset = 0;
     visibleGroups.forEach((group) => {
-      const x = tableLeft + dateWidth + teamOffset * teamWidth;
+      const x = teamStartX + teamOffset * teamWidth;
       const spanWidth = group.teams.length * teamWidth;
       ctx.fillStyle = '#eef2ff';
       ctx.fillRect(x, tableTop, spanWidth, groupHeaderHeight);
@@ -155,7 +165,7 @@ async function renderCrewReportImages(params: {
     });
 
     teams.forEach((team, teamIndex) => {
-      const x = tableLeft + dateWidth + teamIndex * teamWidth;
+      const x = teamStartX + teamIndex * teamWidth;
       const teamTop = tableTop + groupHeaderHeight;
       ctx.strokeStyle = '#cbd5e1';
       ctx.strokeRect(x, teamTop, teamWidth, teamHeaderHeight + subHeaderHeight);
@@ -174,7 +184,7 @@ async function renderCrewReportImages(params: {
       });
     });
 
-    const totalX = tableLeft + dateWidth + teams.length * teamWidth;
+    const totalX = teamStartX + teams.length * teamWidth;
     ctx.fillStyle = '#eff6ff';
     ctx.fillRect(totalX, tableTop, totalWidth, totalHeaderHeight);
     ctx.strokeStyle = '#cbd5e1';
@@ -183,16 +193,32 @@ async function renderCrewReportImages(params: {
     ctx.font = '700 13px Arial, sans-serif';
     ctx.fillText('Tổng', totalX + 42, tableTop + Math.round(totalHeaderHeight / 2) - 4);
     ctx.fillText('QS/ngày', totalX + 31, tableTop + Math.round(totalHeaderHeight / 2) + 19);
+    const detailX = totalX + totalWidth;
+    if (params.showWorkDetails) {
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(detailX, tableTop, detailWidth, totalHeaderHeight);
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.strokeRect(detailX, tableTop, detailWidth, totalHeaderHeight);
+      ctx.fillStyle = '#334155';
+      ctx.font = '700 13px Arial, sans-serif';
+      ctx.fillText('Tầng / Hạng mục / HM con / Ghi chú', detailX + 12, tableTop + Math.round(totalHeaderHeight / 2) + 5);
+    }
 
     dates.forEach((dateRow, rowIndex) => {
       const y = tableTop + totalHeaderHeight + rowIndex * rowHeight;
       ctx.fillStyle = rowIndex % 2 === 0 ? '#ffffff' : '#f8fafc';
       ctx.fillRect(tableLeft, y, tableWidth, rowHeight);
       ctx.strokeStyle = '#e2e8f0';
-      ctx.strokeRect(tableLeft, y, dateWidth, rowHeight);
+      if (params.showSerialNumber) {
+        ctx.strokeRect(tableLeft, y, serialWidth, rowHeight);
+        ctx.font = '600 13px Arial, sans-serif';
+        ctx.fillStyle = '#475569';
+        ctx.fillText(String(rowIndex + 1), tableLeft + 18, y + 28);
+      }
+      ctx.strokeRect(dateX, y, dateWidth, rowHeight);
       ctx.font = '600 14px Arial, sans-serif';
       ctx.fillStyle = '#334155';
-      ctx.fillText(formatDateDDMMYYYY(dateRow.date), tableLeft + 10, y + 28);
+      ctx.fillText(formatDateDDMMYYYY(dateRow.date), dateX + 10, y + 28);
 
       teams.forEach((team, teamIndex) => {
         const row = dateRow.cells[team.teamKey];
@@ -200,7 +226,7 @@ async function renderCrewReportImages(params: {
           ? [String(row.morning ?? 0), String(row.afternoon ?? 0), String(row.evening ?? 0), String(row.dailyHeadcount ?? 0)]
           : ['—', '—', '—', '—'];
         values.forEach((value, metricIndex) => {
-          const x = tableLeft + dateWidth + teamIndex * teamWidth + metricIndex * metricWidth;
+          const x = teamStartX + teamIndex * teamWidth + metricIndex * metricWidth;
           ctx.strokeRect(x, y, metricWidth, rowHeight);
           ctx.font = metricIndex === 3 ? '700 14px Arial, sans-serif' : '500 14px Arial, sans-serif';
           ctx.fillStyle = row?.reported ? '#334155' : '#94a3b8';
@@ -216,16 +242,32 @@ async function renderCrewReportImages(params: {
       ctx.font = '700 14px Arial, sans-serif';
       const dailyTotalText = String(dateRow.totalDailyHeadcount);
       ctx.fillText(dailyTotalText, totalX + (totalWidth - ctx.measureText(dailyTotalText).width) / 2, y + 28);
+      if (params.showWorkDetails) {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(detailX, y, detailWidth, rowHeight);
+        ctx.strokeStyle = '#e2e8f0';
+        ctx.strokeRect(detailX, y, detailWidth, rowHeight);
+        const detailText = teams.map((team) => {
+          const row = dateRow.cells[team.teamKey];
+          const detail = formatCrewRowDetail(row);
+          return detail ? `${team.teamName}: ${detail}` : '';
+        }).filter(Boolean).join(' | ');
+        const clipped = detailText.length > 90 ? `${detailText.slice(0, 89)}…` : (detailText || '—');
+        ctx.fillStyle = detailText ? '#475569' : '#94a3b8';
+        ctx.font = '500 11px Arial, sans-serif';
+        ctx.fillText(clipped, detailX + 8, y + 27);
+      }
     });
 
     const totalRowY = tableTop + totalHeaderHeight + dates.length * rowHeight;
     ctx.fillStyle = '#dbeafe';
     ctx.fillRect(tableLeft, totalRowY, tableWidth, rowHeight);
     ctx.strokeStyle = '#93c5fd';
-    ctx.strokeRect(tableLeft, totalRowY, dateWidth, rowHeight);
+    if (params.showSerialNumber) ctx.strokeRect(tableLeft, totalRowY, serialWidth, rowHeight);
+    ctx.strokeRect(dateX, totalRowY, dateWidth, rowHeight);
     ctx.fillStyle = '#1e3a8a';
     ctx.font = '700 14px Arial, sans-serif';
-    ctx.fillText('TỔNG', tableLeft + 10, totalRowY + 28);
+    ctx.fillText('TỔNG', dateX + 10, totalRowY + 28);
     teams.forEach((team, teamIndex) => {
       const total = matrix.teamTotals[team.teamKey] || { morning: 0, afternoon: 0, evening: 0, dailyHeadcount: 0 };
       [total.morning, total.afternoon, total.evening, total.dailyHeadcount].forEach((value, metricIndex) => {
@@ -241,6 +283,12 @@ async function renderCrewReportImages(params: {
     ctx.fillStyle = '#1e3a8a';
     const grandText = String(matrix.grandDailyHeadcount);
     ctx.fillText(grandText, totalX + (totalWidth - ctx.measureText(grandText).width) / 2, totalRowY + 28);
+    if (params.showWorkDetails) {
+      ctx.fillStyle = '#e2e8f0';
+      ctx.fillRect(detailX, totalRowY, detailWidth, rowHeight);
+      ctx.strokeStyle = '#93c5fd';
+      ctx.strokeRect(detailX, totalRowY, detailWidth, rowHeight);
+    }
 
     ctx.font = '500 13px Arial, sans-serif';
     ctx.fillStyle = '#64748b';
