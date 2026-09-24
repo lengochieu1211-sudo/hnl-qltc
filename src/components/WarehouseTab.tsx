@@ -123,6 +123,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [materialNeedRoomIds, setMaterialNeedRoomIds] = useState<string[]>([]);
   const [materialNeedTeamIds, setMaterialNeedTeamIds] = useState<string[]>([]);
   const [materialNeedWorkCategoryIds, setMaterialNeedWorkCategoryIds] = useState<string[]>([]);
+  const [materialNeedSearchTerm, setMaterialNeedSearchTerm] = useState('');
   const [materialNeedSortBy, setMaterialNeedSortBy] = useState<MaterialNeedSortKey>('default');
   const [materialNeedSortOrder, setMaterialNeedSortOrder] = useState<'asc' | 'desc'>('asc');
   const [isMaterialNeedExpanded, setIsMaterialNeedExpanded] = useState(false);
@@ -247,7 +248,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   }), [roomProgressList, materialNorms, inventory, workVolumes, teams, effectiveMaterialNeedFloorIds, materialNeedRoomIds, materialNeedTeamIds, materialNeedWorkCategoryIds]);
 
   const materialNeedLines = useMemo(() => {
-    return [...materialNeedResult.lines].sort((a, b) => {
+    const query = materialNeedSearchTerm.trim().toLocaleLowerCase('vi-VN');
+    const lines = query
+      ? materialNeedResult.lines.filter((line) => [line.materialName, line.category, line.unit, line.materialKey]
+          .some((value) => String(value || '').toLocaleLowerCase('vi-VN').includes(query)))
+      : materialNeedResult.lines;
+    return [...lines].sort((a, b) => {
       let comparison = 0;
       switch (materialNeedSortBy) {
         case 'material':
@@ -273,7 +279,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       if (comparison !== 0) return comparison;
       return naturalCompare(a.category, b.category) || naturalCompare(a.materialName, b.materialName) || naturalCompare(a.materialKey, b.materialKey);
     });
-  }, [materialNeedResult.lines, materialNeedSortBy, materialNeedSortOrder]);
+  }, [materialNeedResult.lines, materialNeedSearchTerm, materialNeedSortBy, materialNeedSortOrder]);
 
   const toggleMaterialNeedStructureGroup = (id: string) => {
     setMaterialNeedStructureGroupIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
@@ -1301,7 +1307,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             <div className="min-w-0">
               <h3 className="text-sm font-extrabold text-slate-900">Gợi ý vật tư tổng hợp</h3>
               <p className="text-[11px] leading-relaxed text-slate-600">
-                {normalizedStructureConfig.enabled ? `${materialNeedStructureGroupSummary} · ` : ''}{materialNeedFloorSummary} · {materialNeedRoomSummary} · {materialNeedWorkCategorySummary} · {materialNeedTeamSummary} · {materialNeedResult.lines.length} loại vật tư
+                {normalizedStructureConfig.enabled ? `${materialNeedStructureGroupSummary} · ` : ''}{materialNeedFloorSummary} · {materialNeedRoomSummary} · {materialNeedWorkCategorySummary} · {materialNeedTeamSummary} · {materialNeedLines.length} loại vật tư
               </p>
             </div>
             <span aria-hidden="true" className="shrink-0 inline-flex h-9 w-9 items-center justify-center rounded-xl text-indigo-600 transition-all group-hover:bg-indigo-50">
@@ -1449,6 +1455,35 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   })}
                 </div>
               )}
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <div className="relative min-w-0 flex-1">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="search"
+                    value={materialNeedSearchTerm}
+                    onChange={(event) => setMaterialNeedSearchTerm(event.target.value)}
+                    placeholder="Tìm vật tư, nhóm vật tư, đơn vị..."
+                    className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-xs font-semibold text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                  />
+                </div>
+                {(materialNeedSearchTerm || materialNeedStructureGroupIds.length > 0 || materialNeedFloorIds.length > 0 || materialNeedRoomIds.length > 0 || materialNeedTeamIds.length > 0 || materialNeedWorkCategoryIds.length > 0) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMaterialNeedSearchTerm('');
+                      setMaterialNeedStructureGroupIds([]);
+                      setMaterialNeedFloorIds([]);
+                      setMaterialNeedRoomIds([]);
+                      setMaterialNeedTeamIds([]);
+                      setMaterialNeedWorkCategoryIds([]);
+                    }}
+                    className="min-h-10 rounded-xl border border-slate-200 bg-white px-3 text-[11px] font-extrabold text-indigo-700 hover:bg-indigo-50"
+                  >
+                    Đặt lại bộ lọc
+                  </button>
+                )}
+              </div>
 
               <QuickSortBar<MaterialNeedSortKey>
                 itemCount={materialNeedLines.length}
