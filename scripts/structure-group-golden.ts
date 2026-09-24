@@ -52,7 +52,12 @@ assert.ok(floorPlanSource.includes("changeFloorStructureGroupStable"), 'moving a
 assert.ok(floorPlanSource.includes("changeFloorStructureGroupStable(fp.id, event.target.value)"), 'management Khu/Khối reassignment must use stable move helper');
 
 assert.ok(floorPlanSource.includes("const [editingStructureLabel"), 'structure level label must use explicit edit state');
-assert.ok(floorPlanSource.includes('title="Lưu tên cấp Khu/Khối"'), 'structure level label must require explicit save');
+assert.ok(
+  floorPlanSource.includes('title="Lưu tên cấp"')
+    && floorPlanSource.includes('editingStructureLabelValue.trim()')
+    && floorPlanSource.includes("setEditingStructureLabel(false);"),
+  'structure level label must require explicit save'
+);
 assert.equal(floorPlanSource.includes('value={normalizedStructureConfig.label}\n                    onChange={(e) => onStructureConfigChange'), false, 'structure level label must not save on every keystroke');
 assert.ok(floorPlanSource.includes('normalizedStructureConfig.groups.length >= 6'), 'Khu/Khối quick sort must follow the 6-item rule');
 assert.equal(floorPlanSource.includes('minItems={0}'), false, 'Khu/Khối/Tầng quick sort must not bypass the global 6-item threshold');
