@@ -653,12 +653,15 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const [newFloorStructureGroupId, setNewFloorStructureGroupId] = useState<string>(
     () => normalizeStructureGroupConfig(structureConfig).defaultGroupId,
   );
-  const visibleFloorPlans = React.useMemo(
-    () => !normalizedStructureConfig.enabled || selectedStructureGroupId === 'all'
+  const visibleFloorPlans = React.useMemo(() => {
+    const scoped = !normalizedStructureConfig.enabled || selectedStructureGroupId === 'all'
       ? floorPlans
-      : floorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === selectedStructureGroupId),
-    [floorPlans, normalizedStructureConfig, selectedStructureGroupId],
-  );
+      : floorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === selectedStructureGroupId);
+    return scoped
+      .map((floor, index) => ({ floor, index }))
+      .sort((a, b) => Number(a.floor.order ?? a.index) - Number(b.floor.order ?? b.index))
+      .map(({ floor }) => floor);
+  }, [floorPlans, normalizedStructureConfig, selectedStructureGroupId]);
 
   useEffect(() => {
     const validGroupIds = new Set(normalizedStructureConfig.groups.map((group) => group.id));
@@ -823,8 +826,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   // Floor Customization & Management State
   const [showManageFloorsModal, setShowManageFloorsModal] = useState(false);
+  const [groupSortBy, setGroupSortBy] = useState<'none' | 'name' | 'floors'>('none');
+  const [groupSortOrder, setGroupSortOrder] = useState<'asc' | 'desc'>('asc');
   const [floorSortBy, setFloorSortBy] = useState<'none' | 'name' | 'rooms' | 'defects'>('none');
   const [floorSortOrder, setFloorSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [editingStructureGroupId, setEditingStructureGroupId] = useState<string | null>(null);
+  const [editingStructureGroupName, setEditingStructureGroupName] = useState('');
   const [editingFloorId, setEditingFloorId] = useState<string | null>(null);
   const [editingFloorName, setEditingFloorName] = useState<string>('');
   const [inlineEditingFloorId, setInlineEditingFloorId] = useState<string | null>(null);
@@ -1279,28 +1286,122 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     setTimeout(() => setCopyNotification(null), 3500);
   };
 
-  const sortedFloorPlans = React.useMemo(() => {
-    if (floorSortBy === 'none') {
-      return floorPlans;
+  const floorPlansInSavedOrder = React.useMemo(
+    () => floorPlans
+      .map((floor, index) => ({ floor, index }))
+      .sort((a, b) => Number(a.floor.order ?? a.index) - Number(b.floor.order ?? b.index))
+      .map(({ floor }) => floor),
+    [floorPlans],
+  );
+
+  const managementFloorPlans = React.useMemo(() => {
+    if (!normalizedStructureConfig.enabled) return floorPlansInSavedOrder;
+    const grouped = normalizedStructureConfig.groups.flatMap((group) =>
+      floorPlansInSavedOrder.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === group.id)
+    );
+    const included = new Set(grouped.map((floor) => floor.id));
+    return [...grouped, ...floorPlansInSavedOrder.filter((floor) => !included.has(floor.id))];
+  }, [floorPlansInSavedOrder, normalizedStructureConfig]);
+
+  const getSavedFloorsForGroup = (groupId: string) =>
+    floorPlansInSavedOrder.filter((floor) =>
+      !normalizedStructureConfig.enabled || resolveFloorStructureGroupId(floor, normalizedStructureConfig) === groupId
+    );
+
+  const persistFloorOrder = (nextFloors: FloorPlan[]) => {
+    if (onReorderFloorPlans) {
+      onReorderFloorPlans(nextFloors);
+      return;
     }
-    return [...floorPlans].sort((a, b) => {
-      if (floorSortBy === 'name') {
-        const comp = a.floorName.localeCompare(b.floorName, 'vi', { numeric: true, sensitivity: 'base' });
-        return floorSortOrder === 'asc' ? comp : -comp;
-      }
-      if (floorSortBy === 'rooms') {
-        const getCount = (fp: FloorPlan) => roomProgressList.filter(r => r.floorId === fp.id).length;
-        const comp = getCount(a) - getCount(b);
-        return floorSortOrder === 'asc' ? comp : -comp;
-      }
-      if (floorSortBy === 'defects') {
-        const getCount = (fp: FloorPlan) => defects.filter(d => d.floorId === fp.id).length;
-        const comp = getCount(a) - getCount(b);
-        return floorSortOrder === 'asc' ? comp : -comp;
-      }
-      return 0;
+  };
+
+  const moveFloorWithinGroup = (floorId: string, direction: 'up' | 'down') => {
+    const target = floorPlansInSavedOrder.find((floor) => floor.id === floorId);
+    if (!target) return;
+    const groupId = normalizedStructureConfig.enabled
+      ? resolveFloorStructureGroupId(target, normalizedStructureConfig)
+      : '__all__';
+    const groupFloors = normalizedStructureConfig.enabled
+      ? getSavedFloorsForGroup(groupId)
+      : floorPlansInSavedOrder;
+    const index = groupFloors.findIndex((floor) => floor.id === floorId);
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (index < 0 || targetIndex < 0 || targetIndex >= groupFloors.length) return;
+    const reorderedGroup = [...groupFloors];
+    const [moved] = reorderedGroup.splice(index, 1);
+    reorderedGroup.splice(targetIndex, 0, moved);
+
+    if (!normalizedStructureConfig.enabled) {
+      if (onReorderFloorPlans) persistFloorOrder(reorderedGroup);
+      else onMoveFloorPlan?.(floorId, direction === 'up' ? 'left' : 'right');
+      return;
+    }
+
+    const nextByGroup = new Map<string, FloorPlan[]>();
+    normalizedStructureConfig.groups.forEach((group) => {
+      nextByGroup.set(
+        group.id,
+        group.id === groupId ? reorderedGroup : getSavedFloorsForGroup(group.id),
+      );
     });
-  }, [floorPlans, floorSortBy, floorSortOrder, roomProgressList, defects]);
+    const flattened = normalizedStructureConfig.groups.flatMap((group) => nextByGroup.get(group.id) || []);
+    const included = new Set(flattened.map((floor) => floor.id));
+    const next = [...flattened, ...floorPlansInSavedOrder.filter((floor) => !included.has(floor.id))];
+    if (onReorderFloorPlans) persistFloorOrder(next);
+    else onMoveFloorPlan?.(floorId, direction === 'up' ? 'left' : 'right');
+  };
+
+  const applyGroupQuickSort = (key: 'name' | 'floors', order: 'asc' | 'desc') => {
+    if (!onStructureConfigChange) return;
+    const floorCount = (groupId: string) =>
+      floorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === groupId).length;
+    const nextGroups = [...normalizedStructureConfig.groups].sort((a, b) => {
+      const comparison = key === 'name'
+        ? a.name.localeCompare(b.name, 'vi', { numeric: true, sensitivity: 'base' })
+        : floorCount(a.id) - floorCount(b.id);
+      return order === 'asc' ? comparison : -comparison;
+    }).map((group, index) => ({ ...group, order: index }));
+    setGroupSortBy(key);
+    setGroupSortOrder(order);
+    onStructureConfigChange(normalizeStructureGroupConfig({ ...normalizedStructureConfig, groups: nextGroups }));
+  };
+
+  const moveStructureGroup = (groupId: string, direction: 'up' | 'down') => {
+    if (!onStructureConfigChange) return;
+    const groups = [...normalizedStructureConfig.groups];
+    const index = groups.findIndex((group) => group.id === groupId);
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (index < 0 || targetIndex < 0 || targetIndex >= groups.length) return;
+    const [moved] = groups.splice(index, 1);
+    groups.splice(targetIndex, 0, moved);
+    onStructureConfigChange(normalizeStructureGroupConfig({
+      ...normalizedStructureConfig,
+      groups: groups.map((group, groupIndex) => ({ ...group, order: groupIndex })),
+    }));
+    setGroupSortBy('none');
+    setGroupSortOrder('asc');
+  };
+
+  const applyFloorQuickSortWithinGroups = (key: 'name' | 'rooms' | 'defects', order: 'asc' | 'desc') => {
+    const roomCount = (floorId: string) => roomProgressList.filter((room) => room.floorId === floorId).length;
+    const defectCount = (floorId: string) => defects.filter((defect) => defect.floorId === floorId).length;
+    const sortFloors = (items: FloorPlan[]) => [...items].sort((a, b) => {
+      let comparison = 0;
+      if (key === 'name') comparison = a.floorName.localeCompare(b.floorName, 'vi', { numeric: true, sensitivity: 'base' });
+      else if (key === 'rooms') comparison = roomCount(a.id) - roomCount(b.id);
+      else comparison = defectCount(a.id) - defectCount(b.id);
+      return order === 'asc' ? comparison : -comparison;
+    });
+
+    const next = normalizedStructureConfig.enabled
+      ? normalizedStructureConfig.groups.flatMap((group) => sortFloors(getSavedFloorsForGroup(group.id)))
+      : sortFloors(floorPlansInSavedOrder);
+    const included = new Set(next.map((floor) => floor.id));
+    const complete = [...next, ...floorPlansInSavedOrder.filter((floor) => !included.has(floor.id))];
+    setFloorSortBy(key);
+    setFloorSortOrder(order);
+    persistFloorOrder(complete);
+  };
 
   const orphanedRooms = React.useMemo(() => {
     return roomProgressList.filter((r) => !floorPlans.some((fp) => fp.id === r.floorId));
@@ -4656,8 +4757,15 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
         <div className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-3 sm:gap-y-1">
-            <div className="text-xs font-medium text-slate-500 whitespace-nowrap">
-              Đang xem: <span className="font-extrabold text-indigo-600">{activeFloor?.floorName}</span>
+            <div className="text-xs font-medium text-slate-500 min-w-0">
+              Đang xem:{' '}
+              <span className="font-extrabold text-indigo-600">
+                {activeFloor
+                  ? normalizedStructureConfig.enabled
+                    ? `${getFloorStructureGroupName(activeFloor, normalizedStructureConfig)} → ${activeFloor.floorName} → Mặt bằng`
+                    : `${activeFloor.floorName} → Mặt bằng`
+                  : 'Chưa có tầng'}
+              </span>
             </div>
 
             {normalizedStructureConfig.enabled && (
@@ -4865,10 +4973,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 <label className="flex items-center gap-1 cursor-pointer select-none">
                   <input
                     type="checkbox"
-                    checked={floorPlans.length > 0 && floorPlans.every(fp => selectedFloorIdsForBulk.includes(fp.id))}
+                    checked={visibleFloorPlans.length > 0 && visibleFloorPlans.every(fp => selectedFloorIdsForBulk.includes(fp.id))}
                     onChange={(e) => {
                       if (e.target.checked) {
-                        setSelectedFloorIdsForBulk(floorPlans.map(fp => fp.id));
+                        setSelectedFloorIdsForBulk(visibleFloorPlans.map(fp => fp.id));
                       } else {
                         setSelectedFloorIdsForBulk([]);
                       }
@@ -4918,11 +5026,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         </div>
 
         <div className="flex gap-2 overflow-x-auto pb-1 text-xs no-scrollbar">
-          {sortedFloorPlans.map((fp, index) => {
+          {visibleFloorPlans.map((fp) => {
             const isSelected = selectedFloorId === fp.id || (!selectedFloorId && fp.id === activeFloor?.id);
             const defectCount = defects.filter((d) => d.floorId === fp.id && d.status !== 'Đã nghiệm thu').length;
             const roomCount = roomProgressList.filter((r) => r.floorId === fp.id).length;
             const isEditingInline = inlineEditingFloorId === fp.id;
+            const fpGroupId = normalizedStructureConfig.enabled ? resolveFloorStructureGroupId(fp, normalizedStructureConfig) : '__all__';
+            const siblingFloors = normalizedStructureConfig.enabled ? getSavedFloorsForGroup(fpGroupId) : floorPlansInSavedOrder;
+            const siblingIndex = siblingFloors.findIndex((floor) => floor.id === fp.id);
 
             return (
               <div
@@ -5009,7 +5120,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     className="font-extrabold tracking-wide"
                     title="Nhấp đôi để sửa tên tầng trực tiếp"
                   >
-                    {fp.floorName}
+                    {normalizedStructureConfig.enabled
+                      ? `${getFloorStructureGroupName(fp, normalizedStructureConfig)} → ${fp.floorName}`
+                      : fp.floorName}
                   </span>
                 )}
 
@@ -5069,12 +5182,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     </button>
 
                     {/* Move Left Button */}
-                    {index > 0 && floorSortBy === 'none' && (
+                    {siblingIndex > 0 && floorSortBy === 'none' && (
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (onMoveFloorPlan) onMoveFloorPlan(fp.id, 'left');
+                          moveFloorWithinGroup(fp.id, 'up');
                         }}
                         className={`p-0.5 rounded hover:bg-black/10 transition-colors ${isSelected ? 'text-indigo-100' : 'text-slate-400 hover:text-slate-700'}`}
                         title="Di chuyển tầng sang trái"
@@ -5084,12 +5197,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     )}
 
                     {/* Move Right Button */}
-                    {index < sortedFloorPlans.length - 1 && floorSortBy === 'none' && (
+                    {siblingIndex >= 0 && siblingIndex < siblingFloors.length - 1 && floorSortBy === 'none' && (
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (onMoveFloorPlan) onMoveFloorPlan(fp.id, 'right');
+                          moveFloorWithinGroup(fp.id, 'down');
                         }}
                         className={`p-0.5 rounded hover:bg-black/10 transition-colors ${isSelected ? 'text-indigo-100' : 'text-slate-400 hover:text-slate-700'}`}
                         title="Di chuyển tầng sang phải"
@@ -5169,7 +5282,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   : viewMode === 'highlight'
                   ? '🏗️ Mặt bằng thi công'
                   : '📌 Mặt bằng Defect'}{' '}
-                · <span className="text-indigo-700">{activeFloor.floorName}</span>
+                · <span className="text-indigo-700">
+                  {normalizedStructureConfig.enabled
+                    ? `${getFloorStructureGroupName(activeFloor, normalizedStructureConfig)} → ${activeFloor.floorName} → Mặt bằng`
+                    : `${activeFloor.floorName} → Mặt bằng`}
+                </span>
               </span>
             </div>
 
@@ -9055,7 +9172,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 </h3>
                 <p className="text-xs text-slate-500 font-medium">Quản lý cấu trúc Khu/Khối → Tầng và các mặt bằng liên quan</p>
               </div>
-              <button onClick={() => setShowManageFloorsModal(false)} className="font-bold text-slate-400 hover:text-slate-600 text-lg">✕</button>
+              <button onClick={() => { setEditingStructureGroupId(null); setEditingStructureGroupName(''); setEditingFloorId(null); setShowManageFloorsModal(false); }} className="font-bold text-slate-400 hover:text-slate-600 text-lg">✕</button>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-[minmax(260px,0.34fr)_minmax(0,0.66fr)] gap-4 items-start">
@@ -9063,50 +9180,169 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             {onStructureConfigChange && (
               <div className="rounded-2xl border border-indigo-200 bg-indigo-50/50 p-3 space-y-3">
                 <div className="flex items-start justify-between gap-3">
-                  <div><div className="text-xs font-extrabold text-slate-900">Khu / Khối</div><div className="text-[10px] text-slate-500">Đổi tên giữ nguyên ID. Khu/Khối còn tầng sẽ không được xóa.</div></div>
-                  <label className="flex items-center gap-1.5 text-[10px] font-bold"><input type="checkbox" checked={normalizedStructureConfig.enabled} onChange={(e) => onStructureConfigChange(normalizeStructureGroupConfig({ ...normalizedStructureConfig, enabled: e.target.checked }))} /> Bật</label>
+                  <div>
+                    <div className="text-xs font-extrabold text-slate-900">Khu / Khối</div>
+                    <div className="text-[10px] text-slate-500">Sửa tên chỉ ghi khi bấm Lưu. Thứ tự lưu bằng order; ID và liên kết tầng giữ nguyên.</div>
+                  </div>
+                  <label className="flex items-center gap-1.5 text-[10px] font-bold">
+                    <input
+                      type="checkbox"
+                      checked={normalizedStructureConfig.enabled}
+                      onChange={(e) => onStructureConfigChange(normalizeStructureGroupConfig({ ...normalizedStructureConfig, enabled: e.target.checked }))}
+                    />
+                    Bật
+                  </label>
                 </div>
+
                 {normalizedStructureConfig.enabled && <>
-                  <input value={normalizedStructureConfig.label} onChange={(e) => onStructureConfigChange(normalizeStructureGroupConfig({ ...normalizedStructureConfig, label: e.target.value }))} className="w-full rounded-xl border border-indigo-200 bg-white px-2.5 py-2 text-xs font-bold" placeholder="Tên cấp: Tháp, Khối, Xưởng..." />
-                  <div className="space-y-2">{normalizedStructureConfig.groups.map((group) => {
-                    const count = floorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === group.id).length;
-                    return <div key={group.id} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white p-2">
-                      <input
-                        className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-bold"
-                        defaultValue={group.name}
-                        key={`${group.id}:${group.name}`}
-                        onCompositionStart={(event) => { event.currentTarget.dataset.composing = 'true'; }}
-                        onCompositionEnd={(event) => { event.currentTarget.dataset.composing = 'false'; }}
-                        onBlur={(event) => {
-                          const nextName = event.currentTarget.value.trim();
-                          if (!nextName || nextName === group.name) {
-                            event.currentTarget.value = group.name;
-                            return;
-                          }
-                          onStructureConfigChange(normalizeStructureGroupConfig({
-                            ...normalizedStructureConfig,
-                            groups: normalizedStructureConfig.groups.map((item) => item.id === group.id ? { ...item, name: nextName } : item),
-                          }));
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter' && event.currentTarget.dataset.composing !== 'true' && !(event.nativeEvent as KeyboardEvent).isComposing) {
-                            event.preventDefault();
-                            event.currentTarget.blur();
-                          }
-                        }}
-                        placeholder="Ví dụ: Tháp 1, Khối A"
-                        autoComplete="off"
-                        spellCheck={false}
-                      />
-                      <span className="text-[9px] text-slate-500 whitespace-nowrap">{count} tầng</span>
-                      <button type="button" disabled={count > 0 || normalizedStructureConfig.groups.length <= 1} onClick={() => {
-                        if (!window.confirm(`Xóa "${group.name}"? Thao tác này chỉ thực hiện khi Khu/Khối không còn tầng.`)) return;
-                        const groups = normalizedStructureConfig.groups.filter((item) => item.id !== group.id);
-                        onStructureConfigChange(normalizeStructureGroupConfig({ ...normalizedStructureConfig, groups, defaultGroupId: normalizedStructureConfig.defaultGroupId === group.id ? groups[0]?.id : normalizedStructureConfig.defaultGroupId }));
-                      }} className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 disabled:text-slate-300 disabled:cursor-not-allowed" title={count > 0 ? 'Hãy chuyển các tầng sang Khu/Khối khác trước khi xóa' : 'Xóa Khu/Khối'}><Trash2 className="w-3.5 h-3.5" /></button>
-                    </div>;
-                  })}</div>
-                  <button type="button" onClick={() => onStructureConfigChange(normalizeStructureGroupConfig({ ...normalizedStructureConfig, groups: [...normalizedStructureConfig.groups, { id: createStructureGroupId(), name: `${normalizedStructureConfig.label || 'Khu / Khối'} ${normalizedStructureConfig.groups.length + 1}`, order: normalizedStructureConfig.groups.length }] }))} className="w-full rounded-xl border border-dashed border-indigo-300 bg-white py-2 text-[11px] font-bold text-indigo-700"><Plus className="inline w-3.5 h-3.5 mr-1" />Thêm {normalizedStructureConfig.label || 'Khu / Khối'}</button>
+                  <input
+                    value={normalizedStructureConfig.label}
+                    onChange={(e) => onStructureConfigChange(normalizeStructureGroupConfig({ ...normalizedStructureConfig, label: e.target.value }))}
+                    className="w-full rounded-xl border border-indigo-200 bg-white px-2.5 py-2 text-xs font-bold"
+                    placeholder="Tên cấp: Tháp, Khối, Xưởng..."
+                  />
+
+                  <div className="space-y-1">
+                    <div className="text-[10px] font-extrabold uppercase tracking-wide text-indigo-800">Sắp xếp Khu/Khối</div>
+                    <QuickSortBar
+                      itemCount={normalizedStructureConfig.groups.length}
+                      minItems={0}
+                      options={[
+                        { key: 'name', label: 'Tên Khu/Khối', kind: 'alpha' },
+                        { key: 'floors', label: 'Số tầng', kind: 'number' },
+                      ]}
+                      activeKey={groupSortBy === 'none' ? null : groupSortBy}
+                      order={groupSortOrder}
+                      onChange={(key, order) => applyGroupQuickSort(key, order)}
+                      onToggleOrder={() => {
+                        if (groupSortBy === 'none') return;
+                        applyGroupQuickSort(groupSortBy, groupSortOrder === 'asc' ? 'desc' : 'asc');
+                      }}
+                      onReset={() => { setGroupSortBy('none'); setGroupSortOrder('asc'); }}
+                      resetLabel="Thứ tự đã lưu"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    {normalizedStructureConfig.groups.map((group, groupIndex) => {
+                      const count = floorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === group.id).length;
+                      const isEditingGroup = editingStructureGroupId === group.id;
+                      return (
+                        <div key={group.id} className="rounded-xl border border-slate-200 bg-white p-2 space-y-2">
+                          <div className="flex items-center gap-2">
+                            {isEditingGroup ? (
+                              <>
+                                <input
+                                  className="min-w-0 flex-1 rounded-lg border border-indigo-300 px-2 py-1.5 text-xs font-bold"
+                                  value={editingStructureGroupName}
+                                  onChange={(event) => setEditingStructureGroupName(event.target.value)}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Escape') {
+                                      setEditingStructureGroupId(null);
+                                      setEditingStructureGroupName('');
+                                    }
+                                  }}
+                                  placeholder="Ví dụ: Tháp 1, Khối A"
+                                  autoComplete="off"
+                                  spellCheck={false}
+                                  autoFocus
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const nextName = editingStructureGroupName.trim();
+                                    if (!nextName || nextName === group.name) {
+                                      setEditingStructureGroupId(null);
+                                      setEditingStructureGroupName('');
+                                      return;
+                                    }
+                                    onStructureConfigChange(normalizeStructureGroupConfig({
+                                      ...normalizedStructureConfig,
+                                      groups: normalizedStructureConfig.groups.map((item) => item.id === group.id ? { ...item, name: nextName } : item),
+                                    }));
+                                    setEditingStructureGroupId(null);
+                                    setEditingStructureGroupName('');
+                                  }}
+                                  className="bg-emerald-600 text-white p-1.5 rounded-lg hover:bg-emerald-700"
+                                  title="Lưu tên Khu/Khối"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => { setEditingStructureGroupId(null); setEditingStructureGroupName(''); }}
+                                  className="bg-slate-200 text-slate-700 p-1.5 rounded-lg hover:bg-slate-300"
+                                  title="Hủy"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <div className="min-w-0 flex-1">
+                                  <div className="truncate text-xs font-extrabold text-slate-900">{group.name}</div>
+                                  <div className="text-[9px] text-slate-500">{count} tầng · ID giữ nguyên</div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => { setEditingStructureGroupId(group.id); setEditingStructureGroupName(group.name); }}
+                                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1.5 rounded-lg text-[10px] font-bold flex items-center gap-1"
+                                  title="Sửa tên Khu/Khối"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5 text-indigo-600" /> Sửa
+                                </button>
+                              </>
+                            )}
+                          </div>
+
+                          <div className="flex items-center justify-between gap-2">
+                            <MoveOrderControls
+                              disableUp={groupIndex === 0}
+                              disableDown={groupIndex === normalizedStructureConfig.groups.length - 1}
+                              onMoveUp={() => moveStructureGroup(group.id, 'up')}
+                              onMoveDown={() => moveStructureGroup(group.id, 'down')}
+                              label="Sắp thứ tự Khu/Khối"
+                            />
+                            <button
+                              type="button"
+                              disabled={count > 0 || normalizedStructureConfig.groups.length <= 1}
+                              onClick={() => {
+                                if (!window.confirm(`Xóa "${group.name}"? Thao tác này chỉ thực hiện khi Khu/Khối không còn tầng.`)) return;
+                                const groups = normalizedStructureConfig.groups.filter((item) => item.id !== group.id);
+                                onStructureConfigChange(normalizeStructureGroupConfig({
+                                  ...normalizedStructureConfig,
+                                  groups: groups.map((item, index) => ({ ...item, order: index })),
+                                  defaultGroupId: normalizedStructureConfig.defaultGroupId === group.id ? groups[0]?.id : normalizedStructureConfig.defaultGroupId,
+                                }));
+                              }}
+                              className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 disabled:text-slate-300 disabled:cursor-not-allowed"
+                              title={count > 0 ? 'Hãy chuyển các tầng sang Khu/Khối khác trước khi xóa' : 'Xóa Khu/Khối'}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => onStructureConfigChange(normalizeStructureGroupConfig({
+                      ...normalizedStructureConfig,
+                      groups: [
+                        ...normalizedStructureConfig.groups,
+                        {
+                          id: createStructureGroupId(),
+                          name: `${normalizedStructureConfig.label || 'Khu / Khối'} ${normalizedStructureConfig.groups.length + 1}`,
+                          order: normalizedStructureConfig.groups.length,
+                        },
+                      ],
+                    }))}
+                    className="w-full rounded-xl border border-dashed border-indigo-300 bg-white py-2 text-[11px] font-bold text-indigo-700"
+                  >
+                    <Plus className="inline w-3.5 h-3.5 mr-1" />Thêm {normalizedStructureConfig.label || 'Khu / Khối'}
+                  </button>
                 </>}
               </div>
             )}
@@ -9114,32 +9350,60 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             </div>
             <div className="min-w-0 space-y-4">
             {/* Quick Sort Floors Controls */}
-            <QuickSortBar
-              itemCount={floorPlans.length}
-              options={[
-                { key: 'name', label: 'Tên tầng', kind: 'floor' },
-                { key: 'rooms', label: 'Số Căn / Phòng', kind: 'number' },
-                { key: 'defects', label: 'Số Defect', kind: 'number' },
-              ]}
-              activeKey={floorSortBy === 'none' ? null : floorSortBy}
-              order={floorSortOrder}
-              onChange={(key, order) => { setFloorSortBy(key); setFloorSortOrder(order); }}
-              onToggleOrder={() => setFloorSortOrder((order) => order === 'asc' ? 'desc' : 'asc')}
-              onReset={() => { setFloorSortBy('none'); setFloorSortOrder('asc'); }}
-              resetLabel="Thứ tự thủ công"
-            />
+            <div className="space-y-1">
+              <div className="text-[10px] font-extrabold uppercase tracking-wide text-indigo-800">
+                Sắp xếp Tầng trong từng Khu/Khối
+              </div>
+              <QuickSortBar
+                itemCount={floorPlans.length}
+                minItems={0}
+                options={[
+                  { key: 'name', label: 'Tên tầng', kind: 'floor' },
+                  { key: 'rooms', label: 'Số Căn / Phòng', kind: 'number' },
+                  { key: 'defects', label: 'Số Defect', kind: 'number' },
+                ]}
+                activeKey={floorSortBy === 'none' ? null : floorSortBy}
+                order={floorSortOrder}
+                onChange={(key, order) => applyFloorQuickSortWithinGroups(key, order)}
+                onToggleOrder={() => {
+                  if (floorSortBy === 'none') return;
+                  applyFloorQuickSortWithinGroups(floorSortBy, floorSortOrder === 'asc' ? 'desc' : 'asc');
+                }}
+                onReset={() => { setFloorSortBy('none'); setFloorSortOrder('asc'); }}
+                resetLabel="Thứ tự đã lưu"
+              />
+            </div>
 
             {/* List of Floor Plans */}
             <div className="space-y-2.5">
-              {sortedFloorPlans.map((fp, index) => {
+              {managementFloorPlans.map((fp, index) => {
                 const isSelected = selectedFloorId === fp.id;
                 const roomCount = roomProgressList.filter((r) => r.floorId === fp.id).length;
                 const defectCount = defects.filter((d) => d.floorId === fp.id).length;
                 const isEditingThis = editingFloorId === fp.id;
+                const currentGroupId = normalizedStructureConfig.enabled
+                  ? resolveFloorStructureGroupId(fp, normalizedStructureConfig)
+                  : '__all__';
+                const previousGroupId = index > 0 && normalizedStructureConfig.enabled
+                  ? resolveFloorStructureGroupId(managementFloorPlans[index - 1], normalizedStructureConfig)
+                  : null;
+                const showGroupHeader = normalizedStructureConfig.enabled && currentGroupId !== previousGroupId;
+                const currentGroupFloors = normalizedStructureConfig.enabled
+                  ? managementFloorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === currentGroupId)
+                  : managementFloorPlans;
+                const currentGroupIndex = currentGroupFloors.findIndex((floor) => floor.id === fp.id);
 
                 return (
+                  <div key={fp.id} className="space-y-2.5">
+                    {showGroupHeader && (
+                      <div className="flex items-center justify-between rounded-xl border border-indigo-100 bg-indigo-50/70 px-3 py-2">
+                        <div className="text-xs font-extrabold text-indigo-900">
+                          {getStructureGroupName(currentGroupId, normalizedStructureConfig)}
+                        </div>
+                        <div className="text-[10px] font-bold text-indigo-600">{currentGroupFloors.length} tầng</div>
+                      </div>
+                    )}
                   <div
-                    key={fp.id}
                     className={`p-3 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 ${
                       isSelected
                         ? 'bg-indigo-50/50 border-indigo-300 ring-1 ring-indigo-200'
@@ -9230,10 +9494,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       )}
                       {floorSortBy === 'none' && (
                         <MoveOrderControls
-                          disableUp={index === 0}
-                          disableDown={index === sortedFloorPlans.length - 1}
-                          onMoveUp={() => { if (onMoveFloorPlan) onMoveFloorPlan(fp.id, 'left'); }}
-                          onMoveDown={() => { if (onMoveFloorPlan) onMoveFloorPlan(fp.id, 'right'); }}
+                          disableUp={currentGroupIndex === 0}
+                          disableDown={currentGroupIndex === currentGroupFloors.length - 1}
+                          onMoveUp={() => moveFloorWithinGroup(fp.id, 'up')}
+                          onMoveDown={() => moveFloorWithinGroup(fp.id, 'down')}
                           label="Sắp thứ tự tầng"
                         />
                       )}
@@ -9296,6 +9560,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       </button>
                     </div>
                   </div>
+                  </div>
                 );
               })}
             </div>
@@ -9305,6 +9570,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <button
                 type="button"
                 onClick={async () => {
+                  setEditingStructureGroupId(null);
+                  setEditingStructureGroupName('');
                   setShowManageFloorsModal(false);
                   setShowQuickAddFloorModal(true);
                 }}
@@ -9317,6 +9584,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <button
                 type="button"
                 onClick={async () => {
+                  setEditingStructureGroupId(null);
+                  setEditingStructureGroupName('');
                   setShowManageFloorsModal(false);
                   setShowAddFloorModal(true);
                 }}

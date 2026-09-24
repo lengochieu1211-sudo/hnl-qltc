@@ -34,4 +34,15 @@ assert.ok(exportSource.includes('showReportStructureGroupPicker'), 'report scope
 assert.ok(exportSource.includes('reportFloorSummary'), 'report scope must render compact summaries instead of always-open checkbox columns');
 assert.ok(exportSource.includes('absolute left-0 right-0 z-40 mt-1 max-h-52'), 'report scope pickers must open as floating dropdowns');
 
+const floorPlanSource = readFileSync(new URL('../src/components/FloorPlanDefectTab.tsx', import.meta.url), 'utf8');
+assert.ok(floorPlanSource.includes("const [editingStructureGroupId"), 'Khu/Khối rename must use explicit edit state');
+assert.ok(floorPlanSource.includes("title=\"Lưu tên Khu/Khối\""), 'Khu/Khối rename must require an explicit save action');
+assert.equal(floorPlanSource.includes("defaultValue={group.name}"), false, 'Khu/Khối must not auto-save rename through blur/defaultValue');
+assert.ok(floorPlanSource.includes('applyGroupQuickSort'), 'Khu/Khối quick sort must persist group order');
+assert.ok(floorPlanSource.includes('applyFloorQuickSortWithinGroups'), 'floor quick sort must persist order inside each Khu/Khối');
+assert.ok(floorPlanSource.includes("moveFloorWithinGroup"), 'manual floor reorder must stay inside its Khu/Khối');
+assert.ok(floorPlanSource.includes("visibleFloorPlans.map((fp)"), 'project floor list must honor Khu/Khối filter');
+assert.ok(floorPlanSource.includes("getFloorStructureGroupName(activeFloor, normalizedStructureConfig)"), 'active floor breadcrumb must show its Khu/Khối');
+assert.ok(floorPlanSource.includes("getFloorStructureGroupName(fp, normalizedStructureConfig)} → ${fp.floorName}"), 'floor chips must disambiguate duplicate floor names by Khu/Khối');
+
 console.log('structure-group-golden: PASS');
