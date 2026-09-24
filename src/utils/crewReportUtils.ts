@@ -199,7 +199,7 @@ export function buildCrewReportRows(
       if (record.deletedAt) continue;
       const baseTeamKey = canonicalRecordTeamKey(record);
       const group = resolveRecordGroup(record);
-      const scopedTeamKey = `${group.id}|${baseTeamKey}`;
+      const scopedTeamKey = structureEnabled ? `${group.id}|${baseTeamKey}` : baseTeamKey;
       baseTeamsWithRecords.add(baseTeamKey);
 
       const baseTeam = baseTeamDirectory.get(baseTeamKey);
@@ -226,7 +226,7 @@ export function buildCrewReportRows(
     for (const [baseTeamKey, team] of baseTeamDirectory.entries()) {
       if (baseTeamsWithRecords.has(baseTeamKey)) continue;
       const group = structureEnabled ? UNASSIGNED_GROUP : PROJECT_SCOPE_GROUP;
-      const scopedTeamKey = `${group.id}|${baseTeamKey}`;
+      const scopedTeamKey = structureEnabled ? `${group.id}|${baseTeamKey}` : baseTeamKey;
       groupTeamDirectory.set(scopedTeamKey, {
         group,
         baseTeamKey,
