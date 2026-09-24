@@ -52,5 +52,15 @@ assert.ok(
   crewTabSource.includes('className="hidden lg:grid lg:grid-cols-2 gap-2 border-b border-slate-200 bg-slate-50/70 p-3"'),
   'team detail duplicate overview must be hidden below desktop breakpoint',
 );
+assert.equal(
+  crewTabSource.includes('<strong>Đối chiếu:</strong> Định mức theo KL đã thi công'),
+  false,
+  'team material detail should not render the long reconciliation explainer card',
+);
+assert.ok(
+  crewTabSource.indexOf('<span>Danh sách Defect ({teamDefects.length})</span>') <
+    crewTabSource.indexOf('<span>Vật tư đối chiếu ({selectedTeamMaterialReconciliation.length})</span>'),
+  'team detail tabs must order Defect before Vật tư đối chiếu',
+);
 
 console.log('crew-report-structure-golden: PASS');

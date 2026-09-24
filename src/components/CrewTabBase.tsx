@@ -3034,18 +3034,6 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                 </button>
 
                 <button
-                  onClick={() => setDetailModalTab('materials')}
-                  className={`flex items-center gap-1.5 py-2 px-3 text-xs font-bold border-b-2 transition whitespace-nowrap ${
-                    detailModalTab === 'materials'
-                      ? 'border-cyan-600 text-cyan-700'
-                      : 'border-transparent text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  <PackageSearch className="w-3.5 h-3.5" />
-                  <span>Vật tư đối chiếu ({selectedTeamMaterialReconciliation.length})</span>
-                </button>
-
-                <button
                   onClick={() => setDetailModalTab('defects')}
                   className={`flex items-center gap-1.5 py-2 px-3 text-xs font-bold border-b-2 transition whitespace-nowrap ${
                     detailModalTab === 'defects'
@@ -3060,6 +3048,18 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                       {openDefectsList.length}
                     </span>
                   )}
+                </button>
+
+                <button
+                  onClick={() => setDetailModalTab('materials')}
+                  className={`flex items-center gap-1.5 py-2 px-3 text-xs font-bold border-b-2 transition whitespace-nowrap ${
+                    detailModalTab === 'materials'
+                      ? 'border-cyan-600 text-cyan-700'
+                      : 'border-transparent text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <PackageSearch className="w-3.5 h-3.5" />
+                  <span>Vật tư đối chiếu ({selectedTeamMaterialReconciliation.length})</span>
                 </button>
 
                 <button
@@ -3338,11 +3338,6 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                       onReset={() => { setTeamMaterialSortBy('name'); setTeamMaterialSortOrder('asc'); }}
                       summary={`${selectedTeamMaterialReconciliation.length} loại vật tư`}
                     />
-                    <div className="rounded-xl border border-cyan-200 bg-cyan-50/70 p-3 text-[11px] text-cyan-900 leading-relaxed">
-                      <strong>Đối chiếu:</strong> Định mức theo KL đã thi công = khối lượng hạng mục có trạng thái <strong>Đã hoàn thành</strong> × định mức vật tư.
-                      Phiếu xuất có <strong>Đội thi công</strong> đúng teamId được cộng vào “Đã xuất”. Phiếu <strong>Xuất ngoài dự án / Mục đích khác</strong> không được tính vào tiêu hao dự án.
-                    </div>
-
                     {selectedTeamMaterialReconciliation.length === 0 ? (
                       <div className="bg-white border border-dashed border-slate-300 rounded-xl p-6 text-center">
                         <PackageSearch className="w-9 h-9 text-slate-300 mx-auto mb-2" />
