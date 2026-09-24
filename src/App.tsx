@@ -2508,9 +2508,10 @@ export default function App() {
     const remembered = !isOnline ? getRememberedVerifiedAuthIdentity() : null;
     const identityKey = cloudUserKey || (remembered ? `${remembered.uid || ''}:${remembered.email || ''}` : '');
     if (!identityKey) {
+      // Auth/reconnect can be transient. Preserve the user's current working tab;
+      // authorization guards below will handle a genuinely invalid project/session.
       startupNavigationAppliedForRef.current = '';
       setIsMultiProjectOverviewOpen(false);
-      setActiveTab('home');
       return;
     }
     if (authorizedChatProjects.length === 0) return;
@@ -2521,7 +2522,7 @@ export default function App() {
       ? authorizedChatProjects.find((project) => project.id === startupProjectId)
       : undefined;
     if (!startupProjectId) {
-      setActiveTab('home');
+      // Startup preference is not a navigation command after the app is already open.
       return;
     }
     if (!quickProject) {
@@ -6877,6 +6878,7 @@ export default function App() {
               projectId={activeProjectId}
               floorPlans={floorPlans}
               structureConfig={structureConfig}
+              onStructureConfigChange={handleStructureConfigChange}
               defects={activeDefects}
               roomProgressList={roomProgressList}
               checklistItems={activeChecklist}
