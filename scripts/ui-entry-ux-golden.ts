@@ -209,6 +209,10 @@ assert(
   roomHighlightUiForPc.includes('Team stays directly below the sub-item name on PC/laptop/EXE') && roomHighlightUiForPc.includes('Hạng mục con &amp; đội thi công'),
   'PC/laptop room inspection must place the construction team directly below the sub-item name so long team names remain visible'
 );
+assert(
+  roomHighlightUiForPc.includes('className="mt-1.5 flex justify-end"') && roomHighlightUiForPc.includes('className="w-full font-bold border border-slate-200 rounded-lg'),
+  'Room inspection Contact action must sit below the full-width team selector instead of squeezing the team name'
+);
 
 assert(workVolumeUi.includes('lg:max-w-[1100px]') && workVolumeUi.includes('left-0 lg:left-[84px]'), 'Work Volume editor must use desktop width while reserving the left rail');
 assert(warehouse.includes('lg:max-w-[1100px]') && warehouse.includes('left-0 lg:left-[84px]'), 'Warehouse editor must use desktop width while reserving the left rail');
@@ -226,6 +230,7 @@ assert(workVolumeUi.includes('grid grid-cols-1 lg:grid-cols-2 gap-3 items-start'
 assert(workVolumeUi.includes('h-6 text-slate-700 font-bold mb-1 flex items-center') && workVolumeUi.includes('min-h-11 border border-slate-200 rounded-xl'), 'PC/laptop Work Volume floor and category fields must align to the same label/control row height');
 assert(warehouse.indexOf('Chọn vật tư') < warehouse.indexOf("type === 'out'") && warehouse.includes('space-y-1.5 lg:col-span-6') && warehouse.includes('grid grid-cols-1 lg:grid-cols-2 gap-3 items-end'), 'Warehouse material search and material dropdown must sit directly below receipt type in one aligned desktop row');
 
+assert(!defectUi.includes('text-[9px] font-bold text-slate-500">Tên cấp Khu/Khối</div>'), 'Floor manager must not repeat the Khu/Khối level name in a separate card');
 assert(workVolumeUi.includes('<Download className="w-3.5 h-3.5" /> Tải Excel để chỉnh sửa'), 'Work Volume download action keeps one consistent label across roles');
 assert(workVolumeUi.includes('{hasStructureManageAccess && ('), 'Work Volume must hide ADMIN-only import/create actions from Engineer/Viewer');
 

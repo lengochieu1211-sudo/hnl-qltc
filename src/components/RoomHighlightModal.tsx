@@ -1696,13 +1696,14 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
                             {/* Team stays directly below the sub-item name on PC/laptop/EXE so long team names remain visible. */}
                             <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 text-[10.5px]">
-                            <div className="flex items-center gap-1.5 min-w-0">
-                              <User className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                              <span className="font-bold text-slate-600 shrink-0">Đội thi công:</span>
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <User className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                                <span className="font-bold text-slate-600">Đội thi công:</span>
+                              </div>
                               <select
                                 value={item.assignedTeam || ''}
                                 onChange={(e) => handleUpdateSubItem(item.id, { assignedTeam: e.target.value })}
-                                className="flex-1 font-bold border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:ring-1 focus:ring-indigo-500 outline-none bg-white min-w-0"
+                                className="w-full font-bold border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:ring-1 focus:ring-indigo-500 outline-none bg-white min-w-0"
                               >
                                 <option value="">-- Chọn đội (Quân số) --</option>
                                 {displayTeams.map((t) => (
@@ -1718,16 +1719,17 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                 const matchingTeam = displayTeams.find(t => t.name === item.assignedTeam);
                                 if (matchingTeam?.phone) {
                                   return (
-                                    <ContactMenu
-                                      target={{ name: matchingTeam.leader || matchingTeam.name, phone: matchingTeam.phone }}
-                                      context={{ type: 'room', shareText: `HNL QLTC – Liên hệ đội thi công\nĐội: ${matchingTeam.name}\nĐội trưởng: ${matchingTeam.leader || 'Chưa cập nhật'}\nSĐT: ${matchingTeam.phone}` }}
-                                      triggerLabel="Liên hệ"
-                                    />
+                                    <div className="mt-1.5 flex justify-end">
+                                      <ContactMenu
+                                        target={{ name: matchingTeam.leader || matchingTeam.name, phone: matchingTeam.phone }}
+                                        context={{ type: 'room', shareText: `HNL QLTC – Liên hệ đội thi công\nĐội: ${matchingTeam.name}\nĐội trưởng: ${matchingTeam.leader || 'Chưa cập nhật'}\nSĐT: ${matchingTeam.phone}` }}
+                                        triggerLabel="Liên hệ"
+                                      />
+                                    </div>
                                   );
                                 }
                                 return null;
                               })()}
-                              </div>
                             </div>
                           </div>
 

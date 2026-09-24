@@ -9219,22 +9219,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             {onStructureConfigChange && (
               <div className="rounded-2xl border border-indigo-200 bg-indigo-50/50 p-3 space-y-3">
                 <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-xs font-extrabold text-slate-900">Khu / Khối</div>
-                    <div className="text-[10px] text-slate-500">Sửa tên chỉ ghi khi bấm Lưu. Thứ tự lưu bằng order; ID và liên kết tầng giữ nguyên.</div>
-                  </div>
-                  <label className="flex items-center gap-1.5 text-[10px] font-bold">
-                    <input
-                      type="checkbox"
-                      checked={normalizedStructureConfig.enabled}
-                      onChange={(e) => onStructureConfigChange(normalizeStructureGroupConfig({ ...normalizedStructureConfig, enabled: e.target.checked }))}
-                    />
-                    Bật
-                  </label>
-                </div>
-
-                {normalizedStructureConfig.enabled && <>
-                  <div className="rounded-xl border border-indigo-200 bg-white p-2">
+                  <div className="min-w-0 flex-1">
                     {editingStructureLabel ? (
                       <div className="flex items-center gap-2">
                         <input
@@ -9246,8 +9231,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                               setEditingStructureLabelValue('');
                             }
                           }}
-                          className="min-w-0 flex-1 rounded-lg border border-indigo-300 px-2 py-1.5 text-xs font-bold"
-                          placeholder="Tên cấp: Tháp, Khối, Xưởng..."
+                          className="min-w-0 flex-1 rounded-lg border border-indigo-300 bg-white px-2 py-1.5 text-xs font-bold"
+                          placeholder="Tháp, Khối, Xưởng..."
                           autoFocus
                         />
                         <button
@@ -9255,16 +9240,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           onClick={() => {
                             const nextLabel = editingStructureLabelValue.trim();
                             if (nextLabel && nextLabel !== normalizedStructureConfig.label) {
-                              onStructureConfigChange(normalizeStructureGroupConfig({
-                                ...normalizedStructureConfig,
-                                label: nextLabel,
-                              }));
+                              onStructureConfigChange(normalizeStructureGroupConfig({ ...normalizedStructureConfig, label: nextLabel }));
                             }
                             setEditingStructureLabel(false);
                             setEditingStructureLabelValue('');
                           }}
                           className="bg-emerald-600 text-white p-1.5 rounded-lg hover:bg-emerald-700"
-                          title="Lưu tên cấp Khu/Khối"
+                          title="Lưu tên cấp"
                         >
                           <Check className="w-3.5 h-3.5" />
                         </button>
@@ -9278,26 +9260,38 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         </button>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-start gap-2">
                         <div className="min-w-0 flex-1">
-                          <div className="text-[9px] font-bold text-slate-500">Tên cấp Khu/Khối</div>
                           <div className="truncate text-xs font-extrabold text-slate-900">{normalizedStructureConfig.label}</div>
+                          <div className="text-[10px] text-slate-500">Quản lý phân khu → tầng. ID và liên kết dữ liệu giữ nguyên.</div>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditingStructureLabel(true);
-                            setEditingStructureLabelValue(normalizedStructureConfig.label);
-                          }}
-                          className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1.5 rounded-lg text-[10px] font-bold flex items-center gap-1"
-                          title="Sửa tên cấp Khu/Khối"
-                        >
-                          <Edit3 className="w-3.5 h-3.5 text-indigo-600" /> Sửa
-                        </button>
+                        {normalizedStructureConfig.enabled && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingStructureLabel(true);
+                              setEditingStructureLabelValue(normalizedStructureConfig.label);
+                            }}
+                            className="shrink-0 bg-white hover:bg-slate-100 text-slate-700 px-2 py-1.5 rounded-lg border border-indigo-200 text-[10px] font-bold flex items-center gap-1"
+                            title="Đổi tên Tháp / Khối / Xưởng"
+                          >
+                            <Edit3 className="w-3.5 h-3.5 text-indigo-600" /> Sửa tên
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
+                  <label className="flex items-center gap-1.5 text-[10px] font-bold shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={normalizedStructureConfig.enabled}
+                      onChange={(e) => onStructureConfigChange(normalizeStructureGroupConfig({ ...normalizedStructureConfig, enabled: e.target.checked }))}
+                    />
+                    Bật
+                  </label>
+                </div>
 
+                {normalizedStructureConfig.enabled && <>
                   {normalizedStructureConfig.groups.length >= 6 && (
                     <div className="space-y-1">
                       <div className="text-[10px] font-extrabold uppercase tracking-wide text-indigo-800">Sắp xếp Khu/Khối</div>
