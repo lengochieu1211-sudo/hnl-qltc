@@ -37,6 +37,8 @@ for (const marker of [
   'Maximize2',
   'Di chuyển / Zoom',
   'PINCH_GESTURE_ROLLBACK',
+  "import { createPortal } from 'react-dom';",
+  'createPortal(editorModal, document.body)',
   'h-[100dvh]',
   'max-h-[100dvh]',
   'flex-1 min-h-0',
@@ -55,7 +57,7 @@ if (editor.includes('max-h-[70vh]')) {
 if (editor.includes("setActiveTool('draw');")) {
   fail('ImageEditorModal still defaults to freehand drawing instead of pan/zoom');
 }
-pass('tool buttons are non-submit, Vietnamese IME is guarded, and editor opens in pinch-safe pan/zoom mode');
+pass('tool buttons are non-submit, Vietnamese IME is guarded, editor opens in pinch-safe pan/zoom mode, and the editor is portaled above clipped parent modals/desktop rail');
 
 for (const marker of [
   'preserveEncodedSource?: boolean',

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Pencil, Type, Undo, Save, X, ArrowRight, Square, Cloud, Loader2, Hand, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { getImageQualityProfile, type ImageQualityKind } from '../utils/imageQualitySettings';
 
@@ -484,7 +485,7 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
       activeTool === tool ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
     }`;
 
-  return (
+  const editorModal = (
     <div className="fixed inset-0 h-[100dvh] max-h-[100dvh] min-h-0 overflow-hidden bg-slate-900/90 z-[200] flex flex-col animate-in fade-in" role="dialog" aria-modal="true">
       <div className="shrink-0 flex items-center justify-between px-3 py-2 sm:px-4 sm:py-2.5 bg-slate-950 text-white">
         <h3 className="font-bold text-sm">Chỉnh sửa ảnh</h3>
@@ -649,4 +650,8 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
       </div>
     </div>
   );
+
+  // Portaled to body so a Crew/Defect parent modal with overflow/transform cannot
+  // clip the editor or place it behind the 84px desktop/EXE navigation rail.
+  return typeof document !== 'undefined' ? createPortal(editorModal, document.body) : editorModal;
 };
