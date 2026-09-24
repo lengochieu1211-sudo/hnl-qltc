@@ -223,6 +223,8 @@ assert(!crewUiForPc.includes('Lọc đội theo ${normalizedStructureConfig.labe
 assert(crewUiForPc.includes("setActiveSubTab('teams');") && crewUiForPc.includes("setSelectedStructureGroupId('all');"), 'Entering Team Directory must clear any prior crew Khu/Khối scope');
 assert(warehouse.includes('grid grid-cols-1 lg:grid-cols-2 gap-3 items-start'), 'PC/laptop warehouse transaction history must use two columns while mobile stays one column');
 assert(workVolumeUi.includes('grid grid-cols-1 lg:grid-cols-2 gap-3 items-start'), 'PC/laptop work-volume cards must use two columns while mobile stays one column');
+assert(workVolumeUi.includes('h-6 text-slate-700 font-bold mb-1 flex items-center') && workVolumeUi.includes('min-h-11 border border-slate-200 rounded-xl'), 'PC/laptop Work Volume floor and category fields must align to the same label/control row height');
+assert(warehouse.indexOf('Chọn vật tư') < warehouse.indexOf("type === 'out'") && warehouse.includes('space-y-1.5 lg:col-span-6') && warehouse.includes('grid grid-cols-1 lg:grid-cols-2 gap-3 items-end'), 'Warehouse material search and material dropdown must sit directly below receipt type in one aligned desktop row');
 
 assert(workVolumeUi.includes('<Download className="w-3.5 h-3.5" /> Tải Excel để chỉnh sửa'), 'Work Volume download action keeps one consistent label across roles');
 assert(workVolumeUi.includes('{hasStructureManageAccess && ('), 'Work Volume must hide ADMIN-only import/create actions from Engineer/Viewer');

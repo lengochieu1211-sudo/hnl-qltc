@@ -1016,9 +1016,9 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 lg:col-span-6">
-                <div>
-                  <label className="block text-slate-700 font-bold mb-1 flex items-center justify-between">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 lg:col-span-6 items-start">
+                <div className="flex flex-col min-w-0">
+                  <label className="h-6 text-slate-700 font-bold mb-1 flex items-center justify-between gap-2">
                     <span>Vị trí tầng</span>
                     {floorPlans && floorPlans.length > 0 && (
                       <span className="text-[10px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100 font-bold">
@@ -1028,7 +1028,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                   </label>
                   <div className="relative" ref={floorDropdownRef}>
                     <div 
-                      className="w-full border border-slate-200 rounded-xl p-2.5 font-bold text-slate-800 bg-white cursor-pointer flex justify-between items-center"
+                      className="w-full min-h-11 border border-slate-200 rounded-xl p-2.5 font-bold text-slate-800 bg-white cursor-pointer flex justify-between items-center"
                       onClick={() => setIsFloorDropdownOpen(!isFloorDropdownOpen)}
                     >
                       <span className="truncate">
@@ -1065,14 +1065,14 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                     )}
                   </div>
                 </div>
-                <div>
-                  <label className="block text-slate-700 font-bold mb-1">Nhóm hạng mục</label>
+                <div className="flex flex-col min-w-0">
+                  <label className="h-6 text-slate-700 font-bold mb-1 flex items-center">Nhóm hạng mục</label>
                   <input
                     type="text"
                     list="category-options"
                     value={category}
                     onChange={(e) => setCategory(e.target.value)}
-                    className="w-full border border-slate-200 rounded-xl p-2.5 font-bold text-indigo-700"
+                    className="w-full min-h-11 border border-slate-200 rounded-xl p-2.5 font-bold text-indigo-700"
                     placeholder="Nhập hoặc chọn nhóm"
                   />
                   <datalist id="category-options">

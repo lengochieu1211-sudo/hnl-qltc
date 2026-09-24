@@ -2074,7 +2074,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
             <form onSubmit={handleSubmit} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 lg:px-6 pb-5 lg:pb-6 pt-4 grid grid-cols-1 lg:grid-cols-6 gap-3 text-xs">
               {/* Type Toggle */}
-              <div className="lg:col-span-2">
+              <div className="lg:col-span-6">
                 <label className="block text-slate-700 font-bold mb-1">Loại Phiếu</label>
                 <div className="grid grid-cols-2 gap-2">
                   <button
@@ -2099,6 +2099,73 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   >
                     <ArrowUpRight className="w-4 h-4" /> XUẤT KHO
                   </button>
+                </div>
+              </div>
+
+              {/* Material Search + Select */}
+              <div className="space-y-1.5 lg:col-span-6">
+                <label className="block text-slate-700 font-bold">Chọn vật tư</label>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-end">
+                <div className="relative">
+                  <Search className="absolute left-3 top-3 w-4 h-4 text-slate-400 pointer-events-none" />
+                  <input
+                    ref={materialSearchRef}
+                    type="search"
+                    value={materialPickerSearch}
+                    onChange={(e) => setMaterialPickerSearch(e.target.value)}
+                    placeholder="Tìm theo tên, nhóm hoặc đơn vị..."
+                    className="w-full bg-white border border-slate-200 rounded-xl py-2.5 pl-9 pr-3 text-slate-800"
+                    autoComplete="off"
+                  />
+                  {normalizedMaterialPickerSearch && filteredMaterialNorms.length > 0 && (
+                    <div className="absolute left-0 right-0 top-full mt-1 z-30 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+                      {filteredMaterialNorms.slice(0, 20).map((m) => (
+                        <button
+                          type="button"
+                          key={m.id}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            setMaterialName(m.materialName);
+                            setUnit(m.unit);
+                            setCustomMaterial('');
+                            setMaterialPickerSearch('');
+                          }}
+                          className="w-full px-3 py-2 text-left hover:bg-indigo-50 border-b border-slate-100 last:border-b-0"
+                        >
+                          <div className="text-xs font-bold text-slate-800">{m.materialName}</div>
+                          <div className="text-[10px] text-slate-500">{m.category || 'Vật tư'} · {m.unit}</div>
+                        </button>
+                      ))}
+                      {filteredMaterialNorms.length > 20 && (
+                        <div className="px-3 py-2 text-[10px] text-slate-500 bg-slate-50">
+                          Còn {filteredMaterialNorms.length - 20} kết quả. Nhập thêm ký tự để lọc nhanh hơn.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <select
+                  value={materialName}
+                  onChange={(e) => {
+                    setMaterialName(e.target.value);
+                    const matched = materialNorms.find((m) => m.materialName === e.target.value);
+                    if (matched) {
+                      setUnit(matched.unit);
+                      setCustomMaterial('');
+                    }
+                  }}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-medium text-slate-800"
+                >
+                  <option value="">— Chọn vật tư —</option>
+                  {filteredMaterialNorms.map((m) => (
+                    <option key={m.id} value={m.materialName}>
+                      [{m.category}] {m.materialName} ({m.unit})
+                    </option>
+                  ))}
+                </select>
+                {normalizedMaterialPickerSearch && filteredMaterialNorms.length === 0 && (
+                  <p className="text-[10px] text-amber-700 lg:col-span-2">Không tìm thấy vật tư phù hợp. Có thể nhập tên mới ở ô bên dưới.</p>
+                )}
                 </div>
               </div>
 
@@ -2213,71 +2280,6 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   )}
                 </div>
               )}
-
-              {/* Material Search + Select */}
-              <div className="space-y-1.5 lg:col-span-3">
-                <label className="block text-slate-700 font-bold">Chọn vật tư</label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-3 w-4 h-4 text-slate-400 pointer-events-none" />
-                  <input
-                    ref={materialSearchRef}
-                    type="search"
-                    value={materialPickerSearch}
-                    onChange={(e) => setMaterialPickerSearch(e.target.value)}
-                    placeholder="Tìm theo tên, nhóm hoặc đơn vị..."
-                    className="w-full bg-white border border-slate-200 rounded-xl py-2.5 pl-9 pr-3 text-slate-800"
-                    autoComplete="off"
-                  />
-                  {normalizedMaterialPickerSearch && filteredMaterialNorms.length > 0 && (
-                    <div className="absolute left-0 right-0 top-full mt-1 z-30 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl">
-                      {filteredMaterialNorms.slice(0, 20).map((m) => (
-                        <button
-                          type="button"
-                          key={m.id}
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => {
-                            setMaterialName(m.materialName);
-                            setUnit(m.unit);
-                            setCustomMaterial('');
-                            setMaterialPickerSearch('');
-                          }}
-                          className="w-full px-3 py-2 text-left hover:bg-indigo-50 border-b border-slate-100 last:border-b-0"
-                        >
-                          <div className="text-xs font-bold text-slate-800">{m.materialName}</div>
-                          <div className="text-[10px] text-slate-500">{m.category || 'Vật tư'} · {m.unit}</div>
-                        </button>
-                      ))}
-                      {filteredMaterialNorms.length > 20 && (
-                        <div className="px-3 py-2 text-[10px] text-slate-500 bg-slate-50">
-                          Còn {filteredMaterialNorms.length - 20} kết quả. Nhập thêm ký tự để lọc nhanh hơn.
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-                <select
-                  value={materialName}
-                  onChange={(e) => {
-                    setMaterialName(e.target.value);
-                    const matched = materialNorms.find((m) => m.materialName === e.target.value);
-                    if (matched) {
-                      setUnit(matched.unit);
-                      setCustomMaterial('');
-                    }
-                  }}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-medium text-slate-800"
-                >
-                  <option value="">— Chọn vật tư —</option>
-                  {filteredMaterialNorms.map((m) => (
-                    <option key={m.id} value={m.materialName}>
-                      [{m.category}] {m.materialName} ({m.unit})
-                    </option>
-                  ))}
-                </select>
-                {normalizedMaterialPickerSearch && filteredMaterialNorms.length === 0 && (
-                  <p className="text-[10px] text-amber-700">Không tìm thấy vật tư phù hợp. Có thể nhập tên mới ở ô bên dưới.</p>
-                )}
-              </div>
 
               {/* Custom Material Option */}
               <div className="lg:col-span-3">
