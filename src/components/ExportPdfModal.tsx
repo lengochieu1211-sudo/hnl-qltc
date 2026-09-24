@@ -325,7 +325,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   const baseRoomScopeOptions = roomProgressList.filter((room) => floorMatchesScope(room.floorId, room.floorName));
   const roomTeamIds = (room: RoomProgressItem): string[] => Array.from(new Set([room.teamId, ...(room.subItems || []).map((sub) => sub.teamId)].filter(Boolean) as string[]));
   const roomTeamNames = (room: RoomProgressItem): string[] => Array.from(new Set([room.assignedTeam, ...(room.subItems || []).map((sub) => sub.assignedTeam)].map((v) => String(v || '').trim()).filter(Boolean)));
-  const availableTeamOptions = teams.filter((team) => baseRoomScopeOptions.some((room) =>
+  const availableTeamOptions = teams.filter((team) => baseRoomScopeOptions.filter((room) => selectedRoomIds.includes('all') || selectedRoomIds.includes(room.id)).some((room) =>
     roomTeamIds(room).includes(team.id) || roomTeamNames(room).some((name) => {
       const normalized = name.toLocaleLowerCase('vi-VN');
       return normalized === team.name.trim().toLocaleLowerCase('vi-VN') || normalized === String(team.leader || '').trim().toLocaleLowerCase('vi-VN');
@@ -388,8 +388,12 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     return pdfDefectCodeStyle === 'df' ? `DF-${shortNumber}` : shortNumber;
   };
 
-  const defectCategoryOptions = Array.from(new Set(defects.filter((d) => !d.archivedAt).map((d) => String(d.category || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
-  const defectCreatorOptions = Array.from(new Set(defects.filter((d) => !d.archivedAt).map((d) => String(d.createdBy || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
+  const defectsInSelectedScope = defects.filter((d) => !d.archivedAt)
+    .filter((d) => floorMatchesScope(d.floorId, d.floorName))
+    .filter((d) => allRoomsSelected || selectedRoomIds.includes(String(d.roomId || '')))
+    .filter((d) => teamMatchesScope(d.teamId, d.assignedTo));
+  const defectCategoryOptions = Array.from(new Set(defectsInSelectedScope.map((d) => String(d.category || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
+  const defectCreatorOptions = Array.from(new Set(defectsInSelectedScope.map((d) => String(d.createdBy || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
 
   const filteredDefects = defects.filter((d) => {
     if (d.archivedAt) return false;
