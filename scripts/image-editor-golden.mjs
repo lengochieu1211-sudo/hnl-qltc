@@ -39,6 +39,7 @@ for (const marker of [
   'PINCH_GESTURE_ROLLBACK',
   "import { createPortal } from 'react-dom';",
   'createPortal(editorModal, document.body)',
+  'data-hnl-photo-editor="modal"',
   'h-[100dvh]',
   'max-h-[100dvh]',
   'flex-1 min-h-0',

@@ -486,7 +486,7 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
     }`;
 
   const editorModal = (
-    <div className="fixed inset-0 h-[100dvh] max-h-[100dvh] min-h-0 overflow-hidden bg-slate-900/90 z-[200] flex flex-col animate-in fade-in" role="dialog" aria-modal="true">
+    <div data-hnl-photo-editor="modal" className="fixed inset-0 h-[100dvh] max-h-[100dvh] min-h-0 overflow-hidden bg-slate-900/90 z-[200] flex flex-col animate-in fade-in" role="dialog" aria-modal="true">
       <div className="shrink-0 flex items-center justify-between px-3 py-2 sm:px-4 sm:py-2.5 bg-slate-950 text-white">
         <h3 className="font-bold text-sm">Chỉnh sửa ảnh</h3>
         <button type="button" onClick={onClose} className="p-1 hover:bg-slate-800 rounded-full transition-colors" aria-label="Đóng">
