@@ -517,14 +517,16 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
                   {matrix.projectLocation && <div className="mt-0.5 text-[10px] font-semibold text-slate-500">Địa điểm: {matrix.projectLocation}</div>}
                 </div>
                 <div className="relative isolate max-h-[42vh] overflow-auto overscroll-contain">
-                  <table className="w-full text-left text-xs" style={{ minWidth: `${Math.max(570, 230 + matrix.teams.length * 248)}px` }}>
+                  <table className="w-full text-left text-xs" style={{ minWidth: `${Math.max(570, 230 + matrix.teams.length * 248 + (showSerialNumber ? 52 : 0) + (showWorkDetails ? 300 : 0))}px` }}>
                     <thead className="bg-slate-100 text-[9.5px] font-black text-slate-500">
                       <tr className="h-8">
-                        <th rowSpan={3} className="sticky left-0 top-0 z-[5] min-w-[118px] border-r border-slate-200 bg-slate-100 px-3 py-2 align-middle">Ngày</th>
+                        {showSerialNumber && <th rowSpan={3} className="sticky left-0 top-0 z-[6] min-w-[52px] border-r border-slate-200 bg-slate-100 px-2 py-2 text-center align-middle">STT</th>}
+                        <th rowSpan={3} style={{ left: showSerialNumber ? 52 : 0 }} className="sticky top-0 z-[5] min-w-[118px] border-r border-slate-200 bg-slate-100 px-3 py-2 align-middle">Ngày</th>
                         {matrix.groups.map((group) => (
                           <th key={group.structureGroupId} colSpan={Math.max(1, group.teams.length * 4)} className="sticky top-0 z-[4] h-8 border-r border-indigo-200 bg-indigo-50 px-2 py-0 text-center text-indigo-800">{group.structureGroupName}</th>
                         ))}
                         <th rowSpan={3} className="sticky top-0 z-[4] min-w-[110px] border-r border-slate-200 bg-blue-50 px-2 py-2 text-center align-middle text-blue-800">Tổng QS/ngày</th>
+                        {showWorkDetails && <th rowSpan={3} className="sticky top-0 z-[4] min-w-[300px] border-r border-slate-200 bg-slate-50 px-3 py-2 text-left align-middle text-slate-700">Tầng / Hạng mục / HM con / Ghi chú</th>}
                       </tr>
                       <tr className="h-8">
                         {matrix.teams.map((team) => <th key={team.teamKey} colSpan={4} className="sticky top-[31px] z-[3] h-8 border-r border-slate-200 bg-slate-100 px-2 py-0 text-center text-slate-700">{team.teamName}</th>)}
@@ -534,9 +536,10 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {matrix.dates.map((dateRow) => (
+                      {matrix.dates.map((dateRow, dateIndex) => (
                         <tr key={`${matrix.projectId}-${dateRow.date}`} className="bg-white">
-                          <td className="sticky left-0 z-[1] border-r border-slate-100 bg-white px-3 py-2 font-bold text-slate-700">{formatDateDDMMYYYY(dateRow.date)}</td>
+                          {showSerialNumber && <td className="sticky left-0 z-[2] border-r border-slate-100 bg-white px-2 py-2 text-center font-bold text-slate-500">{dateIndex + 1}</td>}
+                          <td style={{ left: showSerialNumber ? 52 : 0 }} className="sticky z-[1] border-r border-slate-100 bg-white px-3 py-2 font-bold text-slate-700">{formatDateDDMMYYYY(dateRow.date)}</td>
                           {matrix.teams.flatMap((team) => {
                             const row = dateRow.cells[team.teamKey];
                             return [
@@ -547,12 +550,23 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
                             ];
                           })}
                           <td className="border-r border-blue-100 bg-blue-50/60 px-2 py-2 text-center font-black tabular-nums text-blue-900">{dateRow.totalDailyHeadcount}</td>
+                          {showWorkDetails && (
+                            <td className="min-w-[300px] border-r border-slate-100 bg-white px-3 py-2 align-top text-[10px] leading-4 text-slate-600">
+                              {matrix.teams.map((team) => {
+                                const row = dateRow.cells[team.teamKey];
+                                const detail = formatCrewRowDetail(row);
+                                return detail ? <div key={team.teamKey}><span className="font-extrabold text-slate-700">{team.teamName}:</span> {detail}</div> : null;
+                              })}
+                              {!matrix.teams.some((team) => Boolean(formatCrewRowDetail(dateRow.cells[team.teamKey]))) && <span className="text-slate-400">—</span>}
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
                     <tfoot>
                       <tr className="border-t-2 border-blue-200 bg-blue-50 font-black text-blue-950">
-                        <td className="sticky left-0 z-[1] border-r border-blue-200 bg-blue-50 px-3 py-2">TỔNG</td>
+                        {showSerialNumber && <td className="sticky left-0 z-[2] border-r border-blue-200 bg-blue-50 px-2 py-2"></td>}
+                        <td style={{ left: showSerialNumber ? 52 : 0 }} className="sticky z-[1] border-r border-blue-200 bg-blue-50 px-3 py-2">TỔNG</td>
                         {matrix.teams.flatMap((team) => {
                           const total = matrix.teamTotals[team.teamKey] || { morning: 0, afternoon: 0, evening: 0, dailyHeadcount: 0 };
                           return [total.morning, total.afternoon, total.evening, total.dailyHeadcount].map((value, index) => (
@@ -560,6 +574,7 @@ export const CrewReportShareModal: React.FC<CrewReportShareModalProps> = ({
                           ));
                         })}
                         <td className="border-r border-blue-200 bg-blue-100 px-2 py-2 text-center tabular-nums">{matrix.grandDailyHeadcount}</td>
+                        {showWorkDetails && <td className="border-r border-blue-200 bg-blue-50 px-3 py-2"></td>}
                       </tr>
                     </tfoot>
                   </table>
