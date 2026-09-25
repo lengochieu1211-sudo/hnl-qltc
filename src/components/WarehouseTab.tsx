@@ -47,8 +47,8 @@ import {
   type ProjectStructureConfig,
 } from '../utils/structureGroupUtils';
 
-type MaterialNeedSortKey = 'default' | 'material' | 'category' | 'remaining' | 'deficit' | 'stock';
-type WarehouseCatalogSortKey = 'name' | 'totalIn' | 'totalOut' | 'normQuantity' | 'currentStock';
+type MaterialNeedSortKey = 'default' | 'material' | 'category' | 'unit' | 'remaining' | 'deficit' | 'stock';
+type WarehouseCatalogSortKey = 'name' | 'category' | 'unit' | 'totalIn' | 'totalOut' | 'normQuantity' | 'currentStock';
 
 interface WarehouseTabProps {
   inventory: InventoryItem[];
@@ -298,6 +298,9 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           break;
         case 'category':
           comparison = naturalCompare(a.category, b.category);
+          break;
+        case 'unit':
+          comparison = naturalCompare(a.unit, b.unit);
           break;
         case 'remaining':
           comparison = a.remainingQty - b.remainingQty;
@@ -1005,6 +1008,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       if (warehouseCatalogSortBy === 'name') {
         return direction * naturalCompare(a.name, b.name);
       }
+      if (warehouseCatalogSortBy === 'category') {
+        return direction * (naturalCompare(a.category, b.category) || naturalCompare(a.name, b.name));
+      }
+      if (warehouseCatalogSortBy === 'unit') {
+        return direction * (naturalCompare(a.unit, b.unit) || naturalCompare(a.name, b.name));
+      }
       const aValue = Number(a[warehouseCatalogSortBy] ?? 0);
       const bValue = Number(b[warehouseCatalogSortBy] ?? 0);
       if (aValue !== bValue) return direction * (aValue - bValue);
@@ -1513,6 +1522,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             itemCount={warehouseCatalogStockRows.length}
             options={[
               { key: 'name', label: warehouseCatalogTab === 'equipment' ? 'Tên thiết bị' : 'Tên vật tư', kind: 'alpha', defaultOrder: 'asc' },
+              { key: 'category', label: 'Nhóm', kind: 'alpha', defaultOrder: 'asc' },
+              { key: 'unit', label: 'ĐVT', kind: 'alpha', defaultOrder: 'asc' },
               { key: 'totalIn', label: 'Nhập', kind: 'number', defaultOrder: 'desc' },
               { key: 'totalOut', label: 'Xuất', kind: 'number', defaultOrder: 'desc' },
               ...(warehouseCatalogTab === 'material'
@@ -1529,9 +1540,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           />
 
           <div className="overflow-x-auto rounded-xl border border-slate-200">
-            <div className="min-w-[620px]">
-              <div className="grid grid-cols-[minmax(180px,1.6fr)_52px_64px_64px_104px_76px] gap-2 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600">
+            <div className="min-w-[760px]">
+              <div className="grid grid-cols-[minmax(180px,1.6fr)_120px_52px_64px_64px_104px_76px] gap-2 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600">
                 <span>Tên {warehouseCatalogTab === 'equipment' ? 'thiết bị' : 'vật tư'}</span>
+                <span>Nhóm</span>
                 <span>ĐVT</span>
                 <span className="text-right">Nhập</span>
                 <span className="text-right">Xuất</span>
@@ -1544,8 +1556,9 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     {warehouseCatalogTab === 'equipment' ? 'Chưa có thiết bị. Thiết bị sẽ được lưu vào danh mục sau giao dịch đầu tiên.' : 'Không có vật tư phù hợp.'}
                   </div>
                 ) : warehouseCatalogStockRows.map((item) => (
-                  <div key={item.key} className="grid grid-cols-[minmax(180px,1.6fr)_52px_64px_64px_104px_76px] items-center gap-2 px-3 py-2.5 text-xs">
+                  <div key={item.key} className="grid grid-cols-[minmax(180px,1.6fr)_120px_52px_64px_64px_104px_76px] items-center gap-2 px-3 py-2.5 text-xs">
                     <div className="min-w-0 whitespace-normal break-words font-bold leading-snug text-slate-800">{item.name}</div>
+                    <span className="min-w-0 whitespace-normal break-words text-slate-500">{item.category}</span>
                     <span className="break-words text-slate-600">{item.unit}</span>
                     <span className="text-right font-semibold text-emerald-700">{formatDecimal(item.totalIn)}</span>
                     <span className="text-right font-semibold text-amber-700">{formatDecimal(item.totalOut)}</span>
@@ -1824,6 +1837,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 options={[
                   { key: 'material', label: 'Vật tư', kind: 'alpha', defaultOrder: 'asc' },
                   { key: 'category', label: 'Nhóm vật tư', kind: 'alpha', defaultOrder: 'asc' },
+                  { key: 'unit', label: 'ĐVT', kind: 'alpha', defaultOrder: 'asc' },
                   { key: 'remaining', label: 'Còn cần', kind: 'number', defaultOrder: 'desc' },
                   { key: 'deficit', label: 'Thiếu', kind: 'number', defaultOrder: 'desc' },
                   { key: 'stock', label: 'Tồn kho', kind: 'number', defaultOrder: 'desc' },
@@ -1840,12 +1854,14 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 <div className="rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-600">Chưa có nhu cầu vật tư xác định cho phạm vi đã chọn.</div>
               ) : (
                 <div className="max-h-[52vh] overflow-auto overscroll-contain rounded-xl border border-indigo-100 bg-white sm:max-h-[28rem]">
-                  <table className="min-w-[720px] w-full text-[11px]">
-                    <thead className="sticky top-0 z-10 bg-slate-50 text-slate-600"><tr><th className="p-2 text-left">Vật tư</th><th className="p-2 text-right">Tổng cần</th><th className="p-2 text-right">Đã xuất</th>{hasMaterialAllocationFilter && <th className="p-2 text-right">Chưa phân bổ</th>}<th className="p-2 text-right">Còn cần</th><th className="p-2 text-right">Tồn kho</th><th className="p-2 text-right">Thiếu</th></tr></thead>
+                  <table className="min-w-[900px] w-full text-[11px]">
+                    <thead className="sticky top-0 z-10 bg-slate-50 text-slate-600"><tr><th className="p-2 text-left">Vật tư</th><th className="p-2 text-left">Nhóm vật tư</th><th className="p-2 text-left">ĐVT</th><th className="p-2 text-right">Tổng cần</th><th className="p-2 text-right">Đã xuất</th>{hasMaterialAllocationFilter && <th className="p-2 text-right">Chưa phân bổ</th>}<th className="p-2 text-right">Còn cần</th><th className="p-2 text-right">Tồn kho</th><th className="p-2 text-right">Thiếu</th></tr></thead>
                     <tbody>
                       {materialNeedLines.map((line) => (
                         <tr key={line.materialKey} className="border-t border-slate-100">
-                          <td className="p-2"><div className="font-bold text-slate-800">{line.materialName}</div><div className="text-[10px] text-slate-500">{line.category} · {line.unit}</div></td>
+                          <td className="p-2 font-bold text-slate-800">{line.materialName}</td>
+                          <td className="p-2 text-slate-500">{line.category}</td>
+                          <td className="p-2 text-slate-600">{line.unit}</td>
                           <td className="p-2 text-right font-semibold">{formatDecimal(line.estimatedQty)}</td>
                           <td className="p-2 text-right text-emerald-700">{formatDecimal(line.alreadyIssued)}</td>
                           {hasMaterialAllocationFilter && <td className="p-2 text-right text-amber-700">{formatDecimal(line.unallocatedIssued)}</td>}
