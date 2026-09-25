@@ -218,7 +218,7 @@ assert(
 assert(workVolumeUi.includes('lg:max-w-[1100px]') && workVolumeUi.includes('left-0 lg:left-[84px]'), 'Work Volume editor must use desktop width while reserving the left rail');
 assert(warehouse.includes('lg:max-w-[1100px]') && warehouse.includes('left-0 lg:left-[84px]'), 'Warehouse editor must use desktop width while reserving the left rail');
 assert(roomHighlightUiForPc.includes('lg:max-w-[1200px]') && roomHighlightUiForPc.includes('left-0 lg:left-[84px]'), 'Room inspection editor must use the wide desktop/EXE sheet without covering the navigation rail');
-assert(defectUi.includes('title="Thao tác khác"') && defectUi.includes('Mặt bằng</span>'), 'Floor manager must group secondary actions and show a safe thumbnail fallback');
+assert(defectUi.includes('title="Sửa tên / Nhân bản / Xóa"') && defectUi.includes('Mặt bằng</span>'), 'Floor manager must keep the fixed overflow actions and show a safe thumbnail fallback');
 
 assert((defectUi.match(/grid grid-cols-1 lg:grid-cols-2 gap-3 items-start/g) || []).length >= 2, 'PC/laptop floor-plan room and defect lists must use two columns while mobile stays one column');
 assert((crewUiForPc.match(/grid grid-cols-1 lg:grid-cols-2 gap-3 items-start/g) || []).length >= 2, 'PC/laptop crew daily logs and team room cards must use two columns while mobile stays one column');
