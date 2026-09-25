@@ -113,7 +113,8 @@ import { REALTIME_STATE_KEYS, STATE_KEY_TO_CLOUD_NAME } from './config/realtimeC
 import { FIREBASE_ONLY_RUNTIME, LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED, LEGACY_LOCAL_IMPORT_ENABLED } from './config/runtimeArchitecture';
 import { CURRENT_DATA_SCHEMA_VERSION } from './config/dataSchema';
 import { 
-  InventoryItem, 
+  InventoryItem,
+  InventoryItemKind,
   WorkVolume, 
   FloorPlan, 
   DefectItem, 
@@ -832,7 +833,7 @@ export default function App() {
         if (norm.materialId) normByLegacyId.set(String(norm.materialId), norm);
       });
       const inventory = deduplicateById(filterTombstoned('inventory', rawInventory), 'INV').map((item: InventoryItem) => {
-        const itemKind = item.itemKind === 'equipment' ? 'equipment' : 'material';
+        const itemKind: InventoryItemKind = item.itemKind === 'equipment' ? 'equipment' : 'material';
         let matchedNorm = itemKind === 'material' && item.materialId ? normByLegacyId.get(String(item.materialId)) : undefined;
         if (itemKind === 'material' && !matchedNorm) {
           matchedNorm = materialNorms.find((norm: MaterialNorm) =>
