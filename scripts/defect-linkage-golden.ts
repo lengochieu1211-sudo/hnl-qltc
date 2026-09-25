@@ -26,6 +26,7 @@ const rooms: RoomProgressItem[] = [
 
 assert.equal(findRoomForDefectPoint({ x: 15, y: 15 }, rooms)?.id, 'room-101', 'rectangle highlight must resolve roomId');
 assert.equal(findRoomForDefectPoint({ x: 50, y: 20 }, rooms)?.id, 'room-poly', 'polygon highlight must resolve roomId');
+assert.equal(findRoomForDefectPoint({ x: 41, y: 29 }, rooms), undefined, 'closed polygon hit-test must not fall back to its empty bounding-box corners');
 
 const base: DefectItem = {
   id: 'd1', floorId: 'f1', floorName: 'Tầng 1', x: 15, y: 15,
@@ -48,6 +49,20 @@ assert.deepEqual(selected, { roomId: 'room-101', teamId: 'team-b', assignedTo: '
 const loading = reconcileDefectLinkage({ ...base, roomId: 'room-101', teamId: 'team-a' }, [], []);
 assert.equal(loading.roomId, 'room-101', 'empty realtime rooms must not erase roomId');
 assert.equal(loading.teamId, 'team-a', 'empty realtime teams must not erase teamId');
+
+const rotatedGeometryRoom: RoomProgressItem = {
+  ...rooms[0],
+  points: [{ x: 40, y: 40 }, { x: 50, y: 40 }, { x: 50, y: 50 }, { x: 40, y: 50 }],
+  x: 40, y: 40, width: 10, height: 10,
+};
+const geometryEdited = reconcileDefectLinkage(
+  { ...base, roomId: 'room-101', teamId: 'team-a', x: 15, y: 15 },
+  [rotatedGeometryRoom],
+  teams,
+  { preserveValidRoomId: true },
+);
+assert.equal(geometryEdited.roomId, 'room-101', 'highlight rotation/geometry edit must preserve a still-valid durable defect roomId');
+assert.equal(geometryEdited.teamId, 'team-a', 'highlight rotation must preserve explicit defect team linkage');
 
 // Duplicate legacy names must fail closed. Never bind to the first matching team.
 const duplicateTeams: TeamInfo[] = [

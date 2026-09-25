@@ -97,6 +97,7 @@ import { ContactMenu } from './ContactMenu';
 import { ShareEntityMenu } from './ShareEntityMenu';
 import { buildDefectShareText, resolveDefectTeam } from '../utils/defectContactUtils';
 import { isPointInsideRoom, reconcileDefectLinkage, resolveDefectLinkageFromSelection } from '../utils/defectLinkageUtils';
+import { getRoomHighlightBounds, mirrorRoomHighlight, resizeRoomHighlightToBounds, rotateRoomHighlight, snapRotationDelta } from '../utils/roomHighlightGeometry';
 
 const getMappedCoordinates = (e: React.PointerEvent | React.MouseEvent | Touch, element: HTMLElement, currentRotation: number) => {
   const rect = element.getBoundingClientRect();
@@ -1816,13 +1817,16 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   };
 
   const [activeDragHandle, setActiveDragHandle] = useState<
-    'move' | 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'w' | 'e' | number | null
+    'move' | 'rotate' | 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'w' | 'e' | number | null
   >(null);
+  const [rotationPreview, setRotationPreview] = useState<{ roomId: string; degrees: number } | null>(null);
   const [dragStartInfo, setDragStartInfo] = useState<{
     mouseX: number;
     mouseY: number;
     room: RoomProgressItem;
     rooms?: RoomProgressItem[];
+    rotationStartAngle?: number;
+    rotationAspect?: number;
   } | null>(null);
 
 
@@ -2666,6 +2670,42 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     : selectedRoomObject ? [selectedRoomObject.id] : [];
   const selectedRoomsAreLocked = selectedRoomIdsForAction.length > 0 && selectedRoomIdsForAction.every((id) => lockedRoomIds.has(id));
 
+  const notifyDefectsOutsideTransformedRooms = (rooms: RoomProgressItem[]) => {
+    if (rooms.length === 0) return;
+    const transformedById = new Map(rooms.map((room) => [room.id, room]));
+    const outsideCount = floorDefects.filter((defect) => {
+      if (!defect.roomId) return false;
+      const transformed = transformedById.get(defect.roomId);
+      return Boolean(transformed && !isPointInsideRoom(defect.x, defect.y, transformed));
+    }).length;
+    if (outsideCount <= 0) return;
+    setCopyNotification(`⚠️ ${outsideCount} Defect đang nằm ngoài vùng highlight sau biến đổi. Ghim Defect và roomId được giữ nguyên.`);
+    window.setTimeout(() => setCopyNotification(null), 4200);
+  };
+
+  const applySelectedRoomTransform = (kind: 'rotate90' | 'rotate180' | 'mirror-horizontal' | 'mirror-vertical') => {
+    if (!canManageStructure || selectedRoomIdsForAction.length === 0) return;
+    if (selectedRoomIdsForAction.some((id) => lockedRoomIds.has(id))) {
+      setCopyNotification('🔒 Có Căn/Phòng đang khóa vị trí. Mở khóa trước khi xoay hoặc đối xứng.');
+      window.setTimeout(() => setCopyNotification(null), 2400);
+      return;
+    }
+    const selectedSet = new Set(selectedRoomIdsForAction);
+    const aspect = Math.max(0.01, Number(imgAspect) || 1);
+    const transformed = floorRooms
+      .filter((room) => selectedSet.has(room.id))
+      .map((room) => {
+        if (kind === 'rotate90') return rotateRoomHighlight(room, 90, aspect);
+        if (kind === 'rotate180') return rotateRoomHighlight(room, 180, aspect);
+        if (kind === 'mirror-horizontal') return mirrorRoomHighlight(room, 'horizontal');
+        return mirrorRoomHighlight(room, 'vertical');
+      });
+    if (transformed.length === 0) return;
+    if (onBatchSaveRooms && transformed.length > 1) onBatchSaveRooms(transformed);
+    else transformed.forEach((room) => onSaveRoomProgress(room));
+    notifyDefectsOutsideTransformedRooms(transformed);
+  };
+
   const toggleSelectedRoomLock = () => {
     if (selectedRoomIdsForAction.length === 0) return;
     setLockedRoomIds((prev) => {
@@ -3183,13 +3223,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     return () => { window.removeEventListener('keydown', handleKeyDown, true); window.removeEventListener('keyup', handleKeyUp, true); };
   }, [selectedRoomForDragId, selectedRoomIds, floorRooms, copiedRoomsState, activeFloor, onSaveRoomProgress, onDeleteRoomProgress, lockedRoomIds, canManageStructure]);
 
-  // Repair legacy/stale links once source data is available. This is idempotent: only
-  // mismatches are written. roomId follows the actual pin/highlight geometry, while a
-  // valid per-defect teamId is preserved and its display name is refreshed after renames.
+  // Repair legacy/stale links once source data is available. Durable roomId stays
+  // authoritative while its room still exists: editing/rotating a highlight must never
+  // silently move a historical Defect to another room. Missing/deleted room links still
+  // fall back to pin geometry, while a valid teamId is preserved/refreshed after renames.
   React.useEffect(() => {
     if (!canEditDefects || !onUpdateDefect || floorDefects.length === 0) return;
     floorDefects.forEach((defect) => {
-      const repaired = reconcileDefectLinkage(defect, floorRooms, teams);
+      const repaired = reconcileDefectLinkage(defect, floorRooms, teams, { preserveValidRoomId: true });
       if (repaired !== defect) onUpdateDefect(repaired);
     });
   }, [canEditDefects, floorDefects, floorRooms, teams, onUpdateDefect]);
@@ -3674,7 +3715,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const handleStartDrag = (
     e: React.PointerEvent,
     room: RoomProgressItem,
-    handle: 'move' | 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'w' | 'e' | number
+    handle: 'move' | 'rotate' | 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'w' | 'e' | number
   ) => {
     // Defect placement has the highest interaction priority on the drawing.
     // Even if a room was selected before entering Add/Move Defect mode, tapping
@@ -3723,11 +3764,19 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     setActiveDragHandle(handle);
     setDraggingRoomsPreview(null);
     draggingRoomsPreviewRef.current = null;
+    const geometryBounds = getRoomHighlightBounds(room);
+    const rotationAspect = Math.max(0.01, Number(imgAspect) || (rect.width > 0 && rect.height > 0 ? rect.width / rect.height : 1));
+    const rotationStartAngle = handle === 'rotate'
+      ? Math.atan2(mouseY - geometryBounds.cy, (mouseX - geometryBounds.cx) * rotationAspect) * 180 / Math.PI
+      : undefined;
+    if (handle === 'rotate') setRotationPreview({ roomId: room.id, degrees: 0 });
     setDragStartInfo({ 
       mouseX, 
       mouseY, 
       room: JSON.parse(JSON.stringify(room)),
-      rooms: JSON.parse(JSON.stringify(roomsToDrag))
+      rooms: JSON.parse(JSON.stringify(roomsToDrag)),
+      rotationStartAngle,
+      rotationAspect,
     });
   };
 
@@ -3835,7 +3884,20 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       let newH = initRoom.height || 15;
       let newPoints = initRoom.points ? [...initRoom.points] : undefined;
 
-      if (activeDragHandle === 'move' && dragStartInfo.rooms && dragStartInfo.rooms.length > 0) {
+      if (activeDragHandle === 'rotate') {
+        const bounds = getRoomHighlightBounds(initRoom);
+        const aspect = Math.max(0.01, Number(dragStartInfo.rotationAspect) || Number(imgAspect) || 1);
+        const startAngle = Number(dragStartInfo.rotationStartAngle || 0);
+        const currentAngle = Math.atan2(y - bounds.cy, (x - bounds.cx) * aspect) * 180 / Math.PI;
+        const rawDelta = currentAngle - startAngle;
+        const rotationDelta = snapRotationDelta(rawDelta, 5);
+        const rotatedRoom = rotateRoomHighlight(initRoom, rotationDelta, aspect);
+        const previewMap: Record<string, RoomProgressItem> = { [initRoom.id]: rotatedRoom };
+        setRotationPreview({ roomId: initRoom.id, degrees: rotationDelta });
+        setDraggingRoomsPreview(previewMap);
+        draggingRoomsPreviewRef.current = previewMap;
+        return;
+      } else if (activeDragHandle === 'move' && dragStartInfo.rooms && dragStartInfo.rooms.length > 0) {
         const previewMap: Record<string, RoomProgressItem> = {};
         dragStartInfo.rooms.forEach(roomToMove => {
           const roomW = roomToMove.width || 20;
@@ -3916,6 +3978,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         } else if (activeDragHandle === 'e') {
           newW = Math.max(2, Math.min(100 - initRoom.x, Math.round((initRoom.width + dx) * 10) / 10));
         }
+
+        // For polygons (including rectangles converted by arbitrary rotation), resize
+        // the actual vertices together with the bounding box instead of moving an
+        // invisible box while leaving the visible highlight behind.
+        if (newPoints && initRoom.points && initRoom.points.length >= 2) {
+          const resized = resizeRoomHighlightToBounds(initRoom, { x: newX, y: newY, width: newW, height: newH });
+          newX = resized.x;
+          newY = resized.y;
+          newW = resized.width;
+          newH = resized.height;
+          newPoints = resized.points;
+        }
       }
 
       const previewMap: Record<string, RoomProgressItem> = {
@@ -3976,9 +4050,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           } else {
             modifiedRooms.forEach((r) => onSaveRoomProgress(r));
           }
+          if (activeDragHandle === 'rotate') notifyDefectsOutsideTransformedRooms(modifiedRooms);
         }
       }
 
+      setRotationPreview(null);
       setActiveDragHandle(null);
       setDragStartInfo(null);
       setDraggingRoomsPreview(null);
@@ -6841,6 +6917,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
               const isPolygon = room.points && room.points.length >= 3;
               const isLocked = lockedRoomIds.has(room.id);
+              const isPrimarySelection = selectedRoomForDragId === room.id;
+              const rotateHandleAbove = ry >= 7;
+              const rotateHandleY = rotateHandleAbove ? Math.max(1.8, ry - 4.8) : Math.min(98.2, ry + rh + 4.8);
+              const transformToolbarY = rotateHandleAbove ? Math.max(1.8, ry - 9.4) : Math.min(98.2, ry + rh + 9.4);
 
               return (
                 <React.Fragment key={`drag-controls-${room.id}`}>
@@ -6878,6 +6958,51 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   >
                     <Move className="w-3.5 h-3.5 group-hover:rotate-12 transition-transform" />
                   </div>
+
+                  {/* Rotation handle + quick transforms. Only the primary selected room owns
+                      the controls; multi-select quick actions still transform every selected room
+                      around its own center. */}
+                  {isPrimarySelection && (
+                    <>
+                      <div
+                        style={{
+                          left: `${cx}%`,
+                          top: `${rotateHandleAbove ? rotateHandleY : ry + rh}%`,
+                          height: `${Math.max(0.8, Math.abs(rotateHandleY - (rotateHandleAbove ? ry : ry + rh)))}%`,
+                        }}
+                        className="absolute w-px -translate-x-1/2 z-40 pointer-events-none bg-amber-400/90"
+                      />
+                      <div
+                        style={{ left: `${cx}%`, top: `${rotateHandleY}%`, touchAction: 'none' }}
+                        onPointerDown={(e) => handleStartDrag(e, room, 'rotate')}
+                        onClick={(e) => e.stopPropagation()}
+                        className="absolute -translate-x-1/2 -translate-y-1/2 z-50 pointer-events-auto cursor-grab active:cursor-grabbing w-8 h-8 sm:w-7 sm:h-7 bg-indigo-600 text-white rounded-full shadow-2xl border-2 border-white flex items-center justify-center hover:scale-110 transition-transform"
+                        title="Giữ và kéo để xoay tự do · tự hít gần 0° / 90° / 180° / 270°"
+                        aria-label={`Xoay vùng highlight ${room.roomName}`}
+                      >
+                        <RotateCw className="w-4 h-4" />
+                      </div>
+                      {rotationPreview?.roomId === room.id && activeDragHandle === 'rotate' && (
+                        <div
+                          style={{ left: `${Math.min(96, cx + 4)}%`, top: `${rotateHandleY}%` }}
+                          className="absolute -translate-y-1/2 z-50 pointer-events-none px-2 py-1 rounded-lg bg-slate-950 text-amber-300 border border-amber-400 text-[10px] font-black shadow-xl"
+                        >
+                          {Math.round(((rotationPreview.degrees % 360) + 360) % 360)}°
+                        </div>
+                      )}
+                      <div
+                        style={{ left: `${cx}%`, top: `${transformToolbarY}%` }}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => e.stopPropagation()}
+                        className="absolute -translate-x-1/2 -translate-y-1/2 z-50 pointer-events-auto flex items-center gap-1 rounded-xl bg-slate-950/95 border border-slate-600 p-1 shadow-2xl"
+                      >
+                        <button type="button" onClick={() => applySelectedRoomTransform('rotate90')} className="h-7 min-w-8 px-1.5 rounded-lg bg-slate-800 hover:bg-indigo-600 text-white text-[10px] font-black" title="Xoay 90° theo chiều kim đồng hồ">90°</button>
+                        <button type="button" onClick={() => applySelectedRoomTransform('rotate180')} className="h-7 min-w-9 px-1.5 rounded-lg bg-slate-800 hover:bg-indigo-600 text-white text-[10px] font-black" title="Xoay 180°">180°</button>
+                        <button type="button" onClick={() => applySelectedRoomTransform('mirror-horizontal')} className="h-7 min-w-8 px-1.5 rounded-lg bg-slate-800 hover:bg-indigo-600 text-white text-sm font-black" title="Đối xứng ngang">↔</button>
+                        <button type="button" onClick={() => applySelectedRoomTransform('mirror-vertical')} className="h-7 min-w-8 px-1.5 rounded-lg bg-slate-800 hover:bg-indigo-600 text-white text-sm font-black" title="Đối xứng dọc">↕</button>
+                      </div>
+                    </>
+                  )}
 
                   {/* 4 Corner Resizing Handles */}
                   <div

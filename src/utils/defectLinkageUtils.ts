@@ -2,7 +2,7 @@ import { DefectItem, RoomProgressItem, TeamInfo } from '../types';
 import { normalizeTeamDirectoryName } from './teamDirectoryIntegrity';
 
 export function isPointInsideRoom(px: number, py: number, room: RoomProgressItem): boolean {
-  if (room.points && room.points.length >= 3) {
+  if (!room.isPolyline && room.points && room.points.length >= 3) {
     let inside = false;
     for (let i = 0, j = room.points.length - 1; i < room.points.length; j = i++) {
       const xi = room.points[i].x;
@@ -13,7 +13,9 @@ export function isPointInsideRoom(px: number, py: number, room: RoomProgressItem
         (px < ((xj - xi) * (py - yi)) / (yj - yi) + xi);
       if (intersects) inside = !inside;
     }
-    if (inside) return true;
+    // Closed polygon geometry is authoritative. Falling back to its axis-aligned
+    // bounding box would make a rotated room capture Defects sitting in empty corners.
+    return inside;
   }
 
   const width = Number(room.width || 0);
@@ -65,9 +67,13 @@ function resolveRoomTeam(room: RoomProgressItem | undefined, teams: TeamInfo[]):
 export function reconcileDefectLinkage(
   defect: DefectItem,
   rooms: RoomProgressItem[],
-  teams: TeamInfo[]
+  teams: TeamInfo[],
+  options: { preserveValidRoomId?: boolean } = {},
 ): DefectItem {
-  const room = findRoomForDefectPoint(defect, rooms);
+  const durableRoom = options.preserveValidRoomId && defect.roomId
+    ? rooms.find((candidate) => candidate.id === defect.roomId)
+    : undefined;
+  const room = durableRoom || findRoomForDefectPoint(defect, rooms);
   const explicitTeam = findTeamById(defect.teamId, teams);
   const assignedTeam = findUniqueTeamByName(defect.assignedTo, teams);
   const ambiguousAssignedTo = hasAmbiguousTeamName(defect.assignedTo, teams);
