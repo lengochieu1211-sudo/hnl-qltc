@@ -9517,24 +9517,23 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   </label>
                 </div>
 
-                <div className="rounded-xl border border-indigo-100 bg-white/80 p-2.5 space-y-1.5">
-                  <div className="text-[10px] font-extrabold text-slate-700">Khu/Khối mặc định cho tầng chưa phân nhóm</div>
-                  <select
-                    value={normalizedStructureConfig.defaultGroupId}
-                    onChange={(event) => onStructureConfigChange(normalizeStructureGroupConfig({
-                      ...normalizedStructureConfig,
-                      defaultGroupId: event.target.value,
-                    }))}
-                    className="w-full rounded-lg border border-indigo-200 bg-white px-2 py-2 text-xs font-bold text-slate-800"
-                  >
-                    {normalizedStructureConfig.groups.map((group) => (
-                      <option key={group.id} value={group.id}>{group.name}</option>
-                    ))}
-                  </select>
-                  <div className="text-[9px] leading-relaxed text-slate-500">
-                    Chỉ dùng để hiển thị các tầng legacy chưa có <code>structureGroupId</code>; không tự ghi đè hoặc migration dữ liệu tầng.
+                {normalizedStructureConfig.enabled && (
+                  <div className="rounded-xl border border-indigo-100 bg-white/80 p-2.5 space-y-1.5">
+                    <div className="text-[10px] font-extrabold text-slate-700">Tầng chưa gán nhóm hiển thị tại</div>
+                    <select
+                      value={normalizedStructureConfig.defaultGroupId}
+                      onChange={(event) => onStructureConfigChange(normalizeStructureGroupConfig({
+                        ...normalizedStructureConfig,
+                        defaultGroupId: event.target.value,
+                      }))}
+                      className="w-full rounded-lg border border-indigo-200 bg-white px-2 py-2 text-xs font-bold text-slate-800"
+                    >
+                      {normalizedStructureConfig.groups.map((group) => (
+                        <option key={group.id} value={group.id}>{group.name}</option>
+                      ))}
+                    </select>
                   </div>
-                </div>
+                )}
 
                 {normalizedStructureConfig.enabled && <>
                   {normalizedStructureConfig.groups.length >= 6 && (

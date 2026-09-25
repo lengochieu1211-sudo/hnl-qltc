@@ -1490,40 +1490,34 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             )}
           </div>
 
-          <div className="overflow-hidden rounded-xl border border-slate-200">
-            <div className="grid grid-cols-[minmax(0,1fr)_72px_88px] bg-slate-50 px-3 py-2 text-[10px] font-extrabold uppercase tracking-wide text-slate-500 sm:grid-cols-[minmax(0,1fr)_110px_64px_72px_72px_88px_82px]">
-              <span>Tên {warehouseCatalogTab === 'equipment' ? 'thiết bị' : 'vật tư'}</span>
-              <span className="hidden sm:block">Nhóm</span>
-              <span>ĐVT</span>
-              <span className="hidden text-right sm:block">Nhập</span>
-              <span className="hidden text-right sm:block">Xuất</span>
-              <span className="hidden text-right sm:block">Khối lượng định mức</span>
-              <span className="text-right">Tồn kho</span>
-            </div>
-            <div className="max-h-[46vh] divide-y divide-slate-100 overflow-y-auto">
-              {warehouseCatalogStockRows.length === 0 ? (
-                <div className="px-3 py-8 text-center text-xs text-slate-500">
-                  {warehouseCatalogTab === 'equipment' ? 'Chưa có thiết bị. Thiết bị sẽ được lưu vào danh mục sau giao dịch đầu tiên.' : 'Không có vật tư phù hợp.'}
-                </div>
-              ) : warehouseCatalogStockRows.map((item) => (
-                <div key={item.key} className="grid grid-cols-[minmax(0,1fr)_72px_88px] items-center gap-2 px-3 py-2.5 text-xs sm:grid-cols-[minmax(0,1fr)_110px_64px_72px_72px_88px_82px]">
-                  <div className="min-w-0">
-                    <div className="whitespace-normal break-words font-bold leading-snug text-slate-800">{item.name}</div>
-                    <div className="truncate text-[10px] text-slate-500 sm:hidden">
-                      {item.category} · Nhập {formatDecimal(item.totalIn)} · Xuất {formatDecimal(item.totalOut)}
-                      {warehouseCatalogTab === 'material' ? ` · Định mức ${formatDecimal(item.normQuantity || 0)}` : ''}
-                    </div>
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <div className="min-w-[620px]">
+              <div className="grid grid-cols-[minmax(180px,1.6fr)_52px_64px_64px_104px_76px] gap-2 bg-slate-50 px-3 py-2 text-[10px] font-extrabold uppercase tracking-wide text-slate-500">
+                <span>Tên {warehouseCatalogTab === 'equipment' ? 'thiết bị' : 'vật tư'}</span>
+                <span>ĐVT</span>
+                <span className="text-right">Nhập</span>
+                <span className="text-right">Xuất</span>
+                <span className="text-right leading-tight">Khối lượng định mức</span>
+                <span className="text-right">Tồn kho</span>
+              </div>
+              <div className="max-h-[46vh] divide-y divide-slate-100 overflow-y-auto">
+                {warehouseCatalogStockRows.length === 0 ? (
+                  <div className="px-3 py-8 text-center text-xs text-slate-500">
+                    {warehouseCatalogTab === 'equipment' ? 'Chưa có thiết bị. Thiết bị sẽ được lưu vào danh mục sau giao dịch đầu tiên.' : 'Không có vật tư phù hợp.'}
                   </div>
-                  <span className="hidden truncate text-slate-500 sm:block">{item.category}</span>
-                  <span className="truncate text-slate-600">{item.unit}</span>
-                  <span className="hidden text-right font-semibold text-emerald-700 sm:block">{formatDecimal(item.totalIn)}</span>
-                  <span className="hidden text-right font-semibold text-amber-700 sm:block">{formatDecimal(item.totalOut)}</span>
-                  <span className="hidden text-right font-semibold text-indigo-700 sm:block">
-                    {warehouseCatalogTab === 'material' ? formatDecimal(item.normQuantity || 0) : '—'}
-                  </span>
-                  <span className="text-right font-extrabold text-blue-700">{formatDecimal(item.currentStock)}</span>
-                </div>
-              ))}
+                ) : warehouseCatalogStockRows.map((item) => (
+                  <div key={item.key} className="grid grid-cols-[minmax(180px,1.6fr)_52px_64px_64px_104px_76px] items-center gap-2 px-3 py-2.5 text-xs">
+                    <div className="min-w-0 whitespace-normal break-words font-bold leading-snug text-slate-800">{item.name}</div>
+                    <span className="break-words text-slate-600">{item.unit}</span>
+                    <span className="text-right font-semibold text-emerald-700">{formatDecimal(item.totalIn)}</span>
+                    <span className="text-right font-semibold text-amber-700">{formatDecimal(item.totalOut)}</span>
+                    <span className="text-right font-semibold text-indigo-700">
+                      {warehouseCatalogTab === 'material' ? formatDecimal(item.normQuantity || 0) : '—'}
+                    </span>
+                    <span className="text-right font-extrabold text-blue-700">{formatDecimal(item.currentStock)}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
           {warehouseCatalogTab === 'equipment' && (
@@ -1935,13 +1929,6 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               Bảng tổng tồn kho
             </span>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowWarehouseCatalog(true)}
-            className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold underline"
-          >
-            Danh mục &amp; tồn kho
-          </button>
         </div>
 
         <div className="space-y-2 max-h-56 overflow-y-auto pr-1">

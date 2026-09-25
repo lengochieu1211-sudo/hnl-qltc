@@ -219,6 +219,7 @@ assert(workVolumeUi.includes('lg:max-w-[1100px]') && workVolumeUi.includes('left
 assert(warehouse.includes('lg:max-w-[1100px]') && warehouse.includes('left-0 lg:left-[84px]'), 'Warehouse editor must use desktop width while reserving the left rail');
 assert(roomHighlightUiForPc.includes('lg:max-w-[1200px]') && roomHighlightUiForPc.includes('left-0 lg:left-[84px]'), 'Room inspection editor must use the wide desktop/EXE sheet without covering the navigation rail');
 assert(defectUi.includes('title="Sửa tên / Nhân bản / Xóa"') && defectUi.includes('Mặt bằng</span>'), 'Floor manager must keep the fixed overflow actions and show a safe thumbnail fallback');
+assert(defectUi.includes('Tầng chưa gán nhóm hiển thị tại') && !defectUi.includes('Khu/Khối mặc định cho tầng chưa phân nhóm') && !defectUi.includes('legacy chưa có <code>structureGroupId</code>'), 'Floor manager must hide the default-group control when grouping is off and avoid technical legacy wording in the UI');
 
 assert((defectUi.match(/grid grid-cols-1 lg:grid-cols-2 gap-3 items-start/g) || []).length >= 2, 'PC/laptop floor-plan room and defect lists must use two columns while mobile stays one column');
 assert((crewUiForPc.match(/grid grid-cols-1 lg:grid-cols-2 gap-3 items-start/g) || []).length >= 2, 'PC/laptop crew daily logs and team room cards must use two columns while mobile stays one column');
@@ -244,6 +245,8 @@ assert(warehouse.includes('title="Danh mục kho"') && warehouse.includes("(['ma
 assert(warehouse.includes('warehouseCatalogStockRows') && warehouse.includes('totalIn: Number(summary?.totalIn || 0)') && warehouse.includes("normQuantity: expectedKind === 'material' ? Number(summary?.normQuantity || 0) : null") && warehouse.includes('currentStock: Number(summary?.currentStock || 0)'), 'Danh mục kho must derive Nhập/Xuất/Định mức/Tồn read-only from the existing warehouse ledger/norm summaries');
 assert(warehouse.includes('Khối lượng định mức') && warehouse.includes("warehouseCatalogTab === 'material' ? formatDecimal(item.normQuantity || 0) : '—'"), 'Danh mục kho must show material norm quantity while equipment stays outside norm logic');
 assert(warehouse.includes('<span className="text-right">Tồn kho</span>') && warehouse.includes('formatDecimal(item.currentStock)'), 'Danh mục kho must show current stock on both desktop and mobile layouts');
+assert(warehouse.includes('min-w-[620px]') && warehouse.includes('grid-cols-[minmax(180px,1.6fr)_52px_64px_64px_104px_76px]'), 'Danh mục kho must keep all six stock columns available on mobile via horizontal scrolling instead of hiding Nhập/Xuất/Định mức.');
+assert(!warehouse.includes('Danh mục &amp; tồn kho'), 'Bảng tổng tồn kho must not duplicate the Danh mục kho navigation button.');
 assert(warehouse.includes('whitespace-normal break-words font-bold leading-snug text-slate-800'), 'Danh mục kho must show complete material/equipment names instead of truncating them.');
 assert(warehouse.includes("itemKind === 'equipment' ? 'Tên thiết bị' : 'Tên vật tư'"), 'Warehouse form must use dynamic Vật tư/Thiết bị labels');
 assert(warehouse.includes('Thêm thiết bị mới') && warehouse.includes('Chọn thiết bị có sẵn'), 'Equipment must be reusable after first declaration without a Tên khác flow');
