@@ -840,6 +840,21 @@ WIP – NOT VERIFIED – DO NOT DEPLOY
 
 ---
 
+## 37.1. HANDOFF KHI CHAT GẦN GIỚI HẠN / CHUYỂN CHAT
+
+Khi phiên làm việc dài, sắp chạm giới hạn ngữ cảnh hoặc cần chuyển sang chat mới, phải chủ động tạo handoff trước khi mất ngữ cảnh:
+
+1. xác nhận repository / branch / exact HEAD hiện tại;
+2. nếu có WIP chưa commit: đóng `PATCH ZIP` + `FULL SOURCE ZIP` và ghi rõ `WIP – NOT VERIFIED – DO NOT DEPLOY`;
+3. tạo checkpoint/handoff nêu DONE / IN PROGRESS / PENDING / BLOCKERS / NEXT STEP / changed files / test status;
+4. tạo SHA256 cho các ZIP quan trọng;
+5. lưu vào các thư mục Drive hiện có của dự án, không tạo thư mục trùng;
+6. chat mới chỉ cần link Drive root + exact DEV HEAD + tên checkpoint mới nhất + việc còn lại.
+
+Không được coi cơ chế này là background job hay trigger theo phần trăm token chính xác nếu nền tảng chat không cung cấp chỉ số đó. AI phải chủ động thực hiện checkpoint khi nhận thấy phiên đã dài hoặc trước khi chuyển chat theo yêu cầu người dùng.
+
+---
+
 # 38. TIẾP TỤC CÔNG VIỆC SAU ĐÓ
 
 Khi mở lại dự án, kiểm tra:

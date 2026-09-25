@@ -180,7 +180,7 @@ import { reconcileMaterialNormWorkCategoryLinks } from './utils/projectReconcili
 import { createEntityId, createShortToken } from './utils/idUtils';
 import { normalizeUnit, areSameUnit } from './utils/unitUtils';
 import { buildMaterialAliasMap, resolveNormMaterialId, normalizeMaterialNameKey } from './utils/inventoryUtils';
-import { DEFAULT_STRUCTURE_CONFIG, normalizeStructureGroupConfig, resolveFloorStructureGroupId, type ProjectStructureConfig } from './utils/structureGroupUtils';
+import { DEFAULT_STRUCTURE_CONFIG, moveFloorsToStructureGroup, normalizeStructureGroupConfig, resolveFloorStructureGroupId, type ProjectStructureConfig } from './utils/structureGroupUtils';
 import { apiFetch, hasApiBackend } from './utils/api';
 import {
   getAndroidAutoSaveFolderName,
@@ -6404,6 +6404,16 @@ function AuthenticatedApp() {
     }));
   };
 
+  const handleBulkMoveFloorPlansToStructureGroup = (ids: string[], targetGroupId: string) => {
+    if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
+    const normalizedStructure = normalizeStructureGroupConfig(structureConfig);
+    if (!normalizedStructure.enabled || !normalizedStructure.groups.some((group) => group.id === targetGroupId)) return;
+    updateAppData((prev) => ({
+      ...prev,
+      floorPlans: moveFloorsToStructureGroup(prev.floorPlans, ids, targetGroupId, normalizedStructure),
+    }));
+  };
+
   // Handlers for Checklist
   const handleUpdateChecklistStatus = (
     id: string,
@@ -6967,6 +6977,7 @@ function AuthenticatedApp() {
               onDeleteMultipleRoomProgress={handleDeleteMultipleRoomProgress}
               onReorderRoomProgressList={handleReorderRoomProgressList}
               onReorderFloorPlans={handleReorderFloorPlans}
+              onBulkMoveFloorPlansToStructureGroup={handleBulkMoveFloorPlansToStructureGroup}
               onActiveFloorChange={setActiveFloorViewId}
               onOpenExportPdf={() => setIsExportPdfOpen(true)}
               onExportExcel={handleExportExcel}

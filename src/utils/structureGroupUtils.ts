@@ -118,3 +118,53 @@ export function getStructureGroupByFloorId(
   const id = resolveFloorStructureGroupId(floor, config);
   return normalizeStructureGroupConfig(config).groups.find((item) => item.id === id) || null;
 }
+
+/**
+ * Move only the selected floors to another Khu/Khối while preserving every
+ * non-selected floor object verbatim. Selected floors keep all business IDs and
+ * payload; only structureGroupId plus display-order metadata change so they append
+ * to the destination group in their previous relative order.
+ */
+export function moveFloorsToStructureGroup(
+  floorPlans: FloorPlan[],
+  floorIds: string[],
+  targetGroupId: string,
+  config: ProjectStructureConfig,
+): FloorPlan[] {
+  const normalized = normalizeStructureGroupConfig(config);
+  if (!normalized.enabled || !normalized.groups.some((group) => group.id === targetGroupId)) return floorPlans;
+
+  const selectedSet = new Set(floorIds.map((id) => cleanText(id)).filter(Boolean));
+  if (selectedSet.size === 0) return floorPlans;
+
+  const indexed = floorPlans.map((floor, index) => ({ floor, index }));
+  const selected = indexed
+    .filter(({ floor }) => selectedSet.has(floor.id))
+    .sort((a, b) => Number(a.floor.order ?? a.index) - Number(b.floor.order ?? b.index));
+  if (selected.length === 0) return floorPlans;
+
+  const existingTargetOrders = indexed
+    .filter(({ floor }) => !selectedSet.has(floor.id) && resolveFloorStructureGroupId(floor, normalized) === targetGroupId)
+    .map(({ floor, index }) => Number(floor.order ?? index))
+    .filter((value) => Number.isFinite(value));
+  const globalOrders = indexed
+    .map(({ floor, index }) => Number(floor.order ?? index))
+    .filter((value) => Number.isFinite(value));
+  let nextOrder = existingTargetOrders.length > 0
+    ? Math.max(...existingTargetOrders) + 1
+    : Math.max(-1, ...globalOrders) + 1;
+
+  const selectedOrderById = new Map<string, number>();
+  selected.forEach(({ floor }) => {
+    selectedOrderById.set(floor.id, nextOrder);
+    nextOrder += 1;
+  });
+
+  return floorPlans.map((floor) => selectedSet.has(floor.id)
+    ? {
+        ...floor,
+        structureGroupId: targetGroupId,
+        order: selectedOrderById.get(floor.id) ?? floor.order,
+      }
+    : floor);
+}
