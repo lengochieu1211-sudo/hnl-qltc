@@ -4043,7 +4043,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
       const previewToCommit = draggingRoomsPreviewRef.current;
       if (previewToCommit) {
-        const modifiedRooms = Object.values(previewToCommit);
+        const modifiedRooms = Object.values(previewToCommit) as RoomProgressItem[];
         if (modifiedRooms.length > 0) {
           if (onBatchSaveRooms && modifiedRooms.length > 1) {
             onBatchSaveRooms(modifiedRooms);
