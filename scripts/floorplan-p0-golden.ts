@@ -66,6 +66,14 @@ check(app.includes('priorityFloorPlanId: activeFloorViewId'), 'Smart cache must 
 check(app.includes('isFloorPlanAutoCacheNetworkSuitable()'), 'Smart cache must pause on Data Saver/very slow network.');
 check(app.includes('const handleUpdateFloorPlanImages = async'), 'App multi-floor image handler missing.');
 check(app.includes('applyFloorPlanImageToMultipleFloors(projectId, targets, imageUrl)'), 'App must use the one-upload multi-floor operation.');
+check(app.includes('const stableStructureGroupId = normalizedStructure.enabled'), 'New floor creation must stamp an explicit stable Khu/Khối membership.');
+check(app.includes('const duplicateStructureGroupId = normalizedStructure.enabled'), 'Duplicated floors must stamp the resolved source Khu/Khối explicitly.');
+const bulkMetadataStart = bulkApply.indexOf('const metadata: Partial<FloorPlan>');
+const bulkMetadataEnd = bulkApply.indexOf('metadataByFloorId[plan.id]', bulkMetadataStart);
+const bulkMetadata = bulkApply.slice(bulkMetadataStart, bulkMetadataEnd);
+check(!bulkMetadata.includes('floorName:'), 'Bulk shared drawing metadata must never overwrite floorName.');
+check(!bulkMetadata.includes('structureGroupId:'), 'Bulk shared drawing metadata must never overwrite structureGroupId.');
+check(!bulkMetadata.includes('order:'), 'Bulk shared drawing metadata must never overwrite floor ordering.');
 
 const firebaseBase = read('src/lib/firebaseBase.ts');
 check(firebaseBase.includes("'imageDisplayRevision', 'imageDisplaySource', 'imageOfflineStale'"), 'Transient floor-plan cache/display metadata must be stripped from Firestore writes.');
@@ -79,6 +87,10 @@ check(ui.includes("floorPlanApplyMode === 'multiple'"), 'Floor-plan apply scope 
 check(ui.includes('Chọn nhanh khoảng tầng') && ui.includes('Chọn tất cả'), 'Bulk floor picker must support range/all selection.');
 check(ui.includes('1 file Cloud/R2 dùng chung'), 'Bulk floor UI must explain the single shared binary behavior.');
 check(ui.includes('Defect, Căn/Phòng, highlight, tiến độ, checklist'), 'Bulk floor UI must warn that business data remains per-floor.');
+check(ui.includes('getSuggestedNewFloorStructureGroupId'), 'Add-floor flows must prefill the currently relevant Khu/Khối instead of reusing a stale/default selection.');
+check(ui.includes('setNewFloorStructureGroupId(getSuggestedNewFloorStructureGroupId())'), 'Manage-floor add actions must apply the stable Khu/Khối prefill.');
+check(ui.includes('getFloorPlanScopeLabel(plan)'), 'Multi-floor shared drawing picker must disambiguate same-named floors by Khu/Khối.');
+check(ui.includes("setSelectedStructureGroupId(sourceGroupId)"), 'Duplicate flow must align the active Khu/Khối filter so the new floor remains visible.');
 check(ui.includes('aria-label={`Mở Defect ${shortDefectCode}`}'), 'Existing Defect real-position hit target is missing.');
 check(ui.includes('style={{ left: `${x}%`, top: `${y}%`, touchAction: \'manipulation\' }}'), 'Defect hit target must be anchored to the real defect coordinate.');
 check(ui.includes('z-50 pointer-events-auto w-7 h-7'), 'Defect hit target must stay above room drag controls with a touch-safe area.');

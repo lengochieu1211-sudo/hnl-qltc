@@ -3287,6 +3287,20 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       alert(`Tên mặt bằng “${finalName}” đã tồn tại. Vui lòng đổi tên bản sao trước khi tạo.`);
       return;
     }
+
+    const sourcePlan = floorPlans.find((floor) => floor.id === duplicatingFloorTarget.id);
+    const sourceGroupId = normalizedStructureConfig.enabled && sourcePlan
+      ? resolveFloorStructureGroupId(sourcePlan, normalizedStructureConfig)
+      : '';
+
+    // A duplicate created from the all-groups management sheet can otherwise be
+    // auto-selected and then immediately hidden by the currently active group filter.
+    // Align the filter with the source group first so the newly created name remains
+    // visible and the user never perceives the clone as jumping/disappearing.
+    if (sourceGroupId && selectedStructureGroupId !== 'all' && selectedStructureGroupId !== sourceGroupId) {
+      setSelectedStructureGroupId(sourceGroupId);
+    }
+
     if (onDuplicateFloorPlan) {
       onDuplicateFloorPlan(duplicatingFloorTarget.id, finalName);
     }
@@ -3526,6 +3540,23 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       const bi = floorPlans.findIndex((item) => item.id === b.id);
       return Number(a.order ?? ai) - Number(b.order ?? bi);
     }), [floorPlans]);
+
+  const getSuggestedNewFloorStructureGroupId = React.useCallback(() => {
+    if (!normalizedStructureConfig.enabled) return normalizedStructureConfig.defaultGroupId;
+    if (selectedStructureGroupId !== 'all' && normalizedStructureConfig.groups.some((group) => group.id === selectedStructureGroupId)) {
+      return selectedStructureGroupId;
+    }
+    const selectedPlan = floorPlans.find((plan) => plan.id === selectedFloorId);
+    return selectedPlan
+      ? resolveFloorStructureGroupId(selectedPlan, normalizedStructureConfig)
+      : normalizedStructureConfig.defaultGroupId;
+  }, [floorPlans, normalizedStructureConfig, selectedFloorId, selectedStructureGroupId]);
+
+  const getFloorPlanScopeLabel = React.useCallback((plan: FloorPlan) =>
+    normalizedStructureConfig.enabled
+      ? `${getFloorStructureGroupName(plan, normalizedStructureConfig)} → ${plan.floorName}`
+      : plan.floorName,
+  [normalizedStructureConfig]);
 
   const resetFloorPlanApplyScope = () => {
     setShowFloorPlanApplyScopeModal(false);
@@ -9123,7 +9154,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         onChange={(event) => setFloorPlanRangeStartId(event.target.value)}
                         className="min-w-0 rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-bold text-slate-700"
                       >
-                        {orderedFloorPlansForApply.map((plan) => <option key={`from-${plan.id}`} value={plan.id}>{plan.floorName}</option>)}
+                        {orderedFloorPlansForApply.map((plan) => <option key={`from-${plan.id}`} value={plan.id}>{getFloorPlanScopeLabel(plan)}</option>)}
                       </select>
                       <span className="text-slate-400 font-bold">→</span>
                       <select
@@ -9131,7 +9162,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         onChange={(event) => setFloorPlanRangeEndId(event.target.value)}
                         className="min-w-0 rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-bold text-slate-700"
                       >
-                        {orderedFloorPlansForApply.map((plan) => <option key={`to-${plan.id}`} value={plan.id}>{plan.floorName}</option>)}
+                        {orderedFloorPlansForApply.map((plan) => <option key={`to-${plan.id}`} value={plan.id}>{getFloorPlanScopeLabel(plan)}</option>)}
                       </select>
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -9153,7 +9184,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                             className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                           />
                           <div className="min-w-0 flex-1">
-                            <div className="text-xs font-extrabold text-slate-800 truncate">{plan.floorName}</div>
+                            <div className="text-xs font-extrabold text-slate-800 truncate">{getFloorPlanScopeLabel(plan)}</div>
                             <div className="text-[9px] text-slate-500">{plan.id === updatingFloorPlanId ? 'Tầng bắt đầu thao tác · ' : ''}{plan.imageAssetId ? 'đang dùng asset Cloud' : 'bản vẽ độc lập/legacy'}</div>
                           </div>
                         </label>
@@ -9686,6 +9717,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   setEditingStructureLabelValue('');
                   setEditingStructureGroupId(null);
                   setEditingStructureGroupName('');
+                  setNewFloorStructureGroupId(getSuggestedNewFloorStructureGroupId());
                   setShowManageFloorsModal(false);
                   setShowQuickAddFloorModal(true);
                 }}
@@ -9702,6 +9734,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   setEditingStructureLabelValue('');
                   setEditingStructureGroupId(null);
                   setEditingStructureGroupName('');
+                  setNewFloorStructureGroupId(getSuggestedNewFloorStructureGroupId());
                   setShowManageFloorsModal(false);
                   setShowAddFloorModal(true);
                 }}

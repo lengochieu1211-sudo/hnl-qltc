@@ -5695,8 +5695,21 @@ function AuthenticatedApp() {
     if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
     const newId = plan.id || createEntityId('fp');
     const imageRevision = Number(plan.imageRevision || Date.now());
+    const normalizedStructure = normalizeStructureGroupConfig(structureConfig);
+    const requestedGroupId = String(plan.structureGroupId || '').trim();
+    const stableStructureGroupId = normalizedStructure.enabled
+      ? (normalizedStructure.groups.some((group) => group.id === requestedGroupId)
+          ? requestedGroupId
+          : normalizedStructure.defaultGroupId)
+      : plan.structureGroupId;
     updateAppData((prev) => {
-      const nextPlans = [...prev.floorPlans, { ...plan, id: newId, imageRevision, imageCloudRevision: 0 }];
+      const nextPlans = [...prev.floorPlans, {
+        ...plan,
+        id: newId,
+        ...(stableStructureGroupId ? { structureGroupId: stableStructureGroupId } : {}),
+        imageRevision,
+        imageCloudRevision: 0,
+      }];
       return {
         ...prev,
         floorPlans: nextPlans.map((fp, idx) => ({ ...fp, order: idx })),
@@ -6033,11 +6046,16 @@ function AuthenticatedApp() {
       const newId = createEntityId('fp');
       const newFloorName = customName?.trim() || `${sourcePlan.floorName} (Bản sao)`;
       const now = Date.now();
+      const normalizedStructure = normalizeStructureGroupConfig(structureConfig);
+      const duplicateStructureGroupId = normalizedStructure.enabled
+        ? resolveFloorStructureGroupId(sourcePlan, normalizedStructure)
+        : sourcePlan.structureGroupId;
 
       const newPlan: FloorPlan = {
         ...sourcePlan,
         id: newId,
         floorName: newFloorName,
+        ...(duplicateStructureGroupId ? { structureGroupId: duplicateStructureGroupId } : {}),
         uploadedAt: new Date().toISOString().split('T')[0],
         // The copied Base64/blob URL may be reused locally, but cloud identifiers belong
         // to the source floor and must never be reused under a new floorId. Reset cloud
