@@ -978,6 +978,25 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     return calculateStockSummary(inventory, materialNorms);
   }, [inventory, materialNorms]);
 
+  const warehouseCatalogStockRows = useMemo(() => {
+    return warehouseCatalogRows.map((item) => {
+      const normalizedName = normalizeMaterialSearch(item.name);
+      const normalizedUnit = normalizeMaterialSearch(normalizeUnit(item.unit) || item.unit);
+      const expectedKind: InventoryItemKind = warehouseCatalogTab === 'equipment' ? 'equipment' : 'material';
+      const summary = stockSummaries.find((stock) =>
+        stock.itemKind === expectedKind &&
+        normalizeMaterialSearch(stock.materialName) === normalizedName &&
+        normalizeMaterialSearch(normalizeUnit(stock.unit) || stock.unit) === normalizedUnit
+      );
+      return {
+        ...item,
+        totalIn: Number(summary?.totalIn || 0),
+        totalOut: Number(summary?.totalOut || 0),
+        currentStock: Number(summary?.currentStock || 0),
+      };
+    });
+  }, [warehouseCatalogRows, warehouseCatalogTab, stockSummaries]);
+
   const stockBalance = useMemo(() => {
     const balances: Record<string, { materialId?: string; displayName: string; inQty: number; outQty: number; balance: number; unit: string; normQuantity: number }> = {};
     stockSummaries.forEach(s => {
@@ -1399,10 +1418,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             type="button"
             onClick={() => { setWarehouseCatalogTab('material'); setWarehouseCatalogSearch(''); setShowWarehouseCatalog(true); }}
             className="flex items-center gap-1 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 px-2.5 py-2 rounded-xl text-xs font-bold active:scale-95 transition-all"
-            title="Xem danh mục vật tư và thiết bị của dự án"
+            title="Xem danh mục và tồn kho vật tư, thiết bị của dự án"
           >
             <Layers className="w-3.5 h-3.5 text-blue-600" />
-            <span>Danh mục kho</span>
+            <span>Danh mục &amp; tồn kho</span>
           </button>
           <button
             onClick={onOpenNormModal}
@@ -1430,8 +1449,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         sheetKey="warehouse-catalog"
         icon={Layers}
         iconClassName="text-blue-600"
-        title="Danh mục kho"
-        description="Vật tư và thiết bị dùng lại trong dự án"
+        title="Danh mục & tồn kho"
+        description="Danh mục chuẩn và số nhập / xuất / tồn lấy trực tiếp từ giao dịch kho"
         bodyClassName="space-y-3"
       >
         <div className="space-y-3">
@@ -1471,21 +1490,32 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           </div>
 
           <div className="overflow-hidden rounded-xl border border-slate-200">
-            <div className="grid grid-cols-[minmax(0,1fr)_90px] bg-slate-50 px-3 py-2 text-[10px] font-extrabold uppercase tracking-wide text-slate-500 sm:grid-cols-[minmax(0,1fr)_140px_90px]">
+            <div className="grid grid-cols-[minmax(0,1fr)_72px_88px] bg-slate-50 px-3 py-2 text-[10px] font-extrabold uppercase tracking-wide text-slate-500 sm:grid-cols-[minmax(0,1fr)_120px_72px_82px_82px_92px]">
               <span>Tên {warehouseCatalogTab === 'equipment' ? 'thiết bị' : 'vật tư'}</span>
               <span className="hidden sm:block">Nhóm</span>
-              <span>Đơn vị</span>
+              <span>ĐVT</span>
+              <span className="hidden text-right sm:block">Nhập</span>
+              <span className="hidden text-right sm:block">Xuất</span>
+              <span className="text-right">Tồn</span>
             </div>
             <div className="max-h-[46vh] divide-y divide-slate-100 overflow-y-auto">
-              {warehouseCatalogRows.length === 0 ? (
+              {warehouseCatalogStockRows.length === 0 ? (
                 <div className="px-3 py-8 text-center text-xs text-slate-500">
                   {warehouseCatalogTab === 'equipment' ? 'Chưa có thiết bị. Thiết bị sẽ được lưu vào danh mục sau giao dịch đầu tiên.' : 'Không có vật tư phù hợp.'}
                 </div>
-              ) : warehouseCatalogRows.map((item) => (
-                <div key={item.key} className="grid grid-cols-[minmax(0,1fr)_90px] items-center gap-2 px-3 py-2.5 text-xs sm:grid-cols-[minmax(0,1fr)_140px_90px]">
-                  <span className="truncate font-bold text-slate-800">{item.name}</span>
+              ) : warehouseCatalogStockRows.map((item) => (
+                <div key={item.key} className="grid grid-cols-[minmax(0,1fr)_72px_88px] items-center gap-2 px-3 py-2.5 text-xs sm:grid-cols-[minmax(0,1fr)_120px_72px_82px_82px_92px]">
+                  <div className="min-w-0">
+                    <div className="truncate font-bold text-slate-800">{item.name}</div>
+                    <div className="truncate text-[10px] text-slate-500 sm:hidden">
+                      {item.category} · Nhập {formatDecimal(item.totalIn)} · Xuất {formatDecimal(item.totalOut)}
+                    </div>
+                  </div>
                   <span className="hidden truncate text-slate-500 sm:block">{item.category}</span>
                   <span className="truncate text-slate-600">{item.unit}</span>
+                  <span className="hidden text-right font-semibold text-emerald-700 sm:block">{formatDecimal(item.totalIn)}</span>
+                  <span className="hidden text-right font-semibold text-amber-700 sm:block">{formatDecimal(item.totalOut)}</span>
+                  <span className="text-right font-extrabold text-blue-700">{formatDecimal(item.currentStock)}</span>
                 </div>
               ))}
             </div>
@@ -1904,7 +1934,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             onClick={() => setShowWarehouseCatalog(true)}
             className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold underline"
           >
-            Danh mục kho
+            Danh mục &amp; tồn kho
           </button>
         </div>
 
