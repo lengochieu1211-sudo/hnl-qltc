@@ -351,6 +351,78 @@ async function verifyMaterialNeedFeatureSheet(page, label) {
   await waitForSettingsSheet(page, 'material-need-details', false);
 }
 
+const runtimeOfflineIdentity = {
+  uid: 'runtime-golden-offline-admin',
+  email: 'runtime-golden-offline-admin@example.test',
+  displayName: 'Runtime Golden Offline Admin',
+};
+
+async function seedRememberedOfflineAdmin(context) {
+  await context.addInitScript(({ identity }) => {
+    try {
+      Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => false });
+    } catch {}
+    try {
+      const now = Date.now();
+      const projectId = 'default';
+      localStorage.setItem('construction_offline_verified_auth_v1', JSON.stringify({
+        ...identity,
+        rememberedAt: now,
+      }));
+      localStorage.setItem(`construction_verified_project_role_v1_${encodeURIComponent(identity.uid)}__${encodeURIComponent(projectId)}`, JSON.stringify({
+        version: 1,
+        projectId,
+        uid: identity.uid,
+        email: identity.email,
+        role: 'ADMIN',
+        allowed: true,
+        verifiedAt: now,
+      }));
+      localStorage.setItem('construction_projects_list', JSON.stringify([{
+        id: projectId,
+        name: 'Runtime Golden Project',
+        createdAt: now,
+        updatedAt: now,
+        createdAtSource: 'local',
+      }]));
+      localStorage.setItem('active_project_id', projectId);
+      sessionStorage.setItem('active_project_id', projectId);
+    } catch {}
+  }, { identity: runtimeOfflineIdentity });
+}
+
+async function verifySignedOutGate(browser, label, viewport, screenshotPath) {
+  const context = await browser.newContext({ viewport, locale: 'vi-VN', serviceWorkers: 'allow', ignoreHTTPSErrors: false });
+  const page = await context.newPage();
+  page.on('pageerror', error => report.pageErrors.push({ label, message: String(error?.message || error) }));
+  page.on('console', message => {
+    if (message.type() === 'error') report.consoleErrors.push({ label, text: message.text() });
+  });
+  page.on('request', request => {
+    const url = request.url();
+    if (url.includes(prodProjectId) || url.startsWith(prodR2Url)) {
+      report.forbiddenRequests.push({ label, method: request.method(), url });
+    }
+  });
+
+  const response = await page.goto(`${hostingUrl}/?runtimeGoldenSignedOut=${Date.now()}&viewport=${label}`, {
+    waitUntil: 'domcontentloaded',
+    timeout: 45000,
+  });
+  assert(response && response.status() === 200, `${label}: signed-out Hosting navigation failed`);
+  await page.locator('[data-hnl-auth-gate="signed-out"]').waitFor({ state: 'visible', timeout: 20000 });
+  await page.getByRole('button', { name: 'Đăng nhập bằng Google', exact: true }).waitFor({ state: 'visible', timeout: 10000 });
+  assert(await page.locator('aside').count() === 0, `${label}: desktop navigation rail leaked before login`);
+  assert(await page.locator('button[title*="Trung tâm bảo mật" i]').count() === 0, `${label}: Security Center leaked before login`);
+  assert(await page.getByText('Ghi nhận quân số', { exact: true }).count() === 0, `${label}: project UI leaked before login`);
+  assert(report.forbiddenRequests.filter(x => x.label === label).length === 0, `${label}: signed-out browser contacted PROD backend`);
+  const overflow = await page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body?.scrollWidth || 0) - window.innerWidth);
+  assert(overflow <= 12, `${label}: signed-out auth screen horizontal overflow ${overflow}px`);
+  await page.screenshot({ path: screenshotPath, fullPage: true });
+  pass(`${label} dedicated signed-out Auth Gate`, 'project UI hidden until Google login');
+  await context.close();
+}
+
 async function runViewport(browser, label, viewport, screenshotPath) {
   const context = await browser.newContext({
     viewport,
@@ -358,6 +430,7 @@ async function runViewport(browser, label, viewport, screenshotPath) {
     serviceWorkers: 'allow',
     ignoreHTTPSErrors: false,
   });
+  await seedRememberedOfflineAdmin(context);
   const page = await context.newPage();
 
   page.on('pageerror', error => report.pageErrors.push({ label, message: String(error?.message || error) }));
@@ -382,6 +455,8 @@ async function runViewport(browser, label, viewport, screenshotPath) {
   await page.waitForSelector('#root', { timeout: 15000 });
   await page.waitForFunction(() => document.querySelector('#root')?.children.length > 0, null, { timeout: 20000 });
   pass(`${label} React root renders`);
+  assert(await page.locator('[data-hnl-auth-gate="signed-out"]').count() === 0, `${label}: remembered verified identity did not bypass the login screen`);
+  pass(`${label} remembered verified offline identity resumes app without login prompt`);
 
   const title = await page.title();
   assert(title === 'HNL Quản Lý Thi Công', `${label}: unexpected title: ${title}`);
@@ -577,6 +652,7 @@ async function verifyColdStartOffline(browser) {
 
 async function verifyNarrowDesktopRuntime(browser) {
   const context = await browser.newContext({ viewport: { width: 820, height: 720 } });
+  await seedRememberedOfflineAdmin(context);
   const page = await context.newPage();
   const response = await page.goto(`${hostingUrl}/?app=desktop&runtimeGoldenDesktopNarrow=${Date.now()}`, {
     waitUntil: 'domcontentloaded',
@@ -606,6 +682,8 @@ async function verifyNarrowDesktopRuntime(browser) {
 let browser;
 try {
   browser = await chromium.launch({ headless: true });
+  await verifySignedOutGate(browser, 'login-desktop', { width: 1440, height: 900 }, 'runtime-evidence/login-desktop.png');
+  await verifySignedOutGate(browser, 'login-mobile', { width: 393, height: 852 }, 'runtime-evidence/login-mobile.png');
   await runViewport(browser, 'desktop', { width: 1440, height: 900 }, 'runtime-evidence/desktop.png');
   await runViewport(browser, 'desktop-720p', { width: 1280, height: 720 }, 'runtime-evidence/desktop-720p.png');
   await runViewport(browser, 'desktop-compact', { width: 1088, height: 610 }, 'runtime-evidence/desktop-compact.png');

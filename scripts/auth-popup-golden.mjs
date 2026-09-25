@@ -13,6 +13,7 @@ const firebaseBase = read('src/lib/firebaseBase.ts');
 const app = read('src/App.tsx');
 const authGate = read('src/components/AppAuthGate.tsx');
 const prodWorkflow = read('.github/workflows/firebase-hosting-merge.yml');
+const devBrowser = read('scripts/dev-hosted-browser-golden.mjs');
 
 assert(main.includes("import('./lib/authPersistence')"), 'bootstrap loads Auth persistence preflight');
 assert(main.includes('await prepareFirebaseAuthPersistence()'), 'bootstrap awaits Auth persistence before rendering UI');
@@ -29,6 +30,9 @@ assert(authGate.includes('Đăng nhập bằng Google'), 'dedicated entry screen
 assert(authGate.includes('getRememberedVerifiedAuthIdentity'), 'offline entry reuses only the previously verified remembered identity');
 assert(app.includes('function AuthenticatedApp()'), 'main project UI is isolated in an authenticated-only component');
 assert(app.includes('<AppAuthGate>') && app.includes('<AuthenticatedApp />'), 'root App mounts project UI only through the Auth gate');
+assert(devBrowser.includes('verifySignedOutGate'), 'hosted browser golden explicitly verifies the signed-out login-only surface');
+assert(devBrowser.includes('seedRememberedOfflineAdmin'), 'hosted browser golden restores a verified offline lease without adding an application auth bypass');
+assert(devBrowser.includes('project UI hidden until Google login'), 'hosted browser golden guards against project UI leaking before login');
 assert(firebase.includes("export * from './firebaseBase'"), 'Firebase facade delegates all auth/data behavior to one implementation');
 assert(!firebase.includes('signInWithPopup(base.auth'), 'Firebase facade does not override Android browser transport separately');
 assert(firebaseBase.includes('signInWithRedirect(auth, provider)'), 'shared mobile auth implementation keeps redirect flow');
