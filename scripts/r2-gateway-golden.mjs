@@ -2,6 +2,14 @@ import worker from '../cloudflare/r2-gateway/worker.js';
 
 const originalFetch = globalThis.fetch;
 const objects = new Map();
+let projectDeleted = false;
+let projectAccessFailureStatus = 0;
+let canonicalMemberFailureStatus = 0;
+let projectRootFetchCount = 0;
+let canonicalMemberFetchCount = 0;
+let firestoreApiKeyHeaderCount = 0;
+let firestoreQuotaUserHeaderCount = 0;
+const firestoreQuotaUsers = new Set();
 
 function jwt(payload) {
   const enc = (v) => Buffer.from(JSON.stringify(v)).toString('base64url');
@@ -31,16 +39,31 @@ function fsDoc(fields) {
 globalThis.fetch = async (input, init = {}) => {
   const url = String(input);
   if (!url.startsWith('https://firestore.googleapis.com/')) return originalFetch(input, init);
-  const token = String(init.headers?.Authorization || '').replace(/^Bearer\s+/i, '');
+  const requestHeaders = new Headers(init.headers || {});
+  if (requestHeaders.get('x-goog-api-key') === 'golden-web-api-key') firestoreApiKeyHeaderCount += 1;
+  const quotaUser = String(requestHeaders.get('x-goog-quota-user') || '');
+  if (/^[0-9a-f]{32}$/.test(quotaUser)) {
+    firestoreQuotaUserHeaderCount += 1;
+    firestoreQuotaUsers.add(quotaUser);
+  }
+  const token = String(requestHeaders.get('authorization') || '').replace(/^Bearer\s+/i, '');
   let payload = null;
   try { payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8')); } catch {}
   if (!payload?.user_id || !payload?.email) return new Response('unauthorized', { status: 401 });
   if (/\/documents\/projects\/p1$/.test(url)) {
-    return Response.json(fsDoc({ ownerUid: 'uid-admin', ownerEmail: 'admin@example.com' }));
+    projectRootFetchCount += 1;
+    if (projectAccessFailureStatus) return new Response('firestore unavailable', { status: projectAccessFailureStatus });
+    return Response.json(fsDoc({ ownerUid: 'uid-admin', ownerEmail: 'admin@example.com', deleted: projectDeleted }));
   }
   const memberMatch = url.match(/\/members\/([^/?]+)$/);
   if (memberMatch) {
     const id = decodeURIComponent(memberMatch[1]);
+    if (id === 'editor@example.com') {
+      canonicalMemberFetchCount += 1;
+      if (canonicalMemberFailureStatus) {
+        return new Response('member lookup unavailable', { status: canonicalMemberFailureStatus });
+      }
+    }
     const role = roles.get(id);
     if (!role) return new Response('missing', { status: 404 });
     return Response.json(fsDoc({ role, active: true }));
@@ -50,9 +73,12 @@ globalThis.fetch = async (input, init = {}) => {
 
 const env = {
   FIREBASE_PROJECT_ID: 'com-example-qlct-61329',
+  FIREBASE_WEB_API_KEY: 'golden-web-api-key',
   SUPER_ADMIN_EMAIL: 'super@example.com',
   ALLOWED_ORIGINS: 'https://hnlqltc.web.app,https://com-example-qlct-61329.web.app,https://com-example-qlct-61329.firebaseapp.com',
   MAX_UPLOAD_BYTES: '26214400',
+  FIRESTORE_AUTH_RETRY_ATTEMPTS: '4',
+  FIRESTORE_AUTH_RETRY_BASE_MS: '0',
   HNL_QLTC_MEDIA: {
     async put(key, body, options) {
       objects.set(key, { body: new Uint8Array(body), options });
@@ -103,8 +129,12 @@ let healthResponse = await worker.fetch(new Request('https://gateway.example/hea
 }), env);
 const health = await healthResponse.json();
 assert(healthResponse.status === 200 && health.ok === true, 'gateway health is available');
-assert(health.version === '6.3.0-rc2.2.16', 'gateway health exposes RC2.2.15 runtime version');
+assert(health.version === '6.3.0-rc2.2.16', 'gateway health exposes RC2.2.16 runtime version');
 assert(health.accessPolicy === 'canonical-email-first', 'gateway health exposes canonical email-first RBAC policy');
+assert(health.policyVersion === 'immutable-deleted-project-v2', 'gateway health proves immutable/deleted-project policy generation');
+assert(health.firebaseProjectId === 'com-example-qlct-61329', 'gateway health exposes the configured Firebase project');
+assert(health.quotaAttribution === 'api-key', 'gateway health proves Google API quota attribution is enabled');
+assert(health.quotaUserPartitioning === 'sha256-uid', 'gateway health proves per-user quota partitioning is enabled');
 
 const envWithoutCorsVar = { ...env, ALLOWED_ORIGINS: '' };
 const preflight = await worker.fetch(new Request('https://gateway.example/v1/object?key=projects/p1/media/diagnostics/probe/original.jpg', {
@@ -126,6 +156,13 @@ const floorKey = 'projects/p1/floor-plans/f1/original.jpg';
 
 let response = await call(identities.editor, 'PUT', mediaKey, new Uint8Array([1, 2, 3]));
 assert(response.status === 200, 'EDITOR may upload operational media');
+assert(firestoreApiKeyHeaderCount >= 2, 'Firestore REST authorization calls carry X-Goog-Api-Key quota attribution');
+assert(firestoreQuotaUserHeaderCount >= 2 && firestoreQuotaUsers.size >= 1, 'Firestore REST authorization calls carry hashed X-Goog-Quota-User partitioning');
+response = await call(identities.editor, 'PUT', mediaKey, new Uint8Array([1, 2, 3]));
+assert(response.status === 200, 'same-key same-bytes PUT is idempotent');
+assert((await response.json()).immutableRetry === true, 'idempotent retry is explicitly reported');
+response = await call(identities.editor, 'PUT', mediaKey, new Uint8Array([1, 2, 4]));
+assert(response.status === 409, 'same-key different-bytes PUT is rejected as immutable conflict');
 response = await call(identities.viewer, 'HEAD', mediaKey);
 assert(response.status === 200, 'VIEWER/project member may HEAD media durability');
 assert(Number(response.headers.get('Content-Length')) === 3, 'HEAD exposes durable object size');
@@ -140,6 +177,27 @@ response = await call(identities.editor, 'PUT', mediaKey, new Uint8Array([6, 7])
 assert(response.status === 403, 'canonical email VIEWER overrides stale UID ADMIN');
 roles.set('uid-editor', 'EDITOR');
 roles.set('editor@example.com', 'EDITOR');
+
+projectAccessFailureStatus = 429;
+const rootRetryStart = projectRootFetchCount;
+response = await call(identities.editor, 'PUT', 'projects/p1/media/defect/d1/quota-root.jpg', new Uint8Array([6, 7, 8]));
+assert(projectRootFetchCount - rootRetryStart === 4, 'project-root transient auth check is retried with a bounded attempt count');
+assert(response.status === 503, 'persistent Firestore quota exhaustion is surfaced as backend unavailable, not RBAC denial');
+let failure = await response.json();
+assert(failure.error === 'AUTH_BACKEND_UNAVAILABLE' && failure.reason === 'PROJECT_ROOT_HTTP_429', 'quota response identifies project-root backend exhaustion');
+projectAccessFailureStatus = 0;
+
+roles.set('uid-editor', 'ADMIN');
+canonicalMemberFailureStatus = 429;
+const memberRetryStart = canonicalMemberFetchCount;
+response = await call(identities.editor, 'PUT', 'projects/p1/media/defect/d1/quota-member.jpg', new Uint8Array([6, 8, 9]));
+assert(canonicalMemberFetchCount - memberRetryStart === 4, 'canonical email transient auth check is retried with a bounded attempt count');
+assert(response.status === 503, 'persistent canonical email lookup quota failure never falls through to stale UID role');
+failure = await response.json();
+assert(failure.error === 'AUTH_BACKEND_UNAVAILABLE' && failure.reason === 'EMAIL_MEMBER_HTTP_429', 'canonical email quota failure is explicit and fail-closed');
+canonicalMemberFailureStatus = 0;
+roles.set('uid-editor', 'EDITOR');
+
 response = await call(identities.admin, 'PUT', floorKey, new Uint8Array([7, 8]));
 assert(response.status === 200, 'ADMIN/owner may upload floor-plan structure');
 response = await call(identities.viewer, 'GET', mediaKey);
@@ -147,8 +205,13 @@ assert(response.status === 200, 'VIEWER/project member may read media');
 assert(response.headers.get('Access-Control-Allow-Origin') === 'https://hnlqltc.web.app', 'CORS allows the new hnlqltc Hosting origin');
 response = await call(identities.editor, 'DELETE', mediaKey);
 assert(response.status === 403, 'EDITOR may not purge media');
+projectDeleted = true;
+response = await call(identities.viewer, 'GET', mediaKey);
+assert(response.status === 410, 'deleted project freezes normal R2 reads');
+response = await call(identities.editor, 'PUT', 'projects/p1/media/defect/d1/a2/original.jpg', new Uint8Array([9]));
+assert(response.status === 410, 'deleted project freezes normal R2 writes');
 response = await call(identities.admin, 'DELETE', mediaKey);
-assert(response.status === 200, 'ADMIN/owner may purge media');
+assert(response.status === 200, 'ADMIN/owner may purge retained R2 media after project soft-delete');
 
 console.log('R2 GATEWAY GOLDEN PASS');
 globalThis.fetch = originalFetch;

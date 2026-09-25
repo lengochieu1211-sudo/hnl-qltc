@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { 
   Bell, 
   AlertTriangle, 
@@ -17,6 +17,7 @@ import { WorkVolume, ChecklistItem, DefectItem } from '../types';
 import { collectDueDateAlerts, DueDateAlertItem } from '../utils/dueDateUtils';
 import { formatDate, formatDateTime } from '../utils/dateFormatter';
 import { QuickSortBar } from './QuickSortBar';
+import { markProjectSystemNotificationsRead, subscribeProjectAuditLogsRealtime, subscribeProjectSystemNotificationReadState, type ProjectAuditCloudEntry } from '../lib/firebase';
 
 interface NotificationCenterModalProps {
   isOpen: boolean;
@@ -30,6 +31,7 @@ interface NotificationCenterModalProps {
   chatMentioned?: boolean;
   floatingAlertsEnabled?: boolean;
   onFloatingAlertsEnabledChange?: (enabled: boolean) => void;
+  activeProjectId?: string;
 }
 
 export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = ({
@@ -44,6 +46,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
   chatMentioned = false,
   floatingAlertsEnabled = true,
   onFloatingAlertsEnabledChange,
+  activeProjectId = '',
 }) => {
   const [section, setSection] = useState<'work' | 'messages' | 'system'>('work');
   const [filterType, setFilterType] = useState<'all' | 'overdue' | 'today' | 'soon'>('all');
@@ -51,6 +54,9 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
   const [searchQuery, setSearchQuery] = useState('');
   const [alertSortBy, setAlertSortBy] = useState<'createdAt' | 'dueDate' | 'title' | 'floor' | 'type'>('createdAt');
   const [alertSortOrder, setAlertSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [systemLogs, setSystemLogs] = useState<ProjectAuditCloudEntry[]>([]);
+  const [systemReadThrough, setSystemReadThrough] = useState(0);
+  const [systemReadBusy, setSystemReadBusy] = useState(false);
 
   const allAlerts = useMemo(() => {
     return collectDueDateAlerts(workVolumes, checklist, defects, { includeActiveDefects: true });
@@ -115,10 +121,70 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
     defect: activeAlerts.filter(a => a.type === 'defect').length,
   }), [activeAlerts]);
 
+  const systemEventLogs = useMemo(() => {
+    const isSystemEvent = (log: ProjectAuditCloudEntry) => {
+      const action = String(log.action || '').toUpperCase();
+      const moduleName = String(log.module || '').toLowerCase();
+      if (['DATA_CHANGE', 'PHOTO_CHANGE', 'BATCH_UPDATE'].includes(action)) return false;
+      return /SECURITY|ROLE|MEMBER|ACCESS|INVITE|PIN|SYNC|BACKUP|RESTORE|PROJECT/.test(action)
+        || /security|auth|sync|backup|system|project/.test(moduleName);
+    };
+    return systemLogs
+      .filter(isSystemEvent)
+      .sort((a, b) => Number(b.clientTimestamp || b.timestamp || 0) - Number(a.clientTimestamp || a.timestamp || 0));
+  }, [systemLogs]);
+
+  const systemUnreadCount = useMemo(
+    () => systemEventLogs.filter((log) => Number(log.clientTimestamp || log.timestamp || 0) > systemReadThrough).length,
+    [systemEventLogs, systemReadThrough],
+  );
+
+  const notificationBadgeCount = counts.all + chatUnreadCount + systemUnreadCount;
+
+  const systemTitle = (log: ProjectAuditCloudEntry) => {
+    const action = String(log.action || '').toUpperCase();
+    if (action.includes('ROLE') || action.includes('MEMBER') || action.includes('ACCESS')) return 'Phân quyền dự án';
+    if (action.includes('BACKUP') || action.includes('RESTORE')) return 'Sao lưu & khôi phục';
+    if (action.includes('SYNC')) return 'Đồng bộ hệ thống';
+    if (action.includes('PIN') || action.includes('SECURITY')) return 'Bảo mật';
+    if (action.includes('PROJECT') || action.includes('INVITE')) return 'Dự án';
+    return 'Hệ thống';
+  };
+
+  useEffect(() => {
+    if (!isOpen || !activeProjectId) {
+      setSystemLogs([]);
+      setSystemReadThrough(0);
+      return;
+    }
+    const unsubLogs = subscribeProjectAuditLogsRealtime(activeProjectId, (logs) => setSystemLogs(logs), 200);
+    const unsubRead = subscribeProjectSystemNotificationReadState(activeProjectId, (state) => {
+      setSystemReadThrough(Number(state?.readThrough || 0));
+    });
+    return () => {
+      unsubLogs();
+      unsubRead();
+    };
+  }, [isOpen, activeProjectId]);
+
+  const markAllSystemRead = async () => {
+    if (!activeProjectId || systemEventLogs.length === 0 || systemReadBusy) return;
+    const newest = Math.max(...systemEventLogs.map((log) => Number(log.clientTimestamp || log.timestamp || 0)), 0);
+    setSystemReadBusy(true);
+    try {
+      await markProjectSystemNotificationsRead(activeProjectId, newest);
+      setSystemReadThrough(newest);
+    } catch (err) {
+      console.warn('Mark system notifications read warning:', err);
+    } finally {
+      setSystemReadBusy(false);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[100] flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
       <div className="bg-white w-full max-w-xl rounded-3xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden border border-slate-100">
         
         {/* Modal Header */}
@@ -130,9 +196,9 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
             <div>
               <h3 className="text-base font-extrabold flex items-center gap-2">
                 Trung tâm thông báo
-                {counts.all > 0 && (
+                {notificationBadgeCount > 0 && (
                   <span className="text-xs bg-rose-600 text-white px-2 py-0.5 rounded-full font-bold">
-                    {counts.all}
+                    {notificationBadgeCount > 99 ? '99+' : notificationBadgeCount}
                   </span>
                 )}
               </h3>
@@ -154,7 +220,10 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
           <div className="grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-xl">
             <button onClick={() => setSection('work')} className={`px-2 py-2 rounded-lg text-[11px] font-extrabold ${section === 'work' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>Công việc</button>
             <button onClick={() => setSection('messages')} className={`px-2 py-2 rounded-lg text-[11px] font-extrabold flex items-center justify-center gap-1 ${section === 'messages' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>Tin nhắn {chatUnreadCount > 0 && <span className="bg-rose-600 text-white rounded-full px-1.5 text-[9px]">{chatUnreadCount > 9 ? '9+' : chatUnreadCount}</span>}</button>
-            <button onClick={() => setSection('system')} className={`px-2 py-2 rounded-lg text-[11px] font-extrabold ${section === 'system' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>Hệ thống</button>
+            <button onClick={() => setSection('system')} className={`px-2 py-2 rounded-lg text-[11px] font-extrabold flex items-center justify-center gap-1 ${section === 'system' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>
+              Hệ thống
+              {systemUnreadCount > 0 && <span className="bg-rose-600 text-white rounded-full px-1.5 text-[9px]">{systemUnreadCount > 9 ? '9+' : systemUnreadCount}</span>}
+            </button>
           </div>
         </div>
 
@@ -367,18 +436,68 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
             </div>
           </div>
         ) : (
-          <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 text-center">
-              <Settings2 className="w-8 h-8 mx-auto text-slate-400" />
-              <div className="mt-2 text-sm font-extrabold text-slate-800">Hệ thống</div>
-              <p className="mt-1 text-xs text-slate-500">Các sự kiện như mời dự án, đổi quyền, lỗi đồng bộ và backup sẽ được đưa vào đây khi có nguồn sự kiện tương ứng. Không tạo thông báo giả.</p>
+          <div className="flex-1 overflow-y-auto p-4 bg-slate-50 space-y-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="text-xs font-extrabold text-slate-800">Thông báo hệ thống</div>
+                <div className="text-[10px] text-slate-500">Chỉ hiển thị sự kiện thật từ nhật ký Cloud của dự án. Không tạo thông báo giả.</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => void markAllSystemRead()}
+                disabled={systemUnreadCount === 0 || systemReadBusy}
+                className="shrink-0 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[10px] font-extrabold text-emerald-700 disabled:opacity-40"
+              >
+                {systemReadBusy ? 'Đang lưu...' : 'Đánh dấu đã đọc'}
+              </button>
             </div>
+
+            {systemEventLogs.length === 0 ? (
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 text-center">
+                <Settings2 className="w-8 h-8 mx-auto text-slate-400" />
+                <div className="mt-2 text-sm font-extrabold text-slate-800">Chưa có sự kiện hệ thống</div>
+                <p className="mt-1 text-xs text-slate-500">Khi có đổi quyền, bảo mật, đồng bộ, backup/restore hoặc sự kiện dự án thật, thông báo sẽ xuất hiện tại đây.</p>
+              </div>
+            ) : (
+              systemEventLogs.map((log) => {
+                const ts = Number(log.clientTimestamp || log.timestamp || 0);
+                const unread = ts > systemReadThrough;
+                const actor = log.userName || log.userEmail || 'Hệ thống';
+                const client = log.clientType === 'DESKTOP' ? 'Windows EXE' : log.clientType === 'APK' ? 'Android APK' : log.browser || 'Web';
+                return (
+                  <div key={log.id || `${ts}-${log.action}`} className={`rounded-2xl border p-3 shadow-sm ${unread ? 'border-indigo-200 bg-indigo-50/50' : 'border-slate-200 bg-white'}`}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-[11px] font-extrabold text-slate-900">{systemTitle(log)}</span>
+                          {unread && <span className="rounded-full bg-rose-600 px-1.5 py-0.5 text-[8px] font-extrabold text-white">Mới</span>}
+                        </div>
+                        <div className="mt-1 text-[10.5px] font-semibold text-slate-700">{log.description || log.details || log.action}</div>
+                      </div>
+                      <span className="shrink-0 text-[9px] font-mono text-slate-400">{formatDateTime(ts)}</span>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-[9px] text-slate-500">
+                      <span>Người thực hiện: <strong className="text-slate-700">{actor}</strong></span>
+                      {log.actorRole && <span>Vai trò: <strong className="text-slate-700">{log.actorRole}</strong></span>}
+                      <span>Nguồn: <strong className="text-slate-700">{client}</strong></span>
+                      {log.syncStatus === 'PENDING' && <span className="font-bold text-amber-700">Chờ đồng bộ</span>}
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
         )}
 
         {/* Modal Footer */}
         <div className="p-3 bg-slate-100 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-500 shrink-0">
-          <span>Đang hiển thị: <strong className="text-slate-800">{filteredAlerts.length}</strong> / {counts.all}</span>
+          <span>
+            {section === 'work'
+              ? <>Đang hiển thị: <strong className="text-slate-800">{filteredAlerts.length}</strong> / {counts.all}</>
+              : section === 'messages'
+                ? <>Tin nhắn chưa đọc: <strong className="text-slate-800">{chatUnreadCount}</strong></>
+                : <>Hệ thống: <strong className="text-slate-800">{systemUnreadCount}</strong> chưa đọc / {systemEventLogs.length}</>}
+          </span>
           <div className="flex items-center gap-2 justify-end">
             {onFloatingAlertsEnabledChange && (
               <button

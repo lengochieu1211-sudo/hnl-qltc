@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Camera, Image as ImageIcon, Images, Eye, Loader2, X, Pencil, AlertTriangle } from 'lucide-react';
-import { PhotoAttachment, getEntityPhotos, getProjectPhotos, savePhotoAttachment, deletePhotoAttachment, getPhotoDataUrl, updatePhotoAttachmentBlob, resetPhotoRuntimeMemoryCache } from '../utils/photoStorage';
+import { PhotoAttachment, getEntityPhotos, getProjectPhotos, savePhotoAttachment, deletePhotoAttachment, getPhotoDataUrl, updatePhotoAttachmentBlob, resetPhotoRuntimeMemoryCache, isPhotoSharedCloudReady } from '../utils/photoStorage';
 import { refreshProjectPhotoMetadataFromCloud, uploadPhotoToCloud, verifyPhotoBinaryReadyInCloud } from '../lib/photoCloudSync';
 import { getCurrentRealFirebaseUser, onAuthUserChanged } from '../lib/firebase';
 import { ImageViewerModal } from './ImageViewerModal';
@@ -16,6 +16,8 @@ interface PhotoAttachmentPickerProps {
   label?: string;
   maxPhotos?: number;
   readOnly?: boolean;
+  /** Compact Crew count button that opens the same full-screen viewer as Defect photos. */
+  compactViewerButton?: boolean;
   onPhotosChanged?: (photos: PhotoAttachment[]) => void;
 }
 
@@ -51,6 +53,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
   label = 'HÌNH ẢNH HIỆN TRƯỜNG',
   maxPhotos = 10,
   readOnly = false,
+  compactViewerButton = false,
   onPhotosChanged
 }) => {
   const [photos, setPhotos] = useState<PhotoAttachment[]>([]);
@@ -61,16 +64,36 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
   const [uploading, setUploading] = useState(false);
   const [syncNotice, setSyncNotice] = useState('');
   const [viewingIndex, setViewingIndex] = useState<number | null>(null);
+  const [viewerCurrentIndex, setViewerCurrentIndex] = useState(0);
+  const [viewerFullUrls, setViewerFullUrls] = useState<Record<string, string>>({});
+  const [viewerLoadingIds, setViewerLoadingIds] = useState<Record<string, boolean>>({});
   const [photoSortBy, setPhotoSortBy] = useState<'date' | 'name' | 'size'>('date');
   const [photoSortOrder, setPhotoSortOrder] = useState<'asc' | 'desc'>('desc');
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const libraryInputRef = useRef<HTMLInputElement | null>(null);
   const pickerInstanceIdRef = useRef(`photo-picker-${Math.random().toString(36).slice(2)}-${Date.now()}`);
   const photoDataUrlsRef = useRef<Record<string, string>>({});
+  const viewerFullUrlsRef = useRef<Record<string, string>>({});
+  const viewerLoadingPhotoIdsRef = useRef<Set<string>>(new Set());
+  const viewerSessionRef = useRef(0);
+  const viewerActivePhotoIdRef = useRef('');
   const loadSeqRef = useRef(0);
   
   // Image editor state
   const [editingPhoto, setEditingPhoto] = useState<{ id: string; url: string } | null>(null);
+
+  const invalidateViewerFullImages = () => {
+    // Realtime metadata may advance while the full-screen viewer is still holding an
+    // object URL for the previous binary revision. Revoke those URLs immediately so
+    // an already-open viewer cannot pin stale bytes after another account edits the
+    // same photo. The current image is loaded again below from the latest cache/Cloud.
+    viewerSessionRef.current += 1;
+    Object.values(viewerFullUrlsRef.current).forEach(revokeBlobUrl);
+    viewerFullUrlsRef.current = {};
+    viewerLoadingPhotoIdsRef.current.clear();
+    setViewerFullUrls({});
+    setViewerLoadingIds({});
+  };
 
   const loadPhotos = async () => {
     const loadSeq = ++loadSeqRef.current;
@@ -168,6 +191,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
         if (detail.entityId && detail.entityId !== entityId) return;
         if (detail.category && detail.category !== category) return;
       }
+      if (detail.source === 'cloud') invalidateViewerFullImages();
       loadPhotos().catch(() => {});
     };
     if (typeof window !== 'undefined') {
@@ -202,9 +226,17 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
     photoDataUrlsRef.current = photoDataUrls;
   }, [photoDataUrls]);
 
+  useEffect(() => {
+    viewerFullUrlsRef.current = viewerFullUrls;
+  }, [viewerFullUrls]);
+
   useEffect(() => () => {
     loadSeqRef.current += 1;
     Object.values(photoDataUrlsRef.current).forEach(revokeBlobUrl);
+    viewerSessionRef.current += 1;
+    Object.values(viewerFullUrlsRef.current).forEach(revokeBlobUrl);
+    viewerFullUrlsRef.current = {};
+    viewerLoadingPhotoIdsRef.current.clear();
   }, []);
 
   const processSelectedFiles = async (files: FileList | File[] | null) => {
@@ -396,18 +428,48 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
 
   const handleSaveEditedPhoto = async (editedFile: File) => {
     if (readOnly || !editingPhoto || !projectId) return;
+    const photoId = editingPhoto.id;
     try {
       setUploading(true);
-      await updatePhotoAttachmentBlob(projectId, editingPhoto.id, editedFile);
-      const editedPhotoMeta = (await getProjectPhotos(projectId, true)).find((p) => p.id === editingPhoto.id);
-      if (editedPhotoMeta && (typeof navigator === 'undefined' || navigator.onLine)) {
-        await uploadPhotoToCloud(projectId, editedPhotoMeta);
-        const cloudReady = await verifyPhotoBinaryReadyInCloud(projectId, editingPhoto.id);
-        if (!cloudReady) setSyncNotice('Ảnh chỉnh sửa đã lưu trên thiết bị nhưng Cloud chưa xác nhận; ứng dụng sẽ tự retry.');
-      }
+      // Editor output is already the final high-quality encoded image. Preserve it
+      // verbatim locally so save does not run a second lossy JPEG pass.
+      await updatePhotoAttachmentBlob(projectId, photoId, editedFile, { preserveEncodedSource: true });
       closeEditingPhoto();
-      notifyPhotoAttachmentsChanged({ operation: 'edit', entityType, entityId, category, photoId: editingPhoto.id, originId: pickerInstanceIdRef.current });
+      notifyPhotoAttachmentsChanged({ operation: 'edit', entityType, entityId, category, photoId, originId: pickerInstanceIdRef.current });
       await loadPhotos();
+
+      // Local-first remains the durability authority, but while online do not report
+      // an edited photo as finished until R2 + Firestore ready metadata are verified.
+      // This closes the edit -> immediate logout/navigation race that could leave the
+      // edited binary only in account A's local outbox and invisible to account B/backup.
+      if (typeof navigator === 'undefined' || navigator.onLine) {
+        const editedPhotoMeta = (await getProjectPhotos(projectId, true)).find((p) => p.id === photoId);
+        let cloudReady = false;
+        let lastCloudError: any = null;
+        if (editedPhotoMeta) {
+          const retryDelays = [0, 400, 1200, 2500];
+          for (let attempt = 0; attempt < retryDelays.length && !cloudReady; attempt += 1) {
+            if (retryDelays[attempt] > 0) await new Promise((resolve) => window.setTimeout(resolve, retryDelays[attempt]));
+            try {
+              await uploadPhotoToCloud(projectId, editedPhotoMeta);
+              cloudReady = await verifyPhotoBinaryReadyInCloud(projectId, photoId);
+              if (!cloudReady) lastCloudError = new Error('Cloud chưa xác nhận binary ảnh chỉnh sửa.');
+            } catch (err: any) {
+              lastCloudError = err;
+            }
+          }
+        }
+        if (cloudReady) {
+          setSyncNotice('');
+          await refreshProjectPhotoMetadataFromCloud(projectId).catch(() => {});
+          await loadPhotos();
+        } else {
+          console.warn('[Photo Picker] edited photo pending durable retry:', photoId, lastCloudError);
+          setSyncNotice('Ảnh chỉnh sửa đã lưu an toàn trên thiết bị nhưng Cloud chưa xác nhận; ứng dụng sẽ tự retry. Chưa nên đăng xuất nếu cần thấy ảnh ngay trên tài khoản khác.');
+        }
+      } else {
+        setSyncNotice('Ảnh chỉnh sửa đã lưu trên thiết bị; sẽ đồng bộ khi có mạng.');
+      }
     } catch (err) {
       console.error('Error saving edited photo:', err);
       alert('Không thể lưu ảnh đã chỉnh sửa');
@@ -427,8 +489,130 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
     }
     return photoSortOrder === 'asc' ? comparison : -comparison;
   });
-  const photoImageUrls = sortedPhotos.map(p => photoDataUrls[p.id] || p.localUri || (isDirectPhotoUrl(p.cloudUrl) ? p.cloudUrl! : ''));
-  const imageUrls = photoImageUrls.filter(Boolean);
+  const previewUrlForPhoto = (photo: PhotoAttachment) => (
+    photoDataUrls[photo.id]
+    || photo.localUri
+    || (isDirectPhotoUrl(photo.cloudUrl) ? photo.cloudUrl! : '')
+  );
+  const viewablePhotos = sortedPhotos.filter((photo) => Boolean(previewUrlForPhoto(photo)));
+  const viewablePhotoIdsKey = viewablePhotos.map((photo) => photo.id).join('|');
+  const imageUrls = viewablePhotos.map((photo) => viewerFullUrls[photo.id] || previewUrlForPhoto(photo));
+
+  const ensureViewerFullImage = async (viewerIndex: number) => {
+    const photo = viewablePhotos[viewerIndex];
+    if (!photo?.id || viewerFullUrlsRef.current[photo.id] || viewerLoadingPhotoIdsRef.current.has(photo.id)) return;
+
+    const session = viewerSessionRef.current;
+    viewerLoadingPhotoIdsRef.current.add(photo.id);
+    setViewerLoadingIds((prev) => ({ ...prev, [photo.id]: true }));
+    try {
+      // Grid/list previews intentionally use the 320px thumbnail. The viewer must
+      // resolve the full stored binary (already compressed using the user's current
+      // crew/defect quality setting) so zoom/download/share never upscale a thumbnail.
+      const fullUrl = await getPhotoDataUrl(photo.id, photo.cloudUrl || photo.cloudFileId, false, projectId);
+      if (!fullUrl) return;
+      if (session !== viewerSessionRef.current) {
+        revokeBlobUrl(fullUrl);
+        return;
+      }
+      setViewerFullUrls((prev) => {
+        const previous = prev[photo.id];
+        if (previous && previous !== fullUrl) revokeBlobUrl(previous);
+        const next = { ...prev, [photo.id]: fullUrl };
+        viewerFullUrlsRef.current = next;
+        return next;
+      });
+    } catch (err) {
+      console.warn('[Photo Picker] full-resolution viewer load failed:', photo.id, err);
+    } finally {
+      viewerLoadingPhotoIdsRef.current.delete(photo.id);
+      if (session === viewerSessionRef.current) {
+        setViewerLoadingIds((prev) => {
+          const next = { ...prev };
+          delete next[photo.id];
+          return next;
+        });
+      }
+    }
+  };
+
+  const currentViewerPhotoId = viewablePhotos[viewerCurrentIndex]?.id || '';
+  const currentViewerFullUrl = currentViewerPhotoId ? (viewerFullUrls[currentViewerPhotoId] || '') : '';
+  const currentViewerPreviewUrl = currentViewerPhotoId ? (photoDataUrls[currentViewerPhotoId] || '') : '';
+
+  useEffect(() => {
+    if (viewingIndex === null || !viewerActivePhotoIdRef.current) return;
+    const nextIndex = viewablePhotos.findIndex((photo) => photo.id === viewerActivePhotoIdRef.current);
+    if (nextIndex < 0) return;
+    if (nextIndex !== viewerCurrentIndex) setViewerCurrentIndex(nextIndex);
+    if (nextIndex !== viewingIndex) setViewingIndex(nextIndex);
+  }, [viewingIndex, viewerCurrentIndex, viewablePhotoIdsKey]);
+
+  useEffect(() => {
+    if (viewingIndex === null || !currentViewerPhotoId || currentViewerFullUrl) return;
+    if (viewerLoadingPhotoIdsRef.current.has(currentViewerPhotoId)) return;
+    void ensureViewerFullImage(viewerCurrentIndex);
+  }, [viewingIndex, viewerCurrentIndex, currentViewerPhotoId, currentViewerFullUrl, currentViewerPreviewUrl]);
+
+  const closeViewer = () => {
+    viewerActivePhotoIdRef.current = '';
+    setViewingIndex(null);
+    setViewerCurrentIndex(0);
+    invalidateViewerFullImages();
+  };
+
+  if (compactViewerButton) {
+    const pendingCount = photos.filter((photoItem) => !isPhotoSharedCloudReady(photoItem)).length;
+    const canOpenViewer = viewablePhotos.length > 0;
+    const openViewer = () => {
+      if (!canOpenViewer) return;
+      viewerActivePhotoIdRef.current = viewablePhotos[0].id;
+      setViewerCurrentIndex(0);
+      setViewingIndex(0);
+      void ensureViewerFullImage(0);
+    };
+
+    return (
+      <>
+        <button
+          type="button"
+          onClick={openViewer}
+          disabled={loading || !canOpenViewer}
+          className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[10px] font-extrabold transition ${
+            pendingCount > 0
+              ? 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'
+              : photos.length > 0
+                ? 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
+                : 'bg-slate-50 border-slate-200 text-slate-500'
+          } disabled:cursor-default`}
+          title={photos.length > 0 ? 'Mở ảnh hiện trường toàn màn hình' : 'Chưa có ảnh hiện trường'}
+        >
+          <Images className="w-3.5 h-3.5" />
+          {loading
+            ? 'Đang kiểm tra ảnh...'
+            : photos.length > 0
+              ? `${photos.length} ảnh hiện trường${pendingCount > 0 ? ` · ${pendingCount} chờ Cloud` : ''} · Bấm để xem`
+              : 'Chưa có ảnh hiện trường'}
+        </button>
+
+        {viewingIndex !== null && (
+          <ImageViewerModal
+            isOpen={viewingIndex !== null}
+            onClose={closeViewer}
+            images={imageUrls}
+            initialIndex={viewingIndex}
+            onIndexChange={(index) => {
+              viewerActivePhotoIdRef.current = viewablePhotos[index]?.id || '';
+              setViewerCurrentIndex(index);
+              setViewingIndex(index);
+              void ensureViewerFullImage(index);
+            }}
+            isImageLoading={Boolean(viewerLoadingIds[viewablePhotos[viewerCurrentIndex]?.id || ''])}
+          />
+        )}
+      </>
+    );
+  }
 
   return (
     <div className="space-y-2">
@@ -504,7 +688,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
         </div>
       ) : (
         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-          {sortedPhotos.map((photo, index) => {
+          {sortedPhotos.map((photo) => {
             const url = photoDataUrls[photo.id] || photo.localUri || (isDirectPhotoUrl(photo.cloudUrl) ? photo.cloudUrl : '');
             const legacyUnrecoverable = !url && isLegacyFirestorePhoto(photo) && Boolean(photoLoadErrors[photo.id]);
             return (
@@ -515,9 +699,12 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
                     if (!legacyUnrecoverable) void handleRetryCloudPhoto(photo);
                     return;
                   }
-                  const viewableIndex = photoImageUrls.slice(0, index + 1).filter(Boolean).length - 1;
+                  const viewableIndex = viewablePhotos.findIndex((item) => item.id === photo.id);
                   if (viewableIndex >= 0) {
+                    viewerActivePhotoIdRef.current = photo.id;
+                    setViewerCurrentIndex(viewableIndex);
                     setViewingIndex(viewableIndex);
+                    void ensureViewerFullImage(viewableIndex);
                   }
                 }}
                 className={`relative group aspect-square rounded-lg border overflow-hidden transition-all shadow-sm ${legacyUnrecoverable ? 'border-amber-300 bg-amber-50 cursor-default' : 'border-slate-200 bg-slate-100 cursor-pointer hover:border-blue-400'}`}
@@ -616,9 +803,16 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
       {viewingIndex !== null && (
         <ImageViewerModal
           isOpen={viewingIndex !== null}
-          onClose={() => setViewingIndex(null)}
+          onClose={closeViewer}
           images={imageUrls}
           initialIndex={viewingIndex}
+          onIndexChange={(index) => {
+            viewerActivePhotoIdRef.current = viewablePhotos[index]?.id || '';
+            setViewerCurrentIndex(index);
+            setViewingIndex(index);
+            void ensureViewerFullImage(index);
+          }}
+          isImageLoading={Boolean(viewerLoadingIds[viewablePhotos[viewerCurrentIndex]?.id || ''])}
         />
       )}
 
@@ -627,6 +821,7 @@ export const PhotoAttachmentPicker: React.FC<PhotoAttachmentPickerProps> = ({
           isOpen={!!editingPhoto}
           onClose={closeEditingPhoto}
           imageUrl={editingPhoto.url}
+          imageKind={entityType === 'defect' ? 'defect' : 'crew'}
           onSave={handleSaveEditedPhoto}
         />
       )}

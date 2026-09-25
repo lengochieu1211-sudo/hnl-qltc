@@ -77,6 +77,16 @@ globalThis.fetch = async (url, init = {}) => {
         },
       }), { status: 200, headers: { 'content-type': 'application/json' } });
     }
+    if (path === 'projects/project-deleted') {
+      return new Response(JSON.stringify({
+        fields: {
+          id: { stringValue: 'project-deleted' },
+          ownerUid: { stringValue: 'uid-dev' },
+          ownerEmail: { stringValue: 'dev@example.com' },
+          deleted: { booleanValue: true },
+        },
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
     if (path === 'projects/project-dev-test/members/dev%40example.com') {
       return new Response(JSON.stringify({
         fields: {
@@ -174,6 +184,18 @@ try {
   assert.equal(chatBody.structuredOutput.statements[0].kind, 'INFERENCE');
   assert.equal(chatBody.authorization.role, 'VIEWER');
   assert.equal(chatBody.authorization.source, 'canonical-email-member');
+
+  // Soft-deleted projects are frozen before any managed model invocation.
+  const aiCallsBeforeDeleted = aiRunCalls;
+  const deletedProject = await worker.fetch(new Request('https://gateway.test/v1/chat', {
+    method: 'POST',
+    headers: { ...authHeaders, 'content-type': 'application/json' },
+    body: JSON.stringify({ ...basePayload, projectId: 'project-deleted' }),
+  }), env);
+  assert.equal(deletedProject.status, 410);
+  const deletedBody = await deletedProject.json();
+  assert.equal(deletedBody.error, 'PROJECT_DELETED');
+  assert.equal(aiRunCalls, aiCallsBeforeDeleted);
 
   // User outside the project must fail before any managed model invocation.
   const aiCallsBeforeDenied = aiRunCalls;

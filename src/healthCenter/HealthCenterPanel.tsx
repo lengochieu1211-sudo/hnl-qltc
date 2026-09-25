@@ -29,8 +29,9 @@ export const HealthCenterPanel: React.FC<HealthCenterPanelProps> = (props) => {
     return buildHealthCenterReport({
       context: { projectId: props.projectId, role: props.userRole, accessVerified: props.accessVerified, screen: 'health-center', timeZone: 'Asia/Ho_Chi_Minh' },
       snapshot,
+      photoDiagnostics: props.photoDiagnostics,
     });
-  }, [props.accessVerified, props.freshness, props.fullAppData, props.projectId, props.projectName, props.userRole]);
+  }, [props.accessVerified, props.freshness, props.fullAppData, props.photoDiagnostics, props.projectId, props.projectName, props.userRole]);
 
   const navigate = (issue: HealthCenterIssue): boolean => {
     const request = buildHealthCenterNavigationRequest(props.projectId, issue);

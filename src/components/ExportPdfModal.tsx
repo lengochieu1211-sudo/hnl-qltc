@@ -1,6 +1,6 @@
 import { downloadOrShareFile } from '../utils/downloadUtils';
-import React, { useState, useEffect } from 'react';
-import { FileText, Download, Printer, X, CheckCircle2, Filter, Mail, Package, BarChart3, Building2, ClipboardCheck, FileSpreadsheet, Users, Copy, HelpCircle, Camera, Image as ImageIcon } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { FileText, Download, Printer, X, CheckCircle2, Filter, Mail, Package, BarChart3, Building2, ClipboardCheck, FileSpreadsheet, Users, Copy, HelpCircle, Camera, Image as ImageIcon, ChevronDown } from 'lucide-react';
 import { InventoryItem, WorkVolume, DefectItem, ChecklistItem, FloorPlan, RoomProgressItem, MaterialNorm, CrewRecord, TeamInfo } from '../types';
 import { exportAllToExcel, exportAllToExcelBase64, exportTeamStatisticsToExcel } from '../utils/excelExport';
 import { formatDateDDMMYYYY, formatDateTime, formatFloorName, parseLegacyTimestamp } from '../utils/dateFormatter';
@@ -15,6 +15,13 @@ import { apiFetch, hasApiBackend } from '../utils/api';
 import { saveHtmlPdf } from '../utils/fileExport';
 import { calculateStockSummary } from '../utils/inventoryUtils';
 import { isDisplayableFloorPlanUrl, loadFloorPlanImageFromCloud } from '../lib/floorPlanImageSync';
+import { computeWorkVolumeDetailBreakdown } from '../utils/workVolumeComputation';
+import {
+  getStructureGroupName,
+  normalizeStructureGroupConfig,
+  resolveFloorStructureGroupId,
+  type ProjectStructureConfig,
+} from '../utils/structureGroupUtils';
 
 const escapeHtml = (value: unknown): string => String(value ?? '')
   .replace(/&/g, '&amp;')
@@ -32,6 +39,7 @@ interface ExportPdfModalProps {
   isOpen: boolean;
   onClose: () => void;
   projectName: string;
+  projectLocation?: string;
   contractorName?: string;
   inspectorName?: string;
   activeProjectId?: string;
@@ -42,6 +50,7 @@ interface ExportPdfModalProps {
   defects: DefectItem[];
   checklist: ChecklistItem[];
   floorPlans: FloorPlan[];
+  structureConfig?: ProjectStructureConfig;
   roomProgressList?: RoomProgressItem[];
   crewRecords?: CrewRecord[];
   teams?: TeamInfo[];
@@ -51,6 +60,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   isOpen,
   onClose,
   projectName,
+  projectLocation,
   contractorName,
   inspectorName,
   activeProjectId,
@@ -61,6 +71,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   defects = [],
   checklist = [],
   floorPlans = [],
+  structureConfig,
   roomProgressList = [],
   crewRecords = [],
   teams = [],
@@ -68,7 +79,15 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   const effectiveRole = userRole || getCurrentUserRole();
   const hasFinancialAccess = canViewFinancials(effectiveRole);
   const stockSummary = calculateStockSummary(inventory, materialNorms);
-  const [selectedFloors, setSelectedFloors] = useState<string[]>(['all']);
+  const normalizedStructureConfig = useMemo(() => normalizeStructureGroupConfig(structureConfig), [structureConfig]);
+  const [selectedStructureGroupIds, setSelectedStructureGroupIds] = useState<string[]>(['all']);
+  const [selectedFloorIds, setSelectedFloorIds] = useState<string[]>(['all']);
+  const [selectedRoomIds, setSelectedRoomIds] = useState<string[]>(['all']);
+  const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>(['all']);
+  const [showReportStructureGroupPicker, setShowReportStructureGroupPicker] = useState(false);
+  const [showReportFloorPicker, setShowReportFloorPicker] = useState(false);
+  const [showReportRoomPicker, setShowReportRoomPicker] = useState(false);
+  const [showReportTeamPicker, setShowReportTeamPicker] = useState(false);
   useFormatSettings();
   const [copiedText, setCopiedText] = useState(false);
   const [copiedExcelBase64, setCopiedExcelBase64] = useState(false);
@@ -190,6 +209,11 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   const [defectStatusFilter, setDefectStatusFilter] = useState<string>('all');
   const [defectCategoryFilter, setDefectCategoryFilter] = useState<string>('all');
   const [defectCreatorFilter, setDefectCreatorFilter] = useState<string>('all');
+  const [defectCreatedFrom, setDefectCreatedFrom] = useState<string>('');
+  const [defectCreatedTo, setDefectCreatedTo] = useState<string>('');
+  const [defectCompletedFrom, setDefectCompletedFrom] = useState<string>('');
+  const [defectCompletedTo, setDefectCompletedTo] = useState<string>('');
+  const [includeWorkVolumeDetails, setIncludeWorkVolumeDetails] = useState(true);
 
   // Report/PDF images must be self-contained. In Android, saveHtmlPdf() renders the
   // generated HTML in a SECOND WebView, so a blob: URL created by the application
@@ -273,32 +297,135 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     return () => { isMounted = false; };
   }, [isOpen, activeProjectId]);
 
+  const floorNames: string[] = Array.from(new Set(effectiveFloorPlans.map((fp) => String(fp.floorName || '')).filter(Boolean)));
+  const allStructureGroupsSelected = selectedStructureGroupIds.includes('all');
+  const groupScopedFloorPlans = normalizedStructureConfig.enabled && !allStructureGroupsSelected
+    ? effectiveFloorPlans.filter((floor) => selectedStructureGroupIds.includes(resolveFloorStructureGroupId(floor, normalizedStructureConfig)))
+    : effectiveFloorPlans;
+  const isAllSelected = selectedFloorIds.includes('all');
+  const scopedFloorPlans = isAllSelected ? groupScopedFloorPlans : groupScopedFloorPlans.filter((floor) => selectedFloorIds.includes(floor.id));
+  const scopedFloorIdSet = new Set(scopedFloorPlans.map((floor) => floor.id));
+
+  const toggleMulti = (current: string[], value: string, available: string[]): string[] => {
+    if (value === 'all') return ['all'];
+    if (!available.includes(value)) return current;
+    // "Tất cả" is a sentinel, not a lock. Tapping one item while all is active
+    // switches immediately to that single item; more items can then be added.
+    if (current.includes('all')) return [value];
+    const base = current.filter((id) => id !== 'all' && available.includes(id));
+    const next = base.includes(value) ? base.filter((id) => id !== value) : [...base, value];
+    return next.length === 0 || next.length === available.length ? ['all'] : next;
+  };
+  const handleToggleStructureGroup = (id: string) => {
+    const available = normalizedStructureConfig.groups.map((group) => group.id);
+    setSelectedStructureGroupIds((current) => toggleMulti(current, id, available));
+  };
+  const handleToggleFloor = (id: string) => setSelectedFloorIds((current) => toggleMulti(current, id, groupScopedFloorPlans.map((floor) => floor.id)));
+
+  const floorMatchesScope = (floorId?: string, floorName?: string): boolean => {
+    if (effectiveFloorPlans.length === 0) return true;
+    const byId = floorId ? effectiveFloorPlans.find((floor) => floor.id === floorId) : undefined;
+    const candidates = byId ? [byId] : (floorName ? effectiveFloorPlans.filter((floor) => floor.floorName === floorName) : []);
+    return candidates.some((floor) => scopedFloorIdSet.has(floor.id));
+  };
+
+  const baseRoomScopeOptions = roomProgressList.filter((room) => floorMatchesScope(room.floorId, room.floorName));
+  const roomTeamIds = (room: RoomProgressItem): string[] => Array.from(new Set([room.teamId, ...(room.subItems || []).map((sub) => sub.teamId)].filter(Boolean) as string[]));
+  const roomTeamNames = (room: RoomProgressItem): string[] => Array.from(new Set([room.assignedTeam, ...(room.subItems || []).map((sub) => sub.assignedTeam)].map((v) => String(v || '').trim()).filter(Boolean)));
+  const availableTeamOptions = teams.filter((team) => baseRoomScopeOptions.filter((room) => selectedRoomIds.includes('all') || selectedRoomIds.includes(room.id)).some((room) =>
+    roomTeamIds(room).includes(team.id) || roomTeamNames(room).some((name) => {
+      const normalized = name.toLocaleLowerCase('vi-VN');
+      return normalized === team.name.trim().toLocaleLowerCase('vi-VN') || normalized === String(team.leader || '').trim().toLocaleLowerCase('vi-VN');
+    })
+  ));
+  const allTeamsSelected = selectedTeamIds.includes('all');
+  const teamMatchesScope = (teamId?: string, teamName?: string): boolean => {
+    if (allTeamsSelected) return true;
+    if (teamId && selectedTeamIds.includes(teamId)) return true;
+    const normalizedName = String(teamName || '').trim().toLocaleLowerCase('vi-VN');
+    return availableTeamOptions.some((team) => selectedTeamIds.includes(team.id) && (
+      normalizedName === team.name.trim().toLocaleLowerCase('vi-VN') || normalizedName === String(team.leader || '').trim().toLocaleLowerCase('vi-VN')
+    ));
+  };
+  const roomMatchesTeamScope = (room: RoomProgressItem): boolean => allTeamsSelected || teamMatchesScope(room.teamId, room.assignedTeam) || (room.subItems || []).some((sub) => teamMatchesScope(sub.teamId, sub.assignedTeam));
+
+  // Cascading options are strictly upstream -> downstream:
+  // Khu/Khối -> Tầng -> Căn/Phòng -> Đội. A selected team may filter report rows,
+  // but it must never remove room options and create a cyclic/stale selection graph.
+  const roomScopeOptions = baseRoomScopeOptions.slice().sort((a, b) => {
+    const floorA = effectiveFloorPlans.find((floor) => floor.id === a.floorId)?.floorName || a.floorName || '';
+    const floorB = effectiveFloorPlans.find((floor) => floor.id === b.floorId)?.floorName || b.floorName || '';
+    return floorA.localeCompare(floorB, 'vi', { numeric: true, sensitivity: 'base' }) || String(a.roomName || '').localeCompare(String(b.roomName || ''), 'vi', { numeric: true, sensitivity: 'base' });
+  });
+  const allRoomsSelected = selectedRoomIds.includes('all');
+
+  const availableStructureGroupIdsKey = normalizedStructureConfig.enabled
+    ? normalizedStructureConfig.groups.map((group) => group.id).sort().join('|')
+    : '';
+  const groupScopedFloorIdsKey = groupScopedFloorPlans.map((floor) => floor.id).sort().join('|');
+  const roomScopeOptionIdsKey = roomScopeOptions.map((room) => room.id).sort().join('|');
+  const availableTeamOptionIdsKey = availableTeamOptions.map((team) => team.id).sort().join('|');
+
+  useEffect(() => {
+    if (!normalizedStructureConfig.enabled) {
+      setSelectedStructureGroupIds(['all']);
+      return;
+    }
+    const availableGroups = new Set(normalizedStructureConfig.groups.map((group) => group.id));
+    setSelectedStructureGroupIds((current) => {
+      if (current.includes('all')) return current;
+      const valid = current.filter((id) => availableGroups.has(id));
+      return valid.length > 0 ? valid : ['all'];
+    });
+  }, [normalizedStructureConfig.enabled, availableStructureGroupIdsKey]);
+
+  useEffect(() => {
+    const availableFloors = new Set(groupScopedFloorPlans.map((floor) => floor.id));
+    setSelectedFloorIds((current) => current.includes('all') ? current : (current.filter((id) => availableFloors.has(id)).length ? current.filter((id) => availableFloors.has(id)) : ['all']));
+  }, [groupScopedFloorIdsKey]);
+
+  useEffect(() => {
+    const availableRooms = new Set(roomScopeOptions.map((room) => room.id));
+    setSelectedRoomIds((current) => current.includes('all') ? current : (current.filter((id) => availableRooms.has(id)).length ? current.filter((id) => availableRooms.has(id)) : ['all']));
+  }, [roomScopeOptionIdsKey]);
+
+  useEffect(() => {
+    const availableTeams = new Set(availableTeamOptions.map((team) => team.id));
+    setSelectedTeamIds((current) => current.includes('all') ? current : (current.filter((id) => availableTeams.has(id)).length ? current.filter((id) => availableTeams.has(id)) : ['all']));
+  }, [availableTeamOptionIdsKey]);
+
+  const reportStructureGroupSummary = allStructureGroupsSelected
+    ? `Tất cả ${normalizedStructureConfig.label}`
+    : selectedStructureGroupIds.length === 1
+      ? (normalizedStructureConfig.groups.find((group) => group.id === selectedStructureGroupIds[0])?.name || `1 ${normalizedStructureConfig.label}`)
+      : `${selectedStructureGroupIds.length} ${normalizedStructureConfig.label}`;
+  const reportFloorSummary = isAllSelected
+    ? 'Tất cả tầng'
+    : selectedFloorIds.length === 1
+      ? (groupScopedFloorPlans.find((floor) => floor.id === selectedFloorIds[0])?.floorName || '1 tầng')
+      : `${selectedFloorIds.length} tầng`;
+  const reportRoomSummary = allRoomsSelected
+    ? 'Tất cả Căn / Phòng'
+    : selectedRoomIds.length === 1
+      ? (roomScopeOptions.find((room) => room.id === selectedRoomIds[0])?.roomName || '1 Căn / Phòng')
+      : `${selectedRoomIds.length} Căn / Phòng`;
+  const reportTeamSummary = allTeamsSelected
+    ? 'Tất cả đội'
+    : selectedTeamIds.length === 1
+      ? (availableTeamOptions.find((team) => team.id === selectedTeamIds[0])?.name || '1 đội')
+      : `${selectedTeamIds.length} đội`;
+
   if (!isOpen) return null;
 
-  // Only take declared floor names (from floorPlans list)
-  const floorNames: string[] = Array.from(new Set(effectiveFloorPlans.map((fp) => String(fp.floorName || '')).filter(Boolean)));
-  const isAllSelected = selectedFloors.includes('all');
-
-  const handleToggleFloor = (floorName: string) => {
-    if (floorName === 'all') {
-      if (isAllSelected) {
-        setSelectedFloors(floorNames.length > 0 ? [floorNames[0]] : []);
-      } else {
-        setSelectedFloors(['all']);
-      }
-    } else {
-      let next = selectedFloors.filter((f) => f !== 'all');
-      if (next.includes(floorName)) {
-        next = next.filter((f) => f !== floorName);
-      } else {
-        next.push(floorName);
-      }
-      if (next.length === 0 || next.length === floorNames.length) {
-        setSelectedFloors(['all']);
-      } else {
-        setSelectedFloors(next);
-      }
-    }
+  const dateInRange = (value: unknown, from: string, to: string): boolean => {
+    if (!from && !to) return true;
+    const timestamp = parseLegacyTimestamp(value, 0);
+    if (!timestamp) return false;
+    const date = new Date(timestamp);
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    if (from && key < from) return false;
+    if (to && key > to) return false;
+    return true;
   };
 
   const getRoomMapCode = (index: number) => {
@@ -317,16 +444,23 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     return pdfDefectCodeStyle === 'df' ? `DF-${shortNumber}` : shortNumber;
   };
 
-  const defectCategoryOptions = Array.from(new Set(defects.filter((d) => !d.archivedAt).map((d) => String(d.category || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
-  const defectCreatorOptions = Array.from(new Set(defects.filter((d) => !d.archivedAt).map((d) => String(d.createdBy || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
+  const defectsInSelectedScope = defects.filter((d) => !d.archivedAt)
+    .filter((d) => floorMatchesScope(d.floorId, d.floorName))
+    .filter((d) => allRoomsSelected || selectedRoomIds.includes(String(d.roomId || '')))
+    .filter((d) => teamMatchesScope(d.teamId, d.assignedTo));
+  const defectCategoryOptions = Array.from(new Set(defectsInSelectedScope.map((d) => String(d.category || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
+  const defectCreatorOptions = Array.from(new Set(defectsInSelectedScope.map((d) => String(d.createdBy || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
 
   const filteredDefects = defects.filter((d) => {
     if (d.archivedAt) return false;
-    if (floorNames.length > 0 && !floorNames.includes(d.floorName)) return false;
-    if (!isAllSelected && !selectedFloors.includes(d.floorName)) return false;
+    if (!floorMatchesScope(d.floorId, d.floorName)) return false;
+    if (!allRoomsSelected && !selectedRoomIds.includes(String(d.roomId || ''))) return false;
+    if (!teamMatchesScope(d.teamId, d.assignedTo)) return false;
     if (defectStatusFilter !== 'all' && d.status !== defectStatusFilter) return false;
     if (defectCategoryFilter !== 'all' && d.category !== defectCategoryFilter) return false;
     if (defectCreatorFilter !== 'all' && String(d.createdBy || '').trim() !== defectCreatorFilter) return false;
+    if (!dateInRange(d.createdAt, defectCreatedFrom, defectCreatedTo)) return false;
+    if ((defectCompletedFrom || defectCompletedTo) && !dateInRange(d.completedAt, defectCompletedFrom, defectCompletedTo)) return false;
     return true;
   });
 
@@ -397,18 +531,19 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     return `${formatFloorName(defect.floorName)} · ${getDefectRoomName(defect)}`;
   };
 
-  const filteredChecklist = checklist.filter((c) => {
-    if (c.archivedAt) return false;
-    if (floorNames.length > 0 && !floorNames.includes(c.floorName)) return false;
-    if (isAllSelected) return true;
-    return selectedFloors.includes(c.floorName);
+  const filteredChecklist = checklist.filter((item) => {
+    if (item.archivedAt) return false;
+    if (!floorMatchesScope(item.floorId, item.floorName)) return false;
+    if (!allRoomsSelected && !selectedRoomIds.includes(String(item.roomId || ''))) return false;
+    if (!allTeamsSelected && !selectedTeamIds.includes(String(item.teamId || ''))) return false;
+    return true;
   });
 
-  const filteredRooms = roomProgressList.filter((r) => {
-    const fp = effectiveFloorPlans.find(f => f.id === r.floorId);
-    if (!fp) return false;
-    if (isAllSelected) return true;
-    return selectedFloors.includes(fp.floorName);
+  const filteredRooms = roomProgressList.filter((room) => {
+    if (!floorMatchesScope(room.floorId, room.floorName)) return false;
+    if (!allRoomsSelected && !selectedRoomIds.includes(room.id)) return false;
+    if (!roomMatchesTeamScope(room)) return false;
+    return true;
   });
 
   const getRoomSortCategory = (room: RoomProgressItem): string => String(
@@ -475,13 +610,20 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     return floorCmp || categoryCmp || compareTextVi(a.title, b.title);
   });
 
-  const filteredCrew = crewRecords.filter((c) => {
-    if (!c.floorName) return true;
-    const cFloors = c.floorName.split(',').map(s => s.trim()).filter(Boolean);
-    const hasAnyValidFloor = cFloors.some(f => floorNames.includes(f));
-    if (cFloors.length > 0 && !hasAnyValidFloor) return false;
-    if (isAllSelected) return true;
-    return cFloors.some(f => selectedFloors.includes(f));
+  const filteredCrew = crewRecords.filter((record) => {
+    if (!teamMatchesScope(record.teamId, record.teamName)) return false;
+    const floorRefs = [
+      ...(record.floorId ? [{ floorId: record.floorId, floorName: record.floorName }] : []),
+      ...((record.floorWorks || []).map((work) => ({ floorId: work.floorId, floorName: work.floorName }))),
+    ];
+    if (floorRefs.length === 0 && record.floorName) {
+      record.floorName.split(',').map((name) => name.trim()).filter(Boolean)
+        .forEach((name) => floorRefs.push({ floorId: '', floorName: name }));
+    }
+    if (floorRefs.length === 0) {
+      return allStructureGroupsSelected && isAllSelected;
+    }
+    return floorRefs.some((ref) => floorMatchesScope(ref.floorId, ref.floorName));
   }).sort((a, b) => {
     const dateAsc = compareTextVi(a.date, b.date);
     const dateDesc = compareTextVi(b.date, a.date);
@@ -494,20 +636,107 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
     return dateDesc || teamCmp || floorCmp;
   });
 
+  const selectedTeamForScope = !allTeamsSelected && selectedTeamIds.length === 1 ? teams.find((team) => team.id === selectedTeamIds[0]) : undefined;
+  const hasScopedLocationFilter = !allStructureGroupsSelected || !isAllSelected || !allRoomsSelected || !allTeamsSelected;
+  const workVolumeReportItems = sortedWorkVolumes
+    .map((item) => {
+      const detail = computeWorkVolumeDetailBreakdown(
+        item,
+        workVolumes,
+        filteredRooms,
+        scopedFloorPlans,
+        selectedTeamForScope
+          ? { id: selectedTeamForScope.id, name: selectedTeamForScope.name, leader: selectedTeamForScope.leader }
+          : undefined,
+      );
+      return { item, detail };
+    })
+    .filter(({ detail }) => !hasScopedLocationFilter || detail.rows.length > 0);
+
   const passedCount = filteredChecklist.filter((c) => c.status === 'passed').length;
   const passRate = filteredChecklist.length > 0 ? Math.round((passedCount / filteredChecklist.length) * 100) : 0;
   const openDefectsCount = filteredDefects.filter((d) => d.status !== 'Đã nghiệm thu').length;
 
+  const displayProjectLocation = projectLocation && projectLocation.trim() ? projectLocation.trim() : '';
   const displayContractor = contractorName && contractorName.trim() ? contractorName.trim() : '—';
   const displayInspector = inspectorName && inspectorName.trim() ? inspectorName.trim() : '—';
+  const reportScopeParts = [
+    normalizedStructureConfig.enabled && !allStructureGroupsSelected
+      ? `${normalizedStructureConfig.label}: ${selectedStructureGroupIds.map((id) => getStructureGroupName(id, normalizedStructureConfig)).join(', ')}`
+      : '',
+    !isAllSelected ? scopedFloorPlans.map((floor) => floor.floorName).join(', ') : '',
+    !allRoomsSelected ? `Căn/Phòng: ${selectedRoomIds.map((id) => roomProgressList.find((room) => room.id === id)?.roomName || id).join(', ')}` : '',
+    !allTeamsSelected ? `Đội: ${selectedTeamIds.map((id) => teams.find((team) => team.id === id)?.name || id).join(', ')}` : '',
+  ].filter(Boolean);
+  const reportScopeLabel = reportScopeParts.length > 0 ? reportScopeParts.join(' · ') : 'Toàn bộ công trình';
+
+  const getWorkVolumeDetailHtml = (): string => {
+    if (!includeWorkVolumeDetails) return '';
+    const detailed = workVolumeReportItems.filter(({ detail }) => detail.rows.length > 0);
+    if (detailed.length === 0) return '';
+    const h = escapeHtml;
+    const blocks = detailed.map(({ item, detail }) => {
+      const body = detail.rows.map((row) => {
+        const floor = effectiveFloorPlans.find((candidate) => candidate.id === row.floorId);
+        const groupName = normalizedStructureConfig.enabled && floor
+          ? getStructureGroupName(resolveFloorStructureGroupId(floor, normalizedStructureConfig), normalizedStructureConfig)
+          : '';
+        const remaining = Math.max(0, Number(row.assignedVolume || 0) - Number(row.actualVolume || 0));
+        return `
+          <tr>
+            ${normalizedStructureConfig.enabled ? `<td>${h(groupName)}</td>` : ''}
+            <td>${h(row.floorName)}</td>
+            <td><strong>${h(row.roomName)}</strong></td>
+            <td>${h(row.teamNames.length > 0 ? row.teamNames.join(', ') : 'Chưa gán đội')}</td>
+            <td style="text-align:right;">${formatDecimal(row.assignedVolume)}</td>
+            <td style="text-align:right;color:#166534;font-weight:bold;">${formatDecimal(row.actualVolume)}</td>
+            <td style="text-align:right;">${formatDecimal(remaining)}</td>
+            <td style="text-align:right;font-weight:bold;">${row.progressPercent}%</td>
+          </tr>
+        `;
+      }).join('');
+      return `
+        <div class="page-break-avoid" style="margin:10px 0 14px;">
+          <div style="font-size:10.5px;font-weight:800;color:#1e1b4b;margin:0 0 5px;">
+            ${h(item.title)} · ${h(item.unit || '')}
+          </div>
+          <table>
+            <thead>
+              <tr>
+                ${normalizedStructureConfig.enabled ? `<th>${h(normalizedStructureConfig.label)}</th>` : ''}
+                <th>Tầng</th>
+                <th>Căn / Phòng</th>
+                <th>Đội thi công</th>
+                <th style="text-align:right;">KL phân bổ</th>
+                <th style="text-align:right;">Đã thực hiện</th>
+                <th style="text-align:right;">Còn lại</th>
+                <th style="text-align:right;">Tiến độ</th>
+              </tr>
+            </thead>
+            <tbody>${body}</tbody>
+            <tfoot>
+              <tr>
+                <td colspan="${normalizedStructureConfig.enabled ? 4 : 3}"><strong>TỔNG · ${detail.rows.length} Căn/Phòng</strong></td>
+                <td style="text-align:right;"><strong>${formatDecimal(detail.totalAssigned)}</strong></td>
+                <td style="text-align:right;color:#166534;"><strong>${formatDecimal(detail.totalActual)}</strong></td>
+                <td style="text-align:right;"><strong>${formatDecimal(Math.max(0, detail.totalAssigned - detail.totalActual))}</strong></td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      `;
+    }).join('');
+    return `<div class="section-title">📑 CHI TIẾT KHỐI LƯỢNG THEO ${h(normalizedStructureConfig.enabled ? normalizedStructureConfig.label + ' / ' : '')}TẦNG / CĂN / ĐỘI</div>${blocks}`;
+  };
 
   // High-fidelity HTML Report Generator
   const getReportHtml = (): string => {
     const h = escapeHtml;
-    const areaText = isAllSelected ? 'Toàn bộ công trình' : selectedFloors.join(', ');
+    const areaText = reportScopeLabel;
 
     // Target floor plans to include
-    const targetFloorPlans = (isAllSelected ? effectiveFloorPlans : effectiveFloorPlans.filter(fp => selectedFloors.includes(fp.floorName)))
+    const targetFloorPlans = scopedFloorPlans
       .filter(fp => {
         if (!skipEmptyFloors) return true;
         const fpRooms = roomProgressList.filter(r => r.floorId === fp.id);
@@ -584,6 +813,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
           <div>
             <h1>Báo cáo tổng hợp thi công &amp; nghiệm thu</h1>
             <p><strong>Dự án:</strong> ${h(projectName || '—')} | <strong>Khu vực:</strong> ${h(areaText)}</p>
+            ${displayProjectLocation ? `<p><strong>Địa điểm:</strong> ${h(displayProjectLocation)}</p>` : ''}
             ${displayContractor !== '—' ? `<p><strong>Đơn vị thi công:</strong> ${h(displayContractor)}</p>` : ''}
             ${displayInspector !== '—' ? `<p><strong>Kỹ sư phụ trách:</strong> ${h(displayInspector)}</p>` : ''}
           </div>
@@ -661,7 +891,7 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
           <p style="color: #64748b; font-style: italic; margin-bottom: 16px;">Không có dữ liệu kho vật tư.</p>
         `) : ''}
 
-        ${includeWorkVolumes ? (workVolumes.length > 0 ? `
+        ${includeWorkVolumes ? (workVolumeReportItems.length > 0 ? `
           <div class="section-title">📊 KHỐI LƯỢNG THI CÔNG &amp; SẢN LƯỢNG</div>
           <table>
             <thead>
@@ -670,8 +900,9 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
                 <th>Hạng mục công việc</th>
                 <th style="width: 90px;">Phân Loại</th>
                 <th style="width: 55px; text-align: center;">ĐVT</th>
-                <th style="width: 80px; text-align: right;">KL Kế Hoạch</th>
-                <th style="width: 80px; text-align: right;">KL Thực Hiện</th>
+                <th style="width: 75px; text-align: right;">KL Kế Hoạch</th>
+                <th style="width: 75px; text-align: right;">KL Phân Bổ</th>
+                <th style="width: 75px; text-align: right;">KL Thực Hiện</th>
                 ${hasFinancialAccess ? `
                 <th style="width: 85px; text-align: right;">Đơn Giá (đ)</th>
                 <th style="width: 95px; text-align: right;">Thành Tiền (đ)</th>
@@ -679,22 +910,24 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
               </tr>
             </thead>
             <tbody>
-              ${sortedWorkVolumes.map((wv, idx) => `
+              ${workVolumeReportItems.map(({ item: wv, detail }, idx) => `
                 <tr>
                   <td style="text-align: center;">${idx + 1}</td>
                   <td><strong>${wv.title || ''}</strong></td>
                   <td>${wv.category || ''}</td>
                   <td style="text-align: center;">${wv.unit || ''}</td>
                   <td style="text-align: right;">${formatDecimal(wv.planned)}</td>
-                  <td style="text-align: right; color: #2563eb; font-weight: bold;">${formatDecimal(wv.actual)}</td>
+                  <td style="text-align: right;">${formatDecimal(detail.totalAssigned)}</td>
+                  <td style="text-align: right; color: #2563eb; font-weight: bold;">${formatDecimal(detail.totalActual)}</td>
                   ${hasFinancialAccess ? `
                   <td style="text-align: right;">${formatDecimal(wv.unitPrice)}</td>
-                  <td style="text-align: right; font-weight: bold;">${formatDecimal((wv.actual ?? 0) * (wv.unitPrice ?? 0))}</td>
+                  <td style="text-align: right; font-weight: bold;">${formatDecimal((detail.totalActual ?? 0) * (wv.unitPrice ?? 0))}</td>
                   ` : ''}
                 </tr>
               `).join('')}
             </tbody>
           </table>
+          ${getWorkVolumeDetailHtml()}
         ` : `
           <div class="section-title">📊 KHỐI LƯỢNG THI CÔNG &amp; SẢN LƯỢNG</div>
           <p style="color: #64748b; font-style: italic; margin-bottom: 16px;">Không có dữ liệu khối lượng thi công.</p>
@@ -1369,10 +1602,10 @@ export const ExportPdfModal: React.FC<ExportPdfModalProps> = ({
   };
 
   const handleCopySummaryText = () => {
-    const areaText = isAllSelected ? 'Toàn bộ công trình' : selectedFloors.join(', ');
+    const areaText = reportScopeLabel;
     const text = `
 📋 *BÁO CÁO THI CÔNG & NGHIỆM THU - ${projectName.toUpperCase()}*
-📍 *Khu vực:* ${areaText}
+${displayProjectLocation ? `📍 *Địa điểm:* ${displayProjectLocation}\n` : ''}📍 *Khu vực:* ${areaText}
 📅 *Thời gian:* ${formatDateTime(new Date())}
 
 📊 *TỔNG QUAN:*
@@ -1409,13 +1642,19 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
   const handleExportExcel = () => {
     exportAllToExcel({
       projectName,
+      projectLocation: displayProjectLocation,
       inventory,
       materialNorms,
       workVolumes,
       roomProgressList: filteredRooms,
       defects: filteredDefects,
       checklist: filteredChecklist,
-      floorPlans: isAllSelected ? effectiveFloorPlans : effectiveFloorPlans.filter(fp => selectedFloors.includes(fp.floorName)),
+      floorPlans: scopedFloorPlans,
+      structureConfig: normalizedStructureConfig,
+      workVolumeTeamFilter: selectedTeamForScope
+        ? { id: selectedTeamForScope.id, name: selectedTeamForScope.name, leader: selectedTeamForScope.leader }
+        : undefined,
+      includeWorkVolumeDetails,
       crewRecords: filteredCrew,
       canViewFinancials: hasFinancialAccess,
       selectedModules: {
@@ -1438,13 +1677,19 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
 
       const base64 = exportAllToExcelBase64({
         projectName,
+        projectLocation: displayProjectLocation,
         inventory,
         materialNorms,
         workVolumes,
         roomProgressList: filteredRooms,
         defects: filteredDefects,
         checklist: filteredChecklist,
-        floorPlans: isAllSelected ? effectiveFloorPlans : effectiveFloorPlans.filter(fp => selectedFloors.includes(fp.floorName)),
+        floorPlans: scopedFloorPlans,
+      structureConfig: normalizedStructureConfig,
+        workVolumeTeamFilter: selectedTeamForScope
+          ? { id: selectedTeamForScope.id, name: selectedTeamForScope.name, leader: selectedTeamForScope.leader }
+          : undefined,
+        includeWorkVolumeDetails,
         crewRecords: filteredCrew,
         canViewFinancials: hasFinancialAccess,
         selectedModules: {
@@ -1539,7 +1784,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
 
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
-      <div className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[92vh] overflow-y-auto border border-slate-100 shadow-2xl">
+      <div className="bg-white w-full sm:max-w-2xl md:max-w-3xl lg:max-w-5xl rounded-t-3xl sm:rounded-2xl p-5 lg:p-6 space-y-4 max-h-[94vh] overflow-y-auto border border-slate-100 shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <div className="flex items-center gap-2">
@@ -1561,46 +1806,201 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
 
         {/* Options */}
         <div className="space-y-4 text-xs">
-          {/* Select Floor (Multi-Select) */}
-          <div className="space-y-1.5">
-            <label className="block text-slate-700 font-bold flex items-center gap-1.5">
-              <Filter className="w-3.5 h-3.5 text-indigo-600" />
-              Lọc khu vực / tầng đã khai báo
-            </label>
-            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 max-h-36 overflow-y-auto space-y-2.5">
-              {/* Option: All */}
-              <label className="flex items-center gap-2.5 font-bold text-slate-800 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={isAllSelected}
-                  onChange={() => handleToggleFloor('all')}
-                  className="w-4 h-4 rounded text-indigo-600 border-slate-300 focus:ring-indigo-500 cursor-pointer"
-                />
-                <span className="text-xs">🌐 Tất cả các tầng / Toàn bộ dự án</span>
+          {/* Unified report scope + Defect filters */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-slate-700 font-bold flex items-center gap-1.5">
+                <Filter className="w-3.5 h-3.5 text-indigo-600" />
+                Phạm vi &amp; bộ lọc báo cáo
               </label>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedStructureGroupIds(['all']);
+                  setSelectedFloorIds(['all']);
+                  setSelectedRoomIds(['all']);
+                  setSelectedTeamIds(['all']);
+                  setShowReportStructureGroupPicker(false);
+                  setShowReportFloorPicker(false);
+                  setShowReportRoomPicker(false);
+                  setShowReportTeamPicker(false);
+                  setDefectStatusFilter('all');
+                  setDefectCategoryFilter('all');
+                  setDefectCreatorFilter('all');
+                  setDefectCreatedFrom('');
+                  setDefectCreatedTo('');
+                  setDefectCompletedFrom('');
+                  setDefectCompletedTo('');
+                }}
+                className="text-[10px] font-extrabold text-indigo-600 hover:text-indigo-800"
+              >
+                Xóa bộ lọc
+              </button>
+            </div>
 
-              {/* Individual declared floors */}
-              {floorNames.length > 0 ? (
-                <div className="border-t border-slate-200 pt-2.5 space-y-2">
-                  {floorNames.map((f) => {
-                    const isChecked = isAllSelected || selectedFloors.includes(f);
-                    return (
-                      <label key={f} className="flex items-center gap-2.5 font-semibold text-slate-700 hover:text-slate-900 cursor-pointer select-none ml-1">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          disabled={isAllSelected}
-                          onChange={() => handleToggleFloor(f)}
-                          className="w-4 h-4 rounded text-indigo-600 border-slate-300 focus:ring-indigo-500 cursor-pointer disabled:opacity-50"
-                        />
-                        <span className="text-xs">📍 {f}</span>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 space-y-3">
+              <div className={`grid grid-cols-1 gap-2 sm:grid-cols-2 ${normalizedStructureConfig.enabled ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
+                {normalizedStructureConfig.enabled && (
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowReportStructureGroupPicker((value) => !value);
+                        setShowReportFloorPicker(false);
+                        setShowReportRoomPicker(false);
+                        setShowReportTeamPicker(false);
+                      }}
+                      className="flex w-full items-center justify-between rounded-xl border border-indigo-200 bg-white p-2.5 text-left text-xs font-semibold"
+                    >
+                      <span className="truncate">{reportStructureGroupSummary}</span>
+                      <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                    </button>
+                    {showReportStructureGroupPicker && (
+                      <div className="absolute left-0 right-0 z-40 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+                        <label className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs font-semibold hover:bg-slate-50">
+                          <input type="checkbox" checked={allStructureGroupsSelected} onChange={() => handleToggleStructureGroup('all')} /> Tất cả {normalizedStructureConfig.label}
+                        </label>
+                        {normalizedStructureConfig.groups.map((group) => (
+                          <label key={group.id} className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs hover:bg-slate-50">
+                            <input type="checkbox" checked={allStructureGroupsSelected || selectedStructureGroupIds.includes(group.id)} onChange={() => handleToggleStructureGroup(group.id)} /> {group.name}
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowReportFloorPicker((value) => !value);
+                      setShowReportStructureGroupPicker(false);
+                      setShowReportRoomPicker(false);
+                      setShowReportTeamPicker(false);
+                    }}
+                    className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold"
+                  >
+                    <span className="truncate">{reportFloorSummary}</span>
+                    <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                  </button>
+                  {showReportFloorPicker && (
+                    <div className="absolute left-0 right-0 z-40 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+                      <label className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs font-semibold hover:bg-slate-50">
+                        <input type="checkbox" checked={isAllSelected} onChange={() => handleToggleFloor('all')} /> Tất cả tầng
                       </label>
-                    );
-                  })}
+                      {groupScopedFloorPlans.map((floor) => (
+                        <label key={floor.id} className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs hover:bg-slate-50">
+                          <input type="checkbox" checked={isAllSelected || selectedFloorIds.includes(floor.id)} onChange={() => handleToggleFloor(floor.id)} /> {floor.floorName}
+                        </label>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              ) : (
-                <p className="text-[11px] text-slate-400 italic">Chưa khai báo tầng nào.</p>
-              )}
+
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowReportRoomPicker((value) => !value);
+                      setShowReportStructureGroupPicker(false);
+                      setShowReportFloorPicker(false);
+                      setShowReportTeamPicker(false);
+                    }}
+                    className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold"
+                  >
+                    <span className="truncate">{reportRoomSummary}</span>
+                    <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                  </button>
+                  {showReportRoomPicker && (
+                    <div className="absolute left-0 right-0 z-40 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+                      <label className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs font-semibold hover:bg-slate-50">
+                        <input type="checkbox" checked={allRoomsSelected} onChange={() => setSelectedRoomIds(['all'])} /> Tất cả Căn / Phòng
+                      </label>
+                      {roomScopeOptions.map((room) => {
+                        const floorName = effectiveFloorPlans.find((floor) => floor.id === room.floorId)?.floorName || room.floorName || '';
+                        return (
+                          <label key={room.id} className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs hover:bg-slate-50">
+                            <input type="checkbox" checked={allRoomsSelected || selectedRoomIds.includes(room.id)} onChange={() => setSelectedRoomIds((current) => toggleMulti(current, room.id, roomScopeOptions.map((item) => item.id)))} />
+                            <span className="min-w-0 truncate">{floorName ? `${floorName} · ` : ''}{room.roomName}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowReportTeamPicker((value) => !value);
+                      setShowReportStructureGroupPicker(false);
+                      setShowReportFloorPicker(false);
+                      setShowReportRoomPicker(false);
+                    }}
+                    className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold"
+                  >
+                    <span className="truncate">{reportTeamSummary}</span>
+                    <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                  </button>
+                  {showReportTeamPicker && (
+                    <div className="absolute left-0 right-0 z-40 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+                      <label className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs font-semibold hover:bg-slate-50">
+                        <input type="checkbox" checked={allTeamsSelected} onChange={() => setSelectedTeamIds(['all'])} /> Tất cả đội
+                      </label>
+                      {availableTeamOptions.map((team) => (
+                        <label key={team.id} className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs hover:bg-slate-50">
+                          <input type="checkbox" checked={allTeamsSelected || selectedTeamIds.includes(team.id)} onChange={() => setSelectedTeamIds((current) => toggleMulti(current, team.id, availableTeamOptions.map((item) => item.id)))} /> {team.name}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="border-t border-slate-200 pt-3">
+                <div className="mb-2 text-[10px] font-extrabold text-slate-600">Defect trong phạm vi trên</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  <select value={defectStatusFilter} onChange={(e) => setDefectStatusFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700">
+                    <option value="all">Tất cả trạng thái Defect</option>
+                    <option value="Mới phát hiện">Mới phát hiện</option>
+                    <option value="Đang sửa">Đang sửa</option>
+                    <option value="Đã khắc phục">Đã khắc phục</option>
+                    <option value="Đã nghiệm thu">Đã nghiệm thu</option>
+                  </select>
+                  <select value={defectCategoryFilter} onChange={(e) => setDefectCategoryFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700">
+                    <option value="all">Tất cả hạng mục lỗi</option>
+                    {defectCategoryOptions.map((category) => <option key={category} value={category}>{category}</option>)}
+                  </select>
+                  <select value={defectCreatorFilter} onChange={(e) => setDefectCreatorFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700">
+                    <option value="all">Tất cả người tạo</option>
+                    {defectCreatorOptions.map((creator) => <option key={creator} value={creator}>{creator}</option>)}
+                  </select>
+                  <label className="space-y-1">
+                    <span className="block text-[9.5px] font-bold text-slate-500">Defect tạo từ ngày</span>
+                    <input type="date" value={defectCreatedFrom} onChange={(e) => setDefectCreatedFrom(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px]" />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="block text-[9.5px] font-bold text-slate-500">Defect tạo đến ngày</span>
+                    <input type="date" value={defectCreatedTo} onChange={(e) => setDefectCreatedTo(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px]" />
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="space-y-1">
+                      <span className="block text-[9.5px] font-bold text-slate-500">Xong từ</span>
+                      <input type="date" value={defectCompletedFrom} onChange={(e) => setDefectCompletedFrom(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-2 py-2 text-[11px]" />
+                    </label>
+                    <label className="space-y-1">
+                      <span className="block text-[9.5px] font-bold text-slate-500">Xong đến</span>
+                      <input type="date" value={defectCompletedTo} onChange={(e) => setDefectCompletedTo(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-2 py-2 text-[11px]" />
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <p className="text-[10px] text-slate-500">
+                Khu/Khối → Tầng → Căn/Phòng → Đội là phạm vi chung. Bộ lọc trạng thái/hạng mục/người tạo/ngày chỉ thu hẹp phần Defect và phụ lục ảnh Defect.
+              </p>
             </div>
           </div>
 
@@ -1687,29 +2087,6 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
             <p className="px-3 pb-3 text-[10px] text-slate-500">Phụ lục ảnh Defect đi đúng thứ tự Defect đã chọn; phụ lục ảnh nhân công đi theo đúng thứ tự Nhật ký nhân công.</p>
           </details>
 
-          {/* Defect filters - sorting lives in the shared per-section PDF sorting panel above. */}
-          <div className="space-y-1.5">
-            <label className="block text-slate-700 font-bold">Bộ lọc Defect</label>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <select value={defectStatusFilter} onChange={(e) => setDefectStatusFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700">
-                <option value="all">Tất cả trạng thái</option>
-                <option value="Mới phát hiện">Mới phát hiện</option>
-                <option value="Đang sửa">Đang sửa</option>
-                <option value="Đã khắc phục">Đã khắc phục</option>
-                <option value="Đã nghiệm thu">Đã nghiệm thu</option>
-              </select>
-              <select value={defectCategoryFilter} onChange={(e) => setDefectCategoryFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700">
-                <option value="all">Tất cả hạng mục</option>
-                {defectCategoryOptions.map((category) => <option key={category} value={category}>{category}</option>)}
-              </select>
-              <select value={defectCreatorFilter} onChange={(e) => setDefectCreatorFilter(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700">
-                <option value="all">Tất cả người tạo</option>
-                {defectCreatorOptions.map((creator) => <option key={creator} value={creator}>{creator}</option>)}
-              </select>
-            </div>
-            <p className="text-[10px] text-slate-400">Bộ lọc chỉ áp dụng cho Defect trong báo cáo. Vị trí marker Defect và tên phòng trên bản vẽ giữ nguyên thuật toán hiện tại.</p>
-          </div>
-
           {/* Report Content Checkboxes */}
           <div>
             <label className="block text-slate-700 font-bold mb-1.5">Hạng mục chọn xuất báo cáo</label>
@@ -1735,6 +2112,19 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 <BarChart3 className="w-4 h-4 text-blue-600 shrink-0" />
                 <span className="text-[11px]">Khối lượng</span>
               </label>
+
+              {includeWorkVolumes && (
+                <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${includeWorkVolumeDetails ? 'bg-blue-50 border-blue-300 text-blue-900 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
+                  <input
+                    type="checkbox"
+                    checked={includeWorkVolumeDetails}
+                    onChange={(e) => setIncludeWorkVolumeDetails(e.target.checked)}
+                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                  />
+                  <FileSpreadsheet className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span className="text-[11px]">Chi tiết Khối lượng</span>
+                </label>
+              )}
 
               <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${includeFloorPlan ? 'bg-indigo-50/70 border-indigo-300 text-indigo-900 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
                 <input

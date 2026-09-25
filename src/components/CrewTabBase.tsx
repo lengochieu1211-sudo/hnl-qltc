@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import * as XLSX from 'xlsx';
+import { assertSafeExcelImportFile } from '../utils/excelImportUtils';
 import { 
   Users, 
   Calendar, 
@@ -26,9 +27,10 @@ import {
   BarChart3,
   Home,
   CheckCircle,
-  ArrowUpDown
+  ArrowUpDown,
+  PackageSearch
 } from 'lucide-react';
-import { CrewRecord, FloorPlan, TeamInfo, RoomProgressItem, DefectItem, CrewFloorWork, CrewFloorCategoryWork, AcceptanceStatus, RoomInspectionResult } from '../types';
+import { CrewRecord, FloorPlan, TeamInfo, RoomProgressItem, DefectItem, CrewFloorWork, CrewFloorCategoryWork, AcceptanceStatus, RoomInspectionResult, WorkVolume, InventoryItem, MaterialNorm } from '../types';
 import { formatDateDDMMYYYY } from '../utils/dateFormatter';
 import { exportTeamStatisticsToExcel } from '../utils/excelExport';
 import { confirmAsync } from '../utils/confirmAsync';
@@ -37,89 +39,48 @@ import { isTeamMatch, getTeamCategoriesForRoom, calculateTeamStatistics, isTeamW
 import { SortOrder, applySortOrder, compareDateValues, compareFloorValues, naturalCompare } from '../utils/sortUtils';
 import { PhotoAttachmentPicker } from './PhotoAttachmentPicker';
 import { MathNumberInput } from './MathNumberInput';
-import { deleteEntityPhotos, getEntityPhotos, isPhotoSharedCloudReady } from '../utils/photoStorage';
+import { deleteEntityPhotos } from '../utils/photoStorage';
 import { saveWorkbookFile } from '../utils/fileExport';
 import { createEntityId } from '../utils/idUtils';
 import { QuickSortBar } from './QuickSortBar';
 import { UserRole, canEditCrewData, canDeleteBusinessData, canDeleteCrewRecord, canManageTeams, canImportData } from '../utils/securityUtils';
+import { findWorsenedTeamNameConflict, normalizeTeamDirectoryName, resolveUniqueTeamByDirectoryName } from '../utils/teamDirectoryIntegrity';
+import { canonicalWorkCategoryId, isActiveRecord, normalizeLinkText, resolveWorkVolumeRef, workVolumeAppliesToFloor } from '../utils/linkageIntegrity';
 import { getCrewShiftCounts } from '../utils/crewUtils';
 import { ContactMenu } from './ContactMenu';
 import { ShareEntityMenu } from './ShareEntityMenu';
+import { CrewReportShareModal } from './CrewReportShareModal';
+import { computeTeamMaterialReconciliation } from '../utils/teamMaterialReconciliation';
+import {
+  getStructureGroupName,
+  normalizeStructureGroupConfig,
+  resolveFloorStructureGroupId,
+  type ProjectStructureConfig,
+} from '../utils/structureGroupUtils';
 
 const CrewPhotoCount: React.FC<{ projectId?: string; recordId: string }> = ({ projectId, recordId }) => {
-  const [count, setCount] = useState(0);
-  const [pendingCount, setPendingCount] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      if (!projectId || !recordId) return;
-      setLoading(true);
-      try {
-        const photos = await getEntityPhotos(projectId, 'crewRecord', recordId, 'crew_progress');
-        if (!cancelled) {
-          setCount(photos.length);
-          setPendingCount(photos.filter((photo) => !isPhotoSharedCloudReady(photo)).length);
-        }
-      } catch (_) {
-        if (!cancelled) {
-          setCount(0);
-          setPendingCount(0);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-    const onPhotosChanged = (event: Event) => {
-      const detail = (event as CustomEvent)?.detail || {};
-      if (detail.source === 'cloud' && Array.isArray(detail.entities)) {
-        const relevant = detail.entities.some((item: any) =>
-          item?.entityType === 'crewRecord' && item?.entityId === recordId && (!item?.category || item.category === 'crew_progress')
-        );
-        if (!relevant) return;
-      } else {
-        if (detail.entityType && detail.entityType !== 'crewRecord') return;
-        if (detail.entityId && detail.entityId !== recordId) return;
-        if (detail.category && detail.category !== 'crew_progress') return;
-      }
-      void load();
-    };
-    void load();
-    window.addEventListener('qlct-photo-attachments-changed', onPhotosChanged);
-    return () => {
-      cancelled = true;
-      window.removeEventListener('qlct-photo-attachments-changed', onPhotosChanged);
-    };
-  }, [projectId, recordId]);
+  if (!projectId) {
+    return (
+      <div className="mt-2.5 pt-2 border-t border-slate-100">
+        <span className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[10px] font-extrabold text-slate-500">
+          <FileText className="w-3.5 h-3.5" />
+          Chưa có ảnh hiện trường
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div className="mt-2.5 pt-2 border-t border-slate-100">
-      <button
-        type="button"
-        onClick={() => count > 0 && setExpanded((value) => !value)}
-        className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[10px] font-extrabold ${pendingCount > 0 ? 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100' : count > 0 ? 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100' : 'bg-slate-50 border-slate-200 text-slate-500'}`}
-      >
-        <FileText className="w-3.5 h-3.5" />
-        {loading
-          ? 'Đang kiểm tra ảnh...'
-          : count > 0
-            ? `${count} ảnh hiện trường${pendingCount > 0 ? ` · ${pendingCount} chờ Cloud` : ''} · ${expanded ? 'Ẩn' : 'Xem'}`
-            : 'Chưa có ảnh hiện trường'}
-      </button>
-      {expanded && count > 0 && projectId && (
-        <div className="mt-2">
-          <PhotoAttachmentPicker
-            projectId={projectId}
-            entityType="crewRecord"
-            entityId={recordId}
-            category="crew_progress"
-            label="HÌNH ẢNH HIỆN TRƯỜNG"
-            readOnly
-          />
-        </div>
-      )}
+      <PhotoAttachmentPicker
+        projectId={projectId}
+        entityType="crewRecord"
+        entityId={recordId}
+        category="crew_progress"
+        label="Ảnh hiện trường"
+        readOnly
+        compactViewerButton
+      />
     </div>
   );
 };
@@ -130,10 +91,15 @@ interface CrewTabProps {
   roleResolved: boolean;
   currentUserUid?: string;
   projectName?: string;
+  projectLocation?: string;
   crewRecords: CrewRecord[];
   floorPlans: FloorPlan[];
+  structureConfig: ProjectStructureConfig;
   roomProgressList?: RoomProgressItem[];
   defects?: DefectItem[];
+  workVolumes?: WorkVolume[];
+  inventory?: InventoryItem[];
+  materialNorms?: MaterialNorm[];
   onAddCrewRecord: (record: Omit<CrewRecord, 'id'> & { id?: string }) => void;
   onUpdateCrewRecord: (id: string, record: Partial<CrewRecord>) => void;
   onDeleteCrewRecord: (id: string) => void;
@@ -145,7 +111,7 @@ interface CrewTabProps {
   onUpdateTeams?: (teams: TeamInfo[]) => void;
 }
 
-const buildCrewRecordShareText = (record: CrewRecord, projectName?: string) => {
+const buildCrewRecordShareText = (record: CrewRecord, projectName?: string, projectLocation?: string) => {
   const counts = getCrewShiftCounts(record);
   const floors = Array.from(new Set([
     record.floorName,
@@ -159,8 +125,9 @@ const buildCrewRecordShareText = (record: CrewRecord, projectName?: string) => {
     ])),
   ].map((value) => String(value || '').trim()).filter(Boolean)));
   return [
-    'HNL QLTC – Báo cáo quân số theo ngày',
+    'Báo cáo quân số theo ngày',
     projectName ? `Dự án: ${projectName}` : '',
+    projectLocation ? `Địa điểm: ${projectLocation}` : '',
     `Ngày: ${formatDateDDMMYYYY(record.date)}`,
     `Đội: ${record.teamName || 'Chưa cập nhật'}`,
     record.leaderName ? `Đội trưởng: ${record.leaderName}` : '',
@@ -256,10 +223,15 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   roleResolved,
   currentUserUid = '',
   projectName,
+  projectLocation,
   crewRecords,
   floorPlans,
+  structureConfig,
   roomProgressList = [],
   defects = [],
+  workVolumes = [],
+  inventory = [],
+  materialNorms = [],
   onAddCrewRecord,
   onUpdateCrewRecord,
   onDeleteCrewRecord,
@@ -271,6 +243,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   onUpdateTeams,
 }) => {
   const { t } = useLanguage();
+  const isDesktopRuntime = typeof window !== 'undefined'
+    && new URLSearchParams(window.location.search).get('app') === 'desktop';
+  const crewModalRailInsetClass = isDesktopRuntime ? 'left-[84px]' : 'left-0 lg:left-[84px]';
   const canOperate = roleResolved && canEditCrewData(userRole);
   // Bulk deletion remains ADMIN-only. EDITOR can remove only a record they created,
   // and that record still goes through the normal Trash / soft-delete sync pipeline.
@@ -283,24 +258,139 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [activeSubTab, setActiveSubTab] = useState<'logs' | 'teams'>('logs');
   useFormatSettings();
   const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
+  const normalizedStructureConfig = useMemo(() => normalizeStructureGroupConfig(structureConfig), [structureConfig]);
+  // Khu/Khối remains in persisted data; Crew lists/statistics stay project-wide and show location per item.
+  const selectedStructureGroupId = 'all';
+
+  const floorById = useMemo(
+    () => new Map(floorPlans.map((floor) => [floor.id, floor] as const)),
+    [floorPlans],
+  );
+
+  const getRecordStructureGroupIds = (record: CrewRecord): string[] => {
+    const ids = new Set<string>();
+    const floorRefs = [
+      ...(record.floorId ? [record.floorId] : []),
+      ...((record.floorWorks || []).map((work) => work.floorId)),
+    ].filter(Boolean);
+    floorRefs.forEach((floorId) => {
+      const floor = floorById.get(floorId);
+      if (floor) ids.add(resolveFloorStructureGroupId(floor, normalizedStructureConfig));
+    });
+    // Floor linkage is authoritative after Khu/Khối is introduced. An explicit
+    // structureGroupId is only a fallback for records that have no resolvable floor.
+    // This prevents a stale legacy group id from making one record appear in two groups
+    // after its floor is moved to another Khu/Khối.
+    if (ids.size === 0 && record.structureGroupId && normalizedStructureConfig.groups.some((group) => group.id === record.structureGroupId)) {
+      ids.add(record.structureGroupId);
+    }
+    if (ids.size === 0) ids.add(normalizedStructureConfig.defaultGroupId);
+    return Array.from(ids);
+  };
+
+  const recordMatchesStructureGroup = (record: CrewRecord, groupId: string): boolean =>
+    groupId === 'all' || getRecordStructureGroupIds(record).includes(groupId);
+
+  const floorMatchesStructureGroup = (floorId?: string, groupId = selectedStructureGroupId): boolean => {
+    if (groupId === 'all') return true;
+    const floor = floorId ? floorById.get(floorId) : undefined;
+    return Boolean(floor && resolveFloorStructureGroupId(floor, normalizedStructureConfig) === groupId);
+  };
+
+  const structureScopedRooms = useMemo(
+    () => selectedStructureGroupId === 'all'
+      ? roomProgressList
+      : roomProgressList.filter((room) => floorMatchesStructureGroup(room.floorId)),
+    [roomProgressList, selectedStructureGroupId, floorPlans, normalizedStructureConfig],
+  );
+
+  const structureScopedDefects = useMemo(
+    () => selectedStructureGroupId === 'all'
+      ? defects
+      : defects.filter((defect) => floorMatchesStructureGroup(defect.floorId)),
+    [defects, selectedStructureGroupId, floorPlans, normalizedStructureConfig],
+  );
+
+  const structureScopedCrewRecords = useMemo(
+    () => selectedStructureGroupId === 'all'
+      ? crewRecords
+      : crewRecords.filter((record) => recordMatchesStructureGroup(record, selectedStructureGroupId)),
+    [crewRecords, selectedStructureGroupId, floorPlans, normalizedStructureConfig],
+  );
+
+  const structureScopedInventory = useMemo(
+    () => selectedStructureGroupId === 'all'
+      ? inventory
+      : inventory.filter((item) => {
+          if (item.type !== 'out') return true;
+          if (item.sourceStructureGroupId) return item.sourceStructureGroupId === selectedStructureGroupId;
+          if (item.sourceFloorId) {
+            const floor = floorById.get(item.sourceFloorId);
+            return Boolean(floor && resolveFloorStructureGroupId(floor, normalizedStructureConfig) === selectedStructureGroupId);
+          }
+          // Team-only/project-only issues cannot be proven to belong to one Khu/Khối.
+          return false;
+        }),
+    [inventory, selectedStructureGroupId, floorById, normalizedStructureConfig],
+  );
+
+  const logFloorPlans = useMemo(
+    () => floorPlans,
+    [floorPlans],
+  );
 
   // Load custom teams list from props
   const [teams, setTeams] = useState<TeamInfo[]>(() => propTeams || []);
 
   // Team detail & statistics modal state
   const [selectedTeamForDetail, setSelectedTeamForDetail] = useState<TeamInfo | null>(null);
-  const [detailModalTab, setDetailModalTab] = useState<'rooms' | 'defects' | 'logs'>('rooms');
+  const [detailModalTab, setDetailModalTab] = useState<'rooms' | 'materials' | 'defects' | 'logs'>('rooms');
   const [defectFilter, setDefectFilter] = useState<'all' | 'open' | 'resolved'>('all');
   const [teamFloorSortOrder, setTeamFloorSortOrder] = useState<TeamSortOrder>('asc');
-  const [teamDefectFloorSortOrder, setTeamDefectFloorSortOrder] = useState<TeamSortOrder>('asc');
+  const [teamDefectSortBy, setTeamDefectSortBy] = useState<'floor' | 'room' | 'status' | 'due'>('floor');
+  const [teamDefectSortOrder, setTeamDefectSortOrder] = useState<TeamSortOrder>('asc');
+  const [teamMaterialSortBy, setTeamMaterialSortBy] = useState<'name' | 'issued' | 'expected' | 'variance'>('name');
+  const [teamMaterialSortOrder, setTeamMaterialSortOrder] = useState<TeamSortOrder>('asc');
   const [teamLogSortMode, setTeamLogSortMode] = useState<TeamLogSortMode>('date');
   const [teamLogDateSortOrder, setTeamLogDateSortOrder] = useState<TeamSortOrder>('desc');
   const [teamLogFloorSortOrder, setTeamLogFloorSortOrder] = useState<TeamSortOrder>('asc');
   const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
   const [dailyRecordSortBy, setDailyRecordSortBy] = useState<'team' | 'floor' | 'workers'>('team');
   const [dailyRecordSortOrder, setDailyRecordSortOrder] = useState<TeamSortOrder>('asc');
-  const [teamListSortBy, setTeamListSortBy] = useState<'name' | 'leader' | 'count'>('name');
+  const [teamListSortBy, setTeamListSortBy] = useState<'structure' | 'name' | 'leader' | 'count'>('structure');
   const [teamListSortOrder, setTeamListSortOrder] = useState<TeamSortOrder>('asc');
+
+  const openRoomOnFloorPlan = (room: RoomProgressItem) => {
+    const request = {
+      entityType: 'room',
+      projectId: projectId || '',
+      entityId: room.id,
+      roomId: room.id,
+      floorId: room.floorId,
+    };
+    try {
+      sessionStorage.setItem('qlct_diagnostic_navigation_request', JSON.stringify(request));
+    } catch (_) {}
+    setSelectedTeamForDetail(null);
+    window.dispatchEvent(new CustomEvent('qlct-diagnostic-open-entity', { detail: request }));
+  };
+
+  const openDefectOnFloorPlan = (defect: DefectItem) => {
+    const request = {
+      entityType: 'defect',
+      projectId: projectId || '',
+      defectId: defect.id,
+      floorId: defect.floorId,
+      roomId: defect.roomId,
+      x: defect.x,
+      y: defect.y,
+    };
+    try {
+      sessionStorage.setItem('qlct_pending_defect_navigation', JSON.stringify(request));
+    } catch (_) {}
+    setSelectedTeamForDetail(null);
+    window.dispatchEvent(new CustomEvent('qlct-diagnostic-open-entity', { detail: request }));
+  };
 
   // Sync state if prop changes
   useEffect(() => {
@@ -309,13 +399,21 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     }
   }, [propTeams]);
 
-  // Call onUpdateTeams when teams change
-  const updateTeamsAndParent = (nextTeams: TeamInfo[]) => {
-    if (!canManageTeamDirectory) return;
-    setTeams(nextTeams);
-    if (onUpdateTeams) {
-      onUpdateTeams(nextTeams);
+  // Validate before mutating local state so a rejected duplicate never appears as saved
+  // and no form state needs to be destroyed/remounted to recover.
+  const updateTeamsAndParent = (nextTeams: TeamInfo[]): boolean => {
+    if (!canManageTeamDirectory) return false;
+    const conflict = findWorsenedTeamNameConflict(teams, nextTeams);
+    if (conflict) {
+      alert(
+        `Không thể lưu vì tên đội “${conflict.displayName}” bị trùng. ` +
+        'Mỗi tên đội phải đại diện cho một teamId duy nhất. Hãy đổi tên một đội rồi lưu lại.'
+      );
+      return false;
     }
+    setTeams(nextTeams);
+    onUpdateTeams?.(nextTeams);
+    return true;
   };
 
   // Today's date YYYY-MM-DD
@@ -381,6 +479,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [copySourceDate, setCopySourceDate] = useState('');
   const [showCopyDatePicker, setShowCopyDatePicker] = useState(false);
   const [copyDatePickerValue, setCopyDatePickerValue] = useState('');
+  const [showCrewReportShare, setShowCrewReportShare] = useState(false);
 
   useEffect(() => {
     if (!canOperate) {
@@ -416,29 +515,78 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [notes, setNotes] = useState('');
   const [floorWorks, setFloorWorks] = useState<CrewFloorWork[]>([]);
 
-  const addFloorWork = () => {
-    const defaultFp = floorPlans[0];
-    setFloorWorks(prev => [
-      ...prev,
-      {
-        floorId: defaultFp ? defaultFp.id : 'floor-1',
-        floorName: defaultFp ? defaultFp.floorName : 'Tầng 1',
-        categories: [
-          {
-            categoryName: 'Thi công thạch cao',
-            subItems: ['Bắn tấm khung trần']
-          }
-        ]
-      }
-    ]);
+  const activeWorkVolumeCatalog = useMemo(
+    () => workVolumes.filter((item) => isActiveRecord(item) && String(item.title || '').trim()),
+    [workVolumes],
+  );
+
+  const getWorkVolumeOptionsForFloor = (floorId?: string, floorName?: string) => (
+    [...activeWorkVolumeCatalog].sort((a, b) => {
+      const aScoped = workVolumeAppliesToFloor(a, floorId, floorName) ? 1 : 0;
+      const bScoped = workVolumeAppliesToFloor(b, floorId, floorName) ? 1 : 0;
+      if (aScoped !== bScoped) return bScoped - aScoped;
+      return naturalCompare(String(a.title || ''), String(b.title || ''));
+    })
+  );
+
+  const getSubItemSuggestions = (floorId: string | undefined, floorName: string | undefined, categoryName: string) => {
+    const resolved = resolveWorkVolumeRef({
+      workVolumes: activeWorkVolumeCatalog,
+      workCategoryName: categoryName,
+      floorId,
+      floorName,
+    });
+    const categoryId = resolved.state === 'resolved' ? canonicalWorkCategoryId(resolved.work) : '';
+    const normalizedCategory = normalizeLinkText(categoryName);
+    const suggestions = new Set<string>();
+    roomProgressList.forEach((room) => {
+      (room.subItems || []).forEach((sub) => {
+        const subId = String(sub.workCategoryId || '').trim();
+        const sameById = Boolean(categoryId && subId && subId === categoryId);
+        const sameByName = Boolean(normalizedCategory && normalizeLinkText(sub.category) === normalizedCategory);
+        if (sameById || sameByName) {
+          const name = String(sub.name || '').trim();
+          if (name) suggestions.add(name);
+        }
+      });
+    });
+    return Array.from(suggestions).sort((a, b) => naturalCompare(a, b));
   };
+
+  const createDefaultFloorWork = (floor?: FloorPlan): CrewFloorWork | null => {
+    if (!floor) return null;
+    const firstCatalogItem = getWorkVolumeOptionsForFloor(floor.id, floor.floorName)[0];
+    const categoryName = String(firstCatalogItem?.title || 'Thi công thạch cao').trim();
+    const suggestedSubItems = getSubItemSuggestions(floor.id, floor.floorName, categoryName);
+    return {
+      floorId: floor.id,
+      floorName: floor.floorName,
+      categories: [
+        {
+          categoryName,
+          subItems: suggestedSubItems.length > 0 ? [suggestedSubItems[0]] : []
+        }
+      ]
+    };
+  };
+
+  const addFloorWork = () => {
+    const defaultFp = logFloorPlans[0];
+    const next = createDefaultFloorWork(defaultFp);
+    if (!next) {
+      alert('Chưa có tầng nào trong dự án.');
+      return;
+    }
+    setFloorWorks(prev => [...prev, next]);
+  };
+
 
   const removeFloorWork = async (floorIndex: number) => {
     setFloorWorks(prev => prev.filter((_, idx) => idx !== floorIndex));
   };
 
   const updateFloorWorkFloor = (floorIndex: number, floorId: string) => {
-    const fp = floorPlans.find(f => f.id === floorId);
+    const fp = logFloorPlans.find(f => f.id === floorId) || floorPlans.find(f => f.id === floorId);
     setFloorWorks(prev => prev.map((fw, idx) => {
       if (idx === floorIndex) {
         return {
@@ -454,13 +602,18 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const addCategoryToFloor = (floorIndex: number) => {
     setFloorWorks(prev => prev.map((fw, idx) => {
       if (idx === floorIndex) {
+        const usedNames = new Set(fw.categories.map((item) => normalizeLinkText(item.categoryName)));
+        const nextCatalogItem = getWorkVolumeOptionsForFloor(fw.floorId, fw.floorName)
+          .find((item) => !usedNames.has(normalizeLinkText(item.title)));
+        const categoryName = String(nextCatalogItem?.title || 'Hạng mục mới').trim();
+        const suggestedSubItems = getSubItemSuggestions(fw.floorId, fw.floorName, categoryName);
         return {
           ...fw,
           categories: [
             ...fw.categories,
             {
-              categoryName: 'Hạng mục mới',
-              subItems: ['Công đoạn 1']
+              categoryName,
+              subItems: suggestedSubItems.length > 0 ? [suggestedSubItems[0]] : []
             }
           ]
         };
@@ -611,16 +764,17 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         setAfternoonCount(5);
         setEveningCount(0);
       }
-      if (floorPlans.length > 0) {
+      const availableFloors = floorPlans;
+      if (availableFloors.length > 0) {
         setFloorWorks([{
-          floorId: floorPlans[0].id,
-          floorName: floorPlans[0].floorName,
+          floorId: availableFloors[0].id,
+          floorName: availableFloors[0].floorName,
           categories: [{
             categoryName: 'Thi công thạch cao',
             subItems: ['Bắn tấm khung chìm', 'Bả matit 2 lớp']
           }]
         }]);
-        setSelectedFloorId(floorPlans[0].id);
+        setSelectedFloorId(availableFloors[0].id);
       } else {
         setFloorWorks([]);
         setSelectedFloorId('');
@@ -628,7 +782,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       setTaskDescription(COMMON_TASKS[0]);
       setNotes('');
     }
-  }, [editingRecord, showAddLogModal, floorPlans, teams]);
+  }, [editingRecord, showAddLogModal, floorPlans, teams, normalizedStructureConfig]);
 
   // Synchronize Manage Team Form values
   useEffect(() => {
@@ -725,10 +879,10 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     setSelectedDate(nextDate);
   };
 
-  // Filter records for the selected date
+  // Filter records for the selected date and optional Khu/Khối scope.
   const filteredRecords = useMemo(() => {
-    return crewRecords.filter((record) => record.date === selectedDate);
-  }, [crewRecords, selectedDate]);
+    return structureScopedCrewRecords.filter((record) => record.date === selectedDate);
+  }, [structureScopedCrewRecords, selectedDate]);
 
   const sortedFilteredRecords = useMemo(() => {
     const list = [...filteredRecords];
@@ -746,11 +900,45 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     return list;
   }, [filteredRecords, dailyRecordSortBy, dailyRecordSortOrder]);
 
-  const sortedTeams = useMemo(() => {
+  const getTeamStructureGroupNames = (team: TeamInfo): string[] => {
+    if (!normalizedStructureConfig.enabled) return [];
+    const groupIds = new Set<string>();
+
+    crewRecords.forEach((record) => {
+      if (!isTeamMatch(record.teamName, team, record.teamId)) return;
+      getRecordStructureGroupIds(record).forEach((groupId) => groupIds.add(groupId));
+    });
+    roomProgressList.forEach((room) => {
+      if (room.deletedAt !== undefined && room.deletedAt !== null) return;
+      const assigned = isTeamMatch(room.assignedTeam, team, room.teamId)
+        || (room.subItems || []).some((sub) => isTeamMatch(sub.assignedTeam, team, sub.teamId));
+      if (!assigned || !room.floorId) return;
+      const floor = floorById.get(room.floorId);
+      if (floor) groupIds.add(resolveFloorStructureGroupId(floor, normalizedStructureConfig));
+    });
+    defects.forEach((defect) => {
+      if (defect.archivedAt || !isTeamMatch(defect.assignedTo, team, defect.teamId) || !defect.floorId) return;
+      const floor = floorById.get(defect.floorId);
+      if (floor) groupIds.add(resolveFloorStructureGroupId(floor, normalizedStructureConfig));
+    });
+
+    return Array.from(groupIds)
+      .map((groupId) => getStructureGroupName(groupId, normalizedStructureConfig))
+      .filter(Boolean)
+      .sort((a, b) => naturalCompare(a, b));
+  };
+
+  const sortedTeams = (() => {
     const list = [...teams];
     list.sort((a, b) => {
       let comparison = 0;
-      if (teamListSortBy === 'name') {
+      if (teamListSortBy === 'structure') {
+        comparison = naturalCompare(
+          getTeamStructureGroupNames(a).join(' · ') || 'zzzz',
+          getTeamStructureGroupNames(b).join(' · ') || 'zzzz',
+        );
+        if (comparison === 0) comparison = naturalCompare(a.name || '', b.name || '');
+      } else if (teamListSortBy === 'name') {
         comparison = (a.name || '').localeCompare(b.name || '', 'vi', { numeric: true, sensitivity: 'base' });
       } else if (teamListSortBy === 'leader') {
         comparison = (a.leader || '').localeCompare(b.leader || '', 'vi', { numeric: true, sensitivity: 'base' });
@@ -760,7 +948,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       return teamListSortOrder === 'asc' ? comparison : -comparison;
     });
     return list;
-  }, [teams, teamListSortBy, teamListSortOrder]);
+  })();
 
   // Statistics for the selected date
   const stats = useMemo(() => {
@@ -779,18 +967,19 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     const totalWorkers = Object.values(teamMaxMap).reduce((sum, count) => sum + count, 0);
     const totalTeams = teamSet.size;
 
-    // Distribution by floor
-    const floorDistribution: { [key: string]: { name: string; count: number } } = {};
+    // Distribution by floor must use the same daily headcount semantics as the total:
+    // max headcount per team/floor, not a raw sum of repeated shift records.
+    const floorTeamMax = new Map<string, { name: string; teams: Map<string, number> }>();
     filteredRecords.forEach((r) => {
-      if (r.floorId) {
-        if (!floorDistribution[r.floorId]) {
-          floorDistribution[r.floorId] = { name: r.floorName || 'Tầng', count: 0 };
-        }
-        floorDistribution[r.floorId].count += r.workerCount;
-      }
+      if (!r.floorId) return;
+      const teamKey = r.teamId || r.teamName.trim().toLowerCase();
+      const bucket = floorTeamMax.get(r.floorId) || { name: r.floorName || 'Tầng', teams: new Map<string, number>() };
+      bucket.teams.set(teamKey, Math.max(bucket.teams.get(teamKey) || 0, Number(r.workerCount) || 0));
+      floorTeamMax.set(r.floorId, bucket);
     });
-
-    const activeFloorsList = Object.values(floorDistribution).sort((a, b) => b.count - a.count);
+    const activeFloorsList = Array.from(floorTeamMax.values())
+      .map((floor) => ({ name: floor.name, count: Array.from(floor.teams.values()).reduce((sum, count) => sum + count, 0) }))
+      .sort((a, b) => b.count - a.count);
 
     return {
       totalWorkers,
@@ -803,12 +992,26 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const allTeamStatsMap = useMemo(() => {
     return calculateTeamStatistics({
       teams,
-      roomProgressList: roomProgressList || [],
-      defects: defects || [],
-      crewRecords: crewRecords || [],
-      floorPlans: floorPlans || []
+      roomProgressList: structureScopedRooms || [],
+      defects: structureScopedDefects || [],
+      crewRecords: structureScopedCrewRecords || [],
+      floorPlans: floorPlans || [],
+      workVolumes
     });
-  }, [teams, roomProgressList, defects, crewRecords, floorPlans]);
+  }, [teams, structureScopedRooms, structureScopedDefects, structureScopedCrewRecords, floorPlans, workVolumes]);
+
+  const selectedTeamMaterialReconciliation = useMemo(() => {
+    if (!selectedTeamForDetail) return [];
+    const stat = allTeamStatsMap[selectedTeamForDetail.id];
+    if (!stat) return [];
+    return computeTeamMaterialReconciliation({
+      team: selectedTeamForDetail,
+      stats: stat,
+      inventory: structureScopedInventory,
+      materialNorms,
+      workVolumes,
+    });
+  }, [selectedTeamForDetail, allTeamStatsMap, structureScopedInventory, materialNorms, workVolumes]);
 
   // Handle Daily Log Submission
   const handleLogSubmit = (e: React.FormEvent) => {
@@ -828,16 +1031,42 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     }
 
     const normalizedTeamName = teamName.trim();
+    const selectedGroupIds = Array.from(new Set(
+      floorWorks
+        .map((work) => floorById.get(work.floorId))
+        .filter(Boolean)
+        .map((floor) => resolveFloorStructureGroupId(floor!, normalizedStructureConfig)),
+    ));
+    if (normalizedStructureConfig.enabled && selectedGroupIds.length > 1) {
+      alert(`Một bản ghi quân số chỉ được chọn các tầng trong cùng ${normalizedStructureConfig.label}.`);
+      return;
+    }
+    const fallbackFloor = selectedFloorId ? floorById.get(selectedFloorId) : undefined;
+    const currentGroupId = normalizedStructureConfig.enabled
+      ? (selectedGroupIds[0] || (fallbackFloor ? resolveFloorStructureGroupId(fallbackFloor, normalizedStructureConfig) : normalizedStructureConfig.defaultGroupId))
+      : normalizedStructureConfig.defaultGroupId;
     const existingRecord = crewRecords.find(
-      (r) => r.date === selectedDate && r.teamName.toLowerCase() === normalizedTeamName.toLowerCase()
+      (r) => r.date === selectedDate
+        && r.teamName.toLowerCase() === normalizedTeamName.toLowerCase()
+        && recordMatchesStructureGroup(r, currentGroupId)
     );
 
     if (existingRecord && (!editingRecord || existingRecord.id !== editingRecord.id)) {
-      alert(`Đội "${normalizedTeamName}" đã được ghi nhận quân số trong ngày hôm nay!`);
+      const groupName = normalizedStructureConfig.enabled
+        ? getStructureGroupName(currentGroupId, normalizedStructureConfig)
+        : '';
+      alert(`Đội "${normalizedTeamName}" đã được ghi nhận quân số trong ngày này${groupName ? ` tại ${groupName}` : ''}!`);
       return;
     }
 
     // Auto-commit any currently typed but unadded sub-items / work categories
+    if (normalizedStructureConfig.enabled) {
+      const crossGroupFloor = floorWorks.find((work) => !floorMatchesStructureGroup(work.floorId, currentGroupId));
+      if (crossGroupFloor) {
+        alert(`Tầng "${crossGroupFloor.floorName}" không thuộc ${normalizedStructureConfig.label} đang chọn. Hãy chọn lại trước khi lưu.`);
+        return;
+      }
+    }
     let finalFloorWorks = [...floorWorks];
     floorWorks.forEach((fw, fIdx) => {
       fw.categories.forEach((cat, cIdx) => {
@@ -879,7 +1108,10 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     const activeShifts = [morningCount > 0 ? 'Sáng' : '', afternoonCount > 0 ? 'Chiều' : '', eveningCount > 0 ? 'Tối' : ''].filter(Boolean);
     const shiftValue = activeShifts.length > 0 ? activeShifts.join(', ') : 'Nghỉ';
 
-    const matchingTeam = teams.find(t => t.name.trim().toLowerCase() === teamName.trim().toLowerCase());
+    // Explicit teamId is authoritative. Legacy display-name fallback is allowed only
+    // when the current directory has exactly one matching team. Never guess the first
+    // duplicate, otherwise Crew/Material Need attribution can drift to the wrong team.
+    const matchingTeam = resolveUniqueTeamByDirectoryName(teams, teamName);
     const finalTeamId = teamId || matchingTeam?.id || '';
 
     const recordData = {
@@ -893,6 +1125,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       eveningCount: Math.max(0, eveningCount),
       floorId,
       floorName,
+      structureGroupId: normalizedStructureConfig.enabled ? currentGroupId : undefined,
       floorWorks: finalFloorWorks,
       taskDescription: taskDesc,
       shift: shiftValue,
@@ -938,14 +1171,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     let nextTeams: TeamInfo[];
     if (editingTeam) {
       nextTeams = teams.map((t) => (t.id === editingTeam.id ? teamData : t));
-      setEditingTeam(null);
     } else {
       nextTeams = [...teams, teamData];
     }
-    setTeams(nextTeams);
-    if (onUpdateTeams) {
-      onUpdateTeams(nextTeams);
-    }
+    if (!updateTeamsAndParent(nextTeams)) return;
+    setEditingTeam(null);
     setShowTeamModal(false);
   };
 
@@ -1008,10 +1238,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     if (!canManageTeamDirectory) return;
     if (deletingTeamTarget) {
       const nextTeams = teams.filter((t) => t.id !== deletingTeamTarget.id);
-      setTeams(nextTeams);
-      if (onUpdateTeams) {
-        onUpdateTeams(nextTeams);
-      }
+      if (!updateTeamsAndParent(nextTeams)) return;
       setDeletingTeamTarget(null);
     }
   };
@@ -1048,7 +1275,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       });
       return acc;
     }, {});
-    ws['!cols'] = Object.keys(maxLens).map((key) => ({ wch: maxLens[key] }));
+    const excelColumnKeys = Object.keys(maxLens);
+    ws['!cols'] = excelColumnKeys.map((key) => ({
+      wch: maxLens[key],
+      ...(key === '__teamId' ? { hidden: true } : {}),
+    }));
 
     XLSX.utils.book_append_sheet(wb, ws, 'Danh Sach Doi Thi Cong');
     return saveWorkbookFile(wb, 'Mau_Danh_Sach_Doi_Thi_Cong.xlsx');
@@ -1058,12 +1289,15 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     const currentProjName = projectName || 'Công Trình';
     exportTeamStatisticsToExcel({
       teams,
-      roomProgressList: roomProgressList || [],
-      defects: defects || [],
-      crewRecords,
+      roomProgressList: structureScopedRooms || [],
+      defects: structureScopedDefects || [],
+      crewRecords: structureScopedCrewRecords || [],
       floorPlans,
       projectName: currentProjName,
-      selectedTeamName: teamName
+      selectedTeamName: teamName,
+      workVolumes,
+      inventory: structureScopedInventory,
+      materialNorms,
     });
   };
 
@@ -1071,6 +1305,11 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     if (!canImportTeams) { e.target.value = ''; return; }
     const file = e.target.files?.[0];
     if (!file) return;
+    try { assertSafeExcelImportFile(file); } catch (error) {
+      alert(`❌ ${error instanceof Error ? error.message : 'Tệp Excel không hợp lệ.'}`);
+      e.target.value = '';
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -1086,12 +1325,25 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           return;
         }
 
-        // Validate that we can find the team name column
+        // Resolve the human-facing team-name column exactly. The old "contains team"
+        // matcher could select __teamId before "Tên Đội Thi Công", then overwrite
+        // the visible team name with the technical ID during re-import.
         const firstRow = jsonData[0];
         const foundHeaders = Object.keys(firstRow);
-        const nameMatchKey = foundHeaders.find(h => 
-          ['Tên Đội Thi Công', 'teamName', 'Tên Đội', 'Đội Thi Công', 'team'].some(rk => h.toLowerCase().includes(rk.toLowerCase()))
-        );
+        const normalizeExcelHeader = (value: unknown) => String(value || '').trim().toLocaleLowerCase('vi-VN').replace(/\s+/g, ' ');
+        const teamNameAliases = new Set([
+          'tên đội thi công',
+          'teamname',
+          'tên đội',
+          'đội thi công',
+          'team',
+        ]);
+        const nameMatchKey = foundHeaders.find((header) => {
+          const normalized = normalizeExcelHeader(header);
+          if (!normalized || normalized.startsWith('__')) return false;
+          if (normalized === 'teamid' || normalized === 'team id' || normalized === 'id' || normalized === 'mã đội') return false;
+          return teamNameAliases.has(normalized);
+        });
 
         if (!nameMatchKey) {
           alert(
@@ -1119,10 +1371,29 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             skippedCount++;
             return;
           }
+          // Fail closed for workbooks already damaged by the previous header bug.
+          // A human-facing team name must never be silently replaced by its technical ID.
+          if (rawTeamId && nameStr === rawTeamId) {
+            skippedCount++;
+            return;
+          }
 
-          const existingIdx = rawTeamId 
-            ? newTeams.findIndex(t => t.id === rawTeamId)
-            : newTeams.findIndex(t => t.name.toLowerCase() === nameStr.toLowerCase());
+          let existingIdx = -1;
+          if (rawTeamId) {
+            existingIdx = newTeams.findIndex(t => t.id === rawTeamId);
+          } else {
+            const normalizedName = normalizeTeamDirectoryName(nameStr);
+            const matchingIndices = newTeams
+              .map((team, index) => normalizeTeamDirectoryName(team.name) === normalizedName ? index : -1)
+              .filter((index) => index >= 0);
+            if (matchingIndices.length > 1) {
+              // Legacy duplicate names are ambiguous without __teamId. Do not silently
+              // update the first team; skip this row and require an exported ID-based file.
+              skippedCount++;
+              return;
+            }
+            existingIdx = matchingIndices[0] ?? -1;
+          }
 
           const teamData: TeamInfo = {
             id: existingIdx !== -1 ? newTeams[existingIdx].id : (rawTeamId || createEntityId('team')),
@@ -1142,12 +1413,12 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           }
         });
 
-        updateTeamsAndParent(newTeams);
+        if (!updateTeamsAndParent(newTeams)) return;
         alert(
           `🎉 Nhập Đội Thi Công từ Excel thành công!\n\n` +
           `• Đã cập nhật/chỉnh sửa: ${updatedCount} đội\n` +
           `• Đã thêm mới: ${addedCount} đội\n` +
-          `• Bỏ qua do thiếu thông tin bắt buộc (Tên đội, Đội trưởng hoặc Quân số > 0): ${skippedCount} dòng`
+          `• Bỏ qua do thiếu thông tin, tên đội trùng ID kỹ thuật hoặc tên đội legacy bị trùng/không đủ teamId: ${skippedCount} dòng`
         );
       } catch (err: any) {
         alert(`❌ Lỗi đọc hoặc phân tích tệp Excel:\n${err.message || err}`);
@@ -1182,8 +1453,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
       {activeSubTab === 'logs' ? (
         <>
-          {/* Daily Date Header Controller */}
-          <div className="flex items-center justify-between bg-white px-3 py-2.5 rounded-xl border border-slate-200 shadow-sm mb-4">
+          {/* Date controller. Khu/Khối is shown on each log/team card instead of a global filter. */}
+          <div className="mb-4">
+            <div className="flex items-center justify-between bg-white px-3 py-2.5 rounded-xl border border-slate-200 shadow-sm">
             <button 
               onClick={handlePrevDay}
               className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition"
@@ -1208,7 +1480,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   }
                 }}
                 max={getTodayString()}
-                className="font-bold text-slate-800 bg-transparent border-none focus:outline-none focus:ring-0 cursor-pointer text-sm"
+                className="hnl-crew-date-input font-bold text-slate-800 bg-transparent border-none focus:outline-none focus:ring-0 cursor-pointer text-sm" aria-label="Chọn ngày quân số"
               />
             </div>
 
@@ -1219,6 +1491,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             >
               <ChevronRight className="w-5 h-5" />
             </button>
+            </div>
           </div>
 
           {/* Statistics widgets */}
@@ -1332,6 +1605,16 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             </>
           )}
 
+          <div className="mb-4">
+            <button
+              type="button"
+              onClick={() => setShowCrewReportShare(true)}
+              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 text-xs font-extrabold text-emerald-700 shadow-sm transition hover:bg-emerald-100"
+            >
+              <FileText className="h-4 w-4" /> Chia sẻ báo cáo quân số
+            </button>
+          </div>
+
           {/* Daily Records List */}
           <div className="space-y-3">
             <h2 className="text-xs font-bold text-slate-400 tracking-wider uppercase flex items-center gap-1.5 px-1">
@@ -1419,7 +1702,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                 <p className="text-[10px] text-slate-400 mt-1">Ấn nút "Ghi nhận quân số" hoặc "Sao chép quân số" để điền nhanh.</p>
               </div>
             ) : (
-              sortedFilteredRecords.map((record) => (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
+              {sortedFilteredRecords.map((record) => (
                 <div 
                   key={record.id}
                   data-crew-record-id={record.id}
@@ -1451,6 +1735,16 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                             <User className="w-3.5 h-3.5 text-slate-300" />
                             <span>Đội trưởng: <strong>{record.leaderName}</strong></span>
                           </div>
+                          {normalizedStructureConfig.enabled && (
+                            <div className="mt-1.5 flex flex-wrap gap-1">
+                              {getRecordStructureGroupIds(record).map((groupId) => (
+                                <span key={groupId} className="inline-flex items-center gap-1 rounded-md border border-indigo-100 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-extrabold text-indigo-700">
+                                  <MapPin className="h-3 w-3" />
+                                  {getStructureGroupName(groupId, normalizedStructureConfig)}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
 
                         <div className="flex flex-col items-end gap-1 shrink-0">
@@ -1502,7 +1796,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                           entityType="crewRecord"
                           entityId={record.id}
                           title={`Quân số ${record.teamName || 'Đội thi công'} · ${formatDateDDMMYYYY(record.date)}`}
-                          text={buildCrewRecordShareText(record, projectName)}
+                          text={buildCrewRecordShareText(record, projectName, projectLocation)}
                           triggerLabel="Chia sẻ báo cáo"
                         />
                       </div>
@@ -1533,7 +1827,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     </div>
                   </div>
                 </div>
-              ))
+              ))}
+              </div>
             )}
           </div>
         </>
@@ -1604,6 +1899,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             <QuickSortBar
               itemCount={teams.length}
               options={[
+                { key: 'structure', label: normalizedStructureConfig.enabled ? normalizedStructureConfig.label : 'Khu/Khối', kind: 'alpha' },
                 { key: 'name', label: 'Tên đội', kind: 'alpha' },
                 { key: 'leader', label: 'Đội trưởng', kind: 'alpha' },
                 { key: 'count', label: 'Quân số định biên', kind: 'number' },
@@ -1611,7 +1907,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               activeKey={teamListSortBy}
               order={teamListSortOrder}
               onChange={(key, order) => { setTeamListSortBy(key); setTeamListSortOrder(order); }}
-              onReset={() => { setTeamListSortBy('name'); setTeamListSortOrder('asc'); }}
+              onReset={() => { setTeamListSortBy('structure'); setTeamListSortOrder('asc'); }}
               summary={`${teams.length} đội thi công`}
             />
 
@@ -1661,7 +1957,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                 <p className="text-[10px] text-slate-400 mt-1">{canManageTeamDirectory ? 'Bấm Thêm đội để bắt đầu.' : 'Chỉ ADMIN được quản lý danh mục đội thi công.'}</p>
               </div>
             ) : (
-              sortedTeams.map((team) => {
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
+              {sortedTeams.map((team) => {
                 const stat = allTeamStatsMap[team.id];
                 if (!stat) return null;
                 const {
@@ -1673,12 +1970,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                 } = stat;
 
                 const teamFloorNames = Array.from(new Set(assignedRooms.map(r => r.floorName || (floorPlans || []).find(f => f.id === r.floorId)?.floorName || 'Mặt bằng')));
+                const teamStructureGroupNames = getTeamStructureGroupNames(team);
                 const teamWorkCategories = categoryBreakdown.map(cb => cb.categoryName);
 
                 return (
                   <div 
                     key={team.id}
-                    className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:border-indigo-300 transition-all duration-200 hover:shadow-md"
+                    className="h-full flex flex-col bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:border-indigo-300 transition-all duration-200 hover:shadow-md"
                   >
                     <div className="flex justify-between items-start gap-4 mb-2">
                       <div className="flex items-start gap-2.5 min-w-0">
@@ -1719,6 +2017,20 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                         Định biên: {team.defaultCount} thợ
                       </div>
                     </div>
+
+                    {teamStructureGroupNames.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-2">
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-500">
+                          <MapPin className="h-3 w-3 text-indigo-500" />
+                          {normalizedStructureConfig.label}:
+                        </span>
+                        {teamStructureGroupNames.map((groupName) => (
+                          <span key={groupName} className="rounded-md border border-indigo-100 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-extrabold text-indigo-700">
+                            {groupName}
+                          </span>
+                        ))}
+                      </div>
+                    )}
 
                     {/* Quick Stat Pill Widgets */}
                     <div className="grid grid-cols-3 gap-2 my-2.5 pt-2 border-t border-slate-100 text-xs">
@@ -1857,7 +2169,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                         setSelectedTeamForDetail(team);
                         setDetailModalTab('rooms');
                       }}
-                      className="w-full mt-3 flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-3 rounded-xl transition text-xs shadow-xs active:scale-98"
+                      className="w-full mt-auto flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-3 rounded-xl transition text-xs shadow-xs active:scale-98"
                     >
                       <BarChart3 className="w-4 h-4 text-indigo-400" />
                       <span>Xem thống kê Căn / Phòng & Defect</span>
@@ -1887,7 +2199,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     </div>}
                   </div>
                 );
-              })
+              })}
+              </div>
             )}
           </div>
         </div>
@@ -1897,13 +2210,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
       {/* Ghi nhận quân số Modal */}
       {canOperate && showAddLogModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+        <div className={`fixed inset-y-0 right-0 ${crewModalRailInsetClass} z-50 flex items-center justify-center px-2 py-2 sm:p-4 bg-slate-900/60 backdrop-blur-sm`}>
           <div 
-            className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200"
+            className="bg-white rounded-xl shadow-xl w-full max-w-sm sm:max-w-2xl lg:max-w-[1180px] xl:max-w-[1240px] max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
-            <div className="flex justify-between items-center bg-slate-900 px-4 py-3 text-white">
+            <div className="shrink-0 flex justify-between items-center bg-slate-900 px-4 py-3 text-white">
               <h3 className="font-bold text-sm">
                 {editingRecord ? '✍️ Sửa Ghi Nhận Quân Số' : '👷 Ghi Nhận Quân Số Mới'}
               </h3>
@@ -1925,7 +2238,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             </div>
 
             {/* Modal Form */}
-            <form onSubmit={handleLogSubmit} className="p-4 space-y-3.5 overflow-y-auto max-h-[80vh]">
+            <form onSubmit={handleLogSubmit} className="flex-1 min-h-0 p-4 lg:p-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 overflow-y-auto overscroll-contain">
               {/* Date (Informative) */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Ngày Ghi Nhận</label>
@@ -2000,7 +2313,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
 
               {/* Per-shift Worker Count */}
-              <div>
+              <div className="md:col-span-2 lg:col-span-4">
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Quân số theo ca</label>
                 <div className="grid grid-cols-3 gap-2">
                   {([
@@ -2024,7 +2337,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
 
               {/* Multi-floor & Multi-category Work Configuration */}
-              <div className="space-y-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+              <div className="space-y-3 bg-slate-50 p-3 rounded-xl border border-slate-200 md:col-span-2 lg:col-span-4">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
                     <MapPin className="w-3.5 h-3.5 text-indigo-600" />
@@ -2055,7 +2368,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                               onChange={(e) => updateFloorWorkFloor(fIdx, e.target.value)}
                               className="w-full text-xs bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                             >
-                              {floorPlans.map(fp => (
+                              {logFloorPlans.filter((fp) => {
+                                if (!normalizedStructureConfig.enabled) return true;
+                                const anchorWork = floorWorks.find((other, otherIndex) => otherIndex !== fIdx && Boolean(other.floorId));
+                                const anchorFloor = anchorWork ? floorById.get(anchorWork.floorId) : undefined;
+                                if (!anchorFloor) return true;
+                                return resolveFloorStructureGroupId(fp, normalizedStructureConfig) === resolveFloorStructureGroupId(anchorFloor, normalizedStructureConfig);
+                              }).map(fp => (
                                 <option key={fp.id} value={fp.id}>{fp.floorName}</option>
                               ))}
                             </select>
@@ -2090,11 +2409,17 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                               <div className="flex items-center gap-2">
                                 <input
                                   type="text"
-                                  placeholder="Tên hạng mục (VD: Trần thạch cao, Vách ngăn...)"
+                                  list={`crew-category-options-${fIdx}`}
+                                  placeholder="Chọn hạng mục đã khai báo hoặc nhập khác..."
                                   value={cat.categoryName}
                                   onChange={(e) => updateCategoryName(fIdx, cIdx, e.target.value)}
                                   className="flex-1 text-xs bg-white border border-slate-200 px-2 py-1 rounded font-medium focus:outline-none focus:ring-1 focus:ring-indigo-500"
                                 />
+                                <datalist id={`crew-category-options-${fIdx}`}>
+                                  {getWorkVolumeOptionsForFloor(fw.floorId, fw.floorName).map((item) => (
+                                    <option key={item.id} value={item.title} />
+                                  ))}
+                                </datalist>
                                 {fw.categories.length > 1 && (
                                   <button
                                     type="button"
@@ -2127,7 +2452,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                     <input
                                       id={`sub-input-${fIdx}-${cIdx}`}
                                       type="text"
-                                      placeholder="+ Thêm hạng mục phụ (Enter)..."
+                                      list={`crew-subitem-options-${fIdx}-${cIdx}`}
+                                      placeholder="Chọn công đoạn đã khai báo hoặc nhập khác..."
                                       onKeyDown={(e) => {
                                         if (e.key === 'Enter') {
                                           e.preventDefault();
@@ -2135,8 +2461,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                           (e.target as HTMLInputElement).value = '';
                                         }
                                       }}
-                                      className="text-[10px] bg-white border border-slate-200 px-2 py-0.5 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500 w-36"
+                                      className="text-[10px] bg-white border border-slate-200 px-2 py-0.5 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500 w-52 max-w-full"
                                     />
+                                    <datalist id={`crew-subitem-options-${fIdx}-${cIdx}`}>
+                                      {getSubItemSuggestions(fw.floorId, fw.floorName, cat.categoryName).map((name) => (
+                                        <option key={name} value={name} />
+                                      ))}
+                                    </datalist>
                                     <button
                                       type="button"
                                       onClick={() => {
@@ -2163,7 +2494,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
 
               {/* Ghi chú */}
-              <div>
+              <div className="md:col-span-2 lg:col-span-2">
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Ghi chú thêm (tùy chọn)</label>
                 <textarea 
                   placeholder="Ví dụ: Đã nhận đủ vật tư, tăng ca hoàn thành trần phòng A102..."
@@ -2174,7 +2505,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
 
               {/* Hình ảnh đính kèm */}
-              <div className="pt-1">
+              <div className="pt-1 md:col-span-2 lg:col-span-4">
                 <PhotoAttachmentPicker
                   projectId={projectId}
                   entityType="crewRecord"
@@ -2185,7 +2516,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
 
               {/* Buttons */}
-              <div className="flex gap-2.5 pt-2">
+              <div className="sticky bottom-0 z-10 -mx-4 lg:-mx-5 -mb-4 lg:-mb-5 mt-1 flex gap-2.5 border-t border-slate-100 bg-white px-4 lg:px-5 py-3 md:col-span-2 lg:col-span-4">
                 <button
                   type="button"
                   onClick={async () => {
@@ -2216,13 +2547,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
       {/* Thêm / Sửa thông tin Đội thi công Modal */}
       {canManageTeamDirectory && showTeamModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+        <div className={`fixed inset-y-0 right-0 ${crewModalRailInsetClass} z-50 flex items-center justify-center px-2 py-2 sm:p-4 bg-slate-900/60 backdrop-blur-sm`}>
           <div 
-            className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200"
+            className="bg-white rounded-xl shadow-xl w-full max-w-sm sm:max-w-2xl max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
-            <div className="flex justify-between items-center bg-slate-900 px-4 py-3 text-white">
+            <div className="shrink-0 flex justify-between items-center bg-slate-900 px-4 py-3 text-white">
               <h3 className="font-bold text-sm">
                 {editingTeam ? '✍️ Sửa Thông Tin Đội' : '👥 Thêm Đội Thi Công Mới'}
               </h3>
@@ -2238,7 +2569,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             </div>
 
             {/* Modal Form */}
-            <form onSubmit={handleTeamSubmit} className="p-4 space-y-3.5">
+            <form onSubmit={handleTeamSubmit} className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 grid grid-cols-1 sm:grid-cols-2 gap-3.5">
               {/* Team Name */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Tên Đội Thi Công</label>
@@ -2324,7 +2655,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
 
               {/* Notes */}
-              <div>
+              <div className="sm:col-span-2">
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Mô tả / Ghi chú</label>
                 <textarea 
                   placeholder="Ví dụ: Đội chuyên thạch cao trần giật cấp, khoán khối lượng..."
@@ -2335,7 +2666,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
 
               {/* Buttons */}
-              <div className="flex gap-2.5 pt-2">
+              <div className="flex gap-2.5 pt-2 sm:col-span-2">
                 <button
                   type="button"
                   onClick={async () => {
@@ -2360,7 +2691,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
       {/* CONFIRM DELETE DAILY LOG RECORD MODAL */}
       {deletingRecordTarget && canDeleteRecord(deletingRecordTarget) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+        <div className={`fixed inset-y-0 right-0 ${crewModalRailInsetClass} z-50 flex items-center justify-center px-2 py-2 sm:p-4 bg-slate-900/60 backdrop-blur-sm`}>
           <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <div className="p-5 text-center">
               <div className="w-12 h-12 bg-rose-50 rounded-full flex items-center justify-center mx-auto mb-3 border border-rose-100">
@@ -2391,7 +2722,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
       {/* CONFIRM DELETE TEAM FROM DIRECTORY MODAL */}
       {canManageTeamDirectory && deletingTeamTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+        <div className={`fixed inset-y-0 right-0 ${crewModalRailInsetClass} z-50 flex items-center justify-center px-2 py-2 sm:p-4 bg-slate-900/60 backdrop-blur-sm`}>
           <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <div className="p-5 text-center">
               <div className="w-12 h-12 bg-rose-50 rounded-full flex items-center justify-center mx-auto mb-3 border border-rose-100">
@@ -2422,7 +2753,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
       {/* CONFIRM OVERWRITE COPY MODAL */}
       {canOperate && showCopyConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+        <div className={`fixed inset-y-0 right-0 ${crewModalRailInsetClass} z-50 flex items-center justify-center px-2 py-2 sm:p-4 bg-slate-900/60 backdrop-blur-sm`}>
           <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <div className="p-5 text-center">
               <div className="w-12 h-12 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-3 border border-amber-100">
@@ -2468,8 +2799,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           categoryBreakdown
         } = stat;
         
-        const teamDefects = (defects || []).filter(d => !d.archivedAt && isTeamMatch(d.assignedTo, team, d.teamId));
-        const teamLogs = (crewRecords || []).filter(l => isTeamMatch(l.teamName, team, l.teamId));
+        const teamDefects = (structureScopedDefects || []).filter(d => !d.archivedAt && isTeamMatch(d.assignedTo, team, d.teamId));
+        const teamLogs = (structureScopedCrewRecords || []).filter(l => isTeamMatch(l.teamName, team, l.teamId));
         
         const openDefectsList = teamDefects.filter(d => d.status === 'Mới phát hiện' || d.status === 'Đang sửa');
         const resolvedDefectsList = teamDefects.filter(d => d.status === 'Đã khắc phục' || d.status === 'Đã nghiệm thu');
@@ -2499,26 +2830,33 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           return true;
         });
 
-        const displayedDefects = [...unsortedDisplayedDefects].sort((a, b) =>
-        {
-          const floorComparison = applySortOrder(
-            compareFloorValues(
+        const displayedDefects = [...unsortedDisplayedDefects].sort((a, b) => {
+          let comparison = 0;
+          if (teamDefectSortBy === 'room') {
+            comparison = naturalCompare(getDefectRoomSortLabel(a, roomProgressList), getDefectRoomSortLabel(b, roomProgressList));
+          } else if (teamDefectSortBy === 'status') {
+            comparison = naturalCompare(a.status || '', b.status || '');
+          } else if (teamDefectSortBy === 'due') {
+            comparison = compareDateValues(a.dueDate, b.dueDate);
+          } else {
+            comparison = compareFloorValues(
               { floorId: a.floorId, floorName: a.floorName },
               { floorId: b.floorId, floorName: b.floorName }
-            ),
-            teamDefectFloorSortOrder
-          );
-          if (floorComparison !== 0) return floorComparison;
-
-          const roomComparison = naturalCompare(
-            getDefectRoomSortLabel(a, roomProgressList),
-            getDefectRoomSortLabel(b, roomProgressList)
-          );
+            );
+          }
+          if (comparison !== 0) return applySortOrder(comparison, teamDefectSortOrder);
+          const roomComparison = naturalCompare(getDefectRoomSortLabel(a, roomProgressList), getDefectRoomSortLabel(b, roomProgressList));
           if (roomComparison !== 0) return roomComparison;
-
-          const dateComparison = compareDateValues(a.createdAt, b.createdAt);
-          if (dateComparison !== 0) return dateComparison;
           return naturalCompare(a.id, b.id);
+        });
+
+        const displayedMaterials = [...selectedTeamMaterialReconciliation].sort((a, b) => {
+          let comparison = 0;
+          if (teamMaterialSortBy === 'issued') comparison = a.issuedQty - b.issuedQty;
+          else if (teamMaterialSortBy === 'expected') comparison = a.expectedConstructedQty - b.expectedConstructedQty;
+          else if (teamMaterialSortBy === 'variance') comparison = a.varianceQty - b.varianceQty;
+          else comparison = naturalCompare(a.materialName, b.materialName);
+          return applySortOrder(comparison, teamMaterialSortOrder);
         });
 
         const displayedTeamLogs = [...teamLogs].sort((a, b) => {
@@ -2542,17 +2880,25 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
           return naturalCompare(a.id, b.id);
         });
+        const latestTeamLog = [...teamLogs].sort((a, b) => compareDateValues(b.date, a.date))[0];
+        const latestTeamShifts = latestTeamLog ? getCrewShiftCounts(latestTeamLog) : { morning: 0, afternoon: 0, evening: 0 };
+        const latestTeamHeadcount = latestTeamLog
+          ? Math.max(Number(latestTeamLog.workerCount) || 0, latestTeamShifts.morning, latestTeamShifts.afternoon, latestTeamShifts.evening)
+          : 0;
+        const issuedMaterialCount = selectedTeamMaterialReconciliation.filter((line) => line.issuedQty > 0).length;
+        const materialVarianceCount = selectedTeamMaterialReconciliation.filter((line) => Math.abs(line.varianceQty) > 0.01).length;
+
 
         // Collect unique floors where this team worked from daily logs
         const loggedFloors = Array.from(new Set(teamLogs.map(l => l.floorName).filter(Boolean)));
 
         return (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center px-2 sm:p-4 bg-slate-900/70 backdrop-blur-md"
+            className={`fixed inset-y-0 right-0 ${crewModalRailInsetClass} z-50 flex items-center justify-center px-2 py-2 sm:p-4 bg-slate-900/70 backdrop-blur-md`}
             style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top))', paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}
           >
             <div 
-              className="bg-slate-50 rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[calc(100dvh-1rem)] sm:max-h-[92vh] border border-slate-200 animate-in fade-in zoom-in-95 duration-200"
+              className="bg-slate-50 rounded-2xl shadow-2xl w-full sm:max-w-3xl lg:max-w-[1180px] xl:max-w-[1280px] overflow-hidden flex flex-col max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] border border-slate-200 animate-in fade-in zoom-in-95 duration-200"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Header */}
@@ -2610,8 +2956,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               </div>
 
               {/* KPI Summary Strip */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-3 bg-white border-b border-slate-200 text-xs">
-                <div className="bg-indigo-50/80 border border-indigo-100 p-2 rounded-xl text-center">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 p-3 bg-white border-b border-slate-200 text-xs">
+                <button type="button" onClick={() => setDetailModalTab('rooms')} className="bg-indigo-50/80 border border-indigo-100 p-2 rounded-xl text-center hover:bg-indigo-100/80 transition cursor-pointer" title="Xem các Căn/Phòng đội đang làm">
                   <div className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider">Căn / Phòng & Tầng</div>
                   <div className="text-sm sm:text-base font-black text-indigo-900 mt-0.5 flex items-center justify-center gap-1">
                     <Home className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
@@ -2620,9 +2966,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   <div className="text-[10px] text-indigo-600 mt-0.5 font-medium">
                     {completedRooms.length}/{teamRooms.length} Căn / Phòng nghiệm thu
                   </div>
-                </div>
+                </button>
 
-                <div className="bg-emerald-50/80 border border-emerald-100 p-2 rounded-xl text-center">
+                <button type="button" onClick={() => setDetailModalTab('rooms')} className="bg-emerald-50/80 border border-emerald-100 p-2 rounded-xl text-center hover:bg-emerald-100/80 transition cursor-pointer" title="Xem chi tiết khối lượng theo Căn/Phòng và tầng">
                   <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Khối lượng thi công</div>
                   <div className="text-sm sm:text-base font-black text-emerald-900 mt-0.5 flex items-center justify-center gap-1 min-w-0">
                     <BarChart3 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
@@ -2637,9 +2983,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                       ? `NT: ${Object.entries(stat.completedVolumeByUnit).map(([unit, val]) => `${formatDecimal(Number(val))} ${unit}`).join(' + ')}`
                       : (inspectedVol > 0 ? `NT: ${formatDecimal(inspectedVol)} m²` : `Khung: ${formatDecimal(completedFrameVol)} m² | Tấm: ${formatDecimal(completedBoardVol)} m²`)}
                   </div>
-                </div>
+                </button>
 
-                <div className={`border p-2 rounded-xl text-center ${
+                <button type="button" onClick={() => setDetailModalTab('defects')} className={`border p-2 rounded-xl text-center cursor-pointer transition ${
                   openDefectsList.length > 0 ? 'bg-rose-50/80 border-rose-200' : 'bg-slate-50 border-slate-200'
                 }`}>
                   <div className={`text-[10px] font-bold uppercase tracking-wider ${
@@ -2658,9 +3004,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   }`}>
                     {teamDefects.length} tổng defect
                   </div>
-                </div>
+                </button>
 
-                <div className="bg-slate-100/80 border border-slate-200 p-2 rounded-xl text-center">
+                <button type="button" onClick={() => setDetailModalTab('logs')} className="bg-slate-100/80 border border-slate-200 p-2 rounded-xl text-center hover:bg-slate-200/80 transition cursor-pointer" title="Xem lịch sử nhật ký và quân số">
                   <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Tổng công đã làm</div>
                   <div className="text-sm sm:text-base font-black text-slate-800 mt-0.5 flex items-center justify-center gap-1">
                     <Users className="w-3.5 h-3.5 text-slate-600" />
@@ -2669,7 +3015,42 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   <div className="text-[10px] text-slate-500 mt-0.5 font-medium">
                     {teamLogs.length} lượt nhật ký
                   </div>
-                </div>
+                </button>
+              </div>
+
+              {/* Crew overview: desktop/EXE only. Mobile already has the KPI strip and tabs below, so avoid duplicating content and consuming vertical space. */}
+              <div className="hidden 2xl:grid 2xl:grid-cols-2 gap-2 border-b border-slate-200 bg-slate-50/70 p-3">
+                <button type="button" onClick={() => setDetailModalTab('logs')} className="rounded-xl border border-indigo-200 bg-white p-3 text-left transition hover:bg-indigo-50/60">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider text-indigo-700">
+                      <Users className="h-4 w-4" /> Thống kê quân số
+                    </div>
+                    <span className="text-[10px] font-bold text-slate-400">{teamLogs.length} lượt nhật ký</span>
+                  </div>
+                  {latestTeamLog ? (
+                    <div className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
+                      <span className="text-slate-500">Gần nhất</span><span className="font-extrabold text-slate-900">{formatDateDDMMYYYY(latestTeamLog.date)} · {latestTeamHeadcount} người</span>
+                      <span className="text-slate-500">Theo ca</span><span className="font-semibold text-slate-700">Sáng {latestTeamShifts.morning} · Chiều {latestTeamShifts.afternoon} · Tối {latestTeamShifts.evening}</span>
+                      <span className="text-slate-500">Tổng công</span><span className="font-extrabold text-indigo-700">{formatDecimal(totalWorkdays)} công</span>
+                    </div>
+                  ) : (
+                    <div className="mt-2 text-[11px] font-semibold text-slate-500">Chưa có bản ghi quân số của đội trong phạm vi đang xem.</div>
+                  )}
+                </button>
+
+                <button type="button" onClick={() => setDetailModalTab('materials')} className="rounded-xl border border-cyan-200 bg-white p-3 text-left transition hover:bg-cyan-50/60">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider text-cyan-700">
+                      <PackageSearch className="h-4 w-4" /> Vật tư đối chiếu
+                    </div>
+                    <span className="text-[10px] font-bold text-slate-400">{selectedTeamMaterialReconciliation.length} loại</span>
+                  </div>
+                  <div className="mt-2 grid grid-cols-3 gap-2 text-center text-[10px]">
+                    <div className="rounded-lg bg-cyan-50 p-2"><div className="font-black text-cyan-900">{issuedMaterialCount}</div><div className="mt-0.5 text-cyan-700">Đã xuất</div></div>
+                    <div className="rounded-lg bg-slate-50 p-2"><div className="font-black text-slate-900">{selectedTeamMaterialReconciliation.length}</div><div className="mt-0.5 text-slate-600">Theo dõi</div></div>
+                    <div className={`rounded-lg p-2 ${materialVarianceCount > 0 ? 'bg-amber-50' : 'bg-emerald-50'}`}><div className={`font-black ${materialVarianceCount > 0 ? 'text-amber-800' : 'text-emerald-800'}`}>{materialVarianceCount}</div><div className={`mt-0.5 ${materialVarianceCount > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>Có chênh lệch</div></div>
+                  </div>
+                </button>
               </div>
 
               {/* Modal Tabs */}
@@ -2701,6 +3082,18 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                       {openDefectsList.length}
                     </span>
                   )}
+                </button>
+
+                <button
+                  onClick={() => setDetailModalTab('materials')}
+                  className={`flex items-center gap-1.5 py-2 px-3 text-xs font-bold border-b-2 transition whitespace-nowrap ${
+                    detailModalTab === 'materials'
+                      ? 'border-cyan-600 text-cyan-700'
+                      : 'border-transparent text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <PackageSearch className="w-3.5 h-3.5" />
+                  <span>Vật tư đối chiếu ({selectedTeamMaterialReconciliation.length})</span>
                 </button>
 
                 <button
@@ -2792,124 +3185,52 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                 </div>
 
                                 {/* Rooms list inside this floor */}
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
                                   {f.rooms.map((room) => {
-                                    const roomStats = (() => {
-                                      let totalVol = 0;
-                                      let doneFrameVol = 0;
-                                      let doneBoardVol = 0;
-                                      let doneInspectedVol = 0;
-
-                                      const isMain = isTeamMatch(room.assignedTeam, team, room.teamId);
-                                      const teamCats = getTeamCategoriesForRoom(room, team);
-
-                                      const categoriesDetailList: {
-                                        name: string;
-                                        vol: number;
-                                        frameVol: number;
-                                        boardVol: number;
-                                        inspectedVol: number;
-                                        frameStatus: AcceptanceStatus;
-                                        boardStatus: AcceptanceStatus;
-                                        inspectionStatus: RoomInspectionResult;
-                                        subItems?: typeof room.subItems;
-                                      }[] = [];
-
-                                      if (teamCats.size > 0) {
-                                        teamCats.forEach((cat) => {
-                                          const catTotalVol = room.categoryVolumes?.[cat] ?? ((room.workCategory === cat || teamCats.size === 1) ? Number(room.workVolume || 0) : 0);
-                                          const allSubItemsInCat = room.subItems?.filter((s) => (s.category || room.workCategory) === cat) || [];
-                                          const subItemsInCat = allSubItemsInCat.filter((s) =>
-                                            isTeamMatch(s.assignedTeam, team, s.teamId) || (!s.assignedTeam && !s.teamId && isMain)
-                                          );
-
-                                          let catVol = isMain ? catTotalVol : 0;
-                                          if (allSubItemsInCat.length > 0) {
-                                            const totalWeight = allSubItemsInCat.reduce((sum, sub) => sum + getSubItemGroupWeight(allSubItemsInCat, sub), 0);
-                                            const teamWeight = subItemsInCat.reduce((sum, sub) => sum + getSubItemGroupWeight(allSubItemsInCat, sub), 0);
-                                            catVol = totalWeight > 0 ? catTotalVol * (teamWeight / totalWeight) : 0;
-                                          }
-                                          totalVol += catVol;
-
-                                          let catFrameVol = 0;
-                                          let catBoardVol = 0;
-                                          let catInspectedVol = 0;
-                                          let catFrameStatus: AcceptanceStatus = 'Chưa làm';
-                                          let catBoardStatus: AcceptanceStatus = 'Chưa làm';
-                                          let catInspectionStatus: RoomInspectionResult = 'Chưa nghiệm thu';
-
-                                          if (allSubItemsInCat.length > 0 && subItemsInCat.length > 0) {
-                                            const allWeight = allSubItemsInCat.reduce((sum, sub) => sum + getSubItemGroupWeight(allSubItemsInCat, sub), 0);
-                                            const inspectedWeight = subItemsInCat
-                                              .filter((sub) => sub.inspectionStatus === 'Đạt nghiệm thu')
-                                              .reduce((sum, sub) => sum + getSubItemGroupWeight(allSubItemsInCat, sub), 0);
-                                            catInspectedVol = allWeight > 0 ? catTotalVol * (inspectedWeight / allWeight) : 0;
-
-                                            const frameSubs = subItemsInCat.filter((sub) => sub.name.toLocaleLowerCase('vi').includes('khung'));
-                                            const boardSubs = subItemsInCat.filter((sub) => sub.name.toLocaleLowerCase('vi').includes('tấm') || sub.name.toLocaleLowerCase('vi').includes('bắn'));
-                                            const doneFrameCount = frameSubs.filter((sub) => sub.status === 'Đã hoàn thành' || sub.inspectionStatus === 'Đạt nghiệm thu').length;
-                                            const doneBoardCount = boardSubs.filter((sub) => sub.status === 'Đã hoàn thành' || sub.inspectionStatus === 'Đạt nghiệm thu').length;
-                                            catFrameVol = catVol * (frameSubs.length > 0 ? doneFrameCount / frameSubs.length : 0);
-                                            catBoardVol = catVol * (boardSubs.length > 0 ? doneBoardCount / boardSubs.length : 0);
-                                            catFrameStatus = frameSubs.length > 0 ? (doneFrameCount === frameSubs.length ? 'Đã hoàn thành' : doneFrameCount > 0 ? 'Đang làm' : 'Chưa làm') : room.frameStatus;
-                                            catBoardStatus = boardSubs.length > 0 ? (doneBoardCount === boardSubs.length ? 'Đã hoàn thành' : doneBoardCount > 0 ? 'Đang làm' : 'Chưa làm') : room.boardStatus;
-                                            if (subItemsInCat.every((sub) => sub.inspectionStatus === 'Đạt nghiệm thu')) catInspectionStatus = 'Đạt nghiệm thu';
-                                            else if (subItemsInCat.some((sub) => sub.inspectionStatus === 'Chưa đạt (Cần sửa)')) catInspectionStatus = 'Chưa đạt (Cần sửa)';
-                                          } else if (isMain) {
-                                            catInspectedVol = room.inspectionStatus === 'Đạt nghiệm thu' ? catVol : 0;
-                                            catFrameVol = room.frameStatus === 'Đã hoàn thành' ? catVol : room.frameStatus === 'Đang làm' ? catVol * 0.5 : 0;
-                                            catBoardVol = room.boardStatus === 'Đã hoàn thành' ? catVol : room.boardStatus === 'Đang làm' ? catVol * 0.5 : 0;
-                                            catFrameStatus = room.frameStatus;
-                                            catBoardStatus = room.boardStatus;
-                                            catInspectionStatus = room.inspectionStatus;
-                                          }
-
-                                          doneFrameVol += catFrameVol;
-                                          doneBoardVol += catBoardVol;
-                                          doneInspectedVol += catInspectedVol;
-                                          categoriesDetailList.push({
-                                            name: cat,
-                                            vol: catVol,
-                                            frameVol: catFrameVol,
-                                            boardVol: catBoardVol,
-                                            inspectedVol: catInspectedVol,
-                                            frameStatus: catFrameStatus,
-                                            boardStatus: catBoardStatus,
-                                            inspectionStatus: catInspectionStatus,
-                                            subItems: subItemsInCat
-                                          });
-                                        });
-                                      } else if (isMain) {
-                                        totalVol = Number(room.workVolume || 0);
-                                        doneFrameVol = room.frameStatus === 'Đã hoàn thành' ? totalVol : room.frameStatus === 'Đang làm' ? totalVol * 0.5 : 0;
-                                        doneBoardVol = room.boardStatus === 'Đã hoàn thành' ? totalVol : room.boardStatus === 'Đang làm' ? totalVol * 0.5 : 0;
-                                        doneInspectedVol = room.inspectionStatus === 'Đạt nghiệm thu' ? totalVol : 0;
-                                        categoriesDetailList.push({
-                                          name: room.workCategory || 'Hạng mục khác',
-                                          vol: totalVol,
-                                          frameVol: doneFrameVol,
-                                          boardVol: doneBoardVol,
-                                          inspectedVol: doneInspectedVol,
-                                          frameStatus: room.frameStatus,
-                                          boardStatus: room.boardStatus,
-                                          inspectionStatus: room.inspectionStatus,
-                                          subItems: room.subItems
-                                        });
-                                      }
-
-                                      return {
-                                        totalVol: Math.round(totalVol * 100) / 100,
-                                        doneFrameVol: Math.round(doneFrameVol * 100) / 100,
-                                        doneBoardVol: Math.round(doneBoardVol * 100) / 100,
-                                        doneInspectedVol: Math.round(doneInspectedVol * 100) / 100,
-                                        categories: categoriesDetailList
-                                      };
-                                    })();
+                                    const canonicalDetails = stat.teamRoomDetails.filter((detail) => detail.roomId === room.id);
+                                    const byUnit: Record<string, number> = {};
+                                    canonicalDetails.forEach((detail) => {
+                                      byUnit[detail.unit || 'm²'] = (byUnit[detail.unit || 'm²'] || 0) + Number(detail.assignedVolume || 0);
+                                    });
+                                    const roomStats = {
+                                      totalVol: canonicalDetails.reduce((sum, detail) => sum + Number(detail.assignedVolume || 0), 0),
+                                      doneFrameVol: canonicalDetails.reduce((sum, detail) => sum + Number(detail.frameVolume || 0), 0),
+                                      doneBoardVol: canonicalDetails.reduce((sum, detail) => sum + Number(detail.boardVolume || 0), 0),
+                                      doneInspectedVol: canonicalDetails.reduce((sum, detail) => sum + Number(detail.inspectedVolume || 0), 0),
+                                      volumeLabel: Object.entries(byUnit).map(([unit, value]) => `${formatDecimal(value)} ${unit}`).join(' + '),
+                                      categories: canonicalDetails.map((detail) => ({
+                                        name: detail.workCategoryName,
+                                        unit: detail.unit || 'm²',
+                                        vol: detail.assignedVolume,
+                                        frameVol: detail.frameVolume,
+                                        boardVol: detail.boardVolume,
+                                        inspectedVol: detail.inspectedVolume,
+                                        frameStatus: detail.frameStatus,
+                                        boardStatus: detail.boardStatus,
+                                        inspectionStatus: detail.inspectionStatus,
+                                        subItems: (room.subItems || []).filter((sub) => {
+                                          const categoryMatch = sub.workCategoryId
+                                            ? sub.workCategoryId === detail.workCategoryId
+                                            : (sub.category || room.workCategory) === detail.workCategoryName;
+                                          return categoryMatch && (isTeamMatch(sub.assignedTeam, team, sub.teamId) || (!sub.assignedTeam && !sub.teamId && isTeamMatch(room.assignedTeam, team, room.teamId)));
+                                        }),
+                                      })),
+                                    };
 
                                     return (
                                       <div 
                                         key={room.id}
-                                        className="bg-white border border-slate-200/80 rounded-lg p-3 hover:border-indigo-200 transition flex flex-col justify-between shadow-xs"
+                                        role="button"
+                                        tabIndex={0}
+                                        onClick={() => openRoomOnFloorPlan(room)}
+                                        onKeyDown={(event) => {
+                                          if (event.key === 'Enter' || event.key === ' ') {
+                                            event.preventDefault();
+                                            openRoomOnFloorPlan(room);
+                                          }
+                                        }}
+                                        className="bg-white border border-slate-200/80 rounded-lg p-3 hover:border-indigo-300 hover:shadow-sm transition flex flex-col justify-between shadow-xs cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                                        title={`Mở ${room.roomName} trên mặt bằng`}
                                       >
                                         <div>
                                           {/* Room Title */}
@@ -2919,7 +3240,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                                 <Home className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                                                 <span>{room.roomName}</span>
                                                 <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
-                                                  Tổng KL: {formatDecimal(roomStats.totalVol)} {room.volumeUnit || 'm²'}
+                                                  Tổng KL: {roomStats.volumeLabel || '0'}
                                                 </span>
                                               </h4>
                                             </div>
@@ -2948,7 +3269,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                                       {c.name}
                                                     </span>
                                                     <span className="bg-slate-50 text-slate-600 text-[10px] px-1.5 py-0.5 rounded font-medium border border-slate-200/40">
-                                                      {formatDecimal(c.vol)} {room.volumeUnit || 'm²'}
+                                                      {formatDecimal(c.vol)} {c.unit}
                                                     </span>
                                                   </div>
 
@@ -3034,7 +3355,75 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   </div>
                 )}
 
-                {/* SUB TAB 2: DEFECTS */}
+                {/* SUB TAB 2: MATERIAL RECONCILIATION */}
+                {detailModalTab === 'materials' && (
+                  <div className="space-y-3">
+                    <QuickSortBar
+                      itemCount={selectedTeamMaterialReconciliation.length}
+                      options={[
+                        { key: 'name', label: 'Tên vật tư', kind: 'alpha' },
+                        { key: 'issued', label: 'Đã xuất', kind: 'number' },
+                        { key: 'expected', label: 'Theo định mức', kind: 'number' },
+                        { key: 'variance', label: 'Chênh lệch', kind: 'number' },
+                      ]}
+                      activeKey={teamMaterialSortBy}
+                      order={teamMaterialSortOrder}
+                      onChange={(key, order) => { setTeamMaterialSortBy(key as typeof teamMaterialSortBy); setTeamMaterialSortOrder(order); }}
+                      onReset={() => { setTeamMaterialSortBy('name'); setTeamMaterialSortOrder('asc'); }}
+                      summary={`${selectedTeamMaterialReconciliation.length} loại vật tư`}
+                    />
+                    {selectedTeamMaterialReconciliation.length === 0 ? (
+                      <div className="bg-white border border-dashed border-slate-300 rounded-xl p-6 text-center">
+                        <PackageSearch className="w-9 h-9 text-slate-300 mx-auto mb-2" />
+                        <h4 className="text-xs font-bold text-slate-700">Chưa có dữ liệu vật tư để đối chiếu</h4>
+                        <p className="text-[11px] text-slate-500 mt-1">Cần có định mức vật tư hoặc phiếu xuất kho đã gán đúng Đội thi công.</p>
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                        <table className="w-full min-w-[820px] text-[11px]">
+                          <thead className="bg-slate-100 text-slate-700">
+                            <tr>
+                              <th className="p-2 text-left">Vật tư</th>
+                              <th className="p-2 text-right">ĐM theo KL giao</th>
+                              <th className="p-2 text-right">ĐM theo KL đã thi công</th>
+                              <th className="p-2 text-right">Đã xuất cho đội</th>
+                              <th className="p-2 text-right">Chênh lệch Xuất - ĐM</th>
+                              <th className="p-2 text-right">Tỷ lệ</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {displayedMaterials.map((line) => {
+                              const over = line.varianceQty > 0.01;
+                              const under = line.varianceQty < -0.01;
+                              return (
+                                <tr key={line.materialKey} className="hover:bg-slate-50">
+                                  <td className="p-2">
+                                    <div className="font-extrabold text-slate-900">{line.materialName}</div>
+                                    <div className="text-[10px] text-slate-500">{line.category} · {line.unit}</div>
+                                  </td>
+                                  <td className="p-2 text-right font-semibold">{formatDecimal(line.expectedAssignedQty)} {line.unit}</td>
+                                  <td className="p-2 text-right font-extrabold text-indigo-700">{formatDecimal(line.expectedConstructedQty)} {line.unit}</td>
+                                  <td className="p-2 text-right font-extrabold text-cyan-700">{formatDecimal(line.issuedQty)} {line.unit}</td>
+                                  <td className={`p-2 text-right font-extrabold ${over ? 'text-rose-700' : under ? 'text-amber-700' : 'text-emerald-700'}`}>
+                                    {line.varianceQty > 0 ? '+' : ''}{formatDecimal(line.varianceQty)} {line.unit}
+                                  </td>
+                                  <td className="p-2 text-right">
+                                    {line.issuedVsConstructedPercent !== undefined ? `${line.issuedVsConstructedPercent}%` : '—'}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                    <p className="text-[10px] text-slate-500">
+                      “ĐM theo KL giao” là nhu cầu lý thuyết nếu đội thi công hết toàn bộ khối lượng được giao; dùng để tham khảo kế hoạch cấp vật tư. Cột đối chiếu chính là “ĐM theo KL đã thi công”.
+                    </p>
+                  </div>
+                )}
+
+                {/* SUB TAB 3: DEFECTS */}
                 {detailModalTab === 'defects' && (
                   <div className="space-y-3">
                     {/* Defect Filter Pills */}
@@ -3074,12 +3463,16 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     <div className="flex justify-end px-1">
                       <QuickSortBar
                         itemCount={teamDefects.length}
-                        options={[{ key: 'floor', label: 'Tầng', kind: 'floor' }]}
-                        activeKey="floor"
-                        order={teamDefectFloorSortOrder}
-                        onChange={(_key, order) => setTeamDefectFloorSortOrder(order)}
-                        onToggleOrder={() => setTeamDefectFloorSortOrder((order) => order === 'asc' ? 'desc' : 'asc')}
-                        onReset={() => setTeamDefectFloorSortOrder('asc')}
+                        options={[
+                          { key: 'floor', label: 'Tầng', kind: 'floor' },
+                          { key: 'room', label: 'Căn / Phòng', kind: 'alpha' },
+                          { key: 'status', label: 'Trạng thái', kind: 'alpha' },
+                          { key: 'due', label: 'Hạn xử lý', kind: 'date' },
+                        ]}
+                        activeKey={teamDefectSortBy}
+                        order={teamDefectSortOrder}
+                        onChange={(key, order) => { setTeamDefectSortBy(key as typeof teamDefectSortBy); setTeamDefectSortOrder(order); }}
+                        onReset={() => { setTeamDefectSortBy('floor'); setTeamDefectSortOrder('asc'); }}
                       />
                     </div>
 
@@ -3096,11 +3489,25 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                         </p>
                       </div>
                     ) : (
-                      <div className="space-y-2.5">
-                        {displayedDefects.map((defect) => (
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5 items-start">
+                        {displayedDefects.map((defect) => {
+                          const defectRoomName = defect.roomId
+                            ? roomProgressList.find((room) => room.id === defect.roomId)?.roomName
+                            : '';
+                          return (
                           <div 
                             key={defect.id}
-                            className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs hover:border-rose-200 transition"
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => openDefectOnFloorPlan(defect)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault();
+                                openDefectOnFloorPlan(defect);
+                              }
+                            }}
+                            className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs hover:border-rose-300 hover:shadow-sm transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-rose-200"
+                            title="Mở Defect trên mặt bằng"
                           >
                             <div className="flex justify-between items-start gap-2 mb-1.5">
                               <div>
@@ -3116,9 +3523,15 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                     {defect.severity}
                                   </span>
                                 </div>
-                                <p className="text-[11px] text-slate-500 font-medium mt-0.5 flex items-center gap-1">
+                                <p className="text-[11px] text-slate-500 font-medium mt-0.5 flex items-center gap-1 flex-wrap">
                                   <MapPin className="w-3 h-3 text-indigo-500" />
                                   Tầng: <strong className="text-slate-700">{defect.floorName}</strong>
+                                  {defectRoomName && (
+                                    <>
+                                      <span className="text-slate-300">·</span>
+                                      <span>Căn/Phòng: <strong className="text-slate-700">{defectRoomName}</strong></span>
+                                    </>
+                                  )}
                                 </p>
                               </div>
 
@@ -3154,13 +3567,14 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                               <span>Tạo: {formatDateDDMMYYYY(defect.createdAt)}</span>
                             </div>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
                 )}
 
-                {/* SUB TAB 3: DAILY LOGS */}
+                {/* SUB TAB 4: DAILY LOGS */}
                 {detailModalTab === 'logs' && (
                   <div>
                     {teamLogs.length === 0 ? (
@@ -3201,6 +3615,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                             }}
                           />
                         </div>
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5 items-start">
                         {displayedTeamLogs.map((log) => (
                           <div 
                             key={log.id}
@@ -3228,6 +3643,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                             )}
                           </div>
                         ))}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -3254,6 +3670,24 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           </div>
         );
       })()}
+
+      <CrewReportShareModal
+        isOpen={showCrewReportShare}
+        onClose={() => setShowCrewReportShare(false)}
+        projects={[{
+          projectId,
+          projectName: projectName || 'Dự án',
+          projectLocation,
+          records: structureScopedCrewRecords,
+          teams,
+          floorPlans,
+          structureConfig: normalizedStructureConfig,
+        }]}
+        initialStartDate={selectedDate}
+        initialEndDate={selectedDate}
+        maxDate={getTodayString()}
+        title="Báo cáo quân số"
+      />
 
     </div>
   );

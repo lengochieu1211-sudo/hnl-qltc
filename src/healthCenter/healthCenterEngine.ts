@@ -4,6 +4,7 @@ import type { HnlAiProjectSnapshot } from '../ai/data/projectSnapshot';
 import { auditProjectIntegrity } from '../ai/audit/projectAudit';
 import { normalizeEntityText } from '../ai/core/entityResolver';
 import type { RuntimeDiagnosticEntry } from '../lib/runtimeDiagnostics';
+import { canonicalNormCategoryIds, getCanonicalRoomCategoryEntries, resolveAuthoritativeWorkVolumeRef, resolveWorkVolumeRef, validateInventoryOutProvenance, validateMaterialNormCatalog } from '../utils/linkageIntegrity';
 
 export type HealthCenterModule =
   | 'system'
@@ -70,6 +71,7 @@ export interface BuildHealthCenterParams {
   context: AiQueryContext;
   snapshot: HnlAiProjectSnapshot;
   runtimeLog?: RuntimeDiagnosticEntry[];
+  photoDiagnostics?: any;
 }
 
 function active<T extends { deletedAt?: number | null }>(items: readonly T[]): T[] {
@@ -377,33 +379,32 @@ function lightweightBusinessQualityIssues(snapshot: HnlAiProjectSnapshot): Healt
   const issues: HealthCenterIssue[] = [];
   const activeWorkVolumes = active(snapshot.workVolumes);
   const activeWorkVolumeIds = new Set(activeWorkVolumes.flatMap((item) => [item.id, item.workCategoryId].filter(Boolean) as string[]));
-  const activeWorkVolumeNames = new Set(activeWorkVolumes.map((item) => normalizeEntityText(item.title)).filter(Boolean));
-  const isKnownWorkCategory = (workCategoryId?: string, workCategoryName?: string): boolean => {
-    const id = String(workCategoryId || '').trim();
-    if (id) return activeWorkVolumeIds.has(id);
-    const name = normalizeEntityText(String(workCategoryName || ''));
-    return !name || activeWorkVolumeNames.has(name);
-  };
 
   active(snapshot.rooms).forEach((room) => {
-    const orphanRefs = new Map<string, { source: string; workCategoryId?: string; workCategoryName?: string }>();
+    const orphanRefs = new Map<string, { source: string; workCategoryId?: string; workCategoryName?: string; state?: string }>();
+    const canonicalEntries = getCanonicalRoomCategoryEntries(room, activeWorkVolumes);
+    const canonicalSourceKeys = new Set(canonicalEntries.map((entry) => entry.sourceKey));
     const addOrphan = (source: string, workCategoryId?: string, workCategoryName?: string) => {
       const id = String(workCategoryId || '').trim();
       const name = String(workCategoryName || '').trim();
-      if ((!id && !name) || isKnownWorkCategory(id, name)) return;
+      if (!id && !name) return;
+      if (!id && source === 'categoryVolumes' && canonicalSourceKeys.has(name)) return;
+      const resolution = id
+        ? resolveAuthoritativeWorkVolumeRef({ workVolumes: activeWorkVolumes, workCategoryId: id, floorId: room.floorId, floorName: room.floorName })
+        : resolveWorkVolumeRef({ workVolumes: activeWorkVolumes, workCategoryName: name, floorId: room.floorId, floorName: room.floorName });
+      if (resolution.state === 'resolved') return;
       const key = id ? `id:${id}` : `name:${normalizeEntityText(name)}`;
-      if (!orphanRefs.has(key)) orphanRefs.set(key, { source, workCategoryId: id || undefined, workCategoryName: name || undefined });
+      if (!orphanRefs.has(key)) orphanRefs.set(key, { source, workCategoryId: id || undefined, workCategoryName: name || undefined, state: resolution.state });
     };
 
-    if ((Number(room.workVolume) || 0) > 0) addOrphan('room', room.workCategoryId, room.workCategory);
+    if ((Number(room.workVolume) || 0) > 0 || room.workCategoryId || room.workCategory) addOrphan('room', room.workCategoryId, room.workCategory);
     Object.entries(room.categoryVolumes || {}).forEach(([raw, volume]) => {
       if ((Number(volume) || 0) <= 0) return;
       const rawId = activeWorkVolumeIds.has(raw) ? raw : '';
-      addOrphan('categoryVolumes', rawId, rawId ? '' : raw);
+      addOrphan('categoryVolumes', rawId || undefined, rawId ? undefined : raw);
     });
     (room.subItems || []).forEach((sub) => {
-      if (sub.workCategoryId) addOrphan('subItem', sub.workCategoryId, sub.category);
-      else if ((Number(sub.workVolume) || 0) > 0) addOrphan('subItem', undefined, sub.category);
+      if (sub.workCategoryId || sub.category) addOrphan('subItem', sub.workCategoryId, sub.category);
     });
 
     if (orphanRefs.size > 0) {
@@ -411,7 +412,7 @@ function lightweightBusinessQualityIssues(snapshot: HnlAiProjectSnapshot): Healt
       const labels = refs.map((ref) => ref.workCategoryName || ref.workCategoryId || 'Hạng mục không xác định');
       issues.push(makeIssue({
         ruleId: 'ROOM_ORPHAN_WORK_CATEGORY_REFERENCE', severity: 'WARNING', module: 'links', entityType: 'room', entityId: room.id,
-        message: `${room.roomName} còn tham chiếu hạng mục đã xoá/không còn tồn tại: ${labels.join(', ')}. Không dùng tham chiếu này để tính vật tư.`,
+        message: `${room.roomName} còn tham chiếu hạng mục không resolve duy nhất theo ID/tên: ${labels.join(', ')}. Không dùng tham chiếu này để tính vật tư.`,
         actionClass: 'NEEDS_CONFIRMATION', evidenceIds: [`rooms:${room.id}`],
         location: { floorId: room.floorId, floorName: room.floorName, roomId: room.id, roomName: room.roomName, workItem: labels[0] },
         details: { roomId: room.id, orphanWorkCategoryRefs: refs },
@@ -426,15 +427,29 @@ function lightweightBusinessQualityIssues(snapshot: HnlAiProjectSnapshot): Healt
         location: { date: item.date, workItem: item.materialName }, details: { type: item.type, quantity: item.quantity, unit: item.unit, date: item.date },
       }));
     }
+    if (item.type === 'out') {
+      const provenance = validateInventoryOutProvenance({
+        tx: item, rooms: active(snapshot.rooms), workVolumes: activeWorkVolumes, materialNorms: active(snapshot.materialNorms), teams: active(snapshot.teams),
+      });
+      if (provenance.state !== 'resolved') {
+        issues.push(makeIssue({
+          ruleId: provenance.state === 'ambiguous' ? 'INVENTORY_OUT_PROVENANCE_AMBIGUOUS' : 'INVENTORY_OUT_PROVENANCE_INVALID',
+          severity: provenance.state === 'ambiguous' ? 'WARNING' : 'ERROR', module: 'links', entityType: 'inventory', entityId: item.id,
+          message: `Phiếu xuất ${item.id} không có provenance duy nhất/nhất quán: ${provenance.reason || provenance.state}.`,
+          actionClass: 'NEEDS_CONFIRMATION', evidenceIds: [`inventory:${item.id}`],
+          location: { date: item.date, floorId: item.sourceFloorId, roomId: item.sourceRoomId, teamId: item.sourceTeamId, workItem: item.materialName },
+          details: { provenanceState: provenance.state, reason: provenance.reason, sourceRoomId: item.sourceRoomId, sourceFloorId: item.sourceFloorId, sourceWorkCategoryId: item.sourceWorkCategoryId, sourceTeamId: item.sourceTeamId, sourceNormId: item.sourceNormId },
+        }));
+      }
+    }
   });
   active(snapshot.materialNorms).forEach((norm) => {
-    const linkedWorkCategoryIds = Array.from(new Set([...(norm.workCategoryIds || []), ...(norm.workCategoryId ? [norm.workCategoryId] : [])].filter(Boolean)));
-    const orphanWorkCategoryIds = linkedWorkCategoryIds.filter((id) => !activeWorkVolumeIds.has(id));
-    if (orphanWorkCategoryIds.length > 0) {
+    const normScope = canonicalNormCategoryIds(norm, activeWorkVolumes);
+    if (normScope.unresolved.length > 0) {
       issues.push(makeIssue({
         ruleId: 'MATERIAL_NORM_ORPHAN_WORK_CATEGORY', severity: 'WARNING', module: 'materialNorms', entityType: 'materialNorm', entityId: norm.id,
-        message: `Định mức ${norm.materialName || norm.id} còn liên kết tới hạng mục đã xoá/không còn tồn tại.`, actionClass: 'NEEDS_CONFIRMATION', evidenceIds: [`material_norms:${norm.id}`], location: { workItem: norm.materialName },
-        details: { workCategoryId: norm.workCategoryId || null, workCategoryIds: norm.workCategoryIds || [], orphanWorkCategoryIds },
+        message: `Định mức ${norm.materialName || norm.id} còn liên kết hạng mục không resolve duy nhất theo ID.`, actionClass: 'NEEDS_CONFIRMATION', evidenceIds: [`material_norms:${norm.id}`], location: { workItem: norm.materialName },
+        details: { workCategoryId: norm.workCategoryId || null, workCategoryIds: norm.workCategoryIds || [], unresolvedWorkCategories: normScope.unresolved },
       }));
     }
     if (!String(norm.materialName || '').trim() || !String(norm.unit || '').trim()) {
@@ -452,6 +467,14 @@ function lightweightBusinessQualityIssues(snapshot: HnlAiProjectSnapshot): Healt
       }));
     }
   });
+  validateMaterialNormCatalog(active(snapshot.materialNorms), activeWorkVolumes).forEach((problem) => {
+    issues.push(makeIssue({
+      ruleId: problem.code, severity: problem.code === 'AMBIGUOUS_NORM' ? 'ERROR' : 'WARNING', module: 'materialNorms', entityType: 'materialNorm', entityId: problem.normIds[0] || 'catalog',
+      message: problem.message, actionClass: 'NEEDS_CONFIRMATION', evidenceIds: problem.normIds.map((id) => `material_norms:${id}`), location: {},
+      details: { normIds: problem.normIds, materialKey: problem.materialKey, workCategoryIds: problem.workCategoryIds },
+    }));
+  });
+
   active(snapshot.checklist).forEach((item) => {
     if (item.status === 'passed' && !String(item.inspectedAt || '').trim()) {
       issues.push(makeIssue({
@@ -493,6 +516,55 @@ function runtimeIssues(runtimeLog: RuntimeDiagnosticEntry[]): HealthCenterIssue[
   });
 }
 
+function photoDiagnosticIssues(photoDiagnostics: any): HealthCenterIssue[] {
+  const rows = Array.isArray(photoDiagnostics?.photos) ? photoDiagnostics.photos : [];
+  const issues: HealthCenterIssue[] = [];
+  rows.forEach((row: any) => {
+    if (!row?.id || row.deleted) return;
+    const entityType = String(row.entityType || 'photo');
+    const entityId = String(row.entityId || row.id);
+    const evidenceIds = [String(row.id)];
+    const details = {
+      photoId: String(row.id), category: String(row.category || ''), binaryUploadState: String(row.binaryUploadState || ''),
+      storageProvider: String(row.storageProvider || ''), storagePath: String(row.storagePath || ''),
+      cloudRevision: Number(row.cloudRevision || 0), cachedRevision: Number(row.cachedRevision || 0),
+      cloudContentVersion: Number(row.cloudContentVersion || 0), cachedContentVersion: Number(row.cachedContentVersion || 0),
+      cacheSource: String(row.cacheSource || ''), pendingAgeMs: Number(row.pendingAgeMs || 0),
+    };
+    if (row.staleLocalCache) {
+      const hasVersionMarker = Number(row.cachedRevision || row.cachedContentVersion || 0) > 0;
+      issues.push(makeIssue({
+        ruleId: hasVersionMarker ? 'PHOTO_BINARY_VERSION_MISMATCH' : 'PHOTO_LOCAL_CACHE_STALE', severity: 'WARNING', module: 'r2',
+        entityType, entityId, message: 'Cache ảnh trên thiết bị không khớp phiên bản Cloud/R2; ứng dụng sẽ bỏ cache cũ và tải lại ảnh đã xác minh.',
+        actionClass: 'READ_ONLY', evidenceIds, location: { floorId: row.floorId || undefined, roomId: row.roomId || undefined },
+        details: { ...details, autoRepair: 'invalidate-local-cache-and-redownload' },
+      }));
+    }
+    if (String(row.binaryUploadState || '') === 'pending' && row.localBinary && Number(row.pendingAgeMs || 0) >= 30_000) {
+      issues.push(makeIssue({
+        ruleId: 'PHOTO_EDIT_PENDING_UPLOAD', severity: 'WARNING', module: 'r2', entityType, entityId,
+        message: `Ảnh đã chỉnh/chụp đang chờ đồng bộ Cloud/R2 ${Math.max(1, Math.floor(Number(row.pendingAgeMs || 0) / 1000))} giây; binary local vẫn được giữ để tự retry.`,
+        actionClass: 'READ_ONLY', evidenceIds, location: { floorId: row.floorId || undefined, roomId: row.roomId || undefined }, details,
+      }));
+    }
+    if (String(row.binaryUploadState || '') === 'ready' && row.cloudReady !== true) {
+      issues.push(makeIssue({
+        ruleId: 'PHOTO_CLOUD_BINARY_NOT_READY', severity: 'ERROR', module: 'r2', entityType, entityId,
+        message: 'Metadata ảnh đang ở trạng thái ready nhưng chưa có Cloud/R2 pointer hợp lệ.', actionClass: 'MANUAL_REPAIR',
+        evidenceIds, location: { floorId: row.floorId || undefined, roomId: row.roomId || undefined }, details,
+      }));
+    }
+    if (String(row.storageProvider || '') === 'firestore-fallback' && !row.localBinary && row.cloudReady !== true) {
+      issues.push(makeIssue({
+        ruleId: 'PHOTO_LEGACY_BINARY_UNRECOVERABLE', severity: 'WARNING', module: 'r2', entityType, entityId,
+        message: 'Ảnh legacy không có binary local và chưa có Cloud/R2 pointer hiện đại; cần kiểm tra nguồn legacy trước khi sửa/xóa.',
+        actionClass: 'MANUAL_REPAIR', evidenceIds, location: { floorId: row.floorId || undefined, roomId: row.roomId || undefined }, details,
+      }));
+    }
+  });
+  return issues;
+}
+
 function dedupeIssues(items: HealthCenterIssue[]): HealthCenterIssue[] {
   const seen = new Set<string>();
   const out: HealthCenterIssue[] = [];
@@ -506,7 +578,7 @@ function dedupeIssues(items: HealthCenterIssue[]): HealthCenterIssue[] {
 }
 
 export function buildHealthCenterReport(params: BuildHealthCenterParams): HealthCenterSummary {
-  const { context, snapshot, runtimeLog = [] } = params;
+  const { context, snapshot, runtimeLog = [], photoDiagnostics } = params;
   const core = auditProjectIntegrity({ context, snapshot });
   const coreIssues = (core.data?.issues || [])
     .filter((issue) => !suppressCoreIssue(issue, snapshot))
@@ -518,6 +590,7 @@ export function buildHealthCenterReport(params: BuildHealthCenterParams): Health
     ...roomQualityIssues([...snapshot.rooms]),
     ...lightweightBusinessQualityIssues(snapshot),
     ...runtimeIssues(runtimeLog),
+    ...photoDiagnosticIssues(photoDiagnostics),
     ...(snapshot.freshness === 'cache' ? [makeIssue({
       ruleId: 'HEALTH_CENTER_USING_CACHED_SNAPSHOT', severity: 'WARNING', module: 'sync', entityType: 'project', entityId: snapshot.projectId,
       message: 'Health Center đang kiểm tra snapshot cache; nên đồng bộ lại trước khi dùng kết quả làm báo cáo cuối.', actionClass: 'READ_ONLY', evidenceIds: [], location: {},

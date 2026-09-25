@@ -9,6 +9,7 @@ interface OfflineSyncBannerProps {
   roleSource?: 'cloud' | 'offline-cache' | 'unresolved';
   firestorePendingWriteCount?: number;
   firebaseOnly?: boolean;
+  verifiedSnapshotFallback?: boolean;
 }
 
 export const OfflineSyncBanner: React.FC<OfflineSyncBannerProps> = ({
@@ -19,6 +20,7 @@ export const OfflineSyncBanner: React.FC<OfflineSyncBannerProps> = ({
   roleSource = 'unresolved',
   firestorePendingWriteCount = 0,
   firebaseOnly = false,
+  verifiedSnapshotFallback = false,
 }) => {
   const [isOnline, setIsOnline] = useState<boolean>(
     typeof navigator !== 'undefined' ? navigator.onLine : true
@@ -90,9 +92,13 @@ export const OfflineSyncBanner: React.FC<OfflineSyncBannerProps> = ({
               <span className="text-amber-300">
                 {roleResolved
                   ? (userRole === 'VIEWER'
-                    ? 'Đang dùng dữ liệu cache đã xác minh; tài khoản VIEWER chỉ được xem offline.'
+                    ? (verifiedSnapshotFallback
+                      ? 'Bản chụp offline đã xác minh đã được khôi phục; tài khoản VIEWER chỉ được xem offline.'
+                      : 'Đang dùng dữ liệu cache đã xác minh; tài khoản VIEWER chỉ được xem offline.')
                     : firebaseOnly
-                      ? `Quyền ${userRole} đã xác minh trước đó; chỉnh sửa được đưa vào hàng chờ Firestore bền vững và tự gửi khi có mạng lại.`
+                      ? (verifiedSnapshotFallback
+                        ? `Bản chụp offline đã xác minh đã được khôi phục; quyền ${userRole} có thể chỉnh sửa và thay đổi được lưu bền vững trên máy trước khi tự gửi Firestore khi có mạng lại.`
+                        : `Quyền ${userRole} đã xác minh trước đó; chỉnh sửa được đưa vào hàng chờ Firestore bền vững và tự gửi khi có mạng lại.`)
                       : `Quyền ${userRole} đã xác minh trước đó; chỉnh sửa sẽ lưu trên thiết bị và đồng bộ khi có mạng lại.`)
                   : 'Chưa có quyền offline đã xác minh cho đúng tài khoản + project; ứng dụng tạm thời chỉ cho xem an toàn.'}
               </span>
@@ -101,7 +107,7 @@ export const OfflineSyncBanner: React.FC<OfflineSyncBannerProps> = ({
           <div className="flex items-center gap-1.5 shrink-0">
             <span className="bg-amber-900/90 text-amber-300 font-mono text-[10px] px-2 py-0.5 rounded-full border border-amber-700/60 flex items-center gap-1">
               <Database className="w-3 h-3 text-amber-400" />
-              <span>{firebaseOnly ? `Firestore${firestorePendingWriteCount > 0 ? ` · ${firestorePendingWriteCount} chờ` : ''}` : (roleSource === 'offline-cache' ? 'Offline cache' : 'Đã lưu máy')}</span>
+              <span>{verifiedSnapshotFallback ? `Snapshot + Local${firestorePendingWriteCount > 0 ? ` · ${firestorePendingWriteCount} chờ Firestore` : ''}` : firebaseOnly ? `Firestore${firestorePendingWriteCount > 0 ? ` · ${firestorePendingWriteCount} chờ` : ''}` : (roleSource === 'offline-cache' ? 'Offline cache' : 'Đã lưu máy')}</span>
             </span>
           </div>
         </div>
@@ -112,7 +118,7 @@ export const OfflineSyncBanner: React.FC<OfflineSyncBannerProps> = ({
         <div className="bg-emerald-950 text-emerald-200 border-b border-emerald-800 px-4 py-2 text-xs flex items-center justify-between gap-2 shadow-md animate-in slide-in-from-top-2">
           <div className="flex items-center gap-2">
             <Wifi className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span className="font-semibold text-white">{syncStatusMsg || '📶 Đã có kết nối Internet trở lại!'}</span>
+            <span className="font-semibold text-white">{syncStatusMsg || 'Đã có kết nối Internet trở lại!'}</span>
           </div>
           {onAutoSync && retryNeeded && (
             <button

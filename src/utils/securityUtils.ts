@@ -5,6 +5,7 @@
 
 import { PinLockConfig, hashPin, verifyPin } from './cryptoUtils';
 import { FIREBASE_ONLY_RUNTIME, LEGACY_LOCAL_IMPORT_ENABLED } from '../config/runtimeArchitecture';
+import { markNextSignOutAsForced } from './confirmAsync';
 
 export type UserRole = 'ADMIN' | 'EDITOR' | 'VIEWER';
 
@@ -34,13 +35,25 @@ export interface AuditLogEntry {
   timestamp: number;
   actorEmail: string;
   actorRole: UserRole;
-  action: 'PROJECT_DELETE' | 'PROJECT_CREATE' | 'PROJECT_RECOVER_LOCAL' | 'FULL_RESTORE' | 'FULL_RESTORE_REPLACE' | 'ORPHAN_CLEANUP' | 'ROLE_CHANGE' | 'CATEGORY_DELETE' | 'BACKUP_EXPORT' | 'BACKUP_IMPORT_FIREBASE_ONLY' | 'SECURITY_CONFIG_CHANGE' | 'DATA_CHANGE' | 'PHOTO_CHANGE';
+  action: string;
   details: string;
   projectId?: string;
   actorUid?: string;
   actorName?: string;
+  userEmail?: string;
+  userName?: string;
   deviceId?: string;
   deviceName?: string;
+  module?: string;
+  recordId?: string;
+  clientType?: 'WEB' | 'APK' | 'DESKTOP';
+  platform?: string;
+  browser?: string;
+  appVersion?: string;
+  syncStatus?: 'SYNCED' | 'PENDING';
+  changedFields?: Record<string, { before: any; after: any }>;
+  beforeData?: any;
+  afterData?: any;
 }
 
 const PIN_LOCK_STORAGE_KEY = 'construction_pin_lock_config';
@@ -78,6 +91,9 @@ export function applyRemotePinReset(epoch: number, email?: string | null): boole
   const current = getStoredPinLockConfig();
   savePinLockConfig({ ...current, enabled: false, pinHash: undefined, pinSalt: undefined, pinOwnerUid: undefined, pinOwnerEmail: undefined });
   localStorage.setItem(key, String(nextEpoch));
+  // The caller immediately forces Firebase sign-out after a SUPER ADMIN remote PIN reset.
+  // Mark only that next sign-out so the security flow cannot be cancelled by the user.
+  markNextSignOutAsForced();
   return true;
 }
 

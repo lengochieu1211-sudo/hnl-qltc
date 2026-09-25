@@ -47,12 +47,16 @@ export interface PhotoAttachment {
   deletedByUid?: string | null;
   deletedBy?: string | null;
   binaryUploadState?: 'pending' | 'ready' | 'deleted' | string;
+  // Local-only owner of the pending media mutation. This is intentionally distinct
+  // from createdByUid so another editor can safely edit media created by someone else.
+  pendingOwnerUid?: string;
   cloudSyncedAt?: number;
 }
 
 const getPhotoListKey = (projectId: string) => `construction_photos_${projectId}`;
 const getPhotoBlobKey = (photoId: string) => `photo_blob_${photoId}`;
 const getPhotoThumbKey = (photoId: string) => `photo_thumb_${photoId}`;
+const getPhotoCacheVersionKey = (photoId: string) => `photo_cache_version_${photoId}`;
 const getPhotoPendingMetaKey = (photoId: string) => `photo_pending_meta_${photoId}`;
 const getPhotoCloudCacheKey = (projectId: string, authKey: string) => `photo_cloud_cache_${authKey}_${projectId}`;
 
@@ -117,7 +121,8 @@ async function getPendingPhotoMetadata(projectId: string): Promise<PhotoAttachme
       // same phone, account B must never inherit account A's pending-only metadata
       // and render a ghost placeholder before the Cloud binary is ready. Legacy
       // pending rows without createdByUid remain readable for one-time recovery.
-      if (item.createdByUid && item.createdByUid !== activeUid) continue;
+      const pendingOwnerUid = String(item.pendingOwnerUid || item.createdByUid || '');
+      if (pendingOwnerUid && pendingOwnerUid !== activeUid) continue;
       pending.push(item);
     }
     return pending;
@@ -128,7 +133,14 @@ async function getPendingPhotoMetadata(projectId: string): Promise<PhotoAttachme
 
 async function savePendingPhotoMetadata(photo: PhotoAttachment): Promise<void> {
   if (!photo?.id || !photo?.projectId) return;
-  const clean: PhotoAttachment = { ...photo, localUri: '', base64: undefined, dataUrl: undefined };
+  const pendingOwnerUid = getCurrentRealFirebaseUser()?.uid || photo.pendingOwnerUid || photo.createdByUid || '';
+  const clean: PhotoAttachment = {
+    ...photo,
+    pendingOwnerUid,
+    localUri: '',
+    base64: undefined,
+    dataUrl: undefined,
+  };
   await localforage.setItem(getPhotoPendingMetaKey(photo.id), clean);
 }
 
@@ -153,6 +165,82 @@ function hasSharedCloudBinary(photo: PhotoAttachment): boolean {
 export function isPhotoSharedCloudReady(photo: PhotoAttachment): boolean {
   if (photo?.deleted || photo?.deletedAt) return true;
   return hasSharedCloudBinary(photo) && String(photo?.binaryUploadState || 'ready') !== 'pending';
+}
+
+export interface PhotoBinaryCacheVersion {
+  source: 'local' | 'cloud';
+  ownerUid: string;
+  updatedAt: number;
+  revision: number;
+  contentVersion: number;
+  pointer: string;
+  checksum: string;
+  etag: string;
+  generation: string;
+  cachedAt: number;
+}
+
+function buildPhotoBinaryCacheVersion(photo: PhotoAttachment, source: 'local' | 'cloud'): PhotoBinaryCacheVersion {
+  return {
+    source,
+    ownerUid: source === 'local' ? (getCurrentRealFirebaseUser()?.uid || photo.pendingOwnerUid || photo.createdByUid || '') : '',
+    updatedAt: Number(photo.updatedAt || photo.createdAt || 0),
+    revision: Number(photo.revision || 0),
+    contentVersion: Number((photo as any).contentVersion || photo.updatedAt || photo.createdAt || 0),
+    pointer: String(photo.storagePath || photo.cloudFileId || photo.cloudUrl || ''),
+    checksum: String((photo as any).contentHash || photo.storageMd5Hash || ''),
+    etag: String(photo.storageEtag || ''),
+    generation: String(photo.storageGeneration || ''),
+    cachedAt: Date.now(),
+  };
+}
+
+export async function getPhotoBinaryCacheVersion(photoId: string): Promise<PhotoBinaryCacheVersion | null> {
+  if (!photoId) return null;
+  try {
+    const marker = await localforage.getItem<PhotoBinaryCacheVersion>(getPhotoCacheVersionKey(photoId));
+    return marker && typeof marker === 'object' ? marker : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function setPhotoBinaryCacheVersion(photo: PhotoAttachment, source: 'local' | 'cloud'): Promise<void> {
+  if (!photo?.id) return;
+  await localforage.setItem(getPhotoCacheVersionKey(photo.id), buildPhotoBinaryCacheVersion(photo, source)).catch(() => {});
+}
+
+function photoBinaryCacheVersionMatches(photo: PhotoAttachment, marker: PhotoBinaryCacheVersion | null): boolean {
+  if (!marker) return false;
+  const expected = buildPhotoBinaryCacheVersion(photo, 'cloud');
+  if (expected.contentVersion > 0 && marker.contentVersion > 0 && expected.contentVersion !== marker.contentVersion) return false;
+  if (expected.revision > 0 && marker.revision > 0 && expected.revision !== marker.revision) return false;
+  if (expected.pointer && marker.pointer && expected.pointer !== marker.pointer) return false;
+  if (expected.checksum && marker.checksum && expected.checksum !== marker.checksum) return false;
+  if (expected.etag && marker.etag && expected.etag !== marker.etag) return false;
+  if (expected.generation && marker.generation && expected.generation !== marker.generation) return false;
+  return expected.updatedAt === 0 || marker.updatedAt === 0 || expected.updatedAt === marker.updatedAt;
+}
+
+export async function isPhotoCachedBinaryCurrent(photo: PhotoAttachment): Promise<boolean> {
+  if (!photo?.id) return false;
+  const blob = await getPhotoBlob(photo.id, false).catch(() => null);
+  if (!blob || blob.size <= 0) return false;
+  if (!isPhotoSharedCloudReady(photo)) return true;
+  return photoBinaryCacheVersionMatches(photo, await getPhotoBinaryCacheVersion(photo.id));
+}
+
+export async function invalidatePhotoBinaryCache(photoId: string, protectForeignPending = true): Promise<boolean> {
+  if (!photoId) return false;
+  const marker = await getPhotoBinaryCacheVersion(photoId);
+  const activeUid = getCurrentRealFirebaseUser()?.uid || '';
+  if (protectForeignPending && marker?.source === 'local' && marker.ownerUid && marker.ownerUid !== activeUid) return false;
+  await Promise.all([
+    localforage.removeItem(getPhotoBlobKey(photoId)).catch(() => {}),
+    localforage.removeItem(getPhotoThumbKey(photoId)).catch(() => {}),
+    localforage.removeItem(getPhotoCacheVersionKey(photoId)).catch(() => {}),
+  ]);
+  return true;
 }
 
 async function getDerivedCloudPhotoCache(projectId: string, authKey: string): Promise<PhotoAttachment[]> {
@@ -249,6 +337,9 @@ export async function getProjectPhotoDiagnosticSnapshot(projectId: string) {
       getPhotoBlob(photo.id, true).catch(() => null),
     ]);
     const ready = isPhotoSharedCloudReady(photo);
+    const cacheVersion = await getPhotoBinaryCacheVersion(photo.id);
+    const cacheCurrent = !localBinary || !ready ? true : photoBinaryCacheVersionMatches(photo, cacheVersion);
+    const foreignPendingLocalBinary = Boolean(localBinary && cacheVersion?.source === 'local' && cacheVersion.ownerUid && cacheVersion.ownerUid !== activeUid);
     return {
       id: photo.id,
       entityType: photo.entityType,
@@ -267,6 +358,15 @@ export async function getProjectPhotoDiagnosticSnapshot(projectId: string) {
       localBinary: Boolean(localBinary && localBinary.size > 0),
       localBinaryBytes: Number(localBinary?.size || 0),
       localThumbnail: Boolean(localThumb && localThumb.size > 0),
+      cacheSource: cacheVersion?.source || '',
+      cacheOwnerUid: cacheVersion?.ownerUid || '',
+      cachedRevision: Number(cacheVersion?.revision || 0),
+      cachedContentVersion: Number(cacheVersion?.contentVersion || 0),
+      cloudRevision: Number(photo.revision || 0),
+      cloudContentVersion: Number((photo as any).contentVersion || photo.updatedAt || 0),
+      staleLocalCache: Boolean(localBinary && ready && !cacheCurrent && !foreignPendingLocalBinary),
+      foreignPendingLocalBinary,
+      pendingAgeMs: !ready ? Math.max(0, Date.now() - Number(photo.updatedAt || photo.createdAt || Date.now())) : 0,
       createdByUid: photo.createdByUid || '',
       belongsToCurrentUploader: !photo.createdByUid || photo.createdByUid === activeUid,
       createdAt: Number(photo.createdAt || 0),
@@ -291,9 +391,10 @@ export async function getProjectPhotoDiagnosticSnapshot(projectId: string) {
 
 export async function savePhotoAttachment(
   photo: Omit<PhotoAttachment, 'id' | 'createdAt' | 'updatedAt'>,
-  imageSource: File | Blob | string
+  imageSource: File | Blob | string,
+  stablePhotoId?: string
 ): Promise<PhotoAttachment> {
-  const photoId = generatePhotoUUID();
+  const photoId = stablePhotoId?.trim() || generatePhotoUUID();
   
   // 1. Compress camera/gallery input directly to a Blob. Never create a large
   // Base64 copy of the main photo before storing it; this is critical on Android.
@@ -346,6 +447,7 @@ export async function savePhotoAttachment(
       await localforage.setItem(getPhotoBlobKey(photoId), mainBlob);
     } catch (_) {}
   }
+  await setPhotoBinaryCacheVersion(newPhotoMetadata, 'local');
 
   // Add photo metadata to list
   const existing = await getProjectPhotos(photo.projectId, true);
@@ -380,14 +482,19 @@ export async function getPhotoBlob(photoId: string, useThumbnail = false): Promi
   return null;
 }
 
-export async function cachePhotoBlob(photoId: string, blob: Blob, createThumbnail = true): Promise<void> {
+export async function cachePhotoBlob(photoId: string, blob: Blob, createThumbnail = true, cloudPhoto?: PhotoAttachment): Promise<void> {
   if (!photoId || !blob) return;
+  const existingMarker = await getPhotoBinaryCacheVersion(photoId);
+  const activeUid = getCurrentRealFirebaseUser()?.uid || '';
+  if (existingMarker?.source === 'local' && existingMarker.ownerUid && existingMarker.ownerUid !== activeUid) return;
   await localforage.setItem(getPhotoBlobKey(photoId), blob);
-  if (!createThumbnail) return;
-  try {
-    const thumbBlob = await compressImageToBlob(blob, 320, 0.70);
-    if (thumbBlob) await localforage.setItem(getPhotoThumbKey(photoId), thumbBlob);
-  } catch (_) {}
+  if (createThumbnail) {
+    try {
+      const thumbBlob = await compressImageToBlob(blob, 320, 0.70);
+      if (thumbBlob) await localforage.setItem(getPhotoThumbKey(photoId), thumbBlob);
+    } catch (_) {}
+  }
+  if (cloudPhoto) await setPhotoBinaryCacheVersion({ ...cloudPhoto, id: photoId }, 'cloud');
 }
 
 export async function mergeCloudPhotoMetadata(projectId: string, cloudPhotos: PhotoAttachment[], changedPhotos: PhotoAttachment[] = cloudPhotos): Promise<void> {
@@ -406,33 +513,46 @@ export async function mergeCloudPhotoMetadata(projectId: string, cloudPhotos: Ph
     const local = localMap.get(cloud.id);
     const localTime = Number(local?.updatedAt || local?.createdAt || 0);
     const cloudTime = Number(cloud.updatedAt || cloud.createdAt || 0);
+    const pending = await localforage.getItem<PhotoAttachment>(getPhotoPendingMetaKey(cloud.id)).catch(() => null);
+    const activeUid = getCurrentRealFirebaseUser()?.uid || '';
+    const pendingOwnerUid = String(pending?.pendingOwnerUid || pending?.createdByUid || '');
+    const pendingOwnedByCurrent = Boolean(pending && (!pendingOwnerUid || pendingOwnerUid === activeUid));
+    const serverAcknowledged = !(cloud as any).__pendingWrite;
+    const cloudAcknowledgesOwnPending = Boolean(
+      serverAcknowledged && pendingOwnedByCurrent
+      && cloudTime >= Number(pending?.updatedAt || pending?.createdAt || 0)
+      && (!activeUid || String((cloud as any).updatedByUid || activeUid) === activeUid)
+      && (cloud.deleted || cloud.deletedAt || cloud.storagePath || ['firebase-storage', 'r2'].includes(String(cloud.storageProvider || '')))
+    );
+    if (pendingOwnedByCurrent && !cloudAcknowledgesOwnPending) continue;
+
     const cloudStorageChanged = Boolean(local && cloudTime === localTime && (
       String((cloud as any).cloudFileId || '') !== String((local as any).cloudFileId || '') ||
       String((cloud as any).cloudUrl || '') !== String((local as any).cloudUrl || '') ||
       String((cloud as any).storageProvider || '') !== String((local as any).storageProvider || '') ||
+      String((cloud as any).storagePath || '') !== String((local as any).storagePath || '') ||
+      String((cloud as any).storageMd5Hash || (cloud as any).contentHash || '') !== String((local as any).storageMd5Hash || (local as any).contentHash || '') ||
+      String((cloud as any).storageEtag || '') !== String((local as any).storageEtag || '') ||
       Number((cloud as any).chunkCount || 0) !== Number((local as any).chunkCount || 0)
     ));
     if (!local || cloudTime > localTime || cloudStorageChanged || (cloudTime === localTime && cloud.deleted && !local.deleted)) {
       const cleanCloud: PhotoAttachment = {
-        ...local,
-        ...cloud,
-        projectId,
-        localBlobKey: getPhotoBlobKey(cloud.id),
-        localUri: '',
+        ...local, ...cloud, projectId, localBlobKey: getPhotoBlobKey(cloud.id), localUri: '',
         cloudFileId: cloud.cloudFileId || `firestore:${projectId}:${cloud.id}`,
-        base64: undefined,
-        dataUrl: undefined,
+        base64: undefined, dataUrl: undefined,
       };
-      merged.set(cloud.id, cleanCloud);
+      const localBinary = await getPhotoBlob(cloud.id, false).catch(() => null);
+      const cachedMarker = await getPhotoBinaryCacheVersion(cloud.id);
+      const cloudBinaryIsDifferent = Boolean(localBinary && (!cachedMarker || !photoBinaryCacheVersionMatches(cleanCloud, cachedMarker) || cloudTime > localTime || cloudStorageChanged));
       if (cloud.deleted || cloud.deletedAt) {
-        await localforage.removeItem(getPhotoBlobKey(cloud.id)).catch(() => {});
-        await localforage.removeItem(getPhotoThumbKey(cloud.id)).catch(() => {});
+        await invalidatePhotoBinaryCache(cloud.id, true);
+      } else if (cloudAcknowledgesOwnPending && localBinary) {
+        await setPhotoBinaryCacheVersion(cleanCloud, 'cloud');
+      } else if (cloudBinaryIsDifferent) {
+        await invalidatePhotoBinaryCache(cloud.id, true);
       }
-      const pending = await localforage.getItem<PhotoAttachment>(getPhotoPendingMetaKey(cloud.id)).catch(() => null);
-      const serverAcknowledged = !(cloud as any).__pendingWrite;
-      if (serverAcknowledged && pending && cloudTime >= Number(pending.updatedAt || pending.createdAt || 0) && (cloud.deleted || cloud.deletedAt || cloud.storagePath || ['firebase-storage', 'r2'].includes(String(cloud.storageProvider || '')))) {
-        await clearPendingPhotoMetadata(cloud.id);
-      }
+      merged.set(cloud.id, cleanCloud);
+      if (cloudAcknowledgesOwnPending) await clearPendingPhotoMetadata(cloud.id);
     }
   }
 
@@ -476,7 +596,16 @@ function projectIdFromCloudPhotoReference(value?: string | null): string {
 export async function getPhotoDataUrl(photoId: string, fallbackDataUrl?: string, useThumbnail = false, projectIdHint = ''): Promise<string> {
   if (!photoId) return isDirectRenderablePhotoUrl(fallbackDataUrl) ? String(fallbackDataUrl) : '';
   try {
-    if (useThumbnail) {
+    let expectedPhoto: PhotoAttachment | undefined;
+    if (projectIdHint) expectedPhoto = (await getProjectPhotos(projectIdHint, true)).find((photo) => photo.id === photoId);
+    const marker = await getPhotoBinaryCacheVersion(photoId);
+    const activeUid = getCurrentRealFirebaseUser()?.uid || '';
+    const foreignPendingCache = Boolean(marker?.source === 'local' && marker.ownerUid && marker.ownerUid !== activeUid);
+    if (expectedPhoto && isPhotoSharedCloudReady(expectedPhoto) && !foreignPendingCache) {
+      const localBlob = await getPhotoBlob(photoId, false).catch(() => null);
+      if (localBlob && !photoBinaryCacheVersionMatches(expectedPhoto, marker)) await invalidatePhotoBinaryCache(photoId, true);
+    }
+    if (useThumbnail && !foreignPendingCache) {
       const thumbVal = await localforage.getItem<Blob | string>(getPhotoThumbKey(photoId));
       if (thumbVal) {
         if (thumbVal instanceof Blob) {
@@ -487,7 +616,7 @@ export async function getPhotoDataUrl(photoId: string, fallbackDataUrl?: string,
         }
       }
     }
-    const val = await localforage.getItem<Blob | string>(getPhotoBlobKey(photoId));
+    const val = foreignPendingCache ? null : await localforage.getItem<Blob | string>(getPhotoBlobKey(photoId));
     if (val) {
       if (val instanceof Blob) {
         return URL.createObjectURL(val);
@@ -697,19 +826,26 @@ export async function deletePhotoAttachment(projectId: string, photoId: string):
   try {
     await localforage.removeItem(getPhotoBlobKey(photoId));
     await localforage.removeItem(getPhotoThumbKey(photoId));
+    await localforage.removeItem(getPhotoCacheVersionKey(photoId));
   } catch (_) {}
 }
 
 export async function updatePhotoAttachmentBlob(
   projectId: string,
   photoId: string,
-  imageSource: File | Blob | string
+  imageSource: File | Blob | string,
+  options: { preserveEncodedSource?: boolean } = {}
 ): Promise<string> {
   const existingPhotos = await getProjectPhotos(projectId, true);
   const existingPhoto = existingPhotos.find((p) => p.id === photoId);
   const photoKind = existingPhoto?.entityType === 'defect' ? 'defect' : 'crew';
   const profile = getImageQualityProfile(photoKind);
-  const mainBlob = await compressImageToBlob(imageSource, profile.maxDimension, profile.quality);
+  // ImageEditorModal already renders at the configured quality dimension and performs
+  // one high-quality JPEG encode. Preserve that encoded Blob to avoid a second lossy
+  // canvas/JPEG pass that made annotations softer and increased save latency.
+  const mainBlob = options.preserveEncodedSource && imageSource instanceof Blob
+    ? imageSource
+    : await compressImageToBlob(imageSource, profile.maxDimension, profile.quality);
   if (!mainBlob || mainBlob.size <= 0) throw new Error('Không đọc được ảnh chỉnh sửa.');
 
   let thumbBlob: Blob | null = null;
@@ -747,6 +883,7 @@ export async function updatePhotoAttachmentBlob(
   });
   await saveProjectPhotos(projectId, updated);
   const pending = updated.find((p) => p.id === photoId);
+  if (pending) await setPhotoBinaryCacheVersion(pending, 'local');
   if (FIREBASE_ONLY_RUNTIME && pending) {
     await savePendingPhotoMetadata(pending);
     import('../lib/photoCloudSync').then(({ stagePhotoMetadataForCloud }) =>
@@ -855,6 +992,7 @@ export async function scanAndCleanupPhotoOrphans(
             if (p.id) {
               await localforage.removeItem(getPhotoBlobKey(p.id)).catch(() => {});
               await localforage.removeItem(getPhotoThumbKey(p.id)).catch(() => {});
+        await localforage.removeItem(getPhotoCacheVersionKey(p.id)).catch(() => {});
               invalidProjectMetadatasRemoved++;
             }
           }

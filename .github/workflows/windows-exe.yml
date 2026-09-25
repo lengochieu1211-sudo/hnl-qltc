@@ -1,6 +1,6 @@
 name: Build HNL QLTC Windows EXE
 
-# RC2.2.16 final runtime rebuild after cross-account photo reconcile.
+# Windows Desktop Suite exact-source build. Release metadata comes from desktop-wrapper/release-tag.txt.
 on:
   workflow_dispatch:
   pull_request:
@@ -14,9 +14,14 @@ on:
       - 'vite.config.ts'
       - 'scripts/desktop-launcher-golden.mjs'
       - 'scripts/windows-icon-golden.ps1'
+      - 'scripts/windows-desktop-local-store-golden.ps1'
+      - 'scripts/windows-webview2-runtime-golden.ps1'
+      - 'scripts/windows-installer-golden.mjs'
+      - 'scripts/windows-installer-runtime-golden.ps1'
       - '.github/workflows/windows-exe.yml'
   push:
     branches:
+      - dev
       - main
     paths:
       - 'desktop-wrapper/**'
@@ -28,6 +33,10 @@ on:
       - 'vite.config.ts'
       - 'scripts/desktop-launcher-golden.mjs'
       - 'scripts/windows-icon-golden.ps1'
+      - 'scripts/windows-desktop-local-store-golden.ps1'
+      - 'scripts/windows-webview2-runtime-golden.ps1'
+      - 'scripts/windows-installer-golden.mjs'
+      - 'scripts/windows-installer-runtime-golden.ps1'
       - '.github/workflows/windows-exe.yml'
 
 jobs:
@@ -51,7 +60,6 @@ jobs:
       VITE_FIREBASE_FIRESTORE_DATABASE_ID: "(default)"
       VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
       VITE_GIT_COMMIT: ${{ github.sha }}
-      QLCT_RELEASE_TAG: 6.3.0-rc2.2.16
 
     steps:
       - name: Checkout
@@ -86,9 +94,25 @@ jobs:
         shell: pwsh
         run: ./desktop-wrapper/build-launcher.ps1
 
+      - name: Embedded WebView2 runtime golden
+        shell: pwsh
+        run: ./scripts/windows-webview2-runtime-golden.ps1 -LauncherPath './HNL-QLTC-Windows.exe' -Channel PROD
+
       - name: Windows taskbar icon golden
         shell: pwsh
         run: ./scripts/windows-icon-golden.ps1
+
+      - name: Windows SQLite workspace golden
+        shell: pwsh
+        run: ./scripts/windows-desktop-local-store-golden.ps1
+
+      - name: Build professional Windows Setup EXE
+        shell: pwsh
+        run: ./desktop-wrapper/build-installer.ps1 -Channel PROD -LauncherPath './HNL-QLTC-Windows.exe' -OutputPath './HNL-QLTC-Setup.exe'
+
+      - name: Windows installer runtime golden
+        shell: pwsh
+        run: ./scripts/windows-installer-runtime-golden.ps1 -SetupPath './HNL-QLTC-Setup.exe' -LauncherPath './HNL-QLTC-Windows.exe' -Channel PROD
 
       - name: Verify EXE
         shell: pwsh
@@ -109,6 +133,7 @@ jobs:
           name: HNL-QLTC-Windows-EXE-${{ github.run_number }}
           path: |
             HNL-QLTC-Windows.exe
+            HNL-QLTC-Setup.exe
             icon-golden-evidence/**
           if-no-files-found: error
           retention-days: 30

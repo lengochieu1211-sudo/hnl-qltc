@@ -39,6 +39,11 @@ function extensionForMime(mimeType?: string): string {
   return 'jpg';
 }
 
+async function sha256Hex(buffer: ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', buffer);
+  return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, '0')).join('');
+}
+
 export interface FirebaseBinaryUploadResult {
   storagePath: string;
   thumbnailPath?: string;
@@ -70,13 +75,23 @@ export function buildPhotoStoragePaths(input: Pick<ProjectBinaryUploadInput, 'pr
   };
 }
 
-export function buildFloorPlanStoragePaths(projectId: string, floorPlanId: string, mimeType?: string) {
+/**
+ * Hashed floor-plan names preserve immutable published pointers. Omitting contentSha256
+ * keeps the legacy path builder available for compatibility tests/read-side migration.
+ */
+export function buildFloorPlanStoragePaths(projectId: string, floorPlanId: string, mimeType?: string, contentSha256?: string) {
   const ext = extensionForMime(mimeType);
   const base = `projects/${safeSegment(projectId)}/floor-plans/${safeSegment(floorPlanId)}`;
-  return {
-    storagePath: `${base}/original.${ext}`,
-    thumbnailPath: `${base}/thumb.${ext}`,
-  };
+  const version = String(contentSha256 || '').trim().toLowerCase().replace(/[^a-f0-9]/g, '').slice(0, 64);
+  return version
+    ? {
+        storagePath: `${base}/original.${version}.${ext}`,
+        thumbnailPath: `${base}/thumb.${version}.${ext}`,
+      }
+    : {
+        storagePath: `${base}/original.${ext}`,
+        thumbnailPath: `${base}/thumb.${ext}`,
+      };
 }
 
 function metadataFor(input: ProjectBinaryUploadInput): Record<string, string> {
@@ -134,7 +149,10 @@ export async function uploadFloorPlanBinary(input: {
   createdByUid?: string;
   createdAt?: number;
 }): Promise<FirebaseBinaryUploadResult> {
-  const paths = buildFloorPlanStoragePaths(input.projectId, input.floorPlanId, input.blob.type);
+  // Match the R2 production invariant in emulator/firebase-storage mode: once Firestore
+  // publishes a path, later replacements must upload to a different immutable object.
+  const contentSha256 = await sha256Hex(await input.blob.arrayBuffer());
+  const paths = buildFloorPlanStoragePaths(input.projectId, input.floorPlanId, input.blob.type, contentSha256);
   const customMetadata = {
     projectId: input.projectId,
     entityType: 'floorPlan',
@@ -142,6 +160,7 @@ export async function uploadFloorPlanBinary(input: {
     assetId: input.floorPlanId,
     createdByUid: input.createdByUid || '',
     createdAt: String(Number(input.createdAt || Date.now())),
+    contentSha256,
     app: 'HNL QLTC',
   };
   const result = await uploadBytes(ref(firebaseStorage, paths.storagePath), input.blob, {

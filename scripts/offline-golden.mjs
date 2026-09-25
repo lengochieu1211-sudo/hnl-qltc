@@ -41,6 +41,7 @@ if (promotedOnline.role !== 'EDITOR' || promotedOnline.source !== 'cloud') fail(
 pass('role decision matrix: EDITOR/ADMIN/VIEWER + legacy ENGINEER compatibility/offline/revoke/promote');
 
 const offlineAccess = read('src/utils/offlineAccess.ts');
+const verifiedBusinessSnapshot = read('src/lib/verifiedOfflineBusinessSnapshot.ts');
 const firebase = read('src/lib/firebase.ts');
 const app = read('src/App.tsx');
 
@@ -78,6 +79,47 @@ if (!app.includes("getProjectsList().filter((project) => getCachedVerifiedProjec
 if (!firebase.includes('persistentLocalCache()') || !firebase.includes('getDocsFromCache')) fail('official Firestore persistent cache hydrate missing');
 if (!app.includes("businessDataSource === 'legacy-migration-fallback'")) fail('legacy local migration fallback is not explicitly read-only');
 if (!app.includes('Legacy data is migration input only') || !app.includes('if (FIREBASE_ONLY_RUNTIME) return;')) fail('Firebase-only still auto-recovers legacy IndexedDB rows into live state');
+for (const marker of [
+  'hnl_verified_offline_business_v1:',
+  'VERIFIED_PROJECT_ROLE_MAX_AGE_MS',
+  'record.uid !== uid',
+  'normalizeEmail(record.email) !== email',
+  'Date.now() - capturedAt > VERIFIED_PROJECT_ROLE_MAX_AGE_MS',
+]) {
+  if (!verifiedBusinessSnapshot.includes(marker)) fail(`verified offline business snapshot missing ${marker}`);
+}
+const verifiedWorking = read('src/lib/verifiedOfflineWorkingState.ts');
+for (const marker of [
+  'loadVerifiedOfflineBusinessSnapshot',
+  'saveVerifiedOfflineBusinessSnapshot',
+  "businessDataSource === 'verified-offline-snapshot'",
+  "setBusinessDataSource('verified-offline-snapshot')",
+  'loadVerifiedOfflineWorkingDelta',
+  'applyVerifiedOfflineWorkingDelta',
+  'buildVerifiedOfflineWorkingDelta',
+  'saveVerifiedOfflineWorkingDelta',
+  "(firestoreCached?.found || useVerifiedOfflineSnapshot) ? initialState : null",
+  "businessDataSource === 'firestore-cache' || businessDataSource === 'cloud' || businessDataSource === 'verified-offline-snapshot'",
+]) {
+  if (!app.includes(marker)) fail(`App verified offline cold-start/edit recovery missing ${marker}`);
+}
+for (const marker of [
+  'hnl_verified_offline_working_v1:',
+  'baseCapturedAt',
+  'upserts',
+  'deletions',
+  'tombstones',
+  'VERIFIED_PROJECT_ROLE_MAX_AGE_MS',
+]) {
+  if (!verifiedWorking.includes(marker)) fail(`durable verified offline working delta missing ${marker}`);
+}
+if (app.includes('Verified offline cold-start snapshot is read-only until Cloud reconnects.')) fail('verified snapshot still blocks authorized offline edits');
+const offlineBannerSource = read('src/components/OfflineSyncBanner.tsx');
+if (!offlineBannerSource.includes('Snapshot + Local') || !offlineBannerSource.includes('Bản chụp offline đã xác minh') || !offlineBannerSource.includes('lưu bền vững trên máy')) {
+  fail('offline banner does not disclose durable snapshot working state');
+}
+pass('identity-bound snapshot + durable working delta survives EXE restart and keeps Cloud as authority');
+
 pass('offline bootstrap uses Firestore persistent cache; legacy local business cache is read-only migration fallback');
 
 for (const marker of [
@@ -95,5 +137,50 @@ if (app.includes("localStorage.setItem('construction_offline_pending'")) fail('c
 const offlineBanner = read('src/components/OfflineSyncBanner.tsx');
 if (!offlineBanner.includes('hàng chờ Firestore bền vững') || offlineBanner.includes("construction_offline_pending")) fail('offline banner still describes legacy localStorage pending behavior');
 pass('offline edits enter Firestore persistent pending writes; no React-RAM/localStorage-only queue');
+
+
+const offlineMirror = read('src/lib/projectOfflineMirror.ts');
+const offlineMirrorSettings = read('src/lib/offlineMirrorSettings.ts');
+const offlineMirrorCard = read('src/components/ProjectOfflineMirrorCard.tsx');
+const photoCloudSync = read('src/lib/photoCloudSync.ts');
+const googleConfigTab = read('src/components/GoogleConfigTab.tsx');
+
+for (const marker of [
+  "fetchProjectFromCloud(projectId, { serverOnly: true })",
+  'refreshProjectPhotoMetadataFromCloud(projectId)',
+  'getPhotoBlob(photo.id, false)',
+  'downloadPhotoBlobFromCloud(projectId, photo.id',
+  'cacheFloorPlansForOffline(projectId, floorPlans',
+  'PHOTO_DOWNLOAD_CONCURRENCY = 3',
+]) {
+  if (!offlineMirror.includes(marker)) fail(`project offline mirror missing ${marker}`);
+}
+if (offlineMirror.includes('uploadPhotoToCloud') || offlineMirror.includes('setDoc(') || offlineMirror.includes('writeBatch(')) fail('offline mirror must remain read-only against Cloud');
+for (const marker of [
+  'hnl_project_offline_mirror_v1',
+  'getCurrentRealFirebaseUser',
+  'shouldAutoMirrorProjectBinaries',
+  "hnl-offline-mirror-setting-changed",
+]) {
+  if (!offlineMirrorSettings.includes(marker)) fail(`offline mirror settings missing ${marker}`);
+}
+for (const marker of [
+  'Dữ liệu offline trên thiết bị',
+  'Giữ sẵn offline: Bật',
+  'Đồng bộ offline ngay',
+  'Cloud vẫn là nguồn chuẩn',
+]) {
+  if (!offlineMirrorCard.includes(marker)) fail(`offline mirror UI missing ${marker}`);
+}
+if (!googleConfigTab.includes('<ProjectOfflineMirrorCard activeProjectId={activeProjectId} floorPlans={floorPlans} />')) fail('offline mirror card is not integrated into Settings');
+const syncCenterStart = googleConfigTab.indexOf('title="Trung tâm đồng bộ & sao lưu"');
+const healthCenterStart = googleConfigTab.indexOf('title="HNL Health Center"');
+const offlineCardStart = googleConfigTab.indexOf('<ProjectOfflineMirrorCard');
+const bridgeCardStart = googleConfigTab.indexOf('<WindowsDesktopSyncBridgeCard');
+if (!(syncCenterStart >= 0 && offlineCardStart > syncCenterStart && bridgeCardStart > syncCenterStart && healthCenterStart > bridgeCardStart)) fail('offline/Windows sync controls must stay in Sync & Backup Center before Health Center');
+const healthCenterSource = googleConfigTab.slice(healthCenterStart);
+if (healthCenterSource.includes('<ProjectOfflineMirrorCard') || healthCenterSource.includes('<WindowsDesktopSyncBridgeCard') || healthCenterSource.includes('Mặt bằng offline:')) fail('Health Center must remain diagnostic-only');
+if (!photoCloudSync.includes('shouldAutoMirrorProjectBinaries(projectId)') || !photoCloudSync.includes('prefetchOfflineMirrorPhotos')) fail('realtime photo stream does not keep opted-in offline mirror warm');
+pass('project Offline Mirror reuses Firestore persistent cache + photo IndexedDB + floor-plan cache without creating a second Cloud authority');
 
 console.log('OFFLINE GOLDEN PASS');

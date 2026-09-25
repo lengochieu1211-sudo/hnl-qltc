@@ -91,7 +91,7 @@ export const AppLockOverlay: React.FC<AppLockOverlayProps> = ({ isLocked, onUnlo
           return;
         }
 
-        // Re-authenticated via Google Auth successfully! Reset PIN hash cleanly.
+        // Re-authenticated with the PIN owner Google account; reset the local PIN hash cleanly.
         savePinLockConfig({
           ...currentConfig,
           enabled: false,
@@ -101,7 +101,7 @@ export const AppLockOverlay: React.FC<AppLockOverlayProps> = ({ isLocked, onUnlo
           pinOwnerEmail: undefined
         });
         logAuditAction('SECURITY_CONFIG_CHANGE', `Đã đặt lại (reset) mã PIN qua đăng nhập lại Google Auth (${user.email})`);
-        alert(`🎉 Xác thực Google Auth thành công (${user.email})!\n\nMã PIN khóa ứng dụng đã được xóa. Bạn có thể mở khóa và đặt lại mã PIN mới trong cài đặt bảo mật.`);
+        alert(`Đã xác minh tài khoản Google (${user.email}).\n\nPIN cũ đã được xóa. Bạn có thể vào Cài đặt bảo mật để tạo PIN mới.`);
         setPinInput('');
         setErrorMsg('');
         onUnlock();
@@ -230,7 +230,7 @@ export const AppLockOverlay: React.FC<AppLockOverlayProps> = ({ isLocked, onUnlo
           </button>
         </div>
 
-        {/* Forgot PIN / Reset via Google Auth */}
+        {/* Forgot PIN / reset through the verified Google account */}
         <div className="w-full pt-1">
           <button
             type="button"
@@ -246,14 +246,14 @@ export const AppLockOverlay: React.FC<AppLockOverlayProps> = ({ isLocked, onUnlo
             ) : (
               <>
                 <UserCheck className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Quên mã PIN? Đặt lại bằng Google Auth</span>
+                <span>Quên PIN? Đặt lại bằng Google</span>
               </>
             )}
           </button>
         </div>
 
         <p className="text-[10px] text-slate-500 pt-0.5">
-          Mã PIN được mã hóa 1 chiều. Không có master PIN.
+          PIN được lưu theo dạng bảo mật một chiều, không lưu nguyên số và không có PIN chung để mở khóa.
         </p>
       </div>
     </div>

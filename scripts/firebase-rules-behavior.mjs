@@ -20,7 +20,6 @@ import {
   connectStorageEmulator,
   ref,
   uploadBytes,
-  deleteObject,
 } from 'firebase/storage';
 
 const projectId = process.env.GCLOUD_PROJECT || process.env.FIREBASE_PROJECT_ID || 'demo-hnl-qltc-rules';
@@ -131,9 +130,19 @@ try {
   }));
 
   const workVolumeRef = doc(db, 'projects', pid, 'work_volumes', 'WV-RULE-1');
-  await expectAllowed('ADMIN creates work-volume master definition', () => setDoc(workVolumeRef, {
+  const workVolumeFinancialRef = doc(db, 'projects', pid, 'work_volume_financials', 'WV-RULE-1');
+  await expectAllowed('ADMIN creates work-volume master definition without embedded unit price', () => setDoc(workVolumeRef, {
     id: 'WV-RULE-1', title: 'Trần chìm', floor: 'Tầng 1', category: 'Trần', unit: 'm²',
-    planned: 350, actual: 0, unitPrice: 110000, status: 'Chưa thi công',
+    planned: 350, actual: 0, status: 'Chưa thi công',
+    revision: 1, createdAt: Date.now(), updatedAt: Date.now(), deleted: false, deletedAt: null,
+  }));
+  await expectAllowed('ADMIN writes isolated work-volume financial record', () => setDoc(workVolumeFinancialRef, {
+    id: 'WV-RULE-1', projectId: pid, workVolumeId: 'WV-RULE-1', unitPrice: 110000, updatedAt: Date.now(),
+  }));
+  await expectAllowed('ADMIN reads isolated work-volume financial record', () => getDoc(workVolumeFinancialRef));
+  await expectDenied('ADMIN cannot embed unitPrice back into shared work-volume document', () => setDoc(doc(db, 'projects', pid, 'work_volumes', 'WV-PRICE-LEAK'), {
+    id: 'WV-PRICE-LEAK', title: 'Không được phép', floor: 'Tầng 1', category: 'Trần', unit: 'm²',
+    planned: 1, actual: 0, unitPrice: 123456, status: 'Chưa thi công',
     revision: 1, createdAt: Date.now(), updatedAt: Date.now(), deleted: false, deletedAt: null,
   }));
 
@@ -156,6 +165,7 @@ try {
   await signIn(editorEmail);
 
   await expectAllowed('EDITOR reads work-volume master definition', () => getDoc(workVolumeRef));
+  await expectDenied('EDITOR cannot read isolated work-volume financial record', () => getDoc(workVolumeFinancialRef));
   await expectDenied('EDITOR cannot create work-volume master definition', () => setDoc(doc(db, 'projects', pid, 'work_volumes', 'WV-RULE-EDITOR'), {
     id: 'WV-RULE-EDITOR', title: 'Editor created', floor: 'Tầng 1', category: 'Trần', unit: 'm²',
     planned: 100, actual: 0, unitPrice: 0, status: 'Chưa thi công', revision: 1, updatedAt: Date.now(), deleted: false, deletedAt: null,
@@ -212,7 +222,7 @@ try {
   }));
 
   const floorStoragePath = `projects/${pid}/floor-plans/FP-RULE-1/original.jpg`;
-  await expectAllowed('ADMIN uploads floor-plan drawing binary', () => uploadBytes(ref(storage, floorStoragePath), new Blob([new Uint8Array([9, 8, 7])], { type: 'image/jpeg' }), {
+  await expectDenied('ADMIN cannot create new floor-plan binary in legacy Firebase Storage', () => uploadBytes(ref(storage, floorStoragePath), new Blob([new Uint8Array([9, 8, 7])], { type: 'image/jpeg' }), {
     contentType: 'image/jpeg',
     customMetadata: {
       projectId: pid, entityType: 'floorPlan', entityId: 'FP-RULE-1', assetId: 'FP-RULE-1',
@@ -389,7 +399,7 @@ try {
   }));
 
   const storagePath = `projects/${pid}/media/defect/DF-RULE-1/PHOTO-RULE-1/original.jpg`;
-  await expectAllowed('EDITOR uploads project image with bound metadata', () => uploadBytes(ref(storage, storagePath), new Blob([new Uint8Array([1, 2, 3, 4])], { type: 'image/jpeg' }), {
+  await expectDenied('EDITOR cannot create new project image in legacy Firebase Storage', () => uploadBytes(ref(storage, storagePath), new Blob([new Uint8Array([1, 2, 3, 4])], { type: 'image/jpeg' }), {
     contentType: 'image/jpeg',
     customMetadata: {
       projectId: pid, entityType: 'defect', entityId: 'DF-RULE-1', assetId: 'PHOTO-RULE-1',
@@ -408,6 +418,7 @@ try {
 
   await signIn(viewerEmail);
   await expectAllowed('VIEWER reads project/core record', () => getDoc(recordRef));
+  await expectDenied('VIEWER cannot read isolated work-volume financial record', () => getDoc(workVolumeFinancialRef));
   await expectAllowed('VIEWER reads shared settings', () => getDoc(sharedSettingsRef));
   await expectAllowed('VIEWER reads trash metadata', () => getDoc(trashRef));
   await expectDenied('VIEWER cannot mutate shared settings', () => updateDoc(sharedSettingsRef, { driveAutoSyncEnabled: true, updatedAt: Date.now() + 300 }));
@@ -426,8 +437,29 @@ try {
   await expectAllowed('ADMIN updates shared settings', () => updateDoc(sharedSettingsRef, { driveAutoSyncEnabled: true, updatedAt: Date.now() + 400 }));
   await expectAllowed('ADMIN purges non-core trash metadata', () => deleteDoc(trashRef));
   await expectDenied('project root hard delete rejected', () => deleteDoc(doc(db, 'projects', pid)));
-  await expectAllowed('ADMIN/owner may purge Storage binary after retention', () => deleteObject(ref(storage, storagePath)));
-  await expectAllowed('ADMIN/owner may purge floor-plan Storage binary after retention', () => deleteObject(ref(storage, floorStoragePath)));
+  await expectDenied('ADMIN cannot create new project image in legacy Firebase Storage', () => uploadBytes(ref(storage, storagePath), new Blob([new Uint8Array([9])], { type: 'image/jpeg' }), {
+    contentType: 'image/jpeg', customMetadata: { projectId: pid, entityType: 'defect', entityId: 'DF-RULE-1', assetId: 'PHOTO-RULE-1', createdByUid: ownerUid },
+  }));
+
+  // Revocation must remain fail-closed even when a stale UID alias still grants ADMIN.
+  await expectAllowed('ADMIN creates stale EDITOR UID alias before canonical revocation regression', () => setDoc(doc(db, 'projects', pid, 'members', editorUid), {
+    uid: editorUid, email: editorEmail, role: 'ADMIN', active: true, assignedAt: Date.now(), updatedAt: Date.now(),
+  }));
+  await expectAllowed('ADMIN tombstones canonical EDITOR membership', () => updateDoc(doc(db, 'projects', pid, 'members', editorEmail), {
+    role: 'VIEWER', active: false, revokedAt: Date.now(), updatedAt: Date.now(),
+  }));
+  await signIn(editorEmail);
+  await expectDenied('revoked canonical EDITOR cannot fall back to stale UID ADMIN alias', () => getDoc(recordRef));
+
+  // Soft-deleted projects are frozen: root remains restorable by ADMIN, all business access stops.
+  await signIn(ownerEmail);
+  await expectAllowed('ADMIN soft-deletes project root for frozen-project regression', () => updateDoc(doc(db, 'projects', pid), {
+    deleted: true, deletedAt: Date.now(), trashRetentionDays: 7, trashExpiresAt: Date.now() + 7 * 86400000, updatedAt: Date.now(),
+  }));
+  await expectAllowed('ADMIN may still read deleted project root for restore', () => getDoc(doc(db, 'projects', pid)));
+  await expectDenied('ADMIN cannot operate business subcollections while project is deleted', () => getDoc(workVolumeFinancialRef));
+  await signIn(viewerEmail);
+  await expectDenied('VIEWER cannot read business records from deleted project', () => getDoc(recordRef));
 
   console.log('FIREBASE RULES BEHAVIOR PASS');
 } finally {

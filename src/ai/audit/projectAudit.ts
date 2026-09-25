@@ -21,6 +21,7 @@ import type {
 } from '../core/contracts';
 import type { HnlAiProjectSnapshot } from '../data/projectSnapshot';
 import { assertAiProjectAccess, createAiPermissionScope } from '../security/aiPermissionGuard';
+import { canonicalNormCategoryIds, validateInventoryOutProvenance, validateMaterialNormCatalog } from '../../utils/linkageIntegrity';
 
 function isActive(record: { deletedAt?: number | null }): boolean {
   return record.deletedAt === undefined || record.deletedAt === null;
@@ -205,28 +206,30 @@ export function auditProjectIntegrity(params: AuditProjectIntegrityParams): AiTo
     });
   });
 
-  const validWorkCategoryIds = new Set<string>();
-  snapshot.workVolumes.filter(isActive).forEach((item) => {
-    if (item.id) validWorkCategoryIds.add(item.id);
-    if (item.workCategoryId) validWorkCategoryIds.add(item.workCategoryId);
-  });
-
   snapshot.materialNorms.filter(isActive).forEach((norm: MaterialNorm) => {
     const normEv = collectionEvidence('material_norms', norm.id, norm.materialName, ['workCategoryId', 'workCategoryIds']);
     evidenceMap.set(normEv.id, normEv);
-    const refs = Array.from(new Set([norm.workCategoryId, ...(norm.workCategoryIds || [])].filter(Boolean))) as string[];
-    refs.forEach((workCategoryId) => {
-      if (!validWorkCategoryIds.has(workCategoryId)) {
-        issues.push({
-          ruleId: 'MATERIAL_NORM_WORK_CATEGORY_NOT_FOUND',
-          severity: 'ERROR',
-          entityType: 'project',
-          entityId: norm.id,
-          message: `Định mức ${norm.materialName} tham chiếu workCategoryId không tồn tại.`,
-          evidenceIds: [normEv.id],
-          details: { workCategoryId },
-        });
-      }
+    const scope = canonicalNormCategoryIds(norm, snapshot.workVolumes.filter(isActive));
+    scope.unresolved.forEach((workCategoryRef) => {
+      issues.push({
+        ruleId: 'MATERIAL_NORM_WORK_CATEGORY_NOT_FOUND', severity: 'ERROR', entityType: 'project', entityId: norm.id,
+        message: `Định mức ${norm.materialName} tham chiếu hạng mục không resolve duy nhất theo ID/tên.`, evidenceIds: [normEv.id], details: { workCategoryRef },
+      });
+    });
+  });
+
+  validateMaterialNormCatalog(snapshot.materialNorms.filter(isActive), snapshot.workVolumes.filter(isActive)).forEach((problem) => {
+    problem.normIds.forEach((id) => {
+      const norm = snapshot.materialNorms.find((item) => item.id === id);
+      if (norm) evidenceMap.set(`material_norms:${id}`, collectionEvidence('material_norms', id, norm.materialName));
+    });
+    issues.push({
+      ruleId: problem.code,
+      severity: problem.code === 'AMBIGUOUS_NORM' ? 'ERROR' : 'WARNING',
+      entityType: 'project', entityId: problem.normIds[0] || 'material-norm-catalog',
+      message: problem.message,
+      evidenceIds: problem.normIds.map((id) => `material_norms:${id}`),
+      details: { normIds: problem.normIds, materialKey: problem.materialKey, workCategoryIds: problem.workCategoryIds },
     });
   });
 
@@ -317,6 +320,25 @@ export function auditProjectIntegrity(params: AuditProjectIntegrityParams): AiTo
         evidenceIds: [itemEv.id],
         details: { sourceNormId: item.sourceNormId },
       });
+    }
+    if (item.type === 'out') {
+      const provenance = validateInventoryOutProvenance({
+        tx: item,
+        rooms: snapshot.rooms.filter(isActive),
+        workVolumes: snapshot.workVolumes.filter(isActive),
+        materialNorms: snapshot.materialNorms.filter(isActive),
+        teams: snapshot.teams.filter(isActive),
+      });
+      if (provenance.state !== 'resolved') {
+        issues.push({
+          ruleId: provenance.state === 'ambiguous' ? 'INVENTORY_OUT_PROVENANCE_AMBIGUOUS' : 'INVENTORY_OUT_PROVENANCE_INVALID',
+          severity: provenance.state === 'ambiguous' ? 'WARNING' : 'ERROR',
+          entityType: 'project', entityId: item.id,
+          message: `Phiếu xuất ${item.id} có provenance không duy nhất/không nhất quán: ${provenance.reason || provenance.state}.`,
+          evidenceIds: [itemEv.id],
+          details: { state: provenance.state, reason: provenance.reason, sourceRoomId: item.sourceRoomId, sourceFloorId: item.sourceFloorId, sourceWorkCategoryId: item.sourceWorkCategoryId, sourceTeamId: item.sourceTeamId, sourceNormId: item.sourceNormId },
+        });
+      }
     }
   });
 

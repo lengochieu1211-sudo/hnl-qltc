@@ -18,6 +18,10 @@ service firebase.storage {
       return firestore.get(/databases/(default)/documents/projects/$(projectId));
     }
 
+    function projectActive(projectId) {
+      return !('deleted' in project(projectId).data) || project(projectId).data.deleted != true;
+    }
+
     function isOwner(projectId) {
       return signedIn() && (
         project(projectId).data.ownerUid == request.auth.uid ||
@@ -58,7 +62,8 @@ service firebase.storage {
     }
 
     function isMember(projectId) {
-      return signedIn() && (isSuperAdmin() || isOwner(projectId) || canonicalMemberActive(projectId));
+      return signedIn() && projectActive(projectId)
+        && (isSuperAdmin() || isOwner(projectId) || canonicalMemberActive(projectId));
     }
 
     function roleCanEdit(role) {
@@ -73,54 +78,11 @@ service firebase.storage {
       );
     }
 
-    function canEdit(projectId) {
-      return signedIn() && (
-        isAdmin(projectId) ||
-        (canonicalMemberActive(projectId) && roleCanEdit(canonicalMemberRole(projectId)))
-      );
-    }
-
-    function validSize(fileName) {
-      // Thumbnails stay small; originals/PDF attachments use a defensive 25 MiB cap.
-      return request.resource.size > 0
-        && (fileName.matches('thumb\\..*') ? request.resource.size < 3 * 1024 * 1024 : request.resource.size < 25 * 1024 * 1024);
-    }
-
-    function validContentType() {
-      return request.resource.contentType.matches('image/.*') || request.resource.contentType == 'application/pdf';
-    }
-
-    function identityMetadata(projectId, entityType, entityId, assetId) {
-      return request.resource.metadata.projectId == projectId
-        && request.resource.metadata.entityType == entityType
-        && request.resource.metadata.entityId == entityId
-        && request.resource.metadata.assetId == assetId
-        && request.resource.metadata.createdByUid == request.auth.uid;
-    }
-
-    function updateKeepsIdentity(projectId, entityType, entityId, assetId) {
-      return resource != null
-        && request.resource.metadata.projectId == resource.metadata.projectId
-        && request.resource.metadata.entityType == resource.metadata.entityType
-        && request.resource.metadata.entityId == resource.metadata.entityId
-        && request.resource.metadata.assetId == resource.metadata.assetId
-        && request.resource.metadata.createdByUid == resource.metadata.createdByUid
-        && request.resource.metadata.projectId == projectId
-        && request.resource.metadata.entityType == entityType
-        && request.resource.metadata.entityId == entityId
-        && request.resource.metadata.assetId == assetId;
-    }
-
     match /projects/{projectId}/media/{entityType}/{entityId}/{assetId}/{fileName} {
       allow read: if isMember(projectId);
-      allow create: if canEdit(projectId)
-        && identityMetadata(projectId, entityType, entityId, assetId)
-        && validSize(fileName)
-        && validContentType();
-      allow update: if canEdit(projectId)
-        && updateKeepsIdentity(projectId, entityType, entityId, assetId)
-        && validSize(fileName)
-        && validContentType();
+      // Production write authority is Cloudflare R2. Firebase Storage is legacy
+      // read/purge compatibility only; no new binary may be created or replaced here.
+      allow create, update: if false;
       // Normal delete is Firestore soft-delete. Binary purge is ADMIN-only after retention.
       allow delete: if isAdmin(projectId);
     }
@@ -128,14 +90,7 @@ service firebase.storage {
     match /projects/{projectId}/floor-plans/{floorPlanId}/{fileName} {
       allow read: if isMember(projectId);
       // Floor-plan drawing binaries are project structure: ADMIN-only.
-      allow create: if isAdmin(projectId)
-        && identityMetadata(projectId, 'floorPlan', floorPlanId, floorPlanId)
-        && validSize(fileName)
-        && validContentType();
-      allow update: if isAdmin(projectId)
-        && updateKeepsIdentity(projectId, 'floorPlan', floorPlanId, floorPlanId)
-        && validSize(fileName)
-        && validContentType();
+      allow create, update: if false;
       allow delete: if isAdmin(projectId);
     }
 

@@ -34,6 +34,7 @@ import { createEntityId, createDeterministicId } from '../utils/idUtils';
 import { normalizeUnit, areSameUnit } from '../utils/unitUtils';
 import { buildMaterialAliasMap, getMaterialIdentityKey, resolveNormMaterialId, normalizeMaterialNameKey } from '../utils/inventoryUtils';
 import { computeMaterialNeeds } from '../utils/materialNeedEngine';
+import { validateInventoryOutProvenance } from '../utils/linkageIntegrity';
 import { MoveOrderControls } from './MoveOrderControls';
 import { ContactMenu } from './ContactMenu';
 
@@ -682,18 +683,21 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   }, [roomItem, floorId, floorName, roomName, workCategory, categoryVolumes, subItems, workVolume, volumeUnit, assignedTeam, materialNorms, inventory, workVolumes]);
 
   const roomMaterialEstimates = React.useMemo(() => roomMaterialNeedResult.lines.map((line) => {
-    const issued = currentRoomAutoIssuedMap[line.materialKey] || { total: line.alreadyIssued, stableRecordQty: 0 };
-    const alreadyIssued = Math.max(line.alreadyIssued, issued.total);
-    const remainingQty = Math.max(0, Math.ceil((line.estimatedQty - alreadyIssued) * 100) / 100);
-    const overIssuedQty = Math.max(0, Math.ceil((alreadyIssued - line.estimatedQty) * 100) / 100);
+    const issued = currentRoomAutoIssuedMap[line.materialKey] || { total: line.rawAlreadyIssued, stableRecordQty: 0 };
+    const rawAlreadyIssued = Math.max(line.rawAlreadyIssued, issued.total);
+    const rawRemainingQty = Math.max(0, line.rawEstimatedQty - rawAlreadyIssued);
+    const rawOverIssuedQty = Math.max(0, rawAlreadyIssued - line.rawEstimatedQty);
     return {
       ...line,
-      id: line.sourceNormIds[0],
+      id: line.sourceNormIds.length === 1 ? line.sourceNormIds[0] : undefined,
       estQty: line.estimatedQty,
-      alreadyIssued,
+      alreadyIssued: Math.round(rawAlreadyIssued * 100) / 100,
+      rawAlreadyIssued,
       stableRecordQty: issued.stableRecordQty,
-      remainingQty,
-      overIssuedQty,
+      remainingQty: Math.round(rawRemainingQty * 100) / 100,
+      rawRemainingQty,
+      overIssuedQty: Math.round(rawOverIssuedQty * 100) / 100,
+      rawOverIssuedQty,
     };
   }), [roomMaterialNeedResult.lines, currentRoomAutoIssuedMap]);
 
@@ -717,33 +721,98 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       alert('Chưa tìm thấy định mức vật tư phù hợp với các hạng mục thi công này.');
       return;
     }
+    if (roomMaterialNeedResult.failClosed) {
+      const details = roomMaterialNeedResult.warnings.slice(0, 5).map((warning) => `• ${warning.message}`).join('\n');
+      alert(`Không thể xuất kho tự động vì liên kết vật tư/hạng mục chưa duy nhất hoặc chưa đầy đủ. Hãy sửa dữ liệu trước:\n${details}`);
+      return;
+    }
 
-    const needsIssue = roomMaterialEstimates.filter((item: any) => item.remainingQty > 0);
+    const needsIssue = roomMaterialEstimates.filter((item: any) => item.rawRemainingQty > 1e-9);
     if (needsIssue.length === 0) {
-      const over = roomMaterialEstimates.filter((item: any) => item.overIssuedQty > 0);
+      const over = roomMaterialEstimates.filter((item: any) => item.rawOverIssuedQty > 1e-9);
       alert(over.length > 0
         ? `Căn / Phòng này đã xuất đủ vật tư theo định mức hiện tại. Có ${over.length} vật tư đang xuất vượt nhu cầu; vui lòng kiểm tra lịch sử kho.`
         : 'Căn / Phòng này đã xuất đủ vật tư theo định mức hiện tại. Không tạo thêm phiếu xuất trùng.');
       return;
     }
 
+    const draftRoom: RoomProgressItem = {
+      ...(roomItem as RoomProgressItem),
+      floorId,
+      floorName,
+      roomName: roomName || roomItem.roomName,
+      workCategory,
+      workCategoryId: roomItem.workCategoryId,
+      categoryVolumes,
+      subItems,
+      workVolume: Number(workVolume) || 0,
+      volumeUnit,
+      assignedTeam,
+      teamId: roomItem.teamId,
+    };
+
+    // Preflight the ENTIRE auto-issue set before the first write. Each material must
+    // come from exactly one Norm and one WorkCategory; team is recorded only if the
+    // same provenance validator resolves it uniquely and consistently.
+    const plannedIssues: Array<{ item: any; sourceNormId: string; sourceWorkCategoryId: string; sourceTeamId?: string }> = [];
+    const preflightErrors: string[] = [];
+    for (const item of needsIssue as any[]) {
+      const normIds = Array.from(new Set((item.sourceNormIds || []).filter(Boolean))) as string[];
+      const categoryIds = Array.from(new Set((item.normDetails || []).map((detail: any) => detail.workCategoryId).filter(Boolean))) as string[];
+      if (normIds.length !== 1 || categoryIds.length !== 1) {
+        preflightErrors.push(`${item.materialName}: nguồn định mức/hạng mục không duy nhất.`);
+        continue;
+      }
+      if (Number(item.rawStockQty) + 1e-9 < Number(item.rawRemainingQty)) {
+        preflightErrors.push(`${item.materialName}: cần ${formatDecimal(item.rawRemainingQty)} ${item.unit}, tồn ${formatDecimal(item.rawStockQty)} ${item.unit}.`);
+        continue;
+      }
+
+      const probe: InventoryItem = {
+        id: '__auto_issue_preflight__',
+        type: 'out',
+        materialId: item.materialId,
+        materialName: item.materialName,
+        unit: item.unit,
+        quantity: Number(item.rawRemainingQty),
+        location: `${floorName} - ${roomName || 'Căn / Phòng'}`,
+        handler: assignedTeam || 'Đội thi công Căn / Phòng',
+        date: new Date().toISOString().split('T')[0],
+        sourceType: 'room-auto',
+        sourceRoomId: roomItem.id,
+        sourceFloorId: floorId,
+        sourceNormId: normIds[0],
+        sourceWorkCategoryId: categoryIds[0],
+      };
+      const provenance = validateInventoryOutProvenance({
+        tx: probe,
+        rooms: [draftRoom],
+        workVolumes,
+        materialNorms,
+        teams,
+      });
+      if (provenance.state !== 'resolved' || provenance.workCategoryId !== categoryIds[0]) {
+        preflightErrors.push(`${item.materialName}: ${provenance.reason || 'provenance OUT không hợp lệ'}.`);
+        continue;
+      }
+      plannedIssues.push({ item, sourceNormId: normIds[0], sourceWorkCategoryId: categoryIds[0], sourceTeamId: provenance.teamId });
+    }
+
+    if (preflightErrors.length > 0 || plannedIssues.length !== needsIssue.length) {
+      alert(`Không tạo phiếu xuất nào vì preflight chưa đạt:\n• ${preflightErrors.join('\n• ')}`);
+      return;
+    }
+
     setIsAutoIssuing(true);
     let issuedCount = 0;
-    const insufficient: string[] = [];
     const catDetailsStr = validCategories.map(cat => `${cat} (${formatDecimal(getCategoryVolume(cat))} ${getCategorySourceUnit(cat)})`).join(', ');
 
     try {
-      for (const item of needsIssue as any[]) {
-        if (item.stockQty + 1e-9 < item.remainingQty) {
-          insufficient.push(`${item.materialName}: cần ${formatDecimal(item.remainingQty)} ${item.unit}, tồn ${formatDecimal(item.stockQty)} ${item.unit}`);
-          continue;
-        }
+      for (const planned of plannedIssues) {
+        const item = planned.item;
         const sourceIssueKey = `${roomItem.id}|${item.materialKey}`;
         const deterministicId = createDeterministicId('AUTO-XK', sourceIssueKey);
-        // The deterministic record stores only the cumulative quantity created by
-        // the current auto-issue engine. Firebase-only routes this through the same
-        // atomic warehouse transaction service as manual stock issues.
-        const cumulativeStableQty = Math.ceil((Number(item.stableRecordQty || 0) + Number(item.remainingQty || 0)) * 100) / 100;
+        const cumulativeStableQty = Number(item.stableRecordQty || 0) + Number(item.rawRemainingQty || 0);
         await onAddInventory({
           id: deterministicId,
           type: 'out',
@@ -758,18 +827,14 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
           sourceType: 'room-auto',
           sourceRoomId: roomItem.id,
           sourceFloorId: floorId,
-          sourceNormId: item.sourceNormIds?.[0] || item.id,
-          sourceTeamId: roomItem.teamId && (!subItems.some((sub) => sub.teamId && sub.teamId !== roomItem.teamId)) ? roomItem.teamId : undefined,
-          sourceWorkCategoryId: roomItem.workCategoryId,
+          sourceNormId: planned.sourceNormId,
+          sourceTeamId: planned.sourceTeamId,
+          sourceWorkCategoryId: planned.sourceWorkCategoryId,
           sourceIssueKey,
         });
         issuedCount++;
       }
-
-      const messages: string[] = [];
-      if (issuedCount > 0) messages.push(`Đã cập nhật ${issuedCount} phiếu xuất tự động theo phần vật tư còn thiếu cho [${roomName || 'Căn / Phòng'}].`);
-      if (insufficient.length > 0) messages.push(`Không xuất các vật tư thiếu tồn kho:\n• ${insufficient.join('\n• ')}`);
-      alert(messages.join('\n\n') || 'Không có phiếu nào cần tạo.');
+      alert(`Đã cập nhật ${issuedCount} phiếu xuất tự động theo phần vật tư còn thiếu cho [${roomName || 'Căn / Phòng'}].`);
     } finally {
       setIsAutoIssuing(false);
     }
@@ -966,6 +1031,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     const roomData: Omit<RoomProgressItem, 'updatedAt'> = {
       id: roomItem?.id,
       floorId,
+      floorName,
       roomName: roomName.trim(),
       workCategory: effectiveWorkCategory,
       workCategoryId: finalWorkCategoryId,
@@ -1039,8 +1105,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
-      <div className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-2xl p-4 sm:p-5 space-y-4 max-h-[92vh] flex flex-col border border-slate-100 shadow-2xl">
+    <div className="fixed inset-y-0 right-0 left-0 lg:left-[84px] bg-slate-900/60 backdrop-blur-xs z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
+      <div className="bg-white w-full sm:max-w-3xl lg:max-w-[1200px] xl:max-w-[1280px] rounded-t-3xl sm:rounded-2xl p-4 sm:p-5 lg:p-6 space-y-4 max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] flex flex-col border border-slate-100 shadow-2xl overflow-hidden">
         
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-100 pb-3 shrink-0">
@@ -1064,7 +1130,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
         </div>
 
         {/* Form Body */}
-        <form ref={formRef} onSubmit={handleSubmit} className="flex-1 overflow-y-auto overflow-x-hidden space-y-3.5 pr-1 text-xs">
+        <form ref={formRef} onSubmit={handleSubmit} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain space-y-3.5 pr-1 text-xs">
           {structureReadOnly && (
             <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-[11px] font-semibold text-indigo-800">
               Kỹ sư chỉ cập nhật tiến độ, nghiệm thu, đội thi công, hạn hoàn thành và ghi chú. Tên Căn/Phòng, khối lượng và hình học mặt bằng do Admin quản lý.
@@ -1549,12 +1615,19 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                     <span>Thêm hạng mục con</span>
                   </button>}
 
+                  <div className="hidden xl:grid xl:grid-cols-[minmax(0,1.55fr)_minmax(260px,0.85fr)_minmax(330px,1fr)] gap-3 px-3 py-2 rounded-xl border border-slate-200 bg-slate-100/80 text-[10px] font-extrabold uppercase tracking-wide text-slate-500">
+                    <div>Hạng mục con &amp; đội thi công</div>
+                    <div>Tiến độ</div>
+                    <div>Nghiệm thu &amp; hạn hoàn thành</div>
+                  </div>
+
                   <div className="space-y-3">
                     {itemsInCat.map((item) => {
                       const originalIndex = subItems.findIndex(s => s.id === item.id);
                       return (
-                        <div key={`${item.id}-${originalIndex}`} className="bg-white p-2.5 sm:p-3 rounded-xl border border-slate-200 shadow-2xs space-y-2.5 overflow-x-hidden">
-                          <div className="flex items-center justify-between gap-1.5 min-w-0">
+                        <div key={`${item.id}-${originalIndex}`} className="bg-white p-2.5 sm:p-3 rounded-xl border border-slate-200 shadow-2xs space-y-2.5 xl:space-y-0 xl:grid xl:grid-cols-[minmax(0,1.55fr)_minmax(260px,0.85fr)_minmax(330px,1fr)] xl:gap-3 xl:items-start overflow-x-hidden">
+                          <div className="min-w-0 space-y-2 xl:min-h-[104px]">
+                            <div className="flex items-center justify-between gap-1.5 min-w-0">
                             <div className="flex items-center gap-2 shrink-0">
                               <input
                                 type="checkbox"
@@ -1619,17 +1692,18 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                 <Trash2 className="w-4 h-4" />
                               </button>
                             ))}
-                          </div>
+                            </div>
 
-                          {/* Team & Volume per Sub-Item */}
-                          <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 text-[10.5px]">
-                            <div className="flex items-center gap-1.5 min-w-0">
-                              <User className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                              <span className="font-bold text-slate-600 shrink-0">Đội thi công:</span>
+                            {/* Team stays directly below the sub-item name on PC/laptop/EXE so long team names remain visible. */}
+                            <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 text-[10.5px]">
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <User className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                                <span className="font-bold text-slate-600">Đội thi công:</span>
+                              </div>
                               <select
                                 value={item.assignedTeam || ''}
                                 onChange={(e) => handleUpdateSubItem(item.id, { assignedTeam: e.target.value })}
-                                className="flex-1 font-bold border border-slate-200 rounded-lg px-2 py-1 text-xs focus:ring-1 focus:ring-indigo-500 outline-none bg-white min-w-0 truncate"
+                                className="w-full font-bold border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:ring-1 focus:ring-indigo-500 outline-none bg-white min-w-0"
                               >
                                 <option value="">-- Chọn đội (Quân số) --</option>
                                 {displayTeams.map((t) => (
@@ -1645,11 +1719,13 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                 const matchingTeam = displayTeams.find(t => t.name === item.assignedTeam);
                                 if (matchingTeam?.phone) {
                                   return (
-                                    <ContactMenu
-                                      target={{ name: matchingTeam.leader || matchingTeam.name, phone: matchingTeam.phone }}
-                                      context={{ type: 'room', shareText: `HNL QLTC – Liên hệ đội thi công\nĐội: ${matchingTeam.name}\nĐội trưởng: ${matchingTeam.leader || 'Chưa cập nhật'}\nSĐT: ${matchingTeam.phone}` }}
-                                      triggerLabel="Liên hệ"
-                                    />
+                                    <div className="mt-1.5 flex justify-end">
+                                      <ContactMenu
+                                        target={{ name: matchingTeam.leader || matchingTeam.name, phone: matchingTeam.phone }}
+                                        context={{ type: 'room', shareText: `HNL QLTC – Liên hệ đội thi công\nĐội: ${matchingTeam.name}\nĐội trưởng: ${matchingTeam.leader || 'Chưa cập nhật'}\nSĐT: ${matchingTeam.phone}` }}
+                                        triggerLabel="Liên hệ"
+                                      />
+                                    </div>
                                   );
                                 }
                                 return null;
@@ -1658,7 +1734,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                           </div>
 
                           {/* Status buttons: Thi công */}
-                          <div>
+                          <div className="xl:min-h-[104px]">
                             <span className="text-[10.5px] font-bold text-slate-500 block mb-1">▶ Tiến độ thi công:</span>
                             <div className="grid grid-cols-3 gap-1.5 mb-1.5">
                               {(['Chưa làm', 'Đang làm', 'Đã hoàn thành'] as AcceptanceStatus[]).map((st) => (
@@ -1683,7 +1759,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                           </div>
 
                           {/* Status buttons: Nghiệm thu */}
-                          <div className="pt-1.5 border-t border-slate-100">
+                          <div className="pt-1.5 border-t border-slate-100 xl:border-t-0 xl:pt-0 xl:min-h-[104px]">
                             <span className="text-[10.5px] font-bold text-indigo-700 block mb-1">▶ Nghiệm thu hạng mục này:</span>
                             <div className="grid grid-cols-3 gap-1.5 mb-1.5">
                               {(['Chưa nghiệm thu', 'Đạt nghiệm thu', 'Chưa đạt (Cần sửa)'] as RoomInspectionResult[]).map((st) => (
@@ -1840,8 +1916,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
           </div>
 
           {/* Inspector & Notes */}
-          <div className="space-y-2">
-            <div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
+            <div className="lg:col-span-1">
               <label className="block font-bold text-slate-700 mb-1">Kỹ sư phụ trách nghiệm thu</label>
               <input
                 type="text"
@@ -1851,7 +1927,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                 className="w-full border border-slate-200 rounded-xl p-2.5 font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500"
               />
             </div>
-            <div>
+            <div className="lg:col-span-2">
               <label className="block font-bold text-slate-700 mb-1">Ghi chú nghiệm thu Căn / Phòng</label>
               <textarea
                 value={notes}
@@ -1873,7 +1949,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
               <div className="flex items-center gap-1.5 min-w-0">
                 <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
                 <span className="font-extrabold text-amber-950 text-xs truncate">
-                  📐 Tùy chỉnh kích thước &amp; tọa độ
+                  Tùy chỉnh kích thước &amp; tọa độ
                 </span>
               </div>
               <div className="flex items-center gap-1 text-amber-900 text-xs font-semibold shrink-0">
@@ -2007,7 +2083,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                 </div>
 
                 {/* Geometry Sliders */}
-                <div className="grid grid-cols-2 gap-3 text-[11px]">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-[11px]">
                   <div>
                     <label className="text-slate-600 font-semibold block mb-0.5">Vị trí X: {Number(x.toFixed(1))}%</label>
                     <input

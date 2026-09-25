@@ -57,10 +57,19 @@ export function buildR2PhotoPaths(input: Pick<R2ProjectBinaryUploadInput, 'proje
   return { storagePath: `${base}/original.${ext}`, thumbnailPath: `${base}/thumb.${ext}` };
 }
 
-export function buildR2FloorPlanPaths(projectId: string, floorPlanId: string, mimeType?: string) {
+/**
+ * Floor-plan binaries are immutable/content-addressed when contentSha256 is supplied.
+ * Legacy pointers without a hash remain readable because Firestore stores the exact path.
+ * Never overwrite the object behind an already-published Firestore floor-plan pointer:
+ * a newer replacement can be staged while an older upload is still in flight.
+ */
+export function buildR2FloorPlanPaths(projectId: string, floorPlanId: string, mimeType?: string, contentSha256?: string) {
   const ext = extensionForMime(mimeType);
   const base = `projects/${safeSegment(projectId)}/floor-plans/${safeSegment(floorPlanId)}`;
-  return { storagePath: `${base}/original.${ext}`, thumbnailPath: `${base}/thumb.${ext}` };
+  const version = String(contentSha256 || '').trim().toLowerCase().replace(/[^a-f0-9]/g, '').slice(0, 64);
+  return version
+    ? { storagePath: `${base}/original.${version}.${ext}`, thumbnailPath: `${base}/thumb.${version}.${ext}` }
+    : { storagePath: `${base}/original.${ext}`, thumbnailPath: `${base}/thumb.${ext}` };
 }
 
 async function authHeader(forceRefresh = false): Promise<string> {
@@ -91,13 +100,56 @@ function matchesExpected(actualSize: number, actualSha256: string | undefined, e
   return actualSize > 0 && sizeMatches && checksumMatches;
 }
 
+const R2_AUTH_BACKEND_RETRY_ATTEMPTS = 4;
+const sleep = (ms: number) => ms > 0 ? new Promise<void>((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
+
+function retryAfterDelayMs(response: Response, fallbackMs: number): number {
+  const raw = String(response.headers.get('Retry-After') || '').trim();
+  let hinted = 0;
+  if (/^\d+(?:\.\d+)?$/.test(raw)) hinted = Number(raw) * 1000;
+  else if (raw) {
+    const at = Date.parse(raw);
+    if (Number.isFinite(at)) hinted = Math.max(0, at - Date.now());
+  }
+  return Math.min(5000, Math.max(fallbackMs, hinted));
+}
+
+async function fetchR2WithAuthBackendRetry(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  context?: { projectId?: string; area?: string; storagePath?: string },
+): Promise<Response> {
+  let response: Response | null = null;
+  for (let attempt = 0; attempt < R2_AUTH_BACKEND_RETRY_ATTEMPTS; attempt += 1) {
+    response = await fetch(input, init);
+    if (response.status !== 503) return response;
+
+    const detail = await response.clone().text().catch(() => '');
+    if (detail && !detail.includes('AUTH_BACKEND_UNAVAILABLE')) return response;
+    if (attempt === R2_AUTH_BACKEND_RETRY_ATTEMPTS - 1) return response;
+
+    const delayMs = retryAfterDelayMs(response, Math.min(5000, 750 * (2 ** attempt)));
+    if (context?.projectId) {
+      appendRuntimeDiagnostic({
+        level: 'warn',
+        area: context.area || 'r2-auth-backend',
+        projectId: context.projectId,
+        code: 'AUTH_BACKEND_UNAVAILABLE',
+        message: `${context.storagePath || ''} | retry ${attempt + 1}/${R2_AUTH_BACKEND_RETRY_ATTEMPTS} sau ${delayMs}ms`,
+      });
+    }
+    await sleep(delayMs);
+  }
+  return response!;
+}
+
 async function verifyR2ObjectViaAuthenticatedGet(
   url: string,
   authorization: string,
   expectedSize?: number,
   expectedSha256?: string,
 ): Promise<R2ObjectVerification> {
-  const fallback = await fetch(url, {
+  const fallback = await fetchR2WithAuthBackendRetry(url, {
     method: 'GET',
     headers: { Authorization: authorization },
     cache: 'no-store',
@@ -130,11 +182,12 @@ export async function verifyR2ObjectReady(
 ): Promise<R2ObjectVerification> {
   let authorization = await authHeader();
   const url = gatewayUrl('/v1/object', storagePath);
-  const requestHead = () => fetch(url, {
+  const projectId = storagePath.match(/^projects\/([^/]+)\//)?.[1] || '';
+  const requestHead = () => fetchR2WithAuthBackendRetry(url, {
     method: 'HEAD',
     headers: { Authorization: authorization },
     cache: 'no-store',
-  });
+  }, { projectId, area: 'r2-verify', storagePath });
 
   let response: Response;
   try {
@@ -190,7 +243,7 @@ async function putObject(storagePath: string, blob: Blob, metadata: Record<strin
   const projectId = String(metadata.projectId || '');
   const url = gatewayUrl('/v1/object', storagePath);
   let authorization = await authHeader();
-  const requestPut = () => fetch(url, {
+  const requestPut = () => fetchR2WithAuthBackendRetry(url, {
     method: 'PUT',
     headers: {
       Authorization: authorization,
@@ -198,7 +251,7 @@ async function putObject(storagePath: string, blob: Blob, metadata: Record<strin
       'X-HNL-Metadata': encodeURIComponent(JSON.stringify(metadata)),
     },
     body: blob,
-  });
+  }, { projectId, area: 'r2-upload', storagePath });
 
   let response: Response;
   try {
@@ -262,10 +315,15 @@ export async function uploadProjectBinaryToR2(input: R2ProjectBinaryUploadInput)
 export async function uploadFloorPlanBinaryToR2(input: {
   projectId: string; floorPlanId: string; blob: Blob; thumbnailBlob?: Blob | null; createdByUid?: string; createdAt?: number;
 }): Promise<R2BinaryUploadResult> {
-  const paths = buildR2FloorPlanPaths(input.projectId, input.floorPlanId, input.blob.type);
+  // Content-addressed object names make the binary phase atomic with respect to
+  // Firestore pointer publication. A stale in-flight replacement can never overwrite
+  // bytes behind the previously published path; retries of the same bytes reuse a path.
+  const contentSha256 = await sha256Hex(await input.blob.arrayBuffer());
+  const paths = buildR2FloorPlanPaths(input.projectId, input.floorPlanId, input.blob.type, contentSha256);
   const metadata = {
     projectId: input.projectId, entityType: 'floorPlan', entityId: input.floorPlanId, assetId: input.floorPlanId,
-    createdByUid: input.createdByUid || '', createdAt: String(Number(input.createdAt || Date.now())), app: 'HNL QLTC',
+    createdByUid: input.createdByUid || '', createdAt: String(Number(input.createdAt || Date.now())),
+    contentSha256, app: 'HNL QLTC',
   };
   const original = await putObject(paths.storagePath, input.blob, metadata);
   let thumbnailPath: string | undefined;
@@ -276,16 +334,56 @@ export async function uploadFloorPlanBinaryToR2(input: {
   return { ...original, thumbnailPath };
 }
 
+/** Physical purge only. Business/UI deletion must remain a soft-delete until the
+ * retention/reference verifier authorizes this call. The Worker enforces ADMIN again. */
+export async function purgeR2Object(storagePath?: string | null): Promise<void> {
+  const path = String(storagePath || '').trim();
+  if (!path) return;
+  const projectId = path.match(/^projects\/([^/]+)\//)?.[1] || '';
+  const url = gatewayUrl('/v1/object', path);
+  let authorization = await authHeader();
+  const requestDelete = () => fetchR2WithAuthBackendRetry(url, {
+    method: 'DELETE',
+    headers: { Authorization: authorization },
+    cache: 'no-store',
+  }, { projectId, area: 'r2-purge', storagePath: path });
+
+  let response: Response;
+  try {
+    response = await requestDelete();
+    if (response.status === 401 || response.status === 403) {
+      authorization = await authHeader(true);
+      response = await requestDelete();
+    }
+  } catch (err) {
+    appendRuntimeDiagnostic({
+      level: 'error', area: 'r2-purge', projectId, code: 'NETWORK',
+      message: `DELETE lỗi mạng/CORS: ${path} | ${err instanceof Error ? err.message : String(err)}`,
+    });
+    throw err;
+  }
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    appendRuntimeDiagnostic({
+      level: 'error', area: 'r2-purge', projectId, code: `HTTP_${response.status}`,
+      message: `DELETE thất bại ${response.status}: ${path} | ${detail.slice(0, 180)}`,
+    });
+    throw new Error(`R2_PURGE_FAILED:${response.status}:${detail.slice(0, 300)}`);
+  }
+  appendRuntimeDiagnostic({ level: 'info', area: 'r2-purge', projectId, code: 'PURGED', message: path });
+}
+
 export async function downloadR2Blob(storagePath?: string | null): Promise<Blob | null> {
   const path = String(storagePath || '').trim();
   if (!path) return null;
   const projectId = path.match(/^projects\/([^/]+)\//)?.[1] || '';
 
-  const requestObject = async (forceRefresh = false) => fetch(gatewayUrl('/v1/object', path), {
+  const requestObject = async (forceRefresh = false) => fetchR2WithAuthBackendRetry(gatewayUrl('/v1/object', path), {
     method: 'GET',
     headers: { Authorization: await authHeader(forceRefresh) },
     cache: 'no-store',
-  });
+  }, { projectId, area: 'r2-download', storagePath: path });
 
   try {
     let response = await requestObject(false);

@@ -1,4 +1,6 @@
 export type TransactionType = 'in' | 'out';
+export type InventoryItemKind = 'material' | 'equipment';
+export type InventoryIssuePurpose = 'project-work' | 'external-project' | 'other';
 
 /** Canonical Firestore lifecycle fields for Firebase-only records.
  * Legacy rows may omit them; migration/normalization must treat missing deletedAt as active. */
@@ -15,6 +17,8 @@ export interface CloudRecordLifecycle {
 export interface InventoryItem {
   id: string;
   type: TransactionType; // 'in': Nhập kho, 'out': Xuất kho
+  /** Warehouse item class. Legacy rows omit it and are treated as material. */
+  itemKind?: InventoryItemKind;
   materialId?: string;
   materialName: string;
   unit: string;
@@ -26,6 +30,10 @@ export interface InventoryItem {
   updatedAt?: number;
   /** Optional provenance for automatically generated warehouse transactions. */
   sourceType?: 'room-auto' | 'manual' | string;
+  /** OUT purpose. Legacy rows may omit it; scoped legacy OUT is treated as project work. */
+  issuePurpose?: InventoryIssuePurpose;
+  /** Optional project hierarchy scope. All fields are independently optional. */
+  sourceStructureGroupId?: string;
   sourceRoomId?: string;
   sourceFloorId?: string;
   /** Durable team provenance for new warehouse issues. Legacy rows may omit it. */
@@ -73,6 +81,8 @@ export interface WorkVolume {
 export interface FloorPlan {
   id: string;
   floorName: string;
+  /** Optional project-level Khu/Khối membership. Legacy floors omit it and resolve to the configured default group. */
+  structureGroupId?: string;
   imageUrl: string;
   uploadedAt: string;
   order?: number;
@@ -85,6 +95,13 @@ export interface FloorPlan {
   imageRevision?: number;
   imageCloudRevision?: number;
   imageCloudSyncedAt?: number;
+  /** Durable shared binary identity. Multiple floors may reference the same immutable asset. */
+  imageAssetId?: string | null;
+  imageAssetOwnerFloorId?: string | null;
+  /** Runtime-only display metadata. Never written as business data to Firestore. */
+  imageDisplayRevision?: number;
+  imageDisplaySource?: 'memory' | 'cache' | 'cloud' | 'legacy' | 'remote-url' | string;
+  imageOfflineStale?: boolean;
   storagePath?: string;
   thumbnailPath?: string;
   storageMd5Hash?: string;
@@ -322,6 +339,8 @@ export interface CrewRecord {
   workersOutside?: number;
   floorId?: string;
   floorName?: string;
+  /** Optional explicit Khu/Khối for records without a single floor. Legacy records derive it from floorId/floorWorks. */
+  structureGroupId?: string;
   floorWorks?: CrewFloorWork[];
   taskDescription: string;
   shift?: string;
@@ -341,6 +360,7 @@ export interface ProjectInfo {
   name: string;
   contractorName?: string;
   inspectorName?: string;
+  projectLocation?: string;
   createdAt: string | number;
   updatedAt?: string | number;
   createdAtSource?: 'cloud' | 'local' | 'migrating';
@@ -358,6 +378,7 @@ export interface SingleProjectBackup {
     projectName?: string;
     contractorName?: string;
     inspectorName?: string;
+    projectLocation?: string;
     materialNorms: MaterialNorm[];
     inventory: InventoryItem[];
     workVolumes: WorkVolume[];
@@ -385,6 +406,7 @@ export interface TeamRoomDetail {
   teamId: string;
   teamName: string;
   assignedVolume: number;
+  constructedVolume: number;
   frameVolume: number;
   boardVolume: number;
   inspectedVolume: number;

@@ -18,8 +18,6 @@ import {
   fetchProjectFromCloud,
   getCloudPayload,
   CloudBackupRecord,
-  signInWithGoogle,
-  signOutGoogle,
   onAuthUserChanged,
   subscribeProjectSharedSettings,
   saveProjectSharedSettings,
@@ -28,6 +26,7 @@ import {
   saveProjectMetadataToCloud,
   deleteCloudProject,
   restoreCloudProject,
+  fetchProjectDeletionStateFromServer,
   fetchProjectUserRoleFromCloud,
   getCurrentRealFirebaseUser,
   transferProjectMembersToCanonical,
@@ -37,7 +36,6 @@ import type { User as FirebaseUser } from 'firebase/auth';
 import { ConflictMergeModal } from './ConflictMergeModal';
 import { PrimaryDriveStatusCard } from './PrimaryDriveStatusCard';
 import { QuickSortBar } from './QuickSortBar';
-import { ExpandCollapseIndicator } from './ExpandCollapseIndicator';
 import { confirmAsync } from '../utils/confirmAsync';
 import { 
   normalizeImportedData, 
@@ -62,6 +60,7 @@ import { floorPlanNeedsCloudUpload, loadFloorPlanImageFromCloud, syncFloorPlanIm
 interface ProjectManagerModalProps {
   isOpen: boolean;
   onClose: () => void;
+  inline?: boolean;
   activeProjectId?: string;
   initialTab?: 'sync' | 'projects';
   autoSyncEnabled?: boolean;
@@ -95,6 +94,7 @@ export type ScopeType = 'active' | 'selected' | 'all';
 export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({ 
   isOpen, 
   onClose,
+  inline = false,
   activeProjectId,
   initialTab = 'projects',
   autoSyncEnabled = false,
@@ -140,7 +140,6 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   // Google Auth state is declared before the Cloud project subscription so that
   // the subscription can restart whenever Firebase restores/switches accounts.
   const [googleUser, setGoogleUser] = useState<FirebaseUser | null>(null);
-  const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
 
   useEffect(() => {
     if (!isOpen || !googleUser?.uid || !googleUser?.email) return;
@@ -188,8 +187,9 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([getActiveProjectId()]);
   const [showJsonScopePicker, setShowJsonScopePicker] = useState(false);
 
-  // Main navigation tab within the modal
-  const [modalTab, setModalTab] = useState<'sync' | 'projects'>('sync');
+  // Dedicated destination mode. Settings opens Sync/Backup only; the header
+  // Project button opens Project List only. Do not cross-navigate inside this modal.
+  const modalTab: 'sync' | 'projects' = initialTab === 'sync' ? 'sync' : 'projects';
 
   // Creation state
   const [isCreating, setIsCreating] = useState(false);
@@ -210,40 +210,84 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
-    try {
-      const raw = JSON.parse(localStorage.getItem('construction_deleted_projects') || '[]');
-      const now = Date.now();
-      const rows = Array.isArray(raw) ? raw : [];
-      const valid = rows.filter((item: any) => item?.deleted && item?.projectId && Number(item.expiresAt || 0) > now);
-      const expired = rows.filter((item: any) => item?.deleted && item?.projectId && Number(item.expiresAt || 0) > 0 && Number(item.expiresAt || 0) <= now);
-      setDeletedProjects(valid);
-      localStorage.setItem('construction_deleted_projects', JSON.stringify(valid));
-      void setAsyncItem('construction_deleted_projects', valid);
-      if (canManage && expired.length > 0) {
-        void (async () => {
-          for (const entry of expired) {
+    let cancelled = false;
+
+    const reconcileDeletedProjects = async () => {
+      try {
+        const raw = JSON.parse(localStorage.getItem('construction_deleted_projects') || '[]');
+        const rows = (Array.isArray(raw) ? raw : []).filter((item: any) => item?.deleted && item?.projectId);
+        if (cancelled) return;
+        setDeletedProjects(rows);
+
+        // Expiry in localStorage is only a hint. Another device may have restored the
+        // project after this device went offline. Local data/photos are physically
+        // cleaned only after a fresh server read confirms the root is STILL deleted
+        // and its retention window is actually expired.
+        if (!canManage || rows.length === 0 || (typeof navigator !== 'undefined' && navigator.onLine === false)) return;
+        const now = Date.now();
+        const nextRows: typeof rows = [];
+        for (const entry of rows) {
+          if (cancelled) return;
+          if (Number(entry.expiresAt || 0) <= 0 || Number(entry.expiresAt || 0) > now) {
+            nextRows.push(entry);
+            continue;
+          }
+          try {
+            const serverState = await fetchProjectDeletionStateFromServer(entry.projectId);
+            if (!serverState.exists) {
+              // Missing root is not proof that cleanup is safe. Retain the local copy.
+              nextRows.push(entry);
+              continue;
+            }
+            if (!serverState.deleted) {
+              // Restored elsewhere: drop only the stale local trash marker. Never erase data.
+              continue;
+            }
+            if (!serverState.expired) {
+              nextRows.push({ ...entry, expiresAt: serverState.expiresAt, retentionDays: serverState.retentionDays });
+              continue;
+            }
+
             const keysToRemove = await getProjectStorageKeys(entry.projectId);
             for (const key of keysToRemove) {
               localStorage.removeItem(key);
               await removeAsyncItem(key);
             }
             await deleteProjectPhotos(entry.projectId);
+          } catch (err) {
+            // Network/RBAC/server verification failure => fail closed and keep local data.
+            console.warn('[Project trash] expiry verification deferred:', entry.projectId, err);
+            nextRows.push(entry);
           }
-        })();
+        }
+        if (cancelled) return;
+        setDeletedProjects(nextRows);
+        localStorage.setItem('construction_deleted_projects', JSON.stringify(nextRows));
+        await setAsyncItem('construction_deleted_projects', nextRows);
+      } catch (err) {
+        console.warn('[Project trash] local reconciliation warning:', err);
       }
-    } catch (_) {
-      setDeletedProjects([]);
-    }
-  }, [isOpen]);
+    };
+
+    void reconcileDeletedProjects();
+    const retry = () => { void reconcileDeletedProjects(); };
+    window.addEventListener('online', retry);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('online', retry);
+    };
+  }, [isOpen, canManage, googleUser?.uid]);
 
   const restoreDeletedProject = async (entry: { projectId: string; name?: string; deletedAt: number; expiresAt: number; retentionDays: number }) => {
     if (!canManage) return;
     try {
-      await restoreCloudProject(entry.projectId);
+      const receipt = await restoreCloudProject(entry.projectId);
+      if (!receipt.verified || receipt.deleted) throw new Error('PROJECT_RESTORE_SERVER_NOT_VERIFIED');
       const restoredProject: ProjectInfo = {
         id: entry.projectId,
         name: entry.name || `Dự án ${entry.projectId.slice(0, 8)}`,
-        createdAt: entry.deletedAt || Date.now(),
+        createdAt: 0,
+        createdAtSource: 'migrating',
         updatedAt: Date.now(),
       };
       const nextProjects = projects.some((p) => p.id === entry.projectId) ? projects : [...projects, restoredProject];
@@ -262,16 +306,28 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   const purgeDeletedProjectLocal = async (entry: { projectId: string; name?: string; deletedAt: number; expiresAt: number; retentionDays: number }) => {
     if (!canManage) return;
     if (!window.confirm(`Xóa vĩnh viễn dữ liệu cục bộ của "${entry.name || entry.projectId}"? Dự án Cloud vẫn giữ tombstone để chống tự sống lại.`)) return;
-    const keysToRemove = await getProjectStorageKeys(entry.projectId);
-    for (const key of keysToRemove) {
-      localStorage.removeItem(key);
-      await removeAsyncItem(key);
+    try {
+      // Even an explicit local purge must verify another device has not restored the
+      // Cloud project. Network/RBAC failure keeps the only local recoverable copy.
+      const serverState = await fetchProjectDeletionStateFromServer(entry.projectId);
+      if (!serverState.exists || !serverState.deleted) {
+        throw new Error('PROJECT_LOCAL_PURGE_SERVER_NOT_DELETED');
+      }
+      const keysToRemove = await getProjectStorageKeys(entry.projectId);
+      for (const key of keysToRemove) {
+        localStorage.removeItem(key);
+        await removeAsyncItem(key);
+      }
+      await deleteProjectPhotos(entry.projectId);
+      const nextDeleted = deletedProjects.filter((item) => item.projectId !== entry.projectId);
+      setDeletedProjects(nextDeleted);
+      localStorage.setItem('construction_deleted_projects', JSON.stringify(nextDeleted));
+      await setAsyncItem('construction_deleted_projects', nextDeleted);
+      logAuditAction('PROJECT_DELETE', `Xóa vĩnh viễn dữ liệu cục bộ dự án: ${entry.projectId}`, entry.projectId);
+    } catch (err) {
+      console.warn('[Project trash] manual local purge blocked:', entry.projectId, err);
+      setErrorMessage('Không thể xác minh dự án vẫn đang ở Thùng rác trên Server. Dữ liệu cục bộ chưa bị xóa.');
     }
-    await deleteProjectPhotos(entry.projectId);
-    const nextDeleted = deletedProjects.filter((item) => item.projectId !== entry.projectId);
-    setDeletedProjects(nextDeleted);
-    localStorage.setItem('construction_deleted_projects', JSON.stringify(nextDeleted));
-    await setAsyncItem('construction_deleted_projects', nextDeleted);
   };
 
   // Cloud Backup & Multi-device Sync State
@@ -400,37 +456,10 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     return () => unsub();
   }, []);
 
-  const handleGoogleSignIn = async () => {
-    try {
-      setIsGoogleSigningIn(true);
-      const user = await signInWithGoogle();
-      if (user) {
-        const { saveUserProfileToCloud } = await import('../lib/firebase');
-        await saveUserProfileToCloud(user).catch(() => {});
-      }
-      setCloudStatusMsg({ type: 'success', text: '✅ Đăng nhập Google thành công! Dữ liệu Cloud được bảo vệ an toàn.' });
-      await fetchCloudBackups();
-    } catch (err: any) {
-      setCloudStatusMsg({ type: 'error', text: 'Lỗi đăng nhập Google: ' + (err?.message || err) });
-    } finally {
-      setIsGoogleSigningIn(false);
-    }
-  };
-
-  const handleGoogleSignOut = async () => {
-    try {
-      await signOutGoogle();
-      setCloudStatusMsg({ type: 'success', text: 'Đã đăng xuất tài khoản Google.' });
-    } catch (err: any) {
-      setCloudStatusMsg({ type: 'error', text: 'Lỗi đăng xuất: ' + (err?.message || err) });
-    }
-  };
-
   // Encrypted Backup (AES-GCM) states
   const [exportEncrypt, setExportEncrypt] = useState(false);
   const [exportPassword, setExportPassword] = useState('');
   const [exportHint, setExportHint] = useState('');
-  const [showExportEncryptOptions, setShowExportEncryptOptions] = useState(false);
 
   const [pendingEncryptedPayload, setPendingEncryptedPayload] = useState<EncryptedBackupContainer | null>(null);
   const [decryptPassword, setDecryptPassword] = useState('');
@@ -545,15 +574,17 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       const restoredName = String(normalized.projectName || orphan.name || `Dự án ${orphan.id}`).trim();
       const contractorName = String(normalized.contractorName || '');
       const inspectorName = String(normalized.inspectorName || '');
+      const projectLocation = String(normalized.projectLocation || '');
 
       // Preserve the original projectId. This either repairs the old Cloud project
       // index or creates the missing metadata for a genuinely local-only legacy project.
-      await saveProjectMetadataToCloud(orphan.id, restoredName, { contractorName, inspectorName });
+      await saveProjectMetadataToCloud(orphan.id, restoredName, { contractorName, inspectorName, projectLocation });
       await saveProjectToCloud({
         id: orphan.id,
         name: restoredName,
         contractorName,
         inspectorName,
+        projectLocation,
         syncCode: orphan.id.toUpperCase().slice(0, 8),
         payload: normalized,
       });
@@ -571,7 +602,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       const nextProjects: ProjectInfo[] = current.some((project) => project.id === orphan.id)
         ? current.map((project) =>
             project.id === orphan.id
-              ? { ...project, name: restoredName, updatedAt: Date.now() }
+              ? { ...project, name: restoredName, projectLocation, updatedAt: Date.now() }
               : project
           )
         : [
@@ -579,6 +610,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             {
               id: orphan.id,
               name: restoredName,
+              projectLocation,
               createdAt: 0,
               createdAtSource: 'migrating' as const,
               updatedAt: Date.now(),
@@ -617,9 +649,6 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   // Re-sync projects when opened
   useEffect(() => {
     if (isOpen) {
-      if (initialTab) {
-        setModalTab(initialTab);
-      }
       const curList = getProjectsList();
       setProjects(curList);
       const curActive = activeProjectId || getActiveProjectId();
@@ -1415,6 +1444,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             projectName: normalized.projectName || curName,
             contractorName: normalized.contractorName || '',
             inspectorName: normalized.inspectorName || '',
+            projectLocation: normalized.projectLocation || '',
             materialNorms: normalized.materialNorms || [],
             inventory: normalized.inventory || [],
             workVolumes: normalized.workVolumes || [],
@@ -1773,6 +1803,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             setAsyncItem(getKey('construction_project_name', targetId), candidate.name),
             setAsyncItem(getKey('construction_contractor', targetId), candidate.contractorName || ''),
             setAsyncItem(getKey('construction_inspector', targetId), candidate.inspectorName || ''),
+            setAsyncItem(getKey('construction_project_location', targetId), candidate.projectLocation || candData.projectLocation || ''),
             setAsyncItem(getKey('construction_material_norms', targetId), candData.materialNorms || []),
             setAsyncItem(getKey('construction_inventory', targetId), candData.inventory || []),
             setAsyncItem(getKey('construction_work_volumes', targetId), candData.workVolumes || []),
@@ -1789,6 +1820,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           safeSetLocalStorageItem(getKey('construction_project_name', targetId), candidate.name);
           safeSetLocalStorageItem(getKey('construction_contractor', targetId), candidate.contractorName || '');
           safeSetLocalStorageItem(getKey('construction_inspector', targetId), candidate.inspectorName || '');
+          safeSetLocalStorageItem(getKey('construction_project_location', targetId), candidate.projectLocation || candData.projectLocation || '');
           safeSetLocalStorageItem(getKey('construction_updated_at', targetId), String(candidate.updatedAt || Date.now()));
           if (candData.tombstones) {
             safeSetLocalStorageItem(getKey('construction_tombstones', targetId), JSON.stringify(candData.tombstones));
@@ -1816,6 +1848,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             setAsyncItem(getKey('construction_project_name', targetId), candidate.name),
             setAsyncItem(getKey('construction_contractor', targetId), candidate.contractorName || ''),
             setAsyncItem(getKey('construction_inspector', targetId), candidate.inspectorName || ''),
+            setAsyncItem(getKey('construction_project_location', targetId), candidate.projectLocation || candData.projectLocation || ''),
             setAsyncItem(getKey('construction_material_norms', targetId), candData.materialNorms || []),
             setAsyncItem(getKey('construction_inventory', targetId), candData.inventory || []),
             setAsyncItem(getKey('construction_work_volumes', targetId), candData.workVolumes || []),
@@ -1832,6 +1865,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           safeSetLocalStorageItem(getKey('construction_project_name', targetId), candidate.name);
           safeSetLocalStorageItem(getKey('construction_contractor', targetId), candidate.contractorName || '');
           safeSetLocalStorageItem(getKey('construction_inspector', targetId), candidate.inspectorName || '');
+          safeSetLocalStorageItem(getKey('construction_project_location', targetId), candidate.projectLocation || candData.projectLocation || '');
           safeSetLocalStorageItem(getKey('construction_updated_at', targetId), String(candidate.updatedAt || Date.now()));
           if (candData.tombstones) {
             safeSetLocalStorageItem(getKey('construction_tombstones', targetId), JSON.stringify(candData.tombstones));
@@ -1852,7 +1886,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           if (targetId === activeId && fullAppData) {
             localData = fullAppData;
           } else {
-            const [norms, inv, vols, plans, defs, rooms, chk, crew, teams, pName, cName, iName, uTime, tombstones] = await Promise.all([
+            const [norms, inv, vols, plans, defs, rooms, chk, crew, teams, pName, cName, iName, pLocation, uTime, tombstones] = await Promise.all([
               getAsyncItem(getKey('construction_material_norms', targetId), []),
               getAsyncItem(getKey('construction_inventory', targetId), []),
               getAsyncItem(getKey('construction_work_volumes', targetId), []),
@@ -1865,6 +1899,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
               getAsyncItem(getKey('construction_project_name', targetId), candidate.name),
               getAsyncItem(getKey('construction_contractor', targetId), ''),
               getAsyncItem(getKey('construction_inspector', targetId), ''),
+              getAsyncItem(getKey('construction_project_location', targetId), ''),
               getAsyncItem(getKey('construction_updated_at', targetId), '0'),
               getAsyncItem(getKey('construction_tombstones', targetId), {}),
             ]);
@@ -1872,6 +1907,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
               projectName: pName,
               contractorName: cName,
               inspectorName: iName,
+              projectLocation: pLocation,
               materialNorms: norms,
               inventory: inv,
               workVolumes: vols,
@@ -1892,6 +1928,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             setAsyncItem(getKey('construction_project_name', targetId), merged.projectName || candidate.name),
             setAsyncItem(getKey('construction_contractor', targetId), merged.contractorName || ''),
             setAsyncItem(getKey('construction_inspector', targetId), merged.inspectorName || ''),
+            setAsyncItem(getKey('construction_project_location', targetId), merged.projectLocation || ''),
             setAsyncItem(getKey('construction_material_norms', targetId), merged.materialNorms || []),
             setAsyncItem(getKey('construction_inventory', targetId), merged.inventory || []),
             setAsyncItem(getKey('construction_work_volumes', targetId), merged.workVolumes || []),
@@ -1908,6 +1945,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           safeSetLocalStorageItem(getKey('construction_project_name', targetId), merged.projectName || candidate.name);
           safeSetLocalStorageItem(getKey('construction_contractor', targetId), merged.contractorName || '');
           safeSetLocalStorageItem(getKey('construction_inspector', targetId), merged.inspectorName || '');
+          safeSetLocalStorageItem(getKey('construction_project_location', targetId), merged.projectLocation || '');
           safeSetLocalStorageItem(getKey('construction_updated_at', targetId), String(merged.updatedAt || Date.now()));
           if (merged.tombstones) {
             safeSetLocalStorageItem(getKey('construction_tombstones', targetId), JSON.stringify(merged.tombstones));
@@ -1926,6 +1964,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             setAsyncItem(getKey('construction_project_name', newTargetId), copyName),
             setAsyncItem(getKey('construction_contractor', newTargetId), candidate.contractorName || ''),
             setAsyncItem(getKey('construction_inspector', newTargetId), candidate.inspectorName || ''),
+            setAsyncItem(getKey('construction_project_location', newTargetId), candidate.projectLocation || candData.projectLocation || ''),
             setAsyncItem(getKey('construction_material_norms', newTargetId), candData.materialNorms || []),
             setAsyncItem(getKey('construction_inventory', newTargetId), candData.inventory || []),
             setAsyncItem(getKey('construction_work_volumes', newTargetId), candData.workVolumes || []),
@@ -1942,6 +1981,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           safeSetLocalStorageItem(getKey('construction_project_name', newTargetId), copyName);
           safeSetLocalStorageItem(getKey('construction_contractor', newTargetId), candidate.contractorName || '');
           safeSetLocalStorageItem(getKey('construction_inspector', newTargetId), candidate.inspectorName || '');
+          safeSetLocalStorageItem(getKey('construction_project_location', newTargetId), candidate.projectLocation || candData.projectLocation || '');
           safeSetLocalStorageItem(getKey('construction_updated_at', newTargetId), String(Date.now()));
           if (candData.tombstones) {
             safeSetLocalStorageItem(getKey('construction_tombstones', newTargetId), JSON.stringify(candData.tombstones));
@@ -2315,6 +2355,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         name: normalized.projectName || currentProj.name,
         contractorName: normalized.contractorName || '',
         inspectorName: normalized.inspectorName || '',
+        projectLocation: normalized.projectLocation || '',
         syncCode: curId.toUpperCase().slice(0, 8),
         payload: normalized
       });
@@ -2544,6 +2585,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
       const sourceContractor = duplicateFromCurrent ? String(fullAppData?.contractorName || '') : '';
       const sourceInspector = duplicateFromCurrent ? String(fullAppData?.inspectorName || '') : '';
+      const sourceLocation = duplicateFromCurrent ? String(fullAppData?.projectLocation || '') : '';
       let hadQuotaIssue = false;
 
       if (FIREBASE_ONLY_RUNTIME) {
@@ -2613,6 +2655,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             projectName: trimmedName,
             contractorName: sourceContractor,
             inspectorName: sourceInspector,
+            projectLocation: sourceLocation,
             materialNorms: (Array.isArray(fullAppData.materialNorms) ? fullAppData.materialNorms : []).map(resetLifecycle),
             inventory: [],
             workVolumes: [],
@@ -2631,6 +2674,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             name: trimmedName,
             contractorName: sourceContractor,
             inspectorName: sourceInspector,
+            projectLocation: sourceLocation,
             syncCode: newProjectId.slice(0, 8).toUpperCase(),
             payload: templatePayload,
           });
@@ -2638,6 +2682,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           await saveProjectMetadataToCloud(newProjectId, trimmedName, {
             contractorName: '',
             inspectorName: '',
+            projectLocation: '',
           });
         }
       } else {
@@ -2691,6 +2736,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             setAsyncItem(getKey('construction_project_name', newProjectId), trimmedName),
             setAsyncItem(getKey('construction_contractor', newProjectId), ''),
             setAsyncItem(getKey('construction_inspector', newProjectId), ''),
+            setAsyncItem(getKey('construction_project_location', newProjectId), ''),
             setAsyncItem(getKey('construction_updated_at', newProjectId), String(now)),
           ]);
         }
@@ -2698,6 +2744,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         await saveProjectMetadataToCloud(newProjectId, trimmedName, {
           contractorName: duplicateFromCurrent ? (localStorage.getItem(getKey('construction_contractor', activeId)) || '') : '',
           inspectorName: duplicateFromCurrent ? (localStorage.getItem(getKey('construction_inspector', activeId)) || '') : '',
+          projectLocation: duplicateFromCurrent ? (localStorage.getItem(getKey('construction_project_location', activeId)) || '') : '',
         });
       }
 
@@ -2705,6 +2752,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       safeSetLocalStorageItem(getKey('construction_project_name', newProjectId), trimmedName);
       safeSetLocalStorageItem(getKey('construction_contractor', newProjectId), FIREBASE_ONLY_RUNTIME ? sourceContractor : (duplicateFromCurrent ? (localStorage.getItem(getKey('construction_contractor', activeId)) || '') : ''));
       safeSetLocalStorageItem(getKey('construction_inspector', newProjectId), FIREBASE_ONLY_RUNTIME ? sourceInspector : (duplicateFromCurrent ? (localStorage.getItem(getKey('construction_inspector', activeId)) || '') : ''));
+      safeSetLocalStorageItem(getKey('construction_project_location', newProjectId), FIREBASE_ONLY_RUNTIME ? sourceLocation : (duplicateFromCurrent ? (localStorage.getItem(getKey('construction_project_location', activeId)) || '') : ''));
       safeSetLocalStorageItem(getKey('construction_updated_at', newProjectId), String(now));
 
       const updated = [...projects, newProject];
@@ -2755,17 +2803,21 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       if ([3, 7, 15, 30, 60, 90].includes(Number(raw?.retentionDays))) retentionDays = Number(raw.retentionDays);
     } catch (_) {}
 
+    let deleteReceipt: Awaited<ReturnType<typeof deleteCloudProject>>;
     try {
       // Cloud soft-delete FIRST. If this fails, keep the project fully visible/local so
       // we never lose the only recoverable copy because of a temporary network issue.
-      await deleteCloudProject(targetDeleteId, retentionDays);
+      deleteReceipt = await deleteCloudProject(targetDeleteId, retentionDays);
+      if (!deleteReceipt.verified || !deleteReceipt.deleted) throw new Error('PROJECT_DELETE_SERVER_NOT_VERIFIED');
     } catch (err) {
-      setErrorMessage('Không thể chuyển dự án vào Thùng rác trên Firebase. Dự án chưa bị xóa khỏi máy.');
+      console.warn('[Project delete] server verification failed:', err);
+      setErrorMessage('Không thể xác nhận xóa dự án trên Firebase Server. Dự án chưa bị xóa khỏi máy.');
       return;
     }
 
-    const now = Date.now();
-    const expiresAt = now + retentionDays * 24 * 60 * 60 * 1000;
+    const now = deleteReceipt.deletedAt;
+    const expiresAt = deleteReceipt.expiresAt;
+    retentionDays = deleteReceipt.retentionDays;
     const updated = projects.filter(p => p.id !== targetDeleteId);
     saveProjectsList(updated);
     setProjects(updated);
@@ -2941,6 +2993,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         name: target.name,
         contractorName: mergedPayload.contractorName || '',
         inspectorName: mergedPayload.inspectorName || '',
+        projectLocation: mergedPayload.projectLocation || '',
         payload: mergedPayload,
       });
 
@@ -2994,14 +3047,14 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
       if (e.key === 'Escape' && isOpen) {
         if (showJsonScopePicker) {
           setShowJsonScopePicker(false);
-        } else {
+        } else if (!inline) {
           onClose();
         }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose, showJsonScopePicker]);
+  }, [inline, isOpen, onClose, showJsonScopePicker]);
 
   if (!isOpen) return null;
 
@@ -3046,11 +3099,11 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   });
 
   return (
-    <div className="fixed inset-0 bg-slate-900/65 backdrop-blur-md z-50 flex items-center justify-center p-3 md:p-4 animate-in fade-in duration-200">
-      <div className="bg-white w-full max-w-lg rounded-2xl p-4 md:p-6 shadow-2xl relative border border-slate-100 flex flex-col max-h-[92vh] overflow-hidden">
+    <div className={inline ? 'w-full' : 'fixed inset-0 bg-slate-900/65 backdrop-blur-md z-[180] flex items-center justify-center p-3 md:p-4 animate-in fade-in duration-200'}>
+      <div className={inline ? 'relative w-full' : 'bg-white w-full max-w-xl rounded-2xl p-3.5 md:p-5 shadow-2xl relative border border-slate-100 flex flex-col max-h-[92vh] overflow-hidden'}>
         
         {/* Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
+        {!inline && <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
           <div className="flex items-center gap-3">
             <div className={`p-2.5 text-white rounded-xl shadow-md transition-colors ${modalTab === 'sync' ? 'bg-emerald-600' : 'bg-indigo-600'}`}>
               {modalTab === 'sync' ? <RefreshCw className="w-5 h-5" /> : <Building2 className="w-5 h-5" />}
@@ -3061,7 +3114,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
               </h2>
               <p className="text-[11px] text-slate-500 font-medium">
                 {modalTab === 'sync' 
-                  ? (FIREBASE_ONLY_RUNTIME ? 'Firebase Auth + Firestore + Storage · JSON chỉ dùng backup thủ công' : (hasDriveBackend ? 'Lưu trữ cục bộ, Đám mây Firebase, Google Drive & Google Sheets' : 'Lưu trữ cục bộ và Đám mây Firebase miễn phí'))
+                  ? 'Đồng bộ dữ liệu, R2/ảnh, sao lưu, khôi phục và đối chiếu dự án.'
                   : 'Tạo mới, chuyển đổi, tìm kiếm và quản lý danh sách dự án công trình'}
               </p>
             </div>
@@ -3073,35 +3126,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
           >
             <X className="w-4 h-4" />
           </button>
-        </div>
-
-        {/* Top Tab Bar Switcher */}
-        <div className="grid grid-cols-2 gap-2 mt-3 p-1 bg-slate-100/90 rounded-xl shrink-0">
-          <button
-            type="button"
-            onClick={() => setModalTab('sync')}
-            className={`py-2 px-3 rounded-lg font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
-              modalTab === 'sync'
-                ? 'bg-white text-emerald-700 shadow-xs ring-1 ring-slate-200/50'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-            }`}
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            <span>Đồng bộ & Sao lưu</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setModalTab('projects')}
-            className={`py-2 px-3 rounded-lg font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
-              modalTab === 'projects'
-                ? 'bg-white text-indigo-700 shadow-xs ring-1 ring-slate-200/50'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-            }`}
-          >
-            <Building2 className="w-3.5 h-3.5" />
-            <span>Danh sách dự án ({projects.length})</span>
-          </button>
-        </div>
+        </div>}
 
         {/* Error Alert */}
         {errorMessage && (
@@ -3117,17 +3142,17 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
         )}
 
         {/* Content Body */}
-        <div className="flex-1 overflow-y-auto pr-1 space-y-4 pt-3">
+        <div className={inline ? 'space-y-3' : 'flex-1 overflow-y-auto pr-1 space-y-3 pt-2.5'}>
 
           {/* TAB 1: SAVING & SYNC HUB */}
           {modalTab === 'sync' && (
-            <div className="space-y-4">
+            <div className="space-y-3">
               
               {/* JSON backup scope is selected only when the user presses Export JSON. */}
 
               {/* 💾 SECTION 2: LOCAL SAVE & RESTORE (JSON FILE) */}
               {canBackup ? (
-              <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-2.5 shadow-xs">
+              <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-2 shadow-xs">
                 <div className="flex items-center justify-between">
                   <span className="font-extrabold text-slate-800 text-xs flex items-center gap-1.5">
                     <HardDrive className="w-4 h-4 text-emerald-600" />
@@ -3160,11 +3185,10 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   </label>
                 </div>
 
-                <details className="group pt-2 border-t border-slate-100">
-                  <summary className="cursor-pointer select-none flex items-center justify-between text-[11px] font-bold text-slate-700">
+                <div className="group pt-2 border-t border-slate-100">
+                  <div className="select-none flex items-center justify-between text-[11px] font-bold text-slate-700">
                     <span>Cài đặt sao lưu nâng cao</span>
-                    <ExpandCollapseIndicator />
-                  </summary>
+                  </div>
                   <div className="pt-2 space-y-2.5">
 
                     <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5">
@@ -3191,25 +3215,15 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                         checked={exportEncrypt}
                         onChange={(e) => {
                           setExportEncrypt(e.target.checked);
-                          if (e.target.checked) setShowExportEncryptOptions(true);
                         }}
                         className="w-3.5 h-3.5 text-indigo-600 rounded"
                       />
                       <Lock className="w-3 h-3 text-indigo-600" />
                       <span>Mã hóa AES-256 GCM (Bảo mật sao lưu)</span>
                     </label>
-                    {exportEncrypt && (
-                      <button 
-                        type="button" 
-                        onClick={() => setShowExportEncryptOptions(!showExportEncryptOptions)}
-                        className="text-[10px] text-indigo-600 font-bold hover:underline"
-                      >
-                        {showExportEncryptOptions ? 'Thu gọn' : 'Tùy chỉnh'}
-                      </button>
-                    )}
                   </div>
 
-                  {exportEncrypt && showExportEncryptOptions && (
+                  {exportEncrypt && (
                     <div className="mt-2 p-2.5 bg-indigo-50/70 border border-indigo-200 rounded-xl space-y-2 animate-in fade-in duration-150">
                       <div>
                         <label className="block text-[10px] font-extrabold text-indigo-900 mb-0.5">
@@ -3342,7 +3356,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                           className="w-full py-2 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 rounded-xl font-extrabold flex items-center justify-center gap-1.5 text-[11px] transition-colors cursor-pointer shadow-xs active:scale-98"
                         >
                           <ArrowLeftRight className="w-3.5 h-3.5 text-indigo-600" />
-                          🔗 Chọn Tệp Trên Máy Để Liên Kết Auto-Save
+                          Chọn tệp trên máy để liên kết tự động lưu
                         </button>
                       </div>
                     )}
@@ -3350,7 +3364,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                 )}
 
                   </div>
-                </details>
+                </div>
 
                 {/* Multi-Version Backup & Restore system (Lịch sử Bản Sao Lưu) */}
                 <div className="pt-2 border-t border-slate-100 space-y-2">
@@ -3477,72 +3491,23 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                 </div>
               </div>
               ) : (
-                <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 text-[10.5px] text-slate-600">
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-[10.5px] text-slate-600">
                   <span className="font-bold">Sao lưu/khôi phục dữ liệu:</span> chỉ ADMIN được xuất, nhập hoặc phục hồi bản sao dự án. Đồng bộ realtime Firebase vẫn hoạt động theo quyền hiện tại.
                 </div>
               )}
 
               {/* ☁️ SECTION 3: CLOUD SYNC & SNAPSHOTS (FIREBASE) */}
-              <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-3 shadow-xs">
+              <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-2.5 shadow-xs">
                 <div className="flex items-center justify-between">
                   <span className="font-extrabold text-indigo-900 text-xs flex items-center gap-1.5">
                     <Cloud className="w-4 h-4 text-indigo-600" />
-                    Đồng bộ dữ liệu
+                    Đồng bộ dữ liệu dự án
                   </span>
                   <span className="text-[9px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-bold border border-indigo-200 flex items-center gap-1">
                     <Smartphone className="w-2.5 h-2.5" /> <Monitor className="w-2.5 h-2.5" /> Nhiều thiết bị
                   </span>
                 </div>
 
-                {/* Google Authentication Account Card */}
-                <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-full bg-white border border-slate-200 flex items-center justify-center overflow-hidden shrink-0 shadow-2xs">
-                        {googleUser?.photoURL ? (
-                          <img src={googleUser.photoURL} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                        ) : (
-                          <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                        )}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-[11px] font-bold text-slate-800 truncate">
-                          {googleUser?.displayName || (googleUser?.email ? googleUser.email.split('@')[0] : 'Phiên Ẩn Danh Firebase')}
-                        </p>
-                        <p className="text-[9px] text-slate-400 truncate font-mono">
-                          {googleUser?.email ? googleUser.email : 'Chưa liên kết tài khoản Google'}
-                        </p>
-                      </div>
-                    </div>
-
-                    {googleUser && !googleUser.isAnonymous ? (
-                      <button
-                        type="button"
-                        onClick={handleGoogleSignOut}
-                        className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
-                      >
-                        Đăng xuất
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={handleGoogleSignIn}
-                        disabled={isGoogleSigningIn}
-                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[10.5px] font-bold rounded-lg transition-colors cursor-pointer shadow-2xs flex items-center gap-1.5 disabled:opacity-50"
-                      >
-                        {isGoogleSigningIn ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Key className="w-3 h-3" />}
-                        <span>Đăng nhập Google/Firebase</span>
-                      </button>
-                    )}
-                  </div>
-                  <p className="text-[9.5px] text-slate-500 italic">
-                    {googleUser && !googleUser.isAnonymous 
-                      ? '🔒 Đã xác thực. Dự án được nhận diện theo tài khoản và đồng bộ tự động giữa các thiết bị.' 
-                      : 'ℹ️ Đăng nhập Firebase một lần. Firestore là dữ liệu nghiệp vụ duy nhất; Firebase Storage là nguồn ảnh/file mới duy nhất.'}
-                  </p>
-                </div>
-
-                
                 {/* Cloud Status Message */}
                 {cloudStatusMsg && (
                   <div className={`p-3 rounded-xl border font-bold text-xs flex flex-col gap-2 animate-in fade-in duration-150 mb-2 ${
@@ -3574,15 +3539,15 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                   </div>
                 )}
 
-                {/* Primary multi-device flow: account first, automatic sync by projectId. */}
+                {/* Primary multi-device flow: projectId + verified project permission. */}
                 <div className="bg-indigo-50/60 p-2.5 rounded-xl border border-indigo-100 space-y-2">
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <p className="font-bold text-indigo-950 text-[11px] flex items-center gap-1">
-                        <Share2 className="w-3.5 h-3.5 text-indigo-600" /> Đồng bộ tự động theo tài khoản
+                        <Share2 className="w-3.5 h-3.5 text-indigo-600" /> Đồng bộ dữ liệu dự án
                       </p>
                       <p className="text-[9.5px] text-indigo-800/80 mt-1 leading-relaxed">
-                        Dữ liệu dự án được tự động đồng bộ giữa các thiết bị bằng Firebase.
+                        Dữ liệu dự án được tự động đồng bộ giữa các thiết bị có quyền truy cập bằng Firebase.
                       </p>
                     </div>
                     <span className={`shrink-0 text-[9px] px-2 py-1 rounded-full font-bold border ${
@@ -3593,7 +3558,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                       dataCloudStatus?.phase === 'syncing' ? 'bg-blue-50 text-blue-700 border-blue-200' :
                       'bg-emerald-50 text-emerald-700 border-emerald-200'
                     }`}>
-                      {!googleUser || googleUser.isAnonymous ? 'Cần đăng nhập' :
+                      {!googleUser || googleUser.isAnonymous ? 'Chưa xác thực' :
                        typeof navigator !== 'undefined' && !navigator.onLine ? '● Offline' :
                        dataCloudStatus?.phase === 'conflict' ? '● Có xung đột' :
                        dataCloudStatus?.phase === 'error' ? '● Có lỗi đồng bộ' :
@@ -3611,23 +3576,24 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                       <p className="font-bold text-slate-800">Dữ liệu + ảnh đầy đủ</p>
                     </div>
                   </div>
-                  {googleUser && !googleUser.isAnonymous && (
-                    <div className="text-[9px] text-slate-500 space-y-1">
+                  <div className="text-[9px] text-slate-500 space-y-1">
+                    {googleUser && !googleUser.isAnonymous ? (
                       <p className="flex items-center justify-between gap-2">
-                        <span>Dữ liệu nghiệp vụ đồng bộ realtime bằng Firestore; ảnh/file mới lưu duy nhất trong Firebase Storage.</span>
+                        <span>Dữ liệu nghiệp vụ đồng bộ realtime bằng Firestore; ảnh/file mới lưu qua R2 theo quyền dự án.</span>
                         {dataCloudStatus?.lastSyncAt ? <span className="shrink-0">Lần cuối {new Date(dataCloudStatus.lastSyncAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</span> : null}
                       </p>
-                      {(dataCloudStatus?.phase === 'error' || dataCloudStatus?.phase === 'conflict') && dataCloudStatus.message ? (
-                        <p className="text-rose-600 font-semibold">Chưa ghi được lên Firebase: {dataCloudStatus.message}</p>
-                      ) : null}
-                    </div>
-                  )}
+                    ) : (
+                      <p className="font-semibold text-amber-700">Tài khoản chưa xác thực. Đăng nhập/đăng xuất được quản lý tại Trung tâm phân quyền.</p>
+                    )}
+                    {(dataCloudStatus?.phase === 'error' || dataCloudStatus?.phase === 'conflict') && dataCloudStatus.message ? (
+                      <p className="text-rose-600 font-semibold">Chưa ghi được lên Firebase: {dataCloudStatus.message}</p>
+                    ) : null}
+                  </div>
 
-                  {canManage && <details className="group bg-white/70 border border-indigo-100 rounded-lg">
-                    <summary className="cursor-pointer select-none px-2.5 py-2 text-[10px] font-bold text-indigo-700 flex items-center justify-between">
+                  {canManage && <div className="group bg-white/70 border border-indigo-100 rounded-lg">
+                    <div className="select-none px-2.5 py-2 text-[10px] font-bold text-indigo-700 flex items-center justify-between">
                       <span>Công cụ đồng bộ nâng cao</span>
-                      <ExpandCollapseIndicator />
-                    </summary>
+                    </div>
                     <div className="px-2.5 pb-2.5 space-y-2 border-t border-indigo-100 pt-2">
                       <button
                         type="button"
@@ -3658,7 +3624,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                         Bình thường không cần nhập mã dự án. ID chỉ giữ lại để xử lý dự án cũ hoặc sự cố đặc biệt.
                       </p>
                     </div>
-                  </details>}
+                  </div>}
                 </div>
 
                 {!FIREBASE_ONLY_RUNTIME && (
@@ -3671,11 +3637,10 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
                 {/* Cloud versions only appear when at least one version exists. */}
                 {canBackup && cloudBackups.length > 0 && (
-                <details className="group pt-2 border-t border-slate-100">
-                  <summary className="cursor-pointer select-none flex items-center justify-between mb-1.5 text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">
+                <div className="group pt-2 border-t border-slate-100">
+                  <div className="select-none flex items-center justify-between mb-1.5 text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">
                     <span>Phiên bản đám mây ({cloudBackups.length})</span>
-                    <ExpandCollapseIndicator />
-                  </summary>
+                  </div>
                   <div>
 
                   <QuickSortBar
@@ -3738,13 +3703,13 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                     </div>
                   )}
                   </div>
-                </details>
+                </div>
                 )}
               </div>
 
               {/* 📁 SECTION 4: GOOGLE DRIVE SYNC */}
               {hasDriveBackend && canManage && (
-                <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-2.5 shadow-xs">
+                <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-2 shadow-xs">
                   <div className="flex items-center justify-between">
                     <span className="font-extrabold text-slate-800 text-xs flex items-center gap-1.5">
                       <FileSpreadsheet className="w-4 h-4 text-emerald-600" />

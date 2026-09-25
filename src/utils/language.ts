@@ -11,7 +11,7 @@ export const translations = {
     floorplan: 'Mặt bằng',
     checklist: 'Checklist',
     crew: 'Quân số',
-    config: 'Cấu hình',
+    config: 'Cài đặt',
     search: 'Tìm kiếm...',
     add: 'Thêm mới',
     edit: 'Chỉnh sửa',
@@ -24,7 +24,7 @@ export const translations = {
     all: 'Tất cả',
     
     // Config Tab
-    config_title: 'Cấu hình',
+    config_title: 'Cài đặt',
     config_subtitle: 'Quản lý thông tin công trình & cài đặt chung',
     version: 'Phiên bản',
     project_settings: 'Thông tin & thiết lập công trình',
@@ -32,8 +32,8 @@ export const translations = {
     contractor: 'Đơn vị thi công',
     inspector: 'Kỹ sư phụ trách',
     save_settings: 'Lưu cài đặt dự án',
-    save_success: 'Đã cập nhật cấu hình hệ thống thành công!',
-    formatting_settings: 'Cấu hình định dạng số & ngày tháng',
+    save_success: 'Đã cập nhật cài đặt hệ thống thành công!',
+    formatting_settings: 'Cài đặt định dạng số & ngày tháng',
     formatting_subtitle: 'Hiển thị cho toàn ứng dụng',
     number_format: 'Định dạng phân cách số',
     date_format: 'Định dạng ngày tháng năm',
@@ -120,7 +120,7 @@ export const translations = {
     all: 'All',
 
     // Config Tab
-    config_title: 'Configuration',
+    config_title: 'Settings',
     config_subtitle: 'Manage project information & general settings',
     version: 'Version',
     project_settings: 'Project Information & Settings',

@@ -2,10 +2,18 @@ import * as XLSX from 'xlsx';
 import { InventoryItem, WorkVolume, DefectItem, ChecklistItem, FloorPlan, RoomProgressItem, MaterialNorm, CrewRecord, TeamInfo } from '../types';
 import { getDefectOverdueInfo } from './defectUtils';
 import { isTeamMatch, calculateTeamStatistics } from './teamUtils';
-import { calculateStockSummary } from './inventoryUtils';
+import { computeTeamMaterialReconciliation } from './teamMaterialReconciliation';
+import { calculateStockSummary, resolveNormMaterialId } from './inventoryUtils';
 import { formatDateDDMMYYYY, formatDateTime } from './dateFormatter';
 import { saveWorkbookFile } from './fileExport';
 import { getCrewShiftCounts } from './crewUtils';
+import { computeWorkVolumeDetailBreakdown } from './workVolumeComputation';
+import {
+  getStructureGroupName,
+  normalizeStructureGroupConfig,
+  resolveFloorStructureGroupId,
+  type ProjectStructureConfig,
+} from './structureGroupUtils';
 
 function autoFitColumns(ws: XLSX.WorkSheet) {
   if (!ws || !ws['!ref']) return;
@@ -34,6 +42,84 @@ function autoFitColumns(ws: XLSX.WorkSheet) {
   ws['!cols'] = cols;
   ws['!autofilter'] = { ref: ws['!ref'] };
   ws['!views'] = [{ state: 'frozen', ySplit: 1 }];
+}
+
+const inventoryIssuePurposeLabel = (item: InventoryItem): string => {
+  if (item.type !== 'out') return '';
+  if (item.issuePurpose === 'external-project') return 'Xuất ngoài dự án';
+  if (item.issuePurpose === 'other') return 'Mục đích khác';
+  if (item.issuePurpose === 'project-work' || item.sourceRoomId || item.sourceFloorId || item.sourceTeamId || item.sourceWorkCategoryId || item.sourceStructureGroupId) return 'Thi công trong dự án';
+  return 'Chưa phân loại';
+};
+
+function prependProjectInfoSheet(wb: XLSX.WorkBook, projectName: string, projectLocation?: string) {
+  const rows: Array<[string, string]> = [
+    ['Tên công trình', String(projectName || 'Công trình')],
+  ];
+  if (String(projectLocation || '').trim()) rows.push(['Địa điểm', String(projectLocation).trim()]);
+  const ws = XLSX.utils.aoa_to_sheet([['THÔNG TIN DỰ ÁN', 'GIÁ TRỊ'], ...rows]);
+  autoFitColumns(ws);
+  XLSX.utils.book_append_sheet(wb, ws, 'Thong Tin Du An');
+  wb.SheetNames = ['Thong Tin Du An', ...wb.SheetNames.filter((name) => name !== 'Thong Tin Du An')];
+}
+
+
+function appendWorkVolumeDetailSheet(
+  wb: XLSX.WorkBook,
+  params: {
+    workVolumes: WorkVolume[];
+    roomProgressList: RoomProgressItem[];
+    floorPlans: FloorPlan[];
+    structureConfig?: ProjectStructureConfig;
+    teamFilter?: { id?: string; name?: string; leader?: string };
+  },
+  canFinancials: boolean,
+) {
+  if (!params.workVolumes?.length || !params.roomProgressList?.length) return;
+  const structure = normalizeStructureGroupConfig(params.structureConfig);
+  const rows: Array<Record<string, any>> = [];
+
+  params.workVolumes.forEach((item) => {
+    const detail = computeWorkVolumeDetailBreakdown(
+      item,
+      params.workVolumes,
+      params.roomProgressList,
+      params.floorPlans || [],
+      params.teamFilter,
+    );
+    detail.rows.forEach((row) => {
+      const floor = params.floorPlans.find((candidate) => candidate.id === row.floorId);
+      const groupId = floor ? resolveFloorStructureGroupId(floor, structure) : structure.defaultGroupId;
+      const remaining = Math.max(0, Number(row.assignedVolume || 0) - Number(row.actualVolume || 0));
+      const record: Record<string, any> = {
+        '__workVolumeId': item.id,
+        '__workCategoryId': item.workCategoryId || item.id,
+        '__structureGroupId': groupId,
+        '__floorId': row.floorId,
+        '__roomId': row.roomId,
+        'Hạng Mục Công Việc': item.title,
+        [structure.label || 'Khu / Khối']: structure.enabled ? getStructureGroupName(groupId, structure) : '',
+        'Tầng': row.floorName,
+        'Căn / Phòng': row.roomName,
+        'Đội Thi Công': row.teamNames.length > 0 ? row.teamNames.join(', ') : 'Chưa gán đội',
+        'Đơn Vị': item.unit,
+        'KL Phân Bổ': row.assignedVolume,
+        'KL Thực Hiện': row.actualVolume,
+        'KL Còn Lại': remaining,
+        'Tiến Độ (%)': row.progressPercent,
+      };
+      if (canFinancials) {
+        record['Đơn Giá (VNĐ)'] = item.unitPrice || 0;
+        record['Thành Tiền Thực Hiện (VNĐ)'] = (row.actualVolume || 0) * (item.unitPrice || 0);
+      }
+      rows.push(record);
+    });
+  });
+
+  if (rows.length === 0) return;
+  const ws = XLSX.utils.json_to_sheet(rows);
+  autoFitColumns(ws);
+  XLSX.utils.book_append_sheet(wb, ws, 'Chi Tiet Khoi Luong');
 }
 
 
@@ -136,6 +222,7 @@ export function exportChecklistToExcel(checklist: ChecklistItem[], projectName: 
 
 export function exportAllToExcel(params: {
   projectName: string;
+  projectLocation?: string;
   inventory: InventoryItem[];
   materialNorms: MaterialNorm[];
   workVolumes: WorkVolume[];
@@ -143,6 +230,9 @@ export function exportAllToExcel(params: {
   defects: DefectItem[];
   checklist: ChecklistItem[];
   floorPlans: FloorPlan[];
+  structureConfig?: ProjectStructureConfig;
+  workVolumeTeamFilter?: { id?: string; name?: string; leader?: string };
+  includeWorkVolumeDetails?: boolean;
   crewRecords?: CrewRecord[];
   canViewFinancials?: boolean;
   selectedModules?: {
@@ -162,8 +252,11 @@ export function exportAllToExcel(params: {
     const inventoryData = params.inventory.map((item, idx) => ({
       'STT': idx + 1,
       'Mã Phiếu': item.id,
+      '__itemKind': item.itemKind === 'equipment' ? 'equipment' : 'material',
       '__materialId': item.materialId || '',
       '__sourceType': item.sourceType || '',
+      '__issuePurpose': item.issuePurpose || '',
+      '__sourceStructureGroupId': item.sourceStructureGroupId || '',
       '__sourceRoomId': item.sourceRoomId || '',
       '__sourceFloorId': item.sourceFloorId || '',
       '__sourceTeamId': item.sourceTeamId || '',
@@ -171,7 +264,9 @@ export function exportAllToExcel(params: {
       '__sourceNormId': item.sourceNormId || '',
       '__sourceIssueKey': item.sourceIssueKey || '',
       'Loại Phiếu': item.type === 'in' ? 'NHẬP KHO' : 'XUẤT KHO',
-      'Tên Vật Tư': item.materialName,
+      'Mục đích xuất': inventoryIssuePurposeLabel(item),
+      'Loại Hàng': item.itemKind === 'equipment' ? 'Thiết bị' : 'Vật tư',
+      'Tên Vật Tư / Thiết Bị': item.materialName,
       'Đơn Vị Tính': item.unit,
       'Số Lượng': item.quantity,
       'Vị Trí Lưu Kho / Hạng Mục': item.location || 'Kho chính',
@@ -190,13 +285,14 @@ export function exportAllToExcel(params: {
         'STT': idx + 1,
         '__recordId': item.id,
         '__workCategoryId': item.workCategoryId || item.id,
-        '__floorIds': item.floorIds ? item.floorIds.join(',') : '',
+        '__floorId': item.floorId || item.floorIds?.[0] || '',
+      '__floorIds': item.floorIds ? item.floorIds.join(',') : '',
         'Hạng Mục Công Việc': item.title,
         'Tầng': item.floor,
         'Nhóm Hạng Mục': item.category,
         'Đơn Vị': item.unit,
         'KL Định Mức': item.planned,
-        'KL Thực Tế': item.actual,
+        'KL Thực Tế (chỉ xem - không import)': item.actual,
       };
 
       if (canFinancials) {
@@ -213,6 +309,13 @@ export function exportAllToExcel(params: {
     const wsVolumes = XLSX.utils.json_to_sheet(volumeData);
     autoFitColumns(wsVolumes);
     XLSX.utils.book_append_sheet(wb, wsVolumes, 'Khoi Luong Thi Cong');
+    if (params.includeWorkVolumeDetails !== false) appendWorkVolumeDetailSheet(wb, {
+      workVolumes: params.workVolumes,
+      roomProgressList: params.roomProgressList,
+      floorPlans: params.floorPlans,
+      structureConfig: params.structureConfig,
+      teamFilter: params.workVolumeTeamFilter,
+    }, canFinancials);
   }
 
   // 3. Tien do can ho & defect
@@ -337,11 +440,13 @@ export function exportAllToExcel(params: {
     alert('Không có dữ liệu nào được chọn để xuất báo cáo.');
     return;
   }
+  prependProjectInfoSheet(wb, params.projectName, params.projectLocation);
   return saveWorkbookFile(wb, `Bao_Cao_Tong_Hop_${safeName}_${Date.now()}.xlsx`);
 }
 
 export function exportAllToExcelBase64(params: {
   projectName: string;
+  projectLocation?: string;
   inventory: InventoryItem[];
   materialNorms: MaterialNorm[];
   workVolumes: WorkVolume[];
@@ -349,6 +454,9 @@ export function exportAllToExcelBase64(params: {
   defects: DefectItem[];
   checklist: ChecklistItem[];
   floorPlans: FloorPlan[];
+  structureConfig?: ProjectStructureConfig;
+  workVolumeTeamFilter?: { id?: string; name?: string; leader?: string };
+  includeWorkVolumeDetails?: boolean;
   crewRecords?: CrewRecord[];
   canViewFinancials?: boolean;
   selectedModules?: {
@@ -369,6 +477,8 @@ export function exportAllToExcelBase64(params: {
       'Mã Phiếu': item.id,
       '__materialId': item.materialId || '',
       '__sourceType': item.sourceType || '',
+      '__issuePurpose': item.issuePurpose || '',
+      '__sourceStructureGroupId': item.sourceStructureGroupId || '',
       '__sourceRoomId': item.sourceRoomId || '',
       '__sourceFloorId': item.sourceFloorId || '',
       '__sourceTeamId': item.sourceTeamId || '',
@@ -376,6 +486,7 @@ export function exportAllToExcelBase64(params: {
       '__sourceNormId': item.sourceNormId || '',
       '__sourceIssueKey': item.sourceIssueKey || '',
       'Loại Phiếu': item.type === 'in' ? 'NHẬP KHO' : 'XUẤT KHO',
+      'Mục đích xuất': inventoryIssuePurposeLabel(item),
       'Tên Vật Tư': item.materialName,
       'Đơn Vị Tính': item.unit,
       'Số Lượng': item.quantity,
@@ -394,13 +505,14 @@ export function exportAllToExcelBase64(params: {
         'STT': idx + 1,
         '__recordId': item.id,
         '__workCategoryId': item.workCategoryId || item.id,
-        '__floorIds': item.floorIds ? item.floorIds.join(',') : '',
+        '__floorId': item.floorId || item.floorIds?.[0] || '',
+      '__floorIds': item.floorIds ? item.floorIds.join(',') : '',
         'Hạng Mục Công Việc': item.title,
         'Tầng': item.floor,
         'Nhóm Hạng Mục': item.category,
         'Đơn Vị': item.unit,
         'KL Định Mức': item.planned,
-        'KL Thực Tế': item.actual,
+        'KL Thực Tế (chỉ xem - không import)': item.actual,
       };
       if (canFinancials) {
         row['Đơn Giá (VNĐ)'] = item.unitPrice || 0;
@@ -414,6 +526,13 @@ export function exportAllToExcelBase64(params: {
     const wsVolumes = XLSX.utils.json_to_sheet(volumeData);
     autoFitColumns(wsVolumes);
     XLSX.utils.book_append_sheet(wb, wsVolumes, 'Khoi Luong Thi Cong');
+    if (params.includeWorkVolumeDetails !== false) appendWorkVolumeDetailSheet(wb, {
+      workVolumes: params.workVolumes,
+      roomProgressList: params.roomProgressList,
+      floorPlans: params.floorPlans,
+      structureConfig: params.structureConfig,
+      teamFilter: params.workVolumeTeamFilter,
+    }, canFinancials);
   }
 
   if (mods.floorPlan) {
@@ -518,6 +637,7 @@ export function exportAllToExcelBase64(params: {
     XLSX.utils.book_append_sheet(wb, wsCrew, 'Quan So Hang Ngay');
   }
 
+  prependProjectInfoSheet(wb, params.projectName, params.projectLocation);
   return XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
 }
 
@@ -568,7 +688,10 @@ export function exportMaterialNormTemplate(materialNorms?: MaterialNorm[]) {
   const templateData = (materialNorms || []).map((n, idx) => ({
     'STT': idx + 1,
     '__normId': n.id,
-    '__materialId': n.materialId || n.id,
+    '__materialId': resolveNormMaterialId(n) || '',
+    '__workCategoryId': n.workCategoryId || '',
+    '__workCategoryIds': JSON.stringify(n.workCategoryIds || []),
+    '__workCategoryNormsById': JSON.stringify(n.workCategoryNormsById || {}),
     'Phân Loại': n.category,
     'Tên Hạng Mục Thi Công': n.workCategory || (n.workCategories ? n.workCategories.join(', ') : ''),
     'Tên Vật Tư': n.materialName,
@@ -592,13 +715,14 @@ export function exportWorkVolumesTemplate(workVolumes?: WorkVolume[], projectNam
       'STT': idx + 1,
       '__recordId': item.id,
       '__workCategoryId': item.workCategoryId || item.id,
+      '__floorId': item.floorId || item.floorIds?.[0] || '',
       '__floorIds': item.floorIds ? item.floorIds.join(',') : '',
       'Tên Hạng Mục Công Việc': item.title,
       'Tầng / Khu Vực': item.floor,
       'Nhóm Hạng Mục': item.category,
       'Đơn Vị Tính': item.unit,
       'KL Định Mức': item.planned,
-      'KL Thực Tế': item.actual,
+      'KL Thực Tế (chỉ xem - không import)': item.actual,
     };
     if (canViewFinancials) {
       row['Đơn Giá (VNĐ)'] = item.unitPrice || 0;
@@ -622,6 +746,9 @@ export function exportTeamStatisticsToExcel(params: {
   floorPlans: FloorPlan[];
   projectName?: string;
   selectedTeamName?: string;
+  workVolumes?: WorkVolume[];
+  inventory?: InventoryItem[];
+  materialNorms?: MaterialNorm[];
 }) {
   const wb = XLSX.utils.book_new();
   const projectNameStr = params.projectName || 'Cong_Trinh';
@@ -636,10 +763,11 @@ export function exportTeamStatisticsToExcel(params: {
     roomProgressList: params.roomProgressList,
     defects: params.defects,
     crewRecords: params.crewRecords,
-    floorPlans: params.floorPlans
+    floorPlans: params.floorPlans,
+    workVolumes: params.workVolumes || []
   });
 
-  // If a single team is selected ("Xuất Excel Đội Này"), export 5 detailed sheets
+  // If a single team is selected ("Xuất Excel Đội Này"), export detailed operational sheets
   if (params.selectedTeamName && activeTeams.length === 1) {
     const team = activeTeams[0];
     const stat = teamStatsMap[team.id] || calculateTeamStatistics({
@@ -647,7 +775,8 @@ export function exportTeamStatisticsToExcel(params: {
       roomProgressList: params.roomProgressList,
       defects: params.defects,
       crewRecords: params.crewRecords,
-      floorPlans: params.floorPlans
+      floorPlans: params.floorPlans,
+      workVolumes: params.workVolumes || []
     })[team.id];
 
     // Sheet 1: 01-Tong quan
@@ -684,7 +813,7 @@ export function exportTeamStatisticsToExcel(params: {
         floorRows.push({
           'STT': fIdx++,
           'Tầng': fName,
-          'Hạng Mục': catName,
+          'Hạng Mục': det.categoryName || catName,
           'ĐVT': det.unit || 'm²',
           'Số Phòng/Khu Vực': fg.rooms.length,
           'KL Phụ Trách': det.totalVol,
@@ -786,6 +915,43 @@ export function exportTeamStatisticsToExcel(params: {
     autoFitColumns(ws5);
     XLSX.utils.book_append_sheet(wb, ws5, '05-Nhat ky quan so');
 
+    // Sheet 6: material issued vs constructed-volume norm.
+    const materialLines = computeTeamMaterialReconciliation({
+      team,
+      stats: stat,
+      inventory: params.inventory || [],
+      materialNorms: params.materialNorms || [],
+      workVolumes: params.workVolumes || [],
+    });
+    const materialRows: any[] = materialLines.length > 0
+      ? materialLines.map((line, idx) => ({
+          'STT': idx + 1,
+          '__materialId': line.materialId || '',
+          'Tên Vật Tư': line.materialName,
+          'Nhóm Vật Tư': line.category,
+          'ĐVT': line.unit,
+          'ĐM Theo KL Giao': line.expectedAssignedQty,
+          'ĐM Theo KL Đã Thi Công': line.expectedConstructedQty,
+          'Đã Xuất Cho Đội': line.issuedQty,
+          'Chênh Lệch Xuất - ĐM Thi Công': line.varianceQty,
+          'Tỷ Lệ Xuất / ĐM Thi Công (%)': line.issuedVsConstructedPercent ?? '',
+        }))
+      : [{
+          'STT': 1,
+          '__materialId': '',
+          'Tên Vật Tư': 'Chưa có dữ liệu vật tư/định mức để đối chiếu',
+          'Nhóm Vật Tư': '',
+          'ĐVT': '',
+          'ĐM Theo KL Giao': 0,
+          'ĐM Theo KL Đã Thi Công': 0,
+          'Đã Xuất Cho Đội': 0,
+          'Chênh Lệch Xuất - ĐM Thi Công': 0,
+          'Tỷ Lệ Xuất / ĐM Thi Công (%)': '',
+        }];
+    const ws6 = XLSX.utils.json_to_sheet(materialRows);
+    autoFitColumns(ws6);
+    XLSX.utils.book_append_sheet(wb, ws6, '06-Vat tu doi chieu');
+
     const safeProj = projectNameStr.replace(/[^a-zA-Z0-9_ -]/g, '');
     const safeTeam = team.name.replace(/[^a-zA-Z0-9_ -]/g, '');
     return saveWorkbookFile(wb, `ThongKeDoiThiCong_${safeProj}_${safeTeam}_${Date.now()}.xlsx`);
@@ -827,17 +993,26 @@ export function exportWarehouseUpdateTemplate(
   materialNorms: MaterialNorm[],
   workVolumes: WorkVolume[],
   inventory?: InventoryItem[],
-  projectName?: string
+  projectName?: string,
+  context?: {
+    floorPlans?: FloorPlan[];
+    roomProgressList?: RoomProgressItem[];
+    teams?: TeamInfo[];
+    structureConfig?: ProjectStructureConfig;
+  },
 ) {
   const wb = XLSX.utils.book_new();
+  const exportStructure = normalizeStructureGroupConfig(context?.structureConfig);
 
   // 1. Sheet "Nhập Kho"
-  const inItems = (inventory || []).filter(i => i.type === 'in');
+  const inItems = (inventory || []).filter((item) => item.type === 'in');
   const inSource = inItems.map((item, idx) => ({
     'STT': idx + 1,
     'Mã Phiếu': item.id,
     '__materialId': item.materialId || '',
     '__sourceType': item.sourceType || '',
+    '__issuePurpose': item.issuePurpose || '',
+    '__sourceStructureGroupId': item.sourceStructureGroupId || '',
     '__sourceRoomId': item.sourceRoomId || '',
     '__sourceFloorId': item.sourceFloorId || '',
     '__sourceTeamId': item.sourceTeamId || '',
@@ -850,33 +1025,54 @@ export function exportWarehouseUpdateTemplate(
     'Vị Trí Kho': item.location || 'Kho chính',
     'Người Thực Hiện': item.handler || '-',
     'Ngày Thực Hiện': item.date ? formatDateDDMMYYYY(item.date) : '',
-    'Ghi Chú': item.notes || ''
+    'Ghi Chú': item.notes || '',
   }));
   const wsIn = XLSX.utils.json_to_sheet(inSource);
   autoFitColumns(wsIn);
   XLSX.utils.book_append_sheet(wb, wsIn, 'Nhập Kho');
 
   // 2. Sheet "Xuất Kho"
-  const outItems = (inventory || []).filter(i => i.type === 'out');
-  const outSource = outItems.map((item, idx) => ({
-    'STT': idx + 1,
-    'Mã Phiếu': item.id,
-    '__materialId': item.materialId || '',
-    '__sourceType': item.sourceType || '',
-    '__sourceRoomId': item.sourceRoomId || '',
-    '__sourceFloorId': item.sourceFloorId || '',
-    '__sourceTeamId': item.sourceTeamId || '',
-    '__sourceWorkCategoryId': item.sourceWorkCategoryId || '',
-    '__sourceNormId': item.sourceNormId || '',
-    '__sourceIssueKey': item.sourceIssueKey || '',
-    'Tên Vật Tư': item.materialName,
-    'Đơn Vị Tính': item.unit,
-    'Số Lượng': item.quantity,
-    'Vị Trí Kho / Hạng Mục': item.location || 'Công trình Tầng 1',
-    'Người Thực Hiện': item.handler || '-',
-    'Ngày Thực Hiện': item.date ? formatDateDDMMYYYY(item.date) : '',
-    'Ghi Chú': item.notes || ''
-  }));
+  const outItems = (inventory || []).filter((item) => item.type === 'out');
+  const outSource = outItems.map((item, idx) => {
+    const floor = item.sourceFloorId ? context?.floorPlans?.find((fp) => fp.id === item.sourceFloorId) : undefined;
+    const room = item.sourceRoomId ? context?.roomProgressList?.find((entry) => entry.id === item.sourceRoomId) : undefined;
+    const team = item.sourceTeamId ? context?.teams?.find((entry) => entry.id === item.sourceTeamId) : undefined;
+    const work = item.sourceWorkCategoryId
+      ? workVolumes.find((entry) => (entry.workCategoryId || entry.id) === item.sourceWorkCategoryId || entry.id === item.sourceWorkCategoryId)
+      : undefined;
+    const groupId = item.sourceStructureGroupId || (floor ? resolveFloorStructureGroupId(floor, exportStructure) : '');
+    return {
+      'STT': idx + 1,
+      'Mã Phiếu': item.id,
+      '__itemKind': item.itemKind === 'equipment' ? 'equipment' : 'material',
+      '__materialId': item.materialId || '',
+      '__sourceType': item.sourceType || '',
+      '__issuePurpose': item.issuePurpose || '',
+      '__sourceStructureGroupId': item.sourceStructureGroupId || '',
+      '__sourceRoomId': item.sourceRoomId || '',
+      '__sourceFloorId': item.sourceFloorId || '',
+      '__sourceTeamId': item.sourceTeamId || '',
+      '__sourceWorkCategoryId': item.sourceWorkCategoryId || '',
+      '__sourceNormId': item.sourceNormId || '',
+      '__sourceIssueKey': item.sourceIssueKey || '',
+      'Mục đích xuất': inventoryIssuePurposeLabel(item),
+      [exportStructure.label || 'Khu / Khối']: item.issuePurpose === 'project-work' && groupId
+        ? getStructureGroupName(groupId, exportStructure)
+        : '',
+      'Tầng': floor?.floorName || '',
+      'Căn / Phòng': room?.roomName || '',
+      'Đội thi công': team?.name || '',
+      'Hạng mục thi công': work?.title || '',
+      'Loại Hàng': item.itemKind === 'equipment' ? 'Thiết bị' : 'Vật tư',
+      'Tên Vật Tư / Thiết Bị': item.materialName,
+      'Đơn Vị Tính': item.unit,
+      'Số Lượng': item.quantity,
+      'Vị Trí Kho / Hạng Mục': item.location || 'Công trình',
+      'Người Thực Hiện': item.handler || '-',
+      'Ngày Thực Hiện': item.date ? formatDateDDMMYYYY(item.date) : '',
+      'Ghi Chú': item.notes || '',
+    };
+  });
   const wsOut = XLSX.utils.json_to_sheet(outSource);
   autoFitColumns(wsOut);
   XLSX.utils.book_append_sheet(wb, wsOut, 'Xuất Kho');
@@ -887,7 +1083,10 @@ export function exportWarehouseUpdateTemplate(
     return {
       'STT': idx + 1,
       '__normId': n.id,
-      '__materialId': n.materialId || n.id,
+      '__materialId': resolveNormMaterialId(n) || '',
+      '__workCategoryId': n.workCategoryId || '',
+      '__workCategoryIds': JSON.stringify(n.workCategoryIds || []),
+      '__workCategoryNormsById': JSON.stringify(n.workCategoryNormsById || {}),
       'Chủng Loại': n.category || 'Vật tư thạch cao',
       'Tên Hạng Mục Thi Công': workCatStr || '',
       'Tên Vật Tư': n.materialName,
@@ -903,13 +1102,35 @@ export function exportWarehouseUpdateTemplate(
   autoFitColumns(wsNorms);
   XLSX.utils.book_append_sheet(wb, wsNorms, 'Định Mức Vật Tư');
 
-  // 4. Sheet "Tồn Kho Hiện Tại" (Calculated using unified calculateStockSummary)
+  // 4. Sheet "Hạng Mục Thi Công" — authoritative IDs/floor scope round-trip.
+  const workVolumeData = (workVolumes || []).map((item, idx) => ({
+    'STT': idx + 1,
+    '__recordId': item.id,
+    '__workCategoryId': item.workCategoryId || item.id,
+    '__floorId': item.floorId || item.floorIds?.[0] || '',
+    '__floorIds': item.floorIds ? item.floorIds.join(',') : '',
+    'Tên Hạng Mục Công Việc': item.title,
+    'Tầng / Khu Vực': item.floor,
+    'Nhóm Hạng Mục': item.category,
+    'Đơn Vị Tính': item.unit,
+    'KL Định Mức': item.planned,
+    'KL Thực Tế (chỉ xem - không import)': item.actual,
+    'Đơn Giá (VNĐ)': item.unitPrice || 0,
+    'Ngày Hạn Định': item.dueDate ? formatDateDDMMYYYY(item.dueDate) : '',
+  }));
+  const wsWorkVolumes = XLSX.utils.json_to_sheet(workVolumeData);
+  autoFitColumns(wsWorkVolumes);
+  XLSX.utils.book_append_sheet(wb, wsWorkVolumes, 'Hạng Mục Thi Công');
+
+  // 5. Sheet "Tồn Kho Hiện Tại" (Calculated using unified calculateStockSummary)
   const stockSummaries = calculateStockSummary(inventory || [], materialNorms || []);
   const stockData = stockSummaries.map((s, idx) => ({
     'STT': idx + 1,
+    '__itemKind': s.itemKind,
     '__materialId': s.materialId || '',
+    'Loại Hàng': s.itemKind === 'equipment' ? 'Thiết bị' : 'Vật tư',
     'Chủng Loại': s.category,
-    'Tên Vật Tư': s.materialName,
+    'Tên Vật Tư / Thiết Bị': s.materialName,
     'Đơn Vị Tính': s.unit,
     'Tổng Nhập Kho': s.totalIn,
     'Tổng Xuất Kho': s.totalOut,

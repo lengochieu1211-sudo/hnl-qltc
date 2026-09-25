@@ -1,55 +1,157 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 
-const firebaseArgs = [
-  '--yes',
-  'firebase-tools@13.35.1',
-  'emulators:exec',
-  '--only', 'auth,firestore,storage',
-  '--project', 'demo-hnl-qltc-rules',
-  'node scripts/firebase-rules-behavior.mjs',
-];
+const demoProject = 'demo-hnl-qltc-rules';
+const env = {
+  ...process.env,
+  FIREBASE_PROJECT_ID: demoProject,
+  GCLOUD_PROJECT: demoProject,
+  GOOGLE_CLOUD_PROJECT: demoProject,
+};
 
-// Do not spawn `npx.cmd` directly on Windows. Newer Node/Windows runner combinations can
-// reject direct .cmd execution with spawnSync EINVAL when shell=false. npm scripts expose
-// npm_execpath, and npm's npx-cli.js sits beside npm-cli.js, so execute that JavaScript CLI
-// through the current Node binary. This keeps argument boundaries intact and avoids shell
-// quoting/injection differences while remaining portable across Windows/Linux/macOS.
-const npmExecPath = String(process.env.npm_execpath || '').trim();
-const npxCliPath = npmExecPath ? path.join(path.dirname(npmExecPath), 'npx-cli.js') : '';
-const hasNpxCli = Boolean(npxCliPath && fs.existsSync(npxCliPath));
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-let command;
-let args;
-let shell = false;
-
-if (hasNpxCli) {
-  command = process.execPath;
-  args = [npxCliPath, ...firebaseArgs];
-} else if (process.platform === 'win32') {
-  // Defensive fallback for direct `node scripts/firebase-rules-check.mjs` execution outside
-  // npm. cmd.exe is the Windows-supported launcher for .cmd shims; all arguments here are
-  // fixed repository constants, not user/model input.
-  command = process.env.ComSpec || 'cmd.exe';
-  const quoted = firebaseArgs.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(' ');
-  args = ['/d', '/s', '/c', `npx ${quoted}`];
-} else {
-  command = 'npx';
-  args = firebaseArgs;
+function readPositiveIntEnv(name, fallback) {
+  const raw = String(process.env[name] || '').trim();
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be a positive integer, got: ${raw}`);
+  }
+  return parsed;
 }
 
-const result = spawnSync(command, args, {
-  cwd: process.cwd(),
-  stdio: 'inherit',
-  shell,
-  env: {
-    ...process.env,
-    FIREBASE_PROJECT_ID: 'demo-hnl-qltc-rules',
-    GCLOUD_PROJECT: 'demo-hnl-qltc-rules',
-  },
-});
+// Defaults keep the normal certification path fast. Slow/cold GitHub runners can
+// explicitly raise only their own retry budget without weakening Rules behavior.
+const ATTEMPT_TIMEOUT_MS = readPositiveIntEnv('FIREBASE_RULES_ATTEMPT_TIMEOUT_MS', 120000);
+const MAX_ATTEMPTS = readPositiveIntEnv('FIREBASE_RULES_MAX_ATTEMPTS', 2);
+const RETRY_DELAY_MS = readPositiveIntEnv('FIREBASE_RULES_RETRY_DELAY_MS', 2000);
+const TERMINATION_GRACE_MS = readPositiveIntEnv('FIREBASE_RULES_TERMINATION_GRACE_MS', 5000);
+const WORKFLOW_STEP_BUDGET_MS = readPositiveIntEnv('FIREBASE_RULES_STEP_BUDGET_MS', 5 * 60 * 1000);
+const WORKFLOW_SAFETY_MARGIN_MS = readPositiveIntEnv('FIREBASE_RULES_SAFETY_MARGIN_MS', 30 * 1000);
 
-if (result.error) throw result.error;
-if (result.status !== 0) process.exit(result.status ?? 1);
-console.log('Firestore + Storage Rules compile/behavior PASS');
+const worstCaseRetryBudgetMs =
+  MAX_ATTEMPTS * (ATTEMPT_TIMEOUT_MS + TERMINATION_GRACE_MS)
+  + (MAX_ATTEMPTS - 1) * RETRY_DELAY_MS;
+
+if (worstCaseRetryBudgetMs > WORKFLOW_STEP_BUDGET_MS - WORKFLOW_SAFETY_MARGIN_MS) {
+  throw new Error(
+    `Firebase Rules retry budget ${worstCaseRetryBudgetMs}ms exceeds the safe GitHub step budget`,
+  );
+}
+
+console.log(
+  `Firebase Rules runner budget: timeout=${ATTEMPT_TIMEOUT_MS}ms, attempts=${MAX_ATTEMPTS}, stepBudget=${WORKFLOW_STEP_BUDGET_MS}ms`,
+);
+
+function resolveNpx() {
+  const npmExecPath = String(process.env.npm_execpath || '').trim();
+  const npxCliPath = npmExecPath ? path.join(path.dirname(npmExecPath), 'npx-cli.js') : '';
+  if (npxCliPath && fs.existsSync(npxCliPath)) {
+    return { command: process.execPath, prefix: [npxCliPath] };
+  }
+  if (process.platform === 'win32') {
+    return { command: process.env.ComSpec || 'cmd.exe', prefix: ['/d', '/s', '/c', 'npx'] };
+  }
+  return { command: 'npx', prefix: [] };
+}
+
+async function terminateProcessTree(child) {
+  if (!child || child.exitCode !== null || !child.pid) return;
+
+  if (process.platform === 'win32') {
+    spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], {
+      stdio: 'ignore',
+      shell: false,
+    });
+    return;
+  }
+
+  try {
+    process.kill(-child.pid, 'SIGTERM');
+  } catch {
+    child.kill('SIGTERM');
+  }
+
+  const deadline = Date.now() + TERMINATION_GRACE_MS;
+  while (child.exitCode === null && Date.now() < deadline) await sleep(100);
+
+  if (child.exitCode === null) {
+    try {
+      process.kill(-child.pid, 'SIGKILL');
+    } catch {
+      child.kill('SIGKILL');
+    }
+  }
+}
+
+function runRulesBehaviorAttempt(attempt, timeoutMs = ATTEMPT_TIMEOUT_MS) {
+  return new Promise((resolve, reject) => {
+    const { command, prefix } = resolveNpx();
+    const behaviorCommand = `"${process.execPath}" scripts/firebase-rules-behavior.mjs`;
+    const args = [
+      ...prefix,
+      '--yes',
+      'firebase-tools@13.35.1',
+      'emulators:exec',
+      '--config', 'firebase.rules-ci.json',
+      '--only', 'auth,firestore,storage',
+      '--project', demoProject,
+      behaviorCommand,
+    ];
+
+    console.log(`Starting isolated Firebase Rules emulators via emulators:exec (attempt ${attempt})`);
+    const child = spawn(command, args, {
+      cwd: process.cwd(),
+      stdio: 'inherit',
+      env,
+      shell: false,
+      detached: process.platform !== 'win32',
+    });
+
+    let settled = false;
+    let timingOut = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn(value);
+    };
+
+    const timer = setTimeout(async () => {
+      timingOut = true;
+      await terminateProcessTree(child);
+      finish(reject, new Error(`Firebase Rules emulators:exec attempt ${attempt} timed out after ${timeoutMs / 1000}s`));
+    }, timeoutMs);
+
+    child.once('error', (error) => finish(reject, error));
+    child.once('exit', (code, signal) => {
+      // During timeout cleanup SIGTERM/SIGKILL is expected; let the timer path
+      // report the deterministic timeout instead of racing with the exit event.
+      if (timingOut) return;
+      if (code === 0) finish(resolve);
+      else finish(reject, new Error(`Firebase Rules emulators:exec attempt ${attempt} failed: exit code=${code}, signal=${signal || 'none'}`));
+    });
+  });
+}
+
+let lastError;
+for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+  try {
+    await runRulesBehaviorAttempt(attempt);
+    console.log('Firestore + Storage Rules compile/behavior PASS');
+    process.exitCode = 0;
+    lastError = undefined;
+    break;
+  } catch (error) {
+    lastError = error;
+    console.warn(`Firebase Rules emulator attempt ${attempt}/${MAX_ATTEMPTS} failed: ${error?.message || error}`);
+    if (attempt < MAX_ATTEMPTS) {
+      console.log('Retrying with a clean Firebase emulator process...');
+      await sleep(RETRY_DELAY_MS);
+    }
+  }
+}
+
+if (lastError) throw lastError;

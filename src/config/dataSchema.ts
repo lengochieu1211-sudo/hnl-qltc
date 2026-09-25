@@ -1,8 +1,8 @@
 /**
  * App version and data schema version intentionally evolve independently.
- * V5 marks the non-destructive Firebase-only lifecycle/storage migration baseline.
+ * V6 adds server-side financial isolation for WorkVolume.unitPrice while keeping business IDs stable.
  */
-export const CURRENT_DATA_SCHEMA_VERSION = 5;
+export const CURRENT_DATA_SCHEMA_VERSION = 6;
 
 export interface DataSchemaMigrationStep {
   version: number;
@@ -20,6 +20,7 @@ export const DATA_SCHEMA_MIGRATIONS: readonly DataSchemaMigrationStep[] = Object
   { version: 3, name: 'cloud-project-identity-hardening' },
   { version: 4, name: 'realtime-stability-baseline' },
   { version: 5, name: 'firebase-only-lifecycle-storage-migration' },
+  { version: 6, name: 'work-volume-financial-isolation' },
 ]);
 
 export function readDataSchemaVersion(value: unknown): number {

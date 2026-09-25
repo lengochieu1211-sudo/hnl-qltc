@@ -21,17 +21,23 @@ const prWorkflow = read('.github/workflows/firebase-hosting-pull-request.yml');
 const buildWorkflow = read('.github/workflows/build.yml');
 const firebaseJson = read('firebase.json');
 const firebase = read('src/lib/firebase.ts');
+const firebaseBase = read('src/lib/firebaseBase.ts');
+const securityModal = read('src/components/SecurityModal.tsx');
 const app = read('src/App.tsx');
 const realtime = read('src/config/realtimeCollections.ts');
 const firestoreRules = read('firestore.rules');
 const storageRules = read('storage.rules');
 const sw = read('public/sw.js');
 const swRegistration = read('src/serviceWorkerRegistration.ts');
+const devRuntimeWorkflow = read('.github/workflows/dev-runtime-golden.yml');
+const hostedBrowserGolden = read('scripts/dev-hosted-browser-golden.mjs');
+const cloudBinaryPurge = read('src/lib/cloudBinaryPurge.ts');
 const photoSync = read('src/lib/photoCloudSync.ts');
 const photoStorage = read('src/utils/photoStorage.ts');
 const photoPicker = read('src/components/PhotoAttachmentPicker.tsx');
 const androidMain = read('android-wrapper/src/com/qlct/app/MainActivity.java');
 const desktopBuild = read('desktop-wrapper/build-launcher.ps1');
+const androidBuild = read('android-wrapper/build-apk.ps1');
 const imageCompressor = read('src/utils/imageCompressor.ts');
 const materialNormModal = read('src/components/MaterialNormModal.tsx');
 const exportPdf = read('src/components/ExportPdfModal.tsx');
@@ -47,6 +53,8 @@ const offlineAccess = read('src/utils/offlineAccess.ts');
 const diagnostics = read('src/lib/runtimeDiagnostics.ts');
 const authHeader = read('src/components/GoogleAuthHeader.tsx');
 const floorPlanDefect = read('src/components/FloorPlanDefectTab.tsx');
+const defectContactUtils = read('src/utils/defectContactUtils.ts');
+const crewTabBase = read('src/components/CrewTabBase.tsx');
 const chatTab = read('src/features/chat/ChatTab.tsx');
 const imageViewer = read('src/components/ImageViewerModal.tsx');
 const shareUtils = read('src/utils/shareUtils.ts');
@@ -68,12 +76,43 @@ if (mergeWorkflow.includes('VITE_APP_VERSION') || prWorkflow.includes('VITE_APP_
 requireAll(read('android-wrapper/build-apk.ps1'), ['package.json', '$appVersion', '$versionCode', '$releaseTag', 'https://hnlqltc.web.app/?app=android'], 'Android version/source URL');
 requireAll(read('.github/workflows/android-apk.yml'), ['windows-latest', 'actions/upload-artifact@v4', 'QLCT_WEB_URL: https://hnlqltc.web.app/?app=android', 'QLCT_RELEASE_TAG: 6.3.0-rc2.2.16'], 'Android APK CI');
 requireAll(read('desktop-wrapper/build-launcher.ps1'), ['package.json', '$version', 'AssemblyInformationalVersion'], 'Windows version source');
-if (!authHeader.includes('logoUrl || `/icon.png?v=${APP_VERSION}`') || !authHeader.includes('e.currentTarget.src = `/icon.png?v=${APP_VERSION}`')) fail('header custom logo must retain canonical APP_VERSION fallback');
+if (!authHeader.includes('logoUrl || `/icon.png?v=${APP_VERSION}-brand20260921`') || !authHeader.includes('e.currentTarget.src = `/icon.png?v=${APP_VERSION}-brand20260921`')) fail('header custom logo must retain the unified canonical brand fallback with cache bust');
 if (!firebase.includes(`appId: '${PROD_FIREBASE_WEB_APP_ID}'`)) fail('PROD Firebase Web App ID fallback is missing or stale');
 requireAll(mergeWorkflow, [`VITE_FIREBASE_APP_ID: ${PROD_FIREBASE_WEB_APP_ID}`], 'PROD Hosting Firebase Web App ID');
 requireAll(read('.github/workflows/android-apk.yml'), [`VITE_FIREBASE_APP_ID: ${PROD_FIREBASE_WEB_APP_ID}`], 'Android Firebase Web App ID');
 requireAll(read('.github/workflows/windows-exe.yml'), [`VITE_FIREBASE_APP_ID: ${PROD_FIREBASE_WEB_APP_ID}`], 'Windows Firebase Web App ID');
 pass('V6.3.0 single-source version/build metadata');
+
+requireAll(firebaseBase, [
+  'fetchProjectAuditLogsRangeFromCloud',
+  "where('clientTimestamp', '>=', startMs)",
+  "where('clientTimestamp', '<', endMs)",
+  'getDocsFromServer(q)',
+], 'on-demand Cloud audit history range query');
+requireAll(securityModal, [
+  "activeTab !== 'audit'",
+  'fetchProjectAuditLogsRangeFromCloud',
+  'Hôm nay · tự mở rộng 30 ngày',
+  'Tải thêm nhật ký cũ hơn',
+  'Chỉ đọc Cloud khi mở tab Nhật ký',
+  'Mọi tài khoản',
+  'Chi tiết kỹ thuật',
+  'Never surface raw relationship IDs',
+  'Đã bỏ liên kết',
+  'auditActionSentence',
+  'auditReadableChange',
+  'ID thiết bị',
+  'Hôm qua ·',
+  'Lần cuối ',
+  "logAuditAction('ROLE_CHANGE', roleDescription);",
+  "if (!isOpen || !selectedPid)",
+  "if (!isOpen || !selectedPid || !canReadMemberContacts)",
+], 'Security Center lazy audit history + detailed presence recency');
+if (securityModal.includes('subscribeProjectAuditLogsRealtime(selectedPid')) {
+  fail('Security Center must not keep the 200-row activityLogs realtime listener alive');
+}
+pass('Security Center reads audit history on demand, preserves precise presence recency, and keeps technical IDs behind progressive disclosure');
+
 
 requireAll(runtimeArch, [
   "VITE_RUNTIME_BACKEND || 'firebase-only'",
@@ -120,9 +159,9 @@ if (!exists('storage.rules') || !firebaseJson.includes('"storage"') || !firebase
 requireAll(firebaseStorage, ['uploadProjectBinary', 'uploadFloorPlanBinary', 'thumbnailPath', 'deleteObject'], 'Firebase Storage fallback client');
 requireAll(binaryStorage, ['BINARY_STORAGE_PROVIDER', "'r2'", "'firebase-storage'", 'uploadProjectBinaryToCloud', 'uploadFloorPlanBinaryToCloud', 'downloadBinaryBlob'], 'binary storage provider adapter');
 requireAll(r2Storage, ['VITE_R2_GATEWAY_URL', 'Authorization', 'uploadProjectBinaryToR2', 'uploadFloorPlanBinaryToR2', 'downloadR2Blob'], 'R2 client');
-requireAll(r2Storage, ['verifyR2ObjectReady', 'verifyR2ObjectViaAuthenticatedGet', "method: 'HEAD'", "method: 'GET'", 'HEAD durability check unavailable', 'HEAD metadata is incomplete or mismatched', 'X-HNL-SHA256', 'R2_UPLOAD_NOT_DURABLE', 'getIdToken(forceRefresh)', 'response.status === 401 || response.status === 403', 'requestPut', 'PUT bị từ chối; refresh Firebase token và thử lại', "cache: 'no-store'", 'download denied/missing', "area: 'r2-upload'", "area: 'r2-download'"], 'R2 durable PUT + legacy HEAD compatibility + upload/download token recovery + diagnostics');
+requireAll(r2Storage, ['verifyR2ObjectReady', 'verifyR2ObjectViaAuthenticatedGet', "method: 'HEAD'", "method: 'GET'", 'HEAD durability check unavailable', 'HEAD metadata is incomplete or mismatched', 'X-HNL-SHA256', 'R2_UPLOAD_NOT_DURABLE', 'getIdToken(forceRefresh)', 'response.status === 401 || response.status === 403', 'requestPut', 'PUT bị từ chối; refresh Firebase token và thử lại', "cache: 'no-store'", 'download denied/missing', "area: 'r2-upload'", "area: 'r2-download'", 'fetchR2WithAuthBackendRetry', 'AUTH_BACKEND_UNAVAILABLE', 'Retry-After'], 'R2 durable PUT + legacy HEAD compatibility + token recovery + bounded transient auth-backend retry + diagnostics');
 requireAll(r2Worker, ['HNL_QLTC_MEDIA', 'FIREBASE_PROJECT_ID', 'firestore.googleapis.com', 'canWrite', "area === 'floor-plans'", "role === 'ADMIN'", "role === 'EDITOR'"], 'R2 gateway RBAC');
-requireAll(r2Worker, ["request.method === 'HEAD'", 'HNL_QLTC_MEDIA.head', 'X-HNL-SHA256', 'Content-Length', "GATEWAY_VERSION = '6.3.0-rc2.2.16'", "accessPolicy: 'canonical-email-first'", "for (const memberId of [email, uid])", "'https://hnlqltc.web.app'", 'Access-Control-Allow-Methods'], 'R2 gateway durable object HEAD + canonical cross-account RBAC/version/CORS defaults');
+requireAll(r2Worker, ["request.method === 'HEAD'", 'HNL_QLTC_MEDIA.head', 'X-HNL-SHA256', 'Content-Length', "GATEWAY_VERSION = '6.3.0-rc2.2.16'", "accessPolicy: 'canonical-email-first'", "for (const memberId of [email, uid])", "response.status === 404", 'AUTH_BACKEND_UNAVAILABLE', "'Retry-After': '60'", "canonicalEmailLookup ? 'EMAIL_MEMBER' : 'UID_MEMBER'", "'https://hnlqltc.web.app'", 'Access-Control-Allow-Methods', "'X-Goog-Api-Key'", 'quotaAttribution', 'quotaUserPartitioning', "'X-Goog-Quota-User'", 'quotaUserKey', 'firebaseProjectId', 'FIRESTORE_AUTH_RETRY_BASE_MS'], 'R2 gateway durable object HEAD + canonical cross-account RBAC/version/CORS defaults + explicit Firebase quota attribution + fail-closed auth backend handling');
 requireAll(r2DeployWorkflow, ['workflow_dispatch:', 'CLOUDFLARE_API_TOKEN', 'Resolve Cloudflare Account ID automatically', 'api.cloudflare.com/client/v4/accounts?per_page=50', 'CLOUDFLARE_ACCOUNT_ID=$ACCOUNT_ID', 'wrangler@4.33.0 deploy', '/health', '"version":"6.3.0-rc2.2.16"', '"accessPolicy":"canonical-email-first"', 'Smoke browser PUT CORS preflight', 'Access-Control-Request-Method: PUT'], 'manual one-button R2 Worker deploy workflow + auto account resolve + exact runtime/CORS verification');
 if (r2DeployWorkflow.includes('on:\n  push:') || r2DeployWorkflow.includes('on:\n  pull_request:')) fail('R2 Worker deploy workflow must never auto-deploy on push/PR');
 requireAll(photoSync, ['uploadProjectBinaryToCloud', 'BINARY_STORAGE_PROVIDER', 'storagePath:', 'thumbnailPath:', 'photoSnapshotMergeQueue'], 'photo object-storage pipeline');
@@ -133,7 +172,8 @@ requireAll(photoStorage, [
   'downloadPhotoBlobFromCloud',
   'projectPhotoListMemoryCacheOwner',
   'getPhotoRuntimeAuthKey',
-  'item.createdByUid && item.createdByUid !== activeUid',
+  'item.pendingOwnerUid || item.createdByUid',
+  'pendingOwnerUid,',
   'Never hand an opaque `r2:` / `storage:` / `firestore:` reference to <img src>',
 ], 'cross-account photo binary resolver + same-phone account isolation');
 requireAll(photoSync, [
@@ -149,6 +189,12 @@ requireAll(photoSync, [
   'r2-object-missing-or-mismatched',
   'localRepairCandidate',
 ], 'same-phone/cross-account photo server refresh + upload/download confirmation + broken R2 pointer self-heal');
+requireAll(photoSync, [
+  'localPendingBinaryReplacement',
+  "String(photo.binaryUploadState || '') === 'pending'",
+  '!localPendingBinaryReplacement && Boolean(cloudData)',
+  '!localPendingBinaryReplacement && cloudData && cloudUpdatedAt >= localUpdatedAt',
+], 'edited Defect/Crew photo pending binary must beat stale Cloud revision until replacement upload completes');
 requireAll(photoPicker, [
   'getPhotoDataUrl(p.id, p.cloudUrl || p.cloudFileId, true, projectId)',
   'getPhotoDataUrl(photo.id, photo.cloudUrl || photo.cloudFileId, false, projectId)',
@@ -179,7 +225,20 @@ requireAll(imageCompressor, [
 requireAll(photoSync, ['lastErrorPhotoId', 'photoSyncErrorCode', "area: 'photo-sync'", 'ảnh đang chờ Cloud/R2', 'isPhotoSharedCloudReady(photo)'], 'photo outbox exposes exact R2 failure and preserves pending status through realtime hydration');
 requireAll(photoStorage, ['getProjectPhotoDiagnosticSnapshot', 'localBinaryCount', 'checksumPrefix', 'belongsToCurrentUploader'], 'photo diagnostics export contains metadata/outbox evidence without binary payload');
 requireAll(app, ['qlct-defect-navigation-request', "area: 'defect-navigation'", "code: 'REQUEST'"], 'Defect notification navigation dispatches same-tab event plus storage fallback');
-requireAll(floorPlanDefect, ['qlct-defect-navigation-request', "code: 'OPEN_TARGET'", 'requestedFloor=', 'pendingCount', "getEntityPhotos(projectId, 'defect', defect.id)"], 'Defect view consumes same-tab deep-link and opens defect-wide photo gallery with Cloud pending state');
+requireAll(floorPlanDefect, ['qlct-defect-navigation-request', "code: 'OPEN_TARGET'", 'requestedFloor=', 'pendingCount', "getEntityPhotos(projectId, 'defect', defect.id)", 'activeDefectRoomName', '🏠 Căn/Phòng:'], 'Defect view consumes deep-link, shows linked room and opens defect-wide photo gallery with Cloud pending state');
+if (floorPlanDefect.includes('⚡ Chọn Nhanh Bằng 1 Click:') || floorPlanDefect.includes('✅ Đội Defect đang chọn:') || floorPlanDefect.includes('🏢 Đội trên mặt bằng tầng:') || floorPlanDefect.includes('📋 Đội đã khai báo:')) fail('Defect team selector still renders duplicate quick-pick blocks below the canonical selector');
+requireAll(floorPlanDefect, ['buildDefectShareText(defect, defectRoomName)', 'buildDefectShareText(activeDefectDetail, activeDefectRoomName)'], 'Defect share resolves linked room name in list and detail flows');
+requireAll(defectContactUtils, ['buildDefectShareText(defect: DefectItem, roomName =', 'Căn/Phòng:'], 'Defect share text includes resolved Căn/Phòng name');
+requireAll(crewTabBase, ['openRoomOnFloorPlan', 'openDefectOnFloorPlan', 'qlct_diagnostic_navigation_request', 'qlct_pending_defect_navigation', 'Mở Defect trên mặt bằng', 'Căn/Phòng:'], 'Team statistics can drill down from room/defect summaries to the exact floor-plan entity');
+requireAll(crewTabBase, [
+  "'__teamId': item.id",
+  "'Tên Đội Thi Công': item.name",
+  "key === '__teamId' ? { hidden: true } : {}",
+  "const teamNameAliases = new Set([",
+  "if (!normalized || normalized.startsWith('__')) return false;",
+  "if (rawTeamId && nameStr === rawTeamId)",
+], 'Team Excel export/import keeps visible team names separate from hidden technical teamId');
+requireAll(floorPlanDefect, ['tryHandleDefectPlacementEvent', 'relocatingDefectId', '<span>Di chuyển ghim</span>', 'const placement = getCandidateTeamsForDefect(', 'const roomAtPoint = placement.roomAtPos;', 'placement.roomAtPosTeam || defect.assignedTo', '...linkage'], 'Defect pin placement wins over room highlight hit-testing and explicit relocation recomputes durable linkage');
 requireAll(imageViewer, ['swipeStartRef', 'Math.abs(dx) < 48', 'handleNext()', 'handlePrev()'], 'image viewer supports one-finger horizontal gallery swipe while preserving pinch zoom');
 requireAll(chatTab, ['ensureDraftAttachmentsCloudReady', 'verifyPhotoBinaryReadyInCloud', 'Ảnh đang chờ Cloud/R2', 'ImageViewerModal', 'openMessageImageGallery'], 'chat shows Cloud state, blocks message publication until photo is durable, and opens multi-image gallery');
 requireAll(imageViewer, ['Tải xuống', 'Chia sẻ', 'handleDownload', 'handleShare', 'saveBlobToDownloads', 'sharePreparedContent', 'allowTextFallback: false'], 'opened image viewer exposes download/share actions without cluttering thumbnails');
@@ -213,9 +272,12 @@ pass('photo metadata is published cross-account only after durable R2 readiness;
 requireAll(photoPicker, ['retryDelays = [0, 400, 1200, 2500]'], 'photo immediate cloud confirmation retry');
 requireAll(app, ['? 250 : 150', 'Math.min(30000, 750 * Math.pow(2', 'photoOutboxRetryTimerRef'], 'photo near-realtime durable outbox scheduling');
 requireAll(photoSync, ['PHOTO_INITIAL_SYNC_DELAY_MS = 1200', 'requestIdleCallback(run, { timeout: 1000 })', '}, 5000);'], 'photo initial reconciliation latency');
-requireAll(desktopBuild, ['$sizes = @(16, 20, 24, 28, 32, 40, 48, 64, 80, 96, 128, 256)', 'all frames derived directly from canonical HNL logo'], 'Windows DPI-aware original HNL taskbar icon frames');
-if (desktopBuild.includes('Optimize-HnlSmallIconFrame')) fail('Windows icon builder must not visually alter the canonical HNL logo with custom sharpening/contrast');
-pass('photo pending binary retries sooner and Windows/Web runtime icons use exact-size frames derived from the canonical HNL logo');
+requireAll(desktopBuild, ['HNL-QLTC-SHELL-ICON.png', 'Write-HnlIcoFromPng -PngPath $logoSource -IcoPath $generatedIcon', 'HNL.QLTC.Brand.Icon', 'HNL.QLTC.Brand.Png', 'Certified multi-resolution ICO'], 'Windows dedicated shell icon, embedded branding resources and multi-resolution icon generation');
+requireAll(androidBuild, ['desktop-wrapper\\HNL-QLTC-SHELL-ICON.png', "'mipmap-mdpi' = 48", "'mipmap-hdpi' = 72", "'mipmap-xhdpi' = 96", "'mipmap-xxhdpi' = 144", "'mipmap-xxxhdpi' = 192", 'ic_launcher.png', 'ic_launcher_round.png'], 'Android dedicated shell launcher icon generation');
+requireAll(authHeader, ['/icon.png?v=${APP_VERSION}-brand20260921'], 'Web/in-app unified HNL brand fallback');
+if (!desktopBuild.includes('HNL-QLTC-SHELL-ICON.png') || !androidBuild.includes('HNL-QLTC-SHELL-ICON.png')) fail('Windows and Android must continue to use the same certified HNL master artwork');
+if (desktopBuild.includes('Optimize-HnlSmallIconFrame')) fail('Windows icon builder must not visually alter the certified HNL logo with custom sharpening/contrast');
+pass('photo pending binary retries sooner and Windows/Web runtime icons use certified HQ artwork with runtime extraction validation');
 
 requireAll(floorPlanDefect, ['photo.cloudUrl || photo.cloudFileId || photo.localUri', 'false, projectId'], 'Defect gallery cloud rendering');
 requireAll(exportPdf, ['getProjectPhotosWithBinary(activeProjectId, false)', "embeddedUrl.startsWith('data:image/')", 'ensureReportPhotosReady', 'isResolvingReportPhotos', 'reportPhotoWarning', 'missingReportPhotoIds'], 'PDF portable photo embedding + tolerant R2 warning gate');
@@ -243,13 +305,17 @@ if (!photoSync.includes('LEGACY_DRIVE_READ_FALLBACK') || !floorPlanSync.includes
 if (!photoStorage.includes('__pendingWrite')) fail('photo pending/server-ack metadata guard missing');
 const prodR2GatewayConfigured = mergeWorkflow.includes('VITE_R2_GATEWAY_URL: ${{ vars.VITE_R2_GATEWAY_URL }}') || mergeWorkflow.includes('VITE_R2_GATEWAY_URL: https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev');
 if (!mergeWorkflow.includes('VITE_BINARY_STORAGE_PROVIDER: r2') || !prodR2GatewayConfigured) fail('PROD workflow does not select R2 gateway');
-if (mergeWorkflow.includes('deploy --only firestore:rules,storage')) fail('PROD still hard-depends on Firebase Storage deployment');
+if (!mergeWorkflow.includes('--only firestore:rules,storage')) fail('PROD workflow must deploy Firestore + legacy Storage Rules from the same candidate source');
+if (!storageRules.includes('allow create, update: if false;')) fail('Firebase Storage must remain legacy read/purge only even when its Rules are deployed');
 requireAll(mergeWorkflow, ['Deploy Hosting site hnlqltc', '--config firebase.prod.json', 'https://hnlqltc.web.app'], 'PROD short Hosting site');
 requireAll(read('firebase.prod.json'), ['"site": "hnlqltc"', '"public": "dist"'], 'PROD Firebase Hosting config');
-pass('new binaries use private R2 as the single PROD write authority; Firebase Storage/Drive remain read-only legacy compatibility paths');
+pass('new binaries use private R2 as the single PROD write authority; legacy Storage Rules are deployed for read/purge policy parity');
 
 requireAll(firestoreRules, ['isCoreBusinessCollection', 'lifecycleUpdateIsMonotonic', 'allow delete: if false;', "role == 'EDITOR'", "role == 'ENGINEER'", 'inventory_balances'], 'Firestore Rules lifecycle/roles');
-requireAll(storageRules, ['canEdit(projectId)', 'isAdmin(projectId)', 'identityMetadata', 'updateKeepsIdentity', 'allow delete: if isAdmin(projectId)', 'allow read, write: if false'], 'Firebase Storage legacy compatibility Rules');
+requireAll(storageRules, ['isAdmin(projectId)', 'allow create, update: if false;', 'allow delete: if isAdmin(projectId)', 'allow read, write: if false'], 'Firebase Storage legacy read/purge Rules');
+for (const obsoleteHelper of ['function canEdit(', 'function validSize(', 'function validContentType(', 'function identityMetadata(', 'function updateKeepsIdentity(']) {
+  if (storageRules.includes(obsoleteHelper)) fail(`Firebase Storage legacy Rules reintroduced obsolete write helper: ${obsoleteHelper}`);
+}
 requireAll(security, ["if (FIREBASE_ONLY_RUNTIME) return 'VIEWER'", 'if (FIREBASE_ONLY_RUNTIME || !projectId) return'], 'client role hardening');
 pass('Firestore RBAC remains authoritative; R2 gateway mirrors member/role access and Firebase Storage legacy rules are retained');
 
@@ -258,6 +324,125 @@ requireAll(app, ['commitWarehouseTransactionAtomic', 'updateWarehouseTransaction
 const warehouseTab = read('src/components/WarehouseTab.tsx');
 if (!warehouseTab.includes('FIREBASE_ONLY_RUNTIME') || !warehouseTab.includes('Không thể xuất vượt tồn kho')) fail('warehouse UI still offers a negative-stock override in Firebase-only runtime');
 pass('warehouse transaction/derived-balance safety engine is wired into runtime');
+
+requireAll(warehouseTab, [
+  "${hasImportAccess ? 'grid-cols-2' : 'grid-cols-1'}",
+  '<span>Tải Excel để chỉnh sửa</span>',
+  '{hasImportAccess && (',
+], 'warehouse role-aware Excel actions');
+if (warehouseTab.includes('<span>Chỉ ADMIN được nhập</span>')) fail('warehouse must hide unavailable import action instead of showing a disabled ADMIN-only placeholder');
+const workVolumeTab = read('src/components/WorkVolumeTab.tsx');
+requireAll(workVolumeTab, [
+  '<Download className="w-3.5 h-3.5" /> Tải Excel để chỉnh sửa',
+  '{hasStructureManageAccess && (',
+], 'work-volume role-aware Excel actions');
+pass('Excel action bars are visually consistent across ADMIN, ENGINEER and VIEWER without weakening RBAC');
+
+const multiProjectAccess = read('src/components/MultiProjectAccessPanel.tsx');
+const multiProjectOverview = read('src/components/MultiProjectOverview.tsx');
+const homeDashboard = read('src/components/HomeDashboard.tsx');
+const crewReportShare = read('src/components/CrewReportShareModal.tsx');
+const crewReportUtils = read('src/utils/crewReportUtils.ts');
+requireAll(multiProjectAccess, [
+  'Nhiều dự án',
+  'fetchProjectEmailAccessFromCloud',
+  'applyProjectMemberAccessChangesAtomically',
+  "liveActorRole.role !== 'ADMIN'",
+  'Không hạ/thu hồi chính tài khoản đang thao tác',
+], 'central multi-project access manager');
+requireAll(securityModal, [
+  'Thành viên & phân quyền',
+  'Theo dự án',
+  'Nhiều dự án',
+  'value={selectedPid}',
+  'setSelectedPid',
+], 'unified project/member access tabs');
+requireAll(firebaseBase, [
+  'applyProjectMemberAccessChangesAtomically',
+  'writeBatch(db)',
+  'Không thể hạ quyền ADMIN cuối cùng',
+  'Không thể hạ quyền Project Owner',
+  'MEMBER_REVOKE_VERIFY_FAILED',
+  'MEMBER_ROLE_VERIFY_FAILED',
+], 'atomic multi-project membership engine');
+if (app.includes('!isOnline || authorizedChatProjects.length < 2')) fail('multi-project UI is incorrectly disabled for verified offline project cache');
+requireAll(multiProjectOverview, [
+  'Tổng quan dự án',
+  'Mở dự án',
+  'Quản trị dự án',
+  'Người xem',
+], 'secondary multi-project overview');
+requireAll(homeDashboard, [
+  'Tổng quan công trường',
+  'relative isolate max-h-[440px] overflow-auto overscroll-contain',
+  '<tr className="h-8">',
+  'sticky top-[31px]',
+  'Mở thẳng dự án này khi khởi động',
+  'Dự án của tôi',
+  'Báo cáo quân số nhiều dự án',
+  'Hôm nay',
+  'Hôm qua',
+  '7 ngày',
+  'Tháng này',
+  'Khoảng ngày',
+  'Chia sẻ báo cáo quân số',
+  'Chưa tải được dữ liệu quân số',
+  'buildCrewReportMatrices',
+  'Tổng QS/ngày',
+  'TỔNG',
+], 'Trang chủ dashboard');
+requireAll(crewReportShare, [
+  '1 ngày',
+  'relative isolate max-h-[42vh] overflow-auto overscroll-contain',
+  '<tr className="h-8">',
+  'sticky top-[31px]',
+  'Nhiều ngày',
+  'Sao chép nội dung',
+  'Chia sẻ nội dung',
+  'Chia sẻ ảnh',
+  'Tải ảnh',
+  '— = chưa báo',
+  'Tổng QS/ngày',
+  'TỔNG',
+], 'crew report share center');
+requireAll(crewReportUtils, [
+  'buildCrewReportRows',
+  'buildCrewReportText',
+  'buildCrewReportMatrices',
+  'projectLocation',
+  'reported: false',
+  'dailyHeadcount',
+  'totalDailyHeadcount',
+  'teamTotals',
+  'grandDailyHeadcount',
+], 'crew report aggregation engine');
+requireAll(firebaseBase, [
+  'fetchProjectCrewReportData',
+  "'crew_records'",
+  "'teams'",
+  'CREW_REPORT_ACCESS_DENIED',
+], 'targeted multi-project crew report reader');
+requireAll(bottomNav, [
+  "'home' | 'warehouse'",
+  "label: 'Trang chủ'",
+  'forceDesktopRail',
+  "forceDesktopRail ? 'flex' : 'hidden lg:flex'",
+  "forceDesktopRail ? 'hidden' : 'lg:hidden'",
+  'bg-white text-slate-700',
+  'bg-blue-50 text-blue-700',
+], 'responsive desktop-left/mobile-bottom navigation');
+if (bottomNav.includes('APP_VERSION') || bottomNav.includes('HNL QLTC · Trang chủ')) fail('desktop rail must not duplicate header branding/version');
+requireAll(app, [
+  'STARTUP_PROJECT_ID_KEY',
+  "new URLSearchParams(window.location.search).get('app') === 'desktop'",
+  "isDesktopRuntime ? 'pl-[84px]' : 'lg:pl-[84px]'",
+  'forceDesktopRail={isDesktopRuntime}',
+  "useState<TabType>('home')",
+  '<HomeDashboard',
+  'startupNavigationAppliedForRef',
+  "setActiveTab('floorplan')",
+], 'Home + quick-start routing');
+pass('multi-project RBAC is preserved while startup now routes through Home or the explicitly pinned project');
 
 if (!floorPlanDefect.includes('operationalWorkCategoryCatalog') || !floorPlanDefect.includes('getOperationalRoomSubItems')) fail('floor-plan ghost-category filter missing');
 if (!roomHighlight.includes("const [workCategory, setWorkCategory] = useState('')") || !roomHighlight.includes('projectWorkCategoryTitles')) fail('room editor still seeds a deleted/hard-coded category');
@@ -300,9 +485,23 @@ if (app.includes("FIREBASE_ONLY_ALL_BACKUP_CLOUD_SOURCE") && app.includes("const
 }
 pass('Firebase-only JSON backup is Cloud/live-state sourced and media-complete/fail-closed');
 
-if (!sw.includes('new URL(self.location.href).searchParams.get(\'v\')') || !swRegistration.includes('APP_VERSION')) fail('service worker cache version is not derived from canonical app version');
+if (!sw.includes("new URL(self.location.href).searchParams.get('v')") || !swRegistration.includes('APP_VERSION')) fail('service worker cache version is not derived from canonical app version');
+requireAll(vite, ['hnl-service-worker-asset-manifest', 'sw-assets.json', 'assets = Object.keys(bundle)'], 'Vite service-worker asset manifest');
+requireAll(sw, ['loadBuildAssetManifest', 'SW_ASSET_MANIFEST_HAS_NO_JS_CHUNKS', 'cache.addAll(required)'], 'service-worker complete app-shell precache');
+requireAll(hostedBrowserGolden, ['verifyColdStartOffline', 'Network.clearBrowserCache', 'context.setOffline(true)', 'CacheStorage'], 'Runtime Golden cold-start offline');
+const devRuntimeHasGlobalPushTrigger = !devRuntimeWorkflow.includes('    paths:');
+if (!devRuntimeHasGlobalPushTrigger) {
+  for (const trigger of ['public/sw.js', 'vite.config.ts', 'src/serviceWorkerRegistration.ts', 'scripts/stability-gate.mjs']) {
+    if (!devRuntimeWorkflow.includes(`- '${trigger}'`)) fail(`DEV Runtime Golden trigger missing ${trigger}`);
+  }
+}
+pass(devRuntimeHasGlobalPushTrigger
+  ? 'DEV Runtime Golden runs on every dev push without a path filter'
+  : 'DEV Runtime Golden path filter covers critical cold-start sources');
+if (!devRuntimeWorkflow.includes('npm run test:stability')) fail('DEV Runtime Golden must run Stability Gate before deploy');
+requireAll(cloudBinaryPurge, ['getDocsFromServer', 'collectBinaryPointers', 'construction_binary_purge_', 'BINARY_PURGE_ADMIN_REQUIRED'], 'physical binary purge safety');
 requireAll(diagnostics, ['sanitizeDiagnosticValue', '[redacted]'], 'diagnostics redaction');
-pass('service worker/version and diagnostics safety');
+pass('service worker/version, cold-start and diagnostics safety');
 
 for (const required of [
   'scripts/firebase-only-golden.mjs',

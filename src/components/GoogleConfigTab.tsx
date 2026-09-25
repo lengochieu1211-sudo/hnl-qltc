@@ -13,6 +13,7 @@ import {
   LogOut,
   Save,
   Building2,
+  MapPin,
   User,
   Download,
   Upload,
@@ -29,7 +30,9 @@ import {
   Hash,
   Trash2,
   RotateCcw,
-  Eraser
+  Eraser,
+  Plus,
+  Layers3
 } from 'lucide-react';
 import { GoogleAuthStatus, FloorPlan } from '../types';
 import { ConflictMergeModal } from './ConflictMergeModal';
@@ -42,10 +45,18 @@ import { getImageQualityProfile, getImageQualitySettings, setImageQualitySetting
 import type { UserRole } from '../utils/securityUtils';
 import type { TrashOperation, TrashSettings, TrashRetentionDays } from '../lib/trash';
 import { buildDiagnosticBundle, clearRuntimeDiagnostics } from '../lib/runtimeDiagnostics';
-import { getFloorPlanImageOutboxSnapshot } from '../lib/floorPlanImageSync';
+import { getFloorPlanImageCacheSnapshot, getFloorPlanImageOutboxSnapshot } from '../lib/floorPlanImageSync';
 import { getProjectPhotoDiagnosticSnapshot } from '../utils/photoStorage';
 import { HealthCenterPanel } from '../healthCenter/HealthCenterPanel';
-import { ExpandCollapseIndicator } from './ExpandCollapseIndicator';
+import { SettingsAccordionCard } from './SettingsAccordionCard';
+import { WindowsDesktopSyncBridgeCard } from './WindowsDesktopSyncBridgeCard';
+import { ProjectOfflineMirrorCard } from './ProjectOfflineMirrorCard';
+import {
+  createStructureGroupId,
+  normalizeStructureGroupConfig,
+  resolveFloorStructureGroupId,
+  type ProjectStructureConfig,
+} from '../utils/structureGroupUtils';
 
 declare const __BUILD_TIME__: string;
 
@@ -56,7 +67,11 @@ interface GoogleConfigTabProps {
   setContractorName: (name: string) => void;
   inspectorName: string;
   setInspectorName: (name: string) => void;
+  projectLocation: string;
+  setProjectLocation: (location: string) => void;
   floorPlans: FloorPlan[];
+  structureConfig: ProjectStructureConfig;
+  onStructureConfigChange?: (config: ProjectStructureConfig) => void;
   onUpdateFloorPlan?: (id: string, updates: Partial<FloorPlan>) => void;
   onSyncAll: () => Promise<{ success: boolean; url?: string; message?: string }>;
   isSyncing: boolean;
@@ -78,7 +93,7 @@ interface GoogleConfigTabProps {
   onLinkLocalFile?: () => void;
   onUnlinkLocalFile?: () => void;
   onRequestLocalFilePermission?: () => void;
-  onOpenProjectManager?: () => void;
+  syncCenterContent?: React.ReactNode;
 
   // Lightweight project trash (metadata only; no Base64/blob duplication).
   userRole?: UserRole;
@@ -115,7 +130,11 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   setContractorName,
   inspectorName,
   setInspectorName,
+  projectLocation,
+  setProjectLocation,
   floorPlans,
+  structureConfig,
+  onStructureConfigChange,
   onUpdateFloorPlan,
   onSyncAll,
   isSyncing,
@@ -136,7 +155,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   onLinkLocalFile,
   onUnlinkLocalFile,
   onRequestLocalFilePermission,
-  onOpenProjectManager,
+  syncCenterContent,
   userRole = 'VIEWER',
   trashSettings = { enabled: true, retentionDays: 7 },
   trashOperations = [],
@@ -158,6 +177,8 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   const [localProjectName, setLocalProjectName] = useState(projectName);
   const [localContractorName, setLocalContractorName] = useState(contractorName);
   const [localInspectorName, setLocalInspectorName] = useState(inspectorName);
+  const [localProjectLocation, setLocalProjectLocation] = useState(projectLocation);
+  const [localStructureConfig, setLocalStructureConfig] = useState<ProjectStructureConfig>(() => normalizeStructureGroupConfig(structureConfig));
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
 
   // App Format Preferences State
@@ -184,6 +205,17 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
     const floorPlanOutboxRows = activeProjectId
       ? await getFloorPlanImageOutboxSnapshot(activeProjectId).catch(() => [])
       : [];
+    const floorPlanCacheSnapshotRows = activeProjectId
+      ? await getFloorPlanImageCacheSnapshot(activeProjectId).catch(() => [])
+      : [];
+    const latestCacheByFloor = new Map<string, any>();
+    const cacheByStoragePath = new Map<string, any>();
+    for (const row of floorPlanCacheSnapshotRows) {
+      const previous = latestCacheByFloor.get(row.floorPlanId);
+      if (!previous || Number(row.revision || 0) > Number(previous.revision || 0)) latestCacheByFloor.set(row.floorPlanId, row);
+      const cachePath = String(row?.storagePath || '').trim();
+      if (cachePath && !cacheByStoragePath.has(cachePath)) cacheByStoragePath.set(cachePath, row);
+    }
     const latestOutboxByFloor = new Map<string, any>();
     for (const row of floorPlanOutboxRows) {
       const previous = latestOutboxByFloor.get(row.floorPlanId);
@@ -194,6 +226,9 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       const imageUrl = String(plan?.imageUrl || '');
       const localBinary = imageUrl.startsWith('data:image/') || imageUrl.startsWith('blob:');
       const outbox = latestOutboxByFloor.get(String(plan?.id || ''));
+      const exactCached = latestCacheByFloor.get(String(plan?.id || ''));
+      const sharedCached = cacheByStoragePath.get(String(plan?.storagePath || '').trim());
+      const cached = exactCached || sharedCached;
       const imageRevision = Number(plan?.imageRevision || 0);
       const effectiveRevision = Math.max(imageRevision, Number(outbox?.revision || 0));
       const cloudRevision = Number(plan?.imageCloudRevision || 0);
@@ -211,12 +246,19 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
       else if (hasCloudPointer && effectiveRevision > cloudRevision) status = 'CLOUD_POINTER_INCONSISTENT';
       else if (hasImageEvidence) status = 'MISSING_BINARY';
       const pending = status !== 'READY' && status !== 'NO_IMAGE';
+      const cachedRevision = exactCached ? Number(cached?.revision || 0) : (sharedCached ? cloudRevision : 0);
+      const cachedBytes = Number(cached?.bytes || 0);
+      const offlineReady = cloudReady && cachedRevision >= cloudRevision && cachedBytes > 0;
       return {
         id: String(plan?.id || ''),
         floorName: String(plan?.floorName || ''),
         status,
         pending,
         localBinary,
+        cachedBinary: cachedBytes > 0,
+        cachedRevision,
+        cachedBytes,
+        offlineReady,
         imageRevision,
         effectiveImageRevision: effectiveRevision,
         imageCloudRevision: cloudRevision,
@@ -233,6 +275,10 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
     const floorPlanDiagnostics = {
       total: floorPlanRows.length,
       pending: floorPlanDiagnosticRows.filter((row: any) => row.pending).length,
+      offlineEligible: floorPlanDiagnosticRows.filter((row: any) => row.status === 'READY').length,
+      offlineReady: floorPlanDiagnosticRows.filter((row: any) => row.offlineReady).length,
+      cacheCount: floorPlanCacheSnapshotRows.length,
+      cacheBytes: floorPlanCacheSnapshotRows.reduce((sum: number, row: any) => sum + Number(row?.bytes || 0), 0),
       outboxCount: floorPlanOutboxRows.length,
       outboxBytes: floorPlanOutboxRows.reduce((sum: number, row: any) => sum + Number(row?.bytes || 0), 0),
       floors: floorPlanDiagnosticRows.slice(0, 50),
@@ -280,6 +326,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
     return photos.filter((photo: any) => !photo?.deleted && (
       photo?.binaryUploadState !== 'ready' ||
       photo?.cloudReady !== true ||
+      photo?.staleLocalCache === true ||
       (photo?.storageProvider === 'firestore-fallback' && !photo?.localBinary)
     )).slice(0, 20);
   }, [photoDiagnosticSnapshot]);
@@ -296,6 +343,46 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   const displayedLastSyncError = photoSnapshotClean && /ảnh|photo|cloud\/r2/i.test(syncDiagnostics?.lastSyncError || '')
     ? ''
     : (syncDiagnostics?.lastSyncError || '');
+
+
+  const syncCenterStatus = useMemo(() => {
+    const offline = syncDiagnostics?.online === false;
+    const syncing = Boolean(
+      isSyncing ||
+      syncDiagnostics?.dataCloudPhase === 'syncing' ||
+      displayedPhotoPhase === 'syncing' ||
+      driveSyncStatus === 'syncing'
+    );
+    const needsSync = Boolean(
+      !syncDiagnostics?.cloudInitialReady ||
+      !syncDiagnostics?.roleResolved ||
+      syncDiagnostics?.dataCloudPhase === 'error' ||
+      syncDiagnostics?.dataCloudPhase === 'conflict' ||
+      Number(syncDiagnostics?.pendingData || 0) > 0 ||
+      Number(displayedPhotoPending || 0) > 0 ||
+      Number(displayedPendingDriveUploads || 0) > 0
+    );
+
+    if (offline) return { label: 'Offline', className: 'border-slate-200 bg-slate-100 text-slate-600' };
+    if (syncing) return { label: 'Đang đồng bộ', className: 'border-sky-200 bg-sky-50 text-sky-700' };
+    if (needsSync) return { label: 'Cần đồng bộ', className: 'border-amber-200 bg-amber-50 text-amber-700' };
+    if (syncDiagnostics?.dataCloudPhase === 'synced' || Number(syncDiagnostics?.lastSyncAt || 0) > 0) {
+      return { label: 'Đã đồng bộ', className: 'border-emerald-200 bg-emerald-50 text-emerald-700' };
+    }
+    return { label: 'Cloud sẵn sàng', className: 'border-emerald-200 bg-emerald-50 text-emerald-700' };
+  }, [
+    driveSyncStatus,
+    displayedPendingDriveUploads,
+    displayedPhotoPending,
+    displayedPhotoPhase,
+    isSyncing,
+    syncDiagnostics?.cloudInitialReady,
+    syncDiagnostics?.dataCloudPhase,
+    syncDiagnostics?.lastSyncAt,
+    syncDiagnostics?.online,
+    syncDiagnostics?.pendingData,
+    syncDiagnostics?.roleResolved,
+  ]);
 
   const handleGoToDiagnosticEntity = (photo: any) => {
     const entityType = String(photo?.entityType || '');
@@ -367,6 +454,14 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   useEffect(() => {
     setLocalInspectorName(inspectorName);
   }, [inspectorName]);
+
+  useEffect(() => {
+    setLocalProjectLocation(projectLocation);
+  }, [projectLocation]);
+
+  useEffect(() => {
+    setLocalStructureConfig(normalizeStructureGroupConfig(structureConfig));
+  }, [structureConfig]);
 
   // Handle data comparison between device and cloud
   const handleCompareData = async () => {
@@ -459,6 +554,39 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
     checkAuth();
   }, []);
 
+  // Super Admin cards can request a specific Config subsection before this tab mounts.
+  // Open the owning <details> first, then focus/highlight the requested destination.
+  useEffect(() => {
+    let cancelled = false;
+    let timer: number | undefined;
+    let attempts = 0;
+    const focusRequestedSection = () => {
+      if (cancelled) return;
+      let targetId = '';
+      try { targetId = sessionStorage.getItem('qlct_config_focus_target') || ''; } catch (_) {}
+      if (!targetId) return;
+      const target = document.getElementById(targetId);
+      if (!target) {
+        attempts += 1;
+        if (attempts < 30) timer = window.setTimeout(focusRequestedSection, 50);
+        return;
+      }
+      const ownerDetails = target instanceof HTMLDetailsElement ? target : target.closest('details');
+      if (ownerDetails instanceof HTMLDetailsElement) ownerDetails.open = true;
+      try { sessionStorage.removeItem('qlct_config_focus_target'); } catch (_) {}
+      window.requestAnimationFrame(() => {
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        target.classList.add('ring-2', 'ring-indigo-300');
+        window.setTimeout(() => target.classList.remove('ring-2', 'ring-indigo-300'), 1800);
+      });
+    };
+    timer = window.setTimeout(focusRequestedSection, 0);
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, []);
+
   const handleConnect = async () => {
     try {
       if (!hasApiBackend()) {
@@ -500,7 +628,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
   const handleSaveSettings = (e: React.FormEvent) => {
     e.preventDefault();
     if (userRole !== 'ADMIN') {
-      setSaveSuccessMsg('Chỉ ADMIN được thay đổi thông tin công trình dùng chung.');
+      setSaveSuccessMsg('Chỉ ADMIN được thay đổi thông tin dự án dùng chung.');
       setTimeout(() => setSaveSuccessMsg(null), 3500);
       return;
     }
@@ -508,8 +636,10 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
     setProjectName(cleanName);
     setContractorName(localContractorName.trim());
     setInspectorName(localInspectorName.trim());
+    setProjectLocation(localProjectLocation.trim());
+    onStructureConfigChange?.(normalizeStructureGroupConfig(localStructureConfig));
 
-    setSaveSuccessMsg('🎉 Đã lưu tất cả cài đặt công trình thành công vào bộ nhớ hệ thống!');
+    setSaveSuccessMsg('🎉 Đã lưu cài đặt dự án thành công!');
     setTimeout(() => setSaveSuccessMsg(null), 4000);
   };
 
@@ -532,23 +662,123 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
         </div>
       </div>
 
-      {/* V6.2.27 STABILITY DIAGNOSTICS */}
-      {syncDiagnostics && (
-        <details className="group rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-2xl px-4 py-3.5 select-none">
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
-                <ShieldCheck className="h-4 w-4 text-emerald-600" /> HNL Health Center
-              </div>
-              <div className="mt-0.5 text-[10px] font-semibold text-slate-500">Hệ thống · đồng bộ · ảnh · audit dữ liệu · xử lý liên kết trong một nơi.</div>
+      {/* PROJECT SETTINGS FORM CARD */}
+      <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
+        <h3 className="font-bold text-slate-900 border-b border-slate-100 pb-2 flex items-center gap-1.5 text-xs">
+          <Save className="w-4 h-4 text-blue-600" /> Thông tin dự án
+        </h3>
+
+        <form onSubmit={handleSaveSettings} className="space-y-3">
+          <div>
+            <label className="block text-slate-700 font-bold mb-1">{t('project_name')}</label>
+            <input
+              type="text"
+              value={localProjectName}
+              onChange={(e) => setLocalProjectName(e.target.value)}
+              disabled={userRole !== 'ADMIN'}
+              className="w-full border border-slate-200 rounded-xl p-2.5 font-bold text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+              placeholder="Ví dụ: LTIA Sân bay Long Thành"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 flex items-center gap-1.5 font-bold text-slate-700"><MapPin className="h-3.5 w-3.5 text-indigo-500" /> Địa điểm</label>
+            <input
+              type="text"
+              value={localProjectLocation}
+              onChange={(e) => setLocalProjectLocation(e.target.value)}
+              disabled={userRole !== 'ADMIN'}
+              className="w-full border border-slate-200 rounded-xl p-2.5 font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+              placeholder="Ví dụ: Long Thành, Đồng Nai"
+            />
+            <p className="mt-1 text-[9.5px] text-slate-400">Tự chèn vào báo cáo/ảnh liên quan; để trống thì không hiển thị dòng địa điểm.</p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">{t('contractor')}</label>
+              <input
+                type="text"
+                value={localContractorName}
+                onChange={(e) => setLocalContractorName(e.target.value)}
+                disabled={userRole !== 'ADMIN'}
+                className="w-full border border-slate-200 rounded-xl p-2.5 font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                placeholder="Tên công ty / đội thợ"
+              />
             </div>
-            <span className={`shrink-0 rounded-lg border px-2 py-1 text-[10px] font-bold ${syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
-              {syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'Cloud sẵn sàng' : 'Đang kiểm tra'}
-            </span>
-            <ExpandCollapseIndicator />
-          </summary>
-          <div className="px-2 pb-2 sm:px-3 sm:pb-3 space-y-3">
-        <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
+
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">{t('inspector')}</label>
+              <input
+                type="text"
+                value={localInspectorName}
+                onChange={(e) => setLocalInspectorName(e.target.value)}
+                disabled={userRole !== 'ADMIN'}
+                className="w-full border border-slate-200 rounded-xl p-2.5 font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                placeholder="Họ tên người duyệt"
+              />
+            </div>
+          </div>
+
+
+
+          <button
+            type="submit"
+            disabled={userRole !== 'ADMIN'}
+            className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-md active:scale-98 transition-all flex items-center justify-center gap-2 text-xs cursor-pointer disabled:bg-slate-300 disabled:shadow-none disabled:cursor-not-allowed"
+          >
+            <Save className="w-4 h-4" />
+            Lưu cài đặt dự án
+          </button>
+        </form>
+
+        {userRole !== 'ADMIN' && (
+          <p className="text-[10px] text-slate-500">Thông tin dự án là dữ liệu dùng chung. EDITOR/VIEWER chỉ xem; ADMIN mới được sửa để tránh lệch tên giữa các thiết bị.</p>
+        )}
+
+        {saveSuccessMsg && (
+          <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-bold flex items-center gap-2 animate-in fade-in">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{saveSuccessMsg}</span>
+          </div>
+        )}
+      </div>
+
+
+      {/* SYNC / BACKUP CENTER — shared inline Settings accordion */}
+      {syncCenterContent && (
+        <SettingsAccordionCard
+          id="sync-backup-card"
+          icon={RefreshCw}
+          iconClassName="text-emerald-600"
+          title="Trung tâm đồng bộ & sao lưu"
+          description="Đồng bộ dữ liệu · R2/ảnh · sao lưu · khôi phục và đối chiếu dữ liệu."
+          badge={syncCenterStatus.label}
+          badgeClassName={syncCenterStatus.className}
+          lazy
+        >
+          <div className="space-y-3">
+            <ProjectOfflineMirrorCard activeProjectId={activeProjectId} floorPlans={floorPlans} />
+            <WindowsDesktopSyncBridgeCard activeProjectId={activeProjectId} userRole={userRole} />
+            {syncCenterContent}
+          </div>
+        </SettingsAccordionCard>
+      )}
+
+      {syncDiagnostics && (
+        <SettingsAccordionCard
+          id="system-sync-card"
+          icon={ShieldCheck}
+          iconClassName="text-emerald-600"
+          title="HNL Health Center"
+          description="Chẩn đoán hệ thống · cảnh báo đồng bộ/ảnh/quyền · audit dữ liệu & liên kết."
+          badge={syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'Cloud sẵn sàng' : 'Đang kiểm tra'}
+          badgeClassName={syncDiagnostics.cloudInitialReady && syncDiagnostics.roleResolved && syncDiagnostics.pendingData === 0 && displayedPendingDriveUploads === 0 && displayedPhotoPending === 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}
+          bodyClassName="p-0"
+        >
+          <div className="space-y-3">
+        <div id="system-diagnostics-card" className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3 scroll-mt-24 transition-shadow">
           <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-2">
             <div>
               <h3 className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
@@ -611,7 +841,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
                   <div key={photo.id} className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <div className="text-[10px] font-extrabold text-amber-900 truncate">{photo.entityType}/{photo.entityId}</div>
-                      <div className="text-[9px] text-amber-700 truncate font-mono">{photo.id} · {photo.storageProvider || 'legacy'} · {photo.binaryUploadState || 'unknown'}</div>
+                      <div className="text-[9px] text-amber-700 truncate font-mono">{photo.id} · {photo.storageProvider || 'legacy'} · {photo.binaryUploadState || 'unknown'}{photo.staleLocalCache ? ' · cache cũ' : ''}</div>
                     </div>
                     <button type="button" onClick={() => handleGoToDiagnosticEntity(photo)} className="shrink-0 rounded-lg bg-amber-600 hover:bg-amber-700 text-white px-2.5 py-1.5 text-[10px] font-extrabold flex items-center gap-1">
                       <ExternalLink className="w-3.5 h-3.5" /> {photo.entityType === 'crewRecord' ? 'Đi tới bản ghi' : 'Mở module'}
@@ -630,98 +860,27 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           userRole={userRole}
           accessVerified={Boolean(syncDiagnostics.roleResolved)}
           fullAppData={fullAppData}
+          photoDiagnostics={photoDiagnosticSnapshot}
           freshness={syncDiagnostics.cloudInitialReady ? 'live' : 'cache'}
           getSystemDiagnostics={() => buildFullDiagnosticBundle()}
           onClearSystemDiagnostics={() => { clearRuntimeDiagnostics(); setSyncMsg('Đã xóa log chẩn đoán cũ.'); }}
         />
       
           </div>
-        </details>
+        </SettingsAccordionCard>
       )}
 
-      {/* PROJECT SETTINGS FORM CARD */}
-      <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
-        <h3 className="font-bold text-slate-900 border-b border-slate-100 pb-2 flex items-center gap-1.5 text-xs">
-          <Save className="w-4 h-4 text-blue-600" /> Thông tin công trình
-        </h3>
-
-        <form onSubmit={handleSaveSettings} className="space-y-3">
-          <div>
-            <label className="block text-slate-700 font-bold mb-1">{t('project_name')}</label>
-            <input
-              type="text"
-              value={localProjectName}
-              onChange={(e) => setLocalProjectName(e.target.value)}
-              disabled={userRole !== 'ADMIN'}
-              className="w-full border border-slate-200 rounded-xl p-2.5 font-bold text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
-              placeholder="Ví dụ: LTIA Sân bay Long Thành"
-              required
-            />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <div>
-              <label className="block text-slate-700 font-bold mb-1">{t('contractor')}</label>
-              <input
-                type="text"
-                value={localContractorName}
-                onChange={(e) => setLocalContractorName(e.target.value)}
-                disabled={userRole !== 'ADMIN'}
-                className="w-full border border-slate-200 rounded-xl p-2.5 font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
-                placeholder="Tên công ty / đội thợ"
-              />
-            </div>
-
-            <div>
-              <label className="block text-slate-700 font-bold mb-1">{t('inspector')}</label>
-              <input
-                type="text"
-                value={localInspectorName}
-                onChange={(e) => setLocalInspectorName(e.target.value)}
-                disabled={userRole !== 'ADMIN'}
-                className="w-full border border-slate-200 rounded-xl p-2.5 font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
-                placeholder="Họ tên người duyệt"
-              />
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            disabled={userRole !== 'ADMIN'}
-            className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-md active:scale-98 transition-all flex items-center justify-center gap-2 text-xs cursor-pointer disabled:bg-slate-300 disabled:shadow-none disabled:cursor-not-allowed"
-          >
-            <Save className="w-4 h-4" />
-            {t('save_settings')}
-          </button>
-        </form>
-
-        {userRole !== 'ADMIN' && (
-          <p className="text-[10px] text-slate-500">Thông tin công trình là dữ liệu dùng chung. EDITOR/VIEWER chỉ xem; ADMIN mới được sửa để tránh lệch tên giữa các thiết bị.</p>
-        )}
-
-        {saveSuccessMsg && (
-          <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-bold flex items-center gap-2 animate-in fade-in">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>{saveSuccessMsg}</span>
-          </div>
-        )}
-      </div>
-
       {/* APP FORMATTING PREFERENCES CARD */}
-      <details className="group rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-2xl px-4 py-3.5 select-none">
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
-              <Sliders className="w-4 h-4 text-indigo-600" /> {t('formatting_settings')}
-            </div>
-            <div className="mt-0.5 text-[10px] font-semibold text-slate-500">Nhấn để mở / thu gọn cài đặt định dạng hiển thị.</div>
-          </div>
-          <span className="shrink-0 rounded-lg border border-indigo-100 bg-indigo-50 px-2 py-1 text-[10px] font-bold text-indigo-700">
-            {numberFormatPreset === 'dot_comma' ? '1.234,56' : '1,234.56'} · {dateFormatPreset}
-          </span>
-          <ExpandCollapseIndicator />
-        </summary>
-        <div className="space-y-3.5 px-4 pb-4">
+      <SettingsAccordionCard
+        icon={Sliders}
+        iconClassName="text-indigo-600"
+        title={t('formatting_settings')}
+        description="Cài đặt định dạng hiển thị số và ngày tháng."
+        badge={`${numberFormatPreset === 'dot_comma' ? '1.234,56' : '1,234.56'} · ${dateFormatPreset}`}
+        badgeClassName="border-indigo-100 bg-indigo-50 text-indigo-700"
+        bodyClassName="p-0"
+      >
+        <div className="space-y-3.5">
 
         {/* 1. Number Formatting Setting */}
         <div className="space-y-2">
@@ -809,23 +968,19 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           </div>
         </div>
         </div>
-      </details>
+      </SettingsAccordionCard>
 
       {/* IMAGE QUALITY & STORAGE CARD */}
-      <details className="group rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-2xl px-4 py-3.5 select-none">
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
-              <Sliders className="w-4 h-4 text-indigo-600" /> Chất lượng ảnh & dung lượng
-            </div>
-            <div className="mt-0.5 text-[10px] font-semibold text-slate-500">Nhấn để mở / thu gọn chất lượng Mặt bằng, Defect và Quân số.</div>
-          </div>
-          <span className="shrink-0 rounded-lg border border-indigo-100 bg-indigo-50 px-2 py-1 text-[10px] font-bold text-indigo-700">
-            {getImageQualityProfile('floorPlan', imageQualitySettings.floorPlan).label}
-          </span>
-          <ExpandCollapseIndicator />
-        </summary>
-        <div className="space-y-3.5 px-4 pb-4">
+      <SettingsAccordionCard
+        icon={Sliders}
+        iconClassName="text-indigo-600"
+        title="Chất lượng ảnh & dung lượng"
+        description="Chất lượng Mặt bằng, Defect và Quân số."
+        badge={getImageQualityProfile('floorPlan', imageQualitySettings.floorPlan).label}
+        badgeClassName="border-indigo-100 bg-indigo-50 text-indigo-700"
+        bodyClassName="p-0"
+      >
+        <div className="space-y-3.5">
           <p className="text-[10px] text-slate-500">Mặt bằng ưu tiên độ nét chữ; Defect ưu tiên chi tiết lỗi; Quân số ưu tiên cân bằng tốc độ đồng bộ. Thiết lập lưu trên thiết bị này.</p>
         {([
           { kind: 'floorPlan' as const, title: 'Mặt bằng', note: 'PDF/ảnh bản vẽ. Tự động: khoảng 3.200 px trên điện thoại, 4.800 px trên PC; mức Gần gốc vẫn có giới hạn an toàn RAM.', options: ['auto','economy','standard','high','original'] as ImageQualityPreset[] },
@@ -848,23 +1003,20 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
         ))}
         <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-2">Lưu ý: “Gốc/Rất cao” làm file lớn và đồng bộ chậm hơn. Với điện thoại nên giữ Mặt bằng = Tự động, Defect = Tiêu chuẩn, Quân số = Tiêu chuẩn.</p>
         </div>
-      </details>
+      </SettingsAccordionCard>
 
       {/* LIGHTWEIGHT TRASH / RECOVERY CARD */}
-      <details id="trash-recovery-card" className="group rounded-2xl border border-slate-200 bg-white shadow-sm scroll-mt-24 transition-shadow">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-2xl px-4 py-3.5 select-none">
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
-              <Trash2 className="w-4 h-4 text-rose-600" /> Dữ liệu đã ẩn & lịch sử
-            </div>
-            <div className="mt-0.5 text-[10px] font-semibold text-slate-500">Nhấn để mở / thu gọn thùng rác, khôi phục và lịch sử xóa.</div>
-          </div>
-          <span className={`shrink-0 rounded-lg border px-2 py-1 text-[10px] font-bold ${trashSettings.enabled ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-100 border-slate-200 text-slate-600'}`}>
-            {trashOperations.length} mục · {trashSettings.enabled ? 'Đang bật' : 'Đang tắt'}
-          </span>
-          <ExpandCollapseIndicator />
-        </summary>
-        <div className="space-y-3.5 px-4 pb-4">
+      <SettingsAccordionCard
+        id="trash-recovery-card"
+        icon={Trash2}
+        iconClassName="text-rose-600"
+        title="Dữ liệu đã ẩn & lịch sử"
+        description="Thùng rác, khôi phục và lịch sử xóa."
+        badge={`${trashOperations.length} mục · ${trashSettings.enabled ? 'Đang bật' : 'Đang tắt'}`}
+        badgeClassName={trashSettings.enabled ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-100 border-slate-200 text-slate-600'}
+        bodyClassName="p-0"
+      >
+        <div className="space-y-3.5">
           <div>
             <p className="text-[10px] text-slate-500">
               Chỉ lưu metadata cần khôi phục, không nhân đôi Base64/blob/ảnh nhị phân. Mặc định giữ 7 ngày.
@@ -975,7 +1127,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
           <p className="text-[10px] text-slate-500">Chỉ ADMIN được đổi thời gian lưu, khôi phục hoặc xóa vĩnh viễn.</p>
         )}
         </div>
-      </details>
+      </SettingsAccordionCard>
 
     </div>
   );

@@ -2,6 +2,11 @@ name: Deploy HNL QLTC R2 Worker
 
 on:
   workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type DEPLOY-R2-PROD to deploy the production R2 Worker'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -12,6 +17,13 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
+      - name: Require explicit PROD R2 confirmation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ inputs.confirmation }}" = 'DEPLOY-R2-PROD' || { echo '::error::REFUSING_R2_PROD_WITHOUT_CONFIRMATION'; exit 1; }
+          test "${GITHUB_REF}" = 'refs/heads/main' || { echo '::error::R2_PROD_MUST_RUN_FROM_MAIN'; exit 1; }
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
@@ -71,7 +83,8 @@ jobs:
             echo "attempt=${i} body=${BODY}"
             if printf '%s' "$BODY" | grep -q '"ok":true' \
               && printf '%s' "$BODY" | grep -q '"version":"6.3.0-rc2.2.16"' \
-              && printf '%s' "$BODY" | grep -q '"accessPolicy":"canonical-email-first"'; then
+              && printf '%s' "$BODY" | grep -q '"accessPolicy":"canonical-email-first"' \
+              && printf '%s' "$BODY" | grep -q '"policyVersion":"immutable-deleted-project-v2"'; then
               ok=1
               break
             fi

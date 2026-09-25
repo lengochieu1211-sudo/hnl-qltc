@@ -6,6 +6,7 @@ on:
   pull_request:
     paths:
       - 'android-wrapper/**'
+      - 'desktop-wrapper/HNL-QLTC-SHELL-ICON.png'
       - 'src/**'
       - 'public/**'
       - 'index.html'
@@ -18,6 +19,7 @@ on:
       - main
     paths:
       - 'android-wrapper/**'
+      - 'desktop-wrapper/HNL-QLTC-SHELL-ICON.png'
       - 'src/**'
       - 'public/**'
       - 'index.html'

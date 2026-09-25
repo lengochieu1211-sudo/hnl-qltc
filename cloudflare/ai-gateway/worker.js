@@ -258,6 +258,9 @@ async function resolveProjectAccess(env, identity, projectId) {
   const projectResp = await firestoreGet(env, identity.token, `projects/${encodeURIComponent(projectId)}`);
   if (!projectResp.ok) throw Object.assign(new Error('PROJECT_ACCESS_DENIED'), { status: 403 });
   const projectDoc = await projectResp.json();
+  if (firestoreBool(projectDoc, 'deleted', false)) {
+    throw Object.assign(new Error('PROJECT_DELETED'), { status: 410 });
+  }
   const ownerUid = firestoreString(projectDoc, 'ownerUid');
   const ownerEmail = firestoreString(projectDoc, 'ownerEmail').toLowerCase();
   const superAdminEmail = String(env.SUPER_ADMIN_EMAIL || 'lengochieu1211@gmail.com').trim().toLowerCase();

@@ -45,41 +45,101 @@ function fieldBool(doc, name, fallback = true) {
   return typeof value === 'boolean' ? value : fallback;
 }
 
-async function firestoreGet(env, token, documentPath) {
-  const project = env.FIREBASE_PROJECT_ID || 'com-example-qlct-61329';
+const sleep = (ms) => ms > 0 ? new Promise(resolve => setTimeout(resolve, ms)) : Promise.resolve();
+
+function retryDelayMs(response, fallbackMs) {
+  const raw = String(response?.headers?.get?.('Retry-After') || '').trim();
+  let hintedMs = NaN;
+  if (/^\d+(?:\.\d+)?$/.test(raw)) hintedMs = Number(raw) * 1000;
+  else if (raw) {
+    const at = Date.parse(raw);
+    if (Number.isFinite(at)) hintedMs = Math.max(0, at - Date.now());
+  }
+  const fallback = Math.max(0, Number(fallbackMs || 0));
+  const chosen = Number.isFinite(hintedMs) ? Math.max(fallback, hintedMs) : fallback;
+  return Math.min(5000, chosen);
+}
+
+async function quotaUserKey(uid) {
+  const bytes = new TextEncoder().encode(String(uid || ''));
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(digest)].slice(0, 16).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function firestoreGet(env, token, documentPath, quotaUser = '') {
+  const project = String(env.FIREBASE_PROJECT_ID || '').trim();
+  if (!project) return new Response('firebase project config missing', { status: 503 });
   const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(project)}/databases/(default)/documents/${documentPath}`;
-  return fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  const apiKey = String(env.FIREBASE_WEB_API_KEY || '').trim();
+  const headers = { Authorization: `Bearer ${token}` };
+  if (apiKey) headers['X-Goog-Api-Key'] = apiKey;
+  if (apiKey && quotaUser) headers['X-Goog-Quota-User'] = quotaUser;
+  const attempts = Math.max(1, Math.min(5, Number(env.FIRESTORE_AUTH_RETRY_ATTEMPTS || 4)));
+  const baseDelayMs = Math.max(0, Math.min(2000, Number(env.FIRESTORE_AUTH_RETRY_BASE_MS ?? 750)));
+  let response = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    response = await fetch(url, { headers });
+    const status = Number(response?.status || 0);
+    const transient = status === 429 || status >= 500;
+    if (!transient || attempt === attempts - 1) return response;
+    const fallbackMs = Math.min(5000, baseDelayMs * (2 ** attempt));
+    await sleep(retryDelayMs(response, fallbackMs));
+  }
+  return response;
+}
+
+function firestoreAccessFailure(response, source, projectDeleted = false) {
+  const status = Number(response?.status || 0);
+  const backendUnavailable = status === 429 || status >= 500;
+  return {
+    ok: false,
+    role: '',
+    projectDeleted,
+    backendUnavailable,
+    reason: `${source}_HTTP_${status || 'UNKNOWN'}`,
+  };
 }
 
 async function getRole(env, token, projectId) {
   const payload = decodeJwtPayload(token);
   const uid = String(payload?.user_id || payload?.sub || '');
   const email = String(payload?.email || '').toLowerCase();
-  if (!uid || !email) return { ok: false, role: '' };
+  if (!uid || !email) return { ok: false, role: '', reason: 'TOKEN_IDENTITY_MISSING' };
+  const quotaUser = await quotaUserKey(uid);
 
-  const projectResp = await firestoreGet(env, token, `projects/${encodeURIComponent(projectId)}`);
-  if (!projectResp.ok) return { ok: false, role: '' };
+  const projectResp = await firestoreGet(env, token, `projects/${encodeURIComponent(projectId)}`, quotaUser);
+  if (!projectResp.ok) return firestoreAccessFailure(projectResp, 'PROJECT_ROOT');
   const projectDoc = await projectResp.json();
+  const projectDeleted = fieldBool(projectDoc, 'deleted', false);
 
   const superAdmin = String(env.SUPER_ADMIN_EMAIL || '').toLowerCase();
-  if (superAdmin && email === superAdmin) return { ok: true, role: 'ADMIN' };
+  if (superAdmin && email === superAdmin) return { ok: true, role: 'ADMIN', projectDeleted };
   if (fieldString(projectDoc, 'ownerUid') === uid || fieldString(projectDoc, 'ownerEmail').toLowerCase() === email) {
-    return { ok: true, role: 'ADMIN' };
+    return { ok: true, role: 'ADMIN', projectDeleted };
   }
 
   // Canonical email is authoritative whenever present. UID is legacy fallback only.
+  // A transient/denied canonical lookup must fail closed; only a confirmed 404 may
+  // fall back to a legacy UID row. This prevents stale UID roles from resurfacing
+  // when Firestore is quota-limited or temporarily unavailable.
   for (const memberId of [email, uid]) {
     if (!memberId) continue;
-    const response = await firestoreGet(env, token, `projects/${encodeURIComponent(projectId)}/members/${encodeURIComponent(memberId)}`);
-    if (!response.ok) continue;
+    const canonicalEmailLookup = memberId === email;
+    const response = await firestoreGet(env, token, `projects/${encodeURIComponent(projectId)}/members/${encodeURIComponent(memberId)}`, quotaUser);
+    if (!response.ok) {
+      if (response.status === 404) continue;
+      return firestoreAccessFailure(response, canonicalEmailLookup ? 'EMAIL_MEMBER' : 'UID_MEMBER', projectDeleted);
+    }
     const member = await response.json();
-    if (!fieldBool(member, 'active', true)) return { ok: false, role: '' };
+    if (!fieldBool(member, 'active', true)) {
+      return { ok: false, role: '', reason: canonicalEmailLookup ? 'EMAIL_MEMBER_INACTIVE' : 'UID_MEMBER_INACTIVE', projectDeleted };
+    }
     const role = fieldString(member, 'role').toUpperCase();
     return ['ADMIN', 'EDITOR', 'ENGINEER', 'VIEWER'].includes(role)
-      ? { ok: true, role }
-      : { ok: false, role: '' };
+      ? { ok: true, role, projectDeleted }
+      : { ok: false, role: '', reason: canonicalEmailLookup ? 'EMAIL_MEMBER_ROLE_INVALID' : 'UID_MEMBER_ROLE_INVALID', projectDeleted };
   }
-  return { ok: true, role: 'VIEWER' };
+  return { ok: false, role: '', reason: 'MEMBER_NOT_FOUND', projectDeleted };
 }
 
 function parseKey(key) {
@@ -103,7 +163,17 @@ export default {
     const cors = corsHeaders(request, env);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     const url = new URL(request.url);
-    if (url.pathname === '/health') return json({ ok: true, service: 'hnl-qltc-r2-gateway', version: GATEWAY_VERSION, accessPolicy: 'canonical-email-first' }, 200, cors);
+    if (url.pathname === '/health') return json({
+      ok: true,
+      service: 'hnl-qltc-r2-gateway',
+      version: GATEWAY_VERSION,
+      accessPolicy: 'canonical-email-first',
+      policyVersion: 'immutable-deleted-project-v2',
+      firebaseProjectId: String(env.FIREBASE_PROJECT_ID || ''),
+      quotaAttribution: String(env.FIREBASE_WEB_API_KEY || '').trim() ? 'api-key' : 'token-only',
+      quotaUserPartitioning: String(env.FIREBASE_WEB_API_KEY || '').trim() ? 'sha256-uid' : 'disabled',
+      firestoreAuthRetryAttempts: Math.max(1, Math.min(5, Number(env.FIRESTORE_AUTH_RETRY_ATTEMPTS || 4))),
+    }, 200, cors);
     if (url.pathname !== '/v1/object') return json({ error: 'NOT_FOUND' }, 404, cors);
 
     const auth = request.headers.get('Authorization') || '';
@@ -113,7 +183,21 @@ export default {
     if (!parsed) return json({ error: 'INVALID_OBJECT_KEY' }, 400, cors);
 
     const access = await getRole(env, token, parsed.projectId);
-    if (!access.ok) return json({ error: 'PROJECT_ACCESS_DENIED' }, 403, cors);
+    if (!access.ok) {
+      if (access.backendUnavailable) {
+        return json(
+          { error: 'AUTH_BACKEND_UNAVAILABLE', reason: access.reason || 'FIRESTORE_UNAVAILABLE' },
+          503,
+          { ...cors, 'Retry-After': '60' },
+        );
+      }
+      return json({ error: 'PROJECT_ACCESS_DENIED', reason: access.reason || 'UNKNOWN' }, 403, cors);
+    }
+    // Soft-deleted projects are frozen for normal media access. ADMIN DELETE remains
+    // available for retention cleanup after server-side reference checks.
+    if (access.projectDeleted && request.method !== 'DELETE') {
+      return json({ error: 'PROJECT_DELETED' }, 410, cors);
+    }
 
     if (request.method === 'HEAD') {
       const object = await env.HNL_QLTC_MEDIA.head(parsed.key);
@@ -153,6 +237,23 @@ export default {
       const sha256 = await sha256Hex(arrayBuffer);
       customMetadata = { ...customMetadata, sha256 };
       const contentType = request.headers.get('Content-Type') || 'application/octet-stream';
+
+      // Immutable object contract: a published key may be retried with identical bytes,
+      // but may never be replaced with different content. This protects old Firestore
+      // pointers even if a modified client reuses a known object key.
+      const existing = await env.HNL_QLTC_MEDIA.head(parsed.key);
+      if (existing) {
+        const existingSha = String(existing.customMetadata?.sha256 || '').toLowerCase();
+        const sameBytes = existingSha && existingSha === sha256 && Number(existing.size || 0) === arrayBuffer.byteLength;
+        if (!sameBytes) {
+          return json({ error: 'IMMUTABLE_OBJECT_CONFLICT', key: parsed.key }, 409, cors);
+        }
+        return json({
+          key: parsed.key, size: Number(existing.size || 0), mimeType: contentType, sha256,
+          etag: existing.httpEtag || '', immutableRetry: true, updated: new Date().toISOString()
+        }, 200, cors);
+      }
+
       const object = await env.HNL_QLTC_MEDIA.put(parsed.key, arrayBuffer, {
         httpMetadata: { contentType, cacheControl: 'private,max-age=31536000,immutable' },
         customMetadata,

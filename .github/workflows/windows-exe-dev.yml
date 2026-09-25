@@ -1,4 +1,5 @@
 name: Build HNL QLTC Windows DEV EXE
+# DEV certification trigger 2026-09-13 for lifecycle/RBAC/financial/media hardening + Material Need multi-scope.
 
 on:
   workflow_dispatch:
@@ -16,6 +17,10 @@ on:
       - 'scripts/firebase-rules-behavior.mjs'
       - 'scripts/desktop-launcher-golden.mjs'
       - 'scripts/windows-icon-golden.ps1'
+      - 'scripts/windows-desktop-local-store-golden.ps1'
+      - 'scripts/windows-webview2-runtime-golden.ps1'
+      - 'scripts/windows-installer-golden.mjs'
+      - 'scripts/windows-installer-runtime-golden.ps1'
       - '.github/workflows/windows-exe-dev.yml'
 
 permissions:
@@ -36,6 +41,10 @@ jobs:
     name: Firebase Rules regression (Ubuntu)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      FIREBASE_RULES_ATTEMPT_TIMEOUT_MS: "180000"
+      FIREBASE_RULES_MAX_ATTEMPTS: "2"
+      FIREBASE_RULES_STEP_BUDGET_MS: "480000"
     steps:
       - name: Checkout DEV
         uses: actions/checkout@v4
@@ -46,6 +55,14 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: package-lock.json
+
+      - name: Cache Firebase emulator binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: ${{ runner.os }}-firebase-emulators-v13.35.1
+          restore-keys: |
+            ${{ runner.os }}-firebase-emulators-
 
       - name: Install exact locked dependencies
         run: npm ci
@@ -153,14 +170,21 @@ jobs:
           $utf8 = New-Object System.Text.UTF8Encoding($true)
           $text = Get-Content -Raw -LiteralPath $path
           $text = $text.Replace('private const string AppBaseUrl = "https://hnlqltc.web.app/?app=desktop";', 'private const string AppBaseUrl = "https://hnl-qltc-dev.web.app/?app=desktop&env=dev";')
-          $text = $text.Replace('private const string ProductName = "HNL Quản Lý Thi Công";', 'private const string ProductName = "HNL QLTC DEV";')
+          $text = $text.Replace('private const string ProductName = "HNL QLTC Desktop";', 'private const string ProductName = "HNL QLTC DEV Desktop";')
+          $text = $text.Replace('private const string HostingHealthUrl = "https://hnlqltc.web.app/";', 'private const string HostingHealthUrl = "https://hnl-qltc-dev.web.app/";')
+          $text = $text.Replace('private const string R2HealthUrl = "https://hnl-qltc-r2-gateway.lengochieu1211.workers.dev/health";', 'private const string R2HealthUrl = "https://hnl-qltc-r2-gateway-dev.lengochieu1211.workers.dev/health";')
+          $text = $text.Replace('private const string AiHealthUrl = "https://hnl-qltc-ai-gateway.lengochieu1211.workers.dev/health";', 'private const string AiHealthUrl = "https://hnl-qltc-ai-gateway-dev.lengochieu1211.workers.dev/health";')
           $text = $text.Replace('"QLTCAnPhu"', '"QLTCAnPhuDEV"')
           [System.IO.File]::WriteAllText((Resolve-Path $path), $text, $utf8)
 
           $after = Get-Content -Raw -LiteralPath $path
           if ($after -notmatch 'https://hnl-qltc-dev\.web\.app/\?app=desktop&env=dev') { throw 'DEV desktop URL rewrite failed' }
           if ($after -match 'https://hnlqltc\.web\.app/\?app=desktop') { throw 'REFUSING: PROD Hosting remains in DEV launcher target' }
-          if ($after -notmatch '"HNL QLTC DEV"') { throw 'DEV desktop product label rewrite failed' }
+          if ($after -notmatch '"HNL QLTC DEV Desktop"') { throw 'DEV desktop product label rewrite failed' }
+          if ($after -notmatch 'private const string HostingHealthUrl = "https://hnl-qltc-dev\.web\.app/";') { throw 'DEV desktop Hosting diagnostics rewrite failed' }
+          if ($after -notmatch 'private const string R2HealthUrl = "https://hnl-qltc-r2-gateway-dev\.lengochieu1211\.workers\.dev/health";') { throw 'DEV desktop R2 diagnostics rewrite failed' }
+          if ($after -notmatch 'private const string AiHealthUrl = "https://hnl-qltc-ai-gateway-dev\.lengochieu1211\.workers\.dev/health";') { throw 'DEV desktop AI diagnostics rewrite failed' }
+          if ($after -match 'private const string (HostingHealthUrl|R2HealthUrl|AiHealthUrl) = "https://(hnlqltc\.web\.app|hnl-qltc-r2-gateway\.lengochieu1211\.workers\.dev|hnl-qltc-ai-gateway\.lengochieu1211\.workers\.dev)') { throw 'REFUSING: PROD diagnostics endpoint remains in DEV launcher' }
           if ($after -notmatch '"QLTCAnPhuDEV"') { throw 'DEV desktop profile isolation failed' }
           Write-Host 'DEV launcher rewrite: PASS'
 
@@ -168,9 +192,25 @@ jobs:
         shell: pwsh
         run: ./desktop-wrapper/build-launcher.ps1
 
+      - name: Embedded WebView2 runtime golden
+        shell: pwsh
+        run: ./scripts/windows-webview2-runtime-golden.ps1 -LauncherPath './HNL-QLTC-Windows.exe' -Channel DEV
+
       - name: Windows taskbar icon golden
         shell: pwsh
         run: ./scripts/windows-icon-golden.ps1
+
+      - name: Windows SQLite workspace golden
+        shell: pwsh
+        run: ./scripts/windows-desktop-local-store-golden.ps1
+
+      - name: Build professional Windows DEV Setup EXE
+        shell: pwsh
+        run: ./desktop-wrapper/build-installer.ps1 -Channel DEV -LauncherPath './HNL-QLTC-Windows.exe' -OutputPath './HNL-QLTC-DEV-Setup.exe'
+
+      - name: Windows DEV installer runtime golden
+        shell: pwsh
+        run: ./scripts/windows-installer-runtime-golden.ps1 -SetupPath './HNL-QLTC-DEV-Setup.exe' -LauncherPath './HNL-QLTC-Windows.exe' -Channel DEV
 
       - name: Verify DEV EXE
         shell: pwsh
@@ -195,6 +235,7 @@ jobs:
           name: HNL-QLTC-Windows-DEV-${{ github.run_number }}
           path: |
             HNL-QLTC-Windows-DEV.exe
+            HNL-QLTC-DEV-Setup.exe
             icon-golden-evidence/**
           if-no-files-found: error
           retention-days: 30

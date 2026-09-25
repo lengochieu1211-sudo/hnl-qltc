@@ -4,10 +4,33 @@ import { HardDrive, RefreshCw } from 'lucide-react';
 import { safeSetLocalStorageItem } from './utils/storage';
 import { parseLegacyTimestamp, formatDateTime } from './utils/dateFormatter';
 import { AppLockOverlay } from './components/AppLockOverlay';
+import { AppAuthGate } from './components/AppAuthGate';
 import { SecurityModal } from './components/SecurityModal';
 import { getStoredPinLockConfig, applyRemotePinReset, logAuditAction, getCurrentUserRole, setCurrentUserRole, UserRole, canEditProjectData, canManageProjects, canManageWorkVolumeStructure, canManageFloorPlanStructure, canManageMaterialNorms, canManageTeams, canManageChecklistStructure, canDeleteBusinessData, canDeleteCrewRecord, canManageBackups, canUseGlobalUndoRedo, canEditWarehouseData, canEditDefectData, canEditChecklistData, canEditCrewData, canImportData } from './utils/securityUtils';
 import { cacheVerifiedProjectRole, getCachedVerifiedProjectRole, getRememberedVerifiedAuthIdentity, rememberVerifiedAuthIdentity } from './utils/offlineAccess';
+import { loadVerifiedOfflineBusinessSnapshot, saveVerifiedOfflineBusinessSnapshot } from './lib/verifiedOfflineBusinessSnapshot';
+import { applyVerifiedOfflineWorkingDelta, buildVerifiedOfflineWorkingDelta, loadVerifiedOfflineWorkingDelta, saveVerifiedOfflineWorkingDelta } from './lib/verifiedOfflineWorkingState';
 import { resolveVerifiedIdentityLabel } from './utils/authIdentityUtils';
+
+function restoreLocalFloorPlanIdentity(cloudItem: any, localItem: any): any {
+  if (!cloudItem || !localItem) return cloudItem;
+  const merged = { ...cloudItem };
+  const cloudFloorName = String(cloudItem.floorName || '').trim();
+  const localFloorName = String(localItem.floorName || '').trim();
+  if (!cloudFloorName && localFloorName) merged.floorName = localItem.floorName;
+
+  const cloudGroupId = String(cloudItem.structureGroupId || '').trim();
+  const localGroupId = String(localItem.structureGroupId || '').trim();
+  if (!cloudGroupId && localGroupId) merged.structureGroupId = localItem.structureGroupId;
+
+  if (!Number.isFinite(Number(cloudItem.order)) && Number.isFinite(Number(localItem.order))) {
+    merged.order = localItem.order;
+  }
+  if (!String(cloudItem.uploadedAt || '').trim() && String(localItem.uploadedAt || '').trim()) {
+    merged.uploadedAt = localItem.uploadedAt;
+  }
+  return merged;
+}
 
 function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
   if (!cloudItem || !localItem) return cloudItem;
@@ -55,16 +78,22 @@ function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
       const cloudSyncedRevision = Number(cloudItem.imageCloudRevision || 0);
       const localCloudRevision = Number(localItem.imageCloudRevision || 0);
       const localImageRevision = Number(localItem.imageRevision || 0);
+      const localDisplayRevision = Number(localItem.imageDisplayRevision || localCloudRevision || 0);
       const sameDriveFile = Boolean(cloudItem.driveFileId && localItem.driveFileId && cloudItem.driveFileId === localItem.driveFileId);
-      // A local image is safe to retain for a cloud marker only when it is known to
-      // represent that exact uploaded binary. Comparing imageRevision alone is unsafe:
-      // a pending metadata patch can copy the NEW revision onto an OLD hydrated image.
-      const sameSyncedImageRevision = cloudSyncedRevision > 0 && localCloudRevision === cloudSyncedRevision;
+      // A cached fallback may intentionally show revision N while Firestore already points
+      // at revision N+1. Only retain a hydrated bitmap when its transient display revision
+      // matches the Cloud revision; otherwise the local-first resolver must re-evaluate it.
+      const sameSyncedImageRevision = cloudSyncedRevision > 0 && localDisplayRevision === cloudSyncedRevision;
       const localHasNewerUnsyncedImage = localImageRevision > cloudImageRevision;
       const isFloorPlanCloudMarker = key === 'imageUrl' && val.startsWith('cloud-floorplan:');
       const isOmittedMarker = val.includes('[IMAGE_OMITTED_FOR_CLOUD_SIZE_LIMIT]');
       if (localImageDisplayable && (key !== 'imageUrl' || (!isFloorPlanCloudMarker && !isOmittedMarker) || sameDriveFile || sameSyncedImageRevision || localHasNewerUnsyncedImage || isOmittedMarker)) {
         merged[key] = localImage;
+        if (key === 'imageUrl') {
+          merged.imageDisplayRevision = localDisplayRevision || localCloudRevision || localImageRevision;
+          merged.imageDisplaySource = localItem.imageDisplaySource;
+          merged.imageOfflineStale = Boolean(localItem.imageOfflineStale);
+        }
 
         // While another device is still uploading a replacement, Firestore may first
         // publish an omitted-image metadata record. Keep showing the old local bitmap,
@@ -100,12 +129,13 @@ function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
   }
   return merged;
 }
-import { subscribeToProjectRealtime, saveProjectDiffsToCloud, queueProjectDiffsToFirestoreOffline, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, subscribeProjectUserRoleRealtime, subscribeCurrentUserPinResetRealtime, signOutGoogle, fetchCurrentUserProjectsFromCloud, subscribeCurrentUserProjectsRealtime, refreshCurrentUserProjectDiscovery, subscribeProjectSharedSettings, saveProjectSharedSettings, saveProjectAuditLog, loadProjectFromFirestoreCache, fetchProjectFromCloud } from './lib/firebase';
+import { subscribeToProjectRealtime, saveProjectDiffsToCloud, queueProjectDiffsToFirestoreOffline, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, subscribeProjectUserRoleRealtime, subscribeCurrentUserPinResetRealtime, signOutGoogle, fetchCurrentUserProjectsFromCloud, subscribeCurrentUserProjectsRealtime, refreshCurrentUserProjectDiscovery, subscribeProjectSharedSettings, saveProjectSharedSettings, saveProjectAuditLog, loadProjectFromFirestoreCache, fetchProjectFromCloud, updateProjectPresence } from './lib/firebase';
 import { REALTIME_STATE_KEYS, STATE_KEY_TO_CLOUD_NAME } from './config/realtimeCollections';
 import { FIREBASE_ONLY_RUNTIME, LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED, LEGACY_LOCAL_IMPORT_ENABLED } from './config/runtimeArchitecture';
 import { CURRENT_DATA_SCHEMA_VERSION } from './config/dataSchema';
 import { 
-  InventoryItem, 
+  InventoryItem,
+  InventoryItemKind,
   WorkVolume, 
   FloorPlan, 
   DefectItem, 
@@ -122,6 +152,8 @@ import { OfflineSyncBanner } from './components/OfflineSyncBanner';
 import { ExportPdfModal } from './components/ExportPdfModal';
 import { MaterialNormModal } from './components/MaterialNormModal';
 import { ProjectManagerModal } from './components/ProjectManagerModal';
+import { MultiProjectOverview } from './components/MultiProjectOverview';
+import { HomeDashboard } from './components/HomeDashboard';
 import { DueDateToastNotifier } from './components/DueDateToastNotifier';
 import { NotificationCenterModal } from './components/NotificationCenterModal';
 import { SuperAdminCenter, SuperAdminUiSettings } from './components/SuperAdminCenter';
@@ -142,11 +174,13 @@ import { getAsyncItem, setAsyncItem, getAllStorageData } from './utils/asyncStor
 import { migrateAndCleanLocalStorage } from './utils/migrateStorage';
 import { confirmAsync } from './utils/confirmAsync';
 import { normalizeImportedData } from './utils/dataNormalizer';
-import { getSubItemGroupWeight } from './utils/teamUtils';
+import { computeDerivedWorkVolumes } from './utils/workVolumeComputation';
+import { canonicalNormCategoryIds, canonicalWorkCategoryId, resolveUniqueMaterialIdentity, resolveWorkVolumeRef, validateInventoryOutProvenance, validateMaterialNormCatalog, validateWorkVolumeCatalog } from './utils/linkageIntegrity';
 import { reconcileMaterialNormWorkCategoryLinks } from './utils/projectReconciliation';
 import { createEntityId, createShortToken } from './utils/idUtils';
 import { normalizeUnit, areSameUnit } from './utils/unitUtils';
-import { resolveNormMaterialId, normalizeMaterialNameKey } from './utils/inventoryUtils';
+import { buildMaterialAliasMap, resolveNormMaterialId, normalizeMaterialNameKey } from './utils/inventoryUtils';
+import { DEFAULT_STRUCTURE_CONFIG, moveFloorsToStructureGroup, normalizeStructureGroupConfig, resolveFloorStructureGroupId, type ProjectStructureConfig } from './utils/structureGroupUtils';
 import { apiFetch, hasApiBackend } from './utils/api';
 import {
   getAndroidAutoSaveFolderName,
@@ -160,9 +194,10 @@ import { refreshProjectPhotoMetadataFromCloud, subscribeProjectPhotosRealtime, s
 import { appendRuntimeDiagnostic } from './lib/runtimeDiagnostics';
 import { isPrimaryDriveReady, PRIMARY_DRIVE_OWNER_EMAIL, uploadProjectBackupToPrimaryDrive } from './lib/primaryDriveBridge';
 import { subscribeConversationReadState, subscribeConversationSummary } from './lib/chatService';
-import { floorPlanNeedsCloudUpload, isDisplayableFloorPlanUrl, loadFloorPlanImageFromCloud, stageFloorPlanImageOutbox, syncFloorPlanImageToCloud, deleteFloorPlanImageFromCloud } from './lib/floorPlanImageSync';
+import { applyFloorPlanImageToMultipleFloors, cacheFloorPlansForOffline, floorPlanNeedsCloudUpload, isDisplayableFloorPlanUrl, isFloorPlanAutoCacheNetworkSuitable, loadFloorPlanImageFromCloud, resolveFloorPlanImageForDisplay, stageFloorPlanImageOutbox, syncFloorPlanImageToCloud, deleteFloorPlanImageFromCloud } from './lib/floorPlanImageSync';
 import { DEFAULT_TRASH_SETTINGS, TrashOperation, TrashSettings, TrashCollectionKey, deleteTrashOperationFromCloud, estimateTrashBytes, getTrashCollectionLabel, normalizeTrashSettings, sanitizeTrashSnapshot, saveTrashOperationToCloud, subscribeProjectTrash } from './lib/trash';
 import { commitWarehouseTransactionAtomic, updateWarehouseTransactionAtomic, softDeleteWarehouseTransactionAtomic } from './lib/warehouseTransactions';
+import { drainBinaryPurgeRetryQueues, purgeTrashOperationBinaries } from './lib/cloudBinaryPurge';
 
 // Heavy screens are code-split so Android does not parse XLSX/PDF-heavy modules at startup.
 const WarehouseTab = React.lazy(() => import('./components/WarehouseTab').then(m => ({ default: m.WarehouseTab })));
@@ -189,6 +224,7 @@ interface AppData {
 
 const ANDROID_AUTO_SAVE_HANDLE_FLAG = '__qlctAndroidAutoSave';
 const ANDROID_ALL_AUTOSAVE_ENABLED_KEY = 'qlct_android_all_autosave_enabled';
+const STARTUP_PROJECT_ID_KEY = 'qlct_startup_project_id_v1';
 const getAndroidSingleAutosaveKey = (projectId: string) => `qlct_android_single_autosave_enabled_${projectId || 'default'}`;
 const makeAndroidAutoSaveHandle = (scope: string, name: string) => ({
   [ANDROID_AUTO_SAVE_HANDLE_FLAG]: true,
@@ -222,6 +258,7 @@ const isEditableTextTarget = (target: EventTarget | null): boolean => {
 export interface ProjectInfo {
   id: string;
   name: string;
+  projectLocation?: string;
   createdAt: string | number;
   updatedAt?: number;
   createdAtSource?: 'cloud' | 'local' | 'migrating';
@@ -293,8 +330,10 @@ const normalizeSuperAdminUiSettings = (raw: any): SuperAdminUiSettings => {
   };
 };
 
-export default function App() {
-  const [activeTab, setActiveTab] = useState<TabType>('floorplan');
+function AuthenticatedApp() {
+  const isDesktopRuntime = typeof window !== 'undefined'
+    && new URLSearchParams(window.location.search).get('app') === 'desktop';
+  const [activeTab, setActiveTab] = useState<TabType>('home');
 
   // Diagnostic navigation stays decoupled from individual screens. The source screen
   // stores the entity request in sessionStorage, while App only switches modules.
@@ -323,7 +362,7 @@ export default function App() {
   // Firebase-only business data must come from Firestore/its official cache. Legacy
   // localforage may be displayed only as a migration candidate and is read-only until
   // an explicit online Import writes it through the Firestore validation path.
-  const [businessDataSource, setBusinessDataSource] = useState<'cloud' | 'firestore-cache' | 'legacy-migration-fallback' | 'empty'>('empty');
+  const [businessDataSource, setBusinessDataSource] = useState<'cloud' | 'firestore-cache' | 'verified-offline-snapshot' | 'legacy-migration-fallback' | 'empty'>('empty');
   const [isExportPdfOpen, setIsExportPdfOpen] = useState(false);
   const [isMaterialNormOpen, setIsMaterialNormOpen] = useState(false);
   const [isProjectManagerOpen, setIsProjectManagerOpen] = useState(false);
@@ -337,6 +376,7 @@ export default function App() {
   const [isSoftKeyboardOpen, setIsSoftKeyboardOpen] = useState(false);
   const [cloudDefectIndex, setCloudDefectIndex] = useState<{ projectId: string; ids: Set<string> } | null>(null);
   const [trashSettings, setTrashSettings] = useState<TrashSettings>(DEFAULT_TRASH_SETTINGS);
+  const [structureConfig, setStructureConfig] = useState<ProjectStructureConfig>(DEFAULT_STRUCTURE_CONFIG);
   const [superAdminUiSettings, setSuperAdminUiSettings] = useState<SuperAdminUiSettings>(DEFAULT_SUPER_ADMIN_UI_SETTINGS);
   const trashSettingsRef = useRef<TrashSettings>(DEFAULT_TRASH_SETTINGS);
   const [trashOperations, setTrashOperations] = useState<TrashOperation[]>([]);
@@ -364,6 +404,34 @@ export default function App() {
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
+
+  // Lightweight presence heartbeat for the currently opened project only.
+  // No typed text or business payload is sent; hidden/background clients naturally
+  // become inactive after the UI timeout because heartbeat writes stop.
+  useEffect(() => {
+    if (!isOnline || !isProjectRoleResolved || !projectRoleAllowed || !activeProjectId) return;
+    let disposed = false;
+    const touchPresence = () => {
+      if (disposed || document.visibilityState === 'hidden') return;
+      void updateProjectPresence(activeProjectId, activeTab, currentUserRole).catch((err) =>
+        console.warn('Project presence heartbeat warning:', err)
+      );
+    };
+    touchPresence();
+    const heartbeat = window.setInterval(touchPresence, 45_000);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') touchPresence();
+    };
+    const handleFocus = () => touchPresence();
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      disposed = true;
+      window.clearInterval(heartbeat);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [activeProjectId, activeTab, currentUserRole, isOnline, isProjectRoleResolved, projectRoleAllowed]);
 
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -527,6 +595,7 @@ export default function App() {
 
   const [contractorName, setContractorName] = useState<string>('');
   const [inspectorName, setInspectorName] = useState<string>('');
+  const [projectLocation, setProjectLocation] = useState<string>('');
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number>(Date.now());
 
   // App Data State with Undo/Redo support
@@ -542,11 +611,14 @@ export default function App() {
     materialNorms: [], inventory: [], workVolumes: [], floorPlans: [], defects: [], roomProgressList: [], checklist: [], crewRecords: [], teams: []
   });
   const lastSyncedPresentRef = React.useRef<AppData | null>(null);
-  const lastSyncedMetadataRef = React.useRef<{ projectName: string; contractorName: string; inspectorName: string } | null>(null);
+  const lastSyncedMetadataRef = React.useRef<{ projectName: string; contractorName: string; inspectorName: string; projectLocation: string } | null>(null);
   const lastServerMetadataUpdatedAtRef = React.useRef<number>(0);
   const hasUserEditedSinceHydrateRef = React.useRef<boolean>(false);
   const hasUnsavedAllBackupChangesRef = React.useRef<boolean>(false);
   const localTombstonesRef = React.useRef<Record<string, number>>({});
+  const verifiedOfflineBasePresentRef = React.useRef<AppData | null>(null);
+  const verifiedOfflineBaseMetadataRef = React.useRef<{ projectName: string; contractorName: string; inspectorName: string; projectLocation: string } | null>(null);
+  const verifiedOfflineBaseCapturedAtRef = React.useRef<number>(0);
 
   // V6.2.22: Persist only collections that the user actually changed. Rewriting all
   // nine large arrays on every small edit caused avoidable IndexedDB serialization
@@ -640,7 +712,38 @@ export default function App() {
             return null;
           })
         : null;
-      const shouldReadLegacy = !FIREBASE_ONLY_RUNTIME || Boolean(!firestoreCached?.found && LEGACY_LOCAL_IMPORT_ENABLED);
+
+      // Firestore persistence can fail closed to memory-only on some WebView2/IndexedDB
+      // states. Keep a separate identity-bound last-known-good snapshot so an offline
+      // cold restart never looks like the project was erased. When an already-verified
+      // EDITOR/ADMIN works from this fallback, only diffs relative to this snapshot are
+      // queued into Firestore's official persistent mutation queue; the snapshot itself
+      // never becomes a second Cloud authority.
+      const offlineIdentity = FIREBASE_ONLY_RUNTIME && !isOnline
+        ? (getCurrentRealFirebaseUser() || getRememberedVerifiedAuthIdentity())
+        : null;
+      const verifiedOfflineSnapshot = offlineIdentity
+        ? await loadVerifiedOfflineBusinessSnapshot(projectId, offlineIdentity).catch((err) => {
+            console.warn('[Verified offline snapshot] unavailable:', err);
+            return null;
+          })
+        : null;
+      const useVerifiedOfflineSnapshot = Boolean(
+        verifiedOfflineSnapshot
+        && verifiedOfflineSnapshot.recordCount > 0
+        && (!firestoreCached?.found || Number(firestoreCached.recordCount || 0) === 0)
+      );
+      const verifiedOfflineWorkingDelta = useVerifiedOfflineSnapshot && verifiedOfflineSnapshot && offlineIdentity
+        ? await loadVerifiedOfflineWorkingDelta(projectId, offlineIdentity, verifiedOfflineSnapshot.capturedAt).catch((err) => {
+            console.warn('[Verified offline working delta] unavailable:', err);
+            return null;
+          })
+        : null;
+      const shouldReadLegacy = !FIREBASE_ONLY_RUNTIME || Boolean(
+        !useVerifiedOfflineSnapshot
+        && !firestoreCached?.found
+        && LEGACY_LOCAL_IMPORT_ENABLED
+      );
       const parseSaved = async <T,>(key: string, fallback: T): Promise<T> => {
         if (!shouldReadLegacy) return fallback;
         return await getAsyncItem(getKey(key, projectId), fallback);
@@ -657,7 +760,18 @@ export default function App() {
       let rawTeams: any[] = [];
       let rawTombstones: Record<string, number> = {};
 
-      if (firestoreCached?.found) {
+      if (useVerifiedOfflineSnapshot && verifiedOfflineSnapshot) {
+        setBusinessDataSource('verified-offline-snapshot');
+        rawFloorPlans = verifiedOfflineSnapshot.data.floorPlans || [];
+        rawRooms = verifiedOfflineSnapshot.data.roomProgressList || [];
+        rawDefects = verifiedOfflineSnapshot.data.defects || [];
+        rawChecklist = verifiedOfflineSnapshot.data.checklist || [];
+        rawCrew = verifiedOfflineSnapshot.data.crewRecords || [];
+        rawMaterialNorms = verifiedOfflineSnapshot.data.materialNorms || [];
+        rawInventory = verifiedOfflineSnapshot.data.inventory || [];
+        rawWorkVolumes = verifiedOfflineSnapshot.data.workVolumes || [];
+        rawTeams = verifiedOfflineSnapshot.data.teams || [];
+      } else if (firestoreCached?.found) {
         setBusinessDataSource('firestore-cache');
         rawFloorPlans = firestoreCached.data.floorPlans || [];
         rawRooms = firestoreCached.data.roomProgressList || [];
@@ -697,7 +811,7 @@ export default function App() {
         }
       }
 
-      if (!firestoreCached?.found && !shouldReadLegacy) setBusinessDataSource('empty');
+      if (!useVerifiedOfflineSnapshot && !firestoreCached?.found && !shouldReadLegacy) setBusinessDataSource('empty');
 
       const tombstoneMap = (rawTombstones && typeof rawTombstones === 'object' && !Array.isArray(rawTombstones)) ? rawTombstones : {};
       const filterTombstoned = <T extends { id?: string; updatedAt?: any; deleted?: boolean; deletedAt?: any }>(stateKey: keyof AppData, list: T[] | undefined | null): T[] =>
@@ -740,8 +854,9 @@ export default function App() {
         if (norm.materialId) normByLegacyId.set(String(norm.materialId), norm);
       });
       const inventory = deduplicateById(filterTombstoned('inventory', rawInventory), 'INV').map((item: InventoryItem) => {
-        let matchedNorm = item.materialId ? normByLegacyId.get(String(item.materialId)) : undefined;
-        if (!matchedNorm) {
+        const itemKind: InventoryItemKind = item.itemKind === 'equipment' ? 'equipment' : 'material';
+        let matchedNorm = itemKind === 'material' && item.materialId ? normByLegacyId.get(String(item.materialId)) : undefined;
+        if (itemKind === 'material' && !matchedNorm) {
           matchedNorm = materialNorms.find((norm: MaterialNorm) =>
             normalizeMaterialNameKey(norm.materialName) === normalizeMaterialNameKey(item.materialName) &&
             areSameUnit(norm.unit, item.unit)
@@ -749,7 +864,8 @@ export default function App() {
         }
         return {
           ...item,
-          materialId: matchedNorm ? resolveNormMaterialId(matchedNorm) : item.materialId,
+          itemKind,
+          materialId: itemKind === 'material' ? (matchedNorm ? resolveNormMaterialId(matchedNorm) : item.materialId) : undefined,
           unit: normalizeUnit(item.unit) || item.unit,
         };
       });
@@ -757,18 +873,27 @@ export default function App() {
       const teams = deduplicateById(filterTombstoned('teams', rawTeams), 'TEAM');
 
       const isDefault = projectId === 'default';
-      const loadedProjectName = firestoreCached?.metadata.projectName || localStorage.getItem(getKey('construction_project_name', projectId)) || (isDefault ? 'Dự án chưa đặt tên' : `Dự án ${projectId}`);
-      const loadedContractor = firestoreCached?.metadata.contractorName || localStorage.getItem(getKey('construction_contractor', projectId)) || '';
-      const loadedInspector = firestoreCached?.metadata.inspectorName || localStorage.getItem(getKey('construction_inspector', projectId)) || '';
-      const loadedUpdatedAt = Number(firestoreCached?.metadata.updatedAt || localStorage.getItem(getKey('construction_updated_at', projectId)) || 0);
+      const offlineMetadata = useVerifiedOfflineSnapshot ? verifiedOfflineSnapshot?.metadata : null;
+      const baseProjectName = offlineMetadata?.projectName || firestoreCached?.metadata.projectName || localStorage.getItem(getKey('construction_project_name', projectId)) || (isDefault ? 'Dự án chưa đặt tên' : `Dự án ${projectId}`);
+      const baseContractor = offlineMetadata?.contractorName || firestoreCached?.metadata.contractorName || localStorage.getItem(getKey('construction_contractor', projectId)) || '';
+      const baseInspector = offlineMetadata?.inspectorName || firestoreCached?.metadata.inspectorName || localStorage.getItem(getKey('construction_inspector', projectId)) || '';
+      const baseProjectLocation = offlineMetadata?.projectLocation || firestoreCached?.metadata.projectLocation || localStorage.getItem(getKey('construction_project_location', projectId)) || '';
+      const recoveredMetadata = useVerifiedOfflineSnapshot && verifiedOfflineWorkingDelta?.metadataChanged
+        ? verifiedOfflineWorkingDelta.metadata
+        : null;
+      const loadedProjectName = recoveredMetadata?.projectName || baseProjectName;
+      const loadedContractor = recoveredMetadata?.contractorName || baseContractor;
+      const loadedInspector = recoveredMetadata?.inspectorName || baseInspector;
+      const loadedProjectLocation = recoveredMetadata?.projectLocation || baseProjectLocation;
+      const loadedUpdatedAt = Number((useVerifiedOfflineSnapshot ? verifiedOfflineSnapshot?.sourceUpdatedAt : 0) || firestoreCached?.metadata.updatedAt || localStorage.getItem(getKey('construction_updated_at', projectId)) || 0);
 
       setProjectName(loadedProjectName);
       setContractorName(loadedContractor);
       setInspectorName(loadedInspector);
+      setProjectLocation(loadedProjectLocation);
       setLastUpdatedAt(loadedUpdatedAt);
-      localTombstonesRef.current = { ...tombstoneMap };
 
-      const initialState = {
+      const initialState: AppData = {
         materialNorms,
         inventory,
         workVolumes,
@@ -779,18 +904,48 @@ export default function App() {
         crewRecords,
         teams,
       };
-      setPresent(initialState);
-      lastSyncedMetadataRef.current = {
-        projectName: loadedProjectName,
-        contractorName: loadedContractor,
-        inspectorName: loadedInspector
+      const recoveredState = useVerifiedOfflineSnapshot && verifiedOfflineWorkingDelta
+        ? applyVerifiedOfflineWorkingDelta(initialState as unknown as Record<string, any[]>, verifiedOfflineWorkingDelta) as unknown as AppData
+        : initialState;
+      localTombstonesRef.current = useVerifiedOfflineSnapshot && verifiedOfflineWorkingDelta
+        ? { ...verifiedOfflineWorkingDelta.tombstones }
+        : { ...tombstoneMap };
+      setPresent(recoveredState);
+
+      const baselineMetadata = {
+        projectName: baseProjectName,
+        contractorName: baseContractor,
+        inspectorName: baseInspector,
+        projectLocation: baseProjectLocation
       };
-      // Only a real Firestore cache snapshot is eligible as the synchronized baseline.
-      // Legacy migration fallback must not be silently uploaded as if Cloud had approved it.
-      lastSyncedPresentRef.current = firestoreCached?.found ? initialState : null;
-      hasUserEditedSinceHydrateRef.current = false;
+      lastSyncedMetadataRef.current = baselineMetadata;
+      // Both the official Firestore cache and the identity-bound verified snapshot are
+      // valid diff baselines. The working delta is applied only to React state; the
+      // snapshot stays immutable as the diff baseline so a cold restart re-queues only
+      // the user's offline mutations and never the whole project.
+      lastSyncedPresentRef.current = (firestoreCached?.found || useVerifiedOfflineSnapshot) ? initialState : null;
+      if (useVerifiedOfflineSnapshot && verifiedOfflineSnapshot) {
+        verifiedOfflineBasePresentRef.current = initialState;
+        verifiedOfflineBaseMetadataRef.current = baselineMetadata;
+        verifiedOfflineBaseCapturedAtRef.current = Number(verifiedOfflineSnapshot.capturedAt || 0);
+      } else {
+        verifiedOfflineBasePresentRef.current = null;
+        verifiedOfflineBaseMetadataRef.current = null;
+        verifiedOfflineBaseCapturedAtRef.current = 0;
+      }
+      hasUserEditedSinceHydrateRef.current = Boolean(useVerifiedOfflineSnapshot && verifiedOfflineWorkingDelta?.changeCount);
       setIsHydrated(true);
-      console.log('[HYDRATED SUCCESS]', projectId, firestoreCached?.found ? 'firestore-cache' : shouldReadLegacy ? 'legacy-migration-fallback' : 'empty');
+      console.log(
+        '[HYDRATED SUCCESS]',
+        projectId,
+        useVerifiedOfflineSnapshot
+          ? 'verified-offline-snapshot'
+          : firestoreCached?.found
+            ? 'firestore-cache'
+            : shouldReadLegacy
+              ? 'legacy-migration-fallback'
+              : 'empty'
+      );
     } catch (err) {
       console.error(`Error loading project ${projectId}:`, err);
     } finally {
@@ -847,6 +1002,7 @@ export default function App() {
           safeSetLocalStorageItem(getKey('construction_project_name', frozenProjectId), projectName);
           safeSetLocalStorageItem(getKey('construction_contractor', frozenProjectId), contractorName);
           safeSetLocalStorageItem(getKey('construction_inspector', frozenProjectId), inspectorName);
+          safeSetLocalStorageItem(getKey('construction_project_location', frozenProjectId), projectLocation);
         }
         safeSetLocalStorageItem(getKey('construction_updated_at', frozenProjectId), String(lastUpdatedAt));
 
@@ -897,6 +1053,9 @@ export default function App() {
     activeProjectIdRef.current = newProjectId;
     lastSyncedPresentRef.current = null;
     lastSyncedMetadataRef.current = null;
+    verifiedOfflineBasePresentRef.current = null;
+    verifiedOfflineBaseMetadataRef.current = null;
+    verifiedOfflineBaseCapturedAtRef.current = 0;
     lastServerMetadataUpdatedAtRef.current = 0;
     setCloudInitialReady(false);
     receivedInitialSubcollectionsRef.current.clear();
@@ -935,7 +1094,48 @@ export default function App() {
   useEffect(() => {
     if (!isHydrated || isRestoring || isLoadingProject || !activeProjectIdRef.current) return;
     saveCurrentProject(activeProjectIdRef.current).catch(err => console.warn('Autosave error:', err));
-  }, [present, projectName, contractorName, inspectorName, isHydrated, isRestoring, isLoadingProject]);
+  }, [present, projectName, contractorName, inspectorName, projectLocation, isHydrated, isRestoring, isLoadingProject]);
+
+  // WebView2 can occasionally start with Firestore persistence in memory-only mode.
+  // While using the verified snapshot fallback, persist only the user's working delta
+  // to localforage. This survives EXE close/reopen without turning local data into a
+  // second Cloud authority; reconnect still goes through Firestore Rules/revisions.
+  useEffect(() => {
+    if (!FIREBASE_ONLY_RUNTIME || businessDataSource !== 'verified-offline-snapshot') return;
+    if (!isHydrated || isLoadingProject || isRestoring || isOnline) return;
+    const projectId = activeProjectIdRef.current || activeProjectId;
+    const identity = getCurrentRealFirebaseUser() || getRememberedVerifiedAuthIdentity();
+    const basePresent = verifiedOfflineBasePresentRef.current;
+    const baseMetadata = verifiedOfflineBaseMetadataRef.current;
+    const baseCapturedAt = verifiedOfflineBaseCapturedAtRef.current;
+    if (!projectId || !identity?.uid || !identity.email || !basePresent || !baseMetadata || !baseCapturedAt) return;
+
+    const delta = buildVerifiedOfflineWorkingDelta(
+      projectId,
+      identity,
+      baseCapturedAt,
+      basePresent as unknown as Record<string, any[]>,
+      present as unknown as Record<string, any[]>,
+      baseMetadata,
+      { projectName, contractorName, inspectorName, projectLocation },
+      localTombstonesRef.current,
+    );
+    if (!delta) return;
+    void saveVerifiedOfflineWorkingDelta(delta).catch((err) =>
+      console.warn('[Verified offline working delta] save warning:', err)
+    );
+  }, [
+    present,
+    projectName,
+    contractorName,
+    inspectorName,
+    activeProjectId,
+    businessDataSource,
+    isHydrated,
+    isLoadingProject,
+    isRestoring,
+    isOnline,
+  ]);
 
   useEffect(() => {
     const handleBeforeUnload = () => {
@@ -956,7 +1156,7 @@ export default function App() {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [isHydrated, isRestoring, isLoadingProject, present, projectName, contractorName, inspectorName]);
+  }, [isHydrated, isRestoring, isLoadingProject, present, projectName, contractorName, inspectorName, projectLocation]);
 
   const [future, setFuture] = useState<AppData[]>([]);
 
@@ -1039,170 +1239,58 @@ export default function App() {
     return false;
   };
 
-  // Dynamically compute workVolumes actual from room progress list
-  const computedWorkVolumes = useMemo(() => {
-    return workVolumes.map(item => {
-      const itemCatId = item.workCategoryId || item.id;
-      // Check if there are any rooms at all that match this item's floor and have this work category
-      const matchingRooms = roomProgressList.filter(room => {
-        const hasCategory = (itemCatId && room.workCategoryId === itemCatId) ||
-                            (room.categoryVolumes && (room.categoryVolumes[item.title] !== undefined || (itemCatId && room.categoryVolumes[itemCatId] !== undefined))) ||
-                            (room.workCategory === item.title) ||
-                            (itemCatId && room.workCategoryId === itemCatId);
-        if (!hasCategory) return false;
+  // Single source of truth for derived work-volume progress. The catalog keeps
+  // authoritative IDs/floor scope/planned values; actual/status come from Room stages.
+  const computedWorkVolumes = useMemo(
+    () => computeDerivedWorkVolumes(workVolumes, roomProgressList, floorPlans),
+    [workVolumes, roomProgressList, floorPlans],
+  );
 
-        // Floor matching
-        const roomFloorName = floorPlans.find(f => f.id === room.floorId)?.floorName || room.floorName || '';
-        const normItemFloor = item.floor ? item.floor.trim() : '';
-
-        if (item.floorIds && item.floorIds.length > 0) {
-          if (room.floorId && item.floorIds.includes(room.floorId)) return true;
-        }
-
-        if (item.floorId && room.floorId) {
-          if (room.floorId === item.floorId) return true;
-        }
-
-        if (normItemFloor && normItemFloor !== 'Tất cả' && normItemFloor !== 'Toàn nhà' && normItemFloor !== 'Công trình') {
-          if (!isFloorMatch(normItemFloor, roomFloorName, item.floorIds, room.floorId)) return false;
-        }
-        return true;
-      });
-
-      if (matchingRooms.length === 0) {
-        // Khối lượng thực hiện trong app là số liệu liên kết từ Căn / Phòng.
-        // Khi không còn Căn / Phòng nguồn, không giữ lại actual cũ vì sẽ tạo sản lượng “mồ côi”.
-        return {
-          ...item,
-          actual: 0,
-          status: 'Chưa thi công',
-        } as WorkVolume;
-      }
-
-      let totalPlanned = 0;
-      let totalActual = 0;
-      matchingRooms.forEach(room => {
-        const roomVol = (itemCatId && room.categoryVolumes?.[itemCatId] !== undefined)
-          ? (room.categoryVolumes?.[itemCatId] ?? 0)
-          : (room.categoryVolumes?.[item.title] !== undefined
-            ? (room.categoryVolumes?.[item.title] ?? 0)
-            : ((room.workCategory === item.title || room.workCategoryId === itemCatId) ? room.workVolume || 0 : 0));
-          
-        if (roomVol <= 0) return;
-        totalPlanned += roomVol;
-
-        const subItemsInCat = room.subItems?.filter(s => 
-          (itemCatId && s.workCategoryId === itemCatId) || 
-          (s.category || room.workCategory) === item.title
-        ) || [];
-        if (subItemsInCat.length > 0) {
-          // Detailed sub-items are authoritative. A room-level “Đạt nghiệm thu”
-          // must not force unfinished sub-items to 100%. One sibling group also
-          // uses one weight system only (all volume, all %, or equal weights).
-          const totalWeight = subItemsInCat.reduce((sum, s) => sum + getSubItemGroupWeight(subItemsInCat, s), 0);
-          const completedWeight = subItemsInCat.reduce((sum, s) => {
-            const isDone = s.status === 'Đã hoàn thành' || s.inspectionStatus === 'Đạt nghiệm thu';
-            return isDone ? sum + getSubItemGroupWeight(subItemsInCat, s) : sum;
-          }, 0);
-          const ratio = totalWeight > 0 ? Math.min(1, completedWeight / totalWeight) : 0;
-          totalActual += roomVol * ratio;
-        } else if (room.inspectionStatus === 'Đạt nghiệm thu') {
-          totalActual += roomVol;
-        } else {
-          const titleLower = item.title.toLowerCase();
-          const isFrame = titleLower.includes('khung') || titleLower.includes('xương');
-          const isBoard = titleLower.includes('tấm');
-
-          if (isFrame && room.frameStatus === 'Đã hoàn thành') {
-            totalActual += roomVol;
-          } else if (isBoard && room.boardStatus === 'Đã hoàn thành') {
-            totalActual += roomVol;
-          }
-        }
-      });
-
-      const actualVolume = Math.round(totalActual * 100) / 100;
-      const plannedVolume = (item.planned !== undefined && item.planned !== null && item.planned > 0)
-        ? item.planned
-        : (totalPlanned > 0 ? Math.round(totalPlanned * 100) / 100 : 0);
-
-      const dynamicFloors = Array.from(new Set(matchingRooms.map(room => {
-        const fp = floorPlans.find(f => f.id === room.floorId);
-        return fp?.floorName || room.floorName || '';
-      }).filter(Boolean)));
-      const computedFloor = dynamicFloors.length > 0 ? dynamicFloors.join(', ') : item.floor;
-
-      return {
-        ...item,
-        floor: computedFloor,
-        planned: plannedVolume,
-        actual: actualVolume,
-        status: actualVolume >= plannedVolume && plannedVolume > 0 ? 'Đã hoàn thành' : actualVolume > 0 ? 'Đang thi công' : 'Chưa thi công'
-      } as WorkVolume;
-    });
-  }, [workVolumes, roomProgressList, floorPlans]);
-
-  // Dynamically compute materialNorms quantity based on linked work categories.
-  // ID links are authoritative; name links are legacy fallback only. Each WorkVolume
-  // can contribute at most once to one norm calculation.
+  // Dynamically compute quota from the canonical WorkVolume catalog. Ambiguous or
+  // mixed-unit norm scopes fail closed so duplicate definitions cannot inflate quota.
   const computedMaterialNorms = useMemo(() => {
+    const integrityIssues = validateMaterialNormCatalog(materialNorms, computedWorkVolumes);
+    const blockedNormIds = new Set(
+      integrityIssues
+        .filter((issue) => issue.code === 'AMBIGUOUS_NORM' || issue.code === 'MIXED_WORK_UNIT')
+        .flatMap((issue) => issue.normIds),
+    );
+
     return materialNorms.map((norm) => {
-      const categoryIds = Array.from(new Set([
-        ...(norm.workCategoryIds || []),
-        ...(norm.workCategoryId ? [norm.workCategoryId] : []),
-      ].filter(Boolean)));
-      const categories = Array.from(new Set([
-        ...(norm.workCategories || []),
-        ...(norm.workCategory ? [norm.workCategory] : []),
-      ].filter(Boolean)));
+      if (blockedNormIds.has(norm.id)) return { ...norm, quotaQuantity: 0 };
+      const scope = canonicalNormCategoryIds(norm, computedWorkVolumes);
+      if (scope.ids.length === 0 || scope.unresolved.length > 0) return { ...norm, quotaQuantity: 0 };
 
-      const processedVolumeIds = new Set<string>();
+      const hasIdFactorMap = Boolean(norm.workCategoryNormsById && Object.keys(norm.workCategoryNormsById).length > 0);
       let totalQuota = 0;
-      let hasNorms = false;
+      let applied = false;
 
-      const applyVolume = (volume: WorkVolume, factor: number) => {
-        if (!volume?.id || processedVolumeIds.has(volume.id) || factor <= 0) return;
-        processedVolumeIds.add(volume.id);
-        totalQuota += (Number(volume.planned) || 0) * factor;
-        hasNorms = true;
-      };
+      scope.ids.forEach((categoryId) => {
+        const resolved = resolveWorkVolumeRef({ workVolumes: computedWorkVolumes, workCategoryId: categoryId });
+        if (resolved.state !== 'resolved' || !resolved.work) return;
+        const work = resolved.work;
+        const canonicalId = canonicalWorkCategoryId(work);
+        let factor = Number(
+          norm.workCategoryNormsById?.[canonicalId]
+          ?? norm.workCategoryNormsById?.[work.id]
+          ?? 0,
+        );
 
-      // 1) Authoritative ID links.
-      categoryIds.forEach((catId) => {
-        computedWorkVolumes
-          .filter((v) => v.id === catId || v.workCategoryId === catId)
-          .forEach((v) => {
-            let factor = Number(norm.workCategoryNormsById?.[catId] || 0);
-            if (!(factor > 0)) {
-              const byName = norm.workCategoryNorms?.[v.title];
-              if (Number(byName || 0) > 0) factor = Number(byName);
-            }
-            if (!(factor > 0) && Number(norm.unitNormPerM2 || 0) > 0) {
-              const basisUnit = norm.normBasisUnit || 'm²';
-              if (areSameUnit(basisUnit, v.unit)) factor = Number(norm.unitNormPerM2);
-            }
-            applyVolume(v, factor);
-          });
+        // Once an ID factor map exists, never widen scope/factor by matching title.
+        if (!(factor > 0) && !hasIdFactorMap && norm.workCategoryNorms?.[work.title] !== undefined) {
+          factor = Number(norm.workCategoryNorms[work.title]);
+        }
+        if (!(factor > 0) && Number(norm.unitNormPerM2 || 0) > 0) {
+          const basisUnit = norm.normBasisUnit || 'm²';
+          if (areSameUnit(basisUnit, work.unit)) factor = Number(norm.unitNormPerM2);
+        }
+        if (!(factor > 0)) return;
+
+        totalQuota += Math.max(0, Number(work.planned) || 0) * factor;
+        applied = true;
       });
 
-      // 2) Legacy name fallback only for volumes not already linked by ID.
-      categories.forEach((cat) => {
-        computedWorkVolumes
-          .filter((v) => !processedVolumeIds.has(v.id) && (v.title === cat || v.category === cat))
-          .forEach((v) => {
-            let factor = Number(norm.workCategoryNorms?.[cat] || 0);
-            if (!(factor > 0) && Number(norm.unitNormPerM2 || 0) > 0) {
-              const basisUnit = norm.normBasisUnit || 'm²';
-              if (areSameUnit(basisUnit, v.unit)) factor = Number(norm.unitNormPerM2);
-            }
-            applyVolume(v, factor);
-          });
-      });
-
-      if (hasNorms) {
-        return { ...norm, quotaQuantity: Math.round(totalQuota * 100) / 100 };
-      }
-      return norm;
+      return applied ? { ...norm, quotaQuantity: Math.round(totalQuota * 100) / 100 } : { ...norm, quotaQuantity: 0 };
     });
   }, [materialNorms, computedWorkVolumes]);
 
@@ -1230,6 +1318,13 @@ export default function App() {
     trashSettingsRef.current = initialTrash;
     setTrashSettings(initialTrash);
 
+    const savedStructureRaw = localStorage.getItem(getKey('construction_structure_config', activeProjectId));
+    let initialStructure = DEFAULT_STRUCTURE_CONFIG;
+    if (savedStructureRaw) {
+      try { initialStructure = normalizeStructureGroupConfig(JSON.parse(savedStructureRaw)); } catch (_) {}
+    }
+    setStructureConfig(initialStructure);
+
     // Project-level setting follows the project across PC/Web/APK. LocalStorage is only the offline cache.
     const unsubscribe = subscribeProjectSharedSettings(activeProjectId, (settings) => {
       if (typeof settings.driveAutoSyncEnabled === 'boolean') {
@@ -1246,6 +1341,11 @@ export default function App() {
         const nextUi = normalizeSuperAdminUiSettings(settings.superAdminUi);
         setSuperAdminUiSettings(nextUi);
         localStorage.setItem(getKey('construction_superadmin_ui', activeProjectId), JSON.stringify(nextUi));
+      }
+      if (settings.structure && typeof settings.structure === 'object') {
+        const nextStructure = normalizeStructureGroupConfig(settings.structure);
+        setStructureConfig(nextStructure);
+        localStorage.setItem(getKey('construction_structure_config', activeProjectId), JSON.stringify(nextStructure));
       }
     });
     return unsubscribe;
@@ -1392,12 +1492,14 @@ export default function App() {
         name: projectName,
         contractorName,
         inspectorName,
+        projectLocation,
         updatedAt: lastUpdatedAt,
       },
       data: {
         projectName,
         contractorName,
         inspectorName,
+        projectLocation,
         materialNorms,
         inventory,
         workVolumes,
@@ -1446,7 +1548,7 @@ export default function App() {
         let payload: any;
         if (projectId === activeProjectIdRef.current) {
           payload = {
-            projectName, contractorName, inspectorName,
+            projectName, contractorName, inspectorName, projectLocation,
             materialNorms, inventory, workVolumes, floorPlans, defects,
             roomProgressList, checklist, crewRecords, teams, updatedAt: lastUpdatedAt,
           };
@@ -1462,6 +1564,7 @@ export default function App() {
         allData[getKey('construction_project_name', projectId)] = payload.projectName || projectInfo?.name || projectId;
         allData[getKey('construction_contractor', projectId)] = payload.contractorName || '';
         allData[getKey('construction_inspector', projectId)] = payload.inspectorName || '';
+        allData[getKey('construction_project_location', projectId)] = payload.projectLocation || '';
         allData[getKey('construction_material_norms', projectId)] = JSON.stringify(payload.materialNorms || []);
         allData[getKey('construction_inventory', projectId)] = JSON.stringify(payload.inventory || []);
         allData[getKey('construction_work_volumes', projectId)] = JSON.stringify(payload.workVolumes || []);
@@ -1587,6 +1690,7 @@ export default function App() {
     projectName,
     contractorName,
     inspectorName,
+    projectLocation,
     materialNorms,
     inventory,
     workVolumes,
@@ -1616,8 +1720,12 @@ export default function App() {
   const floorPlanImageSyncRetryCountRef = useRef<Map<string, number>>(new Map());
   const floorPlanImageHydrateRetryCountRef = useRef<Map<string, number>>(new Map());
   const floorPlanImageRetryTimersRef = useRef<Set<number>>(new Set());
+  const floorPlanSmartCacheKeyRef = useRef<string>('');
+  const floorPlanSmartCacheInFlightRef = useRef(false);
+  const floorPlanSmartCacheRetryTimerRef = useRef<number | null>(null);
   const [floorPlanImageSyncRetryTick, setFloorPlanImageSyncRetryTick] = useState(0);
   const [floorPlanImageHydrateRetryTick, setFloorPlanImageHydrateRetryTick] = useState(0);
+  const [floorPlanSmartCacheRetryTick, setFloorPlanSmartCacheRetryTick] = useState(0);
   const [activeFloorViewId, setActiveFloorViewId] = useState<string>('');
 
   const [cloudInitialReady, setCloudInitialReady] = useState<boolean>(false);
@@ -1655,6 +1763,16 @@ export default function App() {
     }
     return pending;
   }, [present, cloudInitialReady, dataCloudStatus.phase]);
+  const syncDiagnosticPendingMetadata = useMemo(() => {
+    const synced = lastSyncedMetadataRef.current;
+    if (!cloudInitialReady || !synced) return 0;
+    return (
+      synced.projectName !== projectName
+      || synced.contractorName !== contractorName
+      || synced.inspectorName !== inspectorName
+      || synced.projectLocation !== projectLocation
+    ) ? 1 : 0;
+  }, [cloudInitialReady, projectName, contractorName, inspectorName, projectLocation, dataCloudStatus.phase]);
   const [cloudDataRetryTick, setCloudDataRetryTick] = useState(0);
   const cloudDataRetryAttemptRef = useRef(0);
   const cloudDataRetryTimerRef = useRef<number | null>(null);
@@ -1768,23 +1886,24 @@ export default function App() {
       const expired = cloudItems.filter((item) => Number(item.expiresAt || 0) > 0 && Number(item.expiresAt || 0) <= now);
       void persistTrashLocal(valid);
 
-      // Purge only when an ADMIN is online. This avoids a timer/Cloud Function cost while
-      // still enforcing the selected retention period in normal app use. Floor-plan
-      // binaries are deleted at this point; ordinary business tombstones stay tiny to
-      // protect against stale offline resurrection.
-      if (isProjectRoleResolved && currentUserRole === 'ADMIN' && expired.length > 0) {
+      // Expired binary purge is fail-closed. Every attempt re-reads canonical ADMIN,
+      // the server Trash row and every active/shared reference immediately before DELETE.
+      // Provider/reference failures persist an account-scoped retry intent; the Trash row
+      // remains until all relevant areas are safely purged or intentionally retained by a
+      // different active/unexpired reference.
+      if (isProjectRoleResolved && currentUserRole === 'ADMIN' && isOnline && expired.length > 0) {
         expired.forEach((operation) => {
           void (async () => {
-            for (const item of operation.deletedItems || []) {
-              if (item.collection === 'floorPlans') {
-                await deleteFloorPlanImageFromCloud(operation.projectId, item.snapshot as FloorPlan).catch(() => {});
-              } else if (item.collection === 'defects') {
-                await deleteEntityPhotos(operation.projectId, 'defect', item.entityId).catch(() => {});
-              } else if (item.collection === 'crewRecords') {
-                await deleteEntityPhotos(operation.projectId, 'crewRecord', item.entityId).catch(() => {});
+            try {
+              const result = await purgeTrashOperationBinaries(operation.projectId, operation.id);
+              if (!result.complete) {
+                console.warn('[Trash purge] deferred with durable retry:', operation.id, result.error || result.queuedAreas);
+                return;
               }
+              await deleteTrashOperationFromCloud(operation.projectId, operation.id);
+            } catch (err) {
+              console.warn('[Trash purge] server/provider verification deferred:', operation.id, err);
             }
-            await deleteTrashOperationFromCloud(operation.projectId, operation.id).catch(() => {});
           })();
         });
       }
@@ -1794,10 +1913,42 @@ export default function App() {
       disposed = true;
       unsubscribeCloud?.();
     };
-  }, [activeProjectId, cloudUserKey, currentUserRole, isProjectRoleResolved]);
+  }, [activeProjectId, cloudUserKey, currentUserRole, isProjectRoleResolved, isOnline]);
+
+  useEffect(() => {
+    if (!isProjectRoleResolved || currentUserRole !== 'ADMIN' || !isOnline) return;
+    let cancelled = false;
+    const drain = async () => {
+      try {
+        const result = await drainBinaryPurgeRetryQueues(activeProjectIdRef.current);
+        if (cancelled || result.completedOperationIds.length === 0) return;
+        for (const operationId of result.completedOperationIds) {
+          await deleteTrashOperationFromCloud(activeProjectIdRef.current, operationId);
+        }
+        const completed = new Set(result.completedOperationIds);
+        const remaining = trashOperationsRef.current.filter((item) => !completed.has(item.id));
+        persistTrashOperations(remaining, activeProjectIdRef.current);
+      } catch (err) {
+        if (!cancelled) console.warn('[Binary purge retry] reconnect drain deferred:', err);
+      }
+    };
+    void drain();
+    const retryOnOnline = () => { void drain(); };
+    window.addEventListener('online', retryOnOnline);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('online', retryOnOnline);
+    };
+  }, [activeProjectId, cloudUserKey, currentUserRole, isProjectRoleResolved, isOnline]);
+
   // Chat must only list projects currently authorized by Firestore. Local recovery
   // projects remain available in Project Manager, but are never treated as chat access.
-  const [authorizedChatProjects, setAuthorizedChatProjects] = useState<Array<{ id: string; name: string }>>([]);
+  const [authorizedChatProjects, setAuthorizedChatProjects] = useState<Array<{ id: string; name: string; role?: UserRole }>>([]);
+  const [isMultiProjectOverviewOpen, setIsMultiProjectOverviewOpen] = useState(false);
+  const [startupProjectId, setStartupProjectId] = useState<string>(() => {
+    try { return localStorage.getItem(STARTUP_PROJECT_ID_KEY) || ''; } catch (_) { return ''; }
+  });
+  const startupNavigationAppliedForRef = useRef<string>('');
   const [cloudBootstrapVersion, setCloudBootstrapVersion] = useState<number>(0);
   const cloudBootstrapAttemptsRef = useRef<Set<string>>(new Set());
 
@@ -1946,12 +2097,25 @@ export default function App() {
       }
       floorPlanImageSyncRetryCountRef.current.clear();
       floorPlanImageHydrateRetryCountRef.current.clear();
+      floorPlanSmartCacheKeyRef.current = '';
       setFloorPlanImageSyncRetryTick((tick) => tick + 1);
       setFloorPlanImageHydrateRetryTick((tick) => tick + 1);
+      setFloorPlanSmartCacheRetryTick((tick) => tick + 1);
     };
+    const retryWhenConnectionImproves = () => {
+      floorPlanSmartCacheKeyRef.current = '';
+      setFloorPlanSmartCacheRetryTick((tick) => tick + 1);
+    };
+    const connection = (navigator as any).connection || (navigator as any).mozConnection || (navigator as any).webkitConnection;
     window.addEventListener('online', retryWhenOnline);
+    connection?.addEventListener?.('change', retryWhenConnectionImproves);
     return () => {
       window.removeEventListener('online', retryWhenOnline);
+      connection?.removeEventListener?.('change', retryWhenConnectionImproves);
+      if (floorPlanSmartCacheRetryTimerRef.current !== null) {
+        window.clearTimeout(floorPlanSmartCacheRetryTimerRef.current);
+        floorPlanSmartCacheRetryTimerRef.current = null;
+      }
       for (const timerId of floorPlanImageRetryTimersRef.current) window.clearTimeout(timerId);
       floorPlanImageRetryTimersRef.current.clear();
     };
@@ -2052,7 +2216,7 @@ export default function App() {
   // Hydrate cloud-backed floor-plan binaries on another phone/PC. Run one-by-one so
   // opening a project does not allocate every large plan image in RAM at the same time.
   useEffect(() => {
-    if (!isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || !isOnline || projectRoleSource !== 'cloud' || !projectRoleAllowed || switchingProjectRef.current) return;
+    if (!isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || !projectRoleAllowed || (projectRoleSource !== 'cloud' && projectRoleSource !== 'offline-cache') || switchingProjectRef.current) return;
     const projectId = activeProjectId;
     let cancelled = false;
     // V6.2.22: hydrate only the floor currently being viewed. Previously every
@@ -2062,8 +2226,16 @@ export default function App() {
     if (activeTab !== 'floorplan') return;
     const preferredFloorId = activeFloorViewId || floorPlans[0]?.id || '';
     const selectedPlan = floorPlans.find((plan) => plan.id === preferredFloorId);
-    const candidates = selectedPlan && !isDisplayableFloorPlanUrl(selectedPlan.imageUrl) &&
-      Boolean(selectedPlan.driveFileId || selectedPlan.cloudFileId || selectedPlan.storageProvider)
+    const selectedCloudRevision = Number(selectedPlan?.imageCloudRevision || selectedPlan?.imageRevision || 0);
+    const selectedDisplayRevision = Number((selectedPlan as any)?.imageDisplayRevision || 0);
+    const selectedHasStaleDisplay = Boolean(
+      selectedPlan && isDisplayableFloorPlanUrl(selectedPlan.imageUrl) &&
+      selectedDisplayRevision > 0 && selectedCloudRevision > selectedDisplayRevision
+    );
+    const selectedRemoteOnly = Boolean(selectedPlan && /^https?:\/\//i.test(String(selectedPlan.imageUrl || '')));
+    const candidates = selectedPlan &&
+      (!isDisplayableFloorPlanUrl(selectedPlan.imageUrl) || (!isOnline && selectedRemoteOnly) || (isOnline && selectedHasStaleDisplay)) &&
+      Boolean(selectedPlan.driveFileId || selectedPlan.cloudFileId || selectedPlan.storageProvider || selectedPlan.storagePath)
       ? [selectedPlan]
       : [];
     if (candidates.length === 0) return;
@@ -2086,13 +2258,17 @@ export default function App() {
         ].join('|');
         const hydrateRetryKey = `${projectId}:${plan.id}:${expectedCloudIdentity}`;
         try {
-          const imageUrl = await loadFloorPlanImageFromCloud(projectId, plan);
+          const resolution = await resolveFloorPlanImageForDisplay(projectId, plan, { allowStaleCache: true });
           if (cancelled || activeProjectIdRef.current !== projectId) continue;
-          if (!imageUrl) throw new Error('Cloud floor-plan image is not available yet.');
+          if (!resolution?.imageUrl) throw new Error('Cloud/local floor-plan image is not available yet.');
           floorPlanImageHydrateRetryCountRef.current.delete(hydrateRetryKey);
           setPresent((prev) => {
             const current = prev.floorPlans.find((item) => item.id === plan.id);
-            if (!current || isDisplayableFloorPlanUrl(current.imageUrl)) return prev;
+            if (!current) return prev;
+            const currentCloudRevision = Number(current.imageCloudRevision || current.imageRevision || 0);
+            const currentDisplayRevision = Number((current as any).imageDisplayRevision || 0);
+            const currentHasStaleDisplay = isDisplayableFloorPlanUrl(current.imageUrl) && currentDisplayRevision > 0 && currentCloudRevision > currentDisplayRevision;
+            if (isDisplayableFloorPlanUrl(current.imageUrl) && !(isOnline && currentHasStaleDisplay)) return prev;
 
             const currentCloudIdentity = [
               current.storageProvider || '',
@@ -2110,7 +2286,13 @@ export default function App() {
               return prev;
             }
 
-            const nextPlans = prev.floorPlans.map((item) => item.id === plan.id ? { ...item, imageUrl } : item);
+            const nextPlans = prev.floorPlans.map((item) => item.id === plan.id ? {
+              ...item,
+              imageUrl: resolution.imageUrl,
+              imageDisplayRevision: resolution.revision,
+              imageDisplaySource: resolution.source,
+              imageOfflineStale: resolution.stale,
+            } : item);
             if (!FIREBASE_ONLY_RUNTIME || LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED) {
               setAsyncItem(getKey('construction_floor_plans', projectId), nextPlans).catch((err) => console.warn('Legacy floor-plan hydrate cache warning:', err));
             }
@@ -2144,6 +2326,80 @@ export default function App() {
     };
   }, [floorPlans, activeProjectId, activeTab, activeFloorViewId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, floorPlanImageHydrateRetryTick, isOnline, projectRoleSource, projectRoleAllowed]);
 
+  // Smart offline cache: after the active drawing is hydrated, quietly prepare the
+  // remaining cloud-ready floor plans one-by-one. The active floor is always first.
+  // Data Saver / 2G pauses the background pass; a later online/connection-change event
+  // resumes only missing revisions. Typical floors sharing one immutable storagePath
+  // reuse the same cached binary, so 30 identical floors do not download 30 copies.
+  useEffect(() => {
+    if (!isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || !isOnline || !projectRoleAllowed || projectRoleSource !== 'cloud' || switchingProjectRef.current) return;
+    if (!activeProjectId || floorPlans.length === 0 || floorPlanSmartCacheInFlightRef.current) return;
+
+    const cloudReadyPlans = floorPlans.filter((plan) => {
+      const revision = Number(plan.imageCloudRevision || plan.imageRevision || 0);
+      return revision > 0 && Boolean(plan.storagePath || plan.driveFileId || plan.cloudFileId || plan.storageProvider);
+    });
+    if (cloudReadyPlans.length === 0) return;
+
+    const signature = cloudReadyPlans
+      .map((plan) => `${plan.id}:${Number(plan.imageCloudRevision || plan.imageRevision || 0)}:${plan.storageProvider || ''}:${plan.storagePath || plan.cloudFileId || plan.driveFileId || ''}`)
+      .sort()
+      .join('|');
+    const runKey = `${activeProjectId}:${signature}`;
+    if (floorPlanSmartCacheKeyRef.current === runKey) return;
+
+    const projectId = activeProjectId;
+    let cancelled = false;
+    const scheduleRetry = () => {
+      if (cancelled || floorPlanSmartCacheRetryTimerRef.current !== null) return;
+      floorPlanSmartCacheRetryTimerRef.current = window.setTimeout(() => {
+        floorPlanSmartCacheRetryTimerRef.current = null;
+        if (activeProjectIdRef.current === projectId) setFloorPlanSmartCacheRetryTick((tick) => tick + 1);
+      }, 60000);
+    };
+
+    const run = async () => {
+      if (cancelled || activeProjectIdRef.current !== projectId) return;
+      if (!isFloorPlanAutoCacheNetworkSuitable() || (typeof document !== 'undefined' && document.visibilityState === 'hidden')) {
+        scheduleRetry();
+        return;
+      }
+      floorPlanSmartCacheInFlightRef.current = true;
+      try {
+        const result = await cacheFloorPlansForOffline(projectId, cloudReadyPlans, undefined, {
+          priorityFloorPlanId: activeFloorViewId || cloudReadyPlans[0]?.id || '',
+          shouldContinue: () => !cancelled
+            && activeProjectIdRef.current === projectId
+            && (typeof document === 'undefined' || document.visibilityState !== 'hidden')
+            && isFloorPlanAutoCacheNetworkSuitable(),
+        });
+        if (!result.paused && result.failed === 0) {
+          floorPlanSmartCacheKeyRef.current = runKey;
+          appendRuntimeDiagnostic({
+            level: 'info', area: 'floor-plan-cache', projectId, code: 'SMART_CACHE_READY',
+            message: `offline-ready=${result.cached + result.downloaded}/${result.total}; downloaded=${result.downloaded}; shared/cache=${result.cached}`,
+          });
+        } else {
+          scheduleRetry();
+        }
+      } catch (err) {
+        appendRuntimeDiagnostic({
+          level: 'warn', area: 'floor-plan-cache', projectId, code: 'SMART_CACHE_PAUSED',
+          message: err instanceof Error ? err.message : String(err),
+        });
+        scheduleRetry();
+      } finally {
+        floorPlanSmartCacheInFlightRef.current = false;
+      }
+    };
+
+    const timer = window.setTimeout(() => void run(), 2800);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [floorPlans, activeProjectId, activeFloorViewId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, isOnline, projectRoleSource, projectRoleAllowed, floorPlanSmartCacheRetryTick]);
+
   useEffect(() => {
     const refreshCloudUser = () => {
       const user = getCurrentRealFirebaseUser();
@@ -2159,7 +2415,11 @@ export default function App() {
       const cachedProjects = identity
         ? getProjectsList().filter((project) => getCachedVerifiedProjectRole(project.id, identity)?.allowed === true)
         : [];
-      setAuthorizedChatProjects(cachedProjects.map((project) => ({ id: project.id, name: project.name })));
+      setAuthorizedChatProjects(cachedProjects.map((project) => ({
+        id: project.id,
+        name: project.name,
+        role: identity ? getCachedVerifiedProjectRole(project.id, identity)?.role : undefined,
+      })));
       return;
     }
     if (!cloudUserKey) {
@@ -2177,7 +2437,11 @@ export default function App() {
 
     let firstCloudEmission = true;
     const unsubscribe = subscribeCurrentUserProjectsRealtime((remoteProjects) => {
-      setAuthorizedChatProjects(remoteProjects.map((project) => ({ id: project.id, name: project.name })));
+      setAuthorizedChatProjects(remoteProjects.map((project) => ({
+        id: project.id,
+        name: project.name,
+        role: project.role === 'ADMIN' || project.role === 'EDITOR' ? project.role : 'VIEWER',
+      })));
       const localProjects = getProjectsList();
       const localById = new Map(localProjects.map((p) => [p.id, p]));
       const cloudIds = new Set(remoteProjects.map((p) => p.id));
@@ -2263,6 +2527,55 @@ export default function App() {
 
     return unsubscribe;
   }, [cloudUserKey, isOnline]);
+
+  useEffect(() => {
+    const remembered = !isOnline ? getRememberedVerifiedAuthIdentity() : null;
+    const identityKey = cloudUserKey || (remembered ? `${remembered.uid || ''}:${remembered.email || ''}` : '');
+    if (!identityKey) {
+      // Auth/reconnect can be transient. Preserve the user's current working tab;
+      // authorization guards below will handle a genuinely invalid project/session.
+      startupNavigationAppliedForRef.current = '';
+      setIsMultiProjectOverviewOpen(false);
+      return;
+    }
+    if (authorizedChatProjects.length === 0) return;
+    if (startupNavigationAppliedForRef.current === identityKey) return;
+    startupNavigationAppliedForRef.current = identityKey;
+
+    const quickProject = startupProjectId
+      ? authorizedChatProjects.find((project) => project.id === startupProjectId)
+      : undefined;
+    if (!startupProjectId) {
+      // Startup preference is not a navigation command after the app is already open.
+      return;
+    }
+    if (!quickProject) {
+      try { localStorage.removeItem(STARTUP_PROJECT_ID_KEY); } catch (_) {}
+      setStartupProjectId('');
+      setActiveTab('home');
+      return;
+    }
+
+    const openQuickProject = async () => {
+      try {
+        if (activeProjectIdRef.current !== quickProject.id) await switchProject(quickProject.id);
+        setActiveTab('floorplan');
+      } catch (err) {
+        console.warn('Quick-start project switch warning:', err);
+        setActiveTab('home');
+      }
+    };
+    void openQuickProject();
+  }, [cloudUserKey, isOnline, authorizedChatProjects, startupProjectId]);
+
+  const handleStartupProjectChange = (projectId: string) => {
+    const next = String(projectId || '').trim();
+    setStartupProjectId(next);
+    try {
+      if (next) safeSetLocalStorageItem(STARTUP_PROJECT_ID_KEY, next);
+      else localStorage.removeItem(STARTUP_PROJECT_ID_KEY);
+    } catch (_) {}
+  };
 
   const [autosaveVersions, setAutosaveVersions] = useState<BackupVersion[]>([]);
 
@@ -2468,7 +2781,20 @@ export default function App() {
     await saveSuperAdminUiSettings(DEFAULT_SUPER_ADMIN_UI_SETTINGS);
   };
 
-  const handleTrashSettingsChange = (nextInput: TrashSettings) => {
+  const handleStructureConfigChange = (nextInput: ProjectStructureConfig) => {
+    if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) {
+      alert('Chỉ ADMIN được thay đổi cấu trúc Khu/Khối của dự án.');
+      return;
+    }
+    const next = normalizeStructureGroupConfig(nextInput);
+    setStructureConfig(next);
+    localStorage.setItem(getKey('construction_structure_config', activeProjectIdRef.current), JSON.stringify(next));
+    void saveProjectSharedSettings(activeProjectIdRef.current, { structure: next }).catch((err) =>
+      console.warn('Structure shared settings save warning:', err)
+    );
+  };
+
+    const handleTrashSettingsChange = (nextInput: TrashSettings) => {
     if (!isProjectRoleResolved || currentUserRole !== 'ADMIN') {
       alert('Chỉ ADMIN được thay đổi cài đặt Thùng rác.');
       return;
@@ -2539,27 +2865,27 @@ export default function App() {
       alert('Chỉ ADMIN được xóa vĩnh viễn dữ liệu trong Thùng rác.');
       return;
     }
+    if (!isOnline) {
+      alert('Cần có mạng để kiểm tra reference trên Server trước khi xóa vĩnh viễn.');
+      return;
+    }
     const operation = trashOperationsRef.current.find((item) => item.id === operationId);
     if (!operation) return;
-    // Floor-plan binaries are intentionally retained while recoverable. Only purge them
-    // when the trash entry is permanently removed/expired. Other business tombstones stay
-    // tiny in Firestore to prevent stale offline clients from resurrecting old records.
-    for (const item of operation.deletedItems || []) {
-      if (item.collection === 'floorPlans') {
-        await deleteFloorPlanImageFromCloud(operation.projectId, item.snapshot as FloorPlan).catch((err) =>
-          console.warn('Permanent floor-plan image cleanup warning:', err)
-        );
-      } else if (item.collection === 'defects') {
-        await deleteEntityPhotos(operation.projectId, 'defect', item.entityId).catch(() => {});
-      } else if (item.collection === 'crewRecords') {
-        await deleteEntityPhotos(operation.projectId, 'crewRecord', item.entityId).catch(() => {});
+    try {
+      // `force` means the ADMIN explicitly chose permanent deletion before expiry; it
+      // never bypasses server RBAC/reference verification.
+      const result = await purgeTrashOperationBinaries(operation.projectId, operation.id, { force: true });
+      if (!result.complete) {
+        alert('Chưa thể xóa binary an toàn. Yêu cầu đã được giữ trong hàng đợi và sẽ thử lại khi kết nối ổn định.');
+        return;
       }
+      await deleteTrashOperationFromCloud(operation.projectId, operationId);
+      const remaining = trashOperationsRef.current.filter((item) => item.id !== operationId);
+      persistTrashOperations(remaining, operation.projectId);
+    } catch (err) {
+      console.warn('Trash permanent purge verification warning:', err);
+      alert('Không thể xác minh/xóa binary an toàn. Mục Thùng rác vẫn được giữ để thử lại.');
     }
-    const remaining = trashOperationsRef.current.filter((item) => item.id !== operationId);
-    persistTrashOperations(remaining, operation.projectId);
-    await deleteTrashOperationFromCloud(operation.projectId, operationId).catch((err) =>
-      console.warn('Trash cloud permanent delete warning:', err)
-    );
   };
 
   const emptyTrash = async () => {
@@ -2585,7 +2911,7 @@ export default function App() {
       console.warn('[RBAC] Thao tác bị từ chối: Quyền VIEWER (Chỉ xem) không được phép sửa đổi dữ liệu.');
       return;
     }
-    const mutationActor = getCurrentRealFirebaseUser();
+    const mutationActor = getCurrentRealFirebaseUser() || getRememberedVerifiedAuthIdentity();
     hasUserEditedSinceHydrateRef.current = true;
     hasUnsavedAllBackupChangesRef.current = true;
     setPresent((prev) => {
@@ -2732,7 +3058,7 @@ export default function App() {
   };
 
   const stampStateChanges = (targetState: AppData, currentState: AppData, now: number): AppData => {
-    const mutationActor = getCurrentRealFirebaseUser();
+    const mutationActor = getCurrentRealFirebaseUser() || getRememberedVerifiedAuthIdentity();
     const collections: (keyof AppData)[] = [
       'roomProgressList', 'inventory', 'workVolumes', 'floorPlans',
       'defects', 'checklist', 'crewRecords', 'teams', 'materialNorms'
@@ -2921,6 +3247,7 @@ export default function App() {
           name: projectName || `Du an ${projectId}`,
           contractorName,
           inspectorName,
+          projectLocation,
           syncCode: projectId.slice(0, 8).toUpperCase(),
           payload
         });
@@ -2981,6 +3308,17 @@ export default function App() {
       subscribedProjectId,
       (meta) => {
         if (switchingProjectRef.current || activeProjectIdRef.current !== subscribedProjectId) return;
+        if (meta.deleted) {
+          // Another device/ADMIN moved this project to Trash. Fail closed immediately:
+          // no local handler may keep EDITOR/ADMIN privileges against a deleted root.
+          setCurrentUserRole('VIEWER');
+          setCurrentUserRoleState('VIEWER');
+          setProjectRoleAllowed(false);
+          setProjectRoleSource('cloud');
+          setCloudInitialReady(false);
+          setBusinessDataSource('empty');
+          return;
+        }
 
         // 1. Update project metadata (projectName, contractorName, inspectorName) if newer than local
         const serverTime = meta.updatedAt || 0;
@@ -2993,11 +3331,19 @@ export default function App() {
           syncLockRef.current = true;
           if (meta.projectName) setProjectName(meta.projectName);
           if (meta.contractorName) setContractorName(meta.contractorName);
-          if (meta.inspectorName) setInspectorName(meta.inspectorName);
+          if (meta.inspectorName !== undefined) setInspectorName(meta.inspectorName);
+          if (meta.projectLocation !== undefined) setProjectLocation(meta.projectLocation);
           
           localStorage.setItem(getKey('construction_project_name', subscribedProjectId), meta.projectName);
           localStorage.setItem(getKey('construction_contractor', subscribedProjectId), meta.contractorName);
           localStorage.setItem(getKey('construction_inspector', subscribedProjectId), meta.inspectorName);
+          localStorage.setItem(getKey('construction_project_location', subscribedProjectId), meta.projectLocation || '');
+          lastSyncedMetadataRef.current = {
+            projectName: meta.projectName || '',
+            contractorName: meta.contractorName || '',
+            inspectorName: meta.inspectorName || '',
+            projectLocation: meta.projectLocation || '',
+          };
           
           setLastUpdatedAt(serverTime);
           localStorage.setItem(getKey('construction_updated_at', subscribedProjectId), String(serverTime));
@@ -3086,7 +3432,10 @@ export default function App() {
                   clearLocalTombstone(stateKey, cloudItem.id, subscribedProjectId);
                 }
                 if (!localItem || cloudTime > localTime) {
-                  byId.set(cloudItem.id, localItem ? restoreLocalOmittedImages(cloudItem, localItem) : cloudItem);
+                  const cloudForPresent = stateKey === 'floorPlans' && localItem
+                    ? restoreLocalFloorPlanIdentity(cloudItem, localItem)
+                    : cloudItem;
+                  byId.set(cloudItem.id, localItem ? restoreLocalOmittedImages(cloudForPresent, localItem) : cloudForPresent);
                   changed = true;
                 }
               }
@@ -3168,7 +3517,10 @@ export default function App() {
                 mergedList.push(cloudItem);
                 listHasChanges = true;
               } else if (cloudTime > localTime) {
-                mergedList.push(restoreLocalOmittedImages(cloudItem, localItem));
+                const cloudForPresent = stateKey === 'floorPlans'
+                  ? restoreLocalFloorPlanIdentity(cloudItem, localItem)
+                  : cloudItem;
+                mergedList.push(restoreLocalOmittedImages(cloudForPresent, localItem));
                 listHasChanges = true;
               } else {
                 mergedList.push(localItem);
@@ -3219,13 +3571,51 @@ export default function App() {
 
           return updatedState;
         });
-      }
+      },
+      undefined,
+      { includeFinancials: currentUserRole === 'ADMIN' },
     );
 
     return () => {
       if (unsubscribe) unsubscribe();
     };
   }, [activeProjectId, cloudUserKey, cloudBootstrapVersion, isHydrated, isLoadingProject, isRestoring, isInitializing, isProjectRoleResolved, currentUserRole, isOnline, projectRoleSource, projectRoleAllowed]);
+
+  // Keep one lightweight, identity-bound last-known-good business snapshot for
+  // offline cold start. This is captured only after all 9 Firestore collections have
+  // produced their initial Cloud baseline; it is display recovery, never Cloud authority.
+  useEffect(() => {
+    if (!FIREBASE_ONLY_RUNTIME || !cloudInitialReady || !isOnline || projectRoleSource !== 'cloud' || !projectRoleAllowed || !isProjectRoleResolved) return;
+    const user = getCurrentRealFirebaseUser();
+    const projectId = activeProjectId;
+    if (!user?.uid || !user.email || !projectId) return;
+
+    const timer = window.setTimeout(() => {
+      const cloudBaseline = lastSyncedPresentRef.current;
+      if (!cloudBaseline || activeProjectIdRef.current !== projectId) return;
+      void saveVerifiedOfflineBusinessSnapshot(
+        projectId,
+        user,
+        { projectName, contractorName, inspectorName, projectLocation },
+        cloudBaseline,
+        lastServerMetadataUpdatedAtRef.current || lastUpdatedAt,
+      ).catch((err) => console.warn('[Verified offline snapshot] save warning:', err));
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    present,
+    projectName,
+    contractorName,
+    inspectorName,
+    lastUpdatedAt,
+    activeProjectId,
+    cloudInitialReady,
+    isOnline,
+    projectRoleSource,
+    projectRoleAllowed,
+    isProjectRoleResolved,
+  ]);
 
   // Photo metadata is realtime; binary image chunks are downloaded lazily only when an image is displayed.
   // This keeps multi-device image sync complete without loading every photo into phone RAM at startup.
@@ -3275,6 +3665,17 @@ export default function App() {
     localStorage.setItem(getKey('construction_updated_at'), String(now));
   };
 
+  const handleUpdateProjectLocation = (val: string) => {
+    if (!isProjectRoleResolved || currentUserRole !== 'ADMIN') return;
+    hasUserEditedSinceHydrateRef.current = true;
+    hasUnsavedAllBackupChangesRef.current = true;
+    localMetadataDirtyRevisionRef.current += 1;
+    setProjectLocation(val);
+    const now = Date.now();
+    setLastUpdatedAt(now);
+    localStorage.setItem(getKey('construction_updated_at'), String(now));
+  };
+
   // Persistence to localStorage
   useEffect(() => {
     if (!isHydrated || isLoadingProject || isRestoring || syncLockRef.current) return;
@@ -3299,6 +3700,11 @@ export default function App() {
     if (!isHydrated || isLoadingProject || isRestoring || syncLockRef.current) return;
     localStorage.setItem(getKey('construction_inspector'), inspectorName);
   }, [inspectorName, isHydrated, isLoadingProject, isRestoring]);
+
+  useEffect(() => {
+    if (!isHydrated || isLoadingProject || isRestoring || syncLockRef.current) return;
+    localStorage.setItem(getKey('construction_project_location'), projectLocation);
+  }, [projectLocation, isHydrated, isLoadingProject, isRestoring]);
 
   useEffect(() => {
     if (!isHydrated || isLoadingProject) return;
@@ -3346,6 +3752,11 @@ export default function App() {
         if (!FIREBASE_ONLY_RUNTIME || LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED) await setAsyncItem(getKey('construction_inspector', pid), data.inspectorName || '');
         safeSetLocalStorageItem(getKey('construction_inspector', pid), data.inspectorName || '');
       }
+      if (data.projectLocation !== undefined) {
+        if (isCurrentActive) setProjectLocation(data.projectLocation || '');
+        if (!FIREBASE_ONLY_RUNTIME || LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED) await setAsyncItem(getKey('construction_project_location', pid), data.projectLocation || '');
+        safeSetLocalStorageItem(getKey('construction_project_location', pid), data.projectLocation || '');
+      }
       const nextState = {
         materialNorms: Array.isArray(data.materialNorms) ? data.materialNorms : (isCurrentActive ? present.materialNorms : []),
         inventory: Array.isArray(data.inventory) ? data.inventory : (isCurrentActive ? present.inventory : []),
@@ -3386,6 +3797,7 @@ export default function App() {
           name: data.projectName || projectName || `Dự án ${pid}`,
           contractorName: data.contractorName || '',
           inspectorName: data.inspectorName || '',
+          projectLocation: data.projectLocation || '',
           syncCode: pid.slice(0, 8).toUpperCase(),
           payload: nextState,
         });
@@ -3858,7 +4270,8 @@ export default function App() {
           if (activeProjectIdRef.current === pid) {
             if (remoteData.projectName) setProjectName(remoteData.projectName);
             if (remoteData.contractorName) setContractorName(remoteData.contractorName);
-            if (remoteData.inspectorName) setInspectorName(remoteData.inspectorName);
+            if (remoteData.inspectorName !== undefined) setInspectorName(remoteData.inspectorName);
+            if (remoteData.projectLocation !== undefined) setProjectLocation(remoteData.projectLocation || '');
             setLastUpdatedAt(remoteUpdatedAt);
           }
           if (remoteData.projectName) {
@@ -3876,7 +4289,8 @@ export default function App() {
             } catch (_) {}
           }
           if (remoteData.contractorName) safeSetLocalStorageItem(getKey('construction_contractor', pid), remoteData.contractorName);
-          if (remoteData.inspectorName) safeSetLocalStorageItem(getKey('construction_inspector', pid), remoteData.inspectorName);
+          if (remoteData.inspectorName !== undefined) safeSetLocalStorageItem(getKey('construction_inspector', pid), remoteData.inspectorName || '');
+          if (remoteData.projectLocation !== undefined) safeSetLocalStorageItem(getKey('construction_project_location', pid), remoteData.projectLocation || '');
 
           const nextPresent = {
             materialNorms: Array.isArray(remoteData.materialNorms) ? remoteData.materialNorms : present.materialNorms,
@@ -3994,13 +4408,14 @@ export default function App() {
     if (!cloudUserKey) return;
 
     // Online writes wait for the full 9-dataset bootstrap. Offline writes are different:
-    // once the project was hydrated from Firestore cache and the exact user+project role
-    // lease is verified, mutations must be queued immediately into Firestore persistence.
-    // Otherwise an offline edit could exist only in React RAM and disappear on reload.
+    // once the project was hydrated from Firestore cache OR an identity-bound verified
+    // snapshot and the exact user+project role lease is verified, mutations must enter
+    // Firestore persistence immediately. Snapshot mode uses lastSyncedPresentRef as its
+    // baseline so only user diffs are queued, never the whole last-known-good snapshot.
     const canQueueOfflineFirestoreWrite = FIREBASE_ONLY_RUNTIME
       && !isOnline
       && (projectRoleSource === 'offline-cache' || projectRoleSource === 'cloud')
-      && (businessDataSource === 'firestore-cache' || businessDataSource === 'cloud');
+      && (businessDataSource === 'firestore-cache' || businessDataSource === 'cloud' || businessDataSource === 'verified-offline-snapshot');
     const canWriteOnline = isOnline && projectRoleSource === 'cloud' && cloudInitialReady;
     if (!canWriteOnline && !canQueueOfflineFirestoreWrite) return;
 
@@ -4089,18 +4504,20 @@ export default function App() {
           const metadataChanged = !lastSyncedMetadataRef.current ||
             lastSyncedMetadataRef.current.projectName !== projectName ||
             lastSyncedMetadataRef.current.contractorName !== contractorName ||
-            lastSyncedMetadataRef.current.inspectorName !== inspectorName;
+            lastSyncedMetadataRef.current.inspectorName !== inspectorName ||
+            lastSyncedMetadataRef.current.projectLocation !== projectLocation;
 
           if (hasChanges || metadataChanged || !lastSyncedPresentRef.current) {
             // Save metadata and only changed records
             const snapshotForSave = present;
 
             if (canQueueOfflineFirestoreWrite) {
-              const queued = queueProjectDiffsToFirestoreOffline(activeId, projectName, contractorName, inspectorName, {
+              const queued = queueProjectDiffsToFirestoreOffline(activeId, projectName, contractorName, inspectorName, projectLocation, {
                 addedOrModified,
                 deletedIds
               }, {
                 touchProjectMetadata: currentUserRole === 'ADMIN' && (metadataChanged || !lastSyncedPresentRef.current),
+                allowFinancialWrites: currentUserRole === 'ADMIN',
               });
 
               if (queued.queuedRecords > 0 || metadataChanged) {
@@ -4108,7 +4525,7 @@ export default function App() {
                 // its persistence layer. This prevents repeatedly enqueuing the same local
                 // revision while offline; server rejection is reconciled by realtime later.
                 lastSyncedPresentRef.current = snapshotForSave;
-                lastSyncedMetadataRef.current = { projectName, contractorName, inspectorName };
+                lastSyncedMetadataRef.current = { projectName, contractorName, inspectorName, projectLocation };
                 flushedPriorityCloudSyncRevisionRef.current = Math.max(flushedPriorityCloudSyncRevisionRef.current, priorityRevisionAtSchedule);
                 if (queued.queuedRecords > 0) adjustFirestorePendingWriteCount(queued.queuedRecords);
                 setDataCloudStatus({
@@ -4142,19 +4559,20 @@ export default function App() {
             }
 
             queueCloudSave(async () => {
-              await saveProjectDiffsToCloud(activeId, projectName, contractorName, inspectorName, {
+              await saveProjectDiffsToCloud(activeId, projectName, contractorName, inspectorName, projectLocation, {
                 addedOrModified,
                 deletedIds
               }, {
                 touchProjectMetadata: currentUserRole === 'ADMIN' && (metadataChanged || !lastSyncedPresentRef.current),
                 allowRootMetadataWrite: currentUserRole === 'ADMIN',
+                allowFinancialWrites: currentUserRole === 'ADMIN',
                 rootTouchIntervalMs: 60000,
                 auditDetailLimit: 20,
               });
               // A single FIFO queue prevents an older request finishing after a newer one.
               if (!switchingProjectRef.current && activeProjectIdRef.current === activeId) {
                 lastSyncedPresentRef.current = snapshotForSave;
-                lastSyncedMetadataRef.current = { projectName, contractorName, inspectorName };
+                lastSyncedMetadataRef.current = { projectName, contractorName, inspectorName, projectLocation };
                 flushedPriorityCloudSyncRevisionRef.current = Math.max(flushedPriorityCloudSyncRevisionRef.current, priorityRevisionAtSchedule);
                 cloudDataRetryAttemptRef.current = 0;
                 if (cloudDataRetryTimerRef.current !== null) {
@@ -4197,7 +4615,27 @@ export default function App() {
     }, cloudSaveDelayMs); // V6.2.25: Defect/crew priority flush 300ms; other edits retain 6s batching.
 
     return () => clearTimeout(timer);
-  }, [present, projectName, contractorName, inspectorName, autoSyncEnabled, isHydrated, isLoadingProject, isRestoring, isInitializing, activeProjectId, cloudUserKey, cloudInitialReady, currentUserRole, isProjectRoleResolved, cloudDataRetryTick, isOnline, projectRoleSource, projectRoleAllowed, businessDataSource]);
+  }, [present, projectName, contractorName, inspectorName, projectLocation, autoSyncEnabled, isHydrated, isLoadingProject, isRestoring, isInitializing, activeProjectId, cloudUserKey, cloudInitialReady, currentUserRole, isProjectRoleResolved, cloudDataRetryTick, isOnline, projectRoleSource, projectRoleAllowed, businessDataSource]);
+
+  // A rejected stale revision is expected to be resolved by the realtime listener.
+  // Do not leave Health Center permanently red after the authoritative Cloud state has
+  // fully reconciled and there are no local/pending writes left.
+  useEffect(() => {
+    if (dataCloudStatus.phase !== 'conflict') return;
+    if (!cloudInitialReady || !isProjectRoleResolved || !projectRoleAllowed) return;
+    if (syncDiagnosticPendingData !== 0 || syncDiagnosticPendingMetadata !== 0 || firestorePendingWriteCount !== 0) return;
+    const projectId = activeProjectId;
+    const timer = window.setTimeout(() => {
+      if (activeProjectIdRef.current !== projectId) return;
+      if (firestorePendingWriteCountRef.current !== 0) return;
+      setDataCloudStatus({
+        phase: 'synced',
+        lastSyncAt: Date.now(),
+        message: 'Realtime đã hòa giải xung đột; dữ liệu Cloud hiện tại đã được giữ nguyên.',
+      });
+    }, 1800);
+    return () => window.clearTimeout(timer);
+  }, [dataCloudStatus.phase, cloudInitialReady, isProjectRoleResolved, projectRoleAllowed, syncDiagnosticPendingData, syncDiagnosticPendingMetadata, firestorePendingWriteCount, activeProjectId]);
 
   // Local File Auto-Save Debounced Effect
   useEffect(() => {
@@ -4255,7 +4693,7 @@ export default function App() {
     }, 2000); // 2 seconds debounce for local file updates
 
     return () => clearTimeout(timer);
-  }, [localFileHandle, present, projectName, contractorName, inspectorName, lastUpdatedAt, activeProjectId]);
+  }, [localFileHandle, present, projectName, contractorName, inspectorName, projectLocation, lastUpdatedAt, activeProjectId]);
 
   const saveAutoSaveVersion = async (allData: any) => {
     try {
@@ -4512,7 +4950,7 @@ export default function App() {
     }, 2000); // 2 seconds debounce
 
     return () => clearTimeout(timer);
-  }, [localAllFileHandle, present, projectName, contractorName, inspectorName, lastUpdatedAt, isProjectRoleResolved, currentUserRole]);
+  }, [localAllFileHandle, present, projectName, contractorName, inspectorName, projectLocation, lastUpdatedAt, isProjectRoleResolved, currentUserRole]);
 
   // Background version backup: gate cheaply BEFORE building any backup object.
   useEffect(() => {
@@ -4802,122 +5240,216 @@ export default function App() {
     }
   };
 
-  // Handlers for Material Norms (Auto updates material names in inventory if norm is renamed)
+  // Material Norm catalog boundary. Scope IDs are canonicalized once here and
+  // duplicate/overlapping/mixed-unit norms are rejected before they enter app state.
+  const normalizeMaterialNormCandidate = (norm: MaterialNorm, catalog: WorkVolume[]): MaterialNorm => {
+    const normalized: MaterialNorm = {
+      ...norm,
+      unit: normalizeUnit(norm.unit) || norm.unit,
+      normBasisUnit: norm.normBasisUnit ? (normalizeUnit(norm.normBasisUnit) || norm.normBasisUnit) : undefined,
+    };
+    return reconcileMaterialNormWorkCategoryLinks([normalized], catalog).materialNorms[0] || normalized;
+  };
+
   const handleAddNorm = (normData: Omit<MaterialNorm, 'id'>) => {
     if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được thêm định mức vật tư.'); return; }
     const newId = createEntityId('NORM');
-    updateAppData((prev) => {
-      const normalizedUnit = normalizeUnit(normData.unit) || normData.unit;
-      const materialKey = `${normalizeMaterialNameKey(normData.materialName)}|${normalizedUnit}`;
-      const existingMaterial = prev.materialNorms.find((norm) =>
-        `${normalizeMaterialNameKey(norm.materialName)}|${normalizeUnit(norm.unit) || norm.unit}` === materialKey
-      );
-      const materialId = normData.materialId || resolveNormMaterialId(existingMaterial) || `MAT-${newId}`;
-      return {
-        ...prev,
-        materialNorms: [{
-          ...normData,
-          materialId,
-          unit: normalizedUnit,
-          normBasisUnit: normData.normBasisUnit ? (normalizeUnit(normData.normBasisUnit) || normData.normBasisUnit) : undefined,
-          id: newId,
-        }, ...prev.materialNorms],
-      };
+    const identity = resolveUniqueMaterialIdentity({
+      materialId: normData.materialId,
+      materialName: normData.materialName,
+      unit: normData.unit,
+      materialNorms: present.materialNorms,
     });
+    if (!normData.materialId && identity.state === 'ambiguous') {
+      alert('Không thể xác định duy nhất vật tư theo Tên + ĐVT. Hãy sửa materialId/định mức trùng trước.');
+      return;
+    }
+    const materialId = normData.materialId || (identity.state === 'resolved' ? identity.materialId : resolveNormMaterialId({ ...normData, id: newId }));
+    const candidate = normalizeMaterialNormCandidate({ ...normData, id: newId, materialId } as MaterialNorm, present.workVolumes);
+    const issues = validateMaterialNormCatalog([candidate, ...present.materialNorms], present.workVolumes)
+      .filter((issue) => issue.normIds.includes(newId));
+    if (issues.length > 0) {
+      alert(issues.map((issue) => issue.message).join('\n'));
+      return;
+    }
+    updateAppData((prev) => ({ ...prev, materialNorms: [candidate, ...prev.materialNorms] }));
   };
 
   const handleUpdateNorm = (id: string, updated: Omit<MaterialNorm, 'id'>) => {
     if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được sửa định mức vật tư.'); return; }
-    updateAppData((prev) => {
-      const oldNorm = prev.materialNorms.find((n) => n.id === id);
-      const stableMaterialId = oldNorm?.materialId || `MAT-${id}`;
-      const normalizedUpdated = {
-        ...updated,
-        materialId: updated.materialId || stableMaterialId,
-        unit: normalizeUnit(updated.unit) || updated.unit,
-        normBasisUnit: updated.normBasisUnit ? (normalizeUnit(updated.normBasisUnit) || updated.normBasisUnit) : undefined,
-      };
-      const newNorms = prev.materialNorms.map((norm) =>
-        norm.id === id ? { ...norm, ...normalizedUpdated, id: norm.id } : norm
-      );
-
-      // Inventory is an immutable transaction ledger in Firebase-only. Renaming a
-      // material master must not rewrite historical stock transactions or their balance
-      // effect. Screens resolve the current material label by materialId where needed.
-      return {
-        ...prev,
-        materialNorms: newNorms,
-      };
-    });
+    const existing = present.materialNorms.find((norm) => norm.id === id);
+    if (!existing) return;
+    const candidate = normalizeMaterialNormCandidate({
+      ...existing,
+      ...updated,
+      id,
+      // Material identity does not silently change on edit unless an explicit ID is provided.
+      materialId: updated.materialId || existing.materialId || resolveNormMaterialId(existing),
+    }, present.workVolumes);
+    const finalCatalog = present.materialNorms.map((norm) => norm.id === id ? candidate : norm);
+    const issues = validateMaterialNormCatalog(finalCatalog, present.workVolumes)
+      .filter((issue) => issue.normIds.includes(id));
+    if (issues.length > 0) {
+      alert(issues.map((issue) => issue.message).join('\n'));
+      return;
+    }
+    updateAppData((prev) => ({ ...prev, materialNorms: prev.materialNorms.map((norm) => norm.id === id ? candidate : norm) }));
   };
 
   const handleDeleteNorm = (id: string) => {
     if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được xóa định mức vật tư.'); return; }
-    updateAppData((prev) => ({
-      ...prev,
-      materialNorms: prev.materialNorms.filter((norm) => norm.id !== id),
-    }));
+    updateAppData((prev) => ({ ...prev, materialNorms: prev.materialNorms.filter((norm) => norm.id !== id) }));
   };
 
   const handleDeleteMultipleNorms = (ids: string[]) => {
     if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được xóa định mức vật tư.'); return; }
-    updateAppData((prev) => ({
-      ...prev,
-      materialNorms: prev.materialNorms.filter((norm) => !ids.includes(norm.id)),
-    }));
+    const deleteSet = new Set(ids);
+    updateAppData((prev) => ({ ...prev, materialNorms: prev.materialNorms.filter((norm) => !deleteSet.has(norm.id)) }));
   };
 
   const handleImportNorms = (importedNorms: MaterialNorm[]) => {
     if (!isProjectRoleResolved || !canManageMaterialNorms(currentUserRole)) { console.warn('[RBAC] Chỉ ADMIN được nhập định mức vật tư.'); return; }
-    updateAppData((prev) => {
-      const materialIdByNameUnit = new Map<string, string>();
-      // Reuse current material identities first so importing norms cannot split one physical
-      // material into several stock buckets merely because each norm row has a different ID.
-      (prev.materialNorms || []).forEach((norm) => {
-        const key = `${normalizeMaterialNameKey(norm.materialName)}|${normalizeUnit(norm.unit) || norm.unit}`;
-        const resolvedId = resolveNormMaterialId(norm);
-        if (key && resolvedId && !materialIdByNameUnit.has(key)) materialIdByNameUnit.set(key, resolvedId);
-      });
 
-      const normalizedNorms = importedNorms.map((norm) => {
-        const normalizedUnit = normalizeUnit(norm.unit) || norm.unit;
-        const key = `${normalizeMaterialNameKey(norm.materialName)}|${normalizedUnit}`;
-        const materialId = norm.materialId || materialIdByNameUnit.get(key) || `MAT-${norm.id}`;
-        if (key && materialId && !materialIdByNameUnit.has(key)) materialIdByNameUnit.set(key, materialId);
-        return {
-          ...norm,
-          materialId,
-          unit: normalizedUnit,
-          normBasisUnit: norm.normBasisUnit ? (normalizeUnit(norm.normBasisUnit) || norm.normBasisUnit) : undefined,
-        };
-      });
-
-      return { ...prev, materialNorms: normalizedNorms };
+    const canonical: MaterialNorm[] = [];
+    const materialIdsByLegacyKey = new Map<string, Set<string>>();
+    present.materialNorms.forEach((norm) => {
+      const key = `${normalizeMaterialNameKey(norm.materialName)}|${normalizeUnit(norm.unit) || norm.unit}`;
+      const id = resolveNormMaterialId(norm);
+      if (!id) return;
+      const ids = materialIdsByLegacyKey.get(key) || new Set<string>();
+      ids.add(id);
+      materialIdsByLegacyKey.set(key, ids);
     });
+
+    for (const raw of importedNorms) {
+      const normalizedUnit = normalizeUnit(raw.unit) || raw.unit;
+      const key = `${normalizeMaterialNameKey(raw.materialName)}|${normalizedUnit}`;
+      const knownIds = Array.from(materialIdsByLegacyKey.get(key) || []);
+      if (!raw.materialId && knownIds.length > 1) {
+        alert(`Import định mức bị hủy: vật tư "${raw.materialName}" (${normalizedUnit}) đang có nhiều materialId.`);
+        return;
+      }
+      const materialId = raw.materialId || knownIds[0] || resolveNormMaterialId({ ...raw, unit: normalizedUnit });
+      const item = normalizeMaterialNormCandidate({ ...raw, unit: normalizedUnit, materialId }, present.workVolumes);
+      canonical.push(item);
+      if (materialId) {
+        const ids = materialIdsByLegacyKey.get(key) || new Set<string>();
+        ids.add(materialId);
+        materialIdsByLegacyKey.set(key, ids);
+      }
+    }
+
+    const issues = validateMaterialNormCatalog(canonical, present.workVolumes);
+    if (issues.length > 0) {
+      alert(`Import định mức bị hủy trước khi ghi:\n${issues.map((issue) => `• ${issue.message}`).join('\n')}`);
+      return;
+    }
+    // One atomic local-state commit; Firebase sync consumes the resulting catalog.
+    updateAppData((prev) => ({ ...prev, materialNorms: canonical }));
   };
 
-  // Handlers for Inventory. In Firebase-only runtime the inventory collection is an
-  // immutable ledger and every manual/room-auto mutation must pass through the atomic
-  // Firestore transaction service that updates inventory_balances in the same commit.
-  // React state is then refreshed by the normal Firestore realtime listener; this avoids
-  // a second local write path racing the server transaction.
+  // Handlers for Inventory. Every entry is canonicalized at this ledger boundary;
+  // OUT provenance is validated before Firebase/local state can be mutated.
+  const prepareInventoryLedgerItem = (raw: InventoryItem): InventoryItem => {
+    const unit = normalizeUnit(raw.unit) || raw.unit;
+    const itemKind = raw.itemKind === 'equipment' ? 'equipment' : 'material';
+    const aliasMap = buildMaterialAliasMap(present.materialNorms);
+    const explicitId = itemKind === 'material' && raw.materialId
+      ? (aliasMap.get(String(raw.materialId)) || String(raw.materialId))
+      : undefined;
+    const legacyIdentity = itemKind === 'material'
+      ? resolveUniqueMaterialIdentity({ materialName: raw.materialName, unit, materialNorms: present.materialNorms })
+      : { state: 'missing' as const, materialId: undefined };
+    if (itemKind === 'material' && explicitId && legacyIdentity.state === 'resolved' && legacyIdentity.materialId && explicitId !== legacyIdentity.materialId) {
+      throw new Error(`materialId ${explicitId} mâu thuẫn Tên + ĐVT của ${raw.materialName} (${unit}).`);
+    }
+    if (itemKind === 'material' && !explicitId && legacyIdentity.state !== 'resolved') {
+      throw new Error(legacyIdentity.state === 'ambiguous'
+        ? `Vật tư ${raw.materialName} (${unit}) khớp nhiều materialId; không được first-match.`
+        : `Vật tư ${raw.materialName} (${unit}) chưa có materialId/định mức duy nhất.`);
+    }
+
+    let normalized: InventoryItem = {
+      ...raw,
+      itemKind,
+      ...(itemKind === 'material' ? { materialId: explicitId || legacyIdentity.materialId } : { materialId: undefined }),
+      unit,
+      quantity: Number(raw.quantity) || 0,
+    };
+    if (!(normalized.quantity > 0)) throw new Error(`Số lượng phiếu ${normalized.id} phải > 0.`);
+
+    if (normalized.type === 'out') {
+      const purpose = normalized.issuePurpose
+        || (normalized.sourceRoomId || normalized.sourceFloorId || normalized.sourceTeamId || normalized.sourceWorkCategoryId || normalized.sourceStructureGroupId ? 'project-work' : undefined);
+      normalized = { ...normalized, ...(purpose ? { issuePurpose: purpose } : {}) };
+
+      if (purpose === 'project-work') {
+        const sourceFloor = normalized.sourceFloorId
+          ? present.floorPlans.find((floor) => floor.id === normalized.sourceFloorId && (floor.deletedAt === undefined || floor.deletedAt === null))
+          : undefined;
+        if (normalized.sourceFloorId && !sourceFloor) {
+          throw new Error('sourceFloorId không tồn tại/hoạt động.');
+        }
+        if (normalized.sourceStructureGroupId) {
+          const structure = normalizeStructureGroupConfig(structureConfig);
+          if (!structure.groups.some((group) => group.id === normalized.sourceStructureGroupId)) {
+            throw new Error('sourceStructureGroupId không tồn tại trong cấu trúc dự án.');
+          }
+          if (sourceFloor && resolveFloorStructureGroupId(sourceFloor, structure) !== normalized.sourceStructureGroupId) {
+            throw new Error('Khu/Khối mâu thuẫn với Tầng đã chọn.');
+          }
+        }
+      }
+
+      const hasProvenance = Boolean(
+        normalized.sourceType === 'room-auto'
+        || normalized.sourceStructureGroupId
+        || normalized.sourceRoomId
+        || normalized.sourceFloorId
+        || normalized.sourceWorkCategoryId
+        || normalized.sourceNormId
+        || normalized.sourceTeamId,
+      );
+      if (hasProvenance) {
+        const provenance = validateInventoryOutProvenance({
+          tx: normalized,
+          rooms: present.roomProgressList,
+          workVolumes: present.workVolumes,
+          materialNorms: present.materialNorms,
+          teams: present.teams,
+        });
+        if (provenance.state !== 'resolved') {
+          throw new Error(`OUT provenance không hợp lệ: ${provenance.reason || provenance.state}`);
+        }
+        normalized = {
+          ...normalized,
+          sourceFloorId: provenance.floorId || normalized.sourceFloorId,
+          sourceWorkCategoryId: provenance.workCategoryId || normalized.sourceWorkCategoryId,
+          sourceTeamId: provenance.teamId,
+          sourceNormId: provenance.normId || normalized.sourceNormId,
+        };
+      }
+    }
+    return normalized;
+  };
+
   const handleAddInventory = async (item: Omit<InventoryItem, 'id'> & { id?: string }) => {
     if (!isProjectRoleResolved || !canEditWarehouseData(currentUserRole)) throw new Error('Tài khoản không có quyền tạo giao dịch kho.');
     const newId = item.id || createEntityId(item.type === 'in' ? 'NK' : 'XK');
-    const normalized = { ...item, unit: normalizeUnit(item.unit) || item.unit, id: newId } as InventoryItem;
+    const normalized = prepareInventoryLedgerItem({ ...item, id: newId } as InventoryItem);
 
     if (FIREBASE_ONLY_RUNTIME) {
       const existing = present.inventory.find((inv) => inv.id === newId);
       if (existing) {
-        await updateWarehouseTransactionAtomic(activeProjectIdRef.current, newId, {
+        const next = prepareInventoryLedgerItem({
           ...existing,
           ...normalized,
           id: newId,
-          // room-auto IDs are deterministic and represent one cumulative ledger row.
           quantity: normalized.sourceType === 'room-auto'
             ? Math.max(Number(existing.quantity || 0), Number(normalized.quantity || 0))
             : Number(normalized.quantity || 0),
         });
+        await updateWarehouseTransactionAtomic(activeProjectIdRef.current, newId, next);
       } else {
         await commitWarehouseTransactionAtomic(activeProjectIdRef.current, normalized);
       }
@@ -4939,20 +5471,16 @@ export default function App() {
 
   const handleUpdateInventory = async (id: string, item: Omit<InventoryItem, 'id'>) => {
     if (!isProjectRoleResolved || !canEditWarehouseData(currentUserRole)) throw new Error('Tài khoản không có quyền sửa giao dịch kho.');
+    const current = present.inventory.find((inv) => inv.id === id);
+    if (!current) throw new Error('Không tìm thấy giao dịch kho hiện tại. Hãy chờ đồng bộ rồi thử lại.');
+    const normalized = prepareInventoryLedgerItem({ ...current, ...item, id });
     if (FIREBASE_ONLY_RUNTIME) {
-      const current = present.inventory.find((inv) => inv.id === id);
-      if (!current) throw new Error('Không tìm thấy giao dịch kho hiện tại. Hãy chờ đồng bộ Firestore rồi thử lại.');
-      await updateWarehouseTransactionAtomic(activeProjectIdRef.current, id, {
-        ...current,
-        ...item,
-        unit: normalizeUnit(item.unit) || item.unit,
-        id,
-      });
+      await updateWarehouseTransactionAtomic(activeProjectIdRef.current, id, normalized);
       return;
     }
     updateAppData((prev) => ({
       ...prev,
-      inventory: prev.inventory.map((existing) => existing.id === id ? { ...existing, ...item, unit: normalizeUnit(item.unit) || item.unit, id } : existing),
+      inventory: prev.inventory.map((existing) => existing.id === id ? normalized : existing),
     }));
   };
 
@@ -4971,25 +5499,34 @@ export default function App() {
       for (const id of ids) await softDeleteWarehouseTransactionAtomic(activeProjectIdRef.current, id);
       return;
     }
-    updateAppData((prev) => ({ ...prev, inventory: prev.inventory.filter((i) => !ids.includes(i.id)) }));
+    const deleteSet = new Set(ids);
+    updateAppData((prev) => ({ ...prev, inventory: prev.inventory.filter((i) => !deleteSet.has(i.id)) }));
   };
 
   const handleImportInventory = async (importedInventory: InventoryItem[]) => {
     if (!isProjectRoleResolved || !canImportData(currentUserRole)) throw new Error('Chỉ ADMIN được nhập dữ liệu kho hàng loạt.');
-    const normalizedItems = importedInventory.map((item) => ({ ...item, unit: normalizeUnit(item.unit) || item.unit }));
+    // Preflight the complete batch before the first Firestore/local write.
+    const normalizedItems = importedInventory.map((item) => prepareInventoryLedgerItem(item));
+    const duplicateIds = normalizedItems.map((item) => item.id).filter((id, index, all) => all.indexOf(id) !== index);
+    if (duplicateIds.length > 0) throw new Error(`File import có Mã Phiếu trùng: ${Array.from(new Set(duplicateIds)).join(', ')}`);
+
     if (FIREBASE_ONLY_RUNTIME) {
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
         throw new Error('Import kho cần online để cập nhật ledger + tồn kho bằng Firestore transaction an toàn.');
       }
       const existingIds = new Set(present.inventory.map((item) => item.id));
-      // UPSERT only: an import never infers deletion merely because a row is absent.
       for (const item of normalizedItems) {
         if (existingIds.has(item.id)) await updateWarehouseTransactionAtomic(activeProjectIdRef.current, item.id, item);
         else await commitWarehouseTransactionAtomic(activeProjectIdRef.current, item);
       }
       return;
     }
-    updateAppData((prev) => ({ ...prev, inventory: normalizedItems }));
+    // Local import is UPSERT too; absence of a row never means delete.
+    updateAppData((prev) => {
+      const byId = new Map(prev.inventory.map((item) => [item.id, item]));
+      normalizedItems.forEach((item) => byId.set(item.id, item));
+      return { ...prev, inventory: Array.from(byId.values()) };
+    });
   };
 
   // Handlers for Work Volume
@@ -4999,10 +5536,22 @@ export default function App() {
       return;
     }
     const newId = createEntityId('HM');
-    updateAppData((prev) => ({
-      ...prev,
-      workVolumes: [...prev.workVolumes, { ...item, unit: normalizeUnit(item.unit) || item.unit, id: newId }],
-    }));
+    const nextItem: WorkVolume = {
+      ...item,
+      id: newId,
+      workCategoryId: item.workCategoryId || newId,
+      unit: normalizeUnit(item.unit) || item.unit,
+      planned: Number.isFinite(Number(item.planned)) ? Math.max(0, Number(item.planned)) : 0,
+      // actual/status are derived from Room/Stage progress, never authored in the catalog.
+      actual: 0,
+      status: 'Chưa thi công',
+    };
+    const issues = validateWorkVolumeCatalog([...present.workVolumes, nextItem]);
+    if (issues.length > 0) {
+      alert(issues[0].message);
+      return;
+    }
+    updateAppData((prev) => ({ ...prev, workVolumes: [...prev.workVolumes, nextItem] }));
   };
 
   const handleSaveWorkVolume = (item: Omit<WorkVolume, 'id'> & { id?: string }) => {
@@ -5010,95 +5559,142 @@ export default function App() {
       console.warn('[RBAC] Chỉ ADMIN được sửa định nghĩa hạng mục khối lượng.');
       return;
     }
+
+    if (!item.id) {
+      handleAddWorkVolume(item);
+      return;
+    }
+
+    const existing = present.workVolumes.find((work) => work.id === item.id);
+    if (!existing) {
+      console.warn('[WorkVolume] Không tìm thấy hạng mục cần sửa:', item.id);
+      return;
+    }
+
+    const canonicalId = canonicalWorkCategoryId(existing) || existing.id;
+    const nextItem: WorkVolume = {
+      ...existing,
+      ...item,
+      id: existing.id,
+      // Durable category identity is immutable after creation.
+      workCategoryId: canonicalId,
+      unit: normalizeUnit(item.unit) || item.unit,
+      planned: Number.isFinite(Number(item.planned)) ? Math.max(0, Number(item.planned)) : 0,
+      actual: existing.actual || 0,
+      status: existing.status || 'Chưa thi công',
+    };
+    const candidate = present.workVolumes.map((work) => work.id === existing.id ? nextItem : work);
+    const issues = validateWorkVolumeCatalog(candidate);
+    if (issues.length > 0) {
+      alert(issues[0].message);
+      return;
+    }
+
     updateAppData((prev) => {
-      if (item.id) {
-        const oldItem = prev.workVolumes.find((w) => w.id === item.id);
-        const oldTitle = oldItem?.title;
-        const newTitle = item.title;
+      const oldItem = prev.workVolumes.find((work) => work.id === existing.id);
+      if (!oldItem) return prev;
+      const oldTitle = oldItem.title;
+      const newTitle = nextItem.title;
+      const oldCanonicalId = canonicalWorkCategoryId(oldItem) || oldItem.id;
+      const oldAliases = new Set([oldItem.id, oldItem.workCategoryId, oldCanonicalId].filter(Boolean) as string[]);
 
-        let updatedRooms = prev.roomProgressList;
-        let updatedNorms = prev.materialNorms;
+      // Rename only references that can be proven to belong to this exact ID. Legacy
+      // name-only references that are ambiguous stay untouched and are surfaced by Health Center.
+      const updatedRooms = oldTitle !== newTitle
+        ? prev.roomProgressList.map((room) => {
+            const floorName = room.floorName || prev.floorPlans.find((floor) => floor.id === room.floorId)?.floorName || '';
+            let changed = false;
+            let workCategory = room.workCategory;
+            let workCategoryId = room.workCategoryId;
+            let categoryVolumes = room.categoryVolumes ? { ...room.categoryVolumes } : undefined;
+            let categoryVolumeUnits = room.categoryVolumeUnits ? { ...room.categoryVolumeUnits } : undefined;
 
-        if (oldTitle && newTitle && oldTitle !== newTitle) {
-          // Migrate room progress category names & keys
-          updatedRooms = prev.roomProgressList.map(room => {
-            let catVols = room.categoryVolumes ? { ...room.categoryVolumes } : undefined;
-            if (catVols && catVols[oldTitle] !== undefined) {
-              const val = catVols[oldTitle];
-              delete catVols[oldTitle];
-              catVols[newTitle] = val;
+            if (workCategoryId && oldAliases.has(workCategoryId)) {
+              workCategoryId = oldCanonicalId;
+              workCategory = newTitle;
+              changed = true;
+              // If the primary category is still stored under its legacy title key,
+              // canonicalize it to the durable ID while the relationship is provable.
+              if (categoryVolumes && categoryVolumes[oldTitle] !== undefined && categoryVolumes[oldCanonicalId] === undefined) {
+                categoryVolumes[oldCanonicalId] = categoryVolumes[oldTitle];
+                delete categoryVolumes[oldTitle];
+                if (categoryVolumeUnits?.[oldTitle] !== undefined) {
+                  categoryVolumeUnits[oldCanonicalId] = categoryVolumeUnits[oldTitle];
+                  delete categoryVolumeUnits[oldTitle];
+                }
+              }
             }
-            let subItems = room.subItems;
-            if (subItems) {
-              subItems = subItems.map(s => (s.category === oldTitle ? { ...s, category: newTitle } : s));
-            }
-            const workCat = room.workCategory === oldTitle ? newTitle : room.workCategory;
-            return {
-              ...room,
-              workCategory: workCat,
-              categoryVolumes: catVols,
-              subItems
-            };
-          });
 
-          // Migrate material norms category names
-          updatedNorms = prev.materialNorms.map(norm => {
-            const workCat = norm.workCategory === oldTitle ? newTitle : norm.workCategory;
-            const workCats = norm.workCategories?.map(c => (c === oldTitle ? newTitle : c));
-            let workCategoryNorms = norm.workCategoryNorms ? { ...norm.workCategoryNorms } : undefined;
-            if (workCategoryNorms && workCategoryNorms[oldTitle] !== undefined) {
-              const oldFactor = workCategoryNorms[oldTitle];
-              delete workCategoryNorms[oldTitle];
-              workCategoryNorms[newTitle] = oldFactor;
-            }
-            return {
-              ...norm,
-              workCategory: workCat,
-              workCategories: workCats,
-              workCategoryNorms
-            };
-          });
-        }
+            const subItems = room.subItems?.map((sub) => {
+              if (sub.workCategoryId && oldAliases.has(sub.workCategoryId)) {
+                changed = true;
+                return { ...sub, workCategoryId: oldCanonicalId, category: newTitle };
+              }
+              if (!sub.workCategoryId && sub.category === oldTitle) {
+                const resolved = resolveWorkVolumeRef({
+                  workVolumes: prev.workVolumes,
+                  workCategoryName: sub.category,
+                  floorId: room.floorId,
+                  floorName,
+                });
+                if (resolved.state === 'resolved' && canonicalWorkCategoryId(resolved.work) === oldCanonicalId) {
+                  changed = true;
+                  return { ...sub, workCategoryId: oldCanonicalId, category: newTitle };
+                }
+              }
+              return sub;
+            });
 
-        const normalizedItem = { ...item, unit: normalizeUnit(item.unit) || item.unit };
-        const newWorkVolumes = prev.workVolumes.map((w) => w.id === item.id ? { ...w, ...normalizedItem, id: w.id } as WorkVolume : w);
-        const { materialNorms: reconciledNorms } = reconcileMaterialNormWorkCategoryLinks(updatedNorms, newWorkVolumes);
+            return changed ? { ...room, workCategory, workCategoryId, categoryVolumes, categoryVolumeUnits, subItems } : room;
+          })
+        : prev.roomProgressList;
 
-        return {
-          ...prev,
-          roomProgressList: updatedRooms,
-          materialNorms: reconciledNorms,
-          workVolumes: newWorkVolumes
-        };
-      } else {
-        const newId = createEntityId('HM');
-        return {
-          ...prev,
-          workVolumes: [...prev.workVolumes, { ...item, unit: normalizeUnit(item.unit) || item.unit, id: newId }]
-        };
-      }
+      const nextWorkVolumes = prev.workVolumes.map((work) => work.id === existing.id ? nextItem : work);
+      // Reconciliation may refresh display names but must preserve explicit stale IDs.
+      const { materialNorms: reconciledNorms } = reconcileMaterialNormWorkCategoryLinks(prev.materialNorms, nextWorkVolumes);
+      return { ...prev, workVolumes: nextWorkVolumes, roomProgressList: updatedRooms, materialNorms: reconciledNorms };
     });
   };
 
-  const handleUpdateActualVolume = (id: string, newActual: number) => {
+  const handleImportWorkVolumes = (items: WorkVolume[]): boolean => {
     if (!isProjectRoleResolved || !canManageWorkVolumeStructure(currentUserRole)) {
-      console.warn('[RBAC] Không ghi trực tiếp actual vào hạng mục master; Kỹ sư cập nhật tiến độ tại Mặt bằng.');
-      return;
+      console.warn('[RBAC] Chỉ ADMIN được nhập thay đổi cấu trúc hạng mục khối lượng.');
+      return false;
     }
-    updateAppData((prev) => ({
-      ...prev,
-      workVolumes: prev.workVolumes.map((item) => {
-        if (item.id === id) {
-          const updatedActual = Math.max(0, newActual);
-          return {
-            ...item,
-            actual: updatedActual,
-            status: updatedActual >= item.planned ? 'Đã hoàn thành' : updatedActual > 0 ? 'Đang thi công' : 'Chưa thi công',
-          };
-        }
-        return item;
-      }),
-    }));
+    const currentById = new Map<string, WorkVolume>(present.workVolumes.map((work) => [work.id, work] as const));
+    const normalized = items.map((item) => {
+      const existing = currentById.get(item.id);
+      return {
+        ...(existing || item),
+        ...item,
+        id: existing?.id || item.id,
+        workCategoryId: existing ? canonicalWorkCategoryId(existing) : (item.workCategoryId || item.id),
+        unit: normalizeUnit(item.unit) || item.unit,
+        planned: Math.max(0, Number(item.planned) || 0),
+        actual: existing?.actual || 0,
+        status: existing?.status || 'Chưa thi công',
+      } as WorkVolume;
+    });
+    const finalById = new Map<string, WorkVolume>(present.workVolumes.map((work) => [work.id, work] as const));
+    normalized.forEach((work) => finalById.set(work.id, work));
+    const finalCatalog = Array.from(finalById.values());
+    const issues = validateWorkVolumeCatalog(finalCatalog);
+    if (issues.length > 0) {
+      alert(issues[0].message);
+      return false;
+    }
+    updateAppData((prev) => {
+      const prevById = new Map<string, WorkVolume>(prev.workVolumes.map((work) => [work.id, work] as const));
+      normalized.forEach((work) => prevById.set(work.id, work));
+      return { ...prev, workVolumes: Array.from(prevById.values()) };
+    });
+    return true;
+  };
+
+  const handleUpdateActualVolume = (_id: string, _newActual: number) => {
+    // actual/status are derived only from Room/Stage progress. Keeping this callback as
+    // a compatibility no-op prevents legacy UI routes from mutating the master catalog.
+    console.warn('[WorkVolume] actual là dữ liệu derived; hãy cập nhật tiến độ tại Mặt bằng/Căn.');
   };
 
   const handleDeleteWorkVolume = (id: string) => {
@@ -5106,60 +5702,9 @@ export default function App() {
       console.warn('[RBAC] Chỉ ADMIN được xóa hạng mục khối lượng.');
       return;
     }
-    updateAppData((prev) => {
-      const targetVolume = prev.workVolumes.find((item) => item.id === id);
-      const remainingVolumes = prev.workVolumes.filter((item) => item.id !== id);
-      if (!targetVolume) return { ...prev, workVolumes: remainingVolumes };
-
-      const replacementByTitle = remainingVolumes.find((item) =>
-        item.title.trim().toLocaleLowerCase('vi-VN') === targetVolume.title.trim().toLocaleLowerCase('vi-VN')
-      );
-      const targetLinkIds = new Set([targetVolume.id, targetVolume.workCategoryId].filter((value): value is string => Boolean(value)));
-
-      // Deleting the master WorkVolume must never erase field history from a room.
-      // Keep category names, volumes and sub-items; only detach/remap the deleted foreign key.
-      const updatedRoomProgressList = (prev.roomProgressList || []).map((room) => {
-        let changed = false;
-        let workCategoryId = room.workCategoryId;
-        let categoryVolumes = room.categoryVolumes ? { ...room.categoryVolumes } : undefined;
-
-        if (workCategoryId && targetLinkIds.has(workCategoryId)) {
-          workCategoryId = replacementByTitle?.workCategoryId || replacementByTitle?.id;
-          changed = true;
-        }
-
-        if (categoryVolumes) {
-          for (const linkId of targetLinkIds) {
-            if (!Object.prototype.hasOwnProperty.call(categoryVolumes, linkId)) continue;
-            const preservedValue = Number(categoryVolumes[linkId] || 0);
-            const stableName = targetVolume.title || room.workCategory || 'Hạng mục đã xóa khỏi danh mục';
-            if (categoryVolumes[stableName] === undefined) categoryVolumes[stableName] = preservedValue;
-            else categoryVolumes[stableName] = Math.max(Number(categoryVolumes[stableName] || 0), preservedValue);
-            delete categoryVolumes[linkId];
-            changed = true;
-          }
-        }
-
-        const subItems = room.subItems?.map((sub) => {
-          if (!sub.workCategoryId || !targetLinkIds.has(sub.workCategoryId)) return sub;
-          changed = true;
-          const replacement = remainingVolumes.find((item) =>
-            item.title.trim().toLocaleLowerCase('vi-VN') === String(sub.category || room.workCategory || targetVolume.title).trim().toLocaleLowerCase('vi-VN')
-          );
-          return { ...sub, workCategoryId: replacement?.workCategoryId || replacement?.id };
-        });
-
-        return changed ? { ...room, workCategoryId, categoryVolumes, subItems } : room;
-      });
-
-      const { materialNorms: reconciledNorms } = reconcileMaterialNormWorkCategoryLinks(prev.materialNorms || [], remainingVolumes);
-      return {
-        ...prev,
-        workVolumes: remainingVolumes,
-        roomProgressList: updatedRoomProgressList,
-        materialNorms: reconciledNorms,
-      };
-    });
+    // Never remap or rewrite historical Room/Norm provenance on catalog deletion.
+    // Stale IDs are intentionally retained so Health Center can detect and repair them.
+    updateAppData((prev) => ({ ...prev, workVolumes: prev.workVolumes.filter((item) => item.id !== id) }));
   };
 
   const handleDeleteMultipleWorkVolumes = (ids: string[]) => {
@@ -5167,71 +5712,8 @@ export default function App() {
       console.warn('[RBAC] Chỉ ADMIN được xóa nhiều hạng mục khối lượng.');
       return;
     }
-    updateAppData((prev) => {
-      const deleteIdSet = new Set(ids);
-      const targetVolumes = prev.workVolumes.filter((item) => deleteIdSet.has(item.id));
-      const remainingVolumes = prev.workVolumes.filter((item) => !deleteIdSet.has(item.id));
-      if (targetVolumes.length === 0) return { ...prev, workVolumes: remainingVolumes };
-
-      const deletedLinkIds = new Set<string>();
-      const deletedByLinkId = new Map<string, WorkVolume>();
-      targetVolumes.forEach((item) => {
-        [item.id, item.workCategoryId].filter((value): value is string => Boolean(value)).forEach((linkId) => {
-          deletedLinkIds.add(linkId);
-          deletedByLinkId.set(linkId, item);
-        });
-      });
-      const findReplacement = (categoryName?: string) => {
-        const normalized = String(categoryName || '').trim().toLocaleLowerCase('vi-VN');
-        if (!normalized) return undefined;
-        return remainingVolumes.find((item) => item.title.trim().toLocaleLowerCase('vi-VN') === normalized);
-      };
-
-      const updatedRoomProgressList = (prev.roomProgressList || []).map((room) => {
-        let changed = false;
-        let workCategoryId = room.workCategoryId;
-        let categoryVolumes = room.categoryVolumes ? { ...room.categoryVolumes } : undefined;
-
-        if (workCategoryId && deletedLinkIds.has(workCategoryId)) {
-          const replacement = findReplacement(room.workCategory);
-          workCategoryId = replacement?.workCategoryId || replacement?.id;
-          changed = true;
-        }
-
-        if (categoryVolumes) {
-          for (const deleted of targetVolumes) {
-            const linkIds = [deleted.id, deleted.workCategoryId].filter((value): value is string => Boolean(value));
-            for (const linkId of linkIds) {
-              if (!Object.prototype.hasOwnProperty.call(categoryVolumes, linkId)) continue;
-              const preservedValue = Number(categoryVolumes[linkId] || 0);
-              const stableName = deleted.title || room.workCategory || 'Hạng mục đã xóa khỏi danh mục';
-              if (categoryVolumes[stableName] === undefined) categoryVolumes[stableName] = preservedValue;
-              else categoryVolumes[stableName] = Math.max(Number(categoryVolumes[stableName] || 0), preservedValue);
-              delete categoryVolumes[linkId];
-              changed = true;
-            }
-          }
-        }
-
-        const subItems = room.subItems?.map((sub) => {
-          if (!sub.workCategoryId || !deletedLinkIds.has(sub.workCategoryId)) return sub;
-          changed = true;
-          const deleted = deletedByLinkId.get(sub.workCategoryId);
-          const replacement = findReplacement(sub.category || room.workCategory || deleted?.title);
-          return { ...sub, workCategoryId: replacement?.workCategoryId || replacement?.id };
-        });
-
-        return changed ? { ...room, workCategoryId, categoryVolumes, subItems } : room;
-      });
-
-      const { materialNorms: reconciledNorms } = reconcileMaterialNormWorkCategoryLinks(prev.materialNorms || [], remainingVolumes);
-      return {
-        ...prev,
-        workVolumes: remainingVolumes,
-        roomProgressList: updatedRoomProgressList,
-        materialNorms: reconciledNorms,
-      };
-    });
+    const deleteSet = new Set(ids);
+    updateAppData((prev) => ({ ...prev, workVolumes: prev.workVolumes.filter((item) => !deleteSet.has(item.id)) }));
   };
 
   // Handlers for Floor Plans & Defects
@@ -5239,8 +5721,21 @@ export default function App() {
     if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
     const newId = plan.id || createEntityId('fp');
     const imageRevision = Number(plan.imageRevision || Date.now());
+    const normalizedStructure = normalizeStructureGroupConfig(structureConfig);
+    const requestedGroupId = String(plan.structureGroupId || '').trim();
+    const stableStructureGroupId = normalizedStructure.enabled
+      ? (normalizedStructure.groups.some((group) => group.id === requestedGroupId)
+          ? requestedGroupId
+          : normalizedStructure.defaultGroupId)
+      : plan.structureGroupId;
     updateAppData((prev) => {
-      const nextPlans = [...prev.floorPlans, { ...plan, id: newId, imageRevision, imageCloudRevision: 0 }];
+      const nextPlans = [...prev.floorPlans, {
+        ...plan,
+        id: newId,
+        ...(stableStructureGroupId ? { structureGroupId: stableStructureGroupId } : {}),
+        imageRevision,
+        imageCloudRevision: 0,
+      }];
       return {
         ...prev,
         floorPlans: nextPlans.map((fp, idx) => ({ ...fp, order: idx })),
@@ -5295,12 +5790,59 @@ export default function App() {
         imageMimeType: undefined,
         imageFileSize: undefined,
         imageCloudSyncedAt: undefined,
+        imageAssetId: null,
+        imageAssetOwnerFloorId: null,
         uploadedAt: new Date().toISOString().split('T')[0],
         updatedAt: imageRevision,
         revision: Math.max(Number((fp as any).revision || 0), 0) + 1,
         updatedByUid: uploaderUid || fp.updatedByUid,
       } : fp)),
     }));
+  };
+
+  const handleUpdateFloorPlanImages = async (ids: string[], imageUrl: string): Promise<number> => {
+    if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) throw new Error('FLOOR_PLAN_ADMIN_REQUIRED');
+    const uniqueIds = Array.from(new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean)));
+    if (uniqueIds.length === 0) return 0;
+    if (uniqueIds.length === 1) {
+      await handleUpdateFloorPlanImage(uniqueIds[0], imageUrl);
+      return 1;
+    }
+
+    const projectId = activeProjectIdRef.current;
+    const idSet = new Set(uniqueIds);
+    const targets = floorPlans.filter((plan) => idSet.has(plan.id));
+    if (targets.length !== uniqueIds.length) throw new Error('FLOOR_PLAN_BULK_TARGET_NOT_FOUND');
+
+    const result = await applyFloorPlanImageToMultipleFloors(projectId, targets, imageUrl);
+    updateAppData((prev) => ({
+      ...prev,
+      floorPlans: prev.floorPlans.map((plan) => {
+        const metadata = result.metadataByFloorId[plan.id];
+        if (!metadata) return plan;
+        const displayedHere = plan.id === activeFloorViewId;
+        return {
+          ...plan,
+          ...metadata,
+          ...(displayedHere ? {
+            imageUrl,
+            imageDisplayRevision: Number(metadata.imageCloudRevision || metadata.imageRevision || 0),
+            imageDisplaySource: 'memory',
+            imageOfflineStale: false,
+          } : {}),
+        };
+      }),
+    }));
+    appendRuntimeDiagnostic({
+      level: 'info',
+      area: 'floor-plan-image',
+      projectId,
+      code: 'BULK_SHARED_ASSET_APPLIED',
+      message: `floors=${result.applied}; asset=${result.assetId}; bytes=${result.bytes}`,
+    });
+    floorPlanSmartCacheKeyRef.current = '';
+    setFloorPlanSmartCacheRetryTick((tick) => tick + 1);
+    return result.applied;
   };
 
   const handleRenameFloorPlan = (id: string, newName: string) => {
@@ -5530,11 +6072,16 @@ export default function App() {
       const newId = createEntityId('fp');
       const newFloorName = customName?.trim() || `${sourcePlan.floorName} (Bản sao)`;
       const now = Date.now();
+      const normalizedStructure = normalizeStructureGroupConfig(structureConfig);
+      const duplicateStructureGroupId = normalizedStructure.enabled
+        ? resolveFloorStructureGroupId(sourcePlan, normalizedStructure)
+        : sourcePlan.structureGroupId;
 
       const newPlan: FloorPlan = {
         ...sourcePlan,
         id: newId,
         floorName: newFloorName,
+        ...(duplicateStructureGroupId ? { structureGroupId: duplicateStructureGroupId } : {}),
         uploadedAt: new Date().toISOString().split('T')[0],
         // The copied Base64/blob URL may be reused locally, but cloud identifiers belong
         // to the source floor and must never be reused under a new floorId. Reset cloud
@@ -5545,6 +6092,8 @@ export default function App() {
         storageProvider: undefined,
         imageCloudRevision: 0,
         imageCloudSyncedAt: undefined,
+        imageAssetId: null,
+        imageAssetOwnerFloorId: null,
         imageRevision: now,
         updatedAt: now,
       };
@@ -5852,6 +6401,16 @@ export default function App() {
     updateAppData((prev) => ({
       ...prev,
       floorPlans: reorderedList.map((fp, idx) => ({ ...fp, order: idx })),
+    }));
+  };
+
+  const handleBulkMoveFloorPlansToStructureGroup = (ids: string[], targetGroupId: string) => {
+    if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
+    const normalizedStructure = normalizeStructureGroupConfig(structureConfig);
+    if (!normalizedStructure.enabled || !normalizedStructure.groups.some((group) => group.id === targetGroupId)) return;
+    updateAppData((prev) => ({
+      ...prev,
+      floorPlans: moveFloorsToStructureGroup(prev.floorPlans, ids, targetGroupId, normalizedStructure),
     }));
   };
 
@@ -6166,11 +6725,10 @@ export default function App() {
   const hasExcelExport = ['warehouse', 'volume', 'floorplan', 'checklist', 'crew'].includes(activeTab);
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900 font-sans selection:bg-blue-200">
+    <div className={`min-h-screen bg-slate-100 text-slate-900 font-sans selection:bg-blue-200 ${isDesktopRuntime ? 'pl-[84px]' : 'lg:pl-[84px]'}`}>
       {/* Mobile & Responsive Shell Frame */}
       <div
-        className="w-full max-w-lg md:max-w-3xl lg:max-w-5xl mx-auto bg-slate-50 min-h-screen shadow-2xl relative border-x border-slate-200 overflow-x-hidden"
-        style={{ paddingBottom: isSoftKeyboardOpen ? '0px' : 'calc(5rem + env(safe-area-inset-bottom))' }}
+        className={`w-full max-w-lg md:max-w-3xl lg:max-w-none mx-auto bg-slate-50 min-h-screen shadow-2xl relative border-x border-slate-200 overflow-x-hidden ${isSoftKeyboardOpen ? 'pb-0' : 'pb-[calc(5rem+env(safe-area-inset-bottom))] lg:pb-4'}`}
       >
         {/* Sticky Top Header */}
         <GoogleAuthHeader
@@ -6235,6 +6793,21 @@ export default function App() {
           </div>
         )}
         
+        <MultiProjectOverview
+          isOpen={isMultiProjectOverviewOpen}
+          projects={authorizedChatProjects}
+          activeProjectId={activeProjectId}
+          onClose={() => setIsMultiProjectOverviewOpen(false)}
+          onOpenProject={async (projectId) => {
+            await switchProject(projectId);
+            setIsMultiProjectOverviewOpen(false);
+          }}
+          onManageProjects={() => {
+            setIsMultiProjectOverviewOpen(false);
+            handleOpenProjectManager('projects');
+          }}
+        />
+
         <ProjectManagerModal 
           isOpen={isProjectManagerOpen} 
           onClose={() => setIsProjectManagerOpen(false)} 
@@ -6259,6 +6832,7 @@ export default function App() {
             projectName,
             contractorName,
             inspectorName,
+            projectLocation,
             materialNorms,
             inventory,
             workVolumes,
@@ -6278,11 +6852,40 @@ export default function App() {
         />
 
         {/* Offline & Sync Status Banner */}
-        <OfflineSyncBanner onAutoSync={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleSyncAll : undefined} isSyncing={isSyncing} userRole={currentUserRole} roleResolved={isProjectRoleResolved} roleSource={projectRoleSource} firestorePendingWriteCount={firestorePendingWriteCount} firebaseOnly={FIREBASE_ONLY_RUNTIME} />
+        <OfflineSyncBanner onAutoSync={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleSyncAll : undefined} isSyncing={isSyncing} userRole={currentUserRole} roleResolved={isProjectRoleResolved} roleSource={projectRoleSource} firestorePendingWriteCount={firestorePendingWriteCount} firebaseOnly={FIREBASE_ONLY_RUNTIME} verifiedSnapshotFallback={businessDataSource === 'verified-offline-snapshot'} />
 
         {/* Tab Content */}
         <main className="animate-in fade-in duration-150">
           <React.Suspense fallback={<div className="p-8 text-center text-sm text-slate-500"><RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />Đang tải mục...</div>}>
+          {activeTab === 'home' && (
+            <HomeDashboard
+              projects={authorizedChatProjects}
+              activeProjectId={activeProjectId}
+              activeProjectName={projectName}
+              activeProjectLocation={projectLocation}
+              currentRole={currentUserRole}
+              defectOpenCount={unhandledDefectsCount}
+              dueAlertCount={dueDateAlerts.length}
+              crewRecords={crewRecords}
+              teams={teams}
+              floorPlans={floorPlans}
+              structureConfig={structureConfig}
+              lastUpdatedAt={lastUpdatedAt}
+              isOnline={isOnline}
+              isSyncing={isSyncing}
+              startupProjectId={startupProjectId}
+              onStartupProjectChange={handleStartupProjectChange}
+              onOpenProject={async (projectId) => {
+                await switchProject(projectId);
+                setActiveTab('floorplan');
+              }}
+              onManageProjects={() => handleOpenProjectManager('projects')}
+              onOpenNotifications={() => setIsNotificationCenterOpen(true)}
+              onOpenCrew={() => setActiveTab('crew')}
+              onOpenFloorPlan={() => setActiveTab('floorplan')}
+            />
+          )}
+
           {activeTab === 'warehouse' && (
             <WarehouseTab
               inventory={inventory}
@@ -6305,15 +6908,11 @@ export default function App() {
               roomProgressList={roomProgressList}
               teams={teams}
               floorPlans={floorPlans}
+              structureConfig={structureConfig}
+              defaultHandler={inspectorName}
               onImportInventory={handleImportInventory}
               onImportNorms={handleImportNorms}
-              onImportWorkVolumes={(importedVolumes) => {
-                if (!isProjectRoleResolved || !canManageWorkVolumeStructure(currentUserRole)) {
-                  console.warn('[RBAC] Chỉ ADMIN được nhập thay đổi cấu trúc hạng mục khối lượng.');
-                  return;
-                }
-                updateAppData((prev) => ({ ...prev, workVolumes: importedVolumes.map((item) => ({ ...item, unit: normalizeUnit(item.unit) || item.unit })) }));
-              }}
+              onImportWorkVolumes={handleImportWorkVolumes}
             />
           )}
 
@@ -6322,10 +6921,12 @@ export default function App() {
               workVolumes={computedWorkVolumes}
               floorPlans={floorPlans}
               roomProgressList={roomProgressList}
+              structureConfig={structureConfig}
               projectName={projectName}
               userRole={currentUserRole}
               onAddWorkVolume={handleAddWorkVolume}
               onSaveWorkVolume={handleSaveWorkVolume}
+              onImportWorkVolumes={handleImportWorkVolumes}
               onUpdateActualVolume={handleUpdateActualVolume}
               onDeleteWorkVolume={handleDeleteWorkVolume}
               onDeleteMultipleWorkVolumes={handleDeleteMultipleWorkVolumes}
@@ -6342,6 +6943,8 @@ export default function App() {
             <FloorPlanDefectTab
               projectId={activeProjectId}
               floorPlans={floorPlans}
+              structureConfig={structureConfig}
+              onStructureConfigChange={handleStructureConfigChange}
               defects={activeDefects}
               roomProgressList={roomProgressList}
               checklistItems={activeChecklist}
@@ -6356,6 +6959,7 @@ export default function App() {
               onAddFloorPlan={handleAddFloorPlan}
               onUpdateFloorPlan={handleUpdateFloorPlan}
               onUpdateFloorPlanImage={handleUpdateFloorPlanImage}
+              onUpdateFloorPlanImages={handleUpdateFloorPlanImages}
               onRenameFloorPlan={handleRenameFloorPlan}
               onDeleteFloorPlan={handleDeleteFloorPlan}
               onDeleteMultipleFloorPlans={handleDeleteMultipleFloorPlans}
@@ -6373,6 +6977,7 @@ export default function App() {
               onDeleteMultipleRoomProgress={handleDeleteMultipleRoomProgress}
               onReorderRoomProgressList={handleReorderRoomProgressList}
               onReorderFloorPlans={handleReorderFloorPlans}
+              onBulkMoveFloorPlansToStructureGroup={handleBulkMoveFloorPlansToStructureGroup}
               onActiveFloorChange={setActiveFloorViewId}
               onOpenExportPdf={() => setIsExportPdfOpen(true)}
               onExportExcel={handleExportExcel}
@@ -6413,10 +7018,15 @@ export default function App() {
               roleResolved={isProjectRoleResolved}
               currentUserUid={getCurrentRealFirebaseUser()?.uid || ''}
               projectName={projectName}
+              projectLocation={projectLocation}
               crewRecords={crewRecords}
               floorPlans={floorPlans}
+              structureConfig={structureConfig}
               roomProgressList={roomProgressList}
               defects={activeDefects}
+              workVolumes={computedWorkVolumes}
+              inventory={inventory}
+              materialNorms={computedMaterialNorms}
               onAddCrewRecord={handleAddCrewRecord}
               onUpdateCrewRecord={handleUpdateCrewRecord}
               onDeleteCrewRecord={handleDeleteCrewRecord}
@@ -6588,7 +7198,11 @@ export default function App() {
               setContractorName={handleUpdateContractorName}
               inspectorName={inspectorName}
               setInspectorName={handleUpdateInspectorName}
+              projectLocation={projectLocation}
+              setProjectLocation={handleUpdateProjectLocation}
               floorPlans={floorPlans}
+              structureConfig={structureConfig}
+              onStructureConfigChange={handleStructureConfigChange}
               onUpdateFloorPlan={handleUpdateFloorPlan}
               onSyncAll={handleSyncAll}
               isSyncing={isSyncing}
@@ -6607,7 +7221,51 @@ export default function App() {
               onLinkLocalFile={handleLinkLocalFile}
               onUnlinkLocalFile={handleUnlinkLocalFile}
               onRequestLocalFilePermission={handleRequestLocalFilePermission}
-              onOpenProjectManager={() => handleOpenProjectManager('sync')}
+              syncCenterContent={(
+                <ProjectManagerModal
+                  inline
+                  isOpen={true}
+                  onClose={() => undefined}
+                  activeProjectId={activeProjectId}
+                  initialTab="sync"
+                  userRole={currentUserRole}
+                  autoSyncEnabled={autoSyncEnabled}
+                  setAutoSyncEnabled={setAutoSyncEnabled}
+                  onDriveSyncUpAll={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleDriveSyncUpAll : undefined}
+                  onDriveSyncDownAll={!FIREBASE_ONLY_RUNTIME && googleServerBackendAvailable ? handleDriveSyncDownAll : undefined}
+                  localAllSyncStatus={localAllSyncStatus}
+                  localAllFileName={localAllFileName}
+                  localAllFileHandle={localAllFileHandle}
+                  onLinkLocalAllFile={handleLinkLocalAllFile}
+                  onUnlinkLocalAllFile={handleUnlinkLocalAllFile}
+                  onRequestLocalAllFilePermission={handleRequestLocalAllFilePermission}
+                  autosaveVersions={autosaveVersions}
+                  onRestoreAutoSaveVersion={handleRestoreAutoSaveVersion}
+                  onCreateManualBackup={handleCreateManualBackup}
+                  onDeleteAutoSaveVersion={handleDeleteAutoSaveVersion}
+                  fullAppData={{
+                    projectName,
+                    contractorName,
+                    inspectorName,
+                    projectLocation,
+                    materialNorms,
+                    inventory,
+                    workVolumes,
+                    floorPlans,
+                    defects,
+                    roomProgressList,
+                    checklist,
+                    crewRecords,
+                    teams,
+                    updatedAt: lastUpdatedAt,
+                  }}
+                  onRestoreData={handleRestoreData}
+                  onSwitchProject={switchProject}
+                  onFlushCurrentProject={async () => await saveCurrentProject(activeProjectId)}
+                  dataCloudStatus={dataCloudStatus}
+                  photoCloudStatus={photoCloudStatus}
+                />
+              )}
               userRole={currentUserRole}
               trashSettings={trashSettings}
               trashOperations={trashOperations}
@@ -6622,7 +7280,7 @@ export default function App() {
                 roleSource: projectRoleSource,
                 online: isOnline,
                 dataCloudPhase: dataCloudStatus.phase,
-                pendingData: syncDiagnosticPendingData,
+                pendingData: syncDiagnosticPendingData + syncDiagnosticPendingMetadata,
                 photoPending: Number(photoCloudStatus.pending || 0),
                 photoPhase: String(photoCloudStatus.phase || 'idle'),
                 pendingDriveUploads: Number(photoCloudStatus.pending || 0) + floorPlanImageSyncPendingRef.current.size + floorPlanImageSyncInFlightRef.current.size,
@@ -6672,6 +7330,7 @@ export default function App() {
           projectName={projectName}
           contractorName={contractorName}
           inspectorName={inspectorName}
+          projectLocation={projectLocation}
           activeProjectId={activeProjectId}
           userRole={currentUserRole}
           inventory={inventory}
@@ -6680,6 +7339,7 @@ export default function App() {
           defects={activeDefects}
           checklist={activeChecklist}
           floorPlans={floorPlans}
+          structureConfig={structureConfig}
           roomProgressList={roomProgressList}
           crewRecords={crewRecords}
           teams={teams}
@@ -6700,13 +7360,7 @@ export default function App() {
           inventory={inventory}
           workVolumes={computedWorkVolumes}
           onImportInventory={handleImportInventory}
-          onImportWorkVolumes={(importedVolumes) => {
-            if (!isProjectRoleResolved || !canImportData(currentUserRole) || !canManageWorkVolumeStructure(currentUserRole)) {
-              console.warn('[RBAC] Chỉ ADMIN được nhập cấu trúc hạng mục khối lượng.');
-              return;
-            }
-            updateAppData((prev) => ({ ...prev, workVolumes: importedVolumes }));
-          }}
+          onImportWorkVolumes={handleImportWorkVolumes}
         />
 
         {/* Floating alerts never compete with the chat composer / soft keyboard. */}
@@ -6725,6 +7379,7 @@ export default function App() {
         <NotificationCenterModal
           isOpen={isNotificationCenterOpen}
           onClose={() => setIsNotificationCenterOpen(false)}
+          activeProjectId={activeProjectId}
           workVolumes={workVolumes}
           checklist={activeChecklist}
           defects={activeDefects}
@@ -6751,6 +7406,7 @@ export default function App() {
         {!isSoftKeyboardOpen && (
           <BottomNav
             activeTab={activeTab}
+            forceDesktopRail={isDesktopRuntime}
             setActiveTab={setActiveTab}
             defectBadgeCount={unhandledDefectsCount}
             chatBadgeCount={chatUnreadCount}
@@ -6779,5 +7435,13 @@ export default function App() {
         <GlobalConfirmModal />
       </div>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AppAuthGate>
+      <AuthenticatedApp />
+    </AppAuthGate>
   );
 }

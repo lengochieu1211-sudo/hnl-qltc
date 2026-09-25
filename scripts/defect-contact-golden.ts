@@ -45,8 +45,8 @@ const defect: DefectItem = {
   status: 'Đang sửa',
   createdAt: '2026-09-03T00:00:00.000Z',
 };
-const text = buildDefectShareText(defect);
-for (const expected of ['HNL QLTC – Defect', 'Tầng: Tầng 5', 'Loại lỗi: Tấm thạch cao', 'Mô tả: Thiếu vít', 'Phụ trách: Đội Tấm B', '05/09/2026', 'Trạng thái: Đang sửa']) {
+const text = buildDefectShareText({ ...defect, roomId: 'room-a101' }, 'A101');
+for (const expected of ['HNL QLTC – Defect', 'Tầng: Tầng 5', 'Căn/Phòng: A101', 'Loại lỗi: Tấm thạch cao', 'Mô tả: Thiếu vít', 'Phụ trách: Đội Tấm B', '05/09/2026', 'Trạng thái: Đang sửa']) {
   assert.ok(text.includes(expected), `Missing share text segment: ${expected}`);
 }
 

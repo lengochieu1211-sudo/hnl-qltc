@@ -13,17 +13,31 @@ export function normalizeMaterialNameKey(value?: string): string {
  * Resolve one stable material ID without confusing MaterialNorm.id (the norm row)
  * with materialId (the material identity). Legacy norms get a deterministic alias.
  */
+export function resolveLegacyMaterialId(materialName?: string, unit?: string): string | undefined {
+  const name = normalizeMaterialNameKey(materialName);
+  const normalizedUnit = normalizeUnit(unit || '') || String(unit || '').trim().toLocaleLowerCase('vi-VN');
+  if (!name || !normalizedUnit) return undefined;
+  const input = `${name}|${normalizedUnit}`;
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `MAT-LEGACY-${hash.toString(16).padStart(8, '0')}`;
+}
+
 export function resolveNormMaterialId(norm?: Partial<MaterialNorm> | null): string | undefined {
   if (!norm) return undefined;
   if (norm.materialId) return String(norm.materialId);
-  if (norm.id) return `MAT-${String(norm.id)}`;
-  return undefined;
+  // Legacy material identity is Name + Unit, never the norm-row ID. This lets one
+  // physical material aggregate across several disjoint category norms.
+  return resolveLegacyMaterialId(norm.materialName, norm.unit);
 }
 
 export function getMaterialIdentityKey(materialId?: string, materialName?: string, unit?: string): string {
-  if (materialId) return `id:${String(materialId)}`;
-  const name = normalizeMaterialNameKey(materialName);
   const normalizedUnit = normalizeUnit(unit || '') || String(unit || '').trim().toLocaleLowerCase('vi-VN');
+  if (materialId) return `id:${String(materialId)}|unit:${normalizedUnit}`;
+  const name = normalizeMaterialNameKey(materialName);
   return `name:${name}|unit:${normalizedUnit}`;
 }
 
@@ -34,12 +48,16 @@ export function buildMaterialAliasMap(materialNorms: MaterialNorm[] = []): Map<s
     if (!resolved) return;
     aliases.set(resolved, resolved);
     if (norm.materialId) aliases.set(String(norm.materialId), resolved);
-    if (norm.id) aliases.set(String(norm.id), resolved); // legacy inventory may have stored norm.id
+    if (norm.id) {
+      aliases.set(String(norm.id), resolved); // oldest legacy inventory may store norm.id
+      aliases.set(`MAT-${String(norm.id)}`, resolved); // prior app versions derived materialId from norm.id
+    }
   });
   return aliases;
 }
 
 export interface MaterialStockSummary {
+  itemKind: 'material' | 'equipment';
   materialId?: string;
   materialName: string;
   category: string;
@@ -62,6 +80,7 @@ export function calculateStockSummary(
 ): MaterialStockSummary[] {
   const aliasMap = buildMaterialAliasMap(materialNorms);
   const stockMap: Record<string, {
+    itemKind: 'material' | 'equipment';
     materialId?: string;
     materialName: string;
     unit: string;
@@ -75,6 +94,7 @@ export function calculateStockSummary(
     const key = getMaterialIdentityKey(materialId, norm.materialName, norm.unit);
     if (!stockMap[key]) {
       stockMap[key] = {
+        itemKind: 'material',
         materialId,
         materialName: norm.materialName,
         unit: normalizeUnit(norm.unit) || norm.unit,
@@ -86,29 +106,35 @@ export function calculateStockSummary(
   });
 
   inventory.forEach((item) => {
-    const aliasedId = item.materialId ? (aliasMap.get(String(item.materialId)) || String(item.materialId)) : undefined;
-    let key = getMaterialIdentityKey(aliasedId, item.materialName, item.unit);
+    const itemKind = item.itemKind === 'equipment' ? 'equipment' : 'material';
+    const aliasedId = itemKind === 'material' && item.materialId
+      ? (aliasMap.get(String(item.materialId)) || String(item.materialId))
+      : undefined;
+    let key = itemKind === 'equipment'
+      ? `equipment:${normalizeMaterialNameKey(item.materialName)}|unit:${normalizeUnit(item.unit) || item.unit}`
+      : getMaterialIdentityKey(aliasedId, item.materialName, item.unit);
 
-    // Legacy transactions without materialId are attached only when both name + unit match.
-    if (!aliasedId) {
+    // Legacy material transactions without materialId are attached only when both name + unit match.
+    if (itemKind === 'material' && !aliasedId) {
       const name = normalizeMaterialNameKey(item.materialName);
       const unit = normalizeUnit(item.unit) || item.unit;
-      const matchedNorm = materialNorms.find((norm) =>
+      const matchedNorms = materialNorms.filter((norm) =>
         normalizeMaterialNameKey(norm.materialName) === name &&
         (normalizeUnit(norm.unit) || norm.unit) === unit
       );
-      if (matchedNorm) {
-        const resolved = resolveNormMaterialId(matchedNorm);
-        key = getMaterialIdentityKey(resolved, matchedNorm.materialName, matchedNorm.unit);
+      const resolvedIds = Array.from(new Set(matchedNorms.map(resolveNormMaterialId).filter(Boolean)));
+      if (resolvedIds.length === 1) {
+        key = getMaterialIdentityKey(resolvedIds[0], item.materialName, item.unit);
       }
     }
 
     if (!stockMap[key]) {
       stockMap[key] = {
+        itemKind,
         materialId: aliasedId,
         materialName: item.materialName,
         unit: normalizeUnit(item.unit) || item.unit,
-        category: 'Vật tư',
+        category: itemKind === 'equipment' ? 'Thiết bị' : 'Vật tư',
         totalIn: 0,
         totalOut: 0,
       };
@@ -118,7 +144,7 @@ export function calculateStockSummary(
   });
 
   return Object.values(stockMap).map((m) => {
-    const matchingNorms = materialNorms.filter((n) => {
+    const matchingNorms = m.itemKind === 'equipment' ? [] : materialNorms.filter((n) => {
       const resolved = resolveNormMaterialId(n);
       if (m.materialId && resolved === m.materialId) return true;
       return normalizeMaterialNameKey(n.materialName) === normalizeMaterialNameKey(m.materialName)
@@ -147,7 +173,8 @@ export function calculateStockSummary(
     }
 
     return {
-      materialId: m.materialId || resolveNormMaterialId(norm),
+      itemKind: m.itemKind,
+      materialId: m.itemKind === 'material' ? (m.materialId || resolveNormMaterialId(norm)) : undefined,
       materialName: m.materialName,
       category: m.category || norm?.category || 'Vật tư',
       unit: normalizeUnit(m.unit || norm?.unit || 'Tấm') || (m.unit || norm?.unit || 'Tấm'),
@@ -171,7 +198,9 @@ export function parseInventoryExcel(rows: any[]): Partial<InventoryItem>[] {
 
   rows.forEach((r, idx) => {
     if (!r || typeof r !== 'object') return;
-    const materialName = r['Tên Vật Tư'] || r['Tên vật tư'] || r['Vật tư'] || r['materialName'] || r['Material Name'] || '';
+    const materialName = r['Tên Vật Tư / Thiết Bị'] || r['Tên Vật Tư'] || r['Tên vật tư'] || r['Tên Thiết Bị'] || r['Tên thiết bị'] || r['Vật tư'] || r['Thiết bị'] || r['materialName'] || r['Material Name'] || '';
+    const rawItemKind = String(r['Loại Hàng'] || r['Loại hàng'] || r['itemKind'] || '').trim().toLocaleLowerCase('vi-VN');
+    const itemKind: 'material' | 'equipment' = rawItemKind.includes('thiết') || rawItemKind === 'equipment' ? 'equipment' : 'material';
     if (!materialName || String(materialName).trim() === '' || String(materialName).trim().startsWith('---')) return;
 
     const rawType = String(r['Loại Phiếu'] || r['Loại phiếu'] || r['type'] || r['Loại'] || '').toLowerCase();
@@ -189,7 +218,8 @@ export function parseInventoryExcel(rows: any[]): Partial<InventoryItem>[] {
 
     result.push({
       id: String(id),
-      materialId: materialId ? String(materialId) : undefined,
+      itemKind,
+      materialId: itemKind === 'material' && materialId ? String(materialId) : undefined,
       materialName: String(materialName).trim(),
       type,
       quantity,
@@ -201,7 +231,9 @@ export function parseInventoryExcel(rows: any[]): Partial<InventoryItem>[] {
       sourceType: r['__sourceType'] || r['sourceType'] || undefined,
       sourceRoomId: r['__sourceRoomId'] || r['sourceRoomId'] || undefined,
       sourceFloorId: r['__sourceFloorId'] || r['sourceFloorId'] || undefined,
-      sourceNormId: r['__sourceNormId'] || r['sourceNormId'] || undefined,
+      sourceTeamId: r['__sourceTeamId'] || r['sourceTeamId'] || undefined,
+      sourceWorkCategoryId: itemKind === 'material' ? (r['__sourceWorkCategoryId'] || r['sourceWorkCategoryId'] || undefined) : undefined,
+      sourceNormId: itemKind === 'material' ? (r['__sourceNormId'] || r['sourceNormId'] || undefined) : undefined,
       sourceIssueKey: r['__sourceIssueKey'] || r['sourceIssueKey'] || undefined
     });
   });
@@ -236,7 +268,7 @@ export function parseMaterialNormExcel(rows: any[]): Partial<MaterialNorm>[] {
 
     result.push({
       id: String(id),
-      materialId: materialId ? String(materialId) : `MAT-${String(id)}`,
+      materialId: materialId ? String(materialId) : resolveLegacyMaterialId(String(materialName).trim(), unit),
       materialName: String(materialName).trim(),
       category,
       workCategory: workCatStr,

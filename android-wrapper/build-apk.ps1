@@ -140,6 +140,64 @@ New-Item -ItemType Directory -Force -Path $classes, $dex, $generated | Out-Null
 Copy-Item -Path (Join-Path $dist '*') -Destination $assets -Recurse -Force
 Get-ChildItem -LiteralPath $assets -Recurse -Filter '*.map' | Remove-Item -Force
 
+
+# Dedicated launcher branding: keep separate from Web/in-app logo assets.
+$launcherIconSource = Join-Path $projectRoot 'desktop-wrapper\HNL-QLTC-SHELL-ICON.png'
+if (-not (Test-Path -LiteralPath $launcherIconSource)) { throw "Missing HNL shell launcher icon source: $launcherIconSource" }
+
+Add-Type -AssemblyName System.Drawing
+function Write-HnlLauncherPng {
+    param(
+        [Parameter(Mandatory = $true)][System.Drawing.Image] $Source,
+        [Parameter(Mandatory = $true)][int] $Size,
+        [Parameter(Mandatory = $true)][string] $OutputPath
+    )
+    $bitmap = New-Object System.Drawing.Bitmap($Size, $Size, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    try {
+        $graphics.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceOver
+        $graphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
+        $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+        $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+        $graphics.Clear([System.Drawing.Color]::Transparent)
+        $graphics.DrawImage($Source, (New-Object System.Drawing.Rectangle(0, 0, $Size, $Size)))
+        $bitmap.Save($OutputPath, [System.Drawing.Imaging.ImageFormat]::Png)
+    } finally {
+        $graphics.Dispose()
+        $bitmap.Dispose()
+    }
+}
+
+function Write-HnlAndroidLauncherIcons {
+    param([Parameter(Mandatory = $true)][string] $SourcePath)
+    $source = [System.Drawing.Image]::FromFile($SourcePath)
+    try {
+        if ($source.Width -lt 512 -or $source.Height -lt 512) {
+            throw "HNL launcher source is too small: $($source.Width)x$($source.Height)"
+        }
+        $targets = [ordered]@{
+            'mipmap-mdpi' = 48
+            'mipmap-hdpi' = 72
+            'mipmap-xhdpi' = 96
+            'mipmap-xxhdpi' = 144
+            'mipmap-xxxhdpi' = 192
+        }
+        foreach ($entry in $targets.GetEnumerator()) {
+            $folder = Join-Path $root ('res\' + $entry.Key)
+            New-Item -ItemType Directory -Force -Path $folder | Out-Null
+            Write-HnlLauncherPng -Source $source -Size ([int]$entry.Value) -OutputPath (Join-Path $folder 'ic_launcher.png')
+            Write-HnlLauncherPng -Source $source -Size ([int]$entry.Value) -OutputPath (Join-Path $folder 'ic_launcher_round.png')
+        }
+    } finally {
+        $source.Dispose()
+    }
+    Write-Output "Android launcher icon source: desktop-wrapper/HNL-QLTC-SHELL-ICON.png"
+    Write-Output "Android launcher densities: mdpi=48 hdpi=72 xhdpi=96 xxhdpi=144 xxxhdpi=192"
+}
+
+Write-HnlAndroidLauncherIcons -SourcePath $launcherIconSource
+
 Invoke-Tool $aapt2 @('compile', '--dir', (Join-Path $root 'res'), '-o', $compiled)
 Invoke-Tool $aapt2 @(
     'link', '-o', $unsignedApk, '-I', $androidJar,

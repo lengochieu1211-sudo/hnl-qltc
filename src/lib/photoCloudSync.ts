@@ -17,6 +17,7 @@ import {
   cachePhotoBlob,
   getPhotoBlob,
   getProjectPhotos,
+  isPhotoCachedBinaryCurrent,
   isPhotoSharedCloudReady,
   mergeCloudPhotoMetadata,
 } from '../utils/photoStorage';
@@ -25,12 +26,42 @@ import { downloadPhotoFromPrimaryDrive } from './primaryDriveBridge';
 import { LEGACY_DRIVE_READ_FALLBACK } from '../config/runtimeArchitecture';
 import { BINARY_STORAGE_PROVIDER, downloadBinaryBlob, uploadProjectBinaryToCloud, verifyBinaryObjectReady } from './binaryStorage';
 import { appendRuntimeDiagnostic } from './runtimeDiagnostics';
+import { shouldAutoMirrorProjectBinaries } from './offlineMirrorSettings';
 
 const photoSyncErrorCode = (err: unknown): string => {
   const message = err instanceof Error ? err.message : String(err || '');
   const match = message.match(/^(R2_[A-Z0-9_]+|PHOTO_[A-Z0-9_]+|[A-Z0-9_]+):?/);
   return match?.[1] || 'PHOTO_SYNC_FAILED';
 };
+
+const mirroredPhotoPrefetchInFlight = new Set<string>();
+
+async function prefetchOfflineMirrorPhotos(projectId: string, photos: PhotoAttachment[]): Promise<void> {
+  if (!projectId || !shouldAutoMirrorProjectBinaries(projectId)) return;
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+  const candidates = photos.filter((photo) => photo?.id && !photo.deleted && !photo.deletedAt && isPhotoSharedCloudReady(photo));
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(3, Math.max(1, candidates.length)) }, async () => {
+    while (true) {
+      const index = cursor++;
+      if (index >= candidates.length) return;
+      const photo = candidates[index];
+      const key = `${projectId}:${photo.id}`;
+      if (mirroredPhotoPrefetchInFlight.has(key)) continue;
+      mirroredPhotoPrefetchInFlight.add(key);
+      try {
+        const localBlob = await getPhotoBlob(photo.id, false).catch(() => null);
+        const cacheCurrent = localBlob && localBlob.size > 0 ? await isPhotoCachedBinaryCurrent(photo).catch(() => false) : false;
+        if (!cacheCurrent) await downloadPhotoBlobFromCloud(projectId, photo.id, photo.mimeType || 'image/jpeg');
+      } catch (err) {
+        console.warn('[Offline Mirror] photo prefetch warning:', photo.id, err);
+      } finally {
+        mirroredPhotoPrefetchInFlight.delete(key);
+      }
+    }
+  });
+  await Promise.all(workers);
+}
 
 // RC2.2.6: Firestore remains the realtime source of truth; binary media is routed
 // through a provider adapter. PROD uses private Cloudflare R2 via an authenticated
@@ -50,6 +81,7 @@ function cleanPhotoMetadata(photo: PhotoAttachment) {
   delete copy.dataUrl;
   delete copy.localBlobKey;
   delete copy.cloudUrl;
+  delete copy.pendingOwnerUid;
   return copy;
 }
 
@@ -224,14 +256,26 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
   const localRepairBlob = !photo.deleted && currentProviderBacked
     ? await getPhotoBlob(photo.id, false).catch(() => null)
     : null;
-  const currentProviderVerified = localRepairBlob && currentProviderBacked
+
+  // An image edited in PhotoAttachmentPicker deliberately clears the old Cloud pointer,
+  // keeps the replacement Blob locally and marks metadata as pending. That local outbox
+  // is a new binary version even when this device had a stale numeric revision before
+  // editing. Never classify it as stale merely because the previous Cloud revision is
+  // greater/equal; otherwise the old R2 metadata wins and the edited Defect/Crew photo
+  // is never uploaded.
+  const localPendingBinaryReplacement = Boolean(
+    !photo.deleted
+    && localRepairBlob
+    && String(photo.binaryUploadState || '') === 'pending'
+  );
+  const currentProviderVerified = localRepairBlob && currentProviderBacked && !localPendingBinaryReplacement
     ? await verifyCurrentProviderCloudBinary(cloudData)
     : true;
-  const currentProviderRepairMode = Boolean(localRepairBlob && currentProviderBacked && !currentProviderVerified);
+  const currentProviderRepairMode = Boolean(localRepairBlob && currentProviderBacked && !localPendingBinaryReplacement && !currentProviderVerified);
   const binaryRepairMode = legacyMigrationMode || currentProviderRepairMode;
 
   const cloudIsAuthoritative = Boolean(cloudData?.deleted) || cloudHasResolvedBinaryState;
-  const localIsStale = Boolean(cloudData) && cloudIsAuthoritative && (
+  const localIsStale = !localPendingBinaryReplacement && Boolean(cloudData) && cloudIsAuthoritative && (
     (cloudRevision > 0 && localRevision > 0 && localRevision <= cloudRevision) ||
     (cloudRevision <= 0 && cloudUpdatedAt > 0 && localUpdatedAt > 0 && localUpdatedAt < cloudUpdatedAt)
   );
@@ -251,7 +295,7 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
     return;
   }
 
-  if (cloudData && cloudUpdatedAt >= localUpdatedAt && cloudDeleteStateMatches && cloudHasResolvedBinaryState && (photo.deleted || currentProviderBacked) && !currentProviderRepairMode) {
+  if (!localPendingBinaryReplacement && cloudData && cloudUpdatedAt >= localUpdatedAt && cloudDeleteStateMatches && cloudHasResolvedBinaryState && (photo.deleted || currentProviderBacked) && !currentProviderRepairMode) {
     await reconcileCloudIntoLocal();
     return;
   }
@@ -259,7 +303,7 @@ async function uploadPhotoToCloudOnce(projectId: string, photo: PhotoAttachment)
     await reconcileCloudIntoLocal();
     return;
   }
-  if (cloudData && !cloudDeleteStateMatches && cloudUpdatedAt >= localUpdatedAt) {
+  if (!localPendingBinaryReplacement && cloudData && !cloudDeleteStateMatches && cloudUpdatedAt >= localUpdatedAt) {
     await reconcileCloudIntoLocal();
     return;
   }
@@ -518,7 +562,7 @@ async function downloadPhotoBlobFromFirestoreChunks(projectId: string, photoId: 
   });
   if (parts.length === 0) return null;
   const blob = new Blob(parts, { type: metaSnap.data()?.mimeType || mimeType });
-  await cachePhotoBlob(photoId, blob, true);
+  await cachePhotoBlob(photoId, blob, true, { id: photoId, projectId, ...metaSnap.data() } as PhotoAttachment);
   return blob;
 }
 
@@ -567,7 +611,7 @@ export async function downloadPhotoBlobFromCloud(projectId: string, photoId: str
     if (!storagePath || !['r2', 'firebase-storage'].includes(provider)) return null;
     const storageBlob = await downloadBinaryBlob(provider, storagePath);
     if (!storageBlob || storageBlob.size <= 0) return null;
-    await cachePhotoBlob(photoId, storageBlob, true).catch(() => {});
+    await cachePhotoBlob(photoId, storageBlob, true, { id: photoId, projectId, ...meta } as PhotoAttachment).catch(() => {});
     return storageBlob;
   };
 
@@ -738,6 +782,9 @@ export function subscribeProjectPhotosRealtime(
         if (cancelled) return;
         await mergeCloudPhotoMetadata(projectId, cloudPhotos, changedPhotos);
         if (cancelled) return;
+        if (shouldAutoMirrorProjectBinaries(projectId)) {
+          void prefetchOfflineMirrorPhotos(projectId, snapshotIsInitial ? cloudPhotos : changedPhotos);
+        }
         console.debug('[photo snapshot]', projectId, 'docs=', snap.size, 'changes=', changes.length, 'initial=', snapshotIsInitial);
         const activeUid = getCurrentRealFirebaseUser()?.uid || '';
         const localAfterMerge = await getProjectPhotos(projectId, true);

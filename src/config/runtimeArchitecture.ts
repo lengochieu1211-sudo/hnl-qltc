@@ -2,6 +2,7 @@ const env = (import.meta as any).env || {};
 
 /**
  * V6.3.0 Firebase-only migration switch.
+ * DEV certification touch 2026-09-13: lifecycle/RBAC/financial/media hardening + Material Need multi-scope.
  *
  * Production defaults to Firebase-only writes. Legacy Drive/local persistence may be
  * READ during the migration window so production data is never orphaned before the

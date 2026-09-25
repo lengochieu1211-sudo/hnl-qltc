@@ -4,29 +4,10 @@ on:
   workflow_dispatch:
   push:
     branches: [dev]
-    paths:
-      - 'scripts/dev-live-backend-golden.mjs'
-      - 'scripts/dev-health-center-repair-live-golden.ts'
-      - 'scripts/dev-hosted-browser-golden.mjs'
-      - 'src/components/FloorPlanDefectTab.tsx'
-      - 'src/utils/defectLinkageUtils.ts'
-      - 'scripts/defect-linkage-golden.ts'
-      - 'src/App.tsx'
-      - 'src/components/BottomNav.tsx'
-      - 'src/features/ai/**'
-      - 'src/ai/**'
-      - 'src/healthCenter/**'
-      - 'scripts/health-center-*.ts'
-      - 'cloudflare/ai-gateway/**'
-      - 'scripts/ai-gateway-golden.mjs'
-      - 'scripts/ai-planner-golden.ts'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/firebase-hosting-merge.yml'
-      - '.github/workflows/dev-runtime-golden.yml'
 
 permissions:
   contents: read
+  actions: read
 
 env:
   DEV_PROJECT_ID: hnl-qltc-dev
@@ -58,6 +39,25 @@ jobs:
       VITE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
       VITE_GIT_COMMIT: ${{ github.sha }}
     steps:
+      - name: Wait for exact DEV environment deploy
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/firebase-dev-environment.yml/runs?branch=dev&event=push&per_page=20"
+          for attempt in $(seq 1 90); do
+            JSON="$(curl --fail --silent --show-error -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' "$API")"
+            STATUS="$(printf '%s' "$JSON" | TARGET_SHA="$GITHUB_SHA" node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const r=(j.workflow_runs||[]).find(x=>x.head_sha===process.env.TARGET_SHA);process.stdout.write(r?String(r.status)+'|'+String(r.conclusion||''):'missing|')})")"
+            case "$STATUS" in
+              completed\|success) echo "Exact DEV deploy PASS for $GITHUB_SHA"; break ;;
+              completed\|*) echo "::error::Exact DEV deploy failed for $GITHUB_SHA: $STATUS"; exit 1 ;;
+              *) echo "Waiting exact DEV deploy for $GITHUB_SHA ($attempt/90): $STATUS"; sleep 20 ;;
+            esac
+            if [ "$attempt" -eq 90 ]; then echo '::error::Timed out waiting for exact DEV deploy'; exit 1; fi
+          done
+
       - name: Checkout DEV
         uses: actions/checkout@v4
 
@@ -158,6 +158,7 @@ jobs:
           npm run test:ai-provider
           npm run test:ai-gateway
           npm run test:ai-export
+          npm run test:stability
           npm run typecheck
           npm run lint
           npm run build
@@ -170,12 +171,34 @@ jobs:
         run: |
           set -euo pipefail
           test "$(curl --silent --output /tmp/dev-index.html --write-out '%{http_code}' "${DEV_HOSTING_URL}/?goldenPreflight=${GITHUB_RUN_ID}")" = '200' || { echo '::error::DEV Hosting preflight failed'; exit 1; }
-          curl --fail --silent --show-error "${DEV_R2_URL}/health?goldenPreflight=${GITHUB_RUN_ID}" | grep -q '"ok":true' || { echo '::error::DEV R2 preflight failed'; exit 1; }
+          R2_HEALTH="$(curl --fail --silent --show-error "${DEV_R2_URL}/health?goldenPreflight=${GITHUB_RUN_ID}")"
+          printf '%s' "$R2_HEALTH" | grep -q '"ok":true' || { echo '::error::DEV R2 preflight failed'; exit 1; }
+          printf '%s' "$R2_HEALTH" | grep -q '"firebaseProjectId":"hnl-qltc-dev"' || { echo '::error::DEV R2 Firebase project mismatch'; exit 1; }
+          printf '%s' "$R2_HEALTH" | grep -q '"quotaAttribution":"api-key"' || { echo '::error::DEV R2 quota attribution is not enabled'; exit 1; }
+          printf '%s' "$R2_HEALTH" | grep -q '"quotaUserPartitioning":"sha256-uid"' || { echo '::error::DEV R2 quota-user partitioning is not enabled'; exit 1; }
           curl --fail --silent --show-error "${DEV_AI_URL}/health?goldenPreflight=${GITHUB_RUN_ID}" | grep -q '"ok":true' || { echo '::error::DEV AI preflight failed'; exit 1; }
           echo 'DEV live endpoint preflight: PASS'
 
       - name: Live Firebase + R2 multi-user golden
         run: node scripts/dev-live-backend-golden.mjs
+
+      - name: Classify live infrastructure state
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPORT_JSON="runtime-evidence/live-backend-report.json"
+          test -f "$REPORT_JSON" || { echo '::error::Missing live backend runtime evidence'; exit 1; }
+          STATE="$(REPORT_JSON="$REPORT_JSON" node -e "const fs=require('fs');const r=JSON.parse(fs.readFileSync(process.env.REPORT_JSON,'utf8'));process.stdout.write(String(r.certificationState||''))")"
+          if [ "$STATE" = 'INFRA_QUOTA_BLOCKED' ]; then
+            echo "RUNTIME_INFRA_BLOCKED=true" >> "$GITHUB_ENV"
+            echo "::warning::DEV Firestore quota is blocking direct REST/R2 authorization. Skipping only R2-dependent live media replacement; certification remains blocked."
+          else
+            echo "RUNTIME_INFRA_BLOCKED=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Live immutable media replacement golden
+        if: env.RUNTIME_INFRA_BLOCKED != 'true'
+        run: node scripts/dev-media-replacement-live-golden.mjs
 
       - name: Live Health Center safe-repair golden
         run: npx tsx scripts/dev-health-center-repair-live-golden.ts

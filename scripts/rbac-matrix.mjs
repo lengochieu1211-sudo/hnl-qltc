@@ -23,6 +23,7 @@ const src = {
   bottomNav: read('src/components/BottomNav.tsx'),
   authHeader: read('src/components/GoogleAuthHeader.tsx'),
   firebase: read('src/lib/firebase.ts'),
+  firebaseBase: read('src/lib/firebaseBase.ts'),
   r2: read('cloudflare/r2-gateway/worker.js'),
   firestore: read('firestore.rules'),
   storage: read('storage.rules'),
@@ -85,6 +86,7 @@ check('Security role labels are normalized', has(src.securityModal, 'ADMIN (Qu�
 check('Last ADMIN guard counts unique logical emails', has(src.securityModal, 'new Set(', "m?.role === 'ADMIN'", "String(m?.email || '').trim().toLowerCase()"));
 check('Member list collapses physical aliases to canonical email', has(src.firebase, 'candidateCanonical', 'existingCanonical', 'byEmail.set(email, candidate)'));
 check('Client resolves canonical email before UID fallback', src.firebase.indexOf('if (email) ids.add(email);') < src.firebase.indexOf('if (user.uid) ids.add(user.uid);'));
+check('Project discovery treats legacy indexes as candidates only', has(src.firebaseBase, 'users/{uid}.projects is discovery-only', 'projectAccess and invitation roles are candidates only', "roleInfo.verification !== 'verified' || !roleInfo.allowed", '[Project discovery] server verification failed closed:') && !src.firebaseBase.includes('role: hint.role'));
 check('Notification Defect navigation carries exact identity and floor', has(src.app, 'qlct_pending_defect_navigation', 'defectId: defect.id', 'floorId: defect.floorId'));
 check('FloorPlan consumes Defect deep-link and opens exact detail', has(src.floor, 'qlct_pending_defect_navigation', "setStatusFilter('all')", "setViewMode('defect')", 'setActiveDefectDetail(defect)', 'pendingFocusRef.current'));
 check('Deleted/archived Defect deep-link fails closed with a clear unavailable message', has(src.floor, 'Target no longer exists or is archived', 'Defect này không còn tồn tại hoặc đã được lưu trữ.', 'Target floor no longer exists', 'mặt bằng/tầng liên quan không còn tồn tại.', 'Không có Defect khác được mở thay thế.'));
@@ -112,12 +114,13 @@ check('Firestore core identity/revision guard is retained', has(src.firestore, '
 check('Viewer project data remains read-only via isMember/canEdit split', has(src.firestore, 'allow read:', 'isMember(projectId)', 'function canEdit(projectId)'));
 check('Firestore canonical email role overrides UID alias', has(src.firestore, 'function canonicalMemberActive', 'function canonicalMemberRole', 'hasEmailMember(projectId) ? emailMemberActive(projectId) : uidMemberActive(projectId)'));
 check('Storage canonical email role overrides UID alias', has(src.storage, 'function canonicalMemberActive', 'function canonicalMemberRole', 'emailMemberExists(projectId) ? emailMemberActive(projectId) : uidMemberActive(projectId)'));
-check('R2 canonical email role is checked before UID', has(src.r2, 'for (const memberId of [email, uid])', "return { ok: false, role: '' }"));
+check('R2 canonical email role is checked before UID', has(src.r2, 'for (const memberId of [email, uid])', 'canonicalEmailLookup', "response.status === 404", "canonicalEmailLookup ? 'EMAIL_MEMBER' : 'UID_MEMBER'", 'AUTH_BACKEND_UNAVAILABLE'));
 check('Viewer chat exception is explicit and identity-bound', has(src.firestore, 'VIEWER may chat', 'allow create: if isMember(projectId)', 'request.resource.data.senderUid == request.auth.uid'));
 
 // Storage enforcement.
-check('Storage project media upload requires EDITOR/ADMIN', has(src.storage, 'match /projects/{projectId}/media/', 'allow create: if canEdit(projectId)'));
-check('Storage floor-plan binaries are ADMIN-only', has(src.storage, 'match /projects/{projectId}/floor-plans/', 'Floor-plan drawing binaries are project structure: ADMIN-only.', 'allow create: if isAdmin(projectId)', 'allow update: if isAdmin(projectId)'));
+check('Storage project media is legacy read/purge only; R2 owns all new writes', has(src.storage, 'match /projects/{projectId}/media/', 'allow create, update: if false;', 'allow delete: if isAdmin(projectId)'));
+check('Storage floor-plan binaries are legacy read/purge only; R2 owns all new writes', has(src.storage, 'match /projects/{projectId}/floor-plans/', 'allow create, update: if false;', 'allow delete: if isAdmin(projectId)'));
+check('Storage reads are project-active membership-bound', has(src.storage, 'function projectActive(projectId)', 'return signedIn() && projectActive(projectId)', 'allow read: if isMember(projectId)'));
 check('Storage binary purge remains ADMIN-only', (src.storage.match(/allow delete: if isAdmin\(projectId\);/g) || []).length >= 2);
 
 // Regression tooling must cover all three roles and structural/operational split.
@@ -131,6 +134,10 @@ check('Rules behavior test covers Admin-only settings/trash and legacy floor ima
 check('Rules behavior test covers fail-closed future collection denial', has(rulesTest, 'EDITOR cannot create unclassified future project collection'));
 check('Rules behavior test covers Viewer write denial', has(rulesTest, 'VIEWER cannot write core record'));
 check('Rules behavior test covers stale UID ADMIN vs canonical VIEWER', has(rulesTest, 'stale UID alias for canonical-precedence regression', "role: 'ADMIN'", 'viewerUid'));
+check('Rules behavior test covers canonical revocation tombstone against stale UID ADMIN fallback', has(rulesTest, 'ADMIN tombstones canonical EDITOR membership', 'revoked canonical EDITOR cannot fall back to stale UID ADMIN alias'));
+check('Rules behavior test covers ADMIN-only financial isolation', has(rulesTest, 'ADMIN writes isolated work-volume financial record', 'EDITOR cannot read isolated work-volume financial record', 'VIEWER cannot read isolated work-volume financial record', 'ADMIN cannot embed unitPrice back into shared work-volume document'));
+check('Rules behavior test covers deleted-project business freeze', has(rulesTest, 'ADMIN soft-deletes project root for frozen-project regression', 'ADMIN cannot operate business subcollections while project is deleted', 'VIEWER cannot read business records from deleted project'));
+check('Rules behavior test covers Firebase Storage read-only legacy policy', has(rulesTest, 'ADMIN cannot create new floor-plan binary in legacy Firebase Storage', 'EDITOR cannot create new project image in legacy Firebase Storage', 'VIEWER cannot upload Storage file'));
 
 if (failed) process.exit(1);
 check('SUPER ADMIN remote PIN reset API is wired', has(src.firebase, 'requestProjectMemberPinReset'));

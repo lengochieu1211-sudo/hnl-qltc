@@ -7,7 +7,6 @@ import {
   BellRing,
   CloudCog,
   DatabaseZap,
-  Stethoscope,
   ChevronRight,
   ImageIcon,
   Type,
@@ -93,6 +92,28 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
     } finally { setSavingUi(false); }
   };
 
+  const openConfigSection = (targetId: string, opener: () => void = onOpenConfig) => {
+    try { sessionStorage.setItem('qlct_config_focus_target', targetId); } catch (_) {}
+    opener();
+  };
+
+  const openUiSettingsPanel = () => {
+    setShowUiSettings(true);
+    let attempts = 0;
+    const focusPanel = () => {
+      const target = document.getElementById('superadmin-ui-settings-card');
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        target.classList.add('ring-2', 'ring-indigo-300');
+        window.setTimeout(() => target.classList.remove('ring-2', 'ring-indigo-300'), 1800);
+        return;
+      }
+      attempts += 1;
+      if (attempts < 20) window.setTimeout(focusPanel, 50);
+    };
+    window.setTimeout(focusPanel, 0);
+  };
+
   const actions = [
     {
       title: 'Người dùng & phân quyền',
@@ -110,13 +131,13 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
       title: 'Dữ liệu đã ẩn & lịch sử',
       description: 'Khôi phục hoặc dọn dữ liệu đã xóa: Căn/Phòng, Hạng mục, Định mức, Phiếu nhập/xuất kho, Mặt bằng, Defect, Checklist, Quân số và Đội thi công.',
       icon: DatabaseZap,
-      onClick: onOpenHiddenHistory,
+      onClick: () => openConfigSection('trash-recovery-card', onOpenHiddenHistory),
     },
     {
       title: 'Giao diện & module',
       description: `Theme: ${uiSettings.theme} · Cỡ ${uiSettings.scalePercent}% · Checklist: ${showChecklist ? 'đang hiện' : 'tự ẩn'}.`,
       icon: Palette,
-      onClick: () => setShowUiSettings(true),
+      onClick: openUiSettingsPanel,
     },
     {
       title: 'Thông báo',
@@ -125,16 +146,10 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
       onClick: onOpenNotificationCenter,
     },
     {
-      title: 'Đồng bộ & R2',
-      description: `Ảnh đang chờ: ${pendingPhotoCount}. Mở công cụ hệ thống để kiểm tra đồng bộ và chẩn đoán.`,
+      title: 'Đồng bộ, R2 & Chẩn đoán',
+      description: `Ảnh đang chờ: ${pendingPhotoCount}. Mở HNL Health Center để kiểm tra Firebase/R2, ảnh, đồng bộ, chẩn đoán và phục hồi.`,
       icon: CloudCog,
-      onClick: onOpenConfig,
-    },
-    {
-      title: 'Chẩn đoán hệ thống',
-      description: 'Mở trạng thái Firebase/R2, chẩn đoán, export diagnostic và công cụ phục hồi.',
-      icon: Stethoscope,
-      onClick: onOpenConfig,
+      onClick: () => openConfigSection('system-sync-card'),
     },
   ];
 
@@ -182,7 +197,7 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
       </section>
 
       {showUiSettings && (
-        <section className="rounded-3xl border border-indigo-200 bg-white shadow-sm overflow-hidden">
+        <section id="superadmin-ui-settings-card" className="rounded-3xl border border-indigo-200 bg-white shadow-sm overflow-hidden scroll-mt-24 transition-shadow">
           <div className="px-4 py-3 bg-indigo-50 border-b border-indigo-100 flex items-center justify-between gap-3">
             <div><h3 className="text-sm font-black text-indigo-950">Giao diện & Module · V2</h3><p className="text-[10px] text-indigo-700 mt-0.5">Xem trước tức thời. Chỉ khi bấm “Áp dụng & Lưu” mới đồng bộ Cloud.</p></div>
             <button type="button" onClick={() => { setShowUiSettings(false); onPreviewUiSettings(uiSettings); }} className="text-[11px] font-bold text-slate-500 px-2 py-1 rounded-lg hover:bg-white">Đóng</button>
@@ -194,7 +209,7 @@ export const SuperAdminCenter: React.FC<SuperAdminCenterProps> = ({
                 <div className="flex items-center gap-2"><ImageIcon className="w-4 h-4 text-indigo-600"/><h4 className="text-xs font-black text-slate-800">Nhận diện ứng dụng</h4></div>
                 <label className="block space-y-1"><span className="text-[10px] font-bold text-slate-600">Tên hiển thị</span><input value={draftUi.appDisplayName} maxLength={40} onChange={(e) => updateDraft({ appDisplayName: e.target.value })} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs" placeholder="HNL QLTC" /></label>
                 <label className="block space-y-1"><span className="text-[10px] font-bold text-slate-600">Logo URL (HTTPS)</span><input value={draftUi.logoUrl} onChange={(e) => updateDraft({ logoUrl: e.target.value })} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs" placeholder="https://.../logo.png · để trống dùng logo mặc định" /></label>
-                <div className="flex items-center gap-3 rounded-xl bg-slate-50 border border-slate-200 p-3"><div className="w-12 h-12 rounded-xl bg-white border border-slate-200 overflow-hidden flex items-center justify-center"><img src={draftUi.logoUrl || '/icon.png'} onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/icon.png'; }} className="w-full h-full object-contain" alt="Preview logo" /></div><div><div className="text-xs font-black text-slate-800">{draftUi.appDisplayName || 'HNL QLTC'}</div><div className="text-[10px] text-slate-500">Preview logo + tên ứng dụng</div></div></div>
+                <div className="flex items-center gap-3 rounded-xl bg-slate-50 border border-slate-200 p-3"><div className="w-12 h-12 rounded-xl bg-white border border-slate-200 overflow-hidden flex items-center justify-center"><img src={draftUi.logoUrl || '/icon.png?v=20260921-unified1'} onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/icon.png?v=20260921-unified1'; }} className="w-full h-full object-contain" alt="Preview logo" /></div><div><div className="text-xs font-black text-slate-800">{draftUi.appDisplayName || 'HNL QLTC'}</div><div className="text-[10px] text-slate-500">Preview logo + tên ứng dụng</div></div></div>
               </div>
 
               <div className="rounded-2xl border border-slate-200 p-3 space-y-3">

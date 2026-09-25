@@ -1,14 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { 
   CloudCheck, 
-  RefreshCw, 
   FileSpreadsheet, 
   CheckCircle2, 
   ExternalLink,
   FileText,
-  UserCheck,
-  Wifi,
-  WifiOff,
   Folder,
   Cloud,
   Bell,
@@ -17,7 +13,6 @@ import {
 import { APP_VERSION } from '../config/appVersion';
 import { UndoRedoControls } from './UndoRedoControls';
 import { GoogleAuthStatus } from '../types';
-import { GoogleAuthModal } from './GoogleAuthModal';
 import { formatDateTime } from '../utils/dateFormatter';
 import { useFormatSettings } from '../utils/numberUtils';
 
@@ -73,24 +68,9 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
   const [syncResult, setSyncResult] = useState<{ url?: string; message?: string } | null>(null);
   const [isEditingProject, setIsEditingProject] = useState(false);
   const [tempProjectName, setTempProjectName] = useState(projectName);
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [isOnline, setIsOnline] = useState<boolean>(
-    typeof navigator !== 'undefined' ? navigator.onLine : true
-  );
 
   useFormatSettings();
   const isSuperAdmin = isSuperAdminEmail(authStatus.email);
-
-  useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, []);
 
   const checkAuthStatus = async () => {
     setLoadingAuth(true);
@@ -119,13 +99,9 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
     return unsubscribe;
   }, []);
 
-  const handleConnectGoogle = async () => {
-    setIsAuthModalOpen(true);
-  };
-
   const handleTriggerSync = async () => {
     if (!authStatus.authenticated) {
-      setIsAuthModalOpen(true);
+      onOpenSecurity?.();
       return;
     }
 
@@ -144,11 +120,11 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
           {/* Top Header Row */}
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2 min-w-0">
-              <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center overflow-hidden shadow-md shrink-0 border border-slate-200/50 select-none">
+              <div className="w-10 h-10 flex items-center justify-center overflow-hidden shrink-0 select-none bg-transparent">
                 <img
-                  src={logoUrl || `/icon.png?v=${APP_VERSION}`}
+                  src={logoUrl || `/icon.png?v=${APP_VERSION}-brand20260921`}
                   alt={appDisplayName || 'HNL Quản Lý Thi Công'}
-                  onError={(e) => { if (!e.currentTarget.src.includes('/icon.png')) e.currentTarget.src = `/icon.png?v=${APP_VERSION}`; }}
+                  onError={(e) => { if (!e.currentTarget.src.includes('/icon.png')) e.currentTarget.src = `/icon.png?v=${APP_VERSION}-brand20260921`; }}
                   className="w-full h-full object-contain"
                   draggable={false}
                 />
@@ -203,33 +179,6 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
               </div>
             </div>
 
-            {/* Status Badges: Network & Google (Icon badges with tooltips) */}
-            <div className="flex items-center gap-1.5 shrink-0">
-              {/* Network Status Badge */}
-              <div 
-                className={`p-1.5 rounded-lg border flex items-center justify-center transition-all ${
-                  isOnline 
-                    ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60' 
-                    : 'bg-amber-950/90 text-amber-300 border-amber-600/80 animate-pulse'
-                }`}
-                title={isOnline ? 'Mạng Trực Tuyến (Online): Dữ liệu lưu thiết bị & đám mây' : 'Chế độ Ngoại Tuyến (Offline): Dữ liệu lưu an toàn trên máy'}
-              >
-                {isOnline ? <Wifi className="w-3.5 h-3.5 text-emerald-400" /> : <WifiOff className="w-3.5 h-3.5 text-amber-400" />}
-              </div>
-
-              {/* Google Account Quick Badge */}
-              <button
-                onClick={handleConnectGoogle}
-                className={`p-1.5 rounded-lg border transition-all flex items-center justify-center shrink-0 ${
-                  authStatus.authenticated 
-                    ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/80 hover:bg-emerald-900' 
-                    : 'bg-blue-950/80 text-blue-300 border-blue-700/80 hover:bg-blue-900'
-                }`}
-                title={authStatus.authenticated ? `Tai khoan Google/Firebase da ket noi (${authStatus.email || authStatus.name})` : 'Nhan de dang nhap Google bang Firebase Auth'}
-              >
-                <UserCheck className={`w-3.5 h-3.5 shrink-0 ${authStatus.authenticated ? 'text-emerald-400' : 'text-blue-300'}`} />
-              </button>
-            </div>
           </div>
 
           {/* Action & Control Toolbar Row */}
@@ -300,17 +249,6 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
                 </button>
               )}
 
-              {/* Nút Đồng Bộ mở Trung tâm lưu & đồng bộ dự án */}
-              <button
-                onClick={() => onOpenProjectManager ? onOpenProjectManager('sync') : handleTriggerSync()}
-                disabled={isSyncing}
-                className="flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white p-1.5 sm:px-3 sm:py-1.5 rounded-lg text-xs font-extrabold transition-all shadow-sm active:scale-95 shrink-0 cursor-pointer border border-emerald-500/50 whitespace-nowrap"
-                title="Trung tâm lưu & đồng bộ dự án"
-              >
-                <RefreshCw className={`w-4 h-4 text-emerald-100 shrink-0 ${isSyncing ? 'animate-spin' : ''}`} />
-                <span className="hidden sm:inline">{isSyncing ? 'Đang đồng bộ...' : 'Đồng Bộ'}</span>
-              </button>
-
               {/* Nút Báo Cáo PDF & Excel */}
               {onOpenExportPdf && (
                 <button
@@ -358,13 +296,6 @@ export const GoogleAuthHeader: React.FC<GoogleAuthHeaderProps> = ({
         </div>
       </div>
 
-      {/* Google Auth Modal */}
-      <GoogleAuthModal
-        isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
-        authStatus={authStatus}
-        onRefreshAuth={checkAuthStatus}
-      />
     </>
   );
 };

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import * as XLSX from 'xlsx';
+import { assertSafeExcelImportFile } from '../utils/excelImportUtils';
 import { 
   MapPin, 
   Upload, 
@@ -59,6 +60,14 @@ import {
   GripVertical
 } from 'lucide-react';
 import { FloorPlan, DefectItem, DefectCategory, DefectSeverity, DefectStatus, RoomProgressItem, RoomSubItem, Point2D, ChecklistItem, TeamInfo, MaterialNorm, InventoryItem, WorkVolume } from '../types';
+import {
+  getFloorStructureGroupName,
+  getStructureGroupName,
+  normalizeStructureGroupConfig,
+  resolveFloorStructureGroupId,
+  createStructureGroupId,
+  type ProjectStructureConfig,
+} from '../utils/structureGroupUtils';
 import { UndoRedoControls } from './UndoRedoControls';
 import { getRoomColorStyle, ROOM_COLOR_PALETTE } from '../utils/colorPalette';
 import { getDefectOverdueInfo, getDefectShortCode } from '../utils/defectUtils';
@@ -88,6 +97,7 @@ import { ContactMenu } from './ContactMenu';
 import { ShareEntityMenu } from './ShareEntityMenu';
 import { buildDefectShareText, resolveDefectTeam } from '../utils/defectContactUtils';
 import { isPointInsideRoom, reconcileDefectLinkage, resolveDefectLinkageFromSelection } from '../utils/defectLinkageUtils';
+import { getRoomHighlightBounds, mirrorRoomHighlight, resizeRoomHighlightToBounds, rotateRoomHighlight, snapRotationDelta } from '../utils/roomHighlightGeometry';
 
 const getMappedCoordinates = (e: React.PointerEvent | React.MouseEvent | Touch, element: HTMLElement, currentRotation: number) => {
   const rect = element.getBoundingClientRect();
@@ -304,92 +314,6 @@ const TeamSelectorInput: React.FC<TeamSelectorInputProps> = ({
         />
       </div>
 
-      {/* 3. Inline Quick Click Badges (For instant 1-tap experience) */}
-      <div className="space-y-1.5 pt-1 text-[11px] border-t border-slate-200/60 mt-1">
-        <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">⚡ Chọn Nhanh Bằng 1 Click:</span>
-        
-        {/* Room at Pin Location */}
-        {roomAtPos && (
-          <div className="bg-amber-50 border border-amber-200/60 p-2 rounded-xl flex items-center justify-between gap-2">
-            <span className="font-semibold text-amber-900 truncate">
-              📍 Vị trí: <strong>{roomAtPos.roomName}</strong>
-            </span>
-            {roomAtPosTeamNames.length > 0 ? (
-    <div className="flex flex-wrap justify-end gap-1">
-      {roomAtPosTeamNames.map((tName) => (
-        <button
-          type="button"
-          key={tName}
-          onClick={() => onChange(tName)}
-          className={`px-2 py-1 rounded-lg text-[10px] font-bold shrink-0 transition-all ${
-            value === tName
-              ? 'bg-amber-600 text-white shadow-xs'
-              : 'bg-white border border-amber-300 text-amber-900 hover:bg-amber-100'
-          }`}
-        >
-          {tName}
-        </button>
-      ))}
-    </div>
-  ) : (
-    <span className="text-[10px] text-amber-700 italic shrink-0">Căn chưa gán đội ở cấp căn / hạng mục</span>
-  )}
-          </div>
-        )}
-
-        {value?.trim() && (
-          <div className="bg-sky-50 border border-sky-200 p-2 rounded-xl flex items-center justify-between gap-2">
-            <span className="text-sky-900 font-semibold truncate">✅ Đội Defect đang chọn: <strong>{value.trim()}</strong></span>
-            <span className="text-[10px] text-sky-700 shrink-0">Sẽ lưu liên kết đội</span>
-          </div>
-        )}
-
-        {/* Floor Plan Teams */}
-        {currentFloorTeams.length > 0 && (
-          <div className="bg-slate-50 border border-slate-200 p-2 rounded-xl">
-            <span className="text-slate-500 font-bold block mb-1">🏢 Đội trên mặt bằng tầng:</span>
-            <div className="flex flex-wrap gap-1">
-              {currentFloorTeams.map((tName) => (
-                <button
-                  type="button"
-                  key={tName}
-                  onClick={() => onChange(tName)}
-                  className={`px-2 py-1 rounded-lg border text-[10px] font-bold transition-all ${
-                    value === tName
-                      ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
-                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                  }`}
-                >
-                  {tName}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Declared Teams */}
-        {declaredTeamNames.length > 0 && (
-          <div className="bg-emerald-50 border border-emerald-200 p-2 rounded-xl">
-            <span className="text-emerald-800 font-bold block mb-1">📋 Đội đã khai báo:</span>
-            <div className="flex flex-wrap gap-1">
-              {declaredTeamNames.map((tName) => (
-                <button
-                  type="button"
-                  key={tName}
-                  onClick={() => onChange(tName)}
-                  className={`px-2 py-1 rounded-lg border text-[10px] font-bold transition-all ${
-                    value === tName
-                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
-                      : 'bg-white text-emerald-800 border-emerald-300 hover:bg-emerald-100'
-                  }`}
-                >
-                  {tName}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
     </div>
   );
 };
@@ -398,6 +322,8 @@ const TeamSelectorInput: React.FC<TeamSelectorInputProps> = ({
 interface FloorPlanDefectTabProps {
   projectId?: string;
   floorPlans: FloorPlan[];
+  structureConfig: ProjectStructureConfig;
+  onStructureConfigChange?: (next: ProjectStructureConfig) => void;
   defects: DefectItem[];
   roomProgressList: RoomProgressItem[];
   checklistItems?: ChecklistItem[];
@@ -411,7 +337,8 @@ interface FloorPlanDefectTabProps {
   onAddInventory?: (item: Omit<InventoryItem, 'id'> & { id?: string }) => void;
   onAddFloorPlan: (plan: Omit<FloorPlan, 'id'> & { id?: string }) => void;
   onUpdateFloorPlan?: (id: string, updates: Partial<FloorPlan>) => void;
-  onUpdateFloorPlanImage?: (id: string, imageUrl: string) => void;
+  onUpdateFloorPlanImage?: (id: string, imageUrl: string) => void | Promise<void>;
+  onUpdateFloorPlanImages?: (ids: string[], imageUrl: string) => number | Promise<number>;
   onRenameFloorPlan?: (id: string, newName: string) => void;
   onDeleteFloorPlan?: (id: string) => void;
   onDeleteMultipleFloorPlans?: (ids: string[]) => void;
@@ -429,6 +356,7 @@ interface FloorPlanDefectTabProps {
   onDeleteMultipleRoomProgress?: (ids: string[]) => void;
   onReorderRoomProgressList?: (reorderedList: RoomProgressItem[]) => void;
   onReorderFloorPlans?: (reorderedList: FloorPlan[]) => void;
+  onBulkMoveFloorPlansToStructureGroup?: (ids: string[], targetGroupId: string) => void;
   onActiveFloorChange?: (floorId: string) => void;
   onOpenExportPdf?: () => void;
   onExportExcel?: () => void;
@@ -457,6 +385,7 @@ type SortOrder = 'asc' | 'desc';
 interface PendingSmartPdfImport {
   floorId: string;
   floorName: string;
+  structureGroupId?: string;
   fileName: string;
   imageUrl: string;
   pageNumber: number;
@@ -670,6 +599,8 @@ const DefectPhotoStrip: React.FC<DefectPhotoStripProps> = ({
 export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   projectId,
   floorPlans,
+  structureConfig,
+  onStructureConfigChange,
   defects,
   roomProgressList,
   checklistItems = [],
@@ -684,6 +615,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   onAddFloorPlan,
   onUpdateFloorPlan,
   onUpdateFloorPlanImage,
+  onUpdateFloorPlanImages,
   onRenameFloorPlan,
   onDeleteFloorPlan,
   onDeleteMultipleFloorPlans,
@@ -701,6 +633,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   onDeleteMultipleRoomProgress,
   onReorderRoomProgressList,
   onReorderFloorPlans,
+  onBulkMoveFloorPlansToStructureGroup,
   onActiveFloorChange,
   onOpenExportPdf,
   onExportExcel,
@@ -715,6 +648,30 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const canManageStructure = roleResolved && canManageFloorPlanStructure(normalizedUserRole);
   const canEditDefects = roleResolved && canEditDefectData(normalizedUserRole);
   const canDeleteDefects = roleResolved && canDeleteBusinessData(normalizedUserRole);
+  const normalizedStructureConfig = React.useMemo(
+    () => normalizeStructureGroupConfig(structureConfig),
+    [structureConfig],
+  );
+  const [selectedStructureGroupId, setSelectedStructureGroupId] = useState<string>('all');
+  const [newFloorStructureGroupId, setNewFloorStructureGroupId] = useState<string>(
+    () => normalizeStructureGroupConfig(structureConfig).defaultGroupId,
+  );
+  const visibleFloorPlans = React.useMemo(() => {
+    const scoped = !normalizedStructureConfig.enabled || selectedStructureGroupId === 'all'
+      ? floorPlans
+      : floorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === selectedStructureGroupId);
+    return scoped
+      .map((floor, index) => ({ floor, index }))
+      .sort((a, b) => Number(a.floor.order ?? a.index) - Number(b.floor.order ?? b.index))
+      .map(({ floor }) => floor);
+  }, [floorPlans, normalizedStructureConfig, selectedStructureGroupId]);
+
+  useEffect(() => {
+    const validGroupIds = new Set(normalizedStructureConfig.groups.map((group) => group.id));
+    setNewFloorStructureGroupId((current) => validGroupIds.has(current) ? current : normalizedStructureConfig.defaultGroupId);
+    setSelectedStructureGroupId((current) => current === 'all' || validGroupIds.has(current) ? current : 'all');
+  }, [normalizedStructureConfig]);
+
   const getDraftKey = (base: string) => (currentProjectId === 'default' ? base : `${base}_${currentProjectId}`);
   const readIdSet = (storageKey: string): Set<string> => {
     try {
@@ -733,6 +690,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     }
     return floorPlans[0]?.id || 'fp-1';
   });
+
+  useEffect(() => {
+    if (!normalizedStructureConfig.enabled || selectedStructureGroupId === 'all') return;
+    if (visibleFloorPlans.some((floor) => floor.id === selectedFloorId)) return;
+    const first = visibleFloorPlans[0];
+    if (first) setSelectedFloorId(first.id);
+  }, [normalizedStructureConfig.enabled, selectedStructureGroupId, visibleFloorPlans, selectedFloorId]);
   useFormatSettings();
   const [selectedDefectIds, setSelectedDefectIds] = useState<string[]>([]);
   const [showFloorProgressPanel, setShowFloorProgressPanel] = useState(false);
@@ -865,8 +829,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   // Floor Customization & Management State
   const [showManageFloorsModal, setShowManageFloorsModal] = useState(false);
+  const [groupSortBy, setGroupSortBy] = useState<'none' | 'name' | 'floors'>('none');
+  const [groupSortOrder, setGroupSortOrder] = useState<'asc' | 'desc'>('asc');
   const [floorSortBy, setFloorSortBy] = useState<'none' | 'name' | 'rooms' | 'defects'>('none');
   const [floorSortOrder, setFloorSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [editingStructureLabel, setEditingStructureLabel] = useState(false);
+  const [editingStructureLabelValue, setEditingStructureLabelValue] = useState('');
+  const [editingStructureGroupId, setEditingStructureGroupId] = useState<string | null>(null);
+  const [editingStructureGroupName, setEditingStructureGroupName] = useState('');
   const [editingFloorId, setEditingFloorId] = useState<string | null>(null);
   const [editingFloorName, setEditingFloorName] = useState<string>('');
   const [inlineEditingFloorId, setInlineEditingFloorId] = useState<string | null>(null);
@@ -919,6 +889,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     return saved;
   });
   const [activeDefectDetail, setActiveDefectDetail] = useState<DefectItem | null>(null);
+  const [relocatingDefectId, setRelocatingDefectId] = useState<string | null>(null);
 
   // Notification/deep-link navigation must work both when Mặt bằng is being mounted
   // and when it is ALREADY open. sessionStorage covers mount/reload; a custom event
@@ -996,6 +967,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     if (!canEditDefects) {
       setShowDefectModal(false);
       setIsDefectPinPlacementMode(false);
+      setRelocatingDefectId(null);
       setPinPos(null);
     }
     if (!canDeleteDefects) {
@@ -1223,6 +1195,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     setFloorPlanProcessingKind(null);
   };
   const [updatingFloorPlanId, setUpdatingFloorPlanId] = useState<string | null>(null);
+  const [showFloorPlanApplyScopeModal, setShowFloorPlanApplyScopeModal] = useState(false);
+  const [floorPlanApplyMode, setFloorPlanApplyMode] = useState<'single' | 'multiple'>('single');
+  const [floorPlanApplySelectedIds, setFloorPlanApplySelectedIds] = useState<string[]>([]);
+  const [floorPlanRangeStartId, setFloorPlanRangeStartId] = useState<string>('');
+  const [floorPlanRangeEndId, setFloorPlanRangeEndId] = useState<string>('');
   const updatePlanInputRef = useRef<HTMLInputElement>(null);
 
   // Room Highlight Modal State
@@ -1245,6 +1222,16 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const [selectedApartmentIds, setSelectedApartmentIds] = useState<string[]>([]);
   const [selectedFloorIdsForBulk, setSelectedFloorIdsForBulk] = useState<string[]>([]);
   const [isSelectingMultipleFloors, setIsSelectingMultipleFloors] = useState<boolean>(false);
+  const [isManagingMultipleFloors, setIsManagingMultipleFloors] = useState<boolean>(false);
+  const [managedSelectedFloorIds, setManagedSelectedFloorIds] = useState<string[]>([]);
+  const [managedTargetStructureGroupId, setManagedTargetStructureGroupId] = useState<string>('');
+
+  useEffect(() => {
+    // Never carry hidden bulk-delete targets across Khu/Khối filters.
+    // A filter change is view-only and must not make floors from the previous scope deletable invisibly.
+    setSelectedFloorIdsForBulk([]);
+    setIsSelectingMultipleFloors(false);
+  }, [selectedStructureGroupId]);
   const [copiedRoomsState, setCopiedRoomsState] = useState<RoomProgressItem[]>([]);
   const [copyNotification, setCopyNotification] = useState<string | null>(null);
   const lastPointerMapPosRef = useRef<{ x: number; y: number }>({ x: 50, y: 50 });
@@ -1314,28 +1301,211 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     setTimeout(() => setCopyNotification(null), 3500);
   };
 
-  const sortedFloorPlans = React.useMemo(() => {
-    if (floorSortBy === 'none') {
-      return floorPlans;
+  const floorPlansInSavedOrder = React.useMemo(
+    () => floorPlans
+      .map((floor, index) => ({ floor, index }))
+      .sort((a, b) => Number(a.floor.order ?? a.index) - Number(b.floor.order ?? b.index))
+      .map(({ floor }) => floor),
+    [floorPlans],
+  );
+
+  const managementFloorPlans = React.useMemo(() => {
+    if (!normalizedStructureConfig.enabled) return floorPlansInSavedOrder;
+    const grouped = normalizedStructureConfig.groups.flatMap((group) =>
+      floorPlansInSavedOrder.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === group.id)
+    );
+    const included = new Set(grouped.map((floor) => floor.id));
+    return [...grouped, ...floorPlansInSavedOrder.filter((floor) => !included.has(floor.id))];
+  }, [floorPlansInSavedOrder, normalizedStructureConfig]);
+
+  const getSavedFloorsForGroup = (groupId: string) =>
+    floorPlansInSavedOrder.filter((floor) =>
+      !normalizedStructureConfig.enabled || resolveFloorStructureGroupId(floor, normalizedStructureConfig) === groupId
+    );
+
+  const persistFloorOrder = (nextFloors: FloorPlan[]) => {
+    if (onReorderFloorPlans) {
+      onReorderFloorPlans(nextFloors);
+      return;
     }
-    return [...floorPlans].sort((a, b) => {
-      if (floorSortBy === 'name') {
-        const comp = a.floorName.localeCompare(b.floorName, 'vi', { numeric: true, sensitivity: 'base' });
-        return floorSortOrder === 'asc' ? comp : -comp;
-      }
-      if (floorSortBy === 'rooms') {
-        const getCount = (fp: FloorPlan) => roomProgressList.filter(r => r.floorId === fp.id).length;
-        const comp = getCount(a) - getCount(b);
-        return floorSortOrder === 'asc' ? comp : -comp;
-      }
-      if (floorSortBy === 'defects') {
-        const getCount = (fp: FloorPlan) => defects.filter(d => d.floorId === fp.id).length;
-        const comp = getCount(a) - getCount(b);
-        return floorSortOrder === 'asc' ? comp : -comp;
-      }
-      return 0;
+  };
+
+  const moveFloorWithinGroup = (floorId: string, direction: 'up' | 'down') => {
+    const target = floorPlansInSavedOrder.find((floor) => floor.id === floorId);
+    if (!target) return;
+    const groupId = normalizedStructureConfig.enabled
+      ? resolveFloorStructureGroupId(target, normalizedStructureConfig)
+      : '__all__';
+    const groupFloors = normalizedStructureConfig.enabled
+      ? getSavedFloorsForGroup(groupId)
+      : floorPlansInSavedOrder;
+    const index = groupFloors.findIndex((floor) => floor.id === floorId);
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (index < 0 || targetIndex < 0 || targetIndex >= groupFloors.length) return;
+    const reorderedGroup = [...groupFloors];
+    const [moved] = reorderedGroup.splice(index, 1);
+    reorderedGroup.splice(targetIndex, 0, moved);
+
+    if (!normalizedStructureConfig.enabled) {
+      if (onReorderFloorPlans) persistFloorOrder(reorderedGroup);
+      else onMoveFloorPlan?.(floorId, direction === 'up' ? 'left' : 'right');
+      return;
+    }
+
+    const nextByGroup = new Map<string, FloorPlan[]>();
+    normalizedStructureConfig.groups.forEach((group) => {
+      nextByGroup.set(
+        group.id,
+        group.id === groupId ? reorderedGroup : getSavedFloorsForGroup(group.id),
+      );
     });
-  }, [floorPlans, floorSortBy, floorSortOrder, roomProgressList, defects]);
+    const flattened = normalizedStructureConfig.groups.flatMap((group) => nextByGroup.get(group.id) || []);
+    const included = new Set(flattened.map((floor) => floor.id));
+    const next = [...flattened, ...floorPlansInSavedOrder.filter((floor) => !included.has(floor.id))];
+    if (onReorderFloorPlans) persistFloorOrder(next);
+    else onMoveFloorPlan?.(floorId, direction === 'up' ? 'left' : 'right');
+  };
+
+  const changeFloorStructureGroupStable = (floorId: string, nextGroupId: string) => {
+    const target = floorPlansInSavedOrder.find((floor) => floor.id === floorId);
+    if (!target || !normalizedStructureConfig.groups.some((group) => group.id === nextGroupId)) return;
+    const currentGroupId = resolveFloorStructureGroupId(target, normalizedStructureConfig);
+    if (currentGroupId === nextGroupId) return;
+
+    if (onReorderFloorPlans) {
+      const changedTarget = { ...target, structureGroupId: nextGroupId };
+      const withoutTarget = floorPlansInSavedOrder.filter((floor) => floor.id !== floorId);
+      const next = normalizedStructureConfig.groups.flatMap((group) => {
+        const groupFloors = withoutTarget.filter((floor) =>
+          resolveFloorStructureGroupId(floor, normalizedStructureConfig) === group.id
+        );
+        return group.id === nextGroupId ? [...groupFloors, changedTarget] : groupFloors;
+      });
+      const included = new Set(next.map((floor) => floor.id));
+      persistFloorOrder([...next, ...withoutTarget.filter((floor) => !included.has(floor.id))]);
+      return;
+    }
+
+    // Legacy callback fallback keeps IDs/links intact even when reorder callback is unavailable.
+    onUpdateFloorPlan?.(floorId, { structureGroupId: nextGroupId });
+  };
+
+  const moveSelectedFloorsToStructureGroupStable = async (floorIds: string[], nextGroupId: string) => {
+    if (!normalizedStructureConfig.enabled || floorIds.length === 0) return;
+    const targetGroup = normalizedStructureConfig.groups.find((group) => group.id === nextGroupId);
+    if (!targetGroup) return;
+
+    const selectedSet = new Set(floorIds);
+    const selectedInSavedOrder = floorPlansInSavedOrder.filter((floor) => selectedSet.has(floor.id));
+    if (selectedInSavedOrder.length === 0) return;
+
+    const confirmed = await confirmAsync(
+      `Chuyển ${selectedInSavedOrder.length} tầng sang ${targetGroup.name}?\n\nChỉ thay Khu/Khối và thứ tự hiển thị của các tầng được chọn. floorId, Căn/Phòng, Defect, Quân số, Checklist, khối lượng, ảnh mặt bằng và lịch sử vẫn giữ nguyên.`,
+      {
+        title: 'Chuyển Khu/Khối',
+        confirmLabel: `Chuyển ${selectedInSavedOrder.length} tầng`,
+      },
+    );
+    if (!confirmed) return;
+
+    if (onBulkMoveFloorPlansToStructureGroup) {
+      onBulkMoveFloorPlansToStructureGroup(selectedInSavedOrder.map((floor) => floor.id), nextGroupId);
+    } else if (onReorderFloorPlans) {
+      const selectedMoved = selectedInSavedOrder.map((floor) => ({ ...floor, structureGroupId: nextGroupId }));
+      const remaining = floorPlansInSavedOrder.filter((floor) => !selectedSet.has(floor.id));
+      const grouped = normalizedStructureConfig.groups.flatMap((group) => {
+        const groupFloors = remaining.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === group.id);
+        return group.id === nextGroupId ? [...groupFloors, ...selectedMoved] : groupFloors;
+      });
+      const included = new Set(grouped.map((floor) => floor.id));
+      persistFloorOrder([...grouped, ...remaining.filter((floor) => !included.has(floor.id))]);
+    } else {
+      selectedInSavedOrder.forEach((floor) => onUpdateFloorPlan?.(floor.id, { structureGroupId: nextGroupId }));
+    }
+
+    setManagedSelectedFloorIds([]);
+    setManagedTargetStructureGroupId('');
+    setIsManagingMultipleFloors(false);
+  };
+
+  const confirmStructureEnabledChange = async (nextEnabled: boolean) => {
+    if (!onStructureConfigChange || nextEnabled === normalizedStructureConfig.enabled) return;
+    const groupCount = normalizedStructureConfig.groups.length;
+    const floorCount = floorPlans.length;
+    const defaultGroup = normalizedStructureConfig.groups.find((group) => group.id === normalizedStructureConfig.defaultGroupId)
+      || normalizedStructureConfig.groups[0];
+
+    if (nextEnabled) {
+      const confirmed = await confirmAsync(
+        `Bật Khu/Khối chỉ bật lớp phân nhóm hiển thị; không đổi floorId, tên tầng, Căn/Phòng, Defect, Quân số, Checklist, khối lượng hoặc ảnh mặt bằng.\n\nDự án hiện có ${floorCount} tầng. Tầng legacy chưa có Khu/Khối rõ ràng sẽ hiển thị trong “${defaultGroup?.name || 'Khu mặc định'}”; dữ liệu tầng không bị migration hoặc đổi ID.`,
+        { title: 'Bật Khu/Khối', confirmLabel: 'Bật Khu/Khối' },
+      );
+      if (!confirmed) return;
+    } else {
+      const confirmed = await confirmAsync(
+        `Tắt Khu/Khối chỉ ẩn phân nhóm, không gộp/xóa dữ liệu. Các liên kết tầng, căn, Defect, quân số và khối lượng vẫn giữ nguyên.\n\nDự án đang có ${groupCount} Khu/Khối, ${floorCount} tầng. Sau khi tắt, danh sách tầng sẽ hiển thị chung nhưng dữ liệu phân nhóm vẫn được lưu để khi bật lại trở về đúng Khu/Khối cũ.`,
+        { title: 'Tắt Khu/Khối', confirmLabel: 'Tắt và giữ nguyên dữ liệu' },
+      );
+      if (!confirmed) return;
+    }
+
+    onStructureConfigChange(normalizeStructureGroupConfig({ ...normalizedStructureConfig, enabled: nextEnabled }));
+    setManagedSelectedFloorIds([]);
+    setManagedTargetStructureGroupId('');
+    setIsManagingMultipleFloors(false);
+  };
+
+  const applyGroupQuickSort = (key: 'name' | 'floors', order: 'asc' | 'desc') => {
+    if (!onStructureConfigChange) return;
+    const floorCount = (groupId: string) =>
+      floorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === groupId).length;
+    const nextGroups = [...normalizedStructureConfig.groups].sort((a, b) => {
+      const comparison = key === 'name'
+        ? a.name.localeCompare(b.name, 'vi', { numeric: true, sensitivity: 'base' })
+        : floorCount(a.id) - floorCount(b.id);
+      return order === 'asc' ? comparison : -comparison;
+    }).map((group, index) => ({ ...group, order: index }));
+    setGroupSortBy(key);
+    setGroupSortOrder(order);
+    onStructureConfigChange(normalizeStructureGroupConfig({ ...normalizedStructureConfig, groups: nextGroups }));
+  };
+
+  const moveStructureGroup = (groupId: string, direction: 'up' | 'down') => {
+    if (!onStructureConfigChange) return;
+    const groups = [...normalizedStructureConfig.groups];
+    const index = groups.findIndex((group) => group.id === groupId);
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (index < 0 || targetIndex < 0 || targetIndex >= groups.length) return;
+    const [moved] = groups.splice(index, 1);
+    groups.splice(targetIndex, 0, moved);
+    onStructureConfigChange(normalizeStructureGroupConfig({
+      ...normalizedStructureConfig,
+      groups: groups.map((group, groupIndex) => ({ ...group, order: groupIndex })),
+    }));
+    setGroupSortBy('none');
+    setGroupSortOrder('asc');
+  };
+
+  const applyFloorQuickSortWithinGroups = (key: 'name' | 'rooms' | 'defects', order: 'asc' | 'desc') => {
+    const roomCount = (floorId: string) => roomProgressList.filter((room) => room.floorId === floorId).length;
+    const defectCount = (floorId: string) => defects.filter((defect) => defect.floorId === floorId).length;
+    const sortFloors = (items: FloorPlan[]) => [...items].sort((a, b) => {
+      let comparison = 0;
+      if (key === 'name') comparison = a.floorName.localeCompare(b.floorName, 'vi', { numeric: true, sensitivity: 'base' });
+      else if (key === 'rooms') comparison = roomCount(a.id) - roomCount(b.id);
+      else comparison = defectCount(a.id) - defectCount(b.id);
+      return order === 'asc' ? comparison : -comparison;
+    });
+
+    const next = normalizedStructureConfig.enabled
+      ? normalizedStructureConfig.groups.flatMap((group) => sortFloors(getSavedFloorsForGroup(group.id)))
+      : sortFloors(floorPlansInSavedOrder);
+    const included = new Set(next.map((floor) => floor.id));
+    const complete = [...next, ...floorPlansInSavedOrder.filter((floor) => !included.has(floor.id))];
+    setFloorSortBy(key);
+    setFloorSortOrder(order);
+    persistFloorOrder(complete);
+  };
 
   const orphanedRooms = React.useMemo(() => {
     return roomProgressList.filter((r) => !floorPlans.some((fp) => fp.id === r.floorId));
@@ -1494,6 +1664,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
   const handleRoomTouchStart = (e: React.TouchEvent, room: RoomProgressItem) => {
     e.stopPropagation();
+    // When Add/Move Defect is armed, room long-press/edit behavior must never
+    // compete with the pin placement click that follows this touch gesture.
+    if (isDefectPinPlacementMode || relocatingDefectId) return;
     if (!canManageStructure || e.touches.length !== 1) return;
     
     const touch = e.touches[0];
@@ -1606,7 +1779,80 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     touchStartPosRef.current = null;
   };
 
+  const commitDefectMapPlacement = (x: number, y: number): boolean => {
+    if (!canEditDefects) return false;
+
+    if (relocatingDefectId) {
+      const defect = defects.find((item) => item.id === relocatingDefectId && !item.archivedAt && !(item as any)?.deleted && !item.deletedAt);
+      if (!defect || !activeFloor || !onUpdateDefect) {
+        setRelocatingDefectId(null);
+        setCopyNotification('Không thể di chuyển Defect vì dữ liệu mục tiêu không còn sẵn sàng.');
+        window.setTimeout(() => setCopyNotification(null), 2200);
+        return true;
+      }
+      if (lockedDefectIds.has(defect.id)) {
+        setRelocatingDefectId(null);
+        setCopyNotification('🔒 Defect đang khóa vị trí. Mở khóa trước khi di chuyển ghim.');
+        window.setTimeout(() => setCopyNotification(null), 2200);
+        return true;
+      }
+
+      const placement = getCandidateTeamsForDefect(
+        { x, y },
+        floorRooms,
+        roomProgressList,
+        teams
+      );
+      const roomAtPoint = placement.roomAtPos;
+      // A moved pin should follow the destination room's durable team link first.
+      // This also covers legacy rooms where teamId exists but assignedTeam is blank,
+      // and rooms with exactly one uniquely assigned sub-item team.
+      const preferredTeam = String(placement.roomAtPosTeam || defect.assignedTo || '').trim();
+      const linkage = resolveDefectLinkageFromSelection(
+        { x, y },
+        preferredTeam,
+        floorRooms,
+        teams
+      );
+      const updated: DefectItem = {
+        ...defect,
+        floorId: activeFloor.id,
+        floorName: activeFloor.floorName,
+        x,
+        y,
+        ...linkage,
+      };
+      onUpdateDefect(updated);
+      setSelectedDefectIds([defect.id]);
+      setRelocatingDefectId(null);
+      setCopyNotification(`📍 Đã di chuyển ${getDefectShortCode(defect.id)}${roomAtPoint ? ` vào ${roomAtPoint.roomName}` : ''}.`);
+      window.setTimeout(() => setCopyNotification(null), 2200);
+      return true;
+    }
+
+    if (isDefectPinPlacementMode) {
+      setIsRoomPinPlacementMode(false);
+      setIsDefectPinPlacementMode(false);
+      openDefectModalForPin(x, y);
+      return true;
+    }
+
+    return false;
+  };
+
+  const tryHandleDefectPlacementEvent = (e: React.MouseEvent | React.PointerEvent): boolean => {
+    if (!isDefectPinPlacementMode && !relocatingDefectId) return false;
+    if (!imageContainerRef.current) return false;
+    e.stopPropagation();
+    const { x: rawX, y: rawY } = getMappedCoordinates(e, imageContainerRef.current, rotation);
+    const x = Math.min(100, Math.max(0, Math.round(rawX * 10) / 10));
+    const y = Math.min(100, Math.max(0, Math.round(rawY * 10) / 10));
+    lastPointerMapPosRef.current = { x, y };
+    return commitDefectMapPlacement(x, y);
+  };
+
   const handleRoomSelectClick = (e: React.MouseEvent | React.PointerEvent, room: RoomProgressItem) => {
+    if (tryHandleDefectPlacementEvent(e)) return;
     e.stopPropagation();
     if (touchHoldTimerRef.current) {
       clearTimeout(touchHoldTimerRef.current);
@@ -1641,13 +1887,16 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   };
 
   const [activeDragHandle, setActiveDragHandle] = useState<
-    'move' | 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'w' | 'e' | number | null
+    'move' | 'rotate' | 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'w' | 'e' | number | null
   >(null);
+  const [rotationPreview, setRotationPreview] = useState<{ roomId: string; degrees: number } | null>(null);
   const [dragStartInfo, setDragStartInfo] = useState<{
     mouseX: number;
     mouseY: number;
     room: RoomProgressItem;
     rooms?: RoomProgressItem[];
+    rotationStartAngle?: number;
+    rotationAspect?: number;
   } | null>(null);
 
 
@@ -1683,6 +1932,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     setShowManageFloorsModal(false);
     setShowQuickAddFloorModal(false);
     setShowAddFloorModal(false);
+    setShowFloorPlanApplyScopeModal(false);
+    setFloorPlanApplyMode('single');
+    setFloorPlanApplySelectedIds([]);
+    setUpdatingFloorPlanId(null);
     setEditingFloorId(null);
     setInlineEditingFloorId(null);
     setDuplicatingFloorTarget(null);
@@ -1968,6 +2221,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     }
     const file = e.target.files?.[0];
     if (!file) return;
+    try { assertSafeExcelImportFile(file); } catch (error) {
+      alert(`❌ ${error instanceof Error ? error.message : 'Tệp Excel không hợp lệ.'}`);
+      e.currentTarget.value = '';
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = async (event) => {
@@ -2349,7 +2607,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const parentRef = useRef<HTMLDivElement>(null);
   const [parentSize, setParentSize] = useState({ w: 0, h: 0 });
 
-  const activeFloor = floorPlans.find((fp) => fp.id === selectedFloorId) || floorPlans[0];
+  const activeFloor = visibleFloorPlans.find((fp) => fp.id === selectedFloorId)
+    || visibleFloorPlans[0]
+    || (!normalizedStructureConfig.enabled || selectedStructureGroupId === 'all' ? floorPlans[0] : undefined);
 
   const getFloorTargetState = (dateStr?: string) => {
     if (!dateStr) return { label: 'Chưa đặt hạn', className: 'bg-slate-100 text-slate-600 border-slate-200' };
@@ -2479,6 +2739,42 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     ? selectedRoomIds
     : selectedRoomObject ? [selectedRoomObject.id] : [];
   const selectedRoomsAreLocked = selectedRoomIdsForAction.length > 0 && selectedRoomIdsForAction.every((id) => lockedRoomIds.has(id));
+
+  const notifyDefectsOutsideTransformedRooms = (rooms: RoomProgressItem[]) => {
+    if (rooms.length === 0) return;
+    const transformedById = new Map(rooms.map((room) => [room.id, room]));
+    const outsideCount = floorDefects.filter((defect) => {
+      if (!defect.roomId) return false;
+      const transformed = transformedById.get(defect.roomId);
+      return Boolean(transformed && !isPointInsideRoom(defect.x, defect.y, transformed));
+    }).length;
+    if (outsideCount <= 0) return;
+    setCopyNotification(`⚠️ ${outsideCount} Defect đang nằm ngoài vùng highlight sau biến đổi. Ghim Defect và roomId được giữ nguyên.`);
+    window.setTimeout(() => setCopyNotification(null), 4200);
+  };
+
+  const applySelectedRoomTransform = (kind: 'rotate90' | 'rotate180' | 'mirror-horizontal' | 'mirror-vertical') => {
+    if (!canManageStructure || selectedRoomIdsForAction.length === 0) return;
+    if (selectedRoomIdsForAction.some((id) => lockedRoomIds.has(id))) {
+      setCopyNotification('🔒 Có Căn/Phòng đang khóa vị trí. Mở khóa trước khi xoay hoặc đối xứng.');
+      window.setTimeout(() => setCopyNotification(null), 2400);
+      return;
+    }
+    const selectedSet = new Set(selectedRoomIdsForAction);
+    const aspect = Math.max(0.01, Number(imgAspect) || 1);
+    const transformed = floorRooms
+      .filter((room) => selectedSet.has(room.id))
+      .map((room) => {
+        if (kind === 'rotate90') return rotateRoomHighlight(room, 90, aspect);
+        if (kind === 'rotate180') return rotateRoomHighlight(room, 180, aspect);
+        if (kind === 'mirror-horizontal') return mirrorRoomHighlight(room, 'horizontal');
+        return mirrorRoomHighlight(room, 'vertical');
+      });
+    if (transformed.length === 0) return;
+    if (onBatchSaveRooms && transformed.length > 1) onBatchSaveRooms(transformed);
+    else transformed.forEach((room) => onSaveRoomProgress(room));
+    notifyDefectsOutsideTransformedRooms(transformed);
+  };
 
   const toggleSelectedRoomLock = () => {
     if (selectedRoomIdsForAction.length === 0) return;
@@ -2891,6 +3187,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         if (e.key === 'Escape') {
           setDrawTool('none');
           setIsRoomPinPlacementMode(false);
+          setIsDefectPinPlacementMode(false);
+          setRelocatingDefectId(null);
           setSelectedRoomIds([]);
           setSelectedRoomForDragId(null);
         }
@@ -2968,6 +3266,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         setClickChoicePos(null);
         setIsRoomPinPlacementMode(false);
         setIsDefectPinPlacementMode(false);
+        setRelocatingDefectId(null);
         setSelectedRoomIds([]);
         setSelectedRoomForDragId(null);
       }
@@ -2994,13 +3293,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     return () => { window.removeEventListener('keydown', handleKeyDown, true); window.removeEventListener('keyup', handleKeyUp, true); };
   }, [selectedRoomForDragId, selectedRoomIds, floorRooms, copiedRoomsState, activeFloor, onSaveRoomProgress, onDeleteRoomProgress, lockedRoomIds, canManageStructure]);
 
-  // Repair legacy/stale links once source data is available. This is idempotent: only
-  // mismatches are written. roomId follows the actual pin/highlight geometry, while a
-  // valid per-defect teamId is preserved and its display name is refreshed after renames.
+  // Repair legacy/stale links once source data is available. Durable roomId stays
+  // authoritative while its room still exists: editing/rotating a highlight must never
+  // silently move a historical Defect to another room. Missing/deleted room links still
+  // fall back to pin geometry, while a valid teamId is preserved/refreshed after renames.
   React.useEffect(() => {
     if (!canEditDefects || !onUpdateDefect || floorDefects.length === 0) return;
     floorDefects.forEach((defect) => {
-      const repaired = reconcileDefectLinkage(defect, floorRooms, teams);
+      const repaired = reconcileDefectLinkage(defect, floorRooms, teams, { preserveValidRoomId: true });
       if (repaired !== defect) onUpdateDefect(repaired);
     });
   }, [canEditDefects, floorDefects, floorRooms, teams, onUpdateDefect]);
@@ -3098,6 +3398,20 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       alert(`Tên mặt bằng “${finalName}” đã tồn tại. Vui lòng đổi tên bản sao trước khi tạo.`);
       return;
     }
+
+    const sourcePlan = floorPlans.find((floor) => floor.id === duplicatingFloorTarget.id);
+    const sourceGroupId = normalizedStructureConfig.enabled && sourcePlan
+      ? resolveFloorStructureGroupId(sourcePlan, normalizedStructureConfig)
+      : '';
+
+    // A duplicate created from the all-groups management sheet can otherwise be
+    // auto-selected and then immediately hidden by the currently active group filter.
+    // Align the filter with the source group first so the newly created name remains
+    // visible and the user never perceives the clone as jumping/disappearing.
+    if (sourceGroupId && selectedStructureGroupId !== 'all' && selectedStructureGroupId !== sourceGroupId) {
+      setSelectedStructureGroupId(sourceGroupId);
+    }
+
     if (onDuplicateFloorPlan) {
       onDuplicateFloorPlan(duplicatingFloorTarget.id, finalName);
     }
@@ -3154,6 +3468,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
     onAddFloorPlan({
       floorName,
+      structureGroupId: normalizedStructureConfig.enabled ? newFloorStructureGroupId : undefined,
       imageUrl: '',
       uploadedAt: new Date().toISOString().split('T')[0],
     });
@@ -3330,6 +3645,58 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     return compressFloorPlanImage(file);
   };
 
+  const orderedFloorPlansForApply = React.useMemo(() =>
+    [...floorPlans].sort((a, b) => {
+      const ai = floorPlans.findIndex((item) => item.id === a.id);
+      const bi = floorPlans.findIndex((item) => item.id === b.id);
+      return Number(a.order ?? ai) - Number(b.order ?? bi);
+    }), [floorPlans]);
+
+  const getSuggestedNewFloorStructureGroupId = React.useCallback(() => {
+    if (!normalizedStructureConfig.enabled) return normalizedStructureConfig.defaultGroupId;
+    if (selectedStructureGroupId !== 'all' && normalizedStructureConfig.groups.some((group) => group.id === selectedStructureGroupId)) {
+      return selectedStructureGroupId;
+    }
+    const selectedPlan = floorPlans.find((plan) => plan.id === selectedFloorId);
+    return selectedPlan
+      ? resolveFloorStructureGroupId(selectedPlan, normalizedStructureConfig)
+      : normalizedStructureConfig.defaultGroupId;
+  }, [floorPlans, normalizedStructureConfig, selectedFloorId, selectedStructureGroupId]);
+
+  const getFloorPlanScopeLabel = React.useCallback((plan: FloorPlan) =>
+    normalizedStructureConfig.enabled
+      ? `${getFloorStructureGroupName(plan, normalizedStructureConfig)} → ${plan.floorName}`
+      : plan.floorName,
+  [normalizedStructureConfig]);
+
+  const resetFloorPlanApplyScope = () => {
+    setShowFloorPlanApplyScopeModal(false);
+    setFloorPlanApplyMode('single');
+    setFloorPlanApplySelectedIds([]);
+    setFloorPlanRangeStartId('');
+    setFloorPlanRangeEndId('');
+    setUpdatingFloorPlanId(null);
+  };
+
+  const openFloorPlanApplyScope = (floorPlanId: string) => {
+    if (!canManageStructure) return;
+    setUpdatingFloorPlanId(floorPlanId);
+    setFloorPlanApplyMode('single');
+    setFloorPlanApplySelectedIds([floorPlanId]);
+    setFloorPlanRangeStartId(floorPlanId);
+    setFloorPlanRangeEndId(floorPlanId);
+    setShowFloorPlanApplyScopeModal(true);
+  };
+
+  const selectFloorPlanRange = () => {
+    const startIndex = orderedFloorPlansForApply.findIndex((plan) => plan.id === floorPlanRangeStartId);
+    const endIndex = orderedFloorPlansForApply.findIndex((plan) => plan.id === floorPlanRangeEndId);
+    if (startIndex < 0 || endIndex < 0) return;
+    const from = Math.min(startIndex, endIndex);
+    const to = Math.max(startIndex, endIndex);
+    setFloorPlanApplySelectedIds(orderedFloorPlansForApply.slice(from, to + 1).map((plan) => plan.id));
+  };
+
   // Handle PDF/Image upload from legacy quick input.
   const handlePdfFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -3351,6 +3718,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       onAddFloorPlan({
         id: newFloorId,
         floorName: `Mặt bằng PDF - ${floorNameClean}`,
+        structureGroupId: normalizedStructureConfig.enabled ? newFloorStructureGroupId : undefined,
         imageUrl: planUrl,
         uploadedAt: new Date().toISOString().split('T')[0],
       });
@@ -3366,27 +3734,49 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     }
   };
 
-  // Handle PDF/Image file upload to update an existing floor plan drawing
+  // Handle PDF/Image file upload to update one or many existing floor-plan drawings.
   const handleUpdatePlanFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!canManageStructure) { if (e.target) e.target.value = ''; return; }
     const file = e.target.files?.[0];
     if (!file || !updatingFloorPlanId) return;
+
+    const targetIds = floorPlanApplyMode === 'multiple'
+      ? Array.from(new Set(floorPlanApplySelectedIds))
+      : [updatingFloorPlanId];
+    if (floorPlanApplyMode === 'multiple' && targetIds.length < 2) {
+      alert('Chế độ Nhiều tầng cần chọn ít nhất 2 tầng.');
+      if (updatePlanInputRef.current) updatePlanInputRef.current.value = '';
+      return;
+    }
 
     try {
       beginFloorPlanFileProcessing(file);
       const planUrl = await renderFloorPlanFile(file);
       if (!planUrl) return;
 
-      if (onUpdateFloorPlanImage) {
-        onUpdateFloorPlanImage(updatingFloorPlanId, planUrl);
-        alert(`🎉 Đã cập nhật thành công bản vẽ mới cho tầng!`);
+      if (targetIds.length > 1) {
+        if (!onUpdateFloorPlanImages) throw new Error('FLOOR_PLAN_BULK_HANDLER_UNAVAILABLE');
+        const applied = await onUpdateFloorPlanImages(targetIds, planUrl);
+        alert(`🎉 Đã áp dụng 1 bản vẽ chung cho ${applied} tầng. Defect, Căn/Phòng và tiến độ từng tầng vẫn giữ riêng.`);
+      } else if (onUpdateFloorPlanImage) {
+        await onUpdateFloorPlanImage(targetIds[0], planUrl);
+        alert('🎉 Đã cập nhật thành công bản vẽ mới cho tầng!');
       }
+      resetFloorPlanApplyScope();
     } catch (err) {
       console.error('Update floor plan drawing error:', err);
-      alert(describePdfError(err));
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes('FLOOR_PLAN_BULK_REQUIRES_ONLINE')) {
+        alert('Áp dụng cùng một bản vẽ cho nhiều tầng cần có mạng để tạo 1 asset dùng chung an toàn. Hãy kết nối mạng rồi thử lại.');
+      } else if (message.includes('FLOOR_PLAN_BULK_TARGET_PENDING')) {
+        alert('Có tầng đang chờ tải bản vẽ lên Cloud/R2. Hãy chờ đồng bộ xong rồi áp dụng hàng loạt để tránh ghi đè nhầm revision.');
+      } else if (message.includes('FLOOR_PLAN_ADMIN_REQUIRED') || message.includes('FLOOR_PLAN_ROLE_VERIFICATION_UNAVAILABLE')) {
+        alert('Không xác minh được quyền ADMIN để thay mặt bằng. Hãy kiểm tra kết nối/quyền dự án rồi thử lại.');
+      } else {
+        alert(describePdfError(err));
+      }
     } finally {
       endFloorPlanFileProcessing();
-      setUpdatingFloorPlanId(null);
       if (updatePlanInputRef.current) updatePlanInputRef.current.value = '';
     }
   };
@@ -3395,8 +3785,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const handleStartDrag = (
     e: React.PointerEvent,
     room: RoomProgressItem,
-    handle: 'move' | 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'w' | 'e' | number
+    handle: 'move' | 'rotate' | 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'w' | 'e' | number
   ) => {
+    // Defect placement has the highest interaction priority on the drawing.
+    // Even if a room was selected before entering Add/Move Defect mode, tapping
+    // one of its move/resize handles must place the Defect instead of dragging it.
+    if (tryHandleDefectPlacementEvent(e)) return;
     if (!canManageStructure) return;
     e.stopPropagation();
     if (e.cancelable) e.preventDefault();
@@ -3440,11 +3834,19 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     setActiveDragHandle(handle);
     setDraggingRoomsPreview(null);
     draggingRoomsPreviewRef.current = null;
+    const geometryBounds = getRoomHighlightBounds(room);
+    const rotationAspect = Math.max(0.01, Number(imgAspect) || (rect.width > 0 && rect.height > 0 ? rect.width / rect.height : 1));
+    const rotationStartAngle = handle === 'rotate'
+      ? Math.atan2(mouseY - geometryBounds.cy, (mouseX - geometryBounds.cx) * rotationAspect) * 180 / Math.PI
+      : undefined;
+    if (handle === 'rotate') setRotationPreview({ roomId: room.id, degrees: 0 });
     setDragStartInfo({ 
       mouseX, 
       mouseY, 
       room: JSON.parse(JSON.stringify(room)),
-      rooms: JSON.parse(JSON.stringify(roomsToDrag))
+      rooms: JSON.parse(JSON.stringify(roomsToDrag)),
+      rotationStartAngle,
+      rotationAspect,
     });
   };
 
@@ -3552,7 +3954,20 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       let newH = initRoom.height || 15;
       let newPoints = initRoom.points ? [...initRoom.points] : undefined;
 
-      if (activeDragHandle === 'move' && dragStartInfo.rooms && dragStartInfo.rooms.length > 0) {
+      if (activeDragHandle === 'rotate') {
+        const bounds = getRoomHighlightBounds(initRoom);
+        const aspect = Math.max(0.01, Number(dragStartInfo.rotationAspect) || Number(imgAspect) || 1);
+        const startAngle = Number(dragStartInfo.rotationStartAngle || 0);
+        const currentAngle = Math.atan2(y - bounds.cy, (x - bounds.cx) * aspect) * 180 / Math.PI;
+        const rawDelta = currentAngle - startAngle;
+        const rotationDelta = snapRotationDelta(rawDelta, 5);
+        const rotatedRoom = rotateRoomHighlight(initRoom, rotationDelta, aspect);
+        const previewMap: Record<string, RoomProgressItem> = { [initRoom.id]: rotatedRoom };
+        setRotationPreview({ roomId: initRoom.id, degrees: rotationDelta });
+        setDraggingRoomsPreview(previewMap);
+        draggingRoomsPreviewRef.current = previewMap;
+        return;
+      } else if (activeDragHandle === 'move' && dragStartInfo.rooms && dragStartInfo.rooms.length > 0) {
         const previewMap: Record<string, RoomProgressItem> = {};
         dragStartInfo.rooms.forEach(roomToMove => {
           const roomW = roomToMove.width || 20;
@@ -3633,6 +4048,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         } else if (activeDragHandle === 'e') {
           newW = Math.max(2, Math.min(100 - initRoom.x, Math.round((initRoom.width + dx) * 10) / 10));
         }
+
+        // For polygons (including rectangles converted by arbitrary rotation), resize
+        // the actual vertices together with the bounding box instead of moving an
+        // invisible box while leaving the visible highlight behind.
+        if (newPoints && initRoom.points && initRoom.points.length >= 2) {
+          const resized = resizeRoomHighlightToBounds(initRoom, { x: newX, y: newY, width: newW, height: newH });
+          newX = resized.x;
+          newY = resized.y;
+          newW = resized.width;
+          newH = resized.height;
+          newPoints = resized.points;
+        }
       }
 
       const previewMap: Record<string, RoomProgressItem> = {
@@ -3686,16 +4113,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
       const previewToCommit = draggingRoomsPreviewRef.current;
       if (previewToCommit) {
-        const modifiedRooms = Object.values(previewToCommit);
+        const modifiedRooms = Object.values(previewToCommit) as RoomProgressItem[];
         if (modifiedRooms.length > 0) {
           if (onBatchSaveRooms && modifiedRooms.length > 1) {
             onBatchSaveRooms(modifiedRooms);
           } else {
             modifiedRooms.forEach((r) => onSaveRoomProgress(r));
           }
+          if (activeDragHandle === 'rotate') notifyDefectsOutsideTransformedRooms(modifiedRooms);
         }
       }
 
+      setRotationPreview(null);
       setActiveDragHandle(null);
       setDragStartInfo(null);
       setDraggingRoomsPreview(null);
@@ -3890,9 +4319,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       setClickChoicePos(null);
       setTouchMenu(null);
       setHoveredRoomId(null);
-      if (canEditDefects && isDefectPinPlacementMode) {
-        setIsDefectPinPlacementMode(false);
-        openDefectModalForPin(x, y);
+      if (canEditDefects && (isDefectPinPlacementMode || relocatingDefectId)) {
+        commitDefectMapPlacement(x, y);
       }
       return;
     }
@@ -3911,10 +4339,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
     // Defect pin placement is explicit: press "+ Defect" first, then tap the exact location.
     // This prevents accidental defect creation while panning/inspecting the drawing.
-    if (isDefectPinPlacementMode) {
-      setIsRoomPinPlacementMode(false);
-      setIsDefectPinPlacementMode(false);
-      openDefectModalForPin(x, y);
+    if (isDefectPinPlacementMode || relocatingDefectId) {
+      commitDefectMapPlacement(x, y);
       return;
     }
 
@@ -4118,6 +4544,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     onAddFloorPlan({
       id: pending.floorId,
       floorName: pending.floorName,
+      structureGroupId: pending.structureGroupId,
       imageUrl: pending.imageUrl,
       uploadedAt: new Date().toISOString().split('T')[0],
     });
@@ -4208,6 +4635,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               setPendingSmartPdfImport({
                 floorId: newFloorId,
                 floorName: savedFloorName,
+                structureGroupId: normalizedStructureConfig.enabled ? newFloorStructureGroupId : undefined,
                 fileName: file.name,
                 imageUrl: planUrl,
                 pageNumber,
@@ -4220,7 +4648,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               console.warn('Smart PDF room detection failed; keeping normal PDF upload:', detectErr);
               // Detection is an optional accelerator. A valid PDF must still be usable
               // even when an unusual annotation/text layer cannot be analyzed.
-              onAddFloorPlan({ id: newFloorId, floorName: savedFloorName, imageUrl: planUrl, uploadedAt: new Date().toISOString().split('T')[0] });
+              onAddFloorPlan({ id: newFloorId, floorName: savedFloorName, structureGroupId: normalizedStructureConfig.enabled ? newFloorStructureGroupId : undefined, imageUrl: planUrl, uploadedAt: new Date().toISOString().split('T')[0] });
               setSelectedFloorId(newFloorId);
               setShowAddFloorModal(false);
               setNewFloorName('');
@@ -4231,7 +4659,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             }
           }
 
-          onAddFloorPlan({ id: newFloorId, floorName: savedFloorName, imageUrl: planUrl, uploadedAt: new Date().toISOString().split('T')[0] });
+          onAddFloorPlan({ id: newFloorId, floorName: savedFloorName, structureGroupId: normalizedStructureConfig.enabled ? newFloorStructureGroupId : undefined, imageUrl: planUrl, uploadedAt: new Date().toISOString().split('T')[0] });
           setSelectedFloorId(newFloorId);
           setShowAddFloorModal(false);
           setNewFloorName('');
@@ -4244,7 +4672,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
       const planUrl = await renderFloorPlanFile(file);
       if (!planUrl) return;
-      onAddFloorPlan({ id: newFloorId, floorName: savedFloorName, imageUrl: planUrl, uploadedAt: new Date().toISOString().split('T')[0] });
+      onAddFloorPlan({ id: newFloorId, floorName: savedFloorName, structureGroupId: normalizedStructureConfig.enabled ? newFloorStructureGroupId : undefined, imageUrl: planUrl, uploadedAt: new Date().toISOString().split('T')[0] });
       setSelectedFloorId(newFloorId);
       setShowAddFloorModal(false);
       setNewFloorName('');
@@ -4290,7 +4718,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     setEditingPhotoUrl(null);
     try {
       setIsUploadingPhoto(true);
-      let photoResultUrl = await readDefectPhotoAsDataUrl(editedFile);
+      // ImageEditorModal already encodes the annotated image at the configured Defect
+      // quality. Re-use that exact file here instead of running compressDefectPhoto a
+      // second time, which previously added latency and cumulative JPEG blur.
+      let photoResultUrl = await readFileAsDataUrl(editedFile);
 
       if (hasApiBackend()) {
         const controller = new AbortController();
@@ -4530,26 +4961,66 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   return (
     <div className="p-4 space-y-4 pb-24 w-full max-w-6xl mx-auto">
       {/* Title Header */}
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-            <Building2 className="w-5 h-5 text-indigo-600" />
-            {t('floorplan_title')}
-          </h2>
-          <p className="text-xs text-slate-500 font-medium">
-            Đang xem: <span className="font-extrabold text-indigo-600">{activeFloor?.floorName}</span> ({floorPlans.length} tầng)
-          </p>
-        </div>
-        <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
-          {canManageStructure && <button
-            type="button"
-            onClick={() => setShowManageFloorsModal(true)}
-            className="flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-2.5 py-2 rounded-xl text-xs font-bold active:scale-95 transition-all shadow-xs"
-            title="Quản lý, đổi tên, sao chép hoặc xóa các tầng"
-          >
-            <Settings className="w-3.5 h-3.5" />
-            Tùy chỉnh tầng
-          </button>}
+      <div className="space-y-2">
+        <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2 whitespace-nowrap">
+          <Building2 className="w-5 h-5 shrink-0 text-indigo-600" />
+          {t('floorplan_title')}
+        </h2>
+
+        <div className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-3 sm:gap-y-1">
+            <div className="text-xs font-medium text-slate-500 min-w-0">
+              Đang xem:{' '}
+              <span className="font-extrabold text-indigo-600">
+                {activeFloor
+                  ? normalizedStructureConfig.enabled
+                    ? `${getFloorStructureGroupName(activeFloor, normalizedStructureConfig)} → ${activeFloor.floorName}`
+                    : `${activeFloor.floorName}`
+                  : 'Chưa có tầng'}
+              </span>
+            </div>
+
+            {normalizedStructureConfig.enabled && (
+              <div className="flex min-w-0 items-center gap-1.5 text-xs text-slate-600">
+                <span className="font-bold whitespace-nowrap">{normalizedStructureConfig.label}:</span>
+                {normalizedStructureConfig.groups.length > 1 ? (
+                  <select
+                    value={selectedStructureGroupId}
+                    onChange={(event) => setSelectedStructureGroupId(event.target.value)}
+                    className="min-w-0 max-w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-700 sm:w-auto sm:max-w-[220px]"
+                    title={`Lọc tầng theo ${normalizedStructureConfig.label}`}
+                    aria-label={`Lọc tầng theo ${normalizedStructureConfig.label}`}
+                  >
+                    <option value="all">Tất cả {normalizedStructureConfig.label}</option>
+                    {normalizedStructureConfig.groups.map((group) => (
+                      <option key={group.id} value={group.id}>{group.name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="min-w-0 truncate font-extrabold text-slate-800">
+                    {normalizedStructureConfig.groups[0]?.name || getFloorStructureGroupName(activeFloor, normalizedStructureConfig)}
+                  </span>
+                )}
+              </div>
+            )}
+
+            <div className="text-[11px] font-semibold text-slate-500 whitespace-nowrap">
+              {visibleFloorPlans.length}/{floorPlans.length} tầng
+            </div>
+          </div>
+
+          {canManageStructure && (
+            <button
+              type="button"
+              onClick={() => setShowManageFloorsModal(true)}
+              className="w-full shrink-0 flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-3 py-2 rounded-xl text-xs font-bold active:scale-[0.99] transition-all shadow-xs whitespace-nowrap sm:w-auto"
+              title="Quản lý Khu/Khối, đổi tên, sắp xếp và quản lý tầng"
+            >
+              <Settings className="w-3.5 h-3.5 shrink-0" />
+              Quản lý Khu/Khối & Tầng
+            </button>
+          )}
+
           <input
             type="file"
             ref={updatePlanInputRef}
@@ -4620,7 +5091,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     <tr><th className="text-left px-2">Tầng</th><th className="text-left px-2">Xong Khung</th><th className="text-left px-2">Xong Tấm</th></tr>
                   </thead>
                   <tbody>
-                    {floorPlans.map((floor) => {
+                    {visibleFloorPlans.map((floor) => {
                       const frameState = getFloorTargetState(floor.targetFrameDate);
                       const boardState = getFloorTargetState(floor.targetBoardDate);
                       return (
@@ -4659,7 +5130,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           <div className="flex items-start gap-2.5">
             <AlertTriangle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5 animate-pulse" />
             <div className="text-xs space-y-0.5">
-              <span className="font-extrabold block text-rose-800">⚠️ Phát hiện {orphanedRooms.length} mặt bằng phòng ẩn!</span>
+              <span className="font-extrabold block text-rose-800">Phát hiện {orphanedRooms.length} mặt bằng phòng ẩn!</span>
               <p className="text-rose-700 leading-relaxed font-medium">
                 Các phòng này bị mất liên kết (không thuộc về bất kỳ tầng hiện tại nào) do thay đổi tầng hoặc dữ liệu cũ.
               </p>
@@ -4714,10 +5185,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 <label className="flex items-center gap-1 cursor-pointer select-none">
                   <input
                     type="checkbox"
-                    checked={floorPlans.length > 0 && floorPlans.every(fp => selectedFloorIdsForBulk.includes(fp.id))}
+                    checked={visibleFloorPlans.length > 0 && visibleFloorPlans.every(fp => selectedFloorIdsForBulk.includes(fp.id))}
                     onChange={(e) => {
                       if (e.target.checked) {
-                        setSelectedFloorIdsForBulk(floorPlans.map(fp => fp.id));
+                        setSelectedFloorIdsForBulk(visibleFloorPlans.map(fp => fp.id));
                       } else {
                         setSelectedFloorIdsForBulk([]);
                       }
@@ -4767,11 +5238,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         </div>
 
         <div className="flex gap-2 overflow-x-auto pb-1 text-xs no-scrollbar">
-          {sortedFloorPlans.map((fp, index) => {
+          {visibleFloorPlans.map((fp) => {
             const isSelected = selectedFloorId === fp.id || (!selectedFloorId && fp.id === activeFloor?.id);
             const defectCount = defects.filter((d) => d.floorId === fp.id && d.status !== 'Đã nghiệm thu').length;
             const roomCount = roomProgressList.filter((r) => r.floorId === fp.id).length;
             const isEditingInline = inlineEditingFloorId === fp.id;
+            const fpGroupId = normalizedStructureConfig.enabled ? resolveFloorStructureGroupId(fp, normalizedStructureConfig) : '__all__';
+            const siblingFloors = normalizedStructureConfig.enabled ? getSavedFloorsForGroup(fpGroupId) : floorPlansInSavedOrder;
+            const siblingIndex = siblingFloors.findIndex((floor) => floor.id === fp.id);
 
             return (
               <div
@@ -4858,7 +5332,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     className="font-extrabold tracking-wide"
                     title="Nhấp đôi để sửa tên tầng trực tiếp"
                   >
-                    {fp.floorName}
+                    {normalizedStructureConfig.enabled
+                      ? `${getFloorStructureGroupName(fp, normalizedStructureConfig)} → ${fp.floorName}`
+                      : fp.floorName}
                   </span>
                 )}
 
@@ -4918,12 +5394,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     </button>
 
                     {/* Move Left Button */}
-                    {index > 0 && floorSortBy === 'none' && (
+                    {siblingIndex > 0 && floorSortBy === 'none' && (
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (onMoveFloorPlan) onMoveFloorPlan(fp.id, 'left');
+                          moveFloorWithinGroup(fp.id, 'up');
                         }}
                         className={`p-0.5 rounded hover:bg-black/10 transition-colors ${isSelected ? 'text-indigo-100' : 'text-slate-400 hover:text-slate-700'}`}
                         title="Di chuyển tầng sang trái"
@@ -4933,12 +5409,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     )}
 
                     {/* Move Right Button */}
-                    {index < sortedFloorPlans.length - 1 && floorSortBy === 'none' && (
+                    {siblingIndex >= 0 && siblingIndex < siblingFloors.length - 1 && floorSortBy === 'none' && (
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (onMoveFloorPlan) onMoveFloorPlan(fp.id, 'right');
+                          moveFloorWithinGroup(fp.id, 'down');
                         }}
                         className={`p-0.5 rounded hover:bg-black/10 transition-colors ${isSelected ? 'text-indigo-100' : 'text-slate-400 hover:text-slate-700'}`}
                         title="Di chuyển tầng sang phải"
@@ -5018,7 +5494,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   : viewMode === 'highlight'
                   ? '🏗️ Mặt bằng thi công'
                   : '📌 Mặt bằng Defect'}{' '}
-                · <span className="text-indigo-700">{activeFloor.floorName}</span>
+                · <span className="text-indigo-700">
+                  {normalizedStructureConfig.enabled
+                    ? `${getFloorStructureGroupName(activeFloor, normalizedStructureConfig)} → ${activeFloor.floorName}`
+                    : `${activeFloor.floorName}`}
+                </span>
               </span>
             </div>
 
@@ -5026,8 +5506,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               {canManageStructure && <button
                 type="button"
                 onClick={async () => {
-                  setUpdatingFloorPlanId(activeFloor.id);
-                  updatePlanInputRef.current?.click();
+                  openFloorPlanApplyScope(activeFloor.id);
                 }}
                 className="col-span-2 sm:col-span-1 flex items-center justify-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200/80 px-3 py-2 sm:py-1.5 rounded-xl text-xs font-bold transition-all shadow-2xs active:scale-95"
                 title="Cập nhật tệp ảnh hoặc PDF bản vẽ mới cho tầng đang xem"
@@ -5060,8 +5539,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   type="button"
                   onClick={() => {
                     setIsRoomPinPlacementMode(false);
+                    setRelocatingDefectId(null);
                     setDrawTool('none');
                     setPinPos(null);
+                    setSelectedRoomIds([]);
+                    setSelectedRoomForDragId(null);
+                    setTouchMenu(null);
                     setIsDefectPinPlacementMode((active) => !active);
                   }}
                   className={`text-xs font-bold px-3 py-2 sm:py-1.5 rounded-xl flex items-center justify-center gap-1.5 shadow-xs active:scale-95 transition-all min-w-0 ${
@@ -5077,6 +5560,22 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               )}
             </div>
           </div>
+
+          {relocatingDefectId && (() => {
+            const movingDefect = defects.find((item) => item.id === relocatingDefectId);
+            return (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-900">
+                <span>📍 Đang di chuyển {movingDefect ? getDefectShortCode(movingDefect.id) : 'Defect'} · chạm đúng vị trí mới trên mặt bằng/Highlight Căn.</span>
+                <button
+                  type="button"
+                  onClick={() => setRelocatingDefectId(null)}
+                  className="rounded-lg border border-amber-300 bg-white px-2.5 py-1 font-black text-amber-800 hover:bg-amber-100"
+                >
+                  Hủy di chuyển
+                </button>
+              </div>
+            );
+          })()}
 
           {/* Dedicated Drawing & View Controls Toolbar */}
           {canManageStructure && (viewMode === 'highlight' || viewMode === 'all') && (
@@ -5460,7 +5959,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   className="bg-slate-950 hover:bg-slate-900 text-amber-300 text-xs font-black px-3 py-1.5 rounded-xl shadow transition-all active:scale-95 flex items-center justify-center gap-1 cursor-pointer flex-1 min-w-[160px] sm:flex-none"
                 >
                   <Edit2 className="w-3.5 h-3.5" />
-                  ✓ Bắt Đầu Cấu Hình
+                  Bắt đầu cấu hình
                 </button>
                 <button
                   type="button"
@@ -5624,8 +6123,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       <button
                         type="button"
                         onClick={() => {
+                          setIsRoomPinPlacementMode(false);
+                          setRelocatingDefectId(null);
                           setDrawTool('none');
                           setPinPos(null);
+                          setSelectedRoomIds([]);
+                          setSelectedRoomForDragId(null);
+                          setTouchMenu(null);
                           setIsDefectPinPlacementMode((active) => !active);
                         }}
                         className={`text-[11px] font-black px-2.5 py-1 rounded-xl flex items-center gap-1 shadow-xs shrink-0 ${
@@ -5765,7 +6269,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         className="bg-slate-950 hover:bg-slate-900 text-amber-300 text-xs font-black px-3 py-1.5 rounded-xl shadow transition-all active:scale-95 flex items-center justify-center gap-1 cursor-pointer flex-1 min-w-[160px] sm:flex-none"
                       >
                         <Edit2 className="w-3.5 h-3.5" />
-                        ✓ Bắt Đầu Cấu Hình
+                        Bắt đầu cấu hình
                       </button>
                       <button
                         type="button"
@@ -5773,6 +6277,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           const roomCount = floorRooms.length + 1;
                           onSaveRoomProgress({
                             floorId: activeFloor.id,
+                            floorName: activeFloor.floorName,
                             roomName: getNextAvailableQuickRoomName(),
                             frameStatus: 'Chưa làm',
                             boardStatus: 'Chưa làm',
@@ -5805,7 +6310,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   <div className="bg-amber-500 text-slate-950 p-2 rounded-2xl text-xs font-bold flex items-center justify-between gap-2 border border-amber-300 shadow-xl">
                     <div className="flex items-center gap-1.5 w-full sm:w-auto">
                       <Pencil className="w-3.5 h-3.5 shrink-0" />
-                      <span>💡 <strong>Kéo Vẽ tự do:</strong> Nhấn giữ & rê chuột/ngón tay khoanh vùng bất kỳ. Nhả tay để chốt!</span>
+                      <span><strong>Kéo vẽ tự do:</strong> Nhấn giữ & rê chuột/ngón tay khoanh vùng bất kỳ. Nhả tay để chốt!</span>
                     </div>
                     <button
                       type="button"
@@ -5842,7 +6347,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       <div className="flex items-center gap-1.5">
                         <Sparkles className="w-3.5 h-3.5 shrink-0 animate-spin" />
                         <span>
-                          📐 <strong>Đang vẽ lại vùng cho căn "{redrawingRoomTarget.roomName}":</strong>{' '}
+                          <strong>Đang vẽ lại vùng cho căn "{redrawingRoomTarget.roomName}":</strong>{' '}
                           {drawTool === 'freehand' && 'Nhấn giữ & rê ngón tay/chuột để vẽ tự do. Nhả tay để lưu!'}
                           {drawTool === 'polygon' && `Chấm từng điểm góc đa giác mới (Đã chấm ${polygonPoints.length} góc). Bấm nút Chốt để lưu!`}
                           {drawTool === '2point' && 'Bấm 2 điểm đối góc trên mặt bằng để vẽ khung hình chữ nhật!'}
@@ -6482,6 +6987,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
               const isPolygon = room.points && room.points.length >= 3;
               const isLocked = lockedRoomIds.has(room.id);
+              const isPrimarySelection = selectedRoomForDragId === room.id;
+              const rotateHandleAbove = ry >= 7;
+              const rotateHandleY = rotateHandleAbove ? Math.max(1.8, ry - 4.8) : Math.min(98.2, ry + rh + 4.8);
+              const transformToolbarY = rotateHandleAbove ? Math.max(1.8, ry - 9.4) : Math.min(98.2, ry + rh + 9.4);
 
               return (
                 <React.Fragment key={`drag-controls-${room.id}`}>
@@ -6519,6 +7028,51 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   >
                     <Move className="w-3.5 h-3.5 group-hover:rotate-12 transition-transform" />
                   </div>
+
+                  {/* Rotation handle + quick transforms. Only the primary selected room owns
+                      the controls; multi-select quick actions still transform every selected room
+                      around its own center. */}
+                  {isPrimarySelection && (
+                    <>
+                      <div
+                        style={{
+                          left: `${cx}%`,
+                          top: `${rotateHandleAbove ? rotateHandleY : ry + rh}%`,
+                          height: `${Math.max(0.8, Math.abs(rotateHandleY - (rotateHandleAbove ? ry : ry + rh)))}%`,
+                        }}
+                        className="absolute w-px -translate-x-1/2 z-40 pointer-events-none bg-amber-400/90"
+                      />
+                      <div
+                        style={{ left: `${cx}%`, top: `${rotateHandleY}%`, touchAction: 'none' }}
+                        onPointerDown={(e) => handleStartDrag(e, room, 'rotate')}
+                        onClick={(e) => e.stopPropagation()}
+                        className="absolute -translate-x-1/2 -translate-y-1/2 z-50 pointer-events-auto cursor-grab active:cursor-grabbing w-8 h-8 sm:w-7 sm:h-7 bg-indigo-600 text-white rounded-full shadow-2xl border-2 border-white flex items-center justify-center hover:scale-110 transition-transform"
+                        title="Giữ và kéo để xoay tự do · tự hít gần 0° / 90° / 180° / 270°"
+                        aria-label={`Xoay vùng highlight ${room.roomName}`}
+                      >
+                        <RotateCw className="w-4 h-4" />
+                      </div>
+                      {rotationPreview?.roomId === room.id && activeDragHandle === 'rotate' && (
+                        <div
+                          style={{ left: `${Math.min(96, cx + 4)}%`, top: `${rotateHandleY}%` }}
+                          className="absolute -translate-y-1/2 z-50 pointer-events-none px-2 py-1 rounded-lg bg-slate-950 text-amber-300 border border-amber-400 text-[10px] font-black shadow-xl"
+                        >
+                          {Math.round(((rotationPreview.degrees % 360) + 360) % 360)}°
+                        </div>
+                      )}
+                      <div
+                        style={{ left: `${cx}%`, top: `${transformToolbarY}%` }}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => e.stopPropagation()}
+                        className="absolute -translate-x-1/2 -translate-y-1/2 z-50 pointer-events-auto flex items-center gap-1 rounded-xl bg-slate-950/95 border border-slate-600 p-1 shadow-2xl"
+                      >
+                        <button type="button" onClick={() => applySelectedRoomTransform('rotate90')} className="h-7 min-w-8 px-1.5 rounded-lg bg-slate-800 hover:bg-indigo-600 text-white text-[10px] font-black" title="Xoay 90° theo chiều kim đồng hồ">90°</button>
+                        <button type="button" onClick={() => applySelectedRoomTransform('rotate180')} className="h-7 min-w-9 px-1.5 rounded-lg bg-slate-800 hover:bg-indigo-600 text-white text-[10px] font-black" title="Xoay 180°">180°</button>
+                        <button type="button" onClick={() => applySelectedRoomTransform('mirror-horizontal')} className="h-7 min-w-8 px-1.5 rounded-lg bg-slate-800 hover:bg-indigo-600 text-white text-sm font-black" title="Đối xứng ngang">↔</button>
+                        <button type="button" onClick={() => applySelectedRoomTransform('mirror-vertical')} className="h-7 min-w-8 px-1.5 rounded-lg bg-slate-800 hover:bg-indigo-600 text-white text-sm font-black" title="Đối xứng dọc">↕</button>
+                      </div>
+                    </>
+                  )}
 
                   {/* 4 Corner Resizing Handles */}
                   <div
@@ -6870,13 +7424,32 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         />
                         <circle cx={x} cy={y} r={0.30 * svgZoomCompensation} fill={pinColor} />
                       </svg>
-                      <div
+                      {/* Existing Defect always wins hit-testing over room regions/drag handles.
+                          The visible SVG dot stays presentation-only; this screen-size hit target
+                          sits on the REAL defect coordinate so clicking inside a room never selects
+                          or moves the room by mistake. */}
+                      <button
+                        type="button"
+                        onPointerDown={(e) => e.stopPropagation()}
                         onClick={(e) => {
+                          if (tryHandleDefectPlacementEvent(e)) return;
+                          e.stopPropagation();
+                          setActiveDefectDetail(defect);
+                        }}
+                        style={{ left: `${x}%`, top: `${y}%`, touchAction: 'manipulation' }}
+                        className="absolute -translate-x-1/2 -translate-y-1/2 z-50 pointer-events-auto w-7 h-7 sm:w-6 sm:h-6 rounded-full bg-transparent cursor-pointer"
+                        aria-label={`Mở Defect ${shortDefectCode}`}
+                        title={`${shortDefectCode} · ${defect.category}${defect.description ? ` · ${defect.description}` : ''}`}
+                      />
+                      <div
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          if (tryHandleDefectPlacementEvent(e)) return;
                           e.stopPropagation();
                           setActiveDefectDetail(defect);
                         }}
                         style={{ left: `${markerX}%`, top: `${markerY}%` }}
-                        className="absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer z-30 transition-transform hover:scale-110 active:scale-105"
+                        className="absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer z-50 pointer-events-auto transition-transform hover:scale-110 active:scale-105"
                         title={`${shortDefectCode} · ${defect.category}${defect.description ? ` · ${defect.description}` : ''}`}
                       >
                         <div
@@ -6940,8 +7513,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           onClick={() => handlePasteRoom(clickChoicePos.x, clickChoicePos.y, false)}
                           className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-xs font-black rounded-xl flex items-center justify-center gap-1.5 shadow-xs active:scale-95 transition-all border border-indigo-400 cursor-pointer"
                         >
-                          <Check className="w-3.5 h-3.5" />
-                          <span>📋 Dán thường (Tạo Bản Sao)</span>
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>Dán thường (tạo bản sao)</span>
                         </button>
                         <button
                           type="button"
@@ -6949,8 +7522,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white text-xs font-black rounded-xl flex items-center justify-center gap-1.5 shadow-xs active:scale-95 transition-all border border-emerald-400 cursor-pointer"
                           title="Giữ nguyên tên gốc, ghi đè/cập nhật nếu trùng tên"
                         >
-                          <Check className="w-3.5 h-3.5" />
-                          <span>📝 Dán đè (Giữ nguyên tên)</span>
+                          <Edit2 className="w-3.5 h-3.5" />
+                          <span>Dán đè (giữ nguyên tên)</span>
                         </button>
                       </div>
                     )}
@@ -7199,6 +7772,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 </div>
                 )}
 
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
                 {sortedFloorRooms.map((room, index) => {
                   const roomExpanded = expandedRoomIds.has(room.id);
                   const operationalSubItems = getOperationalRoomSubItems(room);
@@ -7561,6 +8135,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 </div>
                   );
                 })}
+                </div>
               </>
             )}
           </div>
@@ -7661,10 +8236,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               Chưa có Defect nào được ghi nhận trên mặt bằng này 🎉
             </div>
           ) : (
-            filteredDefects.map((defect) => {
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
+            {filteredDefects.map((defect) => {
               const overdueInfo = getDefectOverdueInfo(defect);
               const contactTeam = resolveDefectTeam(defect, teams);
-              const defectShareText = buildDefectShareText(defect);
+              const defectRoomName = defect.roomId
+                ? roomProgressList.find((room) => room.id === defect.roomId)?.roomName || ''
+                : '';
+              const defectShareText = buildDefectShareText(defect, defectRoomName);
               return (
                 <div
                   key={defect.id}
@@ -7729,6 +8308,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       </div>
 
                       <p className="text-xs font-medium text-slate-700 line-clamp-2 leading-relaxed">{defect.description}</p>
+
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-semibold text-slate-500">
+                        <span>📍 Tầng: <strong className="text-slate-700">{defect.floorName || activeFloor?.floorName || 'Chưa rõ'}</strong></span>
+                        {defect.roomId && floorRooms.find((room) => room.id === defect.roomId)?.roomName && (
+                          <span>🏠 Căn/Phòng: <strong className="text-slate-700">{floorRooms.find((room) => room.id === defect.roomId)?.roomName}</strong></span>
+                        )}
+                      </div>
 
                       {/* Enhanced Metadata Grid */}
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[11px] bg-slate-50 p-2 rounded-xl border border-slate-100 text-slate-600">
@@ -7795,7 +8381,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   </div>
                 </div>
               );
-            })
+            })}
+            </div>
           )}
         </div>
       )}
@@ -7841,6 +8428,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             </div>
 
             <div className="space-y-3 text-xs">
+              {normalizedStructureConfig.enabled && (
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">{normalizedStructureConfig.label}</label>
+                  <select
+                    value={newFloorStructureGroupId}
+                    onChange={(event) => setNewFloorStructureGroupId(event.target.value)}
+                    className="w-full border border-slate-200 rounded-xl p-2.5 font-bold"
+                  >
+                    {normalizedStructureConfig.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="block text-slate-700 font-bold mb-1">Tên tầng / khu vực</label>
                 <input
@@ -8208,7 +8807,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       {/* New Defect Form Modal */}
       {canEditDefects && showDefectModal && pinPos && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white w-full sm:max-w-2xl lg:max-w-3xl rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
               <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5 text-rose-600" />
@@ -8217,8 +8816,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <button onClick={handleCancelDefectModal} className="font-bold text-slate-500 hover:text-slate-700">✕</button>
             </div>
 
-            <form onSubmit={handleCreateDefect} className="space-y-3.5 text-xs">
-              <div>
+            <form onSubmit={handleCreateDefect} className="grid grid-cols-1 lg:grid-cols-6 gap-3.5 text-xs">
+              <div className="lg:col-span-2">
                 <label className="block text-slate-700 font-bold mb-1">Nhóm lỗi / hạng mục lỗi</label>
                 <select
                   value={category}
@@ -8231,7 +8830,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 </select>
               </div>
 
-              <div>
+              <div className="lg:col-span-4">
                 <label className="block text-slate-700 font-bold mb-1">Mô tả lỗi chi tiết</label>
                 <textarea
                   placeholder="Ví dụ: Bắn thiếu vít khoảng cách >30cm, khung trần bị võng 10mm..."
@@ -8254,7 +8853,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               </div>
 
               {/* 5 Key Control Fields */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-slate-50 p-3 rounded-2xl border border-slate-200/80">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 bg-slate-50 p-3 rounded-2xl border border-slate-200/80 lg:col-span-6">
                 <div>
                   <label className="block text-slate-700 font-bold mb-1">👤 Người Tạo</label>
                   <input
@@ -8305,24 +8904,24 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               </div>
 
               {/* PhotoAttachmentPicker for multiple photo management during creation */}
-              <div className="space-y-3 pt-1">
+              <div className="space-y-3 lg:space-y-0 pt-1 lg:col-span-6 lg:grid lg:grid-cols-2 lg:gap-3">
                 <PhotoAttachmentPicker
                   projectId={currentProjectId}
                   entityType="defect"
                   entityId={draftDefectId}
                   category="defect_before"
-                  label="📷 Ảnh Báo Lỗi Ban Đầu (Trước Sửa)"
+                  label="Ảnh Báo Lỗi Ban Đầu (Trước Sửa)"
                 />
                 <PhotoAttachmentPicker
                   projectId={currentProjectId}
                   entityType="defect"
                   entityId={draftDefectId}
                   category="defect_after"
-                  label="🛠️ Ảnh Bằng Chứng Sau Khi Sửa (Tùy Chọn)"
+                  label="Ảnh Bằng Chứng Sau Khi Sửa (Tùy Chọn)"
                 />
               </div>
 
-              <div className="flex gap-2 pt-2 border-t border-slate-100">
+              <div className="flex gap-2 pt-2 border-t border-slate-100 lg:col-span-6">
                 <button
                   type="button"
                   onClick={handleCancelDefectModal}
@@ -8346,7 +8945,10 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       {activeDefectDetail && (() => {
         const overdueInfo = getDefectOverdueInfo(activeDefectDetail);
         const activeContactTeam = resolveDefectTeam(activeDefectDetail, teams);
-        const activeDefectShareText = buildDefectShareText(activeDefectDetail);
+        const activeDefectRoomName = activeDefectDetail.roomId
+          ? roomProgressList.find((room) => room.id === activeDefectDetail.roomId)?.roomName || ''
+          : '';
+        const activeDefectShareText = buildDefectShareText(activeDefectDetail, activeDefectRoomName);
         const closeDefectDetail = () => {
           setActiveDefectDetail(null);
           try {
@@ -8404,7 +9006,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
         return (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4">
-            <div className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto shadow-2xl">
+            <div className="bg-white w-full sm:max-w-2xl md:max-w-3xl lg:max-w-4xl rounded-t-3xl sm:rounded-2xl p-5 lg:p-6 space-y-4 max-h-[90vh] overflow-y-auto shadow-2xl">
               {/* Header */}
               <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                 <div>
@@ -8452,7 +9054,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     className="w-full border border-slate-200 rounded-xl p-2.5 font-medium text-slate-800"
                   />
                   <div className="flex items-center justify-between gap-2 mt-1 flex-wrap">
-                    <p className="text-[10px] text-slate-500 font-medium">📍 Vị trí trên mặt bằng: {activeDefectDetail.floorName || 'Mặt bằng'} ({Math.round(activeDefectDetail.x)}%, {Math.round(activeDefectDetail.y)}%)</p>
+                    <p className="text-[10px] text-slate-500 font-medium">
+                      📍 Vị trí trên mặt bằng: {activeDefectDetail.floorName || 'Mặt bằng'}
+                      {activeDefectRoomName ? <> · 🏠 Căn/Phòng: <strong className="text-slate-700">{activeDefectRoomName}</strong></> : null}
+                      {' '}({Math.round(activeDefectDetail.x)}%, {Math.round(activeDefectDetail.y)}%)
+                    </p>
                     <button
                       type="button"
                       onClick={() => {
@@ -8478,6 +9084,35 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       <MapPin className="w-3 h-3 text-indigo-600" />
                       <span>Xem vị trí trên mặt bằng</span>
                     </button>
+                    {canEditDefects && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (lockedDefectIds.has(activeDefectDetail.id)) {
+                            setCopyNotification('🔒 Defect đang khóa vị trí. Mở khóa trước khi di chuyển ghim.');
+                            window.setTimeout(() => setCopyNotification(null), 2200);
+                            return;
+                          }
+                          const targetFp = floorPlans.find(f => f.id === activeDefectDetail.floorId || f.floorName === activeDefectDetail.floorName);
+                          if (targetFp && targetFp.id !== selectedFloorId) setSelectedFloorId(targetFp.id);
+                          setViewMode('all');
+                          setMapLayers((prev) => ({ ...prev, defects: true, roomRegions: true, roomLabels: true }));
+                          setIsRoomPinPlacementMode(false);
+                          setIsDefectPinPlacementMode(false);
+                          setDrawTool('none');
+                          setSelectedRoomIds([]);
+                          setSelectedRoomForDragId(null);
+                          setSelectedDefectIds([activeDefectDetail.id]);
+                          setRelocatingDefectId(activeDefectDetail.id);
+                          setActiveDefectDetail(null);
+                        }}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-800 rounded-lg text-[11px] font-black transition-all shadow-2xs shrink-0"
+                        title="Chọn vị trí mới cho ghim; hệ thống tự cập nhật liên kết Căn/Phòng và Đội theo vị trí mới"
+                      >
+                        <Move className="w-3 h-3" />
+                        <span>Di chuyển ghim</span>
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -8568,7 +9203,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     entityType="defect"
                     entityId={activeDefectDetail.id}
                     category="defect_before"
-                    label="📷 Ảnh Báo Lỗi Ban Đầu (Trước Sửa)"
+                    label="Ảnh Báo Lỗi Ban Đầu (Trước Sửa)"
                     readOnly={!canEditDefects}
                   />
                   <PhotoAttachmentPicker
@@ -8576,7 +9211,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     entityType="defect"
                     entityId={activeDefectDetail.id}
                     category="defect_after"
-                    label="🛠️ Ảnh Bằng Chứng Sau Khi Sửa (Tùy Chọn)"
+                    label="Ảnh Bằng Chứng Sau Khi Sửa (Tùy Chọn)"
                     readOnly={!canEditDefects}
                   />
                 </div>
@@ -8648,69 +9283,610 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       })()}
 
 
+      {/* FLOOR PLAN APPLY SCOPE — choose one floor or multiple existing floors before selecting a drawing. */}
+      {canManageStructure && showFloorPlanApplyScopeModal && updatingFloorPlanId && (
+        <div
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[210] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200"
+          onMouseDown={(event) => { if (event.target === event.currentTarget && !isConvertingPdf) resetFloorPlanApplyScope(); }}
+        >
+          <div className="bg-white w-full max-w-xl rounded-t-3xl sm:rounded-2xl shadow-2xl max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="px-5 pt-5 pb-3 border-b border-slate-100 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                  <Upload className="w-5 h-5 text-indigo-600 shrink-0" />
+                  Thêm / Thay bản vẽ mặt bằng
+                </h3>
+                <p className="text-xs text-slate-500 font-medium mt-1">
+                  Chọn phạm vi áp dụng trước khi chọn ảnh hoặc PDF. Mặc định chỉ thay tầng đang chọn.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={resetFloorPlanApplyScope}
+                disabled={isConvertingPdf}
+                className="w-9 h-9 shrink-0 inline-flex items-center justify-center text-slate-400 hover:text-slate-700 disabled:opacity-40"
+                aria-label="Đóng chọn phạm vi mặt bằng"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 overflow-y-auto overscroll-contain">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFloorPlanApplyMode('single');
+                    setFloorPlanApplySelectedIds([updatingFloorPlanId]);
+                  }}
+                  className={`rounded-2xl border p-3 text-left transition ${floorPlanApplyMode === 'single' ? 'border-indigo-400 bg-indigo-50 ring-1 ring-indigo-200' : 'border-slate-200 bg-white hover:bg-slate-50'}`}
+                >
+                  <div className="text-xs font-extrabold text-slate-900">● Chỉ tầng này</div>
+                  <div className="text-[10px] text-slate-500 mt-1">
+                    {floorPlans.find((plan) => plan.id === updatingFloorPlanId)?.floorName || 'Tầng đang chọn'}
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFloorPlanApplyMode('multiple');
+                    setFloorPlanApplySelectedIds((current) => current.length ? current : [updatingFloorPlanId]);
+                  }}
+                  className={`rounded-2xl border p-3 text-left transition ${floorPlanApplyMode === 'multiple' ? 'border-indigo-400 bg-indigo-50 ring-1 ring-indigo-200' : 'border-slate-200 bg-white hover:bg-slate-50'}`}
+                >
+                  <div className="text-xs font-extrabold text-slate-900">○ Nhiều tầng</div>
+                  <div className="text-[10px] text-slate-500 mt-1">1 file Cloud/R2 dùng chung · dữ liệu mỗi tầng vẫn riêng</div>
+                </button>
+              </div>
+
+              {floorPlanApplyMode === 'multiple' && (
+                <div className="space-y-3">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 space-y-2.5">
+                    <div className="text-[11px] font-extrabold text-slate-800">Chọn nhanh khoảng tầng</div>
+                    <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                      <select
+                        value={floorPlanRangeStartId}
+                        onChange={(event) => setFloorPlanRangeStartId(event.target.value)}
+                        className="min-w-0 rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-bold text-slate-700"
+                      >
+                        {orderedFloorPlansForApply.map((plan) => <option key={`from-${plan.id}`} value={plan.id}>{getFloorPlanScopeLabel(plan)}</option>)}
+                      </select>
+                      <span className="text-slate-400 font-bold">→</span>
+                      <select
+                        value={floorPlanRangeEndId}
+                        onChange={(event) => setFloorPlanRangeEndId(event.target.value)}
+                        className="min-w-0 rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-bold text-slate-700"
+                      >
+                        {orderedFloorPlansForApply.map((plan) => <option key={`to-${plan.id}`} value={plan.id}>{getFloorPlanScopeLabel(plan)}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" onClick={selectFloorPlanRange} className="rounded-xl bg-indigo-600 text-white px-3 py-2 text-[10px] font-extrabold hover:bg-indigo-700">Chọn khoảng</button>
+                      <button type="button" onClick={() => setFloorPlanApplySelectedIds(orderedFloorPlansForApply.map((plan) => plan.id))} className="rounded-xl bg-white border border-slate-200 text-slate-700 px-3 py-2 text-[10px] font-extrabold hover:bg-slate-100">Chọn tất cả</button>
+                      <button type="button" onClick={() => setFloorPlanApplySelectedIds([])} className="rounded-xl bg-white border border-slate-200 text-slate-500 px-3 py-2 text-[10px] font-extrabold hover:bg-slate-100">Bỏ chọn</button>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 divide-y divide-slate-100 max-h-56 overflow-y-auto">
+                    {orderedFloorPlansForApply.map((plan) => {
+                      const checked = floorPlanApplySelectedIds.includes(plan.id);
+                      return (
+                        <label key={`apply-${plan.id}`} className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-slate-50">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => setFloorPlanApplySelectedIds((current) => checked ? current.filter((id) => id !== plan.id) : [...current, plan.id])}
+                            className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs font-extrabold text-slate-800 truncate">{getFloorPlanScopeLabel(plan)}</div>
+                            <div className="text-[9px] text-slate-500">{plan.id === updatingFloorPlanId ? 'Tầng bắt đầu thao tác · ' : ''}{plan.imageAssetId ? 'đang dùng asset Cloud' : 'bản vẽ độc lập/legacy'}</div>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[10px] font-semibold text-amber-900">
+                    Chỉ thay <b>ảnh nền mặt bằng</b> cho {floorPlanApplySelectedIds.length} tầng. Defect, Căn/Phòng, highlight, tiến độ, checklist và dữ liệu thi công của từng tầng không bị sao chép hoặc trộn.
+                  </div>
+                  <div className="text-[10px] text-slate-500">
+                    Nhiều tầng cần mạng trong lúc áp dụng để upload đúng <b>1 binary</b> và publish cùng một asset bất biến. Sau đó cache offline thông minh cũng chỉ tải asset chung một lần.
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-slate-100 bg-white flex items-center justify-between gap-3">
+              <div className="text-[10px] font-bold text-slate-500">
+                {floorPlanApplyMode === 'multiple' ? `Đã chọn ${floorPlanApplySelectedIds.length}/${floorPlans.length} tầng` : 'Áp dụng 1 tầng'}
+              </div>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={resetFloorPlanApplyScope} disabled={isConvertingPdf} className="px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-40">Hủy</button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (floorPlanApplyMode === 'multiple' && floorPlanApplySelectedIds.length < 2) {
+                      alert('Hãy chọn ít nhất 2 tầng hoặc chuyển về “Chỉ tầng này”.');
+                      return;
+                    }
+                    updatePlanInputRef.current?.click();
+                  }}
+                  disabled={isConvertingPdf || (floorPlanApplyMode === 'multiple' && floorPlanApplySelectedIds.length < 2)}
+                  className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                >
+                  <Upload className="w-4 h-4" />
+                  {isConvertingPdf ? 'Đang xử lý…' : 'Chọn ảnh / PDF'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
 
       {/* MANAGE FLOORS MODAL (Tùy Chỉnh, Đổi Tên, Nhân bản, Xóa tầng) */}
       {canManageStructure && showManageFloorsModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[85vh] overflow-y-auto shadow-2xl">
+          <div className="bg-white w-full sm:w-[92vw] lg:w-[90vw] max-w-[1360px] rounded-t-3xl sm:rounded-2xl p-4 sm:p-5 space-y-4 max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
                   <Settings className="w-5 h-5 text-indigo-600" />
-                  Quản lý &amp; tùy chỉnh tầng ({floorPlans.length})
+                  Quản lý Khu/Khối &amp; Tầng
                 </h3>
-                <p className="text-xs text-slate-500 font-medium">Thêm, xóa, đổi tên, hoặc sao chép nhân bản thiết kế tầng</p>
+                <p className="text-xs text-slate-500 font-medium">Quản lý cấu trúc Khu/Khối → Tầng và các mặt bằng liên quan</p>
               </div>
-              <button onClick={() => setShowManageFloorsModal(false)} className="font-bold text-slate-400 hover:text-slate-600 text-lg">✕</button>
+              <button onClick={() => { setEditingStructureLabel(false); setEditingStructureLabelValue(''); setEditingStructureGroupId(null); setEditingStructureGroupName(''); setEditingFloorId(null); setManagedSelectedFloorIds([]); setManagedTargetStructureGroupId(''); setIsManagingMultipleFloors(false); setShowManageFloorsModal(false); }} className="font-bold text-slate-400 hover:text-slate-600 text-lg">✕</button>
             </div>
 
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pr-1 grid grid-cols-1 lg:grid-cols-[minmax(280px,0.30fr)_minmax(0,0.70fr)] gap-4 items-start">
+            <div className="lg:sticky lg:top-0">
+            {onStructureConfigChange && (
+              <div className="rounded-2xl border border-indigo-200 bg-indigo-50/50 p-3 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    {editingStructureLabel ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          value={editingStructureLabelValue}
+                          onChange={(event) => setEditingStructureLabelValue(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Escape') {
+                              setEditingStructureLabel(false);
+                              setEditingStructureLabelValue('');
+                            }
+                          }}
+                          className="min-w-0 flex-1 rounded-lg border border-indigo-300 bg-white px-2 py-1.5 text-xs font-bold"
+                          placeholder="Tháp, Khối, Xưởng..."
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextLabel = editingStructureLabelValue.trim();
+                            if (nextLabel && nextLabel !== normalizedStructureConfig.label) {
+                              onStructureConfigChange(normalizeStructureGroupConfig({ ...normalizedStructureConfig, label: nextLabel }));
+                            }
+                            setEditingStructureLabel(false);
+                            setEditingStructureLabelValue('');
+                          }}
+                          className="bg-emerald-600 text-white p-1.5 rounded-lg hover:bg-emerald-700"
+                          title="Lưu tên cấp"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setEditingStructureLabel(false); setEditingStructureLabelValue(''); }}
+                          className="bg-slate-200 text-slate-700 p-1.5 rounded-lg hover:bg-slate-300"
+                          title="Hủy"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-start gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-xs font-extrabold text-slate-900">{normalizedStructureConfig.label}</div>
+                          <div className="text-[10px] text-slate-500">Quản lý phân khu → tầng. ID và liên kết dữ liệu giữ nguyên.</div>
+                        </div>
+                        {normalizedStructureConfig.enabled && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingStructureLabel(true);
+                              setEditingStructureLabelValue(normalizedStructureConfig.label);
+                            }}
+                            className="shrink-0 bg-white hover:bg-slate-100 text-slate-700 px-2 py-1.5 rounded-lg border border-indigo-200 text-[10px] font-bold flex items-center gap-1"
+                            title="Đổi tên Tháp / Khối / Xưởng"
+                          >
+                            <Edit3 className="w-3.5 h-3.5 text-indigo-600" /> Sửa tên
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <label className="flex items-center gap-1.5 text-[10px] font-bold shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={normalizedStructureConfig.enabled}
+                      onChange={(e) => { void confirmStructureEnabledChange(e.target.checked); }}
+                    />
+                    Bật
+                  </label>
+                </div>
+
+                {normalizedStructureConfig.enabled && (
+                  <div className="rounded-xl border border-indigo-100 bg-white/80 p-2.5 space-y-1.5">
+                    <div className="text-[10px] font-extrabold text-slate-700">Tầng chưa gán nhóm hiển thị tại</div>
+                    <select
+                      value={normalizedStructureConfig.defaultGroupId}
+                      onChange={(event) => onStructureConfigChange(normalizeStructureGroupConfig({
+                        ...normalizedStructureConfig,
+                        defaultGroupId: event.target.value,
+                      }))}
+                      className="w-full rounded-lg border border-indigo-200 bg-white px-2 py-2 text-xs font-bold text-slate-800"
+                    >
+                      {normalizedStructureConfig.groups.map((group) => (
+                        <option key={group.id} value={group.id}>{group.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {normalizedStructureConfig.enabled && <>
+                  {normalizedStructureConfig.groups.length >= 6 && (
+                    <div className="space-y-1">
+                      <div className="text-[10px] font-extrabold uppercase tracking-wide text-indigo-800">Sắp xếp Khu/Khối</div>
+                      <QuickSortBar
+                        itemCount={normalizedStructureConfig.groups.length}
+                        options={[
+                          { key: 'name', label: 'Tên Khu/Khối', kind: 'alpha' },
+                          { key: 'floors', label: 'Số tầng', kind: 'number' },
+                        ]}
+                        activeKey={groupSortBy === 'none' ? null : groupSortBy}
+                        order={groupSortOrder}
+                        onChange={(key, order) => applyGroupQuickSort(key, order)}
+                        onToggleOrder={() => {
+                          if (groupSortBy === 'none') return;
+                          applyGroupQuickSort(groupSortBy, groupSortOrder === 'asc' ? 'desc' : 'asc');
+                        }}
+                        onReset={() => { setGroupSortBy('none'); setGroupSortOrder('asc'); }}
+                        resetLabel="Thứ tự đã lưu"
+                      />
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    {normalizedStructureConfig.groups.map((group, groupIndex) => {
+                      const count = floorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === group.id).length;
+                      const isEditingGroup = editingStructureGroupId === group.id;
+                      return (
+                        <div key={group.id} className="rounded-xl border border-slate-200 bg-white p-2 space-y-2">
+                          <div className="flex items-center gap-2">
+                            {isEditingGroup ? (
+                              <>
+                                <input
+                                  className="min-w-0 flex-1 rounded-lg border border-indigo-300 px-2 py-1.5 text-xs font-bold"
+                                  value={editingStructureGroupName}
+                                  onChange={(event) => setEditingStructureGroupName(event.target.value)}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Escape') {
+                                      setEditingStructureGroupId(null);
+                                      setEditingStructureGroupName('');
+                                    }
+                                  }}
+                                  placeholder="Ví dụ: Tháp 1, Khối A"
+                                  autoComplete="off"
+                                  spellCheck={false}
+                                  autoFocus
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const nextName = editingStructureGroupName.trim();
+                                    if (!nextName || nextName === group.name) {
+                                      setEditingStructureGroupId(null);
+                                      setEditingStructureGroupName('');
+                                      return;
+                                    }
+                                    onStructureConfigChange(normalizeStructureGroupConfig({
+                                      ...normalizedStructureConfig,
+                                      groups: normalizedStructureConfig.groups.map((item) => item.id === group.id ? { ...item, name: nextName } : item),
+                                    }));
+                                    setEditingStructureGroupId(null);
+                                    setEditingStructureGroupName('');
+                                  }}
+                                  className="bg-emerald-600 text-white p-1.5 rounded-lg hover:bg-emerald-700"
+                                  title="Lưu tên Khu/Khối"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => { setEditingStructureGroupId(null); setEditingStructureGroupName(''); }}
+                                  className="bg-slate-200 text-slate-700 p-1.5 rounded-lg hover:bg-slate-300"
+                                  title="Hủy"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <div className="min-w-0 flex-1">
+                                  <div className="truncate text-xs font-extrabold text-slate-900">{group.name}</div>
+                                  <div className="text-[9px] text-slate-500">{count} tầng · ID giữ nguyên</div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => { setEditingStructureGroupId(group.id); setEditingStructureGroupName(group.name); }}
+                                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1.5 rounded-lg text-[10px] font-bold flex items-center gap-1"
+                                  title="Sửa tên Khu/Khối"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5 text-indigo-600" /> Sửa
+                                </button>
+                              </>
+                            )}
+                          </div>
+
+                          <div className="flex items-center justify-between gap-2">
+                            <MoveOrderControls
+                              disableUp={groupIndex === 0}
+                              disableDown={groupIndex === normalizedStructureConfig.groups.length - 1}
+                              onMoveUp={() => moveStructureGroup(group.id, 'up')}
+                              onMoveDown={() => moveStructureGroup(group.id, 'down')}
+                              label="Sắp thứ tự Khu/Khối"
+                            />
+                            <button
+                              type="button"
+                              disabled={count > 0 || normalizedStructureConfig.groups.length <= 1}
+                              onClick={() => {
+                                if (!window.confirm(`Xóa "${group.name}"? Thao tác này chỉ thực hiện khi Khu/Khối không còn tầng.`)) return;
+                                const groups = normalizedStructureConfig.groups.filter((item) => item.id !== group.id);
+                                onStructureConfigChange(normalizeStructureGroupConfig({
+                                  ...normalizedStructureConfig,
+                                  groups: groups.map((item, index) => ({ ...item, order: index })),
+                                  defaultGroupId: normalizedStructureConfig.defaultGroupId === group.id ? groups[0]?.id : normalizedStructureConfig.defaultGroupId,
+                                }));
+                              }}
+                              className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 disabled:text-slate-300 disabled:cursor-not-allowed"
+                              title={count > 0 ? 'Hãy chuyển các tầng sang Khu/Khối khác trước khi xóa' : 'Xóa Khu/Khối'}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => onStructureConfigChange(normalizeStructureGroupConfig({
+                      ...normalizedStructureConfig,
+                      groups: [
+                        ...normalizedStructureConfig.groups,
+                        {
+                          id: createStructureGroupId(),
+                          name: `${normalizedStructureConfig.label || 'Khu / Khối'} ${normalizedStructureConfig.groups.length + 1}`,
+                          order: normalizedStructureConfig.groups.length,
+                        },
+                      ],
+                    }))}
+                    className="w-full rounded-xl border border-dashed border-indigo-300 bg-white py-2 text-[11px] font-bold text-indigo-700"
+                  >
+                    <Plus className="inline w-3.5 h-3.5 mr-1" />Thêm {normalizedStructureConfig.label || 'Khu / Khối'}
+                  </button>
+                </>}
+              </div>
+            )}
+
+            </div>
+            <div className="min-w-0 space-y-4">
+            {normalizedStructureConfig.enabled && (
+              <div className="rounded-2xl border border-indigo-200 bg-indigo-50/50 p-3 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="text-xs font-extrabold text-indigo-950">Chuyển nhiều tầng giữa Khu/Khối</div>
+                    <div className="text-[10px] text-indigo-700">Chỉ đổi Khu/Khối và thứ tự hiển thị; mọi ID/liên kết nghiệp vụ giữ nguyên.</div>
+                  </div>
+                  {!isManagingMultipleFloors ? (
+                    <button
+                      type="button"
+                      onClick={() => { setIsManagingMultipleFloors(true); setManagedSelectedFloorIds([]); setManagedTargetStructureGroupId(''); }}
+                      className="rounded-xl border border-indigo-200 bg-white px-3 py-2 text-[11px] font-extrabold text-indigo-700 hover:bg-indigo-50"
+                    >
+                      Chọn nhiều
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => { setIsManagingMultipleFloors(false); setManagedSelectedFloorIds([]); setManagedTargetStructureGroupId(''); }}
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-600 hover:bg-slate-50"
+                    >
+                      Hủy chọn
+                    </button>
+                  )}
+                </div>
+
+                {isManagingMultipleFloors && (
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <div className="text-[10px] font-bold text-slate-600 shrink-0">Đã chọn {managedSelectedFloorIds.length} tầng</div>
+                    <select
+                      value={managedTargetStructureGroupId}
+                      onChange={(event) => setManagedTargetStructureGroupId(event.target.value)}
+                      className="min-w-0 flex-1 rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs font-bold text-slate-800"
+                    >
+                      <option value="">Chọn Khu/Khối đích…</option>
+                      {normalizedStructureConfig.groups.map((group) => (
+                        <option key={group.id} value={group.id}>{group.name}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      disabled={managedSelectedFloorIds.length === 0 || !managedTargetStructureGroupId}
+                      onClick={() => { void moveSelectedFloorsToStructureGroupStable(managedSelectedFloorIds, managedTargetStructureGroupId); }}
+                      className="rounded-xl bg-indigo-600 px-3 py-2 text-xs font-extrabold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Chuyển Khu/Khối
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Quick Sort Floors Controls */}
-            <QuickSortBar
-              itemCount={floorPlans.length}
-              options={[
-                { key: 'name', label: 'Tên tầng', kind: 'floor' },
-                { key: 'rooms', label: 'Số Căn / Phòng', kind: 'number' },
-                { key: 'defects', label: 'Số Defect', kind: 'number' },
-              ]}
-              activeKey={floorSortBy === 'none' ? null : floorSortBy}
-              order={floorSortOrder}
-              onChange={(key, order) => { setFloorSortBy(key); setFloorSortOrder(order); }}
-              onToggleOrder={() => setFloorSortOrder((order) => order === 'asc' ? 'desc' : 'asc')}
-              onReset={() => { setFloorSortBy('none'); setFloorSortOrder('asc'); }}
-              resetLabel="Thứ tự thủ công"
-            />
+            {(normalizedStructureConfig.enabled
+              ? Math.max(0, ...normalizedStructureConfig.groups.map((group) =>
+                  floorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === group.id).length
+                ))
+              : floorPlans.length) >= 6 && (
+              <div className="space-y-1">
+                <div className="text-[10px] font-extrabold uppercase tracking-wide text-indigo-800">
+                  Sắp xếp Tầng trong từng Khu/Khối
+                </div>
+                <QuickSortBar
+                  itemCount={normalizedStructureConfig.enabled
+                    ? Math.max(0, ...normalizedStructureConfig.groups.map((group) =>
+                        floorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === group.id).length
+                      ))
+                    : floorPlans.length}
+                  options={[
+                    { key: 'name', label: 'Tên tầng', kind: 'floor' },
+                    { key: 'rooms', label: 'Số Căn / Phòng', kind: 'number' },
+                    { key: 'defects', label: 'Số Defect', kind: 'number' },
+                  ]}
+                  activeKey={floorSortBy === 'none' ? null : floorSortBy}
+                  order={floorSortOrder}
+                  onChange={(key, order) => applyFloorQuickSortWithinGroups(key, order)}
+                  onToggleOrder={() => {
+                    if (floorSortBy === 'none') return;
+                    applyFloorQuickSortWithinGroups(floorSortBy, floorSortOrder === 'asc' ? 'desc' : 'asc');
+                  }}
+                  onReset={() => { setFloorSortBy('none'); setFloorSortOrder('asc'); }}
+                  resetLabel="Thứ tự đã lưu"
+                />
+              </div>
+            )}
 
             {/* List of Floor Plans */}
             <div className="space-y-2.5">
-              {sortedFloorPlans.map((fp, index) => {
+              {managementFloorPlans.map((fp, index) => {
                 const isSelected = selectedFloorId === fp.id;
                 const roomCount = roomProgressList.filter((r) => r.floorId === fp.id).length;
                 const defectCount = defects.filter((d) => d.floorId === fp.id).length;
                 const isEditingThis = editingFloorId === fp.id;
+                const currentGroupId = normalizedStructureConfig.enabled
+                  ? resolveFloorStructureGroupId(fp, normalizedStructureConfig)
+                  : '__all__';
+                const previousGroupId = index > 0 && normalizedStructureConfig.enabled
+                  ? resolveFloorStructureGroupId(managementFloorPlans[index - 1], normalizedStructureConfig)
+                  : null;
+                const showGroupHeader = normalizedStructureConfig.enabled && currentGroupId !== previousGroupId;
+                const currentGroupFloors = normalizedStructureConfig.enabled
+                  ? managementFloorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === currentGroupId)
+                  : managementFloorPlans;
+                const currentGroupIndex = currentGroupFloors.findIndex((floor) => floor.id === fp.id);
 
                 return (
+                  <div key={fp.id} className="space-y-2.5">
+                    {showGroupHeader && (
+                      <div className="flex items-center justify-between rounded-xl border border-indigo-100 bg-indigo-50/70 px-3 py-2">
+                        <div className="min-w-0 flex items-center gap-2">
+                          {isManagingMultipleFloors && (
+                            <label
+                              className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[10px] font-bold text-indigo-700"
+                              title={`Chọn tất cả ${currentGroupFloors.length} tầng trong ${getStructureGroupName(currentGroupId, normalizedStructureConfig)}`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={currentGroupFloors.length > 0 && currentGroupFloors.every((floor) => managedSelectedFloorIds.includes(floor.id))}
+                                onChange={(event) => {
+                                  const groupIds = currentGroupFloors.map((floor) => floor.id);
+                                  setManagedSelectedFloorIds((current) => {
+                                    if (event.target.checked) return Array.from(new Set([...current, ...groupIds]));
+                                    const remove = new Set(groupIds);
+                                    return current.filter((id) => !remove.has(id));
+                                  });
+                                }}
+                                className="h-4 w-4 shrink-0 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500"
+                              />
+                              <span>Chọn tất cả</span>
+                            </label>
+                          )}
+                          <div className="min-w-0 truncate text-xs font-extrabold text-indigo-900" title={getStructureGroupName(currentGroupId, normalizedStructureConfig)}>
+                            {getStructureGroupName(currentGroupId, normalizedStructureConfig)}
+                          </div>
+                        </div>
+                        <div className="text-[10px] font-bold text-indigo-600">{currentGroupFloors.length} tầng</div>
+                      </div>
+                    )}
                   <div
-                    key={fp.id}
-                    className={`p-3 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 ${
+                    className={`p-3 rounded-2xl border transition-all grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2.5 min-w-0 ${
                       isSelected
                         ? 'bg-indigo-50/50 border-indigo-300 ring-1 ring-indigo-200'
                         : 'bg-white border-slate-200 hover:border-slate-300'
                     }`}
                   >
-                    <div className="flex items-center gap-3">
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => {
+                        if (isEditingThis) return;
+                        if (isManagingMultipleFloors) {
+                          setManagedSelectedFloorIds((current) => current.includes(fp.id) ? current.filter((id) => id !== fp.id) : [...current, fp.id]);
+                          return;
+                        }
+                        setSelectedFloorId(fp.id);
+                        setShowManageFloorsModal(false);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key !== 'Enter' && event.key !== ' ') return;
+                        event.preventDefault();
+                        if (isEditingThis) return;
+                        if (isManagingMultipleFloors) {
+                          setManagedSelectedFloorIds((current) => current.includes(fp.id) ? current.filter((id) => id !== fp.id) : [...current, fp.id]);
+                          return;
+                        }
+                        setSelectedFloorId(fp.id);
+                        setShowManageFloorsModal(false);
+                      }}
+                      className="min-w-0 flex flex-1 items-center gap-3 text-left"
+                      title={isManagingMultipleFloors ? 'Chọn/bỏ chọn tầng' : `Mở ${fp.floorName}`}
+                    >
+                      {isManagingMultipleFloors && (
+                        <input
+                          type="checkbox"
+                          checked={managedSelectedFloorIds.includes(fp.id)}
+                          onChange={(event) => {
+                            setManagedSelectedFloorIds((current) => event.target.checked
+                              ? Array.from(new Set([...current, fp.id]))
+                              : current.filter((id) => id !== fp.id));
+                          }}
+                          onClick={(event) => event.stopPropagation()}
+                          className="h-4 w-4 shrink-0 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                          aria-label={`Chọn ${fp.floorName}`}
+                        />
+                      )}
                       <div className="w-12 h-12 rounded-xl bg-slate-100 border border-slate-200 overflow-hidden shrink-0 relative group">
-                        {fp.imageUrl ? (
-                          <img src={fp.imageUrl} alt={fp.floorName} className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-[10px] text-slate-400 font-bold bg-slate-100">
-                            No img
-                          </div>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-0.5 text-[9px] text-slate-400 font-bold bg-slate-100">
+                          <ImageIcon className="w-4 h-4" />
+                          <span>Mặt bằng</span>
+                        </div>
+                        {fp.imageUrl && (
+                          <img
+                            src={fp.imageUrl}
+                            alt={fp.floorName}
+                            className="relative z-10 w-full h-full object-cover"
+                            onError={(event) => { event.currentTarget.style.display = 'none'; }}
+                          />
                         )}
                       </div>
 
-                      <div className="space-y-0.5">
+                      <div className="min-w-0 flex-1 space-y-0.5">
                         {isEditingThis ? (
-                          <div className="flex items-center gap-1.5 w-full sm:w-auto">
+                          <div className="flex items-center gap-1.5 w-full sm:w-auto" onClick={(event) => event.stopPropagation()}>
                             <input
                               type="text"
                               value={editingFloorName}
@@ -8741,8 +9917,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                             </button>
                           </div>
                         ) : (
-                          <div className="flex items-center gap-2">
-                            <span className="font-extrabold text-sm text-slate-900">{fp.floorName}</span>
+                          <div className="min-w-0 flex items-center gap-2">
+                            <span className="min-w-0 truncate font-extrabold text-sm text-slate-900" title={fp.floorName}>{fp.floorName}</span>
                             {isSelected && (
                               <span className="bg-indigo-600 text-white text-[9px] font-extrabold px-2 py-0.2 rounded-full">
                                 Đang xem
@@ -8751,84 +9927,97 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           </div>
                         )}
 
-                        <div className="flex items-center gap-2 text-[11px] text-slate-500 font-medium">
+                        <div className="flex items-center gap-2 text-[11px] text-slate-500 font-medium flex-wrap">
                           <span>🎨 {roomCount} Căn / Phòng</span>
                           <span>•</span>
                           <span>📌 {defectCount} ghim lỗi</span>
+                          {normalizedStructureConfig.enabled && (
+                            <>
+                              <span>•</span>
+                              <span className="font-bold text-indigo-600">{getFloorStructureGroupName(fp, normalizedStructureConfig)}</span>
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>
 
-                    {/* Floor Action Buttons */}
-                    <div className="flex items-center gap-1.5 self-end sm:self-center flex-wrap">
-                      {floorSortBy === 'none' && (
+                    {/* Fixed floor overflow actions: never move with long floor names. */}
+                    <details className="relative group shrink-0 justify-self-end self-start">
+                      <summary className="list-none cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all select-none" title="Sửa tên / Nhân bản / Xóa">
+                        •••
+                      </summary>
+                      <div className="absolute right-0 top-full z-30 mt-1 w-40 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl">
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              setEditingFloorId(fp.id);
+                              setEditingFloorName(fp.floorName);
+                              event.currentTarget.closest('details')?.removeAttribute('open');
+                            }}
+                            className="w-full rounded-lg px-2.5 py-2 text-left text-xs font-bold text-slate-700 hover:bg-slate-100 flex items-center gap-2"
+                          >
+                            <Edit3 className="w-3.5 h-3.5 text-indigo-600" /> Đổi tên
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              handleDuplicateFloor(fp.id, fp.floorName);
+                              event.currentTarget.closest('details')?.removeAttribute('open');
+                            }}
+                            className="w-full rounded-lg px-2.5 py-2 text-left text-xs font-bold text-indigo-700 hover:bg-indigo-50 flex items-center gap-2"
+                          >
+                            <Copy className="w-3.5 h-3.5" /> Nhân bản
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              handleDeleteFloor(fp.id, fp.floorName);
+                              event.currentTarget.closest('details')?.removeAttribute('open');
+                            }}
+                            className="w-full rounded-lg px-2.5 py-2 text-left text-xs font-bold text-rose-700 hover:bg-rose-50 flex items-center gap-2"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" /> Xóa tầng
+                          </button>
+                      </div>
+                    </details>
+
+                    <div className="col-span-2 flex min-w-0 flex-wrap items-center gap-1.5 border-t border-slate-100 pt-2">
+                      {normalizedStructureConfig.enabled && (
+                        <select
+                          value={resolveFloorStructureGroupId(fp, normalizedStructureConfig)}
+                          onChange={(event) => changeFloorStructureGroupStable(fp.id, event.target.value)}
+                          disabled={isManagingMultipleFloors}
+                          className="min-w-0 max-w-[150px] rounded-xl border border-indigo-200 bg-indigo-50 px-2 py-1.5 text-[10px] font-bold text-indigo-700 disabled:opacity-40"
+                          title={`Gán tầng vào ${normalizedStructureConfig.label}`}
+                        >
+                          {normalizedStructureConfig.groups.map((group) => (
+                            <option key={group.id} value={group.id}>{group.name}</option>
+                          ))}
+                        </select>
+                      )}
+                      {floorSortBy === 'none' && !isManagingMultipleFloors && (
                         <MoveOrderControls
-                          disableUp={index === 0}
-                          disableDown={index === sortedFloorPlans.length - 1}
-                          onMoveUp={() => { if (onMoveFloorPlan) onMoveFloorPlan(fp.id, 'left'); }}
-                          onMoveDown={() => { if (onMoveFloorPlan) onMoveFloorPlan(fp.id, 'right'); }}
+                          disableUp={currentGroupIndex === 0}
+                          disableDown={currentGroupIndex === currentGroupFloors.length - 1}
+                          onMoveUp={() => moveFloorWithinGroup(fp.id, 'up')}
+                          onMoveDown={() => moveFloorWithinGroup(fp.id, 'down')}
                           label="Sắp thứ tự tầng"
                         />
                       )}
-
-                      {!isSelected && (
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            setSelectedFloorId(fp.id);
-                            setShowManageFloorsModal(false);
-                          }}
-                          className="bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all"
-                        >
-                          Xem
-                        </button>
-                      )}
-
                       <button
                         type="button"
                         onClick={async () => {
-                          setUpdatingFloorPlanId(fp.id);
-                          updatePlanInputRef.current?.click();
+                          openFloorPlanApplyScope(fp.id);
                         }}
-                        className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-all"
+                        disabled={isManagingMultipleFloors}
+                        className="flex bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-2 py-1.5 rounded-xl text-xs font-bold items-center gap-1 transition-all disabled:opacity-40"
                         title="Cập nhật tệp ảnh hoặc PDF bản vẽ mới cho tầng này"
                       >
                         <Upload className="w-3.5 h-3.5 text-emerald-600" />
-                        Bản vẽ
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          setEditingFloorId(fp.id);
-                          setEditingFloorName(fp.floorName);
-                        }}
-                        className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-all"
-                        title="Đổi tên tầng"
-                      >
-                        <Edit3 className="w-3.5 h-3.5 text-indigo-600" />
-                        Tên
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleDuplicateFloor(fp.id, fp.floorName)}
-                        className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-all"
-                        title="Sao chép nhân bản mặt bằng tầng kèm các vùng highlight"
-                      >
-                        <Copy className="w-3.5 h-3.5 text-indigo-600" />
-                        Nhân bản
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteFloor(fp.id, fp.floorName)}
-                        className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-all"
-                        title="Xóa tầng này"
-                      >
-                        <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                        <span className="hidden sm:inline">Bản vẽ</span>
                       </button>
                     </div>
+                  </div>
                   </div>
                 );
               })}
@@ -8839,6 +10028,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <button
                 type="button"
                 onClick={async () => {
+                  setEditingStructureLabel(false);
+                  setEditingStructureLabelValue('');
+                  setEditingStructureGroupId(null);
+                  setEditingStructureGroupName('');
+                  setNewFloorStructureGroupId(getSuggestedNewFloorStructureGroupId());
                   setShowManageFloorsModal(false);
                   setShowQuickAddFloorModal(true);
                 }}
@@ -8851,6 +10045,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <button
                 type="button"
                 onClick={async () => {
+                  setEditingStructureLabel(false);
+                  setEditingStructureLabelValue('');
+                  setEditingStructureGroupId(null);
+                  setEditingStructureGroupName('');
+                  setNewFloorStructureGroupId(getSuggestedNewFloorStructureGroupId());
                   setShowManageFloorsModal(false);
                   setShowAddFloorModal(true);
                 }}
@@ -8859,6 +10058,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 <Upload className="w-4 h-4" aria-hidden="true" />
                 Tải bản vẽ ảnh / PDF
               </button>
+            </div>
+            </div>
             </div>
           </div>
         </div>
@@ -8877,6 +10078,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             </div>
 
             <form onSubmit={handleQuickAddFloorSubmit} className="space-y-3 text-xs">
+              {normalizedStructureConfig.enabled && (
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">{normalizedStructureConfig.label}</label>
+                  <select
+                    value={newFloorStructureGroupId}
+                    onChange={(event) => setNewFloorStructureGroupId(event.target.value)}
+                    className="w-full border border-slate-300 rounded-xl p-2.5 font-bold text-slate-900"
+                  >
+                    {normalizedStructureConfig.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="block text-slate-700 font-bold mb-1">Tên tầng / khu vực mới</label>
                 <input
@@ -8994,7 +10207,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   Hủy
                 </button>
                 <button
-                  type="submit"
+                  type="button"
+                  onClick={() => handleConfirmDuplicateFloor()}
                   className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-extrabold text-xs shadow-md transition-all flex items-center justify-center gap-1.5"
                 >
                   <Copy className="w-4 h-4" />
@@ -9125,6 +10339,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             if (photoInputRef.current) photoInputRef.current.value = '';
           }}
           imageUrl={editingPhotoUrl}
+          imageKind="defect"
           onSave={handleSaveEditedPhoto}
         />
       )}

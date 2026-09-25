@@ -27,6 +27,7 @@ const teams: TeamInfo[] = [
 ];
 const floors: FloorPlan[] = [
   { id: 'floor-ok', floorName: 'Tầng hợp lệ', imageUrl: '', uploadedAt: '2026-09-06' },
+  { id: 'floor-other', floorName: 'Tầng khác', imageUrl: '', uploadedAt: '2026-09-06' },
 ];
 
 const rooms: RoomProgressItem[] = [
@@ -55,6 +56,14 @@ const rooms: RoomProgressItem[] = [
     categoryVolumes: { 'Trần Thạch Cao Khung Chìm Tấm Tiêu Chuẩn': 25 },
     categoryVolumeUnits: { 'Trần Thạch Cao Khung Chìm Tấm Tiêu Chuẩn': 'm²' },
   },
+  {
+    id: 'room-scope-drift', floorId: 'floor-ok', floorName: 'Tầng hợp lệ', roomName: 'A105',
+    x: 80, y: 25, width: 20, height: 20,
+    frameStatus: 'Đã hoàn thành', boardStatus: 'Đã hoàn thành', inspectionStatus: 'Đạt nghiệm thu', updatedAt: 1,
+    workCategoryId: 'wv-scope-drift', workCategory: 'Vách W13', workVolume: 25, volumeUnit: 'm²',
+    categoryVolumes: { 'Vách W13': 25 }, categoryVolumeUnits: { 'Vách W13': 'm²' },
+    subItems: [{ id: 'scope-sub', name: 'Thi công', category: 'Vách W13', workCategoryId: 'wv-scope-drift', status: 'Đã hoàn thành' }],
+  },
 ];
 
 const defects: DefectItem[] = [
@@ -76,6 +85,10 @@ const workVolumes: WorkVolume[] = [
   {
     id: 'wv-orphan-floor', title: 'Trần C04', floor: 'Tầng đã mất', floorId: 'floor-missing', category: 'Trần', unit: 'm²',
     planned: 100, actual: 10, unitPrice: 1000, status: 'Đang thi công',
+  },
+  {
+    id: 'wv-scope-drift', workCategoryId: 'wv-scope-drift', title: 'Vách W13', floor: 'Tầng khác', floorId: 'floor-other', floorIds: ['floor-other'], category: 'Vách', unit: 'm²',
+    planned: 25, actual: 0, unitPrice: 1000, status: 'Chưa thi công',
   },
 ];
 
@@ -155,6 +168,15 @@ const orphanWorkIssue = report.issues.find((issue) => issue.ruleId === 'ROOM_ORP
 assert.ok(orphanWorkIssue, 'Health Center must surface title-only deleted work-category references');
 assert.match(orphanWorkIssue!.message, /Trần Thạch Cao Khung Chìm Tấm Tiêu Chuẩn/);
 assert.equal(orphanWorkIssue!.actionClass, 'NEEDS_CONFIRMATION', 'Deleted work-category refs must never auto-repair/relink');
+
+assert.equal(
+  report.issues.some((issue) => issue.ruleId === 'ROOM_ORPHAN_WORK_CATEGORY_REFERENCE' && issue.entityId === 'room-scope-drift'),
+  false,
+  'A valid durable workCategoryId must not be mislabeled as orphan only because the WorkVolume floor scope drifted',
+);
+const scopeDriftIssue = report.issues.find((issue) => issue.ruleId === 'ROOM_WORK_CATEGORY_SCOPE_MISMATCH' && issue.entityId === 'room-scope-drift');
+assert.ok(scopeDriftIssue, 'Health Center must surface floor-scope drift as a separate review issue');
+assert.equal(scopeDriftIssue?.severity, 'REVIEW');
 
 console.log('Health Center orphan-link golden regression PASS', {
   auditSnapshotId: report.auditSnapshotId,

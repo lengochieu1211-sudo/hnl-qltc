@@ -18,14 +18,36 @@ const STATIC_ASSETS = [
   '/hnl-logo-original-512.png'
 ];
 
-// Install Event: Cache Core App Shell
+async function loadBuildAssetManifest() {
+  const response = await fetch(`/sw-assets.json?build=${encodeURIComponent(SW_BUILD_ID)}`, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`SW_ASSET_MANIFEST_HTTP_${response.status}`);
+  const manifest = await response.json();
+  if (manifest?.buildId && String(manifest.buildId) !== SW_BUILD_ID) {
+    throw new Error(`SW_ASSET_MANIFEST_BUILD_MISMATCH:${manifest.buildId}:${SW_BUILD_ID}`);
+  }
+  const assets = Array.isArray(manifest?.assets)
+    ? manifest.assets.filter((item) => typeof item === 'string' && item.startsWith('/assets/'))
+    : [];
+  if (!assets.some((item) => /\.js$/i.test(item))) throw new Error('SW_ASSET_MANIFEST_HAS_NO_JS_CHUNKS');
+  return assets;
+}
+
+// Install Event: atomically pre-cache the complete hashed Vite app shell. If any
+// required chunk is missing, installation fails and the previous certified worker/cache
+// stays active instead of activating a half-build that cannot cold-start offline.
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      console.log('[SW] Pre-caching static app shell', { version: SW_VERSION, build: SW_BUILD_ID });
-      return cache.addAll(STATIC_ASSETS);
-    }).then(() => self.skipWaiting())
-  );
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    const buildAssets = await loadBuildAssetManifest();
+    const required = [...new Set([...STATIC_ASSETS, ...buildAssets])];
+    console.log('[SW] Pre-caching complete app shell', {
+      version: SW_VERSION,
+      build: SW_BUILD_ID,
+      hashedAssets: buildAssets.length,
+    });
+    await cache.addAll(required);
+    await self.skipWaiting();
+  })());
 });
 
 // Activate Event: Cleanup Old Caches & Claim Clients

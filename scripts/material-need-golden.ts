@@ -41,6 +41,8 @@ const inventory: InventoryItem[] = [
   { id: 'in-1', type: 'in', materialId: 'mat-board', materialName: 'Tấm thạch cao', unit: 'tấm', quantity: 100 } as InventoryItem,
   { id: 'out-a', type: 'out', materialId: 'mat-board', materialName: 'Tấm thạch cao', unit: 'tấm', quantity: 10, sourceRoomId: 'room-301', sourceFloorId: 'floor-3', sourceTeamId: 'team-a' } as InventoryItem,
   { id: 'out-legacy', type: 'out', materialId: 'mat-board', materialName: 'Tấm thạch cao', unit: 'tấm', quantity: 6, sourceRoomId: 'room-301', sourceFloorId: 'floor-3' } as InventoryItem,
+  // Equipment may share a display name/unit with material but must never affect Material Need.
+  { id: 'equipment-lookalike', itemKind: 'equipment', type: 'out', materialName: 'Tấm thạch cao', unit: 'tấm', quantity: 50, sourceRoomId: 'room-301', sourceFloorId: 'floor-3', sourceTeamId: 'team-a' } as InventoryItem,
 ];
 
 const floor = computeMaterialNeeds({ rooms: [multiTeamRoom], materialNorms: [norm], inventory, workVolumes, teams, scope: { floorId: 'floor-3' } });
@@ -234,6 +236,63 @@ assert.equal(bothTeamsFloor3.lines[0]?.estimatedQty, 35, 'Selecting all teams on
 const allTeamsFloors1And3 = computeMaterialNeeds({ rooms: [floor1TeamARoom, multiTeamRoom], materialNorms: [norm], inventory: [], workVolumes, teams, scope: { floorIds: ['floor-1', 'floor-3'] } });
 assert.equal(allTeamsFloors1And3.lines[0]?.estimatedQty, 49, 'All teams across floors 1+3 must aggregate room demand once');
 
+
+// Multi-room scope: one or many rooms must aggregate exactly the selected rooms, never the whole floor.
+const roomOnly301 = computeMaterialNeeds({
+  rooms: [floor1TeamARoom, multiTeamRoom], materialNorms: [norm], inventory: [], workVolumes, teams,
+  scope: { roomIds: ['room-301'] },
+});
+assert.equal(roomOnly301.lines[0]?.estimatedQty, 35, 'Single-room scope must include only the selected room');
+
+const rooms101And301 = computeMaterialNeeds({
+  rooms: [floor1TeamARoom, multiTeamRoom], materialNorms: [norm], inventory: [], workVolumes, teams,
+  scope: { roomIds: ['room-101', 'room-301'] },
+});
+assert.equal(rooms101And301.lines[0]?.estimatedQty, 49, 'Multi-room scope must aggregate selected rooms exactly once');
+
+// Declared work-category scope: filter by canonical WorkVolume/workCategory IDs, not by a separate material category.
+const onlyW12 = computeMaterialNeeds({
+  rooms: [roomBhs], materialNorms: categoryNorms, inventory: [], workVolumes: categoryWorkVolumes, teams,
+  scope: { workCategoryIds: ['wc-w12'] },
+});
+assert.deepEqual(onlyW12.lines.map((line) => line.materialId), ['mat-w12-frame'], 'Declared W12 work category must expose only its linked material demand');
+assert.equal(onlyW12.lines[0]?.estimatedQty, 151.53);
+
+const w12AndC04 = computeMaterialNeeds({
+  rooms: [roomBhs], materialNorms: categoryNorms, inventory: [], workVolumes: categoryWorkVolumes, teams,
+  scope: { workCategoryIds: ['wc-w12', 'wc-c04'] },
+});
+assert.deepEqual(new Set(w12AndC04.lines.map((line) => line.materialId)), new Set(['mat-w12-frame', 'mat-c04-frame']), 'Selecting multiple declared work categories must aggregate both without double-count');
+
+const roomAndCategoryIntersection = computeMaterialNeeds({
+  rooms: [roomBhs, roomIw11], materialNorms: categoryNorms, inventory: [], workVolumes: categoryWorkVolumes, teams,
+  scope: { roomIds: ['room-a9-13'], workCategoryIds: ['wc-w12'] },
+});
+assert.equal(roomAndCategoryIntersection.lines.length, 0, 'Room + declared work-category filters must intersect instead of broadening scope');
+
+// Issued quantities must respect declared work-category provenance. Legacy issues without enough
+// category provenance remain visible as unallocated and never reduce a filtered category need.
+const scopedIssueInventory: InventoryItem[] = [
+  { id: 'in-w12', type: 'in', materialId: 'mat-w12-frame', materialName: 'Thanh đứng W12', unit: 'Thanh', quantity: 300 } as InventoryItem,
+  { id: 'out-w12-explicit', type: 'out', materialId: 'mat-w12-frame', materialName: 'Thanh đứng W12', unit: 'Thanh', quantity: 10, sourceRoomId: 'room-bhs', sourceFloorId: 'floor-ground', sourceWorkCategoryId: 'wc-w12' } as InventoryItem,
+  { id: 'out-w12-legacy', type: 'out', materialId: 'mat-w12-frame', materialName: 'Thanh đứng W12', unit: 'Thanh', quantity: 5, sourceRoomId: 'room-bhs', sourceFloorId: 'floor-ground' } as InventoryItem,
+];
+
+const allProjectIssues = computeMaterialNeeds({
+  rooms: [roomBhs], materialNorms: categoryNorms, inventory: scopedIssueInventory, workVolumes: categoryWorkVolumes, teams,
+});
+const allProjectW12 = allProjectIssues.lines.find((line) => line.materialId === 'mat-w12-frame');
+assert.equal(allProjectW12?.alreadyIssued, 15, 'Whole-project material need must subtract all project OUT transactions exactly once');
+assert.equal(allProjectW12?.unallocatedIssued, 5, 'Whole-project total may subtract legacy OUT physically while still exposing ambiguous category attribution as unallocated');
+
+const w12ScopedIssues = computeMaterialNeeds({
+  rooms: [roomBhs], materialNorms: categoryNorms, inventory: scopedIssueInventory, workVolumes: categoryWorkVolumes, teams,
+  scope: { roomIds: ['room-bhs'], workCategoryIds: ['wc-w12'] },
+});
+assert.equal(w12ScopedIssues.lines[0]?.alreadyIssued, 10, 'Filtered work category may subtract only explicitly/provably linked OUT transactions');
+assert.equal(w12ScopedIssues.lines[0]?.unallocatedIssued, 5, 'Legacy issue with ambiguous category provenance must remain unallocated');
+assert.ok(w12ScopedIssues.warnings.some((warning) => warning.code === 'UNALLOCATED_ISSUE'), 'Ambiguous category issue must surface a fail-closed warning');
+
 const missingNorm = computeMaterialNeeds({ rooms: [multiTeamRoom], materialNorms: [], inventory: [], workVolumes, teams, scope: { floorId: 'floor-3' } });
 assert.equal(missingNorm.lines.length, 0);
 assert.equal(missingNorm.failClosed, true);
@@ -244,5 +303,56 @@ const unitMismatch = computeMaterialNeeds({ rooms: [multiTeamRoom], materialNorm
 assert.equal(unitMismatch.lines.length, 0);
 assert.equal(unitMismatch.failClosed, true);
 assert.ok(unitMismatch.warnings.some((w) => w.code === 'UNIT_MISMATCH'));
+
+// Regression: legacy room retains floorId but no floorName while WorkVolume is scoped only by floor display name.
+const legacyFloorNameOnlyWork: WorkVolume = { id: 'wc-legacy-floor-name', title: 'Vách IW11 Legacy', unit: 'm²', floor: 'Tầng 1' } as WorkVolume;
+const legacyFloorNameOnlyNorm: MaterialNorm = {
+  ...norm,
+  id: 'norm-legacy-floor-name',
+  materialId: 'mat-legacy-floor-name',
+  materialName: 'Khung IW11 Legacy',
+  workCategoryId: 'wc-legacy-floor-name',
+  workCategoryIds: ['wc-legacy-floor-name'],
+  workCategoryNormsById: { 'wc-legacy-floor-name': 0.5 },
+  unitNormPerM2: 0.5,
+} as MaterialNorm;
+const legacyMissingFloorNameRoom = {
+  ...multiTeamRoom,
+  id: 'room-legacy-missing-floor-name',
+  roomName: 'Legacy thiếu floorName',
+  floorId: 'floor-legacy-1',
+  floorName: undefined,
+  workCategoryId: undefined,
+  workCategory: '',
+  workVolume: 0,
+  categoryVolumes: { 'Vách IW11 Legacy': 20 },
+  categoryVolumeUnits: { 'Vách IW11 Legacy': 'm²' },
+  subItems: [],
+} as RoomProgressItem;
+const legacyMissingFloorNameResult = computeMaterialNeeds({
+  rooms: [legacyMissingFloorNameRoom],
+  materialNorms: [legacyFloorNameOnlyNorm],
+  inventory: [],
+  workVolumes: [legacyFloorNameOnlyWork],
+  teams,
+  scope: { floorId: 'floor-legacy-1' },
+});
+assert.equal(legacyMissingFloorNameResult.lines.length, 1, 'Unique active category title must restore material demand when only legacy floorName is missing');
+assert.equal(legacyMissingFloorNameResult.lines[0]?.estimatedQty, 10);
+
+const duplicateLegacyTitleWork: WorkVolume[] = [
+  legacyFloorNameOnlyWork,
+  { id: 'wc-legacy-floor-name-2', title: 'Vách IW11 Legacy', unit: 'm²', floor: 'Tầng 2' } as WorkVolume,
+];
+const duplicateLegacyTitleResult = computeMaterialNeeds({
+  rooms: [legacyMissingFloorNameRoom],
+  materialNorms: [legacyFloorNameOnlyNorm],
+  inventory: [],
+  workVolumes: duplicateLegacyTitleWork,
+  teams,
+  scope: { floorId: 'floor-legacy-1' },
+});
+assert.equal(duplicateLegacyTitleResult.lines.length, 0, 'Duplicate same-title categories must remain fail-closed when floorName is missing');
+assert.ok(duplicateLegacyTitleResult.warnings.some((warning) => warning.code === 'AMBIGUOUS_LINK'));
 
 console.log('MATERIAL NEED GOLDEN PASS');
