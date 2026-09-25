@@ -69,7 +69,7 @@ assert.ok(floorPlanSource.includes('<span>Chọn tất cả</span>'), 'multi-sel
 assert.ok(floorPlanSource.includes('grid-cols-[minmax(0,1fr)_auto]') && floorPlanSource.includes('justify-self-end self-start') && floorPlanSource.includes('Sửa tên / Nhân bản / Xóa'), 'floor overflow menu must stay pinned to the far right independently from long floor names');
 assert.ok(floorPlanSource.includes("confirmLabel: 'Tắt và giữ nguyên dữ liệu'"), 'disabling Khu/Khối must require an explicit data-preserving confirmation');
 assert.ok(floorPlanSource.includes('Tắt Khu/Khối chỉ ẩn phân nhóm, không gộp/xóa dữ liệu'), 'disable warning must state that grouping data is preserved');
-assert.ok(floorPlanSource.includes('Khu/Khối mặc định cho tầng chưa phân nhóm'), 'legacy floors must have an explicit default display group selector');
+assert.ok(floorPlanSource.includes('Tầng chưa gán nhóm hiển thị tại') && !floorPlanSource.includes('Khu/Khối mặc định cho tầng chưa phân nhóm') && !floorPlanSource.includes('legacy chưa có <code>structureGroupId</code>'), 'legacy floor display-group control must stay simple, non-technical, and only appear with grouping UI');
 assert.equal(floorPlanSource.includes('>\n                          Xem\n'), false, 'floor manager must not keep a separate Xem button');
 assert.ok(floorPlanSource.includes('setSelectedFloorId(fp.id);\n                        setShowManageFloorsModal(false);'), 'clicking the floor row must open/select that floor directly');
 
