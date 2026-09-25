@@ -1221,6 +1221,14 @@ export function getCurrentRealFirebaseUser(): User | null {
   return hasGoogleProvider ? user : null;
 }
 
+export function subscribeToFirebaseAuthSettled(callback: (user: User | null) => void): () => void {
+  // Unlike onAuthUserChanged(), this does not emit auth.currentUser synchronously.
+  // Firebase invokes onAuthStateChanged only after the initial persisted Auth state has
+  // been restored, which prevents the signed-out screen from flashing before a saved
+  // Google session is known. Subsequent sign-in/sign-out changes keep flowing here.
+  return onAuthStateChanged(auth, callback);
+}
+
 export function onAuthUserChanged(callback: (user: User | null) => void): () => void {
   authListeners.push(callback);
   

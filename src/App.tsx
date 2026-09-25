@@ -4,6 +4,7 @@ import { HardDrive, RefreshCw } from 'lucide-react';
 import { safeSetLocalStorageItem } from './utils/storage';
 import { parseLegacyTimestamp, formatDateTime } from './utils/dateFormatter';
 import { AppLockOverlay } from './components/AppLockOverlay';
+import { AppAuthGate } from './components/AppAuthGate';
 import { SecurityModal } from './components/SecurityModal';
 import { getStoredPinLockConfig, applyRemotePinReset, logAuditAction, getCurrentUserRole, setCurrentUserRole, UserRole, canEditProjectData, canManageProjects, canManageWorkVolumeStructure, canManageFloorPlanStructure, canManageMaterialNorms, canManageTeams, canManageChecklistStructure, canDeleteBusinessData, canDeleteCrewRecord, canManageBackups, canUseGlobalUndoRedo, canEditWarehouseData, canEditDefectData, canEditChecklistData, canEditCrewData, canImportData } from './utils/securityUtils';
 import { cacheVerifiedProjectRole, getCachedVerifiedProjectRole, getRememberedVerifiedAuthIdentity, rememberVerifiedAuthIdentity } from './utils/offlineAccess';
@@ -309,7 +310,7 @@ const normalizeSuperAdminUiSettings = (raw: any): SuperAdminUiSettings => {
   };
 };
 
-export default function App() {
+function AuthenticatedApp() {
   const isDesktopRuntime = typeof window !== 'undefined'
     && new URLSearchParams(window.location.search).get('app') === 'desktop';
   const [activeTab, setActiveTab] = useState<TabType>('home');
@@ -7379,5 +7380,13 @@ export default function App() {
         <GlobalConfirmModal />
       </div>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AppAuthGate>
+      <AuthenticatedApp />
+    </AppAuthGate>
   );
 }

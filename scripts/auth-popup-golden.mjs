@@ -10,6 +10,8 @@ const main = read('src/main.tsx');
 const persistence = read('src/lib/authPersistence.ts');
 const firebase = read('src/lib/firebase.ts');
 const firebaseBase = read('src/lib/firebaseBase.ts');
+const app = read('src/App.tsx');
+const authGate = read('src/components/AppAuthGate.tsx');
 const prodWorkflow = read('.github/workflows/firebase-hosting-merge.yml');
 
 assert(main.includes("import('./lib/authPersistence')"), 'bootstrap loads Auth persistence preflight');
@@ -20,6 +22,13 @@ assert(persistence.includes('browserSessionPersistence'), 'Auth has sessionStora
 assert(persistence.includes('inMemoryPersistence'), 'Auth has memory fallback when browser storage is unavailable');
 assert(persistence.includes('setPersistence(auth'), 'Auth persistence is explicitly set instead of default IndexedDB persistence');
 assert(!persistence.includes('indexedDBLocalPersistence'), 'Auth does not select IndexedDB persistence');
+assert(firebaseBase.includes('subscribeToFirebaseAuthSettled'), 'Auth exposes a settled observer that waits for persisted Firebase identity restoration');
+assert(authGate.includes("type AuthGateState = 'checking' | 'authenticated' | 'offline-remembered' | 'signed-out'"), 'entry gate models checking, signed-in, remembered-offline and signed-out states explicitly');
+assert(authGate.includes("data-hnl-auth-gate={state}"), 'signed-out/checking state is rendered by a dedicated full-screen auth surface');
+assert(authGate.includes('Đăng nhập bằng Google'), 'dedicated entry screen exposes one clear Google sign-in action');
+assert(authGate.includes('getRememberedVerifiedAuthIdentity'), 'offline entry reuses only the previously verified remembered identity');
+assert(app.includes('function AuthenticatedApp()'), 'main project UI is isolated in an authenticated-only component');
+assert(app.includes('<AppAuthGate>') && app.includes('<AuthenticatedApp />'), 'root App mounts project UI only through the Auth gate');
 assert(firebase.includes("export * from './firebaseBase'"), 'Firebase facade delegates all auth/data behavior to one implementation');
 assert(!firebase.includes('signInWithPopup(base.auth'), 'Firebase facade does not override Android browser transport separately');
 assert(firebaseBase.includes('signInWithRedirect(auth, provider)'), 'shared mobile auth implementation keeps redirect flow');
