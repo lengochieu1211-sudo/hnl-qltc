@@ -9,6 +9,10 @@ check(!sync.includes("from '../utils/securityUtils'") && !sync.includes('if (get
 check(sync.includes('stageFloorPlanImageOutbox'), 'Floor-plan binary outbox staging is missing.');
 check(sync.includes('FLOOR_PLAN_ROLE_VERIFICATION_UNAVAILABLE'), 'Unavailable role verification must fail closed and retry.');
 check(sync.includes('latestPendingRevision > revision'), 'Two rapid replacements must keep the newest revision authoritative.');
+check(sync.includes('runTransaction(db, async (transaction) =>'), 'Floor-plan image publication must atomically inspect/create the business row.');
+check(sync.includes('FLOOR_PLAN_IDENTITY_MISSING'), 'Image publication must fail closed rather than create a nameless floor.');
+check(sync.includes('if (!existingFloorName) identityPatch.floorName = planFloorName'), 'Image-first floor creation must backfill floorName.');
+check(sync.includes('if (!existingGroupId && planGroupId) identityPatch.structureGroupId = planGroupId'), 'Image-first floor creation must backfill Khu/Khối identity.');
 check(sync.includes('imagePendingByUid'), 'Pending outbox must be uploader/account scoped.');
 check(sync.includes("FLOOR_PLAN_CACHE_PREFIX = 'floor_plan_image_cache_v1'"), 'Persistent floor-plan offline cache prefix missing.');
 check(sync.includes('FLOOR_PLAN_CACHE_REVISIONS_PER_FLOOR = 2'), 'Offline cache must retain two revisions per floor for atomic replacement fallback.');
@@ -54,6 +58,8 @@ check(handler.includes("imageUploadState: 'pending'"), 'Replacement must mark pe
 check(handler.includes('storagePath: undefined'), 'Replacement must clear the old cloud object pointer.');
 check(handler.includes('updatedAt: imageRevision'), 'Replacement must advance record updatedAt to defeat stale snapshots.');
 check(app.includes('preservePendingFloorImage'), 'Realtime merge must preserve a newer pending local drawing.');
+check(app.includes('function restoreLocalFloorPlanIdentity'), 'Realtime floor-plan merge must protect a known local name/Khu-Khối from incomplete image-only snapshots.');
+check((app.match(/restoreLocalFloorPlanIdentity\(cloudItem, localItem\)/g) || []).length >= 2, 'Both patch and initial realtime paths must preserve floor identity.');
 check(app.includes('resolveFloorPlanImageForDisplay(projectId, plan, { allowStaleCache: true })'), 'Floor-plan viewer must resolve local cache before/around Cloud hydration.');
 const hydrateEffectStart = app.indexOf('// Hydrate cloud-backed floor-plan binaries');
 const hydrateEffect = app.slice(hydrateEffectStart, hydrateEffectStart + 7000);
@@ -91,6 +97,7 @@ check(ui.includes('getSuggestedNewFloorStructureGroupId'), 'Add-floor flows must
 check(ui.includes('setNewFloorStructureGroupId(getSuggestedNewFloorStructureGroupId())'), 'Manage-floor add actions must apply the stable Khu/Khối prefill.');
 check(ui.includes('getFloorPlanScopeLabel(plan)'), 'Multi-floor shared drawing picker must disambiguate same-named floors by Khu/Khối.');
 check(ui.includes("setSelectedStructureGroupId(sourceGroupId)"), 'Duplicate flow must align the active Khu/Khối filter so the new floor remains visible.');
+check(ui.includes('onClick={() => handleConfirmDuplicateFloor()}'), 'Duplicate confirmation must have a direct click path and not depend only on form submit.');
 check(ui.includes('aria-label={`Mở Defect ${shortDefectCode}`}'), 'Existing Defect real-position hit target is missing.');
 check(ui.includes('style={{ left: `${x}%`, top: `${y}%`, touchAction: \'manipulation\' }}'), 'Defect hit target must be anchored to the real defect coordinate.');
 check(ui.includes('z-50 pointer-events-auto w-7 h-7'), 'Defect hit target must stay above room drag controls with a touch-safe area.');

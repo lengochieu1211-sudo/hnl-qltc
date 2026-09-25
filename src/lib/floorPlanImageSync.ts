@@ -6,6 +6,7 @@ import {
   getDocs,
   orderBy,
   query,
+  runTransaction,
   setDoc,
   writeBatch,
 } from 'firebase/firestore';
@@ -568,7 +569,35 @@ export async function syncFloorPlanImageToCloud(projectId: string, plan: FloorPl
     deletedBy: null,
     updatedAt: Math.max(now, Number((plan as any).updatedAt || 0) + 1),
   };
-  await setDoc(doc(db, 'projects', projectId, 'floor_plans', plan.id), metadata, { merge: true });
+  const floorDocRef = doc(db, 'projects', projectId, 'floor_plans', plan.id);
+  await runTransaction(db, async (transaction) => {
+    const existing = await transaction.get(floorDocRef);
+    const existingData = existing.exists() ? existing.data() : {};
+    const existingFloorName = String(existingData?.floorName || '').trim();
+    const planFloorName = String(plan.floorName || '').trim();
+    const resolvedFloorName = existingFloorName || planFloorName;
+    if (!resolvedFloorName) throw new Error(`FLOOR_PLAN_IDENTITY_MISSING:${plan.id}`);
+
+    // P0 creation race guard: the binary uploader can finish before the normal
+    // business-state diff creates the floor document. Never let image metadata create
+    // a nameless floor that realtime would resolve into the default Khu/Khối.
+    // Existing authoritative identity always wins; only missing identity fields are
+    // backfilled from the local floor that initiated this upload.
+    const identityPatch: Record<string, any> = {};
+    if (!existingData?.id) identityPatch.id = plan.id;
+    if (!existingFloorName) identityPatch.floorName = planFloorName;
+    const existingGroupId = String(existingData?.structureGroupId || '').trim();
+    const planGroupId = String(plan.structureGroupId || '').trim();
+    if (!existingGroupId && planGroupId) identityPatch.structureGroupId = planGroupId;
+    if (!Number.isFinite(Number(existingData?.order)) && Number.isFinite(Number(plan.order))) {
+      identityPatch.order = Number(plan.order);
+    }
+    if (!String(existingData?.uploadedAt || '').trim() && String(plan.uploadedAt || '').trim()) {
+      identityPatch.uploadedAt = plan.uploadedAt;
+    }
+
+    transaction.set(floorDocRef, { ...metadata, ...identityPatch }, { merge: true });
+  });
   // The uploader should be offline-ready immediately after a successful atomic publish;
   // cache failure must never turn a successful Cloud upload into a failed business write.
   await cacheFloorPlanBlob(projectId, { ...plan, ...metadata } as FloorPlan, revision, blob).catch((err) => {

@@ -9892,7 +9892,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   Hủy
                 </button>
                 <button
-                  type="submit"
+                  type="button"
+                  onClick={() => handleConfirmDuplicateFloor()}
                   className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-extrabold text-xs shadow-md transition-all flex items-center justify-center gap-1.5"
                 >
                   <Copy className="w-4 h-4" />

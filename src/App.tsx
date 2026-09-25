@@ -12,6 +12,26 @@ import { loadVerifiedOfflineBusinessSnapshot, saveVerifiedOfflineBusinessSnapsho
 import { applyVerifiedOfflineWorkingDelta, buildVerifiedOfflineWorkingDelta, loadVerifiedOfflineWorkingDelta, saveVerifiedOfflineWorkingDelta } from './lib/verifiedOfflineWorkingState';
 import { resolveVerifiedIdentityLabel } from './utils/authIdentityUtils';
 
+function restoreLocalFloorPlanIdentity(cloudItem: any, localItem: any): any {
+  if (!cloudItem || !localItem) return cloudItem;
+  const merged = { ...cloudItem };
+  const cloudFloorName = String(cloudItem.floorName || '').trim();
+  const localFloorName = String(localItem.floorName || '').trim();
+  if (!cloudFloorName && localFloorName) merged.floorName = localItem.floorName;
+
+  const cloudGroupId = String(cloudItem.structureGroupId || '').trim();
+  const localGroupId = String(localItem.structureGroupId || '').trim();
+  if (!cloudGroupId && localGroupId) merged.structureGroupId = localItem.structureGroupId;
+
+  if (!Number.isFinite(Number(cloudItem.order)) && Number.isFinite(Number(localItem.order))) {
+    merged.order = localItem.order;
+  }
+  if (!String(cloudItem.uploadedAt || '').trim() && String(localItem.uploadedAt || '').trim()) {
+    merged.uploadedAt = localItem.uploadedAt;
+  }
+  return merged;
+}
+
 function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
   if (!cloudItem || !localItem) return cloudItem;
   const merged = { ...cloudItem };
@@ -3412,7 +3432,10 @@ function AuthenticatedApp() {
                   clearLocalTombstone(stateKey, cloudItem.id, subscribedProjectId);
                 }
                 if (!localItem || cloudTime > localTime) {
-                  byId.set(cloudItem.id, localItem ? restoreLocalOmittedImages(cloudItem, localItem) : cloudItem);
+                  const cloudForPresent = stateKey === 'floorPlans' && localItem
+                    ? restoreLocalFloorPlanIdentity(cloudItem, localItem)
+                    : cloudItem;
+                  byId.set(cloudItem.id, localItem ? restoreLocalOmittedImages(cloudForPresent, localItem) : cloudForPresent);
                   changed = true;
                 }
               }
@@ -3494,7 +3517,10 @@ function AuthenticatedApp() {
                 mergedList.push(cloudItem);
                 listHasChanges = true;
               } else if (cloudTime > localTime) {
-                mergedList.push(restoreLocalOmittedImages(cloudItem, localItem));
+                const cloudForPresent = stateKey === 'floorPlans'
+                  ? restoreLocalFloorPlanIdentity(cloudItem, localItem)
+                  : cloudItem;
+                mergedList.push(restoreLocalOmittedImages(cloudForPresent, localItem));
                 listHasChanges = true;
               } else {
                 mergedList.push(localItem);
