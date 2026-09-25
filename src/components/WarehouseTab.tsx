@@ -48,6 +48,7 @@ import {
 } from '../utils/structureGroupUtils';
 
 type MaterialNeedSortKey = 'default' | 'material' | 'category' | 'remaining' | 'deficit' | 'stock';
+type WarehouseCatalogSortKey = 'name' | 'totalIn' | 'totalOut' | 'normQuantity' | 'currentStock';
 
 interface WarehouseTabProps {
   inventory: InventoryItem[];
@@ -121,6 +122,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [showWarehouseCatalog, setShowWarehouseCatalog] = useState(false);
   const [warehouseCatalogTab, setWarehouseCatalogTab] = useState<InventoryItemKind>('material');
   const [warehouseCatalogSearch, setWarehouseCatalogSearch] = useState('');
+  const [warehouseCatalogSortBy, setWarehouseCatalogSortBy] = useState<WarehouseCatalogSortKey>('name');
+  const [warehouseCatalogSortOrder, setWarehouseCatalogSortOrder] = useState<'asc' | 'desc'>('asc');
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const normalizedStructureConfig = useMemo(() => normalizeStructureGroupConfig(structureConfig), [structureConfig]);
   const [materialNeedStructureGroupIds, setMaterialNeedStructureGroupIds] = useState<string[]>([]);
@@ -979,7 +982,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   }, [inventory, materialNorms]);
 
   const warehouseCatalogStockRows = useMemo(() => {
-    return warehouseCatalogRows.map((item) => {
+    const rows = warehouseCatalogRows.map((item) => {
       const normalizedName = normalizeMaterialSearch(item.name);
       const normalizedUnit = normalizeMaterialSearch(normalizeUnit(item.unit) || item.unit);
       const expectedKind: InventoryItemKind = warehouseCatalogTab === 'equipment' ? 'equipment' : 'material';
@@ -996,7 +999,18 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         currentStock: Number(summary?.currentStock || 0),
       };
     });
-  }, [warehouseCatalogRows, warehouseCatalogTab, stockSummaries]);
+
+    const direction = warehouseCatalogSortOrder === 'asc' ? 1 : -1;
+    return rows.slice().sort((a, b) => {
+      if (warehouseCatalogSortBy === 'name') {
+        return direction * naturalCompare(a.name, b.name);
+      }
+      const aValue = Number(a[warehouseCatalogSortBy] ?? 0);
+      const bValue = Number(b[warehouseCatalogSortBy] ?? 0);
+      if (aValue !== bValue) return direction * (aValue - bValue);
+      return naturalCompare(a.name, b.name);
+    });
+  }, [warehouseCatalogRows, warehouseCatalogTab, warehouseCatalogSortBy, warehouseCatalogSortOrder, stockSummaries]);
 
   const stockBalance = useMemo(() => {
     const balances: Record<string, { materialId?: string; displayName: string; inQty: number; outQty: number; balance: number; unit: string; normQuantity: number }> = {};
@@ -1451,7 +1465,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         icon={Layers}
         iconClassName="text-blue-600"
         title="Danh mục kho"
-        description="Danh mục vật tư / thiết bị với Nhập, Xuất, Định mức và Tồn kho lấy từ dữ liệu hiện có"
+        description="Tổng hợp vật tư và thiết bị theo Nhập, Xuất, Tồn kho; vật tư hiển thị thêm Khối lượng định mức."
         bodyClassName="space-y-3"
       >
         <div className="space-y-3">
@@ -1460,7 +1474,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               <button
                 type="button"
                 key={kind}
-                onClick={() => { setWarehouseCatalogTab(kind); setWarehouseCatalogSearch(''); }}
+                onClick={() => {
+                  setWarehouseCatalogTab(kind);
+                  setWarehouseCatalogSearch('');
+                  setWarehouseCatalogSortBy('name');
+                  setWarehouseCatalogSortOrder('asc');
+                }}
                 className={`rounded-lg px-3 py-2 text-xs font-bold transition ${warehouseCatalogTab === kind ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:bg-white/70'}`}
               >
                 {kind === 'material' ? 'Vật tư' : 'Thiết bị'}
@@ -1489,6 +1508,25 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               </button>
             )}
           </div>
+
+          <QuickSortBar<WarehouseCatalogSortKey>
+            itemCount={warehouseCatalogStockRows.length}
+            options={[
+              { key: 'name', label: warehouseCatalogTab === 'equipment' ? 'Tên thiết bị' : 'Tên vật tư', kind: 'alpha', defaultOrder: 'asc' },
+              { key: 'totalIn', label: 'Nhập', kind: 'number', defaultOrder: 'desc' },
+              { key: 'totalOut', label: 'Xuất', kind: 'number', defaultOrder: 'desc' },
+              ...(warehouseCatalogTab === 'material'
+                ? [{ key: 'normQuantity' as const, label: 'Khối lượng định mức', kind: 'number' as const, defaultOrder: 'desc' as const }]
+                : []),
+              { key: 'currentStock', label: 'Tồn kho', kind: 'number', defaultOrder: 'desc' },
+            ]}
+            activeKey={warehouseCatalogSortBy}
+            order={warehouseCatalogSortOrder}
+            onChange={(key, order) => { setWarehouseCatalogSortBy(key); setWarehouseCatalogSortOrder(order); }}
+            onToggleOrder={() => setWarehouseCatalogSortOrder((order) => order === 'asc' ? 'desc' : 'asc')}
+            onReset={() => { setWarehouseCatalogSortBy('name'); setWarehouseCatalogSortOrder('asc'); }}
+            summary={`${warehouseCatalogStockRows.length} ${warehouseCatalogTab === 'equipment' ? 'thiết bị' : 'vật tư'}`}
+          />
 
           <div className="overflow-x-auto rounded-xl border border-slate-200">
             <div className="min-w-[620px]">
