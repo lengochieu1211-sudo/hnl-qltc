@@ -240,7 +240,9 @@ assert(
   warehouse.includes('grid grid-cols-1 lg:grid-cols-2 gap-3 items-end'),
   'Warehouse material/equipment search and selector must sit directly below receipt type in one aligned desktop row'
 );
-assert(warehouse.includes('title="Danh mục kho"') && warehouse.includes("(['material', 'equipment'] as InventoryItemKind[]).map"), 'Warehouse must expose a separate Vật tư/Thiết bị catalog without renaming material norms');
+assert(warehouse.includes('title="Danh mục & tồn kho"') && warehouse.includes("(['material', 'equipment'] as InventoryItemKind[]).map"), 'Warehouse must expose the combined Danh mục & tồn kho view with separate Vật tư/Thiết bị tabs without renaming material norms');
+assert(warehouse.includes('warehouseCatalogStockRows') && warehouse.includes('totalIn: Number(summary?.totalIn || 0)') && warehouse.includes('currentStock: Number(summary?.currentStock || 0)'), 'Danh mục & tồn kho must derive Nhập/Xuất/Tồn read-only from the existing warehouse ledger summary');
+assert(warehouse.includes('<span className="text-right">Tồn</span>') && warehouse.includes('formatDecimal(item.currentStock)'), 'Danh mục & tồn kho must show current stock on both desktop and mobile layouts');
 assert(warehouse.includes("itemKind === 'equipment' ? 'Tên thiết bị' : 'Tên vật tư'"), 'Warehouse form must use dynamic Vật tư/Thiết bị labels');
 assert(warehouse.includes('Thêm thiết bị mới') && warehouse.includes('Chọn thiết bị có sẵn'), 'Equipment must be reusable after first declaration without a Tên khác flow');
 assert(warehouse.includes("itemKind === 'material' && (") && warehouse.includes('Tên vật tư khác'), 'Custom Tên vật tư khác input must stay material-only');
