@@ -406,7 +406,9 @@ export function computeMaterialNeeds(params: {
   const { rooms: rawRooms, materialNorms: rawMaterialNorms, inventory: rawInventory, workVolumes: rawWorkVolumes } = params;
   const rooms = rawRooms.filter(isActiveLifecycle);
   const materialNorms = rawMaterialNorms.filter(isActiveLifecycle);
-  const inventory = rawInventory.filter(isActiveLifecycle);
+  // Equipment shares the physical warehouse ledger but never participates in material demand,
+  // norm allocation or material issue reconciliation. Legacy rows default to material.
+  const inventory = rawInventory.filter((item) => isActiveLifecycle(item) && item.itemKind !== 'equipment');
   const workVolumes = rawWorkVolumes.filter(isActiveLifecycle);
   const teams = (params.teams || []).filter(isActiveLifecycle);
   const teamResolver = buildTeamResolver(teams);

@@ -1,4 +1,5 @@
 export type TransactionType = 'in' | 'out';
+export type InventoryItemKind = 'material' | 'equipment';
 export type InventoryIssuePurpose = 'project-work' | 'external-project' | 'other';
 
 /** Canonical Firestore lifecycle fields for Firebase-only records.
@@ -16,6 +17,8 @@ export interface CloudRecordLifecycle {
 export interface InventoryItem {
   id: string;
   type: TransactionType; // 'in': Nhập kho, 'out': Xuất kho
+  /** Warehouse item class. Legacy rows omit it and are treated as material. */
+  itemKind?: InventoryItemKind;
   materialId?: string;
   materialName: string;
   unit: string;

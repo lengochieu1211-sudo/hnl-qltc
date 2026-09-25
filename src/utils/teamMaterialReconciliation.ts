@@ -66,7 +66,7 @@ export function computeTeamMaterialReconciliation(params: {
   const { team, stats } = params;
   const materialNorms = params.materialNorms.filter(active);
   const workVolumes = params.workVolumes.filter(active);
-  const inventory = params.inventory.filter(active);
+  const inventory = params.inventory.filter((item) => item.itemKind !== 'equipment').filter(active);
   const aliasMap = buildMaterialAliasMap(materialNorms);
   const lines = new Map<string, TeamMaterialReconciliationLine>();
 

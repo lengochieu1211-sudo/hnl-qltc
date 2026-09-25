@@ -5,6 +5,7 @@ import { db, getCurrentRealFirebaseUser, sanitizePayloadForCloud } from './fireb
 export interface WarehouseBalanceRecord {
   id: string;
   projectId: string;
+  itemKind?: 'material' | 'equipment';
   materialId?: string;
   materialName: string;
   unit: string;
@@ -36,7 +37,12 @@ function normalizePart(value: unknown): string {
  * Inventory rows are the immutable ledger/source of truth. This key is only for the
  * derived balance document used by online stock validation. Prefer immutable materialId.
  */
-export function getWarehouseMaterialKey(item: Pick<InventoryItem, 'materialId' | 'materialName' | 'unit'>): string {
+export function getWarehouseMaterialKey(item: Pick<InventoryItem, 'itemKind' | 'materialId' | 'materialName' | 'unit'>): string {
+  const itemKind = item.itemKind === 'equipment' ? 'equipment' : 'material';
+  if (itemKind === 'equipment') {
+    return `equipment-${normalizePart(item.materialName) || 'unknown'}--${normalizePart(item.unit) || 'unit'}`;
+  }
+  // Preserve every existing material balance key exactly for backward compatibility.
   const materialId = normalizePart(item.materialId);
   if (materialId) return `id-${materialId}`;
   return `legacy-${normalizePart(item.materialName) || 'unknown'}--${normalizePart(item.unit) || 'unit'}`;
@@ -119,6 +125,7 @@ export async function commitWarehouseTransactionAtomic(
     tx.set(balanceRef, sanitizeWarehouseWritePayload({
       id: materialKey,
       projectId,
+      itemKind: item.itemKind === 'equipment' ? 'equipment' : 'material',
       materialId: item.materialId || null,
       materialName: item.materialName,
       unit: item.unit,
@@ -179,7 +186,7 @@ export async function updateWarehouseTransactionAtomic(
         revision: Math.max(Number(oldBalanceSnap.data()?.revision || 0) + 1, 1), updatedAt: now, updatedByUid: user.uid,
       }), { merge: true });
       tx.set(newBalanceRef, sanitizeWarehouseWritePayload({
-        id: newKey, projectId, materialId: nextItem.materialId || null, materialName: nextItem.materialName, unit: nextItem.unit,
+        id: newKey, projectId, itemKind: nextItem.itemKind === 'equipment' ? 'equipment' : 'material', materialId: nextItem.materialId || null, materialName: nextItem.materialName, unit: nextItem.unit,
         onHand: Math.max(0, newKeyFinal), revision: Math.max(Number(newBalanceSnap.data()?.revision || 0) + 1, 1),
         updatedAt: now, updatedByUid: user.uid,
       }), { merge: true });

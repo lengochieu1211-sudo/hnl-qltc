@@ -261,9 +261,6 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const normalizedStructureConfig = useMemo(() => normalizeStructureGroupConfig(structureConfig), [structureConfig]);
   // Khu/Khối remains in persisted data; Crew lists/statistics stay project-wide and show location per item.
   const selectedStructureGroupId = 'all';
-  const [logStructureGroupId, setLogStructureGroupId] = useState<string>(
-    () => normalizeStructureGroupConfig(structureConfig).defaultGroupId,
-  );
 
   const floorById = useMemo(
     () => new Map(floorPlans.map((floor) => [floor.id, floor] as const)),
@@ -338,10 +335,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   );
 
   const logFloorPlans = useMemo(
-    () => !normalizedStructureConfig.enabled
-      ? floorPlans
-      : floorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === logStructureGroupId),
-    [floorPlans, normalizedStructureConfig, logStructureGroupId],
+    () => floorPlans,
+    [floorPlans],
   );
 
   // Load custom teams list from props
@@ -579,25 +574,12 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     const defaultFp = logFloorPlans[0];
     const next = createDefaultFloorWork(defaultFp);
     if (!next) {
-      alert(`Chưa có tầng nào trong ${normalizedStructureConfig.enabled ? getStructureGroupName(logStructureGroupId, normalizedStructureConfig) : 'dự án'}.`);
+      alert('Chưa có tầng nào trong dự án.');
       return;
     }
     setFloorWorks(prev => [...prev, next]);
   };
 
-  const handleLogStructureGroupChange = async (nextGroupId: string) => {
-    if (nextGroupId === logStructureGroupId) return;
-    if (floorWorks.length > 0) {
-      const ok = await confirmAsync(`Đổi ${normalizedStructureConfig.label} sẽ đặt lại danh sách tầng/hạng mục đang nhập trong biểu mẫu này. Tiếp tục?`);
-      if (!ok) return;
-    }
-    setLogStructureGroupId(nextGroupId);
-    const nextFloors = floorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === nextGroupId);
-    const first = nextFloors[0];
-    const nextWork = createDefaultFloorWork(first);
-    setFloorWorks(nextWork ? [nextWork] : []);
-    setSelectedFloorId(first?.id || '');
-  };
 
   const removeFloorWork = async (floorIndex: number) => {
     setFloorWorks(prev => prev.filter((_, idx) => idx !== floorIndex));
@@ -734,8 +716,6 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   useEffect(() => {
     if (editingRecord) {
       setActiveLogEntityId(editingRecord.id);
-      const editingGroupId = getRecordStructureGroupIds(editingRecord)[0] || normalizedStructureConfig.defaultGroupId;
-      setLogStructureGroupId(editingGroupId);
       setTeamName(editingRecord.teamName);
       setTeamId(editingRecord.teamId || '');
       setLeaderName(editingRecord.leaderName);
@@ -766,7 +746,6 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       setNotes(editingRecord.notes || '');
     } else {
       setActiveLogEntityId(`crew_${Date.now()}`);
-      setLogStructureGroupId(normalizedStructureConfig.defaultGroupId);
       // Set to first team in directory if available, otherwise blank
       if (teams.length > 0) {
         setTeamName(teams[0].name);
@@ -785,19 +764,17 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         setAfternoonCount(5);
         setEveningCount(0);
       }
-      const defaultGroupFloors = normalizedStructureConfig.enabled
-        ? floorPlans.filter((floor) => resolveFloorStructureGroupId(floor, normalizedStructureConfig) === normalizedStructureConfig.defaultGroupId)
-        : floorPlans;
-      if (defaultGroupFloors.length > 0) {
+      const availableFloors = floorPlans;
+      if (availableFloors.length > 0) {
         setFloorWorks([{
-          floorId: defaultGroupFloors[0].id,
-          floorName: defaultGroupFloors[0].floorName,
+          floorId: availableFloors[0].id,
+          floorName: availableFloors[0].floorName,
           categories: [{
             categoryName: 'Thi công thạch cao',
             subItems: ['Bắn tấm khung chìm', 'Bả matit 2 lớp']
           }]
         }]);
-        setSelectedFloorId(defaultGroupFloors[0].id);
+        setSelectedFloorId(availableFloors[0].id);
       } else {
         setFloorWorks([]);
         setSelectedFloorId('');
@@ -1054,8 +1031,19 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     }
 
     const normalizedTeamName = teamName.trim();
+    const selectedGroupIds = Array.from(new Set(
+      floorWorks
+        .map((work) => floorById.get(work.floorId))
+        .filter(Boolean)
+        .map((floor) => resolveFloorStructureGroupId(floor!, normalizedStructureConfig)),
+    ));
+    if (normalizedStructureConfig.enabled && selectedGroupIds.length > 1) {
+      alert(`Một bản ghi quân số chỉ được chọn các tầng trong cùng ${normalizedStructureConfig.label}.`);
+      return;
+    }
+    const fallbackFloor = selectedFloorId ? floorById.get(selectedFloorId) : undefined;
     const currentGroupId = normalizedStructureConfig.enabled
-      ? logStructureGroupId
+      ? (selectedGroupIds[0] || (fallbackFloor ? resolveFloorStructureGroupId(fallbackFloor, normalizedStructureConfig) : normalizedStructureConfig.defaultGroupId))
       : normalizedStructureConfig.defaultGroupId;
     const existingRecord = crewRecords.find(
       (r) => r.date === selectedDate
@@ -1492,7 +1480,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                   }
                 }}
                 max={getTodayString()}
-                className="font-bold text-slate-800 bg-transparent border-none focus:outline-none focus:ring-0 cursor-pointer text-sm"
+                className="hnl-crew-date-input font-bold text-slate-800 bg-transparent border-none focus:outline-none focus:ring-0 cursor-pointer text-sm" aria-label="Chọn ngày quân số"
               />
             </div>
 
@@ -2324,26 +2312,6 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                 />
               </div>
 
-              {normalizedStructureConfig.enabled && (
-                <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-3">
-                  <label className="block text-[10px] font-extrabold uppercase tracking-wider text-indigo-700 mb-1">
-                    {normalizedStructureConfig.label}
-                  </label>
-                  <select
-                    value={logStructureGroupId}
-                    onChange={(e) => { void handleLogStructureGroupChange(e.target.value); }}
-                    className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs font-bold text-slate-800"
-                  >
-                    {normalizedStructureConfig.groups.map((group) => (
-                      <option key={group.id} value={group.id}>{group.name}</option>
-                    ))}
-                  </select>
-                  <p className="mt-1 text-[9.5px] text-indigo-600">
-                    Một bản ghi quân số chỉ thuộc một {normalizedStructureConfig.label}; các tầng bên dưới phải cùng nhóm.
-                  </p>
-                </div>
-              )}
-
               {/* Per-shift Worker Count */}
               <div className="md:col-span-2 lg:col-span-4">
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Quân số theo ca</label>
@@ -2400,7 +2368,13 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                               onChange={(e) => updateFloorWorkFloor(fIdx, e.target.value)}
                               className="w-full text-xs bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                             >
-                              {logFloorPlans.map(fp => (
+                              {logFloorPlans.filter((fp) => {
+                                if (!normalizedStructureConfig.enabled) return true;
+                                const anchorWork = floorWorks.find((other, otherIndex) => otherIndex !== fIdx && Boolean(other.floorId));
+                                const anchorFloor = anchorWork ? floorById.get(anchorWork.floorId) : undefined;
+                                if (!anchorFloor) return true;
+                                return resolveFloorStructureGroupId(fp, normalizedStructureConfig) === resolveFloorStructureGroupId(anchorFloor, normalizedStructureConfig);
+                              }).map(fp => (
                                 <option key={fp.id} value={fp.id}>{fp.floorName}</option>
                               ))}
                             </select>

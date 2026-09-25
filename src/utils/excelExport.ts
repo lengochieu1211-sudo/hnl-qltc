@@ -252,6 +252,7 @@ export function exportAllToExcel(params: {
     const inventoryData = params.inventory.map((item, idx) => ({
       'STT': idx + 1,
       'Mã Phiếu': item.id,
+      '__itemKind': item.itemKind === 'equipment' ? 'equipment' : 'material',
       '__materialId': item.materialId || '',
       '__sourceType': item.sourceType || '',
       '__issuePurpose': item.issuePurpose || '',
@@ -264,7 +265,8 @@ export function exportAllToExcel(params: {
       '__sourceIssueKey': item.sourceIssueKey || '',
       'Loại Phiếu': item.type === 'in' ? 'NHẬP KHO' : 'XUẤT KHO',
       'Mục đích xuất': inventoryIssuePurposeLabel(item),
-      'Tên Vật Tư': item.materialName,
+      'Loại Hàng': item.itemKind === 'equipment' ? 'Thiết bị' : 'Vật tư',
+      'Tên Vật Tư / Thiết Bị': item.materialName,
       'Đơn Vị Tính': item.unit,
       'Số Lượng': item.quantity,
       'Vị Trí Lưu Kho / Hạng Mục': item.location || 'Kho chính',
@@ -1042,6 +1044,7 @@ export function exportWarehouseUpdateTemplate(
     return {
       'STT': idx + 1,
       'Mã Phiếu': item.id,
+      '__itemKind': item.itemKind === 'equipment' ? 'equipment' : 'material',
       '__materialId': item.materialId || '',
       '__sourceType': item.sourceType || '',
       '__issuePurpose': item.issuePurpose || '',
@@ -1060,7 +1063,8 @@ export function exportWarehouseUpdateTemplate(
       'Căn / Phòng': room?.roomName || '',
       'Đội thi công': team?.name || '',
       'Hạng mục thi công': work?.title || '',
-      'Tên Vật Tư': item.materialName,
+      'Loại Hàng': item.itemKind === 'equipment' ? 'Thiết bị' : 'Vật tư',
+      'Tên Vật Tư / Thiết Bị': item.materialName,
       'Đơn Vị Tính': item.unit,
       'Số Lượng': item.quantity,
       'Vị Trí Kho / Hạng Mục': item.location || 'Công trình',
@@ -1122,9 +1126,11 @@ export function exportWarehouseUpdateTemplate(
   const stockSummaries = calculateStockSummary(inventory || [], materialNorms || []);
   const stockData = stockSummaries.map((s, idx) => ({
     'STT': idx + 1,
+    '__itemKind': s.itemKind,
     '__materialId': s.materialId || '',
+    'Loại Hàng': s.itemKind === 'equipment' ? 'Thiết bị' : 'Vật tư',
     'Chủng Loại': s.category,
-    'Tên Vật Tư': s.materialName,
+    'Tên Vật Tư / Thiết Bị': s.materialName,
     'Đơn Vị Tính': s.unit,
     'Tổng Nhập Kho': s.totalIn,
     'Tổng Xuất Kho': s.totalOut,

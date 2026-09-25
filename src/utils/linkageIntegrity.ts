@@ -394,6 +394,17 @@ export function validateInventoryOutProvenance(params: {
   const floorId = String(tx.sourceFloorId || room?.floorId || '').trim() || undefined;
   if (room && tx.sourceFloorId && room.floorId !== tx.sourceFloorId) return { state: 'invalid', room, floorId, reason: 'sourceFloorId mâu thuẫn sourceRoomId' };
 
+  // Equipment is a physical warehouse asset, not a material-norm identity. Keep project
+  // floor/room/team provenance valid, but never force equipment through Material Need.
+  if (tx.itemKind === 'equipment') {
+    if (tx.sourceNormId) return { state: 'invalid', room, floorId, reason: 'Thiết bị không được liên kết sourceNormId/định mức vật tư' };
+    const teamId = String(tx.sourceTeamId || '').trim() || undefined;
+    if (teamId && params.teams && !params.teams.some((team) => team.id === teamId && isActiveRecord(team))) {
+      return { state: 'invalid', room, floorId, teamId, reason: 'sourceTeamId không tồn tại' };
+    }
+    return { state: 'resolved', room, floorId, teamId };
+  }
+
   const material = resolveUniqueMaterialIdentity({ materialId: tx.materialId, materialName: tx.materialName, unit: tx.unit, materialNorms });
   if (material.state !== 'resolved') return { state: material.state === 'ambiguous' ? 'ambiguous' : 'invalid', ambiguityAt: material.state === 'ambiguous' ? 'material' : undefined, room, floorId, reason: 'material identity không duy nhất' };
 

@@ -229,6 +229,45 @@ html[data-hnl-theme="dark"] .bg-pink-100 { background-color: rgb(131 24 67 / .34
 html[data-hnl-theme="dark"] .text-pink-700,
 html[data-hnl-theme="dark"] .text-pink-800 { color: #f9a8d4 !important; }
 
+
+/* Exact dark-theme coverage for alpha neutral surfaces used by Home/feature sheets.
+ * Tailwind opacity variants are distinct utility classes, so the base .bg-white/.bg-slate-50
+ * selectors above do not catch them. Keep this centralized instead of per-component patches. */
+html[data-hnl-theme="dark"] .hnl-home-dashboard {
+  background: radial-gradient(circle at top right, rgb(37 99 235 / .16), transparent 34%),
+    linear-gradient(180deg, var(--hnl-dark-canvas) 0%, #07111f 100%) !important;
+}
+html[data-hnl-theme="dark"] [class*="bg-white/"],
+html[data-hnl-theme="dark"] [class*="bg-slate-50/"] {
+  background-color: var(--hnl-dark-surface) !important;
+}
+html[data-hnl-theme="dark"] [class*="bg-slate-100/"] {
+  background-color: var(--hnl-dark-surface-soft) !important;
+}
+html[data-hnl-theme="dark"] [class*="bg-indigo-50/"] { background-color: rgb(49 46 129 / .28) !important; }
+html[data-hnl-theme="dark"] [class*="bg-blue-50/"] { background-color: rgb(30 64 175 / .24) !important; }
+html[data-hnl-theme="dark"] [class*="bg-emerald-50/"],
+html[data-hnl-theme="dark"] [class*="bg-green-50/"] { background-color: rgb(6 95 70 / .25) !important; }
+html[data-hnl-theme="dark"] [class*="bg-amber-50/"],
+html[data-hnl-theme="dark"] [class*="bg-yellow-50/"] { background-color: rgb(120 53 15 / .30) !important; }
+html[data-hnl-theme="dark"] [class*="bg-rose-50/"],
+html[data-hnl-theme="dark"] [class*="bg-red-50/"] { background-color: rgb(127 29 29 / .28) !important; }
+html[data-hnl-theme="dark"] .hover\:bg-slate-50:hover,
+html[data-hnl-theme="dark"] .hover\:bg-white:hover { background-color: var(--hnl-dark-surface-raised) !important; }
+
+/* Crew date keeps one interaction: arrows step days; tapping the date opens the native picker.
+ * Hide the browser calendar/dropdown glyph without disabling the native picker hit target. */
+.hnl-crew-date-input { position: relative; appearance: none; -webkit-appearance: none; }
+.hnl-crew-date-input::-webkit-calendar-picker-indicator {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.hnl-crew-date-input::-webkit-inner-spin-button { display: none; -webkit-appearance: none; }
+
 /* Button/input touch targets. Compact never shrinks below accessibility-friendly defaults. */
 html[data-hnl-button-size="large"] button,
 html[data-hnl-button-size="large"] input,

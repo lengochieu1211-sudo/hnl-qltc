@@ -240,7 +240,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   ];
 
   return (
-    <div className="min-h-[calc(100vh-9rem)] bg-[radial-gradient(circle_at_top_right,_rgba(59,130,246,0.10),_transparent_34%),linear-gradient(180deg,#f8fafc_0%,#eef4fb_100%)] px-3 py-3 sm:px-4 sm:py-4 lg:px-5 lg:py-5">
+    <div className="hnl-home-dashboard min-h-[calc(100vh-9rem)] bg-[radial-gradient(circle_at_top_right,_rgba(59,130,246,0.10),_transparent_34%),linear-gradient(180deg,#f8fafc_0%,#eef4fb_100%)] px-3 py-3 sm:px-4 sm:py-4 lg:px-5 lg:py-5">
       <div className="mx-auto max-w-[1680px] space-y-4">
         <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
           <div className="grid gap-0 xl:grid-cols-[1fr_420px]">

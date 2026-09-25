@@ -25,7 +25,7 @@ import {
   ChevronDown,
   PackageSearch
 } from 'lucide-react';
-import { InventoryItem, InventoryIssuePurpose, TransactionType, MaterialNorm, WorkVolume, RoomProgressItem, TeamInfo, FloorPlan } from '../types';
+import { InventoryItem, InventoryIssuePurpose, InventoryItemKind, TransactionType, MaterialNorm, WorkVolume, RoomProgressItem, TeamInfo, FloorPlan } from '../types';
 import { formatDateDDMMYYYY, formatExcelDate } from '../utils/dateFormatter';
 import { formatDecimal, evaluateMathExpression, useFormatSettings, parseVietnameseNumber, parseExcelNumber } from '../utils/numberUtils';
 import * as XLSX from 'xlsx';
@@ -116,6 +116,11 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const [inventorySortOrder, setInventorySortOrder] = useState<'asc' | 'desc'>('desc');
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingInventory, setEditingInventory] = useState<InventoryItem | null>(null);
+  const [itemKind, setItemKind] = useState<InventoryItemKind>('material');
+  const [isNewEquipment, setIsNewEquipment] = useState(false);
+  const [showWarehouseCatalog, setShowWarehouseCatalog] = useState(false);
+  const [warehouseCatalogTab, setWarehouseCatalogTab] = useState<InventoryItemKind>('material');
+  const [warehouseCatalogSearch, setWarehouseCatalogSearch] = useState('');
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const normalizedStructureConfig = useMemo(() => normalizeStructureGroupConfig(structureConfig), [structureConfig]);
   const [materialNeedStructureGroupIds, setMaterialNeedStructureGroupIds] = useState<string[]>([]);
@@ -415,10 +420,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           const jsonData = XLSX.utils.sheet_to_json<any>(sheet);
           
           jsonData.forEach((row, rIdx) => {
-            const materialNameRaw = row['Tên Vật Tư'] || row['Tên Vật Tư Thạch Cao'] || row['materialName'] || row['Vật tư'] || row['Vat tu'];
+            const materialNameRaw = row['Tên Vật Tư / Thiết Bị'] || row['Tên Vật Tư'] || row['Tên Thiết Bị'] || row['Tên Vật Tư Thạch Cao'] || row['materialName'] || row['Vật tư'] || row['Thiết bị'] || row['Vat tu'];
             if (!materialNameRaw) return;
 
             const materialNameStr = String(materialNameRaw).trim();
+            const rawItemKind = String(row['__itemKind'] || row['Loại Hàng'] || row['Loại hàng'] || row['itemKind'] || '').trim().toLocaleLowerCase('vi-VN');
+            const importedItemKind: InventoryItemKind = rawItemKind.includes('thiết') || rawItemKind === 'equipment' ? 'equipment' : 'material';
             const quantityNum = parseVietnameseNumber(row['Số Lượng'] || row['quantity'] || 0);
             if (isNaN(quantityNum) || quantityNum <= 0) return;
 
@@ -444,13 +451,15 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             
             const existingItem = existingIdx >= 0 ? newInventory[existingIdx] : undefined;
             const preservesExistingIdentity = Boolean(existingItem
+              && (existingItem.itemKind === 'equipment' ? 'equipment' : 'material') === importedItemKind
               && existingItem.materialName.trim().toLocaleLowerCase('vi-VN') === materialNameStr.toLocaleLowerCase('vi-VN')
               && (normalizeUnit(existingItem.unit) || existingItem.unit) === (normalizeUnit(unitStr) || unitStr));
 
             const invItem: InventoryItem = {
               id: existingIdx >= 0 ? newInventory[existingIdx].id : (rawId ? String(rawId).trim() : createEntityId('INV-IN')),
               type: 'in',
-              materialId: rawMaterialId ? String(rawMaterialId).trim() : (preservesExistingIdentity ? existingItem?.materialId : undefined),
+              itemKind: importedItemKind,
+              materialId: importedItemKind === 'material' ? (rawMaterialId ? String(rawMaterialId).trim() : (preservesExistingIdentity ? existingItem?.materialId : undefined)) : undefined,
               materialName: materialNameStr,
               unit: unitStr,
               quantity: quantityNum,
@@ -470,8 +479,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               sourceRoomId: rawSourceRoomId ? String(rawSourceRoomId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceRoomId : undefined),
               sourceFloorId: rawSourceFloorId ? String(rawSourceFloorId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceFloorId : undefined),
               sourceTeamId: rawSourceTeamId ? String(rawSourceTeamId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceTeamId : undefined),
-              sourceWorkCategoryId: rawSourceWorkCategoryId ? String(rawSourceWorkCategoryId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceWorkCategoryId : undefined),
-              sourceNormId: rawSourceNormId ? String(rawSourceNormId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceNormId : undefined),
+              sourceWorkCategoryId: importedItemKind === 'material' ? (rawSourceWorkCategoryId ? String(rawSourceWorkCategoryId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceWorkCategoryId : undefined)) : undefined,
+              sourceNormId: importedItemKind === 'material' ? (rawSourceNormId ? String(rawSourceNormId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceNormId : undefined)) : undefined,
               sourceIssueKey: rawSourceIssueKey ? String(rawSourceIssueKey).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceIssueKey : undefined)
             };
 
@@ -498,10 +507,12 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           const jsonData = XLSX.utils.sheet_to_json<any>(sheet);
           
           jsonData.forEach((row, rIdx) => {
-            const materialNameRaw = row['Tên Vật Tư'] || row['Tên Vật Tư Thạch Cao'] || row['materialName'] || row['Vật tư'] || row['Vat tu'];
+            const materialNameRaw = row['Tên Vật Tư / Thiết Bị'] || row['Tên Vật Tư'] || row['Tên Thiết Bị'] || row['Tên Vật Tư Thạch Cao'] || row['materialName'] || row['Vật tư'] || row['Thiết bị'] || row['Vat tu'];
             if (!materialNameRaw) return;
 
             const materialNameStr = String(materialNameRaw).trim();
+            const rawItemKind = String(row['__itemKind'] || row['Loại Hàng'] || row['Loại hàng'] || row['itemKind'] || '').trim().toLocaleLowerCase('vi-VN');
+            const importedItemKind: InventoryItemKind = rawItemKind.includes('thiết') || rawItemKind === 'equipment' ? 'equipment' : 'material';
             const quantityNum = parseVietnameseNumber(row['Số Lượng'] || row['quantity'] || 0);
             if (isNaN(quantityNum) || quantityNum <= 0) return;
 
@@ -527,13 +538,15 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             
             const existingItem = existingIdx >= 0 ? newInventory[existingIdx] : undefined;
             const preservesExistingIdentity = Boolean(existingItem
+              && (existingItem.itemKind === 'equipment' ? 'equipment' : 'material') === importedItemKind
               && existingItem.materialName.trim().toLocaleLowerCase('vi-VN') === materialNameStr.toLocaleLowerCase('vi-VN')
               && (normalizeUnit(existingItem.unit) || existingItem.unit) === (normalizeUnit(unitStr) || unitStr));
 
             const invItem: InventoryItem = {
               id: existingIdx >= 0 ? newInventory[existingIdx].id : (rawId ? String(rawId).trim() : createEntityId('INV-OUT')),
               type: 'out',
-              materialId: rawMaterialId ? String(rawMaterialId).trim() : (preservesExistingIdentity ? existingItem?.materialId : undefined),
+              itemKind: importedItemKind,
+              materialId: importedItemKind === 'material' ? (rawMaterialId ? String(rawMaterialId).trim() : (preservesExistingIdentity ? existingItem?.materialId : undefined)) : undefined,
               materialName: materialNameStr,
               unit: unitStr,
               quantity: quantityNum,
@@ -553,8 +566,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               sourceRoomId: rawSourceRoomId ? String(rawSourceRoomId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceRoomId : undefined),
               sourceFloorId: rawSourceFloorId ? String(rawSourceFloorId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceFloorId : undefined),
               sourceTeamId: rawSourceTeamId ? String(rawSourceTeamId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceTeamId : undefined),
-              sourceWorkCategoryId: rawSourceWorkCategoryId ? String(rawSourceWorkCategoryId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceWorkCategoryId : undefined),
-              sourceNormId: rawSourceNormId ? String(rawSourceNormId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceNormId : undefined),
+              sourceWorkCategoryId: importedItemKind === 'material' ? (rawSourceWorkCategoryId ? String(rawSourceWorkCategoryId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceWorkCategoryId : undefined)) : undefined,
+              sourceNormId: importedItemKind === 'material' ? (rawSourceNormId ? String(rawSourceNormId).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceNormId : undefined)) : undefined,
               sourceIssueKey: rawSourceIssueKey ? String(rawSourceIssueKey).trim() : (existingIdx >= 0 ? newInventory[existingIdx].sourceIssueKey : undefined)
             };
 
@@ -806,6 +819,52 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     });
   }, [materialNorms, normalizedMaterialPickerSearch]);
 
+  // Warehouse catalog is intentionally derived from authoritative data instead of adding
+  // another mutable collection. Materials come from norms; equipment becomes reusable after
+  // its first real warehouse transaction. This keeps multi-user/offline stock as one ledger.
+  const equipmentCatalog = useMemo(() => {
+    const byKey = new Map<string, { name: string; unit: string; lastDate: string }>();
+    inventory
+      .filter((item) => item.itemKind === 'equipment')
+      .forEach((item) => {
+        const name = String(item.materialName || '').trim();
+        const unitValue = normalizeUnit(item.unit) || String(item.unit || '').trim();
+        if (!name || !unitValue) return;
+        const key = `${normalizeMaterialSearch(name)}|${normalizeMaterialSearch(unitValue)}`;
+        const existing = byKey.get(key);
+        if (!existing || compareDateValues(existing.lastDate, item.date) < 0) {
+          byKey.set(key, { name, unit: unitValue, lastDate: item.date || '' });
+        }
+      });
+    return Array.from(byKey.values()).sort((a, b) =>
+      compareDateValues(b.lastDate, a.lastDate) || naturalCompare(a.name, b.name),
+    );
+  }, [inventory]);
+
+  const filteredEquipmentCatalog = useMemo(() => {
+    if (!normalizedMaterialPickerSearch) return equipmentCatalog;
+    return equipmentCatalog.filter((item) =>
+      normalizeMaterialSearch(`${item.name} ${item.unit}`).includes(normalizedMaterialPickerSearch),
+    );
+  }, [equipmentCatalog, normalizedMaterialPickerSearch]);
+
+  const warehouseCatalogRows = useMemo(() => {
+    const q = normalizeMaterialSearch(warehouseCatalogSearch);
+    if (warehouseCatalogTab === 'equipment') {
+      return equipmentCatalog
+        .filter((item) => !q || normalizeMaterialSearch(`${item.name} ${item.unit}`).includes(q))
+        .map((item) => ({ key: `equipment:${item.name}:${item.unit}`, name: item.name, unit: item.unit, category: 'Thiết bị', hasNorm: false }));
+    }
+    const byKey = new Map<string, { key: string; name: string; unit: string; category: string; hasNorm: boolean }>();
+    materialNorms.forEach((norm) => {
+      const key = `${normalizeMaterialSearch(norm.materialName)}|${normalizeMaterialSearch(normalizeUnit(norm.unit) || norm.unit)}`;
+      if (!byKey.has(key)) byKey.set(key, { key: `material:${key}`, name: norm.materialName, unit: normalizeUnit(norm.unit) || norm.unit, category: norm.category || 'Vật tư', hasNorm: true });
+    });
+    return Array.from(byKey.values())
+      .filter((item) => !q || normalizeMaterialSearch(`${item.name} ${item.category} ${item.unit}`).includes(q))
+      .sort((a, b) => naturalCompare(a.name, b.name));
+  }, [warehouseCatalogTab, warehouseCatalogSearch, equipmentCatalog, materialNorms]);
+
 
   const issueFloorOptions = useMemo(() => {
     return floorPlans
@@ -894,6 +953,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
   // Auto update material selection when materialNorms change
   React.useEffect(() => {
+    if (itemKind !== 'material') return;
     if (materialNorms.length > 0) {
       const matched = materialNorms.find((m) => m.materialName === materialName);
       if (!matched) {
@@ -901,7 +961,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         setUnit(materialNorms[0].unit);
       }
     }
-  }, [materialNorms]);
+  }, [itemKind, materialNorms]);
 
   // Map material norms by ID or name for quick lookup
   const normMap = useMemo(() => {
@@ -921,6 +981,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const stockBalance = useMemo(() => {
     const balances: Record<string, { materialId?: string; displayName: string; inQty: number; outQty: number; balance: number; unit: string; normQuantity: number }> = {};
     stockSummaries.forEach(s => {
+      if (s.itemKind === 'equipment') return;
       const data = {
         materialId: s.materialId,
         displayName: s.materialName,
@@ -952,6 +1013,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     }> = [];
 
     stockSummaries.forEach((s) => {
+      if (s.itemKind === 'equipment') return;
       const quota = s.normQuantity;
       const name = s.materialName;
       
@@ -1038,7 +1100,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
   // Live warning for the form
   const formQuotaWarning = useMemo(() => {
-    if (type !== 'in' || !quantity) return null;
+    if (itemKind !== 'material' || type !== 'in' || !quantity) return null;
     const targetName = customMaterial.trim() || materialName.trim();
     if (!targetName) return null;
 
@@ -1075,13 +1137,14 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     }
 
     return null;
-  }, [type, quantity, materialName, customMaterial, stockSummaries, unit]);
+  }, [itemKind, type, quantity, materialName, customMaterial, stockSummaries, unit]);
 
   const filteredInventory = useMemo(() => {
     const list = inventory.filter((item) => {
       const q = searchTerm.trim().toLocaleLowerCase('vi-VN');
       const matchesType = filterType === 'all' || item.type === filterType;
       const matchesSearch = !q ||
+        (item.itemKind === 'equipment' ? 'thiết bị' : 'vật tư').includes(q) ||
         item.materialName.toLocaleLowerCase('vi-VN').includes(q) ||
         item.location.toLocaleLowerCase('vi-VN').includes(q) ||
         item.handler.toLocaleLowerCase('vi-VN').includes(q) ||
@@ -1113,12 +1176,21 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     });
   }, [inventory, filterType, searchTerm, inventorySortBy, inventorySortOrder]);
 
-  const openCreateInventory = () => {
+  const openCreateInventory = (kind: InventoryItemKind = 'material') => {
     if (!hasEditAccess) return;
     setEditingInventory(null);
+    setItemKind(kind);
     setType('in');
     setCustomMaterial('');
+    setIsNewEquipment(kind === 'equipment' && equipmentCatalog.length === 0);
     setMaterialPickerSearch('');
+    if (kind === 'equipment') {
+      setMaterialName(equipmentCatalog[0]?.name || '');
+      setUnit(equipmentCatalog[0]?.unit || 'Cái');
+    } else {
+      setMaterialName(materialNorms[0]?.materialName || '');
+      setUnit(materialNorms[0]?.unit || 'Tấm');
+    }
     setQuantity('');
     setQuantityStr('');
     setLocation('');
@@ -1138,11 +1210,16 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const openEditInventory = (item: InventoryItem) => {
     if (!hasEditAccess) return;
     setEditingInventory(item);
+    const editingKind: InventoryItemKind = item.itemKind === 'equipment' ? 'equipment' : 'material';
+    setItemKind(editingKind);
+    setIsNewEquipment(false);
     setType(item.type);
-    const matched = materialNorms.find((m) => item.materialId && (m.materialId === item.materialId || m.id === item.materialId))
-      || materialNorms.find((m) => m.materialName === item.materialName && (normalizeUnit(m.unit) || m.unit) === (normalizeUnit(item.unit) || item.unit));
+    const matched = editingKind === 'material'
+      ? (materialNorms.find((m) => item.materialId && (m.materialId === item.materialId || m.id === item.materialId))
+        || materialNorms.find((m) => m.materialName === item.materialName && (normalizeUnit(m.unit) || m.unit) === (normalizeUnit(item.unit) || item.unit)))
+      : undefined;
     setMaterialName(matched?.materialName || item.materialName);
-    setCustomMaterial(matched ? '' : item.materialName);
+    setCustomMaterial(editingKind === 'material' && !matched ? item.materialName : '');
     setMaterialPickerSearch('');
     setUnit(item.unit);
     setQuantity(item.quantity);
@@ -1173,7 +1250,9 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     if (!hasEditAccess) return;
     const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
     const keepOpen = !editingInventory && submitter?.value === 'continue';
-    const finalMaterialName = customMaterial.trim() ? customMaterial.trim() : materialName;
+    const finalMaterialName = itemKind === 'equipment'
+      ? (isNewEquipment ? customMaterial.trim() : materialName.trim())
+      : (customMaterial.trim() ? customMaterial.trim() : materialName.trim());
     
     let finalQuantity = Number(quantity);
     const parsedQuantity = evaluateMathExpression(quantityStr);
@@ -1182,12 +1261,13 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     }
 
     if (!finalMaterialName || !finalQuantity || finalQuantity <= 0) {
-      alert('Vui lòng nhập tên vật tư và số lượng hợp lệ (> 0)!');
+      alert(`Vui lòng nhập tên ${itemKind === 'equipment' ? 'thiết bị' : 'vật tư'} và số lượng hợp lệ (> 0)!`);
       return;
     }
 
     const normalizedFinalUnit = normalizeUnit(unit) || unit;
     const matchedStockSummary = stockSummaries.find((summary) =>
+      summary.itemKind === itemKind &&
       summary.materialName.trim().toLocaleLowerCase('vi-VN') === finalMaterialName.trim().toLocaleLowerCase('vi-VN') &&
       (normalizeUnit(summary.unit) || summary.unit) === normalizedFinalUnit
     );
@@ -1202,7 +1282,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           // Firestore transaction service enforces the same invariant server-side.
           window.alert(
             `Không thể xuất vượt tồn kho.\n` +
-            `- Vật tư: ${finalMaterialName}\n` +
+            `- ${itemKind === 'equipment' ? 'Thiết bị' : 'Vật tư'}: ${finalMaterialName}\n` +
             `- Tồn kho hiện tại: ${formatDecimal(currentStock)} ${unit}\n` +
             `- Số lượng yêu cầu: ${formatDecimal(finalQuantity)} ${unit}\n` +
             `- Vượt tồn kho: ${formatDecimal(excess)} ${unit}`
@@ -1212,7 +1292,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
         const confirmIssue = window.confirm(
           `⚠️ CẢNH BÁO XUẤT VƯỢT TỒN KHO:\n` +
-          `- Vật tư: ${finalMaterialName}\n` +
+          `- ${itemKind === 'equipment' ? 'Thiết bị' : 'Vật tư'}: ${finalMaterialName}\n` +
           `- Tồn kho hiện tại: ${formatDecimal(currentStock)} ${unit}\n` +
           `- Số lượng bạn xuất: ${formatDecimal(finalQuantity)} ${unit}\n` +
           `- Vượt tồn kho: ${formatDecimal(excess)} ${unit}\n\n` +
@@ -1222,12 +1302,13 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       }
     }
 
-    const exactNormMaterialIds = Array.from(new Set(materialNorms
+    const exactNormMaterialIds = itemKind === 'material' ? Array.from(new Set(materialNorms
       .filter((norm) => norm.materialName.trim().toLocaleLowerCase('vi-VN') === finalMaterialName.trim().toLocaleLowerCase('vi-VN')
         && (normalizeUnit(norm.unit) || norm.unit) === normalizedFinalUnit)
       .map(resolveNormMaterialId)
-      .filter(Boolean) as string[]));
-    const editingKeepsIdentity = Boolean(editingInventory
+      .filter(Boolean) as string[])) : [];
+    const editingKeepsIdentity = Boolean(itemKind === 'material' && editingInventory
+      && editingInventory.itemKind !== 'equipment'
       && editingInventory.materialName.trim().toLocaleLowerCase('vi-VN') === finalMaterialName.trim().toLocaleLowerCase('vi-VN')
       && (normalizeUnit(editingInventory.unit) || editingInventory.unit) === normalizedFinalUnit);
 
@@ -1248,6 +1329,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
     const payload = {
       type,
+      itemKind,
       materialId: exactNormMaterialIds.length === 1
         ? exactNormMaterialIds[0]
         : (exactNormMaterialIds.length === 0 && editingKeepsIdentity ? editingInventory?.materialId : undefined),
@@ -1265,7 +1347,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         ...(issuePurpose === 'project-work' && finalIssueFloor ? { sourceFloorId: finalIssueFloor.id } : {}),
         ...(issuePurpose === 'project-work' && linkedIssueRoom ? { sourceRoomId: linkedIssueRoom.id } : {}),
         ...(issuePurpose === 'project-work' && finalIssueTeamId ? { sourceTeamId: finalIssueTeamId } : {}),
-        ...(issuePurpose === 'project-work' && finalIssueWorkCategoryId ? { sourceWorkCategoryId: finalIssueWorkCategoryId } : {}),
+        ...(itemKind === 'material' && issuePurpose === 'project-work' && finalIssueWorkCategoryId ? { sourceWorkCategoryId: finalIssueWorkCategoryId } : {}),
       } : {}),
     };
 
@@ -1281,10 +1363,11 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         setCustomMaterial('');
         setMaterialPickerSearch('');
         setMaterialName('');
-        setUnit(materialNorms[0]?.unit || 'Tấm');
+        setUnit(itemKind === 'equipment' ? 'Cái' : (materialNorms[0]?.unit || 'Tấm'));
         setQuantity('');
         setQuantityStr('');
-        setQuickAddMessage(`Đã lưu ${finalMaterialName}. Chọn vật tư tiếp theo để nhập cùng phiên.`);
+        setIsNewEquipment(false);
+        setQuickAddMessage(`Đã lưu ${finalMaterialName}. Chọn ${itemKind === 'equipment' ? 'thiết bị' : 'vật tư'} tiếp theo để nhập cùng phiên.`);
         requestAnimationFrame(() => materialSearchRef.current?.focus());
       } else {
         setShowAddForm(false);
@@ -1313,6 +1396,15 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         </div>
         <div className="flex items-center gap-1.5 flex-wrap justify-end">
           <button
+            type="button"
+            onClick={() => { setWarehouseCatalogTab('material'); setWarehouseCatalogSearch(''); setShowWarehouseCatalog(true); }}
+            className="flex items-center gap-1 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 px-2.5 py-2 rounded-xl text-xs font-bold active:scale-95 transition-all"
+            title="Xem danh mục vật tư và thiết bị của dự án"
+          >
+            <Layers className="w-3.5 h-3.5 text-blue-600" />
+            <span>Danh mục kho</span>
+          </button>
+          <button
             onClick={onOpenNormModal}
             className="flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-2.5 py-2 rounded-xl text-xs font-bold active:scale-95 transition-all"
             title={hasNormManageAccess ? 'Cập nhật chủng loại vật tư, ĐVT, định mức' : 'Xem định mức vật tư (chỉ ADMIN được sửa)'}
@@ -1331,6 +1423,80 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           )}
         </div>
       </div>
+
+      <SettingsFeatureSheet
+        open={showWarehouseCatalog}
+        onClose={() => setShowWarehouseCatalog(false)}
+        sheetKey="warehouse-catalog"
+        icon={Layers}
+        iconClassName="text-blue-600"
+        title="Danh mục kho"
+        description="Vật tư và thiết bị dùng lại trong dự án"
+        bodyClassName="space-y-3"
+      >
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1">
+            {(['material', 'equipment'] as InventoryItemKind[]).map((kind) => (
+              <button
+                type="button"
+                key={kind}
+                onClick={() => { setWarehouseCatalogTab(kind); setWarehouseCatalogSearch(''); }}
+                className={`rounded-lg px-3 py-2 text-xs font-bold transition ${warehouseCatalogTab === kind ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:bg-white/70'}`}
+              >
+                {kind === 'material' ? 'Vật tư' : 'Thiết bị'}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+              <input
+                type="search"
+                value={warehouseCatalogSearch}
+                onChange={(event) => setWarehouseCatalogSearch(event.target.value)}
+                placeholder={warehouseCatalogTab === 'equipment' ? 'Tìm thiết bị...' : 'Tìm vật tư...'}
+                className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-xs text-slate-800"
+              />
+            </div>
+            {hasEditAccess && warehouseCatalogTab === 'equipment' && (
+              <button
+                type="button"
+                onClick={() => { setShowWarehouseCatalog(false); openCreateInventory('equipment'); setIsNewEquipment(true); setMaterialName(''); setCustomMaterial(''); }}
+                className="inline-flex shrink-0 items-center justify-center gap-1 rounded-xl bg-blue-600 px-3 py-2.5 text-xs font-bold text-white hover:bg-blue-700"
+              >
+                <Plus className="h-4 w-4" /> Thêm thiết bị mới
+              </button>
+            )}
+          </div>
+
+          <div className="overflow-hidden rounded-xl border border-slate-200">
+            <div className="grid grid-cols-[minmax(0,1fr)_90px] bg-slate-50 px-3 py-2 text-[10px] font-extrabold uppercase tracking-wide text-slate-500 sm:grid-cols-[minmax(0,1fr)_140px_90px]">
+              <span>Tên {warehouseCatalogTab === 'equipment' ? 'thiết bị' : 'vật tư'}</span>
+              <span className="hidden sm:block">Nhóm</span>
+              <span>Đơn vị</span>
+            </div>
+            <div className="max-h-[46vh] divide-y divide-slate-100 overflow-y-auto">
+              {warehouseCatalogRows.length === 0 ? (
+                <div className="px-3 py-8 text-center text-xs text-slate-500">
+                  {warehouseCatalogTab === 'equipment' ? 'Chưa có thiết bị. Thiết bị sẽ được lưu vào danh mục sau giao dịch đầu tiên.' : 'Không có vật tư phù hợp.'}
+                </div>
+              ) : warehouseCatalogRows.map((item) => (
+                <div key={item.key} className="grid grid-cols-[minmax(0,1fr)_90px] items-center gap-2 px-3 py-2.5 text-xs sm:grid-cols-[minmax(0,1fr)_140px_90px]">
+                  <span className="truncate font-bold text-slate-800">{item.name}</span>
+                  <span className="hidden truncate text-slate-500 sm:block">{item.category}</span>
+                  <span className="truncate text-slate-600">{item.unit}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          {warehouseCatalogTab === 'equipment' && (
+            <p className="text-[10px] leading-relaxed text-slate-500">
+              Thiết bị được dùng lại ở các phiếu nhập/xuất nhưng không tham gia Định mức vật tư hoặc Gợi ý vật tư.
+            </p>
+          )}
+        </div>
+      </SettingsFeatureSheet>
 
       {/* Excel Multi-Sheet Import / Export & Template Card */}
       <div
@@ -1730,14 +1896,15 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
           <div className="flex items-center gap-1.5">
             <Layers className="w-4 h-4 text-blue-600" />
             <span className="text-xs font-bold text-slate-800">
-              Bảng tổng tồn kho vs định mức
+              Bảng tổng tồn kho
             </span>
           </div>
           <button
-            onClick={onOpenNormModal}
+            type="button"
+            onClick={() => setShowWarehouseCatalog(true)}
             className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold underline"
           >
-            Quản lý chủng loại &amp; ĐVT
+            Danh mục kho
           </button>
         </div>
 
@@ -1750,9 +1917,9 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               <div key={item.materialId || item.materialName} className="bg-slate-50 p-2.5 rounded-xl border border-slate-200/80 text-xs space-y-1">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
-                    {category && (
+                    {(category || item.itemKind === 'equipment') && (
                       <span className="inline-block px-1.5 py-0.2 bg-indigo-100 text-indigo-700 text-[9px] font-bold rounded uppercase mb-0.5">
-                        {category}
+                        {item.itemKind === 'equipment' ? 'Thiết bị' : category}
                       </span>
                     )}
                     <p className="font-bold text-slate-800 truncate">{item.materialName}</p>
@@ -1955,6 +2122,11 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                         >
                           {item.type === 'in' ? 'NHẬP KHO' : 'XUẤT KHO'}
                         </span>
+                        {item.itemKind === 'equipment' && (
+                          <span className="ml-1 text-[9px] uppercase font-extrabold px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
+                            THIẾT BỊ
+                          </span>
+                        )}
                         <h4 className="text-xs font-bold text-slate-900 mt-0.5 leading-snug">
                           {item.materialName}
                         </h4>
@@ -2073,6 +2245,40 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             </div>
 
             <form onSubmit={handleSubmit} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 lg:px-6 pb-5 lg:pb-6 pt-4 grid grid-cols-1 lg:grid-cols-6 gap-3 text-xs">
+              {/* Warehouse item kind */}
+              <div className="lg:col-span-6">
+                <label className="block text-slate-700 font-bold mb-1">Loại hàng</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['material', 'equipment'] as InventoryItemKind[]).map((kind) => (
+                    <button
+                      type="button"
+                      key={kind}
+                      disabled={Boolean(editingInventory)}
+                      onClick={() => {
+                        if (editingInventory || itemKind === kind) return;
+                        setItemKind(kind);
+                        setCustomMaterial('');
+                        setMaterialPickerSearch('');
+                        setIssueWorkCategoryId('');
+                        if (kind === 'equipment') {
+                          setIsNewEquipment(equipmentCatalog.length === 0);
+                          setMaterialName(equipmentCatalog[0]?.name || '');
+                          setUnit(equipmentCatalog[0]?.unit || 'Cái');
+                        } else {
+                          setIsNewEquipment(false);
+                          setMaterialName(materialNorms[0]?.materialName || '');
+                          setUnit(materialNorms[0]?.unit || 'Tấm');
+                        }
+                      }}
+                      className={`rounded-xl border py-2 font-bold transition ${itemKind === kind ? 'border-blue-600 bg-blue-600 text-white shadow' : 'border-slate-200 bg-slate-100 text-slate-600'} disabled:cursor-not-allowed disabled:opacity-70`}
+                    >
+                      {kind === 'material' ? 'Vật tư' : 'Thiết bị'}
+                    </button>
+                  ))}
+                </div>
+                {editingInventory && <p className="mt-1 text-[10px] text-slate-500">Không đổi loại hàng khi sửa giao dịch để giữ nguyên lịch sử tồn kho.</p>}
+              </div>
+
               {/* Type Toggle */}
               <div className="lg:col-span-6">
                 <label className="block text-slate-700 font-bold mb-1">Loại Phiếu</label>
@@ -2102,71 +2308,120 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 </div>
               </div>
 
-              {/* Material Search + Select */}
+              {/* Material / Equipment Search + Select */}
               <div className="space-y-1.5 lg:col-span-6">
-                <label className="block text-slate-700 font-bold">Chọn vật tư</label>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-end">
-                <div className="relative">
-                  <Search className="absolute left-3 top-3 w-4 h-4 text-slate-400 pointer-events-none" />
-                  <input
-                    ref={materialSearchRef}
-                    type="search"
-                    value={materialPickerSearch}
-                    onChange={(e) => setMaterialPickerSearch(e.target.value)}
-                    placeholder="Tìm theo tên, nhóm hoặc đơn vị..."
-                    className="w-full bg-white border border-slate-200 rounded-xl py-2.5 pl-9 pr-3 text-slate-800"
-                    autoComplete="off"
-                  />
-                  {normalizedMaterialPickerSearch && filteredMaterialNorms.length > 0 && (
-                    <div className="absolute left-0 right-0 top-full mt-1 z-30 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl">
-                      {filteredMaterialNorms.slice(0, 20).map((m) => (
-                        <button
-                          type="button"
-                          key={m.id}
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => {
-                            setMaterialName(m.materialName);
-                            setUnit(m.unit);
-                            setCustomMaterial('');
-                            setMaterialPickerSearch('');
-                          }}
-                          className="w-full px-3 py-2 text-left hover:bg-indigo-50 border-b border-slate-100 last:border-b-0"
-                        >
-                          <div className="text-xs font-bold text-slate-800">{m.materialName}</div>
-                          <div className="text-[10px] text-slate-500">{m.category || 'Vật tư'} · {m.unit}</div>
-                        </button>
-                      ))}
-                      {filteredMaterialNorms.length > 20 && (
-                        <div className="px-3 py-2 text-[10px] text-slate-500 bg-slate-50">
-                          Còn {filteredMaterialNorms.length - 20} kết quả. Nhập thêm ký tự để lọc nhanh hơn.
+                <div className="flex items-center justify-between gap-2">
+                  <label className="block text-slate-700 font-bold">{itemKind === 'equipment' ? 'Tên thiết bị' : 'Tên vật tư'}</label>
+                  {itemKind === 'equipment' && hasEditAccess && (
+                    <button
+                      type="button"
+                      onClick={() => { setIsNewEquipment(true); setMaterialName(''); setCustomMaterial(''); setMaterialPickerSearch(''); }}
+                      className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 hover:text-blue-900"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> Thêm thiết bị mới
+                    </button>
+                  )}
+                </div>
+
+                {itemKind === 'material' ? (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-end">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-3 w-4 h-4 text-slate-400 pointer-events-none" />
+                      <input
+                        ref={materialSearchRef}
+                        type="search"
+                        value={materialPickerSearch}
+                        onChange={(e) => setMaterialPickerSearch(e.target.value)}
+                        placeholder="Tìm vật tư theo tên, nhóm hoặc đơn vị..."
+                        className="w-full bg-white border border-slate-200 rounded-xl py-2.5 pl-9 pr-3 text-slate-800"
+                        autoComplete="off"
+                      />
+                      {normalizedMaterialPickerSearch && filteredMaterialNorms.length > 0 && (
+                        <div className="absolute left-0 right-0 top-full mt-1 z-30 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+                          {filteredMaterialNorms.slice(0, 20).map((m) => (
+                            <button
+                              type="button"
+                              key={m.id}
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => { setMaterialName(m.materialName); setUnit(m.unit); setCustomMaterial(''); setMaterialPickerSearch(''); }}
+                              className="w-full px-3 py-2 text-left hover:bg-indigo-50 border-b border-slate-100 last:border-b-0"
+                            >
+                              <div className="text-xs font-bold text-slate-800">{m.materialName}</div>
+                              <div className="text-[10px] text-slate-500">{m.category || 'Vật tư'} · {m.unit}</div>
+                            </button>
+                          ))}
                         </div>
                       )}
                     </div>
-                  )}
-                </div>
-                <select
-                  value={materialName}
-                  onChange={(e) => {
-                    setMaterialName(e.target.value);
-                    const matched = materialNorms.find((m) => m.materialName === e.target.value);
-                    if (matched) {
-                      setUnit(matched.unit);
-                      setCustomMaterial('');
-                    }
-                  }}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-medium text-slate-800"
-                >
-                  <option value="">— Chọn vật tư —</option>
-                  {filteredMaterialNorms.map((m) => (
-                    <option key={m.id} value={m.materialName}>
-                      [{m.category}] {m.materialName} ({m.unit})
-                    </option>
-                  ))}
-                </select>
-                {normalizedMaterialPickerSearch && filteredMaterialNorms.length === 0 && (
-                  <p className="text-[10px] text-amber-700 lg:col-span-2">Không tìm thấy vật tư phù hợp. Có thể nhập tên mới ở ô bên dưới.</p>
+                    <select
+                      value={materialName}
+                      onChange={(e) => {
+                        setMaterialName(e.target.value);
+                        const matched = materialNorms.find((m) => m.materialName === e.target.value);
+                        if (matched) { setUnit(matched.unit); setCustomMaterial(''); }
+                      }}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-medium text-slate-800"
+                    >
+                      <option value="">— Chọn vật tư —</option>
+                      {filteredMaterialNorms.map((m) => <option key={m.id} value={m.materialName}>[{m.category}] {m.materialName} ({m.unit})</option>)}
+                    </select>
+                    {normalizedMaterialPickerSearch && filteredMaterialNorms.length === 0 && (
+                      <p className="text-[10px] text-amber-700 lg:col-span-2">Không tìm thấy vật tư phù hợp. Có thể nhập tên mới ở ô “Tên vật tư khác”.</p>
+                    )}
+                  </div>
+                ) : isNewEquipment ? (
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                    <input
+                      ref={materialSearchRef}
+                      type="text"
+                      value={customMaterial}
+                      onChange={(e) => setCustomMaterial(e.target.value)}
+                      placeholder="Ví dụ: Máy hàn, Máy cắt bàn, Giàn giáo..."
+                      className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-slate-800"
+                      autoFocus
+                    />
+                    {equipmentCatalog.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => { setIsNewEquipment(false); setCustomMaterial(''); setMaterialName(equipmentCatalog[0]?.name || ''); setUnit(equipmentCatalog[0]?.unit || 'Cái'); }}
+                        className="rounded-xl border border-slate-200 bg-slate-100 px-3 py-2.5 font-bold text-slate-600 hover:bg-slate-200"
+                      >
+                        Chọn thiết bị có sẵn
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-end">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-3 w-4 h-4 text-slate-400 pointer-events-none" />
+                      <input
+                        ref={materialSearchRef}
+                        type="search"
+                        value={materialPickerSearch}
+                        onChange={(e) => setMaterialPickerSearch(e.target.value)}
+                        placeholder="Tìm thiết bị..."
+                        className="w-full bg-white border border-slate-200 rounded-xl py-2.5 pl-9 pr-3 text-slate-800"
+                        autoComplete="off"
+                      />
+                    </div>
+                    <select
+                      value={`${materialName}|||${unit}`}
+                      onChange={(e) => {
+                        const selected = equipmentCatalog.find((item) => `${item.name}|||${item.unit}` === e.target.value);
+                        if (selected) { setMaterialName(selected.name); setUnit(selected.unit); setCustomMaterial(''); setMaterialPickerSearch(''); }
+                      }}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-medium text-slate-800"
+                    >
+                      <option value="|||">— Chọn thiết bị —</option>
+                      {filteredEquipmentCatalog.map((item) => <option key={`${item.name}|${item.unit}`} value={`${item.name}|||${item.unit}`}>{item.name} ({item.unit})</option>)}
+                    </select>
+                    {normalizedMaterialPickerSearch && filteredEquipmentCatalog.length === 0 && (
+                      <button type="button" onClick={() => { setIsNewEquipment(true); setCustomMaterial(materialPickerSearch.trim()); setMaterialPickerSearch(''); }} className="text-left text-[10px] font-bold text-blue-700 lg:col-span-2">
+                        Không có thiết bị này · + Thêm thiết bị mới
+                      </button>
+                    )}
+                  </div>
                 )}
-                </div>
               </div>
 
               {type === 'out' && (
@@ -2197,7 +2452,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   {issuePurpose === 'project-work' && (
                     <>
                       <p className="text-[10px] text-slate-500">
-                        Phạm vi dưới đây không bắt buộc nhập đủ. Chọn càng chi tiết thì thống kê vật tư theo Khu/Khối, Tầng, Căn/Phòng, Đội và Hạng mục càng chính xác.
+                        Phạm vi dưới đây không bắt buộc nhập đủ. {itemKind === 'equipment' ? 'Thiết bị có thể ghi nhận Khu/Khối, Tầng, Căn/Phòng và Đội nhận; thiết bị không tham gia định mức.' : 'Chọn càng chi tiết thì thống kê vật tư theo Khu/Khối, Tầng, Căn/Phòng, Đội và Hạng mục càng chính xác.'}
                       </p>
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                         {normalizedStructureConfig.enabled && (
@@ -2268,30 +2523,34 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                           </select>
                         </label>
 
-                        <label className="space-y-1 sm:col-span-2">
-                          <span className="block text-[10px] font-bold text-slate-600">Hạng mục thi công <span className="font-medium text-slate-400">(không bắt buộc, nên chọn khi đối chiếu định mức)</span></span>
-                          <select value={issueWorkCategoryId} onChange={(e) => setIssueWorkCategoryId(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-semibold">
-                            <option value="">— Chưa phân bổ —</option>
-                            {issueWorkCategoryOptions.map((item) => <option key={item.id} value={item.workCategoryId || item.id}>{item.title}</option>)}
-                          </select>
-                        </label>
+                        {itemKind === 'material' && (
+                          <label className="space-y-1 sm:col-span-2">
+                            <span className="block text-[10px] font-bold text-slate-600">Hạng mục thi công <span className="font-medium text-slate-400">(không bắt buộc, nên chọn khi đối chiếu định mức)</span></span>
+                            <select value={issueWorkCategoryId} onChange={(e) => setIssueWorkCategoryId(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-semibold">
+                              <option value="">— Chưa phân bổ —</option>
+                              {issueWorkCategoryOptions.map((item) => <option key={item.id} value={item.workCategoryId || item.id}>{item.title}</option>)}
+                            </select>
+                          </label>
+                        )}
                       </div>
                     </>
                   )}
                 </div>
               )}
 
-              {/* Custom Material Option */}
-              <div className="lg:col-span-3">
-                <label className="block text-slate-500 font-medium mb-1">Hoặc Nhập Tên Vật Tư Khác</label>
-                <input
-                  type="text"
-                  placeholder="Ví dụ: Đèn âm trần 12W, Keo bọt nở..."
-                  value={customMaterial}
-                  onChange={(e) => setCustomMaterial(e.target.value)}
-                  className="w-full bg-white border border-slate-200 rounded-xl p-2.5"
-                />
-              </div>
+              {/* Legacy/custom material remains material-only; equipment uses a reusable catalog instead of “Tên khác”. */}
+              {itemKind === 'material' && (
+                <div className="lg:col-span-3">
+                  <label className="block text-slate-500 font-medium mb-1">Tên vật tư khác</label>
+                  <input
+                    type="text"
+                    placeholder="Ví dụ: Đèn âm trần 12W, Keo bọt nở..."
+                    value={customMaterial}
+                    onChange={(e) => setCustomMaterial(e.target.value)}
+                    className="w-full bg-white border border-slate-200 rounded-xl p-2.5"
+                  />
+                </div>
+              )}
 
               {/* Quantity & Unit */}
               <div className="grid grid-cols-2 gap-2 lg:col-span-3">

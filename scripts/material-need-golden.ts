@@ -41,6 +41,8 @@ const inventory: InventoryItem[] = [
   { id: 'in-1', type: 'in', materialId: 'mat-board', materialName: 'Tấm thạch cao', unit: 'tấm', quantity: 100 } as InventoryItem,
   { id: 'out-a', type: 'out', materialId: 'mat-board', materialName: 'Tấm thạch cao', unit: 'tấm', quantity: 10, sourceRoomId: 'room-301', sourceFloorId: 'floor-3', sourceTeamId: 'team-a' } as InventoryItem,
   { id: 'out-legacy', type: 'out', materialId: 'mat-board', materialName: 'Tấm thạch cao', unit: 'tấm', quantity: 6, sourceRoomId: 'room-301', sourceFloorId: 'floor-3' } as InventoryItem,
+  // Equipment may share a display name/unit with material but must never affect Material Need.
+  { id: 'equipment-lookalike', itemKind: 'equipment', type: 'out', materialName: 'Tấm thạch cao', unit: 'tấm', quantity: 50, sourceRoomId: 'room-301', sourceFloorId: 'floor-3', sourceTeamId: 'team-a' } as InventoryItem,
 ];
 
 const floor = computeMaterialNeeds({ rooms: [multiTeamRoom], materialNorms: [norm], inventory, workVolumes, teams, scope: { floorId: 'floor-3' } });

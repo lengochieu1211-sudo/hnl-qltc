@@ -234,12 +234,23 @@ assert(warehouse.includes('grid grid-cols-1 lg:grid-cols-2 gap-3 items-start'), 
 assert(workVolumeUi.includes('grid grid-cols-1 lg:grid-cols-2 gap-3 items-start'), 'PC/laptop work-volume cards must use two columns while mobile stays one column');
 assert(workVolumeUi.includes('h-6 text-slate-700 font-bold mb-1 flex items-center') && workVolumeUi.includes('min-h-11 border border-slate-200 rounded-xl'), 'PC/laptop Work Volume floor and category fields must align to the same label/control row height');
 assert(
-  warehouse.indexOf('{/* Material Search + Select */}', warehouse.indexOf('{/* Type Toggle */}')) > warehouse.indexOf('{/* Type Toggle */}') &&
-  warehouse.indexOf('{/* Material Search + Select */}', warehouse.indexOf('{/* Type Toggle */}')) < warehouse.indexOf("{type === 'out' && (", warehouse.indexOf('{/* Type Toggle */}')) &&
+  warehouse.indexOf('{/* Material / Equipment Search + Select */}', warehouse.indexOf('{/* Type Toggle */}')) > warehouse.indexOf('{/* Type Toggle */}') &&
+  warehouse.indexOf('{/* Material / Equipment Search + Select */}', warehouse.indexOf('{/* Type Toggle */}')) < warehouse.indexOf("{type === 'out' && (", warehouse.indexOf('{/* Type Toggle */}')) &&
   warehouse.includes('space-y-1.5 lg:col-span-6') &&
   warehouse.includes('grid grid-cols-1 lg:grid-cols-2 gap-3 items-end'),
-  'Warehouse material search and material dropdown must sit directly below receipt type in one aligned desktop row'
+  'Warehouse material/equipment search and selector must sit directly below receipt type in one aligned desktop row'
 );
+assert(warehouse.includes('title="Danh mục kho"') && warehouse.includes("(['material', 'equipment'] as InventoryItemKind[]).map"), 'Warehouse must expose a separate Vật tư/Thiết bị catalog without renaming material norms');
+assert(warehouse.includes("itemKind === 'equipment' ? 'Tên thiết bị' : 'Tên vật tư'"), 'Warehouse form must use dynamic Vật tư/Thiết bị labels');
+assert(warehouse.includes('Thêm thiết bị mới') && warehouse.includes('Chọn thiết bị có sẵn'), 'Equipment must be reusable after first declaration without a Tên khác flow');
+assert(warehouse.includes("itemKind === 'material' && (") && warehouse.includes('Tên vật tư khác'), 'Custom Tên vật tư khác input must stay material-only');
+assert(warehouse.includes("itemKind === 'material' && issuePurpose === 'project-work' && finalIssueWorkCategoryId"), 'Equipment must never persist material work-category linkage');
+assert(warehouse.includes('Thiết bị được dùng lại ở các phiếu nhập/xuất nhưng không tham gia Định mức vật tư hoặc Gợi ý vật tư.'), 'Warehouse catalog must state the equipment/material-norm separation');
+assert(!crewUiForPc.includes('value={logStructureGroupId}'), 'Crew add/edit form must keep the Khu/Khối selector hidden');
+assert(crewUiForPc.includes('hnl-crew-date-input') && crewUiForPc.includes('aria-label="Chọn ngày quân số"'), 'Crew date must remain directly clickable while hiding the redundant browser dropdown icon');
+const globalThemeCss = read('src/index.css');
+assert(read('src/components/HomeDashboard.tsx').includes('hnl-home-dashboard'), 'Home dashboard must opt into the centralized dark surface override');
+assert(globalThemeCss.includes('.hnl-home-dashboard') && globalThemeCss.includes('.hnl-crew-date-input'), 'Global theme must cover Home dark mode and the Crew date control centrally');
 
 assert(!defectUi.includes('text-[9px] font-bold text-slate-500">Tên cấp Khu/Khối</div>'), 'Floor manager must not repeat the Khu/Khối level name in a separate card');
 assert(photoAttachmentUiForPc.includes('compactViewerButton?: boolean;') && photoAttachmentUiForPc.includes('Mở ảnh hiện trường toàn màn hình'), 'Crew field-photo button must open the shared full-screen viewer directly without expanding thumbnails');

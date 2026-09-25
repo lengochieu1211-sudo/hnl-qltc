@@ -832,8 +832,9 @@ export default function App() {
         if (norm.materialId) normByLegacyId.set(String(norm.materialId), norm);
       });
       const inventory = deduplicateById(filterTombstoned('inventory', rawInventory), 'INV').map((item: InventoryItem) => {
-        let matchedNorm = item.materialId ? normByLegacyId.get(String(item.materialId)) : undefined;
-        if (!matchedNorm) {
+        const itemKind = item.itemKind === 'equipment' ? 'equipment' : 'material';
+        let matchedNorm = itemKind === 'material' && item.materialId ? normByLegacyId.get(String(item.materialId)) : undefined;
+        if (itemKind === 'material' && !matchedNorm) {
           matchedNorm = materialNorms.find((norm: MaterialNorm) =>
             normalizeMaterialNameKey(norm.materialName) === normalizeMaterialNameKey(item.materialName) &&
             areSameUnit(norm.unit, item.unit)
@@ -841,7 +842,8 @@ export default function App() {
         }
         return {
           ...item,
-          materialId: matchedNorm ? resolveNormMaterialId(matchedNorm) : item.materialId,
+          itemKind,
+          materialId: itemKind === 'material' ? (matchedNorm ? resolveNormMaterialId(matchedNorm) : item.materialId) : undefined,
           unit: normalizeUnit(item.unit) || item.unit,
         };
       });
@@ -5322,13 +5324,18 @@ export default function App() {
   // OUT provenance is validated before Firebase/local state can be mutated.
   const prepareInventoryLedgerItem = (raw: InventoryItem): InventoryItem => {
     const unit = normalizeUnit(raw.unit) || raw.unit;
+    const itemKind = raw.itemKind === 'equipment' ? 'equipment' : 'material';
     const aliasMap = buildMaterialAliasMap(present.materialNorms);
-    const explicitId = raw.materialId ? (aliasMap.get(String(raw.materialId)) || String(raw.materialId)) : undefined;
-    const legacyIdentity = resolveUniqueMaterialIdentity({ materialName: raw.materialName, unit, materialNorms: present.materialNorms });
-    if (explicitId && legacyIdentity.state === 'resolved' && legacyIdentity.materialId && explicitId !== legacyIdentity.materialId) {
+    const explicitId = itemKind === 'material' && raw.materialId
+      ? (aliasMap.get(String(raw.materialId)) || String(raw.materialId))
+      : undefined;
+    const legacyIdentity = itemKind === 'material'
+      ? resolveUniqueMaterialIdentity({ materialName: raw.materialName, unit, materialNorms: present.materialNorms })
+      : { state: 'missing' as const, materialId: undefined };
+    if (itemKind === 'material' && explicitId && legacyIdentity.state === 'resolved' && legacyIdentity.materialId && explicitId !== legacyIdentity.materialId) {
       throw new Error(`materialId ${explicitId} mâu thuẫn Tên + ĐVT của ${raw.materialName} (${unit}).`);
     }
-    if (!explicitId && legacyIdentity.state !== 'resolved') {
+    if (itemKind === 'material' && !explicitId && legacyIdentity.state !== 'resolved') {
       throw new Error(legacyIdentity.state === 'ambiguous'
         ? `Vật tư ${raw.materialName} (${unit}) khớp nhiều materialId; không được first-match.`
         : `Vật tư ${raw.materialName} (${unit}) chưa có materialId/định mức duy nhất.`);
@@ -5336,7 +5343,8 @@ export default function App() {
 
     let normalized: InventoryItem = {
       ...raw,
-      materialId: explicitId || legacyIdentity.materialId,
+      itemKind,
+      ...(itemKind === 'material' ? { materialId: explicitId || legacyIdentity.materialId } : { materialId: undefined }),
       unit,
       quantity: Number(raw.quantity) || 0,
     };
