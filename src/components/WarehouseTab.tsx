@@ -1410,7 +1410,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         setMaterialPickerSearch('');
         setQuickAddMessage('');
         setNotes('');
-        alert(editingInventory ? 'Đã cập nhật phiếu kho thành công!' : `Đã thêm phiếu ${type === 'in' ? 'NHẬP KHO' : 'XUẤT KHO'} thành công!`);
+        alert(editingInventory ? 'Đã cập nhật phiếu kho thành công!' : `Đã thêm phiếu ${type === 'in' ? 'nhập kho' : 'xuất kho'} thành công!`);
       }
     } catch (err: any) {
       alert(`Không thể ghi giao dịch kho: ${err?.message || String(err)}`);
@@ -1530,7 +1530,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
           <div className="overflow-x-auto rounded-xl border border-slate-200">
             <div className="min-w-[620px]">
-              <div className="grid grid-cols-[minmax(180px,1.6fr)_52px_64px_64px_104px_76px] gap-2 bg-slate-50 px-3 py-2 text-[10px] font-extrabold uppercase tracking-wide text-slate-500">
+              <div className="grid grid-cols-[minmax(180px,1.6fr)_52px_64px_64px_104px_76px] gap-2 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600">
                 <span>Tên {warehouseCatalogTab === 'equipment' ? 'thiết bị' : 'vật tư'}</span>
                 <span>ĐVT</span>
                 <span className="text-right">Nhập</span>
@@ -1873,7 +1873,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         <div className="bg-amber-50/75 border border-amber-200 rounded-2xl p-3.5 space-y-2">
           <div className="flex items-center gap-1.5 text-amber-800">
             <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 animate-pulse" />
-            <span className="text-xs font-extrabold uppercase tracking-wider">
+            <span className="text-xs font-bold">
               Cảnh báo vật tư thiếu so với nhu cầu ({lowStockItems.length})
             </span>
           </div>
@@ -1901,10 +1901,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   </div>
                   <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-md shrink-0 ml-1 ${
                     isOut 
-                      ? 'bg-rose-100 text-rose-800 uppercase' 
+                      ? 'bg-rose-100 text-rose-800' 
                       : 'bg-amber-100 text-amber-800'
                   }`}>
-                    {isOut ? 'HẾT HÀNG' : `Thiếu: ${formatDecimal(item.deficit)} ${item.unit}`}
+                    {isOut ? 'Hết hàng' : `Thiếu: ${formatDecimal(item.deficit)} ${item.unit}`}
                   </span>
                 </div>
               );
@@ -1918,7 +1918,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         <div className="bg-indigo-50/75 border border-indigo-200 rounded-2xl p-3.5 space-y-2">
           <div className="flex items-center gap-1.5 text-indigo-800">
             <AlertTriangle className="w-5 h-5 text-indigo-600 shrink-0" />
-            <span className="text-xs font-extrabold uppercase tracking-wider text-indigo-900">
+            <span className="text-xs font-bold text-indigo-900">
               Cảnh báo định mức nhập kho ({quotaWarnings.length})
             </span>
           </div>
@@ -1945,10 +1945,10 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   </div>
                   <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-md shrink-0 ml-1 text-center ${
                     isExceeded 
-                      ? 'bg-rose-100 text-rose-700 uppercase' 
+                      ? 'bg-rose-100 text-rose-700' 
                       : 'bg-indigo-100 text-indigo-700'
                   }`}>
-                    {isExceeded ? `LỐ ${item.percent - 100}%` : `${item.percent}%`}
+                    {isExceeded ? `Vượt ${item.percent - 100}%` : `${item.percent}%`}
                   </span>
                 </div>
               );
@@ -1979,7 +1979,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     {(category || item.itemKind === 'equipment') && (
-                      <span className="inline-block px-1.5 py-0.2 bg-indigo-100 text-indigo-700 text-[9px] font-bold rounded uppercase mb-0.5">
+                      <span className="inline-block px-1.5 py-0.2 bg-indigo-100 text-indigo-700 text-[9px] font-bold rounded mb-0.5">
                         {item.itemKind === 'equipment' ? 'Thiết bị' : category}
                       </span>
                     )}
@@ -2074,7 +2074,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       {/* Transaction List */}
       <div className="space-y-2.5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1">
-          <h3 className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+          <h3 className="text-xs font-bold text-slate-600">
             Nhật ký nhập/xuất ({filteredInventory.length})
           </h3>
         </div>
@@ -2175,17 +2175,17 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                           [{item.id}]
                         </span>
                         <span
-                          className={`text-[10px] uppercase font-extrabold px-1.5 py-0.5 rounded ${
+                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
                             item.type === 'in'
                               ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                               : 'bg-amber-50 text-amber-700 border border-amber-200'
                           }`}
                         >
-                          {item.type === 'in' ? 'NHẬP KHO' : 'XUẤT KHO'}
+                          {item.type === 'in' ? 'Nhập kho' : 'Xuất kho'}
                         </span>
                         {item.itemKind === 'equipment' && (
-                          <span className="ml-1 text-[9px] uppercase font-extrabold px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
-                            THIẾT BỊ
+                          <span className="ml-1 text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
+                            Thiết bị
                           </span>
                         )}
                         <h4 className="text-xs font-bold text-slate-900 mt-0.5 leading-snug">
@@ -2295,7 +2295,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             <div className="shrink-0 flex items-center justify-between border-b border-slate-100 px-5 lg:px-6 pt-5 lg:pt-6 pb-3">
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <PackageCheck className="w-5 h-5 text-blue-600" />
-                {editingInventory ? 'Chỉnh Sửa Phiếu Kho' : 'Tạo phiếu Nhập / Xuất kho'}
+                {editingInventory ? 'Chỉnh sửa phiếu kho' : 'Tạo phiếu nhập / xuất kho'}
               </h3>
               <button
                 onClick={() => { setShowAddForm(false); setEditingInventory(null); }}
@@ -2353,7 +2353,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                         : 'bg-slate-100 text-slate-600 border border-slate-200'
                     }`}
                   >
-                    <ArrowDownLeft className="w-4 h-4" /> NHẬP KHO
+                    <ArrowDownLeft className="w-4 h-4" /> Nhập kho
                   </button>
                   <button
                     type="button"
@@ -2364,7 +2364,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                         : 'bg-slate-100 text-slate-600 border border-slate-200'
                     }`}
                   >
-                    <ArrowUpRight className="w-4 h-4" /> XUẤT KHO
+                    <ArrowUpRight className="w-4 h-4" /> Xuất kho
                   </button>
                 </div>
               </div>
