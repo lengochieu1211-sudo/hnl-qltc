@@ -33,7 +33,7 @@ assert.match(floor, /Không ghi đè Căn \/ Phòng đã tồn tại/, 'DXF impo
 
 assert.match(crew, /Xuất Nhật ký để chỉnh sửa/, 'Crew must export journal for editing');
 assert.match(crew, /Nhập Nhật ký đã chỉnh sửa/, 'Crew must import edited journal');
-assert.match(crew, /Chi Tiet Cong Viec/, 'Crew import must understand detailed work sheet');
+assert.match(crew, /chi tiet cong viec/i, 'Crew import must understand detailed work sheet');
 assert.match(crew, /Thống kê tất cả đội/, 'All-team report button must be distinguishable from global report');
 assert.match(crew, /Xuất Excel Đội Này/, 'Single-team report export must remain available');
 
