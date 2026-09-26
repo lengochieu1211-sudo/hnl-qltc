@@ -66,6 +66,7 @@ import {
   normalizeStructureGroupConfig,
   resolveFloorStructureGroupId,
   createStructureGroupId,
+  buildFloorDuplicateNames,
   type ProjectStructureConfig,
 } from '../utils/structureGroupUtils';
 import { UndoRedoControls } from './UndoRedoControls';
@@ -1222,9 +1223,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const [selectedApartmentIds, setSelectedApartmentIds] = useState<string[]>([]);
   const [selectedFloorIdsForBulk, setSelectedFloorIdsForBulk] = useState<string[]>([]);
   const [isSelectingMultipleFloors, setIsSelectingMultipleFloors] = useState<boolean>(false);
-  const [isManagingMultipleFloors, setIsManagingMultipleFloors] = useState<boolean>(false);
   const [managedSelectedFloorIds, setManagedSelectedFloorIds] = useState<string[]>([]);
   const [managedTargetStructureGroupId, setManagedTargetStructureGroupId] = useState<string>('');
+  const [managedDuplicateCopies, setManagedDuplicateCopies] = useState<number>(1);
 
   useEffect(() => {
     // Never carry hidden bulk-delete targets across Khu/Khối filters.
@@ -1425,7 +1426,78 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
     setManagedSelectedFloorIds([]);
     setManagedTargetStructureGroupId('');
-    setIsManagingMultipleFloors(false);
+  };
+
+  const clearManagedFloorSelection = () => {
+    setManagedSelectedFloorIds([]);
+    setManagedTargetStructureGroupId('');
+    setManagedDuplicateCopies(1);
+  };
+
+  const duplicateManagedFloors = async () => {
+    const selectedSet = new Set(managedSelectedFloorIds);
+    const selectedFloors = managementFloorPlans.filter((floor) => selectedSet.has(floor.id));
+    if (selectedFloors.length === 0 || !onDuplicateFloorPlan) return;
+
+    const copies = Math.max(1, Math.min(20, Math.floor(Number(managedDuplicateCopies) || 1)));
+    const totalNewFloors = selectedFloors.length * copies;
+    if (totalNewFloors > 50) {
+      alert('Mỗi lần chỉ được tạo tối đa 50 tầng mới. Hãy giảm số tầng chọn hoặc số bản nhân.');
+      return;
+    }
+
+    const confirmed = await confirmAsync(
+      `Nhân bản ${selectedFloors.length} tầng × ${copies} bản = ${totalNewFloors} tầng mới?\n\nMỗi bản sao sinh floorId/Căn-Phòng/Checklist ID mới, giữ Khu/Khối và bản vẽ mẫu; tiến độ về trạng thái ban đầu và KHÔNG sao chép Defect, quân số, giao dịch kho hay lịch sử thực tế.`,
+      {
+        title: 'Nhân bản tầng đã chọn',
+        confirmLabel: `Tạo ${totalNewFloors} tầng`,
+      },
+    );
+    if (!confirmed) return;
+
+    const usedNames: string[] = floorPlans.map((floor) => floor.floorName);
+    selectedFloors.forEach((floor) => {
+      const names = buildFloorDuplicateNames(floor.floorName, copies, usedNames);
+      names.forEach((name) => {
+        usedNames.push(name);
+        onDuplicateFloorPlan(floor.id, name);
+      });
+    });
+    clearManagedFloorSelection();
+  };
+
+  const deleteManagedFloors = async () => {
+    const selectedSet = new Set(managedSelectedFloorIds);
+    const selectedFloors = managementFloorPlans.filter((floor) => selectedSet.has(floor.id));
+    if (selectedFloors.length === 0) return;
+    if (selectedFloors.length >= floorPlans.length) {
+      alert('Không thể xóa toàn bộ mặt bằng. Dự án cần duy trì ít nhất 1 tầng.');
+      return;
+    }
+
+    const ids = selectedFloors.map((floor) => floor.id);
+    const idSet = new Set(ids);
+    const nameSet = new Set(selectedFloors.map((floor) => floor.floorName));
+    const roomCount = roomProgressList.filter((room) => idSet.has(room.floorId)).length;
+    const defectCount = defects.filter((defect) => idSet.has(defect.floorId) || nameSet.has(defect.floorName)).length;
+    const checklistCount = checklistItems.filter((item) => idSet.has(item.floorId || '') || nameSet.has(item.floorName)).length;
+
+    const confirmed = await confirmAsync(
+      `Xóa ${selectedFloors.length} tầng đã chọn?\n\n• ${roomCount} Căn / Phòng của các tầng này sẽ bị xóa.\n• ${defectCount} Defect và ${checklistCount} Checklist được giữ làm lịch sử nhưng bỏ liên kết khỏi tầng.\n• Khối lượng và nhật ký đội được giữ lại, chỉ tháo liên kết tới tầng đã xóa.\n• Dự án vẫn giữ ít nhất 1 tầng.`,
+      {
+        title: 'Xóa nhiều tầng',
+        confirmLabel: `Xóa ${selectedFloors.length} tầng`,
+      },
+    );
+    if (!confirmed) return;
+
+    if (idSet.has(selectedFloorId)) {
+      const nextFloor = floorPlans.find((floor) => !idSet.has(floor.id));
+      if (nextFloor) setSelectedFloorId(nextFloor.id);
+    }
+    if (onDeleteMultipleFloorPlans) onDeleteMultipleFloorPlans(ids);
+    else ids.forEach((id) => onDeleteFloorPlan?.(id));
+    clearManagedFloorSelection();
   };
 
   const confirmStructureEnabledChange = async (nextEnabled: boolean) => {
@@ -1452,7 +1524,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     onStructureConfigChange(normalizeStructureGroupConfig({ ...normalizedStructureConfig, enabled: nextEnabled }));
     setManagedSelectedFloorIds([]);
     setManagedTargetStructureGroupId('');
-    setIsManagingMultipleFloors(false);
+   
   };
 
   const applyGroupQuickSort = (key: 'name' | 'floors', order: 'asc' | 'desc') => {
@@ -9437,7 +9509,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 </h3>
                 <p className="text-xs text-slate-500 font-medium">Quản lý cấu trúc Khu/Khối → Tầng và các mặt bằng liên quan</p>
               </div>
-              <button onClick={() => { setEditingStructureLabel(false); setEditingStructureLabelValue(''); setEditingStructureGroupId(null); setEditingStructureGroupName(''); setEditingFloorId(null); setManagedSelectedFloorIds([]); setManagedTargetStructureGroupId(''); setIsManagingMultipleFloors(false); setShowManageFloorsModal(false); }} className="font-bold text-slate-400 hover:text-slate-600 text-lg">✕</button>
+              <button onClick={() => { setEditingStructureLabel(false); setEditingStructureLabelValue(''); setEditingStructureGroupId(null); setEditingStructureGroupName(''); setEditingFloorId(null); setManagedSelectedFloorIds([]); setManagedTargetStructureGroupId(''); setShowManageFloorsModal(false); }} className="font-bold text-slate-400 hover:text-slate-600 text-lg">✕</button>
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pr-1 grid grid-cols-1 lg:grid-cols-[minmax(280px,0.30fr)_minmax(0,0.70fr)] gap-4 items-start">
@@ -9684,57 +9756,99 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
 
             </div>
             <div className="min-w-0 space-y-4">
-            {normalizedStructureConfig.enabled && (
-              <div className="rounded-2xl border border-indigo-200 bg-indigo-50/50 p-3 space-y-2.5">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <div className="text-xs font-extrabold text-indigo-950">Chuyển nhiều tầng giữa Khu/Khối</div>
-                    <div className="text-[10px] text-indigo-700">Chỉ đổi Khu/Khối và thứ tự hiển thị; mọi ID/liên kết nghiệp vụ giữ nguyên.</div>
-                  </div>
-                  {!isManagingMultipleFloors ? (
-                    <button
-                      type="button"
-                      onClick={() => { setIsManagingMultipleFloors(true); setManagedSelectedFloorIds([]); setManagedTargetStructureGroupId(''); }}
-                      className="rounded-xl border border-indigo-200 bg-white px-3 py-2 text-[11px] font-extrabold text-indigo-700 hover:bg-indigo-50"
-                    >
-                      Chọn nhiều
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => { setIsManagingMultipleFloors(false); setManagedSelectedFloorIds([]); setManagedTargetStructureGroupId(''); }}
-                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-600 hover:bg-slate-50"
-                    >
-                      Hủy chọn
-                    </button>
+            <div className="rounded-2xl border border-indigo-200 bg-indigo-50/50 p-3 space-y-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-xs font-extrabold text-indigo-950">Thao tác tầng đã chọn</div>
+                  <div className="text-[10px] text-indigo-700">Đánh dấu checkbox ở từng tầng hoặc chọn cả Khu/Khối, sau đó Đổi Khu/Khối / Nhân bản / Xóa.</div>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setManagedSelectedFloorIds(managementFloorPlans.map((floor) => floor.id))}
+                    disabled={managementFloorPlans.length === 0 || managedSelectedFloorIds.length === managementFloorPlans.length}
+                    className="rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-indigo-700 disabled:opacity-40"
+                  >
+                    Chọn tất cả
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearManagedFloorSelection}
+                    disabled={managedSelectedFloorIds.length === 0}
+                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-600 disabled:opacity-40"
+                  >
+                    Bỏ chọn
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-white/70 bg-white/80 p-2.5 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="text-[11px] font-extrabold text-slate-700">Đã chọn {managedSelectedFloorIds.length} tầng</div>
+                  {normalizedStructureConfig.enabled && (
+                    <>
+                      <select
+                        value={managedTargetStructureGroupId}
+                        onChange={(event) => setManagedTargetStructureGroupId(event.target.value)}
+                        disabled={managedSelectedFloorIds.length === 0}
+                        className="min-w-[170px] flex-1 rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs font-bold text-slate-800 disabled:opacity-40"
+                      >
+                        <option value="">Chọn Khu/Khối đích…</option>
+                        {normalizedStructureConfig.groups.map((group) => (
+                          <option key={group.id} value={group.id}>{group.name}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        disabled={managedSelectedFloorIds.length === 0 || !managedTargetStructureGroupId}
+                        onClick={() => { void moveSelectedFloorsToStructureGroupStable(managedSelectedFloorIds, managedTargetStructureGroupId); }}
+                        className="rounded-xl bg-indigo-600 px-3 py-2 text-xs font-extrabold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        Đổi Khu/Khối
+                      </button>
+                    </>
                   )}
                 </div>
 
-                {isManagingMultipleFloors && (
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <div className="text-[10px] font-bold text-slate-600 shrink-0">Đã chọn {managedSelectedFloorIds.length} tầng</div>
-                    <select
-                      value={managedTargetStructureGroupId}
-                      onChange={(event) => setManagedTargetStructureGroupId(event.target.value)}
-                      className="min-w-0 flex-1 rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs font-bold text-slate-800"
-                    >
-                      <option value="">Chọn Khu/Khối đích…</option>
-                      {normalizedStructureConfig.groups.map((group) => (
-                        <option key={group.id} value={group.id}>{group.name}</option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      disabled={managedSelectedFloorIds.length === 0 || !managedTargetStructureGroupId}
-                      onClick={() => { void moveSelectedFloorsToStructureGroupStable(managedSelectedFloorIds, managedTargetStructureGroupId); }}
-                      className="rounded-xl bg-indigo-600 px-3 py-2 text-xs font-extrabold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      Chuyển Khu/Khối
-                    </button>
-                  </div>
-                )}
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="flex items-center gap-1.5 text-[10px] font-bold text-slate-600">
+                    Số bản / tầng
+                    <input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={managedDuplicateCopies}
+                      onChange={(event) => setManagedDuplicateCopies(Math.max(1, Math.min(20, Number(event.target.value) || 1)))}
+                      disabled={managedSelectedFloorIds.length === 0}
+                      className="w-16 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-center text-xs font-extrabold text-slate-800 disabled:opacity-40"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    disabled={managedSelectedFloorIds.length === 0 || !onDuplicateFloorPlan}
+                    onClick={() => { void duplicateManagedFloors(); }}
+                    className="rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs font-extrabold text-indigo-700 hover:bg-indigo-50 disabled:opacity-40"
+                  >
+                    <Copy className="inline h-3.5 w-3.5 mr-1" />
+                    Nhân bản
+                  </button>
+                  <button
+                    type="button"
+                    disabled={managedSelectedFloorIds.length === 0 || managedSelectedFloorIds.length >= floorPlans.length}
+                    onClick={() => { void deleteManagedFloors(); }}
+                    className="rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-extrabold text-rose-700 hover:bg-rose-50 disabled:opacity-40"
+                  >
+                    <Trash2 className="inline h-3.5 w-3.5 mr-1" />
+                    Xóa
+                  </button>
+                  {managedSelectedFloorIds.length > 0 && (
+                    <span className="text-[10px] font-semibold text-slate-500">
+                      Nhân bản sẽ tạo {Math.min(50, managedSelectedFloorIds.length * Math.max(1, managedDuplicateCopies || 1))} tầng mới.
+                    </span>
+                  )}
+                </div>
               </div>
-            )}
+            </div>
 
             {/* Quick Sort Floors Controls */}
             {(normalizedStructureConfig.enabled
@@ -9794,8 +9908,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     {showGroupHeader && (
                       <div className="flex items-center justify-between rounded-xl border border-indigo-100 bg-indigo-50/70 px-3 py-2">
                         <div className="min-w-0 flex items-center gap-2">
-                          {isManagingMultipleFloors && (
-                            <label
+                          <label
                               className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[10px] font-bold text-indigo-700"
                               title={`Chọn tất cả ${currentGroupFloors.length} tầng trong ${getStructureGroupName(currentGroupId, normalizedStructureConfig)}`}
                             >
@@ -9814,7 +9927,6 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                               />
                               <span>Chọn tất cả</span>
                             </label>
-                          )}
                           <div className="min-w-0 truncate text-xs font-extrabold text-indigo-900" title={getStructureGroupName(currentGroupId, normalizedStructureConfig)}>
                             {getStructureGroupName(currentGroupId, normalizedStructureConfig)}
                           </div>
@@ -9834,10 +9946,6 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       tabIndex={0}
                       onClick={() => {
                         if (isEditingThis) return;
-                        if (isManagingMultipleFloors) {
-                          setManagedSelectedFloorIds((current) => current.includes(fp.id) ? current.filter((id) => id !== fp.id) : [...current, fp.id]);
-                          return;
-                        }
                         setSelectedFloorId(fp.id);
                         setShowManageFloorsModal(false);
                       }}
@@ -9845,18 +9953,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         if (event.key !== 'Enter' && event.key !== ' ') return;
                         event.preventDefault();
                         if (isEditingThis) return;
-                        if (isManagingMultipleFloors) {
-                          setManagedSelectedFloorIds((current) => current.includes(fp.id) ? current.filter((id) => id !== fp.id) : [...current, fp.id]);
-                          return;
-                        }
                         setSelectedFloorId(fp.id);
                         setShowManageFloorsModal(false);
                       }}
                       className="min-w-0 flex flex-1 items-center gap-3 text-left"
-                      title={isManagingMultipleFloors ? 'Chọn/bỏ chọn tầng' : `Mở ${fp.floorName}`}
+                      title={`Mở ${fp.floorName}`}
                     >
-                      {isManagingMultipleFloors && (
-                        <input
+                      <input
                           type="checkbox"
                           checked={managedSelectedFloorIds.includes(fp.id)}
                           onChange={(event) => {
@@ -9868,7 +9971,6 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           className="h-4 w-4 shrink-0 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                           aria-label={`Chọn ${fp.floorName}`}
                         />
-                      )}
                       <div className="w-12 h-12 rounded-xl bg-slate-100 border border-slate-200 overflow-hidden shrink-0 relative group">
                         <div className="absolute inset-0 flex flex-col items-center justify-center gap-0.5 text-[9px] text-slate-400 font-bold bg-slate-100">
                           <ImageIcon className="w-4 h-4" />
@@ -9986,7 +10088,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         <select
                           value={resolveFloorStructureGroupId(fp, normalizedStructureConfig)}
                           onChange={(event) => changeFloorStructureGroupStable(fp.id, event.target.value)}
-                          disabled={isManagingMultipleFloors}
+                          disabled={managedSelectedFloorIds.length > 0}
                           className="min-w-0 max-w-[150px] rounded-xl border border-indigo-200 bg-indigo-50 px-2 py-1.5 text-[10px] font-bold text-indigo-700 disabled:opacity-40"
                           title={`Gán tầng vào ${normalizedStructureConfig.label}`}
                         >
@@ -9995,7 +10097,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           ))}
                         </select>
                       )}
-                      {floorSortBy === 'none' && !isManagingMultipleFloors && (
+                      {floorSortBy === 'none' && managedSelectedFloorIds.length === 0 && (
                         <MoveOrderControls
                           disableUp={currentGroupIndex === 0}
                           disableDown={currentGroupIndex === currentGroupFloors.length - 1}
@@ -10009,7 +10111,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                         onClick={async () => {
                           openFloorPlanApplyScope(fp.id);
                         }}
-                        disabled={isManagingMultipleFloors}
+                        disabled={managedSelectedFloorIds.length > 0}
                         className="flex bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-2 py-1.5 rounded-xl text-xs font-bold items-center gap-1 transition-all disabled:opacity-40"
                         title="Cập nhật tệp ảnh hoặc PDF bản vẽ mới cho tầng này"
                       >
