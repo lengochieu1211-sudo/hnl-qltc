@@ -108,6 +108,8 @@ check(app.includes('imageAssetOwnerFloorId: sharedAssetOwnerFloorId'), 'Cloud-re
 check(app.includes('imageRevision: sourceCloudReady ? sourceCloudRevision : now'), 'Cloud-ready duplicate floors must not manufacture a new pending image revision.');
 check(app.includes('storagePath: sourceCloudReady ? sourcePlan.storagePath : undefined'), 'Non-ready duplicates must clear stale storage pointers instead of creating MISSING_BINARY rows.');
 check(app.includes('floorPlans.filter((plan) => isFloorPlanCloudBinaryReady(plan))'), 'Smart cache must exclude stale legacy clone pointers from periodic prefetch.');
+check(app.includes("if (projectRoleSource === 'cloud' && projectRoleAllowed) return;"), 'Cloud-verified projects must not run a second bootstrap role fetch that can restart all Firestore listeners.');
+check(app.includes('projectRoleSource,\n    projectRoleAllowed\n  ]);'), 'Firestore bootstrap guard must react to resolved Cloud authorization.');
 const bulkMetadataStart = bulkApply.indexOf('const metadata: Partial<FloorPlan>');
 const bulkMetadataEnd = bulkApply.indexOf('metadataByFloorId[plan.id]', bulkMetadataStart);
 const bulkMetadata = bulkApply.slice(bulkMetadataStart, bulkMetadataEnd);
