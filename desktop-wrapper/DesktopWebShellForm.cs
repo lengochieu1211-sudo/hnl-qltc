@@ -1037,6 +1037,11 @@ namespace QLTCAnPhu
             int ready = 0;
             if (localStore != null && localStore.IsReady)
             {
+                if (localStore.IsOperationBusy)
+                {
+                    menu.Items[0].Text = "↻ Đang cập nhật dữ liệu local...";
+                    return;
+                }
                 pending = localStore.CountQueuePending();
                 ready = localStore.CountQueueReady();
             }
@@ -1099,6 +1104,19 @@ namespace QLTCAnPhu
                 return;
             }
 
+            if (localStore.IsOperationBusy)
+            {
+                syncStatusLabel.Text = "Dữ liệu cục bộ: đang cập nhật nền...";
+                if (syncButton != null)
+                {
+                    syncButton.Text = string.Empty;
+                    SetToolbarGlyph(syncButton, ToolbarGlyph.SyncWarning);
+                    syncButton.Tag = "toolbar-icon-warning";
+                    chromeToolTip.SetToolTip(syncButton, "Đang cập nhật dữ liệu local ở nền");
+                }
+                return;
+            }
+
             int pending = localStore.CountQueuePending();
             int ready = localStore.CountQueueReady();
             int waiting = pending + ready;
@@ -1119,24 +1137,60 @@ namespace QLTCAnPhu
         private void RefreshLocalIndex(bool showMessage)
         {
             if (localStore == null || !localStore.IsReady) return;
-            try
+            if (Interlocked.Exchange(ref maintenanceRunning, 1) != 0)
             {
-                WorkspaceIndexResult result = localStore.RefreshIndex(Program.DesktopPaths.WorkspaceRoot);
-                RefreshSyncStatus();
                 if (showMessage)
                 {
                     MessageBox.Show(
-                        "Đã cập nhật dữ liệu local.\n\nFile: " + result.IndexedFiles + "\nQueue mới: " + result.EnqueuedFiles,
+                        "Dữ liệu local đang được cập nhật ở nền. Hãy thử lại sau vài giây.",
                         "HNL QLTC",
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Information
                     );
                 }
+                return;
             }
-            catch (Exception ex)
+
+            syncStatusLabel.Text = "Dữ liệu cục bộ: đang quét nền...";
+            ThreadPool.QueueUserWorkItem(delegate
             {
-                if (showMessage) MessageBox.Show(ex.Message, "HNL QLTC", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            }
+                WorkspaceIndexResult result = null;
+                Exception failure = null;
+                try
+                {
+                    result = localStore.RefreshIndex(Program.DesktopPaths.WorkspaceRoot);
+                    localStore.RefreshBridgeManifest(Program.DesktopPaths.WorkspaceRoot);
+                }
+                catch (Exception ex)
+                {
+                    failure = ex;
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref maintenanceRunning, 0);
+                    try
+                    {
+                        BeginInvoke((MethodInvoker)delegate
+                        {
+                            if (IsDisposed || Disposing) return;
+                            RefreshSyncStatus();
+                            if (!showMessage) return;
+                            if (failure != null)
+                            {
+                                MessageBox.Show(failure.Message, "HNL QLTC", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                                return;
+                            }
+                            MessageBox.Show(
+                                "Đã cập nhật dữ liệu local.\n\nFile: " + (result == null ? 0 : result.IndexedFiles) + "\nQueue mới: " + (result == null ? 0 : result.EnqueuedFiles),
+                                "HNL QLTC",
+                                MessageBoxButtons.OK,
+                                MessageBoxIcon.Information
+                            );
+                        });
+                    }
+                    catch { }
+                }
+            });
         }
 
         private void RunBackgroundMaintenance()
@@ -1148,9 +1202,19 @@ namespace QLTCAnPhu
             {
                 try
                 {
-                    localStore.RefreshIndex(Program.DesktopPaths.WorkspaceRoot);
-                    localStore.ProcessOneQueueItem(Program.DesktopPaths.WorkspaceRoot);
-                    localStore.RefreshBridgeManifest(Program.DesktopPaths.WorkspaceRoot);
+                    bool bridgeRefreshed = false;
+                    if (localStore.IsIndexRefreshDue(TimeSpan.FromMinutes(5)))
+                    {
+                        localStore.RefreshIndex(Program.DesktopPaths.WorkspaceRoot);
+                        bridgeRefreshed = true;
+                    }
+
+                    BackgroundQueueResult queueResult = localStore.ProcessOneQueueItem(Program.DesktopPaths.WorkspaceRoot);
+                    if (queueResult != null && queueResult.Processed) bridgeRefreshed = true;
+
+                    // Refresh ACK/bridge state once per maintenance tick only when the
+                    // preceding operation did not already do it.
+                    if (!bridgeRefreshed) localStore.RefreshBridgeManifest(Program.DesktopPaths.WorkspaceRoot);
                     localStore.RunRetentionMaintenanceIfDue();
                 }
                 catch { }
