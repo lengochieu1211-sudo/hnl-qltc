@@ -1061,7 +1061,7 @@ export async function cacheFloorPlansForOffline(
   const yieldMs = Number.isFinite(Number(options.yieldMs)) ? Math.max(0, Math.floor(Number(options.yieldMs))) : 0;
   const yieldToUi = async () => {
     if (yieldMs <= 0) return;
-    await new Promise<void>((resolve) => window.setTimeout(resolve, yieldMs));
+    await new Promise<void>((resolve) => globalThis.setTimeout(resolve, yieldMs));
   };
   let completed = 0;
   let processed = 0;
