@@ -674,7 +674,9 @@ export async function inspectFloorPlanBulkTargets(
         blocked.push({ id: plan.id, floorName: plan.floorName || plan.id, reason: 'server-row-missing' });
         continue;
       }
-      // Server data is authoritative here: do not inherit stale local pending markers\n      // when the corresponding field is absent from the server row.\n      const serverPlan = { ...serverSnap.data(), id: plan.id } as FloorPlan;
+      // Server data is authoritative here: do not inherit stale local pending markers
+      // when the corresponding field is absent from the server row.
+      const serverPlan = { ...serverSnap.data(), id: plan.id } as FloorPlan;
       const serverDecision = classifyFloorPlanBulkTarget(serverPlan as any, 0, BINARY_STORAGE_PROVIDER);
       if (serverDecision.status === 'ready' || serverDecision.status === 'legacy-overwrite-safe') {
         readyIds.push(plan.id);
