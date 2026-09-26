@@ -3,6 +3,7 @@ import {
   collection,
   doc,
   getDoc,
+  getDocFromServer,
   getDocs,
   orderBy,
   query,
@@ -16,6 +17,7 @@ import { downloadFloorPlanFromPrimaryDrive } from './primaryDriveBridge';
 import { LEGACY_DRIVE_READ_FALLBACK } from '../config/runtimeArchitecture';
 import { BINARY_STORAGE_PROVIDER, downloadBinaryBlob, uploadFloorPlanBinaryToCloud } from './binaryStorage';
 import { compressImageToBlob } from '../utils/imageCompressor';
+import { classifyFloorPlanBulkTarget } from '../utils/floorPlanBulkSafety';
 
 const FLOOR_PLAN_OUTBOX_PREFIX = 'floor_plan_image_outbox_v1';
 const FLOOR_PLAN_CACHE_PREFIX = 'floor_plan_image_cache_v1';
@@ -98,6 +100,19 @@ export interface FloorPlanBulkApplyResult {
   ownerFloorPlanId: string;
   bytes: number;
   metadataByFloorId: Record<string, Partial<FloorPlan>>;
+}
+
+export interface FloorPlanBulkBlockedTarget {
+  id: string;
+  floorName: string;
+  reason: string;
+}
+
+export interface FloorPlanBulkPreflightResult {
+  readyIds: string[];
+  blocked: FloorPlanBulkBlockedTarget[];
+  legacySafeIds: string[];
+  cloudVerifiedIds: string[];
 }
 
 /**
@@ -610,6 +625,76 @@ export async function syncFloorPlanImageToCloud(projectId: string, plan: FloorPl
   return metadata;
 }
 
+export async function inspectFloorPlanBulkTargets(
+  projectId: string,
+  plans: FloorPlan[],
+): Promise<FloorPlanBulkPreflightResult> {
+  if (!projectId) throw new Error('FLOOR_PLAN_BULK_PROJECT_REQUIRED');
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error('FLOOR_PLAN_BULK_REQUIRES_ONLINE');
+
+  const user = getCurrentRealFirebaseUser();
+  if (!user || user.isAnonymous || !user.uid) throw new Error('FLOOR_PLAN_BULK_AUTH_UNAVAILABLE');
+
+  const uniquePlans = Array.from(new Map((plans || []).filter((plan) => plan?.id).map((plan) => [plan.id, plan])).values());
+  const outboxRows = await getFloorPlanImageOutboxSnapshot(projectId).catch(() => []);
+  const latestOutboxByFloorId = new Map<string, number>();
+  outboxRows.forEach((row) => {
+    latestOutboxByFloorId.set(row.floorPlanId, Math.max(latestOutboxByFloorId.get(row.floorPlanId) || 0, Number(row.revision || 0)));
+  });
+
+  const readyIds: string[] = [];
+  const blocked: FloorPlanBulkBlockedTarget[] = [];
+  const legacySafeIds: string[] = [];
+  const cloudVerifiedIds: string[] = [];
+
+  for (const plan of uniquePlans) {
+    const localDecision = classifyFloorPlanBulkTarget(
+      plan as any,
+      latestOutboxByFloorId.get(plan.id) || 0,
+      BINARY_STORAGE_PROVIDER,
+    );
+
+    if (localDecision.status === 'ready') {
+      readyIds.push(plan.id);
+      continue;
+    }
+    if (localDecision.status === 'legacy-overwrite-safe') {
+      readyIds.push(plan.id);
+      legacySafeIds.push(plan.id);
+      continue;
+    }
+    if (localDecision.status === 'blocked-pending') {
+      blocked.push({ id: plan.id, floorName: plan.floorName || plan.id, reason: localDecision.reason });
+      continue;
+    }
+
+    try {
+      const serverSnap = await getDocFromServer(doc(db, 'projects', projectId, 'floor_plans', plan.id));
+      if (!serverSnap.exists()) {
+        blocked.push({ id: plan.id, floorName: plan.floorName || plan.id, reason: 'server-row-missing' });
+        continue;
+      }
+      const serverPlan = { ...plan, ...serverSnap.data(), id: plan.id } as FloorPlan;
+      const serverDecision = classifyFloorPlanBulkTarget(serverPlan as any, 0, BINARY_STORAGE_PROVIDER);
+      if (serverDecision.status === 'ready' || serverDecision.status === 'legacy-overwrite-safe') {
+        readyIds.push(plan.id);
+        cloudVerifiedIds.push(plan.id);
+        if (serverDecision.status === 'legacy-overwrite-safe') legacySafeIds.push(plan.id);
+      } else {
+        blocked.push({ id: plan.id, floorName: plan.floorName || plan.id, reason: serverDecision.reason });
+      }
+    } catch (error) {
+      blocked.push({
+        id: plan.id,
+        floorName: plan.floorName || plan.id,
+        reason: `server-check-failed:${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+  }
+
+  return { readyIds, blocked, legacySafeIds, cloudVerifiedIds };
+}
+
 /**
  * Apply one immutable drawing binary to multiple existing floors. The binary is uploaded
  * exactly once; each floor keeps its own document/revision and only shares the asset
@@ -635,13 +720,11 @@ export async function applyFloorPlanImageToMultipleFloors(
   if (roleInfo.verification !== 'verified') throw new Error('FLOOR_PLAN_ROLE_VERIFICATION_UNAVAILABLE');
   if (!roleInfo.allowed || roleInfo.role !== 'ADMIN') throw new Error('FLOOR_PLAN_ADMIN_REQUIRED');
 
-  const busyTarget = uniquePlans.find((plan) => {
-    const uploadState = String((plan as any).imageUploadState || '').toLowerCase();
-    const imageRevision = Number(plan.imageRevision || 0);
-    const cloudRevision = Number(plan.imageCloudRevision || 0);
-    return uploadState === 'pending' || imageRevision > cloudRevision;
-  });
-  if (busyTarget) throw new Error(`FLOOR_PLAN_BULK_TARGET_PENDING:${busyTarget.floorName || busyTarget.id}`);
+  const preflight = await inspectFloorPlanBulkTargets(projectId, uniquePlans);
+  if (preflight.blocked.length > 0) {
+    const names = preflight.blocked.map((row) => row.floorName).slice(0, 12).join(' | ');
+    throw new Error(`FLOOR_PLAN_BULK_TARGET_PENDING:${names}`);
+  }
 
   const blob = await sourceToBlob(imageUrl);
   if (!blob || blob.size <= 0) throw new Error('FLOOR_PLAN_BULK_BINARY_UNREADABLE');
