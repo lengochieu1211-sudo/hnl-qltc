@@ -1,6 +1,9 @@
-import { doc, runTransaction } from 'firebase/firestore';
+import { collection, doc, getDocFromServer, getDocsFromServer, runTransaction } from 'firebase/firestore';
 import type { InventoryItem } from '../types';
 import { db, getCurrentRealFirebaseUser, sanitizePayloadForCloud } from './firebase';
+import { calculateWarehouseLedgerOnHand, getWarehouseMaterialKey, getWarehouseSignedDelta, type WarehouseLedgerItem } from '../utils/warehouseLedgerMath';
+
+export { getWarehouseMaterialKey } from '../utils/warehouseLedgerMath';
 
 export interface WarehouseBalanceRecord {
   id: string;
@@ -22,32 +25,6 @@ export interface WarehouseCommitResult {
   duplicate: boolean;
 }
 
-function normalizePart(value: unknown): string {
-  return String(value || '')
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 120);
-}
-
-/**
- * Inventory rows are the immutable ledger/source of truth. This key is only for the
- * derived balance document used by online stock validation. Prefer immutable materialId.
- */
-export function getWarehouseMaterialKey(item: Pick<InventoryItem, 'itemKind' | 'materialId' | 'materialName' | 'unit'>): string {
-  const itemKind = item.itemKind === 'equipment' ? 'equipment' : 'material';
-  if (itemKind === 'equipment') {
-    return `equipment-${normalizePart(item.materialName) || 'unknown'}--${normalizePart(item.unit) || 'unit'}`;
-  }
-  // Preserve every existing material balance key exactly for backward compatibility.
-  const materialId = normalizePart(item.materialId);
-  if (materialId) return `id-${materialId}`;
-  return `legacy-${normalizePart(item.materialName) || 'unknown'}--${normalizePart(item.unit) || 'unit'}`;
-}
-
 function assertOnlineForStrictStock(): void {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     throw new Error('STRICT_STOCK_OFFLINE_BLOCKED: Xuất/chỉnh/xóa giao dịch kho cần online để khóa tồn kho an toàn giữa nhiều thiết bị.');
@@ -62,15 +39,12 @@ function sanitizeWarehouseWritePayload<T extends Record<string, unknown>>(payloa
   return sanitizePayloadForCloud(payload) as T;
 }
 
-function assertQuantity(item: Pick<InventoryItem, 'quantity'>): number {
-  const quantity = Number(item.quantity || 0);
-  if (!Number.isFinite(quantity) || quantity <= 0) throw new Error('Số lượng kho phải lớn hơn 0.');
-  return quantity;
-}
-
 function signedDelta(item: Pick<InventoryItem, 'type' | 'quantity'>): number {
-  const quantity = assertQuantity(item);
-  return item.type === 'in' ? quantity : -quantity;
+  try {
+    return getWarehouseSignedDelta(item);
+  } catch {
+    throw new Error('Số lượng kho phải lớn hơn 0.');
+  }
 }
 
 /**
@@ -216,9 +190,85 @@ export async function updateWarehouseTransactionAtomic(
   });
 }
 
-/** Soft delete only. Reverses the ledger effect and keeps a tombstone for stale devices. */
-export async function softDeleteWarehouseTransactionAtomic(projectId: string, transactionId: string): Promise<void> {
+const BALANCE_EPSILON = 1e-9;
+
+function balanceSnapshotFingerprint(snap: { exists(): boolean; data(): any }): string {
+  if (!snap.exists()) return 'missing';
+  const data = snap.data() || {};
+  return [
+    Number(data.onHand || 0),
+    Number(data.revision || 0),
+    Number(data.updatedAt || 0),
+  ].join('|');
+}
+
+/**
+ * Rebuild exactly one derived inventory_balances row from the server ledger.
+ * This is a compatibility repair for legacy inventory rows created before
+ * inventory_balances existed or before those rows were backfilled.
+ *
+ * The ledger remains authoritative. Reconciliation never edits inventory rows,
+ * never invents stock and never clamps a genuinely negative ledger to zero.
+ */
+export async function reconcileWarehouseBalanceFromLedger(
+  projectId: string,
+  materialKey: string,
+  seedItem: InventoryItem,
+): Promise<number> {
   assertOnlineForStrictStock();
+  const user = getCurrentRealFirebaseUser();
+  if (!user) throw new Error('Cần đăng nhập Firebase để đối chiếu tồn kho.');
+  if (!projectId || !materialKey) throw new Error('Thiếu projectId/materialKey để đối chiếu tồn kho.');
+
+  const balanceRef = doc(db, 'projects', projectId, 'inventory_balances', materialKey);
+  const inventoryRef = collection(db, 'projects', projectId, 'inventory');
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const [ledgerSnap, observedBalanceSnap] = await Promise.all([
+      getDocsFromServer(inventoryRef),
+      getDocFromServer(balanceRef),
+    ]);
+    const ledgerRows = ledgerSnap.docs.map((row) => ({ id: row.id, ...row.data() })) as WarehouseLedgerItem[];
+    const ledgerOnHand = calculateWarehouseLedgerOnHand(ledgerRows, materialKey);
+    if (ledgerOnHand < -BALANCE_EPSILON) {
+      throw new Error(`INVENTORY_LEDGER_NEGATIVE: Ledger nguồn của ${seedItem.materialName} đang âm (${ledgerOnHand}). Cần audit dữ liệu trước khi sửa/xóa.`);
+    }
+
+    const observedFingerprint = balanceSnapshotFingerprint(observedBalanceSnap);
+    try {
+      await runTransaction(db, async (tx) => {
+        const currentBalanceSnap = await tx.get(balanceRef);
+        if (balanceSnapshotFingerprint(currentBalanceSnap) !== observedFingerprint) {
+          throw new Error('INVENTORY_RECONCILE_RETRY: Tồn kho vừa thay đổi trên thiết bị khác.');
+        }
+        const current = currentBalanceSnap.data() || {};
+        const now = Date.now();
+        tx.set(balanceRef, sanitizeWarehouseWritePayload({
+          ...current,
+          id: materialKey,
+          projectId,
+          itemKind: seedItem.itemKind === 'equipment' ? 'equipment' : 'material',
+          materialId: seedItem.materialId || null,
+          materialName: seedItem.materialName,
+          unit: seedItem.unit,
+          onHand: Math.max(0, ledgerOnHand),
+          revision: Math.max(Number(current.revision || 0) + 1, 1),
+          updatedAt: now,
+          updatedByUid: user.uid,
+        }), { merge: true });
+      });
+      return Math.max(0, ledgerOnHand);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error || '');
+      if (message.includes('INVENTORY_RECONCILE_RETRY') && attempt < 2) continue;
+      throw error;
+    }
+  }
+
+  throw new Error('INVENTORY_RECONCILE_BUSY: Tồn kho thay đổi liên tục. Hãy chờ đồng bộ rồi thử lại.');
+}
+
+async function softDeleteWarehouseTransactionAtomicOnce(projectId: string, transactionId: string): Promise<void> {
   const user = getCurrentRealFirebaseUser();
   if (!user) throw new Error('Cần đăng nhập Firebase để xóa giao dịch kho.');
   const transactionRef = doc(db, 'projects', projectId, 'inventory', transactionId);
@@ -232,12 +282,23 @@ export async function softDeleteWarehouseTransactionAtomic(projectId: string, tr
     const balanceSnap = await tx.get(balanceRef);
     const currentOnHand = Number(balanceSnap.data()?.onHand || 0);
     const nextOnHand = currentOnHand - signedDelta(current);
-    if (nextOnHand < -1e-9) throw new Error('INVENTORY_LEDGER_INCONSISTENT: Không thể đảo giao dịch mà làm tồn kho âm.');
+    if (nextOnHand < -BALANCE_EPSILON) {
+      throw new Error('INVENTORY_LEDGER_INCONSISTENT: Derived balance không khớp ledger; cần đối chiếu legacy balance trước khi xóa.');
+    }
     const now = Date.now();
 
     tx.set(balanceRef, sanitizeWarehouseWritePayload({
-      ...balanceSnap.data(), id: materialKey, projectId, onHand: Math.max(0, nextOnHand),
-      revision: Math.max(Number(balanceSnap.data()?.revision || 0) + 1, 1), updatedAt: now, updatedByUid: user.uid,
+      ...balanceSnap.data(),
+      id: materialKey,
+      projectId,
+      itemKind: current.itemKind === 'equipment' ? 'equipment' : 'material',
+      materialId: current.materialId || null,
+      materialName: current.materialName,
+      unit: current.unit,
+      onHand: Math.max(0, nextOnHand),
+      revision: Math.max(Number(balanceSnap.data()?.revision || 0) + 1, 1),
+      updatedAt: now,
+      updatedByUid: user.uid,
     }), { merge: true });
     tx.set(transactionRef, sanitizeWarehouseWritePayload({
       deleted: true,
@@ -249,4 +310,35 @@ export async function softDeleteWarehouseTransactionAtomic(projectId: string, tr
       updatedByUid: user.uid,
     }), { merge: true });
   });
+}
+
+/**
+ * Soft delete only. Normal balances use one atomic reversal. If a legacy row is
+ * still present while its derived balance was never backfilled, do one guarded
+ * server-ledger reconciliation and retry. Genuine negative ledgers remain blocked.
+ */
+export async function softDeleteWarehouseTransactionAtomic(projectId: string, transactionId: string): Promise<void> {
+  assertOnlineForStrictStock();
+  try {
+    await softDeleteWarehouseTransactionAtomicOnce(projectId, transactionId);
+    return;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error || '');
+    if (!message.includes('INVENTORY_LEDGER_INCONSISTENT')) throw error;
+  }
+
+  const transactionRef = doc(db, 'projects', projectId, 'inventory', transactionId);
+  const currentSnap = await getDocFromServer(transactionRef);
+  if (!currentSnap.exists() || currentSnap.data()?.deleted) return;
+  const current = currentSnap.data() as InventoryItem & { materialKey?: string };
+  const materialKey = current.materialKey || getWarehouseMaterialKey(current);
+  const reconciledOnHand = await reconcileWarehouseBalanceFromLedger(projectId, materialKey, current);
+
+  // An IN reversal can only be valid if the authoritative ledger contains at
+  // least that quantity. OUT deletion increases stock and is always non-negative.
+  if (current.type === 'in' && reconciledOnHand + BALANCE_EPSILON < Number(current.quantity || 0)) {
+    throw new Error(`INVENTORY_LEDGER_NEGATIVE: Ledger nguồn chỉ còn ${reconciledOnHand} ${current.unit}, không đủ đảo phiếu nhập ${current.id} (${current.quantity}).`);
+  }
+
+  await softDeleteWarehouseTransactionAtomicOnce(projectId, transactionId);
 }
