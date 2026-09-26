@@ -59,7 +59,7 @@ import {
   ArrowUpDown,
   GripVertical
 } from 'lucide-react';
-import { FloorPlan, DefectItem, DefectCategory, DefectSeverity, DefectStatus, RoomProgressItem, RoomSubItem, Point2D, ChecklistItem, TeamInfo, MaterialNorm, InventoryItem, WorkVolume } from '../types';
+import { FloorPlan, DefectItem, DefectCategory, DefectSeverity, DefectStatus, RoomProgressItem, RoomSubItem, Point2D, ChecklistItem, TeamInfo, MaterialNorm, InventoryItem, WorkVolume, AcceptanceStatus, RoomInspectionResult } from '../types';
 import {
   getFloorStructureGroupName,
   getStructureGroupName,
@@ -87,6 +87,7 @@ import { saveWorkbookFile } from '../utils/fileExport';
 import { describePdfError, loadPdfDocument, renderPdfDocumentPageToImage } from '../utils/pdfToImage';
 import { getImageQualityProfile } from '../utils/imageQualitySettings';
 import { detectPdfRoomCandidatesFromDocument, DEFAULT_PDF_ROOM_NAME_PATTERN, PdfRoomCandidate } from '../utils/pdfRoomDetection';
+import { detectRoomsFromDxf, type DxfRoomCandidate } from '../utils/dxfRoomDetection';
 import { QuickSortBar } from './QuickSortBar';
 import { MoveOrderControls } from './MoveOrderControls';
 import { ExcelActionMenu } from './ExcelActionMenu';
@@ -400,6 +401,20 @@ interface PendingSmartPdfImport {
   pageNumber: number;
   pageCount: number;
   rooms: PdfRoomCandidate[];
+}
+
+interface PendingDxfReviewCandidate extends DxfRoomCandidate {
+  workCategoryId?: string;
+  workCategoryName?: string;
+}
+
+interface PendingDxfRoomImport {
+  floorId: string;
+  floorName: string;
+  fileName: string;
+  unitLabel: string;
+  warnings: string[];
+  candidates: PendingDxfReviewCandidate[];
 }
 
 
@@ -2883,6 +2898,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const floorRooms = roomProgressList.filter((r) => r.floorId === activeFloor?.id);
   const [showQuickEdit, setShowQuickEdit] = useState(false);
   const [quickEditMode, setQuickEditMode] = useState<'rooms' | 'defects'>('rooms');
+  const [pendingDxfImport, setPendingDxfImport] = useState<PendingDxfRoomImport | null>(null);
 
   const quickFloorById = React.useMemo(() => new Map(floorPlans.map((floor) => [floor.id, floor] as const)), [floorPlans]);
   const quickRoomById = React.useMemo(() => new Map(roomProgressList.map((room) => [room.id, room] as const)), [roomProgressList]);
@@ -3109,6 +3125,171 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     while (existingNames.has(`căn / phòng ${index}`.toLocaleLowerCase('vi-VN'))) index += 1;
     return `Căn / Phòng ${index}`;
   };
+  const normalizeDxfCatalogName = (value: unknown) =>
+    String(value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('vi-VN');
+
+  const handleDxfRoomFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file || !canManageStructure) return;
+    if (!activeFloor) {
+      alert('Chưa có tầng đang chọn để nhận diện DXF.');
+      return;
+    }
+    if (!/\.dxf$/i.test(file.name)) {
+      alert('Chỉ chấp nhận tệp AutoCAD DXF (.dxf).');
+      return;
+    }
+    if (file.size <= 0 || file.size > 20 * 1024 * 1024) {
+      alert('DXF rỗng hoặc vượt giới hạn 20 MB. Hãy tách bản vẽ theo tầng trước khi nhập.');
+      return;
+    }
+
+    try {
+      const text = await file.text();
+      const result = detectRoomsFromDxf(text);
+      const currentFloorRooms = roomProgressList.filter((room) => room.floorId === activeFloor.id);
+      const existingNames = new Set(currentFloorRooms.map((room) => normalizeDxfCatalogName(room.roomName)));
+      const catalogByExactName = new Map<string, WorkVolume[]>();
+      workVolumes.forEach((work) => {
+        const key = normalizeDxfCatalogName(work.title);
+        if (!key) return;
+        catalogByExactName.set(key, [...(catalogByExactName.get(key) || []), work]);
+      });
+
+      const candidates: PendingDxfReviewCandidate[] = result.candidates.map((candidate) => {
+        const exactMatches = catalogByExactName.get(normalizeDxfCatalogName(candidate.layer)) || [];
+        const mappedWork = exactMatches.length === 1 ? exactMatches[0] : undefined;
+        const nameConflict = existingNames.has(normalizeDxfCatalogName(candidate.roomName));
+        return {
+          ...candidate,
+          selected: candidate.hasDetectedName && !nameConflict,
+          workCategoryId: mappedWork ? (mappedWork.workCategoryId || mappedWork.id) : undefined,
+          workCategoryName: mappedWork?.title,
+        };
+      });
+
+      setPendingDxfImport({
+        floorId: activeFloor.id,
+        floorName: activeFloor.floorName,
+        fileName: file.name,
+        unitLabel: result.unitLabel,
+        warnings: [
+          ...result.warnings,
+          ...(candidates.some((candidate) => !candidate.hasDetectedName)
+            ? ['Có vùng chưa tìm thấy TEXT/MTEXT bên trong. Các dòng này mặc định chưa chọn; hãy đặt tên rồi chọn nếu đúng Căn / Phòng.']
+            : []),
+          ...(candidates.some((candidate) => existingNames.has(normalizeDxfCatalogName(candidate.roomName)))
+            ? ['Có tên Căn / Phòng đã tồn tại trên tầng. Các dòng trùng tên mặc định chưa chọn để tránh ghi đè highlight hiện có.']
+            : []),
+        ],
+        candidates,
+      });
+    } catch (error) {
+      alert(`❌ Không thể nhận diện DXF:\n${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  const updatePendingDxfCandidate = (candidateId: string, updates: Partial<PendingDxfReviewCandidate>) => {
+    setPendingDxfImport((current) => current ? {
+      ...current,
+      candidates: current.candidates.map((candidate) => candidate.id === candidateId ? { ...candidate, ...updates } : candidate),
+    } : current);
+  };
+
+  const applyPendingDxfRooms = async () => {
+    if (!pendingDxfImport || !canManageStructure) return;
+    const floor = floorPlans.find((item) => item.id === pendingDxfImport.floorId);
+    if (!floor) {
+      alert('Tầng đích không còn tồn tại. Hãy chọn lại DXF.');
+      setPendingDxfImport(null);
+      return;
+    }
+    const selected = pendingDxfImport.candidates.filter((candidate) => candidate.selected);
+    if (!selected.length) {
+      alert('Chưa chọn Căn / Phòng DXF nào để tạo.');
+      return;
+    }
+
+    const existingNames = new Set(
+      roomProgressList
+        .filter((room) => room.floorId === floor.id)
+        .map((room) => normalizeDxfCatalogName(room.roomName))
+    );
+    const selectedNames = new Set<string>();
+    for (const candidate of selected) {
+      const name = candidate.roomName.trim();
+      const key = normalizeDxfCatalogName(name);
+      if (!name) {
+        alert('Có dòng DXF chưa có tên Căn / Phòng.');
+        return;
+      }
+      if (existingNames.has(key)) {
+        alert(`Căn / Phòng “${name}” đã tồn tại trên ${floor.floorName}. Hệ thống không ghi đè highlight qua DXF.`);
+        return;
+      }
+      if (selectedNames.has(key)) {
+        alert(`Tên “${name}” bị trùng trong các dòng DXF đang chọn.`);
+        return;
+      }
+      selectedNames.add(key);
+    }
+
+    const now = Date.now();
+    const newRooms: RoomProgressItem[] = selected.map((candidate, index) => {
+      const work = candidate.workCategoryId
+        ? workVolumes.find((item) => (item.workCategoryId || item.id) === candidate.workCategoryId || item.id === candidate.workCategoryId)
+        : undefined;
+      const mappedArea = work && Number.isFinite(candidate.areaM2) ? Number(candidate.areaM2) : undefined;
+      return {
+        id: createEntityId('ROOM'),
+        floorId: floor.id,
+        floorName: floor.floorName,
+        roomName: candidate.roomName.trim(),
+        workCategory: work?.title,
+        workCategoryId: work ? (work.workCategoryId || work.id) : undefined,
+        categoryVolumes: work && mappedArea !== undefined ? { [work.title]: mappedArea } : undefined,
+        categoryVolumeUnits: work && mappedArea !== undefined ? { [work.title]: 'm²' } : undefined,
+        workVolume: mappedArea,
+        volumeUnit: mappedArea !== undefined ? 'm²' : undefined,
+        x: Math.min(100, Math.max(0, candidate.x)),
+        y: Math.min(100, Math.max(0, candidate.y)),
+        width: Math.min(100, Math.max(0.1, candidate.width)),
+        height: Math.min(100, Math.max(0.1, candidate.height)),
+        points: candidate.points.map((point) => ({
+          x: Math.min(100, Math.max(0, point.x)),
+          y: Math.min(100, Math.max(0, point.y)),
+        })),
+        isPolyline: false,
+        frameStatus: 'Chưa làm',
+        boardStatus: 'Chưa làm',
+        frameInspectionStatus: 'Chưa nghiệm thu',
+        boardInspectionStatus: 'Chưa nghiệm thu',
+        inspectionStatus: 'Chưa nghiệm thu',
+        inspectorName: inspectorName || undefined,
+        notes: `Nhận diện từ DXF · ${candidate.source} · Layer: ${candidate.layer || '(không tên)'}${candidate.areaM2 !== undefined ? ` · Diện tích: ${formatDecimal(candidate.areaM2)} m²` : ''}`,
+        createdAt: now + index,
+        updatedAt: now + index,
+      };
+    });
+
+    const confirmed = await confirmAsync(
+      `Tạo ${newRooms.length} Căn / Phòng từ DXF trên “${floor.floorName}”?\n\n` +
+      '• HATCH/Polyline → polygon highlight\n' +
+      '• TEXT/MTEXT → tên Căn / Phòng\n' +
+      '• Diện tích chỉ ghi m² khi DXF có đơn vị hợp lệ và đã gán Hạng mục\n' +
+      '• Không ghi đè Căn / Phòng đã tồn tại'
+    );
+    if (!confirmed) return;
+
+    if (onCreateMultipleRoomProgress) onCreateMultipleRoomProgress(newRooms);
+    else newRooms.forEach((room) => onSaveRoomProgress(room));
+    setPendingDxfImport(null);
+    alert(`✅ Đã tạo ${newRooms.length} Căn / Phòng từ DXF trên ${floor.floorName}.`);
+  };
+
+
   const [draggingRoomsPreview, setDraggingRoomsPreview] = useState<Record<string, RoomProgressItem> | null>(null);
   const draggingRoomsPreviewRef = useRef<Record<string, RoomProgressItem> | null>(null);
 
@@ -8190,6 +8371,15 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   templateLabel="Tải mẫu Căn / Hạng mục"
                 />
                 {canManageStructure && (
+                  <label
+                    className="text-[11px] font-extrabold text-violet-700 hover:text-violet-900 bg-white hover:bg-violet-50 px-2.5 py-1.5 rounded-xl flex items-center gap-1 border border-violet-200 cursor-pointer transition-all active:scale-95 shadow-2xs"
+                    title="Nhận diện HATCH/Polyline + TEXT/MTEXT từ DXF và kiểm tra trước khi tạo Căn / Phòng"
+                  >
+                    <FileType className="w-3.5 h-3.5" /> Nhận diện CAD/DXF
+                    <input type="file" accept=".dxf" onChange={handleDxfRoomFile} className="hidden" />
+                  </label>
+                )}
+                {canManageStructure && (
                   <>
                     <button
                       type="button"
@@ -8913,6 +9103,117 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       )}
 
       {/* Room Highlight Modal */}
+      {pendingDxfImport && (
+        <div className="fixed inset-0 z-[190] bg-slate-950/60 backdrop-blur-[1px] flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white w-full sm:max-w-6xl rounded-t-3xl sm:rounded-2xl max-h-[96dvh] overflow-hidden flex flex-col shadow-2xl border border-slate-200">
+            <div className="px-4 py-3 border-b border-slate-200 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="font-black text-slate-900 text-sm">Kiểm tra nhận diện CAD/DXF</h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  {pendingDxfImport.fileName} · {pendingDxfImport.floorName} · Đơn vị: {pendingDxfImport.unitLabel}
+                </p>
+              </div>
+              <button type="button" onClick={() => setPendingDxfImport(null)} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-bold text-slate-600">Đóng</button>
+            </div>
+
+            {pendingDxfImport.warnings.length > 0 && (
+              <div className="mx-4 mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10.5px] text-amber-800 space-y-1">
+                {pendingDxfImport.warnings.map((warning, index) => <div key={index}>⚠ {warning}</div>)}
+              </div>
+            )}
+
+            <div className="flex-1 overflow-auto p-4">
+              <div className="overflow-x-auto rounded-xl border border-slate-200">
+                <table className="min-w-[1120px] w-full text-[11px] border-collapse">
+                  <thead className="sticky top-0 z-10 bg-slate-100 text-slate-700">
+                    <tr>
+                      <th className="p-2 border-b text-center">Chọn</th>
+                      <th className="p-2 border-b text-left">Căn / Phòng</th>
+                      <th className="p-2 border-b text-left">Nguồn</th>
+                      <th className="p-2 border-b text-left">Layer CAD</th>
+                      <th className="p-2 border-b text-right">Diện tích</th>
+                      <th className="p-2 border-b text-left">Hạng mục thi công</th>
+                      <th className="p-2 border-b text-left">Nhận diện tên</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendingDxfImport.candidates.map((candidate) => {
+                      const existing = roomProgressList.find((room) =>
+                        room.floorId === pendingDxfImport.floorId
+                        && normalizeDxfCatalogName(room.roomName) === normalizeDxfCatalogName(candidate.roomName)
+                      );
+                      return (
+                        <tr key={candidate.id} className={existing ? 'bg-amber-50/70' : candidate.selected ? 'bg-sky-50/50' : 'bg-white'}>
+                          <td className="p-2 border-b text-center">
+                            <input
+                              type="checkbox"
+                              checked={candidate.selected && !existing}
+                              disabled={Boolean(existing)}
+                              onChange={(event) => updatePendingDxfCandidate(candidate.id, { selected: event.target.checked })}
+                              className="w-4 h-4 rounded border-slate-300 text-indigo-600"
+                            />
+                          </td>
+                          <td className="p-2 border-b">
+                            <input
+                              value={candidate.roomName}
+                              onChange={(event) => updatePendingDxfCandidate(candidate.id, { roomName: event.target.value, selected: false })}
+                              className="w-full min-w-[140px] rounded-lg border border-slate-300 bg-white px-2 py-1.5 font-bold"
+                            />
+                            {existing && <div className="text-[9px] text-amber-700 font-bold mt-1">Đã tồn tại · không ghi đè</div>}
+                          </td>
+                          <td className="p-2 border-b font-semibold text-slate-600">{candidate.source}</td>
+                          <td className="p-2 border-b text-slate-600">{candidate.layer || '—'}</td>
+                          <td className="p-2 border-b text-right font-bold">
+                            {candidate.areaM2 !== undefined
+                              ? `${formatDecimal(candidate.areaM2)} m²`
+                              : `${formatDecimal(candidate.areaDrawingUnits)} ${candidate.drawingUnitLabel}²`}
+                          </td>
+                          <td className="p-2 border-b">
+                            <select
+                              value={candidate.workCategoryId || ''}
+                              onChange={(event) => {
+                                const work = workVolumes.find((item) => (item.workCategoryId || item.id) === event.target.value || item.id === event.target.value);
+                                updatePendingDxfCandidate(candidate.id, {
+                                  workCategoryId: work ? (work.workCategoryId || work.id) : undefined,
+                                  workCategoryName: work?.title,
+                                });
+                              }}
+                              className="w-full min-w-[220px] rounded-lg border border-slate-300 bg-white px-2 py-1.5"
+                            >
+                              <option value="">-- Chỉ tạo vùng, không nhập KL --</option>
+                              {workVolumes.map((work) => {
+                                const value = work.workCategoryId || work.id;
+                                return <option key={work.id} value={value}>{work.title}</option>;
+                              })}
+                            </select>
+                            {candidate.workCategoryName && candidate.layer && normalizeDxfCatalogName(candidate.workCategoryName) === normalizeDxfCatalogName(candidate.layer) && (
+                              <div className="text-[9px] text-emerald-700 font-bold mt-1">Tự map chính xác theo tên Layer</div>
+                            )}
+                          </td>
+                          <td className="p-2 border-b">
+                            {candidate.hasDetectedName
+                              ? <span className="text-emerald-700 font-bold">{candidate.textType || 'TEXT'} · {Math.round(candidate.confidence * 100)}%</span>
+                              : <span className="text-amber-700 font-bold">Chưa có TEXT/MTEXT</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="px-4 py-3 border-t border-slate-200 bg-white flex flex-wrap items-center gap-2">
+              <div className="mr-auto text-[11px] text-slate-600">
+                <strong>{pendingDxfImport.candidates.filter((candidate) => candidate.selected).length}</strong> / {pendingDxfImport.candidates.length} vùng được chọn
+              </div>
+              <button type="button" onClick={() => setPendingDxfImport(null)} className="px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold text-slate-600">Hủy</button>
+              <button type="button" onClick={applyPendingDxfRooms} className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-black">Tạo Căn / Phòng từ DXF</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <QuickEditGridModal
         open={showQuickEdit}
         title="Bảng chỉnh nhanh · Mặt bằng"
