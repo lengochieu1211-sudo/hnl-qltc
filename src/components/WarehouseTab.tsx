@@ -1508,7 +1508,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         });
       });
       const confirmed = await confirmAsync(`Lưu ${dirtyRows.length} thay đổi Danh mục & Định mức vật tư?`);
-      if (!confirmed) return;
+      if (!confirmed) return false;
       onImportNorms(Array.from(byId.values()));
       return;
     }
@@ -1547,7 +1547,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       };
     });
     const confirmed = await confirmAsync(`Lưu ${upserts.length} phiếu ${quickEditMode === 'in' ? 'Nhập kho' : 'Xuất kho'}? Tồn kho sẽ được tính lại từ sổ giao dịch.`);
-    if (!confirmed) return;
+    if (!confirmed) return false;
     await onImportInventory(upserts);
   };
 

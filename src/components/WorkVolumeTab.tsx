@@ -234,7 +234,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       `Bảng chỉnh nhanh đã kiểm tra ${upserts.length} hạng mục.\n\n` +
       'Khối lượng đã làm là dữ liệu chỉ đọc và không bị ghi đè. Tiếp tục lưu thay đổi?'
     );
-    if (!confirmed) return;
+    if (!confirmed) return false;
 
     if (onImportWorkVolumes) {
       if (!onImportWorkVolumes(upserts)) throw new Error('Dữ liệu hạng mục đã thay đổi trên thiết bị khác; hệ thống đã hủy ghi.');

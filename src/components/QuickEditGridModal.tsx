@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { confirmAsync } from '../utils/confirmAsync';
 
 export type QuickGridCellValue = string | number | null | undefined;
 
@@ -30,7 +31,7 @@ interface QuickEditGridModalProps {
   canAddRows?: boolean;
   createEmptyRow?: (index: number) => QuickGridRow;
   onClose: () => void;
-  onSave: (rows: QuickGridRow[], dirtyCellKeys: Set<string>) => void | Promise<void>;
+  onSave: (rows: QuickGridRow[], dirtyCellKeys: Set<string>) => boolean | void | Promise<boolean | void>;
   saveLabel?: string;
   emptyText?: string;
   tabs?: Array<{ key: string; label: string }>;
@@ -65,15 +66,24 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
   const [undoStack, setUndoStack] = useState<Array<{ rows: QuickGridRow[]; dirty: Set<string> }>>([]);
   const [redoStack, setRedoStack] = useState<Array<{ rows: QuickGridRow[]; dirty: Set<string> }>>([]);
   const activeCellRef = useRef<{ rowKey: string; columnKey: string } | null>(null);
+  const wasOpenRef = useRef(false);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      wasOpenRef.current = false;
+      return;
+    }
+    const opening = !wasOpenRef.current;
+    wasOpenRef.current = true;
+    // Realtime/parent refreshes must never wipe an unsaved local draft.
+    // Once the draft is clean again, rebase it on the latest canonical rows.
+    if (!opening && dirtyCellKeys.size > 0) return;
     setDraftRows(rows.map((row) => ({ ...row })));
     setDirtyCellKeys(new Set());
     setUndoStack([]);
     setRedoStack([]);
     setSearch('');
-  }, [open, rows]);
+  }, [open, rows, dirtyCellKeys.size]);
 
   const pushUndo = () => {
     setUndoStack((prev) => [...prev.slice(-29), {
@@ -153,6 +163,24 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
     setRedoStack([]);
   };
 
+  const handleClose = async () => {
+    if (dirtyCellKeys.size > 0) {
+      const confirmed = await confirmAsync('Có thay đổi chưa lưu trong Bảng chỉnh nhanh. Bỏ thay đổi và đóng?');
+      if (!confirmed) return;
+    }
+    onClose();
+  };
+
+  const handleTabChange = async (key: string) => {
+    if (key === activeTab) return;
+    if (dirtyCellKeys.size > 0) {
+      const confirmed = await confirmAsync('Có thay đổi chưa lưu trong bảng hiện tại. Bỏ thay đổi và chuyển bảng?');
+      if (!confirmed) return;
+      discard();
+    }
+    onTabChange?.(key);
+  };
+
   const addRows = (count: number) => {
     if (!canEdit || !canAddRows || !createEmptyRow) return;
     pushUndo();
@@ -205,7 +233,8 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
     if (!canEdit || dirtyCellKeys.size === 0 || validation.size > 0) return;
     setSaving(true);
     try {
-      await onSave(draftRows, dirtyCellKeys);
+      const result = await onSave(draftRows, dirtyCellKeys);
+      if (result === false) return;
       setDirtyCellKeys(new Set());
       setUndoStack([]);
       setRedoStack([]);
@@ -226,7 +255,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
             <h2 className="font-black text-slate-900 text-sm sm:text-base">▦ {title}</h2>
             <p className="text-[11px] text-slate-500 mt-0.5">{subtitle || 'Chỉnh trực tiếp theo dạng bảng. Thay đổi chỉ được ghi khi bấm Lưu.'}</p>
           </div>
-          <button type="button" onClick={onClose} className="shrink-0 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50">Đóng</button>
+          <button type="button" onClick={() => { void handleClose(); }} className="shrink-0 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50">Đóng</button>
         </div>
 
         {tabs && tabs.length > 0 && (
@@ -235,7 +264,7 @@ export const QuickEditGridModal: React.FC<QuickEditGridModalProps> = ({
               <button
                 key={tab.key}
                 type="button"
-                onClick={() => onTabChange?.(tab.key)}
+                onClick={() => { void handleTabChange(tab.key); }}
                 className={`shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-extrabold border transition ${activeTab === tab.key ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
               >
                 {tab.label}

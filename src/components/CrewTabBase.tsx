@@ -1721,7 +1721,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     }
 
     const confirmed = await confirmAsync(`Bảng chỉnh nhanh sẽ lưu ${prepared.length} Nhật ký. Ảnh hiện trường và ID bản ghi được giữ nguyên. Tiếp tục?`);
-    if (!confirmed) return;
+    if (!confirmed) return false;
     prepared.forEach(({ existing, record }) => {
       if (existing) {
         const { id, ...updates } = record;
@@ -1744,7 +1744,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     } as TeamInfo));
     if (findWorsenedTeamNameConflict(teams, nextTeams)) throw new Error('Tên đội bị trùng/không rõ liên kết. Hãy đổi tên đội trước khi lưu.');
     const confirmed = await confirmAsync(`Lưu ${nextTeams.length} dòng Danh mục đội? Nhật ký cũ vẫn giữ teamId hiện tại.`);
-    if (!confirmed) return;
+    if (!confirmed) return false;
     if (!updateTeamsAndParent(nextTeams)) throw new Error('Không thể cập nhật Danh mục đội.');
   };
 

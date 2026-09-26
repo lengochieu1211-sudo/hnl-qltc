@@ -271,8 +271,10 @@ assert(globalThemeCss.includes('.hnl-home-dashboard') && globalThemeCss.includes
 
 assert(!defectUi.includes('text-[9px] font-bold text-slate-500">Tên cấp Khu/Khối</div>'), 'Floor manager must not repeat the Khu/Khối level name in a separate card');
 assert(photoAttachmentUiForPc.includes('compactViewerButton?: boolean;') && photoAttachmentUiForPc.includes('Mở ảnh hiện trường toàn màn hình'), 'Crew field-photo button must open the shared full-screen viewer directly without expanding thumbnails');
-assert(workVolumeUi.includes('<Download className="w-3.5 h-3.5" /> Tải Excel để chỉnh sửa'), 'Work Volume download action keeps one consistent label across roles');
-assert(workVolumeUi.includes('{hasStructureManageAccess && ('), 'Work Volume must hide ADMIN-only import/create actions from Engineer/Viewer');
+assert(workVolumeUi.includes('<ExcelActionMenu'), 'Work Volume must use the shared single Excel action menu');
+assert(workVolumeUi.includes('onImportFile={hasStructureManageAccess ? handleImportExcelWorkVolumes : undefined}'), 'Work Volume Excel menu must hide import from roles without structure-manage permission');
+assert(workVolumeUi.includes('exportLabel="Xuất hạng mục để chỉnh sửa"'), 'Work Volume Excel export must keep the agreed editing-oriented label');
+assert(workVolumeUi.includes('{hasStructureManageAccess && ('), 'Work Volume must hide ADMIN-only create actions from Engineer/Viewer');
 
 const multiProjectAccessUi = read('src/components/MultiProjectAccessPanel.tsx');
 const securityModalUi = read('src/components/SecurityModal.tsx');

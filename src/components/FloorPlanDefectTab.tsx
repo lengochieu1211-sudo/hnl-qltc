@@ -3082,7 +3082,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     });
 
     const confirmed = await confirmAsync(`Lưu thay đổi cho ${changedRooms.length} Căn / Phòng trên nhiều tầng? ID Căn, highlight, Defect và lịch sử được giữ nguyên.`);
-    if (!confirmed) return;
+    if (!confirmed) return false;
     if (onBatchSaveRooms) onBatchSaveRooms(changedRooms);
     else changedRooms.forEach((room) => onSaveRoomProgress(room));
   };
@@ -3110,7 +3110,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       } as DefectItem;
     });
     const confirmed = await confirmAsync(`Lưu ${nextDefects.length} Defect đã chỉnh trong bảng? Ảnh trước/sau sửa và defectId được giữ nguyên.`);
-    if (!confirmed) return;
+    if (!confirmed) return false;
     nextDefects.forEach((defect) => onUpdateDefect(defect));
   };
 
