@@ -531,6 +531,8 @@ export const directTranslations: Record<string, string> = {
   "Tồn kho": "In Stock",
   "Tồn Kho Thực Tế": "Actual Stock",
   "Hao phí định mức": "Norm wastage",
+  "Khối lượng định mức": "Norm quantity",
+  "Định mức / đơn vị": "Norm / source unit",
   "Định Mức Hao Phí / m2": "Unit Norm / m2",
   "Định mức tiêu hao": "Consumption Norm",
   "Định Mức / m2": "Norm / m2",

@@ -24,7 +24,7 @@ import * as XLSX from 'xlsx';
 import { exportWarehouseUpdateTemplate } from '../utils/excelExport';
 import { confirmAsync } from '../utils/confirmAsync';
 import { formatExcelDate } from '../utils/dateFormatter';
-import { formatDecimal, evaluateMathExpression, useFormatSettings, parseExcelNumber } from '../utils/numberUtils';
+import { formatDecimal, formatAdaptiveDecimal, evaluateMathExpression, useFormatSettings, parseExcelNumber } from '../utils/numberUtils';
 import { getResolvedNormWorkCategories } from '../utils/projectReconciliation';
 import { normalizeUnit, unitKey, areSameUnit } from '../utils/unitUtils';
 import { createEntityId } from '../utils/idUtils';
@@ -728,7 +728,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
   const commitQuotaFormula = () => {
     const parsed = parseInteractiveNumericInput(quotaQuantityStr);
     if (parsed === null) {
-      alert('Công thức Hao phí định mức không hợp lệ. Ví dụ: 100*5, 1220/3 hoặc (50+20)*2.');
+      alert('Công thức Khối lượng định mức không hợp lệ. Ví dụ: 100*5, 1220/3 hoặc (50+20)*2.');
       return false;
     }
     setQuotaQuantity(parsed);
@@ -744,11 +744,11 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
     }
     const parsed = parseInteractiveNumericInput(raw);
     if (parsed === null) {
-      alert('Công thức Hao phí / đơn vị khối lượng không hợp lệ. Ví dụ: 0.35, 1/2.88 hoặc 2*0.35.');
+      alert('Công thức Định mức / đơn vị không hợp lệ. Ví dụ: 0.35, 1/2.88 hoặc 2*0.35.');
       return false;
     }
     setUnitNormPerM2(parsed);
-    setUnitNormPerM2Str(formatDecimal(parsed));
+    setUnitNormPerM2Str(formatAdaptiveDecimal(parsed));
     return true;
   };
 
@@ -768,7 +768,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
       return false;
     }
     setWorkCategoryNorms(prev => ({ ...prev, [cat]: parsed }));
-    setWorkCategoryNormsStr(prev => ({ ...prev, [cat]: formatDecimal(parsed) }));
+    setWorkCategoryNormsStr(prev => ({ ...prev, [cat]: formatAdaptiveDecimal(parsed) }));
     return true;
   };
 
@@ -793,11 +793,11 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
 
     const quotaParsedForSubmit = parseInteractiveNumericInput(quotaQuantityStr);
     if (quotaQuantityStr.trim() && quotaParsedForSubmit === null) {
-      alert('Hao phí định mức có công thức hoặc số nhập không hợp lệ. Ví dụ hợp lệ: 500, 100*5, 1220/3.');
+      alert('Khối lượng định mức có công thức hoặc số nhập không hợp lệ. Ví dụ hợp lệ: 500, 100*5, 1220/3.');
       return;
     }
     if (unitNormPerM2Str.trim() && parseInteractiveNumericInput(unitNormPerM2Str) === null) {
-      alert('Hao phí / đơn vị khối lượng có công thức hoặc số nhập không hợp lệ.');
+      alert('Định mức / đơn vị có công thức hoặc số nhập không hợp lệ.');
       return;
     }
     const invalidOverrideCategory = workCategories.find((cat) => {
@@ -1096,14 +1096,14 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                           <p className="font-bold text-slate-800">{norm.unit}</p>
                         </div>
                         <div>
-                          <p className="text-[10px] text-slate-400 font-semibold uppercase">Hao phí định mức</p>
-                          <p className="font-bold text-indigo-600">{formatDecimal(norm.quotaQuantity)} {norm.unit}</p>
+                          <p className="text-[10px] text-slate-400 font-semibold uppercase">Khối lượng định mức</p>
+                          <p className="font-bold text-indigo-600">{formatAdaptiveDecimal(norm.quotaQuantity)} {norm.unit}</p>
                         </div>
                         <div>
-                          <p className="text-[10px] text-slate-400 font-semibold uppercase">Hao phí / ĐVT nguồn</p>
+                          <p className="text-[10px] text-slate-400 font-semibold uppercase">Định mức / đơn vị</p>
                           <p className="font-semibold text-slate-700">
                             {norm.unitNormPerM2 !== undefined && norm.unitNormPerM2 !== null
-                              ? `${formatDecimal(norm.unitNormPerM2)} ${norm.unit}/${norm.normBasisUnit || 'm²'}`
+                              ? `${formatAdaptiveDecimal(norm.unitNormPerM2)} ${norm.unit}/${norm.normBasisUnit || 'm²'}`
                               : 'Chưa nhập'}
                           </p>
                         </div>
@@ -1247,7 +1247,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:items-start">
               <div className="flex flex-col">
                 <div className="flex items-start justify-between gap-2 mb-1 sm:min-h-[2.75rem]">
-                  <label className="block font-bold text-slate-700 leading-tight pt-0.5">Hao phí định mức *</label>
+                  <label className="block font-bold text-slate-700 leading-tight pt-0.5">Khối lượng định mức *</label>
                   <div className="flex items-center gap-1 shrink-0">
                     {evaluateMathExpression(quotaQuantityStr) !== null && /[+\-*/xX×:÷]/.test(quotaQuantityStr) && (
                       <span className="text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded text-[10px] font-extrabold animate-pulse">
@@ -1299,7 +1299,7 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
                       setQuotaQuantityStr(formatDecimal(computedAutoQuota));
                     }}
                     className="mt-1 text-[10px] text-indigo-700 hover:text-indigo-900 font-extrabold flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 p-1.5 rounded-lg border border-indigo-200 transition-all active:scale-95 text-left w-full"
-                    title={`Khối lượng liên kết (${selectedWorkCategoriesVolumeLabel || '0'}) × định mức hao phí (${formatDecimal(unitNormPerM2)})`}
+                    title={`Khối lượng liên kết (${selectedWorkCategoriesVolumeLabel || '0'}) × định mức / đơn vị (${formatAdaptiveDecimal(unitNormPerM2)})`}
                   >
                     <span>💡 Áp dụng định mức: <strong>{formatDecimal(computedAutoQuota)}</strong> {unit === 'khac' ? customUnit : unit}</span>
                   </button>
@@ -1309,11 +1309,11 @@ export const MaterialNormModal: React.FC<MaterialNormModalProps> = ({
               </div>
               <div className="flex flex-col">
                 <div className="flex items-start justify-between gap-2 mb-1 sm:min-h-[2.75rem]">
-                  <label className="block font-bold text-slate-700 leading-tight pt-0.5">Hao phí / đơn vị khối lượng (không bắt buộc)</label>
+                  <label className="block font-bold text-slate-700 leading-tight pt-0.5">Định mức / đơn vị (không bắt buộc)</label>
                   <div className="flex items-center gap-1 shrink-0">
                     {evaluateMathExpression(unitNormPerM2Str) !== null && /[+\-*/xX×:÷]/.test(unitNormPerM2Str) && (
                       <span className="text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded text-[10px] font-extrabold">
-                        = {formatDecimal(evaluateMathExpression(unitNormPerM2Str))}
+                        = {formatAdaptiveDecimal(evaluateMathExpression(unitNormPerM2Str))}
                       </span>
                     )}
                     <button

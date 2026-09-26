@@ -28,7 +28,7 @@ import {
 import { RoomProgressItem, RoomSubItem, AcceptanceStatus, RoomInspectionResult, Point2D, TeamInfo, ChecklistItem, MaterialNorm, InventoryItem, WorkVolume } from '../types';
 import { ROOM_COLOR_PALETTE } from '../utils/colorPalette';
 import { confirmAsync } from '../utils/confirmAsync';
-import { formatDecimal, evaluateMathExpression, useFormatSettings } from '../utils/numberUtils';
+import { formatDecimal, formatAdaptiveDecimal, evaluateMathExpression, useFormatSettings } from '../utils/numberUtils';
 import { MathNumberInput } from './MathNumberInput';
 import { createEntityId, createDeterministicId } from '../utils/idUtils';
 import { normalizeUnit, areSameUnit } from '../utils/unitUtils';
@@ -1880,7 +1880,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                             <p className="font-bold text-slate-900 truncate mt-1">{item.materialName}</p>
                             <p className="text-[10px] text-slate-500">
                               {item.normDetails?.length === 1 && item.unitNormPerM2 !== undefined ? (
-                                <>Định mức hao phí: <strong className="text-slate-700">{item.unitNormPerM2} {item.unit}/{item.normBasisUnit || getCategorySourceUnit(item.workCategory || workCategory)}</strong></>
+                                <>Định mức / đơn vị: <strong className="text-slate-700">{formatAdaptiveDecimal(item.unitNormPerM2)} {item.unit}/{item.normBasisUnit || getCategorySourceUnit(item.workCategory || workCategory)}</strong></>
                               ) : (
                                 <>Tổng hợp từ <strong className="text-slate-700">{item.normDetails?.length || item.sourceNormIds.length}</strong> định mức liên kết.</>
                               )}
