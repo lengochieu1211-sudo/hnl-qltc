@@ -66,5 +66,8 @@ assert.match(dxf, /LWPOLYLINE/, 'DXF detector must support closed polylines');
 assert.match(dxf, /MTEXT/, 'DXF detector must support MTEXT');
 assert.match(dxf, /areaM2/, 'DXF detector must calculate metric area');
 assert.match(dxf, /\$EXTMIN/, 'DXF detector must prefer drawing extents for alignment');
+assert.match(dxf, /readHatchBoundaryShapes/, 'DXF detector must parse all HATCH boundary paths, not only the first loop');
+assert.match(dxf, /alignedX/, 'DXF TEXT reader must honor justified alignment point 11\/21');
+assert.match(dxf, /measurement/, 'DXF room-name selection must de-prioritize area/measurement labels');
 
 console.log('Quick Edit + Excel + DXF Golden: PASS');

@@ -48,6 +48,8 @@ interface RawShape {
   source: 'HATCH' | 'LWPOLYLINE';
   layer: string;
   points: DxfPoint[];
+  holes?: DxfPoint[][];
+  areaDrawingUnits?: number;
 }
 
 const round4 = (value: number) => Math.round(value * 10000) / 10000;
@@ -221,8 +223,20 @@ const readTexts = (entities: Array<{ type: string; pairs: DxfPair[] }>): RawText
   const rows: RawText[] = [];
   entities.forEach((entity) => {
     if (entity.type !== 'TEXT' && entity.type !== 'MTEXT') return;
-    const x = getNumber(entity.pairs, 10, NaN);
-    const y = getNumber(entity.pairs, 20, NaN);
+    let x = getNumber(entity.pairs, 10, NaN);
+    let y = getNumber(entity.pairs, 20, NaN);
+    if (entity.type === 'TEXT') {
+      const horizontalJustification = getNumber(entity.pairs, 72, 0);
+      const verticalJustification = getNumber(entity.pairs, 73, 0);
+      if (horizontalJustification !== 0 || verticalJustification !== 0) {
+        const alignedX = getNumber(entity.pairs, 11, NaN);
+        const alignedY = getNumber(entity.pairs, 21, NaN);
+        if (Number.isFinite(alignedX) && Number.isFinite(alignedY)) {
+          x = alignedX;
+          y = alignedY;
+        }
+      }
+    }
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     const text = entity.type === 'MTEXT'
       ? cleanDxfText(entity.pairs.filter((pair) => pair.code === 3 || pair.code === 1).map((pair) => pair.value).join(''))
@@ -257,99 +271,164 @@ const readLwPolyline = (entityPairs: DxfPair[]): DxfPoint[] => {
   return points.length >= 3 ? points : [];
 };
 
-const readHatchPolylineBoundary = (entityPairs: DxfPair[]): DxfPoint[] => {
-  for (let i = 0; i < entityPairs.length; i++) {
-    if (entityPairs[i].code !== 92) continue;
-    const flags = Number(entityPairs[i].value);
-    if (!Number.isFinite(flags)) continue;
+const readHatchBoundaryPath = (pathPairs: DxfPair[]): DxfPoint[] => {
+  const flags = Number(pathPairs.find((pair) => pair.code === 92)?.value);
+  if (!Number.isFinite(flags)) return [];
 
-    if ((flags & 2) === 2) {
-      let vertexCount = 0;
-      let start = -1;
-      for (let j = i + 1; j < entityPairs.length; j++) {
-        if (entityPairs[j].code === 92) break;
-        if (entityPairs[j].code === 93) {
-          vertexCount = Number(entityPairs[j].value) || 0;
-          start = j + 1;
-          break;
-        }
-      }
-      if (vertexCount > 0 && start >= 0) {
-        const points: DxfPoint[] = [];
-        let x: number | undefined;
-        for (let j = start; j < entityPairs.length && points.length < vertexCount; j++) {
-          const pair = entityPairs[j];
-          if (pair.code === 92) break;
-          if (pair.code === 10) {
-            const value = Number(pair.value);
-            x = Number.isFinite(value) ? value : undefined;
-          } else if (pair.code === 20 && x !== undefined) {
-            const y = Number(pair.value);
-            if (Number.isFinite(y)) points.push({ x, y });
-            x = undefined;
-          }
-        }
-        if (points.length >= 3) return points;
-      }
-    } else {
-      // Line-edge boundary fallback. Arc/spline edges are deliberately not approximated:
-      // fail closed rather than silently distorting a room outline.
-      let edgeCount = 0;
-      let start = -1;
-      for (let j = i + 1; j < entityPairs.length; j++) {
-        if (entityPairs[j].code === 92) break;
-        if (entityPairs[j].code === 93) {
-          edgeCount = Number(entityPairs[j].value) || 0;
-          start = j + 1;
-          break;
-        }
-      }
-      if (edgeCount > 0 && start >= 0) {
-        const points: DxfPoint[] = [];
-        let cursor = start;
-        let supported = true;
-        for (let edge = 0; edge < edgeCount && cursor < entityPairs.length; edge++) {
-          while (cursor < entityPairs.length && entityPairs[cursor].code !== 72 && entityPairs[cursor].code !== 92) cursor++;
-          if (cursor >= entityPairs.length || entityPairs[cursor].code === 92) break;
-          const edgeType = Number(entityPairs[cursor].value);
-          cursor++;
-          if (edgeType !== 1) {
-            supported = false;
-            break;
-          }
-          let x1: number | undefined;
-          let y1: number | undefined;
-          let x2: number | undefined;
-          let y2: number | undefined;
-          while (cursor < entityPairs.length && entityPairs[cursor].code !== 72 && entityPairs[cursor].code !== 92) {
-            const pair = entityPairs[cursor];
-            if (pair.code === 10) x1 = Number(pair.value);
-            else if (pair.code === 20) y1 = Number(pair.value);
-            else if (pair.code === 11) x2 = Number(pair.value);
-            else if (pair.code === 21) y2 = Number(pair.value);
-            cursor++;
-          }
-          if ([x1, y1, x2, y2].every((value) => Number.isFinite(value))) {
-            if (!points.length) points.push({ x: x1!, y: y1! });
-            points.push({ x: x2!, y: y2! });
-          }
-        }
-        if (supported && points.length >= 3) return points;
+  if ((flags & 2) === 2) {
+    const countIndex = pathPairs.findIndex((pair) => pair.code === 93);
+    const vertexCount = countIndex >= 0 ? Number(pathPairs[countIndex].value) || 0 : 0;
+    if (vertexCount <= 0) return [];
+    const points: DxfPoint[] = [];
+    let x: number | undefined;
+    for (let i = countIndex + 1; i < pathPairs.length && points.length < vertexCount; i++) {
+      const pair = pathPairs[i];
+      if (pair.code === 10) {
+        const value = Number(pair.value);
+        x = Number.isFinite(value) ? value : undefined;
+      } else if (pair.code === 20 && x !== undefined) {
+        const y = Number(pair.value);
+        if (Number.isFinite(y)) points.push({ x, y });
+        x = undefined;
       }
     }
+    return points.length >= 3 ? points : [];
   }
-  return [];
+
+  // Edge-list fallback: only straight line edges are accepted. Curves/splines are
+  // deliberately rejected rather than approximated into a wrong room polygon.
+  const countIndex = pathPairs.findIndex((pair) => pair.code === 93);
+  const edgeCount = countIndex >= 0 ? Number(pathPairs[countIndex].value) || 0 : 0;
+  if (edgeCount <= 0) return [];
+  const points: DxfPoint[] = [];
+  let cursor = countIndex + 1;
+  for (let edge = 0; edge < edgeCount && cursor < pathPairs.length; edge++) {
+    while (cursor < pathPairs.length && pathPairs[cursor].code !== 72) cursor++;
+    if (cursor >= pathPairs.length) return [];
+    const edgeType = Number(pathPairs[cursor].value);
+    cursor++;
+    if (edgeType !== 1) return [];
+    let x1: number | undefined;
+    let y1: number | undefined;
+    let x2: number | undefined;
+    let y2: number | undefined;
+    while (cursor < pathPairs.length && pathPairs[cursor].code !== 72) {
+      const pair = pathPairs[cursor];
+      if (pair.code === 10) x1 = Number(pair.value);
+      else if (pair.code === 20) y1 = Number(pair.value);
+      else if (pair.code === 11) x2 = Number(pair.value);
+      else if (pair.code === 21) y2 = Number(pair.value);
+      cursor++;
+    }
+    if (![x1, y1, x2, y2].every((value) => Number.isFinite(value))) return [];
+    if (!points.length) points.push({ x: x1!, y: y1! });
+    points.push({ x: x2!, y: y2! });
+  }
+  return points.length >= 3 ? points : [];
+};
+
+const readHatchBoundaryShapes = (entityPairs: DxfPair[]) => {
+  const pathStarts = entityPairs
+    .map((pair, index) => pair.code === 92 ? index : -1)
+    .filter((index) => index >= 0);
+  const loops: DxfPoint[][] = [];
+  let unsupportedPathCount = 0;
+  pathStarts.forEach((start, index) => {
+    const end = pathStarts[index + 1] ?? entityPairs.length;
+    const points = readHatchBoundaryPath(entityPairs.slice(start, end));
+    if (points.length >= 3) loops.push(points);
+    else unsupportedPathCount++;
+  });
+
+  const meta = loops.map((points, index) => ({
+    index,
+    points,
+    area: polygonArea(points),
+    centroid: polygonCentroid(points),
+    parent: -1,
+    depth: 0,
+  }));
+  meta.forEach((item) => {
+    let parent = -1;
+    let parentArea = Number.POSITIVE_INFINITY;
+    meta.forEach((candidate) => {
+      if (candidate.index === item.index || candidate.area <= item.area) return;
+      if (!pointInPolygon(item.centroid, candidate.points)) return;
+      if (candidate.area < parentArea) {
+        parent = candidate.index;
+        parentArea = candidate.area;
+      }
+    });
+    item.parent = parent;
+  });
+  const depthOf = (index: number): number => {
+    let depth = 0;
+    let cursor = meta[index]?.parent ?? -1;
+    const seen = new Set<number>();
+    while (cursor >= 0 && !seen.has(cursor)) {
+      seen.add(cursor);
+      depth++;
+      cursor = meta[cursor]?.parent ?? -1;
+    }
+    return depth;
+  };
+  meta.forEach((item) => { item.depth = depthOf(item.index); });
+  const rootOf = (index: number): number => {
+    let cursor = index;
+    const seen = new Set<number>();
+    while (meta[cursor]?.parent >= 0 && !seen.has(cursor)) {
+      seen.add(cursor);
+      cursor = meta[cursor].parent;
+    }
+    return cursor;
+  };
+
+  const boundaries = meta
+    .filter((item) => item.depth === 0)
+    .map((outer) => {
+      const descendants = meta.filter((item) => rootOf(item.index) === outer.index);
+      const areaDrawingUnits = descendants.reduce(
+        (sum, item) => sum + (item.depth % 2 === 0 ? item.area : -item.area),
+        0
+      );
+      const holes = descendants.filter((item) => item.depth % 2 === 1).map((item) => item.points);
+      return {
+        points: outer.points,
+        holes,
+        areaDrawingUnits: Math.max(0, areaDrawingUnits),
+      };
+    });
+
+  return {
+    boundaries,
+    unsupportedPathCount,
+    innerLoopCount: meta.filter((item) => item.depth > 0).length,
+  };
 };
 
 const readShapes = (entities: Array<{ type: string; pairs: DxfPair[] }>, warnings: string[]): RawShape[] => {
   const shapes: RawShape[] = [];
   entities.forEach((entity) => {
     if (entity.type === 'HATCH') {
-      const points = readHatchPolylineBoundary(entity.pairs);
-      if (points.length >= 3) {
-        shapes.push({ source: 'HATCH', layer: getString(entity.pairs, 8), points });
-      } else {
-        warnings.push(`Bỏ qua HATCH layer “${getString(entity.pairs, 8) || '(không tên)'}”: boundary có cung/spline hoặc không đọc được polygon kín.`);
+      const parsed = readHatchBoundaryShapes(entity.pairs);
+      const layer = getString(entity.pairs, 8);
+      parsed.boundaries.forEach((boundary) => {
+        shapes.push({
+          source: 'HATCH',
+          layer,
+          points: boundary.points,
+          holes: boundary.holes,
+          areaDrawingUnits: boundary.areaDrawingUnits,
+        });
+      });
+      if (parsed.unsupportedPathCount > 0) {
+        warnings.push(`HATCH layer “${layer || '(không tên)'}” có ${parsed.unsupportedPathCount} boundary cung/spline hoặc không đọc được; hệ thống chỉ dùng boundary polygon/line an toàn.`);
+      }
+      if (parsed.innerLoopCount > 0) {
+        warnings.push(`HATCH layer “${layer || '(không tên)'}” có ${parsed.innerLoopCount} island/hole; diện tích đã trừ phần rỗng, highlight dùng boundary ngoài để bạn kiểm tra trước khi lưu.`);
+      }
+      if (parsed.boundaries.length === 0) {
+        warnings.push(`Bỏ qua HATCH layer “${layer || '(không tên)'}”: không có boundary polygon/line kín đọc an toàn.`);
       }
     }
   });
@@ -419,12 +498,21 @@ export function detectRoomsFromDxf(input: string): DxfRoomDetectionResult {
 
   const candidates = shapes.map((shape, index): DxfRoomCandidate => {
     const centroid = polygonCentroid(shape.points);
+    const looksLikeMeasurement = (value: string) =>
+      /(?:m2|m²|㎡|sq\.?\s*m|sqm)\b/i.test(value.replace(/\s+/g, ''));
     const insideTexts = texts
-      .filter((text) => pointInPolygon(text, shape.points))
-      .map((text) => ({ ...text, distance: Math.hypot(text.x - centroid.x, text.y - centroid.y) }))
-      .sort((a, b) => a.distance - b.distance);
+      .filter((text) =>
+        pointInPolygon(text, shape.points)
+        && !(shape.holes || []).some((hole) => pointInPolygon(text, hole))
+      )
+      .map((text) => ({
+        ...text,
+        distance: Math.hypot(text.x - centroid.x, text.y - centroid.y),
+        measurement: looksLikeMeasurement(text.text),
+      }))
+      .sort((a, b) => Number(a.measurement) - Number(b.measurement) || a.distance - b.distance);
     const selectedText = insideTexts[0];
-    const rawArea = polygonArea(shape.points);
+    const rawArea = shape.areaDrawingUnits ?? polygonArea(shape.points);
     const areaM2 = unit.meterFactor ? rawArea * unit.meterFactor * unit.meterFactor : undefined;
     const percentPoints = shape.points.map((point) => ({
       x: round4(((point.x - minX) / spanX) * 100),
