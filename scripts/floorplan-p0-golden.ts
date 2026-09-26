@@ -30,6 +30,11 @@ check(sync.includes('isFloorPlanAutoCacheNetworkSuitable'), 'Smart background fl
 check(sync.includes('isFloorPlanCloudBinaryReady'), 'Background cache must distinguish authoritative Cloud-ready drawings from stale clone pointers.');
 check(sync.includes('FLOOR_PLAN_CACHE_POINTER_INDEX_TTL_MS'), 'Shared floor-plan cache must index immutable storage pointers instead of rescanning IndexedDB per floor.');
 check(sync.includes('FLOOR_PLAN_CACHE_TOUCH_INTERVAL_MS'), 'Shared floor-plan cache must throttle IndexedDB last-access writes.');
+check(sync.includes('latestOutboxByFloorId.get(plan.id)'), 'Offline floor-plan preparation must inspect durable outbox revisions before caching.');
+check(sync.includes("safety.status === 'blocked-pending' || safety.status === 'needs-server-check'"), 'Offline floor-plan preparation must fail closed for real/ambiguous pending drawings.');
+check(sync.includes('const maxItems = Number.isFinite(Number(options.maxItems))'), 'Offline cache must support bounded background batches.');
+check(sync.includes('const yieldMs = Number.isFinite(Number(options.yieldMs))'), 'Offline cache must support cooperative UI yielding.');
+check(sync.includes('globalThis.setTimeout(resolve, yieldMs)'), 'Offline cache yielding must work across Web, APK/WebView and desktop runtime.');
 check(sync.includes('plan.storageProvider || inferredProvider || BINARY_STORAGE_PROVIDER'), 'Legacy duplicated storagePath rows must remain readable through the configured binary provider without rewriting Firestore.');
 const bulkApplyStart = sync.indexOf('export async function applyFloorPlanImageToMultipleFloors');
 const bulkApplyEnd = sync.indexOf('\nasync function downloadFallback', bulkApplyStart);
@@ -109,6 +114,10 @@ check(app.includes('imageAssetOwnerFloorId: sharedAssetOwnerFloorId'), 'Cloud-re
 check(app.includes('imageRevision: sourceCloudReady ? sourceCloudRevision : now'), 'Cloud-ready duplicate floors must not manufacture a new pending image revision.');
 check(app.includes('storagePath: sourceCloudReady ? sourcePlan.storagePath : undefined'), 'Non-ready duplicates must clear stale storage pointers instead of creating MISSING_BINARY rows.');
 check(app.includes('floorPlans.filter((plan) => isFloorPlanCloudBinaryReady(plan))'), 'Smart cache must exclude stale legacy clone pointers from periodic prefetch.');
+check(app.includes('shouldAutoMirrorProjectBinaries(activeProjectId)'), 'Background floor-plan prefetch must honor the user Offline Mirror toggle.');
+check(app.includes("maxItems: mobileLike ? 8 : 16"), 'Background floor-plan prefetch must be split into bounded batches on large projects.');
+check(app.includes("yieldMs: mobileLike ? 48 : 16"), 'Background floor-plan prefetch must yield between cache operations to protect UI responsiveness.');
+check(app.includes("scheduleRetry(15000)"), 'Paused background floor-plan batches must resume later instead of monopolising one session.');
 check(app.includes("if (projectRoleSource === 'cloud' && projectRoleAllowed) return;"), 'Cloud-verified projects must not run a second bootstrap role fetch that can restart all Firestore listeners.');
 check(app.includes('projectRoleSource,\n    projectRoleAllowed\n  ]);'), 'Firestore bootstrap guard must react to resolved Cloud authorization.');
 const bulkMetadataStart = bulkApply.indexOf('const metadata: Partial<FloorPlan>');
