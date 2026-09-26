@@ -242,6 +242,11 @@ namespace QLTCAnPhu
                 summaryLabel.Text = "SQLite chưa sẵn sàng.";
                 return;
             }
+            if (store.IsOperationBusy)
+            {
+                summaryLabel.Text = "↻ Dữ liệu local đang được cập nhật ở nền...";
+                return;
+            }
             store.RefreshBridgeManifest(workspaceRoot);
             store.RunRetentionMaintenanceIfDue();
             PopulateQueue(store.GetQueueRows(500, StateFilterValue(), searchBox.Text));
