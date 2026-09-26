@@ -195,6 +195,7 @@ import { appendRuntimeDiagnostic } from './lib/runtimeDiagnostics';
 import { isPrimaryDriveReady, PRIMARY_DRIVE_OWNER_EMAIL, uploadProjectBackupToPrimaryDrive } from './lib/primaryDriveBridge';
 import { subscribeConversationReadState, subscribeConversationSummary } from './lib/chatService';
 import { applyFloorPlanImageToMultipleFloors, inspectFloorPlanBulkTargets, cacheFloorPlansForOffline, floorPlanNeedsCloudUpload, isDisplayableFloorPlanUrl, isFloorPlanAutoCacheNetworkSuitable, isFloorPlanCloudBinaryReady, loadFloorPlanImageFromCloud, resolveFloorPlanImageForDisplay, stageFloorPlanImageOutbox, syncFloorPlanImageToCloud, deleteFloorPlanImageFromCloud } from './lib/floorPlanImageSync';
+import { shouldAutoMirrorProjectBinaries } from './lib/offlineMirrorSettings';
 import { DEFAULT_TRASH_SETTINGS, TrashOperation, TrashSettings, TrashCollectionKey, deleteTrashOperationFromCloud, estimateTrashBytes, getTrashCollectionLabel, normalizeTrashSettings, sanitizeTrashSnapshot, saveTrashOperationToCloud, subscribeProjectTrash } from './lib/trash';
 import { commitWarehouseTransactionAtomic, updateWarehouseTransactionAtomic, softDeleteWarehouseTransactionAtomic } from './lib/warehouseTransactions';
 import { drainBinaryPurgeRetryQueues, purgeTrashOperationBinaries } from './lib/cloudBinaryPurge';
@@ -1726,6 +1727,7 @@ function AuthenticatedApp() {
   const [floorPlanImageSyncRetryTick, setFloorPlanImageSyncRetryTick] = useState(0);
   const [floorPlanImageHydrateRetryTick, setFloorPlanImageHydrateRetryTick] = useState(0);
   const [floorPlanSmartCacheRetryTick, setFloorPlanSmartCacheRetryTick] = useState(0);
+  const [floorPlanOfflineMirrorSettingVersion, setFloorPlanOfflineMirrorSettingVersion] = useState(0);
   const [activeFloorViewId, setActiveFloorViewId] = useState<string>('');
 
   const [cloudInitialReady, setCloudInitialReady] = useState<boolean>(false);
@@ -2326,6 +2328,21 @@ function AuthenticatedApp() {
     };
   }, [floorPlans, activeProjectId, activeTab, activeFloorViewId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, floorPlanImageHydrateRetryTick, isOnline, projectRoleSource, projectRoleAllowed]);
 
+  useEffect(() => {
+    const handleOfflineMirrorSettingChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ projectId?: string }>).detail || {};
+      if (detail.projectId && detail.projectId !== activeProjectIdRef.current) return;
+      floorPlanSmartCacheKeyRef.current = '';
+      if (floorPlanSmartCacheRetryTimerRef.current !== null) {
+        window.clearTimeout(floorPlanSmartCacheRetryTimerRef.current);
+        floorPlanSmartCacheRetryTimerRef.current = null;
+      }
+      setFloorPlanOfflineMirrorSettingVersion((version) => version + 1);
+    };
+    window.addEventListener('hnl-offline-mirror-setting-changed', handleOfflineMirrorSettingChanged);
+    return () => window.removeEventListener('hnl-offline-mirror-setting-changed', handleOfflineMirrorSettingChanged);
+  }, []);
+
   // Smart offline cache: after the active drawing is hydrated, quietly prepare the
   // remaining cloud-ready floor plans one-by-one. The active floor is always first.
   // Data Saver / 2G pauses the background pass; a later online/connection-change event
@@ -2334,6 +2351,12 @@ function AuthenticatedApp() {
   useEffect(() => {
     if (!isHydrated || isLoadingProject || isRestoring || isInitializing || !cloudUserKey || !isOnline || !projectRoleAllowed || projectRoleSource !== 'cloud' || switchingProjectRef.current) return;
     if (!activeProjectId || floorPlans.length === 0 || floorPlanSmartCacheInFlightRef.current) return;
+    if (!shouldAutoMirrorProjectBinaries(activeProjectId)) {
+      // Active-floor hydration remains available, but a user who disabled Offline Mirror
+      // must not pay background IndexedDB/R2 work for every other floor.
+      floorPlanSmartCacheKeyRef.current = '';
+      return;
+    }
 
     // Prefetch only binaries that are actually Cloud-stable. Legacy cloned floors can
     // carry a stale storagePath while imageCloudRevision=0; retrying those every minute
@@ -2350,12 +2373,12 @@ function AuthenticatedApp() {
 
     const projectId = activeProjectId;
     let cancelled = false;
-    const scheduleRetry = () => {
+    const scheduleRetry = (delayMs = 60000) => {
       if (cancelled || floorPlanSmartCacheRetryTimerRef.current !== null) return;
       floorPlanSmartCacheRetryTimerRef.current = window.setTimeout(() => {
         floorPlanSmartCacheRetryTimerRef.current = null;
         if (activeProjectIdRef.current === projectId) setFloorPlanSmartCacheRetryTick((tick) => tick + 1);
-      }, 60000);
+      }, delayMs);
     };
 
     const run = async () => {
@@ -2366,12 +2389,16 @@ function AuthenticatedApp() {
       }
       floorPlanSmartCacheInFlightRef.current = true;
       try {
+        const mobileLike = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent || '');
         const result = await cacheFloorPlansForOffline(projectId, cloudReadyPlans, undefined, {
           priorityFloorPlanId: activeFloorViewId || cloudReadyPlans[0]?.id || '',
+          maxItems: mobileLike ? 8 : 16,
+          yieldMs: mobileLike ? 48 : 16,
           shouldContinue: () => !cancelled
             && activeProjectIdRef.current === projectId
             && (typeof document === 'undefined' || document.visibilityState !== 'hidden')
-            && isFloorPlanAutoCacheNetworkSuitable(),
+            && isFloorPlanAutoCacheNetworkSuitable()
+            && shouldAutoMirrorProjectBinaries(projectId),
         });
         if (!result.paused && result.failed === 0) {
           floorPlanSmartCacheKeyRef.current = runKey;
@@ -2379,6 +2406,10 @@ function AuthenticatedApp() {
             level: 'info', area: 'floor-plan-cache', projectId, code: 'SMART_CACHE_READY',
             message: `offline-ready=${result.cached + result.downloaded}/${result.total}; downloaded=${result.downloaded}; shared/cache=${result.cached}`,
           });
+        } else if (result.paused && result.failed === 0) {
+          // Continue the remaining floors in a later idle-sized batch instead of
+          // monopolising IndexedDB/network on large 50+ floor projects.
+          scheduleRetry(15000);
         } else {
           scheduleRetry();
         }
@@ -2398,7 +2429,7 @@ function AuthenticatedApp() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [floorPlans, activeProjectId, activeFloorViewId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, isOnline, projectRoleSource, projectRoleAllowed, floorPlanSmartCacheRetryTick]);
+  }, [floorPlans, activeProjectId, activeFloorViewId, cloudUserKey, isHydrated, isLoadingProject, isRestoring, isInitializing, isOnline, projectRoleSource, projectRoleAllowed, floorPlanSmartCacheRetryTick, floorPlanOfflineMirrorSettingVersion]);
 
   useEffect(() => {
     const refreshCloudUser = () => {
