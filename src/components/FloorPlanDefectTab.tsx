@@ -84,7 +84,7 @@ import { PhotoAttachment, deleteEntityPhotos, getEntityPhotos, getPhotoDataUrl, 
 import { safeSetLocalStorageItem } from '../utils/storage';
 import { getAsyncItem, removeAsyncItem } from '../utils/asyncStorage';
 import { saveWorkbookFile } from '../utils/fileExport';
-import { convertPdfToImage, describePdfError, getPdfDocumentInfo, loadPdfDocument, renderPdfDocumentPageToImage } from '../utils/pdfToImage';
+import { describePdfError, loadPdfDocument, renderPdfDocumentPageToImage } from '../utils/pdfToImage';
 import { getImageQualityProfile } from '../utils/imageQualitySettings';
 import { detectPdfRoomCandidatesFromDocument, DEFAULT_PDF_ROOM_NAME_PATTERN, PdfRoomCandidate } from '../utils/pdfRoomDetection';
 import { QuickSortBar } from './QuickSortBar';
@@ -3735,14 +3735,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'vi', { numeric: true, sensitivity: 'base' }));
   }, [floorRooms, resolveOperationalCategoryName]);
 
-  const choosePdfPageNumber = async (file: File): Promise<number | null> => {
-    const info = await getPdfDocumentInfo(file);
-    if (info.pageCount <= 1) return 1;
-    const raw = window.prompt(`PDF có ${info.pageCount} trang. Nhập số trang muốn dùng làm mặt bằng (1-${info.pageCount}):`, '1');
+  const choosePdfPageNumber = (pageCount: number): number | null => {
+    if (pageCount <= 1) return 1;
+    const raw = window.prompt(`PDF có ${pageCount} trang. Nhập số trang muốn dùng làm mặt bằng (1-${pageCount}):`, '1');
     if (raw === null) return null;
     const pageNumber = Math.trunc(Number(raw));
-    if (!Number.isFinite(pageNumber) || pageNumber < 1 || pageNumber > info.pageCount) {
-      alert(`Số trang không hợp lệ. Vui lòng chọn từ 1 đến ${info.pageCount}.`);
+    if (!Number.isFinite(pageNumber) || pageNumber < 1 || pageNumber > pageCount) {
+      alert(`Số trang không hợp lệ. Vui lòng chọn từ 1 đến ${pageCount}.`);
       return null;
     }
     return pageNumber;
@@ -3751,10 +3750,17 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const renderFloorPlanFile = async (file: File): Promise<string | null> => {
     const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
     if (isPdf) {
-      const pageNumber = await choosePdfPageNumber(file);
-      if (pageNumber === null) return null;
-      const profile = getImageQualityProfile('floorPlan');
-      return convertPdfToImage(file, { pageNumber, maxDimension: profile.maxDimension, quality: profile.quality });
+      // Load the PDF exactly once. The old flow opened it once for page-count and again
+      // for rendering, doubling PDF.js decode/worker memory on Android WebView.
+      const pdf = await loadPdfDocument(file);
+      try {
+        const pageNumber = choosePdfPageNumber(Math.max(1, Number(pdf?.numPages || 1)));
+        if (pageNumber === null) return null;
+        const profile = getImageQualityProfile('floorPlan');
+        return await renderPdfDocumentPageToImage(pdf, { pageNumber, maxDimension: profile.maxDimension, quality: profile.quality });
+      } finally {
+        try { await pdf.destroy?.(); } catch {}
+      }
     }
     if (!(file.type || '').startsWith('image/') && !/\.(jpe?g|png|webp)$/i.test(file.name || '')) {
       throw new Error('Chỉ hỗ trợ PDF, JPG, PNG hoặc WebP.');
@@ -3929,6 +3935,13 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       resetFloorPlanApplyScope();
     } catch (err) {
       console.error('Update floor plan drawing error:', err);
+      appendRuntimeDiagnostic({
+        level: 'warn',
+        area: 'floor-plan-import',
+        projectId: currentProjectId,
+        code: 'FLOOR_PLAN_FILE_READ_FAILED',
+        message: `${file.name}: ${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`.slice(0, 700),
+      });
       const message = err instanceof Error ? err.message : String(err);
       if (message.includes('FLOOR_PLAN_BULK_REQUIRES_ONLINE')) {
         alert('Áp dụng cùng một bản vẽ cho nhiều tầng cần có mạng để tạo 1 asset dùng chung an toàn. Hãy kết nối mạng rồi thử lại.');
