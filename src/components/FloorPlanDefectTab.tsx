@@ -1326,6 +1326,44 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     return [...grouped, ...floorPlansInSavedOrder.filter((floor) => !included.has(floor.id))];
   }, [floorPlansInSavedOrder, normalizedStructureConfig]);
 
+  // Pure in-memory grouping: showing shared/independent drawings must never add a
+  // Firestore read. Prefer the explicit immutable asset id, with storagePath as a
+  // compatibility key for legacy duplicated floors created before assetId existed.
+  const floorPlanAssetGroups = React.useMemo(() => {
+    const groups = new Map<string, FloorPlan[]>();
+    const keyFor = (plan: FloorPlan) => {
+      const assetId = String(plan.imageAssetId || '').trim();
+      if (assetId) return `asset:${assetId}`;
+      const storagePath = String(plan.storagePath || '').trim();
+      if (storagePath) return `storage:${storagePath}`;
+      const cloudFileId = String(plan.cloudFileId || plan.driveFileId || '').trim();
+      if (cloudFileId) return `cloud:${cloudFileId}`;
+      return `floor:${plan.id}`;
+    };
+    floorPlans.forEach((plan) => {
+      const key = keyFor(plan);
+      const rows = groups.get(key) || [];
+      rows.push(plan);
+      groups.set(key, rows);
+    });
+    return { groups, keyFor };
+  }, [floorPlans]);
+
+  const getFloorPlanAssetGroupInfo = React.useCallback((plan: FloorPlan) => {
+    const key = floorPlanAssetGroups.keyFor(plan);
+    const rows = floorPlanAssetGroups.groups.get(key) || [plan];
+    const hasCloudPointer = Boolean(
+      String(plan.imageAssetId || '').trim()
+      || String(plan.storagePath || '').trim()
+      || String(plan.cloudFileId || plan.driveFileId || '').trim()
+    );
+    return {
+      shared: hasCloudPointer && rows.length > 1,
+      count: rows.length,
+      floorNames: rows.map((row) => row.floorName),
+    };
+  }, [floorPlanAssetGroups]);
+
   const getSavedFloorsForGroup = (groupId: string) =>
     floorPlansInSavedOrder.filter((floor) =>
       !normalizedStructureConfig.enabled || resolveFloorStructureGroupId(floor, normalizedStructureConfig) === groupId
@@ -3764,6 +3802,21 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     setFloorPlanApplySelectedIds([floorPlanId]);
     setFloorPlanRangeStartId(floorPlanId);
     setFloorPlanRangeEndId(floorPlanId);
+    setShowFloorPlanApplyScopeModal(true);
+  };
+
+  const openFloorPlanApplyScopeForManagedSelection = (floorIds: string[]) => {
+    if (!canManageStructure) return;
+    const requested = new Set(floorIds);
+    const orderedIds = orderedFloorPlansForApply.filter((plan) => requested.has(plan.id)).map((plan) => plan.id);
+    if (orderedIds.length === 0) return;
+    const firstId = orderedIds[0];
+    setUpdatingFloorPlanId(firstId);
+    setFloorPlanApplyMode(orderedIds.length > 1 ? 'multiple' : 'single');
+    setFloorPlanApplySelectedIds(orderedIds);
+    setFloorPlanRangeStartId(firstId);
+    setFloorPlanRangeEndId(orderedIds[orderedIds.length - 1]);
+    setShowManageFloorsModal(false);
     setShowFloorPlanApplyScopeModal(true);
   };
 
@@ -9492,7 +9545,12 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           />
                           <div className="min-w-0 flex-1">
                             <div className="text-xs font-extrabold text-slate-800 truncate">{getFloorPlanScopeLabel(plan)}</div>
-                            <div className="text-[9px] text-slate-500">{plan.id === updatingFloorPlanId ? 'Tầng bắt đầu thao tác · ' : ''}{plan.imageAssetId ? 'đang dùng asset Cloud' : 'bản vẽ độc lập/legacy'}</div>
+                            <div className="text-[9px] text-slate-500">
+                              {plan.id === updatingFloorPlanId ? 'Tầng bắt đầu thao tác · ' : ''}
+                              {getFloorPlanAssetGroupInfo(plan).shared
+                                ? `Dùng chung bản vẽ · ${getFloorPlanAssetGroupInfo(plan).count} tầng`
+                                : 'Bản vẽ riêng'}
+                            </div>
                           </div>
                         </label>
                       );
@@ -9800,7 +9858,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <div className="text-xs font-extrabold text-indigo-950">Thao tác tầng đã chọn</div>
-                  <div className="text-[10px] text-indigo-700">Đánh dấu checkbox ở từng tầng hoặc chọn cả Khu/Khối, sau đó Đổi Khu/Khối / Nhân bản / Xóa.</div>
+                  <div className="text-[10px] text-indigo-700">Đánh dấu checkbox ở từng tầng hoặc chọn cả Khu/Khối, sau đó Đổi Khu/Khối / Thay bản vẽ / Nhân bản / Xóa.</div>
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5">
                   <button
@@ -9863,6 +9921,16 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       className="w-16 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-center text-xs font-extrabold text-slate-800 disabled:opacity-40"
                     />
                   </label>
+                  <button
+                    type="button"
+                    disabled={managedSelectedFloorIds.length === 0}
+                    onClick={() => openFloorPlanApplyScopeForManagedSelection(managedSelectedFloorIds)}
+                    className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-extrabold text-emerald-700 hover:bg-emerald-100 disabled:opacity-40"
+                    title="Thay ảnh/PDF mặt bằng cho các tầng đang chọn"
+                  >
+                    <Upload className="inline h-3.5 w-3.5 mr-1" />
+                    Thay bản vẽ
+                  </button>
                   <button
                     type="button"
                     disabled={managedSelectedFloorIds.length === 0 || !onDuplicateFloorPlan}
@@ -10020,6 +10088,8 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           <img
                             src={fp.imageUrl}
                             alt={fp.floorName}
+                            loading="lazy"
+                            decoding="async"
                             className="relative z-10 w-full h-full object-cover"
                             onError={(event) => { event.currentTarget.style.display = 'none'; }}
                           />
@@ -10078,6 +10148,17 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                               <span>•</span>
                               <span className="font-bold text-indigo-600">{getFloorStructureGroupName(fp, normalizedStructureConfig)}</span>
                             </>
+                          )}
+                          <span>•</span>
+                          {getFloorPlanAssetGroupInfo(fp).shared ? (
+                            <span
+                              className="font-bold text-emerald-700"
+                              title={`Dùng chung với: ${getFloorPlanAssetGroupInfo(fp).floorNames.join(', ')}`}
+                            >
+                              🔗 Dùng chung bản vẽ · {getFloorPlanAssetGroupInfo(fp).count} tầng
+                            </span>
+                          ) : (
+                            <span className="font-bold text-slate-500">🖼️ Bản vẽ riêng</span>
                           )}
                         </div>
                       </div>
