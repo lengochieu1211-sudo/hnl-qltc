@@ -146,6 +146,49 @@ const readInsUnits = (pairs: DxfPair[]) => {
   return 0;
 };
 
+const readHeaderPoint = (pairs: DxfPair[], variable: '$EXTMIN' | '$EXTMAX'): DxfPoint | undefined => {
+  for (let i = 0; i < pairs.length; i++) {
+    if (pairs[i].code !== 9 || pairs[i].value.toUpperCase() !== variable) continue;
+    let x: number | undefined;
+    let y: number | undefined;
+    for (let j = i + 1; j < Math.min(pairs.length, i + 12); j++) {
+      if (pairs[j].code === 9 || pairs[j].code === 0) break;
+      if (pairs[j].code === 10) {
+        const value = Number(pairs[j].value);
+        if (Number.isFinite(value)) x = value;
+      } else if (pairs[j].code === 20) {
+        const value = Number(pairs[j].value);
+        if (Number.isFinite(value)) y = value;
+      }
+    }
+    if (x !== undefined && y !== undefined) return { x, y };
+  }
+  return undefined;
+};
+
+const extractEntitiesSection = (pairs: DxfPair[]): DxfPair[] => {
+  let inEntities = false;
+  const result: DxfPair[] = [];
+  for (let i = 0; i < pairs.length; i++) {
+    const pair = pairs[i];
+    if (!inEntities && pair.code === 0 && pair.value.toUpperCase() === 'SECTION') {
+      const namePair = pairs[i + 1];
+      if (namePair?.code === 2 && namePair.value.toUpperCase() === 'ENTITIES') {
+        inEntities = true;
+        result.push(pair, namePair);
+        i += 1;
+        continue;
+      }
+    }
+    if (inEntities && pair.code === 0 && pair.value.toUpperCase() === 'ENDSEC') {
+      result.push(pair);
+      break;
+    }
+    if (inEntities) result.push(pair);
+  }
+  return result.length ? result : pairs;
+};
+
 const unitInfo = (unitCode: number): { label: string; meterFactor?: number } => {
   switch (unitCode) {
     case 1: return { label: 'inch', meterFactor: 0.0254 };
@@ -340,7 +383,7 @@ export function detectRoomsFromDxf(input: string): DxfRoomDetectionResult {
     warnings.push('DXF không khai báo đơn vị đo có thể quy đổi sang mét. Diện tích vẫn được nhận diện theo đơn vị bản vẽ nhưng không tự ghi m².');
   }
 
-  const entities = collectEntities(pairs);
+  const entities = collectEntities(extractEntitiesSection(pairs));
   const texts = readTexts(entities);
   const shapes = readShapes(entities, warnings);
   if (!shapes.length) {
@@ -348,10 +391,28 @@ export function detectRoomsFromDxf(input: string): DxfRoomDetectionResult {
   }
 
   const allPoints = shapes.flatMap((shape) => shape.points);
-  const minX = Math.min(...allPoints.map((point) => point.x));
-  const maxX = Math.max(...allPoints.map((point) => point.x));
-  const minY = Math.min(...allPoints.map((point) => point.y));
-  const maxY = Math.max(...allPoints.map((point) => point.y));
+  const shapeMinX = Math.min(...allPoints.map((point) => point.x));
+  const shapeMaxX = Math.max(...allPoints.map((point) => point.x));
+  const shapeMinY = Math.min(...allPoints.map((point) => point.y));
+  const shapeMaxY = Math.max(...allPoints.map((point) => point.y));
+  const headerMin = readHeaderPoint(pairs, '$EXTMIN');
+  const headerMax = readHeaderPoint(pairs, '$EXTMAX');
+  const hasHeaderExtents = Boolean(
+    headerMin && headerMax
+    && headerMax.x > headerMin.x
+    && headerMax.y > headerMin.y
+    && shapeMinX >= headerMin.x - 1e-6
+    && shapeMaxX <= headerMax.x + 1e-6
+    && shapeMinY >= headerMin.y - 1e-6
+    && shapeMaxY <= headerMax.y + 1e-6
+  );
+  const minX = hasHeaderExtents ? headerMin!.x : shapeMinX;
+  const maxX = hasHeaderExtents ? headerMax!.x : shapeMaxX;
+  const minY = hasHeaderExtents ? headerMin!.y : shapeMinY;
+  const maxY = hasHeaderExtents ? headerMax!.y : shapeMaxY;
+  if (!hasHeaderExtents) {
+    warnings.push('DXF không có $EXTMIN/$EXTMAX hợp lệ; tọa độ highlight được chuẩn hóa theo phạm vi HATCH/Polyline nhận diện. Hãy kiểm tra vị trí trên mặt bằng trước khi lưu.');
+  }
   const spanX = maxX - minX;
   const spanY = maxY - minY;
   if (!(spanX > 0) || !(spanY > 0)) throw new Error('Không xác định được extents DXF hợp lệ.');
