@@ -6409,6 +6409,60 @@ function AuthenticatedApp() {
     }));
   };
 
+  const handleApplyRoomExcelImport = (rooms: RoomProgressItem[], deleteIds: string[]) => {
+    if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
+    if (!rooms || rooms.length === 0) return;
+    const updatedAt = Date.now();
+    updateAppData((prev) => {
+      const deleteSet = new Set<string>(deleteIds || []);
+      const incomingById = new Map<string, RoomProgressItem>(rooms.map((room) => [room.id, room] as const));
+      const deletedRoomNameById = new Map<string, string>(
+        prev.roomProgressList
+          .filter((room) => deleteSet.has(room.id))
+          .map((room) => [room.id, room.roomName] as const)
+      );
+      const retained = prev.roomProgressList
+        .filter((room) => !deleteSet.has(room.id))
+        .map((room) => {
+          const incoming = incomingById.get(room.id);
+          if (!incoming) return room;
+          return {
+            ...room,
+            ...incoming,
+            id: room.id,
+            createdAt: room.createdAt || incoming.createdAt || updatedAt,
+            updatedAt,
+          };
+        });
+      const retainedIds = new Set<string>(retained.map((room) => room.id));
+      const additions = rooms
+        .filter((room) => room.id && !retainedIds.has(room.id) && !deleteSet.has(room.id))
+        .map((room) => ({
+          ...room,
+          createdAt: room.createdAt || updatedAt,
+          updatedAt,
+        }));
+      return {
+        ...prev,
+        roomProgressList: [...additions, ...retained],
+        defects: prev.defects.map((defect) => defect.roomId && deleteSet.has(defect.roomId)
+          ? {
+              ...defect,
+              roomId: undefined,
+              positionDetail: defect.positionDetail || `Căn / Phòng đã xóa: ${deletedRoomNameById.get(defect.roomId) || defect.roomId}`,
+            }
+          : defect),
+        checklist: prev.checklist.map((item) => item.roomId && deleteSet.has(item.roomId)
+          ? {
+              ...item,
+              roomId: undefined,
+              notes: item.notes || `Căn / Phòng đã xóa: ${deletedRoomNameById.get(item.roomId) || item.roomId}`,
+            }
+          : item),
+      };
+    });
+  };
+
   const handleCreateMultipleRoomProgress = (rooms: RoomProgressItem[]) => {
     if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
     if (!rooms || rooms.length === 0) return;
@@ -7052,6 +7106,7 @@ function AuthenticatedApp() {
               onDeleteMultipleDefects={handleDeleteMultipleDefects}
               onSaveRoomProgress={handleSaveRoomProgress}
               onBatchSaveRooms={handleBatchSaveRooms}
+              onApplyRoomExcelImport={handleApplyRoomExcelImport}
               onCreateMultipleRoomProgress={handleCreateMultipleRoomProgress}
               onDeleteRoomProgress={handleDeleteRoomProgress}
               onDeleteMultipleRoomProgress={handleDeleteMultipleRoomProgress}

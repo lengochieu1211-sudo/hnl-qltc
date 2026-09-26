@@ -414,6 +414,27 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         let newInventory = [...inventory];
         const importedInventoryRows: InventoryItem[] = [];
         let newNorms = [...materialNorms];
+        const validMaterialIds = new Set<string>([
+          ...materialNorms.map((norm) => resolveNormMaterialId(norm)),
+          ...inventory.map((item) => String(item.materialId || '').trim()).filter(Boolean),
+        ]);
+        const validNormIds = new Set<string>(materialNorms.map((norm) => norm.id));
+        const validRoomIds = new Set<string>(roomProgressList.map((room) => room.id));
+        const validFloorIds = new Set<string>(floorPlans.map((floor) => floor.id));
+        const validTeamIds = new Set<string>(teams.map((team) => team.id));
+        const validWorkCategoryIds = new Set<string>((workVolumes || []).flatMap((work) => [work.id, canonicalWorkCategoryId(work)]).filter(Boolean));
+        const validStructureGroupIds = new Set<string>(normalizedStructureConfig.groups.map((group) => group.id));
+        const assertKnownReference = (
+          rawValue: unknown,
+          existingValue: unknown,
+          validIds: Set<string>,
+          label: string,
+          rowNumber: number,
+        ) => {
+          const id = String(rawValue ?? '').trim();
+          if (!id || id === String(existingValue ?? '').trim()) return;
+          if (!validIds.has(id)) throw new Error(`Dòng ${rowNumber}: ${label} không tồn tại trong dự án hiện tại: ${id}.`);
+        };
 
         // 1. Sheet "Nhập kho"
         const inSheetName = workbook.SheetNames.find(
@@ -455,16 +476,26 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             const rawSourceNormId = row['__sourceNormId'] || row['sourceNormId'];
             const rawSourceIssueKey = row['__sourceIssueKey'] || row['sourceIssueKey'];
 
-            const existingIdx = rawId ? newInventory.findIndex(i => i.id === String(rawId).trim()) : -1;
+            const rawIdStr = String(rawId || '').trim();
+            const existingIdx = rawIdStr ? newInventory.findIndex(i => i.id === rawIdStr) : -1;
+            if (rawIdStr && existingIdx < 0) throw new Error(`Dòng ${rIdx + 2}: Mã Phiếu không tồn tại trong dự án hiện tại: ${rawIdStr}. Hãy để trống ID cho phiếu mới.`);
             
             const existingItem = existingIdx >= 0 ? newInventory[existingIdx] : undefined;
+            if (existingItem && existingItem.type !== 'in') throw new Error(`Dòng ${rIdx + 2}: Mã Phiếu ${rawIdStr} không phải phiếu Nhập kho.`);
             const preservesExistingIdentity = Boolean(existingItem
               && (existingItem.itemKind === 'equipment' ? 'equipment' : 'material') === importedItemKind
               && existingItem.materialName.trim().toLocaleLowerCase('vi-VN') === materialNameStr.toLocaleLowerCase('vi-VN')
               && (normalizeUnit(existingItem.unit) || existingItem.unit) === (normalizeUnit(unitStr) || unitStr));
+            assertKnownReference(rawMaterialId, existingItem?.materialId, validMaterialIds, '__materialId', rIdx + 2);
+            assertKnownReference(rawSourceStructureGroupId, existingItem?.sourceStructureGroupId, validStructureGroupIds, '__sourceStructureGroupId', rIdx + 2);
+            assertKnownReference(rawSourceRoomId, existingItem?.sourceRoomId, validRoomIds, '__sourceRoomId', rIdx + 2);
+            assertKnownReference(rawSourceFloorId, existingItem?.sourceFloorId, validFloorIds, '__sourceFloorId', rIdx + 2);
+            assertKnownReference(rawSourceTeamId, existingItem?.sourceTeamId, validTeamIds, '__sourceTeamId', rIdx + 2);
+            assertKnownReference(rawSourceWorkCategoryId, existingItem?.sourceWorkCategoryId, validWorkCategoryIds, '__sourceWorkCategoryId', rIdx + 2);
+            assertKnownReference(rawSourceNormId, existingItem?.sourceNormId, validNormIds, '__sourceNormId', rIdx + 2);
 
             const invItem: InventoryItem = {
-              id: existingIdx >= 0 ? newInventory[existingIdx].id : (rawId ? String(rawId).trim() : createEntityId('INV-IN')),
+              id: existingIdx >= 0 ? newInventory[existingIdx].id : createEntityId('INV-IN'),
               type: 'in',
               itemKind: importedItemKind,
               materialId: importedItemKind === 'material' ? (rawMaterialId ? String(rawMaterialId).trim() : (preservesExistingIdentity ? existingItem?.materialId : undefined)) : undefined,
@@ -542,16 +573,26 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             const rawSourceNormId = row['__sourceNormId'] || row['sourceNormId'];
             const rawSourceIssueKey = row['__sourceIssueKey'] || row['sourceIssueKey'];
 
-            const existingIdx = rawId ? newInventory.findIndex(i => i.id === String(rawId).trim()) : -1;
+            const rawIdStr = String(rawId || '').trim();
+            const existingIdx = rawIdStr ? newInventory.findIndex(i => i.id === rawIdStr) : -1;
+            if (rawIdStr && existingIdx < 0) throw new Error(`Dòng ${rIdx + 2}: Mã Phiếu không tồn tại trong dự án hiện tại: ${rawIdStr}. Hãy để trống ID cho phiếu mới.`);
             
             const existingItem = existingIdx >= 0 ? newInventory[existingIdx] : undefined;
+            if (existingItem && existingItem.type !== 'out') throw new Error(`Dòng ${rIdx + 2}: Mã Phiếu ${rawIdStr} không phải phiếu Xuất kho.`);
             const preservesExistingIdentity = Boolean(existingItem
               && (existingItem.itemKind === 'equipment' ? 'equipment' : 'material') === importedItemKind
               && existingItem.materialName.trim().toLocaleLowerCase('vi-VN') === materialNameStr.toLocaleLowerCase('vi-VN')
               && (normalizeUnit(existingItem.unit) || existingItem.unit) === (normalizeUnit(unitStr) || unitStr));
+            assertKnownReference(rawMaterialId, existingItem?.materialId, validMaterialIds, '__materialId', rIdx + 2);
+            assertKnownReference(rawSourceStructureGroupId, existingItem?.sourceStructureGroupId, validStructureGroupIds, '__sourceStructureGroupId', rIdx + 2);
+            assertKnownReference(rawSourceRoomId, existingItem?.sourceRoomId, validRoomIds, '__sourceRoomId', rIdx + 2);
+            assertKnownReference(rawSourceFloorId, existingItem?.sourceFloorId, validFloorIds, '__sourceFloorId', rIdx + 2);
+            assertKnownReference(rawSourceTeamId, existingItem?.sourceTeamId, validTeamIds, '__sourceTeamId', rIdx + 2);
+            assertKnownReference(rawSourceWorkCategoryId, existingItem?.sourceWorkCategoryId, validWorkCategoryIds, '__sourceWorkCategoryId', rIdx + 2);
+            assertKnownReference(rawSourceNormId, existingItem?.sourceNormId, validNormIds, '__sourceNormId', rIdx + 2);
 
             const invItem: InventoryItem = {
-              id: existingIdx >= 0 ? newInventory[existingIdx].id : (rawId ? String(rawId).trim() : createEntityId('INV-OUT')),
+              id: existingIdx >= 0 ? newInventory[existingIdx].id : createEntityId('INV-OUT'),
               type: 'out',
               itemKind: importedItemKind,
               materialId: importedItemKind === 'material' ? (rawMaterialId ? String(rawMaterialId).trim() : (preservesExistingIdentity ? existingItem?.materialId : undefined)) : undefined,
@@ -634,7 +675,15 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   return sameStringSet(existingNames, importedWorkCategories);
                 });
             const existingNorm = existingIdx >= 0 ? newNorms[existingIdx] : undefined;
-            const importedNormId = existingNorm?.id || rawIdStr || createEntityId('NORM');
+            if (rawIdStr && !existingNorm) throw new Error(`Dòng ${rIdx + 2}: __normId không tồn tại trong dự án hiện tại: ${rawIdStr}. Hãy để trống ID cho định mức mới.`);
+            const unknownCategoryIds = (importedWorkCategoryIds || []).filter((id) => !validWorkCategoryIds.has(id));
+            if (unknownCategoryIds.length) throw new Error(`Dòng ${rIdx + 2}: __workCategoryIds không tồn tại: ${unknownCategoryIds.join(', ')}.`);
+            const unknownNormMapIds = importedWorkCategoryNormsById
+              ? Object.keys(importedWorkCategoryNormsById).filter((id) => !validWorkCategoryIds.has(id))
+              : [];
+            if (unknownNormMapIds.length) throw new Error(`Dòng ${rIdx + 2}: __workCategoryNormsById chứa ID không tồn tại: ${unknownNormMapIds.join(', ')}.`);
+            assertKnownReference(rawMaterialId, existingNorm?.materialId, validMaterialIds, '__materialId', rIdx + 2);
+            const importedNormId = existingNorm?.id || createEntityId('NORM');
             const importedMaterialId = rawMaterialId
               ? String(rawMaterialId).trim()
               : (existingNorm?.materialId || resolveNormMaterialId({ id: importedNormId, materialName: materialNameStr, unit: normalizedImportedUnit }));

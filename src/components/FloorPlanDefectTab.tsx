@@ -361,6 +361,7 @@ interface FloorPlanDefectTabProps {
   onDeleteMultipleDefects?: (ids: string[]) => void;
   onSaveRoomProgress: (room: Omit<RoomProgressItem, 'id' | 'updatedAt'> & { id?: string }) => void;
   onBatchSaveRooms?: (rooms: RoomProgressItem[]) => void;
+  onApplyRoomExcelImport?: (rooms: RoomProgressItem[], deleteIds: string[]) => void;
   onCreateMultipleRoomProgress?: (rooms: RoomProgressItem[]) => void;
   onDeleteRoomProgress: (id: string) => void;
   onDeleteMultipleRoomProgress?: (ids: string[]) => void;
@@ -653,6 +654,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   onDeleteMultipleDefects,
   onSaveRoomProgress,
   onBatchSaveRooms,
+  onApplyRoomExcelImport,
   onCreateMultipleRoomProgress,
   onDeleteRoomProgress,
   onDeleteMultipleRoomProgress,
@@ -2555,6 +2557,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           const targetFloor = resolveExcelTargetFloor(row);
           const rawRecordId = String(row['__recordId'] || row['Mã Định Danh'] || row['id'] || '').trim();
           const foundById = rawRecordId ? roomProgressList.find((room) => room.id === rawRecordId) : undefined;
+          if (rawRecordId && !foundById) {
+            throw new Error(`Căn “${nameStr}” tham chiếu __recordId không tồn tại trong dự án hiện tại: ${rawRecordId}. Hãy để trống ID cho dòng mới.`);
+          }
           if (foundById && foundById.floorId !== targetFloor.id) {
             throw new Error(`Căn “${nameStr}” có __recordId thuộc tầng khác. Hệ thống từ chối tự chuyển floorId qua Excel.`);
           }
@@ -2600,17 +2605,21 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           }
         }
 
-        const excelTeamById = new Map(teams.filter((team) => team.id).map((team) => [team.id, team] as const));
-        const excelTeamByName = new Map(
+        const excelTeamById = new Map<string, TeamInfo>(teams.filter((team) => team.id).map((team) => [team.id, team] as const));
+        const excelTeamByName = new Map<string, TeamInfo>(
           teams
             .filter((team) => team.name?.trim())
             .map((team) => [team.name.trim().toLocaleLowerCase('vi-VN'), team] as const)
         );
-        const resolveExcelTeamLink = (rawId: unknown, rawName: unknown) => {
+        const resolveExcelTeamLink = (rawId: unknown, rawName: unknown, existingTeamId?: string) => {
           const id = String(rawId ?? '').trim();
           const name = String(rawName ?? '').trim();
           const byId = id ? excelTeamById.get(id) : undefined;
           if (byId) return { teamId: byId.id, assignedTeam: byId.name.trim() };
+          if (id) {
+            if (existingTeamId && id === existingTeamId) return { teamId: id, assignedTeam: name };
+            throw new Error(`Excel tham chiếu __teamId không tồn tại trong dự án hiện tại: ${id}.`);
+          }
           const byName = name ? excelTeamByName.get(name.toLocaleLowerCase('vi-VN')) : undefined;
           if (byName) return { teamId: byName.id, assignedTeam: byName.name.trim() };
           return { teamId: undefined as string | undefined, assignedTeam: name };
@@ -2627,14 +2636,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           if (item.workCategoryId) excelCategoryById.set(String(item.workCategoryId), entry);
           excelCategoryByName.set(name.toLocaleLowerCase('vi-VN'), entry);
         });
-        const resolveExcelCategory = (rawId: unknown, rawName: unknown) => {
+        const resolveExcelCategory = (rawId: unknown, rawName: unknown, existingCategoryId?: string) => {
           const id = String(rawId ?? '').trim();
           const name = String(rawName ?? '').trim();
           const byId = id ? excelCategoryById.get(id) : undefined;
           if (byId) return byId;
+          if (id) {
+            if (existingCategoryId && id === existingCategoryId) return { id, name };
+            throw new Error(`Excel tham chiếu __workCategoryId không tồn tại trong dự án hiện tại: ${id}.`);
+          }
           const byName = name ? excelCategoryByName.get(name.toLocaleLowerCase('vi-VN')) : undefined;
           if (byName) return byName;
-          return { id, name };
+          return { id: '', name };
         };
         const hasExcelValue = (value: unknown) => value !== undefined && value !== null && String(value).trim() !== '';
 
@@ -2643,6 +2656,21 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         let normalizedInspectionCount = 0;
         let missingTeamWarningCount = 0;
         const processedRoomIds = new Set<string>();
+        const processedRoomNames = new Set<string>();
+        const workbookRoomIds = new Set<string>(
+          jsonData.map((row: any) => String(row['__recordId'] || row['Mã Định Danh'] || row['id'] || '').trim()).filter(Boolean)
+        );
+        detailJsonData.forEach((detailRow: any, detailIndex: number) => {
+          const detailFloorId = String(detailRow['__floorId'] ?? detailRow['floorId'] ?? '').trim();
+          if (detailFloorId && !excelFloorById.has(detailFloorId)) {
+            throw new Error(`Dòng chi tiết ${detailIndex + 2}: __floorId không tồn tại trong dự án hiện tại: ${detailFloorId}.`);
+          }
+          const detailRoomId = String(detailRow['__recordId'] ?? detailRow['roomId'] ?? '').trim();
+          if (detailRoomId && !workbookRoomIds.has(detailRoomId) && !roomProgressList.some((room) => room.id === detailRoomId)) {
+            throw new Error(`Dòng chi tiết ${detailIndex + 2}: __recordId Căn / Phòng không tồn tại: ${detailRoomId}.`);
+          }
+        });
+        const preparedRooms: RoomProgressItem[] = [];
 
         jsonData.forEach((row: any) => {
           const rawRecordId = String(row['__recordId'] || row['Mã Định Danh'] || row['id'] || '').trim();
@@ -2695,6 +2723,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           
           // Match by __recordId or name
           const idMatch = rawRecordId ? roomProgressList.find((room) => room.id === rawRecordId) : undefined;
+          if (rawRecordId && !idMatch) {
+            throw new Error(`Căn “${nameStr}” tham chiếu __recordId không tồn tại trong dự án hiện tại: ${rawRecordId}. Hãy để trống ID cho dòng mới.`);
+          }
           if (idMatch && idMatch.floorId !== targetFloor.id) {
             throw new Error(`Căn “${nameStr}” có __recordId thuộc tầng khác; không được tự đổi floorId qua Excel.`);
           }
@@ -2704,25 +2735,22 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             existingRoomObj = match;
             updatedCount++;
           } else {
-            // Reuse an imported record ID only when it does not belong to a room on
-            // another floor. This prevents an Excel file from silently moving/overwriting
-            // a different floor's room through the global ID update path.
-            const idUsedElsewhere = rawRecordId
-              ? roomProgressList.some((room) => room.id === rawRecordId && room.floorId !== targetFloor.id)
-              : false;
-            existingId = rawRecordId && !idUsedElsewhere ? rawRecordId : undefined;
             importedCount++;
           }
 
           const targetId = existingId || createEntityId('ROOM');
+          if (processedRoomIds.has(targetId)) throw new Error(`__recordId ${targetId} xuất hiện nhiều lần trong file Excel.`);
+          const roomNameKey = `${targetFloor.id}::${nameStr.toLocaleLowerCase('vi-VN')}`;
+          if (processedRoomNames.has(roomNameKey)) throw new Error(`Tên Căn / Phòng “${nameStr}” bị trùng trong cùng tầng của file Excel.`);
           processedRoomIds.add(targetId);
+          processedRoomNames.add(roomNameKey);
 
           const roomTeamRaw = row['Đội Thi Công Căn / Phòng'] ?? row['assignedTeam'] ?? '';
           const roomTeamIdRaw = row['__teamId'] ?? row['teamId'] ?? '';
-          const roomTeamLink = resolveExcelTeamLink(roomTeamIdRaw, roomTeamRaw);
+          const roomTeamLink = resolveExcelTeamLink(roomTeamIdRaw, roomTeamRaw, existingRoomObj?.teamId);
           const roomCategoryRaw = row['Hạng Mục Thi Công Chính'] ?? row['workCategory'] ?? '';
           const roomCategoryIdRaw = row['__workCategoryId'] ?? row['workCategoryId'] ?? '';
-          const roomCategoryLink = resolveExcelCategory(roomCategoryIdRaw, roomCategoryRaw);
+          const roomCategoryLink = resolveExcelCategory(roomCategoryIdRaw, roomCategoryRaw, existingRoomObj?.workCategoryId);
           const roomVolumeRaw = row['Khối Lượng Căn / Phòng'] ?? row['workVolume'];
           const roomUnitRaw = String(row['Đơn Vị Căn / Phòng'] ?? row['volumeUnit'] ?? '').trim();
 
@@ -2732,10 +2760,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             const detailFloorId = String(detailRow['__floorId'] ?? detailRow['floorId'] ?? '').trim();
             if (detailFloorId && detailFloorId !== targetFloor.id) return false;
             const idMatches = Boolean(detailRoomId) && [rawRecordId, existingId, targetId].filter(Boolean).includes(detailRoomId);
+            if (detailRoomId) return idMatches;
             const nameMatches = Boolean(detailRoomName)
               && detailRoomName.toLocaleLowerCase('vi-VN') === nameStr.toLocaleLowerCase('vi-VN')
               && (!detailFloorId || detailFloorId === targetFloor.id);
-            return idMatches || nameMatches;
+            return nameMatches;
           });
 
           const importedSubItems: RoomSubItem[] | undefined = detailRowsForRoom.length > 0
@@ -2748,13 +2777,18 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     (rawSubItemId && subItem.id === rawSubItemId) ||
                     (!rawSubItemId && subItem.name.trim().toLocaleLowerCase('vi-VN') === itemName.toLocaleLowerCase('vi-VN'))
                   );
+                  if (rawSubItemId && !existingSubItem) {
+                    throw new Error(`Hạng mục “${itemName}” tham chiếu __subItemId không tồn tại trong Căn / Phòng hiện tại: ${rawSubItemId}. Hãy để trống ID cho dòng mới.`);
+                  }
                   const categoryLink = resolveExcelCategory(
-                    detailRow['__workCategoryId'] ?? detailRow['workCategoryId'] ?? existingSubItem?.workCategoryId,
-                    detailRow['Hạng Mục Thi Công'] ?? detailRow['category'] ?? existingSubItem?.category ?? existingRoomObj?.workCategory
+                    detailRow['__workCategoryId'] ?? detailRow['workCategoryId'] ?? '',
+                    detailRow['Hạng Mục Thi Công'] ?? detailRow['category'] ?? existingSubItem?.category ?? existingRoomObj?.workCategory,
+                    existingSubItem?.workCategoryId
                   );
                   const teamLink = resolveExcelTeamLink(
                     detailRow['__teamId'] ?? detailRow['teamId'] ?? '',
-                    detailRow['Đội Thi Công'] ?? detailRow['assignedTeam'] ?? ''
+                    detailRow['Đội Thi Công'] ?? detailRow['assignedTeam'] ?? '',
+                    existingSubItem?.teamId
                   );
                   const rawStatus = String(detailRow['Trạng Thái Thi Công'] ?? detailRow['status'] ?? '').trim();
                   const rawInspection = String(detailRow['Nghiệm Thu Hạng Mục'] ?? detailRow['inspectionStatus'] ?? '').trim();
@@ -2804,7 +2838,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
           const safeW = Math.min(100 - safeX, Math.max(5, rawW));
           const safeH = Math.min(100 - safeY, Math.max(5, rawH));
 
-          onSaveRoomProgress({
+          preparedRooms.push({
             ...(existingRoomObj || {}),
             id: targetId,
             createdAt: existingRoomObj?.createdAt || Date.now(),
@@ -2829,20 +2863,16 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             workVolume: hasExcelValue(roomVolumeRaw) ? parseExcelNumber(roomVolumeRaw) : existingRoomObj?.workVolume,
             volumeUnit: roomUnitRaw || existingRoomObj?.volumeUnit,
             subItems: importedSubItems,
-          });
+          } as RoomProgressItem);
         });
 
-        // In replace mode, delete only obsolete rooms not present in the Excel file
-        if (importMode === 'replace' && singleTargetFloor) {
-          const obsoleteRooms = currentFloorRooms.filter(r => !processedRoomIds.has(r.id));
-          if (obsoleteRooms.length > 0) {
-            if (onDeleteMultipleRoomProgress) {
-              onDeleteMultipleRoomProgress(obsoleteRooms.map(r => r.id));
-            } else {
-              obsoleteRooms.forEach(r => onDeleteRoomProgress(r.id));
-            }
-          }
+        const obsoleteRoomIds = importMode === 'replace' && singleTargetFloor
+          ? currentFloorRooms.filter((room) => !processedRoomIds.has(room.id)).map((room) => room.id)
+          : [];
+        if (!onApplyRoomExcelImport) {
+          throw new Error('Phiên bản ứng dụng chưa hỗ trợ ghi Excel Mặt bằng nguyên tử; hệ thống đã hủy trước khi ghi.');
         }
+        onApplyRoomExcelImport(preparedRooms, obsoleteRoomIds);
 
         alert(
           `🎉 Nhập dữ liệu Mặt bằng từ Excel thành công!\n\n` +

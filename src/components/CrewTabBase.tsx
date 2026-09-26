@@ -1335,6 +1335,17 @@ export const CrewTab: React.FC<CrewTabProps> = ({
         const detailName = workbook.SheetNames.find((name) => name.toLocaleLowerCase('vi-VN').includes('chi tiet cong viec'));
         const detailRows = detailName ? XLSX.utils.sheet_to_json<any>(workbook.Sheets[detailName]) : [];
         const floorByName = new Map<string, FloorPlan>(floorPlans.map((floor) => [floor.floorName.trim().toLocaleLowerCase('vi-VN'), floor] as const));
+        const mainRecordIds = new Set<string>(mainRows.map((row: any) => String(row['__recordId'] || '').trim()).filter(Boolean));
+        detailRows.forEach((row: any, detailIndex: number) => {
+          const detailRecordId = String(row['__recordId'] || '').trim();
+          if (detailRecordId && !mainRecordIds.has(detailRecordId) && !crewRecords.some((record) => record.id === detailRecordId)) {
+            throw new Error(`Dòng chi tiết ${detailIndex + 2}: __recordId không tồn tại trong dự án hiện tại: ${detailRecordId}.`);
+          }
+          const detailFloorId = String(row['__floorId'] || '').trim();
+          if (detailFloorId && !floorPlans.some((floor) => floor.id === detailFloorId)) {
+            throw new Error(`Dòng chi tiết ${detailIndex + 2}: __floorId không tồn tại trong dự án hiện tại: ${detailFloorId}.`);
+          }
+        });
         const detailByRecord = new Map<string, any[]>();
         const detailByDateTeam = new Map<string, any[]>();
         detailRows.forEach((row: any) => {
@@ -1359,10 +1370,12 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           if (!date || !teamNameRaw) throw new Error(`Dòng ${rowIndex + 2}: thiếu Ngày hoặc Tên Đội Thi Công.`);
 
           const teamById = teamIdRaw ? teams.find((team) => team.id === teamIdRaw) : undefined;
+          if (teamIdRaw && !teamById) throw new Error(`Dòng ${rowIndex + 2}: __teamId không tồn tại trong dự án hiện tại: ${teamIdRaw}.`);
           const teamByName = resolveUniqueTeamByDirectoryName(teams, teamNameRaw);
           const linkedTeam = teamById || teamByName;
 
           let existing = recordId ? crewRecords.find((record) => record.id === recordId) : undefined;
+          if (recordId && !existing) throw new Error(`Dòng ${rowIndex + 2}: __recordId không tồn tại trong dự án hiện tại: ${recordId}. Hãy để trống ID cho Nhật ký mới.`);
           if (!existing && !recordId) {
             const matches = crewRecords.filter((record) =>
               record.date === date && normalizeTeamDirectoryName(record.teamName) === normalizeTeamDirectoryName(teamNameRaw)
@@ -1383,8 +1396,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
           workRows.forEach((detail: any) => {
             const floorIdRaw = String(detail['__floorId'] || '').trim();
             const floorNameRaw = String(detail['Tầng / Khu Vực'] || detail['Tầng'] || '').trim();
-            const floor = (floorIdRaw ? floorPlans.find((item) => item.id === floorIdRaw) : undefined)
-              || floorByName.get(floorNameRaw.toLocaleLowerCase('vi-VN'));
+            const floorById = floorIdRaw ? floorPlans.find((item) => item.id === floorIdRaw) : undefined;
+            if (floorIdRaw && !floorById) throw new Error(`Chi tiết Nhật ký tham chiếu __floorId không tồn tại: ${floorIdRaw}.`);
+            const floor = floorById || floorByName.get(floorNameRaw.toLocaleLowerCase('vi-VN'));
             if (!floor) return;
             const categoryName = String(detail['Hạng Mục Chính'] || detail['Hạng Mục Thi Công'] || '').trim();
             const subItems = String(detail['Hạng Mục Phụ / Công Đoạn'] || detail['Công Đoạn'] || '')

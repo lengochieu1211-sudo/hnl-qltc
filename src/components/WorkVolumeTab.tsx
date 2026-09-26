@@ -570,11 +570,16 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
           const unit = normalizeUnit(String(row['Đơn Vị Tính'] || row['Đơn vị Tính'] || row['Đơn vị'] || row['unit'] || 'm²').trim()) || 'm²';
 
           let existing: WorkVolume | undefined;
-          if (rawRecordId) existing = workVolumes.find((work) => work.id === rawRecordId);
-          if (!existing && rawCategoryId) {
+          if (rawRecordId) {
+            existing = workVolumes.find((work) => work.id === rawRecordId);
+            if (!existing) throw new Error(`Dòng ${rowIndex + 2}: __recordId không tồn tại trong dự án hiện tại: ${rawRecordId}. Hãy để trống ID cho hạng mục mới.`);
+          }
+          if (rawCategoryId) {
             const matches = workVolumes.filter((work) => canonicalWorkCategoryId(work) === rawCategoryId);
+            if (matches.length === 0) throw new Error(`Dòng ${rowIndex + 2}: __workCategoryId không tồn tại trong dự án hiện tại: ${rawCategoryId}.`);
             if (matches.length > 1) throw new Error(`Dòng ${rowIndex + 2}: __workCategoryId ${rawCategoryId} không duy nhất.`);
-            existing = matches[0];
+            if (existing && matches[0].id !== existing.id) throw new Error(`Dòng ${rowIndex + 2}: __recordId và __workCategoryId tham chiếu hai hạng mục khác nhau.`);
+            existing = existing || matches[0];
           }
           if (!existing && !rawRecordId && !rawCategoryId) {
             const matches = workVolumes.filter((work) =>
@@ -598,16 +603,22 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
             }
           }
           if (rawFloorId && !floorIds.includes(rawFloorId)) floorIds.unshift(rawFloorId);
+          const unknownFloorIds = floorIds.filter((id) => !floorPlans.some((floor) => floor.id === id));
+          if (unknownFloorIds.length) throw new Error(`Dòng ${rowIndex + 2}: __floorId/__floorIds không tồn tại: ${unknownFloorIds.join(', ')}.`);
           if (floorIds.length === 0 && floorText) {
-            floorIds = floorText.split(/[,;\n]+/).map((name) => name.trim()).filter(Boolean)
-              .map((name) => floorPlans.find((floor) => floor.floorName === name)?.id)
-              .filter((value): value is string => Boolean(value));
+            const floorNames = floorText.split(/[,;\n]+/).map((name) => name.trim()).filter(Boolean);
+            floorIds = floorNames.map((name) => {
+              const matches = floorPlans.filter((floor) => floor.floorName.trim().toLocaleLowerCase('vi-VN') === name.toLocaleLowerCase('vi-VN'));
+              if (matches.length === 0) throw new Error(`Dòng ${rowIndex + 2}: không tìm thấy tầng “${name}”.`);
+              if (matches.length > 1) throw new Error(`Dòng ${rowIndex + 2}: tên tầng “${name}” bị trùng; hãy dùng __floorId/__floorIds.`);
+              return matches[0].id;
+            });
           }
 
-          const recordId = existing?.id || rawRecordId || createEntityId('HM');
+          const recordId = existing?.id || createEntityId('HM');
           if (touchedIds.has(recordId)) throw new Error(`Dòng ${rowIndex + 2}: record ID ${recordId} xuất hiện nhiều lần trong cùng file.`);
           touchedIds.add(recordId);
-          const categoryId = existing ? canonicalWorkCategoryId(existing) : (rawCategoryId || recordId);
+          const categoryId = existing ? canonicalWorkCategoryId(existing) : recordId;
           const plannedParsed = parseExcelNumber(row['KL Định Mức'] ?? row['Khối lượng định mức'] ?? row['Khối lượng kế hoạch'] ?? row['planned']);
           const priceParsed = parseExcelNumber(row['Đơn Giá (VNĐ)'] ?? row['Đơn Giá'] ?? row['unitPrice']);
           const planned = Number.isFinite(plannedParsed) ? Math.max(0, plannedParsed) : Math.max(0, Number(existing?.planned || 0));
