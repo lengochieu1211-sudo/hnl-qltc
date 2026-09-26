@@ -66,6 +66,31 @@ export function formatDecimal(val: number | string | undefined | null): string {
 }
 
 /**
+ * Adaptive display for engineering/material norms.
+ * - Normal quantities stay compact.
+ * - Small non-zero factors keep enough significant digits so 0.0035 never renders as 0.
+ * - Stored/calculated values are never changed.
+ */
+export function formatAdaptiveDecimal(val: number | string | undefined | null): string {
+  if (val === undefined || val === null || val === '') return '0';
+  const num = typeof val === 'number' ? val : Number(val);
+  if (!Number.isFinite(num)) return '0';
+
+  const preset = getNumberFormatPreset();
+  const locale = preset === 'comma_dot' ? 'en-US' : 'vi-VN';
+  if (Number.isInteger(num)) return num.toLocaleString(locale);
+
+  const abs = Math.abs(num);
+  if (abs > 0 && abs < 0.01) {
+    return num.toLocaleString(locale, { maximumSignificantDigits: 6 });
+  }
+  if (abs < 1) {
+    return num.toLocaleString(locale, { maximumFractionDigits: 4 });
+  }
+  return num.toLocaleString(locale, { maximumFractionDigits: 2 });
+}
+
+/**
  * Formats currency in VND with maximum 2 fraction digits using configured number format.
  */
 export function formatVND(val: number | string | undefined | null): string {
