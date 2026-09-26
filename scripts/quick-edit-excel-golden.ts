@@ -24,6 +24,10 @@ assert.match(quick, /tabs && tabs\.length/, 'Quick grid must support module-spec
 assert.match(excel, /Xuất Excel để chỉnh sửa/, 'Excel menu must be editing-oriented');
 assert.match(excel, /Nhập Excel đã chỉnh sửa/, 'Excel menu must contain round-trip import');
 assert.match(excel, /Tải Excel mẫu/, 'Excel menu must contain template action');
+assert.match(fs.readFileSync('src/utils/excelExport.ts', 'utf8'), /XLSX\.utils\.aoa_to_sheet\(\[workVolumeHeaders\]\)/, 'WorkVolume blank template must retain editable headers');
+assert.match(fs.readFileSync('src/utils/excelExport.ts', 'utf8'), /XLSX\.utils\.aoa_to_sheet\(\[mainHeaders\]\)/, 'Crew blank template must retain journal headers');
+assert.match(fs.readFileSync('src/utils/excelExport.ts', 'utf8'), /'__itemKind': item\.itemKind === 'equipment'/, 'Warehouse inbound round-trip must preserve material-vs-equipment identity');
+assert.match(fs.readFileSync('src/utils/excelExport.ts', 'utf8'), /XLSX\.utils\.aoa_to_sheet\(\[inHeaders\]\)/, 'Warehouse blank inbound template must retain headers');
 assert.doesNotMatch(excel, /Xuất báo cáo Excel/, 'Excel edit menu must not duplicate reporting');
 
 assert.match(floor, /Căn & Hạng mục/, 'Floor quick edit must separate room/work rows');
