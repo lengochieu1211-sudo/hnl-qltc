@@ -225,7 +225,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
       };
     });
 
-    const nextCatalogById = new Map(workVolumes.map((item) => [item.id, item] as const));
+    const nextCatalogById = new Map<string, WorkVolume>(workVolumes.map((item) => [item.id, item] as const));
     upserts.forEach((item) => nextCatalogById.set(item.id, item));
     const issues = validateWorkVolumeCatalog(Array.from(nextCatalogById.values()));
     if (issues.length) throw new Error(issues.map((issue) => issue.message).join('\n'));

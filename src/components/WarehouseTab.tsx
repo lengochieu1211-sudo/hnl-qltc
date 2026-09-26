@@ -1482,7 +1482,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
 
     if (quickEditMode === 'norms') {
       if (!hasNormManageAccess || !onImportNorms) return;
-      const byId = new Map(materialNorms.map((norm) => [norm.id, norm] as const));
+      const byId = new Map<string, MaterialNorm>(materialNorms.map((norm) => [norm.id, norm] as const));
       dirtyRows.forEach((row) => {
         const existing = byId.get(String(row.__normId || row.__rowKey));
         const id = existing?.id || createEntityId('norm');
