@@ -152,6 +152,26 @@ export function isLocalFloorPlanBinaryUrl(value?: string | null): boolean {
   return url.startsWith('data:image/') || url.startsWith('blob:');
 }
 
+/**
+ * True only when a floor-plan binary has an authoritative Cloud revision and a
+ * resolvable provider pointer. A stale storagePath copied by historical duplicate
+ * logic must not enter the background prefetch/retry loop.
+ */
+export function isFloorPlanCloudBinaryReady(plan: FloorPlan): boolean {
+  if (!plan?.id) return false;
+  const imageRevision = Math.max(0, Number(plan.imageRevision || 0));
+  const cloudRevision = Math.max(0, Number(plan.imageCloudRevision || 0));
+  if (cloudRevision <= 0 || cloudRevision < imageRevision) return false;
+  if (String((plan as any).imageUploadState || '').trim().toLowerCase() === 'pending') return false;
+
+  const pointer = parseStoragePointer(plan);
+  const provider = String(pointer.provider || '').trim().toLowerCase();
+  if (pointer.path && (provider === 'r2' || provider === 'firebase-storage')) return true;
+  if (LEGACY_DRIVE_READ_FALLBACK && Boolean(parseDriveFileId(plan))) return true;
+  if (String(plan.storageProvider || '').trim() === 'firestore-fallback' && String(plan.cloudFileId || '').startsWith('firestore:')) return true;
+  return false;
+}
+
 function dataUrlToBlob(dataUrl: string): Blob | null {
   const match = String(dataUrl || '').match(/^data:([^;,]+)?(?:;charset=[^;,]+)?;base64,(.*)$/i);
   if (!match) return null;
