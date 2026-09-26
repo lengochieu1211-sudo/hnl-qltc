@@ -3214,6 +3214,11 @@ function AuthenticatedApp() {
     if (!isHydrated || isLoadingProject || isRestoring || isInitializing) return;
     if (!isOnline || projectRoleSource === 'offline-cache') return;
     if (switchingProjectRef.current || !cloudUserKey || cloudInitialReady) return;
+    // The realtime role listener already proved this existing project is Cloud-authorized.
+    // Do not fire a second role fetch/bootstrap-version bump while the 9 business
+    // listeners are still delivering their initial snapshot; on slower/mobile projects
+    // that could detach/re-attach all listeners and bill the same initial rows twice.
+    if (projectRoleSource === 'cloud' && projectRoleAllowed) return;
 
     const user = getCurrentRealFirebaseUser();
     if (!user || !activeProjectId) return;
@@ -3283,7 +3288,8 @@ function AuthenticatedApp() {
     present,
     lastUpdatedAt,
     isOnline,
-    projectRoleSource
+    projectRoleSource,
+    projectRoleAllowed
   ]);
 
   // Firebase Realtime Subcollection-Based Multi-Device Sync Listener
